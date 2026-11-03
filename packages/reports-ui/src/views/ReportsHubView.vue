@@ -77,11 +77,12 @@ const CATEGORY_COLOR: Record<string, string> = {
   purchase: '#00897b',
   receivables: '#f4511e',
   inventory: '#ff9800',
+  accounting: '#4caf50',
   fiscal: '#8e24aa',
 }
 
 /** Display order of the category sections; unknown categories sort last, alphabetically. */
-const CATEGORY_ORDER: ReportCategory[] = ['sales', 'purchase', 'receivables', 'inventory', 'fiscal']
+const CATEGORY_ORDER: ReportCategory[] = ['sales', 'purchase', 'receivables', 'inventory', 'accounting', 'fiscal']
 
 const { t } = useI18n()
 const router = useRouter()

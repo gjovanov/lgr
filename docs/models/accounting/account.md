@@ -17,6 +17,9 @@ export interface IAccount extends Document {
   isActive: boolean
   balance: number
   tags?: string[]
+  balanceSide?: string  // 'debit' | 'credit' | 'both'
+  analyticRoots?: string[]
+  quantitative?: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -40,6 +43,14 @@ export interface IAccount extends Document {
 | orgId | ObjectId | Yes | - | Tenant organization ID (auto-injected by tenantPlugin) |
 | createdAt | Date | Auto | - | Timestamp of creation |
 | updatedAt | Date | Auto | - | Timestamp of last update |
+
+FR-25 §3.3, for imported books:
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| balanceSide | string | No | - | The side its balance sits on: `debit`, `credit`, or `both` for 411 and 401 |
+| analyticRoots | string[] | No | - | The trees of AccountingAnalytic its lines use, as the journal shows them |
+| quantitative | boolean | No | - | Its lines carry quantities |
 
 ## Relationships
 

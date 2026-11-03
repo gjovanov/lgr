@@ -145,6 +145,11 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('reports', '/warehouse-operations', 'reports.warehouseOps.label', 'mdi-swap-horizontal'),
   page('reports', '/sales-history', 'reports.salesHistory.label', 'mdi-cash-clock'),
   page('reports', '/order-sheet', 'reports.orderSheet.label', 'mdi-clipboard-list-outline'),
+  page('reports', '/accounting-trial-balance', 'reports.accountingTrialBalance.label', 'mdi-scale-balance'),
+  page('reports', '/accounting-analytic-balance', 'reports.accountingAnalyticBalance.label', 'mdi-file-tree-outline'),
+  page('reports', '/accounting-main-book', 'reports.accountingMainBook.label', 'mdi-book-open-page-variant-outline'),
+  page('reports', '/accounting-chronology', 'reports.accountingChronology.label', 'mdi-timeline-text-outline'),
+  page('reports', '/accounting-documents', 'reports.accountingDocuments.label', 'mdi-file-document-multiple-outline'),
   // The nine SUPTO tables. Listed individually because an auditor looks for "18.3", not
   // for a page called SUPTO — and because each is a separate catalog card.
   ...['18.1', '18.2', '18.3', '18.4', '18.5', '18.6', '18.7', '18.8', '18.9'].map(tbl =>

@@ -4,7 +4,7 @@ import { getStockValuationTotals } from 'services/biz/warehouse.service'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { getRepos } from 'services/context'
-import { Invoice, JournalEntry } from 'db/models'
+import { Invoice, JournalEntry, POSTED_BOOKS } from 'db/models'
 
 const AGING_BUCKETS = ['current', '1-30', '31-60', '61-90', '90+'] as const
 
@@ -16,7 +16,7 @@ const AGING_BUCKETS = ['current', '1-30', '31-60', '61-90', '90+'] as const
  */
 async function plTotals(orgId: string, start: Date, end: Date) {
   const rows = await JournalEntry.aggregate([
-    { $match: { orgId: new JournalEntry.base.Types.ObjectId(orgId), status: 'posted', date: { $gte: start, $lte: end } } },
+    { $match: { orgId: new JournalEntry.base.Types.ObjectId(orgId), ...POSTED_BOOKS, date: { $gte: start, $lte: end } } },
     { $unwind: '$lines' },
     { $group: { _id: '$lines.accountId', amt: { $sum: { $subtract: ['$lines.baseCredit', '$lines.baseDebit'] } } } },
     { $lookup: { from: 'accounts', localField: '_id', foreignField: '_id', as: 'acc' } },

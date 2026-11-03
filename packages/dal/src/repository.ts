@@ -82,6 +82,17 @@ export interface JournalLineTotalsQuery {
   to?: Date
   /** One row per account and contact, rather than one per account. */
   byContact?: boolean
+  /**
+   * What stands before this moment: the last imported opening at or before it, dated that moment
+   * included, and the lines since. Instead of `from`, `to` and `fiscalPeriodIds`.
+   */
+  before?: Date
+  /** Leave imported openings out: they restate a balance, and nothing moved it. */
+  turnoverOnly?: boolean
+  /** The amounts as booked, in their lines' currency, not in base. For a reading inside one currency. */
+  asBooked?: boolean
+  /** Only these accounts (analytics, for `sumPostedAnalytics`). */
+  only?: string[]
 }
 
 /** What the lines on one account add up to, in the org's base currency. */
@@ -91,16 +102,27 @@ export interface JournalLineTotals {
   contactId?: string
   debit: number
   credit: number
+  /** Only where the lines carry any. */
+  quantityDebit?: number
+  quantityCredit?: number
 }
+
+/** The same for one analytic, on whatever accounts it is. */
+export type JournalAnalyticTotals = Omit<JournalLineTotals, 'accountId' | 'contactId'> & { analyticId: string }
 
 export interface IJournalEntryRepository extends IBatchRepository<IJournalEntry> {
   /**
-   * The org's POSTED lines, summed per account by the store.
+   * The org's POSTED lines, summed per account by the store. The books only: never the shadow
+   * ledger (FR-25 §3.4). With no `from`, a balance up to a moment, which starts at the last imported
+   * opening: an opening restates the year before, and adding both counts it twice.
    *
    * ⚠ Statements read this and never `findMany`: a year of books is ~130k operations, and loading
    * them into a pod that holds 2 GiB beside the live service is how a report takes the API down.
    */
   sumPostedLines(query: JournalLineTotalsQuery): Promise<JournalLineTotals[]>
+
+  /** The same reading per analytic, for the lines that name one. `byContact` means nothing here. */
+  sumPostedAnalytics(query: JournalLineTotalsQuery): Promise<JournalAnalyticTotals[]>
 }
 
 export interface IAccountRepository extends IBatchRepository<IAccount> {

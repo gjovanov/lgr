@@ -20,6 +20,28 @@ export interface IOrgBankDetail {
   isDefault?: boolean
 }
 
+export interface IOrgBooksBranch {
+  orgId: Types.ObjectId
+  /** Tags what the branch posts: `PZ`, `SF`. */
+  code: string
+  label: string
+  /**
+   * What its sales documents' numbers start with. The accountant's journal names no store, and a
+   * sales document's number is the one thing in it that says whose it is.
+   */
+  docSeries?: string[]
+}
+
+export interface IOrgBooks {
+  mode: 'own' | 'books' | 'branch'
+  /** On a branch. */
+  booksOrgId?: Types.ObjectId
+  /** On a branch. */
+  branchCode?: string
+  /** On the books org. */
+  branches?: IOrgBooksBranch[]
+}
+
 export interface IOrg extends Document {
   _id: Types.ObjectId
   name: string
@@ -105,6 +127,15 @@ export interface IOrg extends Document {
       cashOverShortAccountId?: string
       autoPostInvoiceEntries?: boolean
       autoPostPaymentEntries?: boolean
+      /**
+       * FR-25 §3.1: one legal entity's books in one org, with its stores as branches. Unset is
+       * `own`: the org keeps its own books, as every org did before this (FR-25 D2).
+       *
+       * ⚠ The one place an org knows about another. Only `scripts/link-books.ts` writes it, never an
+       * org admin's API, and it refuses two orgs whose `taxNumber` differ. No request-scoped read
+       * crosses orgs: the tenant guard is untouched, so a branch's user still gets 403 on the books.
+       */
+      books?: IOrgBooks
     }
     /**
      * FR-11 (#21) — the daily digest email. `hour` is ORG-LOCAL, read through
@@ -256,6 +287,21 @@ const orgSchema = new Schema<IOrg>(
         cashOverShortAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },
         autoPostInvoiceEntries: { type: Boolean, default: false },
         autoPostPaymentEntries: { type: Boolean, default: false },
+        // FR-25 §3.1. No defaults, so no org needs a backfill: unset is `own`.
+        books: {
+          mode: { type: String, enum: ['own', 'books', 'branch'] },
+          booksOrgId: { type: Schema.Types.ObjectId, ref: 'Org' },
+          branchCode: String,
+          branches: {
+            type: [new Schema({
+              orgId: { type: Schema.Types.ObjectId, ref: 'Org', required: true },
+              code: { type: String, required: true },
+              label: { type: String, required: true },
+              docSeries: { type: [String], default: undefined },
+            }, { _id: false })],
+            default: undefined,
+          },
+        },
       },
       // FR-11 (#21). Every section defaults ON: a digest nobody configured in detail
       // should still be the full picture — switching parts OFF is the deliberate act.
@@ -331,8 +377,9 @@ replicate(orgSchema, {
   // The company's own data and its settings are the home's (FR-20.63).
   home: ['name', 'description', 'logo', 'ownerId', 'taxNumber', 'vatNumber', 'email', 'phone', 'website', 'addresses', 'bankDetails', 'settings', 'createdAt', 'updatedAt'],
   // ⚠ Global's: the address label, the billing, the cloud integrations' tokens, the masters' enrolment
-  // switch, and the second home record. A page never overwrites them (acceptance 33).
-  global: ['slug', 'subscription', 'settings.integrations', 'settings.node', 'homeEpochHighWater'],
+  // switch, the link to a legal entity's books (a sys-admin's, on global: FR-25 §3.1), and the second
+  // home record. A page never overwrites them (acceptance 33).
+  global: ['slug', 'subscription', 'settings.integrations', 'settings.node', 'settings.accounting.books', 'homeEpochHighWater'],
   node: [],
 })
 

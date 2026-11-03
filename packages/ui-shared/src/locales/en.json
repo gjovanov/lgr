@@ -3299,6 +3299,7 @@
       "purchase": "Purchase",
       "receivables": "Receivables",
       "inventory": "Inventory",
+      "accounting": "Accounting",
       "fiscal": "Fiscal / NRA"
     },
     "periods": {
@@ -3339,7 +3340,9 @@
       "belowMin": "Below minimum only",
       "onlyOutstanding": "Outstanding only",
       "groupByWarehouse": "Per warehouse",
-      "groupByLine": "Per line"
+      "groupByLine": "Per line",
+      "analyticRoot": "Analytics",
+      "accountCode": "Account"
     },
     "columns": {
       "sku": "SKU",
@@ -3524,6 +3527,66 @@
       "t18_9": {
         "label": "SUPTO 18.9 — Nomenclatures",
         "description": "Reference tables: articles, groups, operators, devices."
+      }
+    },
+    "accountingTrialBalance": {
+      "label": "Trial balance",
+      "description": "Opening, turnover and closing, debit and credit, per account"
+    },
+    "accountingAnalyticBalance": {
+      "label": "Analytic trial balance",
+      "description": "The same six columns per analytic, with quantities for goods"
+    },
+    "accountingMainBook": {
+      "label": "General ledger",
+      "description": "Each account with the accounts it corresponds with"
+    },
+    "accountingChronology": {
+      "label": "Account chronology",
+      "description": "One account's operations in order, with a running balance"
+    },
+    "accountingDocuments": {
+      "label": "Document journal",
+      "description": "The documents behind the books, with their totals and VAT"
+    },
+    "accountingBooks": {
+      "columns": {
+        "code": "Code",
+        "account": "Account",
+        "analytic": "Analytic",
+        "counterAccount": "Counter account",
+        "counterAnalytic": "Counter analytic",
+        "comment": "Comment",
+        "openingDebit": "Opening debit",
+        "openingCredit": "Opening credit",
+        "turnoverDebit": "Turnover debit",
+        "turnoverCredit": "Turnover credit",
+        "closingDebit": "Closing debit",
+        "closingCredit": "Closing credit",
+        "openingQuantity": "Opening qty",
+        "turnoverDebitQuantity": "Debit qty",
+        "turnoverCreditQuantity": "Credit qty",
+        "closingQuantity": "Closing qty",
+        "balance": "Balance",
+        "vatKind": "VAT kind",
+        "total": "Total",
+        "vat": "VAT",
+        "currency": "Currency"
+      },
+      "roots": {
+        "goods": "Goods",
+        "materials": "Materials",
+        "production": "Production",
+        "services": "Services",
+        "customers": "Customers",
+        "suppliers": "Suppliers",
+        "partners": "Partners",
+        "bankAccounts": "Bank accounts",
+        "expenses": "Expenses",
+        "income": "Income",
+        "settlements": "Settlements",
+        "personnel": "Personnel",
+        "fixedAssets": "Fixed assets"
       }
     }
   },
@@ -3765,6 +3828,7 @@
       "check": {
         "home": "The organization is written on lgrai.app",
         "no_move": "No other move is under way",
+        "not_books": "This is not a company's books organization",
         "registered": "The server is registered for this organization",
         "full": "The server is linked at Full",
         "no_clone_alarm": "No clone alarm",

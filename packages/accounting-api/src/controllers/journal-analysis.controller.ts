@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { JournalEntry } from 'db/models'
+import { JournalEntry, POSTED_BOOKS } from 'db/models'
 import { reportDayEnd, reportDayStart } from 'services/utils/report-day'
 
 /**
@@ -22,6 +22,7 @@ export const journalAnalysisController = new Elysia({ prefix: '/org/:orgId/accou
           orgId: new JournalEntry.base.Types.ObjectId(orgId),
           date: { $gte: from ?? new Date(new Date().getFullYear(), 0, 1), $lte: to ?? new Date() },
           status: { $in: ['posted', 'draft'] },
+          ledger: POSTED_BOOKS.ledger,
         },
       },
       { $unwind: '$lines' },

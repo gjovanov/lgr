@@ -33,6 +33,7 @@ LGR has 50 entity types across 8 modules. Each entity has a TypeScript interface
 | [FiscalYear](accounting/fiscal-year.md) | `IFiscalYear` | `fiscal_years` | Financial year |
 | [FiscalPeriod](accounting/fiscal-period.md) | `IFiscalPeriod` | `fiscal_periods` | Month/quarter within fiscal year |
 | [JournalEntry](accounting/journal-entry.md) | `IJournalEntry` | `journal_entries` | Double-entry ledger posting |
+| [AccountingAnalytic](accounting/accounting-analytic.md) | `IAccountingAnalytic` | `accountinganalytics` | An analytic of a company's books, in a tree |
 | [FixedAsset](accounting/fixed-asset.md) | `IFixedAsset` | `fixed_assets` | Depreciable asset |
 | [BankAccount](accounting/bank-account.md) | `IBankAccount` | `bank_accounts` | Bank account |
 | [BankReconciliation](accounting/bank-reconciliation.md) | `IBankReconciliation` | `bank_reconciliations` | Statement reconciliation |

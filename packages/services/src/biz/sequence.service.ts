@@ -59,6 +59,24 @@ export async function getNextNumber(
 }
 
 /**
+ * `count` numbers of a series in one `$inc`, for an import that writes thousands of entries a month.
+ * Same format as `getNextNumber`, and as race-safe.
+ */
+export async function reserveNumbers(orgId: string, prefix: string, count: number, padLength: number = 5, year?: number): Promise<string[]> {
+  const yr = year ?? new Date().getFullYear()
+  if (isLegalSeries(prefix)) await assertSeriesOpen(orgId)
+
+  const doc = await Sequence.findOneAndUpdate(
+    { orgId, prefix, year: yr },
+    { $inc: { lastNumber: count } },
+    { upsert: true, returnDocument: 'after' },
+  ).exec()
+
+  const first = doc!.lastNumber - count + 1
+  return Array.from({ length: count }, (_, i) => `${prefix}-${yr}-${String(first + i).padStart(padLength, '0')}`)
+}
+
+/**
  * Allocate the org's next 4-digit SUPTO operator code.
  *
  * The OPERATOR counter can lag behind reality: users imported or seeded before the counter

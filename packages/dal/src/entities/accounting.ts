@@ -65,6 +65,9 @@ export interface IAccount extends TenantEntity {
   isActive: boolean
   balance: number
   tags?: string[]
+  balanceSide?: 'debit' | 'credit' | 'both'
+  analyticRoots?: string[]
+  quantitative?: boolean
 }
 
 // ── FiscalYear ──
@@ -104,6 +107,16 @@ export interface IJournalEntryLine {
   projectId?: string
   costCenterId?: string
   tags?: string[]
+  opNo?: number
+  side?: 'debit' | 'credit'
+  analyticId?: string
+  quantity?: number
+  unit?: string
+  settles?: { docType: string; docNumber: string }[]
+  branchOrgId?: string
+  fx?: { currency: string; rate?: number; amount?: number }
+  journalCode?: string
+  taxCode?: string
 }
 
 export interface IJournalEntry extends TenantEntity {
@@ -124,6 +137,20 @@ export interface IJournalEntry extends TenantEntity {
   createdBy: string
   postedBy?: string
   postedAt?: Date
+  ledger?: 'books' | 'shadow'
+  docType?: string
+  docNumber?: string
+  docDate?: Date
+  vatKind?: string
+  docTotal?: number
+  docVat?: number
+  docCurrency?: string
+  partnerAnalyticId?: string
+  branchOrgId?: string
+  sourceOrgId?: string
+  importBatchId?: string
+  importKey?: string
+  importHash?: string
 }
 
 // ── FixedAsset ──

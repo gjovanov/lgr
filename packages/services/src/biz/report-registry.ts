@@ -30,6 +30,14 @@ import { runStockMovements, MOVEMENT_TYPE_OPTIONS, MOVEMENT_STATUS_OPTIONS } fro
 import { runOrderSheet, ORDER_STATUS_OPTIONS } from './reports/order-sheet.report.js'
 import { SUPTO_TABLES, SUPTO_ROLES, SUPTO_PERMISSION } from './reports/supto.report.js'
 import {
+  runAccountingAnalyticBalance,
+  runAccountingChronology,
+  runAccountingDocuments,
+  runAccountingMainBook,
+  runAccountingTrialBalance,
+} from './reports/accounting-books.report.js'
+import { ANALYTIC_ROOTS } from './accounting-books/registry.js'
+import {
   rowCapFor,
   type ReportCaller,
   type ReportEntry,
@@ -482,6 +490,85 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     route: '/order-sheet',
     handler: runOrderSheet,
     drilldown: (row) => (row.orderId ? `/invoicing/orders/${row.orderId}` : undefined),
+  },
+
+  // ── FR-25: the books, as the accountant reads them ──
+  {
+    id: 'accounting-trial-balance',
+    category: 'accounting',
+    labelKey: 'reports.accountingTrialBalance.label',
+    descriptionKey: 'reports.accountingTrialBalance.description',
+    icon: 'mdi-scale-balance',
+    permission: 'accounting.read',
+    params: [{ key: 'period', type: 'period', labelKey: 'reports.params.period', required: true, default: { preset: 'this_year' } }],
+    outputs: ['table', 'xlsx', 'pdf'],
+    view: 'runner',
+    route: '/accounting-trial-balance',
+    handler: runAccountingTrialBalance,
+  },
+  {
+    id: 'accounting-analytic-balance',
+    category: 'accounting',
+    labelKey: 'reports.accountingAnalyticBalance.label',
+    descriptionKey: 'reports.accountingAnalyticBalance.description',
+    icon: 'mdi-file-tree-outline',
+    permission: 'accounting.read',
+    params: [
+      { key: 'period', type: 'period', labelKey: 'reports.params.period', required: true, default: { preset: 'this_year' } },
+      {
+        key: 'root', type: 'select', labelKey: 'reports.params.analyticRoot', required: true, default: ANALYTIC_ROOTS[0].root,
+        options: ANALYTIC_ROOTS.map(r => ({ value: r.root, labelKey: `reports.accountingBooks.roots.${r.labelKey}` })),
+      },
+    ],
+    outputs: ['table', 'xlsx', 'pdf'],
+    view: 'runner',
+    route: '/accounting-analytic-balance',
+    handler: runAccountingAnalyticBalance,
+  },
+  {
+    id: 'accounting-main-book',
+    category: 'accounting',
+    labelKey: 'reports.accountingMainBook.label',
+    descriptionKey: 'reports.accountingMainBook.description',
+    icon: 'mdi-book-open-page-variant-outline',
+    permission: 'accounting.read',
+    params: [{ key: 'period', type: 'period', labelKey: 'reports.params.period', required: true, default: { preset: 'this_year' } }],
+    outputs: ['table', 'xlsx', 'pdf'],
+    view: 'runner',
+    route: '/accounting-main-book',
+    handler: runAccountingMainBook,
+  },
+  {
+    id: 'accounting-chronology',
+    category: 'accounting',
+    labelKey: 'reports.accountingChronology.label',
+    descriptionKey: 'reports.accountingChronology.description',
+    icon: 'mdi-timeline-text-outline',
+    permission: 'accounting.read',
+    params: [
+      { key: 'period', type: 'period', labelKey: 'reports.params.period', required: true, default: { preset: 'this_month' } },
+      { key: 'accountCode', type: 'text', labelKey: 'reports.params.accountCode', required: true },
+    ],
+    outputs: ['table', 'xlsx', 'pdf'],
+    view: 'runner',
+    route: '/accounting-chronology',
+    handler: runAccountingChronology,
+  },
+  {
+    id: 'accounting-documents',
+    category: 'accounting',
+    labelKey: 'reports.accountingDocuments.label',
+    descriptionKey: 'reports.accountingDocuments.description',
+    icon: 'mdi-file-document-multiple-outline',
+    permission: 'accounting.read',
+    params: [
+      { key: 'period', type: 'period', labelKey: 'reports.params.period', required: true, default: { preset: 'this_month' } },
+      { key: 'docType', type: 'text', labelKey: 'reports.columns.docType' },
+    ],
+    outputs: ['table', 'xlsx', 'pdf'],
+    view: 'runner',
+    route: '/accounting-documents',
+    handler: runAccountingDocuments,
   },
 
   // ── P2: SUPTO / НАП (Приложение 29), tables 18.1–18.9 ──

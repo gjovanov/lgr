@@ -3299,6 +3299,7 @@
       "purchase": "Покупки",
       "receivables": "Вземания",
       "inventory": "Склад",
+      "accounting": "Счетоводство",
       "fiscal": "Фискални / НАП"
     },
     "periods": {
@@ -3339,7 +3340,9 @@
       "belowMin": "Само под минимума",
       "onlyOutstanding": "Само неполучени",
       "groupByWarehouse": "По склад",
-      "groupByLine": "По ред"
+      "groupByLine": "По ред",
+      "analyticRoot": "Аналитичност",
+      "accountCode": "Сметка"
     },
     "columns": {
       "sku": "Код",
@@ -3524,6 +3527,66 @@
       "t18_9": {
         "label": "СУПТО 18.9 — Номенклатури",
         "description": "Справочници: артикули, групи, оператори, устройства."
+      }
+    },
+    "accountingTrialBalance": {
+      "label": "Оборотна ведомост",
+      "description": "Начално салдо, обороти и крайно салдо, дебит и кредит, по сметки"
+    },
+    "accountingAnalyticBalance": {
+      "label": "Оборотна ведомост, аналитична",
+      "description": "Същите шест колони по аналитичен признак, с количества за стоките"
+    },
+    "accountingMainBook": {
+      "label": "Главна книга",
+      "description": "Всяка сметка с кореспондиращите ѝ сметки"
+    },
+    "accountingChronology": {
+      "label": "Хронологична ведомост",
+      "description": "Операциите по една сметка подред, с текущо салдо"
+    },
+    "accountingDocuments": {
+      "label": "Журнал на документите",
+      "description": "Документите в счетоводството, със сумите и ДДС"
+    },
+    "accountingBooks": {
+      "columns": {
+        "code": "Код",
+        "account": "Сметка",
+        "analytic": "Аналитичен признак",
+        "counterAccount": "Коресп. сметка",
+        "counterAnalytic": "Коресп. аналитичен признак",
+        "comment": "Коментар",
+        "openingDebit": "Начално салдо дебит",
+        "openingCredit": "Начално салдо кредит",
+        "turnoverDebit": "Оборот дебит",
+        "turnoverCredit": "Оборот кредит",
+        "closingDebit": "Крайно салдо дебит",
+        "closingCredit": "Крайно салдо кредит",
+        "openingQuantity": "Нач. кол-во",
+        "turnoverDebitQuantity": "Дебит кол.",
+        "turnoverCreditQuantity": "Кредит кол.",
+        "closingQuantity": "Кол-во",
+        "balance": "Салдо",
+        "vatKind": "Вид",
+        "total": "Сума",
+        "vat": "ДДС",
+        "currency": "Валута"
+      },
+      "roots": {
+        "goods": "Стоки",
+        "materials": "Материали",
+        "production": "Продукция",
+        "services": "Услуги",
+        "customers": "Клиенти",
+        "suppliers": "Доставчици",
+        "partners": "Партньори",
+        "bankAccounts": "Банкови сметки",
+        "expenses": "Разходи",
+        "income": "Приходи",
+        "settlements": "Разчети",
+        "personnel": "Персонал",
+        "fixedAssets": "Дълготрайни активи"
       }
     }
   },
@@ -3765,6 +3828,7 @@
       "check": {
         "home": "Организацията се записва в lgrai.app",
         "no_move": "Няма друго започнато преместване",
+        "not_books": "Организацията не държи счетоводството на фирма",
         "registered": "Сървърът е регистриран за тази организация",
         "full": "Сървърът е свързан на ниво Full",
         "no_clone_alarm": "Няма тревога за клониране",

@@ -14,7 +14,7 @@
  * mirrored (deliberately, not imported) in `reports-ui/src/types/report.ts`.
  */
 
-export const REPORT_CATEGORIES = ['sales', 'purchase', 'receivables', 'inventory', 'fiscal'] as const
+export const REPORT_CATEGORIES = ['sales', 'purchase', 'receivables', 'inventory', 'accounting', 'fiscal'] as const
 export type ReportCategory = (typeof REPORT_CATEGORIES)[number]
 
 export type ReportOutput = 'table' | 'xlsx' | 'pdf'

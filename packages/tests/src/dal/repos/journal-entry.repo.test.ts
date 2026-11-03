@@ -325,6 +325,115 @@ for (const [name, setup, cleanup] of backends) {
         expect(byAccount(merged)[accountId1]).toEqual({ debit: 105, credit: 30 })
         expect(merged.every(r => r.contactId === undefined)).toBe(true)
       })
+
+      test('the shadow ledger is in no reading, and an entry with no ledger is books', async () => {
+        await repos.journalEntries.create(posted(100, { date: new Date('2025-01-10') }))
+        await repos.journalEntries.create(posted(10, { date: new Date('2025-01-10'), ledger: 'books' }))
+        await repos.journalEntries.create(posted(1, { date: new Date('2025-01-10'), ledger: 'shadow' }))
+
+        const debit = async (query = {}) => byAccount(await repos.journalEntries.sumPostedLines({ orgId, ...query }))[accountId1]?.debit
+        expect(await debit()).toBe(110)
+        expect(await debit({ from: new Date('2025-01-01'), to: new Date('2025-01-31') })).toBe(110)
+        expect(await debit({ before: new Date('2025-02-01') })).toBe(110)
+        expect(await debit({ fiscalPeriodIds: [fiscalPeriodId] })).toBe(110)
+      })
+
+      describe('an imported opening restates the year before', () => {
+        const opening = (amount: number, date: string, overrides: Record<string, any> = {}) =>
+          posted(amount, { date: new Date(date), type: 'opening', sourceModule: 'plusminus', ...overrides })
+
+        beforeEach(async () => {
+          await repos.journalEntries.create(opening(1000, '2025-01-01'))
+          await repos.journalEntries.create(posted(50, { date: new Date('2025-06-15') }))
+          await repos.journalEntries.create(opening(1050, '2026-01-01'))
+          await repos.journalEntries.create(posted(7, { date: new Date('2026-02-10') }))
+        })
+
+        const debit = async (query = {}) => byAccount(await repos.journalEntries.sumPostedLines({ orgId, ...query }))[accountId1]?.debit
+
+        test('a balance up to a moment starts at the last one, so it is not added twice', async () => {
+          expect(await debit()).toBe(1057)
+          expect(await debit({ to: new Date('2026-12-31') })).toBe(1057)
+          expect(await debit({ to: new Date('2026-01-31') })).toBe(1050)
+          expect(await debit({ to: new Date('2025-12-31') })).toBe(1050)
+          expect(await debit({ to: new Date('2025-03-31') })).toBe(1000)
+        })
+
+        test('a period is read as asked', async () => {
+          expect(await debit({ from: new Date('2026-01-01'), to: new Date('2026-12-31') })).toBe(1057)
+          expect(await debit({ from: new Date('2025-01-01'), to: new Date('2026-12-31') })).toBe(2107)
+        })
+
+        test('what stands before a day holds the opening dated that day, and no later one', async () => {
+          expect(await debit({ before: new Date('2026-01-01') })).toBe(1050)
+          expect(await debit({ before: new Date('2026-03-01') })).toBe(1057)
+          expect(await debit({ before: new Date('2025-07-01') })).toBe(1050)
+          expect(await debit({ before: new Date('2025-01-01') })).toBe(1000)
+          expect(await debit({ before: new Date('2024-12-31') })).toBeUndefined()
+        })
+
+        test('it is no turnover', async () => {
+          const year = { from: new Date('2026-01-01'), to: new Date('2026-12-31'), turnoverOnly: true }
+          expect(await debit(year)).toBe(7)
+        })
+
+        test('a shadow opening starts nothing', async () => {
+          await repos.journalEntries.create(opening(9, '2026-06-01', { ledger: 'shadow' }))
+          expect(await debit()).toBe(1057)
+        })
+
+        test('an opening typed by hand adds to what is there, as it always did', async () => {
+          const other = await createTestOrg(repos)
+          const line = (amount: number) => ({ accountId: accountId1, debit: amount, credit: 0, currency: 'EUR', exchangeRate: 1, baseDebit: amount, baseCredit: 0 })
+          await repos.journalEntries.create(makeEntry({ orgId: other, entryNumber: 'H-1', status: 'posted', date: new Date('2025-01-01'), type: 'opening', lines: [line(100)] }))
+          await repos.journalEntries.create(makeEntry({ orgId: other, entryNumber: 'H-2', status: 'posted', date: new Date('2026-01-01'), type: 'opening', lines: [line(10)] }))
+          expect((await repos.journalEntries.sumPostedLines({ orgId: other }))[0].debit).toBe(110)
+        })
+      })
+
+      test('reads amounts as booked when asked, and only the accounts asked for', async () => {
+        await repos.journalEntries.create(makeEntry({
+          entryNumber: 'JE-BGN',
+          status: 'posted',
+          lines: [
+            { accountId: accountId1, debit: 195.583, credit: 0, currency: 'BGN', exchangeRate: 0.5113, baseDebit: 100, baseCredit: 0 },
+            { accountId: accountId2, debit: 0, credit: 195.583, currency: 'BGN', exchangeRate: 0.5113, baseDebit: 0, baseCredit: 100 },
+          ],
+        }))
+        expect(byAccount(await repos.journalEntries.sumPostedLines({ orgId }))[accountId1].debit).toBe(100)
+        expect(byAccount(await repos.journalEntries.sumPostedLines({ orgId, asBooked: true }))[accountId1].debit).toBe(195.583)
+        expect(Object.keys(byAccount(await repos.journalEntries.sumPostedLines({ orgId, only: [accountId2] })))).toEqual([accountId2])
+      })
+
+      test('adds up quantities per side, and says nothing where there are none', async () => {
+        const line = (accountId: string, side: 'debit' | 'credit', amount: number, quantity?: number, analyticId?: string) => ({
+          accountId, side, debit: side === 'debit' ? amount : 0, credit: side === 'credit' ? amount : 0,
+          currency: 'EUR', exchangeRate: 1, baseDebit: side === 'debit' ? amount : 0, baseCredit: side === 'credit' ? amount : 0,
+          ...(quantity !== undefined ? { quantity } : {}), ...(analyticId ? { analyticId } : {}),
+        })
+        const goods = '0123456789abcdef01234569'
+        const other = '0123456789abcdef0123456a'
+        await repos.journalEntries.create(makeEntry({
+          entryNumber: 'JE-GOODS',
+          status: 'posted',
+          lines: [
+            line(accountId1, 'debit', 10, 4, goods), line(accountId2, 'credit', 10, 4),
+            line(accountId2, 'debit', 3), line(accountId1, 'credit', 3, 1, goods),
+          ],
+        }))
+        await repos.journalEntries.create(makeEntry({ entryNumber: 'JE-OTHER', status: 'posted', lines: [line(accountId1, 'debit', 2, undefined, other), line(accountId2, 'credit', 2)] }))
+        await repos.journalEntries.create(makeEntry({ entryNumber: 'JE-SHADOW', status: 'posted', ledger: 'shadow', lines: [line(accountId1, 'debit', 9, 9, goods), line(accountId2, 'credit', 9)] }))
+
+        const rows = await repos.journalEntries.sumPostedLines({ orgId })
+        expect(rows.find(r => r.accountId === accountId1)).toMatchObject({ debit: 12, credit: 3, quantityDebit: 4, quantityCredit: 1 })
+
+        // A document with a line on no analytic still counts for the lines that have one.
+        const analytics = await repos.journalEntries.sumPostedAnalytics({ orgId })
+        expect(analytics.find(r => r.analyticId === goods)).toEqual({ analyticId: goods, debit: 10, credit: 3, quantityDebit: 4, quantityCredit: 1 })
+        expect(analytics.find(r => r.analyticId === other)).toEqual({ analyticId: other, debit: 2, credit: 0 })
+        expect(analytics).toHaveLength(2)
+        expect(await repos.journalEntries.sumPostedAnalytics({ orgId, only: [other] })).toHaveLength(1)
+      })
     })
   })
 }
