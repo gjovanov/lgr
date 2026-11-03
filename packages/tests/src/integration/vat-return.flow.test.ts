@@ -324,6 +324,18 @@ describe('generating a period', () => {
     expect(((await TaxReturn.findOne({ orgId, periodCode: OPEN }).lean()) as any).declarant.filer).toBe('7513020014')
   })
 
+  it('⚠ a filer as prod files them, ЕГН and name in one field: the ЕГН masked, the name kept', async () => {
+    await openRows(OPEN)
+    const res = await call('POST', `/vat/${OPEN}/generate`, tokens.accountant, { filer: '7513020014 ИВАН ПРИМЕРОВ' })
+    expect(res.status).toBe(200)
+    expect(res.json.taxReturn.declarant.filer).toBe('••••••0014 ИВАН ПРИМЕРОВ')
+    for (const answer of [res, await call('GET', '/vat', tokens.member), await call('GET', '/tax-return', tokens.member)]) {
+      expect(JSON.stringify(answer.json)).not.toContain('7513020014')
+    }
+    const deklar = await call('GET', `/vat/${OPEN}/file/DEKLAR.txt`, tokens.accountant)
+    expect(new TextDecoder('windows-1251').decode(deklar.raw)).toContain('7513020014 ИВАН ПРИМЕРОВ')
+  })
+
   it('a filer named by name stays a name', async () => {
     await openRows(OPEN)
     const res = await call('POST', `/vat/${OPEN}/generate`, tokens.accountant, { ...SET_FILER })

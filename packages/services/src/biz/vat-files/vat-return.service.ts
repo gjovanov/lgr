@@ -57,10 +57,10 @@ const returnOf = (orgId: string, period: string) =>
   TaxReturn.findOne({ orgId, kind: 'vat', periodCode: period, status: { $ne: 'corrected' } })
 
 /**
- * The person filing (00-04) is named by their ЕГН or ЛНЧ in practice: every filed month on prod was.
- * A name stays, as names do; an identifier answers as its last four digits.
+ * The person filing (00-04): every filed month on prod names them as "<ЕГН> <name> <surname>" in the
+ * one field. The name stays, as names do; any ten-digit identifier in it answers as its last four.
  */
-const maskedFiler = (filer?: string) => (filer && /^\d{10}$/.test(filer.trim()) ? `••••••${filer.trim().slice(-4)}` : filer)
+const maskedFiler = (filer?: string) => filer?.replace(/(?<!\d)\d{6}(\d{4})(?!\d)/g, '••••••$1')
 
 /** A return as an API answers it: the VIES declarant's and the filer's ЕГН go in the file, and in no JSON. */
 export function withoutPersonalId<T>(ret: T): T {
