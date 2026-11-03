@@ -277,14 +277,18 @@ describe('an invoice issued at the counter (§2.4)', () => {
     w.sim!.beforeCommand = cmd => (cmd === 0x38 ? held.closed : undefined)
 
     const first = send(w, d.id, 'issue-key-0001')
-    await until(async () => w.sim!.executed.some(c => c.cmd === 0x35), 'the print to reach the payment')
-
-    const second = await send(w, d.id, 'issue-key-0001')
+    // #490: the gate opens whatever happens. A request left holding the device would hang `afterEach`.
+    let second: Awaited<ReturnType<typeof send>>
+    try {
+      await until(async () => w.sim!.executed.some(c => c.cmd === 0x35), 'the print to reach the payment')
+      second = await send(w, d.id, 'issue-key-0001')
+    } finally {
+      held.open()
+    }
 
     expect(second.status).toBe(409)
     expect(second.json.code).toBe('idempotency_in_progress')
     expect(second.json.receiptError).toBeUndefined()
-    held.open()
     expect((await first).status).toBe(200)
     expect(w.sim!.receipts).toHaveLength(1)
     expect((await raw(d.id)).status).toBe('paid')
