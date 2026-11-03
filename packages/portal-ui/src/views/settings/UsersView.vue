@@ -193,6 +193,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import { PERMISSIONS, ROLES, ROLE_PERMISSION_SET_NAMES, mergeAreas, type Role } from 'config/constants'
+import { jwtRole, jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 
 const { t, te } = useI18n()
 const store = useSettingsStore()
@@ -237,7 +238,12 @@ const roleItems = computed(() => ROLES.map(r => ({ value: r, title: t(`settings.
 const roleLabel = (r: string) => (te(`settings.roles.${r}`) ? t(`settings.roles.${r}`) : r)
 
 /** Only an admin may change a role — the API answers 403 to everyone else (user.controller PUT). */
-const isAdmin = computed(() => appStore.user?.role === 'admin')
+/**
+ * Read from the session token, as `jwtRole` is everywhere else. `appStore.user` is filled by a
+ * sign-in in this tab only: the portal never loads `/auth/me`, so after a reload, or arriving from
+ * another app, it was empty and an admin found the role locked at Member.
+ */
+const isAdmin = computed(() => jwtRole() === 'admin')
 
 /**
  * ⚠ An admin editing THEMSELVES cannot change their own role here. Demoting yourself takes
@@ -245,9 +251,8 @@ const isAdmin = computed(() => appStore.user?.role === 'admin')
  * screen with no way back through the UI. The server refuses it too; this only explains why.
  */
 const isSelf = computed(() => {
-  const me = appStore.user
-  // `/auth/me` has spelled this both ways over time; the server enforces the rule regardless.
-  const myId = me?.id || me?._id
+  // The session's own id, for the same reason. The server enforces the rule regardless.
+  const myId = jwtUserId()
   return !!form._id && !!myId && String(form._id) === String(myId)
 })
 const canEditRole = computed(() => isAdmin.value && !isSelf.value)
