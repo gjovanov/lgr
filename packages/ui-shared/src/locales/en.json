@@ -525,6 +525,7 @@
     "netPayable": "Net Payable",
     "vat": {
       "title": "VAT returns",
+      "titleOne": "VAT return",
       "period": "Tax period",
       "openMonth": "Open period",
       "status": {

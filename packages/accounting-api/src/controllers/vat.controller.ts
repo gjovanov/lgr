@@ -114,6 +114,8 @@ export const vatController = new Elysia({ prefix: '/org/:orgId/accounting/vat' }
   .post('/:period/mark-filed', async ({ params, body, user, status }) => {
     const b = body as { number: string; file?: any }
     const upload = b.file && typeof b.file.arrayBuffer === 'function' ? b.file : undefined
+    // An acknowledgement must not vanish: a `file` that is no file was sent some other way than meant.
+    if (b.file !== undefined && !upload) return status(422, { code: 'vat_ack_not_a_file', message: 'The acknowledgement file did not arrive as a file.' })
     try {
       const taxReturn = await markVatReturnFiled({
         orgId: params.orgId,

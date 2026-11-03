@@ -2,7 +2,7 @@
   <v-container fluid>
     <div class="d-flex align-center flex-wrap ga-2 mb-2">
       <v-btn icon="mdi-arrow-left" variant="text" size="small" :title="$t('accounting.vat.title')" @click="router.push({ name: 'accounting.tax-returns' })" />
-      <h1 class="text-h5">{{ $t('accounting.vat.title') }} {{ periodLabel(period) }}</h1>
+      <h1 class="text-h5">{{ $t('accounting.vat.titleOne') }} {{ periodLabel(period) }}</h1>
       <v-chip v-if="taxReturn" size="small" :color="statusColor(taxReturn.status)">{{ $t(`accounting.vat.status.${taxReturn.status}`) }}</v-chip>
       <v-spacer />
       <v-btn v-if="canFile && open" color="primary" prepend-icon="mdi-file-cog-outline" :loading="busy" @click="generate()">
@@ -27,7 +27,7 @@
           <v-table density="compact">
             <tbody>
               <tr v-for="cell in filledCells" :key="cell.code">
-                <td class="text-medium-emphasis" style="width: 64px">{{ cell.code }}</td>
+                <td class="text-medium-emphasis text-no-wrap" style="width: 64px">{{ cell.code }}</td>
                 <td>{{ cell.label }}</td>
                 <td class="text-right text-no-wrap">{{ cell.value }}</td>
               </tr>
@@ -74,6 +74,7 @@
       density="compact"
       @update:options="onUpdateOptions"
     >
+      <template #item.rowNo="{ item }">{{ item.rowNo || '' }}</template>
       <template #item.docDate="{ item }">{{ item.docDate?.split('T')[0] }}</template>
       <template #item.base="{ item }">{{ rowBase(item) }}</template>
       <template #item.vat="{ item }">{{ rowVat(item) }}</template>
@@ -85,7 +86,7 @@
         <v-card-title class="text-subtitle-1">{{ $t('accounting.vat.askDeclarant') }}</v-card-title>
         <v-card-text class="pt-2">
           <p class="text-body-2 text-medium-emphasis mb-3">{{ $t('accounting.vat.askDeclarantNote') }}</p>
-          <v-text-field v-model="asking.filer" :label="$t('accounting.vat.filer')" density="compact" variant="outlined" maxlength="50" />
+          <v-text-field v-if="asking.needsFiler" v-model="asking.filer" :label="$t('accounting.vat.filer')" density="compact" variant="outlined" maxlength="50" />
           <template v-if="asking.needsVies">
             <v-text-field v-model="asking.vies.id" :label="$t('accounting.vat.viesId')" density="compact" variant="outlined" maxlength="15" />
             <v-text-field v-model="asking.vies.name" :label="$t('accounting.vat.viesName')" density="compact" variant="outlined" maxlength="150" />
@@ -194,9 +195,14 @@ const rowHeaders = computed(() => [
   { title: t('accounting.vat.vat'), key: 'vat', align: 'end' as const, sortable: false },
 ])
 
-const cell = (row: any, ...codes: string[]) => codes.reduce((sum, code) => sum + (row.cells?.[code] ?? 0), 0)
-const rowBase = (row: any) => money(side.value === 'sales' ? cell(row, '02-10') : cell(row, '03-30', '03-31', '03-32'))
-const rowVat = (row: any) => money(side.value === 'sales' ? cell(row, '02-20') : cell(row, '03-41', '03-42'))
+// A blank cell stays blank, as in the file. 02-10 leaves out the bases that are not taxed here (02-17,
+// 02-18, 02-19, 02-25), and a row of those is still a row with a base.
+const cell = (row: any, ...codes: string[]) => {
+  const cents = codes.reduce((sum, code) => sum + (row.cells?.[code] ?? 0), 0)
+  return cents ? money(cents) : ''
+}
+const rowBase = (row: any) => (side.value === 'sales' ? cell(row, '02-10', '02-17', '02-18', '02-19', '02-25') : cell(row, '03-30', '03-31', '03-32'))
+const rowVat = (row: any) => (side.value === 'sales' ? cell(row, '02-20') : cell(row, '03-41', '03-42'))
 
 async function load() {
   try {
@@ -212,7 +218,7 @@ async function load() {
 }
 
 const emptyVies = () => ({ id: '', name: '', city: '', postcode: '', address: '', kind: 'A', companyAddress: '' })
-const asking = reactive({ open: false, filer: '', needsVies: false, vies: emptyVies() })
+const asking = reactive({ open: false, filer: '', needsFiler: false, needsVies: false, vies: emptyVies() })
 const viesKinds = computed(() => [
   { title: t('accounting.vat.viesKindAgent'), value: 'A' },
   { title: t('accounting.vat.viesKindRepresentative'), value: 'R' },
@@ -228,6 +234,7 @@ async function generate(answers: Record<string, unknown> = {}) {
   } catch (e: any) {
     const data = e?.response?.data
     if (data?.code === 'vat_declarant_missing') {
+      asking.needsFiler = (data.fields as string[]).includes('filer')
       asking.needsVies = (data.fields as string[]).some(f => f.startsWith('vies.'))
       asking.open = true
     } else {
@@ -250,7 +257,9 @@ async function markFiled() {
     const form = new FormData()
     form.set('number', filing.number.trim())
     if (filing.file) form.set('file', filing.file)
-    await httpClient.post(`${base.value}/mark-filed`, form)
+    // ⚠ Unset, so the browser writes the multipart boundary. Under the client's JSON default axios
+    // serialises the form to JSON: the number arrives and the file does not, and nothing says so.
+    await httpClient.post(`${base.value}/mark-filed`, form, { headers: { 'Content-Type': undefined } })
     filing.open = false
     showSuccess(t('accounting.vat.filedDone'))
     await load()

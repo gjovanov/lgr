@@ -372,6 +372,14 @@ describe('marking a return as filed', () => {
     expect([...back.raw]).toEqual([1, 2, 3])
   })
 
+  it('a `file` that is no file is refused: an acknowledgement does not vanish without a word', async () => {
+    await generate()
+    const res = await call('POST', `/vat/${OPEN}/mark-filed`, tokens.accountant, { number: 'A', file: {} })
+    expect(res.status).toBe(422)
+    expect(res.json.code).toBe('vat_ack_not_a_file')
+    expect((await TaxReturn.findOne({ orgId }).lean())!.status).toBe('generated')
+  })
+
   it('a return with no acknowledgement file answers 404, not a failure', async () => {
     await generate()
     await call('POST', `/vat/${OPEN}/mark-filed`, tokens.accountant, { number: 'A' })

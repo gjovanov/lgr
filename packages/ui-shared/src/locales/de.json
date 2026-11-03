@@ -525,6 +525,7 @@
     "netPayable": "Netto-Verbindlichkeit",
     "vat": {
       "title": "Umsatzsteuererklärungen",
+      "titleOne": "Umsatzsteuererklärung",
       "period": "Steuerzeitraum",
       "openMonth": "Zeitraum öffnen",
       "status": {
