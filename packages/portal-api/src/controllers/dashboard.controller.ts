@@ -9,9 +9,8 @@ import { Invoice, JournalEntry } from 'db/models'
 const AGING_BUCKETS = ['current', '1-30', '31-60', '61-90', '90+'] as const
 
 /**
- * P&L totals (revenue/expenses/net income, YTD) via aggregation. The shared getProfitLoss
- * loads ALL posted journal entries into JS and reduces there (multi-second for orgs with a
- * large ledger — made the dashboard 6s per hit). This groups line amounts per account in
+ * P&L totals (revenue/expenses/net income, YTD) via aggregation: the two totals alone, where the
+ * shared getProfitLoss answers a row per account as well. This groups line amounts per account in
  * Mongo, joins account type, and returns just the two totals. Uses the
  * { orgId, 'lines.accountId', date } index. orgId must be cast for aggregate $match.
  */

@@ -44,7 +44,7 @@ graph LR
     HRM --> HR_R & HR_W & HR_AL & PAY_R & PAY_W & PAY_A
     WHM --> WH_R & WH_W & WH_A
     SALES --> CRM_R & CRM_W & INV_R & INV_W
-    MEM --> ACC_R & INV_R & WH_R & PAY_R & HR_R & CRM_R & ERP_R
+    MEM --> ACC_R & INV_R & WH_R & HR_R & CRM_R & ERP_R
 
     style ADM fill:#d32f2f,color:#fff
     style MGR fill:#e65100,color:#fff
@@ -62,7 +62,7 @@ graph LR
 | **Accounting** | read, write, post | read, write, post | read, write, post | — | — | — | read |
 | **Invoicing** | read, write, send | read, write, send | read, write, send | — | — | read, write | read |
 | **Warehouse** | read, write, adjust | read, write, adjust | — | — | read, write, adjust | — | read |
-| **Payroll** | read, write, approve | read, write | — | read, write, approve | — | — | read |
+| **Payroll** | read, write, approve | read, write | — | read, write, approve | — | — | — |
 | **HR** | read, write, approve_leave | read, write, approve_leave | — | read, write, approve_leave | — | — | read |
 | **CRM** | read, write | read, write | — | — | — | read, write | read |
 | **ERP** | read, write | read, write | — | — | — | — | read |

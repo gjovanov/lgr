@@ -12,6 +12,7 @@ export const fiscalPeriodController = new Elysia({ prefix: '/org/:orgId/accounti
   .get('/', async ({ params, query }) => {
     const r = getRepos()
     const filter: Record<string, any> = { orgId: params.orgId }
+    if (query.fiscalYearId) filter.fiscalYearId = query.fiscalYearId
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
@@ -20,7 +21,10 @@ export const fiscalPeriodController = new Elysia({ prefix: '/org/:orgId/accounti
 
     const result = await r.fiscalPeriods.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     return { fiscalPeriods: result.items, ...result }
-  }, { isSignIn: true })
+  }, {
+    isSignIn: true,
+    query: t.Object({ fiscalYearId: t.Optional(t.String({ pattern: '^[0-9a-fA-F]{24}$' })) }, { additionalProperties: true }),
+  })
   .get('/:id', async ({ params, status }) => {
     const r = getRepos()
     const item = await r.fiscalPeriods.findByIdInOrg(params.id, params.orgId)

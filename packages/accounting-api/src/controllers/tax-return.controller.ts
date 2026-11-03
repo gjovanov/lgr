@@ -4,9 +4,40 @@ import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 
-// A PUT may carry any field of the document except `orgId`: a document never moves between
-// orgs (FR-20.7). `updateInOrg` drops it too; this answers 422 instead of ignoring it.
-const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
+const OBJECT_ID = '^[0-9a-fA-F]{24}$'
+const dateField = () => t.Union([t.String({ format: 'date' }), t.String({ format: 'date-time' })])
+
+const returnType = t.Union([
+  t.Literal('vat'),
+  t.Literal('income_tax'),
+  t.Literal('corporate_tax'),
+  t.Literal('payroll_tax'),
+])
+const period = t.Object({ from: dateField(), to: dateField() })
+
+const optionalFields = {
+  status: t.Optional(t.Union([t.Literal('draft'), t.Literal('filed'), t.Literal('paid')])),
+  totalTax: t.Optional(t.Number()),
+  totalInput: t.Optional(t.Number()),
+  totalOutput: t.Optional(t.Number()),
+  netPayable: t.Optional(t.Number()),
+  lines: t.Optional(t.Array(t.Object({
+    description: t.String({ minLength: 1 }),
+    taxableAmount: t.Number(),
+    taxRate: t.Number(),
+    taxAmount: t.Number(),
+    accountId: t.String({ pattern: OBJECT_ID }),
+  }))),
+  filedAt: t.Optional(dateField()),
+  filedBy: t.Optional(t.String({ pattern: OBJECT_ID })),
+  attachments: t.Optional(t.Array(t.String({ pattern: OBJECT_ID }))),
+  // A document never moves between orgs (FR-20.7). `updateInOrg` drops it too; this answers 422
+  // instead of ignoring it.
+  orgId: t.Optional(t.Never()),
+}
+
+const createBody = t.Object({ type: returnType, period, ...optionalFields })
+const updateBody = t.Object({ type: t.Optional(returnType), period: t.Optional(period), ...optionalFields })
 
 export const taxReturnController = new Elysia({ prefix: '/org/:orgId/accounting/tax-return' })
   .use(AppAuthService)
@@ -39,7 +70,7 @@ export const taxReturnController = new Elysia({ prefix: '/org/:orgId/accounting/
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'accounting', entityType: 'tax_return', entityId: item.id, entityName: (item as any).name })
 
     return { taxReturn: item }
-  }, { isSignIn: true })
+  }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
     const r = getRepos()
     const existing = await r.taxReturns.findByIdInOrg(params.id, params.orgId)

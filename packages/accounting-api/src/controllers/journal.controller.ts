@@ -1,9 +1,34 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
-import { ensureFiscalPeriod } from 'services/biz/accounting.service'
+import { ensureFiscalPeriod, JournalEntryRefusedError, postJournalEntry, voidJournalEntry } from 'services/biz/accounting.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+
+interface LineInput {
+  debit: number
+  credit: number
+  currency?: string
+  exchangeRate?: number
+  baseDebit?: number
+  baseCredit?: number
+}
+
+/**
+ * A line as it is stored. Every statement and balance reads the base amounts, and the entry form
+ * sends only `debit` and `credit`: left to the model's default of 0, an entry typed by hand reached
+ * no statement at all.
+ */
+function storedLine<L extends LineInput>(line: L) {
+  const exchangeRate = line.exchangeRate ?? 1
+  return {
+    ...line,
+    currency: line.currency || 'EUR',
+    exchangeRate,
+    baseDebit: line.baseDebit ?? Math.round(line.debit * exchangeRate * 100) / 100,
+    baseCredit: line.baseCredit ?? Math.round(line.credit * exchangeRate * 100) / 100,
+  }
+}
 
 export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/journal' })
   .use(AppAuthService)
@@ -46,11 +71,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
         return status(400, { message: 'Total debit must equal total credit' })
       }
 
-      // Default currency for lines if not provided
-      const lines = body.lines.map(line => ({
-        ...line,
-        currency: line.currency || 'EUR',
-      }))
+      const lines = body.lines.map(storedLine)
 
       // Auto-resolve fiscal period from date — creates FY + periods if needed
       let fiscalPeriodId = body.fiscalPeriodId
@@ -157,13 +178,20 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       if (!existing) return status(404, { message: 'Journal entry not found' })
       if ((existing as any).status !== 'draft') return status(400, { message: 'Can only edit draft entries' })
 
-      if (body.totalDebit !== undefined && body.totalCredit !== undefined) {
-        if (Math.abs(body.totalDebit - body.totalCredit) > 0.01) {
+      // New lines bring new totals: posting checks the totals, so stale ones would let it through unbalanced.
+      const totalDebit = body.totalDebit ?? body.lines?.reduce((sum, l) => sum + (l.debit || 0), 0)
+      const totalCredit = body.totalCredit ?? body.lines?.reduce((sum, l) => sum + (l.credit || 0), 0)
+
+      if (totalDebit !== undefined && totalCredit !== undefined) {
+        if (Math.abs(totalDebit - totalCredit) > 0.01) {
           return status(400, { message: 'Total debit must equal total credit' })
         }
       }
 
-      const updated = await r.journalEntries.updateInOrg(id, orgId, body as any)
+      const updated = await r.journalEntries.updateInOrg(id, orgId, {
+        ...body,
+        ...(body.lines ? { lines: body.lines.map(storedLine), totalDebit, totalCredit } : {}),
+      } as any)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'journal_entry', entityId: id, entityName: existing.entryNumber, changes: diffChanges(existing as any, updated as any) })
 
@@ -180,7 +208,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
           description: t.Optional(t.String()),
           debit: t.Number({ minimum: 0 }),
           credit: t.Number({ minimum: 0 }),
-          currency: t.String(),
+          currency: t.Optional(t.String()),
           exchangeRate: t.Optional(t.Number()),
           baseDebit: t.Optional(t.Number()),
           baseCredit: t.Optional(t.Number()),
@@ -212,21 +240,12 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     if (!entry) return status(404, { message: 'Journal entry not found' })
     if ((entry as any).status !== 'draft') return status(400, { message: 'Entry is not in draft status' })
 
-    const updated = await r.journalEntries.updateInOrg(id, orgId, {
-      status: 'posted',
-      postedBy: user.id,
-      postedAt: new Date(),
-    } as any)
-
-    // Update account balances
-    for (const line of (entry as any).lines) {
-      const amount = line.baseDebit - line.baseCredit
-      const account = await r.accounts.findById(line.accountId)
-      if (account) {
-        await r.accounts.update(line.accountId, {
-          balance: ((account as any).balance || 0) + amount,
-        } as any)
-      }
+    let updated
+    try {
+      updated = await postJournalEntry(id, user.id)
+    } catch (err) {
+      if (err instanceof JournalEntryRefusedError) return status(400, { message: err.message })
+      throw err
     }
 
     createAuditEntry({ orgId, userId: user.id, action: 'post', module: 'accounting', entityType: 'journal_entry', entityId: id, entityName: entry.entryNumber })
@@ -241,18 +260,13 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     if (!entry) return status(404, { message: 'Journal entry not found' })
     if ((entry as any).status !== 'posted') return status(400, { message: 'Can only void posted entries' })
 
-    // Reverse account balances
-    for (const line of (entry as any).lines) {
-      const amount = line.baseCredit - line.baseDebit
-      const account = await r.accounts.findById(line.accountId)
-      if (account) {
-        await r.accounts.update(line.accountId, {
-          balance: ((account as any).balance || 0) + amount,
-        } as any)
-      }
+    let updated
+    try {
+      updated = await voidJournalEntry(id)
+    } catch (err) {
+      if (err instanceof JournalEntryRefusedError) return status(400, { message: err.message })
+      throw err
     }
-
-    const updated = await r.journalEntries.updateInOrg(id, orgId, { status: 'voided' } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'accounting', entityType: 'journal_entry', entityId: id, entityName: entry.entryNumber })
 
