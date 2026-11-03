@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import {
-  invoiceLineFrom, invoiceTotalsOf, overClaimed, claimedByLine, mirroredPayments,
+  invoiceLineFrom, invoiceTotalsOf, overClaimed, claimedByLine, mirroredPayments, aheadOf,
 } from 'services/biz/cash-sale-invoice.service'
 import { isInvoiceForCashSale, NOT_INVOICE_FOR_CASH_SALE } from 'services/biz/sale-counting'
 import { buildInvoiceHtml } from 'reporting/pdf/invoice.pdf'
@@ -38,6 +38,32 @@ describe('a cash-sale line on an invoice', () => {
 describe('claims on a cash sale', () => {
   const sold = new Map([['L1', 5]])
   const claim = (id: string, q: number) => ({ id, lines: new Map([['L1', q]]) })
+
+  // #446, the interleaving `_id` order could not close: `b` (the later id) took its turn and read before
+  // `a`'s claim was written, so it saw nothing ahead; `a` then read `b` behind it by id. Both passed.
+  describe('the order each claim takes on the sale, not its `_id`', () => {
+    const doc = (id: string, q: number, invoiceNumber = 'INV-2026-00001') => ({ _id: id, invoiceNumber, lines: [{ cashSaleLineId: 'L1', quantity: q }] })
+    const docs = [doc('a', 4, '~pending:x'), doc('b', 4, '~pending:y')]
+    const turn = new Map([['b', 0], ['a', 1]])
+
+    it('the one that took its turn first is ahead, whatever its id; the other gives way', () => {
+      const forB = aheadOf(turn, docs, 'b')
+      expect(forB.claims).toEqual([])
+      expect(overClaimed(sold, [...forB.claims, claim('b', 4)], 'b', forB.order)).toEqual([])
+
+      const forA = aheadOf(turn, docs, 'a')
+      expect(forA.claims.map(c => c.id)).toEqual(['b'])
+      expect(overClaimed(sold, [...forA.claims, claim('a', 4)], 'a', forA.order)).toEqual([{ lineId: 'L1', remaining: 1, requested: 4 }])
+      // What `_id` order said: both fit.
+      expect(overClaimed(sold, [claim('a', 4), claim('b', 4)], 'a')).toEqual([])
+      expect(overClaimed(sold, [claim('a', 4)], 'b')).toEqual([])
+    })
+
+    it('a claim with no turn yet is behind; a numbered invoice with none predates the order, and is ahead', () => {
+      const noTurn = aheadOf(new Map([['a', 0]]), [doc('a', 1, '~pending:x'), doc('c', 1, '~pending:z'), doc('old', 1)], 'a')
+      expect(noTurn.claims.map(c => c.id)).toEqual(['old'])
+    })
+  })
 
   it('the earlier claims win; a later one that does not fit gives way', () => {
     const claims = [claim('b', 2), claim('a', 2), claim('c', 2), claim('d', 2)]

@@ -2118,14 +2118,18 @@ and the prototype's five docs.
   So it **moves no stock** (`stockSource` = `cash_sale:<number>`), is **born paid** (payment rows
   with `origin: 'cash_register'`, no `payment.recorded`) and **posts no journal entry** (`/send`
   emits no `invoice.posted` for it; the handler and `syncCashSettlement` skip it too).
-- ⚠ **Only the invoice stores the link** (`cashSaleRef`, `lines[].cashSaleLineId`). Nothing is ever
+- ⚠ **Only the invoice stores the link** (`cashSaleRef`, `lines[].cashSaleLineId`). Nothing of it is
   written to the cash sale (FR-20.51): its invoices are a query on `{orgId, 'cashSaleRef.cashSaleId'}`.
+  The one exception is the ORDER claims are judged in, `register.invoiceClaims` (#446), kept on the sale
+  as a storno's claims are (`register.stornoClaims`).
   ⚠ The DAL's entity mapper drops nested `_id`s, so cash-sale line ids come from Mongoose, never
   from `getRepos()` documents (`invoicingByCashSale` takes ids for that reason).
 - Quantities: a cash sale that **names a customer is invoiced whole, once**; one without (an imported
   till day, a walk-in) **in parts**, never beyond what was sold. Each line is a budget across live
-  invoices, drafts included. Claims are inserted under a `~pending:` number and checked in `_id`
-  order — the earlier claim wins, a later one that does not fit deletes itself — so nothing locks
+  invoices, drafts included. Claims are inserted under a `~pending:` number and checked in the order
+  each then takes atomically on the sale (`takeTurn`, #446; `_id` order let a later id that read first
+  and an earlier one written after it both pass) — the earlier claim wins, a later one that does not
+  fit deletes itself — so nothing locks
   the sale and a refused request burns no SALES_DOC number.
 - ⚠ **Every reader counts the sale once** (`services/biz/sale-counting.ts`): totals count the cash
   sale and skip invoices with `cashSaleRef`; per customer the invoice counts for its customer and

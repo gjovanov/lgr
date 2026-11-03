@@ -169,8 +169,13 @@ export function claimedByLine(claims: Claim[]): Map<string, number> {
  * and nobody needs a lock on the cash sale. An earlier claim that does not fit itself is giving
  * way too, so it takes nothing. Returns the lines of `ownId` that do not fit (empty = fits).
  */
-export function overClaimed(sold: Map<string, number>, claims: Claim[], ownId: string): Array<{ lineId: string; remaining: number; requested: number }> {
-  const ordered = [...claims].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+export function overClaimed(
+  sold: Map<string, number>,
+  claims: Claim[],
+  ownId: string,
+  order: (a: Claim, b: Claim) => number = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+): Array<{ lineId: string; remaining: number; requested: number }> {
+  const ordered = [...claims].sort(order)
   const used = new Map<string, number>()
   for (const c of ordered) {
     const over = misfitsOf(sold, used, c)
@@ -240,6 +245,43 @@ async function liveInvoicesOf(orgId: string, cashSaleId: string): Promise<any[]>
   ).sort({ _id: 1 }).lean().exec()
   const now = Date.now()
   return docs.filter(d => !(isPending(d) && leaseLapsed(d, now)))
+}
+
+/**
+ * ⚠ #446: the claims ahead of this one, in the order they are judged in. `_id` order could not decide it:
+ * an id is taken before its insert, so a later-id claim that read first and an earlier-id claim written
+ * after it each saw the other as behind, and both invoiced the last units.
+ *
+ * So each conversion, once its claim is written, adds itself to the sale's `register.invoiceClaims` in ONE
+ * atomic write and reads the order from that write. Every claim ahead of it in that order was written before
+ * it added itself, so the read that follows sees it. A claim not in the order yet comes after: it will add
+ * itself later, and see this one. A numbered invoice not in it predates the order, or was attached to the sale
+ * (`fitsAsLast`), and is ahead of every conversion, as `_id` order always had it.
+ */
+async function takeTurn(orgId: string, cashSaleId: unknown, ownId: string): Promise<Map<string, number>> {
+  const sale: any = await Invoice.findOneAndUpdate(
+    { _id: cashSaleId, orgId } as any,
+    { $addToSet: { 'register.invoiceClaims': new Types.ObjectId(ownId) } },
+    { new: true, projection: { 'register.invoiceClaims': 1 } },
+  ).lean().exec()
+  return new Map<string, number>(((sale?.register?.invoiceClaims || []) as unknown[]).map((id, i) => [idOf(id), i]))
+}
+
+/**
+ * The live claims ahead of `ownId` by `turn` (`takeTurn`), and the order to judge them in, `ownId` last.
+ * Exported for the unit test of the order itself.
+ */
+export function aheadOf(turn: Map<string, number>, claimDocs: any[], ownId: string): { claims: Claim[]; order: (a: Claim, b: Claim) => number } {
+  const ownTurn = turn.get(ownId) ?? Number.MAX_SAFE_INTEGER
+  // Before every turn: what predates the order. In turn, by it. A placeholder with no turn yet is behind.
+  const rank = (d: any) => turn.get(idOf(d._id)) ?? (isPending(d) ? Number.MAX_SAFE_INTEGER : -1)
+  const ranked = new Map<string, number>(claimDocs.map(d => [idOf(d._id), rank(d)]))
+  const claims = claimDocs.filter(d => idOf(d._id) !== ownId && rank(d) < ownTurn).map(claimOf)
+  const order = (a: Claim, b: Claim) =>
+    (a.id === ownId ? 1 : b.id === ownId ? -1 : 0)
+    || ((ranked.get(a.id) ?? 0) - (ranked.get(b.id) ?? 0))
+    || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  return { claims, order }
 }
 
 function claimOf(doc: any): Claim {
@@ -692,6 +734,11 @@ export async function createInvoiceForCashSale(
     }
   }
 
+  // #446: this claim's place in the sale's one order of conversions, taken after the claim is written and
+  // before anything below reads another's.
+  const ownId = idOf(own._id)
+  const turn = await takeTurn(orgId, cs._id, ownId)
+
   // FR-21 D-14: a storno claims the sale atomically. This claim is written first and the sale read
   // after, and the storno does the reverse (`invoicedRefusal`), so of the two racing one sees the other.
   const latest: any = await Invoice.findOne({ _id: cs._id, orgId } as any, { 'register.stornoState': 1, 'register.stornoClaims': 1 }).lean().exec()
@@ -700,12 +747,10 @@ export async function createInvoiceForCashSale(
     throw new CashSaleInvoiceError(422, 'cash_sale_stornoed', `Cash sale ${cs.invoiceNumber} was reversed by a storno — it cannot be invoiced`)
   }
 
-  // Does this claim fit beside the earlier ones? A later claim that does not gives way.
-  const claims = (await liveInvoicesOf(orgId, cashSaleId)).map(claimOf)
-  if (!claims.some(c => c.id === idOf(own._id))) claims.push(claimOf(own))
+  // Does this claim fit beside the ones ahead of it? A claim that does not gives way.
+  const { claims: earlier, order } = aheadOf(turn, await liveInvoicesOf(orgId, cashSaleId), ownId)
   // What a partial storno took meanwhile is not there to invoice: the sale as just read, not as the request began.
-  const over = overClaimed(soldByLine({ ...cs, register: latest?.register }), claims, idOf(own._id))
-  const earlier = claims.filter(c => c.id < idOf(own._id))
+  const over = overClaimed(soldByLine({ ...cs, register: latest?.register }), [...earlier, claimOf(own)], ownId, order)
   if (over.length || (cs.contactId && earlier.length)) {
     await dropOwn(own)
     if (cs.contactId && earlier.length) {
