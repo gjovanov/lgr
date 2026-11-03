@@ -35,6 +35,7 @@
       item-value="_id"
       hover
     >
+      <template #item.lastName="{ item }">{{ item.firstName }} {{ item.lastName }}</template>
       <template #item.status="{ item }">
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
@@ -43,7 +44,6 @@
       </template>
       <template #item.actions="{ item }">
         <v-btn icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
-        <v-btn icon="mdi-eye" size="small" variant="text" :to="`/employees/${item._id}`" />
       </template>
     </v-data-table-server>
 
@@ -81,7 +81,7 @@
               <v-row>
                 <v-col cols="6"><v-text-field v-model="form.employeeNumber" :label="$t('payroll.employeeNumber')" /></v-col>
                 <v-col cols="6">
-                  <v-select v-model="form.department" :label="$t('payroll.department')" :items="departments" item-title="name" item-value="_id" />
+                  <v-text-field v-model="form.department" :label="$t('payroll.department')" />
                 </v-col>
                 <v-col cols="6"><v-text-field v-model="form.position" :label="$t('payroll.position')" /></v-col>
                 <v-col cols="6">
@@ -198,8 +198,8 @@ const tab = ref('personal')
 
 const headers = [
   { title: t('payroll.employeeNumber'), key: 'employeeNumber' },
-  { title: t('common.name'), key: 'fullName' },
-  { title: t('payroll.department'), key: 'departmentName' },
+  { title: t('common.name'), key: 'lastName' },
+  { title: t('payroll.department'), key: 'department' },
   { title: t('payroll.position'), key: 'position' },
   { title: t('payroll.employmentType'), key: 'employmentType' },
   { title: t('common.status'), key: 'status' },
@@ -210,7 +210,6 @@ const headers = [
 const statuses = ['active', 'on_leave', 'terminated', 'suspended']
 const employmentTypes = ['full_time', 'part_time', 'contract', 'intern']
 const salaryFrequencies = ['monthly', 'biweekly', 'weekly', 'hourly']
-const departments = ref<any[]>([])
 
 const emptyForm = () => ({
   _id: '',

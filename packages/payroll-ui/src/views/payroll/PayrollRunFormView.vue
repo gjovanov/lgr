@@ -2,7 +2,7 @@
   <EntityFormShell
     :title="isEdit ? $t('common.edit') + ' ' + $t('payroll.payrollRun') : $t('common.create') + ' ' + $t('payroll.payrollRun')"
     :subtitle="isEdit ? form.name : ''"
-    :status="isEdit && runStatus ? { steps: ['Draft', 'Calculated', 'Approved', 'Paid'], current: runStatus } : undefined"
+    :status="isEdit && runStatus ? { steps: ['Draft', 'Calculated', 'Approved', 'Paid'], current: runStatus.charAt(0).toUpperCase() + runStatus.slice(1) } : undefined"
     :actions="formActions"
     :loading="loading"
     back-to="/runs"
@@ -80,7 +80,7 @@ const formRef = ref()
 const runStatus = ref('')
 const employees = ref<any[]>([])
 
-const form = ref({ _id: '', name: '', periodStart: '', periodEnd: '' })
+const form = ref({ _id: '', name: '', periodStart: '', periodEnd: '', currency: 'EUR' })
 
 const { markSaved, tryRestore } = usePendingChanges({
   appId: 'payroll',
@@ -100,10 +100,10 @@ const formActions = computed<FormAction[]>(() => {
   const actions: FormAction[] = [
     { label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value },
   ]
-  if (isEdit.value && runStatus.value === 'Draft') {
+  if (isEdit.value && runStatus.value === 'draft') {
     actions.push({ label: t('payroll.calculate'), color: 'info', icon: 'mdi-calculator', handler: calculate })
   }
-  if (isEdit.value && runStatus.value === 'Calculated') {
+  if (isEdit.value && runStatus.value === 'calculated') {
     actions.push({ label: t('payroll.approve'), color: 'success', icon: 'mdi-check-circle', handler: approve })
   }
   return actions
@@ -115,7 +115,7 @@ async function fetchItem() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/payroll/run/${route.params.id}`)
     const item = data.payrollRun || data
-    form.value = { _id: item._id, name: item.name || '', periodStart: item.periodStart || '', periodEnd: item.periodEnd || '' }
+    form.value = { _id: item._id, name: item.name || '', periodStart: item.period?.from?.slice(0, 10) || '', periodEnd: item.period?.to?.slice(0, 10) || '', currency: item.currency || 'EUR' }
     runStatus.value = item.status || ''
     employees.value = item.employees || []
   } catch (e: any) {
@@ -128,7 +128,7 @@ async function fetchItem() {
 async function handleSubmit() {
   saving.value = true
   try {
-    const payload = { name: form.value.name, periodStart: form.value.periodStart, periodEnd: form.value.periodEnd }
+    const payload = { name: form.value.name, period: { from: form.value.periodStart, to: form.value.periodEnd }, currency: form.value.currency }
     if (isEdit.value) {
       await httpClient.put(`${appStore.orgUrl()}/payroll/run/${route.params.id}`, payload)
     } else {
@@ -137,7 +137,9 @@ async function handleSubmit() {
       if (newId) {
         markSaved()
         showSuccess(t('common.savedSuccessfully'))
-        router.replace({ name: 'payroll.runs.edit', params: { id: newId } })
+        // The same form stays mounted, so nothing else reads the run's status for the next step.
+        await router.replace({ name: 'payroll.runs.edit', params: { id: newId } })
+        await fetchItem()
         return
       }
     }

@@ -35,12 +35,14 @@
       <template #item.status="{ item }">
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
-      <template #item.grossPay="{ item }">{{ formatCurrency(item.grossPay) }}</template>
-      <template #item.netPay="{ item }">{{ formatCurrency(item.netPay) }}</template>
-      <template #item.totalCost="{ item }">{{ formatCurrency(item.totalCost) }}</template>
+      <template #item.period="{ item }">{{ day(item.period?.from) }} – {{ day(item.period?.to) }}</template>
+      <template #item.employeeCount="{ item }">{{ item.totals?.employeeCount ?? 0 }}</template>
+      <template #item.grossPay="{ item }">{{ formatCurrency(item.totals?.grossPay ?? 0, item.currency) }}</template>
+      <template #item.netPay="{ item }">{{ formatCurrency(item.totals?.netPay ?? 0, item.currency) }}</template>
+      <template #item.totalCost="{ item }">{{ formatCurrency(item.totals?.totalEmployerCost ?? 0, item.currency) }}</template>
       <template #item.actions="{ item }">
-        <v-btn v-if="item.status === 'Draft'" icon="mdi-calculator" size="small" variant="text" color="info" @click="calculate(item._id)" title="Calculate" />
-        <v-btn v-if="item.status === 'Calculated'" icon="mdi-check-circle" size="small" variant="text" color="success" @click="approve(item._id)" title="Approve" />
+        <v-btn v-if="item.status === 'draft'" icon="mdi-calculator" size="small" variant="text" color="info" @click="calculate(item._id)" title="Calculate" />
+        <v-btn v-if="item.status === 'calculated'" icon="mdi-check-circle" size="small" variant="text" color="success" @click="approve(item._id)" title="Approve" />
         <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'payroll.runs.edit', params: { id: item._id } }" />
         <v-btn icon="mdi-chevron-down" size="small" variant="text" @click="toggleExpand(item._id)" />
       </template>
@@ -148,8 +150,10 @@ function toggleExpand(id: string) {
   else expanded.value.push(id)
 }
 
+const day = (value?: string) => (value ? new Date(value).toLocaleDateString() : '')
+
 function statusColor(status: string) {
-  const colors: Record<string, string> = { Draft: 'grey', Calculated: 'info', Approved: 'success', Paid: 'primary' }
+  const colors: Record<string, string> = { draft: 'grey', calculated: 'info', approved: 'success', paid: 'primary' }
   return colors[status] || 'grey'
 }
 

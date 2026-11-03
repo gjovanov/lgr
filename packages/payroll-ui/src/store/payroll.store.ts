@@ -22,13 +22,10 @@ export interface Employee {
 export interface PayrollRun {
   _id: string
   name: string
-  periodStart: string
-  periodEnd: string
+  period: { from: string; to: string }
+  currency: string
   status: 'draft' | 'calculated' | 'approved' | 'paid'
-  totalGross: number
-  totalDeductions: number
-  totalNet: number
-  employeeCount: number
+  totals: { grossPay: number; totalDeductions: number; netPay: number; totalEmployerCost: number; employeeCount: number }
   createdAt: string
 }
 
@@ -90,7 +87,7 @@ export const usePayrollStore = defineStore('payroll', () => {
   const totalPayrollCost = computed(() =>
     payrollRuns.value
       .filter(r => r.status === 'paid')
-      .reduce((sum, r) => sum + r.totalGross, 0)
+      .reduce((sum, r) => sum + (r.totals?.grossPay ?? 0), 0)
   )
 
   // --- Employees ---
@@ -99,6 +96,16 @@ export const usePayrollStore = defineStore('payroll', () => {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/payroll/employee`, { params: filters })
       employees.value = data.employees || []
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function fetchEmployee(id: string) {
+    loading.value = true
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/payroll/employee/${id}`)
+      return data.employee
     } finally {
       loading.value = false
     }
@@ -148,7 +155,7 @@ export const usePayrollStore = defineStore('payroll', () => {
     }
   }
 
-  async function createPayrollRun(payload: { name: string; periodStart: string; periodEnd: string }) {
+  async function createPayrollRun(payload: Pick<PayrollRun, 'name' | 'period' | 'currency'>) {
     loading.value = true
     try {
       const { data } = await httpClient.post(`${orgUrl()}/payroll/run`, payload)
@@ -294,6 +301,9 @@ export const usePayrollStore = defineStore('payroll', () => {
   }
 
   // --- Save wrappers (create or update) ---
+  /** Optional, and no value means leaving it out: the API validates what it is sent, and `email: ''` is no address. */
+  const OPTIONAL_EMPLOYEE_FIELDS = ['email', 'gender', 'managerId', 'contractEndDate', 'probationEndDate'] as const
+
   /** FR-25 §3.12: reads sealed values for one person. The server records who, what and why. */
   async function revealEmployeePersonal(id: string, fields: readonly string[], reason: 'edit' | 'declaration' | 'employee_request' | 'audit') {
     const { data } = await httpClient.post(`${orgUrl()}/payroll/employee/${id}/reveal`, { fields, reason })
@@ -301,8 +311,10 @@ export const usePayrollStore = defineStore('payroll', () => {
   }
 
   async function saveEmployee(payload: any) {
-    if (payload._id) return updateEmployee(payload._id, payload)
-    return createEmployee(payload)
+    const sent = { ...payload }
+    for (const field of OPTIONAL_EMPLOYEE_FIELDS) if (!sent[field]) delete sent[field]
+    if (sent._id) return updateEmployee(sent._id, sent)
+    return createEmployee(sent)
   }
 
   async function savePayrollRun(payload: any) {
@@ -328,6 +340,7 @@ export const usePayrollStore = defineStore('payroll', () => {
     totalPayrollCost,
     // Actions - Employees
     fetchEmployees,
+    fetchEmployee,
     createEmployee,
     updateEmployee,
     deleteEmployee,
