@@ -232,6 +232,91 @@ describe('parse-table — PlusMinus layout reader', () => {
 })
 
 /**
+ * A фактура's VAT is worked out once, on its base, and the lines' VAT rounded one by one can sum a
+ * cent away from it. Two lines of 0.33 at 20%: each line's VAT is 0.066 → 0.07, so the lines sum to
+ * 0.14, while the document prints round(0.66 × 20%) = 0.13 and a sum due of 0.79. The draft must
+ * carry what the document prints, or LGR stores an invoice that is not the one issued.
+ */
+describe('фактура — the VAT and the sum due its footer prints', () => {
+  const invoice = (footer: string[], body?: string[]) => [
+    row([70, 'ФАКТУРА'], [100, 'Номер:']),
+    row([102, 'Дата:']),
+    row([110, '3000702003']),
+    row([110, '15.08.2026']),
+    row([0, 'ПОЛУЧАТЕЛ'], [17, 'ТЕСТ КЛИЕНТ ООД'], [77, 'ДОСТАВЧИК'], [95, 'ТЕСТ ДОСТАВЧИК ООД']),
+    row([0, 'ЕИК'], [17, '999000191'], [77, 'ЕИК'], [95, '123456786']),
+    row([4, 'No'], [33, 'Име'], [66, 'Мяр'], [78, 'Кол'], [92, 'Цена'], [106, 'ТО'], [117, 'Стойност']),
+    ...(body ?? [
+      row([0, '1'], [13, 'ТЕСТ ВИНТ 4.2Х16'], [66, 'БР'], [80, '1'], [92, '0.33'], [124, '0.33']),
+      row([0, '2'], [13, 'ТЕСТ ВИНТ 4.2Х19'], [66, 'БР'], [80, '1'], [92, '0.33'], [124, '0.33']),
+    ]),
+    ...footer,
+  ].join('\n')
+
+  it('takes the VAT and the sum due as printed, not the sum of the lines’ VAT', () => {
+    const draft = draftFromLayoutText(invoice([
+      row([0, 'Словом : тест'], [80, 'Данъчна основа'], [120, '0.66 €']),
+      row([80, 'ДДС ( 20 % )'], [120, '0.13 €']),
+      row([80, 'Сума за плащане'], [120, '0.79 €']),
+    ]), 'invoice')
+    expect(draft?.extraction.net_total).toBe(0.66)
+    expect(draft?.extraction.vat_total).toBe(0.13)
+    expect(draft?.extraction.gross_total).toBe(0.79)
+    expect(draft?.validation.checks.map(c => c.check)).toContain('totals_net_vat_gross')
+  })
+
+  it('reads a sum due grouped by spaces', () => {
+    const body = [row([0, '1'], [13, 'ТЕСТ ВИНТ 4.2Х16'], [66, 'БР'], [79, '1000'], [92, '1.0287'], [120, '1 028.70'])]
+    const draft = draftFromLayoutText(invoice([
+      row([0, 'Словом : тест'], [80, 'Данъчна основа'], [116, '1 028.70 €']),
+      row([80, 'ДДС ( 20 % )'], [118, '205.74 €']),
+      row([80, 'Сума за плащане'], [116, '1 234.44 €']),
+    ], body), 'invoice')
+    expect(draft?.extraction.net_total).toBe(1028.7)
+    expect(draft?.extraction.vat_total).toBe(205.74)
+    expect(draft?.extraction.gross_total).toBe(1234.44)
+  })
+
+  it('refuses a footer whose figures do not add up, so the sidecar reads it instead', () => {
+    expect(draftFromLayoutText(invoice([
+      row([0, 'Словом : тест'], [80, 'Данъчна основа'], [120, '0.66 €']),
+      row([80, 'ДДС ( 20 % )'], [120, '0.13 €']),
+      row([80, 'Сума за плащане'], [120, '0.80 €']),
+    ]), 'invoice')).toBeNull()
+  })
+
+  it('keeps the signs of a credit note, which prints every figure negative', () => {
+    const body = [
+      row([0, '1'], [13, 'ТЕСТ ВИНТ 4.2Х16'], [66, 'БР'], [79, '-1'], [92, '0.33'], [123, '-0.33']),
+      row([0, '2'], [13, 'ТЕСТ ВИНТ 4.2Х19'], [66, 'БР'], [79, '-1'], [92, '0.33'], [123, '-0.33']),
+    ]
+    const draft = draftFromLayoutText(invoice([
+      row([0, 'Словом : тест'], [80, 'Данъчна основа'], [119, '-0.66 €']),
+      row([80, 'ДДС ( 20 % )'], [119, '-0.13 €']),
+      row([80, 'Сума за плащане'], [119, '-0.79 €']),
+    ], body), 'invoice')
+    expect(draft?.extraction.vat_total).toBe(-0.13)
+    expect(draft?.extraction.gross_total).toBe(-0.79)
+  })
+
+  it('leaves the VAT to the lines, as before, when the footer prints no sum due', () => {
+    const draft = draftFromLayoutText(invoice([row([0, 'Словом : тест'], [80, 'Данъчна основа'], [120, '0.66 €'])]), 'invoice')
+    expect(draft?.extraction.net_total).toBe(0.66)
+    expect(draft?.extraction.vat_total).toBeUndefined()
+    expect(draft?.extraction.gross_total).toBeUndefined()
+  })
+
+  it('reads nothing of the kind on a stock note', () => {
+    const text = stockNote([
+      row([0, '1'], [5, 'ТЕСТ БОЛТ М8'], [47, 'БР'], [52, '10'], [59, '0.5'], [69, '0.4'], [79, '0.3'], [87, '5.00']),
+    ], 5)
+    const draft = draftFromLayoutText(text, 'goods_receipt')
+    expect(draft?.extraction.vat_total).toBeUndefined()
+    expect(draft?.extraction.gross_total).toBeUndefined()
+  })
+})
+
+/**
  * The 2026-08-31 export widened the разписка with two more price columns („Прод. цена" and
  * „Цена на едро"). Every remaining column got narrower, so pdftotext wrapped the HEADINGS across
  * five rows — „Кол" itself broke into „Ко"+„л" — and split each row's NUMBERS across up to three
