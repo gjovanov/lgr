@@ -98,3 +98,6 @@ export interface IPayslip extends TenantEntity {
 | GET | `/:id` | isSignIn | Get single payslip by ID |
 | PUT | `/:id` | isSignIn | Update payslip |
 | DELETE | `/:id` | isSignIn | Delete payslip |
+| POST | `/:id/reveal` | `payroll.personal` | FR-25 §3.12: a sealed payslip's amounts. Audit-logged before it answers. |
+
+Under `settings.payroll.engine: 'bg'` the amounts are in `sealed`, one sealed JSON, and `earnings`, `deductions`, `grossPay` and `netPay` stay empty. Such a payslip is generated at approval, and cannot be edited.

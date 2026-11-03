@@ -30,10 +30,13 @@ export interface IPayslip extends Document {
   period: { from: Date; to: Date }
   earnings: IPayslipEarning[]
   deductions: IPayslipDeduction[]
-  grossPay: number
+  grossPay?: number
   totalDeductions: number
-  netPay: number
+  netPay?: number
   yearToDate: IPayslipYearToDate
+  /** FR-25 §3.12: under `bg`, the amounts above are empty and live here, in one sealed JSON. */
+  engine?: 'bg'
+  sealed?: string
   paymentMethod: string
   paymentReference?: string
   status: string
@@ -63,6 +66,10 @@ const payslipDeductionSchema = new Schema<IPayslipDeduction>(
   { _id: false },
 )
 
+function isPlainPayslip(this: { sealed?: string }): boolean {
+  return !this.sealed
+}
+
 const payslipSchema = new Schema<IPayslip>(
   {
     payrollRunId: { type: Schema.Types.ObjectId, ref: 'PayrollRun', required: true },
@@ -73,9 +80,11 @@ const payslipSchema = new Schema<IPayslip>(
     },
     earnings: [payslipEarningSchema],
     deductions: [payslipDeductionSchema],
-    grossPay: { type: Number, required: true },
+    grossPay: { type: Number, required: isPlainPayslip },
     totalDeductions: { type: Number, required: true, default: 0 },
-    netPay: { type: Number, required: true },
+    netPay: { type: Number, required: isPlainPayslip },
+    engine: { type: String, enum: ['bg'] },
+    sealed: String,
     yearToDate: {
       grossPay: { type: Number, required: true, default: 0 },
       totalDeductions: { type: Number, required: true, default: 0 },

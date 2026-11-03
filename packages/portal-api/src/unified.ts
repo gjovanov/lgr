@@ -301,6 +301,13 @@ setTimeout(async () => {
     await checkPersonalDataKeys()
     await sealPlainEmployees(await homeScope())
   })
+  // FR-25 §3.10: the law's dated values. Global reference data: a master holds at most a cache.
+  if (nodeRole() === 'global') {
+    await once('payroll-parameters', async () => {
+      const { seedPayrollParameters } = await import('services/biz/payroll/bg/parameters.service')
+      await seedPayrollParameters()
+    })
+  }
   // FR-21.28: say at startup when the cash register will answer 503 until `bun run migrate` (0009).
   await once('cash-register-readiness', async () => {
     const { logRegisterReadiness } = await import('services/biz/cash-register/freeze-check')

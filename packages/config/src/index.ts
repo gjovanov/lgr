@@ -420,6 +420,13 @@ export const config = {
     /** Set only during a rotation, until `scripts/personal-data-key.ts rewrap` has run. */
     previousKek: readPersonalDataKek('PERSONAL_DATA_KEK_PREVIOUS', process.env.PERSONAL_DATA_KEK_PREVIOUS, false),
   },
+  payroll: {
+    /**
+     * FR-25 §7.4: обр. 1 and 6 name the software that wrote them, by its maker's EIK. No default: a
+     * declaration written without one is refused, and no value belongs in this repo.
+     */
+    developerEik: process.env.PAYROLL_DEVELOPER_EIK || undefined,
+  },
   jwt: {
     secret: requiredSecret('JWT_SECRET', process.env.JWT_SECRET, JWT_DEV_FALLBACK),
     maxAge: 24 * 60 * 60, // 24 hours

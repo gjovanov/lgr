@@ -788,6 +788,41 @@ Each is deployable alone and each has a gate. No release turns anything on in a 
 
 R1, then R2 and P1 in parallel, then R3. R4 and P2 can run side by side, then R5 and P3. Nothing in P1–P3 touches a store org.
 
+### P1 and the engine of P2, as built
+
+The models of §3.10, sealed per §3.12. A person's month is `PayrollRun.sealedItems[]`, not `items[]`, which keeps the shape other tenants use. The class supplement is an input, not derived: РКС № 17/2026 struck parts of КТ чл. 355, and what applies after it needs the accountant (§12). `scripts/compare-payroll-files.ts` and `scripts/prove-payroll-engine.ts` print counts, and this is what they say.
+
+| Check, on what is on disk | Holds |
+|---|---:|
+| Parse and emit again equals the filed bytes, the developer field aside | 59 of 59 обр. 1 files (974 records), 57 of 57 обр. 6 |
+| Insurable income: the larger of gross and the floor for the days, then the cap | 720 of 720 person-months |
+| The engine's rates equal the percentages filed: ДОО, ЗО, УПФ | 705 of 705 |
+| ТЗПБ from Annex 2 and 2А, 2026 only | 149 of 149 |
+| Each share rounded per person, summed per fund = обр. 6: ДОО, ДЗПО | 42 of 42 |
+| The same for ЗО | 41 of 42 (January 2026, below) |
+| Tax = (taxable income − employee's contributions) × 10% | 714 of 720, and the other 6 with the disability relief |
+| Declared net, outside January | 670 of 670, 6 of them with that relief |
+| Health base on sick and childcare days | 719 of 720 (January 2026, below) |
+| Health base on unpaid leave | 720 of 720 |
+| Employer's sick pay: 70% of the month's daily average | 41 of 49. 2 rows have no worked day, so the contract's day decides, which the declaration does not carry |
+| Tax on обр. 6 = the previous month's | 37 of 37 outside the rows below; January 2026 equal at the fixed rate; 2 of 3 Februaries within one unit once the annual recalculation is taken off |
+| A month's salary = the full salary × days ÷ working days, on the sheets | 16 of 17 that can be compared |
+
+What these taught, beyond §1.8 and §7.4:
+
+- **Field 19** is four characters: the days, two; statutory hours, one; contract hours a day, one (Н-13, т. 16).
+- **The floor.** The filed months fit the self-insured minimum, in proportion to days worked and the employer's sick days, in every month. Annexes 1 and 1А agree on all of 2026. Earlier years' annexes are not held, so the engine uses that minimum for them, and refuses a month where an annex is in force and the group or the row is missing. ⚠ The install's own table by КИД is 2016's: whether a floor above the minimum was owed in a month before 2026 cannot be told from what is held.
+- **Field 46 is blank** on all 168 rows of 4 people, whose taxable income is above the cap on 165 of them. For them the taxable income stands in for gross. Why the install leaves it blank is not known.
+- **Field 50 is the wage's net, capped at the highest insurable income** (НПОПДОО чл. 32). A compensation at leaving is taxable and not insurable, and stays out of it, with the tax on it. In January it also carries the annual recalculation.
+- **Health on sick and childcare days** is the employer's 4.8% on the self-insured minimum, in proportion. At the cap there is none: 7 rows have none, and the other 55 carry it whole.
+- **Health on unpaid leave** is 8% on half that minimum, in proportion, and in all 15 rows the net leaves it out (§12).
+- **January 2026 was filed with 22 working days** in all 16 rows, where the calendar has 20: the weekdays, with no holiday taken off. The month's one health base on sick days is a share of 22, not of 20, and that is the one ЗО month that misses.
+- **January 2026's two versions,** written the same day, differ only in field 50, on 10 rows. On the older, net = gross − contributions − tax on all 16. The newer leaves that on 9 rows, for no reason found (§12).
+- **Leave pay does not follow КТ чл. 177 as read.** On the sheets it is this month's day, (salary + class) ÷ days worked, in 35 of 42 rows to the cent and 40 within 1%. The last month with 10 worked days gives it in 4 of 43. So the engine defaults to this month's day and takes `leaveDailyBase` when given one (§12).
+- **The class supplement** keeps one share of the salary all year in 22 of 26 person-years, and is the personnel export's class percentage within 0.15 points in 26 of 45 rows. Not enough to derive it, as above.
+- **A line is a person on a contract** (§11). An imported row goes to the contract in force on its first day of insurance (field 9), and a month where two rows land on one contract is refused, rather than guessed. Every month on disk has one row a person.
+- **Not yet proven:** the annual recalculation, within 2 cents on most January rows and no more; an advance run, which is refused; January's correction in 2026.
+
 ### R0 — repairs the import would hit first
 
 | # | Where | What is wrong |
@@ -888,6 +923,14 @@ What a later release should know:
 
 12. **The NRA account statement for 2025:** do net receipts exceed 1.5M лв.? It decides SAF-T 2028 or 2029 (§7.7). Which size category is the company, and is it above an Intrastat threshold?
 13. **Are the groups "similar" enough for СС 2** (§7.9), and is the policy written down?
+
+**From P1's proof** (§9):
+
+- **Leave pay:** this month's day, as the sheets show, or КТ чл. 177's last month with 10 worked days? They differ when a month has fewer working days.
+- **January 2026:** which of the two versions was filed? Was it filed with 22 working days, and does that need a correction?
+- **Health on unpaid leave:** who bears it? It is declared and paid, and it is not taken from the person's net.
+- **The class supplement** after РКС № 17/2026 (§7.5, item 2): what rule applies, from when, and to which past periods?
+- **The disability relief:** the tax on 6 person-months shows it, and no file holds the decision. E8 should.
 
 **Decided by the owner, 2026-11-03:**
 

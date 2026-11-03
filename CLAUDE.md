@@ -180,6 +180,43 @@ wrapped by `PERSONAL_DATA_KEK`, which is in no database and no backup. Runbook:
 - `payroll.read` is a run's totals. Anything about one person needs `payroll.personal`.
 - Fixtures use an ЕГН that passes the checksum with month 13, so it can be nobody's: `7513020014`.
 
+## Bulgarian payroll (FR-25 P1, P2)
+
+`settings.payroll.engine: 'bg'` turns it on. Unset, a run behaves as it always did. All of it is in
+`services/biz/payroll/bg/`, and every file there except the `.service` ones and the sealing helpers is
+import-pure.
+
+- ⚠ **One calculation.** `engine.ts#calculatePerson` is what `/calculate`, and the proof, call. Anything it
+  does not implement is `UnsupportedPayrollCaseError`, a 422: a type other than `01` is never calculated as
+  `01` (D11).
+- ⚠ **Whole cents, half up, on the magnitude** (`money.ts`). Never `Math.round(x * 100) / 100`: on doubles it
+  rounds some .xx5 values down, and the filed files go to the cent. Each share is rounded once, per
+  person, on the percentage the form carries (ДОО as one percentage, not its three funds).
+- ⚠ **A parameter is looked up by date, never by year**: 2026 alone has two periods, split at 08-01.
+  `parameters.data.ts` is the law as data, and a row in `PayrollParameter` wins over it. A month with no
+  calendar row is refused, rather than using last year's.
+- ⚠ **The class supplement is an input** (`classSupplement` in `earnings`), like any amount that is not
+  derived. РКС № 17/2026 struck parts of КТ чл. 355 and what applies after it needs the accountant, so
+  nothing calculates from `classPercent` or `experienceAtStart`, and стаж is never counted in hours.
+- ⚠ **One person's month is one sealed JSON** in `PayrollRun.sealedItems`, bound to the run, the person and
+  the contract (`runItemPath`), so swapping two people's lines does not open. It holds no id: a restore
+  rewrites ids and must not have to look inside. Totals stay in clear, as `ЗАП` carries them anyway.
+  `items` stays empty on such a run.
+- A new sealed place joins `SEALED_PATHS` in `personal-data/restore.ts` and `views.ts`, which is an allow-list:
+  no route sends a model as it is. A person's amounts come out through `POST …/reveal`, which writes its
+  audit row first.
+- **Import** (§5.1): `scripts/import-payroll.ts` opens the sealed files in memory and posts to
+  `POST payroll/import/{employees,contracts,months}`, which need `payroll.import` and `payroll.personal`.
+  `dryRun` is the default of the routes too. A month is replaced whole, and answers in counts. A line is a
+  person on a contract (§11): a row goes to the contract in force on its field 9, and two rows landing on
+  one contract refuse the month. ⚠ What an import prints, logs or audits is counts and month names, never a
+  person.
+- **Proof, printing counts only:** `scripts/compare-payroll-files.ts` (re-emit equals the filed bytes) and
+  `scripts/prove-payroll-engine.ts` (each filed person-month through the engine). Results: FR-25 §9.
+- Обр. 1 and 6 name their software: `PAYROLL_DEVELOPER_EIK`, no default, and no value in this repo.
+- ⚠ The CP1251 codec is `config/cp1251` (`fiscal/cp1251` re-exports it): `services` cannot import `fiscal`,
+  which depends on it.
+
 ## Org homes: only the home writes (FR-20.3/FR-20.4, plan step P0b-2)
 
 Every org has one **home** that writes its data: `global` or an on-prem master. `org_homes` (`OrgHome`,

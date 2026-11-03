@@ -79,6 +79,11 @@ export { Employee, type IEmployee } from './employee.model.js'
 export { PersonalDataKey, type IPersonalDataKey, type IPersonalDataKeyEntry } from './personal-data-key.model.js'
 export { PayrollRun, type IPayrollRun } from './payroll-run.model.js'
 export { Payslip, type IPayslip } from './payslip.model.js'
+export { EmploymentContract, type IEmploymentContract, type IEmploymentAmendment, type IEmploymentTermination } from './employment-contract.model.js'
+export { PayrollParameter, type IPayrollParameter } from './payroll-parameter.model.js'
+export { PayrollElement, type IPayrollElement } from './payroll-element.model.js'
+export { AbsenceEntry, type IAbsenceEntry } from './absence-entry.model.js'
+export { LeaveBalance, type ILeaveBalance } from './leave-balance.model.js'
 export { Timesheet, type ITimesheet } from './timesheet.model.js'
 
 // ERP (POS only)

@@ -1,5 +1,6 @@
 import { PersonalDataKey } from 'db/models'
-import { clearVaultCache, forOrg, keyRowOpens, PersonalDataLockedError, vaultFromRow } from './personal-data.service.js'
+import { runItemPath } from './crypto.js'
+import { clearVaultCache, forOrg, keyRowOpens, PersonalDataLockedError, vaultFromRow, type OrgVault } from './personal-data.service.js'
 
 /**
  * FR-25 §3.12: what a restore must do about sealed values.
@@ -10,9 +11,23 @@ import { clearVaultCache, forOrg, keyRowOpens, PersonalDataLockedError, vaultFro
  */
 const KEY_MODEL = 'PersonalDataKey'
 
-/** Model → the path holding one sealed JSON. New sealed models join here, or a remap breaks them. */
-export const SEALED_PATHS: Readonly<Record<string, string>> = {
-  Employee: 'personal',
+/** One sealed JSON on the document, or one on each entry of a list, under a path of its own. */
+type SealedLocation =
+  | { path: string }
+  | { list: string; value: string; pathOf: (entry: any) => string }
+
+/** Where a model keeps sealed values. New sealed models join here, or a remap breaks them. */
+export const SEALED_PATHS: Readonly<Record<string, readonly SealedLocation[]>> = {
+  Employee: [{ path: 'personal' }],
+  EmploymentContract: [{ path: 'pay' }],
+  AbsenceEntry: [{ path: 'detail' }],
+  Payslip: [{ path: 'sealed' }],
+  PayrollRun: [{ path: 'filed' }, { list: 'sealedItems', value: 'sealed', pathOf: runItemPath }],
+}
+
+function holdsValue(doc: any, location: SealedLocation): boolean {
+  if ('path' in location) return !!doc?.[location.path]
+  return (doc?.[location.list] ?? []).some((entry: any) => entry?.[location.value])
 }
 
 export interface PersonalDataRestore {
@@ -36,7 +51,8 @@ export async function planPersonalDataRestore(
   remapTo: string | null,
 ): Promise<PersonalDataRestore> {
   const bundleRow = (byCollection.get(KEY_MODEL) ?? [])[0]
-  const holdsSealed = Object.entries(SEALED_PATHS).some(([model, path]) => (byCollection.get(model) ?? []).some(d => d?.[path]))
+  const holdsSealed = Object.entries(SEALED_PATHS).some(([model, locations]) =>
+    (byCollection.get(model) ?? []).some(doc => locations.some(location => holdsValue(doc, location))))
   if (holdsSealed && !bundleRow) {
     throw new PersonalDataLockedError('this bundle holds sealed personal data but not the keys for it')
   }
@@ -63,23 +79,37 @@ export async function planPersonalDataRestore(
     },
 
     async prepare(name, rawDocs, docs) {
-      const path = SEALED_PATHS[name]
-      if (!remapTo || !path || !rawDocs.some(d => d?.[path])) return docs
+      const locations = SEALED_PATHS[name]
+      if (!remapTo || !locations || !rawDocs.some(doc => locations.some(location => holdsValue(doc, location)))) return docs
       const from = vaultFromRow(bundleRow)
       const to = await forOrg(remapTo)
-      return docs.map((doc, i) => {
-        const sealed = rawDocs[i]?.[path]
-        if (!sealed) return doc
-        // `docs[i]` is `rawDocs[i]` rewritten: the origin's id opens it, the new one seals it.
-        const value = from.open(name, String(rawDocs[i]._id), path, sealed)
-        return { ...doc, [path]: to.seal(name, String(doc._id), path, value), ...reindexed(name, to, value) }
-      })
+      // `docs[i]` is `rawDocs[i]` rewritten: the origin's id opens a value, the new one seals it.
+      return docs.map((doc, i) => locations.reduce((out, location) => resealed(name, location, rawDocs[i], out, from, to), doc))
     },
 
     finished(orgId) {
       clearVaultCache(orgId)
     },
   }
+}
+
+function resealed(name: string, location: SealedLocation, raw: any, doc: any, from: OrgVault, to: OrgVault): any {
+  const rawId = String(raw?._id)
+  const newId = String(doc._id)
+  if ('path' in location) {
+    const sealed = raw?.[location.path]
+    if (!sealed) return doc
+    const value = from.open(name, rawId, location.path, sealed)
+    return { ...doc, [location.path]: to.seal(name, newId, location.path, value), ...reindexed(name, to, value) }
+  }
+  const rawEntries: any[] = raw?.[location.list] ?? []
+  const entries = (doc[location.list] ?? []).map((entry: any, j: number) => {
+    const sealed = rawEntries[j]?.[location.value]
+    if (!sealed) return entry
+    const value = from.open(name, rawId, location.pathOf(rawEntries[j]), sealed)
+    return { ...entry, [location.value]: to.seal(name, newId, location.pathOf(entry), value) }
+  })
+  return { ...doc, [location.list]: entries }
 }
 
 /** A lookup value belongs to the keys it was made with, so a re-sealed row needs a new one. */

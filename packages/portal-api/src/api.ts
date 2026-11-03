@@ -89,6 +89,8 @@ import { employeeController } from 'payroll-api/src/controllers/employee.control
 import { payrollRunController } from 'payroll-api/src/controllers/run.controller.js'
 import { payslipController } from 'payroll-api/src/controllers/payslip.controller.js'
 import { timesheetController } from 'payroll-api/src/controllers/timesheet.controller.js'
+import { payrollImportController } from 'payroll-api/src/controllers/import.controller.js'
+import { absenceController, contractController, leaveBalanceController } from 'payroll-api/src/controllers/contract.controller.js'
 
 // Reports controllers (FR-06 #14)
 import { reportsController } from 'reports-api/src/controllers/report.controller.js'
@@ -284,6 +286,10 @@ export function createApiApp() {
         .use(payrollRunController)
         .use(payslipController)
         .use(timesheetController)
+        .use(contractController)
+        .use(absenceController)
+        .use(leaveBalanceController)
+        .use(payrollImportController)
 
         // POS
         .use(posController)

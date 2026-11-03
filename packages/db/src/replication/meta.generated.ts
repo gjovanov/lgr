@@ -4,6 +4,7 @@
 import type { MetaEntry } from './generate.js'
 
 export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
+  AbsenceEntry: { collection: 'absenceentries', class: 'R', orgPath: 'orgId' },
   Account: { collection: 'accounts', class: 'R', orgPath: 'orgId' },
   AccountingAnalytic: { collection: 'accountinganalytics', class: 'R', orgPath: 'orgId' },
   ArchiveUnit: { collection: 'archiveunits', class: 'R', orgPath: 'orgId' },
@@ -27,6 +28,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   DocFile: { collection: 'docfiles', class: 'R', orgPath: 'orgId' },
   EmailLog: { collection: 'emaillogs', class: 'N', orgPath: 'orgId' },
   Employee: { collection: 'employees', class: 'R', orgPath: 'orgId' },
+  EmploymentContract: { collection: 'employmentcontracts', class: 'R', orgPath: 'orgId' },
   ExchangeRate: { collection: 'exchangerates', class: 'R', orgPath: 'orgId' },
   FencedExport: { collection: 'fenced_exports', class: 'N', orgPath: 'orgId' },
   FencedImportItem: { collection: 'fenced_import_items', class: 'N', orgPath: 'orgId' },
@@ -45,6 +47,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   Invoice: { collection: 'invoices', class: 'R', orgPath: 'orgId' },
   Journal: { collection: 'journals', class: 'R', orgPath: 'orgId' },
   JournalEntry: { collection: 'journalentries', class: 'R', orgPath: 'orgId' },
+  LeaveBalance: { collection: 'leavebalances', class: 'R', orgPath: 'orgId' },
   LocalCredential: { collection: 'local_credentials', class: 'N', orgPath: null },
   LoginThrottle: { collection: 'login_throttles', class: 'N', orgPath: null },
   MirrorBlob: { collection: 'mirror_blobs', class: 'N', orgPath: 'orgId' },
@@ -73,6 +76,8 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   Outbox: { collection: 'outbox', class: 'N', orgPath: 'orgId' },
   PaymentOrder: { collection: 'paymentorders', class: 'R', orgPath: 'orgId' },
   PaymentTerm: { collection: 'paymentterms', class: 'R', orgPath: 'orgId' },
+  PayrollElement: { collection: 'payrollelements', class: 'R', orgPath: 'orgId' },
+  PayrollParameter: { collection: 'payrollparameters', class: 'G', orgPath: null },
   PayrollRun: { collection: 'payrollruns', class: 'R', orgPath: 'orgId' },
   Payslip: { collection: 'payslips', class: 'R', orgPath: 'orgId' },
   PermissionSet: { collection: 'permissionsets', class: 'R', orgPath: 'orgId' },

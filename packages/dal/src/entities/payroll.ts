@@ -105,6 +105,16 @@ export interface IPayrollRunTotals {
   netPay: number
   totalEmployerCost: number
   employeeCount: number
+  insurableIncome?: number
+  tax?: number
+  contributions?: Record<'doo' | 'tzpb' | 'dzpo' | 'zo' | 'gvrs', { employer: number; employee: number }>
+}
+
+/** FR-25 §3.12: one person's line on a Bulgarian run, all of it in `sealed`. */
+export interface IPayrollRunSealedItem {
+  employeeId: string
+  contractId?: string
+  sealed: string
 }
 
 export interface IPayrollRun extends TenantEntity {
@@ -114,6 +124,15 @@ export interface IPayrollRun extends TenantEntity {
   currency: string
   items: IPayrollRunItem[]
   totals: IPayrollRunTotals
+  engine?: 'bg'
+  periodCode?: string
+  kind?: 'advance' | 'salary'
+  source?: 'engine' | 'imported'
+  ledger?: 'shadow'
+  parametersAsOf?: string
+  sealedItems?: IPayrollRunSealedItem[]
+  filed?: string
+  fileVersion?: string
   journalEntryId?: string
   approvedBy?: string
   approvedAt?: Date
@@ -151,10 +170,13 @@ export interface IPayslip extends TenantEntity {
   period: { from: Date; to: Date }
   earnings: IPayslipEarning[]
   deductions: IPayslipDeduction[]
+  /** Empty under `bg`: the amounts are in `sealed`. */
   grossPay: number
   totalDeductions: number
   netPay: number
   yearToDate: IPayslipYearToDate
+  engine?: 'bg'
+  sealed?: string
   paymentMethod: string
   paymentReference?: string
   status: string

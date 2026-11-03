@@ -79,6 +79,8 @@ export interface IOrg extends Document {
       socialSecurityRate: number
       healthInsuranceRate: number
       pensionRate: number
+      /** FR-25 §6.4: `bg` is the Bulgarian calculation. Unset keeps the generic behaviour exactly. */
+      engine?: 'bg'
     }
     inventory?: {
       defaultCostingMethod?: string
@@ -259,6 +261,7 @@ const orgSchema = new Schema<IOrg>(
         socialSecurityRate: { type: Number, default: 0 },
         healthInsuranceRate: { type: Number, default: 0 },
         pensionRate: { type: Number, default: 0 },
+        engine: { type: String, enum: ['bg'] },
       },
       inventory: {
         defaultCostingMethod: { type: String, enum: ['wac', 'fifo', 'lifo', 'fefo', 'standard'], default: 'wac' },

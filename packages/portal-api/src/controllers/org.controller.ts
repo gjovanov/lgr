@@ -23,10 +23,14 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
       // Each settings block sent replaces that block, and only that one. A whole `settings` in the
       // update replaced every block the page never sends — the org's time zone (the digest's days,
       // the cash register's) and the cash register's switches among them.
+      // ⚠ Payroll's block goes field by field: a page that saves `payFrequency` must not take
+      // `engine` with it, which would put a Bulgarian org's next run on the generic calculation.
       const { settings, ...fields } = body as any
+      const { payroll, ...blocks } = settings ?? {}
       const org = await orgDao.update(orgId, {
         ...fields,
-        ...(settings ? Object.fromEntries(Object.entries(settings).map(([k, v]) => [`settings.${k}`, v])) : {}),
+        ...Object.fromEntries(Object.entries(blocks).map(([k, v]) => [`settings.${k}`, v])),
+        ...Object.fromEntries(Object.entries(payroll ?? {}).map(([k, v]) => [`settings.payroll.${k}`, v])),
       })
       if (!org) return status(404, { message: 'Organization not found' })
 
@@ -90,6 +94,8 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
           })),
           payroll: t.Optional(t.Object({
             payFrequency: t.Optional(t.String()),
+            // FR-25 §6.4. There is no way back through here: an org that holds sealed runs stays on it.
+            engine: t.Optional(t.Literal('bg')),
           })),
           // FR-11.1 (#21). This whitelist is load-bearing: a settings key that is not
           // listed here is silently STRIPPED by Elysia, and the save appears to succeed.

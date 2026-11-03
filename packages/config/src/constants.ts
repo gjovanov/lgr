@@ -22,6 +22,8 @@ export const PERMISSIONS = [
   'payroll.read', 'payroll.write', 'payroll.approve',
   // FR-25 §3.11: `payroll.read` is a run's totals. Anything about one person needs `payroll.personal`.
   'payroll.personal',
+  // FR-25 §5.1: bringing a company's filed payroll in. It needs `payroll.personal` as well.
+  'payroll.import',
   // FR-6.2 (#14): `reports.read` opens the Reports app; `reports.export` is the extra
   // step of taking data OUT of it (XLSX/PDF). The per-report `permission` in the report
   // registry still gates CONTENT — holding reports.read does not reveal a report whose
@@ -46,17 +48,18 @@ export const SUBSCRIPTION_PLANS = ['free', 'starter', 'professional', 'enterpris
 /** Who runs a fiscal device: its connection, its operators and its reports. */
 export const FISCAL_ADMIN_ROLES: readonly string[] = ['admin', 'manager', 'warehouse_manager']
 
-const MANAGER_GRANTED_BY_NAME: readonly string[] = ['payroll.approve', 'payroll.personal', 'accounting.import']
+const MANAGER_GRANTED_BY_NAME: readonly string[] = ['payroll.approve', 'payroll.personal', 'payroll.import', 'accounting.import']
 
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   admin: ['admin.users', 'admin.settings', ...PERMISSIONS.filter(p => !p.startsWith('admin.'))],
   // ⚠ Everything but administration, less what is granted by name: one person's pay, reading it and
   // approving it (a manager held `payroll.approve` and only a role name on the route refused it,
-  // FR-25 §3.11), and importing a company's books (FR-25 R1). The seeded Manager set is this list.
+  // FR-25 §3.11), and importing a company's books (FR-25 R1) or its people (FR-25 §5.1). The seeded
+  // Manager set is this list.
   manager: PERMISSIONS.filter(p => !p.startsWith('admin.') && !MANAGER_GRANTED_BY_NAME.includes(p)),
   accountant: ['accounting.read', 'accounting.write', 'accounting.post', 'accounting.file', 'invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read', 'reports.read', 'reports.export'],
   // Payroll is the whole job, approval included.
-  hr_manager: ['payroll.read', 'payroll.write', 'payroll.approve', 'payroll.personal', 'reports.read', 'reports.export'],
+  hr_manager: ['payroll.read', 'payroll.write', 'payroll.approve', 'payroll.personal', 'payroll.import', 'reports.read', 'reports.export'],
   warehouse_manager: ['inventory.read', 'inventory.write', 'inventory.adjust', 'reports.read', 'reports.export'],
   // Sells and invoices; reads stock rather than moving it.
   sales: ['invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read', 'pos.read', 'pos.write', 'reports.read'],

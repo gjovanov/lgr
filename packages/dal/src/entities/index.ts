@@ -60,7 +60,7 @@ export type {
 // Payroll
 export type {
   IEmployee, IEmployeeAddress, IEmployeeSalary, IEmployeeDeduction, IEmployeeBenefit, IEmergencyContact,
-  IPayrollRun, IPayrollRunItem, IPayrollRunDeduction, IPayrollRunEmployerContribution, IPayrollRunTotals,
+  IPayrollRun, IPayrollRunItem, IPayrollRunDeduction, IPayrollRunEmployerContribution, IPayrollRunTotals, IPayrollRunSealedItem,
   IPayslip, IPayslipEarning, IPayslipDeduction, IPayslipYearToDate,
   ITimesheet,
 } from './payroll.js'

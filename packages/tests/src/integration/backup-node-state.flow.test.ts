@@ -30,13 +30,13 @@ import { applyRestore, inspectBundle } from 'services/biz/backup/backup-restore.
  * decides which of the three it is.
  */
 const ORG_DATA = [
-  'Account', 'AccountingAnalytic', 'ArchiveUnit', 'AuditLog', 'BankAccount', 'BankReconciliation', 'CashOrder', 'Code',
+  'AbsenceEntry', 'Account', 'AccountingAnalytic', 'ArchiveUnit', 'AuditLog', 'BankAccount', 'BankReconciliation', 'CashOrder', 'Code',
   'Contact', 'CostLayer', 'Desktop', 'DesktopEnrollmentCode', 'DesktopEnrollmentKey',
-  'DesktopEnrollmentKeyUse', 'DocFile', 'EmailLog', 'Employee', 'ExchangeRate', 'File',
+  'DesktopEnrollmentKeyUse', 'DocFile', 'EmailLog', 'Employee', 'EmploymentContract', 'ExchangeRate', 'File',
   'FiscalDevice', 'FiscalPeriod', 'FiscalPosition', 'FiscalYear', 'FixedAsset', 'InternalOrder',
-  'InventoryCount', 'Invite', 'Invoice', 'Journal', 'JournalEntry', 'Notification', 'OAuthHandoff',
+  'InventoryCount', 'Invite', 'Invoice', 'Journal', 'JournalEntry', 'LeaveBalance', 'Notification', 'OAuthHandoff',
   'OperationType', 'Order', 'OrgApp', 'OrgLogo', 'POSPaymentMethod', 'POSSession', 'POSTransaction',
-  'PaymentOrder', 'PaymentTerm', 'PayrollRun', 'Payslip', 'PermissionSet', 'PersonalDataKey', 'PriceList', 'Product',
+  'PaymentOrder', 'PaymentTerm', 'PayrollElement', 'PayrollRun', 'Payslip', 'PermissionSet', 'PersonalDataKey', 'PriceList', 'Product',
   'ProductCategory', 'Reservation', 'Sequence', 'StockLevel', 'StockLocation', 'StockLot',
   'StockMovement', 'SupplierProductAlias', 'Tag', 'TaxReturn', 'Timesheet', 'User', 'VatRegisterEntry', 'Warehouse',
   'Workstation',

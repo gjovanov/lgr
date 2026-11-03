@@ -113,3 +113,11 @@ export interface IPayrollRun extends TenantEntity {
 | DELETE | `/:id` | isSignIn | Delete payroll run. Role restricted: `admin` or `hr_manager`. Only allowed when status is `draft`. |
 | POST | `/:id/calculate` | isSignIn | Calculate payroll for all active employees. Computes items with salary, deductions, and totals. Transitions status to `calculated`. |
 | POST | `/:id/approve` | isSignIn | Approve a calculated payroll run. Role restricted: `admin` or `hr_manager`. Sets `approvedBy` and `approvedAt`. Transitions status to `approved`. |
+| POST | `/:id/reveal` | `payroll.personal` | FR-25 §3.12: one or all people's lines on a Bulgarian run. Audit-logged before it answers. |
+| POST | `/:id/declaration` | `payroll.personal` | FR-25 §5.1: the filed обр. 1 or обр. 6 of an imported month, emitted from what is stored. |
+
+## The Bulgarian engine (FR-25)
+
+Under `settings.payroll.engine: 'bg'` a run has `engine`, `periodCode`, `kind`, `source`, `parametersAsOf`, and its `items` stay empty: one person's month is one sealed JSON in `sealedItems[]`, beside `employeeId` and `contractId`. `totals` gains `insurableIncome`, `tax` and `contributions` per fund, in clear. An imported month has `status: 'imported'`, `fileVersion`, and `filed`, its sealed обр. 6.
+
+`GET` answers through `runView`: without `payroll.personal`, totals only, under any engine.
