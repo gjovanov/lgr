@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
-import { confirmMovement, MovementClaimedError, unclaimedMovement } from 'services/biz/warehouse.service'
+import { confirmMovement, MovementClaimedError, MovementNotDraftError, unclaimedMovement } from 'services/biz/warehouse.service'
 import { DocFile, Invoice, StockMovement } from 'db/models'
 import { createMovementWithProductUpdates, updateMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
@@ -439,6 +439,8 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     } catch (e) {
       // Another confirm, or a delete, holds it (#448).
       if (e instanceof MovementClaimedError) return status(409, { code: e.code, message: e.message })
+      // The other one finished between the check above and this one's claim.
+      if (e instanceof MovementNotDraftError) return status(400, { message: 'Movement is not in draft status' })
       throw e
     }
 

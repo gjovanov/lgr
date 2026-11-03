@@ -252,6 +252,27 @@ describe('attaching an invoice to the cash sale of its day', () => {
     expect(await movements()).toBe(2)
   }, 60_000)
 
+  it('attaches across days when its own marker names that till day: PlusMinus invoices a ticket days later', async () => {
+    const w = await world()
+    const cs = await w.cashSale([[w.bolt, 5, 10]])
+    await Invoice.updateOne({ _id: cs._id }, { $set: { reference: `salesAnalysis:${DAY}`, 'register.origin': 'import' } }).exec()
+    const inv = await w.invoice([[w.bolt, 2, 10]], { issueDate: '2026-10-22' })
+    const repo = await getRepos().invoices.findOne({ id: String(inv._id), orgId: w.orgId } as any)
+    await reverseInvoiceStockMovement(repo as any, String(inv.createdBy))
+
+    // Unmarked, the day still decides.
+    expect((await w.attach(inv._id, cs._id)).json.code).toBe('different_day')
+
+    await Invoice.updateOne({ _id: inv._id }, {
+      $set: { stockSource: { marker: `salesAnalysis:${DAY}`, docNumber: '1042', detectedBy: 'plusminus', linkedAt: new Date() } },
+    }).exec()
+    expect((await w.attach(inv._id, cs._id)).status).toBe(200)
+    const after = await w.load(inv._id)
+    expect(String(after.cashSaleRef.cashSaleId)).toBe(String(cs._id))
+    expect(after.stockSource).toMatchObject({ marker: `cash_sale:${cs.invoiceNumber}`, detectedBy: 'cash_sale' })
+    expect(await w.stock(w.bolt)).toBe(95) // the till's 5, once
+  }, 60_000)
+
   it('does not trust a till marker for another day, or one set before its dispatch came back', async () => {
     const w = await world()
     const cs = await w.cashSale([[w.bolt, 5, 10]])

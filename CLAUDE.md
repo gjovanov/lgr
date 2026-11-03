@@ -1595,6 +1595,13 @@ booking, and the guard on every already-booked cash sale keeps working. An opera
 neither is refused, not guessed: read as receipts a sales day invents stock, read as sales a
 delivery dispatches stock that just arrived.
 
+⚠ **Over the API, PlusMinus records which invoices moved no stock** (2026-11-02,
+`map-plusminus-invoice.ts#plusminusStockSource`). A line on its `БЕЗСКЛАД` store moved nothing; its
+`fromDocument` names what did: `pos:<day>-<n>` (comment `КБ <dd.mm.yyyy>/<UNP>`) is a till receipt,
+and `СР:<n>` is a till ticket at regal-sf but a складова разписка at regal-pz. The importer issues
+such an invoice with no dispatch and attaches a till sale's to its till day. The containment test
+below is for what a PDF leaves us, and over the API it only warns.
+
 ⚠ **A till sale can ALSO be invoiced, and then the invoice must not dispatch** (2026-10-02). A
 counter shop rings the sale on the till and prints a фактура when asked, so the day's till export
 already carries it — booking the invoice's dispatch too takes the same goods out twice. regal-sf's

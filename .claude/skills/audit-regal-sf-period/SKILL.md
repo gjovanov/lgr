@@ -75,7 +75,7 @@ point of this skill.
 
 ```bash
 DIR="<the api/ dir from step 1>"
-# a) till/cash-register FIRST — invoice import's own till-overlap gate needs this already committed
+# a) till/cash-register FIRST — an invoice from a till ticket attaches to its till day, which must be in LGR
 bun run scripts/import-cash-register-sales-api.ts --dir "$DIR" --org regal-sf
 # b) sales invoices
 bun run scripts/import-sales-invoices-api.ts --dir "$DIR" --org regal-sf             # analyze-only first
@@ -86,9 +86,12 @@ bun run scripts/receive-stock-api.ts --dir "$DIR" --org regal-sf --execute
 ```
 
 Read every line, not just the final count:
-- `import-sales-invoices-api.ts` will flag `till-overlap` candidates (a фактура for a
-  sale the till already rang) — **verify before** `--include-till-overlap`; see memory
-  `lgr-regal-sf-org` / `lgr-till-overlap-backlog` for how that class was diagnosed before.
+- `import-sales-invoices-api.ts` reads PlusMinus's own record of a фактура for a sale the
+  till already rang: its lines sit on `БЕЗСКЛАД` and name the ticket (`fromDocument: СР:<n>`).
+  It prints `moves no stock`, books no dispatch, and attaches the invoice to its till day. A
+  document with only some lines on `БЕЗСКЛАД` is refused and left for a person. A `till-overlap`
+  warning on any other invoice is only a quantity coincidence: PlusMinus moved stock on it, so
+  LGR does too.
 - `receive-stock-api.ts` applies a price-only разписка's prices (lines with no `quantity`
   field in PlusMinus's JSON) and books no movement for it. Nothing marks it as done, so `--only`
   an old one only if no newer document repriced the same articles.

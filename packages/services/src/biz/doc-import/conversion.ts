@@ -175,14 +175,33 @@ export function conversionWarning(hit: StockNoteConversion): string {
  * invoice can no longer match the same note) and is also what FR-11.10's "sales with no stock
  * document" check `$lookup`s on, so a converted invoice stops reading as one.
  */
-export async function linkStockSource(orgId: string, invoiceId: string, hit: StockNoteConversion): Promise<void> {
+export async function linkStockSource(orgId: string, invoiceId: string, hit: StockNoteConversion, detectedBy = 'lines'): Promise<void> {
   await Invoice.updateOne(
     { _id: invoiceId, orgId } as any,
-    { $set: { stockSource: { marker: hit.marker, docNumber: hit.docNumber, movementIds: hit.movementIds, detectedBy: 'lines', linkedAt: new Date() } } },
+    { $set: { stockSource: { marker: hit.marker, docNumber: hit.docNumber, movementIds: hit.movementIds, detectedBy, linkedAt: new Date() } } },
   )
   await StockMovement.updateMany(
     { _id: { $in: hit.movementIds }, orgId } as any,
     { $set: { invoiceId } },
   )
   logger.info({ orgId, invoiceId, marker: hit.marker, movements: hit.movementNumbers }, 'doc-import: invoice linked to the stock note it was converted from')
+}
+
+/**
+ * The source system itself names what moved these goods (`plusminusStockSource`), so nothing is
+ * detected. A складова разписка booked here gets linked the way a detected one does; one older than
+ * the baseline, or a till day, has no movements of its own to link. The number stops at the marker's
+ * end: `sklrazp:615713` must not take `sklrazp:6157131`, and the PDF flow padded it with zeros.
+ */
+export async function linkNamedStockSource(orgId: string, invoiceId: string, source: { marker: string; docNumber: string }): Promise<void> {
+  const note = /^sklrazp:0*(\d+)$/.exec(source.marker)
+  const movements: any[] = note
+    ? await StockMovement.find({ orgId, notes: { $regex: `sklrazp:0*${note[1]}([^0-9]|$)` } } as any, { _id: 1, movementNumber: 1 }).lean().exec()
+    : []
+  await linkStockSource(orgId, invoiceId, {
+    ...source,
+    movementIds: movements.map(m => String(m._id)),
+    movementNumbers: movements.map(m => String(m.movementNumber)),
+    quantity: 0,
+  }, 'plusminus')
 }

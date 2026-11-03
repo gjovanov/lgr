@@ -11,7 +11,7 @@ import { File as FileModel } from 'db/models'
 import { persistInvoiceDraft, persistCashSale, convertDraftInvoice } from './persist.js'
 import { persistMovement } from './persist-movement.js'
 import { findDuplicateCashSale, findDuplicateInvoice, findDuplicateMovement } from './dedupe.js'
-import { conversionWarning, findStockNoteConversion, linkStockSource } from './conversion.js'
+import { conversionWarning, findStockNoteConversion, linkNamedStockSource, linkStockSource } from './conversion.js'
 import type { ImportTarget, MappedInvoice, MappedMovement } from './types.js'
 
 export interface CommitItemOptions {
@@ -23,6 +23,11 @@ export interface CommitItemOptions {
   createMissingProducts?: boolean
   /** Import anyway even though the document is already in the system. Off by default. */
   allowDuplicate?: boolean
+  /**
+   * What moved this invoice's goods, as the source system itself records it. Issued with no
+   * dispatch, and it stays that way: see `plusminusStockSource`.
+   */
+  stockSource?: { marker: string; docNumber: string }
 }
 
 export interface CommitItem {
@@ -113,14 +118,16 @@ async function commitInvoice(
   // Re-checked here rather than trusted from the analysis: the складова разписка this invoice
   // was converted from is very often committed in the SAME batch, moments earlier, so at
   // analysis time its movements did not exist yet.
-  const conversion = item.options?.adjustStock === false ? null : await findStockNoteConversion(orgId, mapped)
+  const named = item.options?.stockSource
+  const conversion = item.options?.adjustStock === false || named ? null : await findStockNoteConversion(orgId, mapped)
   if (conversion) await linkStockSource(orgId, id, conversion)
+  if (named) await linkNamedStockSource(orgId, id, named)
 
   const result: CommitResult = { fileId: item.fileId, ok: true, id, number: invoice.invoiceNumber }
   if (conversion) result.stockSource = conversion.marker
   if (item.options?.convert) {
     // A conversion's goods left on the разписка — issuing must not dispatch them again.
-    const adjustStock = item.options.adjustStock !== false && !conversion
+    const adjustStock = item.options.adjustStock !== false && !conversion && !named
     const conv = await convertDraftInvoice(orgId, id, userId, { adjustStock })
     if (conv.ok) result.issuedNumber = conv.invoiceNumber
     // A draft that failed to convert still exists and is still useful — report the reason
