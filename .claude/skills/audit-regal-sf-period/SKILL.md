@@ -92,9 +92,9 @@ Read every line, not just the final count:
   document with only some lines on `БЕЗСКЛАД` is refused and left for a person. A `till-overlap`
   warning on any other invoice is only a quantity coincidence: PlusMinus moved stock on it, so
   LGR does too.
-- `receive-stock-api.ts`'s "0 receipt line(s), 0 adjustment line(s)" is normal for a
-  price-only разписка line (no `quantity` field at all in PlusMinus's JSON) — not a bug,
-  nothing to book for it.
+- `receive-stock-api.ts` applies a price-only разписка's prices (lines with no `quantity`
+  field in PlusMinus's JSON) and books no movement for it. Nothing marks it as done, so `--only`
+  an old one only if no newer document repriced the same articles.
 
 ## 3. Reconcile against the snapshot
 

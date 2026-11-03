@@ -48,6 +48,12 @@ export interface StokrazpMapped {
   partner?: string
   /** Positive-qty lines — feed to `receive-new-products.ts` as `{receipt,date,supplier,items}`. */
   receiptItems: StokrazpItem[]
+  /**
+   * Lines with no quantity that carry prices (`qty: 0`). PlusMinus issues a price-only разписка for
+   * exactly this: to restate what an article sells for. They go to the same script, which reprices
+   * and receives nothing. A price is written only where the document has one.
+   */
+  priceOnlyItems: StokrazpItem[]
   /** Negative-qty lines (qty/value already made positive) — book as a direct `adjustment`
    *  movement, marker `stokrazp:<docNumber>` (NOT `sklisk:` — this is the other half of a
    *  receipt, not a write-off document). */
@@ -93,26 +99,28 @@ export function mapStokrazpDoc(doc: PlusMinusDocument): StokrazpMapped {
   const date = `${m[1]}-${m[2]}-${m[3]}`
 
   const receiptItems: StokrazpItem[] = []
+  const priceOnlyItems: StokrazpItem[] = []
   const adjustmentLines: StokrazpAdjustmentLine[] = []
 
   for (const l of (doc.lines || []) as any[]) {
     const name = lineItemName(l) // the stock item, not the display alias — see map-plusminus-line.ts
     if (!name) continue
     const qty = num(l.quantity)
-    if (qty === 0) continue
 
-    if (qty > 0) {
+    if (qty >= 0) {
       const cost = num(l.price)
       const selling = num(l.retailPrice)
-      receiptItems.push({
+      const tiers = extractTiers(l)
+      if (qty === 0 && !(selling > 0) && !tiers) continue
+      ;(qty > 0 ? receiptItems : priceOnlyItems).push({
         name, qty, unit: normalizeUnit(l.measure), cost,
         ...(selling > 0 ? { selling } : {}),
-        ...(extractTiers(l) ? { tiers: extractTiers(l) } : {}),
+        ...(tiers ? { tiers } : {}),
       })
     } else {
       adjustmentLines.push({ name, qty: Math.abs(qty), value: Math.abs(num(l.sum)) })
     }
   }
 
-  return { docNumber, date, partner: h.partner ? String(h.partner) : undefined, receiptItems, adjustmentLines }
+  return { docNumber, date, partner: h.partner ? String(h.partner) : undefined, receiptItems, priceOnlyItems, adjustmentLines }
 }
