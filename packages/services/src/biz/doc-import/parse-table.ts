@@ -862,6 +862,43 @@ function parseStockNoteParty(text: string): Party {
   }
 }
 
+// ── a фактура's totals ──────────────────────────────────────────────────────────────────
+
+/** A figure as the footer prints it: an optional minus, digits grouped by spaces, two decimals. */
+const MONEY = String.raw`(-?\d[\d ]*[.,]\d{2})`
+const VAT_LINE = new RegExp(String.raw`ДДС\s*\(\s*\d+(?:[.,]\d+)?\s*%\s*\)\s*:?\s*` + MONEY, 'g')
+const DUE_LINE = new RegExp(String.raw`Сума\s+за\s+плащане\s*:?\s*` + MONEY)
+const cents = (v: number) => Math.round(v * 100)
+
+/**
+ * The VAT and the sum due that a фактура PRINTS under its base: one `ДДС ( r % )` line a rate, then
+ * `Сума за плащане`.
+ *
+ * PlusMinus works the VAT out once, on the document's base, and the lines' VAT rounded one by one and
+ * summed can land a cent or two away from it. A draft that took the lines' sum stored a document that
+ * is not the one issued: of regal-pz's September 2026 invoices, 109 of the 381 this parser read were
+ * stored with a VAT, and so a total, one or two cents off the print, while the sales register filed
+ * for that month carries the printed figure on all of them. So the document's own word is taken, and
+ * checked: base + VAT = sum due, to the cent.
+ *
+ * Read from the last `Данъчна основа` on, where the footer block starts, so nothing in the body can
+ * match. `undefined` when the footer prints no sum due (the lines' sum stands, as before), `null` when
+ * what it prints does not add up.
+ */
+export function printedInvoiceTotals(text: string, net: number | null): { vat: number; gross: number } | null | undefined {
+  const starts = [...text.matchAll(/Данъчна\s+основа/g)]
+  if (!starts.length || net === null) return undefined
+  const footer = text.slice(starts[starts.length - 1].index ?? 0)
+  const due = footer.match(DUE_LINE)
+  if (!due) return undefined
+  const gross = num(due[1])
+  const vats = [...footer.matchAll(VAT_LINE)].map(m => num(m[1]))
+  if (gross === null || vats.some(v => v === null)) return null
+  const vat = vats.reduce((s: number, v) => s + cents(v!), 0)
+  if (cents(net) + vat !== cents(gross)) return null
+  return { vat: vat / 100, gross }
+}
+
 // ── the fast path ───────────────────────────────────────────────────────────────────────
 
 const pass = (check: string, details: string): ValidationCheck => ({ check, status: 'pass', details })
@@ -904,6 +941,9 @@ export function draftFromLayoutText(text: string, kind: DocKind): DraftResult | 
   const parties = isStock
     ? { customer: inbound ? {} : partner, supplier: inbound ? partner : {} }
     : parseInvoiceParties(text)
+  // A footer whose own figures do not add up is no fast path: the sidecar reads the document instead.
+  const printed = isStock ? undefined : printedInvoiceTotals(text, table.footer)
+  if (printed === null) return null
 
   const extraction: DocumentExtraction = {
     document_number: number ?? null,
@@ -915,6 +955,7 @@ export function draftFromLayoutText(text: string, kind: DocKind): DraftResult | 
     customer: parties.customer,
     line_items,
     net_total: table.footer,
+    ...(printed ? { vat_total: printed.vat, gross_total: printed.gross } : {}),
     ...(isStock
       ? {
           doc_kind: kind,
@@ -934,6 +975,7 @@ export function draftFromLayoutText(text: string, kind: DocKind): DraftResult | 
         const withQty = unchecked.filter(l => l.quantity !== null && l.quantity !== 0)
         return [
           pass('lines_sum_net', `${table.lines.length} line(s) sum to the printed total ${table.footer}`),
+          ...(printed ? [pass('totals_net_vat_gross', `${table.footer} + ${printed.vat} = ${printed.gross}, as printed`)] : []),
           pass('line_arithmetic', unchecked.length
             ? `${table.lines.length - unchecked.length} of ${table.lines.length} line(s) reconcile quantity × price against their printed value`
             : 'every line reconciles quantity × price against its printed value'),

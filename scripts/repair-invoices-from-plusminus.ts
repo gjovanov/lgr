@@ -158,6 +158,9 @@ async function main() {
       target: 'sales_invoice',
       items: [{ fileId: `plusminus:${num}`, filename: `invoicem_${num}.json`, text: buildSyntheticRawText(pm.header), draft: { extraction, validation: { status: 'valid', checks: [] }, model: 'direct', engine: 'plusminus-api' } }],
       context: { warehouseId: wh._id },
+      // Load-bearing: the analysis CREATES a customer it cannot match unless told not to, and the
+      // check on `contactId` below would then pass on the contact it had just made.
+      options: { createMissingContact: false },
     })
     const result = await pollTask(res.taskId)
     const doc = result?.results?.[0]

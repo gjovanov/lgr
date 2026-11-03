@@ -6,7 +6,7 @@ import { StockLevel, StockMovement, CostLayer, Org } from 'db/models'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
 import { confirmMovement, adjustStock } from 'services/biz/warehouse.service'
-import { getEffectiveCostingMethod, consumeCostLayers, createCostLayers, getInventoryValuation, initializeCostLayers } from 'services/biz/costing.service'
+import { getEffectiveCostingMethod, consumeCostLayers, createCostLayers, getInventoryValuation, initializeCostLayers, restoreCostLayers } from 'services/biz/costing.service'
 import { createMongoRepositories } from 'dal-mongo'
 
 let repos: Awaited<ReturnType<typeof createMongoRepositories>>
@@ -356,6 +356,95 @@ describe('initializeCostLayers', () => {
   })
 })
 
+describe('dispatches taking from one layer at once', () => {
+  const setup = async () => {
+    const org = await createTestOrg()
+    const product = await createTestProduct(org._id, { costingMethod: 'fifo' })
+    const warehouse = await createTestWarehouse(org._id)
+    const ids = [String(org._id), String(product._id), String(warehouse._id)] as const
+    const layer = (remainingQuantity: number, unitCost: number, receivedAt: string) =>
+      CostLayer.create({
+        orgId: org._id, productId: product._id, warehouseId: warehouse._id,
+        unitCost, initialQuantity: remainingQuantity, remainingQuantity,
+        sourceMovementId: new Types.ObjectId(), sourceMovementNumber: `SM-AT-ONCE-${receivedAt}`,
+        receivedAt: new Date(receivedAt), isExhausted: false,
+      })
+    const take = (quantity: number) => consumeCostLayers(...ids, quantity, 'fifo', repos)
+    const layerOf = async (id: unknown) => (await CostLayer.findById(id).lean().exec()) as any
+    return { take, layer, layerOf }
+  }
+
+  it('loses none of them', async () => {
+    const w = await setup()
+    const made = await w.layer(100, 10, '2026-01-01')
+    const before = new Date((made as any).updatedAt).getTime()
+    await Bun.sleep(5)
+
+    const results = await Promise.all(Array.from({ length: 20 }, () => w.take(3)))
+
+    const layer = await w.layerOf(made._id)
+    expect(layer.remainingQuantity).toBe(40)
+    expect(layer.isExhausted).toBe(false)
+    expect(results.every(r => r.allocations.length === 1 && r.allocations[0].quantity === 3)).toBe(true)
+    expect(new Date(layer.updatedAt).getTime()).toBeGreaterThan(before)
+  })
+
+  it('one that loses the race for a layer takes the rest from the next, in order', async () => {
+    const w = await setup()
+    const older = await w.layer(10, 10, '2026-01-01')
+    const newer = await w.layer(50, 15, '2026-02-01')
+
+    const results = await Promise.all([w.take(8), w.take(8)])
+
+    const first = await w.layerOf(older._id)
+    expect(first.remainingQuantity).toBe(0)
+    expect(first.isExhausted).toBe(true)
+    expect((await w.layerOf(newer._id)).remainingQuantity).toBe(44)
+    // Every unit is costed once: 10 at 10 from the older layer, 6 at 15 from the newer one.
+    expect(results.reduce((s, r) => s + r.totalCost, 0)).toBe(10 * 10 + 6 * 15)
+    expect(results.flatMap(r => r.allocations).reduce((s, a) => s + a.quantity, 0)).toBe(16)
+  })
+
+  it('more than the layers hold is still refused, and the refused one keeps nothing', async () => {
+    const w = await setup()
+    const made = await w.layer(10, 10, '2026-01-01')
+
+    const outcomes = await Promise.all([captureRejection(w.take(6)), captureRejection(w.take(6))])
+
+    // One of the two is covered; the other finds only 4 left, says so, and puts them back.
+    const refused = outcomes.filter(Boolean)
+    expect(refused).toHaveLength(1)
+    expectRejection(refused[0], 'Insufficient cost layers')
+    expect((await w.layerOf(made._id)).remainingQuantity).toBe(4)
+  })
+
+  it('goods put back by a void at the same time all come back', async () => {
+    const w = await setup()
+    const made = await w.layer(40, 10, '2026-01-01')
+    const back = { costLayerId: String(made._id), quantity: 2, unitCost: 10, totalCost: 20 }
+
+    await Promise.all([
+      ...Array.from({ length: 10 }, () => restoreCostLayers([back], repos)),
+      ...Array.from({ length: 10 }, () => w.take(1)),
+    ])
+
+    expect((await w.layerOf(made._id)).remainingQuantity).toBe(40 + 20 - 10)
+  })
+
+  it('a void reopens an exhausted layer', async () => {
+    const w = await setup()
+    const made = await w.layer(5, 10, '2026-01-01')
+    await w.take(5)
+    expect((await w.layerOf(made._id)).isExhausted).toBe(true)
+
+    await restoreCostLayers([{ costLayerId: String(made._id), quantity: 2, unitCost: 10, totalCost: 20 }], repos)
+
+    const layer = await w.layerOf(made._id)
+    expect(layer.remainingQuantity).toBe(2)
+    expect(layer.isExhausted).toBe(false)
+  })
+})
+
 describe('Insufficient layers', () => {
   it('throws when dispatching more than available layers', async () => {
     const org = await createTestOrg()
@@ -381,5 +470,9 @@ describe('Insufficient layers', () => {
     })
 
     expectRejection(await captureRejection(confirmMovement(String(m2._id), repos)), 'Insufficient cost layers')
+    // The refused dispatch took nothing from the layer it could not finish.
+    const [layer] = await CostLayer.find({ orgId: org._id, productId: product._id }).lean()
+    expect(layer.remainingQuantity).toBe(10)
+    expect(layer.isExhausted).toBe(false)
   })
 })
