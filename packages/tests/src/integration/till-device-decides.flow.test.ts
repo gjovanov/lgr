@@ -8,6 +8,7 @@ import { Invoice, Sequence } from 'db/models'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { WsTremolFiscalPrinter } from 'fiscal/ws-tremol-printer'
+import { TREMOL_CMD, TremolFiscalPrinter, tremolFiscalized, tremolPayload } from 'fiscal/tremol'
 import { WebSocketFiscalPrinter } from 'fiscal/ws-fiscal-printer'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
@@ -175,8 +176,8 @@ describe('the device decides what a till sale prints (D1)', () => {
     expect((await w.stock()).quantity).toBe(9)
   })
 
-  describe('what a Tremol and a Datecs report: nothing, so they never print text', () => {
-    it('a Tremol over its bridge says nothing about it', async () => {
+  describe('what a Tremol and a Datecs report', () => {
+    it('a Tremol whose answer carries no status says nothing about it', async () => {
       const printer = new WsTremolFiscalPrinter(async () => Buffer.from([0x06]), 'tremol-1') as any
       const status = await printer.getStatus()
       expect(status.connected).toBe(true)
@@ -187,6 +188,80 @@ describe('the device decides what a till sale prints (D1)', () => {
       const printer = new WebSocketFiscalPrinter(async () => { throw new Error('no answer') }, 'datecs-1') as any
       const status = await printer.getStatus()
       expect(status.fiscalized).toBeUndefined()
+    })
+
+    describe('a Tremol says it in its 20h status, byte 3 bit 5 (#467)', () => {
+      /** The answer to 20h: ACK, then STX LEN NBL CMD, the status bytes, a checksum and ETX. Bit 7 of each byte is always set. */
+      const statusAnswer = (bytes: number[]) =>
+        Buffer.from([0x06, 0x02, 0x20 + 3 + bytes.length, 0x21, 0x20, ...bytes, 0x30, 0x30, 0x0A])
+      // FM produced (bit 6), with bit 5 (FM fiscalized) set or not.
+      const FISCALIZED = [0x80, 0x80, 0x80, 0xE0, 0x80, 0x80, 0x80]
+      const NOT_FISCALIZED = [0x80, 0x80, 0x80, 0xC0, 0x80, 0x80, 0x80]
+      const readStatus = (bytes: number[]) =>
+        (new WsTremolFiscalPrinter(async () => statusAnswer(bytes), 'tremol-1') as any).getStatus()
+
+      it('fiscalized, and not', async () => {
+        expect((await readStatus(FISCALIZED)).fiscalized).toBe(true)
+        expect((await readStatus(NOT_FISCALIZED)).fiscalized).toBe(false)
+        expect(tremolFiscalized(Uint8Array.from(NOT_FISCALIZED))).toBe(false)
+      })
+
+      it('anything short of a status read whole says nothing, which counts as fiscal', async () => {
+        // Six bytes; a byte without its bit 7; no FM module; an FM error.
+        for (const bytes of [NOT_FISCALIZED.slice(0, 6), [0x80, 0x00, 0x80, 0xC0, 0x80, 0x80, 0x80], [0x80, 0x80, 0x80, 0xC1, 0x80, 0x80, 0x80], [0x80, 0x80, 0x80, 0xC2, 0x80, 0x80, 0x80]]) {
+          expect((await readStatus(bytes)).fiscalized).toBeUndefined()
+        }
+        expect(tremolFiscalized(null)).toBeUndefined()
+        expect(tremolPayload(Buffer.from([0x06]))).toBeNull()
+      })
+
+      it('its payload is read as bytes: a status of 0xA0 is no "?"', async () => {
+        expect(Array.from(tremolPayload(statusAnswer(NOT_FISCALIZED))!)).toEqual(NOT_FISCALIZED)
+      })
+
+      it('the TCP driver reads it the same way', async () => {
+        const printer = new TremolFiscalPrinter({ type: 'tcp' }, 'tremol-tcp') as any
+        printer.transport.sendCommandRaw = async () => statusAnswer(NOT_FISCALIZED)
+        expect((await printer.getStatus()).fiscalized).toBe(false)
+      })
+
+      /** A till whose device is a Tremol over the bridge, answering every command with an ACK and 20h with `status`. */
+      async function onTremol(status: number[]) {
+        const w = await tillWorld(app, { manufacturer: 'tremol' })
+        const sent: number[] = []
+        unregisterPrinter(w.deviceId)
+        registerPrinter(w.deviceId, new WsTremolFiscalPrinter(async (frame: Buffer | Uint8Array) => {
+          const cmd = Buffer.from(frame)[3]
+          sent.push(cmd)
+          return cmd === TREMOL_CMD.STATUS ? statusAnswer(status) : Buffer.from([0x06])
+        }, w.deviceId) as any)
+        return { w, sent }
+      }
+
+      it('one that is not fiscalized prints a till sale as a slip: it refused every one, printed fiscally', async () => {
+        const { w, sent } = await onTremol(NOT_FISCALIZED)
+
+        const r = await sale(w)
+
+        expect(r.status).toBe(200)
+        expect(r.json.receiptError).toBeUndefined()
+        expect(r.json.transaction.fiscal).toMatchObject({ state: 'printed', mode: 'text' })
+        expect(r.json.transaction.unpNumber).toBeUndefined()
+        expect(sent).toContain(TREMOL_CMD.OPEN_NON_FISCAL_RECEIPT)
+        expect(sent).toContain(TREMOL_CMD.CLOSE_NON_FISCAL_RECEIPT)
+        expect(sent).not.toContain(TREMOL_CMD.OPEN_FISCAL_RECEIPT)
+      })
+
+      it('one that is fiscalized prints it fiscally, as every Tremol did', async () => {
+        const { w, sent } = await onTremol(FISCALIZED)
+
+        const r = await sale(w)
+
+        expect(r.status).toBe(200)
+        expect(r.json.transaction.fiscal).toMatchObject({ mode: 'fiscal' })
+        expect(sent).toContain(TREMOL_CMD.OPEN_FISCAL_RECEIPT)
+        expect(sent).not.toContain(TREMOL_CMD.OPEN_NON_FISCAL_RECEIPT)
+      })
     })
   })
 

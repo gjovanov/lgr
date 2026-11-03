@@ -16,7 +16,7 @@ import type {
   StornoReason,
 } from './types.js'
 import { paymentCode } from './types.js'
-import { buildTremolFrame, parseTremolResponse, TREMOL_CMD } from './tremol.js'
+import { buildTremolFrame, parseTremolResponse, tremolFiscalized, tremolPayload, TREMOL_CMD } from './tremol.js'
 import { logger } from 'services/logger'
 import { stagedPrint } from './print-stage.js'
 import type { SendCommandFn } from './ws-fiscal-printer.js'
@@ -46,12 +46,17 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   }
 
   private async send(cmd: number, data: string = ''): Promise<string> {
+    return parseTremolResponse(await this.sendRaw(cmd, data)).data
+  }
+
+  /** The answer as it came, a NAK refused as every command's is: what a status read takes its bytes from. */
+  private async sendRaw(cmd: number, data: string = ''): Promise<Buffer> {
     const frame = buildTremolFrame(this.nextSeq(), cmd, data)
     logger.info({ deviceId: this.deviceId, cmd, data, frameBytes: Array.from(frame).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '), frameLen: frame.length }, 'Tremol command SENT')
-    const responseBuffer = await this.sendCommand(frame)
+    const responseBuffer = Buffer.from(await this.sendCommand(frame))
     logger.info({ deviceId: this.deviceId, cmd, responseBytes: Array.from(responseBuffer).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' '), responseLen: responseBuffer.length }, 'Tremol raw response received')
-    const response = parseTremolResponse(responseBuffer)
-    return response.data
+    parseTremolResponse(responseBuffer)
+    return responseBuffer
   }
 
   async connect(): Promise<void> { /* managed by WS bridge */ }
@@ -59,8 +64,9 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
 
   async getStatus(): Promise<FiscalDeviceStatus> {
     try {
-      await this.send(TREMOL_CMD.STATUS)
-      return { connected: true, paperPresent: true, fiscalMemoryOk: true, errors: [] }
+      // #467: what the device says of its fiscal memory decides whether a sale prints a slip (`tremolFiscalized`).
+      const fiscalized = tremolFiscalized(tremolPayload(await this.sendRaw(TREMOL_CMD.STATUS)))
+      return { connected: true, paperPresent: true, fiscalMemoryOk: true, errors: [], ...(fiscalized === undefined ? {} : { fiscalized }) }
     } catch (e: any) {
       return { connected: false, paperPresent: false, fiscalMemoryOk: false, errors: [e.message] }
     }
