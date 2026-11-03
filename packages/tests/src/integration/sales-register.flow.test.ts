@@ -65,6 +65,16 @@ beforeAll(async () => {
   await issued(pz, registered._id, { invoiceNumber: 'INV-3000700002', issueDate: day('2026-09-11'), status: 'paid', lines: [line(0.33, 0.07), line(0.33, 0.07)], ...money(0.66, 0.14) })
   // In LGR, not filed: issued in LGR, with no PlusMinus document behind it.
   await issued(pz, registered._id, { invoiceNumber: 'INV-2026-3000700005', issueDate: day('2026-09-14'), lines: [line(1, 0.2)], ...money(1, 0.2) }, false)
+  // Equal: imported by the API path, which keeps no PDF but drafts through the document import.
+  await issued(pz, registered._id, {
+    invoiceNumber: 'INV-3000700008', issueDate: day('2026-09-17'), lines: [line(2, 0.4)], ...money(2, 0.4),
+    tags: ['ocr-import'], statusHistory: [{ status: 'draft', changedAt: day('2026-09-17'), reason: 'ocr_import' }, { status: 'sent', changedAt: day('2026-09-17') }],
+  }, false)
+  // Annulled in October: September keeps its values, and October says its row is not derived.
+  await issued(pz, registered._id, {
+    invoiceNumber: 'INV-3000700009', issueDate: day('2026-09-18'), status: 'voided', lines: [line(3, 0.6)], ...money(3, 0.6),
+    statusHistory: [{ status: 'sent', changedAt: day('2026-09-18') }, { status: 'voided', changedAt: new Date('2026-10-05T10:00:00.000Z') }],
+  })
   // No row: a draft, a 9% document, and one of the next month.
   await issued(pz, registered._id, { invoiceNumber: 'DRF-INV-00001', status: 'draft', issueDate: day('2026-09-15'), lines: [line(1, 0.2)], ...money(1, 0.2) }, false)
   await issued(pz, registered._id, { invoiceNumber: 'INV-3000700006', issueDate: day('2026-09-16'), lines: [line(1, 0.09, undefined, 9)], ...money(1, 0.09) })
@@ -79,6 +89,8 @@ beforeAll(async () => {
     filedRow(6, { docNumber: '0000012345', cells: { '02-10': 100, '02-11': 100, '02-20': 20, '02-21': 20 } }),
     filedRow(7, { docTypeCode: '09', docNumber: '12', partnerVat: 'DE999999999', cells: { '02-10': 100, '02-12': 100, '02-20': 20, '02-22': 20 } }),
     filedRow(8, { docTypeCode: '81', docNumber: '', partnerVat: '999999999999', cells: { '02-10': 100, '02-11': 100, '02-20': 20, '02-21': 20 } }),
+    filedRow(9, { docNumber: '3000700008', docDate: day('2026-09-17'), cells: { '02-10': 200, '02-11': 200, '02-20': 40, '02-21': 40 } }),
+    filedRow(10, { docNumber: '3000700009', docDate: day('2026-09-18'), cells: { '02-10': 300, '02-11': 300, '02-20': 60, '02-21': 60 } }),
   ])
 })
 
@@ -89,11 +101,11 @@ afterAll(async () => {
 describe('FR-25 R3 — the sales register, derived from the branches and compared with the one filed', () => {
   it('counts every row: equal, differing and in what, and which side alone holds it', async () => {
     const gate = await compareSalesRegisterOf(books._id, PERIOD)
-    expect(gate.filedRows).toBe(8)
-    expect(gate.derivedRows).toBe(5)
+    expect(gate.filedRows).toBe(10)
+    expect(gate.derivedRows).toBe(7)
     expect(gate.branches).toEqual(['PZ', 'SF'])
     expect(gate.counts).toEqual({
-      'PZ imported: equal': 3,
+      'PZ imported: equal': 5,
       'PZ imported: differs in vat': 1,
       'PZ native: in LGR, not filed': 1,
       "filed 01, SF's series: not in LGR": 1,
@@ -112,7 +124,7 @@ describe('FR-25 R3 — the sales register, derived from the branches and compare
   it('shows what a month not filed yet would declare, and calls nothing a gap', async () => {
     const gate = await compareSalesRegisterOf(books._id, '202610')
     expect(gate.filedRows).toBe(0)
-    expect(gate.counts).toEqual({ 'PZ imported: in LGR, not filed': 1 })
+    expect(gate.counts).toEqual({ 'PZ imported: in LGR, not filed': 1, 'PZ: annulled this period, issued before it: no row derived': 1 })
     expect(gate.gap).toBe(false)
   })
 

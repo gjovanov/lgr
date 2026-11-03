@@ -17,7 +17,10 @@ import type { VatCells, VatRow } from './codec.js'
  *   - base and VAT are the document's own: VAT is worked out once on the base, and a sum of the
  *     lines' rounded VAT can be a cent away from it, so the lines are never added up for it;
  *   - a credit note's values are negative, and a document annulled in its own period stays as a row
- *     with no values (Annex 12).
+ *     with no values (Annex 12). One annulled in a later period keeps its values in its own; the row
+ *     with the opposite sign belongs to the period of the annulment, which this does not derive yet.
+ *     ⚠ LGR's date of a void is when LGR was told, which for a document annulled in PlusMinus can be
+ *     weeks after the annulment: the gate then shows the row as differing, which it is.
  *
  * Only what has been proven is derived. In 42 filed months this company's invoices and notes carried
  * 20% and nothing else, so every other rate is refused with its reason rather than put in a cell
@@ -56,7 +59,6 @@ export type RegisterRefusal =
   | 'number_not_ten_digits'
   | 'currency_not_eur'
   | 'rate_not_derived'
-  | 'voided_in_a_later_period'
   | 'outside_the_period'
 
 export type DerivedRow =
@@ -105,16 +107,15 @@ export function salesRegisterRow(doc: RegisterDocument, period: string): Derived
   const rates = [...new Set(lines.map(l => Number(l.taxRate ?? 0)))]
   if (rates.length !== 1 || rates[0] !== 20) return { refused: 'rate_not_derived', detail: rates.sort((a, b) => a - b).join(',') || 'no lines' }
 
-  const voided = doc.status === 'voided'
-  if (voided && (!doc.voidedAt || sofiaPeriod(doc.voidedAt) !== period)) return { refused: 'voided_in_a_later_period' }
+  // Annex 12: a document annulled in its own period keeps its row, with its values blank.
+  const annulledHere = doc.status === 'voided' && !!doc.voidedAt && sofiaPeriod(doc.voidedAt) === period
 
   const sign = docTypeCode === '03' ? -1 : 1
   const vat = cents(doc.taxTotal)
   // The document's base, after its discounts: what it charges VAT on.
   const base = cents(doc.total) - vat
   const cells: VatCells = {}
-  // Annex 12: a document annulled in its own period keeps its row, with its values blank.
-  if (!voided) {
+  if (!annulledHere) {
     if (base) { cells['02-10'] = sign * base; cells['02-11'] = sign * base }
     if (vat) { cells['02-20'] = sign * vat; cells['02-21'] = sign * vat }
   }

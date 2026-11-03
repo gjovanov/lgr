@@ -68,9 +68,10 @@ describe('the sales register row of a document', () => {
     expect(row.cells).toEqual({})
   })
 
-  it('does not guess at a document annulled in a later period', () => {
-    expect(salesRegisterRow(invoice({ status: 'voided', voidedAt: new Date('2026-10-02T10:00:00.000Z') }), '202609')).toEqual({ refused: 'voided_in_a_later_period' })
-    expect(salesRegisterRow(invoice({ status: 'voided' }), '202609')).toEqual({ refused: 'voided_in_a_later_period' })
+  it('keeps the values of a document annulled in a later period, in its own', () => {
+    const values = { '02-10': 66, '02-11': 66, '02-20': 13, '02-21': 13 }
+    expect(rowOf(invoice({ status: 'voided', voidedAt: new Date('2026-10-02T10:00:00.000Z') })).cells).toEqual(values)
+    expect(rowOf(invoice({ status: 'voided' })).cells).toEqual(values)
   })
 
   it('says why a document has no row', () => {

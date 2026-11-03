@@ -41,16 +41,26 @@ async function branchRows(branch: BooksBranches['branches'][number], period: str
   const y = Number(period.slice(0, 4)), m = Number(period.slice(4))
   // A day either side: the business day is Sofia's, and `salesRegisterRow` keeps only the period's.
   const from = new Date(Date.UTC(y, m - 1, 1) - 86_400_000), to = new Date(Date.UTC(y, m, 1) + 86_400_000)
-  const docs: any[] = await Invoice.find({
-    orgId: branch.orgId, direction: 'outgoing', type: { $in: ['invoice', 'credit_note', 'debit_note'] }, issueDate: { $gte: from, $lt: to },
-  }).select('invoiceNumber type status statusHistory issueDate currency subtotal discountTotal taxTotal total contactId lines.taxRate lines.productId').lean()
+  const kinds = { orgId: branch.orgId, direction: 'outgoing', type: { $in: ['invoice', 'credit_note', 'debit_note'] } }
+  const docs: any[] = await Invoice.find({ ...kinds, issueDate: { $gte: from, $lt: to } })
+    .select('invoiceNumber type status statusHistory tags issueDate currency subtotal discountTotal taxTotal total contactId lines.taxRate lines.productId').lean()
+  // Annulled in this period, issued before it: their row of opposite sign belongs here, and is not
+  // derived yet. Counted, so the month says it is missing them.
+  const annulledOfEarlier = await Invoice.countDocuments({
+    ...kinds, status: 'voided', issueDate: { $lt: from },
+    statusHistory: { $elemMatch: { status: 'voided', changedAt: { $gte: from, $lt: to } } },
+  })
+  if (annulledOfEarlier) refusals[`${branch.code}: annulled this period, issued before it: no row derived`] = annulledOfEarlier
 
   const contactIds = [...new Set(docs.map(d => d.contactId).filter(Boolean).map(String))]
   const contacts = new Map((await Contact.find({ orgId: branch.orgId, _id: { $in: contactIds } }).select('taxId vatNumber companyName firstName lastName').lean() as any[]).map(c => [String(c._id), c]))
   const productIds = [...new Set(docs.flatMap(d => (d.lines ?? []).map((l: any) => l.productId)).filter(Boolean).map(String))]
   const services = new Set((await Product.find({ orgId: branch.orgId, _id: { $in: productIds }, type: 'service' }).select('_id').lean() as any[]).map(p => String(p._id)))
-  // A document the Files pipeline committed from a PlusMinus PDF; the rest were issued in LGR.
-  const imported = new Set((await DocFile.find({ orgId: branch.orgId, committedIds: { $in: docs.map(d => d._id) } }).select('committedIds').lean() as any[]).flatMap(f => (f.committedIds ?? []).map(String)))
+  // Imported from PlusMinus: every import path drafts through the document import, which tags the
+  // draft and says so in its first status. The Files pipeline also keeps the PDF it came from, the
+  // older CLI and the API import do not, so the PDF alone would count their documents as LGR's own.
+  const withPdf = new Set((await DocFile.find({ orgId: branch.orgId, committedIds: { $in: docs.map(d => d._id) } }).select('committedIds').lean() as any[]).flatMap(f => (f.committedIds ?? []).map(String)))
+  const isImported = (d: any) => withPdf.has(String(d._id)) || (d.tags ?? []).includes('ocr-import') || d.statusHistory?.[0]?.reason === 'ocr_import'
 
   const out: DerivedSalesRow[] = []
   for (const d of docs) {
@@ -63,7 +73,7 @@ async function branchRows(branch: BooksBranches['branches'][number], period: str
     }
     const r = salesRegisterRow(doc, period)
     if ('row' in r) {
-      out.push({ row: r.row, branch: branch.code, origin: imported.has(String(d._id)) ? 'imported' : 'native' })
+      out.push({ row: r.row, branch: branch.code, origin: isImported(d) ? 'imported' : 'native' })
     } else if (r.refused !== 'outside_the_period') {
       const k = `${branch.code}: no row derived (${r.refused}${r.detail ? `: ${r.detail}` : ''})`
       refusals[k] = (refusals[k] ?? 0) + 1
