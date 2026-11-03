@@ -299,6 +299,7 @@ describe('generating a period', () => {
   it('⚠ the VIES declarant\'s ЕГН is written to the file and to nothing a list or a get serialises', async () => {
     await importMonth(FILED)
     const lists = [await call('GET', '/vat', tokens.member), await call('GET', `/vat/${FILED}`, tokens.member), await call('GET', '/tax-return', tokens.member)]
+    expect(lists[2].json.items.length).toBe(1) // the page's own `items` too, not only `taxReturns`
     for (const res of lists) {
       expect(res.status).toBe(200)
       expect(JSON.stringify(res.json)).not.toContain('0000000000')
@@ -485,6 +486,65 @@ describe('reading a period', () => {
     await importMonth(FILED)
     expect((await call('GET', `/vat/${FILED}/file/secrets.txt`, tokens.member)).status).toBe(404)
     expect((await call('GET', `/vat/${OPEN}/file/DEKLAR.txt`, tokens.member)).status).toBe(404)
+  })
+})
+
+describe('the generic tax-return routes', () => {
+  const hand = { type: 'vat', period: { from: '2026-01-01', to: '2026-01-31' } }
+
+  it('take the new statuses on a hand-made return: the schema and the model say the same', async () => {
+    const { json } = await call('POST', '/tax-return', tokens.accountant, hand)
+    for (const status of ['generated', 'corrected', 'filed', 'paid', 'draft']) {
+      const res = await call('PUT', `/tax-return/${json.taxReturn.id}`, tokens.accountant, { status })
+      expect(res.status).toBe(200)
+      expect(res.json.taxReturn.status).toBe(status)
+    }
+    expect((await call('PUT', `/tax-return/${json.taxReturn.id}`, tokens.accountant, { status: 'submitted' })).status).toBe(422)
+  })
+
+  it('leave a hand-made return as it was: it can still be deleted', async () => {
+    const { json } = await call('POST', '/tax-return', tokens.accountant, hand)
+    expect((await call('DELETE', `/tax-return/${json.taxReturn.id}`, tokens.accountant)).status).toBe(200)
+  })
+
+  it('cannot make one: a body names no `kind`, and neither cells nor files reach the document', async () => {
+    const { json } = await call('POST', '/tax-return', tokens.accountant, { ...hand, kind: 'vat', periodCode: OPEN, cells: { '01-50': 1 }, files: [{ name: 'x', sha256: 'y', bytes: 1 }] })
+    const stored: any = await TaxReturn.findById(json.taxReturn.id).lean()
+    expect(stored.kind).toBeUndefined()
+    expect(stored.periodCode).toBeUndefined()
+    expect(stored.cells).toBeUndefined()
+    expect(stored.files).toEqual([])
+    await call('PUT', `/tax-return/${json.taxReturn.id}`, tokens.accountant, { kind: 'vat', periodCode: OPEN })
+    expect((await TaxReturn.findById(json.taxReturn.id).lean() as any).kind).toBeUndefined()
+  })
+
+  it('⚠ cannot file a generated return, which is `accounting.file`\'s to do', async () => {
+    await openRows(OPEN)
+    const { json } = await call('POST', `/vat/${OPEN}/generate`, tokens.accountant, { ...SET_FILER })
+    const res = await call('PUT', `/tax-return/${json.taxReturn._id}`, tokens.noFile, { status: 'filed' })
+    expect(res.status).toBe(409)
+    expect(res.json.code).toBe('tax_return_filing_owned')
+    expect((await TaxReturn.findOne({ orgId }).lean())!.status).toBe('generated')
+  })
+
+  it('⚠ cannot unfreeze a filed return, or delete it', async () => {
+    await importMonth(FILED)
+    const ret = await TaxReturn.findOne({ orgId }).lean()
+    const put = await call('PUT', `/tax-return/${ret!._id}`, tokens.accountant, { status: 'draft' })
+    expect(put.status).toBe(409)
+    expect((await call('DELETE', `/tax-return/${ret!._id}`, tokens.accountant)).status).toBe(409)
+    expect((await TaxReturn.findOne({ orgId }).lean())!.status).toBe('filed')
+    // And the month still generates what was filed.
+    expect((await call('GET', `/vat/${FILED}/file/DEKLAR.txt`, tokens.accountant)).status).toBe(200)
+  })
+
+  it('answer a return without its declarant\'s ЕГН, one at a time too', async () => {
+    await importMonth(FILED)
+    const ret = await TaxReturn.findOne({ orgId }).lean()
+    const res = await call('GET', `/tax-return/${ret!._id}`, tokens.member)
+    expect(res.status).toBe(200)
+    expect(res.json.taxReturn.declarant.vies.name).toBeTruthy()
+    expect(JSON.stringify(res.json)).not.toContain('0000000000')
   })
 })
 

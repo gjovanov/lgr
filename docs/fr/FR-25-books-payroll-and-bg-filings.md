@@ -809,6 +809,7 @@ R1, then R2 and P1 in parallel, then R3. R4 and P2 can run side by side, then R5
 - Statements add up posted lines with `sumPostedLines`. `Account.balance` stays a cache, and no statement reads it.
 - The balance sheet moves a partner on the far side of an asset or liability account to the other side of the sheet. Lines that name no partner stay on the account's own side, so this needs `contactId` on the lines.
 - ⚠ Rollout: deploy → `scripts/backfill-member-payroll-read.ts` (dry run, read what it leaves, then `--execute`) → members sign in again. A session issued earlier keeps `payroll.read` until it expires, 24 hours at most, so no real payroll is imported before that has passed.
+
 ### R2 — the VAT files
 
 **As built.** `services/biz/vat-files/`: the annexes as data (`layouts.ts`), parse and emit (`codec.ts`), the arithmetic (`rules.ts`), the one path from a month to its files (`month.ts`), and the return's life (`vat-return.service.ts`). §7.1's gate, `scripts/compare-vat-files.ts`, on all 42 filed months: 42 equal, 135 files of which 9 VIES, 74,233 records. It keeps only the rows and who filed: row totals, row numbers, all of `DEKLAR`, all of `VIES` and whether a month has one are computed. The import, rehearsed over the real files on a throwaway replica set: 42 months written, 74,146 rows, a second run changing nothing, and 135 of 135 files read back from the database equal to the filed bytes.

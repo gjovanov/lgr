@@ -1,8 +1,10 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
+import { TAX_RETURN_STATUSES } from 'db/models'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { withoutPersonalId } from 'services/biz/vat-files/vat-return.service'
 
 const OBJECT_ID = '^[0-9a-fA-F]{24}$'
 const dateField = () => t.Union([t.String({ format: 'date' }), t.String({ format: 'date-time' })])
@@ -16,7 +18,7 @@ const returnType = t.Union([
 const period = t.Object({ from: dateField(), to: dateField() })
 
 const optionalFields = {
-  status: t.Optional(t.Union([t.Literal('draft'), t.Literal('filed'), t.Literal('paid')])),
+  status: t.Optional(t.Union(TAX_RETURN_STATUSES.map(s => t.Literal(s)))),
   totalTax: t.Optional(t.Number()),
   totalInput: t.Optional(t.Number()),
   totalOutput: t.Optional(t.Number()),
@@ -39,6 +41,14 @@ const optionalFields = {
 const createBody = t.Object({ type: returnType, period, ...optionalFields })
 const updateBody = t.Object({ type: t.Optional(returnType), period: t.Optional(period), ...optionalFields })
 
+/**
+ * A return with a `kind` belongs to its filing flow (FR-25 §3.8, `vat.controller.ts`). Open to these
+ * routes, `accounting.write` could file what `accounting.file` guards, or put a filed return back to
+ * draft and unfreeze it. No body here can set a `kind`: the schemas above leave it out.
+ */
+const filingOwned = (status: any) =>
+  status(409, { code: 'tax_return_filing_owned', message: 'This return belongs to its filing flow, and does not change here.' })
+
 export const taxReturnController = new Elysia({ prefix: '/org/:orgId/accounting/tax-return' })
   .use(AppAuthService)
   .get('/', async ({ params, query }) => {
@@ -55,13 +65,14 @@ export const taxReturnController = new Elysia({ prefix: '/org/:orgId/accounting/
     const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
 
     const result = await r.taxReturns.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
-    return { taxReturns: result.items, ...result }
+    const taxReturns = result.items.map(withoutPersonalId)
+    return { taxReturns, ...result, items: taxReturns }
   }, { isSignIn: true })
   .get('/:id', async ({ params, status }) => {
     const r = getRepos()
     const item = await r.taxReturns.findByIdInOrg(params.id, params.orgId)
     if (!item) return status(404, { message: 'Not found' })
-    return { taxReturn: item }
+    return { taxReturn: withoutPersonalId(item) }
   }, { isSignIn: true })
   .post('/', async ({ params, body, user }) => {
     const r = getRepos()
@@ -75,6 +86,7 @@ export const taxReturnController = new Elysia({ prefix: '/org/:orgId/accounting/
     const r = getRepos()
     const existing = await r.taxReturns.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
+    if (existing.kind) return filingOwned(status)
     const item = await r.taxReturns.updateInOrg(params.id, params.orgId, body as any)
     if (!item) return status(404, { message: 'Not found' })
 
@@ -86,6 +98,7 @@ export const taxReturnController = new Elysia({ prefix: '/org/:orgId/accounting/
     const r = getRepos()
     const existing = await r.taxReturns.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
+    if (existing.kind) return filingOwned(status)
     await r.taxReturns.deleteInOrg(params.id, params.orgId)
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'accounting', entityType: 'tax_return', entityId: params.id, entityName: (existing as any)?.name })
