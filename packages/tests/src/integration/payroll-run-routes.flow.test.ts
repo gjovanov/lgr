@@ -37,7 +37,7 @@ async function makeWorld() {
   const orgId = String(org._id)
   const tokens: Record<string, string> = {}
   let admin: any
-  for (const role of ['admin', 'hr_manager', 'manager'] as Role[]) {
+  for (const role of ['admin', 'hr_manager', 'manager', 'accountant'] as Role[]) {
     const user = await createTestUser(org._id, { role } as any)
     if (role === 'admin') admin = user
     tokens[role] = await (signer as any).decorator.jwt.sign({
@@ -45,6 +45,12 @@ async function makeWorld() {
       permissions: DEFAULT_ROLE_PERMISSIONS[role], ownRecordsModules: [],
     })
   }
+  // What a books org's accountant holds: the role's own, and payroll granted by name.
+  const bookkeeper = await createTestUser(org._id, { role: 'accountant' } as any)
+  tokens.bookkeeper = await (signer as any).decorator.jwt.sign({
+    id: String(bookkeeper._id), orgId, role: 'accountant', email: String(bookkeeper.email), username: 'bookkeeper', firstName: 'P', lastName: 'R',
+    permissions: [...DEFAULT_ROLE_PERMISSIONS.accountant, 'payroll.read', 'payroll.write', 'payroll.approve'], ownRecordsModules: [],
+  })
   const employee = await createTestEmployee(org._id, {
     salary: { baseSalary: 1000, currency: 'EUR', frequency: 'monthly' },
     deductions: [{ type: 'tax', name: 'Income tax', percentage: 10 }],
@@ -182,6 +188,56 @@ describe('POST /run/:id/calculate', () => {
   })
 })
 
+describe('what a run answers (FR-25 §3.11)', () => {
+  it('to a reader of totals: the totals, and no person', async () => {
+    const w = await makeWorld()
+    const run = await w.calculatedRun()
+
+    const one = await w.call('GET', `/${run.id}`, undefined, 'manager')
+    const list = await w.call('GET', '', undefined, 'manager')
+    expect(one.status).toBe(200)
+    expect(list.status).toBe(200)
+    expect(one.json.payrollRun.totals.employeeCount).toBe(1)
+    expect(one.json.payrollRun.items).toBeUndefined()
+    expect(list.json.payrollRuns[0].items).toBeUndefined()
+    expect(list.json.items[0].items).toBeUndefined()
+    expect(JSON.stringify([one.json, list.json])).not.toContain(String(w.employee._id))
+  })
+
+  it('in what a write answers too, and the run keeps its people', async () => {
+    const w = await makeWorld()
+    const run = await w.newRun()
+
+    const calculated = await w.call('POST', `/${run.id}/calculate`, undefined, 'manager')
+    expect(calculated.status).toBe(200)
+    expect(calculated.json.payrollRun.status).toBe('calculated')
+    expect(calculated.json.payrollRun.items).toBeUndefined()
+    expect(JSON.stringify(calculated.json)).not.toContain(String(w.employee._id))
+    expect(((await PayrollRun.findById(run.id).lean()) as any).items).toHaveLength(1)
+  })
+
+  it('to whoever holds payroll.personal: the people', async () => {
+    const w = await makeWorld()
+    const run = await w.calculatedRun()
+
+    for (const role of ['hr_manager', 'admin']) {
+      expect((await w.call('GET', `/${run.id}`, undefined, role)).json.payrollRun.items).toHaveLength(1)
+      expect((await w.call('GET', '', undefined, role)).json.payrollRuns[0].items).toHaveLength(1)
+    }
+  })
+})
+
+describe('DELETE /run/:id', () => {
+  it('asks for payroll.write and no role name', async () => {
+    const w = await makeWorld()
+    const run = await w.newRun()
+
+    expect((await w.call('DELETE', `/${run.id}`, undefined, 'accountant')).status).toBe(403)
+    expect((await w.call('DELETE', `/${run.id}`, undefined, 'bookkeeper')).status).toBe(200)
+    expect(await PayrollRun.countDocuments({ _id: run.id })).toBe(0)
+  })
+})
+
 describe('POST /run/:id/approve', () => {
   it('generates the payslips, where it used to generate none', async () => {
     const w = await makeWorld()
@@ -256,12 +312,21 @@ describe('POST /run/:id/approve', () => {
     expect(await Payslip.countDocuments({ payrollRunId: { $in: [draft.id, theirs.id] } })).toBe(0)
   })
 
-  it('still asks for the same roles', async () => {
+  it('asks for the permission, and the people who hold it by default are who the role name let in', async () => {
     const w = await makeWorld()
     const run = await w.calculatedRun()
 
     expect((await w.call('POST', `/${run.id}/approve`, undefined, 'manager')).status).toBe(403)
+    expect((await w.call('POST', `/${run.id}/approve`, undefined, 'accountant')).status).toBe(403)
     expect((await w.call('POST', `/${run.id}/approve`, undefined, 'hr_manager')).status).toBe(200)
+  })
+
+  it('takes no role name: an accountant granted it approves', async () => {
+    const w = await makeWorld()
+    const run = await w.calculatedRun()
+
+    expect((await w.call('POST', `/${run.id}/approve`, undefined, 'bookkeeper')).status).toBe(200)
+    expect(await Payslip.countDocuments({ payrollRunId: run.id })).toBe(1)
   })
 
   it('keeps its audit entry', async () => {

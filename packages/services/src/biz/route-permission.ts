@@ -259,6 +259,15 @@ interface Caller {
 }
 
 /**
+ * FR-25 §3.11: may this caller see or change anything about one person? `payroll.read` is a run's
+ * totals and answers no. For what a route's rule cannot say: a field of a response, a write that
+ * needs this on top of `payroll.write`.
+ */
+export function holdsPersonal(user: Caller): boolean {
+  return user.role === 'admin' || !!user.permissions?.includes('payroll.personal')
+}
+
+/**
  * Why this caller may not make this request, or null when they may. Reads, routes outside an org,
  * and requests without a caller (the 401 is the auth plugin's) are never refused here.
  *

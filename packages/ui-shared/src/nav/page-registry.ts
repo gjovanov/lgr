@@ -48,6 +48,8 @@ function page(appId: string, to: string, labelKey: string, icon: string, need?: 
   return need ? { id: path, appId, labelKey, icon, path, need } : { id: path, appId, labelKey, icon, path }
 }
 
+// FR-25 §3.11: what the server reads these for. Without it `payroll.read` still opens the app, at its totals.
+const READ_PEOPLE = ['payroll.personal'] as const
 const WRITE_INVOICING = ['invoicing.write'] as const
 const WRITE_INVENTORY = ['inventory.write'] as const
 // The till's pages, each named for what the server asks of it (`route-permission.ts`). An app's
@@ -124,10 +126,10 @@ export const PAGE_REGISTRY: PageDef[] = [
   // The server reads `fiscal` for any member and writes it by role: who runs a device holds no `pos.*`.
   tillPage('/configuration/devices', 'nav.devices', 'mdi-printer-pos', READ_TILL, FISCAL_ADMIN_ROLES),
   // ── Payroll ──
-  page('payroll', '/employees', 'payroll.employees', 'mdi-account-multiple'),
+  page('payroll', '/employees', 'payroll.employees', 'mdi-account-multiple', READ_PEOPLE),
   page('payroll', '/runs', 'payroll.payrollRuns', 'mdi-cash-register'),
-  page('payroll', '/payslips', 'payroll.payslips', 'mdi-file-document-outline'),
-  page('payroll', '/timesheets', 'payroll.timesheets', 'mdi-clock-outline'),
+  page('payroll', '/payslips', 'payroll.payslips', 'mdi-file-document-outline', READ_PEOPLE),
+  page('payroll', '/timesheets', 'payroll.timesheets', 'mdi-clock-outline', READ_PEOPLE),
   // ── Reports (FR-06 #14) ──
   // FR-6.5: one row per registry report, so every report is ★-favouritable and shows up in
   // the global page search. The labels are the registry's own label keys — a row here and an

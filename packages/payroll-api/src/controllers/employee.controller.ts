@@ -3,6 +3,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges, recordAuditEntry } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { holdsPersonal } from 'services/biz/route-permission'
 import { upsertTags } from 'services/biz/tag.service'
 import { forOrg, PersonalDataLockedError } from 'services/biz/personal-data/personal-data.service'
 import {
@@ -12,10 +13,6 @@ import {
   revealEmployeeFields,
   sealedEmployeeFields,
 } from 'services/biz/personal-data/employee-personal'
-
-/** FR-25 §3.11: anything about one person. The route rule already requires it to read this at all. */
-const holdsPersonal = (user: { role?: string; permissions?: string[] }) =>
-  user.role === 'admin' || !!user.permissions?.includes('payroll.personal')
 
 /** FR-25 §3.11: a write is about one person whatever it changes. The route rule has already asked for `payroll.write`. */
 const personalRefusal = (status: any) => status(403, { message: 'Permission required: payroll.personal', code: 'permission_required' })

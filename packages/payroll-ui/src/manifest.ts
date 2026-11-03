@@ -1,4 +1,11 @@
 import type { ModuleManifest } from 'ui-shell/module'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { canOpenPage, pageById, type PageViewer } from 'ui-shared/nav/page-registry'
+
+const opens = (path: string) => (who: PageViewer | null) => canOpenPage(pageById(`/payroll${path}`)!, who)
+
+/** The app's first page. A reader of a run's totals (FR-25 §3.11) has no people to land on. */
+export const payrollLanding = (who: PageViewer | null) => ({ name: opens('/employees')(who) ? 'payroll.employees' : 'payroll.runs' })
 
 /**
  * FR-24.3: the payroll module as data. Paths are relative to the module (`/payroll`), never to a
@@ -10,13 +17,13 @@ export const manifest: ModuleManifest = {
   titleKey: 'apps.payroll',
   pendingChanges: true,
   menu: [
-  { labelKey: 'payroll.employees', icon: 'mdi-account-multiple', to: '/employees' },
+  { labelKey: 'payroll.employees', icon: 'mdi-account-multiple', to: '/employees', when: opens('/employees') },
   { labelKey: 'payroll.payrollRuns', icon: 'mdi-cash-register', to: '/runs' },
-  { labelKey: 'payroll.payslips', icon: 'mdi-file-document-outline', to: '/payslips' },
-  { labelKey: 'payroll.timesheets', icon: 'mdi-clock-outline', to: '/timesheets' },
+  { labelKey: 'payroll.payslips', icon: 'mdi-file-document-outline', to: '/payslips', when: opens('/payslips') },
+  { labelKey: 'payroll.timesheets', icon: 'mdi-clock-outline', to: '/timesheets', when: opens('/timesheets') },
 ],
   routes: [
-      { path: '', redirect: { name: 'payroll.employees' } },
+      { path: '', redirect: () => payrollLanding(sessionViewer()) },
       { path: 'employees', name: 'payroll.employees', component: () => import('./views/payroll/EmployeesView.vue') },
       { path: 'employees/new', name: 'payroll.employee-new', component: () => import('./views/payroll/EmployeeFormView.vue') },
       { path: 'employees/:id/edit', name: 'payroll.employee-edit', component: () => import('./views/payroll/EmployeeFormView.vue') },
