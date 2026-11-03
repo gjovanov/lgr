@@ -19,6 +19,7 @@ export interface IPayrollConfig {
   socialSecurityRate: number
   healthInsuranceRate: number
   pensionRate: number
+  engine?: 'bg'
 }
 
 export interface ICloudStorageIntegration {

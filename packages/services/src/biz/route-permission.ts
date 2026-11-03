@@ -45,6 +45,15 @@ export const EXACT_WRITE_RULES: ReadonlyMap<string, WriteRule> = new Map<string,
   ['POST payroll/run/:id/approve', { need: ['payroll.approve'] }],
   // FR-25 §3.12: reading a value out of the sealed record, audit-logged by the route.
   ['POST payroll/employee/:id/reveal', { need: ['payroll.personal'] }],
+  ['POST payroll/run/:id/reveal', { need: ['payroll.personal'] }],
+  ['POST payroll/run/:id/declaration', { need: ['payroll.personal'] }],
+  ['POST payroll/contract/:id/reveal', { need: ['payroll.personal'] }],
+  ['POST payroll/absence/:id/reveal', { need: ['payroll.personal'] }],
+  ['POST payroll/payslip/:id/reveal', { need: ['payroll.personal'] }],
+  // FR-25 §5.1: an import also needs `payroll.personal`, which the controller checks on top.
+  ['POST payroll/import/employees', { need: ['payroll.import'] }],
+  ['POST payroll/import/contracts', { need: ['payroll.import'] }],
+  ['POST payroll/import/months', { need: ['payroll.import'] }],
 
   // Reads sent as POSTs (`route-class.ts#READ_ONLY_WRITES`) and writes that decide for themselves.
   ['POST reports/:id/run', { self: 'canAccessReport: the report\'s own permission and roles; 404 for a report the caller may not see' }],
@@ -148,6 +157,9 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['payroll/employee', { need: ['payroll.personal'] }],
   ['payroll/payslip', { need: ['payroll.personal'] }],
   ['payroll/timesheet', { need: ['payroll.personal'] }],
+  ['payroll/contract', { need: ['payroll.personal'] }],
+  ['payroll/absence', { need: ['payroll.personal'] }],
+  ['payroll/leave-balance', { need: ['payroll.personal'] }],
   ['payroll', { need: PAYROLL }],
 
   // The supplier picker in inventory, the contact pickers of the reports, a POS customer.

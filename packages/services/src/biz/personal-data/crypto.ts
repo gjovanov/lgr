@@ -46,6 +46,14 @@ export function aadFor(keyId: string, model: string, docId: string, path: string
   return `${keyId}|${model}|${docId}|${path}`
 }
 
+/**
+ * Where one person's line lives on a run. The person is in the path, so that swapping two people's
+ * ciphertexts inside one run does not open, as moving a value between documents does not.
+ */
+export function runItemPath(entry: { employeeId: unknown; contractId?: unknown }): string {
+  return `item:${String(entry.employeeId)}:${entry.contractId ? String(entry.contractId) : '-'}`
+}
+
 export function isSealed(value: unknown): value is string {
   return typeof value === 'string' && value.startsWith(`${SEALED_PREFIX}.`)
 }

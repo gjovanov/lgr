@@ -2,6 +2,8 @@ import type { RepositoryRegistry } from 'dal'
 import type { IPayrollRun } from 'dal/entities'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
+import { seedPayrollElements } from './payroll/bg/elements.js'
+import { calculateBgRun, generateBgPayslips, runDocument, type BgMonthInput } from './payroll/bg/run.service.js'
 
 /** The run is not in a state to do this: a person can be told why. */
 export class PayrollRunRefusedError extends Error {}
@@ -10,7 +12,7 @@ export class PayrollRunRefusedError extends Error {}
  * The one calculation: the `/calculate` route runs this. A calculated run can be calculated again,
  * as long as nobody has approved it: that is how a corrected salary reaches a run before it is final.
  */
-export async function calculatePayroll(payrollRunId: string, repos?: RepositoryRegistry): Promise<IPayrollRun> {
+export async function calculatePayroll(payrollRunId: string, repos?: RepositoryRegistry, options: { inputs?: readonly BgMonthInput[] } = {}): Promise<IPayrollRun> {
   const r = repos ?? getRepos()
   const run = await r.payrollRuns.findById(payrollRunId)
   if (!run) throw new Error('Payroll run not found')
@@ -21,6 +23,16 @@ export async function calculatePayroll(payrollRunId: string, repos?: RepositoryR
   const orgId = run.orgId
   const org = await r.orgs.findById(orgId)
   if (!org) throw new Error('Organization not found')
+
+  // FR-25 §6.4: the Bulgarian calculation, for an org that asked for it. Unset, nothing below changes.
+  if (org.settings?.payroll?.engine === 'bg') {
+    await seedPayrollElements(orgId)
+    const { update } = await calculateBgRun(orgId, run, options.inputs)
+    const calculated = await r.payrollRuns.updateInOrg(payrollRunId, orgId, update as any, { status: { $in: calculable } })
+    if (!calculated) throw new PayrollRunRefusedError(refusal)
+    logger.info({ payrollRunId, employeeCount: update.totals.employeeCount }, 'Payroll calculated')
+    return calculated
+  }
 
   const employees = await r.employees.findMany({ orgId, status: 'active' } as any)
   // Read without the model's defaults: an org stored before these settings existed has none.
@@ -112,7 +124,9 @@ export async function approvePayroll(payrollRunId: string, userId: string, repos
 
   // Generate payslips: one write, however many people the run pays.
   try {
-    await r.payslips.createMany(updated.items.map((item) => ({
+    // FR-25 §3.10: under `bg` a payslip is sealed, from the run's sealed lines.
+    if (updated.engine === 'bg') await generateBgPayslips(run.orgId, await runDocument(run.orgId, payrollRunId))
+    else await r.payslips.createMany(updated.items.map((item) => ({
       orgId: run.orgId,
       payrollRunId: run.id,
       employeeId: item.employeeId,

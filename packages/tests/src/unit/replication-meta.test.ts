@@ -52,9 +52,9 @@ describe('what replicates (FR-20.62)', () => {
   it('the classes are the plan\'s (Part A.5.2)', () => {
     const count = (c: string) => Object.values(REPLICATION_META).filter(e => e.class === c).length
     expect(count('S')).toBe(4)
-    expect(count('G')).toBe(4)
+    expect(count('G')).toBe(5)
     for (const m of ['Org', 'User', 'FiscalDevice', 'Desktop']) expect(REPLICATION_META[m].class).toBe('S')
-    for (const m of ['Identity', 'Invite', 'AuthToken', 'DinCatalog']) expect(REPLICATION_META[m].class).toBe('G')
+    for (const m of ['Identity', 'Invite', 'AuthToken', 'DinCatalog', 'PayrollParameter']) expect(REPLICATION_META[m].class).toBe('G')
     for (const m of ['Invoice', 'POSTransaction', 'StockMovement', 'Sequence', 'AuditLog']) expect(REPLICATION_META[m].class).toBe('R')
   })
 

@@ -5,7 +5,7 @@ import { createAuditEntry, diffChanges, recordAuditEntry } from 'services/biz/au
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { holdsPersonal } from 'services/biz/route-permission'
 import { upsertTags } from 'services/biz/tag.service'
-import { forOrg, PersonalDataLockedError } from 'services/biz/personal-data/personal-data.service'
+import { forOrg } from 'services/biz/personal-data/personal-data.service'
 import {
   cleanPersonalPatch,
   employeeView,
@@ -13,15 +13,10 @@ import {
   revealEmployeeFields,
   sealedEmployeeFields,
 } from 'services/biz/personal-data/employee-personal'
+import { lockedAnswer, PERSONAL_REFUSAL } from './answers.js'
 
 /** FR-25 §3.11: a write is about one person whatever it changes. The route rule has already asked for `payroll.write`. */
-const personalRefusal = (status: any) => status(403, { message: 'Permission required: payroll.personal', code: 'permission_required' })
-
-/** FR-25 §3.12: a missing or wrong key is a 503 with a name, never a blank. Anything else is a bug. */
-function lockedAnswer(status: any, e: unknown) {
-  if (e instanceof PersonalDataLockedError) return status(e.statusCode, { message: e.message, code: e.code })
-  throw e
-}
+const personalRefusal = (status: any) => status(403, PERSONAL_REFUSAL)
 
 const PersonalBody = t.Object({
   identifierType: t.Optional(t.Union([t.Literal('egn'), t.Literal('lnch'), t.Literal('service')])),
