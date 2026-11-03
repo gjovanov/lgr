@@ -29,6 +29,7 @@ export interface ITaxReturnFile {
 export interface ITaxReturnDeclarant {
   vatId: string
   name: string
+  /** ⚠ Usually the filer's ЕГН: masked in every JSON answer (`withoutPersonalId`), whole in the file. */
   filer: string
   vies?: {
     /**

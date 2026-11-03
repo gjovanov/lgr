@@ -308,6 +308,28 @@ describe('generating a period', () => {
     expect((await call('GET', `/vat/${OPEN}/rows`, tokens.member)).status).toBe(200)
   })
 
+  it('⚠ a filer named by ЕГН is whole in the file and masked in every JSON answer', async () => {
+    await openRows(OPEN)
+    const res = await call('POST', `/vat/${OPEN}/generate`, tokens.accountant, { filer: '7513020014' })
+    expect(res.status).toBe(200)
+    expect(res.json.taxReturn.declarant.filer).toBe('••••••0014')
+    const answers = [res, await call('GET', '/vat', tokens.member), await call('GET', `/vat/${OPEN}`, tokens.member), await call('GET', '/tax-return', tokens.member)]
+    for (const answer of answers) {
+      expect(answer.status).toBe(200)
+      expect(JSON.stringify(answer.json)).not.toContain('7513020014')
+    }
+    const deklar = await call('GET', `/vat/${OPEN}/file/DEKLAR.txt`, tokens.accountant)
+    expect(new TextDecoder('windows-1251').decode(deklar.raw)).toContain('7513020014')
+    // And it stays on the document, where generating the next month finds it.
+    expect(((await TaxReturn.findOne({ orgId, periodCode: OPEN }).lean()) as any).declarant.filer).toBe('7513020014')
+  })
+
+  it('a filer named by name stays a name', async () => {
+    await openRows(OPEN)
+    const res = await call('POST', `/vat/${OPEN}/generate`, tokens.accountant, { ...SET_FILER })
+    expect(res.json.taxReturn.declarant.filer).toBe(SET_FILER.filer)
+  })
+
   it('⚠ the VIES declarant\'s ЕГН is written to the file and to nothing a list or a get serialises', async () => {
     await importMonth(FILED)
     const lists = [await call('GET', '/vat', tokens.member), await call('GET', `/vat/${FILED}`, tokens.member), await call('GET', '/tax-return', tokens.member)]

@@ -56,12 +56,18 @@ function assertPeriod(period: string): void {
 const returnOf = (orgId: string, period: string) =>
   TaxReturn.findOne({ orgId, kind: 'vat', periodCode: period, status: { $ne: 'corrected' } })
 
-/** A return as an API answers it: the VIES declarant's ЕГН goes in the file, and in no JSON. */
+/**
+ * The person filing (00-04) is named by their ЕГН or ЛНЧ in practice: every filed month on prod was.
+ * A name stays, as names do; an identifier answers as its last four digits.
+ */
+const maskedFiler = (filer?: string) => (filer && /^\d{10}$/.test(filer.trim()) ? `••••••${filer.trim().slice(-4)}` : filer)
+
+/** A return as an API answers it: the VIES declarant's and the filer's ЕГН go in the file, and in no JSON. */
 export function withoutPersonalId<T>(ret: T): T {
   const r = ret as any
-  if (!r?.declarant?.vies?.id) return ret
-  const { id: _id, ...vies } = r.declarant.vies
-  return { ...r, declarant: { ...r.declarant, vies } }
+  if (!r?.declarant) return ret
+  const { id: _id, ...vies } = r.declarant.vies ?? {}
+  return { ...r, declarant: { ...r.declarant, filer: maskedFiler(r.declarant.filer), ...(r.declarant.vies ? { vies } : {}) } }
 }
 
 function toRow(doc: any): VatRow {
