@@ -42,5 +42,7 @@ export function sessionViewer(): PageViewer | null {
     role: c.role,
     permissions: Array.isArray(c.permissions) ? c.permissions : [],
     amr: Array.isArray(c.amr) ? (c.amr as string[]) : undefined,
+    // FR-26: ⚠ absent stays absent (unrestricted); only a list the token carries restricts.
+    ...(Array.isArray(c.areas) ? { areas: c.areas as string[] } : {}),
   }
 }

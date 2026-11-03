@@ -24,6 +24,11 @@ export interface IPermissionSet extends Document {
   description?: string
   permissions: string[]
   ownRecordsOnly: IOwnRecordsConfig
+  /**
+   * FR-26 §2.3: the only areas (`config/constants#AREAS`) the set opens. Absent: every area.
+   * `[]`: none. ⚠ The two mean opposite things, so the path has no default.
+   */
+  areas?: string[]
   isDefault: boolean              // auto-assigned to new users
   isAdmin: boolean                // bypass all permission checks
   isSystem: boolean               // cannot be deleted (seeded by system)
@@ -55,6 +60,9 @@ const permissionSetSchema = new Schema<IPermissionSet>(
     description: String,
     permissions: [{ type: String }],
     ownRecordsOnly: { type: ownRecordsConfigSchema, default: () => ({}) },
+    // ⚠ `default: undefined`: Mongoose gives an array path `[]` by default, which here would
+    // read as "no area" and lock every existing set out of orders, bills and payments.
+    areas: { type: [String], default: undefined },
     isDefault: { type: Boolean, default: false },
     isAdmin: { type: Boolean, default: false },
     isSystem: { type: Boolean, default: false },

@@ -43,6 +43,8 @@ export interface ContactLedgerOptions {
   dateFrom?: string
   dateTo?: string
   documentTypes?: string[]
+  /** FR-26.6: a session without `purchases` sees the contact's outgoing documents only. */
+  outgoingOnly?: boolean
   page?: number
   size?: number
 }
@@ -72,6 +74,7 @@ export async function getContactLedger(
   if (options.documentTypes?.length) {
     matchStage.type = { $in: options.documentTypes }
   }
+  if (options.outgoingOnly) matchStage.direction = 'outgoing'
   if (options.dateFrom || options.dateTo) {
     matchStage.issueDate = {} as any
     if (options.dateFrom) matchStage.issueDate.$gte = new Date(options.dateFrom)

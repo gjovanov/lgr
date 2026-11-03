@@ -12,6 +12,13 @@ import {
 } from 'services/biz/permission-set.service'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { createAuditEntry } from 'services/biz/audit-log.service'
+import { AREAS } from 'config/constants'
+
+/**
+ * FR-26.5: `null` stores the set unrestricted (the key is removed), a list holds it to those
+ * areas, `[]` to none. JSON has no `undefined`, so `null` is how "every area" is sent.
+ */
+const areasSchema = t.Optional(t.Nullable(t.Array(t.Union(AREAS.map(a => t.Literal(a))))))
 
 const ownRecordsSchema = t.Optional(
   t.Object({
@@ -109,6 +116,7 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
         description: t.Optional(t.String()),
         permissions: t.Array(t.String()),
         ownRecordsOnly: ownRecordsSchema,
+        areas: areasSchema,
         isDefault: t.Optional(t.Boolean()),
         isAdmin: t.Optional(t.Boolean()),
       }),
@@ -146,6 +154,7 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
         description: t.Optional(t.String()),
         permissions: t.Optional(t.Array(t.String())),
         ownRecordsOnly: ownRecordsSchema,
+        areas: areasSchema,
         isDefault: t.Optional(t.Boolean()),
         isAdmin: t.Optional(t.Boolean()),
       }),

@@ -1,8 +1,9 @@
 import { Code, Identity, LocalCredential, Org, User, OrgApp, PermissionSet, type IIdentity, type IOrg, type IUser } from 'db/models'
 import { homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
-import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, MODULES, APP_IDS, type Role } from 'config/constants'
+import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, MODULES, APP_IDS, mergeAreas, type Area, type Role } from 'config/constants'
 import { config, nodeRole } from 'config'
 import { logger } from '../logger/logger.js'
+import { inviteSetFor } from './permission-set.service.js'
 import { inviteDao } from '../dao/invite.dao.js'
 import { codeDao } from '../dao/code.dao.js'
 import { sendEmail } from './email.service.js'
@@ -71,6 +72,11 @@ export interface UserTokenized {
   orgId: string
   permissions: string[]
   ownRecordsModules: string[]
+  /**
+   * FR-26 §2.3: the only areas this session opens. ⚠ Absent means unrestricted (every token
+   * issued before FR-26, every existing role); `[]` means none. Never default it to `[]`.
+   */
+  areas?: Area[]
   operatorCode?: string
 }
 
@@ -252,10 +258,10 @@ export async function register(
     if (!invite) {
       await provisionNewOrg(org, user)
     } else {
-      // For invite-based registration, assign default permission set
-      const defaultSet = await PermissionSet.findOne({ orgId: org._id, isDefault: true })
-      if (defaultSet) {
-        user.permissionSetIds = [defaultSet._id]
+      // An invite's registration starts on the role's system set, else the org's default (FR-26.9.2).
+      const set = await inviteSetFor(org._id, role)
+      if (set) {
+        user.permissionSetIds = [set._id]
         await user.save()
       }
     }
@@ -633,6 +639,7 @@ export async function tokenize(user: IUser): Promise<UserTokenized> {
       allPerms.clear()
       PERMISSIONS.forEach(p => allPerms.add(p))
     }
+    const areas = mergeAreas(sets)
 
     return {
       id: String(user._id),
@@ -644,6 +651,7 @@ export async function tokenize(user: IUser): Promise<UserTokenized> {
       orgId: String(user.orgId),
       permissions: [...allPerms],
       ownRecordsModules: ownModules,
+      ...(areas ? { areas } : {}),
       operatorCode: user.operatorCode,
     }
   }
@@ -658,6 +666,7 @@ export async function tokenize(user: IUser): Promise<UserTokenized> {
 function tokenizeFromRole(user: IUser): UserTokenized {
   const roleDefaults = DEFAULT_ROLE_PERMISSIONS[user.role as Role] || DEFAULT_ROLE_PERMISSIONS.member
   const merged = [...new Set([...roleDefaults, ...(user.permissions || [])])]
+  const areas = DEFAULT_ROLE_AREAS[user.role as Role]
 
   return {
     id: String(user._id),
@@ -669,6 +678,7 @@ function tokenizeFromRole(user: IUser): UserTokenized {
     orgId: String(user.orgId),
     permissions: merged,
     ownRecordsModules: [],
+    ...(areas ? { areas: [...areas] } : {}),
     operatorCode: user.operatorCode,
   }
 }

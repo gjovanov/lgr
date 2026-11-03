@@ -11,6 +11,8 @@ export interface IPermissionSet extends TenantEntity {
   description?: string
   permissions: string[]
   ownRecordsOnly: IOwnRecordsConfig
+  /** FR-26: absent = every area, `[]` = none. */
+  areas?: string[]
   isDefault: boolean
   isAdmin: boolean
   isSystem: boolean

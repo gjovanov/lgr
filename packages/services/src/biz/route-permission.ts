@@ -1,4 +1,4 @@
-import type { Permission } from 'config/constants'
+import { holdsArea, type Area, type Permission } from 'config/constants'
 
 /**
  * What a write needs, by route (S-28).
@@ -100,6 +100,8 @@ export const PREFIX_WRITE_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   // warehouses before it sells, and `sales` holds invoicing.write but not inventory.write.
   ['invoicing', { need: ['invoicing.write'] }],
   ['bills/import', { need: ['invoicing.write'] }],
+  // FR-26.7: a transfer-only session writes movements too. The controller holds it to transfers.
+  ['warehouse/movement', { need: ['inventory.write', 'inventory.transfer'] }],
   ['warehouse', { need: ['inventory.write'] }],
   ['payroll', { need: ['payroll.write'] }],
   ['trade/pos', { need: ['pos.write'] }],
@@ -123,7 +125,7 @@ export const PREFIX_WRITE_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
 ]
 
 const ACCOUNTING = ['accounting.read', 'accounting.write', 'accounting.post', 'accounting.file'] as const
-const INVENTORY = ['inventory.read', 'inventory.write', 'inventory.adjust'] as const
+const INVENTORY = ['inventory.read', 'inventory.write', 'inventory.adjust', 'inventory.transfer'] as const
 const INVOICING = ['invoicing.read', 'invoicing.write', 'invoicing.send'] as const
 const POS = ['pos.read', 'pos.write'] as const
 const PAYROLL = ['payroll.read', 'payroll.write', 'payroll.approve'] as const
@@ -265,9 +267,60 @@ export function writeRuleFor(method: string, route: string): WriteRule | undefin
   return undefined
 }
 
+/**
+ * FR-26 §2.3, FR-26.6: the routes each area carves out of its module, by prefix (after
+ * `/api/org/:orgId/`), reads and writes alike. A session whose `areas` claim lacks the area is
+ * refused them; a session without the claim, and `admin`, never are.
+ *
+ * What a kept page needs stays outside on purpose: `invoicing/stock-availability` (the invoice
+ * form's transfers), `invoicing/contact` (suppliers on the Contacts page), `pricing` (the invoice
+ * form's prices), `warehouse/stock-level` (the product page and the transfer form).
+ *
+ * The parts no prefix can separate are the controllers' own: incoming documents under `/invoices`
+ * (`purchases`), order links on an invoice (`orders`), and a transfer-only session's movements.
+ */
+export const AREA_PREFIXES: ReadonlyArray<readonly [string, Area]> = [
+  ['dashboard', 'portal'],
+  ['invoicing/orders', 'orders'],
+  ['invoicing/internal-orders', 'orders'],
+  ['invoicing/reservations', 'orders'],
+  ['bills/import', 'purchases'],
+  ['invoicing/bills', 'purchases'],
+  ['invoicing/payment-order', 'payments'],
+  ['invoicing/cash-order', 'payments'],
+  ['warehouse/price-list', 'pricing'],
+  ['warehouse/bulk-pricing', 'pricing'],
+  ['warehouse/inventory-count', 'stockControl'],
+  ['warehouse/opening-stock', 'stockControl'],
+  ['warehouse/cost-layer/valuation', 'stockControl'],
+]
+
+/** The area an org route belongs to, if any. */
+export function areaForRoute(route: string): Area | undefined {
+  const rest = orgRouteRest(route)
+  if (rest === null) return undefined
+  for (const [prefix, area] of AREA_PREFIXES) {
+    if (rest === prefix || rest.startsWith(`${prefix}/`)) return area
+  }
+  return undefined
+}
+
 interface Caller {
   role?: string
   permissions?: readonly string[]
+  /** FR-26: absent = every area. */
+  areas?: readonly string[]
+}
+
+/** Why this session may not reach this route's area, or null. `admin` and a session without the claim always may. */
+export function areaRefusal(
+  user: Caller | null | undefined,
+  route: string,
+): { message: string; code: 'area_required'; area: Area } | null {
+  if (!user) return null
+  const area = areaForRoute(route)
+  if (!area || holdsArea(user, area)) return null
+  return { message: `Not part of your role: ${area}`, code: 'area_required', area }
 }
 
 /**
@@ -377,9 +430,10 @@ export function permissionRefusal(
   user: ScopedCaller | null | undefined,
   method: string,
   route: string,
-): { message: string; code: 'permission_required' | 'pin_session_scope'; permissions?: readonly string[] } | null {
+): { message: string; code: 'permission_required' | 'pin_session_scope' | 'area_required'; permissions?: readonly string[] } | null {
   return pinScopeRefusal(user, method, route)
     ?? (READ_METHODS.has(method.toUpperCase()) ? readRefusal(user, method, route) : writeRefusal(user, method, route))
+    ?? (GUARDED_READS.has(method.toUpperCase()) || !READ_METHODS.has(method.toUpperCase()) ? areaRefusal(user, route) : null)
 }
 
 /** The modules of an audit entry (`AuditLog.module`) and what reading them needs. */

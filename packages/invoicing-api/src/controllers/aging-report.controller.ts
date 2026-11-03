@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia'
+import { holdsArea } from 'config/constants'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Invoice } from 'db/models'
 
@@ -8,9 +9,13 @@ import { Invoice } from 'db/models'
  */
 export const agingReportController = new Elysia({ prefix: '/org/:orgId/invoicing/reports' })
   .use(AppAuthService)
-  .get('/aging', async ({ params: { orgId }, query }) => {
+  .get('/aging', async ({ params: { orgId }, query, user, status }) => {
     const asOfDate = query.asOfDate ? new Date(query.asOfDate as string) : new Date()
     const direction = (query.direction as string) || 'outgoing'
+    // FR-26.6: the payables are the bills, which a session without `purchases` does not see.
+    if (direction !== 'outgoing' && user && !holdsArea(user, 'purchases')) {
+      return status(403, { code: 'area_required', area: 'purchases', message: 'Incoming documents are not part of your role.' })
+    }
 
     const data = await Invoice.aggregate([
       {

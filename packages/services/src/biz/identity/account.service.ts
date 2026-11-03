@@ -12,6 +12,7 @@ import { IdentityError } from './identity.service.js'
 import { normalizeEmail } from './email.js'
 import { forgetIdentity, verifyPassword } from './session.service.js'
 import { isLinkedMaster } from '../node/link.js'
+import { inviteSetFor } from '../permission-set.service.js'
 
 /**
  * The person's own account (multi-org sign-in, Phase 4): their password, and the orgs they join or
@@ -241,9 +242,10 @@ async function createMembership(identity: IIdentity, org: IOrg, role: Role): Pro
     roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
   })
   if (role !== 'admin') {
-    const defaultSet = await PermissionSet.findOne({ orgId: org._id, isDefault: true }).exec()
-    if (defaultSet) {
-      member.permissionSetIds = [defaultSet._id]
+    // FR-26.9.2: the role's own system set, not the org's default (`inviteSetFor`).
+    const set = await inviteSetFor(org._id, role)
+    if (set) {
+      member.permissionSetIds = [set._id]
       await member.save()
     }
   }

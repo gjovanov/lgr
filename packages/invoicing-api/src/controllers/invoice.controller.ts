@@ -1,5 +1,6 @@
 import { FiscalRoute, deviceFromAuthorSession, deviceFromCounter, deviceFromDeadReceipt } from 'fiscal/fiscal-route'
 import { Elysia, t } from 'elysia'
+import { holdsArea } from 'config/constants'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createInvoiceStockMovement, reverseInvoiceStockMovement, stockBookingRefusal, validateStockAvailability } from 'services/biz/invoicing.service'
@@ -514,10 +515,53 @@ function auditOverlapAcknowledged(orgId: string, userId: string, id: string, num
   })
 }
 
+/** FR-26.6: a document's order links, head and lines, as comparable keys. */
+const ORDER_HEAD_FIELDS = ['orderId', 'orderGroupId', 'internalOrderId'] as const
+function lineOrderKey(ref: Record<string, unknown> | null | undefined): string {
+  if (!ref) return ''
+  const parts = Object.entries(ref).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${String(v)}`).sort()
+  return parts.join('&')
+}
+
+const ORDERS_REFUSED = { code: 'area_required', area: 'orders', message: 'Orders and reservations are not part of your role: this document may not be linked to one.' } as const
+
+/**
+ * FR-26.6 `orders`: may a session without the area write these order links? A create may carry
+ * none. An edit may keep the ones the document has (the form round-trips `orderRef` verbatim, so
+ * an invoice converted from an order saves unchanged) and may add or change none.
+ */
+function orderLinkRefusal(user: { role?: string; areas?: readonly string[] }, body: any, existing?: any): typeof ORDERS_REFUSED | null {
+  if (holdsArea(user, 'orders')) return null
+  for (const f of ORDER_HEAD_FIELDS) {
+    if (body?.[f] === undefined) continue
+    if (String(body[f] || '') !== String(existing?.[f] || '')) return ORDERS_REFUSED
+  }
+  if (Array.isArray(body?.lines)) {
+    const kept = new Set(((existing?.lines ?? []) as any[]).map(l => lineOrderKey(l.orderRef)).filter(Boolean))
+    for (const l of body.lines) {
+      const k = lineOrderKey(l?.orderRef)
+      if (k && !kept.has(k)) return ORDERS_REFUSED
+    }
+  }
+  return null
+}
+
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   .use(AppAuthService)
   // FR-24.50: the routes that reach a fiscal device say which; one held on another pod runs there.
   .use(FiscalRoute)
+  /**
+   * FR-26.6 `purchases`: an incoming document does not exist for a session without the area. Bills
+   * share `/invoices` with sales documents and only `direction` tells them apart, so no route rule
+   * can say this: every by-id route of this controller answers 404 for one, as for an unknown id.
+   */
+  .onBeforeHandle(async ({ params, user, status }: any) => {
+    if (!user || holdsArea(user, 'purchases')) return
+    const id = params?.id
+    if (typeof id !== 'string' || !/^[0-9a-f]{24}$/i.test(id)) return
+    const doc = await Invoice.findOne({ _id: id, orgId: params.orgId }, { direction: 1 }).lean().exec()
+    if ((doc as any)?.direction === 'incoming') return status(404, { message: 'Invoice not found' })
+  })
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
@@ -557,6 +601,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // FR-23: a payment's receipt is not a document of these lists. It has its own, the journal.
     if (!filter.type) Object.assign(filter, NOT_PAYMENT_RECEIPT)
     if (query.direction) filter.direction = query.direction
+    // FR-26.6: without `purchases` the list is the outgoing documents, whatever it asks for.
+    if (!holdsArea(user, 'purchases')) filter.direction = 'outgoing'
     if (query.status) {
       const list = String(query.status).split(',').map(s => s.trim()).filter(Boolean)
       if (list.length === 1) filter.status = list[0]
@@ -685,7 +731,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   // Cloud-only (Mongo aggregation); desktop-ui does not request it.
   .get('/summary', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    const summary = await getInvoiceSummary(orgId, query as any)
+    const summary = await getInvoiceSummary(orgId, (holdsArea(user, 'purchases') ? query : { ...query, direction: 'outgoing' }) as any)
     return { summary }
   }, { isSignIn: true })
   .post(
@@ -703,6 +749,12 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         return status(e.statusCode, { code: e.code, message: e.message })
       }
       const hash = key ? requestHash('invoice.create', body) : undefined
+      // FR-26.6: a session without `purchases` makes no incoming document, and without `orders` links none.
+      if (body.direction === 'incoming' && !holdsArea(user, 'purchases')) {
+        return status(403, { code: 'area_required', area: 'purchases', message: 'Incoming documents are not part of your role.' })
+      }
+      const unlinked = orderLinkRefusal(user, body)
+      if (unlinked) return status(403, unlinked)
       const createCtx: CreateCtx = {
         orgId,
         user,
@@ -1099,6 +1151,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (!existing) return status(404, { message: 'Invoice not found' })
       // FR-21.11: a till document or a storno is corrected by a storno, never edited.
       if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
+      // FR-26.6: the order links it has are kept; without `orders` none is added or changed.
+      const unlinked = orderLinkRefusal(user, body, existing)
+      if (unlinked) return status(403, unlinked)
       // ⚠ What is due is derived, never taken (#454): from the total and what was paid, below, or
       // from the sale for an invoice for one. A client's figure was written as sent whenever the
       // total stayed put. Dropped HERE, before anything below derives its own. Still accepted by

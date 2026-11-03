@@ -7,7 +7,7 @@
     back-to="/warehouses"
     :back-label="$t('nav.warehouses')"
   >
-    <v-form ref="formRef" @submit.prevent="handleSubmit">
+    <v-form ref="formRef" :disabled="!writes" @submit.prevent="handleSubmit">
       <v-row>
         <v-col cols="12" md="6">
           <v-text-field v-model="form.code" :label="$t('common.code')" :rules="[rules.required]" density="compact" />
@@ -65,6 +65,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { writesInventory } from 'ui-shared/nav/page-registry'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -75,6 +77,8 @@ import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+// FR-26.8.7: without `inventory.write` (a Seller) the page reads, and offers no New, Save or Delete.
+const writes = writesInventory(sessionViewer())
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 
@@ -104,7 +108,7 @@ const { markSaved, tryRestore } = usePendingChanges({
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
-const formActions = computed<FormAction[]>(() => [
+const formActions = computed<FormAction[]>(() => !writes ? [] : [
   { label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value },
 ])
 

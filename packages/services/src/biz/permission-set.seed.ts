@@ -1,5 +1,5 @@
 import type { RepositoryRegistry } from 'dal'
-import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } from 'config/constants'
+import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, ROLE_PERMISSION_SET_NAMES, type Area } from 'config/constants'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 
@@ -8,11 +8,13 @@ interface PermissionSetDef {
   description: string
   permissions: string[]
   ownRecordsOnly: Record<string, boolean>
+  /** FR-26: only on the sets that are held to areas; absent = every area. */
+  areas?: Area[]
   isAdmin: boolean
   isDefault: boolean
 }
 
-const DEFAULT_PERMISSION_SETS: PermissionSetDef[] = [
+export const DEFAULT_PERMISSION_SETS: PermissionSetDef[] = [
   {
     name: 'Administrator',
     description: 'Full access to all modules',
@@ -56,6 +58,26 @@ const DEFAULT_PERMISSION_SETS: PermissionSetDef[] = [
     isAdmin: false,
     isDefault: true,
   },
+  // FR-26.4: the counter's two roles. Their areas carve Orders, bills, payments, prices, stock
+  // control and the catalog export out of the modules their permissions open.
+  {
+    name: 'Seller',
+    description: 'Sales documents, the till and stock transfers; no orders, bills, payments or prices',
+    permissions: [...DEFAULT_ROLE_PERMISSIONS.seller],
+    ownRecordsOnly: {},
+    areas: [...DEFAULT_ROLE_AREAS.seller!],
+    isAdmin: false,
+    isDefault: false,
+  },
+  {
+    name: 'Sales Consultant',
+    description: 'What a Seller does, and orders and reservations',
+    permissions: [...DEFAULT_ROLE_PERMISSIONS.sales_consultant],
+    ownRecordsOnly: {},
+    areas: [...DEFAULT_ROLE_AREAS.sales_consultant!],
+    isAdmin: false,
+    isDefault: false,
+  },
   // A tax inspector reads and exports and changes nothing. A set outranks the role's defaults at
   // sign-in, and this role used to map to Accountant: writes, and no audit log.
   {
@@ -84,6 +106,7 @@ export async function seedDefaultPermissionSets(orgId: string, repos?: Repositor
       description: def.description,
       permissions: def.permissions,
       ownRecordsOnly: def.ownRecordsOnly,
+      ...(def.areas ? { areas: def.areas } : {}),
       isAdmin: def.isAdmin,
       isDefault: def.isDefault,
       isSystem: true,
@@ -96,11 +119,4 @@ export async function seedDefaultPermissionSets(orgId: string, repos?: Repositor
 /**
  * Map old role to permission set name for migration.
  */
-export const ROLE_TO_PERMISSION_SET: Record<string, string> = {
-  admin: 'Administrator',
-  manager: 'Manager',
-  accountant: 'Accountant',
-  warehouse_manager: 'Warehouse Manager',
-  member: 'Member (Read Only)',
-  nra_auditor: 'NRA Auditor (Read Only)',
-}
+export const ROLE_TO_PERMISSION_SET: Record<string, string> = { ...ROLE_PERMISSION_SET_NAMES }

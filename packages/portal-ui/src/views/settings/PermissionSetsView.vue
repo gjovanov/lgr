@@ -82,6 +82,29 @@
             </v-col>
           </v-row>
 
+          <!-- FR-26.5: the areas the set opens. Off: every area, stored absent. On: only those ticked. -->
+          <div class="text-subtitle-1 font-weight-bold mt-4 mb-1">{{ $t('permissionSets.areas') }}</div>
+          <v-switch
+            v-model="form.restrictAreas"
+            :label="form.restrictAreas ? $t('permissionSets.onlyAreas') : $t('permissionSets.allAreas')"
+            :disabled="form.isAdmin"
+            color="warning"
+            density="compact"
+            hide-details
+            data-testid="restrict-areas"
+          />
+          <v-row v-if="form.restrictAreas && !form.isAdmin">
+            <v-col v-for="area in AREAS" :key="area" cols="6" sm="4" md="3">
+              <v-checkbox
+                v-model="form.areas"
+                :value="area"
+                :label="$t(`permissionSets.area.${area}`)"
+                density="compact"
+                hide-details
+              />
+            </v-col>
+          </v-row>
+
           <div class="text-subtitle-1 font-weight-bold mt-4 mb-2">{{ $t('permissionSets.recordScoping') }}</div>
           <v-row>
             <v-col v-for="mod in ownRecordsModules" :key="mod" cols="6" sm="4" md="3">
@@ -140,7 +163,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
-import { PERMISSIONS } from 'config/constants'
+import { AREAS, PERMISSIONS } from 'config/constants'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -187,6 +210,8 @@ const emptyForm = () => ({
   permissions: [] as string[],
   isDefault: false,
   isAdmin: false,
+  restrictAreas: false,
+  areas: [] as string[],
 })
 
 const form = reactive(emptyForm())
@@ -228,6 +253,9 @@ function openDialog(item?: any) {
       permissions: [...(item.permissions || [])],
       isDefault: item.isDefault || false,
       isAdmin: item.isAdmin || false,
+      // ⚠ Absent is every area, `[]` is none: only a stored list restricts.
+      restrictAreas: Array.isArray(item.areas),
+      areas: Array.isArray(item.areas) ? [...item.areas] : [],
     })
     // Parse ownRecordsOnly
     ownRecordsSelected.value = Object.entries(item.ownRecordsOnly || {})
@@ -255,6 +283,8 @@ async function save() {
       ownRecordsOnly,
       isDefault: form.isDefault,
       isAdmin: form.isAdmin,
+      // `null` stores the set unrestricted; JSON has no `undefined` to say it with.
+      areas: form.restrictAreas && !form.isAdmin ? [...form.areas] : null,
     }
 
     if (editing.value) {

@@ -12,7 +12,7 @@
       <ProductDocActions v-if="isEdit" :product="storedProduct" />
     </template>
 
-    <v-form ref="formRef" @submit.prevent="handleSubmit">
+    <v-form ref="formRef" :disabled="!writes" @submit.prevent="handleSubmit">
       <ProductTabBar :active-tab="urlTab" :is-new="!isEdit" :product-id="(route.params.id as string) || ''" />
 
           <v-tabs-window v-model="tab" class="pt-2">
@@ -233,6 +233,8 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { writesInventory } from 'ui-shared/nav/page-registry'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -250,6 +252,8 @@ import type { ProductForActions } from '../composables/product-doc-actions'
 import { PRICE_TIER_NAMES } from 'config/constants'
 
 const { t } = useI18n()
+// FR-26.8.7: without `inventory.write` (a Seller) the page reads, and offers no New, Save or Delete.
+const writes = writesInventory(sessionViewer())
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
@@ -441,6 +445,7 @@ function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 // ── EntityFormShell actions & smart buttons ──
 
 const formActions = computed<FormAction[]>(() => {
+  if (!writes) return []
   const actions: FormAction[] = [
     {
       label: t('common.save'),

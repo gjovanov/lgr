@@ -1,3 +1,4 @@
+import { holdsArea } from 'config/constants'
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
@@ -144,14 +145,17 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
   // Summary counts for Contact form smart buttons (Invoices / Open Balance / Movements)
   .get('/:id/summary', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    // FR-26.6: without `purchases` the contact's bills are no part of what they are shown.
+    const side = holdsArea(user, 'purchases') ? {} : { direction: 'outgoing' }
 
     const [documents, receipts, unpaid, movementCount] = await Promise.all([
       // FR-23: the two counts, not a `$ne` on the type, which would fetch every document the contact has.
-      Invoice.countDocuments({ orgId, contactId: id } as any),
-      Invoice.countDocuments({ orgId, type: { $in: ['payment_receipt', 'payment_storno'] }, contactId: id } as any),
+      Invoice.countDocuments({ orgId, contactId: id, ...side } as any),
+      Invoice.countDocuments({ orgId, type: { $in: ['payment_receipt', 'payment_storno'] }, contactId: id, ...side } as any),
       Invoice.find({
         orgId,
         contactId: id,
+        ...side,
         status: { $in: ['sent', 'partially_paid', 'overdue', 'received'] },
       } as any).select('type amountDue total amountPaid currency').lean(),
       StockMovement.countDocuments({ orgId, contactId: id } as any),

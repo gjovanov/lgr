@@ -1,4 +1,4 @@
-import { FISCAL_ADMIN_ROLES, PERMISSIONS } from 'config/constants'
+import { FISCAL_ADMIN_ROLES, PERMISSIONS, holdsArea, type Area } from 'config/constants'
 
 /**
  * Cross-app registry of the favouritable PAGES/functions surfaced by the global top-bar ★ menu.
@@ -27,6 +27,11 @@ export interface PageDef {
   roles?: readonly string[]
   /** A page of the till, inside the invoicing app: all a PIN session reaches (`canOpenPage`). */
   till?: boolean
+  /**
+   * FR-26: the area the page belongs to (`config/constants#AREAS`). A session whose `areas` claim
+   * lacks it does not open the page, as the server refuses its routes (`route-permission.ts#AREA_PREFIXES`).
+   */
+  area?: Area
 }
 
 /**
@@ -51,7 +56,8 @@ function page(appId: string, to: string, labelKey: string, icon: string, need?: 
 // FR-25 §3.11: what the server reads these for. Without it `payroll.read` still opens the app, at its totals.
 const READ_PEOPLE = ['payroll.personal'] as const
 const WRITE_INVOICING = ['invoicing.write'] as const
-const WRITE_INVENTORY = ['inventory.write'] as const
+// FR-26.7: `inventory.transfer` saves a movement too, a transfer only (`route-permission.ts`).
+const WRITE_MOVEMENT = ['inventory.write', 'inventory.transfer'] as const
 // The till's pages, each named for what the server asks of it (`route-permission.ts`). An app's
 // own `invoicing.read` would hide them from a till-only role and show them to an accountant.
 const WRITE_TILL = ['pos.write'] as const
@@ -60,6 +66,11 @@ const READ_JOURNAL = [...APP_NAV_META.invoicing.reads!, ...READ_TILL] as const
 // What the server reads for the inventory app too (`route-permission.ts`): the orders a delivery is
 // booked against, and the contacts it picks a supplier from.
 const READ_WITH_INVENTORY = [...APP_NAV_META.invoicing.reads!, 'inventory.read', 'inventory.write', 'inventory.adjust'] as const
+
+/** A page of an area (FR-26 §2.3). */
+function inArea(def: PageDef, area: Area): PageDef {
+  return { ...def, area }
+}
 
 function tillPage(to: string, labelKey: string, icon: string, need: readonly string[], roles?: readonly string[]): PageDef {
   return { ...page('invoicing', to, labelKey, icon, need), till: true, ...(roles ? { roles } : {}) }
@@ -70,30 +81,31 @@ export const PAGE_REGISTRY: PageDef[] = [
   // FR-01: credit/debit notes merged into the sales/purchase document grids; their old
   // paths redirect, so stale favorites keep working while the rows themselves are gone.
   page('invoicing', '/invoices', 'nav.salesDocs', 'mdi-receipt-text-outline'),
-  page('invoicing', '/orders', 'nav.externalOrders', 'mdi-clipboard-list-outline', READ_WITH_INVENTORY),
-  page('invoicing', '/internal-orders', 'nav.internalOrders', 'mdi-account-clock-outline'),
-  page('invoicing', '/reservations', 'nav.reservations', 'mdi-lock-clock'),
+  inArea(page('invoicing', '/orders', 'nav.externalOrders', 'mdi-clipboard-list-outline', READ_WITH_INVENTORY), 'orders'),
+  inArea(page('invoicing', '/internal-orders', 'nav.internalOrders', 'mdi-account-clock-outline'), 'orders'),
+  inArea(page('invoicing', '/reservations', 'nav.reservations', 'mdi-lock-clock'), 'orders'),
   page('invoicing', '/proforma', 'nav.proforma', 'mdi-file-document-outline'),
-  page('invoicing', '/bills', 'nav.purchaseDocs', 'mdi-receipt-text'),
+  inArea(page('invoicing', '/bills', 'nav.purchaseDocs', 'mdi-receipt-text'), 'purchases'),
   tillPage('/cash-sales', 'nav.crSales', 'mdi-cash-register', READ_JOURNAL),
-  page('invoicing', '/payment-orders', 'nav.paymentOrders', 'mdi-bank-transfer'),
-  page('invoicing', '/cash-orders', 'nav.cashOrders', 'mdi-cash'),
+  inArea(page('invoicing', '/payment-orders', 'nav.paymentOrders', 'mdi-bank-transfer'), 'payments'),
+  inArea(page('invoicing', '/cash-orders', 'nav.cashOrders', 'mdi-cash'), 'payments'),
   // FR-06 (#14): the aging report and the export page moved to the Reports app — their rows
   // are under "Reports" below. The old paths still resolve (redirect stubs), and existing
   // favorites on them are remapped on load, see LEGACY_PAGE_IDS.
   page('invoicing', '/contacts', 'nav.contacts', 'mdi-contacts', READ_WITH_INVENTORY),
-  page('invoicing', '/configuration/sequences', 'nav.sequences', 'mdi-numeric'),
+  // FR-26.8.3: the server lets admin and manager in (`route-permission.ts`), and nobody else.
+  { ...page('invoicing', '/configuration/sequences', 'nav.sequences', 'mdi-numeric', []), roles: ['admin', 'manager'] },
   // ── Inventory ──
   page('inventory', '/products', 'nav.products', 'mdi-package-variant'),
   page('inventory', '/categories', 'nav.categories', 'mdi-shape'),
   page('inventory', '/warehouses', 'nav.warehouses', 'mdi-warehouse'),
-  page('inventory', '/stock-levels', 'nav.stockLevels', 'mdi-chart-box'),
+  inArea(page('inventory', '/stock-levels', 'nav.stockLevels', 'mdi-chart-box'), 'stockControl'),
   page('inventory', '/movements', 'nav.stockMovements', 'mdi-swap-horizontal'),
-  page('inventory', '/inventory-counts', 'nav.inventoryCount', 'mdi-clipboard-check'),
-  page('inventory', '/inventory-valuation', 'nav.inventoryValuation', 'mdi-chart-areaspline'),
-  page('inventory', '/opening-stock', 'nav.openingStock', 'mdi-database-import-outline'),
-  page('inventory', '/price-lists', 'nav.priceLists', 'mdi-tag-multiple'),
-  page('inventory', '/bulk-pricing', 'nav.bulkPricing', 'mdi-percent'),
+  inArea(page('inventory', '/inventory-counts', 'nav.inventoryCount', 'mdi-clipboard-check'), 'stockControl'),
+  inArea(page('inventory', '/inventory-valuation', 'nav.inventoryValuation', 'mdi-chart-areaspline'), 'stockControl'),
+  inArea(page('inventory', '/opening-stock', 'nav.openingStock', 'mdi-database-import-outline'), 'stockControl'),
+  inArea(page('inventory', '/price-lists', 'nav.priceLists', 'mdi-tag-multiple'), 'pricing'),
+  inArea(page('inventory', '/bulk-pricing', 'nav.bulkPricing', 'mdi-percent'), 'pricing'),
   // ── New documents (FR-22.49, FR-22.51) ──
   // The daily forms, blank: ★ can pin one, and „+ Нов" lists them (NEW_DOCUMENT_MENU below).
   // `matchPage` prefers these over their lists, so a pin made on /invoicing/invoices/new pins
@@ -104,12 +116,13 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('invoicing', '/proforma/new', 'nav.newDocPage.proforma', 'mdi-file-document-plus-outline', WRITE_INVOICING),
   // The till's terminal: a cash sale is rung up there.
   tillPage('/cash-sales/new', 'nav.csTerminal', 'mdi-point-of-sale', WRITE_TILL),
-  page('invoicing', '/bills/new', 'nav.newDocPage.bill', 'mdi-receipt-text-arrow-left-outline', WRITE_INVOICING),
-  page('inventory', '/movements/new', 'nav.newDocPage.goodsReceipt', 'mdi-truck-delivery-outline', WRITE_INVENTORY),
-  page('invoicing', '/internal-orders/new', 'nav.newDocPage.customerOrder', 'mdi-clipboard-account-outline', WRITE_INVOICING),
-  page('invoicing', '/orders/new', 'nav.newDocPage.supplierOrder', 'mdi-clipboard-arrow-right-outline', WRITE_INVOICING),
+  inArea(page('invoicing', '/bills/new', 'nav.newDocPage.bill', 'mdi-receipt-text-arrow-left-outline', WRITE_INVOICING), 'purchases'),
+  // FR-26.8.6: the form makes every type, and a transfer-only session (a Seller) saves transfers.
+  page('inventory', '/movements/new', 'nav.newDocPage.stockMovement', 'mdi-truck-delivery-outline', WRITE_MOVEMENT),
+  inArea(page('invoicing', '/internal-orders/new', 'nav.newDocPage.customerOrder', 'mdi-clipboard-account-outline', WRITE_INVOICING), 'orders'),
+  inArea(page('invoicing', '/orders/new', 'nav.newDocPage.supplierOrder', 'mdi-clipboard-arrow-right-outline', WRITE_INVOICING), 'orders'),
   // FR-22.37: the Reservations list with its create dialog open (a redirect to `?new=1`).
-  page('invoicing', '/reservations/new', 'nav.newDocPage.reservation', 'mdi-lock-plus-outline', WRITE_INVOICING),
+  inArea(page('invoicing', '/reservations/new', 'nav.newDocPage.reservation', 'mdi-lock-plus-outline', WRITE_INVOICING), 'orders'),
   // ── Accounting ──
   page('accounting', '/accounts', 'nav.accounts', 'mdi-chart-bar'),
   page('accounting', '/journal-entries', 'nav.journalEntries', 'mdi-book-open-variant'),
@@ -238,6 +251,8 @@ export interface PageViewer {
   permissions?: readonly string[]
   /** How the session was made; `['pin']` for a till's PIN sign-in. */
   amr?: readonly string[]
+  /** FR-26: the only areas the session opens; absent = every area. */
+  areas?: readonly string[]
 }
 
 /**
@@ -255,6 +270,7 @@ export function canOpenPage(page: PageDef, who: PageViewer | null | undefined): 
   if (!who) return false
   if (who.amr?.includes('pin') && !page.till) return false
   if (who.role === 'admin') return true
+  if (page.area && !holdsArea(who, page.area)) return false
   if (who.role && page.roles?.includes(who.role)) return true
   const need = page.need ?? APP_NAV_META[page.appId]?.reads ?? [APP_NAV_META[page.appId]?.permission]
   const held = who.permissions ?? []
@@ -265,7 +281,8 @@ export function canOpenPage(page: PageDef, who: PageViewer | null | undefined): 
 const BACK_OFFICE = PERMISSIONS.filter(p => !p.startsWith('pos.'))
 const READ_DASHBOARD = ['invoicing.read', 'invoicing.write', 'invoicing.send', 'accounting.read', 'accounting.write', 'accounting.post', 'inventory.read', 'inventory.write', 'inventory.adjust'] as const
 
-const portalPage = (path: string, need: readonly string[]): PageDef => ({ id: path, appId: 'portal', labelKey: '', icon: '', path, need })
+// FR-26: every portal page is of the `portal` area: a Seller has none of them.
+const portalPage = (path: string, need: readonly string[]): PageDef => ({ id: path, appId: 'portal', labelKey: '', icon: '', path, need, area: 'portal' })
 
 /**
  * The portal's own pages. No ★ pins one and no app menu lists one, so they are no rows of the registry, and
@@ -307,6 +324,23 @@ export function isTillOnly(who: PageViewer | null | undefined): boolean {
 }
 
 /**
+ * FR-26.7: whether this session writes stock movements as transfers only: it holds
+ * `inventory.transfer` and not `inventory.write`, and is no `admin`. The movement form offers it
+ * Transfer alone, as the server accepts.
+ */
+export function isTransferOnly(who: PageViewer | null | undefined): boolean {
+  if (!who || who.role === 'admin') return false
+  const held = who.permissions ?? []
+  return held.includes('inventory.transfer') && !held.includes('inventory.write')
+}
+
+/** Whether this session writes the inventory's records (products, categories, warehouses): `inventory.write`, or `admin`. */
+export function writesInventory(who: PageViewer | null | undefined): boolean {
+  if (!who) return false
+  return who.role === 'admin' || (who.permissions ?? []).includes('inventory.write')
+}
+
+/**
  * Whether this session reads the documents, `/invoices` and its prints. A till-only session does
  * not, and neither does someone in on the till and inventory: a till sale's page is all they read
  * of it, not the back-office form.
@@ -323,7 +357,7 @@ export function readsDocuments(who: PageViewer | null | undefined): boolean {
  *
  * Reservations join once FR-22.37 gives them a create form.
  */
-export const NEW_DOCUMENT_MENU: ReadonlyArray<ReadonlyArray<{ pageId: string; labelKey: string }>> = [
+export const NEW_DOCUMENT_MENU: ReadonlyArray<ReadonlyArray<{ pageId: string; labelKey: string; transferOnlyLabelKey?: string }>> = [
   [
     { pageId: '/invoicing/invoices/new', labelKey: 'nav.newDoc.salesInvoice' },
     { pageId: '/invoicing/invoices/new?type=credit_note', labelKey: 'nav.newDoc.creditNote' },
@@ -332,7 +366,8 @@ export const NEW_DOCUMENT_MENU: ReadonlyArray<ReadonlyArray<{ pageId: string; la
   [{ pageId: '/invoicing/cash-sales/new', labelKey: 'nav.newDoc.cashSale' }],
   [
     { pageId: '/invoicing/bills/new', labelKey: 'nav.newDoc.bill' },
-    { pageId: '/inventory/movements/new', labelKey: 'nav.newDoc.goodsReceipt' },
+    // FR-26.8.6: whoever can make a receipt keeps the receipt's name; a transfer-only session sees "stock movement".
+    { pageId: '/inventory/movements/new', labelKey: 'nav.newDoc.goodsReceipt', transferOnlyLabelKey: 'nav.newDoc.stockMovement' },
   ],
   [
     { pageId: '/invoicing/internal-orders/new', labelKey: 'nav.newDoc.customerOrder' },
@@ -349,9 +384,31 @@ export interface NewDocumentItem {
 /** „+ Нов" as this person sees it: entries they may not open are left out, and so are empty groups. */
 export function newDocumentMenu(who: PageViewer | null | undefined): NewDocumentItem[][] {
   return NEW_DOCUMENT_MENU.map((group) =>
-    group.flatMap(({ pageId, labelKey }) => {
+    group.flatMap(({ pageId, labelKey, transferOnlyLabelKey }) => {
       const p = pageById(pageId)
-      return p && canOpenPage(p, who) ? [{ page: p, labelKey }] : []
+      if (!p || !canOpenPage(p, who)) return []
+      return [{ page: p, labelKey: transferOnlyLabelKey && isTransferOnly(who) ? transferOnlyLabelKey : labelKey }]
     }),
   ).filter((group) => group.length > 0)
+}
+
+/**
+ * FR-26.8.4: the portal's pages a session without the `portal` area does not reach: the App Hub,
+ * Dashboard, Settings and Admin. `/account`, `/orgs`, an invite and the sign-in pages stay.
+ */
+export function isPortalAreaPath(path: string): boolean {
+  const p = path.replace(/\/+$/, '') || '/'
+  return p === '/' || p === '/apps' || p === '/dashboard' || p.startsWith('/settings/') || p === '/settings' || p.startsWith('/admin/') || p === '/admin'
+}
+
+/**
+ * Where a session without the `portal` area lands instead of the App Hub: the first app it opens,
+ * in the order of `APP_NAV_META` (Invoicing first), else its own account page.
+ */
+export function landingWithoutPortal(who: PageViewer | null | undefined): string {
+  for (const [, meta] of Object.entries(APP_NAV_META)) {
+    const need = meta.reads ?? [meta.permission]
+    if (who && (who.role === 'admin' || need.some(p => (who.permissions ?? []).includes(p)))) return `${meta.base}/`
+  }
+  return '/account'
 }

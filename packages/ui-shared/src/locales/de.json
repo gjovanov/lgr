@@ -104,7 +104,8 @@
       "goodsReceipt": "Wareneingang",
       "customerOrder": "Kundenauftrag",
       "supplierOrder": "Lieferantenbestellung",
-      "reservation": "Reservierung"
+      "reservation": "Reservierung",
+      "stockMovement": "Lagerbewegung"
     },
     "newDocPage": {
       "salesInvoice": "Neue Ausgangsrechnung",
@@ -115,7 +116,8 @@
       "goodsReceipt": "Neuer Wareneingang",
       "customerOrder": "Neuer Kundenauftrag",
       "supplierOrder": "Neue Lieferantenbestellung",
-      "reservation": "Neue Reservierung"
+      "reservation": "Neue Reservierung",
+      "stockMovement": "Neue Lagerbewegung"
     },
     "dashboard": "Dashboard",
     "accounting": "Buchhaltung",
@@ -1371,7 +1373,9 @@
       "warehouse_manager": "Lagerleiter",
       "sales": "Vertrieb",
       "member": "Mitglied",
-      "nra_auditor": "NRA-Prüfer"
+      "nra_auditor": "NRA-Prüfer",
+      "seller": "Verkäufer",
+      "sales_consultant": "Verkaufsberater"
     },
     "roleChangeHint": "Eine Rollenänderung ersetzt die Berechtigungen durch die Standardwerte der Rolle. Der Benutzer muss sich neu anmelden.",
     "roleAdminOnly": "Nur ein Administrator kann eine Rolle ändern.",
@@ -1424,7 +1428,8 @@
       "title": "Kasse",
       "requireConnectedDevice": "Verkauf nur mit verbundenem Fiskaldrucker",
       "requireConnectedDeviceHint": "Ein: Ein Verkauf und eine Bar- oder Kartenrechnung brauchen eine offene Sitzung und einen verbundenen Fiskaldrucker, und LGR druckt den Fiskalbeleg. Aus: LGR druckt nichts, Bar- und Kartenrechnungen gelten bei der Ausstellung als bezahlt, ohne Beleg. Eine neue Organisation beginnt mit Aus."
-    }
+    },
+    "roleSetMismatch": "Die Rolle „{role}“ und die Berechtigungssätze passen nicht zusammen: {sets}. Bei der Anmeldung entscheiden die Sätze, nicht die Rolle. Der Satz der Rolle ist „{own}“; das Speichern einer neuen Rolle setzt ihn an die Stelle des alten."
   },
   "admin": {
     "auditLog": "Prüfprotokoll",
@@ -2962,7 +2967,20 @@
     "effectivePermissions": "Effektive Berechtigungen",
     "recordScoping": "Datensatzbereich",
     "allRecords": "Alle Datensätze",
-    "ownOnly": "Nur eigene Datensätze"
+    "ownOnly": "Nur eigene Datensätze",
+    "areas": "Bereiche",
+    "allAreas": "Alle Bereiche",
+    "onlyAreas": "Nur die angehakten Bereiche",
+    "noAreas": "Kein Bereich",
+    "area": {
+      "portal": "Portal (Apps, Dashboard, Einstellungen)",
+      "orders": "Bestellungen und Reservierungen",
+      "purchases": "Eingangsbelege",
+      "payments": "Zahlungs- und Kassenanweisungen",
+      "pricing": "Preislisten und Massenpreise",
+      "stockControl": "Bestände, Inventuren, Bewertung, Anfangsbestand",
+      "catalogExport": "Artikelexport"
+    }
   },
   "pendingChanges": {
     "title": "Ausstehende Änderungen",

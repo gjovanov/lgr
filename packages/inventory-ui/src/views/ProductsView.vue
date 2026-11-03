@@ -11,8 +11,9 @@
     @update:options="onUpdateOptions"
   >
     <template #actions>
-      <export-menu @export="onExport" />
-      <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'inventory.products.new', params: { tab: 'edit' } }">{{ $t('common.create') }}</responsive-btn>
+      <!-- FR-26.8.7: the Export menu only for a session with the catalog's export area. -->
+      <export-menu v-if="exportsCatalog" @export="onExport" />
+      <responsive-btn v-if="writes" color="primary" icon="mdi-plus" :to="{ name: 'inventory.products.new', params: { tab: 'edit' } }">{{ $t('common.create') }}</responsive-btn>
     </template>
 
     <template #filters>
@@ -136,6 +137,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { holdsArea } from 'config/constants'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { writesInventory } from 'ui-shared/nav/page-registry'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -286,6 +290,9 @@ async function fetchStockBadges() {
 watch(items, fetchStockBadges)
 
 const { actionsFor } = useProductDocActions()
+// FR-26.8.7: without `inventory.write` (a Seller) the page reads, and offers no New, Save or Delete.
+const writes = writesInventory(sessionViewer())
+const exportsCatalog = holdsArea(sessionViewer(), 'catalogExport')
 
 /**
  * A row's menu: the article's two pages, then what it starts (FR-22.47) — each offered only to a
@@ -304,10 +311,10 @@ function rowActions(item: Product): RowAction[] {
     hint: a.disabledKey ? t(a.disabledKey) : undefined,
   }))
   return [
-    { key: 'edit', label: t('common.edit'), icon: 'mdi-pencil', to: { name: 'inventory.products.edit', params: { id: item._id, tab: 'edit' } } },
+    { key: 'edit', label: writes ? t('common.edit') : t('common.view'), icon: writes ? 'mdi-pencil' : 'mdi-eye', to: { name: 'inventory.products.edit', params: { id: item._id, tab: 'edit' } } },
     { key: 'stock', label: t('warehouse.tabStock'), icon: 'mdi-chart-box', to: stockTab(item) },
     ...documents,
-    { key: 'delete', label: t('common.delete'), icon: 'mdi-delete', color: 'error', divider: true, handler: () => confirmDelete(item) },
+    ...(writes ? [{ key: 'delete', label: t('common.delete'), icon: 'mdi-delete', color: 'error', divider: true, handler: () => confirmDelete(item) }] : []),
   ]
 }
 

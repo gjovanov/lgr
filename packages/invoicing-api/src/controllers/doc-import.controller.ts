@@ -13,6 +13,7 @@
  * fallback.
  */
 import { Elysia, t } from 'elysia'
+import { holdsArea } from 'config/constants'
 import { createHash } from 'node:crypto'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { config } from 'config'
@@ -38,6 +39,16 @@ const PERMISSION_BY_TARGET: Record<ImportTarget, string> = {
   bill: 'invoicing.write',
   cash_sale: 'invoicing.write',
   movement: 'inventory.write',
+}
+
+/** Why this session may not import into `target`, or null. FR-26.6: a bill also needs `purchases`. */
+function targetRefusal(user: { role?: string; permissions?: readonly string[]; areas?: readonly string[] }, target: ImportTarget) {
+  const permission = PERMISSION_BY_TARGET[target]
+  if (permission && !user.permissions?.includes(permission)) return { message: `Permission required: ${permission}` }
+  if (target === 'bill' && !holdsArea(user, 'purchases')) {
+    return { code: 'area_required', area: 'purchases', message: 'Incoming documents are not part of your role.' }
+  }
+  return null
 }
 
 const TARGETS = ['sales_invoice', 'bill', 'cash_sale', 'movement'] as const
@@ -169,10 +180,8 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const target = body.target as ImportTarget
-      const permission = PERMISSION_BY_TARGET[target]
-      if (permission && !user.permissions?.includes(permission)) {
-        return status(403, { message: `Permission required: ${permission}` })
-      }
+      const refused = targetRefusal(user, target)
+      if (refused) return status(403, refused)
       if (body.items.length > MAX_BATCH_FILES) {
         return status(400, { message: `At most ${MAX_BATCH_FILES} documents per batch` })
       }
@@ -268,10 +277,8 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const target = body.target as ImportTarget
-      const permission = PERMISSION_BY_TARGET[target]
-      if (permission && !user.permissions?.includes(permission)) {
-        return status(403, { message: `Permission required: ${permission}` })
-      }
+      const refused = targetRefusal(user, target)
+      if (refused) return status(403, refused)
 
       const task = await startJob(orgId, user.id, 'doc-import-commit', { target, count: body.items.length })
       void (async () => {
@@ -322,10 +329,8 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const target = (body.target || 'bill') as ImportTarget
-      const permission = PERMISSION_BY_TARGET[target]
-      if (permission && !user.permissions?.includes(permission)) {
-        return status(403, { message: `Permission required: ${permission}` })
-      }
+      const refused = targetRefusal(user, target)
+      if (refused) return status(403, refused)
       const results: any[] = []
       for (const id of body.ids) {
         try {

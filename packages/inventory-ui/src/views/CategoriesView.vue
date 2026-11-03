@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <export-menu @export="onExport" />
-        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'inventory.categories.new' }">{{ $t('common.create') }}</responsive-btn>
+        <responsive-btn v-if="writes" color="primary" icon="mdi-plus" :to="{ name: 'inventory.categories.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
 
@@ -42,8 +42,8 @@
             </v-icon>
           </template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.categories.edit', params: { id: item._id } }" />
-            <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
+            <v-btn :icon="writes ? 'mdi-pencil' : 'mdi-eye'" size="small" variant="text" :to="{ name: 'inventory.categories.edit', params: { id: item._id } }" />
+            <v-btn v-if="writes" icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>
@@ -67,6 +67,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { writesInventory } from 'ui-shared/nav/page-registry'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -87,6 +89,8 @@ interface Category {
 }
 
 const { t } = useI18n()
+// FR-26.8.7: without `inventory.write` (a Seller) the page reads, and offers no New, Save or Delete.
+const writes = writesInventory(sessionViewer())
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 

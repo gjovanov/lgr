@@ -104,7 +104,8 @@
       "goodsReceipt": "Goods receipt",
       "customerOrder": "Customer order",
       "supplierOrder": "Supplier order",
-      "reservation": "Reservation"
+      "reservation": "Reservation",
+      "stockMovement": "Stock movement"
     },
     "newDocPage": {
       "salesInvoice": "New outgoing invoice",
@@ -115,7 +116,8 @@
       "goodsReceipt": "New goods receipt",
       "customerOrder": "New customer order",
       "supplierOrder": "New supplier order",
-      "reservation": "New reservation"
+      "reservation": "New reservation",
+      "stockMovement": "New stock movement"
     },
     "dashboard": "Dashboard",
     "accounting": "Accounting",
@@ -820,7 +822,9 @@
       "warehouse_manager": "Warehouse Manager",
       "sales": "Sales",
       "member": "Member",
-      "nra_auditor": "NRA Auditor"
+      "nra_auditor": "NRA Auditor",
+      "seller": "Seller",
+      "sales_consultant": "Sales Consultant"
     },
     "roleChangeHint": "Changing the role replaces this user’s permissions with that role’s defaults. They must sign in again for it to take effect.",
     "roleAdminOnly": "Only an administrator can change a role.",
@@ -873,7 +877,8 @@
       "title": "Cash register",
       "requireConnectedDevice": "A sale needs a connected fiscal printer",
       "requireConnectedDeviceHint": "On, a sale and a cash or card invoice need an open session and a connected fiscal printer, and LGR prints the fiscal receipt. Off, LGR prints nothing: cash and card invoices are paid as they are issued, with no receipt. A new organization starts off."
-    }
+    },
+    "roleSetMismatch": "The role \"{role}\" and the permission sets disagree: {sets}. The sets decide at sign-in, not the role. The role's set is \"{own}\"; saving a new role puts it in place of the old one."
   },
   "admin": {
     "auditLog": "Audit Log",
@@ -2962,7 +2967,20 @@
     "effectivePermissions": "Effective Permissions",
     "recordScoping": "Record Scoping",
     "allRecords": "All Records",
-    "ownOnly": "Own Records Only"
+    "ownOnly": "Own Records Only",
+    "areas": "Areas",
+    "allAreas": "All areas",
+    "onlyAreas": "Only the areas ticked",
+    "noAreas": "No area",
+    "area": {
+      "portal": "Portal (apps, dashboard, settings)",
+      "orders": "Orders and reservations",
+      "purchases": "Incoming documents",
+      "payments": "Payment and cash orders",
+      "pricing": "Price lists and bulk pricing",
+      "stockControl": "Stock levels, counts, valuation, opening stock",
+      "catalogExport": "Product export"
+    }
   },
   "pendingChanges": {
     "title": "Pending Changes",
