@@ -26,6 +26,7 @@ const READ_ONLY: Record<string, string> = {
   'gen-replication-meta.ts': 'loads the models to read their replicate() decisions (FR-20.62): connects to nothing',
   'cash-register-preflight.ts': 'reports what FR-21\'s copy (0008) would meet, and its parity over the copies (FR-21.21): writes nothing',
   'cash-register-field-check.ts': 'FR-21 §8.4\'s check around a release: counts, SUPTO 18.1–18.5, the digest and the journal, written nowhere',
+  'compare-sales-register.ts': 'FR-25 R3\'s gate: a books org\'s filed sales rows against the rows derived from its branches\' documents, counts only: writes nothing',
 }
 
 const sources = () =>
