@@ -803,6 +803,13 @@ R1, then R2 and P1 in parallel, then R3. R4 and P2 can run side by side, then R5
 
 `КП`, `ЗАП` and month-end entries are dated on a month's last day, which the period lookup has handled since `786c33db`.
 
+**As built.** Items 1–9 and the first half of item 10. The second half, personal fields by permission, needs `payroll.personal` and lands with the personal-data work (§3.12). What a later release should know:
+
+- A P&L row's `amount` only nets the two sides. A debit on a revenue account is not reclassified, so with cost of sales kept on the revenue account (`D702 K304`) that account's `amount` is the margin. Each row carries `debit` and `credit` for the reader who can tell.
+- Statements add up posted lines with `sumPostedLines`. `Account.balance` stays a cache, and no statement reads it.
+- The balance sheet moves a partner on the far side of an asset or liability account to the other side of the sheet. Lines that name no partner stay on the account's own side, so this needs `contactId` on the lines.
+- ⚠ Rollout: deploy → `scripts/backfill-member-payroll-read.ts` (dry run, read what it leaves, then `--execute`) → members sign in again. A session issued earlier keeps `payroll.read` until it expires, 24 hours at most, so no real payroll is imported before that has passed.
+
 ## 10. Tests
 
 - **Integration**, fictional data only: every row of §1.4 as a fixture, posted and checked per account and analytic; the moving-average table (purchase, sale, negative on-hand, backdated); a month re-imported with changed values; the branch link refused across different `taxNumber`; `isForeignOrg` still refuses a branch user on the books org; idempotent worker; void and edit after filing.
