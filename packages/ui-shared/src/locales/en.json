@@ -1604,6 +1604,7 @@
       "print": "Print",
       "printed": "The report was printed on the fiscal device."
     },
+    "floatPending": "The opening amount is not on the fiscal device yet. It goes first with the next receipt.",
     "sessionReport": {
       "title": "Session report",
       "view": "Session report",
@@ -1629,6 +1630,7 @@
       "cashOnDelivery": "Cash on delivery",
       "change": "Change given",
       "opening": "Opening float",
+      "notOnDevice": "Not on the fiscal device",
       "expected": "Expected cash",
       "counted": "Counted",
       "difference": "Difference",

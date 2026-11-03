@@ -71,6 +71,10 @@ export interface RegisterPrinter {
   reached(): Promise<void>
   /** The device failed: mark it, so the next operation does not walk into it blind. */
   failed(): Promise<void>
+  /** What its service cash adds up to since its last Z, where its driver can say (`opening-float.ts`). */
+  readServiceCash?(): Promise<{ serviceIn: number }>
+  /** Service cash in. `accepted: false`: the device moved nothing. Throws when nobody knows. */
+  moveServiceCash?(amount: number): Promise<{ accepted: boolean }>
   /**
    * One fiscal operation from the first command to the last, so a graceful stop cannot split it (FR-20.23).
    * `waitMs`: how long the device's turn is waited for before `device_busy`; its own default otherwise.

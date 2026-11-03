@@ -14,6 +14,7 @@ import { orgDao } from 'services/dao/org.dao'
 import { logger } from 'services/logger'
 import { toPosTransaction } from 'services/biz/cash-register/mapping'
 import { finishInterruptedReceipt, interruptedDocuments, unfinishedReceipts } from 'services/biz/cash-register/payment-receipt.service'
+import { registerOpeningFloat, type FloatPrinter } from 'services/biz/cash-register/opening-float'
 import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { asEntity } from 'services/biz/cash-register/pos-union'
 import { RECEIPT_DEVICE_AWAY, auditStoppedSettlement } from 'services/biz/cash-register/settle.service'
@@ -30,8 +31,8 @@ import { leftByRate, totalOf } from 'services/biz/cash-register/refund-budget'
 import { isPlanRefusal, leftByMethod, planStorno, refundOfPart, type StornoPlan } from 'services/biz/cash-register/storno-lines'
 import { isDeviceConnected, getPrinter, type IFiscalPrinter } from 'fiscal/fiscal-device.service'
 import { maySaleOpen } from 'fiscal/device-reach'
-import { FiscalPaymentMethodError, toFiscalPaymentType } from 'fiscal/types'
-import { lineNameMaxOf, unsupportedReason } from 'fiscal/capabilities'
+import { FiscalPaymentMethodError, toFiscalPaymentType, type ZReportResult } from 'fiscal/types'
+import { fiscalCapabilities, lineNameMaxOf, unsupportedReason } from 'fiscal/capabilities'
 import { receiptMode } from 'services/biz/cash-register/receipt-mode'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { fiscalOperation } from 'fiscal/in-flight'
@@ -303,7 +304,53 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
     },
     // Counted from the moment it is asked for, so a graceful stop waits for one still in the queue.
     operation: (fn, opts) => fiscalOperation(() => deviceTurn(fiscal.deviceId, fn, opts)),
+    readServiceCash: p.readServiceCash && (() => p.readServiceCash!()),
+    moveServiceCash: p.moveServiceCash && ((amount) => p.moveServiceCash!(amount)),
   }
+}
+
+/** How long an open waits for the device's turn over a float, which goes first with the next document if it must. */
+const FLOAT_TURN_WAIT_MS = 5_000
+
+/** A device as the float sees it (`opening-float.ts`). */
+const floatPrinterOf = (p: IFiscalPrinter, deviceNumber: string): FloatPrinter => ({
+  deviceNumber,
+  readServiceCash: p.readServiceCash && (() => p.readServiceCash!()),
+  moveServiceCash: p.moveServiceCash && ((amount) => p.moveServiceCash!(amount)),
+})
+
+/** Whether a session opening with `openingBalance` owes it to a device: one stands in its warehouse that can take it (#473). */
+export async function owesDeviceFloat(orgId: string, warehouseId: string, openingBalance: number): Promise<boolean> {
+  if (!(openingBalance > 0)) return false
+  const devices = await getRepos().fiscalDevices.findMany({ orgId, warehouseId, isActive: true } as any) as any[]
+  return devices.some(d => fiscalCapabilities(d.manufacturer, d.connectionType).features.serviceCash)
+}
+
+/**
+ * A session's opening amount in a turn of its own, at the open. ⚠ The open never waits on it or fails for it:
+ * with the device away or busy it stays owed, and goes first in the next document's turn.
+ */
+export async function floatInItsOwnTurn(deviceId: string, deviceNumber: string, sessionId: string): Promise<void> {
+  try {
+    const p = getPrinter(deviceId)
+    await fiscalOperation(() => deviceTurn(deviceId, () => registerOpeningFloat(floatPrinterOf(p, deviceNumber), sessionId), { waitMs: FLOAT_TURN_WAIT_MS }))
+  } catch (e: any) {
+    logger.info({ sessionId, deviceNumber, error: e?.message }, 'Opening float waits for the next turn on the device')
+  }
+}
+
+/**
+ * A close's Z, in one turn with the float its session still owes (#473), which goes first: the Z is the last
+ * document that can show it, so it waits for the device as long as the Z does. ⚠ Looked at twice: an attempt
+ * that lost its answer is settled by the second look's read of `ServIn`, before the Z clears it. A float that
+ * does not get there never stops the Z, and the session's report says so.
+ */
+export function zReportOwingFloat(deviceId: string, deviceNumber: string, sessionId: string): Promise<ZReportResult> {
+  const p = getPrinter(deviceId)
+  return fiscalOperation(() => deviceTurn(deviceId, async () => {
+    for (let look = 0; look < 2; look++) await registerOpeningFloat(floatPrinterOf(p, deviceNumber), sessionId, { closing: true })
+    return p.printDailyZReport()
+  }))
 }
 
 /**

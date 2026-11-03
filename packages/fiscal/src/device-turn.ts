@@ -43,6 +43,7 @@ export class DeviceBusyError extends Error {
 
 /** The driver methods that print a document, each a turn of its own when not already in one. */
 export const PRINTING_COMMANDS: ReadonlySet<string> = new Set([
+  'moveServiceCash',
   'printStornoReceipt',
   'printDailyZReport',
   'printDailyXReport',

@@ -32,8 +32,11 @@ export interface SessionReport {
    */
   byMethod: { cash: number; card: number; other: number; cashOnDelivery?: number }
   change: number
-  /** At close: the float, and the cash expected, counted and the difference. */
-  drawer: { opening: number; expected?: number; counted?: number; difference?: number }
+  /**
+   * At close: the float, and the cash expected, counted and the difference. `onDevice`: whether the fiscal
+   * device has the float (#473), from a session that owed it. Without it a Z's cash reads short by the float.
+   */
+  drawer: { opening: number; onDevice?: boolean; expected?: number; counted?: number; difference?: number }
   documents?: { first: string; last: string }
   receipts?: { first: string; last: string }
   zReportNumber?: string
@@ -150,6 +153,7 @@ export function buildSessionReport(
     change: cents(change),
     drawer: {
       opening: cents(session.openingBalance),
+      ...(session.deviceFloat ? { onDevice: session.deviceFloat.state === 'registered' } : {}),
       ...(cash ? { expected: cents(cash.expected), counted: cents(cash.counted ?? 0), difference: cents(cash.difference ?? 0) } : {}),
     },
     ...(numbers.length ? { documents: { first: numbers[0], last: numbers[numbers.length - 1] } } : {}),
@@ -166,28 +170,28 @@ export const SESSION_REPORT_LABELS: Record<string, Record<string, string>> = {
     fiscal: 'Fiscal receipts', text: 'Text receipts', unprinted: 'Not printed', vat: 'VAT', net: 'Net', gross: 'Gross',
     total: 'TOTAL', cash: 'Cash', card: 'Card', other: 'Other', cod: 'Cash on delivery', change: 'Change given', opening: 'Opening float',
     expected: 'Expected cash', counted: 'Counted', difference: 'Difference', documents: 'Documents', receipts: 'Receipts',
-    z: 'Z-report No.', deviceZ: 'On the device', fmTotal: 'FM total', vatGroup: 'VAT group',
+    z: 'Z-report No.', deviceZ: 'On the device', fmTotal: 'FM total', vatGroup: 'VAT group', notOnDevice: 'Not on the device',
   },
   bg: {
     title: 'ОТЧЕТ ЗА СЕСИЯ', opened: 'Отворена', closed: 'Затворена', sales: 'Продажби', payments: 'Плащания по фактури', refunds: 'Върнато по кр. известия', stornos: 'Сторно', voided: 'Анулирани',
     fiscal: 'Фискални бонове', text: 'Служебни бонове', unprinted: 'Неотпечатани', vat: 'ДДС', net: 'Основа', gross: 'Сума',
     total: 'ОБЩО', cash: 'В брой', card: 'Карта', other: 'Други', cod: 'Наложен платеж', change: 'Върнато ресто', opening: 'Начална сума',
     expected: 'Очаквано в брой', counted: 'Преброено', difference: 'Разлика', documents: 'Документи', receipts: 'Бонове',
-    z: 'Z-отчет №', deviceZ: 'По устройството', fmTotal: 'Общо ФП', vatGroup: 'ДДС група',
+    z: 'Z-отчет №', deviceZ: 'По устройството', fmTotal: 'Общо ФП', vatGroup: 'ДДС група', notOnDevice: 'Не е на устройството',
   },
   de: {
     title: 'SITZUNGSBERICHT', opened: 'Geöffnet', closed: 'Geschlossen', sales: 'Verkäufe', payments: 'Rechnungszahlungen', refunds: 'Gutschrift-Erstattungen', stornos: 'Stornos', voided: 'Ungültig',
     fiscal: 'Fiskalbelege', text: 'Textbelege', unprinted: 'Nicht gedruckt', vat: 'MwSt', net: 'Netto', gross: 'Brutto',
     total: 'GESAMT', cash: 'Bar', card: 'Karte', other: 'Sonstige', cod: 'Nachnahme', change: 'Rückgeld', opening: 'Anfangsbestand',
     expected: 'Erwartetes Bargeld', counted: 'Gezählt', difference: 'Differenz', documents: 'Belege', receipts: 'Bons',
-    z: 'Z-Bericht Nr.', deviceZ: 'Laut Gerät', fmTotal: 'Summe FS', vatGroup: 'MwSt-Gruppe',
+    z: 'Z-Bericht Nr.', deviceZ: 'Laut Gerät', fmTotal: 'Summe FS', vatGroup: 'MwSt-Gruppe', notOnDevice: 'Nicht auf dem Gerät',
   },
   mk: {
     title: 'ИЗВЕШТАЈ ЗА СЕСИЈА', opened: 'Отворена', closed: 'Затворена', sales: 'Продажби', payments: 'Плаќања по фактури', refunds: 'Вратено по кр. известув.', stornos: 'Сторно', voided: 'Поништени',
     fiscal: 'Фискални сметки', text: 'Службени сметки', unprinted: 'Неотпечатени', vat: 'ДДВ', net: 'Основица', gross: 'Износ',
     total: 'ВКУПНО', cash: 'Готовина', card: 'Картичка', other: 'Друго', cod: 'При достава', change: 'Вратен кусур', opening: 'Почетна сума',
     expected: 'Очекувана готовина', counted: 'Избројано', difference: 'Разлика', documents: 'Документи', receipts: 'Сметки',
-    z: 'Z-извештај бр.', deviceZ: 'Според уредот', fmTotal: 'Вкупно ФМ', vatGroup: 'ДДВ група',
+    z: 'Z-извештај бр.', deviceZ: 'Според уредот', fmTotal: 'Вкупно ФМ', vatGroup: 'ДДВ група', notOnDevice: 'Не е на уредот',
   },
 }
 
@@ -249,6 +253,7 @@ export function formatSessionReport(report: SessionReport, locale = 'en', timeZo
   if (report.change) lines.push(lr(l.change, money(report.change)))
   lines.push(sep)
   lines.push(lr(l.opening, money(report.drawer.opening)))
+  if (report.drawer.onDevice === false) lines.push(` ${l.notOnDevice}`)
   if (report.drawer.expected !== undefined) lines.push(lr(l.expected, money(report.drawer.expected)))
   if (report.drawer.counted !== undefined) lines.push(lr(l.counted, money(report.drawer.counted)))
   if (report.drawer.difference !== undefined) lines.push(lr(l.difference, money(report.drawer.difference)))

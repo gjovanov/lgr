@@ -13,6 +13,7 @@
 | closedAt | Date | Дата/час на затваряне |
 | status | String | open / closed |
 | openingBalance | Number | Начално салдо |
+| deviceFloat | Object | Началната сума на фискалното устройство като „служебно въведени“ (Н-18 чл. 33 ал. 1): `state` (pending / registered), `deviceNumber`, `serviceInBefore`, `registeredAt`, `error`. Липсва, когато няма какво да се регистрира |
 | closingBalance | Number | Крайно салдо |
 | expectedBalance | Number | Очаквано салдо |
 | difference | Number | Разлика |

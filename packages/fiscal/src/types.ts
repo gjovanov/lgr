@@ -132,6 +132,22 @@ export interface ZReportResult {
 export type StornoReason = 'operator_error' | 'customer_return' | 'price_reduction' | 'tax_base_reduction'
 
 /**
+ * The device's cash registers (Н-18 чл. 33 ал. 1, „служебно въведени/изведени"), until its next Z:
+ * the cash it holds, and what service cash in and out came to.
+ */
+export interface ServiceCashTotals {
+  cash: number
+  serviceIn: number
+  serviceOut: number
+}
+
+/** What the device said to an amount. `accepted: false`: it moved nothing, and printed nothing. */
+export interface ServiceCashMove {
+  accepted: boolean
+  totals: ServiceCashTotals
+}
+
+/**
  * Abstract fiscal printer interface.
  * Each manufacturer (Datecs, Daisy, Tremol, Incotex) provides a concrete implementation.
  */
@@ -220,6 +236,15 @@ export interface IFiscalPrinter {
 
   /** Print a daily Z-report (end-of-day fiscal closure) */
   printDailyZReport(): Promise<ZReportResult>
+
+  /** The device's cash registers, read. Prints nothing. Optional (`capabilities.ts`, `serviceCash`). */
+  readServiceCash?(): Promise<ServiceCashTotals>
+
+  /**
+   * Service cash: in when `amount` is positive, out when it is negative. Prints a service receipt. Throws
+   * only what leaves it unknown whether the amount went through, which `readServiceCash` then settles.
+   */
+  moveServiceCash?(amount: number): Promise<ServiceCashMove>
 
   /** Read the device's current date/time */
   readDateTime(): Promise<Date>

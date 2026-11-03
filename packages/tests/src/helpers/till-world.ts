@@ -70,6 +70,8 @@ export interface TillWorldOptions {
    * still answers, so whatever a capability check should have stopped shows up on it.
    */
   manufacturer?: string
+  /** What the session opens with, which the device is told of (#473). 100 unless a test needs its cash. */
+  openingBalance?: number
 }
 
 export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
@@ -121,9 +123,12 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
     return { status: res.status, json: await res.json().catch(() => null) as any }
   }
 
-  const opened = await call('POST', '/trade/pos/session', { warehouseId: String(warehouse._id), openingBalance: 100, currency: 'EUR' })
+  const startsAt = sim?.lastDocNumber ?? 0
+  const opened = await call('POST', '/trade/pos/session', { warehouseId: String(warehouse._id), openingBalance: opts.openingBalance ?? 100, currency: 'EUR' })
   if (opened.status !== 200) throw new Error(`session open: ${opened.status} ${JSON.stringify(opened.json)}`)
   const session = opened.json.session
+  // A test's day starts here: what the open told the device (#473) stays in its cash, and out of what is counted.
+  if (sim) { sim.executed.length = 0; sim.lastDocNumber = startsAt }
 
   /** `quantity` × 10.00 net at 20 %, paid with `tendered` in cash (or by card). */
   const saleBody = (quantity = 2, o: { method?: string; tendered?: number } = {}) => ({

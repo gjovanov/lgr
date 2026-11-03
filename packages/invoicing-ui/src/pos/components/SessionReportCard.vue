@@ -26,6 +26,7 @@
         <tr v-if="report.byMethod.cashOnDelivery" data-testid="session-report-cod"><td>{{ $t('pos.sessionReport.cashOnDelivery') }}</td><td class="text-end">{{ money(report.byMethod.cashOnDelivery) }}</td></tr>
         <tr v-if="report.change"><td>{{ $t('pos.sessionReport.change') }}</td><td class="text-end">{{ money(report.change) }}</td></tr>
         <tr><td>{{ $t('pos.sessionReport.opening') }}</td><td class="text-end">{{ money(report.drawer.opening) }}</td></tr>
+        <tr v-if="report.drawer.onDevice === false" data-testid="session-report-not-on-device"><td class="ps-6 text-warning" colspan="2">{{ $t('pos.sessionReport.notOnDevice') }}</td></tr>
         <tr v-if="report.drawer.expected !== undefined"><td>{{ $t('pos.sessionReport.expected') }}</td><td class="text-end">{{ money(report.drawer.expected) }}</td></tr>
         <tr v-if="report.drawer.counted !== undefined"><td>{{ $t('pos.sessionReport.counted') }}</td><td class="text-end">{{ money(report.drawer.counted) }}</td></tr>
         <tr v-if="report.drawer.difference !== undefined"><td>{{ $t('pos.sessionReport.difference') }}</td><td class="text-end">{{ money(report.drawer.difference) }}</td></tr>
@@ -55,7 +56,7 @@ export interface SessionReportData {
   total: number
   byMethod: { cash: number; card: number; other: number; cashOnDelivery?: number }
   change: number
-  drawer: { opening: number; expected?: number; counted?: number; difference?: number }
+  drawer: { opening: number; onDevice?: boolean; expected?: number; counted?: number; difference?: number }
   documents?: { first: string; last: string }
   receipts?: { first: string; last: string }
   zReportNumber?: string

@@ -37,11 +37,15 @@ export interface SimReceipt {
   voided?: boolean
 }
 
+/** What a command did wrong, per command. `refused`: not executed, and no status bit says so. */
+interface Flags { syntax: boolean; invalid: boolean; notAllowed: boolean; noPaper: boolean; overflow: boolean; refused: boolean }
+
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 const GROUPS = ['А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З']
 
-/** Commands that print: refused with "no paper" when the roll is out. */
+/** Commands that print: refused with "no paper" when the roll is out. 46h prints unless its amount is 0. */
 const PRINTING = [0x26, 0x27, 0x2A, 0x31, 0x35, 0x36, 0x38, 0x45, 0x49, 0x4F, 0x5E, 0x5F, 0x90]
+const printsSomething = (cmd: number, text: string) => PRINTING.includes(cmd) || (cmd === 0x46 && !!Number(text))
 
 /**
  * The data each fiscal-memory report takes (v1.1.7). By number: `Start,End`, 4 digits each — 49h
@@ -130,6 +134,16 @@ export class EltradeSimulator {
   lastAnswer: Uint8Array | null = null
   lastDocNumber = 100
   closure = 12
+  /**
+   * 46h's registers, until the next Z: the cash the device holds, and what service cash came to. Payments
+   * in cash move `cash`, kept net of change. The slip a service amount prints is numbered like any document:
+   * the manual's sample slips carry the running number, and no physical device has been read around one.
+   */
+  cash = 0
+  serviceIn = 0
+  serviceOut = 0
+  /** Every amount a slip printed for. */
+  serviceSlips: number[] = []
   dayTotal = 0
   /** The day's fiscal turnover per VAT group, which 45h answers after the FM total. */
   dayByGroup: Record<string, number> = {}
@@ -217,21 +231,26 @@ export class EltradeSimulator {
 
   private execute(seq: number, cmd: number, raw: Uint8Array): Uint8Array {
     const text = decodeCp1251(raw)
-    const flags = { syntax: false, invalid: false, notAllowed: false, noPaper: false }
+    const flags: Flags = { syntax: false, invalid: false, notAllowed: false, noPaper: false, overflow: false, refused: false }
     let out = ''
-    const prints = PRINTING.includes(cmd)
+    const prints = printsSomething(cmd, text)
     if (this.locked && cmd !== 0x4A) {
       flags.notAllowed = true // blocked after three wrong passwords; only the status still answers
     } else if (prints && !this.paper) {
       flags.noPaper = true
     } else {
       out = this.run(cmd, text, flags)
-      if (!flags.syntax && !flags.invalid && !flags.notAllowed) this.executed.push({ cmd, data: text })
+      if (!flags.syntax && !flags.invalid && !flags.notAllowed && !flags.overflow && !flags.refused) this.executed.push({ cmd, data: text })
     }
     return buildIslResponseFrame(seq, cmd, encodeCp1251(out), this.status(flags))
   }
 
-  private run(cmd: number, text: string, flags: { syntax: boolean; invalid: boolean; notAllowed: boolean }): string {
+  /** `ExitCode,CashSum,ServIn,ServOut`. */
+  private serviceCashAnswer(code: 'P' | 'F'): string {
+    return [code, this.money(this.cash), this.money(this.serviceIn), this.money(this.serviceOut)].join(',')
+  }
+
+  private run(cmd: number, text: string, flags: Flags): string {
     const receiptOpen = !!this.receipt
     switch (cmd) {
       case 0x4A: return ''
@@ -314,6 +333,12 @@ export class EltradeSimulator {
         }
         // Strict: only cash may be tendered above what is due.
         if (mode !== 'P' && amount > due + 0.001) { flags.notAllowed = true; return 'F' }
+        // Н-18 чл. 31 ал. 3: no storno above the cash on the device, an operator's error aside. Strict again:
+        // nothing says where a device refuses it or how, so it is here, as 46h refuses: `F` on a clean status.
+        if (this.receipt.kind === 'storno' && mode === 'P' && this.receipt.header[4] !== 'O' && Math.min(amount, due) > this.cash + 0.001) {
+          flags.refused = true
+          return 'F'
+        }
         this.receipt.payments.push({ mode, amount })
         this.receipt.paid = round2(this.receipt.paid + amount)
         const left = round2(this.receipt.total - this.receipt.paid)
@@ -336,6 +361,9 @@ export class EltradeSimulator {
           this.dayTotal = round2(this.dayTotal + this.receipt.total)
           for (const s of this.receipt.sales) this.dayByGroup[s.group] = round2((this.dayByGroup[s.group] || 0) + s.amount)
         }
+        const change = round2(this.receipt.paid - this.receipt.total)
+        const cashPaid = this.receipt.payments.filter(p => p.mode === 'P').reduce((a, p) => a + p.amount, 0)
+        this.cash = round2(this.cash + (this.receipt.kind === 'fiscal' ? 1 : -1) * (cashPaid - change))
         this.receipts.push(this.receipt)
         this.receipt = null
         return '0004,0002'
@@ -353,9 +381,35 @@ export class EltradeSimulator {
         if (!/^(?:[02][Na]?)?$/.test(text)) { flags.syntax = true; return '' }
         const zeroing = text === '' || text.startsWith('0')
         const answer = this.zAnswer ?? `${String(this.closure + (zeroing ? 1 : 0)).padStart(4, '0')},${this.money(this.dayTotal)},${GROUPS.map(g => this.money(this.dayByGroup[g] || 0)).join(',')}`
-        if (zeroing) { this.closure++; this.dayTotal = 0; this.dayByGroup = {} }
+        if (zeroing) {
+          this.closure++
+          this.dayTotal = 0
+          this.dayByGroup = {}
+          this.cash = 0
+          this.serviceIn = 0
+          this.serviceOut = 0
+        }
         this.reports.push({ cmd, data: text })
         return answer
+      }
+      case 0x46: {
+        // Seen on an A3 (2026-11-03): `0` reads and prints nothing; an EMPTY field answers nothing and raises S1.0
+        // alone, whatever the protocol's `[<Amount>]` says; a refusal is `F` with the registers, on a clean status.
+        if (!text) { flags.overflow = true; return '' }
+        if (!/^[+-]?\d+(?:\.\d+)?$/.test(text) || text.length > 9) { flags.syntax = true; return '' }
+        const amount = Number(text)
+        if (receiptOpen || this.nonFiscalOpen || this.cash + amount < -0.001) {
+          flags.refused = true
+          return this.serviceCashAnswer('F')
+        }
+        if (amount) {
+          this.cash = round2(this.cash + amount)
+          if (amount > 0) this.serviceIn = round2(this.serviceIn + amount)
+          else this.serviceOut = round2(this.serviceOut - amount)
+          this.serviceSlips.push(amount)
+          this.lastDocNumber++
+        }
+        return this.serviceCashAnswer('P')
       }
       case 0x49: case 0x4F: case 0x5E: case 0x5F:
         if (this.receipt || this.nonFiscalOpen) { flags.notAllowed = true; return '' }
@@ -395,7 +449,7 @@ export class EltradeSimulator {
   }
 
   /** The 6 status bytes, bit 7 always set (protocol "СТАТУС БИТОВЕ"). */
-  private status(flags: { syntax: boolean; invalid: boolean; notAllowed: boolean; noPaper: boolean }): Uint8Array {
+  private status(flags: Flags): Uint8Array {
     const s = [0x80, 0x80, 0x80, 0x80, 0x80, 0x80]
     if (flags.syntax) s[0] |= 0x01
     if (flags.invalid) s[0] |= 0x02
@@ -403,6 +457,7 @@ export class EltradeSimulator {
     if (this.terminalDown) { s[0] |= 0x20; s[1] |= 0x40 }
     if (flags.syntax || flags.invalid || flags.notAllowed || flags.noPaper) s[0] |= 0x20
     if (flags.notAllowed) s[1] |= 0x02
+    if (flags.overflow) s[1] |= 0x01
     if (!this.paper) s[2] |= 0x01
     if (this.receipt) s[2] |= 0x08
     if (this.nonFiscalOpen) s[2] |= 0x20

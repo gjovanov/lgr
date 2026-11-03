@@ -294,7 +294,7 @@ describe('the session report at close', () => {
       const w = await tillWorld(app)
       await w.sell(2)
       const closed = await close(w, 120)
-      expect(closed.json.report.drawer).toEqual({ opening: 100, expected: 124, counted: 120, difference: -4 })
+      expect(closed.json.report.drawer).toEqual({ opening: 100, onDevice: true, expected: 124, counted: 120, difference: -4 })
       await forget(w, ['report'])
 
       const rebuilt = await w.call('GET', `/trade/pos/session/${w.sessionId}/report`)
@@ -326,7 +326,7 @@ describe('the session report at close', () => {
       const { report } = (await w.call('GET', `/trade/pos/session/${w.sessionId}/report`)).json
 
       expect(report.counts.sales).toBe(1)
-      expect(report.drawer).toEqual({ opening: 100 })
+      expect(report.drawer).toEqual({ opening: 100, onDevice: true })
       expect(report.zReportNumber).toBeUndefined()
       expect(report.deviceZ).toBeUndefined()
     })

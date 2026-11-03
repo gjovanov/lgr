@@ -87,6 +87,13 @@ Status*.
 - **The device does one thing at a time.** A second print waits its turn, and a report can make it wait
   for minutes; past five and a half it is refused with „device busy“, and nothing printed.
 - Closing the POS session runs the **Z-report** on the device.
+- **A session's opening amount goes to the device** as service cash (46h, Н-18 чл. 33 ал. 1). It prints a
+  *СЛУЖЕБЕН БОН* at the open and reads `СЛ. ВЪВЕДЕНИ` on the X and the Z. With the device away or busy at the open
+  the till says so, and the slip prints first with the next receipt, or before the Z. A session that closed without
+  it says so on its report, under the opening amount. It is not stored in fiscal memory and it clears at the Z. Two
+  sessions on one device add up, and one session's Z clears both.
+- **A cash refund needs that much cash on the device** (Н-18 чл. 31 ал. 3), an operator's error aside: the cash an X
+  shows is the opening amounts and the day's cash, less what went back.
 
 ## 5. The device page (Invoicing → Configuration → Devices → the device)
 
@@ -156,6 +163,9 @@ Run in this order — only step 5 creates a fiscal record.
    document. Nobody has held a real slip against it, and every device-given number cited today rests on
    that. If they differ, stop and report it. It is also why a number typed off a slip that collides with
    what LGR knows is a question and not a wall: the page asks, and "the slip says this number" goes through.
+7. Open a session with an opening amount → a *СЛУЖЕБЕН БОН* prints, and an X reads `СЛ. ВЪВЕДЕНИ 1` and that amount
+   as `ОБЩО НАЛИЧНИ`. Read 71h around that slip: LGR assumes the slip takes a document number, as the manual's
+   sample slips do, and orders a sale's print around that.
 
 ## 7. Troubleshooting
 
@@ -171,6 +181,7 @@ Run in this order — only step 5 creates a fiscal record.
 | Program on Device refused: "not allowed in the current state" | the password is not that operator's on the device | use the operator's own password — after three wrong ones the device must be switched off and on |
 | "No VAT group on the Eltrade is programmed at X %" | product rate matches no programmed group | fix the product's tax rate, or have service check the device rates |
 | "Refusing to move the Eltrade clock back" | server time is behind the device by > 5 min | check the server/NTP time; a device clock that is ahead needs service |
+| "A device refuses a cash refund above the cash it holds" | the device reads less cash than the refund, so nothing was reversed. Often a Z since the money came in, because a Z clears the device's cash | an X shows the cash it holds. Register more on the device itself („Въвеждане на суми"), or refund another way. An operator's error is exempt: choose it only if that is what happened |
 
 Every frame is logged by the API (`Eltrade command SENT` / `Eltrade response received`, with hex) —
 attach those lines when reporting a problem.
@@ -202,6 +213,14 @@ and the payment. Deliberately handled both ways because the document is not spec
 - the 55h answer, written `Result\Name` in the document: a bare name, `P`/`F`, or both with a
   separator are all read;
 - what an A3 answers to a wrong operator password (the simulator answers "not allowed").
+
+**Service cash (46h) was run on an A3 that is not fiscalized (2026-11-03).** `0` reads `P,CashSum,ServIn,ServOut`
+and prints nothing. ⚠ An empty field is no read, whatever the protocol's `[<Amount>]` says: it answers nothing and
+raises S1.0 for that command. A positive amount prints its slip and adds to `CashSum` and `ServIn`, and an X then
+reads `СЛ. ВЪВЕДЕНИ 1` and `ОБЩО НАЛИЧНИ`. ⚠ A refusal is `F` with the registers, on a CLEAN status, so only the first
+field tells it. Not seen on a device: a Z clearing them, which is the protocol's word; a slip moving 71h, which is
+the manual's samples; and where a fiscalized device refuses a cash refund above its cash, and how. The simulator
+refuses that at 35h with a clean `F`, the strict reading, and the driver voids the receipt.
 
 **What 45h's FM total and turnover per VAT group hold on a fiscalized unit is not proven either.** An A3 that
 is not fiscalized answered `9,0,0,0,0,0,0,0,0,0` after a text sale. A close keeps the answer on the session
