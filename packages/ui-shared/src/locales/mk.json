@@ -532,6 +532,8 @@
     "balanceSheet": "Биланс на Состојба",
     "asOfDate": "На Датум",
     "fiscalYear": "Фискална Година",
+    "fiscalPeriod": "Фискален Период",
+    "unclosedResult": "Тековен финансиски резултат",
     "generateReport": "Генерирај Извештај",
     "revenue": "Приходи",
     "totalRevenue": "Вкупни Приходи",

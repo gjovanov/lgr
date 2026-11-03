@@ -532,6 +532,8 @@
     "balanceSheet": "Bilanz",
     "asOfDate": "Stichtag",
     "fiscalYear": "Geschäftsjahr",
+    "fiscalPeriod": "Buchungsperiode",
+    "unclosedResult": "Laufendes Ergebnis",
     "generateReport": "Bericht erstellen",
     "revenue": "Umsatz",
     "totalRevenue": "Gesamtumsatz",

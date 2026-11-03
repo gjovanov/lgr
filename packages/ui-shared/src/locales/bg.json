@@ -532,6 +532,8 @@
     "balanceSheet": "Баланс",
     "asOfDate": "Към дата",
     "fiscalYear": "Финансова година",
+    "fiscalPeriod": "Отчетен период",
+    "unclosedResult": "Текущ финансов резултат",
     "generateReport": "Генериране на отчет",
     "revenue": "Приходи",
     "totalRevenue": "Общи приходи",

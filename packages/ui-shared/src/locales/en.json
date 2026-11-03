@@ -532,6 +532,8 @@
     "balanceSheet": "Balance Sheet",
     "asOfDate": "As of Date",
     "fiscalYear": "Fiscal Year",
+    "fiscalPeriod": "Fiscal Period",
+    "unclosedResult": "Result not yet closed",
     "generateReport": "Generate Report",
     "revenue": "Revenue",
     "totalRevenue": "Total Revenue",
