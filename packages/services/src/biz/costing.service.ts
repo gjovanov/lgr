@@ -1,6 +1,7 @@
 import type { RepositoryRegistry } from 'dal'
 import type { ICostLayer } from 'dal/entities'
 import type { CostingMethod } from 'config'
+import { CostLayer } from 'db/models'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 
@@ -76,6 +77,22 @@ export async function createCostLayers(
 }
 
 /**
+ * Take `quantity` off one layer, or nothing (null) when it no longer holds that much.
+ *
+ * ⚠ One write, worked out by the server from the row as it stands. Writing back a remainder computed
+ * from an earlier read loses a dispatch whenever two take from one layer at once: both read 10, both
+ * take 3, both write 7, and the layer still holds goods that have left. A `$gte` guard in the filter
+ * does not stop that on its own, because both writes pass it.
+ */
+function takeFromLayer(orgId: string, layerId: string, quantity: number) {
+  const remaining = { $subtract: ['$remainingQuantity', quantity] }
+  return CostLayer.findOneAndUpdate(
+    { _id: layerId, orgId, remainingQuantity: { $gte: quantity } } as any,
+    [{ $set: { remainingQuantity: remaining, isExhausted: { $lte: [remaining, 0] } } }],
+  ).lean().exec()
+}
+
+/**
  * Consume cost layers on dispatch according to the costing method.
  * Returns allocation details for audit trail.
  */
@@ -132,31 +149,31 @@ export async function consumeCostLayers(
   for (const layer of layers) {
     if (remaining <= 0) break
 
-    const consume = Math.min(remaining, layer.remainingQuantity)
-    const cost = consume * layer.unitCost
-
-    allocations.push({
-      costLayerId: layer.id,
-      quantity: consume,
-      unitCost: layer.unitCost,
-      totalCost: cost,
-    })
-
-    totalCost += cost
-    remaining -= consume
-
-    // Atomically update the layer (guard against concurrent consumption)
-    const newRemaining = layer.remainingQuantity - consume
-    const updated = await r.costLayers.findOneAndUpdate(
-      { id: layer.id, remainingQuantity: { $gte: consume } } as any,
-      { remainingQuantity: newRemaining, isExhausted: newRemaining <= 0 } as any,
-    )
-    if (!updated) {
-      throw new Error(`Concurrent conflict: cost layer ${layer.id} was modified by another request`)
+    let available = layer.remainingQuantity
+    while (remaining > 0 && available > 0) {
+      const consume = Math.min(remaining, available)
+      if (await takeFromLayer(orgId, layer.id, consume)) {
+        const cost = consume * layer.unitCost
+        allocations.push({
+          costLayerId: layer.id,
+          quantity: consume,
+          unitCost: layer.unitCost,
+          totalCost: cost,
+        })
+        totalCost += cost
+        remaining -= consume
+        break
+      }
+      // Another dispatch took from this layer after it was read: take what it holds now, and go on
+      // to the next layer for the rest.
+      const now: any = await CostLayer.findOne({ _id: layer.id, orgId } as any, { remainingQuantity: 1, isExhausted: 1 }).lean().exec()
+      available = now && !now.isExhausted ? now.remainingQuantity : 0
     }
   }
 
   if (remaining > 0) {
+    // All or nothing: a dispatch the layers cannot cover must not keep what it took from them.
+    await restoreCostLayers(allocations)
     throw new Error(`Insufficient cost layers: need ${quantity} but only ${quantity - remaining} available for product ${productId}`)
   }
 
@@ -172,18 +189,15 @@ export async function consumeCostLayers(
  */
 export async function restoreCostLayers(
   allocations: CostAllocationResult[],
-  repos?: RepositoryRegistry,
+  _repos?: RepositoryRegistry,
 ): Promise<void> {
-  const r = repos ?? getRepos()
-
   for (const alloc of allocations) {
-    const layer = await r.costLayers.findById(alloc.costLayerId)
-    if (!layer) continue
-
-    await r.costLayers.update(alloc.costLayerId, {
-      remainingQuantity: layer.remainingQuantity + alloc.quantity,
-      isExhausted: false,
-    } as any)
+    // One write, like `takeFromLayer`: adding to a remainder read a moment earlier would undo a
+    // dispatch that took from the layer in between.
+    await CostLayer.updateOne(
+      { _id: alloc.costLayerId } as any,
+      { $inc: { remainingQuantity: alloc.quantity }, $set: { isExhausted: false } },
+    ).exec()
   }
 }
 
