@@ -14,6 +14,7 @@
         <v-divider />
         <div class="d-flex flex-wrap pa-2 justify-center">
           <div
+            v-if="showPortal"
             class="d-flex flex-column align-center pa-3 rounded cursor-pointer app-tile"
             style="width: 50%; min-height: 88px"
             @click="navigateToPortal"
@@ -62,6 +63,7 @@
       <v-divider />
       <div class="d-flex flex-wrap pa-2" style="max-width: 360px">
         <div
+          v-if="showPortal"
           class="d-flex flex-column align-center pa-3 rounded cursor-pointer app-tile"
           style="width: 108px"
           @click="navigateToPortal"
@@ -93,6 +95,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useHoverMenus } from 'ui-shared/composables/useHoverMenus'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { holdsArea } from 'config/constants'
 import type { AppInfo } from './types'
 
 defineProps<{
@@ -106,6 +110,8 @@ const emit = defineEmits<{
 }>()
 
 const sheet = ref(false)
+// FR-26.8.4: no Portal tile for a session without the portal area (a Seller).
+const showPortal = holdsArea(sessionViewer(), 'portal')
 const { hoverEnabled, openDelay, closeDelay } = useHoverMenus()
 
 function navigateToPortal() {

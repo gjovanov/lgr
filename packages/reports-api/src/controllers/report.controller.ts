@@ -158,6 +158,17 @@ function filenameFor(id: string, format: string): string {
   return `${id}-${stamp}.${format}`
 }
 
+/**
+ * FR-26.6: the Reports app needs `reports.read`, as its tile does, on top of each report's own
+ * permission (`canAccessReport`). Without it a role that never sees the tile (a Seller) still read
+ * every report of the modules it holds: bills through `purchase-documents`, orders through
+ * `order-sheet`. Admins pass, as on every route.
+ */
+function reportsRefusal(user: { role?: string; permissions?: readonly string[] }): string | null {
+  if (user.role === 'admin' || user.permissions?.includes('reports.read')) return null
+  return 'The reports.read permission is required'
+}
+
 // Named `reportsController` (plural): `reportController` is already taken in unified.ts by
 // accounting's financial-statement controller.
 export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
@@ -174,12 +185,16 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
     // Without it an anonymous caller gets 200 + an empty list, which reads like "you have
     // no reports" rather than "you are not signed in".
     if (!user) return status(401, { message: 'Unauthorized' })
+    const refused = reportsRefusal(user)
+    if (refused) return status(403, { message: refused, code: 'permission_required', permissions: ['reports.read'] })
     return { reports: listReportsFor(user) }
   }, { isSignIn: true })
 
   /** Run a registry-driven report and return its table. */
   .post('/:id/run', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const refused = reportsRefusal(user)
+    if (refused) return status(403, { message: refused, code: 'permission_required', permissions: ['reports.read'] })
     const resolved = resolve(id, (body as any)?.params, user)
     if ('error' in resolved) return status(resolved.error.status, { message: resolved.error.message })
 
@@ -218,6 +233,8 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
   /** Render a registry-driven report to XLSX or PDF via the shared reporting stack. */
   .post('/:id/export', async ({ params: { orgId, id }, body, user, status, set }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    const refused = reportsRefusal(user)
+    if (refused) return status(403, { message: refused, code: 'permission_required', permissions: ['reports.read'] })
     const b = body as any
     const resolved = resolve(id, b?.params, user)
     if ('error' in resolved) return status(resolved.error.status, { message: resolved.error.message })

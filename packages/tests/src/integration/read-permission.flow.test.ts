@@ -6,10 +6,10 @@ import { createTestOrg, createTestUser } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
-import { APP_REGISTRY, DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
+import { APP_REGISTRY, DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, holdsArea, type Role } from 'config/constants'
 import { mongoose } from 'db/connection'
 import { AuditLog, Org } from 'db/models'
-import { EXACT_READ_RULES, PREFIX_READ_RULES, orgRouteRest, readRuleFor } from 'services/biz/route-permission'
+import { AREA_PREFIXES, EXACT_READ_RULES, PREFIX_READ_RULES, areaForRoute, orgRouteRest, readRuleFor } from 'services/biz/route-permission'
 
 /**
  * A role's permissions hold over HTTP for READS too (S-29).
@@ -63,6 +63,8 @@ beforeAll(async () => {
     tokens[role] = await (signer as any).decorator.jwt.sign({
       id: String(user._id), orgId, role, email, username: role, firstName: 'R', lastName: 'P',
       permissions: DEFAULT_ROLE_PERMISSIONS[role], ownRecordsModules: [],
+      // FR-26: the roles held to areas sign in with them, as `tokenize()` issues them.
+      ...(DEFAULT_ROLE_AREAS[role] ? { areas: DEFAULT_ROLE_AREAS[role] } : {}),
     })
   }
 }, 60_000)
@@ -169,6 +171,9 @@ describe('each default role still reaches what its apps read', () => {
       ]
       for (const appId of apps) {
         for (const rest of APP_READS[appId] ?? []) {
+          // FR-26: an area the role is held out of is refused on purpose (below).
+          const area = areaForRoute(`/api/org/:orgId/${rest}`)
+          if (area && !holdsArea({ role, areas: DEFAULT_ROLE_AREAS[role] }, area)) continue
           const { status } = await get(`/api/org/${orgId}${rest ? `/${rest}` : ''}`, tokens[role])
           if (status === 403 || status === 401) broken.push(`${role} (${appId}) GET ${rest || '(org)'} → ${status}`)
         }
@@ -176,6 +181,40 @@ describe('each default role still reaches what its apps read', () => {
     }
     expect(broken).toEqual([])
   }, 120_000)
+})
+
+describe('FR-26: the areas a role is held to', () => {
+  it('every carved-out read answers 403 to the roles without its area, and only to them', async () => {
+    const wrong: string[] = []
+    const reads = getRoutes().filter(p => areaForRoute(p))
+    expect(reads.length).toBeGreaterThan(0)
+    for (const path of reads) {
+      const area = areaForRoute(path)!
+      for (const role of ROLES) {
+        const rule = readRuleFor(path)
+        // A role the module rule refuses already is not this test's.
+        if (rule && 'need' in rule && !rule.need.some(p => DEFAULT_ROLE_PERMISSIONS[role].includes(p))) continue
+        const { status, json } = await get(concrete(path), tokens[role])
+        const refused = status === 403 && json?.code === 'area_required'
+        const held = holdsArea({ role, areas: DEFAULT_ROLE_AREAS[role] }, area)
+        if (refused === held) wrong.push(`${role} GET ${orgRouteRest(path)} → ${status} ${json?.code ?? ''}`)
+      }
+    }
+    expect(wrong).toEqual([])
+  }, 120_000)
+
+  it('every area prefix names a route that exists', () => {
+    // Of any method: some areas are writes only (`bills/import`).
+    const all = (createApiApp() as any).routes as Array<{ path: string }>
+    const rests = all.map(r => orgRouteRest(r.path)).filter((r): r is string => r !== null)
+    expect(AREA_PREFIXES.map(([prefix]) => prefix).filter(prefix => !rests.some(r => r === prefix || r.startsWith(`${prefix}/`)))).toEqual([])
+  })
+
+  it("what a Seller's kept pages read stays open: contacts, stock levels, products, movements, the journal", async () => {
+    for (const rest of ['invoicing/contact', 'warehouse/stock-level', 'warehouse/product', 'warehouse/warehouse', 'warehouse/movement', 'cash-register/documents']) {
+      expect({ rest, status: (await get(`/api/org/${orgId}/${rest}`, tokens.seller)).status }).toEqual({ rest, status: 200 })
+    }
+  })
 })
 
 describe('the audit trail', () => {

@@ -8,7 +8,7 @@
         <export-menu @export="onExport" />
         <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
         <!-- FR-22.50: says what it creates — the form opens as a goods receipt. -->
-        <CreateButton :label="$t('nav.newDocPage.goodsReceipt')" :to="{ name: 'inventory.movements.new' }" />
+        <CreateButton :label="$t('nav.newDocPage.stockMovement')" :to="{ name: 'inventory.movements.new' }" />
       </div>
     </div>
 

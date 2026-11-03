@@ -17,12 +17,12 @@
     </v-alert>
 
     <!-- FR-22.31: the supplier's bill that pays for this receipt — a link into invoicing. -->
-    <v-alert v-if="movement.bill" type="success" variant="tonal" density="compact" class="mb-3" icon="mdi-receipt-text-check-outline" data-testid="receipt-bill">
+    <v-alert v-if="movement.bill && !transferOnly" type="success" variant="tonal" density="compact" class="mb-3" icon="mdi-receipt-text-check-outline" data-testid="receipt-bill">
       {{ $t('warehouse.billedBy') }}
       <a :href="billHref(movement.bill.id)" class="font-weight-medium" data-testid="receipt-bill-link">{{ movement.bill.number }}</a>
     </v-alert>
     <!-- A receipt that no bill can be made from says why, rather than just not offering one. -->
-    <v-alert v-else-if="notBillableText" type="info" variant="tonal" density="compact" class="mb-3" data-testid="receipt-not-billable">
+    <v-alert v-else-if="notBillableText && !transferOnly" type="info" variant="tonal" density="compact" class="mb-3" data-testid="receipt-not-billable">
       {{ notBillableText }}
     </v-alert>
 
@@ -34,10 +34,10 @@
         <!-- Empty is `null`, never '': Vuetify treats '' as a selected value, which floated the
              label away and left a blank "selection" — the field read as nothing at all. -->
         <v-col v-if="showWarehouse.from" cols="12" md="3">
-          <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" data-testid="from-warehouse" />
+          <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse') + (transferOnly ? ' *' : '')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" :rules="transferOnly ? [rules.required] : []" density="compact" data-testid="from-warehouse" />
         </v-col>
         <v-col v-if="showWarehouse.to" cols="12" md="3">
-          <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" density="compact" data-testid="to-warehouse" @update:model-value="form.toGuessed = false" />
+          <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse') + (transferOnly ? ' *' : '')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" :rules="transferOnly ? [rules.required] : []" density="compact" data-testid="to-warehouse" @update:model-value="form.toGuessed = false" />
         </v-col>
         <v-col cols="12" md="3">
           <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" :disabled="readonly" density="compact" />
@@ -296,6 +296,8 @@ import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
 import { pinnedWarehouseId, rememberedFlag } from 'ui-shared/composables/useUserDefaults'
 import { appHref, goTo } from 'ui-shared/nav/navigate'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { isTransferOnly } from 'ui-shared/nav/page-registry'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import DateField from 'ui-shared/components/DateField.vue'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
@@ -343,8 +345,14 @@ const billing = ref(false)
 const formRef = ref()
 const warehouses = ref<Warehouse[]>([])
 const movement = ref<MovementState>({ status: 'draft' })
-// Draft movements stay editable; confirmed/completed are read-only (stock already applied).
-const readonly = computed(() => isEdit.value && movement.value.status !== 'draft')
+/**
+ * FR-26.8.5: a session that writes transfers only (a Seller, `inventory.transfer` without
+ * `inventory.write`). The server refuses it every other type (`movement.controller#transferRefusal`).
+ */
+const transferOnly = isTransferOnly(sessionViewer())
+// Draft movements stay editable; confirmed/completed are read-only (stock already applied). A
+// transfer-only session reads a movement of any other type and changes nothing on it.
+const readonly = computed(() => (isEdit.value && movement.value.status !== 'draft') || (transferOnly && form.value.type !== 'transfer'))
 
 /**
  * The status pipeline. EntityFormShell translates each step as an i18n KEY, so the bare
@@ -369,7 +377,7 @@ const emptyLine = () => ({
   productBase: undefined as GRBase | undefined,
 })
 const form = ref({
-  type: 'receipt', fromWarehouseId: null as string | null, toWarehouseId: null as string | null, contactId: '' as string | undefined,
+  type: transferOnly ? 'transfer' : 'receipt', fromWarehouseId: null as string | null, toWarehouseId: null as string | null, contactId: '' as string | undefined,
   date: new Date().toISOString().split('T')[0], notes: '',
   lines: [emptyLine()] as any[],
   // The To warehouse is the form's guess for a receipt, not the person's choice (`applyNewReceiptDefaults`).
@@ -377,7 +385,7 @@ const form = ref({
 })
 
 const movementTypeItems = computed(() =>
-  ['receipt', 'dispatch', 'transfer', 'adjustment'].map(value => ({ title: t(`warehouse.movementTypes.${value}`), value })),
+  (transferOnly ? ['transfer'] : ['receipt', 'dispatch', 'transfer', 'adjustment']).map(value => ({ title: t(`warehouse.movementTypes.${value}`), value })),
 )
 
 // ── which warehouses a type names (`config/movement-warehouses`) ──
@@ -525,15 +533,16 @@ const formActions = computed<FormAction[]>(() => {
   if (!readonly.value) {
     actions.push({ label: t('warehouse.saveAndConfirm'), color: 'primary', icon: 'mdi-check-all', handler: saveAndConfirm, loading: saving.value, primary: true })
     actions.push({ label: t('common.save'), color: 'primary', variant: 'outlined', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value })
-    // Importing onto a confirmed movement would be pointless — its stock is already applied.
-    actions.push({
+    // Importing onto a confirmed movement would be pointless — its stock is already applied. A
+    // transfer-only session imports nothing: the import writes with `inventory.write` (FR-26).
+    if (!transferOnly) actions.push({
       label: t('docImport.importFile'),
       color: 'secondary',
       variant: 'outlined',
       icon: 'mdi-file-upload-outline',
       handler: () => { importDialogOpen.value = true },
     })
-  } else if (movement.value.billable) {
+  } else if (movement.value.billable && !transferOnly) {
     actions.push({ label: t('warehouse.incomingInvoice'), color: 'primary', icon: 'mdi-receipt-text-plus-outline', handler: onIncomingInvoice, loading: billing.value })
   }
   return actions

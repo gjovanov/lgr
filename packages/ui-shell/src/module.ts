@@ -1,5 +1,5 @@
 import type { RouteRecordRaw } from 'vue-router'
-import type { PageViewer } from 'ui-shared/nav/page-registry'
+import { canOpenPage, pageById, type PageViewer } from 'ui-shared/nav/page-registry'
 
 /**
  * FR-24.3: what a UI module is, as data. Each package exports one (`src/manifest.ts`), and the one
@@ -64,5 +64,22 @@ export function visibleMenu(menu: ModuleMenuItem[], who: PageViewer | null): Mod
     if (!item.children) return [item]
     const children = tidyDividers(shown(item.children))
     return children.length ? [{ ...item, children }] : []
+  })
+}
+
+/**
+ * A module's menu with `canOpenPage` on every entry (FR-26.8.2): an entry shows when the person may
+ * open its page, on top of any `when` it brought. One the page registry does not know shows as before.
+ * `visibleMenu` then drops the groups this empties.
+ */
+export function withPageRules(base: string, menu: ModuleMenuItem[]): ModuleMenuItem[] {
+  return menu.map((item) => {
+    const own = item.when
+    const page = item.to ? pageById(base + item.to) : null
+    return {
+      ...item,
+      ...(page ? { when: (who: PageViewer | null) => canOpenPage(page, who) && (!own || own(who)) } : {}),
+      ...(item.children ? { children: withPageRules(base, item.children) } : {}),
+    }
   })
 }

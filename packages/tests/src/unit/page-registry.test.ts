@@ -112,7 +112,8 @@ describe('page-registry matchPage — new-document forms', () => {
   it('a /new form is a page of its own, not its list', () => {
     expect(matchPage('/invoicing/invoices/new')?.id).toBe('/invoicing/invoices/new')
     expect(matchPage('/invoicing/bills/new')?.id).toBe('/invoicing/bills/new')
-    expect(matchPage('/inventory/movements/new')?.labelKey).toBe('nav.newDocPage.goodsReceipt')
+    // FR-26.8.6 (D-1): the form makes every type, so its row is the stock movement's.
+    expect(matchPage('/inventory/movements/new')?.labelKey).toBe('nav.newDocPage.stockMovement')
     expect(matchPage('/invoicing/internal-orders/new')?.id).toBe('/invoicing/internal-orders/new')
   })
 

@@ -66,6 +66,30 @@ async function getNextCountNumber(orgId: string): Promise<string> {
   return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
 }
 
+/**
+ * FR-26.7: a session that writes movements through `inventory.transfer` alone (a Seller) writes
+ * transfers and nothing else. `inventory.write` keeps every type; `admin` is refused nothing.
+ */
+function transferOnly(user: { role?: string; permissions?: readonly string[] }): boolean {
+  return user.role !== 'admin' && !user.permissions?.includes('inventory.write')
+}
+
+const TRANSFER_ONLY = { code: 'transfer_only', message: 'Your role moves stock between warehouses only: a transfer.' } as const
+
+/** Why a transfer-only session may not write this movement, with its status, or null. */
+function transferRefusal(
+  user: { role?: string; permissions?: readonly string[] },
+  m: { type?: string; fromWarehouseId?: unknown; toWarehouseId?: unknown },
+  opts: { warehouses?: boolean } = {},
+): { status: 403 | 422; body: { code: string; message: string } } | null {
+  if (!transferOnly(user)) return null
+  if (m.type !== 'transfer') return { status: 403, body: TRANSFER_ONLY }
+  if (opts.warehouses && (!m.fromWarehouseId || !m.toWarehouseId)) {
+    return { status: 422, body: { code: 'transfer_needs_both_warehouses', message: 'A transfer moves goods from one warehouse to another: choose both.' } }
+  }
+  return null
+}
+
 export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/movement' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
@@ -188,6 +212,10 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
 
+      const notTransfer = transferRefusal(user, body, { warehouses: true })
+      if (notTransfer) return status(notTransfer.status, notTransfer.body)
+      if (transferOnly(user)) for (const l of body.lines) { delete (l as any).productUpdate; delete (l as any).priceTiers }
+
       const misfit = movementWarehouseRefusal(body)
       if (misfit) return status(422, misfit)
 
@@ -244,6 +272,8 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     '/with-update',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      // FR-26.7: this route books receipts only.
+      if (transferOnly(user)) return status(403, TRANSFER_ONLY)
       const misfit = movementWarehouseRefusal(body)
       if (misfit) return status(422, misfit)
       const movementNumber = body.movementNumber || await getNextMovementNumber(orgId)
@@ -335,6 +365,13 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       if (!existing) return status(404, { message: 'Stock movement not found' })
       if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft movements' })
 
+      const notTransfer = transferRefusal(user, {
+        type: existing.type,
+        fromWarehouseId: body.fromWarehouseId === undefined ? existing.fromWarehouseId : body.fromWarehouseId,
+        toWarehouseId: body.toWarehouseId === undefined ? existing.toWarehouseId : body.toWarehouseId,
+      }, { warehouses: true })
+      if (notTransfer) return status(notTransfer.status, notTransfer.body)
+
       // The movement as it would stand after this edit. A warehouse the body does not mention
       // stays; `null` clears it, which is how a draft saved with the wrong side gets repaired.
       const misfit = movementWarehouseRefusal({
@@ -404,6 +441,9 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const movement = await r.stockMovements.findOne({ id, orgId } as any)
     if (!movement) return status(404, { message: 'Stock movement not found' })
     if (movement.status !== 'draft') return status(400, { message: 'Movement is not in draft status' })
+
+    const notTransfer = transferRefusal(user, movement, { warehouses: true })
+    if (notTransfer) return status(notTransfer.status, notTransfer.body)
 
     // A draft saved before the rule existed reaches the stock through here: this is the last door.
     const misfit = movementWarehouseRefusal(movement)
@@ -503,6 +543,9 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const existing = await r.stockMovements.findOne({ id, orgId } as any)
     if (!existing) return status(404, { message: 'Stock movement not found' })
     if (existing.status !== 'draft') return status(400, { message: 'Can only delete draft movements' })
+
+    const notTransfer = transferRefusal(user, existing)
+    if (notTransfer) return status(notTransfer.status, notTransfer.body)
 
     const name = (existing as any).movementNumber
     if ((existing as any).invoiceId || (existing as any).productionOrderId) {

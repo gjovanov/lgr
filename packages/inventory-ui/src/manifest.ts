@@ -1,4 +1,4 @@
-import type { ModuleManifest } from 'ui-shell/module'
+import { withPageRules, type ModuleManifest } from 'ui-shell/module'
 
 /**
  * FR-24.3: the inventory module as data. Paths are relative to the module (`/inventory`), never to a
@@ -9,7 +9,8 @@ export const manifest: ModuleManifest = {
   base: '/inventory',
   titleKey: 'apps.inventory',
   pendingChanges: true,
-  menu: [
+  // FR-26.8.2: each entry through `canOpenPage`, as the invoicing menu: a Seller sees no price lists.
+  menu: withPageRules('/inventory', [
   {
     labelKey: 'nav.products',
     icon: 'mdi-package-variant',
@@ -38,7 +39,7 @@ export const manifest: ModuleManifest = {
       { labelKey: 'nav.bulkPricing', icon: 'mdi-percent', to: '/bulk-pricing' },
     ],
   },
-],
+]),
   routes: [
       { path: '', redirect: { name: 'inventory.products' } },
 

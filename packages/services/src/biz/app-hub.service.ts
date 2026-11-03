@@ -14,7 +14,12 @@ export interface AppInfo {
   enabled: boolean
 }
 
-export async function getAvailableApps(orgId: string, userPermissions: string[], userId?: string, repos?: RepositoryRegistry): Promise<AppInfo[]> {
+/**
+ * The apps a session's permissions open. `role: 'admin'` opens every app (FR-26.2): the server
+ * refuses an admin no read and no write, and `canOpenPage` opens every page for one, so an admin
+ * on a set that lacks an app's permission must not lose the tile while keeping its pages.
+ */
+export async function getAvailableApps(orgId: string, userPermissions: string[], userId?: string, repos?: RepositoryRegistry, who?: { role?: string }): Promise<AppInfo[]> {
   const r = repos ?? getRepos()
 
   let enabledApps = await r.orgApps.findMany({ orgId })
@@ -46,6 +51,7 @@ export async function getAvailableApps(orgId: string, userPermissions: string[],
 
   return APP_IDS
     .filter(appId => {
+      if (who?.role === 'admin') return true
       const reg = APP_REGISTRY[appId]
       return [reg.requiredPermission, ...(reg.alsoOpenedBy ?? [])].some(p => userPermissions.includes(p))
     })

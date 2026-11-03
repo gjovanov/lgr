@@ -115,6 +115,11 @@
             class="mb-2"
           />
 
+          <!-- FR-26.9.3: a role and sets that disagree. The sets decide at sign-in, not the role. -->
+          <v-alert v-if="roleSetMismatch" type="warning" variant="tonal" density="compact" class="mb-3" data-testid="role-set-mismatch">
+            {{ roleSetMismatch }}
+          </v-alert>
+
           <!-- Effective Permissions (read-only) -->
           <div v-if="editing && form.permissionSetIds?.length" class="mb-4">
             <div class="text-subtitle-2 mb-1">{{ $t('permissionSets.effectivePermissions') }}</div>
@@ -126,6 +131,15 @@
               variant="outlined"
             >{{ perm }}</v-chip>
             <div v-if="!effectivePermissions.length" class="text-grey text-caption">{{ $t('common.loading') }}...</div>
+            <!-- FR-26: the areas, where the sets hold the user to some. -->
+            <div class="text-subtitle-2 mt-2 mb-1">{{ $t('permissionSets.areas') }}</div>
+            <span v-if="!effectiveAreas" class="text-caption">{{ $t('permissionSets.allAreas') }}</span>
+            <template v-else>
+              <span v-if="!effectiveAreas.length" class="text-caption">{{ $t('permissionSets.noAreas') }}</span>
+              <v-chip v-for="area in effectiveAreas" :key="area" size="x-small" class="mr-1 mb-1" color="warning" variant="outlined">
+                {{ $t(`permissionSets.area.${area}`) }}
+              </v-chip>
+            </template>
           </div>
 
           <div class="text-subtitle-2 mb-2">{{ $t('settings.permissions') }} (Legacy)</div>
@@ -178,7 +192,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
-import { PERMISSIONS, ROLES, type Role } from 'config/constants'
+import { PERMISSIONS, ROLES, ROLE_PERMISSION_SET_NAMES, mergeAreas, type Role } from 'config/constants'
 
 const { t, te } = useI18n()
 const store = useSettingsStore()
@@ -209,6 +223,8 @@ const existingPerson = ref('')
 
 const permissionSets = ref<any[]>([])
 const effectivePermissions = ref<string[]>([])
+/** FR-26: absent = every area. */
+const effectiveAreas = ref<string[] | undefined>(undefined)
 
 /**
  * ⚠ The single source of roles is `config/constants` — the same list the API validates
@@ -288,8 +304,10 @@ async function fetchEffectivePermissions(userId: string) {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/permission-sets/effective/${userId}`)
     effectivePermissions.value = data.permissions || []
+    effectiveAreas.value = Array.isArray(data.areas) ? data.areas : undefined
   } catch {
     effectivePermissions.value = []
+    effectiveAreas.value = undefined
   }
 }
 
@@ -303,8 +321,22 @@ watch(() => form.permissionSetIds, () => {
       for (const p of (s.permissions || [])) perms.add(p)
     }
     effectivePermissions.value = [...perms].sort()
+    effectiveAreas.value = mergeAreas(selected)
   }
 }, { deep: true })
+
+/**
+ * FR-26.9.3: why the role and the sets disagree, or ''. A system set is a role's own; on a user of
+ * another role it decides what they may do, whatever the role says. Saving a new role replaces it.
+ */
+const roleSetMismatch = computed(() => {
+  const own = ROLE_PERMISSION_SET_NAMES[form.role]
+  const selected = permissionSets.value.filter(s => form.permissionSetIds.includes(s._id))
+  const foreign = selected.filter(s => s.isSystem && s.name !== own).map(s => s.name)
+  const missing = !!own && permissionSets.value.some(s => s.isSystem && s.name === own) && !selected.some(s => s.name === own)
+  if (!foreign.length && !(missing && selected.length)) return ''
+  return t('settings.roleSetMismatch', { role: roleLabel(form.role), sets: foreign.join(', ') || '—', own: own || '—' })
+})
 
 function openDialog(item?: any) {
   existingPerson.value = ''

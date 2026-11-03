@@ -5,6 +5,7 @@ import { User, PermissionSet } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
 import { DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
 import { createAuditEntry } from 'services/biz/audit-log.service'
+import { endSessionsOf, setsForRole } from 'services/biz/permission-set.service'
 
 import { allocateOperatorCode } from 'services/biz/sequence.service'
 import {
@@ -201,7 +202,18 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
 
         // Update permissions to match new role
         updateData.permissions = DEFAULT_ROLE_PERMISSIONS[body.role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || existing.permissions
+        // FR-26.9.1: and the sets, which `tokenize()` prefers: the role's system set replaces the
+        // old one, custom sets stay.
+        updateData.permissionSetIds = await setsForRole(orgId, body.permissionSetIds ?? existing.permissionSetIds ?? [], body.role)
       }
+
+      // FR-26.9.4: what the person may do changed, so the sessions they hold end within the minute.
+      const setsBefore = (existing.permissionSetIds ?? []).map(String).sort().join(',')
+      const setsAfter = updateData.permissionSetIds === undefined
+        ? setsBefore
+        : (updateData.permissionSetIds as unknown[]).map(String).sort().join(',')
+      const grantChanged = (!!body.role && body.role !== existing.role) || setsBefore !== setsAfter
+        || (body.permissions !== undefined && [...body.permissions].sort().join(',') !== [...(existing.permissions ?? [])].sort().join(','))
 
       // The person's own fields last, once every check above has passed: they may live on an
       // identity this org does not own (refused while the person is active in another org).
@@ -228,6 +240,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       const updated = await userDao.updateInOrg(userId, orgId, updateData)
       if (!updated) return status(404, { message: 'User not found' })
       if (body.isActive === true && existing.isActive === false) await adminActivated(existing, orgId)
+      if (grantChanged) await endSessionsOf(existing.identityId)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'admin', entityType: 'user', entityId: userId, entityName: `${updated.firstName} ${updated.lastName}` })
 

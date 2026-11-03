@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { holdsArea } from 'config/constants'
 import { assertHomeIsHere, HomeElsewhereError } from 'db/home/home'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Invoice, Contact, Org, Product } from 'db/models'
@@ -512,6 +513,8 @@ async function buildStockReceiptData(orgId: string, bill: any, locale: string): 
 
 // `orgFooterLine` moved to lib/invoice-pdf.ts (FR-10) so the export and email paths share it.
 
+const PURCHASES_REFUSED = { code: 'area_required', area: 'purchases', message: 'Incoming documents are not part of your role.' } as const
+
 export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoicing/export' })
   .use(AppAuthService)
 
@@ -528,6 +531,11 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       } catch (e: any) {
         if (e instanceof ColumnValidationError) return status(400, { message: e.message })
         throw e
+      }
+      // FR-26.6: without `purchases` a list export is of outgoing documents only.
+      if (!holdsArea(user, 'purchases')) {
+        if ((body as any).direction === 'incoming' || (body as any).docType === 'bill') return status(403, PURCHASES_REFUSED)
+        filter.direction = 'outgoing'
       }
 
       // FR-03: per-product pivot for the cash register. Bypasses the row/mode machinery —
@@ -652,6 +660,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         filter.direction = 'outgoing'
         title = i18n.docTitle.documents
       } else if (kind === 'incoming') {
+        if (!holdsArea(user, 'purchases')) return status(403, PURCHASES_REFUSED)
         // Bills + incoming credit/debit notes — the merged purchase side (FR-01).
         filter.type = { $in: ['invoice', 'credit_note', 'debit_note'] }
         filter.direction = 'incoming'
@@ -786,6 +795,8 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
 
       const invoice = await Invoice.findOne({ _id: id, orgId }).lean()
       if (!invoice) return status(404, { message: 'Document not found' })
+      // FR-26.6: an incoming document does not exist for a session without `purchases`.
+      if ((invoice as any).direction === 'incoming' && !holdsArea(user, 'purchases')) return status(404, { message: 'Document not found' })
 
       const format = (query.format as string) || 'pdf'
       const mode = ((query.mode as string) || 'detailed') as 'compact' | 'detailed'

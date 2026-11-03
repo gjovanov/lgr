@@ -1,6 +1,9 @@
 import type { NavigationGuardNext, RouteLocationNormalized, RouteRecordRaw } from 'vue-router'
 import { servedByMaster } from 'ui-shared/nav/node-role'
 import { getToken, hasOrgSession } from 'ui-shared/session/session'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { isPortalAreaPath, landingWithoutPortal } from 'ui-shared/nav/page-registry'
+import { holdsArea } from 'config/constants'
 
 /**
  * Where a visitor nobody signed in goes first (gjovanov/lgr#384). On lgrai.app, the landing page.
@@ -116,6 +119,10 @@ export function portalGuard(to: RouteLocationNormalized, next: NavigationGuardNe
   } else if (signedIn && !isPublic && !forPerson && !hasOrgSession()) {
     // Signed in as a person who has not entered an org yet: every other screen needs one.
     next({ name: 'orgs' })
+  } else if (signedIn && hasOrgSession() && isPortalAreaPath(to.path) && !holdsArea(sessionViewer(), 'portal')) {
+    // FR-26.8.4: a session without the portal (a Seller) lands in its first app instead. Presentation:
+    // the server refuses what it must on its own (`route-permission.ts#AREA_PREFIXES`).
+    next({ path: landingWithoutPortal(sessionViewer()), replace: true })
   } else if (isGuest && signedIn) {
     const pendingInvite = sessionStorage.getItem('lgr_invite_code')
     if (pendingInvite) {

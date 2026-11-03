@@ -647,9 +647,11 @@ describe('the invoicing menu, as each person sees it', () => {
     expect(invoicing.menu!.find(g => g.labelKey === 'nav.configuration')!.children!.map(c => c.to)).toEqual(['/contacts', '/configuration/sequences', '/configuration/devices'])
   })
 
-  it('whoever sells and invoices gets all of it, the divider in its place', () => {
-    expect(entries(role('sales'))).toEqual(everything)
+  it('whoever sells and invoices gets all of it but Sequences, the divider in its place', () => {
+    // FR-26.8.3: the server lets only admin and manager into Sequences, and so does the menu.
+    expect(entries(role('sales'))).toEqual(everything.filter(p => p !== '/configuration/sequences'))
     expect(dividers(role('sales'))).toHaveLength(1)
+    expect(entries(role('manager'))).toEqual(everything)
   })
 
   it('an admin too, whatever its set says', () => {
@@ -726,7 +728,8 @@ describe('visibleMenu', () => {
   })
 
   it('every other module is untouched: no entry of theirs asks anything', () => {
-    for (const m of MANIFESTS.filter(x => x !== invoicing && x !== payroll && x.menu)) {
+    // FR-26.8.2: the inventory menu asks `canOpenPage` too, and nobody (`nobody`) opens its pages.
+    for (const m of MANIFESTS.filter(x => x !== invoicing && x !== payroll && x.id !== 'inventory' && x.menu)) {
       expect({ id: m.id, menu: menuPaths(visibleMenu(m.menu!, nobody)) }).toEqual({ id: m.id, menu: menuPaths(m.menu) })
     }
   })
