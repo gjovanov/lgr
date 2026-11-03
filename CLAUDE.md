@@ -1107,7 +1107,8 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 - **Tremol** — own ZFP driver (`tremol.ts` / `ws-tremol-printer.ts`), field-tested on a non-fiscalized M20. Since
   #467 it reports `fiscalized` from the 7 bytes that answer 20h: byte 3 bit 5 „FM fiscalized" (ErpNet.FP's ZFP table),
   read raw (`tremolPayload`: `parseTremolResponse` decodes text, and most of 80h–BFh come out as '?'). ⚠ `false` only
-  from a status read whole (7 bytes, bit 7 set on each, no FM missing or in error), else unset = fiscal. Seen on no unit
+  from a status read whole (checksum matches, 7 bytes, bit 7 set on each, no FM missing or in error), else unset = fiscal.
+  Seen on no unit
 - **Eltrade** (`eltrade.ts`, 2026-09-24) — A1/A3/A6/B1/B3 KL ECRs + FP printers. ISL framing (`isl-frame.ts`),
   CP1251 (`cp1251.ts`). Opens fiscal receipts with **90h `<name>,<УНП>`**; card = payment code `L`; a storno
   carries the **original** УНП with positive lines. Fails only on per-command bits (syntax / invalid / not
@@ -1240,7 +1241,8 @@ LGR implements СУПТО (Софтуер за Управление на Про�
 - **A text sale's storno prints a slip** (#467, `printStornoSlip`): on the device that printed the sale, its articles and
   „Сторно на бон № <sale>", no УНП, in its turn. ⚠ Only while that device still says it is not fiscalized: one
   fiscalized since, one that cannot say, or one away prints nothing and the storno goes through as before (`none`). A slip
-  that fails gives the sale back (503 `fiscal_error`); one interrupted mid-print is held for a person, as R2's text storno.
+  that fails gives the sale back (503 `fiscal_error`). One interrupted mid-print is held for a person when the next touch
+  finds it (`decideInterrupted`: a slip has no counter to prove it), and a keyed retry prints it again, as R2's text storno.
 - **POS requests are idempotent** (#155, FR-20.37): session open/close, sale and storno take an
   `Idempotency-Key` header (`ui-shared/composables/idempotency` makes one per attempt and keeps it only
   while the outcome is unknown). The key is stored ON the document (`clientKey` + `requestHash`, unique
@@ -2905,7 +2907,9 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   purchase price. It is `resolvedUnitCost` on the line, which stock, the layers and the valuation entry read. ⚠ `unitCost`
   stays the document's price, as on every invoice-born line, because FR-07 and the digest read their value columns off it.
   A till storno's return does the same since #467 (`returnedUnitCost`, shared): it wrote its cost into `unitCost`, so
-  FR-07 showed a returned line's cost as its value, and the valuation entry read the line as saying nothing.
+  FR-07 showed a returned line's cost as its value, and the valuation entry read the line as saying nothing. ⚠ A
+  dispatched line that consumed says its cost even at its own price (`costingMethod`; WAC keeps no allocations). And the
+  digest files a customer's return under sold, as FR-07 does: by its side alone it was loaded, at its sale value.
 - ⚠ **A credit note's payment is money OUT:** `createPaymentJournalEntry` posts Dr receivable / Cr cash
   on one, for a bank refund too. Before R2 it posted every outgoing document's as money in. This, the digest's and
   summary's signs and the "Refund" label are the one deliberate change where nothing prints (§2.3).

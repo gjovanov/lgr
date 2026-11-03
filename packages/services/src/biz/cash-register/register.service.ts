@@ -1262,7 +1262,7 @@ export async function releaseOrphanClaimsOfSession(orgId: string, sessionId: str
   for (const sale of claimed) await releaseOrphanClaims(sale)
 }
 
-/** A line of a storno's return: what it sold for, as FR-07 and the digest read `unitCost`, and what it cost apart. */
+/** A line of a storno's return: what it sold for, as FR-07 and the digest read `totalCost`, and what it cost apart. */
 interface ReturnedLine { productId: unknown; quantity: number; unitCost: number; totalCost: number; resolvedUnitCost: number }
 
 /**

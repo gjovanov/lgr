@@ -226,13 +226,17 @@ export function parseTremolResponse(buffer: Buffer): { data: string; isAck: bool
 
 /**
  * A Tremol answer's payload as the bytes it is: the status bytes do not survive `parseTremolResponse`, which reads text
- * (most of 80h–BFh decode to '?'). Null when the answer carries no frame, as an ACK alone does.
+ * (most of 80h–BFh decode to '?'). Null when the answer carries no frame, as an ACK alone does, or when its checksum
+ * does not match: XOR from LEN to the last data byte, two nibbles + 30h, as a request's (ErpNet.FP refuses such a frame).
  */
 export function tremolPayload(buffer: Buffer | Uint8Array): Uint8Array | null {
   const buf = Buffer.from(buffer)
   const stxIdx = buf.indexOf(STX)
   const etxIdx = stxIdx !== -1 ? buf.indexOf(ETX, stxIdx) : -1
   if (stxIdx === -1 || etxIdx === -1 || etxIdx - 2 < stxIdx + 4) return null
+  let xor = 0
+  for (let i = stxIdx + 1; i < etxIdx - 2; i++) xor ^= buf[i]
+  if (buf[etxIdx - 2] !== ((xor >> 4) & 0x0F) + 0x30 || buf[etxIdx - 1] !== (xor & 0x0F) + 0x30) return null
   return new Uint8Array(buf.subarray(stxIdx + 4, etxIdx - 2))
 }
 

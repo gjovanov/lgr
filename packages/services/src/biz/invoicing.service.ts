@@ -451,9 +451,13 @@ function addLeftAt(leftAt: LeftAt, key: string, line: any): void {
   leftAt.set(key, { qty: acc.qty + Number(line.quantity), cost: acc.cost + unit * Number(line.quantity) })
 }
 
-/** Whether a dispatched line says what it cost. One that consumed nothing resolved to its own price, and says nothing. */
+/**
+ * Whether a dispatched line says what it cost. One that consumed nothing resolved to its own price, and says nothing. ⚠ A
+ * line that consumed does say, even at its own price: WAC keeps no allocations, and an article sold at cost, or a 0.00
+ * line, resolves to what it sold for. Its `costingMethod` is what says it consumed (`costOfSoldGoods` reads it the same way).
+ */
 function saysItsCost(line: any): boolean {
-  return !!line.costAllocations?.length || Number(line.resolvedUnitCost) !== Number(line.unitCost)
+  return !!line.costAllocations?.length || !!line.costingMethod || Number(line.resolvedUnitCost) !== Number(line.unitCost)
 }
 
 /** What a returned unit costs when no dispatch says: today's average in that warehouse, so a return moves no average, then what the article is bought at. */

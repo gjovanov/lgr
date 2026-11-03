@@ -322,6 +322,26 @@ describe('a till storno\'s return: its price as its value, its cost apart (#467)
     expect(String(je.lines[0].accountId)).toBe(String(inventory._id))
   }, 60_000)
 
+  it('an article sold at what it cost comes back at that, though the line resolved to its own price', async () => {
+    const w = await tillWorld(app, { device: false })
+    // The average is the selling price, 10.00: WAC keeps no allocations, so the line says only `resolvedUnitCost` 10.
+    await StockLevel.updateOne({ orgId: w.oid, productId: w.product._id, warehouseId: w.warehouse._id }, { $set: { avgCost: 10 } })
+    const sale = await w.sell(2)
+    const dispatch: any = await StockMovement.findOne({ orgId: w.oid, invoiceId: sale.json.transaction.id, type: 'dispatch' }).lean()
+    expect(dispatch.lines[0]).toMatchObject({ unitCost: 10, resolvedUnitCost: 10, costingMethod: 'wac' })
+    // A delivery since, at a lower price.
+    await StockLevel.updateOne({ orgId: w.oid, productId: w.product._id, warehouseId: w.warehouse._id }, { $set: { avgCost: 7 } })
+
+    const res = await w.storno(sale.json.transaction.id)
+
+    expect(res.status).toBe(200)
+    expect((await returnOf(w, res.json.transaction.id)).lines[0].resolvedUnitCost).toBe(10)
+    // (8 × 7.00 + 2 × 10.00) / 10. Read as saying nothing, it came back at 7.00, and FR-07 kept 6.00 of cost for a sale given back.
+    const { quantity, avgCost } = await w.stock()
+    expect(quantity).toBe(10)
+    expect(avgCost).toBeCloseTo(7.6, 6)
+  }, 60_000)
+
   it('sold out of a warehouse with no stock of it: back at what the article is bought at, never at the selling price', async () => {
     const w = await tillWorld(app, { device: false })
     await StockLevel.deleteOne({ orgId: w.oid, productId: w.product._id, warehouseId: w.warehouse._id })

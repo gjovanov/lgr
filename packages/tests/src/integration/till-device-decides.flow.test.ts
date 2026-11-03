@@ -191,9 +191,15 @@ describe('the device decides what a till sale prints (D1)', () => {
     })
 
     describe('a Tremol says it in its 20h status, byte 3 bit 5 (#467)', () => {
-      /** The answer to 20h: ACK, then STX LEN NBL CMD, the status bytes, a checksum and ETX. Bit 7 of each byte is always set. */
-      const statusAnswer = (bytes: number[]) =>
-        Buffer.from([0x06, 0x02, 0x20 + 3 + bytes.length, 0x21, 0x20, ...bytes, 0x30, 0x30, 0x0A])
+      /**
+       * The answer to 20h: ACK, then STX LEN NBL CMD, the status bytes, the checksum (XOR of LEN..data, two nibbles + 30h)
+       * and ETX. Bit 7 of each status byte is always set.
+       */
+      const statusAnswer = (bytes: number[], o: { checksumOff?: boolean } = {}) => {
+        const body = [0x20 + 3 + bytes.length, 0x21, 0x20, ...bytes]
+        const xor = body.reduce((x, b) => x ^ b, 0)
+        return Buffer.from([0x06, 0x02, ...body, ((xor >> 4) & 0x0F) + 0x30, (xor & 0x0F) + 0x30 + (o.checksumOff ? 1 : 0), 0x0A])
+      }
       // FM produced (bit 6), with bit 5 (FM fiscalized) set or not.
       const FISCALIZED = [0x80, 0x80, 0x80, 0xE0, 0x80, 0x80, 0x80]
       const NOT_FISCALIZED = [0x80, 0x80, 0x80, 0xC0, 0x80, 0x80, 0x80]
@@ -213,6 +219,15 @@ describe('the device decides what a till sale prints (D1)', () => {
         }
         expect(tremolFiscalized(null)).toBeUndefined()
         expect(tremolPayload(Buffer.from([0x06]))).toBeNull()
+      })
+
+      it('a frame whose checksum does not match says nothing either: one flipped bit 5 would read a fiscalized device as not', async () => {
+        const flipped = [0x80, 0x80, 0x80, 0xE0 ^ 0x20, 0x80, 0x80, 0x80]
+        const answer = statusAnswer(FISCALIZED)
+        // The checksum of a fiscalized status, over a byte 3 that lost its bit 5 on the way.
+        answer[1 + 1 + 3 + 3] = flipped[3]
+        expect((await (new WsTremolFiscalPrinter(async () => answer, 'tremol-1') as any).getStatus()).fiscalized).toBeUndefined()
+        expect(tremolPayload(statusAnswer(NOT_FISCALIZED, { checksumOff: true }))).toBeNull()
       })
 
       it('its payload is read as bytes: a status of 0xA0 is no "?"', async () => {
