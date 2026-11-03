@@ -55,7 +55,7 @@ export interface ITaxReturn extends Document {
 | periodCode | string | No | - | `YYYYMM`, on a return with a `kind` |
 | cells | object | No | - | `DEKLAR`'s cells by official code, in integer cents. `01-33` is in hundredths. A blank cell has no key |
 | rowCounts | object | No | - | Rows in the sales and purchase registers |
-| declarant | object | No | - | Who the return names: `vatId`, `name`, `filer`, and `vies` for VIES. ⚠ `vies.id` is an ЕГН or ЛНЧ, `select: false` |
+| declarant | object | No | - | Who the return names: `vatId`, `name`, `filer`, and `vies` for VIES. ⚠ `vies.id` is an ЕГН or ЛНЧ: in the file by law, and left out of every JSON answer. Not `select: false`, which would lose it from backups |
 | files | ITaxReturnFile[] | No | `[]` | `{ name, fileId?, sha256, bytes }`. A VAT file has no `fileId`: its bytes regenerate from the frozen rows and must equal `sha256` |
 | source | string | No | - | `imported` from the filed files, or `generated` here |
 | ack | object | No | - | The authority's acknowledgement, a number and optionally a `File` |

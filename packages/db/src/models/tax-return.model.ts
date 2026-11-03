@@ -31,7 +31,10 @@ export interface ITaxReturnDeclarant {
   name: string
   filer: string
   vies?: {
-    /** ⚠ An ЕГН or ЛНЧ: `select: false`, so no list or get serialises it. */
+    /**
+     * ⚠ An ЕГН or ЛНЧ: in the file by law, and in no JSON answer (`withoutPersonalId`). Not
+     * `select: false`: a backup reads through Mongoose, and would lose it and the month's VIES with it.
+     */
     id?: string
     name: string
     city: string
@@ -115,7 +118,7 @@ const taxReturnSchema = new Schema<ITaxReturn>(
       name: String,
       filer: String,
       vies: {
-        id: { type: String, select: false },
+        id: String,
         name: String,
         city: String,
         postcode: String,

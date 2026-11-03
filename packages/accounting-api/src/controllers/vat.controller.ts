@@ -6,7 +6,7 @@ import { resolveStored } from 'services/biz/files/stored-path'
 import { VatFileError } from 'services/biz/vat-files/codec'
 import { isVatPeriod, vatCurrency } from 'services/biz/vat-files/rules'
 import {
-  VatReturnRefused, generateVatReturn, markVatReturnFiled, vatPeriodSummary, vatReturnFile,
+  VatReturnRefused, generateVatReturn, markVatReturnFiled, vatPeriodSummary, vatReturnFile, withoutPersonalId,
 } from 'services/biz/vat-files/vat-return.service'
 
 /**
@@ -51,7 +51,8 @@ export const vatController = new Elysia({ prefix: '/org/:orgId/accounting/vat' }
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 25
     const result = await getRepos().taxReturns.findAll({ orgId: params.orgId, kind: 'vat' } as any, { page, size, sort: { periodCode: -1 } })
-    return { returns: result.items.map(r => ({ ...r, currency: vatCurrency(r.periodCode ?? '') })), ...result }
+    const returns = result.items.map(r => ({ ...withoutPersonalId(r), currency: vatCurrency(r.periodCode ?? '') }))
+    return { returns, ...result, items: returns }
   }, { isSignIn: true })
   .get('/:period', async ({ params, status }) => {
     try {
@@ -88,8 +89,12 @@ export const vatController = new Elysia({ prefix: '/org/:orgId/accounting/vat' }
     }
   }, { isSignIn: true })
   .get('/:period/ack', async ({ params, status }) => {
-    const { taxReturn } = await vatPeriodSummary(params.orgId, params.period).catch(() => ({ taxReturn: null }))
-    const fileId = (taxReturn as any)?.ack?.fileId
+    let fileId: unknown
+    try {
+      fileId = (await vatPeriodSummary(params.orgId, params.period)).taxReturn?.ack?.fileId
+    } catch (e) {
+      return answer(e, status)
+    }
     const stored = fileId ? await FileModel.findOne({ _id: fileId, orgId: params.orgId }).lean() : null
     if (!stored) return status(404, { message: 'This return has no acknowledgement file.' })
     const bytes = Bun.file(resolveStored(stored.storagePath, String(stored.orgId)))

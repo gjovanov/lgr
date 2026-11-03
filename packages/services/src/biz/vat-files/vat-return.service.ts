@@ -52,9 +52,17 @@ function assertPeriod(period: string): void {
   if (!isVatPeriod(period)) throw new VatReturnRefused(422, 'vat_period_invalid', 'A VAT period is YYYYMM')
 }
 
-/** The period's return, with what a list never serialises. A superseded one is history. */
+/** The period's return. A superseded one is history. */
 const returnOf = (orgId: string, period: string) =>
-  TaxReturn.findOne({ orgId, kind: 'vat', periodCode: period, status: { $ne: 'corrected' } }).select('+declarant.vies.id')
+  TaxReturn.findOne({ orgId, kind: 'vat', periodCode: period, status: { $ne: 'corrected' } })
+
+/** A return as an API answers it: the VIES declarant's ЕГН goes in the file, and in no JSON. */
+export function withoutPersonalId<T>(ret: T): T {
+  const r = ret as any
+  if (!r?.declarant?.vies?.id) return ret
+  const { id: _id, ...vies } = r.declarant.vies
+  return { ...r, declarant: { ...r.declarant, vies } }
+}
 
 function toRow(doc: any): VatRow {
   return {
@@ -103,10 +111,8 @@ async function regenerate(ret: any, session?: ClientSession): Promise<VatFile[]>
   return generateMonthFiles(monthOf(ret.periodCode, ret.declarant, declaredIn(ret.cells), sales.map(toRow), purchases.map(toRow)))
 }
 
-function isCurrent(files: VatFile[], recorded: ITaxReturnFile[] = []): boolean {
-  const now = describeFiles(files)
-  return now.length === recorded.length && now.every(f => recorded.some(r => r.name === f.name && r.sha256 === f.sha256))
-}
+const sameFiles = (a: ITaxReturnFile[] = [], b: ITaxReturnFile[] = []) =>
+  a.length === b.length && a.every(f => b.some(r => r.name === f.name && r.sha256 === f.sha256))
 
 function staleRefusal(): VatReturnRefused {
   return new VatReturnRefused(409, 'vat_return_stale', 'The rows have changed since these files were generated. Generate them again.')
@@ -115,9 +121,9 @@ function staleRefusal(): VatReturnRefused {
 /** What is known of who the return names: this period's, the last return's, the org's, then what was asked. */
 async function resolveDeclarant(input: VatGenerateInput, current: any, needsVies: boolean, session: ClientSession): Promise<ITaxReturnDeclarant> {
   const last: any = current?.declarant?.filer ? current : await TaxReturn.findOne({ orgId: input.orgId, kind: 'vat', 'declarant.filer': { $type: 'string' } })
-    .sort({ periodCode: -1 }).select('+declarant.vies.id').session(session).lean()
+    .sort({ periodCode: -1 }).session(session).lean()
   const lastVies: any = last?.declarant?.vies?.name ? last : await TaxReturn.findOne({ orgId: input.orgId, kind: 'vat', 'declarant.vies.name': { $type: 'string' } })
-    .sort({ periodCode: -1 }).select('+declarant.vies.id').session(session).lean()
+    .sort({ periodCode: -1 }).session(session).lean()
   const org = await Org.findById(input.orgId).select('name vatNumber').session(session).lean()
   const vies = input.vies ?? lastVies?.declarant?.vies
   const declarant: ITaxReturnDeclarant = {
@@ -186,7 +192,7 @@ export async function generateVatReturn(input: VatGenerateInput) {
     await session.endSession()
   }
   createAuditEntry({ orgId, userId, action: 'generate', module: 'accounting', entityType: 'tax_return', entityId: id, entityName: `VAT ${period}` })
-  return TaxReturn.findById(id).lean()
+  return withoutPersonalId(await TaxReturn.findById(id).lean())
 }
 
 /** The checks of `mark-filed`, on what the transaction will read again. Before an acknowledgement is stored. */
@@ -217,7 +223,7 @@ export async function markVatReturnFiled(input: {
     await session.withTransaction(async () => {
       const current: any = await returnOf(orgId, period).session(session).lean()
       assertFilable(current)
-      if (!isCurrent(await regenerate(current, session), current.files)) throw staleRefusal()
+      if (!sameFiles(describeFiles(await regenerate(current, session)), current.files)) throw staleRefusal()
       const saved = await TaxReturn.findOneAndUpdate(
         { _id: current._id, orgId, status: 'generated' },
         { $set: { status: 'filed', filedAt: new Date(), filedBy: userId, ack: { number: ackNumber, ...(fileId ? { fileId } : {}) } } },
@@ -234,7 +240,7 @@ export async function markVatReturnFiled(input: {
     orgId, userId, action: 'file', module: 'accounting', entityType: 'tax_return', entityId: id, entityName: `VAT ${period}`,
     changes: [{ field: 'status', oldValue: 'generated', newValue: 'filed' }, { field: 'ack.number', oldValue: null, newValue: ackNumber }],
   })
-  return TaxReturn.findById(id).lean()
+  return withoutPersonalId(await TaxReturn.findById(id).lean())
 }
 
 /** One of the period's files, regenerated and proven against what was recorded. */
@@ -244,7 +250,7 @@ export async function vatReturnFile(orgId: string, period: string, name: string)
   const recorded = ret?.files?.some((f: ITaxReturnFile) => f.name === name)
   if (!recorded) throw new VatReturnRefused(404, 'vat_file_missing', 'This return has no such file.')
   const files = await regenerate(ret)
-  if (!isCurrent(files, ret.files)) throw staleRefusal()
+  if (!sameFiles(describeFiles(files), ret.files)) throw staleRefusal()
   return files.find(f => f.name === name)!
 }
 
@@ -253,11 +259,11 @@ export async function vatPeriodSummary(orgId: string, period: string) {
   assertPeriod(period)
   const [taxReturn, sales, purchases] = await Promise.all([
     TaxReturn.findOne({ orgId, kind: 'vat', periodCode: period, status: { $ne: 'corrected' } }).lean(),
-    VatRegisterEntry.countDocuments({ orgId, period, ledger: BOOKS, side: 'sales' satisfies VatSide }),
-    VatRegisterEntry.countDocuments({ orgId, period, ledger: BOOKS, side: 'purchase' satisfies VatSide }),
+    VatRegisterEntry.countDocuments({ orgId, period, ledger: BOOKS, side: 'sales' }),
+    VatRegisterEntry.countDocuments({ orgId, period, ledger: BOOKS, side: 'purchase' }),
   ])
   const filer = taxReturn?.filedBy ? await User.findOne({ _id: taxReturn.filedBy, orgId }).select('firstName lastName').lean() : null
-  return { taxReturn, counts: { sales, purchase: purchases }, filedByName: filer ? `${filer.firstName} ${filer.lastName}`.trim() : '' }
+  return { taxReturn: withoutPersonalId(taxReturn), counts: { sales, purchase: purchases }, filedByName: filer ? `${filer.firstName} ${filer.lastName}`.trim() : '' }
 }
 
 export interface VatImportPlan {
@@ -290,16 +296,12 @@ export async function planVatImport(org: { _id: unknown; vatNumber?: string; tax
   const existing: any = await TaxReturn.findOne({ orgId: org._id, kind: 'vat', periodCode: month.period, status: { $ne: 'corrected' } }).lean()
   const base = { period: month.period, sales: month.sales.length, purchases: month.purchases.length, month, files }
   if (!existing) return { ...base, action: 'new' }
-  if (isSameRecord(existing.files, files)) return { ...base, action: 'unchanged', existingId: existing._id }
+  if (sameFiles(existing.files, files)) return { ...base, action: 'unchanged', existingId: existing._id }
   // A month LGR generated and a person filed has an acknowledgement behind it: not for a file copy to overwrite.
   if (existing.source !== 'imported' && !OPEN_STATUSES.includes(existing.status)) {
     throw new VatReturnRefused(409, 'vat_return_filed_here', 'This period was filed from LGR, and these files differ from it.')
   }
   return { ...base, action: 'replace', existingId: existing._id }
-}
-
-function isSameRecord(recorded: ITaxReturnFile[] = [], files: ITaxReturnFile[]): boolean {
-  return recorded.length === files.length && files.every(f => recorded.some(r => r.name === f.name && r.sha256 === f.sha256))
 }
 
 /** Writes one planned month, as filed, in one transaction: its rows frozen, its return `filed`. */

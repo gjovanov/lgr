@@ -303,7 +303,8 @@ describe('generating a period', () => {
       expect(res.status).toBe(200)
       expect(JSON.stringify(res.json)).not.toContain('0000000000')
     }
-    const stored: any = await TaxReturn.findOne({ orgId }).select('+declarant.vies.id').lean()
+    // And it stays on the document: a backup reads through Mongoose, so `select: false` would lose it.
+    const stored: any = await TaxReturn.findOne({ orgId }).lean()
     expect(stored.declarant.vies.id).toBe('0000000000')
   })
 
