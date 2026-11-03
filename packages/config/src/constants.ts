@@ -12,7 +12,8 @@ export const ROLES = ['admin', 'manager', 'accountant', 'hr_manager', 'warehouse
 export type Role = (typeof ROLES)[number]
 
 export const PERMISSIONS = [
-  'accounting.read', 'accounting.write', 'accounting.post',
+  // FR-25: `accounting.file` generates a return's files and records that a person filed them.
+  'accounting.read', 'accounting.write', 'accounting.post', 'accounting.file',
   'inventory.read', 'inventory.write', 'inventory.adjust',
   'invoicing.read', 'invoicing.write', 'invoicing.send',
   'pos.read', 'pos.write',
@@ -44,7 +45,7 @@ export const FISCAL_ADMIN_ROLES: readonly string[] = ['admin', 'manager', 'wareh
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   admin: ['admin.users', 'admin.settings', ...PERMISSIONS.filter(p => !p.startsWith('admin.'))],
   manager: PERMISSIONS.filter(p => !p.startsWith('admin.')).slice(),
-  accountant: ['accounting.read', 'accounting.write', 'accounting.post', 'invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read', 'reports.read', 'reports.export'],
+  accountant: ['accounting.read', 'accounting.write', 'accounting.post', 'accounting.file', 'invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read', 'reports.read', 'reports.export'],
   // Payroll is the whole job, approval included — the payroll/HR controllers already gate
   // their approve routes on this role by name.
   hr_manager: ['payroll.read', 'payroll.write', 'payroll.approve', 'reports.read', 'reports.export'],

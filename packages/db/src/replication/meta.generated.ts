@@ -99,6 +99,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   TaxReturn: { collection: 'taxreturns', class: 'R', orgPath: 'orgId' },
   Timesheet: { collection: 'timesheets', class: 'R', orgPath: 'orgId' },
   User: { collection: 'users', class: 'S', orgPath: 'orgId', home: ['avatar','createdAt','deactivatedAt','identityId','isActive','middleName','operatorCode','permissionSetIds','permissions','position','preferences','role','roleHistory','updatedAt','username'], global: ['email','firstName','lastName','oauthProviders','password'], node: ['lastLoginAt'] },
+  VatRegisterEntry: { collection: 'vatregisterentries', class: 'R', orgPath: 'orgId' },
   Warehouse: { collection: 'warehouses', class: 'R', orgPath: 'orgId' },
   Workstation: { collection: 'workstations', class: 'R', orgPath: 'orgId' },
 }

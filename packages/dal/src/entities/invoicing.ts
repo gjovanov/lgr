@@ -73,6 +73,8 @@ export interface IInvoiceLine {
   taxAmount: number
   lineTotal: number
   accountId?: string
+  /** FR-25 §3.9: the books' analytic for the line. */
+  analyticId?: string
   warehouseId?: string
   priceExplanation?: IPriceStep[]
   /** On an invoice for a cash sale: the cash-sale line it invoices (#171). */
@@ -115,6 +117,10 @@ export interface IInvoiceRecurringConfig {
 }
 
 export interface IInvoice extends TenantEntity {
+  /** FR-25 §3.9: the VAT period, the accountant's `Вид`, the register's document type. */
+  vatPeriod?: string
+  vatKind?: string
+  vatDocTypeCode?: string
   invoiceNumber: string
   type: string
   direction: string

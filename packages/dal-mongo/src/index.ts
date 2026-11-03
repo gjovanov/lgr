@@ -4,7 +4,7 @@ import { connectDB, mongoose } from 'db/connection'
 import {
   Org, User, Invite, Code, EmailLog, AuditLog, File, Notification, BackgroundTask, OrgApp, Tag, PermissionSet,
   Journal, PaymentTerm, FiscalPosition,
-  Account, FiscalYear, FiscalPeriod, JournalEntry, FixedAsset, BankAccount, BankReconciliation, TaxReturn, ExchangeRate,
+  Account, FiscalYear, FiscalPeriod, JournalEntry, FixedAsset, BankAccount, BankReconciliation, TaxReturn, VatRegisterEntry, ExchangeRate,
   Contact, Invoice, PaymentOrder, CashOrder,
   Product, Warehouse, StockLevel, StockMovement, InventoryCount, PriceList, CostLayer, ProductCategory,
   StockLocation, OperationType, StockLot,
@@ -59,6 +59,7 @@ export async function createMongoRepositories(config: DalConfig): Promise<Reposi
     bankAccounts: new MongoRepository(BankAccount),
     bankReconciliations: new MongoRepository(BankReconciliation),
     taxReturns: new MongoRepository(TaxReturn),
+    vatRegisterEntries: new MongoRepository(VatRegisterEntry),
     exchangeRates: new MongoRepository(ExchangeRate),
 
     // Invoicing

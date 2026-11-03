@@ -8,7 +8,7 @@
  * ⚠ WHY AN ALLOW-LIST AND NOT A CAREFUL QUERY. ЗСч чл. 12 / ДОПК чл. 38 ал. 1 require ten
  * years of fiscal records and payroll carries a FIFTY-year floor. `Invoice`,
  * `StockMovement`, `POSTransaction`, `JournalEntry`, `AuditLog`, `Sequence`, `PayrollRun`,
- * `Payslip` and their kin MUST NOT be pruned, ever, by anything. A retention job is the one
+ * `Payslip`, `TaxReturn`, `VatRegisterEntry` and their kin MUST NOT be pruned, ever, by anything. A retention job is the one
  * piece of code in the system whose bugs are silent, delayed and unrecoverable: nobody
  * notices a deletion until they need the row, which is years later, by which time the
  * backups that held it have rotated. `TOUCHABLE` exists so that reaching a fiscal collection

@@ -212,8 +212,31 @@ export interface ITaxReturnLine {
   accountId: string
 }
 
+export interface ITaxReturnFile {
+  name: string
+  fileId?: string
+  sha256: string
+  bytes: number
+}
+
+export interface ITaxReturnDeclarant {
+  vatId: string
+  name: string
+  filer: string
+  vies?: { id?: string; name: string; city: string; postcode: string; address: string; kind: string; companyAddress: string }
+}
+
 export interface ITaxReturn extends TenantEntity {
   type: string
+  kind?: string
+  periodCode?: string
+  cells?: Record<string, number>
+  rowCounts?: { sales: number; purchase: number }
+  declarant?: ITaxReturnDeclarant
+  files?: ITaxReturnFile[]
+  source?: string
+  ack?: { number: string; fileId?: string }
+  supersedesId?: string
   period: { from: Date; to: Date }
   status: string
   totalTax: number
@@ -224,6 +247,26 @@ export interface ITaxReturn extends TenantEntity {
   filedAt?: Date
   filedBy?: string
   attachments: string[]
+}
+
+// ── VatRegisterEntry ──
+
+export interface IVatRegisterEntry extends TenantEntity {
+  period: string
+  side: string
+  ledger: string
+  rowNo: number
+  docTypeCode: string
+  docNumber: string
+  docDate: Date
+  partnerVat?: string
+  partnerName?: string
+  description?: string
+  branch?: number
+  code?: string
+  cells: Record<string, number>
+  source?: { orgId?: string; kind?: string; id?: string }
+  frozen: boolean
 }
 
 // ── ExchangeRate ──

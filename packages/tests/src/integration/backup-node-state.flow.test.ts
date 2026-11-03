@@ -38,7 +38,7 @@ const ORG_DATA = [
   'OperationType', 'Order', 'OrgApp', 'OrgLogo', 'POSPaymentMethod', 'POSSession', 'POSTransaction',
   'PaymentOrder', 'PaymentTerm', 'PayrollRun', 'Payslip', 'PermissionSet', 'PriceList', 'Product',
   'ProductCategory', 'Reservation', 'Sequence', 'StockLevel', 'StockLocation', 'StockLot',
-  'StockMovement', 'SupplierProductAlias', 'Tag', 'TaxReturn', 'Timesheet', 'User', 'Warehouse',
+  'StockMovement', 'SupplierProductAlias', 'Tag', 'TaxReturn', 'Timesheet', 'User', 'VatRegisterEntry', 'Warehouse',
   'Workstation',
 ]
 
