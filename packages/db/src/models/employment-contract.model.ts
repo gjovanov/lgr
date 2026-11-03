@@ -45,6 +45,8 @@ export interface IEmploymentContract extends Document {
   position?: string
   nkpd?: string
   kid?: string
+  /** Обр. 1's field 29, which the filed files carry beside the contract's own code. ТЗПБ goes by it. */
+  activityKid?: string
   laborCategory?: string
   qualificationGroup?: number
   /** The row of Annex 1 for the employer's main activity: обр. 1's field 30. */
@@ -82,6 +84,7 @@ const employmentContractSchema = new Schema<IEmploymentContract>(
     position: String,
     nkpd: String,
     kid: String,
+    activityKid: String,
     laborCategory: String,
     qualificationGroup: Number,
     mainActivityRow: Number,

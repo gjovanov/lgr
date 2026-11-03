@@ -69,6 +69,11 @@ LGR has 50 entity types across 8 modules. Each entity has a TypeScript interface
 | [PayrollRun](payroll/payroll-run.md) | `IPayrollRun` | `payroll_runs` | Payroll batch |
 | [Payslip](payroll/payslip.md) | `IPayslip` | `payslips` | Individual pay statement |
 | [Timesheet](payroll/timesheet.md) | `ITimesheet` | `timesheets` | Hours worked entry |
+| EmploymentContract | `IEmploymentContract` | `employmentcontracts` | FR-25: one employment and its annexes; pay sealed |
+| PayrollParameter | `IPayrollParameter` | `payrollparameters` | FR-25: one dated value of the law; global |
+| PayrollElement | `IPayrollElement` | `payrollelements` | FR-25: what one line of a payslip is |
+| AbsenceEntry | `IAbsenceEntry` | `absenceentries` | FR-25: an absence; its code sealed |
+| LeaveBalance | `ILeaveBalance` | `leavebalances` | FR-25: one person's paid leave for a year |
 
 ## HR (6 entities)
 

@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
+import { getRepos } from 'services/context'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { holdsPersonal } from 'services/biz/route-permission'
 import { importContracts, importEmployees, importMonth } from 'services/biz/payroll/bg/import.service'
@@ -16,6 +17,11 @@ import { lockedAnswer, PERSONAL_REFUSAL } from './answers.js'
  */
 const dry = (body: { dryRun?: boolean }) => body.dryRun !== false
 
+/** ⚠ A mistyped `--org` must not put a company's payroll in a store org: the org has to have asked for it. */
+const refusesImport = async (orgId: string) => (await getRepos().orgs.findById(orgId))?.settings?.payroll?.engine !== 'bg'
+
+const NOT_A_PAYROLL_ORG = { message: 'This org has no settings.payroll.engine: bg', code: 'payroll_engine_not_set' }
+
 export const payrollImportController = new Elysia({ prefix: '/org/:orgId/payroll/import' })
   .use(AppAuthService)
   .post(
@@ -23,6 +29,7 @@ export const payrollImportController = new Elysia({ prefix: '/org/:orgId/payroll
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+      if (await refusesImport(orgId)) return status(409, NOT_A_PAYROLL_ORG)
       try {
         const report = await importEmployees(orgId, body.people, { dryRun: dry(body) })
         if (!dry(body)) createAuditEntry({ orgId, userId: user.id, action: 'import', module: 'payroll', entityType: 'employee', entityId: orgId, entityName: `${report.create} new, ${report.update} changed` })
@@ -52,6 +59,7 @@ export const payrollImportController = new Elysia({ prefix: '/org/:orgId/payroll
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+      if (await refusesImport(orgId)) return status(409, NOT_A_PAYROLL_ORG)
       try {
         const report = await importContracts(orgId, body as any, { dryRun: dry(body) })
         if (!dry(body)) createAuditEntry({ orgId, userId: user.id, action: 'import', module: 'payroll', entityType: 'employment_contract', entityId: orgId, entityName: `${report.create} new, ${report.update} changed` })
@@ -84,6 +92,7 @@ export const payrollImportController = new Elysia({ prefix: '/org/:orgId/payroll
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+      if (await refusesImport(orgId)) return status(409, NOT_A_PAYROLL_ORG)
       if (!body.rows.every(isEmplRow)) return status(422, { message: 'A row is not an обр. 1 record', code: 'bad_row' })
       try {
         const { dryRun: _dryRun, ...month } = body

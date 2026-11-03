@@ -1,13 +1,13 @@
 import { Elysia, t } from 'elysia'
 import { mongoose } from 'db/connection'
-import { AbsenceEntry, EmploymentContract, LeaveBalance } from 'db/models'
+import { AbsenceEntry, Employee, EmploymentContract, LeaveBalance } from 'db/models'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { createAuditEntry, recordAuditEntry } from 'services/biz/audit-log.service'
 import { holdsPersonal } from 'services/biz/route-permission'
 import { ABSENCE_CODES, openAbsenceDetail, sealAbsenceDetail } from 'services/biz/payroll/bg/absence'
 import { openContractPay, sealContractPay } from 'services/biz/payroll/bg/contract-pay'
 import { absenceView, contractView, leaveBalanceView } from 'services/biz/payroll/bg/views'
-import { lockedAnswer, PERSONAL_REFUSAL } from './answers.js'
+import { lockedAnswer, PERSONAL_REFUSAL, RECORD_REFUSAL, REVEAL_REASON } from './answers.js'
 
 /**
  * FR-25 §3.10: contracts, absences and leave. All of it is about one person, so the route rules need
@@ -15,7 +15,9 @@ import { lockedAnswer, PERSONAL_REFUSAL } from './answers.js'
  * Lists and gets send the allow-list views, and a sealed value comes out only through a reveal, which
  * is written to the audit log before it answers.
  */
-const REVEAL_REASON = t.Union([t.Literal('edit'), t.Literal('declaration'), t.Literal('employee_request'), t.Literal('audit')])
+const inThisOrg = (orgId: string, employeeId: string) => Employee.exists({ _id: employeeId, orgId }).exec()
+
+const NOT_HERE = { message: 'Employee not found' }
 
 const SalaryBody = t.Object({
   effectiveFrom: t.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}$' }),
@@ -32,6 +34,7 @@ const ContractFields = {
   position: t.Optional(t.String()),
   nkpd: t.Optional(t.String()),
   kid: t.Optional(t.String()),
+  activityKid: t.Optional(t.String()),
   laborCategory: t.Optional(t.String()),
   qualificationGroup: t.Optional(t.Number({ minimum: 1, maximum: 9 })),
   mainActivityRow: t.Optional(t.Number({ minimum: 1 })),
@@ -67,6 +70,7 @@ export const contractController = new Elysia({ prefix: '/org/:orgId/payroll/cont
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+      if (!(await inThisOrg(orgId, body.employeeId))) return status(404, NOT_HERE)
       const { salaries, ...plain } = body
       const id = new mongoose.Types.ObjectId()
       try {
@@ -121,7 +125,7 @@ export const contractController = new Elysia({ prefix: '/org/:orgId/payroll/cont
         orgId, userId: user.id, action: 'reveal', module: 'payroll', entityType: 'employment_contract', entityId: id,
         changes: [{ field: 'pay', oldValue: body.reason, newValue: '[REDACTED]' }],
       })
-      if (!logged) return status(503, { message: 'The read could not be recorded, so it was refused', code: 'audit_unavailable' })
+      if (!logged) return status(503, RECORD_REFUSAL)
       return { pay }
     },
     { isSignIn: true, body: t.Object({ reason: REVEAL_REASON }) },
@@ -141,6 +145,7 @@ export const absenceController = new Elysia({ prefix: '/org/:orgId/payroll/absen
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+      if (!(await inThisOrg(orgId, body.employeeId))) return status(404, NOT_HERE)
       const { code, document, ...plain } = body
       const id = new mongoose.Types.ObjectId()
       try {
@@ -189,7 +194,7 @@ export const absenceController = new Elysia({ prefix: '/org/:orgId/payroll/absen
         orgId, userId: user.id, action: 'reveal', module: 'payroll', entityType: 'absence', entityId: id,
         changes: [{ field: 'detail', oldValue: body.reason, newValue: '[REDACTED]' }],
       })
-      if (!logged) return status(503, { message: 'The read could not be recorded, so it was refused', code: 'audit_unavailable' })
+      if (!logged) return status(503, RECORD_REFUSAL)
       return { detail }
     },
     { isSignIn: true, body: t.Object({ reason: REVEAL_REASON }) },
@@ -211,6 +216,7 @@ export const leaveBalanceController = new Elysia({ prefix: '/org/:orgId/payroll/
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
       const { employeeId, year, ...values } = body
+      if (!(await inThisOrg(orgId, employeeId))) return status(404, NOT_HERE)
       const balance = await LeaveBalance.findOneAndUpdate({ orgId, employeeId, year }, { $set: values }, { new: true, upsert: true }).lean().exec()
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'payroll', entityType: 'leave_balance', entityId: String((balance as any)._id) })
       return { leaveBalance: leaveBalanceView(balance) }

@@ -6,7 +6,7 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 import { forOrg } from 'services/biz/personal-data/personal-data.service'
 import { openPayslip } from 'services/biz/payroll/bg/run.service'
 import { payslipView } from 'services/biz/payroll/bg/views'
-import { lockedAnswer } from './answers.js'
+import { lockedAnswer, RECORD_REFUSAL, REVEAL_REASON } from './answers.js'
 
 // A PUT may carry any field of the document except `orgId`: a document never moves between
 // orgs (FR-20.7). `updateInOrg` drops it too; this answers 422 instead of ignoring it.
@@ -42,6 +42,7 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
   .post(
     '/:id/reveal',
     async ({ params, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
       const item: any = await r.payslips.findByIdInOrg(params.id, params.orgId)
       if (!item) return status(404, { message: 'Not found' })
@@ -56,13 +57,10 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
         orgId: params.orgId, userId: user.id, action: 'reveal', module: 'payroll', entityType: 'payslip', entityId: params.id,
         changes: [{ field: 'sealed', oldValue: body.reason, newValue: '[REDACTED]' }],
       })
-      if (!logged) return status(503, { message: 'The read could not be recorded, so it was refused', code: 'audit_unavailable' })
+      if (!logged) return status(503, RECORD_REFUSAL)
       return { amounts }
     },
-    {
-      isSignIn: true,
-      body: t.Object({ reason: t.Union([t.Literal('edit'), t.Literal('declaration'), t.Literal('employee_request'), t.Literal('audit')]) }),
-    },
+    { isSignIn: true, body: t.Object({ reason: REVEAL_REASON }) },
   )
   .post('/', async ({ params, body, user }) => {
     const r = getRepos()

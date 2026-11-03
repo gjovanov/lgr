@@ -184,10 +184,15 @@ describe('the days', () => {
     expect(r.net).toBe(fromCents(toCents(r.gross) - toCents(r.employeeContributions) - toCents(r.tax)))
   })
 
-  it('pays leave from the daily base it is given, or from the contract\'s day', () => {
+  it('pays leave from the daily base it is given, or from this month\'s day, the class supplement in it', () => {
     const days = { ...fullMonth, worked: 15, paidLeave: 5 }
     expect(run({ days }).lines.at(-1)).toEqual({ code: 'paidLeave', amount: 250, days: 5 })
     expect(run({ days, salary: { amount: 1000, leaveDailyBase: 60 } }).lines.at(-1)).toEqual({ code: 'paidLeave', amount: 300, days: 5 })
+    // 750 salary + 75 class over 15 days is 55 a day.
+    const withClass = run({ days, earnings: [{ code: 'classSupplement', amount: 75 }] })
+    expect(withClass.lines.find(l => l.code === 'paidLeave')).toEqual({ code: 'paidLeave', amount: 275, days: 5 })
+    // With no day worked, the contract's day.
+    expect(run({ days: { ...fullMonth, worked: 0, paidLeave: 20 } }).lines.at(-1)).toEqual({ code: 'paidLeave', amount: 1000, days: 20 })
   })
 })
 

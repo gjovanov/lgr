@@ -12,7 +12,7 @@ function pick(source: any, keys: readonly string[]): Record<string, unknown> {
 }
 
 const CONTRACT_KEYS = [
-  '_id', 'id', 'orgId', 'employeeId', 'number', 'date', 'type', 'ekatte', 'startDate', 'endDate', 'position', 'nkpd', 'kid',
+  '_id', 'id', 'orgId', 'employeeId', 'number', 'date', 'type', 'ekatte', 'startDate', 'endDate', 'position', 'nkpd', 'kid', 'activityKid',
   'laborCategory', 'qualificationGroup', 'mainActivityRow', 'socialSecurityType', 'healthSecurityType', 'hoursPerDay',
   'daysPerWeek', 'statutoryHours', 'payKind', 'currency', 'annualLeaveDays', 'classPercent', 'experienceAtStart',
   'amendments', 'termination', 'source', 'createdAt', 'updatedAt',

@@ -8,9 +8,8 @@ import type { BgParameters, Share } from './parameters.js'
  *   days → earnings → insurable income, with floor and cap → contributions, each share rounded per
  *   person → tax base → reliefs → tax → net → advance and payment split
  *
- * What the filed files prove of this, over 44 months, is in the PR that added it: from insurable
- * income on it reproduces them to the cent. Earnings come from the contract, and the months on disk
- * prove those only as far as the salary sheets go.
+ * What the filed files prove of this is in FR-25 §9: from insurable income on it reproduces them to
+ * the cent. Earnings come from the contract, and those are proven only as far as the sheets go.
  *
  * ⚠ Anything this does not know is refused (D11). A type it does not implement is never calculated
  * as `01`: a wrong declaration is worse than a question.
@@ -78,7 +77,10 @@ export interface BgPersonInput {
   /** The contract's basic pay, when the month's salary is derived from it. */
   salary?: {
     amount: number
-    /** КТ чл. 177: the daily base for leave. Defaults to the contract's own day. */
+    /**
+     * КТ чл. 177: the daily base for leave. Without one, this month's day: (salary + class) ÷ days
+     * worked. That is what the filed sheets show, and not what КТ чл. 177 says: FR-25 §12 asks which.
+     */
     leaveDailyBase?: number
   }
   /**
@@ -175,12 +177,23 @@ function floorPerMonth(input: BgPersonInput, p: BgParameters): number {
   return amount
 }
 
+// TODO(FR-25 §7.5, item 4): Annexes 2 and 2А are by КИД-2025, and Н-13 still says КИД 2008. The filed
+// rows of 2026 fit a lookup by the first two digits of field 29, and which code set it expects is unread.
 function tzpbRate(input: BgPersonInput, p: BgParameters): number {
   if (input.tzpbRate !== undefined) return input.tzpbRate
   const division = String(input.kid ?? '').replace(/\D/g, '').slice(0, 2)
   const row = p.tzpbByActivity?.find(r => r.kid === division)
   if (!row) throw new UnsupportedPayrollCaseError(`no ТЗПБ rate for ${input.period} and this activity`)
   return row.rate
+}
+
+function leavePay(input: BgPersonInput, salary: number, p: BgParameters): number {
+  const { worked, paidLeave } = input.days
+  const base = input.salary?.leaveDailyBase
+  if (base !== undefined) return toCents(base) * paidLeave
+  if (!worked) return shareOf(salary, paidLeave, p.workingDays)
+  const classSupplement = (input.earnings ?? []).filter(e => e.code === 'classSupplement').reduce((sum, e) => sum + toCents(e.amount), 0)
+  return shareOf(shareOf(salary, worked, p.workingDays) + classSupplement, paidLeave, worked)
 }
 
 /** Salary and leave pay, from the contract and the days. In whole cents. */
@@ -191,9 +204,7 @@ function contractLines(input: BgPersonInput, p: BgParameters): { lines: { code: 
     { code: 'salary', cents: shareOf(salary, input.days.worked, p.workingDays), days: input.days.worked },
   ]
   if (input.days.paidLeave) {
-    const daily = input.salary.leaveDailyBase === undefined ? null : toCents(input.salary.leaveDailyBase)
-    const pay = daily === null ? shareOf(salary, input.days.paidLeave, p.workingDays) : daily * input.days.paidLeave
-    lines.push({ code: 'paidLeave', cents: pay, days: input.days.paidLeave })
+    lines.push({ code: 'paidLeave', cents: leavePay(input, salary, p), days: input.days.paidLeave })
   }
   return { lines, contractDay: shareOf(salary, 1, p.workingDays) }
 }
@@ -253,8 +264,8 @@ export function calculatePerson(input: BgPersonInput, p: BgParameters): BgPerson
   }
 
   // Health on days nobody pays wages for, on the self-insured base, proportional to the days. With
-  // the month's income at the cap there is no room left for it: seven filed rows have none, and the
-  // 54 below the cap carry it whole.
+  // the month's income at the cap there is no room left for it: seven filed rows have none, and every
+  // row below the cap carries it whole.
   const healthBase = toCents(p.minInsurableSelfInsured)
   const roomBelowCap = toCents(p.maxInsurableIncome) - insurable
   const leaveBase = Math.min(shareOf(healthBase, days.incapacity + days.childcare, p.workingDays), roomBelowCap)

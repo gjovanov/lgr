@@ -9,9 +9,7 @@ import { holdsPersonal } from 'services/biz/route-permission'
 import { emitImportedDeclaration } from 'services/biz/payroll/bg/import.service'
 import { openRunItems, runDocument } from 'services/biz/payroll/bg/run.service'
 import { runView } from 'services/biz/payroll/bg/views'
-import { PERSONAL_REFUSAL, payrollAnswer } from './answers.js'
-
-const REVEAL_REASON = t.Union([t.Literal('edit'), t.Literal('declaration'), t.Literal('employee_request'), t.Literal('audit')])
+import { PERSONAL_REFUSAL, RECORD_REFUSAL, REVEAL_REASON, payrollAnswer } from './answers.js'
 
 const DaysBody = t.Object({
   worked: t.Number({ minimum: 0 }),
@@ -211,7 +209,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
         orgId, userId: user.id, action: 'reveal', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: run.name,
         changes: items.map((item: any) => ({ field: `items.${item.employeeId}`, oldValue: body.reason, newValue: '[REDACTED]' })),
       })
-      if (!logged) return status(503, { message: 'The read could not be recorded, so it was refused', code: 'audit_unavailable' })
+      if (!logged) return status(503, RECORD_REFUSAL)
 
       return { items }
     },
@@ -242,7 +240,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
         orgId, userId: user.id, action: 'reveal', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: run.name,
         changes: [{ field: `declaration.${body.form}`, oldValue: body.reason, newValue: '[REDACTED]' }],
       })
-      if (!logged) return status(503, { message: 'The read could not be recorded, so it was refused', code: 'audit_unavailable' })
+      if (!logged) return status(503, RECORD_REFUSAL)
 
       return { contentBase64: Buffer.from(bytes).toString('base64') }
     },

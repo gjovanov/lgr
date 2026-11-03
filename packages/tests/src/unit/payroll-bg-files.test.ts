@@ -205,6 +205,33 @@ describe('events into contracts', () => {
     ], [FAKE_EGN])
     expect(gaps).toEqual([])
     expect(contracts[0]).toMatchObject({ date: '2020-02-03', position: 'НОВА', hoursPerDay: 6, kid: '4690' })
-    expect(contracts[0].salaries).toEqual([{ effectiveFrom: '2020-02-03', amount: 700, currency: 'EUR' }])
+    // An export says what the salary was on its day, and nothing of since when.
+    expect(contracts[0].salaries).toEqual([{ effectiveFrom: '2026-06-01', amount: 700, currency: 'EUR' }])
+  })
+
+  it('takes the newest value of each field from all the exports, each salary in its own currency', () => {
+    const { contracts } = foldContractEvents([], [
+      { personId: FAKE_EGN, asOf: '2024-03-15', startDate: '2020-02-03', position: 'ПРОДАВАЧ', salary: 1000, classPercent: 1 },
+      { personId: FAKE_EGN, asOf: '2026-01-15', startDate: '2020-02-03' },
+      { personId: FAKE_EGN, asOf: '2026-09-01', qualificationGroup: 5, mainActivityRow: 58, activityKid: '4690' },
+    ], [FAKE_EGN])
+    expect(contracts[0]).toMatchObject({ position: 'ПРОДАВАЧ', qualificationGroup: 5, mainActivityRow: 58, activityKid: '4690', classPercent: 1 })
+    expect(contracts[0].salaries).toEqual([
+      { effectiveFrom: '2024-03-15', amount: 1000, currency: 'BGN' },
+      { effectiveFrom: '2026-01-01', amount: 511.3, currency: 'EUR', byLaw: true },
+    ])
+  })
+
+  it('lands a termination on a contract only the personnel export knows: someone who left stays left', () => {
+    const end = parseEtz(etzFile(etzRow(3, '<enddate>2026-03-31</enddate><endreason>012</endreason>')))
+    const { contracts, gaps } = foldContractEvents(end, [{ personId: FAKE_EGN, asOf: '2026-01-15', startDate: '2020-02-03', salary: 1000 }], [FAKE_EGN])
+    expect(gaps).toEqual([])
+    expect(contracts[0]).toMatchObject({ date: '2020-02-03', endDate: '2026-03-31' })
+    expect(contracts[0].termination).toMatchObject({ date: '2026-03-31', basis: '012' })
+  })
+
+  it('reads the export of January 2026 as leva', () => {
+    const { contracts } = foldContractEvents([], [{ personId: FAKE_EGN, asOf: '2026-01-15', startDate: '2020-02-03', salary: 1000 }], [FAKE_EGN])
+    expect(contracts[0].salaries[0]).toEqual({ effectiveFrom: '2026-01-15', amount: 1000, currency: 'BGN' })
   })
 })

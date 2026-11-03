@@ -1,3 +1,4 @@
+import { t } from 'elysia'
 import { PersonalDataLockedError } from 'services/biz/personal-data/personal-data.service'
 import { UnsupportedPayrollCaseError } from 'services/biz/payroll/bg/engine'
 import { PayrollParameterMissingError } from 'services/biz/payroll/bg/parameters'
@@ -18,3 +19,8 @@ export function payrollAnswer(status: any, e: unknown) {
 }
 
 export const PERSONAL_REFUSAL = { message: 'Permission required: payroll.personal', code: 'permission_required' }
+
+/** Why a sealed value is being read. It goes in the audit row, and the value never does. */
+export const REVEAL_REASON = t.Union([t.Literal('edit'), t.Literal('declaration'), t.Literal('employee_request'), t.Literal('audit')])
+
+export const RECORD_REFUSAL = { message: 'The read could not be recorded, so it was refused', code: 'audit_unavailable' }

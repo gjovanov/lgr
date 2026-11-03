@@ -1,7 +1,7 @@
 /**
  * FR-25 §7.4: payroll's arithmetic, in whole cents, so that a half is a half. Import-pure.
  *
- * The rule, as the predecessor of the ordinance adopted by ПМС 175/2018 states it in its чл. 2а: each
+ * TODO(FR-25 §7.5, item 3): ПМС 175/2018's own text was not reached. Its predecessor's чл. 2а says: each
  * contribution is computed per insured person, separately, to two decimals; a third decimal of 0–4
  * leaves the second as it is, and 5–9 adds one. Half up, which is also what the filed files prove:
  * income × percentage, each share rounded separately, equals обр. 6 to the cent in all 42 months.

@@ -114,6 +114,9 @@ function contractFields(contract: FoldedContract, employeeId: unknown) {
     position: contract.position,
     nkpd: contract.nkpd,
     kid: contract.kid,
+    activityKid: contract.activityKid,
+    qualificationGroup: contract.qualificationGroup,
+    mainActivityRow: contract.mainActivityRow,
     socialSecurityType: contract.socialSecurityType,
     healthSecurityType: contract.healthSecurityType,
     hoursPerDay: contract.hoursPerDay,
@@ -134,7 +137,7 @@ const comparable = (value: unknown) => JSON.stringify(value, (_, v) => (v === nu
 function sameContract(existing: any, fields: ReturnType<typeof contractFields>, pay: EmploymentPay | null, wanted: EmploymentPay): boolean {
   const clear = (doc: any) => comparable({
     type: doc.type, ekatte: doc.ekatte, startDate: doc.startDate, endDate: doc.endDate, position: doc.position, nkpd: doc.nkpd, kid: doc.kid,
-    hoursPerDay: doc.hoursPerDay, amendments: (doc.amendments ?? []).map((a: any) => [a.date, a.effectiveFrom, a.byLaw ?? false]),
+    activityKid: doc.activityKid, qualificationGroup: doc.qualificationGroup, mainActivityRow: doc.mainActivityRow, hoursPerDay: doc.hoursPerDay, amendments: (doc.amendments ?? []).map((a: any) => [a.date, a.effectiveFrom, a.byLaw ?? false]),
     termination: doc.termination?.date ?? null,
   })
   return clear(existing) === clear(fields) && comparable(pay) === comparable(wanted)
@@ -149,7 +152,7 @@ export async function importContracts(
   const vault = await forOrg(orgId)
   const { contracts, gaps } = foldContractEvents(body.events, body.snapshots, body.people)
   const known = await employeesByPerson(orgId, vault, [...new Set(contracts.map(c => c.personId))])
-  const report = { contracts: contracts.length, create: 0, update: 0, unchanged: 0, unknownPeople: 0, gaps: {} as Record<string, number> }
+  const report = { contracts: contracts.length, create: 0, update: 0, unchanged: 0, keptManual: 0, unknownPeople: 0, gaps: {} as Record<string, number> }
   for (const { gap } of gaps) report.gaps[gap] = (report.gaps[gap] ?? 0) + 1
 
   for (const contract of contracts) {
@@ -159,6 +162,7 @@ export async function importContracts(
     const wanted: EmploymentPay = { salaries: contract.salaries }
     const existing: any = await EmploymentContract.findOne({ orgId, employeeId: employee._id, date: fields.date }).lean().exec()
     if (existing) {
+      if (existing.source !== 'import') { report.keptManual++; continue }
       if (sameContract(existing, fields, await openContractPay(orgId, existing), wanted)) { report.unchanged++; continue }
       report.update++
       if (!dryRun) await EmploymentContract.updateOne({ _id: existing._id }, { $set: { ...fields, pay: await sealContractPay(orgId, String(existing._id), wanted) } }).exec()
@@ -193,7 +197,8 @@ const monthBounds = (period: string) => {
   return { from: new Date(Date.UTC(year, month - 1, 1)), to: new Date(Date.UTC(year, month, 0)) }
 }
 
-async function contractsOf(orgId: unknown, employeeIds: unknown[], period: string): Promise<Map<string, any>> {
+/** Each person's contracts in force at some point of the month, oldest first. */
+async function contractsOf(orgId: unknown, employeeIds: unknown[], period: string): Promise<Map<string, any[]>> {
   const { from, to } = monthBounds(period)
   const rows: any[] = await EmploymentContract.find({
     orgId,
@@ -202,9 +207,30 @@ async function contractsOf(orgId: unknown, employeeIds: unknown[], period: strin
       { $or: [{ startDate: { $lte: to } }, { startDate: null, date: { $lte: to } }] },
       { $or: [{ endDate: null }, { endDate: { $gte: from } }] },
     ],
-  }).lean().exec()
-  return new Map(rows.map(c => [String(c.employeeId), c]))
+  }).sort({ date: 1 }).lean().exec()
+  const out = new Map<string, any[]>()
+  for (const contract of rows) {
+    const key = String(contract.employeeId)
+    if (!out.has(key)) out.set(key, [])
+    out.get(key)!.push(contract)
+  }
+  return out
 }
+
+/** The contract a row is about: the one in force on its first day of insurance, field 9. */
+function contractOfRow(row: EmplRow, contracts: any[] | undefined, period: string): any | undefined {
+  if (!contracts?.length) return undefined
+  if (contracts.length === 1) return contracts[0]
+  const day = new Date(Date.UTC(Number(period.slice(0, 4)), Number(period.slice(4)) - 1, row.from1 || 1))
+  const inForce = contracts.filter(c => new Date(c.startDate ?? c.date) <= day && (!c.endDate || new Date(c.endDate) >= day))
+  return inForce.at(-1) ?? contracts.at(-1)
+}
+
+/**
+ * FR-25 §11: a line is a person on a contract in a month. A person who leaves and comes back, or holds
+ * two contracts, has two rows and two lines, and neither may stand in for the other.
+ */
+const lineKey = (employeeId: unknown, contractId: unknown) => `${String(employeeId)}|${contractId ? String(contractId) : '-'}`
 
 export type MonthAction = 'create' | 'replace' | 'unchanged' | 'refused'
 
@@ -212,7 +238,8 @@ export type MonthAction = 'create' | 'replace' | 'unchanged' | 'refused'
 export async function importMonth(orgId: unknown, userId: unknown, month: ImportMonth, { dryRun }: ImportOptions) {
   const { period, rows } = month
   const report = {
-    period, action: 'refused' as MonthAction, people: rows.length, added: 0, changed: 0, gone: 0, unchanged: 0, unknownPeople: 0, withoutContract: 0, reason: undefined as string | undefined,
+    period, action: 'refused' as MonthAction, people: rows.length, added: 0, changed: 0, gone: 0, unchanged: 0, unknownPeople: 0, withoutContract: 0,
+    sharedContract: 0, reason: undefined as string | undefined,
   }
   const year = Number(period.slice(0, 4))
   const monthNumber = Number(period.slice(4))
@@ -224,26 +251,30 @@ export async function importMonth(orgId: unknown, userId: unknown, month: Import
   if (report.unknownPeople) return { ...report, reason: 'unknown_people' }
 
   const contracts = await contractsOf(orgId, [...people.values()].map(e => e._id), period)
-  const sheet = new Map((month.sheet ?? []).map(entry => [entry.personId, entry]))
+  // A sheet names a person, not a contract: it is used only for someone with one row in the month.
+  const rowsOf = new Map<string, number>()
+  for (const row of rows) rowsOf.set(row.personId, (rowsOf.get(row.personId) ?? 0) + 1)
+  const sheet = new Map((month.sheet ?? []).filter(entry => rowsOf.get(entry.personId) === 1).map(entry => [entry.personId, entry]))
   const existing: any = await PayrollRun.findOne({ orgId, periodCode: period, kind: 'salary', source: 'imported' }).lean().exec()
   if (existing && existing.status !== 'imported') return { ...report, reason: 'month_was_taken_further' }
 
   const runId = existing ? String(existing._id) : String(new mongoose.Types.ObjectId())
   const before = new Map<string, BgRunItem>()
-  for (const entry of existing?.sealedItems ?? []) before.set(String(entry.employeeId), openRunItem(vault, runId, entry))
+  for (const entry of existing?.sealedItems ?? []) before.set(lineKey(entry.employeeId, entry.contractId), openRunItem(vault, runId, entry))
 
   const sealedItems: SealedRunItem[] = []
   const results = []
   const seen = new Set<string>()
   for (const row of rows) {
     const employee = people.get(row.personId)
-    const contract = contracts.get(String(employee._id))
+    const contract = contractOfRow(row, contracts.get(String(employee._id)), period)
     if (!contract) report.withoutContract++
     const onSheet = sheet.get(row.personId)
     const result = resultOfRow(row, period, onSheet?.lines)
     const item: BgRunItem = { days: daysOfRow(row, onSheet?.paidLeaveDays ?? 0), result, declaration: row }
     results.push(result)
-    const key = String(employee._id)
+    const key = lineKey(employee._id, contract?._id)
+    if (seen.has(key)) report.sharedContract++
     seen.add(key)
     const held = before.get(key)
     if (!held) report.added++
@@ -252,6 +283,8 @@ export async function importMonth(orgId: unknown, userId: unknown, month: Import
     sealedItems.push(sealRunItem(vault, runId, { employeeId: employee._id, contractId: contract?._id }, item))
   }
   report.gone = [...before.keys()].filter(key => !seen.has(key)).length
+  // Two rows that land on one contract would be one line twice. Which is which is not for this to guess.
+  if (report.sharedContract) return { ...report, action: 'refused' as MonthAction, reason: 'rows_share_a_contract' }
 
   const heldFiled = existing?.filed ? openFiled(vault, runId, existing.filed) : undefined
   const filedChanged = comparable(heldFiled) !== comparable(month.filed)

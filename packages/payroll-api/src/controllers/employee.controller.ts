@@ -13,7 +13,7 @@ import {
   revealEmployeeFields,
   sealedEmployeeFields,
 } from 'services/biz/personal-data/employee-personal'
-import { lockedAnswer, PERSONAL_REFUSAL } from './answers.js'
+import { lockedAnswer, PERSONAL_REFUSAL, RECORD_REFUSAL, REVEAL_REASON } from './answers.js'
 
 /** FR-25 §3.11: a write is about one person whatever it changes. The route rule has already asked for `payroll.write`. */
 const personalRefusal = (status: any) => status(403, PERSONAL_REFUSAL)
@@ -193,7 +193,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
         orgId, userId: user.id, action: 'reveal', module: 'payroll', entityType: 'employee', entityId: id, entityName: existing.employeeNumber,
         changes: Object.keys(personal).map(field => ({ field: `personal.${field}`, oldValue: body.reason, newValue: '[REDACTED]' })),
       })
-      if (!logged) return status(503, { message: 'The read could not be recorded, so it was refused', code: 'audit_unavailable' })
+      if (!logged) return status(503, RECORD_REFUSAL)
 
       return { personal }
     },
@@ -201,7 +201,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
       isSignIn: true,
       body: t.Object({
         fields: t.Array(t.String(), { minItems: 1 }),
-        reason: t.Union([t.Literal('edit'), t.Literal('declaration'), t.Literal('employee_request'), t.Literal('audit')]),
+        reason: REVEAL_REASON,
       }),
     },
   )

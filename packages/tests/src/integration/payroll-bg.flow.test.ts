@@ -122,6 +122,16 @@ describe('importing a filed month', () => {
     expect((await call('POST', 'import/employees', hrToken, { people: people() })).status).toBe(200)
   })
 
+  it('refuses an org that has not asked for the engine: a mistyped org gets no payroll', async () => {
+    const plainOrg = await newOrg()
+    const user = await createTestUser((await Org.findById(plainOrg).lean() as any)._id)
+    const token = await tokenFor(user, 'admin', [], plainOrg)
+    const res = await call('POST', 'import/employees', token, { people: people(), dryRun: false }, plainOrg)
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe('payroll_engine_not_set')
+    expect(await Employee.countDocuments({ orgId: plainOrg })).toBe(0)
+  })
+
   it('a dry run is the default, and changes nothing', async () => {
     const before = await Employee.countDocuments({ orgId })
     const res = await call('POST', 'import/employees', hrToken, { people: people() })
@@ -342,6 +352,28 @@ describe('contracts and absences', () => {
     expect(JSON.stringify(rows)).not.toContain(String(SEALED_SALARY))
   })
 
+  it('takes no contract, absence or balance for someone of another org', async () => {
+    const otherOrg = await newOrg()
+    const stranger: any = await Employee.create({
+      orgId: otherOrg, employeeNumber: 'S-1', firstName: 'A', lastName: 'B', department: 'D', position: 'P', employmentType: 'full_time',
+      contractStartDate: new Date('2026-01-01'), salary: { baseSalary: 1, currency: 'EUR', frequency: 'monthly' },
+    })
+    const employeeId = String(stranger._id)
+    expect((await call('POST', 'contract', hrToken, { employeeId, date: '2026-01-02' })).status).toBe(404)
+    expect((await call('POST', 'absence', hrToken, { employeeId, from: '2026-03-02', to: '2026-03-03', workingDays: 2, code: 'incapacity' })).status).toBe(404)
+    expect((await call('PUT', 'leave-balance', hrToken, { employeeId, year: 2026, entitled: 20 })).status).toBe(404)
+  })
+
+  it('a re-import leaves a contract a person wrote', async () => {
+    const contract: any = await EmploymentContract.findOne({ orgId }).lean()
+    const egn = contract.employeeId
+    const employee: any = await Employee.findById(egn).lean()
+    const id = (await (await forOrg(orgId)).blindIndex('nationalId', FAKE_EGN)) === employee.nationalIdHmac ? FAKE_EGN : SECOND_EGN
+    const event = { source: 'etz', action: 'concluded', correction: 0, personId: id, personIdKind: 0, firstName: 'И', middleName: '', lastName: 'П', contractDate: '2026-01-02', basis: '001', salary: 1 }
+    const res = await call('POST', 'import/contracts', hrToken, { events: [event], snapshots: [], people: [id], dryRun: false })
+    expect(await res.json()).toMatchObject({ keptManual: 1, create: 0, update: 0 })
+  })
+
   it('refuses a contract\'s pay to a writer without payroll.personal', async () => {
     expect((await call('GET', 'contract', writerToken)).status).toBe(403)
     expect((await contractFor(writerToken)).res.status).toBe(403)
@@ -417,13 +449,57 @@ describe('calculating a month', () => {
     }, p))
   })
 
-  it('refuses a person the engine cannot calculate, and no half-run is left', async () => {
+  it('counts an absence over a month\'s end only for this month\'s days', async () => {
+    const contract: any = await EmploymentContract.findOne({ orgId }).lean()
+    const employeeId = String(contract.employeeId)
+    // 2 March and 3 are the entry already held: two days. This one runs from 30 March to 3 April.
+    await call('POST', 'absence', hrToken, { employeeId, from: '2026-03-30', to: '2026-04-03', workingDays: 5, code: 'paidLeave' })
+    await call('POST', `run/${runId}/calculate`, hrToken, {})
+    const { items } = await (await call('POST', `run/${runId}/reveal`, hrToken, { employeeIds: [employeeId], reason: 'edit' })).json()
+    expect(items[0].days).toMatchObject({ employerSick: 2, paidLeave: 2, worked: 17 })
+  })
+
+  it('refuses a person the engine cannot calculate, by number, and no half-run is left', async () => {
     const contract: any = await EmploymentContract.findOne({ orgId }).lean()
     await EmploymentContract.updateOne({ _id: contract._id }, { $set: { socialSecurityType: '12' } })
     const res = await call('POST', `run/${runId}/calculate`, hrToken, {})
     expect(res.status).toBe(422)
-    expect((await res.json()).code).toBe('unsupported_payroll_case')
+    const refusal = await res.json()
+    expect(refusal.code).toBe('unsupported_payroll_case')
+    expect(refusal.message).toContain('employee E-')
     await EmploymentContract.updateOne({ _id: contract._id }, { $set: { socialSecurityType: '01' } })
+  })
+
+  it('refuses what a person\'s record says and the engine does not implement', async () => {
+    const contract: any = await EmploymentContract.findOne({ orgId }).lean()
+    const id = String(contract.employeeId)
+    await call('PUT', `employee/${id}`, adminToken, { personal: { insuredAtMaxElsewhere: true } })
+    expect((await (await call('POST', `run/${runId}/calculate`, hrToken, {})).json()).code).toBe('unsupported_payroll_case')
+    await call('PUT', `employee/${id}`, adminToken, { personal: { insuredAtMaxElsewhere: null, childRelief: { children: 1, disabledChildren: 1 } } })
+    expect((await (await call('POST', `run/${runId}/calculate`, hrToken, {})).json()).code).toBe('unsupported_payroll_case')
+    await call('PUT', `employee/${id}`, adminToken, { personal: { childRelief: null } })
+  })
+
+  it('takes a disability relief only while it is in force', async () => {
+    const contract: any = await EmploymentContract.findOne({ orgId }).lean()
+    const id = String(contract.employeeId)
+    const taxOf = async () => {
+      await call('POST', `run/${runId}/calculate`, hrToken, {})
+      const { items } = await (await call('POST', `run/${runId}/reveal`, hrToken, { employeeIds: [id], reason: 'edit' })).json()
+      return items[0].result.tax
+    }
+    const without = await taxOf()
+    await call('PUT', `employee/${id}`, adminToken, { personal: { disabled: { percent: 50, from: '2026-01-01', to: '2026-12-31' } } })
+    expect(await taxOf()).toBeLessThan(without)
+    await call('PUT', `employee/${id}`, adminToken, { personal: { disabled: { percent: 50, from: '2025-01-01', to: '2025-12-31' } } })
+    expect(await taxOf()).toBe(without)
+    await call('PUT', `employee/${id}`, adminToken, { personal: { disabled: null } })
+  })
+
+  it('refuses an advance run: it is not implemented', async () => {
+    await PayrollRun.updateOne({ _id: runId }, { $set: { kind: 'advance' } })
+    expect((await call('POST', `run/${runId}/calculate`, hrToken, {})).status).toBe(422)
+    await PayrollRun.updateOne({ _id: runId }, { $set: { kind: 'salary' } })
   })
 
   it('answers 503 by name with no key, and stores nothing in clear instead', async () => {
@@ -432,6 +508,19 @@ describe('calculating a month', () => {
     const res = await call('POST', `run/${runId}/calculate`, hrToken, {})
     expect(res.status).toBe(503)
     expect((await res.json()).code).toBe('personal_data_locked')
+  })
+
+  it('leaves the run calculated when approval cannot open it, and makes no payslip', async () => {
+    await call('POST', `run/${runId}/calculate`, hrToken, {})
+    ;(config.personalData as any).kek = undefined
+    clearVaultCache()
+    const res = await call('POST', `run/${runId}/approve`, hrToken)
+    expect(res.status).toBe(503)
+    ;(config.personalData as any).kek = realKek
+    clearVaultCache()
+    const run: any = await PayrollRun.findById(runId).lean()
+    expect(run.status).toBe('calculated')
+    expect(await Payslip.countDocuments({ payrollRunId: run._id })).toBe(0)
   })
 
   it('generates sealed payslips at approval, and a list shows only that they exist', async () => {
@@ -477,6 +566,25 @@ describe('an org without the engine', () => {
     expect(payrollRun.items).toHaveLength(1)
     expect(payrollRun.items[0].grossPay).toBe(1000)
     expect(payrollRun.totals.grossPay).toBe(1000)
+  })
+})
+
+describe('the org\'s settings', () => {
+  const putOrg = (org: string, token: string, payroll: Record<string, unknown>) => app.handle(new Request(`http://localhost/api/org/${org}`, {
+    method: 'PUT',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ settings: { payroll } }),
+  }))
+
+  it('turn the engine on, and a page saving the pay frequency leaves it on', async () => {
+    const org = await newOrg()
+    const user = await createTestUser((await Org.findById(org).lean() as any)._id)
+    const token = await tokenFor(user, 'admin', [], org)
+    expect((await putOrg(org, token, { engine: 'bg' })).status).toBe(200)
+    expect((await putOrg(org, token, { payFrequency: 'monthly' })).status).toBe(200)
+    const stored: any = await Org.findById(org).lean()
+    expect(stored.settings.payroll.engine).toBe('bg')
+    expect(stored.settings.payroll.payFrequency).toBe('monthly')
   })
 })
 
@@ -549,5 +657,30 @@ describe('a restore into another org', () => {
     let caught: unknown
     try { await planPersonalDataRestore(new Map<string, any[]>([['PayrollRun', [run]], ['PersonalDataKey', [row]]]), null) } catch (e) { caught = e }
     expect(String(caught)).toContain('locked')
+  })
+})
+
+describe('a person twice in one month (§11: person + contract + period)', () => {
+  const second = (over: Partial<EmplRow>) => emplRow({ month: 11, personId: SECOND_EGN, surname: 'ОБРАЗЦОВ', initials: 'ПО', ...over })
+
+  it('two contracts: two lines, each on its own, and a dry rerun changes nothing', async () => {
+    const employee: any = await Employee.findOne({ orgId, lastName: 'ОБРАЗЦОВ' }).lean()
+    const contract = async (date: string, endDate?: string) =>
+      (await (await call('POST', 'contract', hrToken, { employeeId: String(employee._id), date, startDate: date, ...(endDate ? { endDate } : {}) })).json()).contract
+    const left = await contract('2025-01-02', '2025-11-14')
+    const back = await contract('2025-11-17')
+    const month = { period: '202511', version: 'v1', rows: [second({ from1: 1, to1: 14 }), second({ from1: 17, to1: 30 })] }
+
+    const res = await call('POST', 'import/months', hrToken, { ...month, dryRun: false })
+    expect(await res.json()).toMatchObject({ action: 'create', people: 2, added: 2, withoutContract: 0, sharedContract: 0 })
+    const run: any = await PayrollRun.findOne({ orgId, periodCode: '202511' }).lean()
+    expect(run.sealedItems.map((i: any) => String(i.contractId))).toEqual([String(left._id ?? left.id), String(back._id ?? back.id)])
+    expect(await (await call('POST', 'import/months', hrToken, month)).json()).toMatchObject({ action: 'unchanged', unchanged: 2 })
+  })
+
+  it('two rows on one contract: refused, with how many, and nothing written', async () => {
+    const res = await call('POST', 'import/months', hrToken, { period: '202512', version: 'v1', rows: [second({ month: 12 }), second({ month: 12, from1: 20, to1: 31 })], dryRun: false })
+    expect(await res.json()).toMatchObject({ action: 'refused', reason: 'rows_share_a_contract', sharedContract: 1 })
+    expect(await PayrollRun.countDocuments({ orgId, periodCode: '202512' })).toBe(0)
   })
 })

@@ -1,7 +1,7 @@
 import { AbsenceEntry, Employee, EmploymentContract, PayrollElement, PayrollRun, Payslip } from 'db/models'
 import { mongoose } from 'db/connection'
 import { runItemPath } from '../../personal-data/crypto.js'
-import { openEmployeePersonal } from '../../personal-data/employee-personal.js'
+import { openEmployeePersonal, type EmployeePersonal } from '../../personal-data/employee-personal.js'
 import { forOrg, type OrgVault } from '../../personal-data/personal-data.service.js'
 import { daysFromAbsences, openAbsenceDetail, type AbsenceCode } from './absence.js'
 import { daysInMonth, workingDays } from './calendar.js'
@@ -116,19 +116,43 @@ async function daysOnRecord(orgId: unknown, contract: any, period: string, p: Bg
   const absences: { code: AbsenceCode; workingDays: number }[] = []
   for (const entry of entries) {
     const detail = await openAbsenceDetail(orgId, entry)
-    if (detail) absences.push({ code: detail.code, workingDays: entry.workingDays })
+    if (!detail) continue
+    // An absence over a month's end counts here only for the days of this month.
+    const whole = entry.from >= start && entry.to < end
+    const firstDay = entry.from >= start ? new Date(entry.from).getUTCDate() : 1
+    const lastDay = entry.to < end ? new Date(entry.to).getUTCDate() : daysInMonth(year, month)
+    absences.push({ code: detail.code, workingDays: whole ? entry.workingDays : workingDays(p.calendar, year, month, firstDay, lastDay) })
   }
   return daysFromAbsences(scheduled, absences)
 }
 
-async function birthOf(orgId: unknown, employee: any): Promise<string> {
-  const personal = await openEmployeePersonal(orgId, employee)
+function birthOf(personal: EmployeePersonal, employeeNumber: string): string {
   const birth = personal.dateOfBirth ? String(personal.dateOfBirth).slice(0, 10) : birthDateOfEgn(String(personal.nationalId ?? ''))
-  if (!birth) throw new UnsupportedPayrollCaseError(`employee ${employee.employeeNumber} has no date of birth, which the pension rate needs`)
+  if (!birth) throw new UnsupportedPayrollCaseError(`employee ${employeeNumber} has no date of birth, which the pension rate needs`)
   return birth
 }
 
+/** What a person's record says about the tax of this month, and what it says that is not implemented. */
+function reliefsOf(personal: EmployeePersonal, employeeNumber: string, firstDay: string, lastDay: string): BgPersonInput['reliefs'] {
+  if (personal.insuredAtMaxElsewhere) throw new UnsupportedPayrollCaseError(`employee ${employeeNumber} is insured at the cap elsewhere, which is not implemented`)
+  if (Number(personal.childRelief?.disabledChildren) > 0) throw new UnsupportedPayrollCaseError(`employee ${employeeNumber} has relief for a child with a disability, which is not implemented`)
+  const { disabled } = personal
+  const inForce = Number(disabled?.percent) >= 50 && (!disabled.from || disabled.from <= lastDay) && (!disabled.to || disabled.to >= firstDay)
+  return { disability: inForce, children: personal.childRelief?.children }
+}
+
+/** A refusal names the employee number, so that someone can act on it, and never the person. */
+function calculateOne(input: BgPersonInput, p: BgParameters, employeeNumber: string): BgPersonResult {
+  try {
+    return calculatePerson(input, p)
+  } catch (e) {
+    if (e instanceof UnsupportedPayrollCaseError) throw new UnsupportedPayrollCaseError(`employee ${employeeNumber}: ${e.message}`)
+    throw e
+  }
+}
+
 export async function calculateBgRun(orgId: unknown, run: any, inputs: readonly BgMonthInput[] = []) {
+  if (run.kind === 'advance') throw new UnsupportedPayrollCaseError('an advance run is not implemented')
   const period = periodCodeOf(run)
   const p = await loadParameters(period)
   const asOf = periodStart(period)
@@ -167,24 +191,21 @@ export async function calculateBgRun(orgId: unknown, run: any, inputs: readonly 
     const input: BgPersonInput = {
       period,
       insuredType: contract.socialSecurityType,
-      bornBefore1960: bornBefore1960(await birthOf(orgId, employee)),
+      bornBefore1960: bornBefore1960(birthOf(personal, employee.employeeNumber)),
       qualificationGroup: contract.qualificationGroup,
       mainActivityRow: contract.mainActivityRow,
-      kid: contract.kid,
+      kid: contract.activityKid ?? contract.kid,
       hoursPerDay: contract.hoursPerDay,
       statutoryHours: contract.statutoryHours,
       days,
       salary: { amount: salary.amount, leaveDailyBase: given?.leaveDailyBase },
       earnings: given?.earnings,
-      reliefs: {
-        disability: Number(personal.disabled?.percent) >= 50,
-        children: personal.childRelief?.children,
-      },
+      reliefs: reliefsOf(personal, employee.employeeNumber, asOf, lastDay),
       annualTaxCorrection: given?.annualTaxCorrection,
       advancePaid: given?.advancePaid,
       paidCash: given?.paidCash,
     }
-    const result = calculatePerson(input, p)
+    const result = calculateOne(input, p, employee.employeeNumber)
     results.push(result)
     items.push(sealRunItem(vault, runId, { employeeId: contract.employeeId, contractId: contract._id }, { days, result }))
   }
@@ -262,23 +283,32 @@ export async function generateBgPayslips(orgId: unknown, run: any): Promise<numb
   const labels = new Map(elements.map(e => [e.code, e.label]))
   const year = periodCodeOf(run).slice(0, 4)
   const yearStart = new Date(`${year}-01-01T00:00:00Z`)
-  const periodFrom = new Date(run.period.from)
-  let generated = 0
+  const entries: SealedRunItem[] = run.sealedItems ?? []
 
-  for (const entry of run.sealedItems ?? []) {
+  // The year so far, per person, in one read.
+  const earlier: any[] = await Payslip.find({
+    orgId,
+    employeeId: { $in: entries.map(e => e.employeeId) },
+    sealed: { $exists: true },
+    'period.from': { $gte: yearStart, $lt: new Date(run.period.from) },
+  }).lean().exec()
+  const yearToDate = new Map<string, { grossPay: number; totalDeductions: number; netPay: number }>()
+  for (const doc of earlier) {
+    const slip = openPayslip(vault, doc)
+    const key = String(doc.employeeId)
+    const held = yearToDate.get(key) ?? { grossPay: 0, totalDeductions: 0, netPay: 0 }
+    yearToDate.set(key, {
+      grossPay: held.grossPay + toCents(slip.grossPay),
+      totalDeductions: held.totalDeductions + toCents(slip.totalDeductions),
+      netPay: held.netPay + toCents(slip.netPay),
+    })
+  }
+
+  const slips = entries.map((entry) => {
     const { result } = openRunItem(vault, runId, entry)
-    const earlier: any[] = await Payslip.find({ orgId, employeeId: entry.employeeId, 'period.from': { $gte: yearStart, $lt: periodFrom } }).lean().exec()
-    const before = earlier.filter(s => s.sealed).reduce((sum, doc) => {
-      const slip = openPayslip(vault, doc)
-      return {
-        grossPay: sum.grossPay + toCents(slip.grossPay),
-        totalDeductions: sum.totalDeductions + toCents(slip.totalDeductions),
-        netPay: sum.netPay + toCents(slip.netPay),
-      }
-    }, { grossPay: 0, totalDeductions: 0, netPay: 0 })
+    const held = yearToDate.get(String(entry.employeeId)) ?? { grossPay: 0, totalDeductions: 0, netPay: 0 }
     const id = new mongoose.Types.ObjectId()
-    const slip = slipOf(result, labels, { grossPay: fromCents(before.grossPay), totalDeductions: fromCents(before.totalDeductions), netPay: fromCents(before.netPay) })
-    await Payslip.create({
+    return {
       _id: id,
       orgId,
       payrollRunId: runId,
@@ -288,13 +318,15 @@ export async function generateBgPayslips(orgId: unknown, run: any): Promise<numb
       deductions: [],
       totalDeductions: 0,
       engine: 'bg',
-      sealed: vault.seal(SLIP_MODEL, String(id), SLIP_PATH, slip),
+      sealed: vault.seal(SLIP_MODEL, String(id), SLIP_PATH, slipOf(result, labels, {
+        grossPay: fromCents(held.grossPay), totalDeductions: fromCents(held.totalDeductions), netPay: fromCents(held.netPay),
+      })),
       paymentMethod: result.paid.bank > 0 ? 'bank_transfer' : 'cash',
       status: 'generated',
-    })
-    generated++
-  }
-  return generated
+    }
+  })
+  await Payslip.insertMany(slips)
+  return slips.length
 }
 
 export async function runDocument(orgId: unknown, id: string): Promise<any> {
