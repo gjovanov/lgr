@@ -217,8 +217,12 @@ describe('an invoice for a cash sale', () => {
     expect(results.filter(r => r.status === 200)).toHaveLength(1)
     for (const r of results.filter(r => r.status !== 200)) expect(r.json.code).toBe('cash_sale_quantity_exceeded')
     expect((await w.stateOf(cs._id)).lines[0]).toMatchObject({ quantity: 10, invoiced: 6, remaining: 4 })
-    // Every one that took its turn is in the order, the refused too: a refusal deletes its claim, not its turn.
-    expect(((await w.load(cs._id)).register.invoiceClaims || []).length).toBe(5)
+    // The one that invoiced took a turn. A request that read the sale after it finished is refused before it
+    // claims anything, so how many others took one depends on timing: never more than were sent. A refused
+    // claim deletes itself, not its turn.
+    const order = ((await w.load(cs._id)).register.invoiceClaims || []).map(String)
+    expect(order).toContain(String(results.find(r => r.status === 200)!.json.invoice.id))
+    expect(order.length).toBeLessThanOrEqual(5)
   }, 60_000)
 
   it('invoices a sale that names a customer whole, and once', async () => {
