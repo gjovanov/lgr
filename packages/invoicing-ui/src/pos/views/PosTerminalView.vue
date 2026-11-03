@@ -532,7 +532,9 @@ async function doOpenSession() {
     openAttempt.settle()
     sessions.value.unshift(data.session)
     openSessionDialog.value = false
-    showSuccess(t('common.savedSuccessfully'))
+    // #473: the device was away or busy, so the slip prints with the next receipt, and that should not surprise anyone.
+    if (data.session.deviceFloat?.state === 'pending') showSnackbar(t('pos.floatPending'), 'warning', 15000)
+    else showSuccess(t('common.savedSuccessfully'))
     // The terminal appears with the session and loads its catalog itself.
   } catch (e: any) {
     openAttempt.settle(e)

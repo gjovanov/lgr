@@ -9,10 +9,12 @@ import {
   parseEltradeDiagnostics,
   parseDeviceAmount,
   parsePaymentNameAnswer,
+  parseServiceCashAnswer,
   splitItemText,
   ELTRADE_CMD,
   ELTRADE_PAYMENT_SLOTS,
 } from 'fiscal/eltrade'
+import { PRINTING_COMMANDS } from 'fiscal/device-turn'
 import { DatecsFiscalPrinter } from 'fiscal/datecs'
 import { TremolFiscalPrinter } from 'fiscal/tremol'
 import { WebSocketFiscalPrinter } from 'fiscal/ws-fiscal-printer'
@@ -638,6 +640,7 @@ describe('EltradeFiscalPrinter — line discipline', () => {
 describe('EltradeFiscalPrinter — storno', () => {
   it('opens 90h with S, the fiscal memory, reason, original number and Sofia time; lines stay positive', async () => {
     const sim = new EltradeSimulator()
+    sim.cash = 24 // the refund comes off the cash on the device
     const p = printerFor(sim)
     const res = await p.printStornoReceipt(
       '0001', 'Op', 'ED123456-0001-0000009', '0000101', new Date('2026-07-15T09:00:05Z'), UNP,
@@ -651,6 +654,205 @@ describe('EltradeFiscalPrinter — storno', () => {
     expect(r.header).toEqual(['Op', UNP, 'S', '44123456', 'R', '0000101', '2026-07-15T12:00:05'])
     expect(r.sales[0]).toMatchObject({ quantity: 2, price: 12, amount: 24 })
     expect(res.fiscalReceiptNumber).toBe('0000101')
+    expect(sim.cash).toBe(0)
+  })
+
+  describe('Н-18 чл. 31 ал. 3: no refund above the cash on the device, an operator\'s error aside', () => {
+    const storno = (p: EltradeFiscalPrinter, reason: 'customer_return' | 'operator_error', type: 'cash' | 'card' = 'cash') => p.printStornoReceipt(
+      '0001', 'Op', 'ED123456-0001-0000009', '0000101', new Date('2026-07-15T09:00:05Z'), UNP, reason,
+      [{ name: 'Болт М8', quantity: 2, price: 12, vatGroup: 'Б', taxRate: 20 }],
+      { type, amount: 24 },
+    )
+
+    it('a cash refund above it is refused, says why it may be, and the receipt can still be voided', async () => {
+      const sim = new EltradeSimulator()
+      sim.cash = 23.99
+      const p = printerFor(sim)
+      const e = await captureRejection(storno(p, 'customer_return')) as any
+      expect(e.kind).toBe('rejected')
+      expect(e.message).toContain('чл. 31 ал. 3')
+      expect(e.printStage).toBe('paying')
+      expect(sim.receipt?.payments).toEqual([])
+      expect(await p.cancelFiscalReceipt()).toBe('voided')
+      expect(sim.receipt).toBeNull()
+      expect(sim.cash).toBe(23.99)
+    })
+
+    it('an operator\'s error goes through on no cash at all, and a card refund takes none', async () => {
+      const operator = new EltradeSimulator()
+      await storno(printerFor(operator), 'operator_error')
+      expect(operator.receipts).toHaveLength(1)
+      const card = new EltradeSimulator()
+      await storno(printerFor(card), 'customer_return', 'card')
+      expect(card.receipts).toHaveLength(1)
+      expect(card.cash).toBe(0)
+    })
+
+    it('a refused card refund is not put down to the cash', async () => {
+      const sim = new EltradeSimulator()
+      sim.beforeCommand = (cmd) => { if (cmd === 0x35) sim.paper = false }
+      const e = await captureRejection(storno(printerFor(sim), 'customer_return', 'card')) as any
+      expect(e.kind).toBe('rejected')
+      expect(e.message).not.toContain('чл. 31')
+      expect(e.refusedRefund).toBeUndefined()
+    })
+
+    it('nor is a card refund, or an operator\'s error, that the device refused for its own reasons', async () => {
+      for (const [reason, type] of [['customer_return', 'card'], ['operator_error', 'cash']] as const) {
+        const sim = new EltradeSimulator()
+        sim.beforeCommand = (cmd) => { if (cmd === 0x35) sim.locked = true }
+        const e = await captureRejection(storno(printerFor(sim), reason, type)) as any
+        expect(e.kind).toBe('rejected')
+        expect(e.message).not.toContain('чл. 31')
+        expect(e.refusedRefund).toBeUndefined()
+      }
+    })
+
+    it('nor is a cash refund that ran out of paper: that is a fault, and the device says so', async () => {
+      const sim = new EltradeSimulator()
+      sim.cash = 24
+      sim.beforeCommand = (cmd) => { if (cmd === 0x35) sim.paper = false }
+      const e = await captureRejection(storno(printerFor(sim), 'customer_return')) as any
+      expect(e.kind).toBe('rejected')
+      expect(e.message).not.toContain('чл. 31')
+      expect(e.refusedRefund).toBeUndefined()
+    })
+  })
+})
+
+describe('EltradeFiscalPrinter — service cash (46h)', () => {
+  /** What an A3 that was not fiscalized answered, 2026-11-03, byte for byte. */
+  const FIELD = {
+    read: '01 3B 36 46 50 2C 30 2E 30 30 2C 30 2E 30 30 2C 30 2E 30 30 04 80 80 80 80 84 90 05 30 36 3E 32 03',
+    moved: '01 3D 3F 46 50 2C 39 30 2E 30 30 2C 39 30 2E 30 30 2C 30 2E 30 30 04 80 80 80 80 84 90 05 30 37 35 3F 03',
+    refused: '01 3D 7A 46 46 2C 39 30 2E 30 30 2C 39 30 2E 30 30 2C 30 2E 30 30 04 80 80 80 80 84 90 05 30 37 39 30 03',
+    empty: '01 2B 4E 46 04 80 81 80 80 84 90 05 30 33 3D 3D 03',
+  }
+  const bytes = (hex: string) => Uint8Array.from(hex.split(' ').map(h => parseInt(h, 16)))
+  const answerOf = (hex: string) => parseIslStream(bytes(hex)).frames[0]
+  const frame = (seq: number, data: string) => Buffer.from(buildIslFrame(seq, 0x46, encodeCp1251(data)))
+  const fieldUnit = () => { const sim = new EltradeSimulator(); sim.unfiscalizedUnit = true; return sim }
+
+  it('reads the answers a real A3 gave, and only the first field tells a refusal', () => {
+    const answer = (hex: string) => parseServiceCashAnswer(decodeCp1251(answerOf(hex).data))
+    expect(answer(FIELD.read)).toEqual({ accepted: true, totals: { cash: 0, serviceIn: 0, serviceOut: 0 } })
+    expect(answer(FIELD.moved)).toEqual({ accepted: true, totals: { cash: 90, serviceIn: 90, serviceOut: 0 } })
+    expect(answer(FIELD.refused)).toEqual({ accepted: false, totals: { cash: 90, serviceIn: 90, serviceOut: 0 } })
+    expect(decodeEltradeStatus(answerOf(FIELD.refused).status)).toMatchObject({ overflow: false, notAllowed: false, syntaxError: false })
+  })
+
+  it('takes neither a bare answer nor a stray one for a figure', () => {
+    for (const bad of ['', 'P', 'F,1.00', 'X,1.00,2.00,3.00', 'P,abc,0.00,0.00']) expect(parseServiceCashAnswer(bad)).toBeNull()
+  })
+
+  it('the simulator answers as the A3 did, byte for byte', async () => {
+    const sim = fieldUnit()
+    expect(new Uint8Array(await sim.exchange(frame(0x36, '0')))).toEqual(bytes(FIELD.read))
+    expect(new Uint8Array(await sim.exchange(frame(0x3F, '90.00')))).toEqual(bytes(FIELD.moved))
+    expect(new Uint8Array(await sim.exchange(frame(0x7A, '-100.00')))).toEqual(bytes(FIELD.refused))
+    expect(new Uint8Array(await sim.exchange(frame(0x4E, '')))).toEqual(bytes(FIELD.empty))
+    expect(sim.serviceSlips).toEqual([90])
+  })
+
+  it('a read sends 0: an empty field is no read, and it prints nothing', async () => {
+    const sim = new EltradeSimulator()
+    sim.serviceIn = 40
+    sim.cash = 55.5
+    expect(await printerFor(sim).readServiceCash()).toEqual({ cash: 55.5, serviceIn: 40, serviceOut: 0 })
+    expect(sim.executed.filter(c => c.cmd === 0x46)).toEqual([{ cmd: 0x46, data: '0' }])
+    expect(sim.serviceSlips).toEqual([])
+    expect(sim.lastDocNumber).toBe(100)
+  })
+
+  it('reads amounts given in cents too', async () => {
+    const sim = new EltradeSimulator()
+    sim.amountFormat = 'cents'
+    await printerFor(sim).moveServiceCash(12.5)
+    expect(await printerFor(sim).readServiceCash()).toEqual({ cash: 12.5, serviceIn: 12.5, serviceOut: 0 })
+  })
+
+  it('moves a signed amount of two decimals: in, then out, each on a numbered slip', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    expect(await p.moveServiceCash(90)).toEqual({ accepted: true, totals: { cash: 90, serviceIn: 90, serviceOut: 0 } })
+    expect(await p.moveServiceCash(-12.35)).toEqual({ accepted: true, totals: { cash: 77.65, serviceIn: 90, serviceOut: 12.35 } })
+    expect(sim.executed.filter(c => c.cmd === 0x46).map(c => c.data)).toEqual(['90.00', '-12.35'])
+    expect(sim.lastDocNumber).toBe(102)
+  })
+
+  it('a refusal is an answer, not an error: nothing moved, nothing printed', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.moveServiceCash(90)
+    expect(await p.moveServiceCash(-100)).toEqual({ accepted: false, totals: { cash: 90, serviceIn: 90, serviceOut: 0 } })
+    expect(sim.serviceSlips).toEqual([90])
+  })
+
+  it('refuses what it could never send, and sends nothing', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    for (const amount of [0, 0.001, NaN, Infinity, 1_000_000]) {
+      const e = await captureRejection(p.moveServiceCash(amount)) as any
+      expect(e.kind).toBe('input')
+    }
+    expect(sim.frames).toBe(0)
+  })
+
+  it('a lost answer is asked again under its SEQ: one slip', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.readServiceCash()
+    sim.loseNextAnswers = 1
+    expect((await p.moveServiceCash(90)).accepted).toBe(true)
+    expect(sim.serviceSlips).toEqual([90])
+  })
+
+  it('out of paper it is refused, and a read still answers', async () => {
+    const sim = new EltradeSimulator()
+    sim.paper = false
+    const p = printerFor(sim)
+    const e = await captureRejection(p.moveServiceCash(90)) as any
+    expect(e.kind).toBe('rejected')
+    expect(await p.readServiceCash()).toEqual({ cash: 0, serviceIn: 0, serviceOut: 0 })
+  })
+
+  it('an answer that is no answer throws, which leaves it to a read', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.readServiceCash()
+    const real = sim.exchange
+    const e = await captureRejection(new EltradeFiscalPrinter(async (f) => {
+      const out = new Uint8Array(await real(f))
+      return f[3] === 0x46 ? Buffer.from(buildIslResponseFrame(f[2], 0x46, encodeCp1251('?'), OK)) : Buffer.from(out)
+    }, 'test-eltrade').moveServiceCash(90)) as any
+    expect(e.kind).toBe('protocol')
+    expect(sim.serviceSlips).toEqual([90])
+  })
+
+  it('takes the device\'s turn, as everything that prints does; a read does not', () => {
+    expect(PRINTING_COMMANDS.has('moveServiceCash')).toBe(true)
+    expect(PRINTING_COMMANDS.has('readServiceCash')).toBe(false)
+  })
+
+  it('a Z clears the registers, and an X does not', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.moveServiceCash(90)
+    await p.printDailyXReport()
+    expect(await p.readServiceCash()).toEqual({ cash: 90, serviceIn: 90, serviceOut: 0 })
+    await p.printDailyZReport()
+    expect(await p.readServiceCash()).toEqual({ cash: 0, serviceIn: 0, serviceOut: 0 })
+  })
+
+  it('a receipt open: refused, and a sale\'s cash moves the cash, net of change', async () => {
+    const sim = new EltradeSimulator()
+    const p = printerFor(sim)
+    await p.openFiscalReceipt('0001', 'Op', UNP)
+    expect((await p.moveServiceCash(10)).accepted).toBe(false)
+    await p.printSaleLine('Болт М8', 1, 12, 'Б', undefined, 20)
+    await p.printPayment('cash', 20)
+    await p.closeFiscalReceipt()
+    expect(await p.readServiceCash()).toEqual({ cash: 12, serviceIn: 0, serviceOut: 0 })
   })
 })
 

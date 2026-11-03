@@ -12,6 +12,19 @@ export interface IPOSSession extends Document {
   closedAt?: Date
   status: string
   openingBalance: number
+  /**
+   * #473: the opening amount on the fiscal device, as „служебно въведени" (Н-18 чл. 33 ал. 1). Unset where
+   * nothing is owed: no amount, no device that takes it, a session from before this existed. `pending` until
+   * the device has it. `serviceInBefore`: the device's `ServIn` as an attempt went out, which is what tells
+   * later whether one that lost its answer got there (`opening-float.ts`).
+   */
+  deviceFloat?: {
+    state: 'pending' | 'registered'
+    deviceNumber?: string
+    serviceInBefore?: number
+    registeredAt?: Date
+    error?: string
+  }
   closingBalance?: number
   expectedBalance?: number
   difference?: number
@@ -89,6 +102,19 @@ const posSessionSchema = new Schema<IPOSSession>(
       enum: ['opening_control', 'open', 'closing_control', 'closed'],
     },
     openingBalance: { type: Number, required: true },
+    deviceFloat: {
+      type: new Schema(
+        {
+          state: { type: String, enum: ['pending', 'registered'], required: true },
+          deviceNumber: String,
+          serviceInBefore: Number,
+          registeredAt: Date,
+          error: String,
+        },
+        { _id: false },
+      ),
+      required: false,
+    },
     closingBalance: Number,
     expectedBalance: Number,
     difference: Number,

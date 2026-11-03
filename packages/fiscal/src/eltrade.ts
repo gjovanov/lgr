@@ -45,6 +45,8 @@ import type {
   FiscalPaymentName,
   StornoReason,
   FiscalExchangeOptions,
+  ServiceCashMove,
+  ServiceCashTotals,
 } from './types.js'
 import { paymentCode } from './types.js'
 import { encodeCp1251, decodeCp1251 } from './cp1251.js'
@@ -73,6 +75,7 @@ export const ELTRADE_CMD = {
   SET_DATE_TIME: 0x3D,
   GET_DATE_TIME: 0x3E,
   DAILY_REPORT: 0x45,
+  SERVICE_CASH: 0x46,
   DETAILED_FM_REPORT_BY_NUMBER: 0x49,
   GET_STATUS: 0x4A,
   SHORT_FM_REPORT_BY_DATE: 0x4F,
@@ -99,6 +102,7 @@ const COMMAND_NAME: Record<number, string> = {
   0x3D: 'set date/time',
   0x3E: 'read date/time',
   0x45: 'daily report',
+  0x46: 'service cash',
   0x49: 'detailed FM report by number',
   0x4A: 'read status',
   0x4F: 'short FM report by date',
@@ -154,6 +158,8 @@ const ITEM_TEXT_MAX = 30
 const FREE_TEXT_MAX = 46
 const OPERATOR_NAME_MAX = 24
 const PAYMENT_NAME_MAX = 20
+/** 46h: the amount, sign included, in up to 9 bytes. */
+const SERVICE_CASH_AMOUNT_MAX = 9
 /** 66h: operators 1 to 16. */
 export const ELTRADE_MAX_OPERATORS = 16
 /** 49h/5Fh: a fiscal-memory record (Z-report) number is 4 digits. */
@@ -168,10 +174,14 @@ const TIMEOUT_MS = {
   report: 300_000,
 }
 
+/** 46h's read: opening a session asks it, and a device gone silent must not hold that up for minutes. */
+const SERVICE_CASH_READ_MS = 5_000
 /** A retransmit reuses the SEQ, so the device replays rather than re-executes. */
 const MAX_ATTEMPTS = 3
 /** The longest a report can take once it has the device's turn: its status read and itself, each with its retransmits. */
 export const REPORT_MAX_MS = (TIMEOUT_MS.standard + TIMEOUT_MS.report) * MAX_ATTEMPTS
+/** The longest a session's float can take in a turn: its read and its amount, each with its retransmits (#473). */
+export const SERVICE_CASH_MAX_MS = (SERVICE_CASH_READ_MS + TIMEOUT_MS.print) * MAX_ATTEMPTS
 /** Do not write the clock for drift smaller than this. */
 const CLOCK_TOLERANCE_MS = 5_000
 /**
@@ -185,6 +195,8 @@ const NOT_RESPONDING_HINT =
   'Check that the Eltrade is switched on, at its main menu (not inside a sub-menu), and on the port that was picked.'
 const GARBLED_HINT =
   'Repeated NAKs or unreadable answers usually mean a speed mismatch — the device and the POS baud selector must both be 115200.'
+const REFUND_ABOVE_CASH_HINT =
+  '. A device refuses a cash refund above the cash it holds (Н-18 чл. 31 ал. 3): an X-report shows how much that is.'
 
 // ── Status ──────────────────────────────────────────────────────────────────
 
@@ -366,6 +378,19 @@ export function parsePaymentNameAnswer(data: string): { result?: 'P' | 'F'; name
   const m = /^([PF])[\\|,;\t](.*)$/s.exec(text)
   if (m) return { result: m[1] as 'P' | 'F', name: m[2].trim() }
   return { name: text }
+}
+
+/**
+ * A 46h answer: `ExitCode,CashSum,ServIn,ServOut`, 'P' done, 'F' refused. Null when it is not one.
+ *
+ * ⚠ Only the first field tells a refusal. An A3 refusing more than it held answered
+ * `F,90.00,90.00,0.00` with a clean status (2026-11-03), so the status check passes it.
+ */
+export function parseServiceCashAnswer(data: string): ServiceCashMove | null {
+  const [code, cash, serviceIn, serviceOut] = String(data ?? '').split(',').map(f => f.trim())
+  const amounts = [cash, serviceIn, serviceOut].map(parseDeviceAmount)
+  if ((code !== 'P' && code !== 'F') || amounts.some(a => a === null)) return null
+  return { accepted: code === 'P', totals: { cash: amounts[0]!, serviceIn: amounts[1]!, serviceOut: amounts[2]! } }
 }
 
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
@@ -1063,7 +1088,15 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
         await this.printSaleLine(line.name, Math.abs(line.quantity), Math.abs(line.price), line.vatGroup, line.discount, line.taxRate)
       }
       reached('paying')
-      await this.printPayment(payment.type, Math.abs(payment.amount))
+      await this.printPayment(payment.type, Math.abs(payment.amount)).catch((e: any) => {
+        // Н-18 чл. 31 ал. 3: no storno above the cash the device holds, an operator's error aside. No device has
+        // shown what that refusal looks like, so this says what a refused cash refund may be, not that it is.
+        if (e?.kind === 'rejected' && !e.status?.noPaper && payment.type === 'cash' && reason !== 'operator_error') {
+          e.message += REFUND_ABOVE_CASH_HINT
+          e.refusedRefund = true
+        }
+        throw e
+      })
       reached('closing')
       const result = await this.closeFiscalReceipt()
       logger.info({ deviceId: this.deviceId, stornoReceiptNumber: result.fiscalReceiptNumber, originalReceiptNumber, reason }, 'Eltrade storno receipt printed')
@@ -1151,6 +1184,34 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
 
   async printDailyXReport(): Promise<ZReportResult> {
     return this.dailyReport('2')
+  }
+
+  // ── Service cash ──
+
+  /**
+   * 46h with an amount of 0. ⚠ The protocol writes the amount as optional, and an empty field is no read: an
+   * A3 answered nothing and raised S1.0 (2026-11-03). `0` answers the registers and prints nothing.
+   */
+  async readServiceCash(): Promise<ServiceCashTotals> {
+    return (await this.serviceCash('0', { timeoutMs: SERVICE_CASH_READ_MS })).totals
+  }
+
+  /** 46h. Its retransmits are safe: a repeated SEQ is replayed, never executed again. */
+  async moveServiceCash(amount: number): Promise<ServiceCashMove> {
+    const text = Number.isFinite(amount) ? round2(amount).toFixed(2) : ''
+    if (!Number(text) || text.length > SERVICE_CASH_AMOUNT_MAX) {
+      throw new EltradeError(`Invalid service cash amount ${amount}`, 'input', ELTRADE_CMD.SERVICE_CASH)
+    }
+    const move = await this.serviceCash(text, { prints: true, timeoutMs: TIMEOUT_MS.print })
+    logger.info({ deviceId: this.deviceId, amount: text, ...move }, 'Eltrade service cash')
+    return move
+  }
+
+  private async serviceCash(data: string, opts: RequestOptions): Promise<ServiceCashMove> {
+    const { data: answer } = await this.request(ELTRADE_CMD.SERVICE_CASH, data, opts)
+    const move = parseServiceCashAnswer(answer)
+    if (!move) throw new EltradeError(`Eltrade ${cmdLabel(ELTRADE_CMD.SERVICE_CASH)}: unexpected answer "${answer}"`, 'protocol', ELTRADE_CMD.SERVICE_CASH)
+    return move
   }
 
   /** 4Fh short / 5Eh detailed, `DDMMYY,DDMMYY` in the device's (Bulgarian) calendar. */

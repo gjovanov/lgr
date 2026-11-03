@@ -1135,6 +1135,24 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   `warehouse_manager` runs devices with no `pos.write`. Capability first (400 `unsupported`, nothing sent), then
   input, then 409 `fiscal_device_not_connected`; driver errors through `fiscalFailure`. Audited on the session.
 - **`bridge.ts`** — standalone serial-to-TCP bridge script for non-browser setups (`bun run packages/fiscal/src/bridge.ts`)
+- **Service cash (#473, SUPTO version 6)** — a session's opening amount reaches the device as „служебно въведени"
+  (Н-18 чл. 33 ал. 1), through `services/biz/cash-register/opening-float.ts`: at the open, or first in the next turn
+  on the device, a document's or the close's. Driver: `readServiceCash` / `moveServiceCash` (Eltrade 46h, capability
+  `serviceCash`; Tremol and Datecs have no method yet, so they owe nothing).
+  - ⚠ **`POSSession.deviceFloat` is exactly-once on a command with no key.** The device's own `ServIn`, read and
+    written down BEFORE the amount goes out, is what proves later whether an attempt with no answer got there. Never
+    "retry on failure": a lost answer is not a command that did not run. An attempt the device refused keeps no such
+    record, and another session's slip landing meanwhile is added to it: either would read as this one's.
+  - The close sends a float still owed in the Z's own turn, just before the Z, and looks twice: a first attempt
+    that lost its answer is settled by the second look's read, before the Z clears `ServIn`.
+  - ⚠ **Its slip is numbered like any document**, so it comes after what judges an interrupted print and before the
+    counter read (`printOnce`). The other way round the slip reads as that print, or as this document's.
+  - ⚠ **A float stops nothing.** It never throws and never marks a device in error, which would 503 every sale. An
+    unregistered one is a line on the session's report (`drawer.onDevice`).
+  - ⚠ `46h` with an EMPTY field is no read on a real A3: it answers nothing and raises S1.0. The read is `0`. A refusal
+    is `F,…` on a CLEAN status, so it must be read off the first field (2026-11-03, frames on #473).
+  - Open: what a close takes out, a cash in and out at the till, and what one session's Z does to another's float are
+    the accountant's (#473); a Z clearing the registers is the protocol's word only.
 - **`time-sync.service.ts`** — fiscal device clock sync (periodic, default 6h). Device clocks
   are Bulgarian time: format through `zoned-time.ts`, never `getHours()` (the pod is UTC).
   ⚠ **No unverified clock reaches a device** (FR-20.22, AC 58, P1-10). `clock.ts` checks the server

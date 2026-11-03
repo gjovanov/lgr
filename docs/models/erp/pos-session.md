@@ -13,6 +13,7 @@ export interface IPOSSession extends Document {
   closedAt?: Date
   status: string           // 'open' | 'closed'
   openingBalance: number
+  deviceFloat?: { state: 'pending' | 'registered'; deviceNumber?: string; serviceInBefore?: number; registeredAt?: Date; error?: string }
   closingBalance?: number
   expectedBalance?: number
   difference?: number
@@ -39,6 +40,7 @@ export interface IPOSSession extends Document {
 | closedAt | Date | No | - | Timestamp when the session was closed |
 | status | string | Yes | `'open'` | Session status: `open`, `closed` |
 | openingBalance | number | Yes | - | Cash in the register at session start |
+| deviceFloat | object | No | - | #473: the opening amount on the fiscal device, as service cash (Н-18 чл. 33 ал. 1). Unset where nothing is owed: no amount, no device that takes it, a session from before it existed. `state`: `pending` until the device has it, then `registered`. `serviceInBefore`: the device's `ServIn` as an attempt went out, which proves later whether one that lost its answer got there (`services/biz/cash-register/opening-float.ts`) |
 | closingBalance | number | No | - | Cash in the register at session close (manually counted) |
 | expectedBalance | number | No | - | Expected cash balance based on transactions |
 | difference | number | No | - | Difference between closing and expected balance |

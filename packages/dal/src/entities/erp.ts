@@ -58,6 +58,7 @@ export interface IPOSSession extends TenantEntity {
   closedAt?: Date
   status: string
   openingBalance: number
+  deviceFloat?: { state: 'pending' | 'registered'; deviceNumber?: string; serviceInBefore?: number; registeredAt?: Date; error?: string }
   closingBalance?: number
   expectedBalance?: number
   difference?: number

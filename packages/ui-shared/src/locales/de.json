@@ -959,6 +959,7 @@
       "print": "Drucken",
       "printed": "Der Bericht wurde auf dem Fiskalgerät gedruckt."
     },
+    "floatPending": "Der Anfangsbestand ist noch nicht auf dem Fiskalgerät. Er wird vor dem nächsten Beleg gebucht.",
     "sessionReport": {
       "title": "Sitzungsbericht",
       "view": "Sitzungsbericht",
@@ -984,6 +985,7 @@
       "cashOnDelivery": "Nachnahme",
       "change": "Rückgeld",
       "opening": "Anfangsbestand",
+      "notOnDevice": "Nicht auf dem Fiskalgerät",
       "expected": "Erwartetes Bargeld",
       "counted": "Gezählt",
       "difference": "Differenz",

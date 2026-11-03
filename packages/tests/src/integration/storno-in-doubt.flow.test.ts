@@ -794,8 +794,9 @@ describe('a storno\'s claim with no document: the process died between the claim
     const page = (await w.call('GET', `/cash-register/documents/${saleId}`)).json
     expect(page.row.status).toBe('completed')
     expect(page.related).toHaveLength(0)
-    // The press is what writes, and it goes on to what any storno of a closed session's sale does.
-    const opened = await w.call('POST', '/trade/pos/session', { warehouseId: String(w.warehouse._id), openingBalance: 0, currency: 'EUR' })
+    // The press is what writes, and it goes on to what any storno of a closed session's sale does. The Z
+    // emptied the device, so the new session's float is the cash this refund comes out of.
+    const opened = await w.call('POST', '/trade/pos/session', { warehouseId: String(w.warehouse._id), openingBalance: 12, currency: 'EUR' })
     const r = await w.call('POST', `/cash-register/documents/${saleId}/storno`, { reason: 'customer_return', sessionId: String(opened.json.session.id ?? opened.json.session._id) })
     expect(r.status).toBe(200)
     expect(stornosOnDevice(w)).toHaveLength(1)

@@ -48,6 +48,7 @@ import { saleInDoubt, saleProgress } from './in-doubt.js'
 import { UNPROVED_STORNO_STATES } from './counting.js'
 import { provedNotPrinted, verdictOfFailedPrint } from './print-verdict.js'
 import { receiptMode, type ReceiptMode } from './receipt-mode.js'
+import { registerOpeningFloat } from './opening-float.js'
 import { budgetClaims, fitsBudget, printedByRate } from './refund-budget.js'
 import { asPlanRead, stornoLine, type StornoPlan } from './storno-lines.js'
 import { PENDING_NUMBER, isPendingNumber } from './pending-number.js'
@@ -330,6 +331,8 @@ async function printOnce(printer: RegisterPrinter, doc: any, print: () => Promis
     await printer.failed().catch(() => {})
     return setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })
   }
+  // A session's opening amount the device has not had yet, for the same reason: its slip moves the counter.
+  await registerOpeningFloat(printer, doc.register?.sessionId)
   // The counter goes on the record BEFORE this document touches the device.
   const counterBefore = await printer.lastReceiptNumber().catch(() => undefined)
   await setRegister(doc._id, { 'fiscal.attemptedAt': new Date(), 'fiscal.counterBefore': counterBefore })
@@ -420,7 +423,8 @@ async function afterFailedPrint(printer: RegisterPrinter, doc: any, before: numb
       receiptError: `The receipt printed, but the device reported a problem, so its payment types may differ from this document's. Check the device: ${e?.message}`,
     })
   }
-  await printer.failed().catch(() => {})
+  // A device that refused a refund and took the receipt back is in working order: that was the law, not a fault.
+  if (verdict !== 'failed' || !e?.refusedRefund) await printer.failed().catch(() => {})
   if (verdict === 'failed') return setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': e?.message, receiptError: e?.message })
   return setRegister(doc._id, {
     'fiscal.state': 'unknown', 'fiscal.error': e?.message,
@@ -510,6 +514,7 @@ export async function printSaleStep(c: RegisterContext, doc: any): Promise<any> 
       const receiptError = 'This fiscal device is not fiscalized and cannot print a text receipt, so the receipt was not printed.'
       return setRegister(doc._id, { 'fiscal.state': 'failed', 'fiscal.error': receiptError, receiptError })
     }
+    await registerOpeningFloat(printer, doc.register?.sessionId)
     // A text receipt has no legal weight: an interrupted one is simply printed again.
     await setRegister(doc._id, { 'fiscal.attemptedAt': new Date() })
     await datedAsItPrints(doc)

@@ -4287,6 +4287,7 @@ describe('two devices connected in one warehouse: the door asks for the receipt\
     const second = await secondConnected(w)
     try {
       await Invoice.updateOne({ _id: inv.receipts[1]._id }, { $set: { 'register.fiscalDeviceNumber': 'ED654321' } })
+      second.sim.cash = 12
       const onFirst = w.sim!.receipts.length
 
       const all = await pay(w, note.id, 24)
@@ -5672,5 +5673,28 @@ describe('#447: every reader that adds documents up takes a credit note off', ()
     // Exported on its own, a note keeps the amounts it printed.
     const [alone] = await toExportRows(docs.filter((d: any) => d.type === 'credit_note'), { signStornos: false })
     expect(alone.total).toBe(12)
+  })
+})
+
+describe('a cash refund above the cash on the device (Н-18 чл. 31 ал. 3, #473)', () => {
+  it('nothing is refunded, the person is told why it may be, and the device stays in working order', async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    w.sim!.cash = 23.99
+
+    const r = await pay(w, note.id, 24)
+
+    expect(r.status).toBe(503)
+    expect(r.json).toMatchObject({ code: 'fiscal_error', refunded: 0 })
+    expect(r.json.message).toContain('this part of the refund was not recorded')
+    expect(r.json.message).toContain('чл. 31 ал. 3')
+    expect(await raw(note.id)).toMatchObject({ amountPaid: 0 })
+    expect(((await FiscalDevice.findById(w.deviceId).lean().exec()) as any).status).toBe('online')
+
+    // The cash came in, and the same refund goes through.
+    w.sim!.cash = 24
+    expect((await pay(w, note.id, 24)).status).toBe(200)
+    expect(await raw(note.id)).toMatchObject({ status: 'paid', amountPaid: 24 })
   })
 })

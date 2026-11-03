@@ -24,13 +24,13 @@ import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fisc
 import { fiscalFailure } from 'fiscal/errors'
 import { interruptedDocuments, unfinishedReceipts, unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
 import { TURN_WAIT_MS, deviceTurn } from 'fiscal/device-turn'
-import { REPORT_MAX_MS } from 'fiscal/eltrade'
+import { REPORT_MAX_MS, SERVICE_CASH_MAX_MS } from 'fiscal/eltrade'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import {
-  STORNO_ROLES, assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, finishDeadSales, finishInterruptedDocuments, getFiscalContext, saleResponse, stornoDoor, tillContext, tillSettings,
+  STORNO_ROLES, assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, finishDeadSales, finishInterruptedDocuments, floatInItsOwnTurn, getFiscalContext, owesDeviceFloat, saleResponse, stornoDoor, tillContext, tillSettings, zReportOwingFloat,
 } from '../lib/cash-register-till.js'
 
 // FR-21: the till's device, its receipts and the price a device is given live with the cash-register
@@ -63,10 +63,11 @@ export function expectedTotals(session: any): ExpectedTotals {
 
 /**
  * How long a close holds its session: the device's turn, which a slow report ahead of it can take all of,
- * and then the Z, with its retransmits. Past that the process holding it has died, and nothing else ever
- * lets go: the session stayed `closing_control` for good, never posted its entry and blocked a move of the org.
+ * then the float it may still owe, looked at twice (#473), and the Z, each with its retransmits. Past that
+ * the process holding it has died, and nothing else ever lets go: the session stayed `closing_control` for
+ * good, never posted its entry and blocked a move of the org.
  */
-export const CLOSE_LEASE_MS = TURN_WAIT_MS + REPORT_MAX_MS
+export const CLOSE_LEASE_MS = TURN_WAIT_MS + 2 * SERVICE_CASH_MAX_MS + REPORT_MAX_MS
 
 /** A close that died in its Z. One from before this lease existed is judged by the session's last write. */
 function closeIsDead(session: any, now = Date.now()): boolean {
@@ -449,13 +450,15 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       const existing = await r.posSessions.findOne({ orgId, cashierId: user.id, status: 'open' } as any)
       if (existing) return status(400, { message: 'You already have an open session' })
 
+      let fiscal: Awaited<ReturnType<typeof getFiscalContext>>
       try {
-        await getFiscalContext(orgId, body.warehouseId)
+        fiscal = await getFiscalContext(orgId, body.warehouseId)
       } catch (e: any) {
         return status(503, { message: e.message })
       }
 
       const sessionNumber = await nextRegistryNumber(orgId, 'pos_session')
+      const owesFloat = await owesDeviceFloat(orgId, body.warehouseId, body.openingBalance)
 
       let session: any
       try {
@@ -471,6 +474,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
           totalCash: 0,
           totalCard: 0,
           transactionCount: 0,
+          ...(owesFloat ? { deviceFloat: { state: 'pending' } } : {}),
           ...(key ? { clientKey: key, requestHash: hash } : {}),
         } as any)
       } catch (e: any) {
@@ -482,6 +486,12 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       }
 
       createAuditEntry({ orgId, userId: user.id, operatorCode: user.operatorCode, action: 'create', module: 'trade', entityType: 'pos_session', entityId: session.id, entityName: sessionNumber })
+
+      // #473: what opens the drawer on the device's records too. The answer says whether the device has it.
+      if (owesFloat && fiscal) {
+        await floatInItsOwnTurn(fiscal.deviceId, fiscal.deviceNumber, session.id)
+        session = await r.posSessions.findById(session.id)
+      }
 
       return { session }
     },
@@ -825,8 +835,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         }
       } else if (device) {
         try {
-          const printer = getPrinter(device.id)
-          const report = await printer.printDailyZReport()
+          // #473: with the float the session still owes, which goes first in the Z's own turn.
+          const report = await zReportOwingFloat(device.id, device.deviceNumber, id)
           fiscalStatus = 'closed'
           fiscalClosedAt = new Date()
           // Tremol reports 'unknown' — store nothing rather than that literal, so the UI
