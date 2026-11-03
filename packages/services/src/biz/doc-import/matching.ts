@@ -42,6 +42,15 @@ export interface ContactMatch {
   name: string
   created: boolean
   address?: { street: string; city?: string; postalCode?: string; country?: string }
+  /** `enrich: false`: what the match would fill on the contact, left for the commit (#484). */
+  fill?: ContactFill
+}
+
+/** The fields a match fills on a contact that predates proper field mapping, and only while they are empty. */
+export interface ContactFill {
+  taxNumber?: string
+  taxId?: string
+  addresses?: ReturnType<typeof partyAddressEntry>[]
 }
 
 /** Billing address entry from an extracted address (no postal code in legacy docs). */
@@ -111,7 +120,15 @@ export async function matchContact(
   orgId: string,
   party: Party,
   type: 'customer' | 'supplier',
-  opts: { create?: boolean; onRefused?: (reason: string) => void } = {},
+  opts: {
+    create?: boolean
+    /**
+     * Fill a matched contact's empty ЕИК and address from the document. Default true. ⚠ An analysis
+     * passes false and writes nothing: what it would fill comes back as `fill`, for the commit (#484).
+     */
+    enrich?: boolean
+    onRefused?: (reason: string) => void
+  } = {},
 ): Promise<ContactMatch | null> {
   const eik = clean(party?.company_id)
   const vat = clean(party?.vat_id)
@@ -137,15 +154,19 @@ export async function matchContact(
     // Enrich matched contacts that predate proper field mapping: the EIK belongs in
     // taxNumber (the "Tax Number (EIK)" form field) as well as taxId, and the address
     // in the structured addresses[] — not in notes.
-    const set: any = {}
+    const set: ContactFill = {}
     const cEik = eik || digits(vat)
     if (!clean(c.taxNumber) && cEik) set.taxNumber = cEik
     if (!clean(c.taxId) && cEik) set.taxId = cEik
     if (!(c.addresses || []).length && address) set.addresses = [partyAddressEntry(address, city)]
-    if (Object.keys(set).length) await Contact.updateOne({ _id: c._id }, { $set: set })
+    const fills = Object.keys(set).length > 0
+    if (fills && opts.enrich !== false) await Contact.updateOne({ _id: c._id }, { $set: set })
     const best = (c.addresses || []).find((a: any) => a.isDefault) || (c.addresses || [])[0]
       || (address ? partyAddressEntry(address, city) : undefined)
-    return { contactId: String(c._id), name: c.companyName || name, created: false, address: best }
+    return {
+      contactId: String(c._id), name: c.companyName || name, created: false, address: best,
+      ...(fills && opts.enrich === false ? { fill: set } : {}),
+    }
   }
   if (!name || opts.create === false) return null
 
@@ -158,6 +179,53 @@ export async function matchContact(
     isActive: true,
   })
   return { contactId: String(created._id), name, created: true, address: address ? partyAddressEntry(address, city) : undefined }
+}
+
+/**
+ * #484: what an analysis left for the commit to write about the counterparty, written now. An analysis
+ * persists nothing, so it carries:
+ *  - `contactFill`: the empty fields of a contact it matched that the document fills, filled now only if
+ *    they are still empty;
+ *  - `newContact`: a counterparty no contact matched, which the caller asked to create
+ *    (`createMissingContact`). It is matched again first (ЕИК → VAT → exact name), so two documents
+ *    for the same new customer in one batch make one contact, not two.
+ * Both keys are taken off `mapped`, which goes on to be persisted. A `mapped` from before (a cached
+ * analysis that already names its `contactId`) carries neither, and is left as it is.
+ */
+export async function settleMappedContact(
+  orgId: string,
+  mapped: { contactId?: string; contactName?: string; contactFill?: ContactFill; newContact?: NewContact },
+): Promise<void> {
+  const { contactFill, newContact } = mapped
+  delete mapped.contactFill
+  delete mapped.newContact
+  if (mapped.contactId) {
+    if (!contactFill) return
+    const c: any = await Contact.findOne({ _id: mapped.contactId, orgId }, { taxNumber: 1, taxId: 1, addresses: 1 }).lean()
+    if (!c) return
+    const set: ContactFill = {}
+    if (contactFill.taxNumber && !clean(c.taxNumber)) set.taxNumber = contactFill.taxNumber
+    if (contactFill.taxId && !clean(c.taxId)) set.taxId = contactFill.taxId
+    if (contactFill.addresses?.length && !(c.addresses || []).length) set.addresses = contactFill.addresses
+    if (Object.keys(set).length) await Contact.updateOne({ _id: c._id }, { $set: set })
+    return
+  }
+  if (!newContact?.name) return
+  const party: Party = { name: newContact.name, company_id: newContact.eik, vat_id: newContact.vat, address: newContact.address, city: newContact.city } as Party
+  const m = await matchContact(orgId, party, newContact.type, { create: true })
+  if (!m) return
+  mapped.contactId = m.contactId
+  mapped.contactName = m.name
+}
+
+/** A counterparty an analysis found no contact for, to create at commit (#484). */
+export interface NewContact {
+  type: 'customer' | 'supplier'
+  name: string
+  eik?: string
+  vat?: string
+  address?: string
+  city?: string
 }
 
 /**

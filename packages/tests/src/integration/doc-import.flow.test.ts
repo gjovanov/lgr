@@ -1607,3 +1607,89 @@ describe('matching — a counterparty known by its name', () => {
     expect(issued.invoiceNumber).toBe('INV-2000725757')
   })
 })
+
+// #484: the analysis persists nothing, contacts included. What it would write, the commit writes.
+describe('the analysis writes no contact; the commit does (#484)', () => {
+  const lines = [{ description: 'Гайка М8', quantity: 1, unit: 'бр', unit_price: 1, vat_rate: 20, total: 1 }]
+  const analyze = (orgId: string, draft: DraftResult, options: any = {}, n = '2000725757') =>
+    analyzeDocuments(orgId, 'sales_invoice', [{ fileId: `f-${n}`, filename: `invoicem_${n}.pdf`, text: `ФАКТУРА Номер: ${n}`, draft }], {}, options)
+
+  it('a counterparty nobody matches is not created by the analysis, even when the caller asks to create it', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const [doc] = await analyze(String(org._id), draftResult(ORG_PARTY, CUSTOMER, lines), { createMissingContact: true })
+    expect(doc.error).toBeUndefined()
+    expect(await Contact.countDocuments({ orgId: org._id })).toBe(0)
+    const mapped = doc.mapped as MappedInvoice
+    expect(mapped.contactId).toBeUndefined()
+    expect(mapped.newContact).toMatchObject({ type: 'customer', name: CUSTOMER.name, eik: CUSTOMER.company_id })
+    expect(mapped.billingAddress?.street).toBe(CUSTOMER.address)
+  })
+
+  it('the commit creates it, and two documents for the same new customer in one batch make one contact', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const [a] = await analyze(String(org._id), draftResult(ORG_PARTY, CUSTOMER, lines, { document_number: '2000725701' }), {}, '2000725701')
+    const [b] = await analyze(String(org._id), draftResult(ORG_PARTY, CUSTOMER, lines, { document_number: '2000725702' }), {}, '2000725702')
+    expect(await Contact.countDocuments({ orgId: org._id })).toBe(0)
+
+    const results = await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [{ mapped: a.mapped! }, { mapped: b.mapped! }])
+    expect(results.map(r => r.ok)).toEqual([true, true])
+    const contacts: any[] = await Contact.find({ orgId: org._id }).lean()
+    expect(contacts).toHaveLength(1)
+    expect(contacts[0]).toMatchObject({ companyName: CUSTOMER.name, taxId: CUSTOMER.company_id })
+    const invoices: any[] = await Invoice.find({ orgId: org._id }).lean()
+    expect(invoices.map(i => String(i.contactId))).toEqual([String(contacts[0]._id), String(contacts[0]._id)])
+    expect(invoices.every(i => !('newContact' in i) && !('contactFill' in i))).toBe(true)
+  })
+
+  it('a review run (createMissingContact: false) leaves nothing to create, and its commit creates nothing', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const [doc] = await analyze(String(org._id), draftResult(ORG_PARTY, CUSTOMER, lines), { createMissingContact: false })
+    expect((doc.mapped as MappedInvoice).newContact).toBeUndefined()
+    await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [{ mapped: doc.mapped! }])
+    expect(await Contact.countDocuments({ orgId: org._id })).toBe(0)
+  })
+
+  it('a matched contact is not edited by the analysis; the commit fills its empty fields, and only those', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const existing = await Contact.create({ orgId: org._id, type: 'customer', companyName: CUSTOMER.name, vatNumber: CUSTOMER.vat_id, isActive: true } as any)
+    const [doc] = await analyze(String(org._id), draftResult(ORG_PARTY, CUSTOMER, lines), { createMissingContact: true })
+    const mapped = doc.mapped as MappedInvoice
+    expect(mapped.contactId).toBe(String(existing._id))
+    const untouched: any = await Contact.findById(existing._id).lean()
+    expect(untouched.taxNumber).toBeUndefined()
+    expect(untouched.addresses ?? []).toHaveLength(0)
+    expect(mapped.contactFill).toMatchObject({ taxNumber: CUSTOMER.company_id, taxId: CUSTOMER.company_id })
+
+    // Somebody typed the ЕИК in by hand between the analysis and the commit: it stands.
+    await Contact.updateOne({ _id: existing._id }, { $set: { taxNumber: '111111111' } })
+    await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [{ mapped }])
+    const after: any = await Contact.findById(existing._id).lean()
+    expect(after.taxNumber).toBe('111111111')
+    expect(after.taxId).toBe(CUSTOMER.company_id)
+    expect(after.addresses[0].street).toBe(CUSTOMER.address)
+    expect(await Contact.countDocuments({ orgId: org._id })).toBe(1)
+  })
+
+  it('a cached analysis from before (a contactId, nothing else) still commits as it was', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const user = await createTestUser(org._id)
+    const existing = await Contact.create({ orgId: org._id, type: 'customer', companyName: 'Стар клиент', isActive: true } as any)
+    const [doc] = await analyze(String(org._id), draftResult(ORG_PARTY, CUSTOMER, lines), { createMissingContact: false })
+    const old = { ...(doc.mapped as MappedInvoice), contactId: String(existing._id), contactName: 'Стар клиент' }
+    const [res] = await commitDocuments(String(org._id), String(user._id), 'sales_invoice', [{ mapped: old }])
+    expect(res.ok).toBe(true)
+    expect(String(((await Invoice.findById(res.id).lean()) as any).contactId)).toBe(String(existing._id))
+    expect(await Contact.countDocuments({ orgId: org._id })).toBe(1)
+  })
+
+  it('the legacy mapping (bills/import/draft) still creates and fills at once, as the migration skills expect', async () => {
+    const org = await createTestOrg({ taxNumber: ORG_EIK } as any)
+    const out = await mapInvoiceExtraction(String(org._id), draftResult(SUPPLIER, ORG_PARTY, lines), '', { createMissingContact: true })
+    expect(out.contact?.created).toBe(true)
+    expect(out.mapped.newContact).toBeUndefined()
+    expect(await Contact.countDocuments({ orgId: org._id, companyName: SUPPLIER.name })).toBe(1)
+  })
+})
