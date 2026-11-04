@@ -333,6 +333,32 @@ describe('the other exports', () => {
     }])
   })
 
+  it('reads an analytic trial balance of a root kept without quantities, its three pairs one after the other', () => {
+    const tb = parseTrialBalanceExport([
+      ['Оборотна ведомост - Аналитична'], ['Период: 01.01.2025 - 31.12.2025'], ['Избрани АП: КЛИЕНТИ:'], ['Валута: Лева (лв.)'], ['Фирма: ПРИМЕРНА ФИРМА ООД'], [`ЕИК:${EIK}`],
+      ['', 'Салдо в началото на периода', '', 'Обороти през периода', '', 'Салдо в края на периода'],
+      ['Аналитичен признак', 'Дебит лв.', 'Кредит лв.', 'Дебит лв.', 'Кредит лв.', 'Дебит лв.', 'Кредит лв.'],
+      ['КЛИЕНТИ:Клиент А', 100, null, 250, 300, null, 50],
+      ['Всичко:', 100, null, 250, 300, null, 50],
+    ])
+    if (tb.kind !== 'analytic') throw new Error('analytic')
+    expect(tb.root).toBe('КЛИЕНТИ')
+    expect(tb.rows).toEqual([{
+      path: 'КЛИЕНТИ:Клиент А',
+      openingQuantity: 0, openingDebit: 100, openingCredit: 0,
+      turnoverDebitQuantity: 0, turnoverCreditQuantity: 0, turnoverDebit: 250, turnoverCredit: 300,
+      closingQuantity: 0, closingDebit: 0, closingCredit: 50,
+    }])
+  })
+
+  it('refuses an analytic trial balance of neither layout', () => {
+    expect(refusal(() => parseTrialBalanceExport([
+      ['Оборотна ведомост - Аналитична'], ['Период: 01.01.2025 - 31.12.2025'], ['Избрани АП: КЛИЕНТИ:'], ['Фирма: ПРИМЕРНА ФИРМА ООД'], [`ЕИК:${EIK}`],
+      ['Аналитичен признак', 'Дебит лв.', 'Кредит лв.', 'Дебит лв.', 'Кредит лв.'],
+      ['КЛИЕНТИ:Клиент А', 100, null, 250, 300],
+    ])).code).toBe('unknown_layout')
+  })
+
   it('reads a main book, each account with what it corresponds with', () => {
     const book = parseMainBookExport([
       ['Главна книга - Синтетична'], ['Период: 01.01.2025 - 31.12.2025'], ['Валута: Лева (лв.)'], ['Фирма: ПРИМЕРНА ФИРМА ООД'], [`ЕИК:${EIK}`],
