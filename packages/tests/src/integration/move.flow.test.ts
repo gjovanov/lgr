@@ -240,6 +240,33 @@ describe('preflight (FR-20.79 step 1)', () => {
     await db().collection('node_presence').updateMany({ nodeId: s.nodeId }, { $set: { heartbeatAt: new Date(Date.now() - 5 * 60_000) } })
     expect((await check()).failed.sort()).toEqual(['connected', 'full', 'healthy', 'no_job_running', 'no_till_open', 'seal_key'].sort())
   }, 60_000)
+
+  // #453: a master older than what the org holds would read it by older rules.
+  it("the server's version: the minimum, and FR-23's documents need 0.1.8", async () => {
+    const s = await shop()
+    const failed = async () => (await preflightMove(String(s.orgId), s.nodeId, s.allow, 0)).checks.filter(c => !c.ok)
+    const runs = (app: string) => ServerNode.updateOne({ _id: s.nodeId }, { $set: { 'health.versions.app': app } })
+
+    await runs('0.1.7')
+    expect(await failed()).toEqual([])
+
+    // A receipt for an invoice: 0.1.7 reads it as one more sale.
+    await db().collection('invoices').insertOne({ orgId: s.orgId, type: 'payment_receipt', invoiceNumber: 'PR-1' })
+    const old = await failed()
+    expect(old.map(c => c.name)).toEqual(['version'])
+    expect(old[0].detail).toContain('0.1.8')
+    await runs('0.1.8')
+    expect(await failed()).toEqual([])
+
+    // Below the minimum global talks to, whatever the org holds.
+    const was = config.node.minMasterVersion
+    ;(config.node as any).minMasterVersion = '0.2.0'
+    try {
+      expect((await failed()).map(c => c.name)).toEqual(['version'])
+    } finally {
+      ;(config.node as any).minMasterVersion = was
+    }
+  }, 60_000)
 })
 
 /** A built move, and the report a master that imported it would send. */

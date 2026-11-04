@@ -170,6 +170,18 @@ describe("global's re-seed (FR-20.71)", () => {
     expect((await preflightReseed(String(s.orgId))).checks.find(c => c.name === 'home_master')?.ok).toBe(false)
   }, 60_000)
 
+  // #453: the copy carries everything the org holds; a server before 0.1.8 reads FR-23's documents as sales.
+  it("a server too old for what the organisation holds is not re-seeded", async () => {
+    const s = await mirrored()
+    const failed = async () => (await preflightReseed(String(s.orgId))).checks.filter(c => !c.ok).map(c => c.name)
+    await ServerNode.updateOne({ _id: s.nodeId }, { $set: { 'health.versions.app': '0.1.7' } })
+    expect(await failed()).toEqual([])
+    await db().collection('invoices').insertOne({ orgId: s.orgId, type: 'payment_storno', invoiceNumber: 'PS-1' })
+    expect(await failed()).toEqual(['version'])
+    await ServerNode.updateOne({ _id: s.nodeId }, { $set: { 'health.versions.app': '0.1.8' } })
+    expect(await failed()).toEqual([])
+  }, 60_000)
+
   it('builds its copy of the mirror, files from the content store, and flips on equal digests: the chain starts again, nothing deleted', async () => {
     const s = await mirrored()
     expect((await captureRejection(startReseed(String(s.orgId), s.by, `${s.slug}-x`)))?.code).toBe('slug_mismatch')

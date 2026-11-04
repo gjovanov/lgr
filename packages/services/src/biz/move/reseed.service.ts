@@ -47,6 +47,7 @@ import { presenceOfNodes } from '../node/node.service.js'
 import { buildMirrorFilesSidecar, mirrorFilesStatus, type MirrorFilesStatus } from '../replication/mirror-blobs.js'
 import { digestMismatch, writeMoveBundle } from './move-bundle.js'
 import { MoveError, abortMove, type CopyReport, type PreflightCheck } from './move.service.js'
+import { masterVersionRefusal } from './master-version.js'
 
 type ObjectId = mongo.ObjectId
 
@@ -86,6 +87,9 @@ export async function preflightReseed(orgId: string): Promise<ReseedPreflight> {
   const node: any = nodeId ? await ServerNode.findById(nodeId).lean() : null
   add('registered', !!node && node.status === 'active' && (node.orgIds ?? []).some((id: unknown) => String(id) === orgId), 'the server is not registered for this organisation')
   add('full', node?.linkLevel === 'full', `the server is linked at ${node?.linkLevel ?? 'nothing'}: a re-seed needs Full`)
+  // #453: the copy carries everything the org holds, which the server must be able to read.
+  const tooOld = node ? await masterVersionRefusal(org, node) : null
+  add('version', !tooOld, tooOld ?? undefined)
   add('no_clone_alarm', !node?.cloneAlarm?.at, 'two machines answer as this server: decide which one is real first')
   add('seal_key', isSealPublicKey(node?.sealKey), 'the server has not given lgrai.app its seal key yet: its people\'s local credentials could not travel')
   const live = nodeId ? (await presenceOfNodes([nodeId])).get(nodeId) : undefined
