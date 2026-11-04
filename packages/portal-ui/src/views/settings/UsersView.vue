@@ -176,10 +176,12 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="inviteDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="inviting" @click="sendInvite">{{ $t('settings.sendInvite') }}</v-btn>
+          <v-btn color="primary" :loading="inviting" :disabled="!inviteEmail.trim()" @click="sendInvite">{{ $t('settings.sendInvite') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <InviteResultDialog :result="inviteResult" @close="inviteResult = null" />
   </v-container>
 </template>
 
@@ -194,6 +196,8 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import { PERMISSIONS, ROLES, ROLE_PERMISSION_SET_NAMES, mergeAreas, type Role } from 'config/constants'
 import { jwtRole, jwtUserId } from 'ui-shared/composables/useStorageIdentity'
+import InviteResultDialog, { type InviteResult } from './InviteResultDialog.vue'
+import { inviteErrorText } from './invite-errors'
 
 const { t, te } = useI18n()
 const store = useSettingsStore()
@@ -212,6 +216,8 @@ const saving = ref(false)
 const inviting = ref(false)
 const inviteEmail = ref('')
 const inviteRole = ref<Role>('member')
+/** #510: what became of the last invitation: the link, and whether the email went out. */
+const inviteResult = ref<InviteResult | null>(null)
 
 /**
  * Multi-org sign-in, rule 2: the person being edited also works in another org, so their name,
@@ -411,11 +417,11 @@ async function save() {
 async function inviteInstead() {
   inviting.value = true
   try {
-    await store.inviteUser(existingPerson.value, form.role)
-    showSuccess(t('settings.inviteSent'))
+    const data = await store.inviteUser(existingPerson.value, form.role)
     dialog.value = false
+    inviteResult.value = { link: data.link, targetEmail: data.invite?.targetEmail, email: data.email }
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(inviteErrorText(e, t))
   } finally {
     inviting.value = false
   }
@@ -424,13 +430,14 @@ async function inviteInstead() {
 async function sendInvite() {
   inviting.value = true
   try {
-    await store.inviteUser(inviteEmail.value, inviteRole.value)
-    showSuccess(t('common.savedSuccessfully'))
+    const data = await store.inviteUser(inviteEmail.value.trim(), inviteRole.value)
     inviteDialog.value = false
     inviteEmail.value = ''
     inviteRole.value = 'member'
+    // #510: it used to say "Saved successfully" and nothing was sent. Now it says what happened.
+    inviteResult.value = { link: data.link, targetEmail: data.invite?.targetEmail, email: data.email }
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(inviteErrorText(e, t))
   } finally {
     inviting.value = false
   }

@@ -1424,6 +1424,21 @@
     "identityExists": "{email} hat bereits ein LGR-Konto. Laden Sie die Person stattdessen in diese Organisation ein.",
     "inviteInstead": "Stattdessen einladen",
     "inviteSent": "Einladung gesendet.",
+    "inviteResult": {
+      "title": "Einladung erstellt",
+      "link": "Einladungslink",
+      "copy": "Link kopieren",
+      "copied": "Link kopiert.",
+      "shareLink": "Jeder mit diesem Link kann beitreten. Teilen Sie ihn mit den Personen, die Sie einladen.",
+      "emailSent": "Die Einladung wurde per E-Mail an {email} gesendet.",
+      "emailQueued": "Die Einladung an {email} ist in der Warteschlange und wird in Kürze per E-Mail gesendet.",
+      "emailNotConfigured": "Auf diesem Server ist keine E-Mail eingerichtet, daher wurde nichts an {email} gesendet. Senden Sie den Link bitte selbst.",
+      "emailFailed": "Die E-Mail an {email} konnte nicht gesendet werden. Senden Sie den Link bitte selbst."
+    },
+    "inviteErrors": {
+      "invalid_email": "Geben Sie die E-Mail-Adresse ein, für die die Einladung gilt.",
+      "invalid_role": "Wählen Sie eine Rolle für die Einladung."
+    },
     "cashRegister": {
       "title": "Kasse",
       "requireConnectedDevice": "Verkauf nur mit verbundenem Fiskaldrucker",
