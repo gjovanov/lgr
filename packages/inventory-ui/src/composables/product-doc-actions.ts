@@ -1,4 +1,4 @@
-import { canOpenPage, pageById, type PageViewer } from 'ui-shared/nav/page-registry'
+import { canOpenPage, isTransferOnly, pageById, type PageViewer } from 'ui-shared/nav/page-registry'
 
 /**
  * FR-22.47: what an article offers — „Заприходи", „Продай", „Резервирай" — in the Products list's
@@ -44,10 +44,18 @@ interface Rule {
   stock: boolean
   /** It sells the article, which a deactivated one no longer is: shown, but disabled. */
   sells: boolean
+  /**
+   * FR-26.8.6 (#508): the document's name when it is not the page's. The movement form's row reads
+   * „Ново стоково движение" for everyone since FR-26; receiving opens a goods receipt, and whoever
+   * can make one keeps its name, as „+ Нов" keeps it.
+   */
+  pageLabelKey?: string
+  /** It makes a goods receipt: never offered to a session that writes transfers only (a Seller). */
+  receipt?: boolean
 }
 
 const RULES: readonly Rule[] = [
-  { key: 'receive', pageId: '/inventory/movements/new', labelKey: 'warehouse.productActions.receive', stock: true, sells: false },
+  { key: 'receive', pageId: '/inventory/movements/new', labelKey: 'warehouse.productActions.receive', stock: true, sells: false, receipt: true, pageLabelKey: 'nav.newDocPage.goodsReceipt' },
   { key: 'sell', pageId: '/invoicing/invoices/new', labelKey: 'warehouse.productActions.sell', stock: false, sells: true },
   { key: 'reserve', pageId: '/invoicing/reservations/new', labelKey: 'warehouse.productActions.reserve', stock: true, sells: true },
 ]
@@ -67,11 +75,12 @@ export function productDocActions(product: ProductForActions, who: PageViewer | 
     const page = pageById(rule.pageId)
     if (!page || !canOpenPage(page, who)) continue
     if (rule.stock && product.trackInventory === false) continue
+    if (rule.receipt && isTransferOnly(who)) continue
     out.push({
       key: rule.key,
       labelKey: rule.labelKey,
       icon: page.icon,
-      pageLabelKey: page.labelKey,
+      pageLabelKey: rule.pageLabelKey ?? page.labelKey,
       appId: page.appId,
       path: withProduct(page.path, product._id),
       disabledKey: rule.sells && product.isActive === false ? INACTIVE_KEY : null,
