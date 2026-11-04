@@ -270,12 +270,18 @@ export async function checkPendingTransfers(orgId: string, transferIds: unknown,
  * Transfers drawn up for an issue that was refused. They are made first and confirmed by the issue,
  * so a refusal leaves them: they moved nothing, and the next attempt draws up its own. Only drafts of
  * this org: a confirmed one is a real movement, and may be another document's.
+ *
+ * `createdBy` (#454): a request's ids are the caller's word, so a refusal cancels only the drafts that
+ * caller drew up, never a colleague's that it named.
  */
-export async function discardPendingTransfers(orgId: string, transferIds: unknown): Promise<void> {
+export async function discardPendingTransfers(orgId: string, transferIds: unknown, opts: { createdBy?: string } = {}): Promise<void> {
   if (!Array.isArray(transferIds)) return
-  const ids = transferIds.filter(id => typeof id === 'string' && /^[a-f0-9]{24}$/i.test(id))
+  const ids = transferIds.map(String).filter(id => /^[a-f0-9]{24}$/i.test(id))
   if (!ids.length) return
-  await StockMovement.updateMany({ _id: { $in: ids }, orgId, type: 'transfer', status: 'draft' }, { $set: { status: 'cancelled' } }).exec()
+  await StockMovement.updateMany(
+    { _id: { $in: ids }, orgId, type: 'transfer', status: 'draft', ...(opts.createdBy ? { createdBy: opts.createdBy } : {}) },
+    { $set: { status: 'cancelled' } },
+  ).exec()
 }
 
 /**

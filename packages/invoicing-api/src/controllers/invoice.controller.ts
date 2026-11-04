@@ -830,12 +830,22 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // under their own name until they are: `pendingTransferIds` there means "already confirmed".
       const pendingTransferIds = isCashSale && !skipStockMovement ? (body as any).pendingTransferIds as string[] | undefined : undefined
       delete (body as any).pendingTransferIds
+      /**
+       * #454: the form drew these transfers up for this sale, and a sale refused before it is written never
+       * confirms them. Left in draft they stay in the movements list, and move goods if somebody confirms
+       * them. The next press draws up its own. ⚠ Only on a refusal, which is a definitive answer: never
+       * re-sent with the same body (`ui-shared/composables/idempotency#isOutcomeUnknown`).
+       */
+      const discardRequested = () => discardPendingTransfers(orgId, pendingTransferIds, { createdBy: user.id })
       if (pendingTransferIds?.length) {
         // Checked before the insert, so a refused list draws no CS number.
         try {
           await checkPendingTransfers(orgId, pendingTransferIds)
         } catch (e: any) {
-          if (e instanceof PendingTransferError) return status(e.statusCode, { code: e.code, message: e.message })
+          if (e instanceof PendingTransferError) {
+            await discardRequested()
+            return status(e.statusCode, { code: e.code, message: e.message })
+          }
           throw e
         }
       }
@@ -857,6 +867,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
               taxRate: Number(l.taxRate) || 0, discount: Number(l.discount) || 0,
             })))
         if (pos && Math.abs(pos.total - Number(body.total)) > 0.02) {
+          await discardRequested()
           return status(422, {
             code: 'cash_sale_total_mismatch',
             message: `Total mismatch: calculated ${pos.total.toFixed(2)}, received ${Number(body.total).toFixed(2)}`,
@@ -883,7 +894,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
             await assertSaleMayOpen(orgId, createCtx.joined.warehouseId)
           }
         } catch (e: any) {
-          if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
+          if (e instanceof RegisterRefusal) {
+            await discardRequested()
+            return status(e.statusCode, e.body)
+          }
           throw e
         }
         const joined = createCtx.joined
@@ -1648,6 +1662,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         await confirmTransferMovements(orgId, pendingTransferIds, { forDocumentId: String(id) })
       } catch (e: any) {
         await release()
+        // #454: this request will not issue, so what it did not confirm stays a draft nobody will. A transfer it
+        // did confirm is a real movement and stays (`discardPendingTransfers` touches drafts only).
+        await discardAsked()
         if (e instanceof PendingTransferError) return status(e.statusCode, { code: e.code, message: e.message })
         return status(400, { message: `Transfer confirmation failed: ${e.message}` })
       }

@@ -1180,6 +1180,28 @@ describe('a refund recorded later (/payments, §2.5)', () => {
       expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 24 })
     })
 
+    // #454: each part re-split what was left pro rata, so once the first part took all a receipt held at one rate, the
+    // next asked that rate of a receipt that never held it: receipts of disjoint rates stopped midway.
+    it('receipts of disjoint rates: split once, two parts, each its own rate, and nothing left over', async () => {
+      const w = await tillWorld(app)
+      const lines = [line(w, 1, 10, 20), line(w, 1, 10, 9)]
+      const inv = await paidInParts(w, [12, 4.76], { lines })
+      const [at20, at9] = inv.receipts
+      const one = (rate: number, gross: number) => ({ ...line(w, 1, +(gross / (1 + rate / 100)).toFixed(2), rate), taxAmount: +(gross - gross / (1 + rate / 100)).toFixed(2), lineTotal: gross })
+      await Invoice.updateOne({ _id: at20._id }, { $set: { lines: [one(20, 12)] } })
+      await Invoice.updateOne({ _id: at9._id }, { $set: { lines: [one(9, 4.76)] } })
+      const note = await issuedNote(w, inv, { lines })
+
+      const r = await pay(w, note.id, 10)
+
+      expect(r.status).toBe(200)
+      const stornos = await stornosOf(note.id)
+      expect(stornos.map(s => String(s.register.storno.originalId))).toEqual([String(at9._id), String(at20._id)])
+      expect(stornos.map(s => s.total)).toEqual([4.76, 5.24])
+      expect(stornos.map(s => [...new Set(s.lines.map((l: any) => l.taxRate))])).toEqual([[9], [20]])
+      expect(await raw(note.id)).toMatchObject({ amountPaid: 10 })
+    })
+
     it('a second part that loses its race for a receipt: the first stands, and the refusal says how much went back', async () => {
       const w = await tillWorld(app)
       const inv = await paidInParts(w, [14, 10])
@@ -5614,6 +5636,22 @@ describe('FR-24.50: a refund runs where the printer is', () => {
     // Someone with no session and nothing dead on the document: no printer is theirs to go to.
     const other = await issuedNote(w, inv)
     expect(await deviceFromCounter({ ...ctx, params: { orgId: w.orgId, id: other.id } })).toBeNull()
+  })
+
+  // #454: the note's door finishes what died on its invoice first, so that receipt's device is the note's too.
+  it("a dead receipt on the note's invoice sends the note to that receipt's device", async () => {
+    const w = await tillWorld(app)
+    const inv = await paidInvoice(w)
+    const note = await issuedNote(w, inv)
+    const ctx: any = { params: { orgId: w.orgId, id: note.id }, user: { id: String(w.clerk._id) } }
+    expect(await deviceFromDeadReceipt(ctx)).toBeNull()
+
+    await Invoice.collection.insertOne({
+      orgId: w.oid, type: 'payment_receipt', register: { paidInvoiceId: new (Invoice.base as any).Types.ObjectId(inv.id), warehouseId: w.warehouse._id, fiscalDeviceNumber: 'ED123456' },
+    } as any)
+
+    expect(await deviceFromDeadReceipt(ctx)).toMatchObject({ deviceNumber: 'ED123456' })
+    expect(await deviceFromCounter(ctx)).toMatchObject({ deviceNumber: 'ED123456' })
   })
 })
 

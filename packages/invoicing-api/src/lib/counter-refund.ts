@@ -22,7 +22,7 @@ import {
   PAYMENT_IN_PROGRESS, citeableElsewhere, citeableOn, claimantsOf, devicesThatCite, doubtRefusal, exceedsPaid, exceedsReceipts, fittingAmount, inDoubtRefusal, noReceiptToStorno, onOtherDevice, paymentStornoDocument,
   printsRefund, receiptInDoubt, receiptsOf, refundBacking, refundCap, refundNeed, runReceiptSteps, whyNoCitation, type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
-import { drawOn, holdEnough } from 'services/biz/cash-register/refund-budget'
+import { drawOn, holdEnough, wantedBy, type ByRate } from 'services/biz/cash-register/refund-budget'
 import { grossByRate } from 'services/biz/cash-register/receipt-lines'
 import { receiptMode, type ReceiptMode } from 'services/biz/cash-register/receipt-mode'
 import {
@@ -205,6 +205,27 @@ export async function refund(
   const stornos: any[] = []
   let remaining = Math.round(tender.amount * 100)
   let ready = prepared
+  /**
+   * #454: the whole refund, per rate, split once from what the note had before this request. Each part draws on what
+   * is left of it. Re-splitting the rest pro rata after each part asked a rate the next receipt does not hold, once an
+   * earlier part had taken all of another: receipts of disjoint rates stopped midway, with parts already printed. The
+   * door checked this split against what all the receipts hold per rate (`assertBacked`), so the parts finish it.
+   */
+  let split: ByRate | null = null
+  const needLeft = async (): Promise<ByRate | null> => {
+    if (!split) {
+      const mine = new Set(stornos.map(d => String(d._id)))
+      const before = (await receiptsOf(orgId, String(note._id))).filter((d: any) => !mine.has(String(d._id)))
+      split = refundNeed(note, before, tender.amount)
+      if (!split) return null
+    }
+    const left: ByRate = new Map(split)
+    for (const part of stornos.filter(gaveMoney)) {
+      for (const [rate, cents] of wantedBy(part)) left.set(rate, (left.get(rate) || 0) - cents)
+    }
+    for (const [rate, cents] of left) if (cents <= 0) left.delete(rate)
+    return left
+  }
   try {
     for (let index = 0; remaining > 0; index++) {
       const key = keyed ? partKey(keyed.key, index) : undefined
@@ -217,7 +238,7 @@ export async function refund(
         const amount = round2(remaining / 100)
         ready ??= await prepareRefund(orgId, user, note, { ...tender, amount }, false)
         if (!ready) return stornos
-        storno = await nextPart(orgId, ready, note, amount, key ? { key, hash: keyed!.hash } : undefined, user)
+        storno = await nextPart(orgId, ready, note, amount, key ? { key, hash: keyed!.hash } : undefined, user, await needLeft())
       }
       stornos.push(storno)
       if (!gaveMoney(storno)) return stornos
@@ -232,13 +253,14 @@ export async function refund(
 }
 
 /** One storno: the next part of the refund, on what the receipts hold as this reads them. */
-async function nextPart(orgId: string, prepared: PreparedRefund, note: any, amount: number, keyed: { key: string; hash: string } | undefined, user: RegisterUser): Promise<any> {
+async function nextPart(orgId: string, prepared: PreparedRefund, note: any, amount: number, keyed: { key: string; hash: string } | undefined, user: RegisterUser, planned?: ByRate | null): Promise<any> {
   const c = prepared.context
   const printer = c.printer!
   const backing = await refundBacking(orgId, note)
   const citeable = citeableOn(backing.cited, printer.deviceNumber, prepared.mode, note.currency)
   const stornos = await receiptsOf(orgId, String(note._id))
-  const need = refundNeed(note, stornos, amount)
+  // What is left of the request's own split (`refund`), never the rest split again.
+  const need = planned?.size ? planned : refundNeed(note, stornos, amount)
   if (!need) throw noNeed(note, stornos)
   const part = drawOn(need, citeable)
   if (!part) throw exceedsReceipts(fittingAmount(note, stornos, citeable, amount))

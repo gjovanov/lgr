@@ -170,7 +170,7 @@ export interface IInvoiceRegister {
    * claim with its own age. Written in the update that writes its `refundClaims`, and given back the same way
    * (`storno-lines.ts`, `claimForStorno`, `releaseStornoClaim`). A claim from before `cents` is worked out by `takenBy`.
    */
-  stornoClaims?: Array<{ stornoId: Types.ObjectId; lineId: string; milli: number; cents?: number; at: Date }>
+  stornoClaims?: Array<{ stornoId: Types.ObjectId; lineId: string; milli: number; cents?: number; at: Date; /** #454: its storno was written (`markStornoWritten`). */ written?: boolean }>
   /** On a `cash_storno` or a `payment_storno`: the sale or the receipt it reverses, as its fiscal receipt names it. */
   storno?: {
     originalId?: Types.ObjectId
@@ -678,7 +678,7 @@ const invoiceSchema = new Schema<IInvoice>(
             default: undefined,
           },
           stornoClaims: {
-            type: [{ _id: false, stornoId: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true }, lineId: { type: String, required: true }, milli: { type: Number, required: true }, cents: Number, at: { type: Date, required: true } }],
+            type: [{ _id: false, stornoId: { type: Schema.Types.ObjectId, ref: 'Invoice', required: true }, lineId: { type: String, required: true }, milli: { type: Number, required: true }, cents: Number, at: { type: Date, required: true }, written: Boolean }],
             default: undefined,
           },
           storno: {

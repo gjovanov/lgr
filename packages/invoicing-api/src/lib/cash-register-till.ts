@@ -22,7 +22,7 @@ import type { RegisterPrinter } from 'services/biz/cash-register/printer'
 import { takeLease } from 'services/biz/hot-path-key'
 import { POD_ID, livePresence } from 'services/biz/fiscal-presence.service'
 import {
-  RegisterRefusal, SESSION_CLOSING, claimForStorno, finishInterruptedStorno, finishSale, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedAsText, printedFiscally,
+  RegisterRefusal, SESSION_CLOSING, claimForStorno, markStornoWritten, finishInterruptedStorno, finishSale, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedAsText, printedFiscally,
   releaseOrphanClaims, releaseStornoClaim, runStornoSteps, settleKeyedDocument, stornoClaimed, stornoDocument, stornoInDoubtRefusal, stornoRefusal,
   type RegisterContext, type RegisterSession, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
@@ -884,6 +884,8 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
       await releaseStornoClaim(original, stornoId)
       throw e
     }
+    // #454: the claim's storno exists. Outside the block above: a failed mark must never give the sale back.
+    await markStornoWritten(original, stornoId).catch(err => logger.warn({ err, stornoId: String(stornoId) }, 'Could not mark a storno claim as written'))
     return answer(await runStornoSteps({ ...c, printer: printsReceipt || printsSlip ? c.printer : null }, String(inserted._id)))
   } catch (e: any) {
     if (e instanceof RegisterRefusal) return { status: e.statusCode, body: e.body }

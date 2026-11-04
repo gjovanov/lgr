@@ -842,6 +842,35 @@ describe('a session takes nothing new unless it is open (the fourth read, findin
     expect((await w.sell(1)).status).toBe(200)
   })
 
+  // #454: a session opened beside a close that then died became a second open one when that close was reopened.
+  it('no session opens beside one being closed: a live close is waited for', async () => {
+    const w = await tillWorld(app)
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() + 60_000) } })
+
+    const r = await w.call('POST', '/trade/pos/session', { warehouseId: String(w.warehouse._id), openingBalance: 0, currency: 'EUR' })
+
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('session_closing')
+    expect(await POSSession.countDocuments({ orgId: w.oid, cashierId: w.user._id })).toBe(1)
+  })
+
+  it('beside a dead close, the open reopens that session instead: one open session, never two', async () => {
+    const w = await tillWorld(app)
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control', closeLeaseUntil: new Date(Date.now() - 1000) } })
+
+    const body = { warehouseId: String(w.warehouse._id), openingBalance: 0, currency: 'EUR' }
+    const first = await w.call('POST', '/trade/pos/session', body)
+    expect(first.status).toBe(409)
+    expect(first.json.code).toBe('close_interrupted')
+    expect((await sessionOf(w)).status).toBe('open')
+    // Pressed again: that session is open, so this is the usual answer, and still one session.
+    expect((await w.call('POST', '/trade/pos/session', body)).status).toBe(400)
+    expect(await POSSession.countDocuments({ orgId: w.oid, cashierId: w.user._id })).toBe(1)
+    expect(await POSSession.countDocuments({ orgId: w.oid, cashierId: w.user._id, status: 'open' })).toBe(1)
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })).toBe(1)
+    expect((await w.sell(1)).status).toBe(200)
+  })
+
   it('a keyed retry of a sale that reached the device is not taken back, whatever the session says now', async () => {
     const w = await tillWorld(app)
     const key = 'reached-the-device'

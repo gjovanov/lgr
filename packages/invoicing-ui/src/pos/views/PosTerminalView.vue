@@ -538,7 +538,13 @@ async function doOpenSession() {
     // The terminal appears with the session and loads its catalog itself.
   } catch (e: any) {
     openAttempt.settle(e)
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    // #454: an earlier session still being closed, or one whose close died and is open again: said in the
+    // org's language, and a reopened one is loaded so the terminal shows it.
+    showError(receiptRefusalMessage(t, e, t('common.operationFailed')))
+    if (e?.response?.data?.code === 'close_interrupted') {
+      openSessionDialog.value = false
+      await fetchSessions()
+    }
   }
   finally { loading.value = false }
 }

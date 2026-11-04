@@ -39,7 +39,7 @@ import { generateUNP } from '../sequence.service.js'
 import { getNextInvoiceNumber, issuableRefusal } from '../invoice-numbering.service.js'
 import { createInvoiceStockMovement, createNumberedMovement, returnedUnitCost, reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { confirmMovement } from '../warehouse.service.js'
-import { PendingTransferError, confirmTransferMovements } from '../stock-transfer.service.js'
+import { PendingTransferError, confirmTransferMovements, discardPendingTransfers } from '../stock-transfer.service.js'
 import { IdempotencyError, LEASE_MS, assertSameRequest, keepLease, takeLease, waitForCompletion } from '../hot-path-key.js'
 import { exchangeRateFor, fromPosTransaction } from './mapping.js'
 import { unitsOf } from './copy.js'
@@ -717,9 +717,14 @@ function reachedDeviceOrDrawer(doc: any): boolean {
   return !!doc.register?.sessionTotalsApplied || state === 'pending' || state === 'printed' || state === 'unknown'
 }
 
-/** Remove a sale that failed before it reached the device or the drawer. */
+/**
+ * Remove a sale that failed before it reached the device or the drawer, and the transfers it asked for that it
+ * never confirmed (#454): they are its own (`register.transfersToConfirm`), and nothing will confirm them now. One
+ * it did confirm is a real movement and stays.
+ */
 export async function rollBack(doc: any): Promise<void> {
   await Invoice.deleteOne({ _id: doc._id, orgId: doc.orgId }).exec()
+  await discardPendingTransfers(String(doc.orgId), doc.register?.transfersToConfirm)
 }
 
 /**
@@ -1216,6 +1221,22 @@ export async function releaseStornoClaim(original: any, stornoId: unknown): Prom
 }
 
 /**
+ * #454: the storno of this claim was written. Its claim is no longer an orphan whatever is found later: a sale
+ * carried somewhere without its storno (an import, a move or a restore that held the storno back) has no document
+ * for it there, and `releaseOrphanClaims` read that as "never written", so a press could refund it again.
+ *
+ * ⚠ Never fatal. The storno exists; a claim left unmarked is what every claim was before this, and its document
+ * still keeps it where it is.
+ */
+export async function markStornoWritten(original: any, stornoId: unknown): Promise<void> {
+  await Invoice.updateOne(
+    { _id: original._id, orgId: original.orgId },
+    { $set: { 'register.stornoClaims.$[c].written': true } },
+    { arrayFilters: [{ 'c.stornoId': oid(stornoId) }] },
+  ).exec()
+}
+
+/**
  * A claim on a sale whose storno was never written: the process died between `claimForStorno` and the insert.
  * Nothing printed and nothing was booked, but the journal reads it as stornoed with nothing related, the next
  * press is refused, and SUPTO 18.5 lists a cancellation that never happened. So an id in `stornoedBy` with no
@@ -1238,6 +1259,8 @@ export async function releaseOrphanClaims(sale: any, now = Date.now()): Promise<
       {
         _id: sale._id, orgId: sale.orgId, 'register.stornoedBy': oid(id),
         $or: [{ 'register.stornoClaims': { $elemMatch: { stornoId: oid(id), at: { $lt: before } } } }, { 'register.cancelledAt': { $lt: before } }],
+        // #454: a storno that was written, and is only not here, keeps its claim (`markStornoWritten`).
+        'register.stornoClaims': { $not: { $elemMatch: { stornoId: oid(id), written: true } } },
       },
       withoutClaim(oid(id)),
     ).exec()
