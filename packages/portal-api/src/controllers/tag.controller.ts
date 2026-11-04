@@ -11,6 +11,27 @@ const modelMap: Record<string, any> = {
   invoice: Invoice,
 }
 
+/**
+ * #493: what writing a tag of each type needs. A rename or a delete rewrites every document of its
+ * type that carries the tag, so it takes the write permission of that module. The route rule
+ * (`invoicing.write` or `inventory.write`, `route-permission.ts`) let a Seller, whose products are
+ * read-only, rename or delete product tags across the catalog. A type of no module needs no more
+ * than the route rule.
+ */
+const WRITE_BY_TYPE: Readonly<Record<string, string>> = {
+  product: 'inventory.write',
+  warehouse: 'inventory.write',
+  contact: 'invoicing.write',
+  invoice: 'invoicing.write',
+  employee: 'payroll.write',
+}
+
+function tagWriteRefusal(user: { role?: string; permissions?: readonly string[] }, type: string) {
+  const need = WRITE_BY_TYPE[type]
+  if (!need || user.role === 'admin' || user.permissions?.includes(need)) return null
+  return { code: 'permission_required', permissions: [need], message: `Permission required: ${need}` }
+}
+
 export const tagController = new Elysia({ prefix: '/org/:orgId/tags' })
   .use(AuthService)
 
@@ -31,6 +52,8 @@ export const tagController = new Elysia({ prefix: '/org/:orgId/tags' })
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      const refused = tagWriteRefusal(user, body.type)
+      if (refused) return status(403, refused)
 
       const existing = await Tag.findOne({ orgId, type: body.type, value: body.value }).lean().exec()
       if (existing) return { tag: existing }
@@ -58,6 +81,8 @@ export const tagController = new Elysia({ prefix: '/org/:orgId/tags' })
 
       const tag = await Tag.findOne({ _id: id, orgId }).exec()
       if (!tag) return status(404, { message: 'Tag not found' })
+      const refused = tagWriteRefusal(user, tag.type)
+      if (refused) return status(403, refused)
 
       const oldValue = tag.value
       tag.value = body.value
@@ -91,6 +116,8 @@ export const tagController = new Elysia({ prefix: '/org/:orgId/tags' })
 
     const tag = await Tag.findOne({ _id: id, orgId }).exec()
     if (!tag) return status(404, { message: 'Tag not found' })
+    const refused = tagWriteRefusal(user, tag.type)
+    if (refused) return status(403, refused)
 
     // Remove from all documents of this type
     const Model = modelMap[tag.type]

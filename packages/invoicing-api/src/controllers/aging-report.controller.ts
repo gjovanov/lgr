@@ -10,6 +10,13 @@ import { Invoice } from 'db/models'
 export const agingReportController = new Elysia({ prefix: '/org/:orgId/invoicing/reports' })
   .use(AppAuthService)
   .get('/aging', async ({ params: { orgId }, query, user, status }) => {
+    // #493: this is the Reports app's aging page (reports-ui InvoiceAgingView), so it needs
+    // `reports.read` as the Reports API does (FR-26.6). Without it a Seller, who has no Reports,
+    // still read every customer's outstanding balance here. Every default role with invoicing holds
+    // it; admins pass, as on every route.
+    if (user && user.role !== 'admin' && !user.permissions?.includes('reports.read')) {
+      return status(403, { code: 'permission_required', permissions: ['reports.read'], message: 'The reports.read permission is required' })
+    }
     const asOfDate = query.asOfDate ? new Date(query.asOfDate as string) : new Date()
     const direction = (query.direction as string) || 'outgoing'
     // FR-26.6: the payables are the bills, which a session without `purchases` does not see.

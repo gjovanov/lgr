@@ -6,7 +6,7 @@ import { createTestContact, createTestInvite, createTestInvoice, createTestOrg, 
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
-import { APP_IDS } from 'config/constants'
+import { APP_IDS, DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { mongoose } from 'db/connection'
 import { Identity, PermissionSet, User, type IUser } from 'db/models'
 import { sessionFor, tokenize } from 'services/biz/auth.service'
@@ -258,6 +258,55 @@ describe('reports need reports.read (FR-26.6)', () => {
     expect((await request('GET', '/reports/catalog', tokens.sales)).status).toBe(200)
     expect((await request('GET', '/reports/catalog', tokens.admin)).status).toBe(200)
   })
+
+  it("the aging report, the Reports app's page, too (#493)", async () => {
+    const seller = await request('GET', '/invoicing/reports/aging', tokens.seller)
+    expect(seller.status).toBe(403)
+    expect(seller.json.permissions).toEqual(['reports.read'])
+    expect((await request('GET', '/invoicing/reports/aging', tokens.sales)).status).toBe(200)
+    expect((await request('GET', '/invoicing/reports/aging', tokens.admin)).status).toBe(200)
+  })
+})
+
+describe("a receipt's bill (purchases, #493)", () => {
+  it('a movement names no bill to a session without the area, and keeps a link to a sales document', async () => {
+    const billed = await createTestStockMovement(org._id, { type: 'receipt', toWarehouseId: warehouseA, invoiceId: billId } as any)
+    const reversal = await createTestStockMovement(org._id, { type: 'receipt', toWarehouseId: warehouseA, invoiceId: saleId } as any)
+
+    const one = await request('GET', `/warehouse/movement/${billed._id}`, tokens.seller)
+    expect(one.status).toBe(200)
+    expect(one.json.stockMovement.invoiceId).toBeUndefined()
+    expect(one.json.stockMovement.bill).toBeUndefined()
+    expect(one.json.stockMovement.billable).toBe(false)
+    expect(String((await request('GET', `/warehouse/movement/${reversal._id}`, tokens.seller)).json.stockMovement.invoiceId)).toBe(saleId)
+
+    const list = await request('GET', '/warehouse/movement?size=100', tokens.seller)
+    expect(list.status).toBe(200)
+    const row = list.json.stockMovements.find((m: any) => String(m.id ?? m._id) === String(billed._id))
+    expect(row).toBeDefined()
+    expect(row.invoiceId).toBeUndefined()
+    expect(row.bill).toBeUndefined()
+
+    // An admin still sees the link.
+    expect(String((await request('GET', `/warehouse/movement/${billed._id}`, tokens.admin)).json.stockMovement.invoiceId)).toBe(billId)
+  })
+})
+
+describe('tags (#493)', () => {
+  it('a tag is written with its module\'s write permission: a Seller tags contacts, not the catalog', async () => {
+    const product = await request('POST', '/tags', tokens.seller, { type: 'product', value: `p-${Date.now()}` })
+    expect(product.status).toBe(403)
+    expect(product.json.permissions).toEqual(['inventory.write'])
+    const contact = await request('POST', '/tags', tokens.seller, { type: 'contact', value: `c-${Date.now()}` })
+    expect(contact.status).toBe(200)
+
+    const made = await request('POST', '/tags', tokens.admin, { type: 'product', value: `shared-${Date.now()}` })
+    expect(made.status).toBe(200)
+    const id = made.json.tag._id ?? made.json.tag.id
+    expect((await request('PUT', `/tags/${id}`, tokens.seller, { value: 'renamed' })).status).toBe(403)
+    expect((await request('DELETE', `/tags/${id}`, tokens.seller)).status).toBe(403)
+    expect((await request('DELETE', `/tags/${id}`, tokens.admin)).status).toBe(200)
+  })
 })
 
 describe('the App Hub', () => {
@@ -319,6 +368,18 @@ describe('assigning a role takes effect (FR-26.9)', () => {
     const claims = await tokenize(joined)
     expect(claims.areas).toEqual([])
     expect(claims.permissions).not.toContain('accounting.read')
+  })
+
+  it('a role with no system set (sales, hr_manager) is invited onto its own defaults, as a role change gives', async () => {
+    for (const [role, needed] of [['sales', 'invoicing.write'], ['hr_manager', 'payroll.read']] as const) {
+      const identity = await Identity.create({ email: `${role}-${Date.now()}@fr26.test`, firstName: 'I', lastName: 'N', isActive: true, passwordSetBy: 'self', password: await Bun.password.hash('test123') } as any)
+      const invite = await createTestInvite(org._id, people.admin._id as any, { assignRole: role } as any)
+      const { member: joined } = await joinOrgByInvite(identity._id, invite.code)
+      expect(joined.permissionSetIds ?? []).toEqual([])
+      const claims = await tokenize(joined)
+      expect(claims.permissions).toContain(needed)
+      expect([...claims.permissions].sort()).toEqual([...DEFAULT_ROLE_PERMISSIONS[role]].sort())
+    }
   })
 })
 
