@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
 import { apiGet, apiLogin, apiPost } from './helpers/api'
 import { lineDescription, lineQuantity, lineUnitPrice, restoreEntry } from './helpers/document-form'
@@ -105,7 +106,7 @@ test.describe('Invoicing Product Autocomplete', () => {
     await contactInput.click({ force: true })
     await page.waitForTimeout(500)
     const contactOption = page.locator('.v-overlay .v-list-item').first()
-    if (await contactOption.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (await appears(contactOption, 3000)) {
       await contactOption.click()
     }
     await page.waitForTimeout(300)
@@ -127,7 +128,7 @@ test.describe('Invoicing Product Autocomplete', () => {
 
     // Results render in our own teleported overlay (NOT a v-menu).
     const menuList = page.locator('.pld-overlay .pld-item')
-    const hasResults = await menuList.first().isVisible({ timeout: 3000 }).catch(() => false)
+    const hasResults = await appears(menuList.first(), 3000)
 
     if (hasResults) {
       // Select the first product
@@ -152,7 +153,7 @@ test.describe('Invoicing Product Autocomplete', () => {
 
       // Clear the product by clicking the chip close button
       const chipClose = chip.locator('.v-chip__close, .mdi-close-circle').first()
-      if (await chipClose.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (await appears(chipClose, 2000)) {
         await chipClose.click()
         await page.waitForTimeout(300)
 
@@ -178,7 +179,7 @@ test.describe('Invoicing Product Autocomplete', () => {
     await page.keyboard.type('Te', { delay: 60 })
 
     const items = page.locator('.pld-overlay .pld-item')
-    const opened = await items.first().isVisible({ timeout: 4000 }).catch(() => false)
+    const opened = await appears(items.first(), 4000)
     if (!opened) return // no seed products matching 'Te' in this env — nothing to assert
 
     // Press ArrowDown a few times; the overlay must STAY OPEN the whole time (the reported bug

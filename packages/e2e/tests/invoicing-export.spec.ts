@@ -1,4 +1,5 @@
 import { test, expect, type Page, type Download } from '@playwright/test'
+import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
 
 /**
@@ -236,7 +237,7 @@ test.describe('Export — single invoice from details', () => {
     // the table' is not reliably the document — it can be the contact, which navigates to a
     // contact form with no 'Edit Invoice' heading.
     const firstLink = page.locator('.v-data-table a[href*="/invoices/"][href*="/edit"]').first()
-    if (!(await firstLink.isVisible({ timeout: 3000 }).catch(() => false))) {
+    if (!(await appears(firstLink, 3000))) {
       test.skip(true, 'No invoices in fixture to open details page')
       return
     }
@@ -281,7 +282,7 @@ test.describe('Status chip — history popup', () => {
 
     const chip = page.locator('.v-data-table tbody tr').first()
       .locator('td').nth(statusCol).locator('.v-chip').first()
-    if (!(await chip.isVisible({ timeout: 3000 }).catch(() => false))) {
+    if (!(await appears(chip, 3000))) {
       test.skip(true, 'No status chips in fixture')
       return
     }

@@ -1,4 +1,5 @@
 import type { Page, Locator } from '@playwright/test'
+import { appears } from './vuetify'
 import { expect } from '@playwright/test'
 
 /**
@@ -98,7 +99,7 @@ export async function selectAutocomplete(page: Page, container: Locator, label: 
   await page.waitForTimeout(500)
   // Target the v-menu dropdown specifically (not the dialog overlay)
   const option = page.locator('.v-menu .v-list-item').first()
-  if (await option.isVisible({ timeout: 3000 }).catch(() => false)) {
+  if (await appears(option, 3000)) {
     await option.click()
     await page.waitForTimeout(200)
   }
@@ -119,14 +120,14 @@ export async function selectAutocomplete(page: Page, container: Locator, label: 
  */
 export async function editFirstRow(page: Page): Promise<Locator | null> {
   const row = page.locator('.v-data-table tbody tr').first()
-  if (!(await row.isVisible({ timeout: 3000 }).catch(() => false))) return null
+  if (!(await appears(row, 3000))) return null
 
   // A routed edit renders an <a href=".../edit">; a dialog edit renders a pencil button.
   const editLink = row.locator('a[href*="/edit"]').first()
   const editBtn = row.locator('.mdi-pencil, .mdi-pencil-outline').first()
 
   if (await editLink.count()) await editLink.click()
-  else if (await editBtn.isVisible({ timeout: 2000 }).catch(() => false)) await editBtn.click()
+  else if (await appears(editBtn, 2000)) await editBtn.click()
   else return null
 
   const dialog = page.locator('.v-dialog')
@@ -141,14 +142,14 @@ export async function editFirstRow(page: Page): Promise<Locator | null> {
  */
 export async function deleteFirstRow(page: Page) {
   const row = page.locator('.v-data-table tbody tr').first()
-  if (!(await row.isVisible({ timeout: 3000 }).catch(() => false))) return false
+  if (!(await appears(row, 3000))) return false
   const deleteBtn = row.locator('.mdi-delete, .mdi-delete-outline').first()
-  if (await deleteBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+  if (await appears(deleteBtn, 2000)) {
     await deleteBtn.click()
     await page.waitForTimeout(300)
     // Confirm deletion in the confirm dialog if present
     const confirmBtn = page.getByRole('button', { name: /confirm|yes|delete|ok/i })
-    if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    if (await appears(confirmBtn, 2000)) {
       await confirmBtn.click()
     }
     return true

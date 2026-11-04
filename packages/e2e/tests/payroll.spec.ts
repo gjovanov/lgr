@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
 
 test.describe('Payroll', () => {
@@ -64,11 +65,11 @@ test.describe('Payroll', () => {
 
     // Department is a v-select - use force click for Vuetify selects
     const departmentSelect = dialog.getByLabel(/department/i)
-    if (await departmentSelect.isVisible({ timeout: 2000 }).catch(() => false)) {
+    if (await appears(departmentSelect, 2000)) {
       await departmentSelect.click({ force: true })
       // Vuetify v-select renders options as v-list-items in an overlay
       const option = page.locator('.v-overlay .v-list-item').first()
-      if (await option.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (await appears(option, 2000)) {
         await option.click()
       }
     }
