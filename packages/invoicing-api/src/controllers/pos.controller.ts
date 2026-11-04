@@ -77,6 +77,28 @@ function closeIsDead(session: any, now = Date.now()): boolean {
     : new Date(session.updatedAt ?? 0).getTime() < now - CLOSE_LEASE_MS
 }
 
+/**
+ * A close that died in its Z goes back to `open`. Conditional on it still being that dead close, so two presses
+ * reopen it once and audit it once. Whoever pressed is told either way (`CLOSE_INTERRUPTED`).
+ */
+async function reopenDeadClose(orgId: string, session: any, user: { id: string; operatorCode?: string }): Promise<void> {
+  const id = String(session._id ?? session.id)
+  const before = new Date(Date.now() - CLOSE_LEASE_MS)
+  const reopened = await POSSession.findOneAndUpdate(
+    { _id: id, orgId, status: 'closing_control', $or: [{ closeLeaseUntil: { $lt: new Date() } }, { closeLeaseUntil: null, updatedAt: { $lt: before } }] },
+    {
+      $set: { status: 'open', fiscalStatus: 'failed', fiscalError: 'A close stopped during its Z-report, which may have printed.' },
+      $unset: { closeClientKey: 1, closeRequestHash: 1, closeLeaseUntil: 1 },
+    },
+  ).exec()
+  if (reopened) {
+    createAuditEntry({
+      orgId, userId: user.id, operatorCode: user.operatorCode, action: 'close_interrupted',
+      module: 'pos', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber,
+    })
+  }
+}
+
 /** Nobody knows whether its Z printed, and only the device can say. */
 const CLOSE_INTERRUPTED = {
   code: 'close_interrupted',
@@ -463,6 +485,19 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
 
       const existing = await r.posSessions.findOne({ orgId, cashierId: user.id, status: 'open' } as any)
       if (existing) return status(400, { message: 'You already have an open session' })
+      /**
+       * #454: nor one being closed. A session opened beside a close that then died became a second open
+       * session when that close was reopened, and the terminal shows the newest: the older was reachable only
+       * once the newer closed. A live close is waited for (`SESSION_CLOSING` says so). A dead one is reopened
+       * here, as pressing Close on it would, and the cashier is sent to it: one session, which they close
+       * once they have checked the device.
+       */
+      const closing: any = await POSSession.findOne({ orgId, cashierId: user.id, status: 'closing_control' }).lean().exec()
+      if (closing) {
+        if (!closeIsDead(closing)) return status(409, { ...SESSION_CLOSING, sessionNumber: closing.sessionNumber })
+        await reopenDeadClose(orgId, closing, user)
+        return status(409, { ...CLOSE_INTERRUPTED, sessionNumber: closing.sessionNumber })
+      }
 
       let fiscal: Awaited<ReturnType<typeof getFiscalContext>>
       try {
@@ -748,20 +783,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       // told, whichever won the write: the Z may have printed, and only a person looking at the device knows
       // which way on, so neither may run a second Z unasked.
       if (mayClose && closeIsDead(session)) {
-        const before = new Date(Date.now() - CLOSE_LEASE_MS)
-        const reopened = await POSSession.findOneAndUpdate(
-          { _id: id, orgId, status: 'closing_control', $or: [{ closeLeaseUntil: { $lt: new Date() } }, { closeLeaseUntil: null, updatedAt: { $lt: before } }] },
-          {
-            $set: { status: 'open', fiscalStatus: 'failed', fiscalError: 'A close stopped during its Z-report, which may have printed.' },
-            $unset: { closeClientKey: 1, closeRequestHash: 1, closeLeaseUntil: 1 },
-          },
-        ).exec()
-        if (reopened) {
-          createAuditEntry({
-            orgId, userId: user.id, operatorCode: user.operatorCode, action: 'close_interrupted',
-            module: 'pos', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber,
-          })
-        }
+        await reopenDeadClose(orgId, session, user)
         return status(409, { ...CLOSE_INTERRUPTED })
       }
 
