@@ -518,6 +518,15 @@ describe('the comparison with PlusMinus', () => {
     expect(JSON.stringify(v)).not.toContain('Клиент')
   })
 
+  it('leaves quantities out for a file that states none', () => {
+    const cells = { openingDebit: 10, openingCredit: 0, turnoverDebit: 4, turnoverCredit: 2, closingDebit: 12, closingCredit: 0 }
+    const noQuantities = { openingQuantity: 0, turnoverDebitQuantity: 0, turnoverCreditQuantity: 0, closingQuantity: 0 }
+    const mine = { analyticId: 'a', path: 'ДОСТАВЧИЦИ:Доставчик А', ...cells, ...noQuantities, turnoverCreditQuantity: 10 }
+    const theirs = { path: 'ДОСТАВЧИЦИ:Доставчик А', ...cells, ...noQuantities }
+    expect(compareAnalyticTrialBalance([theirs], [mine], { quantities: false })).toMatchObject({ cells: 6, differingCells: 0 })
+    expect(compareAnalyticTrialBalance([theirs], [mine]).differingCells).toBe(1)
+  })
+
   it('compares a main book\'s correspondents, each once', () => {
     const counters = [{ code: '702', debit: 5, credit: 0 }]
     const v = compareMainBook(

@@ -418,7 +418,7 @@ export interface ParsedAnalyticRow extends TrialBalanceCells, TrialBalanceQuanti
 
 export type ParsedTrialBalance =
   | { kind: 'synthetic'; eik?: string; period: ExportPeriod; currency?: LedgerCurrency; filters: string[]; rows: ParsedSyntheticRow[]; total?: TrialBalanceCells }
-  | { kind: 'analytic'; eik?: string; period: ExportPeriod; currency?: LedgerCurrency; filters: string[]; root?: string; rows: ParsedAnalyticRow[]; total?: TrialBalanceCells & TrialBalanceQuantities }
+  | { kind: 'analytic'; eik?: string; period: ExportPeriod; currency?: LedgerCurrency; filters: string[]; root?: string; rows: ParsedAnalyticRow[]; total?: TrialBalanceCells & TrialBalanceQuantities; quantities: boolean }
 
 // The last two are the table's own group headers, in the row above its header row.
 const TRIAL_BALANCE_LINES = [/^Оборотна ведомост/, /^Период:/, /^Валута:/, /^Фирма:/, /^ЕИК:/, /^Избрани АП:/, /^Сметка$/, /^Салдо в началото на периода$/]
@@ -487,7 +487,7 @@ export function parseTrialBalanceExport(matrix: Matrix): ParsedTrialBalance {
     if (/^Всичко/.test(path.trim())) total = cells
     else rows.push({ path, ...cells })
   })
-  return { kind: 'analytic', eik: title.eik, period: title.period, currency: title.currency, filters, root: rootLine?.[1] || undefined, rows, total }
+  return { kind: 'analytic', eik: title.eik, period: title.period, currency: title.currency, filters, root: rootLine?.[1] || undefined, rows, total, quantities: withQuantities }
 }
 
 // ── The main book („Главна книга") ──────────────────────────────────────────────────────────────

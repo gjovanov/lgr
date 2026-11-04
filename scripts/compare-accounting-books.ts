@@ -99,7 +99,7 @@ async function compareTrialBalanceFile(session: LgrSession, file: string): Promi
   } else {
     const books = await session.get(`/accounting/books/analytic-trial-balance${query(tb.period, tb.root)}`)
     assertCurrency(file, tb.currency, books.currency)
-    report(`${label} analytic trial balance, ${tb.root ?? 'all roots'}`, compareAnalyticTrialBalance(tb.rows, books.rows))
+    report(`${label} analytic trial balance, ${tb.root ?? 'all roots'}`, compareAnalyticTrialBalance(tb.rows, books.rows, { quantities: tb.quantities }))
   }
 }
 
