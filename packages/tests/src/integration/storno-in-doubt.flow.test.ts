@@ -816,6 +816,31 @@ describe('a storno\'s claim with no document: the process died between the claim
     expect(stornosOnDevice(w)).toHaveLength(1)
   })
 
+  // #454: a sale carried somewhere without its storno (an import, a move, a restore that held the storno back) has no
+  // document for its claim there. That is not "never written", and the sale must not be refunded again.
+  it('a claim whose storno was written stays, even where its document is missing', async () => {
+    const w = await tillWorld(app)
+    const sold = await w.sell(1)
+    const saleId = String(sold.json.transaction.id)
+    expect((await w.storno(saleId)).status).toBe(200)
+    const claimed = await read(saleId)
+    expect(claimed.register.stornoClaims.every((c: any) => c.written === true)).toBe(true)
+    const stornoId = String(claimed.register.stornoedBy[0])
+    await Invoice.deleteOne({ _id: stornoId })
+    await Invoice.updateOne({ _id: saleId }, { $set: { 'register.cancelledAt': old(), 'register.stornoClaims.$[].at': old() } })
+
+    expect(await releaseOrphanClaims(await read(saleId))).toBe(false)
+    const r = await w.storno(saleId)
+
+    // Still claimed by its storno: refused, never reversed again.
+    expect(r.status).toBe(409)
+    expect(r.json.code).toBe('storno_in_progress')
+    const sale = await read(saleId)
+    expect(sale.register.stornoState).toBe('full')
+    expect(sale.register.stornoedBy.map(String)).toEqual([stornoId])
+    expect(stornosOnDevice(w)).toHaveLength(1)
+  })
+
   it('on a sale whose session has closed nothing else will release it: its page offers the storno that does', async () => {
     const w = await tillWorld(app)
     const { saleId } = await orphaned(w, new Date())

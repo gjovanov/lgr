@@ -1221,6 +1221,22 @@ export async function releaseStornoClaim(original: any, stornoId: unknown): Prom
 }
 
 /**
+ * #454: the storno of this claim was written. Its claim is no longer an orphan whatever is found later: a sale
+ * carried somewhere without its storno (an import, a move or a restore that held the storno back) has no document
+ * for it there, and `releaseOrphanClaims` read that as "never written", so a press could refund it again.
+ *
+ * ⚠ Never fatal. The storno exists; a claim left unmarked is what every claim was before this, and its document
+ * still keeps it where it is.
+ */
+export async function markStornoWritten(original: any, stornoId: unknown): Promise<void> {
+  await Invoice.updateOne(
+    { _id: original._id, orgId: original.orgId },
+    { $set: { 'register.stornoClaims.$[c].written': true } },
+    { arrayFilters: [{ 'c.stornoId': oid(stornoId) }] },
+  ).exec()
+}
+
+/**
  * A claim on a sale whose storno was never written: the process died between `claimForStorno` and the insert.
  * Nothing printed and nothing was booked, but the journal reads it as stornoed with nothing related, the next
  * press is refused, and SUPTO 18.5 lists a cancellation that never happened. So an id in `stornoedBy` with no
@@ -1243,6 +1259,8 @@ export async function releaseOrphanClaims(sale: any, now = Date.now()): Promise<
       {
         _id: sale._id, orgId: sale.orgId, 'register.stornoedBy': oid(id),
         $or: [{ 'register.stornoClaims': { $elemMatch: { stornoId: oid(id), at: { $lt: before } } } }, { 'register.cancelledAt': { $lt: before } }],
+        // #454: a storno that was written, and is only not here, keeps its claim (`markStornoWritten`).
+        'register.stornoClaims': { $not: { $elemMatch: { stornoId: oid(id), written: true } } },
       },
       withoutClaim(oid(id)),
     ).exec()
