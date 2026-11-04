@@ -96,10 +96,13 @@
             density="compact"
             class="mb-2"
           />
+          <!-- #510: every role the server knows (`ROLES`), named as the Users screen names them. -->
           <v-select
             v-model="createForm.assignRole"
-            label="Role"
-            :items="['member', 'accountant', 'hr_manager', 'warehouse_manager', 'sales', 'manager', 'admin']"
+            :label="$t('settings.role')"
+            :items="roleItems"
+            item-title="title"
+            item-value="value"
             variant="outlined"
             density="compact"
           />
@@ -107,10 +110,19 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="showCreateDialog = false">Cancel</v-btn>
-          <v-btn color="primary" @click="handleCreate">Create</v-btn>
+          <v-btn
+            color="primary"
+            :loading="creating"
+            :disabled="createMode === 'email' && !createForm.targetEmail.trim()"
+            @click="handleCreate"
+          >
+            Create
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <InviteResultDialog :result="inviteResult" @close="inviteResult = null" />
 
     <v-snackbar v-model="copySnackbar" :timeout="2000" color="success">
       Invite link copied to clipboard!
@@ -120,12 +132,23 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ROLES } from 'config/constants'
 import { useInviteStore } from '../../store/invite.store'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import InviteResultDialog, { type InviteResult } from './InviteResultDialog.vue'
+import { inviteErrorText } from './invite-errors'
 
 const inviteStore = useInviteStore()
 const appStore = useAppStore()
+const { t } = useI18n()
+const { showError } = useSnackbar()
+const roleItems = computed(() => ROLES.map(r => ({ value: r, title: t(`settings.roles.${r}`) })))
+const creating = ref(false)
+/** #510: what became of the invitation just made: its link, and whether the email went out. */
+const inviteResult = ref<InviteResult | null>(null)
 
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/invite`),
@@ -165,20 +188,29 @@ function copyLink(code: string) {
 async function handleCreate() {
   const params: any = { assignRole: createForm.assignRole }
   if (createMode.value === 'email') {
-    params.targetEmail = createForm.targetEmail
+    params.targetEmail = createForm.targetEmail.trim()
   } else if (createForm.maxUses) {
     params.maxUses = createForm.maxUses
   }
   if (createForm.expiresInHours) {
     params.expiresInHours = createForm.expiresInHours
   }
-  await inviteStore.createInvite(params)
-  showCreateDialog.value = false
-  createForm.targetEmail = ''
-  createForm.maxUses = null
-  createForm.expiresInHours = null
-  createForm.assignRole = 'member'
-  await fetchItems()
+  creating.value = true
+  try {
+    const data = await inviteStore.createInvite(params)
+    showCreateDialog.value = false
+    createForm.targetEmail = ''
+    createForm.maxUses = null
+    createForm.expiresInHours = null
+    createForm.assignRole = 'member'
+    inviteResult.value = { link: data.link, targetEmail: data.invite?.targetEmail, email: data.email }
+    await fetchItems()
+  } catch (e: any) {
+    // #510: a refused invitation used to leave the dialog open with no word of why.
+    showError(inviteErrorText(e, t))
+  } finally {
+    creating.value = false
+  }
 }
 
 async function handleRevoke(id: string) {

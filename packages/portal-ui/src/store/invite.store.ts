@@ -63,8 +63,9 @@ export const useInviteStore = defineStore('invite', () => {
     assignRole?: string
     expiresInHours?: number
   }) {
+    // `{ invite, link, email? }` (#510). The list held the whole answer, not the invite.
     const { data } = await httpClient.post(`${appStore.orgUrl()}/invite`, payload)
-    invites.value.unshift(data)
+    if (data?.invite) invites.value.unshift(data.invite)
     return data
   }
 

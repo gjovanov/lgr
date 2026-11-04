@@ -8,6 +8,7 @@ import { paginateQuery } from 'services/utils/pagination'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { IdentityError } from 'services/biz/identity/identity.service'
 import { joinOrgByInvite } from 'services/biz/identity/account.service'
+import { inviteUrl, isEmailAddress, isRole, mailInvite } from 'services/biz/invite-email.service'
 import { BEARER_REQUIRED, NOT_A_PERSON, bearerPresent, callerOf, enterOrg } from '../auth/session-answer.js'
 
 export const inviteController = new Elysia()
@@ -78,18 +79,33 @@ export const inviteController = new Elysia()
       if (!user) return status(401, { message: 'Unauthorized' })
       if (user.role !== 'admin') return status(403, { message: 'Admin only' })
 
+      // #510: an address that is sent must be one. A blank one used to make the invite an open link
+      // with unlimited uses, which anyone holding it could join through.
+      const targetEmail = body.targetEmail === undefined ? undefined : body.targetEmail.trim()
+      if (targetEmail !== undefined && !isEmailAddress(targetEmail)) {
+        return status(422, { code: 'invalid_email', message: 'Enter the address the invitation is for' })
+      }
+      // #510: a role the system knows. Any string was stored, and the membership was made with it.
+      const assignRole = body.assignRole ?? 'member'
+      if (!isRole(assignRole)) return status(422, { code: 'invalid_role', message: `Unknown role: ${assignRole}` })
+
       const invite = await inviteDao.createInvite({
         orgId,
         inviterId: user.id,
-        targetEmail: body.targetEmail,
+        targetEmail,
         maxUses: body.maxUses,
-        assignRole: body.assignRole,
+        assignRole,
         expiresInHours: body.expiresInHours,
       })
 
-      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'admin', entityType: 'invite', entityId: String(invite._id), entityName: body.targetEmail || invite.code })
+      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'admin', entityType: 'invite', entityId: String(invite._id), entityName: targetEmail || invite.code })
 
-      return { invite: invite.toJSON() }
+      // #510: an invite that names an address is mailed to it. The admin is told whether it went out,
+      // and gets the link either way, to share it themselves.
+      const org = targetEmail ? await orgDao.findById(orgId) : null
+      const email = org ? await mailInvite(invite, org as any, `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.email || 'LGR') : null
+
+      return { invite: invite.toJSON(), link: inviteUrl(invite.code), ...(email ? { email } : {}) }
     },
     {
       isSignIn: true,
