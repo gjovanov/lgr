@@ -64,7 +64,15 @@ export function compareTrialBalance(file: readonly ParsedSyntheticRow[], books: 
   return tally.verdict
 }
 
-export function compareAnalyticTrialBalance(file: readonly ParsedAnalyticRow[], books: readonly AnalyticBalanceRow[]): Verdict {
+/**
+ * `quantities: false` for a file of a root kept without them (КЛИЕНТИ, ДОСТАВЧИЦИ): it states none, while
+ * the books carry an operation's quantity on both of its analytics.
+ */
+export function compareAnalyticTrialBalance(
+  file: readonly ParsedAnalyticRow[],
+  books: readonly AnalyticBalanceRow[],
+  { quantities = true }: { quantities?: boolean } = {},
+): Verdict {
   const tally = new Tally()
   const ours = new Map(books.map(r => [r.path, r]))
   const theirs = new Map(file.map(r => [r.path, r]))
@@ -73,7 +81,7 @@ export function compareAnalyticTrialBalance(file: readonly ParsedAnalyticRow[], 
     const file = theirs.get(path)
     tally.row(undefined, [
       ...moneyPairs(mine, file),
-      ...QUANTITY.map(key => [mine?.[key] ?? 0, file?.[key] ?? 0, QUANTITY_TOLERANCE] as const),
+      ...(quantities ? QUANTITY.map(key => [mine?.[key] ?? 0, file?.[key] ?? 0, QUANTITY_TOLERANCE] as const) : []),
     ], !mine || !file)
   }
   return tally.verdict

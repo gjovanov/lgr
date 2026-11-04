@@ -863,7 +863,20 @@ The models, `scripts/link-books.ts`, the import (`scripts/import-accounting-book
 - **A re-import keeps ids.** An entry is found by `importKey` (type, number, date, partner, never an amount), updated in place, and those gone are deleted, in one transaction a month. An entry no import wrote is left alone.
 - ⚠ `$ne: null` on a line's field, before an `$unwind`, reads "no line lacks it" and drops every document with one line that does. Use `$exists`.
 
-Not built, on purpose: §5.6's link to the store invoice (it would read a branch's documents from a request, and §3.1 keeps that to the worker), `Платено` and `Неплатено` in the document journal (they need `settles` with amounts, R5), and §8's import wizard (the CLI does it). The gate itself waits for E1: 2025's journal has not been exported.
+Not built, on purpose: §5.6's link to the store invoice (it would read a branch's documents from a request, and §3.1 keeps that to the worker), `Платено` and `Неплатено` in the document journal (they need `settles` with amounts, R5), and §8's import wizard (the CLI does it).
+
+**Run 2026-11-05 on E1, 2025 and 2026 to 04.11.** Both years imported; a second dry run changed nothing. 2026's opening equals 2025's closing on all 66 accounts. The first real run found three things, each fixed before the gate was read:
+
+- **A journal can hold an operation whose document PlusMinus lost** (#518). The year's own `Брой документи` leaves the document out while `Брой счетоводни операции` counts the operation. It is imported as a document of its own, and the import names it.
+- **An analytic trial balance of a root kept without quantities** (КЛИЕНТИ, ДОСТАВЧИЦИ) has 7 columns, not 11 (#519). The parser read it at СТОКИ's positions. The analytic openings of 401 and 411 were imported again from the corrected reading.
+- **Such a file states no quantities,** while the books carry an operation's quantity on both of its analytics. The gate compares quantities only where the file states them.
+
+The gate, after them:
+
+- **Equal:** the main book, the journal's turnovers per account and per analytic, and for 2026 the synthetic trial balance and ДОСТАВЧИЦИ.
+- **What is left differs in two ways, and neither is the import's:**
+  - two cells of 2025's synthetic trial balance, by the cent PlusMinus rounds a balance to;
+  - a few dozen analytic rows a year, whose name holds a character PlusMinus has broken (U+FFFD in place of a Cyrillic letter). The journal names such an analytic as it was when the operation was booked, and the trial balance as it is now. The amounts agree, split between the two spellings. Those names are for the accountant to repair.
 
 ⚠ Rollout: `accounting.import` belongs to admins by default, and `tokenize()` gives an admin every permission, so there is no backfill; an admin signs in again after the deploy. The new indexes must be on prod before the first import: the unique one on `importKey` is what stops two imports of a month doubling it.
 
