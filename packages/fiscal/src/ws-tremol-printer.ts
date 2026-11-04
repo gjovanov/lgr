@@ -16,8 +16,9 @@ import type {
   StornoReason,
 } from './types.js'
 import { paymentCode } from './types.js'
-import { buildTremolFrame, parseTremolResponse, tremolFiscalized, tremolPayload, TREMOL_CMD } from './tremol.js'
+import { buildTremolFrame, parseTremolResponse, readTremolClock, tremolClock, tremolFiscalized, tremolPayload, TREMOL_CMD } from './tremol.js'
 import { logger } from 'services/logger'
+import { formatDeviceDate, formatDeviceDateTime } from './zoned-time.js'
 import { stagedPrint } from './print-stage.js'
 import type { SendCommandFn } from './ws-fiscal-printer.js'
 
@@ -122,13 +123,8 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
       // This driver closes a sale before it can ask for its number, so a sale may have none to cite.
       if (!/^\d+$/.test(String(originalReceiptNumber ?? ''))) throw new Error('This sale has no fiscal receipt number on record, so its storno has nothing to cite. Nothing was sent to the device.')
       reached('opening')
-      const dd = String(originalDate.getDate()).padStart(2, '0')
-      const mm = String(originalDate.getMonth() + 1).padStart(2, '0')
-      const yy = String(originalDate.getFullYear()).slice(-2)
-      const hh = String(originalDate.getHours()).padStart(2, '0')
-      const min = String(originalDate.getMinutes()).padStart(2, '0')
-      const ss = String(originalDate.getSeconds()).padStart(2, '0')
-      const dt = `${dd}-${mm}-${yy} ${hh}:${min}:${ss}`
+      // The receipt it cites, as the device printed it: in Bulgarian time, never the pod's UTC.
+      const dt = formatDeviceDateTime(originalDate)
       const rc = STORNO_REASON[reason]
 
       await this.send(TREMOL_CMD.OPEN_FISCAL_RECEIPT, `1;0000;1;1;E;${rc};${originalReceiptNumber};${dt};$${unpNumber}`)
@@ -152,21 +148,12 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   }
 
   async readDateTime(): Promise<Date> {
-    const data = await this.send(TREMOL_CMD.READ_DATE_TIME)
-    const [datePart, timePart] = data.split(';')
-    const [dd, mm, yy] = (datePart || '').split('-').map(Number)
-    const [hh, min, ss] = (timePart || '').split(':').map(Number)
-    return new Date(2000 + (yy || 0), (mm || 1) - 1, dd || 1, hh || 0, min || 0, ss || 0)
+    return readTremolClock(await this.send(TREMOL_CMD.READ_DATE_TIME))
   }
 
   async syncDateTime(dateTime: Date): Promise<void> {
-    const dd = String(dateTime.getDate()).padStart(2, '0')
-    const mm = String(dateTime.getMonth() + 1).padStart(2, '0')
-    const yy = String(dateTime.getFullYear()).slice(-2)
-    const hh = String(dateTime.getHours()).padStart(2, '0')
-    const min = String(dateTime.getMinutes()).padStart(2, '0')
-    const ss = String(dateTime.getSeconds()).padStart(2, '0')
-    await this.send(TREMOL_CMD.SET_DATE_TIME, `${dd}-${mm}-${yy};${hh}:${min}:${ss}`)
+    // In Bulgarian time, as the device keeps it (`tremolClock`): the pod runs in UTC.
+    await this.send(TREMOL_CMD.SET_DATE_TIME, tremolClock(dateTime))
   }
 
   // ── Non-fiscal receipt methods ──
@@ -191,8 +178,8 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
   // ── Report and operator commands ──
 
   private formatDate(d: Date): string {
-    // DDMMYY format (no dashes) per ZFPLab spec
-    return `${String(d.getDate()).padStart(2, '0')}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getFullYear()).slice(-2)}`
+    // DDMMYY format (no dashes) per ZFPLab spec, the day in Bulgarian time (the pod runs in UTC).
+    return formatDeviceDate(d)
   }
 
   async printDailyXReport(): Promise<ZReportResult> {

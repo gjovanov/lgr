@@ -26,6 +26,7 @@ import type {
 } from './types.js'
 import { paymentCode } from './types.js'
 import { logger } from 'services/logger'
+import { formatDeviceDate, formatDeviceDateTime, parseDeviceDateTime } from './zoned-time.js'
 import { stagedPrint } from './print-stage.js'
 
 // Tremol protocol constants
@@ -520,13 +521,8 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
       reached('opening')
       // Command 30h with storno format:
       // OpNum;OpPass;ReceiptFormat;PrintVAT;StornoRcpPrintType;StornoReason;RelatedToRcpNum;RelatedToRcpDateTime;FMNum$UNP
-      const dd = String(originalDate.getDate()).padStart(2, '0')
-      const mm = String(originalDate.getMonth() + 1).padStart(2, '0')
-      const yy = String(originalDate.getFullYear()).slice(-2)
-      const hh = String(originalDate.getHours()).padStart(2, '0')
-      const min = String(originalDate.getMinutes()).padStart(2, '0')
-      const ss = String(originalDate.getSeconds()).padStart(2, '0')
-      const dateTimeStr = `${dd}-${mm}-${yy} ${hh}:${min}:${ss}`
+      // The receipt it cites, as the device printed it: in Bulgarian time, never the pod's UTC.
+      const dateTimeStr = formatDeviceDateTime(originalDate)
       const reasonCode = STORNO_REASON[reason]
 
       const stornoData = `1;0000;1;1;E;${reasonCode};${originalReceiptNumber};${dateTimeStr};$${unpNumber}`
@@ -561,22 +557,12 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
   }
 
   async readDateTime(): Promise<Date> {
-    const data = await this.transport.sendCommand(TREMOL_CMD.READ_DATE_TIME)
-    // Response: DD-MM-YY;HH:MM:SS
-    const [datePart, timePart] = data.split(';')
-    const [dd, mm, yy] = (datePart || '').split('-').map(Number)
-    const [hh, min, ss] = (timePart || '').split(':').map(Number)
-    return new Date(2000 + (yy || 0), (mm || 1) - 1, dd || 1, hh || 0, min || 0, ss || 0)
+    return readTremolClock(await this.transport.sendCommand(TREMOL_CMD.READ_DATE_TIME))
   }
 
   async syncDateTime(dateTime: Date): Promise<void> {
-    const dd = String(dateTime.getDate()).padStart(2, '0')
-    const mm = String(dateTime.getMonth() + 1).padStart(2, '0')
-    const yy = String(dateTime.getFullYear()).slice(-2)
-    const hh = String(dateTime.getHours()).padStart(2, '0')
-    const min = String(dateTime.getMinutes()).padStart(2, '0')
-    const ss = String(dateTime.getSeconds()).padStart(2, '0')
-    await this.transport.sendCommand(TREMOL_CMD.SET_DATE_TIME, `${dd}-${mm}-${yy};${hh}:${min}:${ss}`)
+    // In Bulgarian time, as the device keeps it (`tremolClock`): the pod runs in UTC.
+    await this.transport.sendCommand(TREMOL_CMD.SET_DATE_TIME, tremolClock(dateTime))
   }
 
   // ── Non-fiscal receipt methods ──
@@ -600,8 +586,8 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
   // ── Report and operator commands ──
 
   private formatDate(d: Date): string {
-    // DDMMYY format (no dashes) per ZFPLab spec
-    return `${String(d.getDate()).padStart(2, '0')}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getFullYear()).slice(-2)}`
+    // DDMMYY format (no dashes) per ZFPLab spec, the day in Bulgarian time (the pod runs in UTC).
+    return formatDeviceDate(d)
   }
 
   async printDailyXReport(): Promise<ZReportResult> {
@@ -645,4 +631,21 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
     // Response: Number;Name[20];Password[6]
     return { number: operatorNumber, name: (parts[1] || '').trim() }
   }
+}
+
+/**
+ * A Tremol's clock, "DD-MM-YY;HH:MM:SS", in Bulgarian time: the device's wall clock. Never the process's own
+ * getters (`getHours()`): the pod runs in UTC, and a correct device read as UTC looked 2 h ahead, so a person who
+ * confirmed the step set it 2 h behind.
+ */
+export function tremolClock(date: Date): string {
+  return formatDeviceDateTime(date).replace(' ', ';')
+}
+
+/** A Tremol's clock reading, as an instant. A garbled one is an error, never a date in 2000. */
+export function readTremolClock(text: string): Date {
+  const raw = String(text ?? '')
+  const parsed = parseDeviceDateTime(raw.replace(';', ' '))
+  if (!parsed) throw new Error('Tremol clock: unexpected answer "' + raw.slice(0, 40) + '"')
+  return parsed
 }

@@ -30,6 +30,7 @@ import type {
 } from './types.js'
 import { paymentCode } from './types.js'
 import { logger } from 'services/logger'
+import { formatDeviceDateTime, parseDeviceDateTime } from './zoned-time.js'
 import { stagedPrint } from './print-stage.js'
 
 // Datecs protocol constants
@@ -377,28 +378,24 @@ export class DatecsFiscalPrinter implements IFiscalPrinter {
 
 // ── Datecs date/time helpers ──
 
-function formatDatecsDate(date: Date): string {
-  const dd = String(date.getDate()).padStart(2, '0')
-  const mm = String(date.getMonth() + 1).padStart(2, '0')
-  const yy = String(date.getFullYear()).slice(-2)
-  return `${dd}-${mm}-${yy}`
+/** "DD-MM-YY", the day in Bulgarian time: a sale after midnight there is still the day before in UTC. */
+export function formatDatecsDate(date: Date): string {
+  return formatDeviceDateTime(date).slice(0, 8)
 }
 
-function formatDatecsDateTime(date: Date): string {
-  const dd = String(date.getDate()).padStart(2, '0')
-  const mm = String(date.getMonth() + 1).padStart(2, '0')
-  const yy = String(date.getFullYear()).slice(-2)
-  const hh = String(date.getHours()).padStart(2, '0')
-  const min = String(date.getMinutes()).padStart(2, '0')
-  const ss = String(date.getSeconds()).padStart(2, '0')
-  return `${dd}-${mm}-${yy} ${hh}:${min}:${ss}`
+/**
+ * "DD-MM-YY HH:MM:SS" in Bulgarian time, the device's wall clock (`zoned-time.ts`). Never the process's own
+ * getters: the pod runs in UTC, and a correct device read that way looked 2 h ahead, so a confirmed sync set it
+ * 2 h behind.
+ */
+export function formatDatecsDateTime(date: Date): string {
+  return formatDeviceDateTime(date)
 }
 
-function parseDatecsDateTime(str: string): Date {
-  // Format: DD-MM-YY HH:MM:SS
-  const [datePart, timePart] = str.trim().split(' ')
-  const [dd, mm, yy] = (datePart || '').split('-').map(Number)
-  const [hh, min, ss] = (timePart || '').split(':').map(Number)
-  const year = 2000 + (yy || 0)
-  return new Date(year, (mm || 1) - 1, dd || 1, hh || 0, min || 0, ss || 0)
+/** A Datecs clock reading, as an instant in Bulgarian time. A garbled one is an error, never a date in 2000. */
+export function parseDatecsDateTime(str: string): Date {
+  const raw = String(str ?? '')
+  const parsed = parseDeviceDateTime(raw)
+  if (!parsed) throw new Error('Datecs clock: unexpected answer "' + raw.slice(0, 40) + '"')
+  return parsed
 }
