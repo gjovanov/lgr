@@ -176,6 +176,9 @@ async function importJournal(session: LgrSession, file: string): Promise<void> {
   assertWholeJournal(journal)
   noteEik(file, journal.eik)
   console.log(`${basename(file)}: ${journal.counts.documents} documents, ${journal.counts.operations} operations, ${journal.period.from} to ${journal.period.to}`)
+  for (const w of journal.withoutHeader) {
+    console.log(`  ${w.at}: ${w.docType} ${w.docNumber} of ${w.date} is an operation with no document in PlusMinus. Imported as a document of its own; ask the accountant.`)
+  }
 
   const byMonth = documentsByMonth(journal.documents)
   const totals = { entries: 0, operations: 0, balanced: 0, new: 0, changed: 0, gone: 0, unchanged: 0, settles: 0 }

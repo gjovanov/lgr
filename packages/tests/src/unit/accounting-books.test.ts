@@ -184,6 +184,15 @@ describe('the journal export', () => {
     expect(j.documents.every(d => !d.docType && d.ops.length === 1)).toBe(true)
   })
 
+  it('an operation whose document PlusMinus no longer holds is a document of its own, and is named', () => {
+    const orphan = opRow('04.03.2025', '+ББ', '0000000777', '503', '411', 'БАНКОВИ СМЕТКИ:Сметка', 'КЛИЕНТИ:Клиент А', null, 120)
+    const j = parseJournalExport(journalMatrix({ rows: [...SALE_ROWS, orphan] }))
+    expect(j.counts).toEqual({ documents: 1, operations: 4 })
+    expect(j.withoutHeader).toEqual([{ at: expect.any(String), date: '2025-03-04', docType: '+ББ', docNumber: '0000000777' }])
+    expect(j.documents[1]).toEqual({ date: '2025-03-04', docType: '+ББ', docNumber: '0000000777', ops: [{ d: '503', k: '411', amount: 120, ad: 'БАНКОВИ СМЕТКИ:Сметка', ak: 'КЛИЕНТИ:Клиент А' }] })
+    expect(() => assertWholeJournal(j)).not.toThrow()
+  })
+
   it('keeps a negative amount and a negative quantity as booked', () => {
     const rows = [headerRow('10.03.2025', '-ФЕ', '0000000102', -12), opRow('10.03.2025', '-ФЕ', '0000000102', '702', '304', '', 'СТОКИ:БОЛТОВЕ', -1, -6)]
     expect(parseJournalExport(journalMatrix({ rows })).documents[0].ops[0]).toMatchObject({ amount: -6, qty: -1 })
@@ -227,6 +236,13 @@ describe('the journal export', () => {
     it('an export with no document rows: the same report, filtered to one account', () => {
       const rows = SALE_ROWS.slice(1)
       expect(refusal(() => parseJournalExport(journalMatrix({ docs: 0, rows }))).code).toBe('operation_without_document')
+    })
+
+    it('operations without a header in a file that misses a header it declares, or in more documents than a complete one holds', () => {
+      const orphan = (no: string) => opRow('04.03.2025', '+ББ', no, '503', '411', 'БАНКОВИ СМЕТКИ:Сметка', 'КЛИЕНТИ:Клиент А', null, 5)
+      expect(refusal(() => parseJournalExport(journalMatrix({ docs: 2, rows: [...SALE_ROWS, orphan('0000000701')] }))).code).toBe('operation_without_document')
+      const four = ['0000000701', '0000000702', '0000000703', '0000000704'].map(orphan)
+      expect(refusal(() => parseJournalExport(journalMatrix({ rows: [...SALE_ROWS, ...four] }))).code).toBe('operation_without_document')
     })
 
     it('a count or a total the file itself contradicts', () => {

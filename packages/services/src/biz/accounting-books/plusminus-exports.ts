@@ -128,7 +128,19 @@ export interface ParsedJournal {
   documents: ImportDocument[]
   counts: { documents: number; operations: number }
   declared: { documents?: number; operations?: number }
+  /**
+   * Operations that name a document the export has no header row for. Each is a document of its own
+   * in `documents`, from its row's date, type and number, with no total or comment. PlusMinus's own
+   * `Брой документи` does not count them: the operation is in the books, its document is not.
+   */
+  withoutHeader: { at: string; date: string; docType: string; docNumber: string }[]
 }
+
+/**
+ * A complete export can hold a few operations whose document is gone from PlusMinus. More than this
+ * many is an export of another shape, and is refused.
+ */
+const MAX_DOCUMENTS_WITHOUT_HEADER = 3
 
 /** A column by any of the names PlusMinus has given it. -1 when absent. */
 function columnOf(header: unknown[], ...names: string[]): number {
@@ -172,6 +184,7 @@ export function parseJournalExport(matrix: Matrix): ParsedJournal {
   }
 
   const documents: ImportDocument[] = []
+  const withoutHeader: ParsedJournal['withoutHeader'] = []
   let current: ImportDocument | null = null
   let documentCount = 0
   let operationCount = 0
@@ -256,12 +269,21 @@ export function parseJournalExport(matrix: Matrix): ParsedJournal {
       current = null
       continue
     }
-    // Its document's header came first, on every row of the year measured. One that did not means
-    // an export of another shape: a filtered one has no headers at all.
+    // Its document's header comes first. One that does not is either a document gone from
+    // PlusMinus while its operation stayed (a few, in a complete export: checked below) or an
+    // export of another shape (a filtered one has no headers at all).
     if (!current || current.docType !== docType || current.docNumber !== docNumber || current.date !== date) {
-      throw new ExportRefused('operation_without_document', `${at}: an operation whose document has no header row.`)
+      withoutHeader.push({ at, date, docType, docNumber })
+      current = { date, docType, docNumber, ops: [] }
+      documents.push(current)
     }
     current.ops.push(op)
+  }
+
+  // Accepted only where the file holds every header it declares: a filtered export declares none.
+  const complete = declared.documents !== undefined && declared.documents > 0 && declared.documents === documentCount
+  if (withoutHeader.length && (!complete || withoutHeader.length > MAX_DOCUMENTS_WITHOUT_HEADER)) {
+    throw new ExportRefused('operation_without_document', `${withoutHeader[0].at}: an operation whose document has no header row.`)
   }
 
   const parsed: ParsedJournal = {
@@ -272,6 +294,7 @@ export function parseJournalExport(matrix: Matrix): ParsedJournal {
     documents,
     counts: { documents: documentCount, operations: operationCount },
     declared,
+    withoutHeader,
   }
 
   if (declared.documents !== undefined && declared.documents !== documentCount) {
