@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
+import { holdsArea } from 'config/constants'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement, MovementClaimedError, MovementNotDraftError, unclaimedMovement } from 'services/biz/warehouse.service'
@@ -75,6 +76,29 @@ function transferOnly(user: { role?: string; permissions?: readonly string[] }):
 }
 
 const TRANSFER_ONLY = { code: 'transfer_only', message: 'Your role moves stock between warehouses only: a transfer.' } as const
+
+/**
+ * #493, FR-26.6 `purchases`: the incoming documents these movements point at, for a session
+ * without the area; empty for one that has it (nothing is hidden from it). One query per call.
+ */
+async function hiddenBills(user: { role?: string; areas?: readonly string[] }, orgId: string, movements: any[]): Promise<Set<string>> {
+  if (holdsArea(user, 'purchases')) return new Set()
+  const ids = [...new Set(movements.map(m => m.invoiceId).filter(Boolean).map(String))].filter(id => /^[0-9a-f]{24}$/i.test(id))
+  if (!ids.length) return new Set()
+  const bills = await Invoice.find({ _id: { $in: ids }, orgId, direction: 'incoming' } as any, { _id: 1 }).lean().exec()
+  return new Set(bills.map((b: any) => String(b._id)))
+}
+
+/**
+ * A bill does not exist for a session without `purchases`, so a movement it reads names none: no
+ * `invoiceId` when that is a bill's, and no `bill`. The bill itself already answers 404 to such a
+ * session, and its number should not show here either. A link to a sales document stays.
+ */
+function withoutBill<T extends Record<string, any>>(hidden: Set<string>, m: T): T {
+  if (!m.invoiceId || !hidden.has(String(m.invoiceId))) return m
+  const { invoiceId: _bill, bill: _named, ...rest } = m
+  return rest as T
+}
 
 /** Why a transfer-only session may not write this movement, with its status, or null. */
 function transferRefusal(
@@ -161,8 +185,10 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const warehouseMap = new Map(warehouses.map(w => [w.id, w]))
     const contactMap = new Map(contacts.map(c => [c.id, c]))
     // FR-22.31: a receipt names the live bill that holds it (the list's „Фактурирана" marker).
-    const receipts = result.items.filter((m: any) => m.type === 'receipt' && m.invoiceId)
+    // #493: none for a session without `purchases`, and the bills it would name are hidden (`withoutBill`).
+    const receipts = holdsArea(user, 'purchases') ? result.items.filter((m: any) => m.type === 'receipt' && m.invoiceId) : []
     const billing = receipts.length ? await billingByMovement(orgId, receipts) : new Map()
+    const hidden = await hiddenBills(user, orgId, result.items)
 
     const stockMovements = result.items.map(m => {
       const fromWh = m.fromWarehouseId ? warehouseMap.get(m.fromWarehouseId) : null
@@ -191,7 +217,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       // Strip lines from list response (not needed for table, reduces payload)
       const { lines, ...rest } = m as any
       const bill = billing.get(String(m.id))?.invoice
-      return {
+      return withoutBill(hidden, {
         ...rest,
         lineCount: lines?.length || 0,
         number: m.movementNumber,
@@ -201,7 +227,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         contactName,
         ...(productQuantity !== undefined ? { productQuantity } : {}),
         ...(bill && !['voided', 'cancelled'].includes(bill.status) ? { bill: { id: bill.id, number: bill.number } } : {}),
-      }
+      })
     })
 
     return { stockMovements, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages }
@@ -349,11 +375,13 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     }))
 
     // FR-22.31: the bill that holds this receipt, or whether one may be made from it.
-    const billing = movement.type === 'receipt'
+    // #493: a session without `purchases` makes no bill and is told of none.
+    const billing = movement.type === 'receipt' && holdsArea(user, 'purchases')
       ? await receiptBillingFor(orgId, { ...movement, _id: movement.id }, user.id)
       : { billable: false }
 
-    return { stockMovement: { ...movement, number: movement.movementNumber, lines, ...billing } }
+    const hidden = await hiddenBills(user, orgId, [movement])
+    return { stockMovement: withoutBill(hidden, { ...movement, number: movement.movementNumber, lines, ...billing }) }
   }, { isSignIn: true })
   .put(
     '/:id',

@@ -289,13 +289,13 @@ export async function endSessionsOf(identityId: unknown): Promise<boolean> {
 
 /**
  * FR-26.9.2: the set a person who accepts an invite with `role` starts on: the role's system set
- * where it has one, else the org's default set. A role held to areas (a Seller) whose set this org
- * lacks gets none: its role defaults carry the areas, and the default set („Member (Read Only)")
- * would open Accounting and Reports to it.
+ * where it has one, else none, so `tokenize()` issues the role's own defaults. That is what a role
+ * change into the same role gives (`setsForRole`), so the two paths agree.
+ *
+ * ⚠ Never the org's default set as a fallback. It is „Member (Read Only)": an invited `sales` user
+ * could not write an invoice, an `hr_manager` got no payroll at all, and a Seller (whose areas live
+ * in the role defaults) would read Accounting and open Reports (#493).
  */
 export async function inviteSetFor(orgId: unknown, role: string): Promise<IPermissionSet | null> {
-  const own = await systemSetForRole(orgId, role)
-  if (own) return own
-  if (DEFAULT_ROLE_AREAS[role as Role]) return null
-  return PermissionSet.findOne({ orgId, isDefault: true }).lean().exec() as Promise<IPermissionSet | null>
+  return systemSetForRole(orgId, role)
 }

@@ -258,7 +258,7 @@ export async function register(
     if (!invite) {
       await provisionNewOrg(org, user)
     } else {
-      // An invite's registration starts on the role's system set, else the org's default (FR-26.9.2).
+      // An invite's registration starts on the role's system set, else on the role's defaults (FR-26.9.2).
       const set = await inviteSetFor(org._id, role)
       if (set) {
         user.permissionSetIds = [set._id]
