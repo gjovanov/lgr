@@ -51,6 +51,7 @@ import { isSealPublicKey } from '../crypto/node-seal.js'
 import { sealedCredentialsForMove } from '../identity/onprem-credentials.service.js'
 import { presenceOfNodes } from '../node/node.service.js'
 import { collectionDigests, digestMismatch, writeMoveBundle, type Digests } from './move-bundle.js'
+import { masterVersionRefusal } from './master-version.js'
 
 type ObjectId = mongo.ObjectId
 
@@ -113,6 +114,9 @@ export async function preflightMove(
   const registered = !!node && node.status === 'active' && (node.orgIds ?? []).some((id: unknown) => String(id) === orgId)
   add('registered', registered, 'the server is not registered for this organisation')
   add('full', node?.linkLevel === 'full', `the server is linked at ${node?.linkLevel ?? 'nothing'}: a move needs Full`)
+  // #453: a master that cannot read what the org holds would read it by older rules.
+  const tooOld = await masterVersionRefusal(org, node)
+  add('version', !tooOld, tooOld ?? undefined)
   add('no_clone_alarm', !node?.cloneAlarm?.at, 'two machines answer as this server')
   add('seal_key', isSealPublicKey(node?.sealKey), 'the server has not given lgrai.app its seal key yet: its people\'s local credentials could not travel')
   const live = (await presenceOfNodes([nodeId])).get(nodeId)
