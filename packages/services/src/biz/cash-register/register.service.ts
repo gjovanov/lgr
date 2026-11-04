@@ -39,7 +39,7 @@ import { generateUNP } from '../sequence.service.js'
 import { getNextInvoiceNumber, issuableRefusal } from '../invoice-numbering.service.js'
 import { createInvoiceStockMovement, createNumberedMovement, returnedUnitCost, reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { confirmMovement } from '../warehouse.service.js'
-import { PendingTransferError, confirmTransferMovements } from '../stock-transfer.service.js'
+import { PendingTransferError, confirmTransferMovements, discardPendingTransfers } from '../stock-transfer.service.js'
 import { IdempotencyError, LEASE_MS, assertSameRequest, keepLease, takeLease, waitForCompletion } from '../hot-path-key.js'
 import { exchangeRateFor, fromPosTransaction } from './mapping.js'
 import { unitsOf } from './copy.js'
@@ -717,9 +717,14 @@ function reachedDeviceOrDrawer(doc: any): boolean {
   return !!doc.register?.sessionTotalsApplied || state === 'pending' || state === 'printed' || state === 'unknown'
 }
 
-/** Remove a sale that failed before it reached the device or the drawer. */
+/**
+ * Remove a sale that failed before it reached the device or the drawer, and the transfers it asked for that it
+ * never confirmed (#454): they are its own (`register.transfersToConfirm`), and nothing will confirm them now. One
+ * it did confirm is a real movement and stays.
+ */
 export async function rollBack(doc: any): Promise<void> {
   await Invoice.deleteOne({ _id: doc._id, orgId: doc.orgId }).exec()
+  await discardPendingTransfers(String(doc.orgId), doc.register?.transfersToConfirm)
 }
 
 /**
