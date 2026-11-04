@@ -229,10 +229,17 @@ async function deviceOfOpenSession(orgId: string, userId: unknown): Promise<Fisc
 export const deviceFromDeadReceipt: FiscalResolver = async ({ params }) => {
   const documentId = oid(params?.id)
   if (!documentId) return null
+  /**
+   * #454: a credit note's door finishes what died on its INVOICE first (`counter-refund.ts#prepareRefund`), so that
+   * invoice's receipts are this document's too. Without them the note's request ran where it landed, and a receipt
+   * whose device another pod holds was decided away from that device.
+   */
+  const doc: any = await Invoice.findOne({ _id: documentId, orgId: params.orgId }, { type: 1, relatedInvoiceId: 1 }).lean().exec()
+  const ids = doc?.type === 'credit_note' && doc.relatedInvoiceId ? [documentId, doc.relatedInvoiceId] : [documentId]
   const receipt: any = await Invoice.findOne(
     {
       orgId: params.orgId, completedAt: { $exists: false }, 'register.fiscal.inDoubt': { $ne: true },
-      $or: [{ type: 'payment_receipt', 'register.paidInvoiceId': documentId }, { type: 'payment_storno', 'register.refundOf': documentId }],
+      $or: [{ type: 'payment_receipt', 'register.paidInvoiceId': { $in: ids } }, { type: 'payment_storno', 'register.refundOf': { $in: ids } }],
     },
     { 'register.fiscalDeviceNumber': 1 },
   ).sort({ _id: 1 }).lean().exec()
