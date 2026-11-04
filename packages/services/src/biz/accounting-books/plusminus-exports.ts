@@ -455,23 +455,34 @@ export function parseTrialBalanceExport(matrix: Matrix): ParsedTrialBalance {
   }
 
   const rootLine = title.lines.map(l => /^Избрани АП:\s*(.*?):?\s*$/.exec(l)).find(Boolean)
+  // A root kept in quantities (СТОКИ) has a quantity before each pair of amounts. One that is not
+  // (КЛИЕНТИ, ДОСТАВЧИЦИ) has the three pairs alone, so its columns start one, two and three earlier.
+  const columns = matrix[title.headerRow].map(trimmed).filter(Boolean)
+  const withQuantities = columns.some(h => /кол/i.test(h))
+  if (columns.length !== (withQuantities ? 11 : 7)) {
+    throw new ExportRefused('unknown_layout', `The analytic trial balance has ${columns.length} columns, and neither layout PlusMinus has used.`)
+  }
+  const at = withQuantities
+    ? { oq: 1, od: 2, oc: 3, tdq: 4, tcq: 5, td: 6, tc: 7, cq: 8, cd: 9, cc: 10 }
+    : { od: 1, oc: 2, td: 3, tc: 4, cd: 5, cc: 6 }
+  const quantity = (row: unknown[], i: number | undefined, where: string) => (i === undefined ? 0 : num(row[i], where) ?? 0)
   const rows: ParsedAnalyticRow[] = []
   let total: (TrialBalanceCells & TrialBalanceQuantities) | undefined
   body.forEach((row, n) => {
-    const at = `row ${title.headerRow + n + 2}`
+    const where = `row ${title.headerRow + n + 2}`
     const path = text(row[0])
     if (!path.trim() || /^Съставител/.test(path)) return
     const cells = {
-      openingQuantity: num(row[1], at) ?? 0,
-      openingDebit: num(row[2], at) ?? 0,
-      openingCredit: num(row[3], at) ?? 0,
-      turnoverDebitQuantity: num(row[4], at) ?? 0,
-      turnoverCreditQuantity: num(row[5], at) ?? 0,
-      turnoverDebit: num(row[6], at) ?? 0,
-      turnoverCredit: num(row[7], at) ?? 0,
-      closingQuantity: num(row[8], at) ?? 0,
-      closingDebit: num(row[9], at) ?? 0,
-      closingCredit: num(row[10], at) ?? 0,
+      openingQuantity: quantity(row, at.oq, where),
+      openingDebit: num(row[at.od], where) ?? 0,
+      openingCredit: num(row[at.oc], where) ?? 0,
+      turnoverDebitQuantity: quantity(row, at.tdq, where),
+      turnoverCreditQuantity: quantity(row, at.tcq, where),
+      turnoverDebit: num(row[at.td], where) ?? 0,
+      turnoverCredit: num(row[at.tc], where) ?? 0,
+      closingQuantity: quantity(row, at.cq, where),
+      closingDebit: num(row[at.cd], where) ?? 0,
+      closingCredit: num(row[at.cc], where) ?? 0,
     }
     if (/^Всичко/.test(path.trim())) total = cells
     else rows.push({ path, ...cells })
