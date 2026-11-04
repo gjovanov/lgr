@@ -520,8 +520,11 @@ test.describe('FR-23 R2 — a storno for a refund on a credit note', () => {
 
     await page.getByTestId('receipt-settle-printed').click()
     await expect(page.getByRole('dialog').filter({ hasText: 'The refund is recorded on the credit note' })).toBeVisible()
-    // A storno asks for no number: it is what cites one.
-    await expect(page.getByTestId('receipt-settle-number')).toHaveCount(0)
+    // #454: a fiscal storno may bring its own number off the slip (SUPTO 18.4 lists it by it). It is
+    // optional: settled without one, it still completes.
+    await expect(page.getByTestId('receipt-settle-number')).toBeVisible()
+    await page.getByTestId('receipt-settle-number').locator('input').fill('')
+    await expect(page.getByTestId('receipt-settle-confirm')).toBeEnabled()
     const settling = page.waitForResponse(r => r.url().endsWith(`/cash-register/documents/${stornoId}/settle`))
     await page.getByTestId('receipt-settle-confirm').click()
     expect((await settling).status()).toBe(200)

@@ -37,9 +37,10 @@ describe('productDocActions — what an article offers (FR-22.47)', () => {
     for (const a of actions) {
       const pageId = a.path.split('?')[0]
       expect(menu.has(pageId), pageId).toBe(true)
-      // The icon and the document's name are the registry row's, as „+ Нов" shows them.
+      // The icon and the document's name are the registry row's, as „+ Нов" shows them. Receiving
+      // opens a goods receipt, which keeps its name (FR-26.8.6, #508): the row reads „stock movement".
       expect(a.icon).toBe(pageById(pageId)!.icon)
-      expect(a.pageLabelKey).toBe(pageById(pageId)!.labelKey)
+      expect(a.pageLabelKey).toBe(a.key === 'receive' ? 'nav.newDocPage.goodsReceipt' : pageById(pageId)!.labelKey)
       expect(a.disabledKey).toBeNull()
     }
     expect(actions.map((a) => a.labelKey)).toEqual([
@@ -57,6 +58,8 @@ describe('productDocActions — what an article offers (FR-22.47)', () => {
     // Sells and reserves; reads stock rather than moving it.
     expect(keys(role('sales'))).toEqual(['sell', 'reserve'])
     expect(keys(role('accountant'))).toEqual(['sell', 'reserve'])
+    // FR-26: a Seller writes transfers only, so it receives nothing (#508).
+    expect(keys({ ...role('seller'), areas: [] })).toEqual(['sell'])
     // Read-only roles, and nobody signed in.
     expect(keys(role('member'))).toEqual([])
     expect(keys(role('nra_auditor'))).toEqual([])
