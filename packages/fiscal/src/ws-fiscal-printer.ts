@@ -22,7 +22,7 @@ import type {
   FiscalExchangeOptions,
 } from './types.js'
 import { paymentCode } from './types.js'
-import { buildFrame, parseResponse, CMD } from './datecs.js'
+import { buildFrame, formatDatecsDate, formatDatecsDateTime, parseDatecsDateTime, parseResponse, CMD } from './datecs.js'
 import { logger } from 'services/logger'
 import { stagedPrint } from './print-stage.js'
 
@@ -149,10 +149,8 @@ export class WebSocketFiscalPrinter implements IFiscalPrinter {
       // A payment this driver cannot print is refused before the storno receipt is opened.
       paymentCode(PAYMENT_CODE, payment.type, DRIVER)
       reached('opening')
-      const dd = String(originalDate.getDate()).padStart(2, '0')
-      const mm = String(originalDate.getMonth() + 1).padStart(2, '0')
-      const yy = String(originalDate.getFullYear()).slice(-2)
-      const dateStr = `${dd}-${mm}-${yy}`
+      // The day of the receipt it cites, in Bulgarian time.
+      const dateStr = formatDatecsDate(originalDate)
       const reasonCode = STORNO_REASON_CODE[reason]
 
       await this.send(CMD.OPEN_STORNO, `${operatorCode}\t${operatorCode}\t${unpNumber}\t${reasonCode}\t${originalReceiptNumber}\t${dateStr}\t${originalUNP}`)
@@ -191,20 +189,11 @@ export class WebSocketFiscalPrinter implements IFiscalPrinter {
   }
 
   async readDateTime(): Promise<Date> {
-    const data = await this.send(CMD.GET_DATE_TIME)
-    const [datePart, timePart] = data.trim().split(' ')
-    const [dd, mmm, yy] = (datePart || '').split('-').map(Number)
-    const [hh, min, ss] = (timePart || '').split(':').map(Number)
-    return new Date(2000 + (yy || 0), (mmm || 1) - 1, dd || 1, hh || 0, min || 0, ss || 0)
+    return parseDatecsDateTime(await this.send(CMD.GET_DATE_TIME))
   }
 
   async syncDateTime(dateTime: Date): Promise<void> {
-    const dd = String(dateTime.getDate()).padStart(2, '0')
-    const mm = String(dateTime.getMonth() + 1).padStart(2, '0')
-    const yy = String(dateTime.getFullYear()).slice(-2)
-    const hh = String(dateTime.getHours()).padStart(2, '0')
-    const min = String(dateTime.getMinutes()).padStart(2, '0')
-    const ss = String(dateTime.getSeconds()).padStart(2, '0')
-    await this.send(CMD.SET_DATE_TIME, `${dd}-${mm}-${yy} ${hh}:${min}:${ss}`)
+    // In Bulgarian time, as the device keeps it: the pod runs in UTC.
+    await this.send(CMD.SET_DATE_TIME, formatDatecsDateTime(dateTime))
   }
 }
