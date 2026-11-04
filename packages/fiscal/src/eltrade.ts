@@ -185,9 +185,10 @@ export const SERVICE_CASH_MAX_MS = (SERVICE_CASH_READ_MS + TIMEOUT_MS.print) * M
 /** Do not write the clock for drift smaller than this. */
 const CLOCK_TOLERANCE_MS = 5_000
 /**
- * Never move the device clock back by more than this. Н-18 makes a device refuse (and some
+ * Never move the device clock back by more than this on its own. Н-18 makes a device refuse (and some
  * block) a date earlier than its last record, and a big backward jump means one of the two
- * clocks is wrong — that needs a person, not an automatic sync.
+ * clocks is wrong — that needs a person, not an automatic sync. A person who confirmed the time on the
+ * device page may (`stepBack`, #450): a unit that stayed on summer time is an hour ahead, and had no way back.
  */
 const MAX_CLOCK_ROLLBACK_MS = 5 * 60_000
 
@@ -1256,12 +1257,12 @@ export class EltradeFiscalPrinter implements IFiscalPrinter {
     return parsed
   }
 
-  async syncDateTime(dateTime: Date): Promise<void> {
+  async syncDateTime(dateTime: Date, opts: { stepBack?: boolean } = {}): Promise<void> {
     const current = await this.readDateTime().catch(() => null)
     if (current) {
       const drift = dateTime.getTime() - current.getTime()
       if (Math.abs(drift) < CLOCK_TOLERANCE_MS) return
-      if (drift < -MAX_CLOCK_ROLLBACK_MS) {
+      if (drift < -MAX_CLOCK_ROLLBACK_MS && !opts.stepBack) {
         throw new EltradeError(
           `Refusing to move the Eltrade clock back by ${Math.round(-drift / 60_000)} min (device ${formatDeviceDateTime(current, this.timeZone)}, requested ${formatDeviceDateTime(dateTime, this.timeZone)}). Check the server time; a device clock that is ahead must be corrected by service.`,
           'input',

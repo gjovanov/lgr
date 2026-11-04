@@ -249,8 +249,14 @@ export interface IFiscalPrinter {
   /** Read the device's current date/time */
   readDateTime(): Promise<Date>
 
-  /** Synchronize the device's clock with the given date/time */
-  syncDateTime(dateTime: Date): Promise<void>
+  /**
+   * Synchronize the device's clock with the given date/time.
+   *
+   * `stepBack` (#450): a person on the device page confirmed this time, so a clock that is ahead may be moved back
+   * by any amount. The scheduled sync never passes it. A fiscalized device still refuses a time before its last
+   * fiscal record (Н-18), and that refusal is its answer.
+   */
+  syncDateTime(dateTime: Date, opts?: { stepBack?: boolean }): Promise<void>
 
   // ── Non-fiscal receipt (for testing with non-fiscalized devices) ──
 

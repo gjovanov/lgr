@@ -13,6 +13,8 @@ import { fiscalDeviceController } from '../../../portal-api/src/controllers/fisc
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { forgetClockVerification, TIME_SOURCES, verifyClock } from 'fiscal/clock'
 import { syncAllFiscalDevices } from 'fiscal/time-sync.service'
+import { EltradeFiscalPrinter } from 'fiscal/eltrade'
+import { EltradeSimulator } from '../helpers/eltrade-simulator'
 
 let server: any
 let port = 0
@@ -143,5 +145,60 @@ describe('a person setting a device clock', () => {
     const { orgId, deviceId } = await device()
     fakeDevice(deviceId, 0)
     expect((await syncTime(orgId, deviceId, { confirm: true }, 'member')).status).toBe(403)
+  })
+})
+
+// #450: an Eltrade that stayed on summer time reads an hour ahead. The driver refused any step back over 5 minutes, so
+// a person who checked both times had no way to correct it: its Z-reports carried the wrong hour.
+describe('an Eltrade an hour ahead (#450)', () => {
+  const HOUR = 60 * MIN
+  function eltradeAhead(deviceId: string, aheadMs: number) {
+    const sim = new EltradeSimulator()
+    sim.clock = new Date(Date.now() + aheadMs)
+    registerPrinter(deviceId, new EltradeFiscalPrinter(sim.exchange, deviceId))
+    registered.push(deviceId)
+    return sim
+  }
+
+  test('the scheduled sync never moves it back: that waits for a person', async () => {
+    const sim = eltradeAhead('dev-summer', HOUR)
+    const before = sim.clock.getTime()
+    await serverClock(0)
+    const r = await syncAllFiscalDevices()
+    expect(r.set).toEqual([])
+    expect(r.held[0].reason).toContain('waits for a person')
+    expect(sim.clock.getTime()).toBe(before)
+  })
+
+  test('the driver on its own still refuses a step back that large', async () => {
+    const sim = eltradeAhead('dev-driver', HOUR)
+    const printer = new EltradeFiscalPrinter(sim.exchange, 'dev-driver')
+    let refused: any = null
+    try { await printer.syncDateTime(new Date()) } catch (e) { refused = e }
+    expect(String(refused?.message)).toContain('Refusing to move the Eltrade clock back')
+    expect(sim.clock.getTime()).toBeGreaterThan(Date.now() + 50 * MIN)
+  })
+
+  test('a person who confirms it on the device page sets it back to the right hour', async () => {
+    const org = await createTestOrg()
+    const wh = await createTestWarehouse(org._id)
+    const d = await createTestFiscalDevice(org._id, wh._id, { connectionType: 'browser', manufacturer: 'eltrade' } as any)
+    const orgId = String(org._id)
+    const deviceId = String(d._id)
+    const sim = eltradeAhead(deviceId, HOUR)
+    await serverClock(0)
+    const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
+    const auth = `Bearer ${await (signer as any).decorator.jwt.sign({ id: '000000000000000000000001', orgId, role: 'admin', permissions: [...PERMISSIONS], ownRecordsModules: [] })}`
+    const post = (body?: object) => fetch(`http://localhost:${port}/org/${orgId}/fiscal/device/${deviceId}/sync-time`, {
+      method: 'POST', headers: { authorization: auth, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined,
+    })
+
+    const asked = await post()
+    expect(asked.status).toBe(409)
+    expect((await asked.json()).message).toMatch(/the device's clock would move by -(1 h|59 min)/)
+
+    const confirmed = await post({ confirm: true })
+    expect(confirmed.status).toBe(200)
+    expect(Math.abs(sim.clock.getTime() - Date.now())).toBeLessThan(5_000)
   })
 })

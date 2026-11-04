@@ -379,7 +379,9 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
           deviceTime: theirs?.toISOString() ?? null,
         })
       }
-      await printer.syncDateTime(now)
+      // #450: the time is the one this person was shown and confirmed (or there was nothing to doubt), so a clock that
+      // is ahead goes back. The device's own refusal of a time before its last fiscal record still answers.
+      await printer.syncDateTime(now, { stepBack: true })
       createAuditEntry({
         orgId, userId: user.id, action: 'update', module: 'fiscal', entityType: 'fiscal_device', entityId: id,
         entityName: device.name,
