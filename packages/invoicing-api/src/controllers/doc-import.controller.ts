@@ -13,7 +13,6 @@
  * fallback.
  */
 import { Elysia, t } from 'elysia'
-import { holdsArea } from 'config/constants'
 import { createHash } from 'node:crypto'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { config } from 'config'
@@ -29,27 +28,10 @@ import { convertDraftInvoice } from 'services/biz/doc-import/persist'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import { getRepos } from 'services/context'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
+import { targetRefusal } from 'services/biz/doc-import/target-access'
 import type { ImportTarget } from 'services/biz/doc-import/types'
 import { containedJoin, stampedUploadPath } from 'services/biz/files/safe-path'
 import { mkdirSync, writeFileSync } from 'node:fs'
-
-/** Uploading and analysing is a write on the surface being imported into. */
-const PERMISSION_BY_TARGET: Record<ImportTarget, string> = {
-  sales_invoice: 'invoicing.write',
-  bill: 'invoicing.write',
-  cash_sale: 'invoicing.write',
-  movement: 'inventory.write',
-}
-
-/** Why this session may not import into `target`, or null. FR-26.6: a bill also needs `purchases`. */
-function targetRefusal(user: { role?: string; permissions?: readonly string[]; areas?: readonly string[] }, target: ImportTarget) {
-  const permission = PERMISSION_BY_TARGET[target]
-  if (permission && !user.permissions?.includes(permission)) return { message: `Permission required: ${permission}` }
-  if (target === 'bill' && !holdsArea(user, 'purchases')) {
-    return { code: 'area_required', area: 'purchases', message: 'Incoming documents are not part of your role.' }
-  }
-  return null
-}
 
 const TARGETS = ['sales_invoice', 'bill', 'cash_sale', 'movement'] as const
 
