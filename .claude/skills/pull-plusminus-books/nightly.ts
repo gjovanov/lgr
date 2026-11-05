@@ -20,13 +20,16 @@
 //                                import opens the year, and a person looks at that
 //   BOOKS_NIGHTLY_ROOT_ACCOUNTS  default СТОКИ=304,КЛИЕНТИ=411,ДОСТАВЧИЦИ=401
 //   BOOKS_NIGHTLY_STALE_HOURS    default 72: no answer from the PC for this long is a failure. A weekend with the PC off is not.
-// State and log, counts only: $ACC_DOCS_ROOT/books/nightly-state.json and nightly.log.
+//   BOOKS_NIGHTLY_DOWN_HOURS     default 6: the docs root not answering for this long is mailed, then once a day while it lasts
+// State and log, counts only: $ACC_DOCS_ROOT/books/nightly-state.json and nightly.log. Since when the docs root has not
+// answered is kept on this PC instead, in %LOCALAPPDATA%\lgr-books-nightly\docs-root.json: the share cannot say it is down.
 //
-// Exit 0 when the run is fine (imported, nothing new, or the PC is off); 1 when it failed.
-import { appendFileSync, closeSync, existsSync, openSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+// Exit 0 when the run is fine (imported, nothing new, or the PC is off); 1 when it failed or the docs root did not answer.
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { need, optional } from '../pull-plusminus-api/stores-env'
-import { parseImport, problems, summarize, type YearResult } from '../../../scripts/lib/books-nightly-report'
+import { docsRootDown, listsWithin, parseImport, problems, summarize, type DocsRootDown, type YearResult } from '../../../scripts/lib/books-nightly-report'
 
 const here = import.meta.dir
 const repo = resolve(here, '../../..')
@@ -59,12 +62,14 @@ const org = setting('BOOKS_NIGHTLY_ORG', 'regal-acc')
 const years = setting('BOOKS_NIGHTLY_YEARS', '2025,2026').split(',').map(y => Number(y.trim())).sort((a, b) => a - b)
 const rootAccounts = setting('BOOKS_NIGHTLY_ROOT_ACCOUNTS', 'СТОКИ=304,КЛИЕНТИ=411,ДОСТАВЧИЦИ=401').split(',').map(s => s.trim()).filter(Boolean)
 const staleHours = Number(setting('BOOKS_NIGHTLY_STALE_HOURS', '72'))
+const downHours = Number(setting('BOOKS_NIGHTLY_DOWN_HOURS', '6'))
 const mailTo = setting('BOOKS_NIGHTLY_MAIL_TO').split(',').map(s => s.trim()).filter(Boolean)
 // An empty LGR_TOKEN makes the importer sign in with these, whatever token the environment carries.
 const creds = { LGR_USERNAME: file.LGR_USERNAME ?? '', LGR_PASSWORD: file.LGR_PASSWORD ?? '', LGR_TOKEN: '' }
 
 const books = join(need('ACC_DOCS_ROOT'), 'books'), archives = join(need('ACC_DOCS_ROOT'), 'archives')
 const stateFile = join(books, 'nightly-state.json'), logFile = join(books, 'nightly.log'), lockFile = join(books, 'nightly.lock')
+const downFile = join(process.env.LOCALAPPDATA || homedir(), 'lgr-books-nightly', 'docs-root.json')
 
 type State = {
   imported?: { archive: string; sha12: string; at: string }
@@ -80,6 +85,7 @@ type Outcome =
   | { kind: 'failed'; step: string; detail: string }
 
 const now = () => new Date().toISOString()
+const within = (iso: string | undefined, hours: number) => !!iso && Date.now() - Date.parse(iso) < hours * 3600_000
 const tail = (s: string, n = 25) => s.trim().split('\n').slice(-n).join('\n')
 const quiet = (note: string, answered: boolean): Outcome => ({ kind: 'quiet', note, answered })
 const failed = (step: string, detail: string): Outcome => ({ kind: 'failed', step, detail })
@@ -112,15 +118,20 @@ async function newestArchive(): Promise<{ archive: string; sha12: string } | Out
  * The docs root may be a WSL share (`\\wsl.localhost\<distro>\…`), which lives only while that distro runs. WSL stops an
  * idle distro within seconds, and a read that lands while it starts or stops fails ("Invalid request code", ECANCELED:
  * 2026-11-05, after a job inside WSL ran the VM out of memory and nothing kept the distro up). So a `sleep` inside the
- * distro holds it up for the run, and the run starts once the share answers. Unreadable after that, the run did not happen.
+ * distro holds it up for the run, and the run starts once the share answers. A STUCK distro does not fail a read, it hangs
+ * it (the same day, 22:52 to 23:00 UTC), so this process never reads the share before a child has listed it (`listsWithin`).
+ * Not listed within 90 s, the run did not happen.
  */
 async function holdDocsRoot(): Promise<{ readable: boolean; release: () => void }> {
-  const readable = () => { try { readdirSync(books); return true } catch { return false } }
   const distro = /^[\\/]{2}wsl(?:\.localhost|\$)[\\/]([^\\/]+)/i.exec(books)?.[1]
-  if (!distro) return { readable: readable(), release: () => {} }
-  const holder = Bun.spawn(['wsl.exe', '-d', distro, '-e', 'sleep', '3600'], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' })
-  for (let i = 0; i < 60 && !readable(); i++) await Bun.sleep(1000)
-  return { readable: readable(), release: () => holder.kill() }
+  const holder = distro ? Bun.spawn(['wsl.exe', '-d', distro, '-e', 'sleep', '3600'], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' }) : null
+  const until = Date.now() + 90_000
+  let readable = await listsWithin(books, 10_000)
+  while (!readable && Date.now() < until) {
+    await Bun.sleep(2000)
+    readable = await listsWithin(books, 10_000)
+  }
+  return { readable, release: () => holder?.kill() }
 }
 
 async function nightly(state: State): Promise<Outcome> {
@@ -222,10 +233,26 @@ if (args.includes('--check-mail')) {
   console.log(`nightly: mail ${ok ? 'accepted by SendGrid (sandbox, not delivered)' : 'REFUSED or no key'} for ${mailTo.length} recipient(s)`)
   process.exit(ok ? 0 : 1)
 }
-// The state, the log and the lock live there too: with it down, the run did not happen, and there is nothing to record it in.
+// The state, the log and the lock live there too, so with it down the run did not happen and they cannot say so. `downFile`,
+// on this PC, keeps since when; a WSL that stays broken would otherwise stop the import without a word to anyone.
 const docsRoot = await holdDocsRoot()
-if (!docsRoot.readable) { docsRoot.release(); console.log(`nightly: the docs root is unreadable (${books}); nothing ran`); process.exit(0) }
+let wasDown: DocsRootDown | undefined
+try { wasDown = JSON.parse(readFileSync(downFile, 'utf8')) } catch { /* the root answered last time */ }
+if (!docsRoot.readable) {
+  docsRoot.release()
+  const { down, hours, mail } = docsRootDown(wasDown, now(), downHours)
+  if (!dry) {
+    const text = `${books} has not answered since ${down.since}, so no run has happened since then. The task asks every two hours, and this mail repeats once a day while it lasts.`
+    if (mail && (await sendMail(`LGR books: ${org}: the docs root has not answered for ${Math.round(hours)} h`, text).catch(() => false))) down.mailedAt = now()
+    try { mkdirSync(dirname(downFile), { recursive: true }); writeFileSync(downFile, JSON.stringify(down) + '\n') } catch { /* the next run counts from itself */ }
+  }
+  console.log(`nightly: the docs root does not answer (${books}), since ${down.since}; nothing ran`)
+  process.exit(1)
+}
 if (!takeLock()) { docsRoot.release(); console.log('nightly: another run holds the lock'); process.exit(0) }
+// Answering again: forget the outage, and when it was mailed, say that it is over.
+const backAfter = !dry ? wasDown : undefined
+if (backAfter) try { unlinkSync(downFile) } catch { /* gone already */ }
 
 const state: State = existsSync(stateFile) ? JSON.parse(readFileSync(stateFile, 'utf8')) : {}
 let outcome: Outcome
@@ -235,11 +262,11 @@ try {
   outcome = failed('run', String(e?.stack ?? e))
 }
 
-const within = (iso: string | undefined, hours: number) => !!iso && Date.now() - Date.parse(iso) < hours * 3600_000
 const mails: { subject: string; text: string }[] = []
 try {
   if (!dry) {
     if (state.unsentMail) mails.push({ subject: `${state.unsentMail.subject} (unsent since ${state.unsentMail.at})`, text: state.unsentMail.text })
+    if (backAfter?.mailedAt) mails.push({ subject: `LGR books: ${org}: the docs root answers again`, text: `It did not answer from ${backAfter.since} until this run.` })
     if (outcome.kind === 'failed') {
       // The task retries every two hours: the same failure is mailed once a day, a different one at once.
       const repeat = state.lastFailure?.step === outcome.step && within(state.lastFailure.mailedAt, 24)

@@ -139,6 +139,12 @@ bun .claude/skills/pull-plusminus-books/nightly.ts --check-mail  # SendGrid sand
 - ⚠ The docs root is a WSL share, and it lives only while the distro runs. WSL stops an idle distro within seconds, and a read
   that lands while it starts or stops fails ("Invalid request code", `ECANCELED`). The run holds the distro up with a `sleep`
   inside it. On 2026-11-05 a job inside WSL ran the VM out of memory, and the share failed in the middle of a test run.
+- ⚠ A STUCK distro does not fail a read, it hangs it. The same day, from 22:52 to 23:00 UTC, every `wsl -d` answered
+  `Wsl/Service/E_UNEXPECTED` and an `ls` of the share sat there for minutes. So the run first asks a child process to list the
+  root (10 s a try, 90 s in all) and kills it when it does not answer. With no answer, nothing runs and it exits 1.
+- The state cannot say the share is down, because it lives on the share. Since when the root has not answered is kept on the PC,
+  in `%LOCALAPPDATA%\lgr-books-nightly\docs-root.json`. After `BOOKS_NIGHTLY_DOWN_HOURS` (6) it is mailed, then once a day, and
+  the first run that reads the root again says it is back (only when the outage was mailed).
 
 **The account.** `books-sync` in regal-acc, role member, with one permission set, „Service: books import": `accounting.import`
 and no area.

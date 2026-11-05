@@ -2,7 +2,8 @@
  * What the unattended books run (`.claude/skills/pull-plusminus-books/nightly.ts`) reads out of
  * `import-accounting-books.ts`: the importer prints one JSON line a step (`chart: {…}`, `analytics: {…}`,
  * `opening 2026: {…}`, `journal 2026-01: {…}`, `journal total: {…}`, `finish: {…}`), and the run decides from
- * those alone whether anything changed and whether it has to stop.
+ * those alone whether anything changed and whether it has to stop. Also how it asks whether its docs root answers at
+ * all, and when a docs root that does not answer is worth a mail.
  */
 
 export interface ParsedImport {
@@ -53,4 +54,34 @@ export function summarize(year: number, r: ParsedImport): YearResult {
     + ` · opening ${o.outcome ?? '?'} · chart ${(c.created ?? 0) + (c.updated ?? 0)} · analytics ${(a.created ?? 0) + (a.updated ?? 0)}`
     + `, contacts ${a.contacts?.created ?? 0} · finish ${f.changed ?? 0} accounts`
   return { year, changes, text }
+}
+
+/**
+ * Whether `dir` lists within `ms`, asked of a child process. A WSL share whose distro is stuck does not fail a read, it
+ * HANGS it (2026-11-05, 22:52 to 23:00 UTC: every `wsl -d` answered E_UNEXPECTED, and an `ls` of the share sat there for
+ * minutes). Read in the run's own process, that would hang the run with it; a child is killed instead.
+ */
+export async function listsWithin(dir: string, ms: number): Promise<boolean> {
+  const child = Bun.spawn([process.execPath, '-e', `require('node:fs').readdirSync(${JSON.stringify(dir)})`], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' })
+  const timer = setTimeout(() => child.kill(), ms)
+  const code = await child.exited
+  clearTimeout(timer)
+  return code === 0
+}
+
+/** Since when the docs root has not answered. Kept on the PC, not on the share: the share cannot say it is down. */
+export interface DocsRootDown {
+  since: string
+  mailedAt?: string
+}
+
+/**
+ * The docs root did not answer this run either. `prev` is what the last run left, nothing when the root answered then. It
+ * is worth a mail once it has been down `afterHours`, then once a day while it lasts.
+ */
+export function docsRootDown(prev: DocsRootDown | undefined, at: string, afterHours: number): { down: DocsRootDown; hours: number; mail: boolean } {
+  const since = prev?.since ?? at
+  const hours = (Date.parse(at) - Date.parse(since)) / 3600_000
+  const mailedToday = !!prev?.mailedAt && Date.parse(at) - Date.parse(prev.mailedAt) < 24 * 3600_000
+  return { down: { since, ...(prev?.mailedAt ? { mailedAt: prev.mailedAt } : {}) }, hours, mail: hours >= afterHours && !mailedToday }
 }
