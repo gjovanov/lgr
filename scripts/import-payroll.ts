@@ -12,6 +12,10 @@
  *   --months             only these months. People and contracts always come from every month.
  *   --version P=STAMP    takes this version of a month. A month with several takes the newest, and
  *                        they are listed: which one was filed is the accountant's to say.
+ *   --books <dir>        personnel and salary sheets from a pull-plusminus-books day folder (sealed, read
+ *                        out of the accountant's archive) instead of the GUI's Excel exports under --root.
+ *                        The declarations still come from --root. Its sheet rows carry the ЕГН, so they
+ *                        join the declaration by it, not by surname and initials.
  *
  * Credentials (env): LGR_TOKEN of a session in that org holding `payroll.import` and
  * `payroll.personal`.
@@ -23,8 +27,11 @@ import type { PersonnelSnapshot } from '../packages/services/src/biz/payroll/bg/
 import { parseEtz, parseUtd62, type ContractEvent } from '../packages/services/src/biz/payroll/bg/files/contract-events'
 import { emitEmpl, parseEmpl, type EmplRow } from '../packages/services/src/biz/payroll/bg/files/empl2021'
 import { emitNra, parseNra } from '../packages/services/src/biz/payroll/bg/files/nra62007'
-import { nameParts, readPersonnel, readSalarySheets, declarationKey, sheetKey, sheetLines, type SheetRow } from './lib/payroll-exports'
+import { nameParts, readPersonnel, readSalarySheets, declarationKey, sheetKey, sheetLines, type PersonnelRow, type SalarySheet, type SheetRow } from './lib/payroll-exports'
 import { argValue, declarationFiles, requiredArg, sealedRoot, versionsByMonth, type SealedDeclaration } from './lib/sealed-payroll'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { unsealBundle } from '../packages/services/src/biz/backup/backup-crypto'
 
 const api = requiredArg('api').replace(/\/$/, '')
 const orgId = requiredArg('org')
@@ -40,6 +47,14 @@ const chosen = new Map((process.argv.flatMap((a, i) => (a === '--version' ? [pro
 
 const root = sealedRoot(requiredArg('root'), requiredArg('identity'))
 const files = declarationFiles(root)
+
+// --books: the newest sealed file of a kind in the folder, opened in memory only.
+const books = argValue('books')
+function openBooks<T>(prefix: string): T {
+  const name = readdirSync(books!).filter(f => f.startsWith(prefix) && f.endsWith('.json.sealed')).sort().at(-1)
+  if (!name) { console.error(`${books} has no ${prefix}*.json.sealed: run pull-books.ts with payroll`); process.exit(1) }
+  return JSON.parse(unsealBundle(readFileSync(join(books!, name)), readFileSync(requiredArg('identity'), 'utf8').trim()).toString('utf8'))
+}
 const empl = versionsByMonth(files, 'empl')
 const nra = versionsByMonth(files, 'nra')
 
@@ -84,7 +99,7 @@ if (several.length) console.log(`several versions, the newest taken unless --ver
 const events: ContractEvent[] = []
 for (const rel of root.list('nap').filter(f => /\/ETZ[^/]*\.xml\.sealed$/i.test(f))) events.push(...parseEtz(root.open(rel)))
 for (const rel of root.list('nap').filter(f => /\/UTD[^/]*\.txt\.sealed$/i.test(f))) events.push(...parseUtd62(root.open(rel)))
-const personnel = await readPersonnel(root)
+const personnel: PersonnelRow[] = books ? openBooks<PersonnelRow[]>('personnel-') : await readPersonnel(root)
 const snapshots: PersonnelSnapshot[] = personnel.map(({ name: _name, ...snapshot }) => snapshot)
 // What the declarations add: each person's newest row gives the codes the floor and ТЗПБ go by.
 for (const [period, { rows }] of [...months.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
@@ -122,14 +137,21 @@ for (const event of events) {
 }
 
 // The month's sheets, newest of each, joined to the declaration by surname and initials.
-const sheets = await readSalarySheets(root)
+const sheets: SalarySheet[] = books ? openBooks<SalarySheet[]>('salary-sheets-') : await readSalarySheets(root)
 const sheetRows = new Map<string, SheetRow>()
-for (const sheet of [...sheets].sort((a, b) => a.stamp.localeCompare(b.stamp))) for (const row of sheet.rows) sheetRows.set(sheetKey(row), row)
+// A row read from the archive names its person by ЕГН as well, and then joins by it ONLY: surname and initials can collide, and a
+// row that has an ЕГН must never land on someone else's declaration through the name.
+const sheetRowsById = new Map<string, SheetRow>()
+for (const sheet of [...sheets].sort((a, b) => a.stamp.localeCompare(b.stamp))) for (const row of sheet.rows) {
+  const personId = (row as SheetRow & { personId?: string }).personId
+  if (personId) sheetRowsById.set(`${row.period}|${personId}`, row)
+  else sheetRows.set(sheetKey(row), row)
+}
 
 function sheetFor(period: string, rows: EmplRow[]) {
   const out: { personId: string; lines: ReturnType<typeof sheetLines>; paidLeaveDays?: number }[] = []
   for (const row of rows) {
-    const onSheet = sheetRows.get(declarationKey(period, row.surname, row.initials))
+    const onSheet = sheetRowsById.get(`${period}|${row.personId}`) ?? sheetRows.get(declarationKey(period, row.surname, row.initials))
     if (onSheet) out.push({ personId: row.personId, lines: sheetLines(onSheet), paidLeaveDays: onSheet.values['Платен отпуск'] })
   }
   return out.length ? out : undefined
