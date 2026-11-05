@@ -2,9 +2,9 @@ import { describe, it, expect } from 'bun:test'
 import { visibleMenu, type ModuleMenuItem } from '../../../ui-shell/src/module'
 import {
   PAGE_REGISTRY, canOpenPage, isPortalAreaPath, isTransferOnly, landingWithoutPortal, newDocumentMenu, pageById,
-  portalPagesFor, writesInventory, type PageViewer,
+  portalPagesFor, runsDevices, writesInventory, type PageViewer,
 } from 'ui-shared/nav/page-registry'
-import { AREAS, DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, holdsArea, mergeAreas, type Role } from 'config/constants'
+import { AREAS, DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, FISCAL_ADMIN_ROLES, holdsArea, mergeAreas, type Role } from 'config/constants'
 import { AREA_PREFIXES, areaForRoute, areaRefusal, permissionRefusal, writeRuleFor } from 'services/biz/route-permission'
 import { manifest as inventory } from '../../../inventory-ui/src/manifest'
 import { manifest as invoicing } from '../../../invoicing-ui/src/manifest'
@@ -69,6 +69,33 @@ describe('the invoicing menu (§2.1)', () => {
     expect(shown).not.toContain('/payment-orders')
     expect(shown).not.toContain('/cash-orders')
     expect(shown).not.toContain('/configuration/sequences')
+  })
+})
+
+describe('what both roles view in Invoicing (§2.1)', () => {
+  // Outgoing documents and their forms, the till, Contacts and Devices.
+  const PAGES = [
+    '/invoicing/invoices', '/invoicing/invoices/new', '/invoicing/invoices/new?type=credit_note', '/invoicing/invoices/new?type=debit_note',
+    '/invoicing/proforma', '/invoicing/proforma/new',
+    '/invoicing/cash-sales/new', '/invoicing/cash-sales', '/invoicing/cash-register/sessions',
+    '/invoicing/contacts', '/invoicing/configuration/devices',
+  ]
+
+  it('each opens every one of them', () => {
+    for (const who of [seller, consultant]) expect({ role: who.role, closed: PAGES.filter(id => !canOpenPage(pageById(id)!, who)) }).toEqual({ role: who.role, closed: [] })
+  })
+
+  it('Devices are read-only to both: the server runs them for FISCAL_ADMIN_ROLES alone (D-8)', () => {
+    expect(runsDevices(seller)).toBe(false)
+    expect(runsDevices(consultant)).toBe(false)
+    expect(runsDevices(as('sales'))).toBe(false)
+    for (const role of FISCAL_ADMIN_ROLES) expect(runsDevices({ role, permissions: [] })).toBe(true)
+    expect(runsDevices(null)).toBe(false)
+  })
+
+  it("a document's journal entry is no link of theirs: Accounting is not theirs to see", () => {
+    for (const who of [seller, consultant]) expect(canOpenPage(pageById('/accounting/journal-entries')!, who)).toBe(false)
+    expect(canOpenPage(pageById('/accounting/journal-entries')!, as('accountant'))).toBe(true)
   })
 })
 

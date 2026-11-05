@@ -342,6 +342,16 @@ export function writesInventory(who: PageViewer | null | undefined): boolean {
 }
 
 /**
+ * Whether this session runs the fiscal devices: adds and edits them, programs their operators and prints their
+ * reports. The server decides by role, never by permission (`FISCAL_ADMIN_ROLES`, `fiscal-device.controller.ts`):
+ * a cashier holds `pos.write` and runs none, and a warehouse manager runs them without it. Anyone else who opens
+ * the Devices page reads it (FR-26 D-8).
+ */
+export function runsDevices(who: PageViewer | null | undefined): boolean {
+  return !!who?.role && FISCAL_ADMIN_ROLES.includes(who.role)
+}
+
+/**
  * Whether this session reads the documents, `/invoices` and its prints. A till-only session does
  * not, and neither does someone in on the till and inventory: a till sale's page is all they read
  * of it, not the back-office form.

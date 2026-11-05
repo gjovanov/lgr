@@ -16,10 +16,11 @@ import { upsertAmountInWords } from 'config/amount-in-words'
 import { useGRColumns } from 'ui-shared/composables/useGRColumns'
 import { cascadePurchasePrice, needsSeed, productsForSeed, seedFromProduct, setProductField, setTierPrice } from 'ui-shared/composables/gr-product-update'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
-import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
+import { jwtUserId, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { rememberedFlag, rememberedSetting } from 'ui-shared/composables/useUserDefaults'
 import { readPrintSettings, writePrintSettings, type PrintSettings } from '../print-settings'
 import { appHref } from 'ui-shared/nav/navigate'
+import { canOpenPage, pageById } from 'ui-shared/nav/page-registry'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import type { DocumentTypeConfig } from './types'
 import { useDocumentIssue } from '../useDocumentIssue'
@@ -1192,7 +1193,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     if (!config.showSmartButtons || !invoiceData.value) return []
     const btns: SmartButtonDef[] = []
     const journalEntryId = invoiceData.value.journalEntryId
-    if (journalEntryId) {
+    // Only for whoever opens Accounting: a Seller has no sight of it (FR-26 §2.1), and the link led them to a refusal.
+    if (journalEntryId && canOpenPage(pageById('/accounting/journal-entries')!, sessionViewer())) {
       btns.push({
         label: t('invoicing.smart.journalEntry'),
         value: 1,

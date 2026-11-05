@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { apiLogin, apiGet, apiPost } from './helpers/api'
+import { apiLogin, apiDelete, apiGet, apiPost } from './helpers/api'
 
 /**
  * FR-26: the Seller („Продавач") and the Sales Consultant („Търговски консултант"), as the person
@@ -97,6 +97,8 @@ test.describe('The Seller and the Sales Consultant', () => {
     await loginForApp(page, 'acme-corp', users.seller, PASSWORD)
     await page.goto('/inventory/movements')
     await expect(page.getByRole('link', { name: /new stock movement/i })).toBeVisible({ timeout: 15000 })
+    // #493 item 5: an import writes receipts, which the server refuses them.
+    await expect(page.getByRole('button', { name: /^import$/i })).toHaveCount(0)
     await page.goto('/inventory/movements/new')
     const type = page.getByRole('combobox', { name: /type/i }).first()
     await expect(type).toBeVisible({ timeout: 15000 })
@@ -105,5 +107,49 @@ test.describe('The Seller and the Sales Consultant', () => {
     const options = page.locator('.v-overlay--active .v-list-item')
     await expect(options.first()).toBeVisible()
     expect((await options.allInnerTexts()).map(t => t.trim())).toEqual(['Transfer'])
+  })
+
+  // D-8: the server writes and commands a device for FISCAL_ADMIN_ROLES alone, so nothing else is offered.
+  test('Devices are read-only: no New, no Save, no Connect, no operators, and of the reports the device status alone', async ({ page }) => {
+    // The seed has no device. This one, made once and found again by its number, is in no warehouse a
+    // till sells from and is deactivated before anyone looks: no sale ever finds it, and the page opens
+    // it all the same.
+    const NAME = 'E2E read-only device'
+    const admin = await apiLogin()
+    const { fiscalDevices } = await apiGet(admin, '/fiscal/device?size=100')
+    let device = (fiscalDevices || []).find((d: any) => d.deviceNumber === 'E2ERDONL')
+    if (!device) {
+      const created = await apiPost(admin, '/fiscal/device', {
+        name: NAME, deviceNumber: 'E2ERDONL', manufacturer: 'eltrade', connectionType: 'browser', warehouseId: '000000000000000000000e2e',
+      })
+      expect(created.ok, `create the device → ${created.status}`).toBe(true)
+      device = (await created.json()).fiscalDevice
+    }
+    const id = device._id || device.id
+    if (device.isActive !== false) expect((await apiDelete(admin, `/fiscal/device/${id}`)).ok).toBe(true)
+
+    await loginForApp(page, 'acme-corp', users.seller, PASSWORD)
+    await page.goto('/invoicing/configuration/devices')
+    await expect(page.getByRole('heading', { name: 'Devices', exact: true })).toBeVisible({ timeout: 15000 })
+    await expect(page.locator('.v-data-table-server, .v-data-table').locator('tbody tr').first()).toBeVisible()
+    await expect(page.getByRole('link', { name: /New Device/i })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /^(connect|disconnect)$/i })).toHaveCount(0)
+
+    await page.goto(`/invoicing/configuration/devices/${id}`)
+    await expect(page.getByRole('tab', { name: 'General' })).toBeVisible({ timeout: 15000 })
+    const name = page.getByRole('textbox', { name: 'Name', exact: true })
+    await expect(name).toHaveValue(NAME)
+    await expect(name).toBeDisabled()
+    await expect(page.getByRole('button', { name: /^(save|create)$/i })).toHaveCount(0)
+    await expect(page.getByRole('tab', { name: 'Operators' })).toHaveCount(0)
+    // #493 item 1: nothing that acts on a device, Connect included. The till's terminal connects the printer.
+    await expect(page.getByRole('button', { name: /^(connect|disconnect)$/i })).toHaveCount(0)
+
+    await page.getByRole('tab', { name: 'Reports' }).click()
+    await expect(page.getByText('Device Status', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Read Status' })).toBeVisible()
+    await expect(page.getByText('Daily X-Report', { exact: true })).toHaveCount(0)
+    await expect(page.getByText('Daily Z-Report', { exact: true })).toHaveCount(0)
+    await expect(page.getByTestId('payment-types')).toHaveCount(0)
   })
 })
