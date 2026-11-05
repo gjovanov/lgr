@@ -106,7 +106,7 @@ export const PREFIX_WRITE_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['payroll', { need: ['payroll.write'] }],
   ['trade/pos', { need: ['pos.write'] }],
   ['pos', { need: ['pos.write'] }],
-  ['files', { self: 'files-api: admin, or admin.settings' }],
+  ['files', { self: 'files-api: admin, or admin.settings; booking, undoing or reconciling a document also takes the write permission of what it books (booksRefusal)' }],
   ['fiscal', { self: 'FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager' }],
   ['user', { self: 'admin role (S-21)' }],
   ['invite', { self: 'admin role' }],

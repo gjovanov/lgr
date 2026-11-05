@@ -14,6 +14,7 @@ import {
 import { analyzeDocFile, commitDocFile, analyzeDocFilesBatch, commitDocFilesBatch, ocrDocFilesBatch, storedAnalyses } from 'services/biz/files/doc-pipeline.service'
 import { deleteDocFiles } from 'services/biz/files/doc-delete.service'
 import { reconcileDocFile } from 'services/biz/files/doc-reconcile.service'
+import { booksRefusal } from 'services/biz/files/doc-access'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
 import { taskStore } from 'services/background/task.store'
@@ -23,8 +24,12 @@ import { t } from 'elysia'
 
 /**
  * Files app (#7) — Phase 1: the versioned, audited document store. Gated on `admin.settings`
- * (admin + manager). The `isSignIn` macro does not actually reject anonymous callers on these
- * app controllers (verified on reports), so every handler does an explicit auth+permission gate.
+ * (the admin role holds it by default). The `isSignIn` macro does not actually reject anonymous
+ * callers on these app controllers (verified on reports), so every handler does an explicit
+ * auth+permission gate.
+ *
+ * The routes that book, undo or reconcile a document ask for more: the write permission of what it
+ * books, as the import dialog does (`booksRefusal`).
  */
 
 const MAX_BATCH = 60
@@ -196,6 +201,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
       const ids: string[] = Array.isArray(b.docFileIds) ? b.docFileIds : []
       if (!ids.length) return status(400, { message: 'docFileIds required' })
       if (ids.length > MAX_BATCH) return status(400, { message: `At most ${MAX_BATCH} documents per batch (got ${ids.length})` })
+      const refused = await booksRefusal(orgId, user!, ids, { kind: 'commit' }); if (refused) return status(403, refused)
       const task = await startJob(orgId, user!.id, 'files-commit-batch', { count: ids.length })
       void (async () => {
         try {
@@ -239,6 +245,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
       const ids: string[] = Array.isArray(b.docFileIds) ? b.docFileIds : []
       if (!ids.length) return status(400, { message: 'docFileIds required' })
       if (ids.length > MAX_BATCH) return status(400, { message: `At most ${MAX_BATCH} documents per batch (got ${ids.length})` })
+      const refused = await booksRefusal(orgId, user!, ids, { kind: 'undo', rollback: b.rollback !== false, removeProducts: !!b.removeProducts }); if (refused) return status(403, refused)
       const task = await startJob(orgId, user!.id, 'files-delete-batch', { count: ids.length, execute: !!b.execute })
       void (async () => {
         try {
@@ -366,6 +373,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
     async ({ params: { orgId, id }, body, user, status }) => {
       const denied = gate(user, status); if (denied) return denied
       const b: any = body || {}
+      const refused = await booksRefusal(orgId, user!, [id], { kind: 'commit' }); if (refused) return status(403, refused)
       const task = await startJob(orgId, user!.id, 'files-commit', { docFileId: id })
       void (async () => {
         try {
@@ -388,6 +396,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
       // Overrides the unmatched-line guard. Only for an operator who has read the paper document and
       // knows those lines really are gone — never a default, and never set by the UI's own button.
       const force = query.force === 'true'
+      const refused = await booksRefusal(orgId, user!, [id], { kind: 'reconcile' }); if (refused) return status(403, refused)
       const task = await startJob(orgId, user!.id, 'files-reconcile', { docFileId: id, execute, force })
       void (async () => {
         try { await completeJob(task.id, await reconcileDocFile(orgId, user!.id, id, { execute, force })) }
