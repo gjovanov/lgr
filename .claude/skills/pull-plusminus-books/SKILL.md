@@ -101,8 +101,9 @@ own `planMonth` predicted the counts of every month.
   they differ on every name the export broke (2025: 12, 2026: 5), and so do the analytic trial balances (10 and 4). Moved onto its
   real name, each of those rows is equal, but one: a 2025 supplier whose closing is 0.62 of a cent off the print, from its
   opening's sub-cent value. The main book, the turnovers per account and the 2026 trial balance stay equal.
-- Left behind in regal-acc: 20 empty analytics with broken names (9 of them under a root the export also broke), and 14 contacts
-  with U+FFFD in the name and no tax id. Nothing in the books references them. Removing them is a separate decision.
+- What the GUI files left behind was deactivated on 2026-11-05, on the owner's word: 39 analytics and 14 contacts whose names
+  hold U+FFFD (`scripts/deactivate-books-leftovers.ts`). The "20" first counted were only the booked paths; the broken roots and
+  damaged list rows are the rest. One broken letter is two U+FFFD, and each row had exactly one active twin under the real name.
 
 Payroll, the same day:
 - The GUI „Ведомост" exports held about 8 rows a month against 16–18 declared people (202509: 1 of 17). With `--books`, every
@@ -113,6 +114,44 @@ Payroll, the same day:
 - 27 contracts were updated from the 11-05 personnel data: the same 27 that a GUI re-import updates. The archive also gives 12
   of them a class percentage that no GUI export carries.
 - 202206 and 202207 (one person each) have a sheet row only in the GUI's export, so those two months were left as they were.
+
+## Nightly run (unattended, books only)
+
+From 2026-11-05 until go-live, on the owner's word, the books import runs by itself on this PC. Payroll and VAT stay runs by
+hand (above): which months are filed is a person's to say.
+
+```bash
+bun .claude/skills/pull-plusminus-books/nightly.ts               # fetch → pull-books --no-payroll → each year --execute → dry rerun
+bun .claude/skills/pull-plusminus-books/nightly.ts --dry         # the same, writing nothing in LGR and mailing nothing
+bun .claude/skills/pull-plusminus-books/nightly.ts --local       # the newest archive already fetched: a re-run without the PC
+bun .claude/skills/pull-plusminus-books/nightly.ts --check-mail  # SendGrid sandbox: proves the alert channel, delivers nothing
+```
+
+- **It mails only on a change or a failure**: counts per year, never a name or an amount. The same failure is mailed once a
+  day. The PC is off at night and at weekends, so no answer is quiet, until 72 hours of it, which is a failure.
+- It imports each archive once: `nightly-state.json` beside the day folders remembers the last one by SHA, and `nightly.log`
+  has a line a run. After each year's import, a dry rerun must report everything unchanged, or the run fails.
+- 2025 and 2026 only (`BOOKS_NIGHTLY_YEARS`). A later year in the archive is reported, never imported unattended: its first
+  import opens the year. Import it by hand once, then add it.
+- The day folders it writes hold no payroll (`--no-payroll`). Before a payroll run, run `pull-books.ts` for that day without it.
+- Nothing prunes the day folders (about 45 MB each, mostly the two journals); `fetch-archive.ts` keeps the last 14 archives. A
+  day folder is derived: delete old ones by hand, and `pull-books.ts` makes any of them again while its archive is kept.
+- ⚠ The docs root is a WSL share, and it lives only while the distro runs. WSL stops an idle distro within seconds, and a read
+  that lands while it starts or stops fails ("Invalid request code", `ECANCELED`). The run holds the distro up with a `sleep`
+  inside it. On 2026-11-05 a job inside WSL ran the VM out of memory, and the share failed in the middle of a test run.
+
+**The account.** `books-sync` in regal-acc, role member, with one permission set, „Service: books import": `accounting.import`
+and no area.
+- Every other route answers 403. Checked: contacts, accounts, journal, payroll employees and contracts, VAT.
+- Made with `scripts/seed-user.ts --role member --permissions accounting.import --set-name "Service: books import"`.
+- Its password is only in the main checkout's gitignored `.secrets/lgr-books-sync.env`, beside `BOOKS_NIGHTLY_MAIL_TO`.
+- To revoke it, deactivate the user in regal-acc's users, then remove the task.
+
+**The schedule.** Task Scheduler's „LGR books nightly" runs every two hours from 07:00 to 23:00, as goran, only while signed in,
+with no window (`run-hidden.vbs`). It runs from a worktree pinned at a reviewed commit, `C:\dev\gjovanov\lgr-books-nightly`,
+detached.
+- Register it, or remove it, with `register-nightly.ps1 -Checkout <worktree>` or `register-nightly.ps1 -Remove`.
+- Move the pin deliberately, after a deploy that changes the importers. A client ahead of the server it talks to fails.
 
 ## What is proven (2026-11-05, archive 20261105 vs the GUI exports taken from the same state an hour earlier)
 

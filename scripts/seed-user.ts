@@ -29,12 +29,17 @@
  *   --role <role>    admin | manager | accountant | warehouse_manager | member | nra_auditor  (default: admin)
  *   --inactive       create the user inactive (default: active)
  *   --set-owner      set org.ownerId to this user if the org has no owner yet
+ *   --permissions <a,b>  a SERVICE account: instead of the role's default set, link a set holding exactly these
+ *                    permissions and opening no area, created if missing. A set of that name with other
+ *                    permissions is refused, never reused. Give it the least role (member): the set decides.
+ *   --set-name <n>   the name of that set (default: "Service: <username>")
  *   --execute        perform writes (default: dry-run)
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { assertScriptHome } from './lib/home-guard.js'
-import { Org, User, PermissionSet } from '../packages/db/src/models/index.js'
-import { DEFAULT_ROLE_PERMISSIONS, ROLES } from '../packages/config/src/constants.js'
+import { requireUniqueIndexes } from './lib/require-indexes.js'
+import { Identity, Org, User, PermissionSet, Sequence } from '../packages/db/src/models/index.js'
+import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, ROLES } from '../packages/config/src/constants.js'
 import { seedDefaultPermissionSets, ROLE_TO_PERMISSION_SET } from '../packages/services/src/biz/permission-set.seed.js'
 import { allocateOperatorCode } from '../packages/services/src/biz/sequence.service.js'
 import { discardIdentity, identityForOperatorJoin } from '../packages/services/src/biz/identity/identity.service.js'
@@ -65,22 +70,35 @@ const position = args.position as string | undefined
 const role = (args.role as string) || 'admin'
 const isActive = !args.inactive
 const setOwner = !!args['set-owner']
+const servicePermissions = typeof args.permissions === 'string' ? args.permissions.split(',').map(p => p.trim()).filter(Boolean) : null
+const serviceSetName = (args['set-name'] as string) || `Service: ${username}`
 
 const missing = ['org', 'email', 'username', 'password', 'first', 'last'].filter(k => !args[k])
 if (missing.length) { console.error(`Missing required: ${missing.map(m => '--' + m).join(', ')}. See header for options.`); process.exit(2) }
 if (!ROLES.includes(role as any)) { console.error(`Invalid role "${role}". Valid: ${ROLES.join(', ')}`); process.exit(2) }
+if (args.permissions !== undefined && !servicePermissions?.length) { console.error('--permissions takes a comma-separated list.'); process.exit(2) }
+const unknown = (servicePermissions ?? []).filter(p => !PERMISSIONS.includes(p as any))
+if (unknown.length) { console.error(`Unknown permission(s): ${unknown.join(', ')}`); process.exit(2) }
+
+const samePermissions = (a: readonly string[], b: readonly string[]) => [...a].sort().join() === [...b].sort().join()
 
 async function main() {
   console.log(`Mode: ${dryRun ? 'DRY RUN' : 'EXECUTE'}`)
   console.log(`Org: ${orgSlug} | user: ${username} <${email}> | role: ${role} | active: ${isActive} | setOwner: ${setOwner}`)
-  console.log(`Permissions (${role}): ${(DEFAULT_ROLE_PERMISSIONS as any)[role].join(', ')}`)
-  console.log(`Permission set: ${ROLE_TO_PERMISSION_SET[role] || '(none)'}`)
+  if (servicePermissions) {
+    console.log(`Permissions (service set "${serviceSetName}", no area): ${servicePermissions.join(', ')}`)
+  } else {
+    console.log(`Permissions (${role}): ${(DEFAULT_ROLE_PERMISSIONS as any)[role].join(', ')}`)
+    console.log(`Permission set: ${ROLE_TO_PERMISSION_SET[role] || '(none)'}`)
+  }
   console.log()
 
   if (dryRun) { console.log('Dry run complete. Add --execute to write.'); return }
 
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
   console.log('Connected to MongoDB')
+  await requireUniqueIndexes([User, Identity, PermissionSet, Sequence])
 
   const org = await Org.findOne({ slug: orgSlug })
   if (!org) { console.error(`Org "${orgSlug}" not found.`); process.exit(1) }
@@ -88,9 +106,20 @@ async function main() {
 
   const repos = await createMongoRepositories({ backend: 'mongo' })
   await seedDefaultPermissionSets(String(org._id), repos)
-  const permSet = ROLE_TO_PERMISSION_SET[role]
+  let permSet = ROLE_TO_PERMISSION_SET[role] && !servicePermissions
     ? await PermissionSet.findOne({ orgId: org._id, name: ROLE_TO_PERMISSION_SET[role] })
     : null
+  if (servicePermissions) {
+    permSet = await PermissionSet.findOne({ orgId: org._id, name: serviceSetName })
+    if (permSet && (permSet.isAdmin || !samePermissions(permSet.permissions, servicePermissions))) {
+      console.error(`Refused: the set "${serviceSetName}" exists with other permissions (${permSet.isAdmin ? 'admin' : permSet.permissions.join(', ')}). Name another with --set-name.`)
+      process.exit(2)
+    }
+    permSet ??= await PermissionSet.create({
+      orgId: org._id, name: serviceSetName, description: `Service account ${username}: only what it runs.`,
+      permissions: servicePermissions, areas: [], isAdmin: false, isDefault: false, isSystem: false,
+    })
+  }
 
   let user = await User.findOne({ orgId: org._id, $or: [{ username }, { email }] })
   if (user) {
@@ -121,7 +150,7 @@ async function main() {
         identityId: person?.identity._id,
         firstName, middleName, lastName, position,
         role, operatorCode, orgId: org._id, isActive,
-        permissions: (DEFAULT_ROLE_PERMISSIONS as any)[role],
+        permissions: servicePermissions ?? (DEFAULT_ROLE_PERMISSIONS as any)[role],
         roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
         permissionSetIds: permSet ? [permSet._id] : [],
       })

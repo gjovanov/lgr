@@ -471,6 +471,7 @@ A new skill, `pull-plusminus-accounting`, beside `pull-plusminus-api`, on the sa
 - It also copies E2's, E7's and E9's files, only those that changed.
 - Against E1 and E8 exported from the same state, every artifact is equal, but for the export's own damage (§9, R1) and one salary sheet exported before its month was final. What it does not cover still comes from the GUI: fixed assets, contracts, salary changes, history and leave.
 - The GUI's salary sheets held about half of each month's declared people. The archive holds every one, joined to обр. 1 by ЕГН, and equal wherever both have the person-month, that December 2025 sheet aside. P1's months and both years of books were re-imported from it on 2026-11-05, on the owner's word (§9).
+- **From 2026-11-05 the books import runs unattended until go-live, on the owner's word.** The skill's `nightly.ts` runs every two hours by day, imports each new archive once, and mails only on a change or a failure. It signs in as a service account whose only right is `accounting.import`. Payroll and VAT stay runs by hand, because which months are filed is a person's to say.
 - ⚠ The archive holds the payroll, so it is handled under E7's and E8's rules below.
 
 **E7 and E8 hold ЕГН numbers, pay and sick leave, and carry stricter rules than the rest.** The employer's owner agreed on 2026-11-03 (§12). Everything in §1.8 was read before that, on the PC, by scripts that print shapes and monthly totals (`tools/pay-*.ps1`, `decl-recon*.ts`). A file is sealed with a public key as it arrives (`lgr-sealed-1`, never written in clear), is decrypted only in memory by the import CLI, and is deleted when P1's gate has passed and the accountant has confirmed. Prod is its only lasting home.
@@ -903,11 +904,10 @@ The gate after the re-import, against the same printed files:
 - **The analytic comparisons now show the export's damage.** The journal export's turnovers per analytic matched while the books were that export. Now they differ on every name the export broke (12 in 2025, 5 in 2026), and so do the analytic trial balances (10 and 4). Moved onto its real name, each broken row equals LGR's.
 - One row is left: a 2025 supplier whose closing differs from the print by 0.62 of a cent, because its opening now carries the database's sub-cent value.
 
-Left behind in regal-acc:
-- 20 empty analytics with broken names, 9 of them under a root whose name the export also broke;
-- 14 contacts with U+FFFD in the name and no tax id.
-
-Nothing in the books references them. Whether to remove them is a separate decision.
+**What the GUI files left behind in regal-acc was deactivated on 2026-11-05, on the owner's word.** That was 39 analytics and 14 contacts, with `scripts/deactivate-books-leftovers.ts`.
+- First counted as 20 analytics. That count took only the paths the journals and trial balances booked. The database also held the broken roots (the import creates every ancestor of a path) and damaged rows of the analytics lists.
+- The export breaks one Cyrillic letter into two U+FFFD. Each of the 53 rows has exactly one active twin under the real spelling, and nothing points at any of them.
+- After the deactivation, a dry run of both years' imports is unchanged in full.
 
 ⚠ Rollout: `accounting.import` belongs to admins by default, and `tokenize()` gives an admin every permission, so there is no backfill; an admin signs in again after the deploy. The new indexes must be on prod before the first import: the unique one on `importKey` is what stops two imports of a month doubling it.
 
