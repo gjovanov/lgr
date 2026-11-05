@@ -110,7 +110,8 @@ export const PREFIX_WRITE_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['fiscal', { self: 'FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager' }],
   ['user', { self: 'admin role (S-21)' }],
   ['invite', { self: 'admin role' }],
-  ['permission-sets', { self: 'admin role, or admin.settings' }],
+  // Writing a set is assigning access, as `PUT user` is: the sets are READ under admin.settings too (below).
+  ['permission-sets', { self: 'admin role' }],
   ['apps', { self: 'admin role' }],
   ['digest', { self: 'admin role' }],
   ['backup', { self: 'requireSysAdmin' }],

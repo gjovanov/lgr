@@ -55,7 +55,8 @@ describe('what the portal\'s menu offers: what `canOpenPage` lets them open (D10
   })
 
   it('a permission that opens a page opens it for whoever holds it', () => {
-    expect(portalPagesFor({ role: 'member', permissions: ['pos.read', 'admin.settings'] })).toEqual(['/settings/organization', '/settings/users', '/settings/permission-sets', '/settings/desktops', '/settings/servers', '/settings/server'])
+    // Not the permission sets: writing one is assigning access, which only an admin does.
+    expect(portalPagesFor({ role: 'member', permissions: ['pos.read', 'admin.settings'] })).toEqual(['/settings/organization', '/settings/users', '/settings/desktops', '/settings/servers', '/settings/server'])
   })
 
   it('every page it answers for is a route of the portal', async () => {
