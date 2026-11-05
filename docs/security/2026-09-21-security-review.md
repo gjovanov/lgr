@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-08**, **S-17**–**S-31** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-08**, **S-17**–**S-32** are fixed. The rest are open, ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
@@ -21,7 +21,8 @@ S-25–S-28 were found in October 2026 while specifying and building offline ope
 was fixed in a private fork, deployed the same day, and published as a GitHub security advisory once
 the fix had been verified on production. They are written up at the end too. S-29 and S-30 came
 out of the same month: S-29 while designing FR-20's till PINs, S-30 during FR-22's review of the till
-and fiscal-device screens, and S-31 while fixing #168.
+and fiscal-device screens, and S-31 while fixing #168. S-32 came a few days later, while writing
+FR-27 (#529).
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -56,6 +57,7 @@ and fiscal-device screens, and S-31 while fixing #168.
 | **S-29** | **High** | **Role permissions were not enforced on reads: any member of an org could read its payroll, ledgers and audit trail through the API** ([GHSA-9h98-9jvm-p9qw](https://github.com/gjovanov/lgr/security/advisories/GHSA-9h98-9jvm-p9qw)) | **Fixed 2026-10-25** |
 | **S-30** | **High** | **A fiscal device's TCP address was checked on create only, and by prefix: any user could make the server open connections to its own loopback and the cluster network** ([GHSA-5qqr-5jf7-pq2q](https://github.com/gjovanov/lgr/security/advisories/GHSA-5qqr-5jf7-pq2q)) | **Fixed 2026-10-26** |
 | S-31 | Medium | `POST /doc-import/convert` confirmed a draft stock movement by id with no org check: a caller who knew the id could book another org's draft | **Fixed** (#422) |
+| S-32 | Medium | Writing a permission set was open to any holder of `admin.settings`: they could change what the sets they hold grant, their own included | **Fixed** (#530) |
 
 ---
 
@@ -1437,4 +1439,48 @@ sweep did not see it.
   route under the second org's own path answers `ok: false`, `not found`, the route under the first
   org's path answers 403, the draft stays a draft and the stock does not move. The first org's admin
   then confirmed it at the same route, and the stock moved.
+
+## S-32 — A holder of `admin.settings` could change what a permission set grants (Medium, **fixed 2026-11-05**)
+
+> Found on 2026-11-05 while writing FR-27 (#529). Fixed in #530, whose wording does not describe the flaw, and
+> written up here once the fix had been verified on production.
+
+**Where:** `POST /org/:orgId/permission-sets`, `PUT /:id`, `DELETE /:id` and `POST /migrate`
+(`portal-api/src/controllers/permission-set.controller.ts`).
+
+**What was wrong:** the four routes were open to the admin role or to `admin.settings`, and nothing held the
+editor to what they grant. Whatever a set grants, everyone who holds it gets, the editor among them.
+Assigning a set to a person (`PUT /user/:id`) was already the admin role's alone, so a holder of
+`admin.settings` could not give a set to anyone, but could change what the sets they held, and every other
+set, granted.
+
+- **Who:** a member of an org who holds `admin.settings` without the admin role. By default only the admin
+  role holds it. It reaches anyone else only if an admin puts it in a custom set or in a user's own
+  permission list.
+- **Impact:** at their next sign-in, every permission (`isAdmin` on a set they hold): payroll's personal
+  data, journal import, approvals. Not the routes that check the admin role by name (users, invites, the
+  organization, billing), and nothing outside their own org.
+- **Why Medium:** it needs a high privilege that an admin delegated on purpose, and stays inside one org.
+- **Exposure on the day:** none. A read-only pass over all 86 organizations on 2026-11-05 found no
+  non-admin user holding `admin.settings`, no non-admin user on an `isAdmin` set, no set other than
+  "Administrator" with `isAdmin` or an `admin.*` permission (the NRA auditor's `admin.audit` apart), and
+  3 audit entries on permission sets in all, every one by an admin.
+
+### Fix
+
+- The four routes answer 403 `Admin only` to anyone but the admin role. Reading the sets stays under
+  `admin.settings`. The Permission sets entry in the settings menu is an admin's alone, as invites and
+  billing are.
+- Tests: `integration/permission-set-writes.flow.test.ts` (12; 7 fail against the previous controller).
+  It reads the row after every refused write, and checks that the next session a holder signs in with is
+  what it was.
+- Deployed as `v20261105-ef6267c150d4`. Verified on production on 2026-11-05 in the demo org, with a
+  throwaway holder of `admin.settings` (role `member`): the sets and a person's effective access read 200.
+  Editing the holder's own set, editing another set, creating an `isAdmin` set, deleting a set, migrating
+  and assigning a set through `PUT user` all answer 403. Every set reads back unchanged, and the holder's
+  next session carries what it did. An admin's edit answers 200. The first write probe was a harmless
+  description, so a deploy that had not taken effect could not have changed a grant. The throwaway user,
+  person and sets were dropped, and none is left.
+- FR-27 (#529) gives delegation a bound: `access.roles` can be handed on, and a delegate grants only
+  what they hold.
 
