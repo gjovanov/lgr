@@ -470,7 +470,7 @@ A new skill, `pull-plusminus-accounting`, beside `pull-plusminus-api`, on the sa
 - It writes the journal, chart and analytic openings per year and the analytics without `ПЕРСОНАЛ`, already parsed into the shapes `plusminus-exports.ts` gives E1's files. The personnel rows and salary sheets are sealed. The importers take the folder with `--books`.
 - It also copies E2's, E7's and E9's files, only those that changed.
 - Against E1 and E8 exported from the same state, every artifact is equal, but for the export's own damage (§9, R1) and one salary sheet exported before its month was final. What it does not cover still comes from the GUI: fixed assets, contracts, salary changes, history and leave.
-- The GUI's salary sheets held about half of each month's declared people. The archive holds every one, joined to обр. 1 by ЕГН, and equal wherever both have the person-month, that December 2025 sheet aside. Re-importing P1's months from it waits for the owner's word.
+- The GUI's salary sheets held about half of each month's declared people. The archive holds every one, joined to обр. 1 by ЕГН, and equal wherever both have the person-month, that December 2025 sheet aside. P1's months and both years of books were re-imported from it on 2026-11-05, on the owner's word (§9).
 - ⚠ The archive holds the payroll, so it is handled under E7's and E8's rules below.
 
 **E7 and E8 hold ЕГН numbers, pay and sick leave, and carry stricter rules than the rest.** The employer's owner agreed on 2026-11-03 (§12). Everything in §1.8 was read before that, on the PC, by scripts that print shapes and monthly totals (`tools/pay-*.ps1`, `decl-recon*.ts`). A file is sealed with a public key as it arrives (`lgr-sealed-1`, never written in clear), is decrypted only in memory by the import CLI, and is deleted when P1's gate has passed and the accountant has confirmed. Prod is its only lasting home.
@@ -834,6 +834,12 @@ What these taught, beyond §1.8 and §7.4:
 - **A line is a person on a contract** (§11). An imported row goes to the contract in force on its first day of insurance (field 9), and a month where two rows land on one contract is refused, rather than guessed. Every month on disk has one row a person.
 - **Not yet proven:** the annual recalculation, within 2 cents on most January rows and no more; an advance run, which is refused; January's correction in 2026.
 
+**Re-imported from the archive (E6), 2026-11-05, on the owner's word.** Every declared person now has sheet lines, joined by ЕГН; the GUI's sheets held about half of them.
+- 39 of the 44 months were replaced and 5 left unchanged, and a dry rerun changes nothing. §5.1's gate holds on every month: обр. 1 44 of 44, обр. 6 42 of 42, contributions 42 of 42, people 44 of 44.
+- 27 contracts were updated from the 11-05 personnel data: the same 27 that a re-import of the GUI exports updates. The archive also gives 12 of them a class percentage that no GUI export carries.
+- 202206 and 202207 hold one person each, whose sheet row only the GUI's export has. Those two months were left as they were.
+- ⚠ A re-import pins 202601 to the version that was filed (`--version 202601=20260211_084833`) and leaves out any month not filed yet (`--months`). 202610 was already on disk: written on 11-03, due on 11-25. People and contracts still read every month on disk. Folding the contracts with and without 202610 changed none of them.
+
 ### R0 — repairs the import would hit first
 
 | # | Where | What is wrong |
@@ -886,12 +892,22 @@ The gate, after them:
   - two cells of 2025's synthetic trial balance, by the cent PlusMinus rounds a balance to;
   - a few dozen analytic rows a year, whose name holds U+FFFD in place of a Cyrillic letter. The amounts agree, split between the journal's spelling and the trial balance's. **That is the GUI export's damage, not the books'** (found 2026-11-05): read from the archive (E6), the database spells every one of those names right, so there is nothing for the accountant to repair.
 
-**The export's damage,** each kind checked value by value against the archive: it cuts text at 120 characters, it breaks some Cyrillic letters into U+FFFD, and it rounds numbers to 10 decimals (the archive reader rounds the same way). A dry run of 2026 from the archive changed exactly what that damaged:
-- the chart and analytics are unchanged;
-- of 22,151 journal entries, 21,984 are unchanged, and the other 167 are exactly the documents the export damaged;
-- the opening changed only by the corrected names. It is balanced, with continuity 66 of 66.
+**The export's damage,** each kind checked value by value against the archive: it cuts text at 120 characters, it breaks some Cyrillic letters into U+FFFD, and it rounds numbers to 10 decimals (the archive reader rounds the same way). **Re-imported from the archive, 2026-11-05, on the owner's word.** Each year's dry run changed exactly the documents the damage touched. That was checked by planning both files with the server's own `planMonth` and comparing them month by month:
+- 2025: of 27,442 entries, 272 changed and 146 replaced. 2026: of 22,151, 126 changed and 41 replaced;
+- the chart and analytics are unchanged, finish changed 0 accounts, and a dry rerun of each year changes nothing;
+- the opening changed by the corrected names, and on 27 analytic lines by less than half a cent each (26 in 2025, 1 in 2026). The printed trial balance rounds a line to the cent, and the archive carries the database's value. No account total moved, and 2026's opening still equals 2025's closing on all 66 accounts.
 
-Not executed: the re-import is the owner's word. It replaces the damaged comments and names, and leaves behind, empty, the analytics the broken names created.
+The gate after the re-import, against the same printed files:
+- **Equal:** the main book and the journal's turnovers per account, both years; 2026's synthetic trial balance and ДОСТАВЧИЦИ.
+- 2025's synthetic trial balance differs in the same two cells, by a cent.
+- **The analytic comparisons now show the export's damage.** The journal export's turnovers per analytic matched while the books were that export. Now they differ on every name the export broke (12 in 2025, 5 in 2026), and so do the analytic trial balances (10 and 4). Moved onto its real name, each broken row equals LGR's.
+- One row is left: a 2025 supplier whose closing differs from the print by 0.62 of a cent, because its opening now carries the database's sub-cent value.
+
+Left behind in regal-acc:
+- 20 empty analytics with broken names, 9 of them under a root whose name the export also broke;
+- 14 contacts with U+FFFD in the name and no tax id.
+
+Nothing in the books references them. Whether to remove them is a separate decision.
 
 ⚠ Rollout: `accounting.import` belongs to admins by default, and `tokenize()` gives an admin every permission, so there is no backfill; an admin signs in again after the deploy. The new indexes must be on prod before the first import: the unique one on `importKey` is what stops two imports of a month doubling it.
 
