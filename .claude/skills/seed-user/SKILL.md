@@ -28,7 +28,14 @@ bun run scripts/seed-user.ts --org <slug> --email <e> --username <u> --password 
 - `--position <p>` — job title.
 - `--inactive` — create inactive (default: **active**, so the account can log in immediately — unlike register, which starts inactive pending email activation).
 - `--set-owner` — set `org.ownerId` to this user **if the org has no owner yet**.
+- `--permissions <a,b>` [`--set-name <n>`] — a **service account**. Instead of the role's default set, it links a set holding
+  exactly these permissions and no area, named `--set-name` (default `Service: <username>`), creating it if missing. A set of
+  that name with other permissions is refused, never reused. Give it `--role member`: the set decides. Example: `books-sync`
+  in regal-acc, `--permissions accounting.import` (pull-plusminus-books, "Nightly run").
 - `--execute` — perform writes. **Without it the script is a dry-run** (prints the resolved permissions + permission set, no DB connection).
+  It writes documents only: it connects without building indexes or collections, and refuses to write while a unique index on
+  users, identities, permission sets or sequences is missing (`scripts/lib/require-indexes.ts`). Run from a checkout ahead of
+  prod, it used to build that checkout's indexes there; on 2026-11-05 that would have been two indexes prod did not have.
 
 Idempotency: if a user with the same username or email already exists in the org, it is
 reported and left untouched (a missing permission-set link is repaired). Passwords are
