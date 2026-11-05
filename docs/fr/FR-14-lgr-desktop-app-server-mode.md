@@ -1111,3 +1111,17 @@ before the field lanes had ever run, so they have no entry. 0.1.7 is the first r
 
 Published 2026-10-28 11:31 UTC from the draft the lanes ran against. The rebuild its tag triggered was cancelled, so the published assets are the tested bytes. Offered to the fleet by lgr-deploy `ec4ed81` (`DESKTOP_RELEASE_VERSION` 0.1.7).
 
+#### desktop-v0.1.8 (2026-11-05), against the hub's v20261104-11758e5c4846
+
+**What changed:** one fix in the shell, #348 (#344). A SIGTERM, which is how a logout or a shutdown ends the app off Windows, now takes the clean way out that a Quit takes, so an ephemeral desktop leaves the hub. `packages/desktop` and `packages/desktop-ui` hold nothing else since 0.1.7. The re-point code (#287, #290) was already in 0.1.7.
+
+**Lanes:** the FR-14 field lanes ran on 2026-11-01 against the signed draft's own bytes (draft 430157486, run 41236376775), after server 0.1.8's lanes:
+- `win11/nsis/user` with a one-time code, and again with an ephemeral key: 11 PASS, 0 FAIL, 8 NA each. On the key run the guest reported `ephemeral-cleanup` PASS (*"the row went with the guest"*); the orchestrator keeps that cell NA.
+- `win11/msi/admin`: 12 PASS, 0 FAIL, 7 NA. Every window-driven cell runs now: `register`, `presence`, `open-lgr`, `no-ipc`, `desktop-walk`, `print` and `unreachable` PASS, and `update` reports managed updates with no self-install. On 0.1.7 those cells failed for the harness's elevated path (#341).
+- `ubuntu/deb/user`: install, the `.asc` and **`sigterm` PASS** (*"a SIGTERM took the clean way out (signal 15: quitting), and the log ends 'exited cleanly'"*), which was red on 0.1.7. The rest is NA, since WebKitGTK has no CDP.
+- `shop-ubuntu`, the till beside server 0.1.8's rehearsal: 14/14.
+
+The NAs carry the same reasons as 0.1.7's: `downloads`, `fiscal-bridge`, `update` across two boots, `proxy-tls` (the corporate lane), `revoke` and `oauth-browser`.
+
+Published 2026-11-05 19:29 UTC from that draft. Its tag's run said *"Nothing to build"* (#399), and all 14 asset digests are the draft's. desktop-ci passed on the tag. Offered to the fleet by lgr-deploy `eaac280` (`DESKTOP_RELEASE_VERSION` 0.1.8): both new pods read it, and `/api/desktop/download/0.1.8` and its `.sig` answer 200.
+
