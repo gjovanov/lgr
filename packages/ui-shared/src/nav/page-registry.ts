@@ -294,7 +294,8 @@ const PORTAL_PAGES: PageDef[] = [
   portalPage('/dashboard', READ_DASHBOARD),
   portalPage('/settings/organization', BACK_OFFICE),
   portalPage('/settings/users', BACK_OFFICE),
-  portalPage('/settings/permission-sets', ['admin.settings']),
+  // Writing a set is assigning access, which is the server's admin role (`permission-set.controller`).
+  portalPage('/settings/permission-sets', []),
   portalPage('/settings/invites', []),
   portalPage('/settings/desktops', ['admin.settings']),
   portalPage('/settings/servers', ['admin.settings']),

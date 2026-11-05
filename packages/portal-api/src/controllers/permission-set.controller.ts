@@ -37,6 +37,14 @@ const ownRecordsSchema = t.Optional(
   }),
 )
 
+/**
+ * Reading the sets is the settings area's: `admin`, or `admin.settings`. WRITING one is assigning
+ * access. Whatever a set grants, everyone who holds it gets, the editor among them, and assigning a
+ * set to a person is `admin`'s alone (`user.controller`). So defining what a set grants is too:
+ * `admin.settings` reads the sets and cannot change what they grant.
+ */
+const mayWrite = (user: { role?: string }) => user.role === 'admin'
+
 export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permission-sets' })
   .use(AuthService)
   // GET / — list all permission sets for the org
@@ -91,9 +99,7 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('admin.settings') && user.role !== 'admin') {
-        return status(403, { message: 'Forbidden' })
-      }
+      if (!mayWrite(user)) return status(403, { message: 'Admin only' })
 
       const created = await createPermissionSet(orgId, body)
 
@@ -128,9 +134,7 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!user.permissions?.includes('admin.settings') && user.role !== 'admin') {
-        return status(403, { message: 'Forbidden' })
-      }
+      if (!mayWrite(user)) return status(403, { message: 'Admin only' })
 
       const updated = await updatePermissionSet(id, orgId, body)
       if (!updated) return status(404, { message: 'Permission set not found' })
@@ -164,9 +168,7 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
   // DELETE /:id — delete a permission set
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('admin.settings') && user.role !== 'admin') {
-      return status(403, { message: 'Forbidden' })
-    }
+    if (!mayWrite(user)) return status(403, { message: 'Admin only' })
 
     const existing = await getPermissionSet(id, orgId)
     const result = await deletePermissionSet(id, orgId)
@@ -192,9 +194,7 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
   // POST /migrate — migrate from old roles to permission sets
   .post('/migrate', async ({ params: { orgId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('admin.settings') && user.role !== 'admin') {
-      return status(403, { message: 'Forbidden' })
-    }
+    if (!mayWrite(user)) return status(403, { message: 'Admin only' })
 
     // Ensure default sets exist first
     await seedDefaultPermissionSets(orgId)
