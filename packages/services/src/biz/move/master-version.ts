@@ -4,14 +4,18 @@ import { meetsMinimum } from '../desktop/version.js'
 
 /**
  * #453: the first server release that reads FR-23's documents: a receipt for a payment on an invoice
- * (`payment_receipt`, R1) and a refund's storno (`payment_storno`, R2). `server-v0.1.7` has neither. An older master
- * given an org that holds them reads them by older rules: each reader with no `type` takes one for one more paid
- * document, and R1's `bookingOf` posts a refund as a sale, its money as money in (FR-23 §3, "Two versions at once").
+ * (`payment_receipt`, R1) and a refund's storno (`payment_storno`, R2). An older master given an org that holds them
+ * reads them by older rules: each reader with no `type` takes one for one more paid document, and R1's `bookingOf`
+ * posts a refund as a sale, its money as money in (FR-23 §3, "Two versions at once").
  *
- * ⚠ Raise `NODE_MIN_MASTER_VERSION` to this once `server-v0.1.8` is out: then the uplink tells every older master
+ * ⚠ 0.1.9, not 0.1.8: `server-v0.1.8` is cut from `release/server-0.1.8`, master at f31d1327 (2026-10-31) plus #418's
+ * fix, before R1 (#416) and R2 (#441) merged, so it has neither, like 0.1.7. Name only a release whose own commit
+ * carries both: what a master reports is its supervisor's Cargo version, never what its code knows.
+ *
+ * ⚠ Raise `NODE_MIN_MASTER_VERSION` to this once `server-v0.1.9` is out: then the uplink tells every older master
  * to update. Not before it is: every master in the field would be outdated with nothing to update to.
  */
-export const FR23_MASTER_VERSION = '0.1.8'
+export const FR23_MASTER_VERSION = '0.1.9'
 
 const FR23_TYPES = ['payment_receipt', 'payment_storno'] as const
 
