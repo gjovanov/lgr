@@ -42,6 +42,23 @@ for (let i = 0; i < nfunc; i++) {
   while (b[e] !== 0) e++
   fn[i].name = b.toString('latin1', s, e)
 }
+// An externally linked (cgo) build puts the C runtime first in .text (pmserver's first function is at 0x140001010), so Go's
+// runtime.text is NOT the section start and every entry above is off by one constant. Calibrate on structure: the right shift is
+// the one at which the most entries land on a Go stack-check prologue (cmp rsp,[r14+0x10] / lea r12,[rsp-n]). GOANN_SHIFT=0x..
+// overrides. pmserver build 20260805:101606: 0x460 (the "+0x460 into the handler's body" earlier readings saw was this offset).
+let shift = process.env.GOANN_SHIFT ? parseInt(process.env.GOANN_SHIFT, 16) : 0
+if (!process.env.GOANN_SHIFT && !textStart) {
+  const prologue = o => o >= 0 && ((b[o] === 0x49 && b[o + 1] === 0x3b && b[o + 2] === 0x66 && b[o + 3] === 0x10) ||
+    (b[o] === 0x4c && b[o + 1] === 0x8d && (b[o + 2] === 0x64 || b[o + 2] === 0xa4) && b[o + 3] === 0x24))
+  let best = 0, bestScore = -1
+  for (let s = -0x2000; s <= 0x8000; s += 0x20) {
+    let score = 0
+    for (let i = 0; i < nfunc; i += 7) if (prologue(vaToOff(fn[i].va + s))) score++
+    if (score > bestScore) { bestScore = score; best = s }
+  }
+  shift = best
+}
+if (shift) { for (const f of fn) f.va += shift; console.error(`goann: entries shifted by ${'0x' + shift.toString(16)} (runtime.text is not the .text start)`) }
 const byName = new Map(fn.slice(0, nfunc).map((f, i) => [f.name, { ...f, end: fn[i + 1].va }]))
 function funcAt(va) {
   let lo = 0, hi = nfunc - 1

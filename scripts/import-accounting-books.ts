@@ -15,6 +15,11 @@
  *     --opening <chartOfAccounts.xlsx> --opening-analytics <trialBalance_….xlsx>=304 \
  *     --journal <journalReport_….xlsx> --finish --execute
  *
+ * Or, with no GUI export at all, from a books folder `pull-plusminus-books` wrote out of the accountant's nightly archive (the same
+ * data, proven equal to the exports of the same day; `.claude/skills/pull-plusminus-books/SKILL.md`):
+ *   bun run scripts/import-accounting-books.ts --org <slug> --books <dir> --year 2026 \
+ *     --root-account СТОКИ=304 --root-account КЛИЕНТИ=411 --root-account ДОСТАВЧИЦИ=401 --finish [--execute]
+ *
  * Options:
  *   --org <slug>                 (required) the books org
  *   --api <url>                  API base (default: https://lgrai.app)
@@ -23,13 +28,16 @@
  *   --opening <file>             the year's opening balances: a chart, or a synthetic trial balance
  *   --opening-analytics <f>=<a>  an analytic trial balance, and the account its rows are on (repeat)
  *   --journal <file>             a journal export (repeat). Whole, in one currency
+ *   --books <dir>                instead of all five above: a pull-plusminus-books day folder; with --year
+ *   --year <YYYY>                the year to take from --books: its chart, opening and journal, and every analytic root
+ *   --root-account <ROOT>=<a>    with --books: an analytic root whose openings go on account <a> (repeat)
  *   --finish                     rebuild `Account.balance` at the end
  *   --execute                    write (default: dry run)
  *
  * Credentials (env): LGR_TOKEN, or LGR_USERNAME + LGR_PASSWORD.
  */
-import { readFileSync } from 'node:fs'
-import { basename } from 'node:path'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { readSheet } from './lib/plusminus-sheet.js'
 import { LgrApiError, signIn, type LgrSession } from './lib/lgr-api.js'
 import {
@@ -41,6 +49,8 @@ import {
   parseJournalExport,
   parseTrialBalanceExport,
   type AnalyticItem,
+  type ParsedChartRow,
+  type ParsedJournal,
 } from '../packages/services/src/biz/accounting-books/plusminus-exports.js'
 import { monthsBetween } from '../packages/services/src/biz/accounting-books/registry.js'
 import type { OpeningAnalyticLine, OpeningLine } from '../packages/services/src/biz/accounting-books/import.types.js'
@@ -53,12 +63,15 @@ interface Args {
   opening?: string
   openingAnalytics: { file: string; account: string }[]
   journals: string[]
+  books?: string
+  year?: number
+  rootAccounts: { root: string; account: string }[]
   finish: boolean
   execute: boolean
 }
 
 function parseArgs(argv: string[]): Args {
-  const o: Args = { api: 'https://lgrai.app', analytics: [], openingAnalytics: [], journals: [], finish: false, execute: false }
+  const o: Args = { api: 'https://lgrai.app', analytics: [], openingAnalytics: [], journals: [], rootAccounts: [], finish: false, execute: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--org') o.org = argv[++i]
@@ -72,7 +85,14 @@ function parseArgs(argv: string[]): Args {
       if (at < 0) fail('--opening-analytics takes <file>=<account>.')
       o.openingAnalytics.push({ file: value.slice(0, at), account: value.slice(at + 1) })
     } else if (a === '--journal') o.journals.push(argv[++i])
-    else if (a === '--finish') o.finish = true
+    else if (a === '--books') o.books = argv[++i]
+    else if (a === '--year') o.year = Number(argv[++i])
+    else if (a === '--root-account') {
+      const value = String(argv[++i] ?? '')
+      const at = value.lastIndexOf('=')
+      if (at < 1) fail('--root-account takes <ROOT>=<account>.')
+      o.rootAccounts.push({ root: value.slice(0, at), account: value.slice(at + 1) })
+    } else if (a === '--finish') o.finish = true
     else if (a === '--execute') o.execute = true
     else if (a === '--dry-run') o.execute = false
     else fail(`Unknown option: ${a}`)
@@ -88,6 +108,20 @@ function fail(message: string): never {
 const args = parseArgs(process.argv.slice(2))
 if (!args.org) fail('Required: --org <slug>. See the header.')
 const dryRun = !args.execute
+if (args.books) {
+  if (args.chart || args.analytics.length || args.opening || args.openingAnalytics.length || args.journals.length) {
+    fail('--books replaces --chart, --analytics, --opening, --opening-analytics and --journal: give one source or the other.')
+  }
+  if (!args.year || !(args.year > 2000 && args.year < 2100)) fail('--books needs --year <YYYY>.')
+} else if (args.year || args.rootAccounts.length) fail('--year and --root-account go with --books.')
+
+/** A books folder's file for the year, which must exist: a folder from another year range is refused, not half-used. */
+function booksFile(name: string): string {
+  const path = join(args.books!, name)
+  if (!existsSync(path)) fail(`${args.books} has no ${name}: export that year with pull-books.ts --years.`)
+  return path
+}
+const readJson = (path: string): any => JSON.parse(readFileSync(path, 'utf8'))
 
 /** Every file says whose it is, and they must agree before the server is asked. */
 let eik: string | undefined
@@ -107,18 +141,30 @@ function show(step: string, answer: any): void {
   if (junk?.length) console.log(`  dropped from the chart: ${junk.map((j: any) => `${j.code} (${j.reason})`).join(', ')}`)
 }
 
+/** The chart, from its GUI export or from the books folder's `chart-<year>.json`. */
+async function readChart(): Promise<{ file: string; eik?: string; year: number; rows: ParsedChartRow[] }> {
+  if (args.books) {
+    const file = booksFile(`chart-${args.year}.json`)
+    return { file, ...readJson(file) }
+  }
+  return { file: args.chart!, ...parseChartExport(await readSheet(args.chart!)) }
+}
+
 async function importChart(session: LgrSession): Promise<void> {
-  const chart = parseChartExport(await readSheet(args.chart!))
+  const chart = await readChart()
   show('chart', await session.post('/accounting/import/chart', {
-    eik: noteEik(args.chart!, chart.eik),
+    eik: noteEik(chart.file, chart.eik),
     dryRun,
     accounts: chart.rows.map(r => ({ code: r.code, name: r.name })),
   }))
 }
 
+/** The analytics files: the ones named, or every `ap_*.json` of the books folder (it writes no ap_ПЕРСОНАЛ). */
+const analyticsFiles = () => (args.books ? readdirSync(args.books).filter(f => /^ap_.+_\d{9,13}\.json$/.test(f)).sort().map(f => join(args.books!, f)) : args.analytics)
+
 async function importAnalytics(session: LgrSession): Promise<void> {
   const items: AnalyticItem[] = []
-  for (const file of args.analytics) {
+  for (const file of analyticsFiles()) {
     noteEik(file, eikOfAnalyticsFile(file))
     items.push(...parseAnalyticsFile(readFileSync(file)))
   }
@@ -130,7 +176,31 @@ const yearOfOpening = (from: string) => {
   return Number(from.slice(0, 4))
 }
 
+/** The books folder's opening: the chart's stored openings, and the analytic openings of each `--root-account` root. */
+async function readBooksOpening(): Promise<{ year: number; accounts: OpeningLine[]; analytics: OpeningAnalyticLine[] }> {
+  const chart = await readChart()
+  noteEik(chart.file, chart.eik)
+  if (chart.rows.some(r => r.openingTurnoverDebit || r.openingTurnoverCredit)) fail(`${basename(chart.file)} carries opening turnovers: this import books balances only.`)
+  const file = booksFile(`opening-analytics-${args.year}.json`)
+  const held = readJson(file)
+  noteEik(file, held.eik)
+  const analytics: OpeningAnalyticLine[] = []
+  for (const { root, account } of args.rootAccounts) {
+    const lines: Omit<OpeningAnalyticLine, 'code'>[] | undefined = held.roots[root]
+    if (!lines) fail(`${basename(file)} has no openings under ${root}. Roots with openings: ${Object.keys(held.roots).join(', ')}`)
+    for (const line of lines) analytics.push({ code: account, ...line })
+  }
+  return { year: chart.year, accounts: chart.rows.map(r => ({ code: r.code, debit: r.openingDebit, credit: r.openingCredit })), analytics }
+}
+
 async function importOpening(session: LgrSession): Promise<void> {
+  if (args.books) {
+    const { year, accounts, analytics } = await readBooksOpening()
+    show(`opening ${year}`, await session.post('/accounting/import/opening', {
+      eik, dryRun, year, accounts: accounts.filter(a => a.debit || a.credit), ...(analytics.length ? { analytics } : {}),
+    }))
+    return
+  }
   const matrix = await readSheet(args.opening!)
   let year: number
   let accounts: OpeningLine[]
@@ -172,7 +242,8 @@ async function importOpening(session: LgrSession): Promise<void> {
 }
 
 async function importJournal(session: LgrSession, file: string): Promise<void> {
-  const journal = parseJournalExport(await readSheet(file))
+  // A books folder's journal is the GUI parser's own shape, built from the archive by the same grouping rules.
+  const journal: ParsedJournal = args.books ? readJson(file) : parseJournalExport(await readSheet(file))
   assertWholeJournal(journal)
   noteEik(file, journal.eik)
   console.log(`${basename(file)}: ${journal.counts.documents} documents, ${journal.counts.operations} operations, ${journal.period.from} to ${journal.period.to}`)
@@ -202,6 +273,13 @@ async function importJournal(session: LgrSession, file: string): Promise<void> {
 try {
   const session = await signIn(args.api, args.org!)
   console.log(dryRun ? 'Dry run: nothing is written. Add --execute.' : 'Writing.')
+  if (args.books) {
+    // In the order a GUI-file run takes them: the chart, the analytics, the opening, then the journal.
+    await importChart(session)
+    await importAnalytics(session)
+    await importOpening(session)
+    await importJournal(session, booksFile(`journal-${args.year}.json`))
+  }
   if (args.chart) await importChart(session)
   if (args.analytics.length) await importAnalytics(session)
   if (args.opening) await importOpening(session)
