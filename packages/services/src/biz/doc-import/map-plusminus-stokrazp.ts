@@ -59,8 +59,9 @@ export interface StokrazpPriceWarning {
   reference: number
   /** value / reference: above 1 the price is too high, below 1 too low. */
   ratio: number
-  /** true: not mapped, so nothing writes it. false: the delivery price, kept because it is the
-   *  receipt's unit cost, and only reported. */
+  /** true: not mapped, so nothing writes it. false: mapped as before and only reported, either
+   *  because it is the delivery price (the receipt's unit cost) or because the line has only two
+   *  prices and nothing says which of them is wrong. */
   held: boolean
 }
 
@@ -113,13 +114,15 @@ function priceTypos(line: Record<string, unknown>, name: string): StokrazpPriceW
     .map(([field, raw]) => ({ field, raw: String(raw), value: num(raw) }))
     .filter(p => p.value > 0)
   const cost = prices.find(p => p.field === 'price')?.value ?? 0
-  // Two prices give no majority, so the delivery price decides: it is the one the supplier's
-  // invoice states too.
-  const reference = prices.length >= 3 ? median(prices.map(p => p.value)) : prices.length === 2 ? cost : 0
+  // Two prices have no majority, and either can be the typo: one regal-sf card sells at 24 times
+  // its delivery price, and the wrong one is the delivery price. So a pair is only reported,
+  // measured against the delivery price, and still written.
+  const majority = prices.length >= 3
+  const reference = majority ? median(prices.map(p => p.value)) : prices.length === 2 ? cost : 0
   if (!(reference > 0)) return []
   return prices
     .filter(p => p.value >= reference * PRICE_TYPO_FACTOR || p.value * PRICE_TYPO_FACTOR <= reference)
-    .map(p => ({ name, field: p.field, raw: p.raw, value: p.value, reference, ratio: p.value / reference, held: p.field !== 'price' }))
+    .map(p => ({ name, field: p.field, raw: p.raw, value: p.value, reference, ratio: p.value / reference, held: majority && p.field !== 'price' }))
 }
 
 /** Same mapping `receive-new-products.ts`/`receive-stock.ts` use for PlusMinus's `measure` codes. */

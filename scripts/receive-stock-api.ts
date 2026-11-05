@@ -104,7 +104,9 @@ const priceLabel = (field: string) =>
   field === 'price' ? 'Цена (delivery)' : field === 'retailPrice' ? 'Прод. цена' : field === 'wholesalePrice' ? 'Цена на едро' : `Цена ${field.slice(5)}`
 const describeTypo = (w: StokrazpPriceWarning) =>
   `${priceLabel(w.field)} "${w.raw}" is ${w.ratio >= 1 ? `${w.ratio.toFixed(1)}× above` : `${(1 / w.ratio).toFixed(1)}× below`} the line's ${w.reference} — ` +
-  (w.held ? 'NOT written' : "kept, it is the receipt's unit cost")
+  (w.held ? 'NOT written'
+    : w.field === 'price' ? "kept, it is the receipt's unit cost"
+    : 'written: the line has only two prices, and either one may be the wrong one')
 const collapse = (s: string) => s.replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg')
 const CYR2LAT: Record<string, string> = { 'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'х': 'x', 'у': 'y', 'ѕ': 's', 'і': 'i', 'ј': 'j', 'ԁ': 'd', 'ԛ': 'q', 'ѡ': 'w' }
 const fold = (s: string) => collapse(s).split('').map(c => CYR2LAT[c] ?? c).join('')

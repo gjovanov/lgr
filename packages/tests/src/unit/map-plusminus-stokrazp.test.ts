@@ -167,10 +167,11 @@ describe('mapStokrazpDoc', () => {
     expect(m.priceWarnings[0].ratio).toBeCloseTo(0.3 / 0.04, 6)
   })
 
-  it('with only two prices, judges the selling price against the delivery price', () => {
-    const m = mapStokrazpDoc({ ...PLAIN_RECEIPT, lines: [{ name: 'ШАЙБА М6', quantity: '10', price: '0.05', retailPrice: '0055' } as any] })
-    expect(m.receiptItems[0].selling).toBeUndefined()
-    expect(m.priceWarnings).toMatchObject([{ field: 'retailPrice', reference: 0.05, held: true }])
+  it('with only two prices, reports the pair but holds neither, since either may be the typo', () => {
+    // The delivery price is the wrong one here, the selling price is right.
+    const m = mapStokrazpDoc({ ...PLAIN_RECEIPT, lines: [{ name: 'ФЕНЕР', quantity: '2', price: '0.5', retailPrice: '12' } as any] })
+    expect(m.receiptItems[0]).toMatchObject({ cost: 0.5, selling: 12 })
+    expect(m.priceWarnings).toMatchObject([{ field: 'retailPrice', reference: 0.5, ratio: 24, held: false }])
     // A single price has nothing to be judged against.
     expect(mapStokrazpDoc({ ...PLAIN_RECEIPT, lines: [{ name: 'ШАЙБА М6', quantity: '10', price: '55' } as any] }).priceWarnings).toEqual([])
   })
@@ -179,9 +180,10 @@ describe('mapStokrazpDoc', () => {
     const m = mapStokrazpDoc({ ...PRICE_ONLY, lines: [{ name: 'ПОП-НИТ 4х16', sum: '0', price: '0.11', price1: '0.09', retailPrice: '11' } as any] })
     expect(m.priceOnlyItems).toEqual([{ name: 'ПОП-НИТ 4х16', qty: 0, unit: 'pcs', cost: 0.11, tiers: { 'Цена 1': 0.09 } }])
     expect(m.priceWarnings.map(w => w.field)).toEqual(['retailPrice'])
-    const allHeld = mapStokrazpDoc({ ...PRICE_ONLY, lines: [{ name: 'ПОП-НИТ 4х20', sum: '0', price: '0.12', retailPrice: '12' } as any] })
+    // The delivery price is the median here, so the selling price and the tier are both out.
+    const allHeld = mapStokrazpDoc({ ...PRICE_ONLY, lines: [{ name: 'ПОП-НИТ 4х20', sum: '0', price: '0.12', price1: '0.001', retailPrice: '12' } as any] })
     expect(allHeld.priceOnlyItems).toEqual([])
-    expect(allHeld.priceWarnings).toHaveLength(1)
+    expect(allHeld.priceWarnings.map(w => [w.field, w.held])).toEqual([['price1', true], ['retailPrice', true]])
   })
 
   it('books a line on its stock ITEM, not on the display alias typed over it', () => {
