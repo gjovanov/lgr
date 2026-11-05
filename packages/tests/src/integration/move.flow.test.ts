@@ -242,7 +242,7 @@ describe('preflight (FR-20.79 step 1)', () => {
   }, 60_000)
 
   // #453: a master older than what the org holds would read it by older rules.
-  it("the server's version: the minimum, and FR-23's documents need 0.1.8", async () => {
+  it("the server's version: the minimum, and FR-23's documents need 0.1.9", async () => {
     const s = await shop()
     const failed = async () => (await preflightMove(String(s.orgId), s.nodeId, s.allow, 0)).checks.filter(c => !c.ok)
     const runs = (app: string) => ServerNode.updateOne({ _id: s.nodeId }, { $set: { 'health.versions.app': app } })
@@ -254,8 +254,11 @@ describe('preflight (FR-20.79 step 1)', () => {
     await db().collection('invoices').insertOne({ orgId: s.orgId, type: 'payment_receipt', invoiceNumber: 'PR-1' })
     const old = await failed()
     expect(old.map(c => c.name)).toEqual(['version'])
-    expect(old[0].detail).toContain('0.1.8')
+    expect(old[0].detail).toContain('0.1.9')
+    // server-v0.1.8 was cut before FR-23 merged: it reads the receipt as 0.1.7 does.
     await runs('0.1.8')
+    expect((await failed()).map(c => c.name)).toEqual(['version'])
+    await runs('0.1.9')
     expect(await failed()).toEqual([])
 
     // Below the minimum global talks to, whatever the org holds.
