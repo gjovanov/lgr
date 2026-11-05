@@ -117,6 +117,73 @@ describe('mapStokrazpDoc', () => {
     expect(m.adjustmentLines).toEqual([])
   })
 
+  it('leaves a line whose prices agree with each other alone', () => {
+    for (const doc of [PLAIN_RECEIPT, MIXED_CORRECTION, PRICE_ONLY]) expect(mapStokrazpDoc(doc).priceWarnings).toEqual([])
+  })
+
+  it('does not write a tier the item card holds with a leading-zero typo, and says so', () => {
+    // "0150" was meant as 0.150; Number() reads 150. Made-up values, the shape of a real card.
+    const m = mapStokrazpDoc({
+      ...PLAIN_RECEIPT,
+      lines: [{ name: 'БОЛТ М10Х80 - DIN 933 - 10.9 - BL', quantity: '200', measure: 'БР', price: '0.2', price1: '0150', price2: '0.13', retailPrice: '0.22', wholesalePrice: '0.26' } as any],
+    })
+    expect(m.receiptItems).toEqual([
+      { name: 'БОЛТ М10Х80 - DIN 933 - 10.9 - BL', qty: 200, unit: 'pcs', cost: 0.2, selling: 0.22, tiers: { 'Цена 2': 0.13, 'Цена на едро': 0.26 } },
+    ])
+    // The median of 0.13, 0.2, 0.22, 0.26 and 150.
+    expect(m.priceWarnings).toEqual([
+      { name: 'БОЛТ М10Х80 - DIN 933 - 10.9 - BL', field: 'price1', raw: '0150', value: 150, reference: 0.22, ratio: 150 / 0.22, held: true },
+    ])
+  })
+
+  it('holds a selling price or a tier that is a decimal point too LOW as well', () => {
+    const m = mapStokrazpDoc({
+      ...PLAIN_RECEIPT,
+      lines: [
+        { name: 'ВИНТ 4Х70', quantity: '1000', price: '0.013', price0: '0.0002', price1: '0.012', price2: '0.009', retailPrice: '0.025', wholesalePrice: '0.03' } as any,
+        { name: 'ВИНТ 5.5Х45 - DIN 7981', quantity: '500', price: '0.05', price1: '0.04', price2: '0.035', retailPrice: '0055', wholesalePrice: '0.066' } as any,
+      ],
+    })
+    const [a, b] = m.receiptItems
+    expect(a.selling).toBe(0.025)
+    expect(a.tiers).toEqual({ 'Цена 1': 0.012, 'Цена 2': 0.009, 'Цена на едро': 0.03 })
+    expect(b.selling).toBeUndefined() // "0055": the product keeps its selling price
+    expect(b.tiers).toEqual({ 'Цена 1': 0.04, 'Цена 2': 0.035, 'Цена на едро': 0.066 })
+    expect(m.priceWarnings.map(w => [w.name, w.field, w.held])).toEqual([
+      ['ВИНТ 4Х70', 'price0', true],
+      ['ВИНТ 5.5Х45 - DIN 7981', 'retailPrice', true],
+    ])
+  })
+
+  it('reports a delivery price that is off but keeps it, since it is the receipt unit cost', () => {
+    const m = mapStokrazpDoc({
+      ...PLAIN_RECEIPT,
+      lines: [{ name: 'ВИНТ 5Х50 - ТХ', quantity: '100', price: '0.3', price1: '0.025', price2: '0.02', retailPrice: '0.04', wholesalePrice: '0.048' } as any],
+    })
+    expect(m.receiptItems[0].cost).toBe(0.3)
+    expect(m.receiptItems[0].selling).toBe(0.04)
+    expect(m.priceWarnings).toHaveLength(1)
+    expect(m.priceWarnings[0]).toMatchObject({ field: 'price', held: false })
+    expect(m.priceWarnings[0].ratio).toBeCloseTo(0.3 / 0.04, 6)
+  })
+
+  it('with only two prices, judges the selling price against the delivery price', () => {
+    const m = mapStokrazpDoc({ ...PLAIN_RECEIPT, lines: [{ name: 'ШАЙБА М6', quantity: '10', price: '0.05', retailPrice: '0055' } as any] })
+    expect(m.receiptItems[0].selling).toBeUndefined()
+    expect(m.priceWarnings).toMatchObject([{ field: 'retailPrice', reference: 0.05, held: true }])
+    // A single price has nothing to be judged against.
+    expect(mapStokrazpDoc({ ...PLAIN_RECEIPT, lines: [{ name: 'ШАЙБА М6', quantity: '10', price: '55' } as any] }).priceWarnings).toEqual([])
+  })
+
+  it('still drops a price-only line once every price on it is held', () => {
+    const m = mapStokrazpDoc({ ...PRICE_ONLY, lines: [{ name: 'ПОП-НИТ 4х16', sum: '0', price: '0.11', price1: '0.09', retailPrice: '11' } as any] })
+    expect(m.priceOnlyItems).toEqual([{ name: 'ПОП-НИТ 4х16', qty: 0, unit: 'pcs', cost: 0.11, tiers: { 'Цена 1': 0.09 } }])
+    expect(m.priceWarnings.map(w => w.field)).toEqual(['retailPrice'])
+    const allHeld = mapStokrazpDoc({ ...PRICE_ONLY, lines: [{ name: 'ПОП-НИТ 4х20', sum: '0', price: '0.12', retailPrice: '12' } as any] })
+    expect(allHeld.priceOnlyItems).toEqual([])
+    expect(allHeld.priceWarnings).toHaveLength(1)
+  })
+
   it('books a line on its stock ITEM, not on the display alias typed over it', () => {
     const doc: PlusMinusDocument = {
       ...PLAIN_RECEIPT,
