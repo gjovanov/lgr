@@ -63,7 +63,8 @@ LGR_TOKEN=… bun run scripts/import-accounting-books.ts --org regal-acc --books
 
 # payroll: declarations from the sealed filings, personnel and salary sheets from the archive
 LGR_TOKEN=… bun scripts/import-payroll.ts --root "$ACC_FILINGS_SEALED_DIR" --identity .secrets/lgr-backup-seal.key \
-  --books <ACC_DOCS_ROOT>/books/<day> --api <url> --org <orgId>                                       # then --execute / --verify
+  --books <ACC_DOCS_ROOT>/books/<day> --api <url> --org <orgId> \
+  --version 202601=20260211_084833 --months <every FILED month, comma-separated>                      # then --execute / --verify
 
 # VAT files, as before
 bun run scripts/import-vat-files.ts --org regal-acc --dir "$ACC_FILINGS_DIR/nap/vat"
@@ -74,29 +75,44 @@ bun run scripts/import-vat-files.ts --org regal-acc --dir "$ACC_FILINGS_DIR/nap/
   an analytic's opening per item, not per account.
 - Archive sheet rows carry the ЕГН, so `import-payroll.ts` joins them to the declarations by ЕГН. A GUI sheet has none, so it
   joins by surname and initials.
+- ⚠ `--version 202601=20260211_084833`: the accountant filed January 2026's OLDER version (FR-25 §12). Without the pin the
+  importer takes the newest, and a re-import quietly turns that month back into the version nobody filed.
+- ⚠ `--months` must leave out a month whose declaration is not filed yet. `pull-filings.ts` copies the files as soon as the
+  accountant writes them: 202610 was on disk from 11-03, and is due on 11-25. People and contracts still read every month on disk
+  (on 11-05 that changed no contract: they were folded with and without 202610).
+- `import-payroll.ts` takes `LGR_TOKEN` only, not `LGR_USERNAME`/`LGR_PASSWORD`.
 
-⚠ **The first re-import from the archive will report changes.** regal-acc was imported from the 11-05 GUI exports, which carry
-the export's own damage (below). The archive holds the undamaged text, so the documents concerned come back `changed`.
+**regal-acc switched from the GUI exports to the archive on 2026-11-05, on the owner's word.** A re-import of the same day now
+reports everything `unchanged`. A later day reports only what was booked or corrected since.
 
-Dry run of 2026 against prod regal-acc (2026-11-05):
+The books, both years. Each dry run changed exactly the documents the export had damaged: planning both files with the server's
+own `planMonth` predicted the counts of every month.
 
-| step | result |
-|---|---|
-| chart | 251 unchanged |
-| analytics | 10,340 unchanged |
-| opening | `changed`: the archive spells the analytic names right. Balanced, continuity 66/66 |
-| journal | 22,151 entries, all balanced. 21,984 unchanged (exactly the documents byte-equal to the export); 126 changed, 41 replaced |
-| finish | 0 accounts changed |
+| year | entries | changed | replaced (new = gone) | opening |
+|---|---|---|---|---|
+| 2025 | 27,442 | 272 | 146 | names corrected; 26 lines moved by under half a cent |
+| 2026 | 22,151 | 126 | 41 | names corrected; 1 line moved by under half a cent; continuity 66/66 |
 
-The analytics that the broken names created in LGR stay behind, empty: look at them before `--execute`.
+- The chart (251) and the analytics (10,340) were unchanged, finish changed 0 accounts, and a dry rerun of each year is unchanged.
+- ⚠ The opening's sub-cent moves are not damage. The printed trial balance rounds each line to the cent, and the archive carries
+  the database's value. No account total moved.
+- ⚠ **After the switch, the gate against GUI exports reports the export's damage as differences.** `compare-accounting-books.ts`
+  compares with the PRINTED files. The journal export's turnovers per analytic were equal while the books were that export; now
+  they differ on every name the export broke (2025: 12, 2026: 5), and so do the analytic trial balances (10 and 4). Moved onto its
+  real name, each of those rows is equal, but one: a 2025 supplier whose closing is 0.62 of a cent off the print, from its
+  opening's sub-cent value. The main book, the turnovers per account and the 2026 trial balance stay equal.
+- Left behind in regal-acc: 20 empty analytics with broken names (9 of them under a root the export also broke), and 14 contacts
+  with U+FFFD in the name and no tax id. Nothing in the books references them. Removing them is a separate decision.
 
-⚠ **Payroll: the archive covers every declared person, the GUI sheets did not.** The GUI „Ведомост" exports hold about 8 rows a
-month against 16–18 declared people: 202509 had 1 of 17, 202601 had 4 of 16. So most imported months carry salary lines for a
-few people only. With `--books`, every declared person gets their lines, joined by ЕГН, and they are identical wherever both
-sources have the person-month. The one exception is the December 2025 sheet, exported before the month was final.
-
-The dry run therefore reports `replace` on most months. That is an improvement, but it changes prod payroll data: run
-`--execute` only on the owner's word, and then `--verify` (the declarations re-emit unchanged, since lines do not enter them).
+Payroll, the same day:
+- The GUI „Ведомост" exports held about 8 rows a month against 16–18 declared people (202509: 1 of 17). With `--books`, every
+  declared person has their lines, identical wherever both sources have the person-month. The exception is December 2025, whose
+  GUI sheet was exported before the month was final.
+- 39 months were replaced and 5 left unchanged, and the dry rerun is unchanged. `--verify`: обр. 1 44/44, обр. 6 42/42,
+  contributions 42/42, people 44/44.
+- 27 contracts were updated from the 11-05 personnel data: the same 27 that a GUI re-import updates. The archive also gives 12
+  of them a class percentage that no GUI export carries.
+- 202206 and 202207 (one person each) have a sheet row only in the GUI's export, so those two months were left as they were.
 
 ## What is proven (2026-11-05, archive 20261105 vs the GUI exports taken from the same state an hour earlier)
 
