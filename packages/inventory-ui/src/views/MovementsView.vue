@@ -6,7 +6,8 @@
       <div class="d-flex align-center ga-2">
         <ViewSwitcher v-model="displayMode" :views="['list', 'kanban']" class="mr-2" />
         <export-menu @export="onExport" />
-        <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
+        <!-- FR-26: an import writes receipts (`inventory.write`); a transfer-only session imports nothing. -->
+        <v-btn v-if="!transferOnly" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
         <!-- FR-22.50: says what it creates — the form opens as a goods receipt. -->
         <CreateButton :label="$t('nav.newDocPage.stockMovement')" :to="{ name: 'inventory.movements.new' }" />
       </div>
@@ -127,9 +128,9 @@
           <template #item.total="{ item }">{{ fmtCurrency(item.total || 0) }}</template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
-            <v-btn v-if="item.status === 'draft'" icon="mdi-check" size="small" variant="text" color="success" :title="$t('warehouse.confirm')" @click="confirmMovement(item)" />
+            <v-btn v-if="writesMovement(item)" icon="mdi-check" size="small" variant="text" color="success" :title="$t('warehouse.confirm')" data-testid="movement-confirm" @click="confirmMovement(item)" />
             <!-- #448: a draft saved by mistake can go. The API refuses one another document names. -->
-            <v-btn v-if="item.status === 'draft'" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" data-testid="movement-delete" @click="askDelete(item)" />
+            <v-btn v-if="writesMovement(item)" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" data-testid="movement-delete" @click="askDelete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>
@@ -217,6 +218,8 @@ import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import { useProductTypes } from 'ui-shared/composables/useProductTypes'
 import { appHref } from 'ui-shared/nav/navigate'
+import { isTransferOnly } from 'ui-shared/nav/page-registry'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string; bill?: { id: string; number: string } }
 interface Warehouse { _id: string; name: string }
@@ -225,6 +228,15 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
+
+/**
+ * FR-26.7: a Seller or a Sales Consultant (`inventory.transfer` without `inventory.write`) confirms and
+ * deletes draft transfers only, as the server allows (`movement.controller#transferRefusal`).
+ */
+const transferOnly = isTransferOnly(sessionViewer())
+function writesMovement(item: { status: string; type: string }): boolean {
+  return item.status === 'draft' && (!transferOnly || item.type === 'transfer')
+}
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
@@ -284,9 +296,10 @@ const kanbanItems = computed(() => {
 
 async function handleKanbanMove(itemId: string, from: string, to: string) {
   if (from === 'draft' && to === 'confirmed') {
+    const item = items.value.find((m: any) => m._id === itemId)
+    if (!item || !writesMovement(item)) return
     try {
       // FR-04 (#11): same createCount opt-in as the list/form confirm actions.
-      const item = items.value.find((m: any) => m._id === itemId)
       await httpClient.post(
         `${appStore.orgUrl()}/warehouse/movement/${itemId}/confirm`,
         (item as any)?.type === 'adjustment' ? { createCount: true } : {},

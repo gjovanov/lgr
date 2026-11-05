@@ -8,10 +8,12 @@
     back-to="/configuration/devices"
     :back-label="t('nav.devices')"
   >
-    <v-form ref="formRef" @submit.prevent="handleSave">
+    <!-- FR-26 D-8: whoever does not run the devices reads the page. The server refuses them every write and
+         command here (`FISCAL_ADMIN_ROLES`), so none is offered: no Save, no Connect, no operators, no reports but the status. -->
+    <v-form ref="formRef" :disabled="!runs" @submit.prevent="handleSave">
       <v-tabs v-model="tab">
         <v-tab value="general">{{ t('pos.device.tabs.general') }}</v-tab>
-        <v-tab v-if="!isNew" value="operators">{{ t('pos.device.tabs.operators') }}</v-tab>
+        <v-tab v-if="!isNew && runs" value="operators">{{ t('pos.device.tabs.operators') }}</v-tab>
         <v-tab v-if="!isNew" value="reports">{{ t('pos.device.tabs.reports') }}</v-tab>
       </v-tabs>
 
@@ -171,10 +173,11 @@
             </v-col>
 
             <!-- What the device cannot do is disabled with the reason (`capabilities` on the device):
-                 an Eltrade has no operator report and no electronic-journal print in its protocol. -->
+                 an Eltrade has no operator report and no electronic-journal print in its protocol.
+                 Each card below is a command the server takes from FISCAL_ADMIN_ROLES only: `runs`. -->
 
             <!-- Daily X-Report -->
-            <v-col cols="12" md="6" lg="4">
+            <v-col v-if="runs" cols="12" md="6" lg="4">
               <v-card variant="outlined" data-testid="report-xReport">
                 <v-card-title class="text-subtitle-1">{{ t('pos.device.reports.x') }}</v-card-title>
                 <v-card-text>
@@ -191,7 +194,7 @@
             </v-col>
 
             <!-- Daily Z-Report -->
-            <v-col cols="12" md="6" lg="4">
+            <v-col v-if="runs" cols="12" md="6" lg="4">
               <v-card variant="outlined" data-testid="report-zReport">
                 <v-card-title class="text-subtitle-1">{{ t('pos.device.reports.z') }}</v-card-title>
                 <v-card-text>
@@ -208,7 +211,7 @@
             </v-col>
 
             <!-- Operator Report -->
-            <v-col cols="12" md="6" lg="4">
+            <v-col v-if="runs" cols="12" md="6" lg="4">
               <v-card variant="outlined" data-testid="report-operatorReport">
                 <v-card-title class="text-subtitle-1">{{ t('pos.device.reports.operator') }}</v-card-title>
                 <v-card-text>
@@ -232,7 +235,7 @@
             </v-col>
 
             <!-- Fiscal Memory Report by Date -->
-            <v-col cols="12" md="6" lg="4">
+            <v-col v-if="runs" cols="12" md="6" lg="4">
               <v-card variant="outlined" data-testid="report-fmReportByDate">
                 <v-card-title class="text-subtitle-1">{{ t('pos.device.reports.fmByDate') }}</v-card-title>
                 <v-card-text>
@@ -251,7 +254,7 @@
             </v-col>
 
             <!-- Fiscal Memory Report by Number -->
-            <v-col cols="12" md="6" lg="4">
+            <v-col v-if="runs" cols="12" md="6" lg="4">
               <v-card variant="outlined" data-testid="report-fmReportByNumber">
                 <v-card-title class="text-subtitle-1">{{ t('pos.device.reports.fmByNumber') }}</v-card-title>
                 <v-card-text>
@@ -270,7 +273,7 @@
             </v-col>
 
             <!-- Electronic Journal (KLEN) -->
-            <v-col cols="12" md="6" lg="4">
+            <v-col v-if="runs" cols="12" md="6" lg="4">
               <v-card variant="outlined" data-testid="report-electronicJournal">
                 <v-card-title class="text-subtitle-1">{{ t('pos.device.reports.ej') }}</v-card-title>
                 <v-card-text>
@@ -289,7 +292,7 @@
 
             <!-- Payment types: the name the device prints for each payment slot. Cash on delivery
                  prints in a reserve slot (an Eltrade's R), which an admin names in one click. -->
-            <v-col cols="12" md="6">
+            <v-col v-if="runs" cols="12" md="6">
               <v-card variant="outlined" data-testid="payment-types">
                 <v-card-title class="text-subtitle-1">{{ t('pos.device.paymentTypes.title') }}</v-card-title>
                 <v-card-text>
@@ -382,7 +385,8 @@ import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
-import { jwtRole } from 'ui-shared/composables/useStorageIdentity'
+import { jwtRole, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { runsDevices } from 'ui-shared/nav/page-registry'
 
 const { t, te } = useI18n()
 const route = useRoute()
@@ -390,22 +394,30 @@ const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const fiscalBridge = useFiscalBridge()
+// FR-26 D-8: whoever does not run the devices reads this page, with nothing that acts on a device, Connect
+// included (#493 item 1). A cashier connects the printer from the till's terminal.
+const runs = runsDevices(sessionViewer())
+
+/**
+ * Write the device's status as this page sees it. Only for whoever runs devices: the server refuses
+ * anyone else the PUT, and the bridge records online and offline on its own (`fiscal-bridge.ts`).
+ */
+async function recordStatus(status: 'online' | 'offline' | 'error') {
+  if (!runs || isNew.value) return
+  try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status }) } catch {}
+}
 
 // Watch for device disconnect (USB unplugged / powered off)
 watch(() => fiscalBridge.status.value, async (val) => {
   if (val === 'error' && fiscalBridge.errorMessage.value) {
     showError(fiscalBridge.errorMessage.value)
     device.status = 'error'
-    if (!isNew.value) {
-      try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status: 'error' }) } catch {}
-    }
+    await recordStatus('error')
   }
   if (val === 'connected' && fiscalBridge.deviceNumber.value) {
     showSuccess(t('pos.device.reconnected', { device: fiscalBridge.deviceNumber.value }))
     device.status = 'online'
-    if (!isNew.value) {
-      try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status: 'online' }) } catch {}
-    }
+    await recordStatus('online')
   }
 })
 
@@ -458,10 +470,10 @@ const rules = {
 
 // Form actions
 const formActions = computed<FormAction[]>(() => {
-  const actions: FormAction[] = [
-    { label: isNew.value ? t('common.create') : t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSave, loading: saving.value },
-  ]
-  if (!isNew.value && device.connectionType === 'browser') {
+  const actions: FormAction[] = runs
+    ? [{ label: isNew.value ? t('common.create') : t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSave, loading: saving.value }]
+    : []
+  if (runs && !isNew.value && device.connectionType === 'browser') {
     actions.push({
       label: fiscalBridge.status.value === 'connected' ? t('pos.device.disconnect') : t('pos.device.connect'),
       color: fiscalBridge.status.value === 'connected' ? 'error' : 'success',
@@ -574,7 +586,7 @@ function deviceStatusColor(s: string) {
 async function toggleConnection() {
   if (fiscalBridge.status.value === 'connected') {
     await fiscalBridge.disconnect()
-    try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status: 'offline' }) } catch {}
+    await recordStatus('offline')
     device.status = 'offline'
     showSuccess(t('pos.device.disconnected'))
     return
@@ -592,7 +604,7 @@ async function toggleConnection() {
       showError(t('pos.connectFailed', { reason }))
       return
     }
-    try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status: 'online' }) } catch {}
+    await recordStatus('online')
     device.status = 'online'
     showSuccess(t('pos.device.connected', { device: device.deviceNumber }))
   } catch (e: any) {
@@ -663,6 +675,7 @@ async function refreshCapabilities() {
 }
 
 async function handleSave() {
+  if (!runs) return
   const { valid } = await formRef.value.validate()
   if (!valid) return
 

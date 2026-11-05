@@ -3,7 +3,7 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('nav.devices') }}</h1>
       <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" :to="{ name: 'pos.devices.new' }">
+      <v-btn v-if="runs" color="primary" prepend-icon="mdi-plus" :to="{ name: 'pos.devices.new' }">
         {{ $t('pos.device.new') }}
       </v-btn>
     </div>
@@ -60,8 +60,9 @@
             {{ item.lastCommunication ? formatDateTime(item.lastCommunication) : '-' }}
           </template>
           <template #item.actions="{ item }">
+            <!-- FR-26 D-8: whoever does not run the devices gets no Connect here; a cashier connects from the terminal. -->
             <v-btn
-              v-if="item.connectionType === 'browser'"
+              v-if="runs && item.connectionType === 'browser'"
               size="small"
               variant="outlined"
               :color="connectedDeviceId === (item._id || item.id) ? 'error' : 'success'"
@@ -107,12 +108,16 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { runsDevices } from 'ui-shared/nav/page-registry'
 import EntityLink from 'ui-shared/components/EntityLink'
 
 const { t, te } = useI18n()
 const appStore = useAppStore()
 const fiscalBridge = useFiscalBridge()
 const { showSuccess, showError } = useSnackbar()
+// FR-26 D-8: whoever does not run the devices reads them. Connect stays: a cashier's tab holds the printer.
+const runs = runsDevices(sessionViewer())
 
 // Watch for device disconnect (USB unplugged / powered off)
 watch(() => fiscalBridge.status.value, async (val) => {
@@ -186,7 +191,9 @@ function formatDateTime(dateStr: string) {
 const connectedDeviceId = ref<string | null>(null)
 const connectingDeviceId = ref<string | null>(null)
 
+/** Only for whoever runs devices: the server refuses anyone else the PUT, and the bridge records online and offline on its own. */
 async function updateDeviceStatus(id: string, status: string) {
+  if (!runs) return
   try {
     await httpClient.put(`${appStore.orgUrl()}/fiscal/device/${id}`, { status })
   } catch { /* best-effort status update */ }

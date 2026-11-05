@@ -35,6 +35,13 @@ export async function apiPost(session: ApiSession, path: string, body: unknown):
   })
 }
 
+export async function apiDelete(session: ApiSession, path: string): Promise<Response> {
+  return fetch(`${API}/api/org/${session.orgId}${path}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${session.token}` },
+  })
+}
+
 export async function apiGet(session: ApiSession, path: string): Promise<any> {
   const res = await fetch(`${API}/api/org/${session.orgId}${path}`, {
     headers: { Authorization: `Bearer ${session.token}` },
