@@ -458,12 +458,20 @@ A new skill, `pull-plusminus-accounting`, beside `pull-plusminus-api`, on the sa
 | **E3** | both store servers | `journalEntries(from, to, '', '', '', 'false', '')`: every operation with its product and quantity. `documents` + `document`, `posDocuments`. From ~2025-02 | API, today |
 | **E4** | E1 + E3 | Product → group evidence: the same document number on both sides | Offline |
 | **E5** (try) | accountant's install | The `saft` report. It writes an `AuditFile` with entries, partners and products in one standard XML. If the install's licence includes it, this replaces half of E1 | One run by the accountant, on one month |
-| **E6** (only if E1 proves too slow) | `archive/<day>.arz` | The vendor's daily backup restored into a **throwaway** `pmserver`, which would open the full API on the books | ⚠ A licensing and data-handling decision, §12. Never on a store's server |
+| **E6** | `archive/<day>.arz` | The vendor's nightly backup, which is the whole database: journal, chart, analytics, openings, personnel and salary sheets | Read directly, with no server (as built, below). Written when the accountant closes PlusMinus, ~50 MB. **Sealed on arrival** |
 | **E7** | accountant's install | `nap/decl1`, `nap/decl6`, `nap/decl_1_6`: обр. 1 and 6, every month. `nap/ETZ`, `nap/UvedTD`, `nap/SPR73_6`. `exports/payrollSalaries_*` | File copy, no GUI. **Sealed on arrival** (below) |
 | **E8** | same | What the files lack, from the GUI: `payrollEmployee` in its templates for positions and classifiers, contracts, and payment details; `hrSalaryChanges`; `payrollEmployeeHistory`; `payrollAnnualLeaves`; the months missing from `payrollSalaries`; `payrollAccountingSalaries` | **Needs the accountant.** Exports, then sealed copies |
 | **E9** | same | `docs/payrollAccountingSalaries.json`, `docs/payrollSettings.json`, `docs/payrollMinInsuranceIncomes.json`: no person in them | File copy. The first seeds `PostingRule`. The parameter values are only a cross-check: LGR's table comes from the law (§7.4) |
 
-⚠ What is known not to work: there is no API on the accountant's install, its database files are encrypted, and the store servers hold no books. Do not spend time there.
+⚠ What is known not to work: there is no API on the accountant's install, its database files are encrypted (its nightly archive is not: E6), and the store servers hold no books. Do not spend time there.
+
+**As built, 2026-11-05: E6, read without a server.** The plan was to restore the archive into a throwaway `pmserver` if E1 proved too slow. It needs none: the archive is the database gzipped in a simple dump, and `plusminus-archive.ts` reads it directly. Restoring it into the vendor's server was tried on the vendor's empty template and rejected; the skill says why. The skill is `pull-plusminus-books`, not the `pull-plusminus-accounting` named above.
+- It fetches the newest archive over `roomler ssh`, sealed on arrival, and writes nothing on the books PC.
+- It writes the journal, chart and analytic openings per year and the analytics without `ПЕРСОНАЛ`, already parsed into the shapes `plusminus-exports.ts` gives E1's files. The personnel rows and salary sheets are sealed. The importers take the folder with `--books`.
+- It also copies E2's, E7's and E9's files, only those that changed.
+- Against E1 and E8 exported from the same state, every artifact is equal, but for the export's own damage (§9, R1) and one salary sheet exported before its month was final. What it does not cover still comes from the GUI: fixed assets, contracts, salary changes, history and leave.
+- The GUI's salary sheets held about half of each month's declared people. The archive holds every one, joined to обр. 1 by ЕГН, and equal wherever both have the person-month, that December 2025 sheet aside. Re-importing P1's months from it waits for the owner's word.
+- ⚠ The archive holds the payroll, so it is handled under E7's and E8's rules below.
 
 **E7 and E8 hold ЕГН numbers, pay and sick leave, and carry stricter rules than the rest.** The employer's owner agreed on 2026-11-03 (§12). Everything in §1.8 was read before that, on the PC, by scripts that print shapes and monthly totals (`tools/pay-*.ps1`, `decl-recon*.ts`). A file is sealed with a public key as it arrives (`lgr-sealed-1`, never written in clear), is decrypted only in memory by the import CLI, and is deleted when P1's gate has passed and the accountant has confirmed. Prod is its only lasting home.
 
@@ -876,7 +884,14 @@ The gate, after them:
 - **Equal:** the main book, the journal's turnovers per account and per analytic, and for 2026 the synthetic trial balance and ДОСТАВЧИЦИ.
 - **What is left differs in two ways, and neither is the import's:**
   - two cells of 2025's synthetic trial balance, by the cent PlusMinus rounds a balance to;
-  - a few dozen analytic rows a year, whose name holds a character PlusMinus has broken (U+FFFD in place of a Cyrillic letter). The journal names such an analytic as it was when the operation was booked, and the trial balance as it is now. The amounts agree, split between the two spellings. Those names are for the accountant to repair.
+  - a few dozen analytic rows a year, whose name holds U+FFFD in place of a Cyrillic letter. The amounts agree, split between the journal's spelling and the trial balance's. **That is the GUI export's damage, not the books'** (found 2026-11-05): read from the archive (E6), the database spells every one of those names right, so there is nothing for the accountant to repair.
+
+**The export's damage,** each kind checked value by value against the archive: it cuts text at 120 characters, it breaks some Cyrillic letters into U+FFFD, and it rounds numbers to 10 decimals (the archive reader rounds the same way). A dry run of 2026 from the archive changed exactly what that damaged:
+- the chart and analytics are unchanged;
+- of 22,151 journal entries, 21,984 are unchanged, and the other 167 are exactly the documents the export damaged;
+- the opening changed only by the corrected names. It is balanced, with continuity 66 of 66.
+
+Not executed: the re-import is the owner's word. It replaces the damaged comments and names, and leaves behind, empty, the analytics the broken names created.
 
 ⚠ Rollout: `accounting.import` belongs to admins by default, and `tokenize()` gives an admin every permission, so there is no backfill; an admin signs in again after the deploy. The new indexes must be on prod before the first import: the unique one on `importKey` is what stops two imports of a month doubling it.
 
@@ -979,4 +994,4 @@ What a later release should know:
 
 14. **A written processing agreement.** The company is the controller of its employees' data and LGR's operator becomes a processor (GDPR art. 28). The agreement above should be on paper before real payroll runs in LGR.
 15. **R7's shape,** when it comes: one ledger, one VAT return and one обр. 6 per EIK cannot be split per store. The natural answer is that one store org holds them and the other sees its share. Nothing built before R7 depends on the choice.
-16. **E6,** only if E1 is too slow: is a copy of `.arz` in a throwaway server acceptable, under PlusMinus's licence and for the data? This plan does not need it.
+16. **E6,** only if E1 is too slow: is a copy of `.arz` in a throwaway server acceptable, under PlusMinus's licence and for the data? This plan does not need it. **No longer arises (2026-11-05):** the archive is read directly (§4, as built), so no copy of PlusMinus's server runs. Its payroll is handled as E7's and E8's is.
