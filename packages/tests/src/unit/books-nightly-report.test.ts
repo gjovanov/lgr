@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'bun:test'
-import { parseImport, problems, summarize } from '../../../../scripts/lib/books-nightly-report'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { docsRootDown, listsWithin, parseImport, problems, summarize } from '../../../../scripts/lib/books-nightly-report'
 
 /**
  * What the unattended books run reads out of `import-accounting-books.ts`. The lines are the importer's own,
@@ -57,5 +59,37 @@ describe('books nightly: reading the importer', () => {
       '2026-02: 1 unknown accounts',
       'opening: continuity differs on 1 accounts',
     ])
+  })
+})
+
+/**
+ * The docs root is a WSL share. A stuck distro HANGS a read rather than failing it, and the run's own state lives on that
+ * share, so the run asks a child whether the root lists and keeps the outage on the PC.
+ */
+describe('books nightly: a docs root that does not answer', () => {
+  const at = (hours: number) => new Date(Date.UTC(2026, 10, 6, 6) + hours * 3600_000).toISOString()
+
+  it('counts from the first run it does not answer, and mails nothing yet', () => {
+    expect(docsRootDown(undefined, at(0), 6)).toEqual({ down: { since: at(0) }, hours: 0, mail: false })
+  })
+
+  it('is mailed once it has been down the hours it is given', () => {
+    expect(docsRootDown({ since: at(0) }, at(4), 6).mail).toBe(false)
+    expect(docsRootDown({ since: at(0) }, at(6), 6)).toEqual({ down: { since: at(0) }, hours: 6, mail: true })
+  })
+
+  it('then once a day while it lasts', () => {
+    const mailed = { since: at(0), mailedAt: at(6) }
+    expect(docsRootDown(mailed, at(8), 6)).toEqual({ down: mailed, hours: 8, mail: false })
+    expect(docsRootDown(mailed, at(30), 6).mail).toBe(true)
+  })
+
+  it('a folder that lists answers, a missing one does not', async () => {
+    expect(await listsWithin(tmpdir(), 10_000)).toBe(true)
+    expect(await listsWithin(join(tmpdir(), `no-such-folder-${process.pid}-${Date.now()}`), 10_000)).toBe(false)
+  })
+
+  it('a child that has not answered in time is killed, and that is no answer', async () => {
+    expect(await listsWithin(tmpdir(), 0)).toBe(false)
   })
 })
