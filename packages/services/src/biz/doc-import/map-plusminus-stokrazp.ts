@@ -23,6 +23,11 @@
  * as `price1`/`price2` — observed on the SAME pull. Every `price<N>` key maps to tier "Цена N"
  * generically (no hardcoded slot count); `wholesalePrice` → "Цена на едро"; `retailPrice` → the
  * base selling price; the bare `price` → cost (what `receive-new-products.ts` calls `cost`).
+ *
+ * ⚠ A разписка repeats the prices on the PlusMinus item card, typos included: "0172" where 0.172
+ * was meant (`Number` reads 172), a decimal point one place off in either direction. A sale price
+ * that far from the rest of its line is reported in `priceWarnings` and NOT mapped, so the product
+ * keeps what it has. See `PRICE_TYPO_FACTOR`.
  */
 import type { PlusMinusDocument } from './map-plusminus-invoice.js'
 import { lineItemName } from './map-plusminus-line.js'
@@ -42,6 +47,24 @@ export interface StokrazpAdjustmentLine {
   value: number
 }
 
+/** A price on a receipt line that sits `PRICE_TYPO_FACTOR` times or more from the rest of its line. */
+export interface StokrazpPriceWarning {
+  name: string
+  /** The PlusMinus field: `price` (the delivery price), `retailPrice`, `wholesalePrice` or `price<N>`. */
+  field: string
+  /** As PlusMinus sent it, e.g. "0172". */
+  raw: string
+  value: number
+  /** The median of the line's prices, or its delivery price when the line has only two. */
+  reference: number
+  /** value / reference: above 1 the price is too high, below 1 too low. */
+  ratio: number
+  /** true: not mapped, so nothing writes it. false: mapped as before and only reported, either
+   *  because it is the delivery price (the receipt's unit cost) or because the line has only two
+   *  prices and nothing says which of them is wrong. */
+  held: boolean
+}
+
 export interface StokrazpMapped {
   docNumber: string
   date: string
@@ -58,11 +81,48 @@ export interface StokrazpMapped {
    *  movement, marker `stokrazp:<docNumber>` (NOT `sklisk:` — this is the other half of a
    *  receipt, not a write-off document). */
   adjustmentLines: StokrazpAdjustmentLine[]
+  /** Prices read as typos on the PlusMinus item card. The store should correct these cards. */
+  priceWarnings: StokrazpPriceWarning[]
 }
+
+/**
+ * How many times above or below the median of its own line a price may sit before it is read as
+ * a typo on the item card. On the 2026-07..11 pulls (regal-pz 3,253 lines, regal-sf 1,477) nearly
+ * every value this far out was a leading-zero or decimal-point typo, while the tiers priced low on
+ * purpose (regal-sf's `Цена 9`, about a third of retail) stay well inside it. A held price that was
+ * right after all costs only an update: the product keeps its current price, and the run says so.
+ */
+export const PRICE_TYPO_FACTOR = 5
 
 const num = (v: unknown): number => {
   const n = Number(v)
   return Number.isFinite(n) ? n : 0
+}
+
+const median = (values: number[]): number => {
+  const s = [...values].sort((a, b) => a - b)
+  const mid = s.length >> 1
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
+}
+
+const isPriceField = (key: string) => key === 'price' || key === 'retailPrice' || key === 'wholesalePrice' || /^price\d{1,2}$/.test(key)
+
+/** The line's prices that sit `PRICE_TYPO_FACTOR` times or more from the rest of it. */
+function priceTypos(line: Record<string, unknown>, name: string): StokrazpPriceWarning[] {
+  const prices = Object.entries(line)
+    .filter(([key]) => isPriceField(key))
+    .map(([field, raw]) => ({ field, raw: String(raw), value: num(raw) }))
+    .filter(p => p.value > 0)
+  const cost = prices.find(p => p.field === 'price')?.value ?? 0
+  // Two prices have no majority, and either can be the typo: one regal-sf card sells at 24 times
+  // its delivery price, and the wrong one is the delivery price. So a pair is only reported,
+  // measured against the delivery price, and still written.
+  const majority = prices.length >= 3
+  const reference = majority ? median(prices.map(p => p.value)) : prices.length === 2 ? cost : 0
+  if (!(reference > 0)) return []
+  return prices
+    .filter(p => p.value >= reference * PRICE_TYPO_FACTOR || p.value * PRICE_TYPO_FACTOR <= reference)
+    .map(p => ({ name, field: p.field, raw: p.raw, value: p.value, reference, ratio: p.value / reference, held: majority && p.field !== 'price' }))
 }
 
 /** Same mapping `receive-new-products.ts`/`receive-stock.ts` use for PlusMinus's `measure` codes. */
@@ -72,17 +132,17 @@ const normalizeUnit = (measure: unknown): string => {
   return raw ? (UNIT_MAP[raw.toUpperCase()] || raw) : 'pcs'
 }
 
-/** Every `price<N>` key on a line → tier "Цена N", whatever N's are actually present. */
-function extractTiers(line: Record<string, unknown>): Record<string, number> | undefined {
+/** Every `price<N>` key on a line → tier "Цена N", whatever N's are actually present, but a held one. */
+function extractTiers(line: Record<string, unknown>, held: Set<string>): Record<string, number> | undefined {
   const tiers: Record<string, number> = {}
   for (const [key, v] of Object.entries(line)) {
     const m = /^price(\d{1,2})$/.exec(key)
-    if (m) {
+    if (m && !held.has(key)) {
       const price = num(v)
       if (price > 0) tiers[`Цена ${m[1]}`] = price
     }
   }
-  const wholesale = num(line.wholesalePrice)
+  const wholesale = held.has('wholesalePrice') ? 0 : num(line.wholesalePrice)
   if (wholesale > 0) tiers['Цена на едро'] = wholesale
   return Object.keys(tiers).length ? tiers : undefined
 }
@@ -101,6 +161,7 @@ export function mapStokrazpDoc(doc: PlusMinusDocument): StokrazpMapped {
   const receiptItems: StokrazpItem[] = []
   const priceOnlyItems: StokrazpItem[] = []
   const adjustmentLines: StokrazpAdjustmentLine[] = []
+  const priceWarnings: StokrazpPriceWarning[] = []
 
   for (const l of (doc.lines || []) as any[]) {
     const name = lineItemName(l) // the stock item, not the display alias — see map-plusminus-line.ts
@@ -108,9 +169,12 @@ export function mapStokrazpDoc(doc: PlusMinusDocument): StokrazpMapped {
     const qty = num(l.quantity)
 
     if (qty >= 0) {
+      const typos = priceTypos(l, name)
+      priceWarnings.push(...typos)
+      const held = new Set(typos.filter(t => t.held).map(t => t.field))
       const cost = num(l.price)
-      const selling = num(l.retailPrice)
-      const tiers = extractTiers(l)
+      const selling = held.has('retailPrice') ? 0 : num(l.retailPrice)
+      const tiers = extractTiers(l, held)
       if (qty === 0 && !(selling > 0) && !tiers) continue
       ;(qty > 0 ? receiptItems : priceOnlyItems).push({
         name, qty, unit: normalizeUnit(l.measure), cost,
@@ -122,5 +186,5 @@ export function mapStokrazpDoc(doc: PlusMinusDocument): StokrazpMapped {
     }
   }
 
-  return { docNumber, date, partner: h.partner ? String(h.partner) : undefined, receiptItems, priceOnlyItems, adjustmentLines }
+  return { docNumber, date, partner: h.partner ? String(h.partner) : undefined, receiptItems, priceOnlyItems, adjustmentLines, priceWarnings }
 }

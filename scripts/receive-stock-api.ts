@@ -20,6 +20,10 @@
  * comment for the real regal-pz "2000 КОРЕКЦИЯ" and regal-sf whole-document-return cases this
  * covers).
  *
+ * ⚠ A sale price PRICE_TYPO_FACTOR times or more from the rest of its line ("0172" for 0.172) is a
+ * typo on the PlusMinus item card: it is not written, and the run lists it at the end so the store
+ * can correct the card. Every receipt of that article repeats the typo until they do.
+ *
  * Usage:
  *   bun run scripts/receive-stock-api.ts --dir <dir with stokrazp_*.json>            # dry-run
  *   bun run scripts/receive-stock-api.ts --dir <dir> --execute
@@ -39,7 +43,7 @@ import { readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { assertTokenOrg } from './lib/token-org.js'
-import { mapStokrazpDoc } from '../packages/services/src/biz/doc-import/map-plusminus-stokrazp.js'
+import { mapStokrazpDoc, PRICE_TYPO_FACTOR, type StokrazpPriceWarning } from '../packages/services/src/biz/doc-import/map-plusminus-stokrazp.js'
 import type { PlusMinusDocument } from '../packages/services/src/biz/doc-import/map-plusminus-invoice.js'
 
 function parseArgs(argv: string[]) {
@@ -94,6 +98,15 @@ async function login() {
 }
 
 const round2 = (v: number) => +v.toFixed(2)
+
+/** The column a person sees on the разписка and on the item card. */
+const priceLabel = (field: string) =>
+  field === 'price' ? 'Цена (delivery)' : field === 'retailPrice' ? 'Прод. цена' : field === 'wholesalePrice' ? 'Цена на едро' : `Цена ${field.slice(5)}`
+const describeTypo = (w: StokrazpPriceWarning) =>
+  `${priceLabel(w.field)} "${w.raw}" is ${w.ratio >= 1 ? `${w.ratio.toFixed(1)}× above` : `${(1 / w.ratio).toFixed(1)}× below`} the line's ${w.reference} — ` +
+  (w.held ? 'NOT written'
+    : w.field === 'price' ? "kept, it is the receipt's unit cost"
+    : 'written: the line has only two prices, and either one may be the wrong one')
 const collapse = (s: string) => s.replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg')
 const CYR2LAT: Record<string, string> = { 'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'х': 'x', 'у': 'y', 'ѕ': 's', 'і': 'i', 'ј': 'j', 'ԁ': 'd', 'ԛ': 'q', 'ѡ': 'w' }
 const fold = (s: string) => collapse(s).split('').map(c => CYR2LAT[c] ?? c).join('')
@@ -208,6 +221,7 @@ async function main() {
   console.log(`Warehouse: ${wh.name} (${wh.code})\n`)
 
   let ok = 0, failed = 0
+  const typos: { docNumber: string; w: StokrazpPriceWarning }[] = []
   for (const f of files) {
     const doc: PlusMinusDocument = JSON.parse(readFileSync(join(dir, f), 'utf8'))
     const docNumber = String((doc.header as any)?.docNumber || '')
@@ -215,6 +229,10 @@ async function main() {
     try {
       const m = mapStokrazpDoc(doc)
       console.log(`── ${m.docNumber} (${m.date})${m.partner ? ` — ${m.partner}` : ''}: ${m.receiptItems.length} receipt line(s), ${m.priceOnlyItems.length} price-only line(s), ${m.adjustmentLines.length} adjustment line(s) ──`)
+      for (const w of m.priceWarnings) {
+        console.log(`    ⚠ PlusMinus price typo? "${w.name}": ${describeTypo(w)}`)
+        typos.push({ docNumber: m.docNumber, w })
+      }
       const items = [...m.receiptItems, ...m.priceOnlyItems]
       if (items.length) await bookReceipt(m.docNumber, m.date, m.partner, items)
       if (m.adjustmentLines.length) await bookAdjustment(m.docNumber, m.date, m.adjustmentLines, wh)
@@ -225,6 +243,12 @@ async function main() {
     }
   }
   console.log(`\n${execute ? 'Processed' : 'Would process'}: ${ok} document(s), ${failed} failed`)
+  if (typos.length) {
+    const held = typos.filter(t => t.w.held).length
+    console.log(`\n⚠ ${typos.length} price(s) ${PRICE_TYPO_FACTOR}× or more off the rest of their line, ${held} of them not written. ` +
+      'They are typos on the PlusMinus item card, so the store should correct these cards:')
+    for (const { docNumber, w } of typos) console.log(`   ${docNumber}  "${w.name}": ${describeTypo(w)}`)
+  }
   if (!execute) console.log('Dry-run — receipts/adjustments not yet written. Re-run with --execute.')
 }
 
