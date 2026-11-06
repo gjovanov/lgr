@@ -1264,6 +1264,16 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   way a fiscal device does it, and the net is what remains, so the printed figures always add up. The
   terminal used to round VAT per line: it asked for 21.48 while the receipt said 21.47 with 0.01 change.
   `changeDue` is never negative, and `session.totalCash` is the cash KEPT (tendered − change).
+  ⚠ A stored line's own net and VAT are rounded one by one and can miss the document by a cent (a valve at
+  17.8952 net: line 17.90 + 3.58 = 21.48, receipt 21.47). Never sum lines for a per-rate figure: the session
+  report did, and printed a rate's „Сума" a cent off its „ОБЩО" (2026-11-06). Per rate it now takes the gross
+  the device was given, `grossByRate` (the one rule `linesOnDevice` prints and `printedByRate` charges stornos
+  against; NOT `computePosTotals` per rate, which a two-rate sale's device never sees), and the document's VAT
+  shared out over it (`session-report.ts#rowByRate`). ⚠ A document's VAT can itself be a cent off its device's
+  (#554). Reports kept by a close before that are records and keep the cent.
+- A device's own reports (X, Z, fiscal memory) count only fiscal receipts. A unit not yet fiscalized prints every
+  till sale as a text receipt, so its reports print 0.00 against a session that sold, correctly. POS Sessions →
+  Device reports says how many text receipts they leave out (`GET …/device-report` → `notOnDevice`).
 - Web Serial gives a COM port to ONE tab. A second tab's CONNECT fails with Chrome's NetworkError "Failed to
   open serial port". `useFiscalBridge` maps that to `errorCode: 'port_in_use'`, never status `error`: an
   `error` status marks the device record `error`, and the server then 503s every sale once no bridge holds

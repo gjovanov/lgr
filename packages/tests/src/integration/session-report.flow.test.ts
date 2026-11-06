@@ -3,6 +3,11 @@ import type { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices } from '../helpers/till-world'
 import { SESSION_REPORT_LABELS, buildSessionReport, formatSessionReport } from 'services/biz/cash-register/session-report'
+import { toPosTransaction } from 'services/biz/cash-register/mapping'
+import { posRowSign } from 'services/biz/cash-register/counting'
+import { linesOnDevice } from 'services/biz/cash-register/receipt-lines'
+import { planStorno, stornoLine } from 'services/biz/cash-register/storno-lines'
+import { computePosTotals, roundCents } from 'config/pos-totals'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter } from 'fiscal/fiscal-device.service'
 import { FiscalDevice, POSSession } from 'db/models'
@@ -141,6 +146,138 @@ describe('the session report: its figures', () => {
       expect(lines.find((s) => s.startsWith(SESSION_REPORT_LABELS[locale].opened))?.endsWith(' 31.10.26 08:00')).toBe(true)
     }
     expect(formatSessionReport(everything(), 'bg', 'UTC').some((s) => s.endsWith(' 02.11.26 11:20'))).toBe(true)
+  })
+})
+
+/**
+ * 2026-11-06, a field test on an A3: a session of one sale printed its VAT row's „Сума" a cent under its „ОБЩО",
+ * and its „Основа" a cent off the receipt's. The VAT rows summed each line's own rounded net and VAT; the receipt,
+ * the document and the journal entry round the gross once per rate (`computePosTotals`). The prices here are the
+ * ones `config/pos-totals` already names, and made-up ones that miss the same way.
+ */
+describe('the session report: its VAT rows add up to its total, as the receipts do', () => {
+  // A till document's line as the register stores it: its net rounded on its own, its VAT beside it, `lineTotal` gross.
+  const docLine = (quantity: number, unitPrice: number, taxRate: number) => {
+    const taxAmount = roundCents((quantity * unitPrice * taxRate) / 100)
+    return { description: 'x', quantity, unitPrice, taxRate, discount: 0, taxAmount, lineTotal: roundCents(roundCents(quantity * unitPrice) + taxAmount) }
+  }
+  // A till sale as it is stored, totalled the receipt's way.
+  const saleDoc = (lines: ReturnType<typeof docLine>[], over: Record<string, any> = {}, number = 'CS-1'): any => {
+    const totals = computePosTotals(lines)
+    return {
+      _id: number, type: 'cash_sale', status: 'paid', invoiceNumber: number, currency: 'EUR', lines, ...totals,
+      payments: [{ method: 'cash', amount: totals.total }],
+      register: { origin: 'pos', fiscal: { state: 'printed', mode: 'text' }, stornoClaims: [] },
+      ...over,
+    }
+  }
+  // ... and read as the report reads it.
+  const sale = (number: string, lines: ReturnType<typeof docLine>[], over: Record<string, any> = {}) => toPosTransaction(saleDoc(lines, over, number))
+  const session = { sessionNumber: 'POS-2026-00001', currency: 'EUR', openingBalance: 0 }
+  const revenue = (rows: any[]) => roundCents(rows.reduce((s, r) => s + posRowSign(r) * (r.total - r.taxTotal), 0))
+
+  it('one valve at 17.8952 net: 17.89 + 3.58 = 21.47, as its receipt printed, where its line says 17.90 + 3.58 = 21.48', () => {
+    const row = sale('CS-1', [docLine(1, 17.8952, 20)])
+    expect(row.lines[0]).toMatchObject({ lineTotal: 17.9, taxAmount: 3.58 })
+    const r = buildSessionReport(session, [row])
+    expect(r.vat).toEqual([{ rate: 20, net: 17.89, vat: 3.58, gross: 21.47 }])
+    expect(r.total).toBe(21.47)
+    const printed = formatSessionReport(r, 'bg')
+    expect(printed).toContain(' Сума'.padEnd(23) + '21.47')
+    expect(printed).toContain('ОБЩО EUR'.padEnd(23) + '21.47')
+  })
+
+  it('two lines of one rate: 57.02 + 11.40 = 68.42, where the lines say 68.43 and 11.41', () => {
+    const row = sale('CS-1', [docLine(3, 17.8952, 20), docLine(1, 3.3333, 20)])
+    expect({ total: row.total, taxTotal: row.taxTotal }).toEqual({ total: 68.42, taxTotal: 11.4 })
+    expect(buildSessionReport(session, [row]).vat).toEqual([{ rate: 20, net: 57.02, vat: 11.4, gross: 68.42 }])
+  })
+
+  it('two rates: each the gross its device was given, and the VAT the document has, shared the device\'s way', () => {
+    // `computePosTotals` makes 68.42 and 1.53 of these, but a device is never given that: these lines do not
+    // print exactly, so it gets one line per rate at `grossByRate` (the total in the lines' proportions),
+    // 68.43 and 1.52, which its Z then reads (review of #553). Taken out of those, the VAT would be 11.41 +
+    // 0.13 = 11.54 against the document's 11.53 (#554): the document's is shared out, as the entry books it.
+    const doc = saleDoc([docLine(3, 17.8952, 20), docLine(1, 3.3333, 20), docLine(1, 0.7, 9), docLine(1, 0.7, 9)])
+    expect(linesOnDevice(doc, 'Продажба').map((l) => [l.taxRate, l.lineTotal])).toEqual([[20, 68.43], [9, 1.52]])
+    const row = toPosTransaction(doc)
+    expect({ total: row.total, taxTotal: row.taxTotal }).toEqual({ total: 69.95, taxTotal: 11.53 })
+    const r = buildSessionReport(session, [row])
+    expect(r.vat).toEqual([
+      { rate: 20, net: 57.03, vat: 11.4, gross: 68.43 },
+      { rate: 9, net: 1.39, vat: 0.13, gross: 1.52 },
+    ])
+    // What the session's journal entry books, to the cent.
+    expect(roundCents(r.vat.reduce((s, v) => s + v.net, 0))).toBe(revenue([row]))
+    expect(roundCents(r.vat.reduce((s, v) => s + v.gross, 0))).toBe(r.total)
+  })
+
+  it('a storno takes back what its sale gave, rate by rate', () => {
+    const lines = [docLine(3, 17.8952, 20), docLine(1, 0.7, 9)]
+    const rows = [
+      sale('CS-2', lines, { register: { origin: 'pos', stornoState: 'full', fiscal: { state: 'printed', mode: 'text' } } }),
+      sale('CS-3', lines, { type: 'cash_storno', register: { origin: 'pos', fiscal: { state: 'printed', mode: 'text' } } }),
+      sale('CS-4', [docLine(1, 17.8952, 20)]),
+    ]
+    const r = buildSessionReport(session, rows)
+    expect(r.counts).toMatchObject({ sales: 2, stornos: 1 })
+    expect(r.vat).toEqual([
+      { rate: 20, net: 17.89, vat: 3.58, gross: 21.47 },
+      { rate: 9, net: 0, vat: 0, gross: 0 },
+    ])
+    expect(r.total).toBe(21.47)
+    expect(roundCents(r.vat.reduce((s, v) => s + v.net, 0))).toBe(revenue(rows))
+  })
+
+  it('two rates whose lines run over the total: each rate the gross the device was given, adding up to the total', () => {
+    // Both rates' lines are a cent over what the receipt rounds them to, so the lines come to 71.49 on a 71.47
+    // sale: the device gets the total shared out in their proportions, never the lines' own sums.
+    const doc = saleDoc([docLine(3, 17.8952, 20), docLine(1, 3.3333, 20), docLine(2, 0.7, 9), docLine(2, 0.7, 9)])
+    const device = linesOnDevice(doc, 'Продажба').map((l) => [l.taxRate, l.lineTotal])
+    expect(device).toHaveLength(2)
+    const r = buildSessionReport(session, [toPosTransaction(doc)])
+    expect(r.vat.map((v) => [v.rate, v.gross])).toEqual(device)
+    expect(roundCents(r.vat.reduce((s, v) => s + v.gross, 0))).toBe(r.total)
+  })
+
+  it('a sale over two rates returned in two parts comes back to zero gross, rate by rate, as its stornos were charged', () => {
+    // Each part gives back its share of what the device was given (`printedByRate`). Shared any other way, the
+    // sale's 20 % and its stornos' missed each other by a cent, and a session that sold nothing printed one.
+    const doc = saleDoc([docLine(3, 17.8952, 20), docLine(1, 3.3333, 20), docLine(1, 0.7, 9), docLine(1, 0.7, 9)])
+    const rows = [toPosTransaction(doc)]
+    for (const asked of [[{ lineId: '#0', quantity: 3 }], undefined]) {
+      const plan: any = planStorno(doc, asked)
+      expect(plan.statusCode).toBeUndefined()
+      rows.push(toPosTransaction({
+        _id: `ST-${rows.length}`, type: 'cash_storno', status: 'paid', invoiceNumber: `ST-${rows.length}`, currency: 'EUR',
+        lines: plan.partial ? plan.lines.map((p: any) => stornoLine(doc, p)) : doc.lines, subtotal: plan.subtotal, discountTotal: plan.discountTotal,
+        taxTotal: plan.taxTotal, total: plan.total, payments: [{ method: 'cash', amount: plan.total }],
+        register: { origin: 'pos', fiscal: { state: 'printed', mode: 'text' } },
+      }))
+      doc.register.stornoClaims.push(...plan.lines.map((p: any) => ({ lineId: p.key, milli: p.milli, cents: p.cents })))
+    }
+    const r = buildSessionReport(session, rows)
+    expect(r.counts).toMatchObject({ sales: 1, stornos: 2 })
+    expect(r.vat.map((v) => [v.rate, v.gross])).toEqual([[20, 0], [9, 0]])
+    // The VAT follows the documents, as the entry books them: the sale's own is a cent under what its stornos
+    // give back, which is #554 and not the report's to hide.
+    expect(roundCents(r.vat.reduce((s, v) => s + v.vat, 0))).toBe(roundCents(rows.reduce((s, x) => s + posRowSign(x) * x.taxTotal, 0)))
+  })
+
+  it('lines with no price to total them by share the total in their proportions, and the VAT the device\'s way', () => {
+    const row = { type: 'sale', status: 'completed', total: 17.45, taxTotal: 2.45, payments: [], lines: [{ taxRate: 20, lineTotal: 10, taxAmount: 2 }, { taxRate: 9, lineTotal: 5, taxAmount: 0.45 }] }
+    expect(buildSessionReport(session, [row]).vat).toEqual([
+      { rate: 20, net: 10, vat: 2, gross: 12 },
+      { rate: 9, net: 5, vat: 0.45, gross: 5.45 },
+    ])
+  })
+
+  it('a negative line cannot be shared by: the lines\' own figures stand, as before', () => {
+    const row = { type: 'sale', status: 'completed', total: 10.91, taxTotal: 1.91, payments: [], lines: [{ taxRate: 20, lineTotal: 10, taxAmount: 2 }, { taxRate: 9, lineTotal: -1, taxAmount: -0.09 }] }
+    expect(buildSessionReport(session, [row]).vat).toEqual([
+      { rate: 20, net: 10, vat: 2, gross: 12 },
+      { rate: 9, net: -1, vat: -0.09, gross: -1.09 },
+    ])
   })
 })
 

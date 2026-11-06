@@ -18,6 +18,7 @@ import {
 import { saleInDoubt, saleProgress } from 'services/biz/cash-register/in-doubt'
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
 import { buildSessionReport, formatSessionReport, type SessionReport } from 'services/biz/cash-register/session-report'
+import { permissionRefusal } from 'services/biz/route-permission'
 import type { ZReportResult } from 'fiscal/types'
 import { fiscalCapabilities } from 'fiscal/capabilities'
 import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fiscal/device-command'
@@ -659,14 +660,28 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     })
     return { printed: true }
   }, { isSignIn: true, fiscalDevice: deviceFromSession })
-  /** The device a session's reports print on and what it can do, for the POS Sessions menu. */
+  /**
+   * The device a session's reports print on and what it can do, for the POS Sessions menu, and what of the
+   * session those reports leave out: its text receipts, which move none of a device's counters. A device not
+   * yet fiscalized prints every sale so, and its reports then read zeros against a session that sold (2026-11-06).
+   *
+   * ⚠ This route has the device page's roles, not the session's read rule: a warehouse manager runs the devices
+   * and holds no `pos.read`. What the receipts came to is the session's money, so only a caller who may read
+   * the session's report is told it; the rest get the count.
+   */
   .get('/session/:id/device-report', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
     const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
     if (!session) return status(404, { message: 'POS session not found' })
     const device = await sessionReportDevice(orgId, session)
+    const report: SessionReport = session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true }))
+    // The check the session report's own route answers with.
+    const readsTheMoney = !permissionRefusal(user as any, 'GET', '/org/:orgId/trade/pos/session/:id/report')
     return {
+      notOnDevice: report.counts.text
+        ? { receipts: report.counts.text, amount: readsTheMoney ? report.amounts?.text ?? null : null, currency: report.currency }
+        : null,
       device: device
         ? {
             id: device.id, name: device.name, deviceNumber: device.deviceNumber,
