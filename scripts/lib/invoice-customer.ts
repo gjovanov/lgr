@@ -4,9 +4,9 @@
  * receivable sits on the wrong ledger.
  *
  * What it takes, and why each is safe to change:
- *   - `contactId`, to the contact holding the printed ЕИК or VAT number. Never a name match: a name several
- *     companies share is how these invoices were mislinked (#487). With no contact holding it, one is created
- *     from the printed party, with the fields the import gives a contact it creates.
+ *   - `contactId`, to the contact holding the printed ЕИК or VAT number, however it is written there. Never a
+ *     name match: a name several companies share is how these invoices were mislinked (#487). With no contact
+ *     holding it, one is created from the printed party, with the fields the import gives a contact it creates.
  *   - `billingAddress`, to that contact's, the way the import sets it (`map-invoice.ts`).
  * Everything else is counted and left alone: equal already; the printed party names no company number; the
  * linked contact holds no number, so nothing says it is another company; several contacts hold the number,
@@ -61,6 +61,17 @@ const digits = (v: unknown) => String(v ?? '').replace(/\D/g, '')
 const compact = (v: unknown) => String(v ?? '').replace(/\s+/g, '').toUpperCase()
 const clean = (v: unknown) => String(v ?? '').trim()
 
+/**
+ * The contacts holding a company number, however it is written: "999000258", "999 000 258" and "BG 999 000 258" are
+ * one number. An exact match missed a contact stored with spaces, and the run then created a second one.
+ */
+function holdingNumber(orgId: unknown, ...numbers: string[]) {
+  const wanted = [...new Set(numbers.map(digits).filter(d => d.length >= 9))]
+  const anyFormat = (d: string) => new RegExp(`^\\D*${d.split('').join('\\D*')}\\D*$`)
+  const or = wanted.flatMap(d => ['taxId', 'taxNumber', 'vatNumber'].map(field => ({ [field]: anyFormat(d) })))
+  return { orgId, $or: or.length ? or : [{ _id: null }] }
+}
+
 /** The invoice's address from a contact address, defaulted as the import defaults it. */
 function invoiceAddress(a: any): InvoiceAddress {
   return { street: clean(a?.street) || '-', city: clean(a?.city) || '-', postalCode: clean(a?.postalCode) || '-', country: clean(a?.country) || 'BG' }
@@ -97,9 +108,7 @@ async function planOne(orgId: unknown, inv: any, party: Party | undefined, sourc
   if (inv.cashSaleRef?.contactId && String(inv.cashSaleRef.contactId) === String(inv.contactId)) { bump('left: its cash sale names the same customer'); return }
   if (await Invoice.exists({ orgId, type: 'payment_receipt', 'register.paidInvoiceId': inv._id })) { bump('left: paid through a till receipt'); return }
 
-  const or: Record<string, string>[] = [{ taxId: ids.eik }, { taxNumber: ids.eik }]
-  if (ids.vat) or.push({ vatNumber: ids.vat })
-  const holders: any[] = await Contact.find({ orgId, $or: or }).select('type isActive addresses').lean()
+  const holders: any[] = await Contact.find(holdingNumber(orgId, ids.eik, ids.vat)).select('type isActive addresses').lean()
   const usable = holders.filter(c => c.isActive !== false && (c.type === 'customer' || c.type === 'both'))
   const before = { contactId: String(inv.contactId), status: inv.status, billingAddress: inv.billingAddress }
   const base = { id: String(inv._id), invoiceNumber: inv.invoiceNumber, source, before }
@@ -170,7 +179,7 @@ export function contactsToCreate(plans: CustomerPlan[]): Map<string, CreateConta
 
 /** Create one contact, unless one holds its number by now. One AuditLog row. Returns its id. */
 export async function createContact(orgId: unknown, c: CreateContact, by: unknown, reason: string): Promise<string> {
-  const holder: any = await Contact.findOne({ orgId, $or: [{ taxId: c.taxId }, { taxNumber: c.taxId }] }).select('_id').lean()
+  const holder: any = await Contact.findOne(holdingNumber(orgId, c.taxId ?? '', c.vatNumber ?? '')).select('_id').lean()
   if (holder) throw new Error('a contact holds that number by now: run the dry run again')
   const created: any = await Contact.create({ orgId, ...c, isActive: true })
   await audited({
