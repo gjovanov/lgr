@@ -23,13 +23,30 @@
 //   BOOKS_NIGHTLY_DOWN_HOURS     default 6: the docs root not answering for this long is mailed, then once a day while it lasts
 // State and log, counts only: $ACC_DOCS_ROOT/books/nightly-state.json and nightly.log. Since when the docs root has not
 // answered is kept on this PC instead, in %LOCALAPPDATA%\lgr-books-nightly\docs-root.json: the share cannot say it is down.
+// The documents of the last import, by importKey, in books/nightly-documents.json.gz: the next import's mail lists the
+// documents it changed by date, type and number (no name, no amount), and keeps the whole list in books/<day>/changes-<sha>.txt.
 //
 // Exit 0 when the run is fine (imported, nothing new, or the PC is off); 1 when it failed or the docs root did not answer.
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { need, optional } from '../pull-plusminus-api/stores-env'
-import { docsRootDown, listsWithin, parseImport, problems, summarize, type DocsRootDown, type YearResult } from '../../../scripts/lib/books-nightly-report'
+import {
+  docsRootDown,
+  documentChanges,
+  documentChangesText,
+  importedDocuments,
+  listsWithin,
+  parseImport,
+  parseImported,
+  problems,
+  serializeImported,
+  summarize,
+  type DocsRootDown,
+  type ImportedDocuments,
+  type ImportedDocumentsFile,
+  type YearResult,
+} from '../../../scripts/lib/books-nightly-report'
 
 const here = import.meta.dir
 const repo = resolve(here, '../../..')
@@ -69,6 +86,9 @@ const creds = { LGR_USERNAME: file.LGR_USERNAME ?? '', LGR_PASSWORD: file.LGR_PA
 
 const books = join(need('ACC_DOCS_ROOT'), 'books'), archives = join(need('ACC_DOCS_ROOT'), 'archives')
 const stateFile = join(books, 'nightly-state.json'), logFile = join(books, 'nightly.log'), lockFile = join(books, 'nightly.lock')
+const documentsFile = join(books, 'nightly-documents.json.gz')
+/** The lines of the document list a mail carries. The day folder's changes file has them all. */
+const MAIL_LIST_LINES = 60
 const downFile = join(process.env.LOCALAPPDATA || homedir(), 'lgr-books-nightly', 'docs-root.json')
 
 type State = {
@@ -134,12 +154,64 @@ async function holdDocsRoot(): Promise<{ readable: boolean; release: () => void 
   return { readable, release: () => holder?.kill() }
 }
 
+/** Every configured year's journal in a books folder, as the importer keys its documents. */
+function journalsIn(dir: string): ImportedDocuments {
+  const all: ImportedDocuments = new Map()
+  for (const year of years) {
+    for (const [key, doc] of importedDocuments(JSON.parse(readFileSync(join(dir, `journal-${year}.json`), 'utf8')).documents)) all.set(key, doc)
+  }
+  return all
+}
+
+/**
+ * The documents the last import wrote: the file this run keeps, or else that import's own books folder while it still
+ * holds that archive. Nothing when neither is that import's (the list is a convenience: it never fails a run).
+ */
+function documentsImportedBefore(state: State): ImportedDocumentsFile | undefined {
+  const last = state.imported
+  if (!last) return undefined
+  try {
+    const kept = existsSync(documentsFile) ? parseImported(readFileSync(documentsFile)) : undefined
+    if (kept?.sha12 === last.sha12) return kept
+    const dir = join(books, last.archive.slice(0, 8))
+    const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'))
+    if (String(meta.archiveSha256 ?? '').slice(0, 12).toUpperCase() !== last.sha12) return undefined
+    return { ...last, documents: journalsIn(dir) }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * This import's documents, kept for the next run to compare with, and the ones that differ from the last import's: all of
+ * them into the day folder, the first lines into the mail. A dry run writes neither and prints the whole list.
+ */
+function listDocuments(before: ImportedDocumentsFile | undefined, current: Omit<ImportedDocumentsFile, 'documents'>, dir: string): string[] {
+  try {
+    const after = journalsIn(dir)
+    if (!dry) writeFileSync(documentsFile, serializeImported({ ...current, documents: after }))
+    if (!before) return ['No record of the documents imported before this run, so they are not listed. The next import lists them.']
+    const lines = documentChangesText(documentChanges(before.documents, after))
+    if (!lines.length) return []
+    const head = `By document, against ${before.archive} (imported ${before.at}): date, type and number, no names or amounts.`
+    if (dry) return [head, ...lines]
+    const file = join(dir, `changes-${current.sha12}.txt`)
+    writeFileSync(file, [head, ...lines].join('\n') + '\n')
+    const more = lines.length - MAIL_LIST_LINES
+    return [head, ...lines.slice(0, MAIL_LIST_LINES), ...(more > 0 ? [`… and ${more} more lines in ${file}`] : [])]
+  } catch (e: any) {
+    return [`The documents could not be listed: ${String(e?.message ?? e)}`]
+  }
+}
+
 async function nightly(state: State): Promise<Outcome> {
   const newest = await newestArchive()
   if ('kind' in newest) return newest
   const { archive, sha12 } = newest
   if (!force && state.imported?.sha12 === sha12) return quiet(`${archive} is imported already`, true)
 
+  // Read before pull-books: a second archive of the same day is pulled into the same folder, over the first one's files.
+  const before = documentsImportedBefore(state)
   const pulled = await run([process.execPath, join(here, 'pull-books.ts'), '--archive', join(archives, `${archive}.sealed`), '--years', years.join(','), '--no-payroll'])
   if (pulled.code !== 0) return failed('pull-books', tail(pulled.err || pulled.out))
   const dir = join(books, archive.slice(0, 8))
@@ -170,6 +242,7 @@ async function nightly(state: State): Promise<Outcome> {
 
   if (!dry) state.imported = { archive, sha12, at: now() }
   const changes = results.reduce((n, r) => n + r.changes, 0)
+  const listed = listDocuments(before, { archive, sha12, at: state.imported?.at ?? now() }, dir)
   const report = [
     `${org} from ${archive} (written ${meta.asOf}; the last operation in it is dated ${meta.span?.last ?? '?'})${dry ? ', DRY RUN' : ''}`,
     '',
@@ -177,6 +250,7 @@ async function nightly(state: State): Promise<Outcome> {
     '',
     dry ? 'Nothing was written.' : 'A dry rerun of each year after the import reported everything unchanged.',
     ...(notices.length ? ['', ...notices] : []),
+    ...(listed.length ? ['', ...listed] : []),
   ].join('\n')
   return {
     kind: 'imported',
