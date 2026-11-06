@@ -23,6 +23,11 @@
  * at an exact point in a print. A hold is one-shot, so the retry prints at the device's own pace. A new
  * `/fault` (`{}` included) or `/reset` ends a hold in progress, and its command then runs and answers.
  *
+ * The device's clock runs, as a device's does: a fresh one reads this machine's time, and from then
+ * on it keeps its own, which only a 3Dh (set date and time) changes. A jump of this machine's clock
+ * moves nothing on it. `/state` gives `clock` and `clockSets`, how many 3Dh it took: what the VM
+ * lanes' `clock-push` asks when it checks that a server whose own clock is wrong sets nothing (AC 58).
+ *
  * `ELTRADE_STUB_HOST` binds the device's port elsewhere, for the VM lanes' `bridge-lan` (lgr-deploy
  * `vmtest/`): a till guest's COM1 is a QEMU chardev that connects to it from the VM host. The HTTP
  * port stays on 127.0.0.1 whatever it says: it can reset the device, so nothing off the machine
@@ -48,6 +53,17 @@ const fresh = (rates?: number[], unfiscalized = false) => {
   return s
 }
 let sim = fresh()
+
+// The simulator holds its clock as one instant. The stub keeps the device's own time and sets the
+// instant before each command: from the moment the device was last set (or this machine's time when
+// it was fresh), counted on a MONOTONIC clock, as a device's RTC keeps its time. ⚠ Not as a distance
+// from this machine's clock: the stub runs inside the VM lanes' master guest, and `clock-push` jumps
+// that machine's clock three days ahead. A device that jumped with it would be no device.
+let clockBase = Date.now()
+let clockMono = performance.now()
+let clockSets = 0
+const deviceNow = () => new Date(clockBase + (performance.now() - clockMono))
+const setDeviceClock = (at: number) => { clockBase = at; clockMono = performance.now() }
 
 const STX = 0x01
 const PST = 0x05
@@ -122,7 +138,16 @@ const server = createServer((socket: Socket) => {
           // A retransmit (the SEQ it answered last) is a replay: the device resends that answer at once.
           const replay = frame[2] === sim.lastSeq && sim.lastAnswer !== null
           if (hold && frame[3] === hold.at && !replay) await busy(socket, frame[3], hold.ms)
-          const answer = await sim.exchange(frame)
+          const device = sim
+          device.clock = deviceNow()
+          const ran = device.executed.length
+          const answer = await device.exchange(frame)
+          // A 3Dh the device took sets its clock: from now on its time runs from there.
+          const set = device.executed.length > ran && device.executed[device.executed.length - 1].cmd === 0x3D
+          if (set && device === sim) {
+            setDeviceClock(device.clock.getTime())
+            clockSets++
+          }
           if (!socket.destroyed) socket.write(answer)
         } catch {
           // `silent` or a lost answer: the device says nothing, and the driver times out.
@@ -161,6 +186,9 @@ Bun.serve({
         hold,
         holding: holding && { cmd: holding.cmd, since: holding.since, ms: holding.ms },
         held,
+        // The device's time now, and how many 3Dh set it since it was fresh.
+        clock: deviceNow().toISOString(),
+        clockSets,
       })
     }
     if (url.pathname === '/paper' && req.method === 'POST') {
@@ -191,6 +219,9 @@ Bun.serve({
       holding?.end()
       hold = null
       held = 0
+      // A fresh device reads this machine's time.
+      setDeviceClock(Date.now())
+      clockSets = 0
       return Response.json({ ok: true, rates: sim.rates })
     }
     return new Response('not found', { status: 404 })
