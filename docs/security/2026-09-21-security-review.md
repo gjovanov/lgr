@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-08**, **S-17**–**S-32** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-08**, **S-17**–**S-33** are fixed. The rest are open, ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
@@ -22,7 +22,7 @@ was fixed in a private fork, deployed the same day, and published as a GitHub se
 the fix had been verified on production. They are written up at the end too. S-29 and S-30 came
 out of the same month: S-29 while designing FR-20's till PINs, S-30 during FR-22's review of the till
 and fiscal-device screens, and S-31 while fixing #168. S-32 came a few days later, while writing
-FR-27 (#529).
+FR-27 (#529), and S-33 while handling it.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -58,6 +58,7 @@ FR-27 (#529).
 | **S-30** | **High** | **A fiscal device's TCP address was checked on create only, and by prefix: any user could make the server open connections to its own loopback and the cluster network** ([GHSA-5qqr-5jf7-pq2q](https://github.com/gjovanov/lgr/security/advisories/GHSA-5qqr-5jf7-pq2q)) | **Fixed 2026-10-26** |
 | S-31 | Medium | `POST /doc-import/convert` confirmed a draft stock movement by id with no org check: a caller who knew the id could book another org's draft | **Fixed** (#422) |
 | S-32 | Medium | Writing a permission set was open to any holder of `admin.settings`: they could change what the sets they hold grant, their own included | **Fixed** (#530) |
+| S-33 | Medium | Booking, undoing or reconciling a document in the Files app asked for `admin.settings` alone: a holder could issue invoices and move stock without the write permission of what the document books | **Fixed** (#536) |
 
 ---
 
@@ -1483,4 +1484,55 @@ set, granted.
   person and sets were dropped, and none is left.
 - FR-27 (#529) gives delegation a bound: `access.roles` can be handed on, and a delegate grants only
   what they hold.
+
+## S-33 — Booking, undoing or reconciling a document in the Files app asked for no write permission (Medium, **fixed 2026-11-06**)
+
+> Found on 2026-11-05 while handling S-32. Fixed in #536, which presents it as bringing Files up to the bar
+> the import dialog already had, and written up here once the fix had been verified on production.
+
+**Where:** `POST /org/:orgId/files/commit-batch`, `/:id/commit`, `/delete-batch` and `/:id/reconcile`
+(`files-api/src/controllers/file.controller.ts`).
+
+**What was wrong:** the Files app is gated on the admin role or `admin.settings`, and these four routes asked
+for nothing else. What a document goes on to do is not the document store's business: committing one issues
+invoices and moves stock, undoing one voids the invoices and reverses the movements, and reconciling one
+rewrites a booked movement. The import dialog already asked for the write permission of the same target
+(`invoicing.write`, `inventory.write`, and the purchases area for a bill). Through Files the same documents
+could be booked without it.
+
+- **Who:** a member of an org who holds `admin.settings` without the admin role, and without the write
+  permission of what a document books. By default only the admin role holds `admin.settings`. It reaches
+  anyone else only if an admin puts it in a custom set or in a user's own permission list, and since S-32
+  only an admin can write a set.
+- **Impact:** with a document the engine had analyzed, they could issue its invoices or move its stock,
+  roll a booked document back (voiding invoices, reversing movements) or rewrite a booked movement. Nothing
+  outside their own org, and no permission they could give themselves.
+- **Why Medium:** it needs a high privilege that an admin delegated on purpose, and stays inside one org.
+- **Exposure on the day:** none. The read-only pass over all 86 organizations made on 2026-11-05 for S-32
+  found no non-admin user holding `admin.settings` and none on an `isAdmin` set, so nobody could reach these
+  routes without the admin role.
+
+### Fix
+
+- The four routes ask, before the job starts, for what the import dialog asks for the document's target
+  (`services/biz/doc-import/target-access.ts`, now shared by both) and answer 403 naming the permission. A
+  commit is held to the target the document was analyzed as, an undo to the records it booked (and to
+  `inventory.write` when it also removes products), a reconcile to `inventory.write`. `admin` always
+  passes.
+- Tests: `integration/files-books-access.flow.test.ts` (20; 12 fail against the previous controller). Each
+  refusal is followed by a look at what it must not have done: no job started, the document as it was,
+  nothing booked.
+- Deployed as `v20261106-7b614ec9225f`. Verified on production on 2026-11-06 in the demo org, with three
+  throwaway holders of `admin.settings` (role `member`): one with nothing else, one with `inventory.write`,
+  one with `invoicing.write`, and three documents of the demo org that cannot book anything. Ten calls a
+  holder lacked the permission for answered 403 and named it (`inventory.write` for a receipt, for removing
+  products with a rollback and for a reconcile; `invoicing.write` for a cash register day, for a document
+  analyzed as a cash sale although its type says movement, and for a batch that includes one), planned or
+  executed. The same kinds of call by a holder of the right permission were let through (200 and a job), and
+  an administrator's were unaffected. The jobs booked nothing: none of the three documents booked anything,
+  and the org's movement and invoice totals were what they were. All 44 checks passed. The first write probe
+  was a commit of a document that cannot book anything, so a deploy that had not taken effect could not have
+  booked anything. The throwaway users, people, sets, documents and jobs were dropped, and none is left; the
+  audit trail keeps its entries for what the test did.
+- FR-27 (#529) makes Files a feature of its own with levels.
 
