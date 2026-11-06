@@ -19,6 +19,7 @@ import { closeAllBridges, setupFiscalBridgeWS } from './websocket/fiscal-bridge.
 import { setFiscalForwarding } from 'fiscal/fiscal-route'
 import { forwardHttp } from './tunnel/forward.js'
 import { FISCAL_HOP, verifyHop } from './tunnel/hop.js'
+import { podAddr } from './tunnel/pod.js'
 import { clientIp } from './auth/client-ip.js'
 import { setupDesktopWS } from './websocket/desktop.js'
 import { setupUplinkWS } from './websocket/uplink.js'
@@ -124,6 +125,7 @@ setFiscalForwarding({
   isHop: request => !!verifyHop(request, Date.now(), FISCAL_HOP),
   clientIp: request =>
     verifyHop(request, Date.now(), FISCAL_HOP)?.clientIp ?? clientIp(Object.fromEntries(request.headers as any)) ?? null,
+  self: podAddr,
 })
 
 // WebSocket
