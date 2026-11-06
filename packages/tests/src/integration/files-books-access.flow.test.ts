@@ -66,6 +66,21 @@ async function settle(taskId: string): Promise<any> {
   throw new Error(`task ${taskId} did not settle`)
 }
 
+/**
+ * A job's row written as done. `completeJob` and `failJob` set the live status before they write the
+ * row, and `/task/:id` reads the live one, so a settled job can still be writing. Torn down in that
+ * window, the write throws "Client must be connected" with nothing to catch it, and the run counts an
+ * unhandled error between tests (every master run from #536 on).
+ */
+async function written(taskId: string): Promise<void> {
+  for (let i = 0; i < 300; i++) {
+    const row: any = await BackgroundTask.findById(taskId).lean()
+    if (row?.status === 'completed' || row?.status === 'failed') return
+    await Bun.sleep(50)
+  }
+  throw new Error(`task ${taskId} was never written as done`)
+}
+
 /** The request was let through: a job started. */
 function expectStarted(res: { status: number; json: any }) {
   expect(res.status).toBe(200)
@@ -176,6 +191,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await Promise.all(started.map(settle))
+  await Promise.all(started.map(written))
   restoreUploads()
   await teardownTestDB()
 })
