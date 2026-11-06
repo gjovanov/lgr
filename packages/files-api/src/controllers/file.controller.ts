@@ -14,7 +14,7 @@ import {
 import { analyzeDocFile, commitDocFile, analyzeDocFilesBatch, commitDocFilesBatch, ocrDocFilesBatch, storedAnalyses } from 'services/biz/files/doc-pipeline.service'
 import { deleteDocFiles } from 'services/biz/files/doc-delete.service'
 import { reconcileDocFile } from 'services/biz/files/doc-reconcile.service'
-import { booksRefusal } from 'services/biz/files/doc-access'
+import { booksRefusal, compareRefusal } from 'services/biz/files/doc-access'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
 import { taskStore } from 'services/background/task.store'
@@ -29,7 +29,9 @@ import { t } from 'elysia'
  * auth+permission gate.
  *
  * The routes that book, undo or reconcile a document ask for more: the write permission of what it
- * books, as the import dialog does (`booksRefusal`).
+ * books, as the import dialog does (`booksRefusal`). So does analysing one, which matches it against
+ * the live catalog and contacts. A snapshot's diff is a read of stock and asks what reading stock asks
+ * (`compareRefusal`), on its own route and on the upload that runs it.
  */
 
 const MAX_BATCH = 60
@@ -96,9 +98,13 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
       })
       // Auto-diff: a freshly-uploaded storeAvailability snapshot is compared to the live catalog
       // + stock and the CSV/TXT dumped into its date folder — the headline requirement.
+      // The diff reads stock: an uploader who may not read it still stores the snapshot, and is told why
+      // it was not compared.
+      const compareDenied = compareRefusal(user!)
       const compareBy: Record<string, any> = {}
       for (const r of results) {
         if (r.docFile.docType === 'store_availability' && !r.duplicate) {
+          if (compareDenied) { compareBy[String(r.docFile._id)] = { error: compareDenied.message }; continue }
           try { compareBy[String(r.docFile._id)] = (await runCompareForSnapshot(orgId, user!.id, String(r.docFile._id))).summary }
           catch (e) { compareBy[String(r.docFile._id)] = { error: (e as Error).message } }
         }
@@ -179,6 +185,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
       const ids: string[] = Array.isArray(b.docFileIds) ? b.docFileIds : []
       if (!ids.length) return status(400, { message: 'docFileIds required' })
       if (ids.length > MAX_BATCH) return status(400, { message: `At most ${MAX_BATCH} documents per batch (got ${ids.length})` })
+      const refused = await booksRefusal(orgId, user!, ids, { kind: 'analyze' }); if (refused) return status(403, refused)
       const task = await startJob(orgId, user!.id, 'files-analyze-batch', { count: ids.length })
       void (async () => {
         try {
@@ -321,6 +328,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
     '/:id/compare',
     async ({ params: { orgId, id }, user, status }) => {
       const denied = gate(user, status); if (denied) return denied
+      const refused = compareRefusal(user!); if (refused) return status(403, refused)
       try { const res = await runCompareForSnapshot(orgId, user!.id, id); return { summary: res.summary, warehouse: res.warehouse, txt: res.txt, rows: res.rows.slice(0, 200) } }
       catch (e) { return status(422, { message: (e as Error).message }) }
     },
@@ -333,6 +341,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
     '/:id/compare/download',
     async ({ params: { orgId, id }, query, user, status, set }) => {
       const denied = gate(user, status); if (denied) return denied
+      const refused = compareRefusal(user!); if (refused) return status(403, refused)
       const format = query.format === 'csv' ? 'csv' : 'txt'
       try {
         const hit = await resolveCompareDump(orgId, user!.id, id, format)
@@ -350,6 +359,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
     '/:id/analyze',
     async ({ params: { orgId, id }, user, status }) => {
       const denied = gate(user, status); if (denied) return denied
+      const refused = await booksRefusal(orgId, user!, [id], { kind: 'analyze' }); if (refused) return status(403, refused)
       const task = await startJob(orgId, user!.id, 'files-analyze', { docFileId: id })
       void (async () => {
         try {
