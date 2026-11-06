@@ -23,6 +23,8 @@ on:
       - '.github/workflows/e2e-nightly.yml'
       - 'packages/e2e/scripts/nightly.ts'
       - 'packages/e2e/scripts/night-summary.ts'
+      - 'packages/e2e/scripts/master-stack.ts'
+      - 'packages/e2e/tests/master-*.spec.ts'
 
 concurrency:
   group: e2e-nightly-${{ github.ref }}
@@ -90,6 +92,17 @@ jobs:
           # Without it every PDF fails, and a spec reads that as a download that never comes.
           PDF_CHROME_NO_SANDBOX: '1'
 
+      # FR-20 Part F.3: a master, as a till on its LAN sees it, on its own replica set behind its own
+      # stand-in LAN front (`master-stack.ts`). Run whatever the suite said: it shares nothing with it.
+      # ⚠ Its own output and report folders: Playwright empties `test-results/` when a run starts, and
+      # the suite's evidence must still be there for the upload below.
+      - name: Run the master project
+        if: ${{ !cancelled() }}
+        run: bun packages/e2e/scripts/master-stack.ts --workers=1 --output=test-results-master --reporter=line,html,./scripts/night-summary.ts
+        env:
+          PLAYWRIGHT_HTML_REPORT: playwright-report-master
+          PDF_CHROME_NO_SANDBOX: '1'
+
       - name: Upload the report
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -98,6 +111,8 @@ jobs:
           path: |
             packages/e2e/playwright-report/
             packages/e2e/test-results/
+            packages/e2e/playwright-report-master/
+            packages/e2e/test-results-master/
           retention-days: 7
           if-no-files-found: ignore
 

@@ -8,6 +8,8 @@ packages/ui/dist/
 coverage/
 test-results/
 playwright-report/
+test-results-master/
+playwright-report-master/
 .env.local
 .env
 *.db
