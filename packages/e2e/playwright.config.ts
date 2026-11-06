@@ -74,6 +74,19 @@ export default defineConfig({
       retries: 0,
     },
     {
+      /**
+       * FR-20 Part F.3 — a master, as a till on its LAN sees it: the API in its master role behind
+       * a stand-in for the supervisor's LAN ingress, which stamps every request `lan` with a paired
+       * desktop's token. `scripts/master-stack.ts` starts both and runs this project; without it
+       * (no `E2E_MASTER_URL`) its specs skip.
+       */
+      name: 'master',
+      use: { ...devices['Desktop Chrome'], baseURL: process.env.E2E_MASTER_URL || baseURL },
+      testMatch: ['master-*.spec.ts'],
+      // One master, one till: a file's tests in order (the PIN spec's backoff is the till's).
+      fullyParallel: false,
+    },
+    {
       name: 'accounting',
       use: { ...devices['Desktop Chrome'], baseURL },
       testMatch: ['accounting.spec.ts', 'accounting-crud.spec.ts'],
