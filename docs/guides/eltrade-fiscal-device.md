@@ -227,3 +227,11 @@ is not fiscalized answered `9,0,0,0,0,0,0,0,0,0` after a text sale. A close keep
 (`zReport`, raw and parsed) and the session report shows it beside the Z's number, labelled as the device's.
 Nothing compares it with LGR's fiscal amount, because nothing yet says the two should agree: read both on the
 first fiscalized device.
+
+**On a unit that is not fiscalized, every device report reads 0.00, and that is right (2026-11-06).** LGR prints
+its sales as text receipts there (26h/2Ah/27h), which no counter of the device moves: the close's Z answered
+`17,0,0,0,0,0,0,0,0,0` after a text sale, and the fiscal memory by Z number (5Fh, 49h) and by date (4Fh, 5Eh)
+printed exactly what they were asked, every figure zero. LGR's own session report is where that session's money
+is. POS Sessions → Device reports now says so before printing, with the count and amount of the session's text
+receipts. The only way to have such a unit's reports carry the sales is a fiscal receipt (90h), never tried on a
+unit with no ЕИК, which the protocol says refuses it.
