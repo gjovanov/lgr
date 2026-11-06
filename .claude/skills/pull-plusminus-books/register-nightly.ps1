@@ -2,8 +2,9 @@
 # user and only while they are signed in (the WSL docs root and roomler's sign-in are theirs), with no window, an hour at most,
 # never two runs at once, and a missed start made up when the PC wakes.
 #
-#   powershell -NoProfile -File register-nightly.ps1 -Checkout C:\dev\gjovanov\lgr-books-nightly
-#   powershell -NoProfile -File register-nightly.ps1 -Remove
+#   powershell -NoProfile -ExecutionPolicy Bypass -File register-nightly.ps1 -Checkout C:\dev\gjovanov\lgr-books-nightly
+#   powershell -NoProfile -ExecutionPolicy Bypass -File register-nightly.ps1 -Remove
+# (Bypass for this one process: Windows runs no scripts by default, and a plain -File is refused.)
 param([string]$Checkout, [switch]$Remove, [string]$Name = 'LGR books nightly')
 $ErrorActionPreference = 'Stop'
 if ($Remove) { Unregister-ScheduledTask -TaskName $Name -Confirm:$false; "removed: $Name"; return }
@@ -14,7 +15,8 @@ $bun = (Get-Command bun -ErrorAction Stop).Source
 
 $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //Nologo `"$launcher`" `"$bun`"" -WorkingDirectory $Checkout
 $trigger = New-ScheduledTaskTrigger -Daily -At 07:00
-$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At 07:00 -RepetitionInterval (New-TimeSpan -Hours 2) -RepetitionDuration (New-TimeSpan -Hours 16)).Repetition
+# A repetition ends when its duration is up, before a start due at that moment: 16 h exactly made 21:00 the last run.
+$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At 07:00 -RepetitionInterval (New-TimeSpan -Hours 2) -RepetitionDuration (New-TimeSpan -Hours 16 -Minutes 1)).Repetition
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
   -ExecutionTimeLimit (New-TimeSpan -Hours 1) -MultipleInstances IgnoreNew
 $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
