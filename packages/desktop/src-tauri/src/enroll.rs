@@ -55,6 +55,30 @@ pub fn parse_server_time(s: &str) -> Option<i64> {
     chrono::DateTime::parse_from_rfc3339(s).ok().map(|d| d.timestamp_millis())
 }
 
+/// Parse an HTTP `Date` header (`Sat, 07 Nov 2026 00:01:02 GMT`) into epoch milliseconds.
+fn parse_http_date(s: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc2822(s.trim()).ok().map(|d| d.timestamp_millis())
+}
+
+/// How far a refused mint's `Date` may sit from the stored correction before it is believed.
+const CLOCK_STEP_MS: i64 = 5 * 60 * 1000;
+
+/// lgr#559 — the correction to try once more with, when a mint was refused for its assertion
+/// and the answer's `Date` says the stored correction is minutes off; `None` gives up as before.
+///
+/// ⚠ The correction is learned from `serverTime` on a success only. A machine whose clock is then
+/// stepped (Windows Time catching up on a till that paired while it was hours off) signs every
+/// later assertion outside the server's tolerance, and no success ever comes to teach it again:
+/// the till stays locked out until it pairs anew. The refusal comes over the same pinned TLS as
+/// a success, so its `Date` is the server's as much as a `serverTime` is.
+fn relearned_offset(status: u16, code: &str, server_date_ms: Option<i64>, stored_offset_ms: i64, local_now_ms: i64) -> Option<i64> {
+    if status != 401 || code != "bad_assertion" {
+        return None;
+    }
+    let learned = ClockOffset::learn(server_date_ms?, local_now_ms).millis;
+    ((learned - stored_offset_ms).abs() > CLOCK_STEP_MS).then_some(learned)
+}
+
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct EnrollResponse {
@@ -224,58 +248,72 @@ pub fn mint_token_within(server_url: &str, timeout: Duration) -> Result<String, 
 
     let base = server_url.trim_end_matches('/');
     let audience = format!("{base}/api/desktop/v1/token");
-    // ⚠ The CORRECTED clock. A machine 3 h fast would otherwise mint an assertion the server
-    // tolerates only once; the system clock is never touched, because a till's clock drives
-    // fiscal device time sync.
-    let offset = ClockOffset { millis: stored.clock_offset_ms };
-    let assertion = id.sign_assertion(
-        &stored.desktop_id,
-        &audience,
-        offset.now_sec(now_ms()),
-        &identity::new_jti(),
-    );
+    // Twice at most: the second only when the first was refused for its assertion and the answer's
+    // `Date` says the stored correction is off (lgr#559, `relearned_offset`).
+    for attempt in 0..2 {
+        // ⚠ The CORRECTED clock. A machine 3 h fast would otherwise mint an assertion the server
+        // tolerates only once; the system clock is never touched, because a till's clock drives
+        // fiscal device time sync.
+        let offset = ClockOffset { millis: stored.clock_offset_ms };
+        let assertion = id.sign_assertion(
+            &stored.desktop_id,
+            &audience,
+            offset.now_sec(now_ms()),
+            &identity::new_jti(),
+        );
 
-    let res = client_within(server_url, timeout)?
-        .post(&audience)
-        .json(&serde_json::json!({ "assertion": assertion }))
-        .send()?;
+        let res = client_within(server_url, timeout)?
+            .post(&audience)
+            .json(&serde_json::json!({ "assertion": assertion }))
+            .send()?;
 
-    let status = res.status();
-    if !status.is_success() {
-        let code = res.json::<ErrorResponse>().map(|e| e.code).unwrap_or_default();
-        // FR-14.22 — the row is the revocation list, and this is how the machine learns.
-        if status.as_u16() == 401 && code == "desktop_revoked" {
-            mark_revoked(&dir, &mut stored);
-            return Err(EnrollError("desktop_revoked".into()));
+        let status = res.status();
+        if !status.is_success() {
+            let server_date = res.headers().get(reqwest::header::DATE).and_then(|v| v.to_str().ok()).and_then(parse_http_date);
+            let code = res.json::<ErrorResponse>().map(|e| e.code).unwrap_or_default();
+            // FR-14.22 — the row is the revocation list, and this is how the machine learns.
+            if status.as_u16() == 401 && code == "desktop_revoked" {
+                mark_revoked(&dir, &mut stored);
+                return Err(EnrollError("desktop_revoked".into()));
+            }
+            // FR-14.29 — below `DESKTOP_MIN_VERSION`.
+            //
+            // ⚠ Recorded, not just returned. The machine cannot mint a token until it updates, so
+            // nothing on the next launch would rediscover this; the Overview's banner has to be able
+            // to say why the bridge is down after a restart. ⚠ And the registration is LEFT ALONE —
+            // this is "the build is too old", not "you are not welcome", and deleting the key here
+            // would turn an update into a re-enrollment.
+            if status.as_u16() == 426 {
+                stored.update_required = true;
+                let _ = keystore::save(&dir, &stored);
+                return Err(EnrollError("desktop_outdated".into()));
+            }
+            if attempt == 0 {
+                // The caller logs a refusal that stands; one corrected here simply succeeds.
+                if let Some(ms) = relearned_offset(status.as_u16(), &code, server_date, stored.clock_offset_ms, now_ms()) {
+                    stored.clock_offset_ms = ms;
+                    let _ = keystore::save(&dir, &stored);
+                    continue;
+                }
+            }
+            return Err(EnrollError(if code.is_empty() { "token_failed".into() } else { code }));
         }
-        // FR-14.29 — below `DESKTOP_MIN_VERSION`.
-        //
-        // ⚠ Recorded, not just returned. The machine cannot mint a token until it updates, so
-        // nothing on the next launch would rediscover this; the Overview's banner has to be able
-        // to say why the bridge is down after a restart. ⚠ And the registration is LEFT ALONE —
-        // this is "the build is too old", not "you are not welcome", and deleting the key here
-        // would turn an update into a re-enrollment.
-        if status.as_u16() == 426 {
-            stored.update_required = true;
+
+        let parsed: TokenResponse = res.json().map_err(|_| EnrollError("bad_response".into()))?;
+        let learned = parse_server_time(&parsed.server_time)
+            .map(|server_ms| ClockOffset::learn(server_ms, now_ms()).millis);
+        // A successful mint is the proof that the build is acceptable again, so the banner clears
+        // itself when the update lands rather than needing anyone to dismiss it.
+        if learned.is_some() || stored.update_required {
+            if let Some(ms) = learned {
+                stored.clock_offset_ms = ms;
+            }
+            stored.update_required = false;
             let _ = keystore::save(&dir, &stored);
-            return Err(EnrollError("desktop_outdated".into()));
         }
-        return Err(EnrollError(if code.is_empty() { "token_failed".into() } else { code }));
+        return Ok(parsed.access_token);
     }
-
-    let parsed: TokenResponse = res.json().map_err(|_| EnrollError("bad_response".into()))?;
-    let learned = parse_server_time(&parsed.server_time)
-        .map(|server_ms| ClockOffset::learn(server_ms, now_ms()).millis);
-    // A successful mint is the proof that the build is acceptable again, so the banner clears
-    // itself when the update lands rather than needing anyone to dismiss it.
-    if learned.is_some() || stored.update_required {
-        if let Some(ms) = learned {
-            stored.clock_offset_ms = ms;
-        }
-        stored.update_required = false;
-        let _ = keystore::save(&dir, &stored);
-    }
-    Ok(parsed.access_token)
+    Err(EnrollError("token_failed".into()))
 }
 
 /// Report what this machine is, so the Desktops page is not guessing (FR-14.21).
@@ -464,6 +502,35 @@ mod tests {
         assert_eq!(normalize_code("I123-4567"), "11234567");
         assert_eq!(normalize_code("L123-4567"), "11234567");
         assert_eq!(normalize_code("oil0-0000"), "0110" .to_string() + "0000");
+    }
+
+    #[test]
+    fn an_http_date_parses_as_a_server_sends_it() {
+        // IMF-fixdate, what Bun and hyper put in `Date`; against chrono's RFC 3339 parse of the
+        // same instant rather than a hand-computed constant.
+        let expected = chrono::DateTime::parse_from_rfc3339("2026-11-07T00:01:02Z").unwrap().timestamp_millis();
+        assert_eq!(parse_http_date("Sat, 07 Nov 2026 00:01:02 GMT"), Some(expected));
+        assert_eq!(parse_http_date(" Sat, 07 Nov 2026 00:01:02 GMT "), Some(expected));
+        assert_eq!(parse_http_date("yesterday"), None);
+    }
+
+    #[test]
+    fn a_till_whose_clock_was_stepped_corrects_itself_from_the_refusal() {
+        // lgr#559, as the lane met it: paired while 8 h fast (correction −8 h), then Windows Time
+        // stepped the clock back 8 h, so the stored correction now puts every assertion 8 h behind.
+        let h = 3_600_000;
+        let server = 1_794_000_000_000;
+        let stepped_now = server; // the machine's clock is right again
+        let stale = -8 * h;
+        assert_eq!(relearned_offset(401, "bad_assertion", Some(server), stale, stepped_now), Some(0));
+        // A clock that agrees with the stored correction is not the reason: refused as before.
+        assert_eq!(relearned_offset(401, "bad_assertion", Some(server + 60_000), 0, stepped_now), None);
+        // Only a refusal of the assertion, and only with a Date to learn from.
+        assert_eq!(relearned_offset(401, "desktop_revoked", Some(server), stale, stepped_now), None);
+        assert_eq!(relearned_offset(500, "bad_assertion", Some(server), stale, stepped_now), None);
+        assert_eq!(relearned_offset(401, "bad_assertion", None, stale, stepped_now), None);
+        // The other direction too: paired on a right clock, then the machine went 5 h fast.
+        assert_eq!(relearned_offset(401, "bad_assertion", Some(server), 0, server + 5 * h), Some(-5 * h));
     }
 
     #[test]
