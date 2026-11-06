@@ -1,4 +1,6 @@
 import { cashOnDeliveryOf, keptByMethod, posRowSign, receiptTookMoney, refundGaveMoney, stornoUnproved } from './counting.js'
+import { computePosTotals, roundCents } from 'config/pos-totals'
+import { apportion } from './receipt-lines.js'
 
 /**
  * A till session's own figures, as LGR counts them: what it sold and gave back, by VAT rate and
@@ -22,7 +24,7 @@ export interface SessionReport {
   openedAt?: string
   closedAt?: string
   counts: { sales: number; stornos: number; voided: number; fiscal: number; text: number; unprinted: number; payments?: number; refunds?: number }
-  /** Per VAT rate: net, VAT and gross — sales less stornos. */
+  /** Per VAT rate: net, VAT and gross — sales less stornos. The rates' gross adds up to `total` (`rowByRate`). */
   vat: Array<{ rate: number; net: number; vat: number; gross: number }>
   total: number
   /**
@@ -57,7 +59,59 @@ export interface SessionReport {
 interface ClosingLine { method: string; expected: number; counted?: number; difference?: number }
 
 const cents = (n: number) => Math.round((Number(n) || 0) * 100) / 100
+const toCents = (n: unknown) => Math.round((Number(n) || 0) * 100)
 const iso = (d: unknown) => (d ? new Date(d as string).toISOString() : undefined)
+
+type ByRate = Map<number, { gross: number; vat: number }>
+
+const sum = (ns: number[]) => ns.reduce((s, n) => s + n, 0)
+
+/**
+ * A row's money per VAT rate, in cents, as its receipt printed it and the session's journal entry books it:
+ * its total and its VAT, shared out over its rates. A line's net and VAT are each rounded on their own and
+ * can miss what the device totalled, which rounds the gross once per rate and takes the VAT back out of it
+ * (`computePosTotals`): a valve at 17.8952 net is 17.90 + 3.58 = 21.48 by its line, 17.89 + 3.58 = 21.47 by
+ * its receipt. Summed by line, a report printed its rate's gross a cent away from its total (2026-11-06).
+ *
+ * One rate takes the row's total and VAT as they stand. Several take the gross each rate was totalled at
+ * (`totalledByRate`), else the total shared in their lines' proportions (`grossByRate`'s rule), and the VAT
+ * the device's way per rate where that comes to the row's VAT; otherwise the row's VAT is shared out, so the
+ * rates still add up to what the entry books. Where nothing can be shared (a negative line), the lines' own
+ * figures stand, as before.
+ */
+function rowByRate(row: any): ByRate {
+  const lines: ByRate = new Map()
+  for (const l of row.lines || []) {
+    const rate = Number(l.taxRate) || 0
+    const acc = lines.get(rate) || { gross: 0, vat: 0 }
+    // A till row's line total is net; its tax is beside it.
+    acc.gross += toCents(l.lineTotal) + toCents(l.taxAmount)
+    acc.vat += toCents(l.taxAmount)
+    lines.set(rate, acc)
+  }
+  const rates = [...lines.keys()]
+  if (!rates.length) return lines
+  const total = toCents(row.total)
+  const tax = row.taxTotal === undefined || row.taxTotal === null ? sum(rates.map((r) => lines.get(r)!.vat)) : toCents(row.taxTotal)
+  if (rates.length === 1) return new Map([[rates[0], { gross: total, vat: tax }]])
+
+  const gross = totalledByRate(row, rates, total) ?? apportion(rates.map((r) => lines.get(r)!.gross), total)
+  if (!gross) return lines
+  const device = rates.map((r, i) => toCents(roundCents((gross[i] / 100) * r / (100 + r))))
+  const vat = sum(device) === tax ? device : apportion(device, tax) ?? apportion(rates.map((r) => lines.get(r)!.vat), tax)
+  if (!vat) return lines
+  return new Map(rates.map((r, i) => [r, { gross: gross[i], vat: vat[i] }]))
+}
+
+/**
+ * Each rate's gross in cents as `computePosTotals` totalled the row: its lines at their VAT-inclusive value,
+ * rounded once per rate. Null unless they make the row's total, as a till sale's do and the storno of part of
+ * one's need not.
+ */
+function totalledByRate(row: any, rates: number[], total: number): number[] | null {
+  const gross = rates.map((r) => toCents(computePosTotals((row.lines || []).filter((l: any) => (Number(l.taxRate) || 0) === r)).total))
+  return sum(gross) === total ? gross : null
+}
 
 /** A receipt's outcome as the journal reads it: a row from before the state was recorded has its number. */
 function receiptOf(row: any): 'fiscal' | 'text' | 'unprinted' {
@@ -87,7 +141,7 @@ export function buildSessionReport(
   opts: { closing?: ClosingLine[]; zReportNumber?: string } = {},
 ): SessionReport {
   const counts: SessionReport['counts'] = { sales: 0, stornos: 0, voided: 0, fiscal: 0, text: 0, unprinted: 0 }
-  const vat = new Map<number, { net: number; vat: number }>()
+  const vat: ByRate = new Map()
   const byMethod = { cash: 0, card: 0, other: 0, cashOnDelivery: 0 }
   const amounts = { fiscal: 0, text: 0, unprinted: 0 }
   let total = 0
@@ -114,13 +168,11 @@ export function buildSessionReport(
     else counts.sales++
     counts[receiptOf(row)]++
 
-    for (const l of row.lines || []) {
-      const rate = Number(l.taxRate) || 0
-      const acc = vat.get(rate) || { net: 0, vat: 0 }
-      // A till row's line total is net; its tax is beside it.
-      // A payment's receipt counts here too: the device's day has it, per VAT group.
-      acc.net += sign * (Number(l.lineTotal) || 0)
-      acc.vat += sign * (Number(l.taxAmount) || 0)
+    // A payment's receipt counts here too: the device's day has it, per VAT group.
+    for (const [rate, share] of rowByRate(row)) {
+      const acc = vat.get(rate) || { gross: 0, vat: 0 }
+      acc.gross += sign * share.gross
+      acc.vat += sign * share.vat
       vat.set(rate, acc)
     }
     const kept = keptByMethod(row)
@@ -147,7 +199,7 @@ export function buildSessionReport(
     counts,
     vat: [...vat.entries()]
       .sort(([a], [b]) => b - a)
-      .map(([rate, a]) => ({ rate, net: cents(a.net), vat: cents(a.vat), gross: cents(a.net + a.vat) })),
+      .map(([rate, a]) => ({ rate, net: (a.gross - a.vat) / 100, vat: a.vat / 100, gross: a.gross / 100 })),
     total: cents(total),
     byMethod: { cash: cents(byMethod.cash), card: cents(byMethod.card), other: cents(byMethod.other), cashOnDelivery: cents(byMethod.cashOnDelivery) },
     change: cents(change),
