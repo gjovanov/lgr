@@ -241,6 +241,23 @@ pub mod platform {
         }
     }
 
+    /// How long a stop may take before a controller may call it hung: every child stops in turn,
+    /// the API finishing a receipt and mongod stopping cleanly (FR-20.23).
+    const STOP_WAIT: Duration = Duration::from_secs(180);
+
+    /// What the service tells the SCM. A pending state carries a checkpoint, as the SCM asks.
+    fn status(state: ServiceState, code: u32, wait: Duration) -> ServiceStatus {
+        ServiceStatus {
+            service_type: ServiceType::OWN_PROCESS,
+            current_state: state,
+            controls_accepted: if state == ServiceState::Running { ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN } else { ServiceControlAccept::empty() },
+            exit_code: exit_code(code),
+            checkpoint: if state == ServiceState::StopPending { 1 } else { 0 },
+            wait_hint: wait,
+            process_id: None,
+        }
+    }
+
     fn run_service() -> Result<()> {
         let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
         let stop_tx = std::sync::Mutex::new(Some(stop_tx));
@@ -254,21 +271,31 @@ pub mod platform {
             ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
             _ => ServiceControlHandlerResult::NotImplemented,
         })?;
-        let status = |state, code: u32, wait: Duration| ServiceStatus {
-            service_type: ServiceType::OWN_PROCESS,
-            current_state: state,
-            controls_accepted: if state == ServiceState::Running { ServiceControlAccept::STOP | ServiceControlAccept::SHUTDOWN } else { ServiceControlAccept::empty() },
-            exit_code: exit_code(code),
-            checkpoint: 0,
-            wait_hint: wait,
-            process_id: None,
-        };
         handle.set_service_status(status(ServiceState::Running, 0, Duration::ZERO))?;
         let code = crate::run_supervisor_blocking(async move {
             let _ = stop_rx.await;
+            // lgr#556: the stop is under way, said before the children stop. It went unsaid, so the
+            // service stayed RUNNING through a stop of several seconds, and a controller that waited
+            // 2 s (Restart-Service) called that "stop failed" and never started the service again.
+            if let Err(e) = handle.set_service_status(status(ServiceState::StopPending, 0, STOP_WAIT)) {
+                tracing::warn!(error = %e, "could not tell the service manager the stop is under way");
+            }
         });
         handle.set_service_status(status(ServiceState::Stopped, code as u32, Duration::ZERO))?;
         Ok(())
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn a_stop_says_it_is_under_way() {
+        let pending = status(ServiceState::StopPending, 0, STOP_WAIT);
+        assert_eq!(pending.current_state, ServiceState::StopPending);
+        assert!(pending.controls_accepted.is_empty(), "no control while it stops");
+        assert!(pending.checkpoint > 0 && pending.wait_hint >= Duration::from_secs(60));
+        let running = status(ServiceState::Running, 0, Duration::ZERO);
+        assert!(running.controls_accepted.contains(ServiceControlAccept::STOP));
+        assert_eq!((running.checkpoint, running.wait_hint), (0, Duration::ZERO));
+        assert_eq!(status(ServiceState::Stopped, 0, Duration::ZERO).checkpoint, 0);
     }
 }
 
