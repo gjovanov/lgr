@@ -127,8 +127,16 @@ bun .claude/skills/pull-plusminus-books/nightly.ts --local       # the newest ar
 bun .claude/skills/pull-plusminus-books/nightly.ts --check-mail  # SendGrid sandbox: proves the alert channel, delivers nothing
 ```
 
-- **It mails only on a change or a failure**: counts per year, never a name or an amount. The same failure is mailed once a
-  day. The PC is off at night and at weekends, so no answer is quiet, until 72 hours of it, which is a failure.
+- **It mails only on a change or a failure**: counts per year, then the documents that differ from the last import, a line
+  each: date, type and number, and `new`, `changed` (with what: operations, total, amounts, accounts, analytics, notes),
+  `moved` (to another customer or supplier) or `gone`. Never a name or an amount. A mail carries the first 60 lines, and
+  `books/<day>/changes-<sha>.txt` has them all. The same failure is mailed once a day. The PC is off at night and at
+  weekends, so no answer is quiet, until 72 hours of it, which is a failure.
+- The documents of the last import are kept by the importer's own key in `books/nightly-documents.json.gz` (about 2.6 MB),
+  which is what the next list compares with. ⚠ The books PC writes the day's archive again, under the same name, at each
+  session close, and `fetch-archive.ts` replaces the earlier copy. On 2026-11-06 the 13:00 import mailed „64 change(s)" from
+  a second `20261105.arz`, and the first copy it differed from was already gone, so nobody could say which documents those
+  were. Without that file, or the last import's own day folder, the mail says the documents are not listed.
 - It imports each archive once: `nightly-state.json` beside the day folders remembers the last one by SHA, and `nightly.log`
   has a line a run. After each year's import, a dry rerun must report everything unchanged, or the run fails.
 - 2025 and 2026 only (`BOOKS_NIGHTLY_YEARS`). A later year in the archive is reported, never imported unattended: its first

@@ -3,8 +3,12 @@
  * `import-accounting-books.ts`: the importer prints one JSON line a step (`chart: {…}`, `analytics: {…}`,
  * `opening 2026: {…}`, `journal 2026-01: {…}`, `journal total: {…}`, `finish: {…}`), and the run decides from
  * those alone whether anything changed and whether it has to stop. Also how it asks whether its docs root answers at
- * all, and when a docs root that does not answer is worth a mail.
+ * all, when a docs root that does not answer is worth a mail, and which documents an import changed.
  */
+import { gunzipSync, gzipSync } from 'node:zlib'
+import { documentsByMonth } from '../../packages/services/src/biz/accounting-books/plusminus-exports.js'
+import { planMonth, sha256 } from '../../packages/services/src/biz/accounting-books/journal-plan.js'
+import type { ImportDocument } from '../../packages/services/src/biz/accounting-books/import.types.js'
 
 export interface ParsedImport {
   steps: Record<string, any>
@@ -84,4 +88,151 @@ export function docsRootDown(prev: DocsRootDown | undefined, at: string, afterHo
   const hours = (Date.parse(at) - Date.parse(since)) / 3600_000
   const mailedToday = !!prev?.mailedAt && Date.parse(at) - Date.parse(prev.mailedAt) < 24 * 3600_000
   return { down: { since, ...(prev?.mailedAt ? { mailedAt: prev.mailedAt } : {}) }, hours, mail: hours >= afterHours && !mailedToday }
+}
+
+/**
+ * One document of an import as the next run compares it, under the importer's own `importKey` (`journal-plan.ts`).
+ * The importer answers with counts per month, and a mail of counts alone could not say which documents the accountant
+ * touched (2026-11-06: "64 change(s)", from an archive the books PC had already written again). The label is a date, a
+ * type and a number, never a name or an amount: an importKey names the partner, so the keys stay on the docs root
+ * beside the journals they come from, and only labels go into a mail.
+ */
+export interface ImportedDocument {
+  month: string
+  /** `planMonth`'s contentHash, shortened: what `changed` means to the importer. */
+  hash: string
+  label: string
+  /** The operation count, then a hash per part of the document, to say what changed. */
+  parts: string
+}
+export type ImportedDocuments = Map<string, ImportedDocument>
+
+/** The parts `parts` hashes, in its order, by the words a change is described with. */
+const PARTS = ['total', 'VAT kind or comment', 'amounts or quantities', 'accounts', 'analytics', 'operation notes']
+
+function partsOf(doc: ImportDocument): string {
+  const h = (v: unknown) => sha256(JSON.stringify(v ?? null)).slice(0, 8)
+  return [
+    String(doc.ops.length),
+    h(doc.total),
+    h([doc.vatKind, doc.comment]),
+    h(doc.ops.map(op => [op.amount, op.qty, op.cur, op.rate, op.fx])),
+    h(doc.ops.map(op => [op.d, op.k])),
+    h(doc.ops.map(op => [op.ad, op.ak])),
+    h(doc.ops.map(op => [op.comment, op.journal, op.tax])),
+  ].join('.')
+}
+
+/** Date, type and number; an operation with no document, by its accounts. Never an analytic path: those name people. */
+export function labelOf(doc: ImportDocument): string {
+  if (doc.docType) return [doc.date, doc.docType, doc.docNumber].filter(Boolean).join(' ')
+  const op = doc.ops[0]
+  return op ? `${doc.date} D${op.d} K${op.k}` : doc.date
+}
+
+/** A journal's documents, keyed and grouped the way the importer plans them: by month, in file order. */
+export function importedDocuments(documents: ImportDocument[]): ImportedDocuments {
+  const out: ImportedDocuments = new Map()
+  for (const [month, docs] of documentsByMonth(documents)) {
+    for (const entry of planMonth(docs, [])) {
+      out.set(entry.importKey, { month, hash: entry.contentHash.slice(0, 16), label: labelOf(entry.doc), parts: partsOf(entry.doc) })
+    }
+  }
+  return out
+}
+
+export interface DocumentChange {
+  month: string
+  kind: 'new' | 'changed' | 'moved' | 'gone'
+  label: string
+  /** What differs, for `changed` and `moved`. */
+  what?: string
+}
+
+function whatDiffers(before: string, after: string, moved: boolean): string {
+  const [n0, ...p0] = before.split('.')
+  const [n1, ...p1] = after.split('.')
+  const out = moved ? ['another customer or supplier'] : []
+  if (n0 !== n1) out.push(`${n0} → ${n1} operations`)
+  PARTS.forEach((name, i) => {
+    if (p0[i] === p1[i]) return
+    // With another operation count every per-operation part differs, and a move always changes the analytics.
+    if (n0 !== n1 && i >= 2) return
+    if (moved && name === 'analytics') return
+    out.push(name)
+  })
+  return out.join(', ')
+}
+
+/** A document's identity without its partner: `doc|type|number|date`. An operation with no document has none. */
+const stemOf = (key: string) => (key.startsWith('doc|') ? key.replace(/#\d+$/, '').split('|').slice(0, 4).join('|') : undefined)
+
+const KINDS: DocumentChange['kind'][] = ['new', 'changed', 'moved', 'gone']
+
+/**
+ * What differs between the documents of two imports. The partner is part of a document's importKey, so a document moved
+ * to another customer or supplier is gone under one key and new under another: one of each with the same type, number and
+ * date is reported once, as `moved`.
+ */
+export function documentChanges(before: ImportedDocuments, after: ImportedDocuments): DocumentChange[] {
+  const out: DocumentChange[] = []
+  const gone = [...before].filter(([key]) => !after.has(key))
+  const goneByStem = new Map<string, ImportedDocument[]>()
+  for (const [key, doc] of gone) {
+    const stem = stemOf(key)
+    if (stem) goneByStem.set(stem, [...(goneByStem.get(stem) ?? []), doc])
+  }
+  const moved = new Set<ImportedDocument>()
+  for (const [key, doc] of after) {
+    const was = before.get(key)
+    if (was) {
+      if (was.hash !== doc.hash) out.push({ month: doc.month, kind: 'changed', label: doc.label, what: whatDiffers(was.parts, doc.parts, false) })
+      continue
+    }
+    const stem = stemOf(key)
+    const twin = stem ? goneByStem.get(stem)?.shift() : undefined
+    if (twin) {
+      moved.add(twin)
+      out.push({ month: doc.month, kind: 'moved', label: doc.label, what: whatDiffers(twin.parts, doc.parts, true) })
+    } else out.push({ month: doc.month, kind: 'new', label: doc.label })
+  }
+  for (const [, doc] of gone) if (!moved.has(doc)) out.push({ month: doc.month, kind: 'gone', label: doc.label })
+  return out.sort((a, b) => a.month.localeCompare(b.month) || a.label.localeCompare(b.label) || KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind))
+}
+
+/** A line per month with its counts, then a line per document. */
+export function documentChangesText(changes: DocumentChange[]): string[] {
+  const lines: string[] = []
+  for (const month of [...new Set(changes.map(c => c.month))]) {
+    const of = changes.filter(c => c.month === month)
+    const counts = KINDS.map(kind => [kind, of.filter(c => c.kind === kind).length] as const).filter(([, n]) => n)
+    lines.push(`${month}: ${counts.map(([kind, n]) => `${n} ${kind}`).join(', ')}`)
+    for (const c of of) lines.push(`  ${c.kind.padEnd(7)} ${c.label}${c.what ? ` (${c.what})` : ''}`)
+  }
+  return lines
+}
+
+/** What the run keeps of an import's documents for the next one to compare with. */
+export interface ImportedDocumentsFile {
+  archive: string
+  sha12: string
+  at: string
+  documents: ImportedDocuments
+}
+
+export function serializeImported(file: ImportedDocumentsFile): Uint8Array {
+  const { documents, ...head } = file
+  return gzipSync(JSON.stringify({ v: 1, ...head, documents: [...documents].map(([key, d]) => [key, d.month, d.hash, d.label, d.parts]) }))
+}
+
+/** Nothing when the bytes are not such a file: the run then lists nothing rather than fail. */
+export function parseImported(bytes: Uint8Array): ImportedDocumentsFile | undefined {
+  try {
+    const held = JSON.parse(gunzipSync(bytes).toString('utf8'))
+    if (held?.v !== 1 || !Array.isArray(held.documents)) return undefined
+    const documents: ImportedDocuments = new Map(held.documents.map(([key, month, hash, label, parts]: string[]) => [key, { month, hash, label, parts }]))
+    return { archive: held.archive, sha12: held.sha12, at: held.at, documents }
+  } catch {
+    return undefined
+  }
 }

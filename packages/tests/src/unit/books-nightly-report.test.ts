@@ -1,7 +1,21 @@
 import { describe, it, expect } from 'bun:test'
+import { gzipSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { docsRootDown, listsWithin, parseImport, problems, summarize } from '../../../../scripts/lib/books-nightly-report'
+import type { ImportDocument } from 'services/biz/accounting-books/import.types'
+import {
+  docsRootDown,
+  documentChanges,
+  documentChangesText,
+  importedDocuments,
+  labelOf,
+  listsWithin,
+  parseImport,
+  parseImported,
+  problems,
+  serializeImported,
+  summarize,
+} from '../../../../scripts/lib/books-nightly-report'
 
 /**
  * What the unattended books run reads out of `import-accounting-books.ts`. The lines are the importer's own,
@@ -91,5 +105,82 @@ describe('books nightly: a docs root that does not answer', () => {
 
   it('a child that has not answered in time is killed, and that is no answer', async () => {
     expect(await listsWithin(tmpdir(), 0)).toBe(false)
+  })
+})
+
+/**
+ * The importer answers with counts per month. The run keeps the documents of each import by the importer's own key, so the
+ * next mail can say which documents changed, by date, type and number. Made-up documents in the archive's shape.
+ */
+describe('books nightly: which documents an import changed', () => {
+  const customer = 'КЛИЕНТИ:Примерна фирма ЕООД'
+  const sale = (over: Partial<ImportDocument> = {}, partner = customer): ImportDocument => ({
+    date: '2026-01-08',
+    docType: '-ФЕ',
+    docNumber: '2000000001',
+    vatKind: '1',
+    total: 120,
+    comment: 'Стоки',
+    ops: [
+      { d: '702', k: '304', ak: 'СТОКИ:Болт М8Х25', qty: 10, amount: 80 },
+      { d: '411', k: '702', ad: partner, amount: 100 },
+      { d: '411', k: '4532', ad: partner, amount: 20 },
+    ],
+    ...over,
+  })
+  const payment: ImportDocument = { date: '2026-02-23', ops: [{ d: '503', k: '411', ad: 'БАНКОВИ СМЕТКИ:BG00TEST00000000000001', ak: customer, amount: 120 }] }
+  const changes = (before: ImportDocument[], after: ImportDocument[]) => documentChanges(importedDocuments(before), importedDocuments(after))
+
+  it('the same journal twice changes nothing', () => {
+    expect(changes([sale(), payment], [sale(), payment])).toEqual([])
+  })
+
+  it('a document with another operation, or other amounts, is changed, and says what', () => {
+    const paid = sale({ ops: [...sale().ops, { d: '501', k: '411', ak: customer, amount: 120 }] })
+    expect(changes([sale()], [paid])).toEqual([{ month: '2026-01', kind: 'changed', label: '2026-01-08 -ФЕ 2000000001', what: '3 → 4 operations' }])
+    const recosted = sale({ total: 121, ops: sale().ops.map(op => (op.k === '304' ? { ...op, amount: 81 } : op)) })
+    expect(changes([sale()], [recosted])[0].what).toBe('total, amounts or quantities')
+  })
+
+  it('a document moved to another customer is one move, not one new and one gone', () => {
+    const credit = sale({ docType: '-ФИ', total: -120 })
+    const moved = changes([sale(), credit], [sale({}, 'КЛИЕНТИ:Друга фирма ООД'), credit])
+    expect(moved).toEqual([{ month: '2026-01', kind: 'moved', label: '2026-01-08 -ФЕ 2000000001', what: 'another customer or supplier' }])
+  })
+
+  it('a document that arrives is new, one that leaves is gone', () => {
+    const later = sale({ date: '2026-10-31', docNumber: '2000000002' })
+    expect(changes([sale(), payment], [sale(), later]).map(c => [c.month, c.kind, c.label])).toEqual([
+      ['2026-02', 'gone', '2026-02-23 D503 K411'],
+      ['2026-10', 'new', '2026-10-31 -ФЕ 2000000002'],
+    ])
+  })
+
+  it('a label is a date, a type and a number, never a name or an amount', () => {
+    expect(labelOf(sale())).toBe('2026-01-08 -ФЕ 2000000001')
+    expect(labelOf(payment)).toBe('2026-02-23 D503 K411')
+    const text = documentChangesText(changes([sale(), payment], [sale({}, 'КЛИЕНТИ:Друга фирма ООД'), sale({ docNumber: '2000000002', total: 77.5 })])).join('\n')
+    expect(text).not.toContain('фирма')
+    expect(text).not.toContain('77.5')
+  })
+
+  it('reads as a line per month with its counts, then a line per document', () => {
+    const before = [sale(), sale({ docNumber: '2000000002' }), payment]
+    const after = [sale({ ops: sale().ops.slice(0, 2) }), sale({ docNumber: '2000000003' }), payment, sale({ date: '2026-10-16', docNumber: '2000000004' })]
+    expect(documentChangesText(changes(before, after))).toEqual([
+      '2026-01: 1 new, 1 changed, 1 gone',
+      '  changed 2026-01-08 -ФЕ 2000000001 (3 → 2 operations)',
+      '  gone    2026-01-08 -ФЕ 2000000002',
+      '  new     2026-01-08 -ФЕ 2000000003',
+      '2026-10: 1 new',
+      '  new     2026-10-16 -ФЕ 2000000004',
+    ])
+  })
+
+  it('what a run keeps reads back as it was, and anything else reads as nothing', () => {
+    const kept = { archive: '20261106.arz', sha12: 'E0C4B28A3E71', at: '2026-11-06T16:00:54.395Z', documents: importedDocuments([sale(), payment]) }
+    expect(parseImported(serializeImported(kept))).toEqual(kept)
+    expect(parseImported(new Uint8Array([1, 2, 3]))).toBeUndefined()
+    expect(parseImported(gzipSync(JSON.stringify({ v: 2, documents: [] })))).toBeUndefined()
   })
 })
