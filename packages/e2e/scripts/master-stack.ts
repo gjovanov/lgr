@@ -23,7 +23,7 @@
  * front secret. The exit code is Playwright's, and everything stops whatever it says.
  * ⚠ Loopback only: the master, the front and the replica set all listen on 127.0.0.1.
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
@@ -45,12 +45,32 @@ const PASSWORD = `pp-${randomBytes(12).toString('hex')}`
 const NODE_ID = 'master-e2emasterspecs23'
 
 const scratch = mkdtempSync(join(tmpdir(), 'lgr-e2e-master-'))
+/**
+ * What the supervisor writes of itself every few seconds (`status_file.rs`), beside the node-token
+ * file, where the master's own status page reads it (`server-status.ts`). Air-gapped, so there is no
+ * token in it and no registration. The SUPTO version is this source's (`config/src/supto.json`).
+ */
+const STATE = join(scratch, 'state')
+const STATUS_FILE = join(STATE, 'status.json')
+const SUPTO = String(JSON.parse(readFileSync(join(ROOT, 'packages', 'config', 'src', 'supto.json'), 'utf8')).version)
+const started = Date.now()
+function writeStatus() {
+  writeFileSync(STATUS_FILE, JSON.stringify({
+    service: 'lgr-server', version: '0.0.0-e2e', uptimeSecs: Math.round((Date.now() - started) / 1000),
+    children: [{ name: 'mongod', state: 'running' }, { name: 'api', state: 'running' }],
+    update: { state: 'idle', running: '0.0.0-e2e', supto: SUPTO },
+    disk: { freeBytes: 50e9, totalBytes: 100e9 },
+    writtenAt: new Date().toISOString(),
+  }))
+}
+let statusTimer: ReturnType<typeof setInterval> | undefined
 let node: Node | undefined
 let front: ReturnType<typeof Bun.serve> | undefined
 let tunnel: ReturnType<typeof Bun.serve> | undefined
 let playwright: ReturnType<typeof Bun.spawn> | undefined
 
 async function stopAll() {
+  clearInterval(statusTimer)
   playwright?.kill()
   front?.stop(true)
   tunnel?.stop(true)
@@ -76,12 +96,19 @@ async function stamped(source: 'console' | 'lan', path: string, body?: unknown, 
 }
 
 try {
+  mkdirSync(STATE, { recursive: true })
+  writeStatus()
+  // Fresh while the specs run (`STALE_MS` is 2 min), unless a spec stops the supervisor's writes
+  // (`status.frozen` beside it, master-status.spec.ts) to see the page say so.
+  statusTimer = setInterval(() => { if (!existsSync(`${STATUS_FILE}.frozen`)) writeStatus() }, 20_000)
   node = await startNode('master', scratch, {
     env: {
       LGR_FRONT_SECRET: SECRET,
       LGR_NODE_ID: NODE_ID,
       LGR_LAN_URL: LAN_URL,
       LGR_LAN_CA_FINGERPRINT: CA_FINGERPRINT,
+      // The supervisor's token file (never written: air-gapped), whose folder holds its status.
+      LGR_NODE_TOKEN_FILE: join(STATE, 'node-token.json'),
     },
     probeHeaders: { 'x-lgr-front': SECRET, 'x-lgr-source': 'lan' },
   })
@@ -194,6 +221,8 @@ try {
       E2E_MASTER_LAN_URL: LAN_URL,
       E2E_MASTER_FINGERPRINT: CA_FINGERPRINT,
       E2E_MASTER_WORDS: words.join(' '),
+      E2E_MASTER_STATUS_FILE: STATUS_FILE,
+      E2E_MASTER_SUPTO: SUPTO,
     },
   })
   const code_ = await playwright.exited
