@@ -15,11 +15,17 @@
  *
  * HTTP on the next port, for the spec: `GET /state` (receipts with their free text, reports, closures,
  * operators, payment type names), `POST /paper` (`{ "on": false }`: the roll runs out), `POST /fault` (`{ "paperOutAt": 56 }`: the roll runs out as that command arrives; `{}` clears it), `POST /reset` (a fresh device; `{ "rates": [А..З] }` programs its VAT groups, `{ "unfiscalized": true }` makes it the unit in the field).
+ *
+ * `ELTRADE_STUB_HOST` binds the device's port elsewhere, for the VM lanes' `bridge-lan` (lgr-deploy
+ * `vmtest/`): a till guest's COM1 is a QEMU chardev that connects to it from the VM host. The HTTP
+ * port stays on 127.0.0.1 whatever it says: it can reset the device, so nothing off the machine
+ * reaches it.
  */
 import { createServer, type Socket } from 'node:net'
 import { EltradeSimulator } from '../../tests/src/helpers/eltrade-simulator'
 
 const PORT = Number(process.env.ELTRADE_STUB_PORT) || 8299
+const HOST = process.env.ELTRADE_STUB_HOST || '127.0.0.1'
 const HTTP_PORT = PORT + 1
 
 /**
@@ -81,8 +87,8 @@ const server = createServer((socket: Socket) => {
   })
 })
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`eltrade-tcp-stub: device ${sim.serial} on 127.0.0.1:${PORT}, state on http://127.0.0.1:${HTTP_PORT}/state`)
+server.listen(PORT, HOST, () => {
+  console.log(`eltrade-tcp-stub: device ${sim.serial} on ${HOST}:${PORT}, state on http://127.0.0.1:${HTTP_PORT}/state`)
 })
 
 Bun.serve({
