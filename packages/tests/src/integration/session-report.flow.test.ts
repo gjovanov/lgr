@@ -229,6 +229,17 @@ describe('the session report: its VAT rows add up to its total, as the receipts 
     expect(roundCents(r.vat.reduce((s, v) => s + v.net, 0))).toBe(revenue(rows))
   })
 
+  it('two rates whose lines run over the total: each rate the gross the device was given, adding up to the total', () => {
+    // Both rates' lines are a cent over what the receipt rounds them to, so the lines come to 71.49 on a 71.47
+    // sale: the device gets the total shared out in their proportions, never the lines' own sums.
+    const doc = saleDoc([docLine(3, 17.8952, 20), docLine(1, 3.3333, 20), docLine(2, 0.7, 9), docLine(2, 0.7, 9)])
+    const device = linesOnDevice(doc, 'Продажба').map((l) => [l.taxRate, l.lineTotal])
+    expect(device).toHaveLength(2)
+    const r = buildSessionReport(session, [toPosTransaction(doc)])
+    expect(r.vat.map((v) => [v.rate, v.gross])).toEqual(device)
+    expect(roundCents(r.vat.reduce((s, v) => s + v.gross, 0))).toBe(r.total)
+  })
+
   it('a sale over two rates returned in two parts comes back to zero gross, rate by rate, as its stornos were charged', () => {
     // Each part gives back its share of what the device was given (`printedByRate`). Shared any other way, the
     // sale's 20 % and its stornos' missed each other by a cent, and a session that sold nothing printed one.
