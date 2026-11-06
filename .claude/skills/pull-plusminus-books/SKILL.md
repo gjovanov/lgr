@@ -164,7 +164,8 @@ and no area.
 **The schedule.** Task Scheduler's „LGR books nightly" runs every two hours from 07:00 to 23:00, as goran, only while signed in,
 with no window (`run-hidden.vbs`). It runs from a worktree pinned at a reviewed commit, `C:\dev\gjovanov\lgr-books-nightly`,
 detached.
-- Register it, or remove it, with `register-nightly.ps1 -Checkout <worktree>` or `register-nightly.ps1 -Remove`.
+- Register it, or remove it, with `register-nightly.ps1 -Checkout <worktree>` or `register-nightly.ps1 -Remove`, run as
+  `powershell -NoProfile -ExecutionPolicy Bypass -File …`: Windows runs no scripts by default, and a plain `-File` is refused.
 - Move the pin deliberately, after a deploy that changes the importers. A client ahead of the server it talks to fails.
 
 ## What is proven (2026-11-05, archive 20261105 vs the GUI exports taken from the same state an hour earlier)

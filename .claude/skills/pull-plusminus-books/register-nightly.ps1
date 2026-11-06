@@ -2,8 +2,9 @@
 # user and only while they are signed in (the WSL docs root and roomler's sign-in are theirs), with no window, an hour at most,
 # never two runs at once, and a missed start made up when the PC wakes.
 #
-#   powershell -NoProfile -File register-nightly.ps1 -Checkout C:\dev\gjovanov\lgr-books-nightly
-#   powershell -NoProfile -File register-nightly.ps1 -Remove
+#   powershell -NoProfile -ExecutionPolicy Bypass -File register-nightly.ps1 -Checkout C:\dev\gjovanov\lgr-books-nightly
+#   powershell -NoProfile -ExecutionPolicy Bypass -File register-nightly.ps1 -Remove
+# (Bypass for this one process: Windows runs no scripts by default, and a plain -File is refused.)
 param([string]$Checkout, [switch]$Remove, [string]$Name = 'LGR books nightly')
 $ErrorActionPreference = 'Stop'
 if ($Remove) { Unregister-ScheduledTask -TaskName $Name -Confirm:$false; "removed: $Name"; return }
