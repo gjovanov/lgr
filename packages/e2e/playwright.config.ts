@@ -83,6 +83,8 @@ export default defineConfig({
       name: 'master',
       use: { ...devices['Desktop Chrome'], baseURL: process.env.E2E_MASTER_URL || baseURL },
       testMatch: ['master-*.spec.ts'],
+      // One master, one till: a file's tests in order (the PIN spec's backoff is the till's).
+      fullyParallel: false,
     },
     {
       name: 'accounting',

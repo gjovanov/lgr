@@ -7,6 +7,8 @@ import type { Page } from '@playwright/test'
  */
 export const master = {
   url: process.env.E2E_MASTER_URL || '',
+  /** The same master through the tunnel: the org's address on lgrai.app, no desktop (FR-20.72). */
+  tunnelUrl: process.env.E2E_MASTER_TUNNEL_URL || '',
   orgId: process.env.E2E_MASTER_ORG || '',
   slug: process.env.E2E_MASTER_SLUG || '',
   email: process.env.E2E_MASTER_EMAIL || '',
@@ -17,9 +19,20 @@ export const master = {
   words: process.env.E2E_MASTER_WORDS || '',
 }
 
-/** A request through the front. Native fetch: Playwright's APIRequestContext mis-parses Set-Cookie (`login.ts`). */
-export async function lan(path: string, init: { method?: string; body?: unknown; token?: string } = {}) {
-  const res = await fetch(`${master.url}${path}`, {
+type Init = { method?: string; body?: unknown; token?: string }
+
+/** A request through the LAN front. Native fetch: Playwright's APIRequestContext mis-parses Set-Cookie (`login.ts`). */
+export function lan(path: string, init: Init = {}) {
+  return call(master.url, path, init)
+}
+
+/** The same request through the tunnel. */
+export function tunnel(path: string, init: Init = {}) {
+  return call(master.tunnelUrl, path, init)
+}
+
+async function call(base: string, path: string, init: Init) {
+  const res = await fetch(`${base}${path}`, {
     method: init.method ?? (init.body === undefined ? 'GET' : 'POST'),
     headers: {
       ...(init.body === undefined ? {} : { 'Content-Type': 'application/json' }),

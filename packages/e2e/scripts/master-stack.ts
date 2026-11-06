@@ -15,7 +15,9 @@
  * - **The front**, on 127.0.0.1:<E2E_MASTER_PORT>, stands in for the supervisor's LAN ingress plus a
  *   till's loopback proxy (FR-20.32): it drops whatever `X-LGR-*` the client sent and stamps the
  *   secret, the source `lan` and the paired desktop's token, re-minted before it expires. So the
- *   browser is a till, and every request is a LAN request the front guard judges.
+ *   browser is a till, and every request is a LAN request the front guard judges. On the next port
+ *   a second front stamps `tunnel` and no desktop: the org's address on lgrai.app, as the uplink
+ *   brings it (FR-20.72), for what the internet may not do that the shop's network may.
  *
  * Playwright gets `E2E_MASTER_URL` and what the specs compare against (`E2E_MASTER_*`); never the
  * front secret. The exit code is Playwright's, and everything stops whatever it says.
@@ -32,6 +34,7 @@ import { fingerprintWords } from '../../services/src/biz/desktop/fingerprint-wor
 const ROOT = join(import.meta.dir, '..', '..', '..')
 const PORT = Number(process.env.E2E_MASTER_PORT || 4989)
 const FRONT_URL = `http://127.0.0.1:${PORT}`
+const TUNNEL_URL = `http://127.0.0.1:${PORT + 1}`
 const SECRET = randomBytes(36).toString('base64url')
 // TEST-NET-1: an address no machine has, which the pairing code names as the master's LAN.
 const LAN_URL = 'https://192.0.2.10:4443'
@@ -44,11 +47,13 @@ const NODE_ID = 'master-e2emasterspecs23'
 const scratch = mkdtempSync(join(tmpdir(), 'lgr-e2e-master-'))
 let node: Node | undefined
 let front: ReturnType<typeof Bun.serve> | undefined
+let tunnel: ReturnType<typeof Bun.serve> | undefined
 let playwright: ReturnType<typeof Bun.spawn> | undefined
 
 async function stopAll() {
   playwright?.kill()
   front?.stop(true)
+  tunnel?.stop(true)
   await node?.stop().catch(() => {})
   rmSync(scratch, { recursive: true, force: true })
 }
@@ -117,14 +122,19 @@ try {
     return { target: `${node!.url}${url.pathname}${url.search}`, headers }
   }
   type Pipe = { target: string; headers: Record<string, string>; up?: WebSocket; queue: (string | Buffer)[] }
-  front = Bun.serve<Pipe>({
+  /**
+   * A front on `port` for `source`: `lan` is a paired till (its desktop token stamped), `tunnel` is
+   * the org's address on lgrai.app as the uplink brings it (no desktop, FR-20.72), to prove what
+   * the shop's network may do and the internet may not.
+   */
+  const frontOn = (port: number, source: 'lan' | 'tunnel') => Bun.serve<Pipe>({
     hostname: '127.0.0.1',
-    port: PORT,
+    port,
     async fetch(req, server) {
       const url = new URL(req.url)
       const { target, headers } = upstream(req, url, {
-        'x-lgr-front': SECRET, 'x-lgr-source': 'lan', 'x-lgr-client-ip': '127.0.0.1',
-        'x-lgr-desktop-token': await desktopToken(),
+        'x-lgr-front': SECRET, 'x-lgr-source': source, 'x-lgr-client-ip': '127.0.0.1',
+        ...(source === 'lan' ? { 'x-lgr-desktop-token': await desktopToken() } : {}),
       })
       if (req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
         const h: Record<string, string> = {}
@@ -160,9 +170,11 @@ try {
       close(ws) { ws.data.up?.close() },
     },
   })
+  front = frontOn(PORT, 'lan')
+  tunnel = frontOn(PORT + 1, 'tunnel')
 
   const words = fingerprintWords(CA_FINGERPRINT) || []
-  console.log(`master-stack: master ${node.url} (${NODE_ID}), front ${FRONT_URL}, org ${SLUG}, till ${desktopId}`)
+  console.log(`master-stack: master ${node.url} (${NODE_ID}), LAN ${FRONT_URL}, tunnel ${TUNNEL_URL}, org ${SLUG}, till ${desktopId}`)
   const args = process.argv.slice(2)
   playwright = Bun.spawn(['bunx', 'playwright', 'test', '--project=master', ...args], {
     cwd: join(ROOT, 'packages', 'e2e'),
@@ -173,6 +185,7 @@ try {
       // `BASE_URL` keeps the config's webServer from starting a second server.
       BASE_URL: FRONT_URL,
       E2E_MASTER_URL: FRONT_URL,
+      E2E_MASTER_TUNNEL_URL: TUNNEL_URL,
       E2E_MASTER_ORG: orgId,
       E2E_MASTER_SLUG: SLUG,
       E2E_MASTER_EMAIL: EMAIL,
