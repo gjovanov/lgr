@@ -3,7 +3,7 @@ import type { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { createTestFiscalDevice } from '../helpers/factories'
-import { AuditLog, FiscalDevice } from 'db/models'
+import { AuditLog, FiscalDevice, POSSession } from 'db/models'
 import { ELTRADE_CMD } from 'fiscal/eltrade'
 import { getPrinter, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 
@@ -214,11 +214,33 @@ describe('what the device\'s reports leave out: the session\'s text receipts', (
     expect((await w.call('GET', REPORT(w))).json.notOnDevice).toBeNull()
   })
 
-  it('a closed session: from the report its close kept', async () => {
+  it('a closed session: from the report its close kept, which is what printed', async () => {
     const w = await tillWorld(app)
     expect((await w.sell(1, { text: true })).status).toBe(200)
     expect((await close(w, 112)).status).toBe(200)
     expect((await w.call('GET', REPORT(w))).json.notOnDevice).toEqual({ receipts: 1, amount: 12, currency: 'EUR' })
+    // The kept report, not a rebuild: change it, and the answer follows it.
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { 'report.counts.text': 3, 'report.amounts.text': 30 } }).exec()
+    expect((await w.call('GET', REPORT(w))).json.notOnDevice).toEqual({ receipts: 3, amount: 30, currency: 'EUR' })
+    // One kept before reports said what each kind came to: the count alone.
+    await POSSession.updateOne({ _id: w.sessionId }, { $unset: { 'report.amounts': 1 } }).exec()
+    expect((await w.call('GET', REPORT(w))).json.notOnDevice).toEqual({ receipts: 3, amount: null, currency: 'EUR' })
+  })
+
+  it('what they came to is the session\'s money: only for a caller who may read its report, the rest get the count', async () => {
+    const w = await tillWorld(app)
+    expect((await w.sell(2, { text: true })).status).toBe(200)
+    for (const role of ['admin', 'manager', 'warehouse_manager']) {
+      const as = await w.tokenAs(role)
+      const sessionReport = await w.call('GET', `/trade/pos/session/${w.sessionId}/report`, undefined, undefined, as)
+      const menu = await w.call('GET', REPORT(w), undefined, undefined, as)
+      expect({ role, menu: menu.status, notOnDevice: menu.json.notOnDevice, report: sessionReport.status }).toEqual({
+        role,
+        menu: 200,
+        notOnDevice: { receipts: 1, amount: sessionReport.status === 200 ? 24 : null, currency: 'EUR' },
+        report: role === 'warehouse_manager' ? 403 : 200,
+      })
+    }
   })
 })
 

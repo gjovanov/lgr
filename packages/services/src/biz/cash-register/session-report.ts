@@ -1,6 +1,6 @@
 import { cashOnDeliveryOf, keptByMethod, posRowSign, receiptTookMoney, refundGaveMoney, stornoUnproved } from './counting.js'
-import { computePosTotals, roundCents } from 'config/pos-totals'
-import { apportion } from './receipt-lines.js'
+import { roundCents } from 'config/pos-totals'
+import { apportion, grossByRate } from './receipt-lines.js'
 
 /**
  * A till session's own figures, as LGR counts them: what it sold and gave back, by VAT rate and
@@ -67,17 +67,18 @@ type ByRate = Map<number, { gross: number; vat: number }>
 const sum = (ns: number[]) => ns.reduce((s, n) => s + n, 0)
 
 /**
- * A row's money per VAT rate, in cents, as its receipt printed it and the session's journal entry books it:
- * its total and its VAT, shared out over its rates. A line's net and VAT are each rounded on their own and
- * can miss what the device totalled, which rounds the gross once per rate and takes the VAT back out of it
- * (`computePosTotals`): a valve at 17.8952 net is 17.90 + 3.58 = 21.48 by its line, 17.89 + 3.58 = 21.47 by
- * its receipt. Summed by line, a report printed its rate's gross a cent away from its total (2026-11-06).
+ * A row's money per VAT rate, in cents: the gross as its device was given it, and the VAT as the session's
+ * journal entry books it. A line's own net and VAT are each rounded on their own and can miss the document by
+ * a cent: a valve at 17.8952 net is 17.90 + 3.58 = 21.48 by its line, 21.47 by its receipt. Summed by line, a
+ * report printed its rate's gross a cent away from its total (2026-11-06).
  *
- * One rate takes the row's total and VAT as they stand. Several take the gross each rate was totalled at
- * (`totalledByRate`), else the total shared in their lines' proportions (`grossByRate`'s rule), and the VAT
- * the device's way per rate where that comes to the row's VAT; otherwise the row's VAT is shared out, so the
- * rates still add up to what the entry books. Where nothing can be shared (a negative line), the lines' own
- * figures stand, as before.
+ * One rate takes the row's total and VAT as they stand. Several take `grossByRate`: the total shared out in the
+ * lines' proportions, the one rule a device is given (`linesOnDevice`, which prints those lines only when they
+ * come to it exactly) and a storno is charged against (`printedByRate`), so a sale returned in parts comes back
+ * to zero, rate by rate. The VAT is taken out of each rate's gross the device's way where that comes to the row's
+ * VAT; otherwise the row's VAT is shared out in those proportions, so the rates still add up to what the entry
+ * books. ⚠ A document's VAT can itself be a cent off what its device took out (#554); the report follows the
+ * document. Where nothing can be shared (a negative line), the lines' own figures stand, as before.
  */
 function rowByRate(row: any): ByRate {
   const lines: ByRate = new Map()
@@ -95,22 +96,13 @@ function rowByRate(row: any): ByRate {
   const tax = row.taxTotal === undefined || row.taxTotal === null ? sum(rates.map((r) => lines.get(r)!.vat)) : toCents(row.taxTotal)
   if (rates.length === 1) return new Map([[rates[0], { gross: total, vat: tax }]])
 
-  const gross = totalledByRate(row, rates, total) ?? apportion(rates.map((r) => lines.get(r)!.gross), total)
-  if (!gross) return lines
+  const shares = grossByRate({ total: row.total, lines: rates.map((r) => ({ taxRate: r, lineTotal: lines.get(r)!.gross / 100 })) })
+  if (!shares) return lines
+  const gross = rates.map((r) => toCents(shares.find((s) => s.rate === r)!.gross))
   const device = rates.map((r, i) => toCents(roundCents((gross[i] / 100) * r / (100 + r))))
   const vat = sum(device) === tax ? device : apportion(device, tax) ?? apportion(rates.map((r) => lines.get(r)!.vat), tax)
   if (!vat) return lines
   return new Map(rates.map((r, i) => [r, { gross: gross[i], vat: vat[i] }]))
-}
-
-/**
- * Each rate's gross in cents as `computePosTotals` totalled the row: its lines at their VAT-inclusive value,
- * rounded once per rate. Null unless they make the row's total, as a till sale's do and the storno of part of
- * one's need not.
- */
-function totalledByRate(row: any, rates: number[], total: number): number[] | null {
-  const gross = rates.map((r) => toCents(computePosTotals((row.lines || []).filter((l: any) => (Number(l.taxRate) || 0) === r)).total))
-  return sum(gross) === total ? gross : null
 }
 
 /** A receipt's outcome as the journal reads it: a row from before the state was recorded has its number. */

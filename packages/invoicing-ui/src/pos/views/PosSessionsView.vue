@@ -379,19 +379,25 @@ const operatorOptions = computed(() => [
   ...Array.from({ length: reportDevice.value?.capabilities.maxOperators || 0 }, (_, i) => ({ title: String(i + 1), value: i + 1 })),
 ])
 
+/** The row whose menu was opened last: an answer for another row, landing after it, is dropped. */
+let reportFor = ''
+
 /** The device this session's reports print on, as the server resolves it, asked when the menu opens. */
 async function loadReportDevice(item: any) {
+  const id = String(item._id || item.id)
+  reportFor = id
   reportDevice.value = null
   reportNotOnDevice.value = null
   deviceLoading.value = true
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/trade/pos/session/${item._id || item.id}/device-report`)
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/trade/pos/session/${id}/device-report`)
+    if (reportFor !== id) return
     reportDevice.value = data.device
     reportNotOnDevice.value = data.notOnDevice ?? null
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    if (reportFor === id) showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
-    deviceLoading.value = false
+    if (reportFor === id) deviceLoading.value = false
   }
 }
 
