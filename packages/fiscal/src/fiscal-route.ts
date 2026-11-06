@@ -21,7 +21,10 @@ import { logger } from 'services/logger'
  *  - a hop that arrives where the device has just left: 409 `fiscal_holder_moved`, nothing done, and the
  *    person presses again, as the message says. No client retries it. ⚠ A hop is never forwarded again.
  *
- * On one pod, and on a master, the row always names this process: nothing is ever forwarded.
+ * On one pod, and on a master, the row always names this process: nothing is ever forwarded. That
+ * includes the row an earlier run of this process left at this address. When the API restarts, the
+ * dead run's row stays live for a few seconds under another `podId`. A hop there would only come back
+ * here (lgr#555: on a master it went to the egress proxy, which answered 501).
  *
  * ⚠ The forwarding itself (`forwardHttp` + the hop's HMAC) lives in portal-api; `unified.ts` hands it
  * in with `setFiscalForwarding`. Without it (a test app, a script) every request runs locally.
@@ -42,6 +45,8 @@ export interface FiscalForwarding {
   isHop(request: Request): boolean
   /** The browser's address, for the hop. */
   clientIp(request: Request): string | null
+  /** This process's own address, as its presence rows record it (`podAddr()`), or null. */
+  self?(): string | null
 }
 
 let forwarding: FiscalForwarding | null = null
@@ -63,13 +68,15 @@ export type FiscalDecision =
   | { refuse: 409; code: 'fiscal_holder_moved' }
 
 /** Where a request for this device runs (exported for the tests; the macro is its only caller). */
-export async function decideFiscal(target: FiscalTarget | null, opts: { hop: boolean }): Promise<FiscalDecision> {
+export async function decideFiscal(target: FiscalTarget | null, opts: { hop: boolean; self?: string | null }): Promise<FiscalDecision> {
   if (!target) return { run: 'here' }
   if (isDeviceConnected(target.deviceId)) return { run: 'here' }
   const row = await livePresence({ orgId: target.orgId, deviceNumber: target.deviceNumber })
-  if (!row || row.podId === POD_ID) {
+  // This process's row, or one an earlier run of it left at this same address (see the header).
+  const mine = !!row && (row.podId === POD_ID || (!!opts.self && row.podAddr === opts.self))
+  if (!row || mine) {
     // Nobody holds it anywhere: the handler's own rule applies. A hop finding it gone moved on.
-    return opts.hop && row?.podId !== POD_ID ? { refuse: 409, code: 'fiscal_holder_moved' } : { run: 'here' }
+    return opts.hop && !mine ? { refuse: 409, code: 'fiscal_holder_moved' } : { run: 'here' }
   }
   if (opts.hop) return { refuse: 409, code: 'fiscal_holder_moved' } // a hop is never forwarded again
   if (!row.podAddr) return { refuse: 503, code: 'fiscal_holder_unreachable' }
@@ -107,7 +114,7 @@ export const FiscalRoute = new Elysia({ name: 'Service.FiscalRoute' }).macro({
           return
         }
         if (!forwarding) return
-        const decision = await decideFiscal(target, { hop })
+        const decision = await decideFiscal(target, { hop, self: forwarding.self?.() ?? null })
         if ('refuse' in decision) return status(decision.refuse, { code: decision.code, message: MESSAGES[decision.code] })
         if (decision.run === 'here') return
         const raw = rawBodies.get(request)

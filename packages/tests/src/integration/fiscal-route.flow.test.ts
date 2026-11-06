@@ -29,6 +29,7 @@ let app: Elysia
 const forwarded: Array<{ to: string; method: string; path: string; body: string; client: string | null }> = []
 let reachable = true
 let hop = false
+let self: string | null = null
 
 beforeAll(async () => {
   await setupTestDB()
@@ -41,6 +42,7 @@ beforeAll(async () => {
     },
     isHop: () => hop,
     clientIp: () => '203.0.113.7',
+    self: () => self,
   })
 }, 60_000)
 afterAll(async () => {
@@ -51,6 +53,7 @@ afterEach(async () => {
   forwarded.splice(0)
   reachable = true
   hop = false
+  self = null
   await clearCollections()
 }, 30_000)
 
@@ -152,6 +155,35 @@ describe('FR-24.50/24.51: the request goes to the printer', () => {
     const res = await w.call('POST', '/x-report')
     expect(res.status).toBe(503) // "not connected": the device page's own answer
     expect(forwarded).toHaveLength(0)
+  })
+
+  // lgr#555: the API restarted, and the dead run's row is still live at this same address under
+  // another podId. On a master the hop went to the egress proxy and came back 501.
+  it('a row an earlier run of this process left at its own address runs here, as if nobody held it', async () => {
+    const w = await world()
+    const nobody = await w.call('POST', '/x-report')
+    await heldOnPodB(w, 'http://10.0.0.2:4001')
+    self = 'http://10.0.0.2:4001'
+    expect(await w.call('POST', '/x-report')).toEqual(nobody)
+    expect(forwarded).toHaveLength(0)
+  })
+
+  it('and a hop that arrives there runs here too, rather than calling the device moved', async () => {
+    const w = await world()
+    const nobody = await w.call('POST', '/x-report')
+    await heldOnPodB(w, 'http://10.0.0.2:4001')
+    self = 'http://10.0.0.2:4001'
+    hop = true
+    expect(await w.call('POST', '/x-report')).toEqual(nobody)
+    expect(forwarded).toHaveLength(0)
+  })
+
+  it('a row at another address is still forwarded, whatever this process\'s own address is', async () => {
+    const w = await world()
+    await heldOnPodB(w, 'http://10.0.0.2:4001')
+    self = 'http://10.0.0.3:4001'
+    expect((await w.call('POST', '/x-report')).json).toEqual({ from: 'pod-b' })
+    expect(forwarded[0]).toMatchObject({ to: 'http://10.0.0.2:4001' })
   })
 })
 
