@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginAsAdmin } from './helpers/login'
+import { createInviteDialog, inviteResultDialog, inviteResultLink } from './helpers/invite-dialogs'
 
 test.describe('Invite System', () => {
   test.describe('Invite Landing Page', () => {
@@ -68,14 +69,20 @@ test.describe('Invite System', () => {
 
       // Click "Create Invite"
       await page.getByRole('button', { name: /create invite/i }).click()
-      const dialog = page.locator('.v-dialog')
+      const dialog = createInviteDialog(page)
       await expect(dialog).toBeVisible()
 
       // "Shareable Link" is the default mode, just click Create
       await dialog.getByRole('button', { name: /^create$/i }).click()
 
-      // Dialog should close
+      // The form closes and the result dialog takes its place, with the link to share (#510)
       await expect(dialog).toBeHidden({ timeout: 5000 })
+      const result = inviteResultDialog(page)
+      await expect(result).toBeVisible()
+      await expect(result.getByTestId('invite-result-status')).toBeVisible()
+      await expect(inviteResultLink(result)).toHaveValue(/\/invite\/[^/\s]+$/)
+      await result.getByRole('button', { name: /^close$/i }).click()
+      await expect(result).toBeHidden()
 
       // Table should contain at least one active invite
       await expect(page.locator('.v-chip', { hasText: 'active' }).first()).toBeVisible()
@@ -91,15 +98,21 @@ test.describe('Invite System', () => {
       await page.goto('/settings/invites')
       await page.waitForLoadState('networkidle')
       await page.getByRole('button', { name: /create invite/i }).click()
-      const dialog = page.locator('.v-dialog')
+      const dialog = createInviteDialog(page)
       await expect(dialog).toBeVisible()
       await dialog.getByRole('button', { name: /^create$/i }).click()
       await expect(dialog).toBeHidden({ timeout: 5000 })
 
-      // Get a valid invite code from the table (skip any corrupted rows)
-      await page.waitForTimeout(500)
-      const codeEl = page.locator('.v-data-table tbody tr code').filter({ hasText: /.+/ }).first()
-      const inviteCode = await codeEl.textContent()
+      // The code of the invite just made is the tail of the link the result dialog shows (#510). It is
+      // not the first row of the table, which is whichever invite the table happens to list first.
+      const result = inviteResultDialog(page)
+      await expect(result).toBeVisible()
+      const link = inviteResultLink(result)
+      await expect(link).toHaveValue(/\/invite\/[^/\s]+$/)
+      const inviteCode = new URL(await link.inputValue()).pathname.split('/').pop()
+      // Closed before the sign-out below: a modal dialog covers the user menu.
+      await result.getByRole('button', { name: /^close$/i }).click()
+      await expect(result).toBeHidden()
 
       // Logout — click the user menu button (wraps the avatar), then the sign out item
       await page.locator('.v-app-bar').getByRole('button').filter({ has: page.locator('.v-avatar') }).click()
