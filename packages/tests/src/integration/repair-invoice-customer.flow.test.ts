@@ -180,3 +180,35 @@ describe('repair-invoice-customer: an invoice back on the customer it prints', (
     expect(String((await Invoice.findById(ids.reissued).lean() as any).contactId)).toBe(String(printedOne._id))
   })
 })
+
+describe('repair-invoice-customer: a company number written another way', () => {
+  it('finds the contact holding it with spaces, and creates no second one', async () => {
+    // An org of its own, so the counts above stay what they are.
+    const org2: any = await createTestOrg()
+    const spaced = await createTestContact(org2._id, { companyName: 'ТЕСТ ИНТЕРВАЛИ ЕАД', taxId: '999 000 258', vatNumber: 'BG 999 000 258' } as any)
+    const wrong = await createTestContact(org2._id, { companyName: 'ТЕСТ ИНТЕРВАЛИ ООД', taxId: '999000266' } as any)
+    const inv: any = await createTestInvoice(org2._id, wrong._id, { invoiceNumber: 'INV-3000700201', status: 'sent' } as any)
+    await DocFile.create({
+      orgId: org2._id, docType: 'invoice', docNumber: '3000700201', docDate: '2026-09-15', status: 'committed', committedTarget: 'invoice',
+      committedIds: [inv._id], extractedText: pdf('3000700201', 'ТЕСТ ИНТЕРВАЛИ ЕАД', '999000258'), originalName: 'invoicem_3000700201.pdf',
+      currentPath: '/dev/null', currentChecksum: '3000700201', mimeType: 'application/pdf', size: 1, uploadedBy: user._id,
+    })
+    await createTestInvoice(org2._id, wrong._id, { invoiceNumber: 'INV-2026-3000700302', status: 'paid' } as any)
+    const later: PrintedDocument[] = [{ invoiceNumber: 'INV-2026-3000700302', customer: { name: 'ТЕСТ ИНТЕРВАЛИ ЕАД', company_id: '999-000-258', vat_id: 'BG999000258' } }]
+
+    const { plans, counts } = await planInvoiceCustomers(org2._id, later)
+    expect(plans.map(p => [p.invoiceNumber, p.source, 'contactId' in p.target ? p.target.contactId : 'create']).sort()).toEqual([
+      ['INV-2026-3000700302', 'printed', String(spaced._id)],
+      ['INV-3000700201', 'pdf', String(spaced._id)],
+    ])
+    expect(contactsToCreate(plans).size).toBe(0)
+    expect(counts['to relink: to the contact holding the printed number']).toBe(2)
+
+    let refused: unknown
+    try {
+      await createContact(org2._id, { type: 'customer', companyName: 'ВТОРИ', taxId: '999000258', taxNumber: '999000258', addresses: [] }, user._id, 'test')
+    } catch (e) { refused = e }
+    expect(String(refused)).toContain('holds that number by now')
+    expect(await Contact.countDocuments({ orgId: org2._id })).toBe(2)
+  })
+})
