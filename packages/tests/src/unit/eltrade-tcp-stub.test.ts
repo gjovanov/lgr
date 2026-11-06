@@ -12,6 +12,7 @@ import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { IslTcpTransport } from 'fiscal/isl-tcp'
 import { buildIslFrame, parseIslStream } from 'fiscal/isl-frame'
+import { formatDeviceDateTime, parseDeviceDateTime } from 'fiscal/zoned-time'
 
 const STUB = join(import.meta.dir, '..', '..', '..', 'e2e', 'scripts', 'eltrade-tcp-stub.ts')
 /** 4Ah, the status read: prints nothing, so a hold on it tests the wire and nothing else. */
@@ -167,5 +168,48 @@ describe('eltrade-tcp-stub: a hold', () => {
     expect((await state()).hold).toEqual({ at: 0x90, ms: 1_000 })
     await post('/fault', {})
     expect((await state()).hold).toBeNull()
+  }, 20_000)
+})
+
+describe('eltrade-tcp-stub: the device clock', () => {
+  /** What 3Eh says the time is, as the driver reads it. */
+  async function readClock(): Promise<Date> {
+    seq = seq >= 0x7F ? 0x20 : seq + 1
+    const parsed = parseIslStream(await tx!.exchange(Buffer.from(buildIslFrame(seq, 0x3E))))
+    const d = parseDeviceDateTime(new TextDecoder().decode(parsed.frames[0].data))
+    if (!d) throw new Error('3Eh answered no time')
+    return d
+  }
+  function setClock(to: Date) {
+    seq = seq >= 0x7F ? 0x20 : seq + 1
+    return tx!.exchange(Buffer.from(buildIslFrame(seq, 0x3D, new TextEncoder().encode(formatDeviceDateTime(to)))))
+  }
+
+  it('runs, as a device\'s does: a fresh one reads this machine\'s time', async () => {
+    await post('/reset', {})
+    const first = await readClock()
+    expect(Math.abs(first.getTime() - Date.now())).toBeLessThan(2_000)
+    await Bun.sleep(2_100)
+    const second = await readClock()
+    expect(second.getTime() - first.getTime()).toBeGreaterThanOrEqual(1_000)
+    expect((await state()).clockSets).toBe(0)
+  }, 20_000)
+
+  it('is moved by 3Dh, runs on from where it was set, and says how many times it was set', async () => {
+    const ahead = new Date(Date.now() + 3_600_000)
+    await setClock(ahead)
+    const s = await state()
+    expect(s.clockSets).toBe(1)
+    expect(Math.abs(Date.parse(s.clock) - ahead.getTime())).toBeLessThan(3_000)
+    await Bun.sleep(1_100)
+    expect(Math.abs((await readClock()).getTime() - Date.now() - 3_600_000)).toBeLessThan(3_000)
+  }, 20_000)
+
+  it('reads this machine\'s time again after /reset, with no sets counted', async () => {
+    await post('/reset', {})
+    const s = await state()
+    expect(s.clockSets).toBe(0)
+    expect(Math.abs(Date.parse(s.clock) - Date.now())).toBeLessThan(2_000)
+    expect(Math.abs((await readClock()).getTime() - Date.now())).toBeLessThan(2_000)
   }, 20_000)
 })
