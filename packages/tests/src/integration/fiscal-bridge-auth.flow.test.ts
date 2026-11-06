@@ -369,7 +369,15 @@ describe('fiscal bridge — no silent eviction', () => {
     // The printer belongs to the admin's socket now.
     expect(isDeviceConnected(String(device._id))).toBe(true)
 
-    const audit = await AuditLog.find({ entityType: 'fiscalDevice' }).lean()
+    // The takeover does not wait for its audit row: `createAuditEntry` never makes the operation it records
+    // wait for, or fail on, its own trail. So the row lands a moment after the registration answers, and a
+    // read at once is a race. Read it when it is there (the idiom of audit-via.flow.test.ts).
+    const end = Date.now() + 5000
+    let audit: any[] = []
+    while (audit.length < 1 && Date.now() < end) {
+      audit = await AuditLog.find({ entityType: 'fiscalDevice' }).lean()
+      if (audit.length < 1) await Bun.sleep(20)
+    }
     expect(audit.length).toBe(1)
     expect(String((audit[0] as any).entityName)).toBe(String(device.deviceNumber))
     // ⚠ Recorded in `changes`, not a free-text note: `AuditEntry` has no `notes` field, and
