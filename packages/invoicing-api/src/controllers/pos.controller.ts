@@ -659,14 +659,22 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     })
     return { printed: true }
   }, { isSignIn: true, fiscalDevice: deviceFromSession })
-  /** The device a session's reports print on and what it can do, for the POS Sessions menu. */
+  /**
+   * The device a session's reports print on and what it can do, for the POS Sessions menu, and what of the
+   * session those reports leave out: its text receipts, which move none of a device's counters. A device not
+   * yet fiscalized prints every sale so, and its reports then read zeros against a session that sold (2026-11-06).
+   */
   .get('/session/:id/device-report', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
     const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
     if (!session) return status(404, { message: 'POS session not found' })
     const device = await sessionReportDevice(orgId, session)
+    const report: SessionReport = session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true }))
     return {
+      notOnDevice: report.counts.text
+        ? { receipts: report.counts.text, amount: report.amounts?.text ?? null, currency: report.currency }
+        : null,
       device: device
         ? {
             id: device.id, name: device.name, deviceNumber: device.deviceNumber,

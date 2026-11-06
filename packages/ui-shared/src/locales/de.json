@@ -961,7 +961,9 @@
       "operatorNumber": "Bediener",
       "allOperators": "Alle Bediener",
       "print": "Drucken",
-      "printed": "Der Bericht wurde auf dem Fiskalgerät gedruckt."
+      "printed": "Der Bericht wurde auf dem Fiskalgerät gedruckt.",
+      "notOnDevice": "Textbelege dieser Sitzung: {receipts} ({amount}). Sie sind nicht im Gerät: Es speichert nur Fiskalbelege, seine Berichte enthalten sie nicht.",
+      "notOnDeviceCount": "Textbelege dieser Sitzung: {receipts}. Sie sind nicht im Gerät: Es speichert nur Fiskalbelege, seine Berichte enthalten sie nicht."
     },
     "floatPending": "Der Anfangsbestand ist noch nicht auf dem Fiskalgerät. Er wird vor dem nächsten Beleg gebucht.",
     "sessionReport": {

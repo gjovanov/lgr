@@ -195,6 +195,33 @@ describe('whose device it prints on', () => {
   })
 })
 
+/**
+ * 2026-11-06, a field test on an A3 not yet fiscalized: every sale printed as a service slip, and its reports by Z number and
+ * by date printed exactly as asked, every figure 0.00, against a session that sold. A text receipt moves none of a
+ * device's counters, so the menu says what of the session its reports leave out.
+ */
+describe('what the device\'s reports leave out: the session\'s text receipts', () => {
+  it('an open session that printed text receipts: how many, and what they came to', async () => {
+    const w = await tillWorld(app)
+    expect((await w.sell(2, { text: true })).status).toBe(200)
+    expect((await w.sell(1, { text: true })).status).toBe(200)
+    expect((await w.call('GET', REPORT(w))).json.notOnDevice).toEqual({ receipts: 2, amount: 36, currency: 'EUR' })
+  })
+
+  it('a session of fiscal receipts leaves nothing out', async () => {
+    const w = await tillWorld(app)
+    expect((await w.sell(2)).status).toBe(200)
+    expect((await w.call('GET', REPORT(w))).json.notOnDevice).toBeNull()
+  })
+
+  it('a closed session: from the report its close kept', async () => {
+    const w = await tillWorld(app)
+    expect((await w.sell(1, { text: true })).status).toBe(200)
+    expect((await close(w, 112)).status).toBe(200)
+    expect((await w.call('GET', REPORT(w))).json.notOnDevice).toEqual({ receipts: 1, amount: 12, currency: 'EUR' })
+  })
+})
+
 describe('when the device cannot print it', () => {
   it('nothing holds it: 409, and the page can say so before anyone tries', async () => {
     const w = await tillWorld(app)

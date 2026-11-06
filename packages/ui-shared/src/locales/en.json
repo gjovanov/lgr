@@ -1691,7 +1691,9 @@
       "operatorNumber": "Operator",
       "allOperators": "All operators",
       "print": "Print",
-      "printed": "The report was printed on the fiscal device."
+      "printed": "The report was printed on the fiscal device.",
+      "notOnDevice": "Text receipts of this session: {receipts} ({amount}). They are not on the device: it records only fiscal receipts, so its reports leave them out.",
+      "notOnDeviceCount": "Text receipts of this session: {receipts}. They are not on the device: it records only fiscal receipts, so its reports leave them out."
     },
     "floatPending": "The opening amount is not on the fiscal device yet. It goes first with the next receipt.",
     "sessionReport": {

@@ -128,13 +128,17 @@
                     data-testid="session-device-report"
                   />
                 </template>
-                <v-list density="compact" min-width="280" data-testid="session-device-report-menu">
+                <v-list density="compact" min-width="280" max-width="380" data-testid="session-device-report-menu">
                   <v-list-item v-if="deviceLoading"><v-progress-linear indeterminate /></v-list-item>
                   <v-list-item v-else-if="!reportDevice" disabled :title="$t('pos.deviceReport.noDevice')" data-testid="device-report-none" />
                   <template v-else>
                     <v-list-subheader>
                       {{ reportDevice.connected ? reportDevice.name : $t('pos.deviceReport.notConnected', { name: reportDevice.name }) }}
                     </v-list-subheader>
+                    <!-- A page of zeros from a device not yet fiscalized is no failure: say so before it prints. -->
+                    <v-list-item v-if="notOnDeviceText" data-testid="device-report-not-on-device">
+                      <v-alert type="info" variant="tonal" density="compact" class="text-body-2">{{ notOnDeviceText }}</v-alert>
+                    </v-list-item>
                     <v-list-item
                       v-for="choice in reportChoices(item)"
                       :key="choice.kind"
@@ -186,6 +190,9 @@
       <v-card v-if="paramsKind" data-testid="device-report-params">
         <v-card-title>{{ $t(REPORT_LABEL[paramsKind]) }}</v-card-title>
         <v-card-text>
+          <v-alert v-if="notOnDeviceText" type="info" variant="tonal" density="compact" class="mb-3 text-body-2" data-testid="device-report-params-not-on-device">
+            {{ notOnDeviceText }}
+          </v-alert>
           <template v-if="paramsKind === 'fm_date' || paramsKind === 'ej'">
             <v-text-field v-model="params.startDate" :label="$t('invoicing.dateFrom')" type="date" density="compact" data-testid="device-report-from" />
             <v-text-field v-model="params.endDate" :label="$t('invoicing.dateTo')" type="date" density="compact" data-testid="device-report-to" />
@@ -351,6 +358,15 @@ const REPORT_LABEL: Record<ReportKind, string> = {
 }
 
 const reportDevice = ref<ReportDevice | null>(null)
+/** The session's text receipts, which the device's reports leave out: they move none of its counters. */
+const reportNotOnDevice = ref<{ receipts: number; amount: number | null; currency?: string } | null>(null)
+const notOnDeviceText = computed(() => {
+  const left = reportNotOnDevice.value
+  if (!left) return ''
+  return left.amount === null
+    ? t('pos.deviceReport.notOnDeviceCount', { receipts: left.receipts })
+    : t('pos.deviceReport.notOnDevice', { receipts: left.receipts, amount: fmtCurrency(left.amount, left.currency) })
+})
 const deviceLoading = ref(false)
 const deviceReportPrinting = ref(false)
 const reportSession = ref<any>(null)
@@ -366,10 +382,12 @@ const operatorOptions = computed(() => [
 /** The device this session's reports print on, as the server resolves it, asked when the menu opens. */
 async function loadReportDevice(item: any) {
   reportDevice.value = null
+  reportNotOnDevice.value = null
   deviceLoading.value = true
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/trade/pos/session/${item._id || item.id}/device-report`)
     reportDevice.value = data.device
+    reportNotOnDevice.value = data.notOnDevice ?? null
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
