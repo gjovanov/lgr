@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-08**, **S-17**–**S-33** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-08**, **S-17**–**S-34** are fixed. The rest are open, ordered by severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
@@ -22,7 +22,8 @@ was fixed in a private fork, deployed the same day, and published as a GitHub se
 the fix had been verified on production. They are written up at the end too. S-29 and S-30 came
 out of the same month: S-29 while designing FR-20's till PINs, S-30 during FR-22's review of the till
 and fiscal-device screens, and S-31 while fixing #168. S-32 came a few days later, while writing
-FR-27 (#529), and S-33 while handling it.
+FR-27 (#529), and S-33 while handling it. S-34 turned up while closing S-33, when the rest of the
+Files routes were read against the same rule.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -59,6 +60,7 @@ FR-27 (#529), and S-33 while handling it.
 | S-31 | Medium | `POST /doc-import/convert` confirmed a draft stock movement by id with no org check: a caller who knew the id could book another org's draft | **Fixed** (#422) |
 | S-32 | Medium | Writing a permission set was open to any holder of `admin.settings`: they could change what the sets they hold grant, their own included | **Fixed** (#530) |
 | S-33 | Medium | Booking, undoing or reconciling a document in the Files app asked for `admin.settings` alone: a holder could issue invoices and move stock without the write permission of what the document books | **Fixed** (#536) |
+| S-34 | Low | Analysing a document in the Files app, and the diff of a stock snapshot, asked for `admin.settings` alone: a holder could read the catalog, contacts, costs and stock they are matched against without the permission that guards them | **Fixed** (#541) |
 
 ---
 
@@ -1534,5 +1536,68 @@ could be booked without it.
   was a commit of a document that cannot book anything, so a deploy that had not taken effect could not have
   booked anything. The throwaway users, people, sets, documents and jobs were dropped, and none is left; the
   audit trail keeps its entries for what the test did.
+- FR-27 (#529) makes Files a feature of its own with levels.
+
+## S-34 — Analysing a document in the Files app, and a snapshot's diff, asked for no permission beyond the Files gate (Low, **fixed 2026-11-06**)
+
+> Found on 2026-11-06 while closing out S-33, by reading the rest of the Files routes against the same rule.
+> Fixed in #541, which presents it as bringing Files up to the bar the import dialog and the stock routes
+> already had, and written up here once the fix had been verified on production.
+
+**Where:** `POST /org/:orgId/files/analyze-batch` and `/:id/analyze`; `POST /:id/compare` and
+`GET /:id/compare/download`; and the diff that `POST /upload` runs on a snapshot
+(`files-api/src/controllers/file.controller.ts`).
+
+**What was wrong:** the Files app is gated on the admin role or `admin.settings`, and these routes asked for
+nothing else. Analysing a document writes nothing to the books (since #499 it creates and edits no contact),
+but it matches the document against the live catalog, contacts and costs and hands the mapping back, and the
+import dialog's analysis asks for the write permission of the same target for that reason (`invoicing.write`,
+`inventory.write`, and the purchases area for a bill). A storeAvailability snapshot's diff prints the live
+catalog's quantities and prices beside the file's, and reading stock takes an `inventory.*` permission.
+Through Files both were open to the gate alone.
+
+- **Who:** a member of an org who holds `admin.settings` without the admin role, and without the permission
+  that guards what the route shows. By default only the admin role holds `admin.settings`. It reaches anyone
+  else only if an admin puts it in a custom set or in a user's own permission list, and since S-32 only an
+  admin can write a set.
+- **Impact:** read-only. By uploading a document of their own and analysing it, they could learn which
+  products and contacts the org holds, with the costs and prices the mapping carries; by uploading a
+  snapshot, the stock and prices it differs from. Nothing was written to the books, nothing reached outside
+  their own org, and no permission they could give themselves.
+- **Why Low:** it only reads, it needs a high privilege that an admin delegated on purpose, and it stays
+  inside one org.
+- **Exposure on the day:** none. The read-only pass over all 86 organizations made on 2026-11-05 for S-32
+  found no non-admin user holding `admin.settings` and none on an `isAdmin` set, so nobody could reach these
+  routes without the admin role.
+
+### Fix
+
+- Both analyze routes ask, before the job starts, for what a commit asks for the document's target (the
+  target it was analyzed as, else the one its type implies; `services/biz/files/doc-access.ts`) and answer
+  403 naming the permission, all or nothing per batch. The diff, its download and the diff an upload runs ask
+  what a read of stock asks, from the same rule table (`permissionRefusal`), so the two cannot drift; an
+  upload that may not compare still stores the snapshot and says why it was not compared. `admin` always
+  passes.
+- Tests: `integration/files-books-access.flow.test.ts` (32; 8 of its 12 new cases fail against the previous
+  controller, and the other 4 pin what must not change). Each refusal is followed by a look at what it must
+  not have done: no job started, the document as it was, no contact or product made, nothing written for a
+  refused diff.
+- Deployed as `v20261106-45c0b3a0ab68`. Verified on production on 2026-11-06 in the demo org, with four
+  throwaway holders of `admin.settings` (role `member`): one with nothing else, one with
+  `inventory.write`, one with `invoicing.write`, one with `inventory.read`, and four documents of the demo
+  org that cannot be read or booked. Fourteen calls a holder lacked the permission for answered 403 and
+  named it: eight analyses (`inventory.write` for a receipt; `invoicing.write` for a cash register day,
+  for a document analyzed as a cash sale although its type says movement, and for a batch that includes
+  one, which is refused whole) and six uses of a snapshot's diff, run or downloaded as csv or txt
+  (`inventory.read`). The same kinds of call by a holder of the right permission were let through (a job
+  for an analysis; for the diff, the 422 a snapshot with no bytes gives, not a 403), and an
+  administrator's were unaffected. A holder of nothing else who uploaded a snapshot had it stored but not
+  compared, and was told why. Nothing was booked: none of the four documents changed or booked anything,
+  and the org's movement, invoice, contact and product totals were what they were. All 64 checks passed.
+  The first probe was the analysis of a document with no bytes, so a deploy that had not taken effect
+  could only have started a job that fails reading the file. The throwaway users, people, sets, documents
+  and jobs were dropped, and the one junk upload the test sends (under an impossible date) was removed
+  through the API and from the volume; none is left. The audit trail keeps its entries for what the test
+  did.
 - FR-27 (#529) makes Files a feature of its own with levels.
 
