@@ -9,17 +9,22 @@ import {
 import { uploadPath, useTempUploadDir } from '../helpers/upload-path'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { config } from 'config'
-import { BackgroundTask, DocFile, StockLevel, StockMovement } from 'db/models'
+import { BackgroundTask, Contact, DocFile, Product, StockLevel, StockMovement } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
 import { analyzeDocFilesBatch } from 'services/biz/files/doc-pipeline.service'
 
 /**
- * Booking, undoing and reconciling a document take the write permission of what it books.
+ * Booking, undoing, reconciling and analysing a document take the write permission of what it
+ * books, and a snapshot's diff takes what reading stock takes.
  *
  * The Files gate (`admin.settings`) says who may use the document store. A document then issues
  * invoices and moves stock, so committing, rolling back and reconciling one ask for what the import
  * dialog asks for the same target: `invoicing.write` for invoices and cash sales, `inventory.write`
- * for movements, and the purchases area for a bill. `admin` is unaffected.
+ * for movements, and the purchases area for a bill. Analysing one asks for the same, as the import
+ * dialog's analysis does: it writes nothing to the books, but it matches the document against the
+ * live catalog and contacts. The diff of a storeAvailability snapshot prints the live catalog's
+ * quantities and prices, so it asks for any `inventory.*` permission, as a read of stock does.
+ * `admin` is unaffected.
  *
  * Over HTTP, against the real route table, as `permission-set-writes.flow` does. Every refusal is
  * followed by a look at what it must not have done: no job started, the document as it was, nothing
@@ -81,6 +86,18 @@ async function written(taskId: string): Promise<void> {
   throw new Error(`task ${taskId} was never written as done`)
 }
 
+/** A multipart upload, as the Files page sends it. */
+async function upload(token: string, name: string, buf: Buffer) {
+  const form = new FormData()
+  form.append('files', new File([new Uint8Array(buf)], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+  const res = await app.handle(new Request(`http://localhost${files('/upload')}`, {
+    method: 'POST', headers: { authorization: `Bearer ${token}` }, body: form,
+  }))
+  let json: any = null
+  try { json = await res.json() } catch { /* not json */ }
+  return { status: res.status, json }
+}
+
 /** The request was let through: a job started. */
 function expectStarted(res: { status: number; json: any }) {
   expect(res.status).toBe(200)
@@ -128,7 +145,25 @@ async function storeOperationsBook(items: Array<[string, number]>, period: strin
   return Buffer.from(await wb.xlsx.writeBuffer())
 }
 
+/**
+ * A storeAvailability-shaped xlsx (headers on row 5, data from row 6) with one row for the catalog's
+ * product. Every heading is written, as `compare-snapshot.flow.test.ts` explains: price columns are
+ * resolved by name.
+ */
+async function snapshotBook(qty: number): Promise<Buffer> {
+  const headings = ['Име', 'Мярка', 'Количество', 'Дост. цена', 'Прод. цена',
+    'Цена на едро', 'Цена 0', 'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4', 'Цена 5', 'Цена 6', 'Цена 7', 'Цена 8', 'Цена 9']
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('S')
+  headings.forEach((h, i) => { ws.getRow(5).getCell(1 + i).value = h })
+  const row = ws.getRow(6)
+  row.getCell(1).value = 'Гайка М8'; row.getCell(2).value = 'бр'; row.getCell(3).value = qty
+  row.getCell(4).value = 0; row.getCell(5).value = 0
+  return Buffer.from(await wb.xlsx.writeBuffer())
+}
+
 // Documents the tests below share; each is built once.
+let snapshotId: string         // a real storeAvailability snapshot, with bytes: its diff can run
 let invoiceId: string          // analyzed as a sales invoice
 let salesDayId: string         // a „Складови операции" document whose analysis says cash sale
 let billId: string             // analyzed as a bill
@@ -162,6 +197,7 @@ beforeAll(async () => {
   tokens.biller = await sign({ ...claims, permissions: ['admin.settings', 'invoicing.write'] })
   tokens.sellerLike = await sign({ ...claims, permissions: ['admin.settings', 'invoicing.write', 'inventory.write'], areas: [] })
   tokens.buyer = await sign({ ...claims, permissions: ['admin.settings', 'invoicing.write'], areas: ['purchases'] })
+  tokens.reader = await sign({ ...claims, permissions: ['admin.settings', 'inventory.read'] })   // reads stock, writes nothing
 
   // The one real document: a receipt, analyzed by the engine, committed through the route below.
   const buf = await storeOperationsBook([['Гайка М8', 100]], '05.11.2026 - 05.11.2026')
@@ -174,6 +210,15 @@ beforeAll(async () => {
   })
   receiptId = String(receipt._id)
   await analyzeDocFilesBatch(orgId, adminId, [receiptId])
+
+  const snapshotBuf = await snapshotBook(3)
+  const snapshotPath = uploadPath(org._id, 'fba-snapshot.xlsx')
+  await Bun.write(snapshotPath, snapshotBuf)
+  snapshotId = String((await mkDoc({
+    docType: 'store_availability', docNumber: '20261105_150000', originalName: 'storeAvailability_20261105_150000.xlsx',
+    currentPath: snapshotPath, currentChecksum: 'snapshot', size: snapshotBuf.length,
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  }))._id)
 
   invoiceId = String((await mkDoc({ docType: 'invoice', status: 'analyzed', analysis: { target: 'sales_invoice' } }))._id)
   // A sales day is a „Складови операции" document too: its docType says movement, its analysis says cash sale.
@@ -336,6 +381,166 @@ describe('reconciling a document takes inventory.write', () => {
   it('and the person who holds it, and an administrator, still reconcile', async () => {
     expectStarted(await call('POST', files(`/${receiptId}/reconcile`), tokens.clerk))
     expectStarted(await call('POST', files(`/${receiptId}/reconcile`), tokens.admin))
+  })
+})
+
+describe('analysing a document takes the write permission of what it maps into', () => {
+  it('admin.settings alone is refused, on both analyze routes: no job, the document as it was, no contact or product made', async () => {
+    const before = await docRow(uploadedId)
+    const jobsBefore = await jobs()
+    const contactsBefore = await Contact.countDocuments({ orgId })
+    const productsBefore = await Product.countDocuments({ orgId })
+
+    expectRefused(await call('POST', files('/analyze-batch'), tokens.nobody, { docFileIds: [uploadedId] }), 'Permission required: inventory.write')
+    expectRefused(await call('POST', files(`/${uploadedId}/analyze`), tokens.nobody, {}), 'Permission required: inventory.write')
+
+    expect(await jobs()).toBe(jobsBefore)
+    const after = await docRow(uploadedId)
+    expect(after.status).toBe('uploaded')
+    expect(after.updatedAt).toEqual(before.updatedAt)
+    expect(after.analysis ?? null).toEqual(before.analysis ?? null)
+    expect(await Contact.countDocuments({ orgId })).toBe(contactsBefore)
+    expect(await Product.countDocuments({ orgId })).toBe(productsBefore)
+  })
+
+  it('and it is the permission of the target, not any write', async () => {
+    // Invoicing is not inventory.
+    expectRefused(await call('POST', files('/analyze-batch'), tokens.biller, { docFileIds: [uploadedId] }), 'Permission required: inventory.write')
+    // Inventory is not invoicing.
+    expectRefused(await call('POST', files('/analyze-batch'), tokens.clerk, { docFileIds: [invoiceId] }), 'Permission required: invoicing.write')
+    expectRefused(await call('POST', files(`/${invoiceId}/analyze`), tokens.clerk, {}), 'Permission required: invoicing.write')
+  })
+
+  it('a document is held to the target it was analyzed as, not to its docType', async () => {
+    // docType store_operations reads as a movement; this one was analyzed as a cash sale.
+    expectRefused(await call('POST', files('/analyze-batch'), tokens.clerk, { docFileIds: [salesDayId] }), 'Permission required: invoicing.write')
+    expectStarted(await call('POST', files('/analyze-batch'), tokens.biller, { docFileIds: [salesDayId] }))
+  })
+
+  it('a bill also takes the purchases area', async () => {
+    const res = await call('POST', files('/analyze-batch'), tokens.sellerLike, { docFileIds: [billId] })
+    expect(res.status).toBe(403)
+    expect(res.json.code).toBe('area_required')
+    expect(res.json.area).toBe('purchases')
+    expectStarted(await call('POST', files(`/${billId}/analyze`), tokens.buyer, {}))
+  })
+
+  it('one document in a batch the caller may not analyze refuses the whole batch', async () => {
+    const jobsBefore = await jobs()
+    expectRefused(await call('POST', files('/analyze-batch'), tokens.clerk, { docFileIds: [uploadedId, invoiceId] }), 'Permission required: invoicing.write')
+    expect(await jobs()).toBe(jobsBefore)
+  })
+
+  it('a document with no target asks for nothing more, and the job says it cannot be analyzed', async () => {
+    const taskId = expectStarted(await call('POST', files(`/${plainId}/analyze`), tokens.nobody, {}))
+    const done = await settle(taskId)
+    expect(done.status).toBe('failed')
+    expect(String(done.error)).toContain('not analyzable')
+  })
+
+  it('the person with the permission still analyzes a document end to end, and analysing books nothing', async () => {
+    const buf = await storeOperationsBook([['Гайка М8', 7]], '06.11.2026 - 06.11.2026')
+    const path = uploadPath(orgId, 'fba-fresh.xlsx')
+    await Bun.write(path, buf)
+    const fresh: any = await DocFile.create({
+      orgId, docType: 'store_operations', docNumber: '20261106_090000', docDate: '2026-11-06',
+      originalName: 'storeOperations_20261106_090000.xlsx', currentPath: path, currentChecksum: 'fresh',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: buf.length, uploadedBy: adminId,
+    })
+    const freshId = String(fresh._id)
+    const movementsBefore = await movements()
+    const stockBefore = await stockOf()
+    const contactsBefore = await Contact.countDocuments({ orgId })
+
+    const taskId = expectStarted(await call('POST', files('/analyze-batch'), tokens.clerk, { docFileIds: [freshId] }))
+    const done = await settle(taskId)
+    expect(done.status).toBe('completed')
+    expect(done.result.results[0].error).toBeFalsy()
+    const row = await docRow(freshId)
+    expect(row.status).toBe('analyzed')
+    expect(row.analysis.target).toBe('movement')
+    expect(row.analysis.mapped).toBeTruthy()
+
+    // The single-document route, by the same person.
+    const again = await settle(expectStarted(await call('POST', files(`/${freshId}/analyze`), tokens.clerk, {})))
+    expect(again.status).toBe('completed')
+
+    expect(await movements()).toBe(movementsBefore)
+    expect(await stockOf()).toBe(stockBefore)
+    expect(await Contact.countDocuments({ orgId })).toBe(contactsBefore)
+  })
+
+  it('an administrator is unaffected', async () => {
+    expectStarted(await call('POST', files('/analyze-batch'), tokens.admin, { docFileIds: [invoiceId, billId, salesDayId, uploadedId] }))
+    expectStarted(await call('POST', files(`/${invoiceId}/analyze`), tokens.admin, {}))
+  })
+})
+
+describe("a snapshot's diff takes what reading stock takes", () => {
+  it('admin.settings alone is refused, on both routes: nothing is shown and nothing is written', async () => {
+    const before = await docRow(snapshotId)
+    for (const who of ['nobody', 'biller']) {   // invoicing is not inventory either
+      const run = await call('POST', files(`/${snapshotId}/compare`), tokens[who])
+      expect(run.status).toBe(403)
+      expect(String(run.json.message).startsWith('Permission required: inventory.read')).toBe(true)
+      expect(run.json.permissions).toContain('inventory.read')
+      expect(run.json.permissions).toContain('inventory.write')
+      // The refusal carries none of what it refuses.
+      expect(run.json.summary).toBeUndefined()
+      expect(run.json.rows).toBeUndefined()
+      expect(run.json.txt).toBeUndefined()
+      for (const format of ['txt', 'csv']) {
+        expect((await call('GET', files(`/${snapshotId}/compare/download?format=${format}`), tokens[who])).status).toBe(403)
+      }
+    }
+    const after = await docRow(snapshotId)
+    expect(after.status).toBe(before.status)
+    expect(after.updatedAt).toEqual(before.updatedAt)
+    expect(after.compareSummary ?? null).toBeNull()
+  })
+
+  it('the Files gate still comes first', async () => {
+    const res = await call('POST', files(`/${snapshotId}/compare`), tokens.plain)
+    expect(res.status).toBe(403)
+    expect(res.json.message).toBe('Administrator access required')
+  })
+
+  let comparedId: string   // a snapshot an upload stored AND compared: its dump is where the download looks
+
+  it('an upload stores the snapshot for anyone with the Files gate, and compares it only for a reader of stock', async () => {
+    // Without the permission: stored, not compared, and told why. No stock figure comes back.
+    const denied = await upload(tokens.nobody, 'storeAvailability_20261106_110000.xlsx', await snapshotBook(1))
+    expect(denied.status).toBe(200)
+    const stored = denied.json.results[0]
+    expect(stored.docType).toBe('store_availability')
+    expect(stored.outcome).toBe('created')
+    expect(String(stored.compare?.error).startsWith('Permission required: inventory.read')).toBe(true)
+    expect(stored.compare.snapshotRows).toBeUndefined()
+    const storedRow = await docRow(stored.docFileId)
+    expect(storedRow.compareSummary ?? null).toBeNull()
+    expect(storedRow.status).not.toBe('committed')
+
+    // With it, the diff runs as it always did.
+    const allowed = await upload(tokens.reader, 'storeAvailability_20261106_120000.xlsx', await snapshotBook(2))
+    expect(allowed.status).toBe(200)
+    const compared = allowed.json.results[0]
+    expect(compared.compare.snapshotRows).toBe(1)
+    expect((await docRow(compared.docFileId)).status).toBe('committed')
+    comparedId = compared.docFileId
+  })
+
+  it('whoever may read stock still sees the diff, and an administrator', async () => {
+    for (const who of ['reader', 'clerk', 'admin']) {
+      const res = await call('POST', files(`/${snapshotId}/compare`), tokens[who])
+      expect(res.status).toBe(200)
+      expect(res.json.summary.snapshotRows).toBe(1)
+      expect(Array.isArray(res.json.rows)).toBe(true)
+    }
+    // The dump the upload's diff left beside the snapshot comes back as it did.
+    expect((await call('GET', files(`/${comparedId}/compare/download?format=csv`), tokens.reader)).status).toBe(200)
+    expect((await call('GET', files(`/${comparedId}/compare/download?format=txt`), tokens.admin)).status).toBe(200)
+    // And the one without the permission is still refused it.
+    expect((await call('GET', files(`/${comparedId}/compare/download?format=csv`), tokens.nobody)).status).toBe(403)
   })
 })
 
