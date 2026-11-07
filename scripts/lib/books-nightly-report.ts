@@ -64,9 +64,16 @@ export function summarize(year: number, r: ParsedImport): YearResult {
  * Whether `dir` lists within `ms`, asked of a child process. A WSL share whose distro is stuck does not fail a read, it
  * HANGS it (2026-11-05, 22:52 to 23:00 UTC: every `wsl -d` answered E_UNEXPECTED, and an `ls` of the share sat there for
  * minutes). Read in the run's own process, that would hang the run with it; a child is killed instead.
+ *
+ * `cmd` is for the test of the kill: a child that never answers stands in for the hung share (#569). A 0 ms deadline
+ * on a real listing was a race the child sometimes won.
  */
-export async function listsWithin(dir: string, ms: number): Promise<boolean> {
-  const child = Bun.spawn([process.execPath, '-e', `require('node:fs').readdirSync(${JSON.stringify(dir)})`], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' })
+export async function listsWithin(
+  dir: string,
+  ms: number,
+  cmd: string[] = [process.execPath, '-e', `require('node:fs').readdirSync(${JSON.stringify(dir)})`],
+): Promise<boolean> {
+  const child = Bun.spawn(cmd, { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' })
   const timer = setTimeout(() => child.kill(), ms)
   const code = await child.exited
   clearTimeout(timer)
