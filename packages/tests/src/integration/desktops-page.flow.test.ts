@@ -196,6 +196,40 @@ describe('update requests', () => {
     expect(body.delivered).toBe(0)
   })
 
+  it('counts a desktop whose socket another pod holds as reached, and leaves it the request (#565)', async () => {
+    // What the holder writes at each heartbeat. With two pods, this route usually runs on the other
+    // one: it used to answer `delivered: false`, the page said "queued", and nothing reached the till.
+    const { orgId, token } = await seed()
+    const ids: string[] = []
+    for (let i = 0; i < 2; i++) {
+      const minted = await json(await call(`/api/org/${orgId}/desktops/enrollment-codes`, token, { method: 'POST' }))
+      const enrolled = await json(await app.handle(new Request('http://localhost/api/desktop/v1/enroll', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...enrollBody(makeDesktopStub()), code: minted.code }),
+      })))
+      ids.push(enrolled.desktopId)
+    }
+    const [held, off] = ids
+    await Desktop.updateOne({ _id: held }, { $set: { lastSeenAt: new Date(), 'lastPresence.connId': 'a-socket-on-the-other-pod' } })
+
+    const one = await json(await call(`/api/org/${orgId}/desktops/${held}/update`, token, { method: 'POST' }))
+    expect(one.delivered).toBe(true)
+    const asked = (await Desktop.findById(held).lean() as any).updateRequestedAt
+    expect(Date.now() - new Date(asked).getTime()).toBeLessThan(10_000)
+    // Not reached is still honest: no socket is held for it anywhere.
+    expect((await json(await call(`/api/org/${orgId}/desktops/${off}/update`, token, { method: 'POST' }))).delivered).toBe(false)
+
+    const all = await json(await call(`/api/org/${orgId}/desktops/update-all`, token, { method: 'POST' }))
+    expect(all).toMatchObject({ requested: 2, delivered: 1 })
+    for (const id of ids) expect((await Desktop.findById(id).lean() as any).updateRequestedAt).toBeTruthy()
+
+    // The page's presence reads the row too: online whichever pod answers.
+    const { desktops } = await json(await call(`/api/org/${orgId}/desktops`, token))
+    expect(desktops.find((d: any) => d.id === held)?.presence).toBe('online')
+    expect(desktops.find((d: any) => d.id === off)?.presence).not.toBe('online')
+  })
+
   it('does not count another org\'s desktops', async () => {
     const a = await seed()
     const b = await seed()

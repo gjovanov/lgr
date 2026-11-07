@@ -18,7 +18,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   Code: { collection: 'codes', class: 'N', orgPath: 'orgId' },
   Contact: { collection: 'contacts', class: 'R', orgPath: 'orgId' },
   CostLayer: { collection: 'costlayers', class: 'R', orgPath: 'orgId' },
-  Desktop: { collection: 'desktops', class: 'S', orgPath: 'orgId', home: ['appVersion','capabilities','createdAt','enrollKeyId','enrolledAt','enrolledBy','ephemeral','ephemeralTtlSec','fiscalDeviceIds','hostname','installationId','keyEpoch','keyRotatedAt','machineId','name','nameAdminSet','os','publicKey','revokeReason','revokedAt','revokedBy','startPath','status','updatedAt'], global: [], node: ['lastPresence','lastSeenAt'] },
+  Desktop: { collection: 'desktops', class: 'S', orgPath: 'orgId', home: ['appVersion','capabilities','createdAt','enrollKeyId','enrolledAt','enrolledBy','ephemeral','ephemeralTtlSec','fiscalDeviceIds','hostname','installationId','keyEpoch','keyRotatedAt','machineId','name','nameAdminSet','os','publicKey','revokeReason','revokedAt','revokedBy','startPath','status','updateRequestedAt','updatedAt'], global: [], node: ['lastPresence','lastSeenAt'] },
   DesktopAssertion: { collection: 'desktopassertions', class: 'N', orgPath: null },
   DesktopEnrollmentCode: { collection: 'desktopenrollmentcodes', class: 'N', orgPath: 'orgId' },
   DesktopEnrollmentKey: { collection: 'desktopenrollmentkeys', class: 'N', orgPath: 'orgId' },

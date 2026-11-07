@@ -1,4 +1,5 @@
-import { Desktop } from 'db/models'
+import { randomUUID } from 'node:crypto'
+import { Desktop, Org } from 'db/models'
 import {
   clockSkewMs,
   loadActiveDesktop,
@@ -30,6 +31,12 @@ import { logger } from 'services/logger'
  * org's rows on global are the mirror now, which only the home writes. A shell older than P3-6b
  * ignores the new types and takes the `org_moved` error that follows, as any refusal.
  *
+ * ⚠ Several pods (FR-24): a desktop's socket is on ONE of them, and an admin's request lands on
+ * any. So what an admin does reaches the socket through the row, at its next heartbeat (#565): a
+ * revoke is a heartbeat that finds the row no longer active, an update request is
+ * `updateRequestedAt`, and `lastPresence.connId` tells every pod that a socket is held. On the pod
+ * that holds it, the notice still goes at once.
+ *
  * ⚠ The upgrade carries NO credential, deliberately: a token in a URL lands in ingress and proxy
  * logs, which is exactly what S-05 was. The credential is the first message, and a socket that has
  * not authenticated within 10 s is closed — that deadline is what keeps a tokenless upgrade safe.
@@ -60,6 +67,14 @@ export const AUTH_DEADLINE_MS = 10_000
  */
 export const DESKTOP_TICK_MS = 15_000
 
+/**
+ * How long an admin's update request stays deliverable (FR-14.22, #565). It reaches a socket on
+ * another pod at that socket's next heartbeat, so this needs to cover a heartbeat (30 s) and the
+ * tick that wakes it, and no more. "Update now" means now: a till that was switched off checks for
+ * updates when it starts, and must not take a request from hours ago as new.
+ */
+export const UPDATE_REQUEST_TTL_MS = 120_000
+
 /** desktopId → the live sockets for it. A desktop could reconnect before its old socket closes. */
 const sockets = new Map<string, Set<any>>()
 
@@ -69,7 +84,18 @@ const sockets = new Map<string, Set<any>>()
  * — the bug that left fiscal printers registered after their browser went away.
  */
 const socketKey = (ws: any) => ws?.raw ?? ws
-const state = new WeakMap<any, { timer: ReturnType<typeof setTimeout> | null; desktopId: string | null; orgId?: string }>()
+interface SocketState {
+  timer: ReturnType<typeof setTimeout> | null
+  desktopId: string | null
+  orgId?: string
+  /** This socket, among every socket of every pod: what the row's `lastPresence.connId` names. */
+  connId?: string
+  /** The newest `updateRequestedAt` this socket has had, delivered or too old to deliver. */
+  updateSeen?: number
+  /** Told its org moved: the row here is the mirror now, and nothing of it is written. */
+  retired?: boolean
+}
+const state = new WeakMap<any, SocketState>()
 
 function send(ws: any, msg: unknown): void {
   try {
@@ -89,10 +115,35 @@ function closeSocket(ws: any, reason: string): void {
 
 /** FR-20.82: where the desktop goes now, and the refusal an older shell understands; then closed. */
 function sendMoved(ws: any, moved: Moved): void {
+  const st = state.get(socketKey(ws))
+  if (st) st.retired = true
   if (moved.kind === 'repoint') send(ws, { type: 'desktop:repoint', instruction: moved.instruction, node: moved.node, name: moved.name })
   else send(ws, { type: 'desktop:moved', node: moved.node, name: moved.name })
   send(ws, { type: 'desktop:error', code: 'org_moved', message: `This organisation is now on its own server (${moved.name}).` })
   closeSocket(ws, 'org_moved')
+}
+
+/** FR-14.22: the notice, then the close. The shell stops its bridge and deletes its key. */
+function sendRevoked(ws: any, orgName: string): void {
+  send(ws, { type: 'desktop:revoked', message: `This desktop was removed from ${orgName}.` })
+  closeSocket(ws, 'desktop_revoked')
+}
+
+async function orgName(orgId: string | undefined): Promise<string> {
+  const org: any = orgId ? await Org.findById(orgId).select('name').lean() : null
+  return org?.name ?? 'the organization'
+}
+
+/**
+ * An admin's update request this socket has not had yet (#565): sent when it is recent, and
+ * remembered either way, so a heartbeat never sends the same request twice.
+ */
+function deliverPendingUpdate(ws: any, requestedAt: Date | string | undefined, now = Date.now()): void {
+  const st = state.get(socketKey(ws))
+  const at = requestedAt ? new Date(requestedAt).getTime() : 0
+  if (!st || !at || at <= (st.updateSeen ?? 0)) return
+  st.updateSeen = at
+  if (now - at <= UPDATE_REQUEST_TTL_MS) send(ws, { type: 'desktop:update' })
 }
 
 export function handleDesktopOpen(ws: any): void {
@@ -138,11 +189,14 @@ export async function handleDesktopMessage(ws: any, raw: any): Promise<void> {
         sendMoved(ws, moved)
         return
       }
-      state.set(socketKey(ws), { timer: null, desktopId: id, orgId })
+      const connId = randomUUID()
+      state.set(socketKey(ws), { timer: null, desktopId: id, orgId, connId })
       if (!sockets.has(id)) sockets.set(id, new Set())
       sockets.get(id)!.add(ws)
-      await Desktop.updateOne({ _id: desktop._id }, { $set: { lastSeenAt: new Date() } })
+      await Desktop.updateOne({ _id: desktop._id }, { $set: { lastSeenAt: new Date(), 'lastPresence.connId': connId } })
       send(ws, { type: 'desktop:authenticated', desktopId: id, serverTime: new Date().toISOString() })
+      // A request made while it was reconnecting, on whichever pod.
+      deliverPendingUpdate(ws, desktop.updateRequestedAt)
       logger.info({ desktopId: id, orgId: String(desktop.orgId) }, 'Desktop socket authenticated')
     } catch (e: any) {
       send(ws, { type: 'desktop:error', code: e?.code ?? 'unauthenticated', message: e?.message ?? 'Refused.' })
@@ -165,25 +219,36 @@ export async function handleDesktopMessage(ws: any, raw: any): Promise<void> {
       sendMoved(ws, moved)
       return
     }
-    await Desktop.updateOne(
-      { _id: st.desktopId },
+    // ⚠ Only an ACTIVE row. A revoke the other pod served reaches this socket here, within one
+    // heartbeat (#565): no row matched means revoked, or an ephemeral row deleted. An error is not
+    // that, and is never read as it.
+    const row: any = await Desktop.findOneAndUpdate(
+      { _id: st.desktopId, status: 'active' },
       {
         $set: {
           lastSeenAt: new Date(),
           // Recorded, never used to correct anything server-side: a wrong clock on a till is worth
           // SHOWING an admin, because it breaks fiscal device time sync.
           'lastPresence.clockSkewMs': clockSkewMs(msg.clientTime),
+          'lastPresence.connId': st.connId,
         },
       },
-    )
+      { projection: { updateRequestedAt: 1 } },
+    ).lean()
+    if (!row) {
+      sendRevoked(ws, await orgName(st.orgId))
+      return
+    }
     send(ws, { type: 'desktop:heartbeat:ack', serverTime: new Date().toISOString() })
+    deliverPendingUpdate(ws, row.updateRequestedAt)
     return
   }
 
   send(ws, { type: 'desktop:error', code: 'bad_message', message: `Unknown type: ${msg.type}` })
 }
 
-export function handleDesktopClose(ws: any): void {
+/** Returns the row's write, for a test to await; the close event does not wait for it. */
+export function handleDesktopClose(ws: any): Promise<unknown> | undefined {
   const st = state.get(socketKey(ws))
   if (st?.timer) clearTimeout(st.timer)
   state.delete(socketKey(ws))
@@ -194,6 +259,13 @@ export function handleDesktopClose(ws: any): void {
     if (!set.size) sockets.delete(st.desktopId)
   }
   logger.info({ desktopId: st.desktopId }, 'Desktop socket closed')
+  // The row stops naming this socket, unless a newer one, here or on another pod, has taken over.
+  // ⚠ Never for a desktop told its org moved: its rows here are the mirror, which only the home writes.
+  if (st.retired || !st.connId) return
+  return Desktop.updateOne(
+    { _id: st.desktopId, 'lastPresence.connId': st.connId },
+    { $unset: { 'lastPresence.connId': 1 } },
+  ).catch((e: any) => logger.warn({ desktopId: st.desktopId, error: e?.message }, 'Could not clear a closed desktop socket'))
 }
 
 /**
@@ -229,22 +301,31 @@ export function setupDesktopWS(app: any): void {
   logger.info('Desktop WebSocket endpoint registered at /ws/desktop')
 }
 
-/** `online` in FR-14.21's sense: a socket is registered right now. */
+/**
+ * Whether THIS process holds a socket for it. ⚠ Not FR-14.21's `online` on its own: with several
+ * pods the socket is often elsewhere, and `presenceOf` reads the row for that (#565).
+ */
 export function isDesktopOnline(desktopId: string): boolean {
   return (sockets.get(desktopId)?.size ?? 0) > 0
 }
 
 /**
- * Ask a desktop to check for an update (FR-14.22). Returns false when it has no live socket.
+ * Ask a desktop to check for an update (FR-14.22). Returns false when this process holds no socket
+ * for it. The caller records `requestedAt` on the row first, so a socket on another pod has it at
+ * its next heartbeat; this sends it at once to the ones here, and marks them as having had it.
  *
  * ⚠ It carries no version and no URL. The desktop decides what to install, under every FR-14.28
  * safety rule — signature, no downgrade, deferral while the fiscal bridge is busy. A server that
  * pushed a URL here would be a way to make a till install something.
  */
-export function requestDesktopUpdate(desktopId: string): boolean {
+export function requestDesktopUpdate(desktopId: string, requestedAt = new Date()): boolean {
   const set = sockets.get(desktopId)
   if (!set?.size) return false
-  for (const ws of set) send(ws, { type: 'desktop:update' })
+  for (const ws of set) {
+    const st = state.get(socketKey(ws))
+    if (st) st.updateSeen = Math.max(st.updateSeen ?? 0, requestedAt.getTime())
+    send(ws, { type: 'desktop:update' })
+  }
   return true
 }
 
@@ -266,12 +347,12 @@ export async function repointOrgDesktops(orgId: string): Promise<number> {
   return told
 }
 
-/** Tell a revoked desktop why, so it can stop its bridge and delete its key (FR-14.22). */
+/**
+ * Tell a revoked desktop why, so it can stop its bridge and delete its key (FR-14.22). Only the
+ * sockets on this process; one on another pod hears at its next heartbeat (#565).
+ */
 export function notifyDesktopRevoked(desktopId: string, orgName: string): void {
   const set = sockets.get(desktopId)
   if (!set?.size) return
-  for (const ws of set) {
-    send(ws, { type: 'desktop:revoked', message: `This desktop was removed from ${orgName}.` })
-    closeSocket(ws, 'desktop_revoked')
-  }
+  for (const ws of set) sendRevoked(ws, orgName)
 }
