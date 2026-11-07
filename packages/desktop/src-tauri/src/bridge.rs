@@ -393,10 +393,32 @@ pub fn run(
     state.set_link(&device.id, DeviceLink::Offline, None);
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum Outcome {
     Closed,
     Unreachable,
     Fatal(String),
+}
+
+/// What a failure to mint the bridge's credential means, from `enroll`'s error code. Pure, and
+/// tested as such, as `presence::classify_mint_error` is.
+///
+/// ⚠ **Only a refusal no retry can change stops the bridge**: the desktop was revoked, its build
+/// is below the server's minimum (FR-14.29; it mints again once it has updated), a code
+/// [`is_fatal`] already names, or a local failure (no key, no secure storage). Everything else is
+/// tried again with the backoff, `token_failed` above all. A master that is restarting answers
+/// from its ingress while its API comes back, `502` with a text body, and that reads as
+/// `token_failed`, having no code. Taken as final, it left the till holding no fiscal device until
+/// LGR Desktop was restarted (lgr#567): after an update, a night restart or a power cut.
+fn classify_mint_error(code: &str) -> Outcome {
+    match code {
+        "desktop_revoked" | "desktop_outdated" => Outcome::Fatal(code.to_string()),
+        "not_registered" | "no_secure_storage" | "no_key" | "bad_key" | "client_build_failed" => {
+            Outcome::Fatal(code.to_string())
+        }
+        _ if is_fatal(code) => Outcome::Fatal(code.to_string()),
+        _ => Outcome::Unreachable,
+    }
 }
 
 type Socket = crate::trust::Socket;
@@ -447,12 +469,10 @@ fn connect_once(
         Ok(t) => t,
         Err(e) => {
             let msg = e.to_string();
-            if msg == "server_unreachable" || msg == "server_timeout" {
-                state.set_link(&device.id, DeviceLink::Offline, Some(msg));
-                return Outcome::Unreachable;
-            }
-            state.set_link(&device.id, DeviceLink::Error, Some(msg.clone()));
-            return Outcome::Fatal(msg);
+            let outcome = classify_mint_error(&msg);
+            let link = if matches!(outcome, Outcome::Fatal(_)) { DeviceLink::Error } else { DeviceLink::Offline };
+            state.set_link(&device.id, link, Some(msg));
+            return outcome;
         }
     };
 
@@ -837,6 +857,35 @@ mod tests {
         // An unknown code is retried: a newer hub may refuse for a reason this build predates,
         // and giving up for good on something we do not understand needs a restart to undo.
         assert!(!is_fatal("something_new"));
+    }
+
+    #[test]
+    fn a_master_that_could_not_mint_just_now_is_tried_again() {
+        // lgr#567: a restarting master's ingress answers `502` with a text body while its API comes
+        // back, which mints as `token_failed`. The bridge took it as final and its till held no
+        // fiscal device until LGR Desktop was restarted.
+        for code in ["token_failed", "bad_response", "bad_assertion", "server_unreachable", "server_timeout", "something_new"] {
+            assert_eq!(classify_mint_error(code), Outcome::Unreachable, "{code} must be tried again");
+        }
+    }
+
+    #[test]
+    fn a_failed_mint_stops_the_bridge_only_when_no_retry_can_change_it() {
+        // Revoked: the key is gone. Outdated: it mints again once it has updated. Local: no key to
+        // sign with. And what `is_fatal` names for the hub's own refusals.
+        for code in [
+            "desktop_revoked",
+            "desktop_outdated",
+            "not_registered",
+            "no_secure_storage",
+            "no_key",
+            "bad_key",
+            "client_build_failed",
+            "key_rotated",
+            "unauthenticated",
+        ] {
+            assert_eq!(classify_mint_error(code), Outcome::Fatal(code.to_string()), "{code} must stop the bridge");
+        }
     }
 
     #[test]
