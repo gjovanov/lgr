@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
+import { computePosTotals, roundCents } from 'config/pos-totals'
 import {
-  apportion, documentText, fiscalUnitPrice, grossByRate, linesOnDevice, movesPrintedMoney, paymentText, printsExactly, receiptBody, receiptedByRate, refundText, splitByRate,
+  apportion, deviceTaxTotal, deviceTotals, documentText, fiscalUnitPrice, grossByRate, linesOnDevice, movesPrintedMoney, paymentText, printsExactly, receiptBody, receiptedByRate, refundText, splitByRate,
 } from 'services/biz/cash-register/receipt-lines'
 import { receiptRefusalKey, receiptRefusalMessage, receiptRefusalParams, isFailedPrint } from 'ui-shared/cash-register/receipt-refusal'
 import { kindColor } from 'ui-shared/cash-register/journal-kind'
@@ -192,6 +193,14 @@ describe('a receipt\'s body', () => {
     expect(b).toMatchObject({ total: 24, taxTotal: 4, subtotal: 20 })
   })
 
+  it('whole: the lines keep their own VAT, and the receipt\'s is the device\'s, out of each rate\'s gross (#554)', () => {
+    const washer = { description: 'Шайба', quantity: 1, unit: 'бр.', unitPrice: 0.125, taxRate: 20, taxAmount: 0.03, lineTotal: 0.15 }
+    const b = receiptBody({ doc: invoice({ total: 0.3, lines: [washer, { ...washer }] }), amount: 0.3, whole: true, printsText: true, receipts: [] })!
+    expect(b.receiptText).toBe('Фактура № INV-2026-00123')
+    expect(b.lines.map(l => l.taxAmount)).toEqual([0.03, 0.03])
+    expect(b).toMatchObject({ total: 0.3, taxTotal: 0.05, subtotal: 0.25 })
+  })
+
   it('a receipt line carries nothing that ties it to orders, warehouses or sales', () => {
     const l: any = body().lines[0]
     expect(l.warehouseId).toBeUndefined()
@@ -231,6 +240,82 @@ describe('a receipt\'s body', () => {
   it('money that cannot be split has no body', () => {
     const lines = [{ taxRate: 20, lineTotal: 50 }, { taxRate: 9, lineTotal: -10 }]
     expect(receiptBody({ doc: invoice({ total: 40, lines }), amount: 40, whole: false, printsText: true, receipts: [] })).toBeNull()
+  })
+})
+
+describe('#554: the VAT a sale stores is what its device takes out', () => {
+  type Cart = { quantity: number; unitPrice: number; taxRate: number }[]
+  /** A till sale as it is stored: the terminal's net and rounded VAT per line, summed (`fromPosTransaction`), its total `computePosTotals`'. */
+  const tillSale = (cart: Cart) => ({
+    type: 'cash_sale', invoiceNumber: 'CS-2026-00001', total: computePosTotals(cart).total, discountTotal: 0,
+    lines: cart.map(c => {
+      const taxAmount = Math.round(c.quantity * c.unitPrice * (c.taxRate / 100) * 100) / 100
+      return { description: 'x', ...c, discount: 0, taxAmount, lineTotal: Math.round((c.quantity * c.unitPrice + taxAmount) * 100) / 100 }
+    }),
+  })
+  /** What a device makes of lines: each at its rounded gross price, summed per rate, the VAT out of each sum. */
+  const vatOnDevice = (lines: Cart) => {
+    const byRate = new Map<number, number>()
+    for (const l of lines) byRate.set(l.taxRate, roundCents((byRate.get(l.taxRate) || 0) + roundCents(fiscalUnitPrice(l.unitPrice, l.taxRate) * l.quantity)))
+    return roundCents([...byRate].reduce((s, [rate, gross]) => s + roundCents((gross * rate) / (100 + rate)), 0))
+  }
+
+  it('a two-rate sale whose lines do not print exactly: out of the gross the device is given, not each rate\'s own', () => {
+    const cart = [{ quantity: 1, unitPrice: 4.2233, taxRate: 20 }, { quantity: 1, unitPrice: 5.5555, taxRate: 9 }]
+    const sale = tillSale(cart)
+    // Each rate's own gross, 5.07 + 6.06, gives 0.85 + 0.50.
+    expect(computePosTotals(cart)).toMatchObject({ total: 11.13, taxTotal: 1.35 })
+    // The lines say 5.06 and 6.06, so the device is given 5.06 and 6.07, and takes 0.84 + 0.50 out.
+    const gross = grossByRate(sale)!
+    expect(gross).toEqual([{ rate: 20, gross: 5.06 }, { rate: 9, gross: 6.07 }])
+    expect(printsExactly(sale, gross)).toBe(false)
+    expect(vatOnDevice(linesOnDevice(sale, 'n') as Cart)).toBe(1.34)
+    expect(deviceTaxTotal(sale)).toBe(1.34)
+    expect(deviceTotals(sale)).toEqual({ taxTotal: 1.34, subtotal: 9.79 })
+  })
+
+  it('any till sale: what it stores is what its device takes out, and its net and VAT make its total', () => {
+    let seed = 554
+    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648
+    let moved = 0
+    for (let i = 0; i < 3000; i++) {
+      const cart = Array.from({ length: 1 + Math.floor(rnd() * 4) }, () => ({
+        quantity: 1 + Math.floor(rnd() * (rnd() < 0.2 ? 200 : 5)),
+        unitPrice: +(0.05 + rnd() * 40).toFixed(rnd() < 0.5 ? 4 : 2),
+        taxRate: [20, 20, 20, 9, 0][Math.floor(rnd() * 5)],
+      }))
+      const sale = tillSale(cart)
+      const stored = deviceTotals(sale)!
+      expect(stored.taxTotal).toBe(vatOnDevice(linesOnDevice(sale, 'n') as Cart))
+      expect(roundCents(stored.subtotal + stored.taxTotal)).toBe(sale.total)
+      if (stored.taxTotal !== computePosTotals(cart).taxTotal) {
+        moved++
+        // Only ever a two-rate sale its lines cannot print, and only by a cent.
+        expect(new Set(cart.map(c => c.taxRate)).size).toBeGreaterThan(1)
+        expect(printsExactly(sale, grossByRate(sale)!)).toBe(false)
+        expect(Math.abs(stored.taxTotal - computePosTotals(cart).taxTotal)).toBeLessThan(0.015)
+      }
+    }
+    // The case this is about turns up in the sample, or the loop proves nothing.
+    expect(moved).toBeGreaterThan(0)
+  })
+
+  it('one rate, or lines that print exactly: the VAT each rate\'s own gross gives, as before', () => {
+    for (const cart of [
+      [{ quantity: 3, unitPrice: 17.8952, taxRate: 20 }, { quantity: 7, unitPrice: 4.2233, taxRate: 20 }],
+      [{ quantity: 2, unitPrice: 10, taxRate: 20 }, { quantity: 3, unitPrice: 1, taxRate: 9 }],
+    ]) {
+      expect(deviceTotals(tillSale(cart))).toEqual({ taxTotal: computePosTotals(cart).taxTotal, subtotal: computePosTotals(cart).subtotal })
+    }
+  })
+
+  it('a discount stays in the net, as the door computed it', () => {
+    const sale = { total: 10.8, discountTotal: 1, lines: [{ quantity: 1, unitPrice: 10, discount: 10, taxRate: 20, lineTotal: 10.8 }] }
+    expect(deviceTotals(sale)).toEqual({ taxTotal: 1.8, subtotal: 10 })
+  })
+
+  it('a rate with a negative total shares nothing: the door\'s own totals stand', () => {
+    expect(deviceTotals({ total: 40, lines: [{ taxRate: 20, lineTotal: 50 }, { taxRate: 9, lineTotal: -10 }] })).toBeNull()
   })
 })
 

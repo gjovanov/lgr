@@ -205,7 +205,7 @@
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
-import { computePosTotals } from 'config/pos-totals'
+import { computePosTotals, tillLineAmounts, tillTotals } from 'config/pos-totals'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { createIdempotentAction, isOutcomeUnknown } from 'ui-shared/composables/idempotency'
@@ -295,8 +295,9 @@ function fmt(n: number, decimals = 2) { return new Intl.NumberFormat(undefined, 
 const activeSession = computed<Session | null>(() => sessions.value.find(s => s.status === 'open') || null)
 
 // The server validates with this same function and the receipt prints its numbers. Rounding
-// VAT per line here once asked for 21.48 while the receipt said 21.47 with 0.01 change.
-const totals = computed(() => computePosTotals(cart.value))
+// VAT per line here once asked for 21.48 while the receipt said 21.47 with 0.01 change. The VAT
+// and net are what the sale will store, its device's (#554).
+const totals = computed(() => tillTotals(cart.value))
 const subtotal = computed(() => totals.value.subtotal)
 const taxAmount = computed(() => totals.value.taxTotal)
 const total = computed(() => totals.value.total)
@@ -584,8 +585,7 @@ async function completeSale() {
     const lines = cart.value.map(c => ({
       productId: c.productId, name: c.name, quantity: c.quantity, unitPrice: c.unitPrice,
       discount: 0, taxRate: c.taxRate,
-      taxAmount: Math.round(c.quantity * c.unitPrice * (c.taxRate / 100) * 100) / 100,
-      lineTotal: c.quantity * c.unitPrice,
+      ...tillLineAmounts(c),
     }))
     const body = {
       type: 'sale', lines,

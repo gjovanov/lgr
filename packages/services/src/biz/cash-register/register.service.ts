@@ -51,6 +51,7 @@ import { receiptMode, type ReceiptMode } from './receipt-mode.js'
 import { registerOpeningFloat } from './opening-float.js'
 import { budgetClaims, fitsBudget, printedByRate } from './refund-budget.js'
 import { asPlanRead, stornoLine, type StornoPlan } from './storno-lines.js'
+import { deviceTotals } from './receipt-lines.js'
 import { PENDING_NUMBER, isPendingNumber } from './pending-number.js'
 
 export { PENDING_NUMBER, isPendingNumber }
@@ -203,6 +204,8 @@ export async function tillSaleDocument(input: TillSaleInput): Promise<Record<str
   delete doc.register.legacy
   delete doc.createdAt
   delete doc.updatedAt
+  // #554: the VAT its device takes out, which the drawer's journal entry books. A copied row keeps what it had.
+  Object.assign(doc, deviceTotals(doc))
   doc.statusHistory = [{ status: 'paid', changedAt: now, changedBy: oid(user.id), reason: 'cash_register_sale' }]
   if (user.operatorCode) doc.register.operatorCode = user.operatorCode
   return doc

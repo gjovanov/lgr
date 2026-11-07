@@ -77,8 +77,9 @@ const sum = (ns: number[]) => ns.reduce((s, n) => s + n, 0)
  * come to it exactly) and a storno is charged against (`printedByRate`), so a sale returned in parts comes back
  * to zero, rate by rate. The VAT is taken out of each rate's gross the device's way where that comes to the row's
  * VAT; otherwise the row's VAT is shared out in those proportions, so the rates still add up to what the entry
- * books. ⚠ A document's VAT can itself be a cent off what its device took out (#554); the report follows the
- * document. Where nothing can be shared (a negative line), the lines' own figures stand, as before.
+ * books. A sale stores its device's VAT since #554 (`deviceTotals`), so the first holds; one stored before can be
+ * a cent off what its device took out, and the report follows the document. Where nothing can be shared (a
+ * negative line), the lines' own figures stand, as before.
  */
 function rowByRate(row: any): ByRate {
   const lines: ByRate = new Map()
