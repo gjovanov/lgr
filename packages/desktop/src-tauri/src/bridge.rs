@@ -288,6 +288,77 @@ pub fn fetch_assignment(server_url: &str) -> Result<Vec<AssignedDevice>, String>
     Ok(body.fiscal_devices)
 }
 
+/// The device assignment, asked until the server gives it (lgr#575).
+///
+/// ⚠ **Asked once, it left a till with no fiscal device for the life of the process.** A till whose
+/// LGR Desktop started while its server was away (the shop's PC up before the master, the master
+/// down for its night update, the tills back first after a power cut) logged "could not read the
+/// device assignment" and opened nothing. Its window and presence came back with the server, its
+/// printer never did, until somebody restarted the app. A bridge that registered once reconnects
+/// on its own (`run`); one that never read its assignment had nothing to reconnect.
+///
+/// Asked again with presence's backoff (1 s, doubling, 60 s at most) until it answers, a failure
+/// no retry can change ([`assignment_given_up`]), `stop` or [`halt`]. Nothing is open while it
+/// asks, so this can never put a second thread on a serial port.
+pub fn fetch_assignment_until(
+    server_url: &str,
+    stop: &AtomicBool,
+    on_retry: impl FnMut(&str, u64),
+) -> Result<Vec<AssignedDevice>, String> {
+    let stopped = || stop.load(Ordering::SeqCst) || halted();
+    assignment_until(
+        || fetch_assignment(server_url),
+        |secs| {
+            for _ in 0..(secs * 10) {
+                if stopped() {
+                    return false;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            !stopped()
+        },
+        on_retry,
+    )
+}
+
+/// [`fetch_assignment_until`] with its network and its clock passed in: pure, and tested as such.
+/// `wait(secs)` sleeps that long and says whether to go on.
+fn assignment_until(
+    mut fetch: impl FnMut() -> Result<Vec<AssignedDevice>, String>,
+    mut wait: impl FnMut(u64) -> bool,
+    mut on_retry: impl FnMut(&str, u64),
+) -> Result<Vec<AssignedDevice>, String> {
+    let mut attempt = 0u32;
+    loop {
+        let err = match fetch() {
+            Ok(devices) => return Ok(devices),
+            Err(e) => e,
+        };
+        if assignment_given_up(&err) {
+            return Err(err);
+        }
+        let secs = presence::backoff_secs(attempt);
+        on_retry(&err, secs);
+        if !wait(secs) {
+            return Err(format!("{err} (stopped before asking again)"));
+        }
+        attempt = attempt.saturating_add(1);
+    }
+}
+
+/// Is a failure to read the assignment final? Only what no retry can change: a credential
+/// [`classify_mint_error`] calls final (revoked, outdated, nothing to sign with), and a server that
+/// says this desktop may not ask (`403`) or knows no such route (`404`, `410`). Everything else, the
+/// server being away above all, is asked again: the ingress of a master whose API is coming back
+/// answers `502`, which a till that gave up on would hold against it until restarted.
+fn assignment_given_up(err: &str) -> bool {
+    match err.strip_prefix("assignment_refused_").and_then(|s| s.parse::<u16>().ok()) {
+        Some(403 | 404 | 410) => true,
+        Some(_) => false,
+        None => matches!(classify_mint_error(err), Outcome::Fatal(_)),
+    }
+}
+
 /// The websocket URL for the bridge, derived from the server's own scheme.
 ///
 /// ⚠ Never carries a credential. The register MESSAGE does — a token in a URL lands in ingress and
@@ -857,6 +928,93 @@ mod tests {
         // An unknown code is retried: a newer hub may refuse for a reason this build predates,
         // and giving up for good on something we do not understand needs a restart to undo.
         assert!(!is_fatal("something_new"));
+    }
+
+    /// `assignment_until` against a server that fails `failures` first (each `Err` in turn), then
+    /// gives one device: what it returned, the waits it asked for, and how often it fetched.
+    fn ask(failures: &[&str], go_on: bool) -> (Result<Vec<AssignedDevice>, String>, Vec<u64>, usize) {
+        let mut answers: Vec<Result<Vec<AssignedDevice>, String>> = failures.iter().map(|e| Err(e.to_string())).collect();
+        answers.push(Ok(vec![dev()]));
+        answers.reverse();
+        let mut fetched = 0;
+        let mut waits = Vec::new();
+        let mut retried = Vec::new();
+        let out = assignment_until(
+            || {
+                fetched += 1;
+                answers.pop().expect("asked after the server answered")
+            },
+            |secs| {
+                waits.push(secs);
+                go_on
+            },
+            |err, secs| retried.push((err.to_string(), secs)),
+        );
+        assert_eq!(retried.len(), waits.len(), "every retry is said before its wait");
+        (out, waits, fetched)
+    }
+
+    #[test]
+    fn a_till_started_while_its_server_was_away_asks_until_it_answers() {
+        // lgr#575: one `server_unreachable` at start used to leave the till with no fiscal device
+        // until LGR Desktop was restarted. The shop lane `shop-ubuntu-nomcast` found it.
+        let (out, waits, fetched) = ask(&["server_unreachable", "server_unreachable", "server_unreachable"], true);
+        assert_eq!(out.expect("the server answered in the end").len(), 1);
+        assert_eq!(waits, vec![1, 2, 4], "presence's backoff");
+        assert_eq!(fetched, 4);
+    }
+
+    #[test]
+    fn a_master_coming_back_is_asked_again_whatever_it_says_meanwhile() {
+        // Its ingress answers 502 while the API starts, a mint fails `token_failed` on that text,
+        // and a body that is not the assignment is no reason to give up either.
+        let (out, waits, _) = ask(
+            &[
+                "assignment_refused_502",
+                "token_failed",
+                "assignment_refused_503",
+                "assignment_refused_401",
+                "error decoding response body",
+                "server_timeout",
+            ],
+            true,
+        );
+        assert!(out.is_ok());
+        assert_eq!(waits, vec![1, 2, 4, 8, 16, 32]);
+    }
+
+    #[test]
+    fn the_backoff_stops_growing_at_a_minute() {
+        let (out, waits, _) = ask(&["server_unreachable"; 9], true);
+        assert!(out.is_ok());
+        assert_eq!(waits, vec![1, 2, 4, 8, 16, 32, 60, 60, 60]);
+    }
+
+    #[test]
+    fn only_what_no_retry_can_change_stops_the_asking() {
+        for code in [
+            "desktop_revoked",
+            "desktop_outdated",
+            "not_registered",
+            "no_key",
+            "client_build_failed",
+            "assignment_refused_403",
+            "assignment_refused_404",
+        ] {
+            let (out, waits, fetched) = ask(&[code], true);
+            assert_eq!(out.expect_err("final"), code, "{code} is said as it was");
+            assert!(waits.is_empty(), "{code} must not be asked again");
+            assert_eq!(fetched, 1);
+        }
+    }
+
+    #[test]
+    fn a_stop_ends_the_asking() {
+        // The app quitting, or the till revoked (`halt`), while the server is still away.
+        let (out, waits, fetched) = ask(&["server_unreachable", "server_unreachable"], false);
+        let err = out.expect_err("stopped");
+        assert!(err.starts_with("server_unreachable") && err.contains("stopped"), "{err}");
+        assert_eq!((waits, fetched), (vec![1], 1));
     }
 
     #[test]

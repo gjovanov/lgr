@@ -1249,16 +1249,35 @@ fn start_bridges(app: &AppHandle) {
     // ⚠ The fetch is on its own thread: it is a network call, and `setup` must not block on the
     // hub being reachable. A till with no internet still has to show its Overview.
     std::thread::spawn(move || {
-        let devices = match bridge::fetch_assignment(&server_url) {
+        // ⚠ Asked until the server answers, never once (lgr#575): a till whose app started while its
+        // server was away opened no fiscal device until somebody restarted it. Said when the reason
+        // changes, not every minute of an outage.
+        let mut said = String::new();
+        let mut failed = 0u32;
+        let devices = match bridge::fetch_assignment_until(&server_url, &stop, |err, secs| {
+            failed += 1;
+            if err != said {
+                handle.state::<AppState>().logger.warn(&format!(
+                    "bridge: could not read the device assignment: {err}; asking again in {secs} s, and until it answers"
+                ));
+                said = err.to_string();
+            }
+        }) {
             Ok(d) => d,
             Err(e) => {
                 handle
                     .state::<AppState>()
                     .logger
-                    .warn(&format!("bridge: could not read the device assignment: {e}"));
+                    .warn(&format!("bridge: could not read the device assignment: {e}; no device opened"));
                 return;
             }
         };
+        if failed > 0 {
+            handle
+                .state::<AppState>()
+                .logger
+                .info(&format!("bridge: the device assignment answered after {failed} failed tries"));
+        }
 
         if devices.is_empty() {
             handle.state::<AppState>().logger.info("bridge: no fiscal device assigned");
