@@ -8,7 +8,7 @@
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { documentsByMonth } from '../../packages/services/src/biz/accounting-books/plusminus-exports.js'
 import { planMonth, sha256 } from '../../packages/services/src/biz/accounting-books/journal-plan.js'
-import type { ImportDocument } from '../../packages/services/src/biz/accounting-books/import.types.js'
+import type { ImportDocument, ImportOperation } from '../../packages/services/src/biz/accounting-books/import.types.js'
 
 export interface ParsedImport {
   steps: Record<string, any>
@@ -102,13 +102,24 @@ export interface ImportedDocument {
   /** `planMonth`'s contentHash, shortened: what `changed` means to the importer. */
   hash: string
   label: string
-  /** The operation count, then a hash per part of the document, to say what changed. */
+  /**
+   * The operation count, then a hash per part of the document, to say what changed. The last two split the amounts into
+   * the cost of goods and the rest; a file kept before they existed has neither.
+   */
   parts: string
 }
 export type ImportedDocuments = Map<string, ImportedDocument>
 
 /** The parts `parts` hashes, in its order, by the words a change is described with. */
 const PARTS = ['total', 'VAT kind or comment', 'amounts or quantities', 'accounts', 'analytics', 'operation notes']
+
+/**
+ * An operation that takes goods out of stock: an inventory account (30x) credited against anything but another one, a
+ * sale's cost (70x) or a write-off (601). Its amount is the cost of the goods, which PlusMinus works out again when a
+ * delivery is entered back-dated. On 2026-11-06 a mail listed 49 documents as changed in "amounts or quantities" alone,
+ * and every one of them had changed only these amounts: its total, revenue and VAT were as before.
+ */
+const takesFromStock = (op: ImportOperation) => /^30/.test(op.k) && !/^30/.test(op.d)
 
 function partsOf(doc: ImportDocument): string {
   const h = (v: unknown) => sha256(JSON.stringify(v ?? null)).slice(0, 8)
@@ -120,6 +131,9 @@ function partsOf(doc: ImportDocument): string {
     h(doc.ops.map(op => [op.d, op.k])),
     h(doc.ops.map(op => [op.ad, op.ak])),
     h(doc.ops.map(op => [op.comment, op.journal, op.tax])),
+    // Appended rather than put in place of the amounts, so that a file kept before them still compares part by part.
+    h(doc.ops.map(op => (takesFromStock(op) ? op.amount : null))),
+    h(doc.ops.map(op => [takesFromStock(op) ? null : op.amount, op.qty, op.cur, op.rate, op.fx])),
   ].join('.')
 }
 
@@ -154,11 +168,19 @@ function whatDiffers(before: string, after: string, moved: boolean): string {
   const [n1, ...p1] = after.split('.')
   const out = moved ? ['another customer or supplier'] : []
   if (n0 !== n1) out.push(`${n0} → ${n1} operations`)
+  // Whether both sides keep the cost of goods apart from the other amounts.
+  const [cost, rest] = [PARTS.length, PARTS.length + 1]
+  const split = p0.length > rest && p1.length > rest
   PARTS.forEach((name, i) => {
     if (p0[i] === p1[i]) return
     // With another operation count every per-operation part differs, and a move always changes the analytics.
     if (n0 !== n1 && i >= 2) return
     if (moved && name === 'analytics') return
+    if (split && name === 'amounts or quantities') {
+      if (p0[rest] !== p1[rest]) out.push(name)
+      if (p0[cost] !== p1[cost]) out.push('cost of goods')
+      return
+    }
     out.push(name)
   })
   return out.join(', ')
