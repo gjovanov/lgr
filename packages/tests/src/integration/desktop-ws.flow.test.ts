@@ -2,14 +2,16 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { Desktop } from 'db/models'
-import { signDesktopToken, PRESENCE_ONLINE_MS } from 'services/biz/desktop/desktop.service'
+import { signDesktopToken, PRESENCE_ONLINE_MS, presenceOf, reportSelf, revokeDesktop } from 'services/biz/desktop/desktop.service'
 import {
   handleDesktopOpen,
   handleDesktopMessage,
   handleDesktopClose,
   isDesktopOnline,
+  requestDesktopUpdate,
   AUTH_DEADLINE_MS,
   DESKTOP_TICK_MS,
+  UPDATE_REQUEST_TTL_MS,
   tickDesktops,
 } from '../../../portal-api/src/websocket/desktop'
 import { Elysia } from 'elysia'
@@ -299,5 +301,136 @@ describe('the tick wakes a shell blocked on its read (FR-14.21)', () => {
   it('comes often enough that a heartbeat due every 30 s is never later than the online window', () => {
     // The worst case for a shell that only wakes on the tick: its 30 s became due just after one.
     expect(30_000 + DESKTOP_TICK_MS).toBeLessThan(PRESENCE_ONLINE_MS)
+  })
+})
+
+/**
+ * #565: with several pods (FR-24) the socket is on one of them and the admin's request lands on
+ * any. Here "the other pod" is a change made to the row without going through this process's
+ * sockets, which is all another pod can do. In the field lanes, the revoke notice reached one shell
+ * in four runs, and a connected till read `stale` on every request the other pod answered.
+ */
+describe('a socket held by another pod (#565)', () => {
+  const heartbeat = () => JSON.stringify({ type: 'desktop:heartbeat', clientTime: new Date().toISOString() })
+  const ADMIN = '64b000000000000000000001'
+  const updates = (ws: ReturnType<typeof fakeWs>) => ws.sent.filter(m => m.type === 'desktop:update').length
+  async function connected(over: Record<string, unknown> = {}) {
+    const seeded = await seedDesktop(over)
+    const ws = fakeWs()
+    handleDesktopOpen(ws)
+    await handleDesktopMessage(ws, JSON.stringify({ type: 'desktop:auth', token: seeded.token }))
+    expect(ws.has('desktop:authenticated')).toBe(true)
+    return { ...seeded, ws }
+  }
+
+  it('hears a revoke the other pod served, at its next heartbeat', async () => {
+    const { org, desktop, ws } = await connected()
+    await revokeDesktop(String(org._id), String(desktop._id), ADMIN, 'test')
+    expect(ws.has('desktop:revoked')).toBe(false)
+
+    await handleDesktopMessage(ws, heartbeat())
+
+    expect(ws.last('desktop:revoked')?.message).toContain((org as any).name)
+    expect(ws.closed.at(-1)?.reason).toBe('desktop_revoked')
+    // A revoked row is not refreshed, and the revoked socket is not told all is well.
+    expect(ws.has('desktop:heartbeat:ack')).toBe(false)
+    await handleDesktopClose(ws)
+  })
+
+  it('hears it too when the revoke deleted an ephemeral row', async () => {
+    const { org, desktop, ws } = await connected({ ephemeral: true })
+    await revokeDesktop(String(org._id), String(desktop._id), ADMIN)
+    expect(await Desktop.findById(desktop._id).lean()).toBeNull()
+
+    await handleDesktopMessage(ws, heartbeat())
+
+    expect(ws.closed.at(-1)?.reason).toBe('desktop_revoked')
+    await handleDesktopClose(ws)
+  })
+
+  it('takes an update the other pod was asked for at its next heartbeat, and only once', async () => {
+    const { desktop, ws } = await connected()
+    await Desktop.updateOne({ _id: desktop._id }, { $set: { updateRequestedAt: new Date() } })
+
+    await handleDesktopMessage(ws, heartbeat())
+    expect(updates(ws)).toBe(1)
+    await handleDesktopMessage(ws, heartbeat())
+    expect(updates(ws)).toBe(1)
+    await handleDesktopClose(ws)
+  })
+
+  it('takes a request made while it was reconnecting, when it authenticates', async () => {
+    const { desktop, token } = await seedDesktop()
+    await Desktop.updateOne({ _id: desktop._id }, { $set: { updateRequestedAt: new Date() } })
+    const ws = fakeWs()
+    handleDesktopOpen(ws)
+    await handleDesktopMessage(ws, JSON.stringify({ type: 'desktop:auth', token }))
+    expect(updates(ws)).toBe(1)
+    // ⚠ After `desktop:authenticated`: a shell must never see a request before its session.
+    expect(ws.sent.findIndex(m => m.type === 'desktop:update')).toBeGreaterThan(ws.sent.findIndex(m => m.type === 'desktop:authenticated'))
+
+    await handleDesktopMessage(ws, heartbeat())
+    expect(updates(ws)).toBe(1)
+    await handleDesktopClose(ws)
+  })
+
+  it('never takes an old request as new', async () => {
+    // "Update now" means now. A till that was off checks when it starts; hours later is not a request.
+    const { desktop, token } = await seedDesktop()
+    await Desktop.updateOne({ _id: desktop._id }, { $set: { updateRequestedAt: new Date(Date.now() - UPDATE_REQUEST_TTL_MS - 5000) } })
+    const ws = fakeWs()
+    handleDesktopOpen(ws)
+    await handleDesktopMessage(ws, JSON.stringify({ type: 'desktop:auth', token }))
+    await handleDesktopMessage(ws, heartbeat())
+    expect(updates(ws)).toBe(0)
+    await handleDesktopClose(ws)
+  })
+
+  it('does not take a request twice when this pod already sent it', async () => {
+    const { desktop, ws } = await connected()
+    const at = new Date()
+    await Desktop.updateOne({ _id: desktop._id }, { $set: { updateRequestedAt: at } })
+    expect(requestDesktopUpdate(String(desktop._id), at)).toBe(true)
+    expect(updates(ws)).toBe(1)
+
+    await handleDesktopMessage(ws, heartbeat())
+    expect(updates(ws)).toBe(1)
+    await handleDesktopClose(ws)
+  })
+
+  it('reads online on a pod without the socket, and a late close of an old socket changes nothing', async () => {
+    const { desktop, ws: first } = await connected()
+    const row = async () => (await Desktop.findById(desktop._id).lean()) as any
+    // `false`: what a pod that holds no socket for it answers.
+    expect(presenceOf(await row(), false)).toBe('online')
+
+    // It reconnected, here or on another pod, before the first socket's close came in.
+    const { token } = signDesktopToken({ desktopId: String(desktop._id), orgId: String(desktop.orgId), keyEpoch: 1 })
+    const second = fakeWs()
+    handleDesktopOpen(second)
+    await handleDesktopMessage(second, JSON.stringify({ type: 'desktop:auth', token }))
+    expect(second.has('desktop:authenticated')).toBe(true)
+
+    await handleDesktopClose(first)
+    expect(presenceOf(await row(), false)).toBe('online')
+
+    await handleDesktopClose(second)
+    expect((await row()).lastPresence?.connId).toBeUndefined()
+    expect(presenceOf(await row(), false)).toBe('stale')
+  })
+
+  it('keeps the socket on the row when the desktop reports itself over HTTP', async () => {
+    // `PUT /self` may land on the pod without the socket. Writing `lastPresence` whole would drop
+    // `connId`, and the till would read stale everywhere else until its next heartbeat.
+    const { desktop, ws } = await connected()
+    const before: any = await Desktop.findById(desktop._id).lean()
+    expect(typeof before.lastPresence?.connId).toBe('string')
+
+    await reportSelf(await Desktop.findById(desktop._id) as any, { ip: '203.0.113.7', appVersion: '0.1.9' })
+
+    const after: any = await Desktop.findById(desktop._id).lean()
+    expect(after.lastPresence.connId).toBe(before.lastPresence.connId)
+    expect(after.lastPresence.ip).toBe('203.0.113.7')
+    await handleDesktopClose(ws)
   })
 })

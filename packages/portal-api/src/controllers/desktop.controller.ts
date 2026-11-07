@@ -224,7 +224,11 @@ export const desktopController = new Elysia({ prefix: '/org/:orgId/desktops' })
       if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
       const d = await Desktop.findOne({ _id: id, orgId, status: 'active' }).lean()
       if (!d) return status(404, { message: 'Desktop not found' })
-      const delivered = requestDesktopUpdate(String((d as any)._id))
+      // #565: on the row first, so a socket on another pod has it at its next heartbeat. It is
+      // delivered there too when the row says a socket is held and heartbeating.
+      const requestedAt = new Date()
+      await Desktop.updateOne({ _id: (d as any)._id }, { $set: { updateRequestedAt: requestedAt } })
+      const delivered = requestDesktopUpdate(String((d as any)._id), requestedAt) || presenceOf(d as any, false) === 'online'
       createAuditEntry({
         orgId, userId: user.id, operatorCode: user.operatorCode,
         action: 'update', module: 'admin', entityType: 'desktop',
@@ -243,9 +247,13 @@ export const desktopController = new Elysia({ prefix: '/org/:orgId/desktops' })
     async ({ params: { orgId }, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!canAdmin(user)) return status(403, { message: 'Forbidden' })
-      const rows = await Desktop.find({ orgId, status: 'active' }).select('_id name').lean()
+      const rows = await Desktop.find({ orgId, status: 'active' }).select('_id name lastSeenAt lastPresence').lean()
+      const requestedAt = new Date()
+      await Desktop.updateMany({ _id: { $in: rows.map((r: any) => r._id) } }, { $set: { updateRequestedAt: requestedAt } })
       let delivered = 0
-      for (const r of rows) if (requestDesktopUpdate(String((r as any)._id))) delivered++
+      for (const r of rows as any[]) {
+        if (requestDesktopUpdate(String(r._id), requestedAt) || presenceOf(r, false) === 'online') delivered++
+      }
       createAuditEntry({
         orgId, userId: user.id, operatorCode: user.operatorCode,
         action: 'update', module: 'admin', entityType: 'desktop',

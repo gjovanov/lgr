@@ -565,9 +565,16 @@ export const PRESENCE_STALE_MS = 90 * 1000
  */
 export const PRESENCE_ONLINE_MS = 75 * 1000
 
-export function presenceOf(desktop: Pick<IDesktop, 'lastSeenAt'>, hasSocket: boolean, now = Date.now()): Presence {
+/**
+ * `hasSocket` is whether THIS process holds a socket for it. ⚠ With several pods (FR-24) the socket
+ * is usually on another one, so the row's `lastPresence.connId`, which the holder writes, counts
+ * as a socket too (#565). Read from the local map alone, a connected till read `stale` on every
+ * request that landed on the other pod.
+ */
+export function presenceOf(desktop: Pick<IDesktop, 'lastSeenAt' | 'lastPresence'>, hasSocket: boolean, now = Date.now()): Presence {
   const seen = desktop.lastSeenAt?.getTime() ?? 0
-  if (hasSocket && now - seen <= PRESENCE_ONLINE_MS) return 'online'
+  const socket = hasSocket || !!desktop.lastPresence?.connId
+  if (socket && now - seen <= PRESENCE_ONLINE_MS) return 'online'
   return now - seen <= PRESENCE_STALE_MS ? 'stale' : 'offline'
 }
 
@@ -587,10 +594,11 @@ export async function reportSelf(
   if (input.hostname) set.hostname = input.hostname
   if (input.os) set.os = { platform: input.os.platform ?? '', version: input.os.version ?? '', arch: input.os.arch ?? '' }
   if (input.capabilities) set.capabilities = input.capabilities
-  set.lastPresence = {
-    ip: input.ip,
-    clockSkewMs: clockSkewMs(input.clientTime),
-  }
+  // ⚠ Field by field, never `lastPresence` whole: that would drop `connId`, which the socket's pod
+  // owns, and the desktop would read `stale` everywhere else until its next heartbeat (#565).
+  if (input.ip !== undefined) set['lastPresence.ip'] = input.ip
+  const skew = clockSkewMs(input.clientTime)
+  if (skew !== undefined) set['lastPresence.clockSkewMs'] = skew
   await Desktop.updateOne({ _id: desktop._id }, { $set: set })
 }
 

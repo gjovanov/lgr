@@ -70,13 +70,28 @@ export interface IDesktop extends Document {
   appVersion?: string
   capabilities?: { fiscalBridge?: boolean; serialPorts?: string[] }
   lastSeenAt?: Date
-  lastPresence?: { ip?: string; clockSkewMs?: number }
+  lastPresence?: {
+    ip?: string
+    clockSkewMs?: number
+    /**
+     * The presence socket that last authenticated or heartbeated, whichever pod holds it (#565).
+     * It is how a pod without the socket can still say `online`. A close clears it only while it
+     * still names the closing socket, so a desktop that reconnected elsewhere is not marked gone by
+     * its old socket's late close.
+     */
+    connId?: string
+  }
 
   // ── What an admin assigns to it ───────────────────────────────────────────────────────────
   /** Which fiscal devices this desktop may bridge (FR-14.26). */
   fiscalDeviceIds: Types.ObjectId[]
   /** Where "Open LGR" lands, e.g. `/invoicing/cash-sales/new` for a till (FR-14.16). */
   startPath?: string
+  /**
+   * When an admin last asked it to check for an update (FR-14.22). The pod that holds its socket
+   * delivers the request at the next heartbeat, so it reaches a desktop connected anywhere (#565).
+   */
+  updateRequestedAt?: Date
 
   createdAt: Date
   updatedAt: Date
@@ -118,10 +133,12 @@ const desktopSchema = new Schema<IDesktop>(
     lastPresence: {
       ip: String,
       clockSkewMs: Number,
+      connId: String,
     },
 
     fiscalDeviceIds: { type: [{ type: Schema.Types.ObjectId, ref: 'FiscalDevice' }], default: [] },
     startPath: String,
+    updateRequestedAt: Date,
   },
   { timestamps: true },
 )
@@ -151,7 +168,7 @@ desktopSchema.index({ ephemeral: 1, lastSeenAt: 1 })
 replicate(desktopSchema, {
   class: 'S',
   // The registry moves with the org, so a till keeps its id; its presence is the node's it talks to.
-  home: ['name', 'nameAdminSet', 'machineId', 'installationId', 'os', 'hostname', 'publicKey', 'keyEpoch', 'keyRotatedAt', 'status', 'ephemeral', 'ephemeralTtlSec', 'enrollKeyId', 'enrolledBy', 'enrolledAt', 'revokedAt', 'revokedBy', 'revokeReason', 'appVersion', 'capabilities', 'fiscalDeviceIds', 'startPath', 'createdAt', 'updatedAt'],
+  home: ['name', 'nameAdminSet', 'machineId', 'installationId', 'os', 'hostname', 'publicKey', 'keyEpoch', 'keyRotatedAt', 'status', 'ephemeral', 'ephemeralTtlSec', 'enrollKeyId', 'enrolledBy', 'enrolledAt', 'revokedAt', 'revokedBy', 'revokeReason', 'appVersion', 'capabilities', 'fiscalDeviceIds', 'startPath', 'updateRequestedAt', 'createdAt', 'updatedAt'],
   global: [],
   node: ['lastSeenAt', 'lastPresence'],
 })
