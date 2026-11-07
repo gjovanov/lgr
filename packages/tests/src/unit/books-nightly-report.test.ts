@@ -104,7 +104,10 @@ describe('books nightly: a docs root that does not answer', () => {
   })
 
   it('a child that has not answered in time is killed, and that is no answer', async () => {
-    expect(await listsWithin(tmpdir(), 0)).toBe(false)
+    // A child that never answers, as a hung share does. A 0 ms deadline on a real listing raced the child (#569).
+    const started = Date.now()
+    expect(await listsWithin(tmpdir(), 200, [process.execPath, '-e', 'setInterval(() => {}, 1000)'])).toBe(false)
+    expect(Date.now() - started).toBeLessThan(5_000)
   })
 })
 
