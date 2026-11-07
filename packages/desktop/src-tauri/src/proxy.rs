@@ -34,7 +34,7 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use bytes::Bytes;
 use http_body_util::{combinators::BoxBody, BodyExt, Empty, Full, Limited};
-use hyper::body::Incoming;
+use hyper::body::{Body as _, Incoming};
 use hyper::header::{
     HeaderMap, HeaderName, HeaderValue, CACHE_CONTROL, CONNECTION, CONTENT_TYPE, COOKIE, HOST, LOCATION, ORIGIN,
     REFERER, SET_COOKIE, UPGRADE,
@@ -428,23 +428,72 @@ async fn handle(req: Request<Incoming>, st: Arc<State>) -> Response<Body> {
 // ── Forwarding ─────────────────────────────────────────────────────────────────────────────────
 
 impl State {
-    /// The desktop's token: the cached one while it is under 10 minutes old, a new one otherwise.
+    /// The desktop's token, and whether it came from the cache: the cached one while it is under
+    /// 10 minutes old, a new one otherwise.
     /// ⚠ Behind the lock, so the burst of requests a page load makes mints one token, not twenty.
-    async fn token(&self) -> Result<String, String> {
+    async fn token(&self) -> Result<(String, bool), String> {
         let mut slot = self.token.lock().await;
         if let Some((t, at)) = slot.as_ref() {
             if at.elapsed() < Duration::from_secs(600) {
-                return Ok(t.clone());
+                return Ok((t.clone(), true));
             }
         }
         let mint = self.up.token.clone();
         let fresh = tokio::task::spawn_blocking(move || mint()).await.map_err(|e| e.to_string())??;
         *slot = Some((fresh.clone(), Instant::now()));
-        Ok(fresh)
+        Ok((fresh, false))
     }
 
-    async fn forget_token(&self) {
-        *self.token.lock().await = None;
+    /// The master refused `refused`, so the next request mints a new one. ⚠ Only while `refused` is
+    /// still the one held: requests refused together must not throw away the token the first of
+    /// them has just minted.
+    async fn forget_token(&self, refused: &str) {
+        let mut slot = self.token.lock().await;
+        if slot.as_ref().is_some_and(|(t, _)| t == refused) {
+            *slot = None;
+        }
+    }
+}
+
+/// The most of a request's body the proxy keeps, so that the request can be sent again (`forward`).
+/// A sale, a form, a small document fit; a larger or streamed body goes through as it arrives and
+/// is never sent twice.
+const KEPT_BODY: u64 = 8 * 1024 * 1024;
+
+/// Whether a body this size can be kept: its length known, and within `KEPT_BODY`.
+fn keepable(hint: &hyper::body::SizeHint) -> bool {
+    hint.upper().is_some_and(|n| n <= KEPT_BODY)
+}
+
+fn kept_body(bytes: Bytes) -> Body {
+    Full::new(bytes).map_err(|never| match never {}).boxed()
+}
+
+fn no_token(headers: &HeaderMap, st: &State, why: &str) -> Response<Body> {
+    (st.log)(&format!("proxy: no desktop token: {why}"));
+    refuse(headers, StatusCode::SERVICE_UNAVAILABLE, "desktop_token_failed", "This desktop cannot sign in to its server. See LGR Desktop's Overview.")
+}
+
+/// What the window asked for, kept apart from its body so that it can be sent more than once.
+struct Asked {
+    method: Method,
+    path: String,
+    headers: HeaderMap,
+    upgrade: bool,
+}
+
+impl Asked {
+    /// The request as it goes on to the master: its headers cleaned (`upstream_headers`), and the
+    /// desktop's `token` on it.
+    fn outgoing(&self, st: &State, origin: &url::Url, token: &str, body: Body) -> Option<Request<Body>> {
+        let mut headers = upstream_headers(&self.headers, st.port, origin, token);
+        if self.upgrade {
+            headers.insert(CONNECTION, HeaderValue::from_static("upgrade"));
+            headers.insert(UPGRADE, HeaderValue::from_static("websocket"));
+        }
+        let mut req = Request::builder().method(self.method.clone()).uri(self.path.as_str()).body(body).ok()?;
+        *req.headers_mut() = headers;
+        Some(req)
     }
 }
 
@@ -472,82 +521,131 @@ async fn connect(origin: &url::Url, tls: &Arc<rustls::ClientConfig>) -> Result<h
 
 async fn forward(mut req: Request<Incoming>, st: &State) -> Response<Body> {
     let navigation = is_navigation(req.headers());
-    let token = match st.token().await {
+    let (mut token, cached) = match st.token().await {
         Ok(t) => t,
-        Err(e) => {
-            (st.log)(&format!("proxy: no desktop token: {e}"));
-            return refuse(req.headers(), StatusCode::SERVICE_UNAVAILABLE, "desktop_token_failed", "This desktop cannot sign in to its server. See LGR Desktop's Overview.");
-        }
+        Err(e) => return no_token(req.headers(), st, &e),
     };
     let upgrade = is_websocket_upgrade(req.headers());
-    let origin = st.origin();
-    let mut headers = upstream_headers(req.headers(), st.port, &origin, &token);
-    if upgrade {
-        headers.insert(CONNECTION, HeaderValue::from_static("upgrade"));
-        headers.insert(UPGRADE, HeaderValue::from_static("websocket"));
-    }
-    let path = req.uri().path_and_query().map(|p| p.as_str().to_string()).unwrap_or_else(|| "/".into());
     let from_client = upgrade.then(|| hyper::upgrade::on(&mut req));
-    let Ok(mut outgoing) = Request::builder().method(req.method().clone()).uri(path).body(req.into_body().boxed()) else {
-        return json(StatusCode::BAD_REQUEST, "bad_request", "The request cannot be forwarded.");
+    let asked = Asked {
+        method: req.method().clone(),
+        path: req.uri().path_and_query().map(|p| p.as_str().to_string()).unwrap_or_else(|| "/".into()),
+        headers: req.headers().clone(),
+        upgrade,
     };
-    *outgoing.headers_mut() = headers;
+    // ⚠ A token from the cache can meet a master that no longer takes it: its clock moved past the
+    // token's 15 minutes (lgr#562), or its secret changed. The master's front says so before any
+    // route runs, so the request did nothing there and is sent again with a new token, once. That
+    // needs its body: kept when it is small and of known length, streamed as before otherwise.
+    let mut again = None;
+    let body = if cached && keepable(&req.body().size_hint()) {
+        let Ok(b) = Limited::new(req.into_body(), KEPT_BODY as usize).collect().await else {
+            return json(StatusCode::BAD_REQUEST, "bad_request", "The request cannot be read.");
+        };
+        let bytes = b.to_bytes();
+        again = Some(bytes.clone());
+        kept_body(bytes)
+    } else {
+        req.into_body().boxed()
+    };
+    let mut from_client = from_client;
+    let mut body = Some(body);
 
-    let unreachable = |why: String| {
-        (st.log)(&format!("proxy: the server did not answer: {why}"));
-        if navigation {
-            // FR-20.33 — a navigation gets a page that says so and tries again by itself.
-            let html = "<!doctype html><meta charset=\"utf-8\"><title>LGR</title><meta http-equiv=\"refresh\" content=\"5\">\
-                        <body style=\"font:15px system-ui,sans-serif;padding:32px\"><p>The shop server is not answering. Retrying…</p></body>";
-            let mut r = full(StatusCode::BAD_GATEWAY, "text/html; charset=utf-8", html.to_string());
-            r.headers_mut()
-                .insert("content-security-policy", HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'"));
-            return r;
-        }
-        json(StatusCode::BAD_GATEWAY, "server_unreachable", "The shop server is not answering.")
-    };
-    let mut sender = match connect(&origin, &st.tls()).await {
-        Ok(s) => s,
-        Err(e) => return unreachable(e),
-    };
-    let mut resp = match sender.send_request(outgoing).await {
-        Ok(r) => r,
-        Err(e) => return unreachable(e.to_string()),
-    };
-
-    if let (StatusCode::SWITCHING_PROTOCOLS, Some(from_client)) = (resp.status(), from_client) {
-        let from_master = hyper::upgrade::on(&mut resp);
-        tokio::spawn(async move {
-            if let (Ok(client), Ok(master)) = (from_client.await, from_master.await) {
-                let _ = tokio::io::copy_bidirectional(&mut TokioIo::new(client), &mut TokioIo::new(master)).await;
+    loop {
+        let origin = st.origin();
+        let Some(outgoing) = asked.outgoing(st, &origin, &token, body.take().unwrap_or_else(empty)) else {
+            return json(StatusCode::BAD_REQUEST, "bad_request", "The request cannot be forwarded.");
+        };
+        let resp = match send(st, &origin, outgoing).await {
+            Ok(r) => r,
+            Err(e) => return unanswered(st, navigation, e),
+        };
+        match answer(resp, st, &origin, &token, &mut from_client).await {
+            Answered::Done(r) => return r,
+            Answered::TokenRefused(refusal) => {
+                let Some(kept) = again.take() else { return refusal };
+                (st.log)("proxy: the master no longer takes the desktop's token; asking again with a new one");
+                token = match st.token().await {
+                    Ok((t, _)) => t,
+                    Err(e) => return no_token(&asked.headers, st, &e),
+                };
+                body = Some(kept_body(kept));
             }
-        });
-        let (parts, _) = resp.into_parts();
-        return Response::from_parts(parts, empty());
+        }
+    }
+}
+
+/// One request to the master, on a connection of its own.
+async fn send(st: &State, origin: &url::Url, outgoing: Request<Body>) -> Result<Response<Incoming>, String> {
+    let mut sender = connect(origin, &st.tls()).await?;
+    sender.send_request(outgoing).await.map_err(|e| e.to_string())
+}
+
+/// What the master answered, for the window. `TokenRefused` is its front's `desktop_required`:
+/// the token it was sent is not one it takes, and `forward` may ask again with a new one.
+enum Answered {
+    Done(Response<Body>),
+    TokenRefused(Response<Body>),
+}
+
+async fn answer(
+    mut resp: Response<Incoming>,
+    st: &State,
+    origin: &url::Url,
+    token: &str,
+    from_client: &mut Option<hyper::upgrade::OnUpgrade>,
+) -> Answered {
+    if resp.status() == StatusCode::SWITCHING_PROTOCOLS {
+        if let Some(from_client) = from_client.take() {
+            let from_master = hyper::upgrade::on(&mut resp);
+            tokio::spawn(async move {
+                if let (Ok(client), Ok(master)) = (from_client.await, from_master.await) {
+                    let _ = tokio::io::copy_bidirectional(&mut TokioIo::new(client), &mut TokioIo::new(master)).await;
+                }
+            });
+            let (parts, _) = resp.into_parts();
+            return Answered::Done(Response::from_parts(parts, empty()));
+        }
     }
 
     let (mut parts, body) = resp.into_parts();
     // The master refused the desktop's token (revoked, rotated, or simply older than it thought):
-    // the next request mints a new one. The refusal itself goes through to the window as it is.
+    // the next request mints a new one. Any refusal but `desktop_required` goes through to the
+    // window as it is.
     if parts.status == StatusCode::UNAUTHORIZED && parts.headers.get(CONTENT_TYPE).is_some_and(|c| c.as_bytes().starts_with(b"application/json")) {
         let bytes = body.collect().await.map(|b| b.to_bytes()).unwrap_or_default();
-        if serde_json::from_slice::<serde_json::Value>(&bytes)
+        let code = serde_json::from_slice::<serde_json::Value>(&bytes)
             .ok()
-            .and_then(|v| v.get("code").and_then(|c| c.as_str()).map(|c| c.starts_with("desktop_")))
-            .unwrap_or(false)
-        {
-            st.forget_token().await;
+            .and_then(|v| v.get("code").and_then(|c| c.as_str()).map(String::from))
+            .unwrap_or_default();
+        if code.starts_with("desktop_") {
+            st.forget_token(token).await;
         }
         strip_hop_by_hop(&mut parts.headers);
-        return Response::from_parts(parts, Full::new(bytes).map_err(|never| match never {}).boxed());
+        let refusal = Response::from_parts(parts, Full::new(bytes).map_err(|never| match never {}).boxed());
+        return if code == "desktop_required" { Answered::TokenRefused(refusal) } else { Answered::Done(refusal) };
     }
     strip_hop_by_hop(&mut parts.headers);
-    if let Some(moved) = parts.headers.get(LOCATION).and_then(|l| l.to_str().ok()).and_then(|l| rewrite_location(l, &origin, st.port)) {
+    if let Some(moved) = parts.headers.get(LOCATION).and_then(|l| l.to_str().ok()).and_then(|l| rewrite_location(l, origin, st.port)) {
         if let Ok(v) = HeaderValue::from_str(&moved) {
             parts.headers.insert(LOCATION, v);
         }
     }
-    Response::from_parts(parts, body.boxed())
+    Answered::Done(Response::from_parts(parts, body.boxed()))
+}
+
+fn unanswered(st: &State, navigation: bool, why: String) -> Response<Body> {
+    (st.log)(&format!("proxy: the server did not answer: {why}"));
+    if navigation {
+        // FR-20.33 — a navigation gets a page that says so and tries again by itself.
+        let html = "<!doctype html><meta charset=\"utf-8\"><title>LGR</title><meta http-equiv=\"refresh\" content=\"5\">\
+                    <body style=\"font:15px system-ui,sans-serif;padding:32px\"><p>The shop server is not answering. Retrying…</p></body>";
+        let mut r = full(StatusCode::BAD_GATEWAY, "text/html; charset=utf-8", html.to_string());
+        r.headers_mut()
+            .insert("content-security-policy", HeaderValue::from_static("default-src 'none'; style-src 'unsafe-inline'"));
+        return r;
+    }
+    json(StatusCode::BAD_GATEWAY, "server_unreachable", "The shop server is not answering.")
 }
 
 fn strip_hop_by_hop(headers: &mut HeaderMap) {
@@ -568,11 +666,12 @@ mod tests {
 
     const TOKEN: &str = "test.desktop.token";
 
-    /// What the fake master saw: the request line and the headers, lower-cased.
+    /// What the fake master saw: the request line, the headers (names lower-cased) and the body.
     #[derive(Debug, Clone)]
     struct Seen {
         line: String,
         headers: Vec<(String, String)>,
+        body: Vec<u8>,
     }
 
     impl Seen {
@@ -582,8 +681,11 @@ mod tests {
     }
 
     /// A master of its own: TLS on 127.0.0.1 with a CA made here. It answers by path:
-    /// `/redirect` 302 to its own origin, `/denied` the LAN gate's 401, `/ws` 101 and then an echo,
-    /// anything else 200.
+    /// `/redirect` 302 to its own origin, `/denied` the LAN gate's 401 for a revoked desktop, `/ws`
+    /// 101 and then an echo, anything else 200. And as its clock would once it moved past a token's
+    /// 15 minutes (lgr#562): `/stale` and `/ws-stale` refuse the token `t1` with `desktop_required`
+    /// and answer any other as `/x` (`/stale` with `ok:<the body it read>`) and `/ws` would; `/never`
+    /// refuses every token.
     struct FakeMaster {
         port: u16,
         ca_pem: String,
@@ -639,10 +741,20 @@ mod tests {
                         .filter_map(|l| l.split_once(':'))
                         .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
                         .collect();
-                    let req = Seen { line: line.clone(), headers };
+                    let mut req = Seen { line: line.clone(), headers, body: Vec::new() };
+                    req.body = read_body(&mut tls, &req);
                     log.lock().unwrap().push(req.clone());
                     let path = line.split(' ').nth(1).unwrap_or("/");
+                    let stale = path == "/never" || (matches!(path, "/stale" | "/ws-stale") && req.get("x-lgr-desktop-token") == Some("t1"));
                     let answer = match path {
+                        _ if stale => {
+                            let body = r#"{"code":"desktop_required","message":"no"}"#;
+                            format!("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
+                        }
+                        "/stale" => {
+                            let body = format!("ok:{}", String::from_utf8_lossy(&req.body));
+                            format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
+                        }
                         "/redirect" => format!(
                             "HTTP/1.1 302 Found\r\nLocation: https://127.0.0.1:{port}/next?a=1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
                         ),
@@ -650,7 +762,7 @@ mod tests {
                             let body = r#"{"code":"desktop_revoked","message":"no"}"#;
                             format!("HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
                         }
-                        "/ws" => {
+                        "/ws" | "/ws-stale" => {
                             let _ = tls.write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n");
                             let _ = tls.flush();
                             let mut buf = [0u8; 64];
@@ -685,6 +797,26 @@ mod tests {
         String::from_utf8(head).ok()
     }
 
+    /// The request's body: `Content-Length` bytes, or a chunked body read up to its last chunk
+    /// (raw, which is enough to see that it arrived).
+    fn read_body(stream: &mut impl Read, req: &Seen) -> Vec<u8> {
+        if let Some(n) = req.get("content-length").and_then(|v| v.parse::<usize>().ok()) {
+            let mut body = vec![0u8; n];
+            return if stream.read_exact(&mut body).is_ok() { body } else { Vec::new() };
+        }
+        let mut body = Vec::new();
+        if req.get("transfer-encoding").is_some_and(|v| v.eq_ignore_ascii_case("chunked")) {
+            let mut byte = [0u8; 1];
+            while !body.ends_with(b"0\r\n\r\n") {
+                if stream.read(&mut byte).ok() != Some(1) {
+                    break;
+                }
+                body.push(byte[0]);
+            }
+        }
+        body
+    }
+
     struct Fixture {
         master: FakeMaster,
         proxy: Running,
@@ -698,19 +830,31 @@ mod tests {
     }
 
     fn fixture() -> Fixture {
+        fixture_with(|_| TOKEN.to_string())
+    }
+
+    /// A fixture whose every mint is a new token: `t1`, `t2`, …
+    fn fixture_minting() -> Fixture {
+        fixture_with(|n| format!("t{n}"))
+    }
+
+    fn fixture_with(token: fn(usize) -> String) -> Fixture {
         let master = fake_master();
         let mints = Arc::new(AtomicUsize::new(0));
         let counter = mints.clone();
         let up = Upstream {
             origin: url::Url::parse(&format!("https://127.0.0.1:{}", master.port)).unwrap(),
             tls: pinned(&master.ca_pem),
-            token: Arc::new(move || {
-                counter.fetch_add(1, Ordering::SeqCst);
-                Ok(TOKEN.to_string())
-            }),
+            token: Arc::new(move || Ok(token(counter.fetch_add(1, Ordering::SeqCst) + 1))),
         };
         let proxy = start(up, 0, Arc::new(|_| {})).unwrap();
         Fixture { master, proxy, mints }
+    }
+
+    /// The tokens the master was sent for requests whose line starts with `line`, in order.
+    fn tokens_seen(f: &Fixture, line: &str) -> Vec<String> {
+        let seen = f.master.seen.lock().unwrap();
+        seen.iter().filter(|s| s.line.starts_with(line)).map(|s| s.get("x-lgr-desktop-token").unwrap_or_default().to_string()).collect()
     }
 
     /// One HTTP/1.1 exchange with the proxy, written by hand so every header is the test's to choose.
@@ -876,6 +1020,131 @@ mod tests {
         assert!(r.ends_with(r#"{"code":"desktop_revoked","message":"no"}"#), "the refusal reaches the window as it is: {r}");
         assert_eq!(status(&get(&f, "/x", &with_cookie(&f))), 200);
         assert_eq!(f.mints.load(Ordering::SeqCst), 2, "the refused token was not used again");
+    }
+
+    #[test]
+    fn a_token_the_master_stopped_taking_is_replaced_and_the_request_sent_again() {
+        // lgr#562: the master's clock moved past the cached token's 15 minutes. Its front refuses
+        // that token before any route runs; the window must not see it, since the app signs the
+        // cashier out on a 401.
+        let f = fixture_minting();
+        assert_eq!(status(&get(&f, "/x", &with_cookie(&f))), 200, "t1, kept");
+        let r = get(&f, "/stale", &with_cookie(&f));
+        assert_eq!(status(&r), 200, "{r}");
+        assert!(r.ends_with("ok:"), "{r}");
+        assert_eq!(tokens_seen(&f, "GET /stale"), ["t1", "t2"], "the cached token, then a new one");
+        // The new one is the one kept.
+        assert_eq!(status(&get(&f, "/stale", &with_cookie(&f))), 200);
+        assert_eq!(tokens_seen(&f, "GET /stale"), ["t1", "t2", "t2"]);
+        assert_eq!(f.mints.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_post_is_sent_again_with_the_same_body() {
+        // A sale: the refusal came before any route, so the master has not seen it yet.
+        let f = fixture_minting();
+        let p = f.proxy.port;
+        assert_eq!(status(&get(&f, "/x", &with_cookie(&f))), 200);
+        let body = r#"{"lines":[{"productId":"p1","quantity":1}],"idempotencyKey":"k1"}"#;
+        let r = raw(p, &format!(
+            "POST /stale HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\n{}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            with_cookie(&f),
+            body.len()
+        ));
+        assert_eq!(status(&r), 200, "{r}");
+        assert!(r.ends_with(&format!("ok:{body}")), "the master read the window's body: {r}");
+        let posts: Vec<Seen> = f.master.seen.lock().unwrap().iter().filter(|s| s.line.starts_with("POST /stale")).cloned().collect();
+        assert_eq!(posts.iter().map(|s| s.get("x-lgr-desktop-token").unwrap_or_default()).collect::<Vec<_>>(), ["t1", "t2"]);
+        assert!(posts.iter().all(|s| s.body == body.as_bytes()), "the same body both times: {posts:?}");
+    }
+
+    #[test]
+    fn a_request_is_sent_again_once_and_never_for_a_token_minted_for_it() {
+        let f = fixture_minting();
+        // A token minted for this very request and refused: something else is wrong, and the
+        // refusal reaches the window as it is.
+        let r = get(&f, "/never", &with_cookie(&f));
+        assert_eq!(status(&r), 401, "{r}");
+        assert!(r.ends_with(r#"{"code":"desktop_required","message":"no"}"#), "{r}");
+        assert_eq!(tokens_seen(&f, "GET /never"), ["t1"]);
+        // A cached one refused: one more try, with a new token, and no more.
+        assert_eq!(status(&get(&f, "/x", &with_cookie(&f))), 200, "t2, kept");
+        let r = get(&f, "/never", &with_cookie(&f));
+        assert_eq!(status(&r), 401, "{r}");
+        assert!(r.ends_with(r#"{"code":"desktop_required","message":"no"}"#), "{r}");
+        assert_eq!(tokens_seen(&f, "GET /never"), ["t1", "t2", "t3"]);
+        assert_eq!(f.mints.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn a_revoked_desktop_is_told_so_and_not_asked_again() {
+        let f = fixture_minting();
+        assert_eq!(status(&get(&f, "/x", &with_cookie(&f))), 200);
+        let r = get(&f, "/denied", &with_cookie(&f));
+        assert_eq!(status(&r), 401);
+        assert!(r.ends_with(r#"{"code":"desktop_revoked","message":"no"}"#), "{r}");
+        assert_eq!(tokens_seen(&f, "GET /denied"), ["t1"], "a revocation is not a stale token");
+    }
+
+    #[test]
+    fn a_streamed_body_is_not_kept_and_its_refusal_goes_through() {
+        let f = fixture_minting();
+        let p = f.proxy.port;
+        assert_eq!(status(&get(&f, "/x", &with_cookie(&f))), 200);
+        let r = raw(p, &format!(
+            "POST /stale HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\n{}Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\nhello\r\n0\r\n\r\n",
+            with_cookie(&f)
+        ));
+        assert_eq!(status(&r), 401, "{r}");
+        assert_eq!(tokens_seen(&f, "POST /stale"), ["t1"], "a body that was not kept is never sent twice");
+        // The refused token is gone all the same.
+        assert_eq!(status(&get(&f, "/stale", &with_cookie(&f))), 200);
+        assert_eq!(tokens_seen(&f, "GET /stale"), ["t2"]);
+    }
+
+    #[test]
+    fn only_a_body_of_known_size_within_the_limit_is_kept() {
+        assert!(keepable(&hyper::body::SizeHint::with_exact(0)));
+        assert!(keepable(&hyper::body::SizeHint::with_exact(KEPT_BODY)));
+        assert!(!keepable(&hyper::body::SizeHint::with_exact(KEPT_BODY + 1)));
+        assert!(!keepable(&hyper::body::SizeHint::new()), "a streamed body has no upper bound");
+    }
+
+    #[test]
+    fn a_websocket_refused_for_its_token_is_opened_with_a_new_one() {
+        let f = fixture_minting();
+        let p = f.proxy.port;
+        assert_eq!(status(&get(&f, "/x", &with_cookie(&f))), 200);
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", p)).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let req = format!(
+            "GET /ws-stale HTTP/1.1\r\nHost: 127.0.0.1:{p}\r\n{}Origin: http://127.0.0.1:{p}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\
+             Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n",
+            with_cookie(&f)
+        );
+        s.write_all(req.as_bytes()).unwrap();
+        let head = read_head(&mut s).unwrap();
+        assert!(head.starts_with("HTTP/1.1 101"), "{head}");
+        s.write_all(b"ping-after-the-new-one").unwrap();
+        let mut buf = [0u8; 22];
+        s.read_exact(&mut buf).unwrap();
+        assert_eq!(&buf, b"ping-after-the-new-one");
+        assert_eq!(tokens_seen(&f, "GET /ws-stale"), ["t1", "t2"]);
+    }
+
+    #[test]
+    fn a_refused_token_is_forgotten_only_while_it_is_the_one_held() {
+        // Requests refused together: the first mints a new token, and the others' refusals of the
+        // old one must not throw it away.
+        let f = fixture_minting();
+        let st = f.proxy.state.clone();
+        tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+            *st.token.lock().await = Some(("t2".into(), Instant::now()));
+            st.forget_token("t1").await;
+            assert_eq!(st.token.lock().await.as_ref().map(|(t, _)| t.clone()).as_deref(), Some("t2"));
+            st.forget_token("t2").await;
+            assert!(st.token.lock().await.is_none());
+        });
     }
 
     #[test]
