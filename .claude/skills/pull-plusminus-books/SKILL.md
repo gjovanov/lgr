@@ -128,10 +128,13 @@ bun .claude/skills/pull-plusminus-books/nightly.ts --check-mail  # SendGrid sand
 ```
 
 - **It mails only on a change or a failure**: counts per year, then the documents that differ from the last import, a line
-  each: date, type and number, and `new`, `changed` (with what: operations, total, amounts, accounts, analytics, notes),
-  `moved` (to another customer or supplier) or `gone`. Never a name or an amount. A mail carries the first 60 lines, and
-  `books/<day>/changes-<sha>.txt` has them all. The same failure is mailed once a day. The PC is off at night and at
-  weekends, so no answer is quiet, until 72 hours of it, which is a failure.
+  each: date, type and number, and `new`, `changed` (with what: operations, total, amounts, cost of goods, accounts,
+  analytics, notes), `moved` (to another customer or supplier) or `gone`. Never a name or an amount. A mail carries the
+  first 60 lines, and `books/<day>/changes-<sha>.txt` has them all. The same failure is mailed once a day. The PC is off at
+  night and at weekends, so no answer is quiet, until 72 hours of it, which is a failure.
+- „cost of goods" alone means PlusMinus worked out again what the goods taken out of stock cost, as it does after a
+  delivery is entered back-dated: no total, revenue or VAT changed. On 2026-11-06 that was 49 of the 51 documents a mail
+  listed, and every line that changed on them was the cost of one of four products the back-dated deliveries brought in.
 - The documents of the last import are kept by the importer's own key in `books/nightly-documents.json.gz` (about 2.6 MB),
   which is what the next list compares with. ⚠ The books PC writes the day's archive again, under the same name, at each
   session close, and `fetch-archive.ts` replaces the earlier copy. On 2026-11-06 the 13:00 import mailed „64 change(s)" from

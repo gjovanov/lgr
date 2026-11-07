@@ -138,8 +138,48 @@ describe('books nightly: which documents an import changed', () => {
   it('a document with another operation, or other amounts, is changed, and says what', () => {
     const paid = sale({ ops: [...sale().ops, { d: '501', k: '411', ak: customer, amount: 120 }] })
     expect(changes([sale()], [paid])).toEqual([{ month: '2026-01', kind: 'changed', label: '2026-01-08 -ФЕ 2000000001', what: '3 → 4 operations' }])
-    const recosted = sale({ total: 121, ops: sale().ops.map(op => (op.k === '304' ? { ...op, amount: 81 } : op)) })
-    expect(changes([sale()], [recosted])[0].what).toBe('total, amounts or quantities')
+    const resold = sale({ total: 121, ops: sale().ops.map(op => (op.k === '702' ? { ...op, amount: 101 } : op)) })
+    expect(changes([sale()], [resold])[0].what).toBe('total, amounts or quantities')
+  })
+
+  /**
+   * A delivery entered back-dated makes PlusMinus work out the cost of the goods sold since then again: 49 documents of the
+   * 2026-11-06 mail had changed nothing else.
+   */
+  describe('the cost of goods', () => {
+    const recost = (doc: ImportDocument, amount: number): ImportDocument => ({ ...doc, ops: doc.ops.map(op => (op.k === '304' ? { ...op, amount } : op)) })
+
+    it('a sale whose cost alone was worked out again says so', () => {
+      expect(changes([sale()], [recost(sale(), 65.31)])[0].what).toBe('cost of goods')
+    })
+
+    it('so does a write-off, which takes goods out of stock too', () => {
+      const writeOff: ImportDocument = { date: '2026-03-02', docType: 'СИ', docNumber: '7', total: 0, ops: [{ d: '601', k: '304', ak: 'СТОКИ:Болт М8Х25', qty: 2, amount: 16 }] }
+      expect(changes([writeOff], [recost(writeOff, 15.5)])[0].what).toBe('cost of goods')
+    })
+
+    it('a quantity is never a cost: another quantity sold is other amounts too', () => {
+      const more = sale({ total: 132, ops: [
+        { d: '702', k: '304', ak: 'СТОКИ:Болт М8Х25', qty: 11, amount: 88 },
+        { d: '411', k: '702', ad: customer, amount: 110 },
+        { d: '411', k: '4532', ad: customer, amount: 22 },
+      ] })
+      expect(changes([sale()], [more])[0].what).toBe('total, amounts or quantities, cost of goods')
+      const recounted = sale({ ops: sale().ops.map(op => (op.k === '304' ? { ...op, qty: 11 } : op)) })
+      expect(changes([sale()], [recounted])[0].what).toBe('amounts or quantities')
+    })
+
+    it('goods coming into stock are not a cost', () => {
+      const delivery: ImportDocument = { date: '2026-10-26', docType: '+ФЕ', docNumber: '475', total: 96, ops: [{ d: '304', k: '401', ad: 'СТОКИ:Болт М8Х25', ak: 'ДОСТАВЧИЦИ:Доставчик ООД', qty: 10, amount: 80 }] }
+      expect(changes([delivery], [{ ...delivery, ops: [{ ...delivery.ops[0], amount: 79 }] }])[0].what).toBe('amounts or quantities')
+    })
+
+    it('against a file kept before the cost of goods was told apart, it is still "amounts or quantities"', () => {
+      const kept = importedDocuments([sale()])
+      for (const doc of kept.values()) doc.parts = doc.parts.split('.').slice(0, 7).join('.')
+      expect(documentChanges(kept, importedDocuments([recost(sale(), 65.31)]))[0].what).toBe('amounts or quantities')
+      expect(documentChanges(kept, importedDocuments([sale()]))).toEqual([])
+    })
   })
 
   it('a document moved to another customer is one move, not one new and one gone', () => {
