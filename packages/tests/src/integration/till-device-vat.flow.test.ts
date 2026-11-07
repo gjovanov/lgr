@@ -5,7 +5,9 @@ import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/ti
 import { createTestContact, createTestProduct, createTestStockLevel } from '../helpers/factories'
 import type { SimReceipt } from '../helpers/eltrade-simulator'
 import { Invoice } from 'db/models'
-import { computePosTotals, roundCents } from 'config/pos-totals'
+import { computePosTotals, roundCents, tillLineAmounts, tillTotals } from 'config/pos-totals'
+import { computeTotals } from '../../../invoicing-ui/src/composables/document-form/document-payload'
+import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
 
 /**
  * #554 — the VAT a sale stores is the VAT its fiscal device took out.
@@ -54,19 +56,24 @@ async function articles(w: TillWorld, specs: Omit<Article, 'id'>[]): Promise<Art
   return out
 }
 
-/** The till's request, as `PosTerminalView` sends it: net prices, each line's net and its rounded VAT. */
+/**
+ * The till's request, as `PosTerminalView` sends it: net prices, each line's net and its rounded VAT
+ * (`tillLineAmounts`). `screen` is what the terminal shows before the sale (`tillTotals`).
+ */
 function tillSale(items: [Article, number][]) {
-  const t = computePosTotals(items.map(([a, quantity]) => ({ quantity, unitPrice: a.price, taxRate: a.rate })))
+  const cart = items.map(([a, quantity]) => ({ quantity, unitPrice: a.price, taxRate: a.rate }))
+  const t = computePosTotals(cart)
+  const screen = tillTotals(cart)
   return {
     t,
+    screen,
     body: {
       type: 'sale',
-      lines: items.map(([a, quantity]) => ({
-        productId: a.id, name: a.name, quantity, unitPrice: a.price, discount: 0, taxRate: a.rate,
-        taxAmount: Math.round(quantity * a.price * (a.rate / 100) * 100) / 100, lineTotal: quantity * a.price,
+      lines: items.map(([a, quantity], i) => ({
+        productId: a.id, name: a.name, quantity, unitPrice: a.price, discount: 0, taxRate: a.rate, ...tillLineAmounts(cart[i]),
       })),
-      subtotal: t.subtotal, discountTotal: 0, taxTotal: t.taxTotal, total: t.total,
-      payments: [{ method: 'cash', amount: t.total }], changeDue: 0,
+      subtotal: screen.subtotal, discountTotal: 0, taxTotal: screen.taxTotal, total: screen.total,
+      payments: [{ method: 'cash', amount: screen.total }], changeDue: 0,
     },
   }
 }
@@ -88,9 +95,10 @@ describe('#554 — a sale stores the VAT its device took out', () => {
   it('at the till: a two-rate sale whose lines do not print exactly, its storno, and its session report', async () => {
     const w = await tillWorld(app)
     const [strainer, pipe] = await articles(w, [{ name: 'Цедка', price: 4.2233, rate: 20 }, { name: 'Тръба', price: 5.5555, rate: 9 }])
-    const { t, body } = tillSale([[strainer, 1], [pipe, 1]])
-    // Each rate's own gross: 5.07 + 6.06, VAT 0.85 + 0.50.
+    const { t, screen, body } = tillSale([[strainer, 1], [pipe, 1]])
+    // Each rate's own gross: 5.07 + 6.06, VAT 0.85 + 0.50. The screen already says what the sale will store.
     expect(t).toMatchObject({ total: 11.13, taxTotal: 1.35 })
+    expect(screen).toMatchObject({ total: 11.13, taxTotal: 1.34, subtotal: 9.79 })
 
     const res = await w.call('POST', `/trade/pos/session/${w.sessionId}/transaction`, body)
     expect(res.status).toBe(200)
@@ -130,8 +138,12 @@ describe('#554 — a sale stores the VAT its device took out', () => {
     const items: [Article, number][] = [[strainer, 1], [washer, 2], [pipe, 1]]
     const t = computePosTotals(items.map(([a, quantity]) => ({ quantity, unitPrice: a.price, taxRate: a.rate })))
     expect(t).toMatchObject({ total: 11.42, taxTotal: 1.39 })
+    // What the cash-sale form shows, and writes into its „Словом" note, is what the server will store.
+    const lines = formLines(w, items)
+    const form = computeTotals(lines as any, DOCUMENT_CONFIGS.cash_sale)
+    expect(form).toMatchObject({ total: 11.42, taxTotal: 1.4, subtotal: 10.02 })
 
-    const res = await w.cashierBackOfficeSale(1, { lines: formLines(w, items), subtotal: t.subtotal, taxTotal: t.taxTotal, total: t.total })
+    const res = await w.cashierBackOfficeSale(1, { lines, subtotal: form.subtotal, taxTotal: form.taxTotal, total: form.total })
     expect(res.status).toBe(200)
     const doc = await stored(res.json.invoice.id)
     expect(doc.register.fiscal.state).toBe('printed')

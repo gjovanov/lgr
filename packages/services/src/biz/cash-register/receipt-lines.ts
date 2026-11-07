@@ -1,5 +1,8 @@
-import { roundCents } from 'config/pos-totals'
+import { apportion, deviceTaxTotal, deviceTotals, grossByRate, roundCents, vatOf, type RateShare } from 'config/pos-totals'
 import { withLineAmounts } from '../document-amounts.js'
+
+// The share rules live with the totals (`config/pos-totals`), where the screens read them too (#554).
+export { apportion, deviceTaxTotal, deviceTotals, grossByRate, vatOf, type RateShare }
 
 /**
  * FR-23 §2.2 — what the fiscal receipt of a payment on an invoice says.
@@ -32,11 +35,6 @@ import { withLineAmounts } from '../document-amounts.js'
  */
 export function fiscalUnitPrice(netUnitPrice: number, taxRate: number | undefined): number {
   return roundCents(netUnitPrice * (1 + (taxRate || 0) / 100))
-}
-
-export interface RateShare {
-  rate: number
-  gross: number
 }
 
 interface SourceLine {
@@ -85,47 +83,6 @@ export interface ReceiptBody {
 const num = (v: unknown) => Number(v) || 0
 const toCents = (v: number) => Math.round(num(v) * 100)
 const sum = (ns: number[]) => ns.reduce((s, n) => s + n, 0)
-
-/**
- * `cents` shared out in proportion to `weights`, to the cent, largest remainder first. Whole
- * numbers, so nothing is lost to the floats. Null when a weight is negative or nothing weighs.
- */
-export function apportion(weights: number[], cents: number): number[] | null {
-  if (weights.some(w => w < 0)) return null
-  const whole = sum(weights)
-  if (whole <= 0) return null
-  const exact = weights.map(w => (w * cents) / whole)
-  const shares = exact.map(x => Math.floor(x + 1e-9))
-  let left = cents - sum(shares)
-  const order = exact.map((x, i) => ({ i, rest: x - Math.floor(x + 1e-9) })).sort((a, b) => b.rest - a.rest || a.i - b.i)
-  for (const { i } of order) {
-    if (left <= 0) break
-    shares[i]++
-    left--
-  }
-  return shares
-}
-
-/**
- * The document's money per VAT rate, adding up to its total exactly. A line's `lineTotal` is gross
- * on every invoice-side document (FR-21.5); lines and total can still differ by rounding, and the
- * total is what is owed, so it is shared out in the lines' proportions.
- */
-export function grossByRate(doc: ReceiptSource): RateShare[] | null {
-  const byRate = new Map<number, number>()
-  for (const l of doc.lines || []) {
-    const rate = num(l.taxRate)
-    byRate.set(rate, (byRate.get(rate) || 0) + num(l.lineTotal))
-  }
-  const rates = [...byRate.keys()]
-  const shares = apportion(rates.map(r => toCents(byRate.get(r)!)), toCents(num(doc.total)))
-  return shares && rates.map((rate, i) => ({ rate, gross: shares[i] / 100 }))
-}
-
-/** The VAT in a rate's gross, to the cent, as a fiscal device takes it out of the gross it adds up for that rate. */
-export function vatOf(share: RateShare): number {
-  return roundCents((share.gross * share.rate) / (100 + share.rate))
-}
 
 /** What the receipts already printed took, per rate: their lines' gross. */
 export function receiptedByRate(receipts: { lines?: SourceLine[] }[]): Map<number, number> {
@@ -220,35 +177,6 @@ export function linesOnDevice(doc: ReceiptSource, name: string): SourceLine[] {
   const perRate = gross.filter(g => g.gross > 0).map(g => rateLine(name, g))
   // A document that comes to nothing has no money to give a line: its own lines, for the driver to say.
   return perRate.length ? perRate : doc.lines ?? []
-}
-
-/**
- * #554 — the VAT a fiscal device takes out of this document. A device adds up the money of each VAT rate and takes
- * the VAT out of that, and what it adds up is `grossByRate` either way: `linesOnDevice` gives it the lines only
- * when they come to those amounts exactly, and a line per rate at them when they do not. So a document storing this
- * books what its receipt printed.
- *
- * `computePosTotals` rounds each rate's own gross instead. Those amounts are the same where the lines print exactly.
- * Where they do not, and the sale spans two rates, the total can be shared out a cent differently between the
- * rates, and the VAT moves with it. A till sale of 4.2233 net at 20 % and 5.5555 at 9 % comes to 11.13 either way.
- * Its rates' own gross is 5.07 and 6.06, VAT 0.85 + 0.50; its lines say 5.06 and 6.06, so the device is given 5.06
- * and 6.07 and takes out 0.84 + 0.50.
- *
- * Null where a rate's total is negative, which no device takes.
- */
-export function deviceTaxTotal(doc: ReceiptSource): number | null {
-  const gross = grossByRate(doc)
-  return gross && roundCents(sum(gross.map(vatOf)))
-}
-
-/**
- * A new sale's VAT and net as its device books them (`deviceTaxTotal`), for the doors that write one: the till and
- * the back office. The total stands, since it is what the customer pays, and the net is what is left of it. Null
- * where the money cannot be shared per rate: the totals the door computed stand.
- */
-export function deviceTotals(doc: ReceiptSource): { taxTotal: number; subtotal: number } | null {
-  const taxTotal = deviceTaxTotal(doc)
-  return taxTotal === null ? null : { taxTotal, subtotal: roundCents(num(doc.total) - taxTotal + num(doc.discountTotal)) }
 }
 
 /** The document's lines as a receipt carries them, without what ties them to orders and sales. */

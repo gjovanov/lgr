@@ -18,7 +18,7 @@
 
 import type { DocumentTypeConfig } from './types'
 import { MAX_PRICE_TIERS } from 'config/constants'
-import { computePosTotals } from 'config/pos-totals'
+import { computePosTotals, deviceTotals } from 'config/pos-totals'
 import { buildProductUpdates as buildGRProductUpdates, type GRBase, type GRTier } from 'ui-shared/composables/gr-product-update'
 
 /**
@@ -172,10 +172,17 @@ export function computeTotals(
   // the fiscal device total one: the gross rounded once per VAT rate, VAT taken back out of it. The
   // components-first rounding below can be a cent away, and a joined sale prints on the device.
   if (config.docType === 'cash_sale') {
-    const t = computePosTotals(filledLines(lines).map((l) => ({
+    const filled = filledLines(lines)
+    const t = computePosTotals(filled.map((l) => ({
       quantity: num(l.quantity), unitPrice: num(l.unitPrice), taxRate: num(l.taxRate), discount: hasDiscount ? num(l.discount) : 0,
     })))
-    return { subtotal: t.subtotal, discountTotal: t.discountTotal, taxTotal: t.taxTotal, total: t.total }
+    // #554: the VAT and net the server stores, out of the gross per rate the saved lines give the device. So the
+    // form, its „Словом" note and the stored document say the same.
+    const stored = deviceTotals({
+      total: t.total, discountTotal: t.discountTotal,
+      lines: filled.map((l) => ({ taxRate: num(l.taxRate), lineTotal: round2(lineAmounts(l, hasDiscount).total) })),
+    })
+    return { subtotal: stored?.subtotal ?? t.subtotal, discountTotal: t.discountTotal, taxTotal: stored?.taxTotal ?? t.taxTotal, total: t.total }
   }
   let subtotal = 0
   let discountTotal = 0

@@ -488,6 +488,18 @@ describe('buildPayload — cash sale', () => {
     // A sales invoice keeps its own rule.
     expect(computeTotals(valve.lines, DOCUMENT_CONFIGS.invoice).total).toBeCloseTo(21.48, 2)
   })
+
+  // #554: the server stores the VAT the device takes out of the gross per rate these lines give it. The form shows
+  // that, and its „Словом" note's tax base is that net, so the saved document, its view and its print agree.
+  it('shows the VAT and net the server stores: the device\'s, a cent from each rate\'s own rounding here', () => {
+    const line = (productId: string, quantity: number, unitPrice: number, taxRate: number) => ({ productId, description: productId, quantity, unit: 'pcs', unitPrice, taxRate, warehouseId: 'w4' })
+    const lines = [line('strainer', 1, 4.2233, 20), line('washer', 2, 0.1234, 20), line('pipe', 1, 5.5555, 9)]
+    const t = computeTotals(lines, DOCUMENT_CONFIGS.cash_sale)
+    // Each rate's own rounding says 1.39 and 10.03; the device is given 5.37 and 6.05 and takes 0.90 + 0.50 out.
+    expect(t).toEqual({ subtotal: 10.02, discountTotal: 0, taxTotal: 1.4, total: 11.42 })
+    // The payload carries the lines the server shares the total by.
+    expect(wire(buildPayload({ ...state, lines }, DOCUMENT_CONFIGS.cash_sale)).lines.map((l: any) => l.lineTotal)).toEqual([5.07, 0.3, 6.06])
+  })
 })
 
 describe('filledLines — free-text lines count', () => {

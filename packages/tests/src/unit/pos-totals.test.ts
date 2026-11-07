@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { computePosTotals, roundCents } from 'config/pos-totals'
+import { computePosTotals, roundCents, tillLineAmounts, tillTotals } from 'config/pos-totals'
 
 /**
  * The shared POS totals: the terminal screen, the server's validation and the receipt all
@@ -50,6 +50,24 @@ describe('computePosTotals', () => {
 
   it('is empty for an empty cart', () => {
     expect(computePosTotals([])).toEqual({ subtotal: 0, discountTotal: 0, taxTotal: 0, total: 0 })
+  })
+})
+
+describe('tillTotals (#554)', () => {
+  it('what the till shows is what it stores: the VAT its device takes out of the shares its lines give it', () => {
+    const cart = [{ quantity: 1, unitPrice: 4.2233, taxRate: 20 }, { quantity: 1, unitPrice: 5.5555, taxRate: 9 }]
+    expect(computePosTotals(cart)).toMatchObject({ total: 11.13, taxTotal: 1.35, subtotal: 9.78 })
+    // Lines of 5.06 and 6.06 share out 11.13 as 5.06 and 6.07: VAT 0.84 + 0.50.
+    expect(tillTotals(cart)).toEqual({ total: 11.13, discountTotal: 0, taxTotal: 1.34, subtotal: 9.79 })
+    expect(cart.map(tillLineAmounts)).toEqual([{ taxAmount: 0.84, lineTotal: 4.2233 }, { taxAmount: 0.5, lineTotal: 5.5555 }])
+  })
+
+  it('one rate, or lines that print exactly: computePosTotals\' own figures', () => {
+    for (const cart of [
+      [{ quantity: 3, unitPrice: 17.8952, taxRate: 20 }, { quantity: 7, unitPrice: 4.2233, taxRate: 20 }],
+      [{ quantity: 2, unitPrice: 10, taxRate: 20 }, { quantity: 3, unitPrice: 1, taxRate: 9 }],
+      [],
+    ]) expect(tillTotals(cart)).toEqual(computePosTotals(cart))
   })
 })
 
