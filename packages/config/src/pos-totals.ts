@@ -12,6 +12,11 @@
  * gross per rate, as the device prints it, and the net is what remains. So the printed
  * subtotal − discount + VAT always equals the total to the cent: no more 17.90 + 3.58
  * printed above a 21.47 total.
+ *
+ * The total is the sale's. The VAT a sale STORES is its device's (`receipt-lines#deviceTotals`,
+ * #554): where its lines do not print exactly and it spans two rates, the device is given the
+ * total shared out per rate in the lines' proportions, which can sit a cent from each rate's own
+ * rounding here, and its VAT with it. The screen's VAT before the sale can then be that cent off.
  */
 export interface PosTotalsLine {
   quantity: number

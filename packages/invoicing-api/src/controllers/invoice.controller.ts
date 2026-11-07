@@ -31,7 +31,7 @@ import {
   DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, freezeUnderNotes, inDoubtRefusal, isImportedDocument, owedByMovingToDelivery, owesDeliveryReceipt,
   paymentRefusal, printsOnPayment, receiptFacts, receiptInDoubt,
 } from 'services/biz/cash-register/payment-receipt.service'
-import { movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
+import { deviceTotals, movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
 import { NOT_PAYMENT_RECEIPT, printsHere } from 'services/biz/sale-counting'
 import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from 'services/biz/cash-register/immutability'
 import {
@@ -873,6 +873,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
             message: `Total mismatch: calculated ${pos.total.toFixed(2)}, received ${Number(body.total).toFixed(2)}`,
           })
         }
+        // #554: its VAT and net as the device books them, out of the gross per rate its lines give it.
+        if (pos) Object.assign(pos, deviceTotals({ total: pos.total, discountTotal: pos.discountTotal, lines }))
         // FR-21.31 (D-13): a sale entered here by someone with an open session joins it. An imported
         // till day never does: it is a day's takings, not one drawer's sale.
         createCtx.joined = origin === 'backoffice' ? await openSessionOf(orgId, user.id) : null

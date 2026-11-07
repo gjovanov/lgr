@@ -1269,8 +1269,13 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   report did, and printed a rate's „Сума" a cent off its „ОБЩО" (2026-11-06). Per rate it now takes the gross
   the device was given, `grossByRate` (the one rule `linesOnDevice` prints and `printedByRate` charges stornos
   against; NOT `computePosTotals` per rate, which a two-rate sale's device never sees), and the document's VAT
-  shared out over it (`session-report.ts#rowByRate`). ⚠ A document's VAT can itself be a cent off its device's
-  (#554). Reports kept by a close before that are records and keep the cent.
+  shared out over it (`session-report.ts#rowByRate`). Reports kept by a close before that are records and keep
+  the cent.
+  ⚠ The VAT a sale STORES is its device's (#554, `receipt-lines.ts#deviceTotals`): each rate's VAT out of the
+  gross `grossByRate` gives the device, at the till's and the back office's doors and on a payment receipt that
+  prints the invoice's lines. In a two-rate sale whose lines do not print exactly that can be a cent from
+  `computePosTotals`' own VAT, which the screen shows before the sale. The total never moves. Sales stored before
+  keep their cent.
 - A device's own reports (X, Z, fiscal memory) count only fiscal receipts. A unit not yet fiscalized prints every
   till sale as a text receipt, so its reports print 0.00 against a session that sold, correctly. POS Sessions →
   Device reports says how many text receipts they leave out (`GET …/device-report` → `notOnDevice`).
