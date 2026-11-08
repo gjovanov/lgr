@@ -106,19 +106,32 @@ export function splitByRate(gross: RateShare[], receipted: Map<number, number>, 
   return shares && gross.map((g, i) => ({ rate: g.rate, gross: shares[i] / 100 })).filter(s => s.gross > 0)
 }
 
-/** What a device adds this line up to: its rounded price times the quantity, less the discount. */
+/**
+ * The percent off a driver sends for a line's discount, or null when it would not send the document's own. Every
+ * driver sends two decimals, and a Datecs or a Tremol drops a discount below zero, so a line with either would
+ * total on the device to another amount than the document's (#574).
+ */
+function sentDiscount(discount: number): number | null {
+  if (discount === 0) return 0
+  const sent = Math.round(discount * 100) / 100
+  return discount > 0 && discount <= 99 && Math.abs(discount - sent) < 1e-9 ? sent : null
+}
+
+/** What a device adds this line up to: its rounded price times the quantity, less the discount as it is sent. */
 function deviceAmount(l: SourceLine): number {
   const gross = roundCents(fiscalUnitPrice(num(l.unitPrice), num(l.taxRate)) * Number(num(l.quantity).toFixed(3)))
-  return l.discount ? roundCents(gross - roundCents((gross * num(l.discount)) / 100)) : gross
+  const discount = sentDiscount(num(l.discount)) ?? 0
+  return discount ? roundCents(gross - roundCents((gross * discount) / 100)) : gross
 }
 
 /**
  * Whether the device, given these lines, comes to exactly the document's money, rate by rate, and
- * will take them at all: it refuses a quantity or a price below zero, and a discount of 100 %.
+ * will take them at all: it refuses a quantity or a price below zero, and a discount of 100 %. A discount
+ * the drivers would not send as it is never prints as a line either (`sentDiscount`).
  */
 export function printsExactly(doc: ReceiptSource, gross: RateShare[]): boolean {
   const lines = doc.lines || []
-  if (!lines.length || !lines.every(l => num(l.quantity) > 0 && num(l.unitPrice) >= 0 && Math.abs(num(l.discount)) <= 99)) return false
+  if (!lines.length || !lines.every(l => num(l.quantity) > 0 && num(l.unitPrice) >= 0 && sentDiscount(num(l.discount)) !== null)) return false
   return gross.every(g => toCents(sum(lines.filter(l => num(l.taxRate) === g.rate).map(deviceAmount))) === toCents(g.gross))
 }
 
