@@ -84,6 +84,29 @@ describe('the org loops skip orgs homed elsewhere (AC 6)', () => {
     expect((await digestTick(EARLY)).checked).toBe(1)
   })
 
+  // #581, FR-20.21: the opt-in is lgrai.app's (73 of its 80 orgs are e2e tenants). A master holds no
+  // such tenants, its nightly is the shop's only regular copy, and nothing on a master ever set the
+  // flag, so a shop set up on its console never had a nightly at all.
+  it('a master backs up every org homed there, whether or not it opted in', async () => {
+    const { away } = await world()
+    const unset = await createTestOrg()
+    await Org.updateOne({ _id: away._id }, { $set: { 'settings.backup.enabled': false } }).exec()
+    await Org.updateOne({ _id: unset._id }, { $unset: { 'settings.backup': '' } }).exec()
+    await moveAway(away._id)
+    await moveAway(unset._id)
+    ;(config.node as any).role = 'master'
+    ;(config.node as any).id = 'node-shop-1'
+    forgetAllHomes()
+    expect((await backupTick(EARLY)).checked).toBe(2)
+  })
+
+  it('lgrai.app still takes only the orgs that opted in', async () => {
+    const { home } = await world()
+    await Org.updateOne({ _id: home._id }, { $set: { 'settings.backup.enabled': false } }).exec()
+    await createTestOrg()
+    expect((await backupTick(EARLY)).checked).toBe(1)
+  })
+
   it('the desktop reaper leaves a silent till of an org homed elsewhere', async () => {
     const { home, away } = await world()
     const old = new Date(Date.now() - 86_400_000)

@@ -366,6 +366,7 @@ always wins, and setup never edits this file. Set something here only to change 
 | `SETUP_PORT` | The setup console's port on loopback, 4480 by default. |
 | `BACKUP_LOCAL_PATH` | A second disk, a USB drive or a share, for a copy of every night's backup (`<path>/LGR/Backups/<org>/<kind>/`). It must be **another disk** than the server's data. A folder on the same disk is refused, because a copy beside the database is no copy, and so is a drive that is not there (unplugged, or a share that is down). Mount the drive where the service can write. |
 | `BACKUP_LOCAL_KEEP` | How many generations the local copy keeps. |
+| `BACKUP_HOUR` | The hour of the nightly backup, 0 to 23, in each organisation's own time zone (default 3). The server backs up every organisation it holds each night, from 0.1.11 (gjovanov/lgr#581: before it, none was ever due). |
 | `UPDATE_WINDOW`, `UPDATE_AUTO` | The nightly update window: see [Versions and updates](#versions-and-updates). |
 | `NIGHT_RESTART` | Linux: `off` stops the server restarting itself at night for a library a security update replaced. See [Security updates](#security-updates-on-ubuntu-and-debian). |
 

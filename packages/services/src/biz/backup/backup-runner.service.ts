@@ -593,8 +593,13 @@ export async function backupTick(now = new Date()): Promise<{ checked: number; r
   // on the SCHEDULER only — an org admin can always take a manual backup of their own org.
   // FR-20.85: only the orgs whose home is this node — the copy it would bundle off home is a mirror,
   // and the run record it claims is a write the guard refuses.
+  // ⚠ The opt-in is lgrai.app's alone (#581). A master holds no e2e tenants, its nightly is the
+  // shop's only regular copy (FR-20.21), and nothing on a master ever sets the flag: behind it, a
+  // shop set up on its console never took a nightly at all. On a master the hour is the org's, or
+  // the operator's `BACKUP_HOUR`.
+  const optedIn = nodeRole() === 'master' ? {} : { 'settings.backup.enabled': true }
   const orgs: any[] = await Org.find(
-    { 'settings.backup.enabled': true, ...(await homeScope('_id')) },
+    { ...optedIn, ...(await homeScope('_id')) },
     { name: 1, settings: 1 },
   ).lean().exec()
   let ran = 0
