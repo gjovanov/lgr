@@ -166,11 +166,11 @@ async function tick(now: Date): Promise<number> {
   try {
     const homes: any[] = await OrgHome.find({ home: node, state: 'active' }, { orgId: 1 }).lean()
     const local = await readMark(file)
-    if (local.error) {
-      // Kept aside, never overwritten: a mark that cannot be read is still somebody's evidence.
-      await rename(file, `${file}.unreadable`).catch(() => {})
-      logger.error({ file, err: local.error }, 'Legal mark: the mark beside the database could not be read; it is kept aside and a new one starts from the backup drive\'s copy and the counters')
-    }
+    // Kept aside, never overwritten: a mark that cannot be read is still somebody's evidence.
+    if (local.error) await rename(file, `${file}.unreadable`).catch(() => {})
+    condition('local-read', local.error ?? null,
+      err => logger.error({ file, err }, 'Legal mark: the mark beside the database could not be read; it is kept aside and a new one starts from the backup drive\'s copy and the counters'),
+      'Legal mark: the mark beside the database is read again')
     const drive = await driveTarget()
     condition('drive', drive.why ?? null, why => logger.warn({ why }, 'Legal mark: no copy on the backup drive, so a restore of the whole system disk would go unseen'), 'Legal mark: the copy on the backup drive is kept again')
     const copy = drive.file ? await readMark(drive.file) : { mark: null }
