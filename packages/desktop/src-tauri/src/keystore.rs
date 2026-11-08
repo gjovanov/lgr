@@ -17,8 +17,10 @@
 //! `settings.rs`'s own test fails if a key-shaped field ever appears in it. A copied config must
 //! yield no credential (AC 10).
 
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard};
+use std::time::Duration;
 
 /// Where the key ended up, which the Overview turns into a banner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,6 +114,9 @@ fn secret_path(dir: &Path) -> PathBuf {
 }
 
 /// Read the readable half. Absent or corrupt is "not registered", never a failure to start.
+///
+/// No lock: every write replaces the file whole ([`write_atomically`]), so a read at any moment
+/// finds the record before a write or after it.
 pub fn load(dir: &Path) -> Stored {
     std::fs::read_to_string(record_path(dir))
         .ok()
@@ -119,9 +124,87 @@ pub fn load(dir: &Path) -> Stored {
         .unwrap_or_default()
 }
 
+/// Every write of the record in this process, one at a time (lgr#587).
+///
+/// ⚠ Held across a whole read-change-write ([`update`]), and never across a request to a server:
+/// presence and the bridge each mint a token at every start, a mint writes back what it learned
+/// (the clock's offset, `update_required`), and two writes that each began from their own read
+/// lost one another's change.
+static RECORD: Mutex<()> = Mutex::new(());
+
+fn record_lock() -> MutexGuard<'static, ()> {
+    // A thread that panicked while holding it left no half-written record behind (the write is
+    // atomic), so the lock is simply taken again instead of failing every later write.
+    RECORD.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Write the readable half, whole. For a change to what is stored, [`update`].
 pub fn save(dir: &Path, stored: &Stored) -> io::Result<()> {
+    let _held = record_lock();
+    write_record(dir, stored)
+}
+
+/// Read the record, change it, and write it back, with no other write of it in between. Returns
+/// the record as it now is. Nothing is written when the change changed nothing.
+///
+/// ⚠ The way to change the record. A `load` then a `save` loses whatever another thread wrote in
+/// between, and a mint can be that other thread at any time.
+pub fn update(dir: &Path, change: impl FnOnce(&mut Stored)) -> io::Result<Stored> {
+    let _held = record_lock();
+    let mut stored = load(dir);
+    let before = serde_json::to_string(&stored)?;
+    change(&mut stored);
+    if serde_json::to_string(&stored)? != before {
+        write_record(dir, &stored)?;
+    }
+    Ok(stored)
+}
+
+fn write_record(dir: &Path, stored: &Stored) -> io::Result<()> {
     let text = serde_json::to_string_pretty(stored)?;
-    std::fs::write(record_path(dir), text)
+    write_atomically(&record_path(dir), text.as_bytes())
+}
+
+/// `path` replaced by `bytes`, so that a reader finds the old file or the new one and never a short
+/// or empty one (lgr#587). The bytes go to a file beside it, are flushed to the disk, and that file
+/// is renamed over `path`.
+///
+/// ⚠ `std::fs::write` truncated the record and then wrote it. A read in between, the bridge's mint
+/// at a start while presence's mint was writing, found it empty and took the machine for
+/// unregistered: `not_registered`, which the bridge treats as final, so the till held no fiscal
+/// device until LGR Desktop was restarted by hand.
+///
+/// `std::fs::rename` replaces the target in one step: `rename(2)` on Unix; on Windows
+/// `SetFileInformationByHandle` (`FileRenameInfoEx`, POSIX semantics) where the OS has it, else
+/// `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING`. A reader that has the old file open keeps reading
+/// the old file: std opens files with `FILE_SHARE_DELETE`.
+fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+    }
+    replace(&tmp, path)
+}
+
+/// The rename, asked a few times more when refused. ⚠ On Windows a file another process holds open
+/// without `FILE_SHARE_DELETE` (an antivirus scanning it, a backup tool) cannot be replaced, and the
+/// refusal says "access denied" at once rather than waiting for the handle to close.
+fn replace(from: &Path, to: &Path) -> io::Result<()> {
+    let mut tries = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied && tries < 5 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 /// Seal the 32 secret bytes with whatever this OS offers, and report which it was.
@@ -298,6 +381,9 @@ mod dpapi {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::Arc;
+    use std::time::Instant;
 
     fn temp_dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("lgr-keystore-test-{name}-{}", std::process::id()));
@@ -366,6 +452,99 @@ mod tests {
         for forbidden in ["secret", "privatekey", "\"key\"", "token", "password", "assertion"] {
             assert!(!json.contains(forbidden), "registration record must not carry {forbidden}: {json}");
         }
+    }
+
+    #[test]
+    fn a_reader_never_finds_the_record_half_written() {
+        // ⚠ lgr#587. Presence and the bridge each mint at every start, and a mint writes the
+        // record back. `std::fs::write` truncated it first, so the other thread could read it
+        // empty, take the machine for unregistered, and the bridge gave its fiscal device up for
+        // good. Two records of very different sizes, written in turn while another thread reads.
+        let dir = temp_dir("torn");
+        let a = Stored { desktop_id: "d1".into(), org_name: "short".into(), ..Default::default() };
+        let b = Stored {
+            desktop_id: "d2".into(),
+            org_name: "x".repeat(4096),
+            fiscal_device_ids: (0..64).map(|i| format!("device-{i}")).collect(),
+            ..Default::default()
+        };
+        save(&dir, &a).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let writes = Arc::new(AtomicU32::new(0));
+        let writer = {
+            let (dir, stop, writes) = (dir.clone(), stop.clone(), writes.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    let n = writes.load(Ordering::SeqCst);
+                    save(&dir, if n.is_multiple_of(2) { &b } else { &a }).unwrap();
+                    writes.fetch_add(1, Ordering::SeqCst);
+                }
+            })
+        };
+        // ⚠ Bounded by writes AND by time: every write is flushed to the disk (`sync_all`), which a
+        // busy disk takes most of a second over, so a fixed two seconds proved nothing there.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let (mut reads, mut empty, mut seen_a, mut seen_b) = (0u32, 0u32, 0u32, 0u32);
+        while Instant::now() < deadline && !(writes.load(Ordering::SeqCst) >= 20 && reads >= 1000) {
+            match load(&dir).desktop_id.as_str() {
+                "" => empty += 1,
+                "d1" => seen_a += 1,
+                _ => seen_b += 1,
+            }
+            reads += 1;
+        }
+        stop.store(true, Ordering::SeqCst);
+        writer.join().unwrap();
+        let writes = writes.load(Ordering::SeqCst);
+        let _ = std::fs::remove_dir_all(&dir);
+        // The reads met the writes: both records were read, so the file changed under the reader.
+        assert!(seen_a > 0 && seen_b > 0, "no race happened: {writes} writes, {reads} reads ({seen_a} of d1, {seen_b} of d2)");
+        assert_eq!(empty, 0, "{empty} of {reads} reads found no registration while {writes} writes ran");
+    }
+
+    #[test]
+    fn two_threads_changing_the_record_at_once_lose_neither_change() {
+        // ⚠ lgr#587, the other half: a mint's write began from its own read, so the change another
+        // thread wrote in between was lost. `update` holds the record through the whole change.
+        let dir = temp_dir("update");
+        save(&dir, &Stored { desktop_id: "d1".into(), ..Default::default() }).unwrap();
+        const N: i64 = 100;
+        let offsets = {
+            let dir = dir.clone();
+            std::thread::spawn(move || {
+                for _ in 0..N {
+                    update(&dir, |s| s.clock_offset_ms += 1).unwrap();
+                }
+            })
+        };
+        let devices = {
+            let dir = dir.clone();
+            std::thread::spawn(move || {
+                for i in 0..N {
+                    update(&dir, |s| s.fiscal_device_ids.push(format!("device-{i}"))).unwrap();
+                }
+            })
+        };
+        offsets.join().unwrap();
+        devices.join().unwrap();
+        let s = load(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(s.desktop_id, "d1");
+        assert_eq!(s.clock_offset_ms, N, "a change one thread wrote was lost to the other's write");
+        assert_eq!(s.fiscal_device_ids.len() as i64, N, "a change one thread wrote was lost to the other's write");
+    }
+
+    #[test]
+    fn an_update_that_changes_nothing_writes_nothing() {
+        // The record is written only when it changes: no needless writes behind every mint.
+        let dir = temp_dir("noop");
+        save(&dir, &Stored { desktop_id: "d1".into(), ..Default::default() }).unwrap();
+        // A folder in place of the record's temporary file: any write would fail on it.
+        std::fs::create_dir_all(dir.join("registration.json.tmp")).unwrap();
+        let s = update(&dir, |s| s.desktop_id = "d1".into()).unwrap();
+        assert_eq!(s.desktop_id, "d1");
+        assert!(update(&dir, |s| s.org_name = "changed".into()).is_err(), "a real change must write");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

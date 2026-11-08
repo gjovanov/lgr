@@ -481,6 +481,11 @@ enum Outcome {
 /// from its ingress while its API comes back, `502` with a text body, and that reads as
 /// `token_failed`, having no code. Taken as final, it left the till holding no fiscal device until
 /// LGR Desktop was restarted (lgr#567): after an update, a night restart or a power cut.
+///
+/// ⚠ `not_registered` stays final, and it now means it: the record is written whole
+/// (`keystore::write_atomically`), and `enroll::registered` looks twice before saying so. Until
+/// lgr#587 a read could catch the record half-written by presence's mint at the same start, and
+/// the bridge gave its device up on a machine that was registered all along.
 fn classify_mint_error(code: &str) -> Outcome {
     match code {
         "desktop_revoked" | "desktop_outdated" => Outcome::Fatal(code.to_string()),
