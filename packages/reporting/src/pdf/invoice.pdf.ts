@@ -246,7 +246,8 @@ export function buildInvoiceHtml(
         inv.cashSaleRef.receiptNumber ? ` · ${esc(L.receiptNo)} ${esc(inv.cashSaleRef.receiptNumber)}` : ''}</td></tr>`
       : '',
     // A credit or debit note names the invoice it corrects: ЗДДС wants its number and date on the note
-    // (`relatedInvoiceRef`, filled by the export from `relatedInvoiceId`).
+    // (`relatedInvoiceRef`, filled by the export from `relatedInvoiceId`). A payment's receipt names the
+    // invoice it paid the same way (`register.paidInvoiceId`).
     inv.relatedInvoiceRef?.number
       ? `<tr><td class="k">${esc(L.forInvoice)}:</td><td class="v">${esc(inv.relatedInvoiceRef.number)} / ${fmtDate(inv.relatedInvoiceRef.issueDate)}</td></tr>`
       : '',
