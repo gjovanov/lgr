@@ -113,6 +113,19 @@
               {{ $t('pos.close.noFiscalDevice') }}
             </v-alert>
 
+            <!-- Before the Z prints: it will leave out the session's text receipts, all of them on a unit not yet
+                 fiscalized, and read 0.00 against a session that sold (2026-11-08). -->
+            <v-alert
+              v-if="textNotOnDevice"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="close-text-not-on-device"
+            >
+              {{ textNotOnDevice }}
+            </v-alert>
+
             <v-table density="compact" class="mb-3">
               <thead>
                 <tr>
@@ -292,6 +305,15 @@ const namesOf = (sales: any[]) => sales.map((s: any) => s.number ?? s.id).join('
 const deadSales = computed(() => namesOf((preview.value?.deadSales ?? []).filter((s: any) => s.settles)))
 const deadSalesBooked = computed(() => namesOf((preview.value?.deadSales ?? []).filter((s: any) => !s.settles)))
 const deadDocuments = computed(() => (preview.value?.deadDocuments ?? []).map((r: any) => r.number ?? r.invoice ?? r.id).join(', '))
+/** The Device reports menu's words (`GET …/device-report`): the device records only fiscal receipts. */
+const textNotOnDevice = computed(() => {
+  const report = preview.value?.report
+  if (!preview.value?.fiscalDevice || !report?.counts?.text) return ''
+  const amount = report.amounts?.text
+  return amount === undefined || amount === null
+    ? t('pos.deviceReport.notOnDeviceCount', { receipts: report.counts.text })
+    : t('pos.deviceReport.notOnDevice', { receipts: report.counts.text, amount: fmt(amount) })
+})
 
 async function loadPreview() {
   loadingPreview.value = true

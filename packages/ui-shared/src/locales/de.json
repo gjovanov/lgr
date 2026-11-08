@@ -979,6 +979,7 @@
       "voided": "Ungültige Stornos",
       "fiscal": "Fiskalbelege",
       "text": "Textbelege",
+      "textNotInZ": "Nicht im Z-Bericht des Geräts: Es zählt nur Fiskalbelege",
       "unprinted": "Nicht gedruckt",
       "vatRate": "MwSt {rate}%",
       "net": "Netto",

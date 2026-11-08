@@ -235,3 +235,15 @@ printed exactly what they were asked, every figure zero. LGR's own session repor
 is. POS Sessions → Device reports now says so before printing, with the count and amount of the session's text
 receipts. The only way to have such a unit's reports carry the sales is a fiscal receipt (90h), never tried on a
 unit with no ЕИК, which the protocol says refuses it.
+
+**The close says it too (2026-11-08).** A session of three text sales closed on a Z of zeros, with only
+`СЛ. ВЪВЕДЕНИ` right (the opening amount, 46h), and that was read as the Z being wrong. The close dialog now shows
+the session's text receipts before the Z prints, in the Device reports menu's words. The session report printed
+after the Z says „Не са в Z-отчета" under their count, and prints its documents as a range, „от … до …": two bare
+numbers read as two documents of three.
+
+**`СУМА ОБОРОТ`, `СУМА НЕТО СТ-СТ` and `СУМА ДДС` on a Z are the device's totals over its whole life, not the
+day's.** The day is `ОБЩ ОБОРОТ` and the VAT-group blocks above them: the A1 KL manual's sample Z (pp. 105-106)
+prints a day of 33.14 under a `СУМА ОБОРОТ` of 15804.13. On a unit not yet fiscalized they hold whatever was rung
+on its own keyboard, and what came before a currency change is converted at `ПРЕВАЛУТИРАНЕ`, so they never match
+LGR. A short fiscal-memory report by Z number, from 1 to the last, shows which Z carries what.
