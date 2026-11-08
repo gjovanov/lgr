@@ -56,6 +56,10 @@ registerEventHandlers()
 if (config.node.role === 'master') {
   const { journalHwmTick, lanCloneTick } = await import('services/biz/home/series-lock.service')
   await journalHwmTick().catch(e => logger.error({ err: e?.message ?? String(e) }, 'Series lock: the journal\'s high-water mark could not be checked'))
+  // The legal counters against their own mark, beside the database and on the backup drive (#549):
+  // what catches a restore on a master that captures nothing. It never throws, and the drive is
+  // bounded (10 s): a backup share that does not answer never holds the start.
+  await (await import('services/biz/home/legal-mark.service')).legalMarkTick()
   // A clone the supervisor saw on the shop's network before this start (AC 50).
   await lanCloneTick().catch(e => logger.error({ err: e?.message ?? String(e) }, 'Series lock: the clone record could not be read'))
 }
@@ -403,17 +407,22 @@ setTimeout(async () => {
         m => m.back.moveBackTick(new Date(), { flippedBack: nodeId => m.uplink.rewelcomeNode(nodeId) }),
       ),
     },
-    // FR-20.51 (P3-7) — on a master: the journal against its mark, and what lgrai.app says of this
-    // server (a clone alarm, pages refused as a history that went back, how far it holds the journal).
-    // Any of them locks legal numbering. From the start: a reverted disk is caught by the last one.
+    // FR-20.51 (P3-7) — on a master: the journal against its mark, the legal counters against theirs
+    // (#549: beside the database and on the backup drive, capture or not), and what lgrai.app says of
+    // this server (a clone alarm, pages refused as a history that went back, how far it holds the
+    // journal). Any of them locks legal numbering. From the start: a reverted disk is caught by the
+    // backup drive's copy, or, linked, by lgrai.app's watermark.
     {
       name: 'series-lock-tick', intervalMs: config.node.role === 'master' ? 60_000 : 0, immediate: true,
       // Then what it says of each org goes to lgrai.app, for the Servers page there.
-      ...lazy(() => import('services/biz/home/series-lock.service'), async m => {
-        const locked = (await m.journalHwmTick()) + (await m.lanCloneTick()) + (await m.linkAlarmsTick())
-        await m.reportOrgState()
-        return locked
-      }),
+      ...lazy(
+        async () => ({ lock: await import('services/biz/home/series-lock.service'), mark: await import('services/biz/home/legal-mark.service') }),
+        async m => {
+          const locked = (await m.lock.journalHwmTick()) + (await m.mark.legalMarkTick()) + (await m.lock.lanCloneTick()) + (await m.lock.linkAlarmsTick())
+          await m.lock.reportOrgState()
+          return locked
+        },
+      ),
     },
     // FR-20.70 (P3-7f) — after this master lost the record of its changes, lgrai.app's copy of each
     // org written here is made equal to it again: the copy's ids asked for and journaled again.

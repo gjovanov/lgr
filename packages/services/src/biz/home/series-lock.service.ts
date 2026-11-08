@@ -13,10 +13,16 @@
  * - **The journal behind its own high-water mark.** The capture's per-org `seq` only ever grows in a
  *   database that was never rewound, so a mark kept OUTSIDE the database (a file beside the node
  *   token) that the database falls below means the database was restored or reverted. Checked at the
- *   API's start, before it serves, and every minute.
+ *   API's start, before it serves, and every minute. ⚠ Only where the master captures: on an
+ *   Air-gapped one `seq` never grows, and this sees nothing.
+ * - **The legal counters behind their own mark** (`legal-mark.service.ts`, #549), whatever the link:
+ *   the highest counter of each legal series, beside the node token AND copied to the backup drive,
+ *   which a restored system-disk image leaves alone. Checked at the API's start and every minute.
+ * - **A person, by hand** (`POST /numbering/lock`), after a revert nothing above can see: the
+ *   backup drive put back too, or no drive at all (the runbook's procedure).
  * - **The journal behind lgrai.app's watermark**: the other mark kept outside, by global. A healthy
- *   master is never behind the pages it sent. ⚠ This is what catches a reverted VM snapshot, whose
- *   own mark went back with the disk.
+ *   master is never behind the pages it sent. ⚠ This is what catches a reverted VM snapshot of a
+ *   linked master, whose own marks went back with the disk.
  * - **lgrai.app holding pages of the org past the newest this database ever built** (`buildPage`,
  *   when the pump asks): a restored database whose chain the master can no longer continue. Its pump
  *   stops that org (`chain_unknown`) without a word to global, so this is the master's own finding.

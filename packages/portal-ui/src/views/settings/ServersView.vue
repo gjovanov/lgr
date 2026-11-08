@@ -67,43 +67,7 @@
         </template>
       </v-alert>
       <!-- FR-20.81 (P3-6d): after a promotion, legal numbering waits for the site's last numbers. -->
-      <v-card v-if="lastNumbers?.frozen" variant="outlined" color="warning" class="mb-3" data-test="last-numbers">
-        <v-card-title class="text-subtitle-1 text-wrap">{{ $t('servers.lastNumbers.title') }}</v-card-title>
-        <v-card-text>
-          <p class="text-body-2 mb-1">{{ $t('servers.lastNumbers.intro') }}</p>
-          <p v-if="lastNumbers.reason" class="text-body-2 mb-3 font-weight-medium" data-test="last-numbers-reason">
-            {{ te(`servers.lastNumbers.reason.${lastNumbers.reason}`) ? $t(`servers.lastNumbers.reason.${lastNumbers.reason}`) : lastNumbers.reason }}
-          </p>
-          <v-row v-for="s in lastNumbers.series" :key="s.prefix + s.year" dense align="center">
-            <v-col cols="12" sm="6" class="text-body-2">
-              {{ seriesLabel(s) }}
-              <div class="text-caption text-medium-emphasis">{{ $t('servers.lastNumbers.here', { n: s.last }) }}</div>
-              <div v-if="mirrorOf(s) !== null" class="text-caption text-medium-emphasis" data-test="last-numbers-mirror">{{ $t('servers.lastNumbers.mirror', { n: mirrorOf(s) }) }}</div>
-            </v-col>
-            <v-col cols="12" sm="6">
-              <v-text-field v-model.number="siteNumbers[s.prefix + '|' + s.year]" type="number" :min="0" density="compact" hide-details :data-test="'last-' + s.prefix" />
-            </v-col>
-          </v-row>
-          <!-- AC 49: what each fiscal device says, beside the last receipt this database recorded on it. -->
-          <template v-if="lastNumbers.devices?.length">
-            <div class="text-subtitle-2 mt-4 mb-1">{{ $t('servers.lastNumbers.devices.title') }}</div>
-            <p class="text-caption text-medium-emphasis mb-2">{{ $t('servers.lastNumbers.devices.intro') }}</p>
-            <div v-for="d in lastNumbers.devices" :key="d.id" class="text-body-2 mb-2" data-test="last-numbers-device">
-              <span class="font-weight-medium">{{ d.name || d.deviceNumber }}</span> <span class="text-medium-emphasis">({{ d.deviceNumber }})</span>
-              <div class="text-caption" data-test="last-numbers-device-reading">{{ deviceReading(d) }}</div>
-              <div class="text-caption">{{ d.recorded ? $t('servers.lastNumbers.devices.recorded', { receipt: d.recorded.receiptNo, number: d.recorded.number || '—', unp: d.recorded.unp || '—', at: fmtDate(d.recorded.printedAt) }) : $t('servers.lastNumbers.devices.none') }}</div>
-              <div v-if="d.since !== null" class="text-caption" :class="d.since > 0 ? 'text-warning font-weight-medium' : d.since < 0 ? 'text-error' : ''" data-test="last-numbers-device-since">
-                {{ d.since > 0 ? $t('servers.lastNumbers.devices.ahead', { n: d.since }) : d.since < 0 ? $t('servers.lastNumbers.devices.behind') : $t('servers.lastNumbers.devices.same') }}
-              </div>
-            </div>
-          </template>
-          <v-checkbox v-model="lastNumbersConfirmed" :label="$t('servers.lastNumbers.confirm')" density="compact" hide-details class="mt-2" data-test="last-numbers-confirm" />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn color="primary" :disabled="!lastNumbersConfirmed" :loading="lastNumbersBusy" data-test="last-numbers-save" @click="saveLastNumbers">{{ $t('servers.lastNumbers.save') }}</v-btn>
-        </v-card-actions>
-      </v-card>
+      <LastNumbersCard ref="lastNumbersCard" />
       <!-- FR-20.84 (P3-6e): what a replaced server did after the cutoff, as it reached lgrai.app, for review. -->
       <v-card v-for="ex in fencedExports" :key="ex.id" variant="outlined" class="mb-3" data-test="fenced-export">
         <v-card-title class="text-subtitle-1 text-wrap">{{ $t('servers.fenced.title', { name: ex.nodeName || nodeName(ex.nodeId) }) }}</v-card-title>
@@ -602,6 +566,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { announceHomeChanged } from 'ui-shared/composables/useHomeChanged'
 import { useAppStore } from '../../store/app.store'
+import LastNumbersCard from './LastNumbersCard.vue'
 
 /**
  * The Servers page (FR-20.2, plan step P2-1): the shop servers (masters) registered for this org,
@@ -742,7 +707,6 @@ async function load() {
   void loadMove()
   void loadMirror()
   void loadAddress()
-  void loadLastNumbers()
   void loadFencedExports()
   loading.value = true
   try {
@@ -877,7 +841,7 @@ async function loadMove() {
       )
       // Where the org lives changed: the files card, the actions and the numbering follow.
       void loadMirror()
-      void loadLastNumbers()
+      void lastNumbersCard.value?.reload()
     }
   }
 }
@@ -970,62 +934,8 @@ async function startReseed() {
   }
 }
 
-// ── The site's last numbers, after a promotion (FR-20.81) ───────────────────────────────────
-interface SeriesRow { prefix: string; year: number; last: number }
-/** AC 49: one fiscal device's word, beside the last receipt this database recorded on it. */
-interface DeviceWitness {
-  id: string
-  name: string
-  deviceNumber: string
-  reading: { state: 'read' | 'not_connected' | 'unsupported' | 'error'; lastDocument?: number; readAt?: string; error?: string }
-  recorded: { receiptNo: string; unp: string | null; number: string; printedAt: string | null } | null
-  since: number | null
-}
-const lastNumbers = ref<{ frozen: boolean; reason: string | null; series: SeriesRow[]; mirror: SeriesRow[] | null; devices?: DeviceWitness[] } | null>(null)
-const deviceReading = (d: DeviceWitness) => d.reading.state === 'read'
-  ? t('servers.lastNumbers.devices.read', { n: d.reading.lastDocument, at: fmtDate(d.reading.readAt) })
-  : d.reading.state === 'error'
-    ? t('servers.lastNumbers.devices.error', { error: d.reading.error ?? '' })
-    : t(`servers.lastNumbers.devices.${d.reading.state}`)
-/** On a master, what lgrai.app's mirror holds of a series: numbering resumes above it too. */
-const mirrorOf = (s: SeriesRow) => lastNumbers.value?.mirror?.find(m => m.prefix === s.prefix && m.year === s.year)?.last ?? null
-const siteNumbers = ref<Record<string, number>>({})
-const lastNumbersConfirmed = ref(false)
-const lastNumbersBusy = ref(false)
-const seriesLabel = (s: SeriesRow) => s.prefix.startsWith('UNP-')
-  ? t('servers.lastNumbers.series.UNP', { device: s.prefix.slice(4) })
-  : t(`servers.lastNumbers.series.${s.prefix}`, { year: s.year })
-
-async function loadLastNumbers() {
-  try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/numbering/last-numbers`)
-    lastNumbers.value = data
-    // Offered at lgrai.app's own: a person reads the site's off its last documents and corrects them.
-    siteNumbers.value = Object.fromEntries((data.series ?? []).map((s: SeriesRow) => {
-      const mirror = (data.mirror ?? []).find((m: SeriesRow) => m.prefix === s.prefix && m.year === s.year)?.last ?? 0
-      return [`${s.prefix}|${s.year}`, Math.max(s.last, mirror)]
-    }))
-  } catch {
-    lastNumbers.value = null
-  }
-}
-
-async function saveLastNumbers() {
-  if (!lastNumbers.value) return
-  lastNumbersBusy.value = true
-  try {
-    const series = lastNumbers.value.series.map(s => ({ prefix: s.prefix, year: s.year, last: Math.max(0, Math.floor(Number(siteNumbers.value[`${s.prefix}|${s.year}`] ?? s.last))) }))
-    await httpClient.post(`${appStore.orgUrl()}/numbering/last-numbers`, { series })
-    showSnackbar(t('servers.lastNumbers.saved'), 'success')
-    announceHomeChanged()
-    lastNumbersConfirmed.value = false
-    await loadLastNumbers()
-  } catch (e: any) {
-    showSnackbar(e?.response?.data?.message ?? t('common.operationFailed'), 'error')
-  } finally {
-    lastNumbersBusy.value = false
-  }
-}
+// ── The site's last numbers, after a promotion (FR-20.81): LastNumbersCard loads itself ──────
+const lastNumbersCard = ref<InstanceType<typeof LastNumbersCard> | null>(null)
 
 // ── What a replaced server did after the cutoff (FR-20.84, P3-6e) ────────────────────────────
 interface FencedLegal {

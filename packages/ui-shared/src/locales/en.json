@@ -4005,22 +4005,25 @@
     "lastNumbers": {
       "title": "Record the last numbers issued at the site",
       "intro": "Legal numbering is frozen: lgrai.app must not issue a number the lost server already gave a customer. Read the last number of each series off the last printed documents and the fiscal device's daily report.",
+      "introServer": "Legal numbering is locked on this server: it must not issue a number the site already gave a customer. Read the last number of each series off the last printed documents and the fiscal device's daily report.",
       "series": {
         "SALES_DOC": "Sales documents {year}",
         "CASH_SALE": "Cash sales {year}",
         "UNP": "УНП of fiscal device {device}"
       },
       "here": "lgrai.app has {n}",
+      "hereServer": "This server's database has {n}",
       "confirm": "These are the last numbers issued at the site",
       "save": "Resume numbering",
       "saved": "Numbering resumes above the site's last numbers",
       "reason": {
         "promoted": "lgrai.app's copy became the organization's home when its server was lost.",
-        "restored": "This server's database went back in time (restored from a backup): it may have numbers the site already issued.",
+        "restored": "This server's database went back in time (restored from a backup, a disk image or a snapshot), or a person locked numbering after one: it may have numbers the site already issued.",
         "went_back": "This server's database went back in time underneath lgrai.app's copy (restored, or a snapshot reverted): it may have numbers the site already issued.",
         "clone": "Another machine answers as this server, with its keys (on the shop's network, or connected to lgrai.app): until a person decides which machine is real, and the other is installed again as a new server, neither may issue a legal number."
       },
       "mirror": "lgrai.app's copy has {n}",
+      "mark": "This server's mark says it issued up to {n}",
       "devices": {
         "title": "What the fiscal devices say",
         "intro": "A device counts every document it prints: receipts, stornos, non-fiscal receipts and reports, including those printed from its keyboard. That count is none of the numbers above. Use it to find the documents to read: the last receipt's УНП gives the device's series.",
@@ -4033,6 +4036,18 @@
         "ahead": "Documents printed after that receipt: {n}. Read them off its paper. A fiscal receipt among them is one this database does not have, and its УНП must resume above it.",
         "same": "Nothing printed since.",
         "behind": "Its count is below this database's: check that it is the same device."
+      },
+      "lock": {
+        "title": "Legal numbering",
+        "intro": "Restored this server from a disk image or a snapshot, or put its database back by hand? Lock numbering before anyone sells. It stays locked until the last numbers issued at the site are recorded here.",
+        "action": "Lock numbering",
+        "dialogTitle": "Lock legal numbering",
+        "dialogIntro": "No invoice, cash sale or fiscal receipt gets a number until a person records the last numbers issued at the site, read off the last printed documents and the fiscal device's daily report. Numbering then resumes above them.",
+        "note": "Why (kept in the audit trail)",
+        "confirm": "Lock numbering until the last numbers are recorded",
+        "save": "Lock",
+        "done": "Legal numbering is locked",
+        "already": "Legal numbering was locked already"
       }
     },
     "fenced": {

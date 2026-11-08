@@ -10,6 +10,31 @@ import { OrgHome, Sequence, User } from 'db/models'
 export const LEGAL_SERIES: ReadonlySet<string> = new Set(['SALES_DOC', 'CASH_SALE'])
 export const isLegalSeries = (prefix: string) => LEGAL_SERIES.has(prefix) || prefix.startsWith('UNP-')
 
+/**
+ * The key (`prefix|year`) of a Sequence row that is a legal COUNTER, or null for one that is not:
+ * the year-0 row of a yearly series holds a display override, never a count, and a legacy
+ * per-operator УНП row (`UNP-<device>-<operator>`) is no series of its own (migration 0001).
+ */
+export function legalCounterKey(prefix: string, year: number): string | null {
+  const unp = prefix.startsWith('UNP-')
+  if (unp ? !/^UNP-[^-]{8}$/.test(prefix) : !LEGAL_SERIES.has(prefix) || year === 0) return null
+  return `${prefix}|${year}`
+}
+
+export interface LegalCounter { orgId: string; prefix: string; year: number; last: number }
+
+/** The legal counters of these orgs as the database holds them: one per real series, no other row. */
+export async function legalCounters(orgIds: unknown[]): Promise<LegalCounter[]> {
+  if (!orgIds.length) return []
+  const rows: any[] = await Sequence.find(
+    { orgId: { $in: orgIds }, $or: [{ prefix: { $in: [...LEGAL_SERIES] } }, { prefix: { $regex: '^UNP-' } }] },
+    { orgId: 1, prefix: 1, year: 1, lastNumber: 1 },
+  ).lean().exec()
+  return rows
+    .filter(r => legalCounterKey(String(r.prefix), Number(r.year)) !== null)
+    .map(r => ({ orgId: String(r.orgId), prefix: String(r.prefix), year: Number(r.year), last: Number(r.lastNumber ?? 0) }))
+}
+
 export class SeriesFrozenError extends Error {
   readonly statusCode = 409
   readonly code = 'series_frozen'

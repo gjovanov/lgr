@@ -348,6 +348,42 @@ other.
 - Windows needs none of this: a copy of a Windows disk keeps its MAC-based DHCP client id, gets an
   address of its own, and the clone check sees it.
 
+## Restored from a disk image or a snapshot
+
+A server's database put back to an earlier state from outside LGR (a copy of its data folder, a
+dump, a disk image, a VM snapshot) brings its counters back with it. The server would then give
+again the invoice numbers, cash sales and УНП it already gave customers, and Н-18 wants each of them
+once. So **legal numbering locks**: no invoice, cash sale or fiscal receipt gets a number until a
+person records the last numbers issued at the shop. Everything else keeps working.
+
+What the server catches by itself:
+- **The database alone put back.** The server keeps a mark of the highest number of each legal
+  series (sales documents, cash sales, each fiscal device's УНП) outside the database, in
+  `state/legal-mark.json` under the data directory. It checks the database against it when it
+  starts, before it serves, and every minute after. A series below its mark locks numbering, whether
+  the server is linked to lgrai.app or not.
+- **The whole system disk put back.** That mark goes back with the disk, so the server also keeps a
+  copy on the backup drive (`BACKUP_LOCAL_PATH`), at `<path>/LGR/State/legal-mark-<server id>.json`.
+  An image restored onto the system disk leaves the backup drive alone, and its copy locks numbering.
+  Only a drive that is there, and is another disk than the data's, gets a copy. An older drive (last
+  month's, back from off-site) locks nothing: its copy is brought up to date.
+- **A server linked to lgrai.app** is also caught by lgrai.app's copy, which then holds more of its
+  journal than the database does.
+
+What it cannot see is the backup drive put back too, or a server with no backup drive whose whole
+disk went back (a snapshot of the whole machine, drives and all). The mark is also up to a minute
+old. So after **any** restore from outside LGR, open the server's status page (Settings → Server
+status). If it does not already say numbering is locked, lock it yourself **before anyone sells**:
+1. As an admin, press **Lock numbering** and say why. The reason is kept in the audit trail.
+2. Read the last number of each series off the last printed documents (the last invoice or note,
+   the last cash sale) and the fiscal device's daily report (the last receipt's УНП). The page shows
+   what each fiscal device says beside them.
+3. On the same page, enter them under "Record the last numbers issued at the site", tick the
+   confirmation, and press **Resume numbering**.
+
+Numbering resumes above the highest of three things: what you entered, what this server's mark says
+it issued, and, when linked, lgrai.app's copy. A number you missed is skipped, never given twice.
+
 ## Settings: `config/api.env`
 
 The operator's settings are in `config/api.env` under the data directory
@@ -364,7 +400,7 @@ always wins, and setup never edits this file. Set something here only to change 
 | `LAN_PORT` | The LAN ingress's port, 4443 by default. |
 | `LGR_LAN_NAMES` | Names the server answers to on the LAN besides the machine's own and `<machine>.local`, comma-separated. A request for any other name is refused; an IP address always works. |
 | `SETUP_PORT` | The setup console's port on loopback, 4480 by default. |
-| `BACKUP_LOCAL_PATH` | A second disk, a USB drive or a share, for a copy of every night's backup (`<path>/LGR/Backups/<org>/<kind>/`). It must be **another disk** than the server's data. A folder on the same disk is refused, because a copy beside the database is no copy, and so is a drive that is not there (unplugged, or a share that is down). Mount the drive where the service can write. |
+| `BACKUP_LOCAL_PATH` | A second disk, a USB drive or a share, for a copy of every night's backup (`<path>/LGR/Backups/<org>/<kind>/`), and of the legal numbering's mark (`<path>/LGR/State/`, see [Restored from a disk image or a snapshot](#restored-from-a-disk-image-or-a-snapshot)). It must be **another disk** than the server's data. A folder on the same disk is refused, because a copy beside the database is no copy, and so is a drive that is not there (unplugged, or a share that is down). Mount the drive where the service can write. |
 | `BACKUP_LOCAL_KEEP` | How many generations the local copy keeps. |
 | `BACKUP_HOUR` | The hour of the nightly backup, 0 to 23, in each organisation's own time zone (default 3). The server backs up every organisation it holds each night, from 0.1.11 (gjovanov/lgr#581: before it, none was ever due). |
 | `UPDATE_WINDOW`, `UPDATE_AUTO` | The nightly update window: see [Versions and updates](#versions-and-updates). |
