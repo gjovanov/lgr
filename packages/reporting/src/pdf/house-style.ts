@@ -8,7 +8,9 @@
  * chances to drift, and the drift had already started. They all import from here now.
  *
  * NOT covered here: the per-document forms (invoice, companion docs). Those are fixed-layout
- * facsimiles of printed paperwork with their own CSS, deliberately.
+ * facsimiles of printed paperwork with their own CSS, deliberately. Two things ARE common to
+ * every PDF, forms included: the page's side margins (`page-margins.ts`), and for the forms,
+ * their line grid (`line-grid.ts`).
  *
  * Anything a caller needs beyond this — a totals box, per-currency section rows — is appended
  * to `HOUSE_CSS` by that caller, so the shared part stays shared.
@@ -16,6 +18,7 @@
 
 import { escHtml as esc, fmtDate } from './base.pdf.js'
 import { LOGO_CSS, logoImgTag } from './logo.js'
+import { PAGE_SIDE_MARGIN, pageMargin } from './page-margins.js'
 import { productCredit } from '../product-credit.js'
 
 /**
@@ -91,8 +94,8 @@ export const HOUSE_CSS = `
   table.tbox tr.grand td.tv { font-size: 13pt; }
 `
 
-/** Page margins every list/report export prints with. */
-export const HOUSE_MARGIN = { top: '12mm', bottom: '16mm', left: '12mm', right: '12mm' }
+/** Page margins every list/report export prints with; the sides are the shared ones. */
+export const HOUSE_MARGIN = pageMargin('12mm', '16mm')
 
 export interface PeriodLike {
   from?: string | Date
@@ -111,10 +114,18 @@ export function periodText(period: PeriodLike | undefined): string {
 /**
  * Page foot: issuer line on the left, the software credit in the middle and page x / y on the
  * right. Puppeteer renders the footer template in its own document, so the styling has to be
- * inline.
+ * inline. That document spans the whole sheet, so the foot is set in by the page's side margin
+ * to line up with the table above it — by a MARGIN, not a padding, so its rule stops where the
+ * text does, as the document forms' own page foot does. A padded box drew the rule edge to
+ * edge across the sheet, through both margins.
+ *
+ * ⚠ Keep `width:100%`. Chrome lays the template out as an item of a flex row, where a box with
+ * no width shrinks to its text: all three parts and a short rule then sit at the left edge. At
+ * 100% the box overflows by its two margins and flex-shrink takes them back off, which leaves
+ * it exactly the width between the margins.
  */
 export function footerTemplate(text: string, locale?: string): string {
-  return `<div style="width:100%;font-family:'DejaVu Sans',Arial,sans-serif;font-size:7pt;color:#000;padding:0 12mm;display:flex;justify-content:space-between;gap:8px;border-top:1px solid #000;padding-top:3px;">
+  return `<div style="width:100%;font-family:'DejaVu Sans',Arial,sans-serif;font-size:7pt;color:#000;margin:0 ${PAGE_SIDE_MARGIN};display:flex;justify-content:space-between;gap:8px;border-top:1px solid #000;padding-top:3px;">
     <span>${esc(text)}</span>
     <span style="white-space:nowrap">${esc(productCredit(locale))}</span>
     <span style="white-space:nowrap"><span class="pageNumber"></span> / <span class="totalPages"></span></span>

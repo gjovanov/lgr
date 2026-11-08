@@ -1,5 +1,7 @@
 import { markdownToPdf, escHtml as esc, fmtDate, currencyMark, flattenHtml } from './base.pdf.js'
 import { logoImgTag, LOGO_CSS } from './logo.js'
+import { GRID_CELL_PADDING_X, GRID_FIT_CLASS, LINE_GRID_CSS } from './line-grid.js'
+import { pageMargin } from './page-margins.js'
 import { productCredit } from '../product-credit.js'
 import { stockReceiptI18n } from '../stock-receipt.i18n.js'
 import { unitLabel } from '../unit.i18n.js'
@@ -14,7 +16,9 @@ import { unitLabel } from '../unit.i18n.js'
  * number on it: it records what came into which warehouse, not who invoiced it.
  *
  * Its own CSS, as the companion documents have theirs (`companion-doc.pdf.ts`); the invoice
- * layout (`invoice.pdf.ts`) is frozen and is not shared.
+ * layout (`invoice.pdf.ts`) is frozen and is not shared. What every document form does share is
+ * the page's side margins (`page-margins.ts`) and the line grid's edges, column sizing and gutter
+ * (`line-grid.ts`).
  */
 
 export interface StockReceiptLine {
@@ -104,14 +108,15 @@ const CSS = `
   table.info td.v { font-weight: 700; }
   table.lines { font-size: 9pt; }
   table.lines thead th { border-bottom: 1px solid #000; border-top: 1px solid #000;
-    padding: 4px 6px; font-weight: 700; background: #f2f2f2; }
-  table.lines tbody td { padding: 3px 6px; vertical-align: top; }
+    padding: 4px ${GRID_CELL_PADDING_X}; font-weight: 700; background: #f2f2f2; }
+  table.lines tbody td { padding: 3px ${GRID_CELL_PADDING_X}; vertical-align: top; }
   table.lines tbody tr:last-child td { border-bottom: 1px solid #000; }
-  table.lines .c-no { width: 6%; }
-  table.lines .c-unit { width: 10%; text-align: center; }
-  table.lines .c-qty { width: 13%; text-align: right; }
-  table.lines .c-price { width: 13%; text-align: right; }
-  table.lines .c-amount { width: 14%; text-align: right; }
+  ${LINE_GRID_CSS}
+  /* Every column but the name is fitted to its contents (line-grid.ts); the heading over the
+     line numbers sits flush left with them. */
+  table.lines .c-no { text-align: left; }
+  table.lines .c-unit { text-align: center; }
+  table.lines .c-qty, table.lines .c-price, table.lines .c-amount { text-align: right; }
   /* Boxed total, in the visual language of the printed invoice's totals block. */
   table.totals { margin-top: 10px; font-size: 9pt; page-break-inside: avoid; }
   table.totals td.spacer { width: 52%; }
@@ -147,15 +152,16 @@ export function buildStockReceiptHtml(data: StockReceiptData): { html: string; c
 
   const billRef = `№ ${esc(data.bill.number)} ${esc(L.of)} ${fmtDate(data.bill.date)}${data.bill.draft ? ` (${esc(L.draft)})` : ''}`
 
+  const fit = GRID_FIT_CLASS
   const section = (s: StockReceiptSection) => {
     const rows = s.lines.map((l, i) => `
       <tr>
-        <td class="c-no">${i + 1}</td>
+        <td class="c-no ${fit}">${i + 1}</td>
         <td>${esc(l.name)}</td>
-        <td class="c-unit">${esc(unitLabel(l.unit, data.locale))}</td>
-        <td class="c-qty">${fmtQty(l.quantity)}</td>
-        <td class="c-price">${fmtPrice(l.unitPrice)}</td>
-        <td class="c-amount">${fmtMoney(lineAmount(l))}</td>
+        <td class="c-unit ${fit}">${esc(unitLabel(l.unit, data.locale))}</td>
+        <td class="c-qty ${fit}">${fmtQty(l.quantity)}</td>
+        <td class="c-price ${fit}">${fmtPrice(l.unitPrice)}</td>
+        <td class="c-amount ${fit}">${fmtMoney(lineAmount(l))}</td>
       </tr>`).join('')
     const total = round2(s.lines.reduce((sum, l) => sum + lineAmount(l), 0))
     return `
@@ -179,12 +185,12 @@ export function buildStockReceiptHtml(data: StockReceiptData): { html: string; c
       <table class="lines">
         <thead>
           <tr>
-            <th class="c-no">${esc(H.lineNo)}</th>
+            <th class="c-no ${fit}">${esc(H.lineNo)}</th>
             <th>${esc(H.name)}</th>
-            <th class="c-unit">${esc(H.unit)}</th>
-            <th class="c-qty">${esc(H.quantity)}</th>
-            <th class="c-price">${esc(H.unitPrice)}</th>
-            <th class="c-amount">${esc(H.amount)}</th>
+            <th class="c-unit ${fit}">${esc(H.unit)}</th>
+            <th class="c-qty ${fit}">${esc(H.quantity)}</th>
+            <th class="c-price ${fit}">${esc(H.unitPrice)}</th>
+            <th class="c-amount ${fit}">${esc(H.amount)}</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -221,12 +227,15 @@ ${data.sections.map(section).join('\n<div class="section-break"></div>\n')}
   return { html: flattenHtml(html), css: CSS }
 }
 
+/** The stock receipt's page: its own top and bottom, the shared sides (page-margins.ts). */
+export const STOCK_RECEIPT_MARGIN = pageMargin('14mm', '14mm')
+
 /** Render the receipts of `buildStockReceiptHtml` to an A4 PDF, one receipt per page (or more). */
 export async function generateStockReceiptPDF(data: StockReceiptData): Promise<Buffer | undefined> {
   const { html, css } = buildStockReceiptHtml(data)
   return markdownToPdf(html, {
     css,
-    margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' },
+    margin: STOCK_RECEIPT_MARGIN,
     // The form paints its own `.page-foot` (issuer line + software credit).
     defaultFooter: false,
   })

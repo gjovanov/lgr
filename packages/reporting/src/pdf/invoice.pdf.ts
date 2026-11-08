@@ -4,34 +4,42 @@ import { invoiceDocI18n, invoiceDocTitle, AMOUNT_IN_WORDS_RE } from '../invoice-
 import { unitLabel } from '../unit.i18n.js'
 import { productCredit } from '../product-credit.js'
 import { logoImgTag, LOGO_CSS } from './logo.js'
+import { GRID_CELL_PADDING_X, GRID_FIT_CLASS, LINE_GRID_CSS } from './line-grid.js'
+import { pageMargin } from './page-margins.js'
 
 /**
  * Line-item columns, keyed to the shared export catalog (ui-shared useExportColumns
  * + invoice-export.controller ALLOWED_COLUMN_KEYS). When `columns` is supplied the
  * table renders only the selected line columns (so e.g. unchecking Discount in the
  * print dialog actually drops the column); when omitted, the statutory set renders.
+ *
+ * No column carries a width: every column but the description is exactly as wide as its widest
+ * entry and the description takes the rest of the line (line-grid.ts).
  */
 type LineColKey = 'lineNo' | 'description' | 'unit' | 'quantity' | 'unitPrice' | 'discount' | 'taxRate' | 'lineTotal'
 
 interface LineCol {
   key: LineColKey
-  /** Column width as a percentage of the table; the description column absorbs the rest. */
-  width?: string
   align: 'left' | 'center' | 'right'
   cell: (line: any, i: number, locale?: string) => string
 }
 
 const LINE_COLS: LineCol[] = [
-  { key: 'lineNo', width: '5%', align: 'left', cell: (_l, i) => String(i + 1) },
+  { key: 'lineNo', align: 'left', cell: (_l, i) => String(i + 1) },
   { key: 'description', align: 'left', cell: (l) => String(l.description ?? '') },
   // `unit` holds the canonical code (`pcs`); the form prints the locale's abbreviation („БР.").
-  { key: 'unit', width: '9%', align: 'center', cell: (l, _i, locale) => unitLabel(l.unit, locale) },
-  { key: 'quantity', width: '12%', align: 'right', cell: (l) => trimQty(l.quantity) },
-  { key: 'unitPrice', width: '11%', align: 'right', cell: (l) => money(l.unitPrice) },
-  { key: 'discount', width: '8%', align: 'right', cell: (l) => (Number(l.discount) ? money(l.discount) : '') },
-  { key: 'taxRate', width: '8%', align: 'right', cell: (l) => (l.taxRate == null ? '' : `${l.taxRate}%`) },
-  { key: 'lineTotal', width: '12%', align: 'right', cell: (l) => money(l.lineTotal) },
+  { key: 'unit', align: 'center', cell: (l, _i, locale) => unitLabel(l.unit, locale) },
+  { key: 'quantity', align: 'right', cell: (l) => trimQty(l.quantity) },
+  { key: 'unitPrice', align: 'right', cell: (l) => money(l.unitPrice) },
+  { key: 'discount', align: 'right', cell: (l) => (Number(l.discount) ? money(l.discount) : '') },
+  { key: 'taxRate', align: 'right', cell: (l) => (l.taxRate == null ? '' : `${l.taxRate}%`) },
+  { key: 'lineTotal', align: 'right', cell: (l) => money(l.lineTotal) },
 ]
+
+/** The description is the one column that wraps; every other one is fitted to its contents. */
+function sizing(c: LineCol): string {
+  return c.key === 'description' ? 'desc' : GRID_FIT_CLASS
+}
 
 /** The legacy form's column set — used when the caller does not pick columns explicitly. */
 const DEFAULT_COLS: LineColKey[] = ['lineNo', 'description', 'unit', 'quantity', 'unitPrice', 'discount', 'lineTotal']
@@ -123,13 +131,14 @@ const CSS = `
   table.parties tr.band td.gap { background: transparent; }
   table.lines { font-size: 8.5pt; }
   table.lines thead th { border-bottom: 1px solid #000; border-top: 1px solid #000;
-    padding: 4px 6px; font-weight: 700; background: #ebebeb; }
-  table.lines tbody td { padding: 2.5px 6px; vertical-align: top; }
+    padding: 4px ${GRID_CELL_PADDING_X}; font-weight: 700; background: #ebebeb; }
+  table.lines tbody td { padding: 2.5px ${GRID_CELL_PADDING_X}; vertical-align: top; }
   table.lines tbody tr:last-child td { border-bottom: 1px solid #000; }
-  table.lines td.desc { padding-left: 14px; }
+  ${LINE_GRID_CSS}
   table.totals { margin-top: 8px; font-size: 8.5pt; }
   table.totals td { padding: 0 0 1px 0; }
-  table.totals td.words { vertical-align: top; width: 52%; padding-left: 6px; padding-top: 4px; }
+  /* Flush left, in line with the first column of the line grid above it. */
+  table.totals td.words { vertical-align: top; width: 52%; padding-left: 0; padding-top: 4px; }
   table.totals td.box-cell { width: 48%; vertical-align: top; }
   /* The 1px right margin keeps the border off the page's clip edge — sitting exactly on it,
      Chromium shaves the stroke on some renders. The wider right padding stops the amounts
@@ -326,17 +335,13 @@ export function buildInvoiceHtml(
   const cols = picked.length ? picked : LINE_COLS.filter(c => c.key === 'description' || c.key === 'lineTotal')
 
   const headCells = cols.map(c => {
-    const w = c.width ? ` style="width:${c.width}"` : ''
     // The legacy form centres the Име heading over its left-aligned values.
     const align = c.key === 'description' ? 'center' : c.align
-    return `<th class="a-${align}"${w}>${esc(H[c.key])}</th>`
+    return `<th class="a-${align} ${sizing(c)}">${esc(H[c.key])}</th>`
   }).join('')
 
   const bodyRows = (inv.lines || []).map((line: any, i: number) => {
-    const cells = cols.map(c => {
-      const cls = c.key === 'description' ? `a-${c.align} desc` : `a-${c.align}`
-      return `<td class="${cls}">${esc(c.cell(line, i, locale))}</td>`
-    }).join('')
+    const cells = cols.map(c => `<td class="a-${c.align} ${sizing(c)}">${esc(c.cell(line, i, locale))}</td>`).join('')
     return `<tr>${cells}</tr>`
   }).join('')
 
@@ -447,6 +452,12 @@ ${body}
   }
 }
 
+/**
+ * The invoice form's page: tighter at the top so the letterhead starts near the sheet edge, as on
+ * the legacy form, and the shared side margins (page-margins.ts).
+ */
+export const INVOICE_MARGIN = pageMargin('8mm', '14mm')
+
 /** Render the form of `buildInvoiceHtml` to an A4 PDF. */
 export async function generateInvoicePDF(
   invoice: IInvoice,
@@ -458,8 +469,7 @@ export async function generateInvoicePDF(
   const { html, css } = buildInvoiceHtml(invoice, org, contact, columns, options)
   return markdownToPdf(html, {
     css,
-    // Tighter at the top so the letterhead starts near the sheet edge, as on the legacy form.
-    margin: { top: '8mm', bottom: '14mm', left: '12mm', right: '12mm' },
+    margin: INVOICE_MARGIN,
     // The form paints its own `.page-foot` (issuer line + software credit).
     defaultFooter: false,
   })

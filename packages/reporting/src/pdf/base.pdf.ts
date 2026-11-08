@@ -1,5 +1,6 @@
 import { config } from 'config'
 import { productCredit } from '../product-credit.js'
+import { PAGE_SIDE_MARGIN, pageMargin, type PageMargin } from './page-margins.js'
 import markdownCss from '../assets/markdown.css' with { type: 'text' }
 import highlightCss from 'highlight.js/styles/github.css' with { type: 'text' }
 
@@ -7,8 +8,11 @@ export interface MarkdownToPdfOptions {
   /** Extra stylesheet injected into the rendered page (companion docs use it for their
    * fixed-form layout). Omitted for the plain markdown reports. */
   css?: string
-  /** Page margins, when the document needs tighter framing than the report default. */
-  margin?: { top: string; bottom: string; left: string; right: string }
+  /**
+   * Page margins, when the document frames its top and bottom differently from the default.
+   * Build them with `pageMargin()`, so the sides stay the shared `PAGE_SIDE_MARGIN`.
+   */
+  margin?: PageMargin
   /** Landscape A4 — wide column sets (document lists) need it to stay readable. */
   landscape?: boolean
   /** Rendered into the page footer of every page. Supports Puppeteer's pageNumber/totalPages spans. */
@@ -22,9 +26,15 @@ export interface MarkdownToPdfOptions {
   defaultFooter?: boolean
 }
 
-/** Software credit foot used by every PDF that does not paint its own. */
+/** The plain markdown documents' page (order sheet, payslip, statements). */
+export const DEFAULT_PAGE_MARGIN = pageMargin('20mm', '20mm')
+
+/**
+ * Software credit foot used by every PDF that does not paint its own. A footer template spans
+ * the whole sheet, so it pads itself in by the page's side margin to line up with the text.
+ */
 function creditFooter(locale?: string): string {
-  return `<div style="width:100%;font-family:'DejaVu Sans',Arial,sans-serif;font-size:7pt;color:#000;padding:0 15mm;display:flex;justify-content:space-between;gap:8px;">
+  return `<div style="width:100%;font-family:'DejaVu Sans',Arial,sans-serif;font-size:7pt;color:#000;padding:0 ${PAGE_SIDE_MARGIN};display:flex;justify-content:space-between;gap:8px;">
     <span>${escHtml(productCredit(locale))}</span>
     <span style="white-space:nowrap"><span class="pageNumber"></span> / <span class="totalPages"></span></span>
   </div>`
@@ -58,7 +68,7 @@ function pageOptions(options?: MarkdownToPdfOptions) {
   return {
     format: 'A4' as const,
     landscape: options?.landscape ?? false,
-    margin: options?.margin ?? { top: '20mm', bottom: '20mm', left: '15mm', right: '15mm' },
+    margin: options?.margin ?? DEFAULT_PAGE_MARGIN,
     ...(footerTemplate
       ? {
           displayHeaderFooter: true,
@@ -172,6 +182,18 @@ async function renderInProcess(content: string, options?: MarkdownToPdfOptions):
  */
 export async function renderedPageDom(content: string, options?: MarkdownToPdfOptions): Promise<string> {
   return withRenderedPage(content, options, page => page.content())
+}
+
+/**
+ * Evaluate a script expression in the page exactly as Chrome is about to print it, every
+ * stylesheet applied. Exported for the layout tests, which measure where the text lands.
+ */
+export async function evaluateRenderedPage<T = unknown>(
+  content: string,
+  options: MarkdownToPdfOptions | undefined,
+  expression: string,
+): Promise<T> {
+  return withRenderedPage(content, options, page => page.evaluate(expression))
 }
 
 /**
