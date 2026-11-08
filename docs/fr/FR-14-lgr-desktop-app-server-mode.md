@@ -1154,3 +1154,35 @@ The NAs carry the same reasons as 0.1.8's: `downloads`, `fiscal-bridge`, `update
 
 Published 2026-11-07 19:26 UTC from draft 437747261. Its tag's run said *"Nothing to build"*, and all 14 asset digests are the draft's. desktop-ci passed on the tag. Offered to the fleet by lgr-deploy `e1e2d72` (`DESKTOP_RELEASE_VERSION` 0.1.9): both new pods read it, and `/api/desktop/download/0.1.9` and its `.sig` answer 200 with the release's own bytes: the Windows installer, its `.sig` and the Apple-silicon `.sig` match the release's sha256 digests.
 
+#### desktop-v0.1.10 (2026-11-08), against the hub's v20261107-86d5eaeba1a2
+
+**What changed:** one fix in the shell, found by the FR-20 shop lanes.
+
+- **#576 (#575): a till asks for its fiscal-device assignment until the server answers.** `start_bridges` read the assignment once, on its own thread, and gave up on the first failure. Nothing else starts a bridge, so a till whose LGR Desktop started while its server was away opened no fiscal device for the life of the process: the window and presence came back with the server, the printer never did, until somebody restarted the app. In a shop that is the till's PC up before the master's, a till restarted while the master updates at night, or the tills back first after a power cut. Now `bridge::fetch_assignment_until` asks again on presence's backoff (1 s, doubling, 60 s at most) until it answers, the app stops or the till is halted. It stops early only on what no retry can change (a credential `classify_mint_error` calls final, a `403`/`404`/`410`), and nothing is open while it asks, so no second thread can reach a serial port. The log says the reason once and the success after failures once.
+
+`packages/desktop` holds nothing else since 0.1.9 (`bridge.rs` and `main.rs` only), and `packages/desktop-ui` is unchanged.
+
+**How it was found.** The shop lane `shop-ubuntu-nomcast` (lgr-deploy#59, a LAN that drops multicast) failed `clock-push` on 0.1.9 with *"the device was not held by this till again"*. Every shop lane carried the defect: `unreachable` and `pin-forged` start the till's app again while the master is away, and on `shop-ubuntu` and `shop-win11` `rediscover`'s own restart happened to open the device again (run `ll2`: dead from 12:45 to 12:55). The lanes' `unreachable` now asserts that the device is held again once the master is back (lgr-deploy#61). On 0.1.9 that check fails, *"the till's fiscal device was not held by it again 180 s on"* (run `ud1`), and nothing else does.
+
+**Lanes:** the FR-14 field lanes and the FR-20 shop lanes ran on 2026-11-07 and 08 against the signed draft's own bytes (draft 437892662, run 42421787867, from `5e83a535`), staged on mars and checked against the draft's 14 digests. The shop lanes ran on lgr-deploy `4efd4a5`, with #61's assertion.
+- `shop-ubuntu`: 19/19, beside the published server-v0.1.10. `unreachable` passed.
+  - When the check restarted the app with the master stopped, the shell logged *"could not read the device assignment: server_unreachable; asking again in 1 s, and until it answers"*.
+  - Once the master was back it logged *"the device assignment answered after 8 failed tries"*, opened COM1 and registered. The device was held again 45 s after the master was.
+  - `pin-forged`'s restart did the same, answered after 6 tries.
+- `shop-win11`: 19/19, beside the same server on Windows 11.
+- `shop-ubuntu-nomcast`, a LAN that drops multicast: 18 PASS and `rediscover` NA. `clock-push` is among the passes; it is where #575 first showed.
+- The desk lanes, cell for cell as on 0.1.9:
+  - `win11/nsis/user` with a one-time code: 12 PASS, 0 FAIL, 7 NA;
+  - with an ephemeral key: 11/0/8;
+  - `win11/msi/admin`: 13/0/6;
+  - `ubuntu/deb/user`: 3/0/16.
+- `clock-skew` passed on the three Windows cells (the guest 480 min out) and is NA on Ubuntu.
+
+The NAs carry the same reasons as 0.1.9's. Every desktop the lanes enrolled in `lgr-fieldtest` is revoked.
+
+Published 2026-11-08 00:51 UTC from draft 437892662.
+- Its tag's run built nothing: `build` and `release` were skipped, the release being published already. All 14 asset digests are the draft's.
+- Desktop CI and CI passed on the tag.
+- Offered to the fleet by lgr-deploy `7f58329` (`DESKTOP_RELEASE_VERSION` 0.1.10). Both new pods read it, and ArgoCD is Synced and Healthy.
+- Through `/api/desktop/download/0.1.10`, the Windows installer, the MSI, and the x64 and Apple-silicon `.sig` files answer 200 with the release's own sha256 digests.
+
