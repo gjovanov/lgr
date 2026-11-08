@@ -10,6 +10,7 @@ import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service
 import { WsTremolFiscalPrinter } from 'fiscal/ws-tremol-printer'
 import { TREMOL_CMD, TremolFiscalPrinter, tremolFiscalized, tremolPayload } from 'fiscal/tremol'
 import { WebSocketFiscalPrinter } from 'fiscal/ws-fiscal-printer'
+import { formatNonFiscalLines } from 'invoicing-api/src/lib/cash-register-till'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 
@@ -312,12 +313,37 @@ describe('the device decides what a till sale prints (D1)', () => {
       expect(slipWords(w)).toContain(`Сторно на бон № ${sold.invoiceNumber}`)
       const storno = await docOf(back.json.transaction.id)
       expect(storno.register).toMatchObject({ isFiscal: false, receiptText: `Сторно на бон № ${sold.invoiceNumber}`, fiscalDeviceNumber: 'ED123456' })
+      // It says STORNO at its head, what it reverses under its own number, and that its money went back
+      // (owner, 2026-11-08): with only a line under its articles, the slip read as a sale.
+      const slip = w.sim!.nonFiscalLines.map(s => s.trim())
+      expect(slip.slice(0, 2)).toEqual(['* NON-FISCAL *', 'STORNO'])
+      expect(slip.slice(slip.indexOf(storno.invoiceNumber) + 1).join(' ')).toStartWith(`Сторно на бон № ${sold.invoiceNumber}`)
+      expect(slip[slip.findIndex(s => s.startsWith('TOTAL:')) + 2]).toBe('REFUNDED:')
       expect(storno.register.unp).toBeUndefined()
       expect(await Sequence.countDocuments({ orgId: w.oid, prefix: /^UNP/ })).toBe(0)
       expect(await sessionOf(w)).toMatchObject({ totalCash: 0, totalReturns: 12 })
       // The session's report counts it among the slips. Printing nothing, it read as unprinted.
       const shown = await w.call('GET', `/trade/pos/session/${w.sessionId}/close-preview`)
       expect(shown.json.report.counts).toMatchObject({ text: 2, unprinted: 0 })
+    })
+
+    it('a storno slip says so in every language it prints, and a sale\'s says neither (owner, 2026-11-08)', () => {
+      const body = {
+        storno: true, receiptText: 'Сторно на бон № CS-2026-00031', lines: [{ name: 'Болт', quantity: 1, unitPrice: 7.4547 }],
+        subtotal: 7.46, taxTotal: 1.49, total: 8.95, payments: [{ method: 'cash', amount: 8.95 }], changeDue: 0,
+      }
+      const words: Record<string, [string, string]> = { en: ['STORNO', 'REFUNDED:'], bg: ['СТОРНО', 'ВЪРНАТИ:'], de: ['STORNO', 'ERSTATTET:'], mk: ['СТОРНО', 'ВРАТЕНИ:'] }
+      for (const [locale, [title, refunded]] of Object.entries(words)) {
+        const slip = formatNonFiscalLines(body, 'CS-2026-00032', 'Op', locale, 'EUR').map(s => s.trim())
+        expect(slip[1]).toBe(title)
+        // Under its number, wrapped at the slip's width, and only there: not again under the articles.
+        expect(slip.slice(4, 6).join(' ')).toBe('Сторно на бон № CS-2026-00031')
+        expect(slip.filter(s => s.startsWith('Сторно на бон'))).toHaveLength(1)
+        expect(slip[slip.indexOf(refunded) + 1]).toEndWith('8.95 EUR')
+      }
+      const sale = formatNonFiscalLines({ ...body, storno: undefined, receiptText: undefined }, 'CS-2026-00031', 'Op', 'bg', 'EUR').map(s => s.trim())
+      expect(sale).not.toContain('СТОРНО')
+      expect(sale).not.toContain('ВЪРНАТИ:')
     })
 
     it('and on one fiscalized since: the device holds no record of that sale, so nothing fiscal cites it, nor a slip', async () => {

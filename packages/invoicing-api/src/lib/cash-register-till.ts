@@ -143,10 +143,10 @@ function wrapped(text: string, width: number): string[] {
  */
 export function formatNonFiscalLines(body: any, transactionNumber: string, operatorName: string, locale: string, currency: string, timeZone = 'Europe/Sofia'): string[] {
   const labels: Record<string, Record<string, string>> = {
-    en: { subtotal: 'Subtotal:', vat: 'VAT:', total: 'TOTAL:', cash: 'CASH:', card: 'CARD:', cod: 'ON DELIVERY:', change: 'CHANGE:', nonFiscal: '* NON-FISCAL *', operator: 'Op:' },
-    bg: { subtotal: 'Междинна сума:', vat: 'ДДС:', total: 'ОБЩО:', cash: 'В БРОЙ:', card: 'КАРТА:', cod: 'НАЛОЖЕН ПЛАТЕЖ:', change: 'РЕСТО:', nonFiscal: '* НЕФИСКАЛЕН *', operator: 'Оп:' },
-    de: { subtotal: 'Zwischensumme:', vat: 'MwSt:', total: 'GESAMT:', cash: 'BAR:', card: 'KARTE:', cod: 'NACHNAHME:', change: 'WECHSEL:', nonFiscal: '* NICHT-FISKAL *', operator: 'Op:' },
-    mk: { subtotal: 'Меѓузбир:', vat: 'ДДВ:', total: 'ВКУПНО:', cash: 'ГОТОВИНА:', card: 'КАРТИЦА:', cod: 'ПРИ ДОСТАВА:', change: 'КУСУР:', nonFiscal: '* НЕФИСКАЛЕН *', operator: 'Оп:' },
+    en: { subtotal: 'Subtotal:', vat: 'VAT:', total: 'TOTAL:', cash: 'CASH:', card: 'CARD:', cod: 'ON DELIVERY:', change: 'CHANGE:', nonFiscal: '* NON-FISCAL *', operator: 'Op:', storno: 'STORNO', refunded: 'REFUNDED:' },
+    bg: { subtotal: 'Междинна сума:', vat: 'ДДС:', total: 'ОБЩО:', cash: 'В БРОЙ:', card: 'КАРТА:', cod: 'НАЛОЖЕН ПЛАТЕЖ:', change: 'РЕСТО:', nonFiscal: '* НЕФИСКАЛЕН *', operator: 'Оп:', storno: 'СТОРНО', refunded: 'ВЪРНАТИ:' },
+    de: { subtotal: 'Zwischensumme:', vat: 'MwSt:', total: 'GESAMT:', cash: 'BAR:', card: 'KARTE:', cod: 'NACHNAHME:', change: 'WECHSEL:', nonFiscal: '* NICHT-FISKAL *', operator: 'Op:', storno: 'STORNO', refunded: 'ERSTATTET:' },
+    mk: { subtotal: 'Меѓузбир:', vat: 'ДДВ:', total: 'ВКУПНО:', cash: 'ГОТОВИНА:', card: 'КАРТИЦА:', cod: 'ПРИ ДОСТАВА:', change: 'КУСУР:', nonFiscal: '* НЕФИСКАЛЕН *', operator: 'Оп:', storno: 'СТОРНО', refunded: 'ВРАТЕНИ:' },
   }
   const l = labels[locale] || labels.en
 
@@ -174,8 +174,12 @@ export function formatNonFiscalLines(body: any, transactionNumber: string, opera
   }
   const lines: string[] = []
   lines.push(center(l.nonFiscal))
+  // A storno says so at its head, and what it reverses under its number (owner, 2026-11-08): with only a
+  // line under its articles, its slip read as a sale.
+  if (body.storno) lines.push(center(l.storno))
   lines.push(sep)
   lines.push(transactionNumber)
+  if (body.storno && body.receiptText) lines.push(...wrapped(body.receiptText, W))
   // #454: the org's clock, as the session report reads it (`formatSessionReport`), Sofia when it names none.
   lines.push(new Date().toLocaleString(`${locale}-${locale.toUpperCase()}`, { timeZone }))
   lines.push(`${l.operator} ${operatorName.substring(0, W - l.operator.length - 1)}`)
@@ -188,12 +192,14 @@ export function formatNonFiscalLines(body: any, transactionNumber: string, opera
     lines.push(lr(qty, total))
   }
   // FR-23: „Фактура № …", as a fiscal receipt says it under its lines.
-  if (body.receiptText) lines.push(...wrapped(body.receiptText, W))
+  if (body.receiptText && !body.storno) lines.push(...wrapped(body.receiptText, W))
   lines.push(sep)
   lines.push(lr(l.subtotal, fmt(body.subtotal)))
   lines.push(lr(l.vat, fmt(body.taxTotal)))
   lines.push(lr(l.total, fmt(body.total)))
   lines.push(sep)
+  // A storno's money went back to the customer.
+  if (body.storno) lines.push(l.refunded)
   for (const p of body.payments) {
     const label = paymentLabels[p.method] || (p.method.toUpperCase() + ':')
     lines.push(lr(label, fmt(p.amount)))
@@ -259,8 +265,10 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
         payments: tendered(doc), changeDue: doc.register?.changeDue || 0,
         // FR-23: the same words a fiscal receipt of this payment prints. A refund's storno says what it reverses there.
         ...(doc.type === 'payment_receipt' || doc.type === 'payment_storno' ? { keepNames: true, receiptText: doc.register?.receiptText } : {}),
-        // And a till sale's storno, under the articles it gives back (#467).
+        // And a till sale's storno, what it reverses (#467).
         ...(doc.type === 'cash_storno' ? { receiptText: doc.register?.receiptText } : {}),
+        // Either storno says so at its head, and that its money went back.
+        ...(doc.type === 'cash_storno' || doc.type === 'payment_storno' ? { storno: true } : {}),
       }
       await p.openNonFiscalReceipt!(operatorCode || '1')
       for (const line of formatNonFiscalLines(body, doc.invoiceNumber, operatorName, locale, currency, org?.settings?.timezone || 'Europe/Sofia')) await p.printNonFiscalText!(line)
