@@ -852,18 +852,23 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
     return w
   }
 
-  it('the simulator is the unit in the field: it reports what it reports, and refuses a fiscal receipt, so the till prints it a slip', async () => {
+  it('the simulator is the unit in the field: it reports what it reports, and takes a fiscal receipt, so only its status makes the till print a slip', async () => {
     const w = await theUnit()
-    expect(await getPrinter(w.deviceId).getStatus()).toMatchObject({ connected: true, fiscalized: false })
+    const printer = getPrinter(w.deviceId)
+    expect(await printer.getStatus()).toMatchObject({ connected: true, fiscalized: false })
     // The bytes the unit in the field answered with.
     const answer = await w.sim!.exchange(buildFrame())
     const status = [...answer].slice(answer.indexOf(0x04) + 1, answer.indexOf(0x05))
     expect(status.slice(4)).toEqual([0x84, 0x90])
-    const refused = await captureRejection(getPrinter(w.deviceId).openFiscalReceipt('0001', 'Иван Петров', 'ED123456-0001-0000001'))
-    expect(String(refused?.message)).toContain('not allowed')
+    // What the owner's A3 did with no ЕИК, sent by hand (2026-11-08): 0.01 € opened, paid, closed, and on its X.
+    await printer.openFiscalReceipt('0001', 'Иван Петров', 'ED123456-0001-0000001')
+    await printer.printSaleLine('Проба', 1, 0.01, 'Б', undefined, 20)
+    await printer.printPayment('cash', 0.01)
+    await printer.closeFiscalReceipt()
+    expect((await printer.printDailyXReport!()).turnover).toContainEqual({ group: 'Б', amount: 0.01 })
     const sold = await w.sell(1)
     expect(sold.json.transaction.fiscal).toMatchObject({ state: 'printed', mode: 'text' })
-    expect(w.sim!.receipts).toHaveLength(0)
+    expect(w.sim!.receipts).toHaveLength(1)
   })
 
   it('a cash invoice prints text and pays: no fiscal command reached the device', async () => {
@@ -1255,15 +1260,17 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
       })
       await Invoice.updateOne({ _id: d.id }, { $push: { receiptHolds: { receiptId: dead._id, amount: 24 } } })
 
-      // `printOnce` judges what it left: proved not printed, so it prints fiscally, and the unit refuses.
+      // `printOnce` judges what it left: proved not printed, so it prints fiscally. The unit takes it, as the
+      // owner's A3 took a fiscal receipt with no ЕИК (2026-11-08), whatever its status says.
       const r = await w.call('POST', `/invoices/${d.id}/payments`, { date: TODAY, amount: 24, method: 'cash' }, key)
 
-      expect(r.status).toBe(503)
+      expect(r.status).toBe(200)
       expect(closedTexts(w)).toBe(0)
+      expect(w.sim!.receipts).toHaveLength(1)
       const after: any = await Invoice.findById(dead._id).lean().exec()
       expect(after.register.isFiscal).toBe(true)
-      expect(after.register.fiscal).toMatchObject({ mode: 'fiscal', state: 'failed' })
-      expect(await raw(d.id)).toMatchObject({ amountPaid: 0 })
+      expect(after.register.fiscal).toMatchObject({ mode: 'fiscal', state: 'printed' })
+      expect(await raw(d.id)).toMatchObject({ amountPaid: 24 })
     })
 
     it('a text attempt on a device fiscalized since is held: its counter proves nothing, and nothing prints', async () => {

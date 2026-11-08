@@ -6,10 +6,11 @@ import { openTillSession } from './helpers/cash-register'
 /**
  * FR-23 (owner, 2026-11-01) — a cash invoice on a device that is not fiscalized.
  *
- * The device is `scripts/eltrade-tcp-stub.ts` as the unit in the field: status S4=84h, S5=90h, and 90h
- * refused until service sets it up. It says so itself, so the receipt prints as text, and nobody
- * chose that: no field, no setting, no switch. Run it as `cash-register-fiscal.spec.ts` says. Serial:
- * one session, one device, one invoice, and the session's report counting it.
+ * The device is `scripts/eltrade-tcp-stub.ts` as the unit in the field: status S4=84h, S5=90h. It would
+ * take a fiscal receipt (the owner's A3 did, 2026-11-08), but its status says it is not fiscalized, so
+ * the receipt prints as text, and nobody chose that: no field, no setting, no switch. Run it as
+ * `cash-register-fiscal.spec.ts` says. Serial: one session, one device, one invoice, and the session's
+ * report counting it.
  */
 test.describe.configure({ mode: 'serial' })
 

@@ -200,15 +200,17 @@ Built from Eltrade's own protocol document (v1.1.1, re-checked against v1.1.7) a
 against ErpNet.FP's Eltrade driver, which runs against real devices. Tested against
 `packages/tests/src/helpers/eltrade-simulator.ts`, a device simulator built from the same document.
 Status, diagnostics, the clock and a non-fiscal sale were field-verified on a non-fiscalized A3
-(2026-09-26); **the reports, operator programming, payment type names and the free text of a fiscal
-receipt (36h) have not been run on a physical A3.** 36h is „PRINTING A FREE FISCAL TEXT“ in the
+(2026-09-26), its reports since, and a fiscal receipt's 90h to 38h by hand (2026-11-08, below);
+**operator programming, payment type names and the free text of a fiscal receipt (36h) have not been run
+on a physical A3.** 36h is „PRINTING A FREE FISCAL TEXT“ in the
 protocol v1.1.1 (up to 46 bytes, framed in `#`, refused with S1.1 when no fiscal receipt is open), and
 ErpNet.FP's ISL drivers send comments with it, its Eltrade driver not overriding it. A check on the
 device is still owed: where the line lands on the receipt, and that it prints between the sale lines
 and the payment. Deliberately handled both ways because the document is not specific:
 
 - the field layout of the diagnostic answer (serial / fiscal memory are found by shape);
-- whether amounts come back with a decimal point or in cents;
+- whether amounts come back with a decimal point or in cents (the A3 sends whole cents in 33h, 35h and
+  45h, and a decimal point in 46h);
 - the width of a service-receipt line on 58 mm paper (the POS formats it to 28 characters);
 - the 55h answer, written `Result\Name` in the document: a bare name, `P`/`F`, or both with a
   separator are all read;
@@ -222,19 +224,37 @@ field tells it. Not seen on a device: a Z clearing them, which is the protocol's
 the manual's samples; and where a fiscalized device refuses a cash refund above its cash, and how. The simulator
 refuses that at 35h with a clean `F`, the strict reading, and the driver voids the receipt.
 
-**What 45h's FM total and turnover per VAT group hold on a fiscalized unit is not proven either.** An A3 that
-is not fiscalized answered `9,0,0,0,0,0,0,0,0,0` after a text sale. A close keeps the answer on the session
-(`zReport`, raw and parsed) and the session report shows it beside the Z's number, labelled as the device's.
-Nothing compares it with LGR's fiscal amount, because nothing yet says the two should agree: read both on the
-first fiscalized device.
+**45h's second field is the day's turnover in cents, and the next eight are groups А to З.** An A3 that is not
+fiscalized answered `9,0,0,0,0,0,0,0,0,0` after a text sale, and `19,1,0,1,0,0,0,0,0,0` after a 0.01 € fiscal
+receipt in Б (2026-11-08). A close keeps the answer on the session (`zReport`, raw and parsed) and the session
+report shows it beside the Z's number, labelled as the device's. Nothing compares it with LGR's fiscal amount
+yet. Read both on the first fiscalized device.
 
 **On a unit that is not fiscalized, every device report reads 0.00, and that is right (2026-11-06).** LGR prints
 its sales as text receipts there (26h/2Ah/27h), which no counter of the device moves: the close's Z answered
 `17,0,0,0,0,0,0,0,0,0` after a text sale, and the fiscal memory by Z number (5Fh, 49h) and by date (4Fh, 5Eh)
 printed exactly what they were asked, every figure zero. LGR's own session report is where that session's money
 is. POS Sessions → Device reports now says so before printing, with the count and amount of the session's text
-receipts. The only way to have such a unit's reports carry the sales is a fiscal receipt (90h), never tried on a
-unit with no ЕИК, which the protocol says refuses it.
+receipts. Such a unit does take a fiscal receipt (below), and its reports then carry it. LGR still prints text
+there, because the unit's own status says it is not fiscalized, and that status decides, never a switch.
+
+**A unit that is not fiscalized takes a fiscal receipt (2026-11-08).** The protocol says 90h fails with no ЕИК.
+The owner's A3, with no ЕИК and its fiscal memory not formatted, took the driver's own payloads one command
+at a time, sent by hand and not through LGR:
+
+| Cmd | Sent | Answer |
+|---|---|---|
+| 90h | `Оператор 9999,<serial>-9999-0000001` | `0003,0001`, receipt open (S2 bit 3) |
+| 31h | `Проба LGR\tБ0.01` | empty |
+| 33h | `00` | `0000000001,0000000000,0000000001,0000000000,…` |
+| 35h | `\tP0.01` | `R000000000` |
+| 38h | | `0003,0002`, printed |
+| 71h | | `0000124` |
+| 45h | `2` (X) | `19,1,0,1,0,0,0,0,0,0` |
+
+Every status was clean. The 0.01 € stays in the unit's whole-life totals, and its next Z carries one fiscal
+receipt. The УНП used operator code 9999, so no УНП LGR allocates can repeat it. Still owed on paper: the
+receipt's printed number against 71h.
 
 **The close says it too (2026-11-08).** A session of three text sales closed on a Z of zeros, with only
 `СЛ. ВЪВЕДЕНИ` right (the opening amount, 46h), and that was read as the Z being wrong. The close dialog now shows

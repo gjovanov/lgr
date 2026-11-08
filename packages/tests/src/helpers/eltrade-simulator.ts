@@ -93,15 +93,23 @@ export class EltradeSimulator {
   fiscalized = true
   /**
    * The unit in the field: serial set, nothing else. No ЕИК and a fiscal memory not formatted, so its
-   * status reads S4=84h, S5=90h, and 90h is refused until service sets it up. Text receipts print.
+   * status reads S4=84h, S5=90h. It still takes a fiscal receipt, and its X counts it: the owner's A3
+   * took 90h to 38h for 0.01 € on 2026-11-08, though the protocol says 90h fails with no ЕИК. Only the
+   * status makes LGR print text on it.
    */
   unfiscalizedUnit = false
   paper = true
   clockNotSet = false
   /** Mimic the ErpNet.FP #166 A1: "general error" + NRA-link bits raised on a healthy device. */
   terminalDown = false
-  /** How amounts come back: "12.50" or an integer count of cents ("1250"). */
-  amountFormat: 'decimal' | 'cents' = 'decimal'
+  /**
+   * How amounts come back: "12.50" or an integer count of cents ("1250") in every answer, or `a3`, what
+   * the owner's A3 sent on 2026-11-08: whole cents in 33h, padded to 10 digits, and in 35h's change,
+   * padded to 9 (`R000000000`). `a3` keeps the decimal point in 46h, as the A3 answers it
+   * (`P,90.00,90.00,0.00`), and in 45h, which tests read raw, though the A3's X answered
+   * `19,1,0,1,0,0,0,0,0,0`.
+   */
+  amountFormat: 'a3' | 'decimal' | 'cents' = 'a3'
   /**
    * How 55h answers a read: the bare name, or `P\<name>` — the protocol's `Result\Name` leaves both
    * readings open, and the driver must take either.
@@ -225,8 +233,16 @@ export class EltradeSimulator {
     return bcc.every((b, i) => f[post + 1 + i] === b)
   }
 
-  private money(n: number): string {
-    return this.amountFormat === 'decimal' ? round2(n).toFixed(2) : String(Math.round(n * 100))
+  /** An amount in an answer. `pad` is the width `a3` zero-pads whole cents to: 10 in 33h, 9 in 35h. */
+  private money(n: number, pad = 0): string {
+    if (this.amountFormat === 'decimal') return round2(n).toFixed(2)
+    const cents = String(Math.round(n * 100))
+    return this.amountFormat === 'a3' && !cents.startsWith('-') ? cents.padStart(pad, '0') : cents
+  }
+
+  /** An amount in 45h's or 46h's answer: see `amountFormat`. */
+  private reportMoney(n: number): string {
+    return this.amountFormat === 'a3' ? round2(n).toFixed(2) : this.money(n)
   }
 
   private execute(seq: number, cmd: number, raw: Uint8Array): Uint8Array {
@@ -247,7 +263,7 @@ export class EltradeSimulator {
 
   /** `ExitCode,CashSum,ServIn,ServOut`. */
   private serviceCashAnswer(code: 'P' | 'F'): string {
-    return [code, this.money(this.cash), this.money(this.serviceIn), this.money(this.serviceOut)].join(',')
+    return [code, this.reportMoney(this.cash), this.reportMoney(this.serviceIn), this.reportMoney(this.serviceOut)].join(',')
   }
 
   private run(cmd: number, text: string, flags: Flags): string {
@@ -281,7 +297,7 @@ export class EltradeSimulator {
         return '0002'
 
       case 0x90: {
-        if (this.unfiscalizedUnit || receiptOpen || this.nonFiscalOpen) { flags.notAllowed = true; return '' }
+        if (receiptOpen || this.nonFiscalOpen) { flags.notAllowed = true; return '' }
         const header = text.split(',')
         const unp = header[1] || ''
         if (!/^[A-Z]{2}\d{6}-[0-9A-Za-z]{4}-\d{7}$/.test(unp) || unp.slice(0, 8) !== this.serial) {
@@ -314,8 +330,9 @@ export class EltradeSimulator {
       }
       case 0x33:
         if (!this.receipt) { flags.notAllowed = true; return '' }
-        return [this.money(this.receipt.total), ...GROUPS.map(g => this.money(
+        return [this.money(this.receipt.total, 10), ...GROUPS.map(g => this.money(
           this.receipt!.sales.filter(s => s.group === g).reduce((a, s) => a + s.amount, 0),
+          10,
         ))].join(',')
       case 0x35: {
         if (!this.receipt) { flags.notAllowed = true; return 'F' }
@@ -342,7 +359,7 @@ export class EltradeSimulator {
         this.receipt.payments.push({ mode, amount })
         this.receipt.paid = round2(this.receipt.paid + amount)
         const left = round2(this.receipt.total - this.receipt.paid)
-        return left > 0 ? `D${this.money(left)}` : `R${this.money(-left)}`
+        return left > 0 ? `D${this.money(left, 9)}` : `R${this.money(-left, 9)}`
       }
       case 0x36:
         // "A fiscal receipt must be opened because in the opposite case the text will not be
@@ -380,7 +397,7 @@ export class EltradeSimulator {
         // [<Option>[N]: '0' Z, '2' X, then 'N' or 'a' (keep the operators' / items' data).
         if (!/^(?:[02][Na]?)?$/.test(text)) { flags.syntax = true; return '' }
         const zeroing = text === '' || text.startsWith('0')
-        const answer = this.zAnswer ?? `${String(this.closure + (zeroing ? 1 : 0)).padStart(4, '0')},${this.money(this.dayTotal)},${GROUPS.map(g => this.money(this.dayByGroup[g] || 0)).join(',')}`
+        const answer = this.zAnswer ?? `${String(this.closure + (zeroing ? 1 : 0)).padStart(4, '0')},${this.reportMoney(this.dayTotal)},${GROUPS.map(g => this.reportMoney(this.dayByGroup[g] || 0)).join(',')}`
         if (zeroing) {
           this.closure++
           this.dayTotal = 0

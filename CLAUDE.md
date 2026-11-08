@@ -1116,7 +1116,9 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   healthy devices (ErpNet.FP #166). Serializes commands, primes a random SEQ (a same-SEQ frame is replayed,
   not executed), voids a receipt an interrupted sale left open. Built against
   `tests/helpers/eltrade-simulator.ts` (from the protocol PDF); field-verified 2026-09-26 on a NON-fiscalized A3
-  (status, diagnostics, clock, a non-fiscal sale through prod) — fiscal receipts still unproven on hardware.
+  (status, diagnostics, clock, a non-fiscal sale through prod). ⚠ On 2026-11-08 that unit, with no ЕИК, TOOK
+  a fiscal receipt sent by hand with the driver's own payloads (90h to 38h, counted on its X). The protocol's
+  "90h fails with no ЕИК" does not hold there. A fiscal receipt through LGR itself is still unproven on hardware.
   Field guide: **`docs/guides/eltrade-fiscal-device.md`**
   - ⚠ **A report never touches a receipt the driver is still printing** (2026-10-31): X, Z and the fiscal-memory
     reports read the status, deal with an open receipt and print in ONE turn of the command queue. A receipt THIS
