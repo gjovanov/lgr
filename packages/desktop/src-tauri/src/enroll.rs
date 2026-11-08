@@ -236,13 +236,38 @@ pub fn mint_token(server_url: &str) -> Result<String, EnrollError> {
     mint_token_within(server_url, Duration::from_secs(20))
 }
 
-/// `mint_token` on a deadline of the caller's: a machine shutting down has seconds, not twenty.
-pub fn mint_token_within(server_url: &str, timeout: Duration) -> Result<String, EnrollError> {
-    let dir = keystore::secure_dir().map_err(|_| EnrollError("no_secure_storage".into()))?;
-    let mut stored = keystore::load(&dir);
+/// How long [`registered`] waits before it reads the record a second time.
+const RECHECK: Duration = Duration::from_millis(500);
+
+/// This machine's record when it is registered, and `not_registered` only after a second look a
+/// moment later (lgr#587).
+///
+/// ⚠ `not_registered` is final for the bridge (`bridge::classify_mint_error`): the till then holds
+/// no fiscal device until LGR Desktop is restarted. Since every write replaces the record whole
+/// (`keystore::write_atomically`), a read cannot catch one half-written any more; the second look
+/// is there for whatever else could hide it for a moment, which must not cost a shop its printer.
+/// A machine that never enrolled waits half a second longer to be told so.
+fn registered(dir: &std::path::Path) -> Result<Stored, EnrollError> {
+    registered_after(dir, RECHECK)
+}
+
+fn registered_after(dir: &std::path::Path, recheck: Duration) -> Result<Stored, EnrollError> {
+    let stored = keystore::load(dir);
+    if !stored.desktop_id.is_empty() {
+        return Ok(stored);
+    }
+    std::thread::sleep(recheck);
+    let stored = keystore::load(dir);
     if stored.desktop_id.is_empty() {
         return Err(EnrollError("not_registered".into()));
     }
+    Ok(stored)
+}
+
+/// `mint_token` on a deadline of the caller's: a machine shutting down has seconds, not twenty.
+pub fn mint_token_within(server_url: &str, timeout: Duration) -> Result<String, EnrollError> {
+    let dir = keystore::secure_dir().map_err(|_| EnrollError("no_secure_storage".into()))?;
+    let mut stored = registered(&dir)?;
     let secret = keystore::load_secret(&dir).ok_or_else(|| EnrollError("no_key".into()))?;
     let id = Identity::from_secret_bytes(&secret).ok_or_else(|| EnrollError("bad_key".into()))?;
 
@@ -283,16 +308,18 @@ pub fn mint_token_within(server_url: &str, timeout: Duration) -> Result<String, 
             // to say why the bridge is down after a restart. ⚠ And the registration is LEFT ALONE —
             // this is "the build is too old", not "you are not welcome", and deleting the key here
             // would turn an update into a re-enrollment.
+            // ⚠ Each write below changes only what this mint learned, on the record as it is NOW
+            // (`keystore::update`): the other thread minting at the same start may have written
+            // since this one read it (lgr#587).
             if status.as_u16() == 426 {
-                stored.update_required = true;
-                let _ = keystore::save(&dir, &stored);
+                let _ = keystore::update(&dir, |s| s.update_required = true);
                 return Err(EnrollError("desktop_outdated".into()));
             }
             if attempt == 0 {
                 // The caller logs a refusal that stands; one corrected here simply succeeds.
                 if let Some(ms) = relearned_offset(status.as_u16(), &code, server_date, stored.clock_offset_ms, now_ms()) {
                     stored.clock_offset_ms = ms;
-                    let _ = keystore::save(&dir, &stored);
+                    let _ = keystore::update(&dir, |s| s.clock_offset_ms = ms);
                     continue;
                 }
             }
@@ -305,11 +332,12 @@ pub fn mint_token_within(server_url: &str, timeout: Duration) -> Result<String, 
         // A successful mint is the proof that the build is acceptable again, so the banner clears
         // itself when the update lands rather than needing anyone to dismiss it.
         if learned.is_some() || stored.update_required {
-            if let Some(ms) = learned {
-                stored.clock_offset_ms = ms;
-            }
-            stored.update_required = false;
-            let _ = keystore::save(&dir, &stored);
+            let _ = keystore::update(&dir, |s| {
+                if let Some(ms) = learned {
+                    s.clock_offset_ms = ms;
+                }
+                s.update_required = false;
+            });
         }
         return Ok(parsed.access_token);
     }
@@ -362,11 +390,10 @@ pub fn report_self(server_url: &str, app_version: &str, serial_ports: &[String])
         return Ok(None);
     };
     let dir = keystore::secure_dir().map_err(|_| EnrollError("no_secure_storage".into()))?;
-    let mut stored = keystore::load(&dir);
-    let (changed, moved) = refresh_assignment(&mut stored, assignment);
-    if changed {
-        keystore::save(&dir, &stored).map_err(|_| EnrollError("cannot_store_record".into()))?;
-    }
+    // Written only when it changed (`keystore::update` compares), and on the record as it is now.
+    let mut moved = None;
+    keystore::update(&dir, |s| moved = refresh_assignment(s, assignment).1)
+        .map_err(|_| EnrollError("cannot_store_record".into()))?;
     Ok(moved)
 }
 
@@ -411,8 +438,9 @@ pub fn unregister_self(server_url: &str, timeout: Duration) -> Result<(), Enroll
 /// The registration gone from this machine: no desktop and no key. The installation id stays, so
 /// the hub can still tell a reinstalled machine from a new one (C06).
 fn forget(dir: &std::path::Path) {
-    let installation_id = keystore::load(dir).installation_id;
-    let _ = keystore::save(dir, &Stored { installation_id, ..Stored::default() });
+    let _ = keystore::update(dir, |s| {
+        *s = Stored { installation_id: std::mem::take(&mut s.installation_id), ..Stored::default() };
+    });
     let _ = keystore::delete_secret(dir);
 }
 
@@ -449,7 +477,7 @@ pub fn fetch_manifest(server_url: &str) -> Result<(Option<String>, Option<String
 /// it would leave a machine that merely looks unregistered, and the operator with no idea why.
 pub fn mark_revoked(dir: &std::path::Path, stored: &mut Stored) {
     stored.revoked = true;
-    let _ = keystore::save(dir, stored);
+    let _ = keystore::update(dir, |s| s.revoked = true);
     // C18 fills the bridge stop path; the call site exists now so that chunk has one place to
     // put it rather than having to find every revocation route.
     stop_bridge();
@@ -485,6 +513,36 @@ pub fn rotate_key(server_url: &str, app_version: &str) -> Result<(), EnrollError
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_record_that_appears_a_moment_later_is_registered_not_refused() {
+        // ⚠ lgr#587's second look. `not_registered` stops the bridge for good, so a record hidden
+        // for a moment must be found again rather than cost the till its fiscal device; one that is
+        // still not there after the look is `not_registered`, as before.
+        let dir = std::env::temp_dir().join(format!("lgr-enroll-recheck-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let late = {
+            let dir = dir.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(100));
+                keystore::save(&dir, &Stored { desktop_id: "d1".into(), ..Default::default() }).unwrap();
+            })
+        };
+        // Three seconds: the late write is flushed to the disk, which a busy one takes most of a
+        // second over (mars, 2026-11-08), and the second look must come after it.
+        let got = registered_after(&dir, Duration::from_secs(3));
+        late.join().unwrap();
+        assert_eq!(got.map(|s| s.desktop_id).ok().as_deref(), Some("d1"));
+
+        let never = dir.join("never");
+        std::fs::create_dir_all(&never).unwrap();
+        let t0 = std::time::Instant::now();
+        let refused = registered_after(&never, Duration::from_millis(50)).err().map(|e| e.to_string());
+        assert_eq!(refused.as_deref(), Some("not_registered"));
+        assert!(t0.elapsed() >= Duration::from_millis(50), "the second look was skipped");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn code_normalisation_matches_the_servers() {
