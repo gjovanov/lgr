@@ -1709,6 +1709,7 @@
       "voided": "Voided stornos",
       "fiscal": "Fiscal receipts",
       "text": "Text receipts",
+      "textNotInZ": "Not in the device's Z-report: it counts only fiscal receipts",
       "unprinted": "Not printed",
       "vatRate": "VAT {rate}%",
       "net": "Net",

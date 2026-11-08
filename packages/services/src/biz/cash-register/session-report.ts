@@ -212,30 +212,30 @@ export function buildSessionReport(
 export const SESSION_REPORT_LABELS: Record<string, Record<string, string>> = {
   en: {
     title: 'SESSION REPORT', opened: 'Opened', closed: 'Closed', sales: 'Sales', payments: 'Invoice payments', refunds: 'Credit note refunds', stornos: 'Stornos', voided: 'Voided',
-    fiscal: 'Fiscal receipts', text: 'Text receipts', unprinted: 'Not printed', vat: 'VAT', net: 'Net', gross: 'Gross',
+    fiscal: 'Fiscal receipts', text: 'Text receipts', textNotInZ: 'Not in the Z-report', unprinted: 'Not printed', vat: 'VAT', net: 'Net', gross: 'Gross',
     total: 'TOTAL', cash: 'Cash', card: 'Card', other: 'Other', cod: 'Cash on delivery', change: 'Change given', opening: 'Opening float',
-    expected: 'Expected cash', counted: 'Counted', difference: 'Difference', documents: 'Documents', receipts: 'Receipts',
+    expected: 'Expected cash', counted: 'Counted', difference: 'Difference', documents: 'Documents', from: 'from', to: 'to', receipts: 'Receipts',
     z: 'Z-report No.', deviceZ: 'On the device', fmTotal: 'FM total', vatGroup: 'VAT group', notOnDevice: 'Not on the device',
   },
   bg: {
     title: 'ОТЧЕТ ЗА СЕСИЯ', opened: 'Отворена', closed: 'Затворена', sales: 'Продажби', payments: 'Плащания по фактури', refunds: 'Върнато по кр. известия', stornos: 'Сторно', voided: 'Анулирани',
-    fiscal: 'Фискални бонове', text: 'Служебни бонове', unprinted: 'Неотпечатани', vat: 'ДДС', net: 'Основа', gross: 'Сума',
+    fiscal: 'Фискални бонове', text: 'Служебни бонове', textNotInZ: 'Не са в Z-отчета', unprinted: 'Неотпечатани', vat: 'ДДС', net: 'Основа', gross: 'Сума',
     total: 'ОБЩО', cash: 'В брой', card: 'Карта', other: 'Други', cod: 'Наложен платеж', change: 'Върнато ресто', opening: 'Начална сума',
-    expected: 'Очаквано в брой', counted: 'Преброено', difference: 'Разлика', documents: 'Документи', receipts: 'Бонове',
+    expected: 'Очаквано в брой', counted: 'Преброено', difference: 'Разлика', documents: 'Документи', from: 'от', to: 'до', receipts: 'Бонове',
     z: 'Z-отчет №', deviceZ: 'По устройството', fmTotal: 'Общо ФП', vatGroup: 'ДДС група', notOnDevice: 'Не е на устройството',
   },
   de: {
     title: 'SITZUNGSBERICHT', opened: 'Geöffnet', closed: 'Geschlossen', sales: 'Verkäufe', payments: 'Rechnungszahlungen', refunds: 'Gutschrift-Erstattungen', stornos: 'Stornos', voided: 'Ungültig',
-    fiscal: 'Fiskalbelege', text: 'Textbelege', unprinted: 'Nicht gedruckt', vat: 'MwSt', net: 'Netto', gross: 'Brutto',
+    fiscal: 'Fiskalbelege', text: 'Textbelege', textNotInZ: 'Nicht im Z-Bericht', unprinted: 'Nicht gedruckt', vat: 'MwSt', net: 'Netto', gross: 'Brutto',
     total: 'GESAMT', cash: 'Bar', card: 'Karte', other: 'Sonstige', cod: 'Nachnahme', change: 'Rückgeld', opening: 'Anfangsbestand',
-    expected: 'Erwartetes Bargeld', counted: 'Gezählt', difference: 'Differenz', documents: 'Belege', receipts: 'Bons',
+    expected: 'Erwartetes Bargeld', counted: 'Gezählt', difference: 'Differenz', documents: 'Belege', from: 'von', to: 'bis', receipts: 'Bons',
     z: 'Z-Bericht Nr.', deviceZ: 'Laut Gerät', fmTotal: 'Summe FS', vatGroup: 'MwSt-Gruppe', notOnDevice: 'Nicht auf dem Gerät',
   },
   mk: {
     title: 'ИЗВЕШТАЈ ЗА СЕСИЈА', opened: 'Отворена', closed: 'Затворена', sales: 'Продажби', payments: 'Плаќања по фактури', refunds: 'Вратено по кр. известув.', stornos: 'Сторно', voided: 'Поништени',
-    fiscal: 'Фискални сметки', text: 'Службени сметки', unprinted: 'Неотпечатени', vat: 'ДДВ', net: 'Основица', gross: 'Износ',
+    fiscal: 'Фискални сметки', text: 'Службени сметки', textNotInZ: 'Не се во Z-извештајот', unprinted: 'Неотпечатени', vat: 'ДДВ', net: 'Основица', gross: 'Износ',
     total: 'ВКУПНО', cash: 'Готовина', card: 'Картичка', other: 'Друго', cod: 'При достава', change: 'Вратен кусур', opening: 'Почетна сума',
-    expected: 'Очекувана готовина', counted: 'Избројано', difference: 'Разлика', documents: 'Документи', receipts: 'Сметки',
+    expected: 'Очекувана готовина', counted: 'Избројано', difference: 'Разлика', documents: 'Документи', from: 'од', to: 'до', receipts: 'Сметки',
     z: 'Z-извештај бр.', deviceZ: 'Според уредот', fmTotal: 'Вкупно ФМ', vatGroup: 'ДДВ група', notOnDevice: 'Не е на уредот',
   },
 }
@@ -281,6 +281,9 @@ export function formatSessionReport(report: SessionReport, locale = 'en', timeZo
   if (report.counts.voided) lines.push(lr(l.voided, String(report.counts.voided)))
   lines.push(...kind(l.fiscal, report.counts.fiscal, report.amounts?.fiscal))
   lines.push(...kind(l.text, report.counts.text, report.amounts?.text))
+  // The Z printed just above leaves them out: a session of text receipts reads 0.00 there, every figure, and
+  // the paper says why where it counts them (2026-11-08).
+  if (report.counts.text) lines.push(` ${l.textNotInZ}`)
   if (report.counts.unprinted) lines.push(...kind(l.unprinted, report.counts.unprinted, report.amounts?.unprinted))
   lines.push(sep)
   for (const v of report.vat) {
@@ -305,8 +308,9 @@ export function formatSessionReport(report: SessionReport, locale = 'en', timeZo
   if (report.documents || report.receipts || report.zReportNumber || report.deviceZ) lines.push(sep)
   if (report.documents) {
     lines.push(l.documents)
-    lines.push(` ${report.documents.first}`)
-    if (report.documents.last !== report.documents.first) lines.push(` ${report.documents.last}`)
+    // A range: two bare numbers read as two documents, the first and last of three (2026-11-08).
+    if (report.documents.last === report.documents.first) lines.push(` ${report.documents.first}`)
+    else lines.push(` ${l.from} ${report.documents.first}`, ` ${l.to} ${report.documents.last}`)
   }
   if (report.receipts) lines.push(lr(l.receipts, `${report.receipts.first}-${report.receipts.last}`))
   if (report.zReportNumber) lines.push(lr(l.z, report.zReportNumber))

@@ -12,6 +12,7 @@
         <tr v-if="report.counts.voided"><td>{{ $t('pos.sessionReport.voided') }}</td><td class="text-end">{{ report.counts.voided }}</td></tr>
         <tr data-testid="session-report-fiscal"><td>{{ $t('pos.sessionReport.fiscal') }}</td><td class="text-end">{{ kind('fiscal') }}</td></tr>
         <tr data-testid="session-report-text"><td>{{ $t('pos.sessionReport.text') }}</td><td class="text-end">{{ kind('text') }}</td></tr>
+        <tr v-if="report.counts.text" data-testid="session-report-text-not-in-z"><td class="ps-6 text-medium-emphasis" colspan="2">{{ $t('pos.sessionReport.textNotInZ') }}</td></tr>
         <tr v-if="report.counts.unprinted" data-testid="session-report-unprinted"><td>{{ $t('pos.sessionReport.unprinted') }}</td><td class="text-end">{{ kind('unprinted') }}</td></tr>
         <template v-for="v in report.vat" :key="v.rate">
           <tr class="bg-surface-light"><td colspan="2" class="font-weight-medium">{{ $t('pos.sessionReport.vatRate', { rate: v.rate }) }}</td></tr>

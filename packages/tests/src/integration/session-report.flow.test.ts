@@ -67,6 +67,31 @@ describe('the session report: its figures', () => {
     expect(lines.some((s) => s.startsWith('Z-отчет №') && s.endsWith('0042'))).toBe(true)
   })
 
+  // "Документи / CS-2026-00001 / CS-2026-00003" for a session of three (2026-11-08): two bare numbers read as
+  // two documents. The device's own Z prints a range the same way, „КЛЕН от 0001 до 0001".
+  it('prints its documents as a range, from and to; one document alone', () => {
+    const lines = formatSessionReport(buildSessionReport(session, rows), 'bg')
+    const at = lines.indexOf('Документи')
+    expect(lines.slice(at, at + 3)).toEqual(['Документи', ' от CS-1', ' до CS-4'])
+
+    const one = formatSessionReport(buildSessionReport(session, rows.slice(0, 1)), 'en')
+    expect(one.slice(one.indexOf('Documents'), one.indexOf('Documents') + 2)).toEqual(['Documents', ' CS-1'])
+    expect(one.some((s) => /^ (from|to) /.test(s))).toBe(false)
+  })
+
+  // A Z of zeros printed above a report that counts three text receipts, read as the Z being wrong (2026-11-08):
+  // the device counts only fiscal receipts.
+  it('says under their count that text receipts are not in the Z-report, and only when there are some', () => {
+    const lines = formatSessionReport(buildSessionReport(session, rows), 'bg')
+    const at = lines.findIndex((s) => s.startsWith('Служебни бонове'))
+    expect(lines[at + 1]).toBe(' Не са в Z-отчета')
+
+    // CS-2 is the text receipt.
+    const fiscalOnly = formatSessionReport(buildSessionReport(session, rows.filter((r) => r.transactionNumber !== 'CS-2')), 'bg')
+    expect(fiscalOnly.some((s) => /^Служебни бонове 0 +0\.00$/.test(s))).toBe(true)
+    expect(fiscalOnly).not.toContain(' Не са в Z-отчета')
+  })
+
   describe('what each kind of receipt came to', () => {
     const unprinted = { type: 'sale', status: 'completed', transactionNumber: 'CS-5', total: 6, lines: [line(20, 5)], payments: [{ method: 'cash', amount: 6 }], fiscal: { state: 'failed', mode: 'fiscal' } }
     const paid = { type: 'payment_receipt', status: 'completed', transactionNumber: 'PR-1', total: 5, lines: [line(0, 5)], payments: [{ method: 'cash', amount: 5 }], isFiscal: true, fiscal: { state: 'printed', mode: 'fiscal' } }
@@ -133,7 +158,7 @@ describe('the session report: its figures', () => {
       const l = SESSION_REPORT_LABELS[locale]
 
       expect(lines.filter((s) => s.length > 28)).toEqual([])
-      for (const key of ['opened', 'closed', 'sales', 'payments', 'stornos', 'voided', 'fiscal', 'text', 'unprinted', 'vat', 'net', 'gross', 'cash', 'card', 'other', 'cod', 'change', 'opening', 'expected', 'counted', 'difference', 'documents', 'receipts', 'z', 'deviceZ', 'fmTotal', 'vatGroup']) {
+      for (const key of ['opened', 'closed', 'sales', 'payments', 'stornos', 'voided', 'fiscal', 'text', 'textNotInZ', 'unprinted', 'vat', 'net', 'gross', 'cash', 'card', 'other', 'cod', 'change', 'opening', 'expected', 'counted', 'difference', 'documents', 'from', 'to', 'receipts', 'z', 'deviceZ', 'fmTotal', 'vatGroup']) {
         expect({ key, label: l[key], whole: lines.some((s) => s.trimStart().startsWith(`${l[key]} `) || s.trim() === l[key]) }).toEqual({ key, label: l[key], whole: true })
       }
     })
@@ -364,6 +389,10 @@ describe('the session report at close', () => {
       expect(closed.json.report.amounts).toEqual({ fiscal: 0, text: 12, unprinted: 0 })
       expect(closed.json.report.deviceZ).toEqual({ fmTotal: 0, turnover: [] })
       expect(w.sim!.nonFiscalLines).toContain(' FM total'.padEnd(24) + '0.00')
+      // The paper says why, under the count it is about.
+      const printed = w.sim!.nonFiscalLines
+      const text = printed.findIndex((s) => s.startsWith('Text receipts 1'))
+      expect(printed[text + 1]).toBe(' Not in the Z-report')
     })
 
     it('a figure that disagrees with LGR\'s raises nothing: no unit has proven what these mean', async () => {
