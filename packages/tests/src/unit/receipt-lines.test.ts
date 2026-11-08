@@ -114,6 +114,21 @@ describe('what a device would add the lines up to', () => {
     expect(printsExactly(d, shares(d))).toBe(true)
   })
 
+  it('a percent off the drivers would send rounded is not exact: the device would total another amount (#574)', () => {
+    // 1200.00 gross less 12.345 % is 1051.86; sent as 12.34, as every driver sends it, the device makes it 1051.92.
+    const d = doc([{ quantity: 1, unitPrice: 1000, discount: 12.345, taxRate: 20, lineTotal: 1051.86 }], 1051.86)
+    expect(printsExactly(d, shares(d))).toBe(false)
+    const sent = doc([{ quantity: 1, unitPrice: 1000, discount: 12.34, taxRate: 20, lineTotal: 1051.92 }], 1051.92)
+    expect(printsExactly(sent, shares(sent))).toBe(true)
+    const float = doc([{ quantity: 1, unitPrice: 1000, discount: 0.1 + 0.2, taxRate: 20, lineTotal: 1196.4 }], 1196.4)
+    expect(printsExactly(float, shares(float))).toBe(true)
+  })
+
+  it('a percent off below zero is not exact: a Datecs or a Tremol drops it (#574)', () => {
+    const d = doc([{ quantity: 2, unitPrice: 10, discount: -10, taxRate: 20, lineTotal: 26.4 }], 26.4)
+    expect(printsExactly(d, shares(d))).toBe(false)
+  })
+
   it('a device takes no quantity or price below zero, nor a 100 % discount', () => {
     const lines = [{ quantity: -1, unitPrice: 10, taxRate: 20, lineTotal: 12 }]
     expect(printsExactly(doc(lines, 12), [{ rate: 20, gross: 12 }])).toBe(false)
