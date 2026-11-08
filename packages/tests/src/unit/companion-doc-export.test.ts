@@ -103,7 +103,7 @@ describe('Companion document export', () => {
       expect(text).not.toContain('pcs')
 
       const { html } = buildCompanionHtml(data)
-      expect(html).toContain('<td class="c-unit">БР.</td>')
+      expect(html).toContain('<td class="c-unit fit">БР.</td>')
       expect(html).not.toContain('>pcs<')
     }
   })

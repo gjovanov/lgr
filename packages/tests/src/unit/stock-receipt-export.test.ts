@@ -50,14 +50,14 @@ describe('stock receipt print', () => {
     const head = html.slice(html.indexOf('<thead>'), html.indexOf('</thead>'))
     for (const h of ['№', 'Наименование', 'Мярка', 'Количество', 'Цена', 'Стойност']) expect(head).toContain(`>${h}<`)
     // A fastener's price keeps its four decimals; a round one prints two.
-    expect(html).toContain('<td class="c-price">0.0472</td>')
-    expect(html).toContain('<td class="c-price">12.50</td>')
+    expect(html).toContain('<td class="c-price fit">0.0472</td>')
+    expect(html).toContain('<td class="c-price fit">12.50</td>')
     // 100 × 0.0472 = 4.72; 2.5 × 12.50 = 31.25.
-    expect(html).toContain('<td class="c-amount">4.72</td>')
-    expect(html).toContain('<td class="c-amount">31.25</td>')
-    expect(html).toContain('<td class="c-unit">БР.</td>')
-    expect(html).toContain('<td class="c-unit">КГ.</td>')
-    expect(html).toContain('<td class="c-qty">2.5</td>')
+    expect(html).toContain('<td class="c-amount fit">4.72</td>')
+    expect(html).toContain('<td class="c-amount fit">31.25</td>')
+    expect(html).toContain('<td class="c-unit fit">БР.</td>')
+    expect(html).toContain('<td class="c-unit fit">КГ.</td>')
+    expect(html).toContain('<td class="c-qty fit">2.5</td>')
   })
 
   it('totals the printed values before VAT, in the bill\'s currency', () => {

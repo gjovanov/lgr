@@ -1,5 +1,7 @@
 import { markdownToPdf } from './base.pdf.js'
 import { logoImgTag, LOGO_CSS } from './logo.js'
+import { GRID_CELL_PADDING_X, GRID_FIT_CLASS, LINE_GRID_CSS } from './line-grid.js'
+import { pageMargin } from './page-margins.js'
 import { productCredit } from '../product-credit.js'
 import { companionDocI18n, type CompanionDocKind } from '../companion-doc.i18n.js'
 import { unitLabel } from '../unit.i18n.js'
@@ -94,14 +96,19 @@ const CSS = `
   table.parties tr.band td.gap { background: transparent; }
   table.lines { font-size: 9pt; }
   table.lines thead th { border-bottom: 1px solid #000; border-top: 1px solid #000;
-    padding: 4px 6px; font-weight: 700; background: #f2f2f2; }
-  table.lines tbody td { padding: 3px 6px; vertical-align: top; }
+    padding: 4px ${GRID_CELL_PADDING_X}; font-weight: 700; background: #f2f2f2; }
+  table.lines tbody td { padding: 3px ${GRID_CELL_PADDING_X}; vertical-align: top; }
   table.lines tbody tr:last-child td { border-bottom: 1px solid #000; }
-  table.lines .c-no { width: 6%; }
-  /* Wide enough for the spelled-out „Мярка" / „Количество" headings (#127) without wrapping. */
-  table.lines .c-unit { width: 11%; text-align: center; }
-  table.lines .c-qty { width: 15%; text-align: right; }
-  table.lines .c-note { width: 18%; }
+  ${LINE_GRID_CSS}
+  /* The number, unit and quantity columns are fitted to their contents (line-grid.ts), so the
+     spelled-out „Мярка" / „Количество" headings (#127) set their width and never wrap. The
+     heading „No" sits flush left over its numbers. */
+  table.lines .c-no { text-align: left; }
+  table.lines .c-unit { text-align: center; }
+  table.lines .c-qty { text-align: right; }
+  /* The remark / certificate column is free text: a fixed share of the line, left-aligned under
+     its heading. The name takes whatever the other columns leave. */
+  table.lines .c-note { width: 18%; text-align: left; }
   /* Boxed document total, in the visual language of the printed invoice's totals block. */
   table.totals { margin-top: 10px; font-size: 9pt; page-break-inside: avoid; }
   table.totals td.spacer { width: 58%; }
@@ -177,12 +184,13 @@ export function buildCompanionHtml(data: CompanionDocData): { html: string; css:
       ${partyRow(L.taxId, data.recipient.taxId, data.supplier.taxId)}
     </table>`
 
+  const fit = GRID_FIT_CLASS
   const rows = data.lines.map((l, i) => `
       <tr>
-        <td class="c-no">${i + 1}</td>
+        <td class="c-no ${fit}">${i + 1}</td>
         <td>${esc(l.name)}</td>
-        <td class="c-unit">${esc(unitLabel(l.unit, data.locale))}</td>
-        <td class="c-qty">${fmtQty(l.quantity, qtyDecimals)}</td>
+        <td class="c-unit ${fit}">${esc(unitLabel(l.unit, data.locale))}</td>
+        <td class="c-qty ${fit}">${fmtQty(l.quantity, qtyDecimals)}</td>
         <td class="c-note">${esc(l.note || '')}</td>
       </tr>`).join('')
 
@@ -190,10 +198,10 @@ export function buildCompanionHtml(data: CompanionDocData): { html: string; css:
     <table class="lines">
       <thead>
         <tr>
-          <th class="c-no">${esc(H.lineNo)}</th>
+          <th class="c-no ${fit}">${esc(H.lineNo)}</th>
           <th>${esc(H.name)}</th>
-          <th class="c-unit">${esc(H.unit)}</th>
-          <th class="c-qty">${esc(H.quantity)}</th>
+          <th class="c-unit ${fit}">${esc(H.unit)}</th>
+          <th class="c-qty ${fit}">${esc(H.quantity)}</th>
           <th class="c-note">${esc(noteHeader)}</th>
         </tr>
       </thead>
@@ -280,6 +288,9 @@ ${signatures}
   return { html: flattenHtml(html), css: CSS }
 }
 
+/** The companion documents' page: their own top and bottom, the shared sides (page-margins.ts). */
+export const COMPANION_MARGIN = pageMargin('14mm', '14mm')
+
 /**
  * Render one of the two companion documents (Декларация за съответствие / Приемо-предавателен
  * протокол) as a fixed-form A4 page. Layout mirrors the legacy PlusMinus forms these replace:
@@ -291,7 +302,7 @@ export async function generateCompanionDocPDF(data: CompanionDocData): Promise<B
   const { html, css } = buildCompanionHtml(data)
   return markdownToPdf(html, {
     css,
-    margin: { top: '14mm', bottom: '14mm', left: '12mm', right: '12mm' },
+    margin: COMPANION_MARGIN,
     // The form paints its own `.page-foot` (issuer line + software credit).
     defaultFooter: false,
   })

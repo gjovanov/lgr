@@ -169,19 +169,19 @@ describe('printed invoice form', () => {
   it('prints the localized unit abbreviation, never the stored code', () => {
     // Bulgarian documents say „БР.", as the legacy PlusMinus forms did.
     expect(build({ lines: [{ description: 'Item', quantity: 1, unit: 'pcs', unitPrice: 100, lineTotal: 120 }] }))
-      .toContain('<td class="a-center">БР.</td>')
+      .toContain('<td class="a-center fit">БР.</td>')
     // Already-abbreviated legacy values resolve to the same label rather than printing as typed.
-    expect(build()).toContain('<td class="a-center">БР.</td>')
+    expect(build()).toContain('<td class="a-center fit">БР.</td>')
     expect(build({ lines: [{ description: 'Item', quantity: 2.5, unit: 'kg', unitPrice: 4, lineTotal: 12 }] }))
-      .toContain('<td class="a-center">КГ.</td>')
+      .toContain('<td class="a-center fit">КГ.</td>')
     expect(build({ lines: [{ description: 'Item', quantity: 1, unit: 'pcs', unitPrice: 1, lineTotal: 1 }] }, {}, { locale: 'en' }))
-      .toContain('<td class="a-center">pcs</td>')
+      .toContain('<td class="a-center fit">pcs</td>')
     // A unit nothing knows about prints verbatim — `unit` is free text on the API.
     expect(build({ lines: [{ description: 'Item', quantity: 1, unit: 'ролка', unitPrice: 1, lineTotal: 1 }] }))
-      .toContain('<td class="a-center">ролка</td>')
+      .toContain('<td class="a-center fit">ролка</td>')
     // No unit, no guess.
     expect(build({ lines: [{ description: 'Item', quantity: 1, unitPrice: 1, lineTotal: 1 }] }))
-      .toContain('<td class="a-center"></td>')
+      .toContain('<td class="a-center fit"></td>')
   })
 
   it('spells out the Bulgarian unit and quantity headings', () => {
