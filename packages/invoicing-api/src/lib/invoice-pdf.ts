@@ -60,10 +60,16 @@ export async function stornoRefOf(orgId: string, storno: any) {
   }
 }
 
-/** The invoice a credit or debit note corrects, as its printout names it. */
-async function relatedInvoiceRefOf(orgId: string, note: any) {
-  if ((note.type !== 'credit_note' && note.type !== 'debit_note') || !note.relatedInvoiceId) return undefined
-  const related: any = await Invoice.findOne({ _id: note.relatedInvoiceId, orgId }, { invoiceNumber: 1, issueDate: 1 }).lean()
+/**
+ * The invoice a credit or debit note corrects, as its printout names it, and the one a payment's receipt paid
+ * (owner, 2026-11-08): a whole payment's receipt carries the invoice's own articles, so nothing else on its
+ * printout says which invoice it was.
+ */
+async function relatedInvoiceRefOf(orgId: string, doc: any) {
+  const id = doc.type === 'credit_note' || doc.type === 'debit_note' ? doc.relatedInvoiceId
+    : doc.type === 'payment_receipt' ? doc.register?.paidInvoiceId : undefined
+  if (!id) return undefined
+  const related: any = await Invoice.findOne({ _id: id, orgId }, { invoiceNumber: 1, issueDate: 1 }).lean()
   return related ? { number: related.invoiceNumber, issueDate: related.issueDate } : undefined
 }
 

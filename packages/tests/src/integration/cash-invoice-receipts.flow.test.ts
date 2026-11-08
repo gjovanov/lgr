@@ -1043,6 +1043,21 @@ describe('a device that is not fiscalized: the device decides, never a switch (o
     expect((await shown(w, d.id)).paymentReceipts).toHaveLength(1)
   })
 
+  it('the receipt\'s own printout names the invoice it paid: a whole payment\'s lines are the invoice\'s articles (owner, 2026-11-08)', async () => {
+    const w = await theUnit()
+    const d = await draftOf(w)
+    await send(w, d.id)
+    const issued = await raw(d.id)
+    const [receipt] = await receiptsOf(d.id)
+
+    const printable = await printableDocument(w.orgId, receipt)
+
+    expect(printable.relatedInvoiceRef).toMatchObject({ number: issued.invoiceNumber })
+    const html = buildInvoiceHtml(printable as any, { name: 'Org' } as any, {} as any, undefined, { locale: 'bg' }).html
+    expect(html).toContain('Към фактура')
+    expect(html).toContain(`${issued.invoiceNumber} /`)
+  })
+
   it('§2.7 holds: its money is on the document, the session and the slip', async () => {
     const w = await theUnit()
     const d = await draftOf(w)
