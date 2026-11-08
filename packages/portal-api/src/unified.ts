@@ -57,7 +57,8 @@ if (config.node.role === 'master') {
   const { journalHwmTick, lanCloneTick } = await import('services/biz/home/series-lock.service')
   await journalHwmTick().catch(e => logger.error({ err: e?.message ?? String(e) }, 'Series lock: the journal\'s high-water mark could not be checked'))
   // The legal counters against their own mark, beside the database and on the backup drive (#549):
-  // what catches a restore on a master that captures nothing. It never throws.
+  // what catches a restore on a master that captures nothing. It never throws, and the drive is
+  // bounded (10 s): a backup share that does not answer never holds the start.
   await (await import('services/biz/home/legal-mark.service')).legalMarkTick()
   // A clone the supervisor saw on the shop's network before this start (AC 50).
   await lanCloneTick().catch(e => logger.error({ err: e?.message ?? String(e) }, 'Series lock: the clone record could not be read'))

@@ -31,7 +31,7 @@ import { mirrorFilesStatus, type MirrorFilesStatus } from '../replication/mirror
 import { LEGAL_SERIES, ensureSequenceAtLeast, isLegalSeries, legalCounters } from '../sequence.service.js'
 import { MoveError, type PreflightCheck } from './move.service.js'
 import { resetJournalHwm } from '../home/series-lock.service.js'
-import { legalMarkOf } from '../home/legal-mark.service.js'
+import { legalMarkFloor } from '../home/legal-mark.service.js'
 import { evidenceChanges, type DeviceEvidence } from '../home/device-witness.service.js'
 
 type ObjectId = mongo.ObjectId
@@ -165,14 +165,18 @@ export async function recordLastNumbers(
   const known = await legalSeriesOf(orgId)
   const missing = known.filter(s => !given.has(`${s.prefix}|${s.year}`))
   if (missing.length) throw new MoveError(422, 'series_missing', 'Give the last number of every series.', { missing })
+  // This server's own mark of what it issued is a floor too (#549, on a master; empty elsewhere), read
+  // BEFORE anything is written: while it cannot be read, numbering must not resume below it unseen.
+  const { series: mark, unreadable } = await legalMarkFloor(orgId)
+  if (unreadable) {
+    throw new MoveError(503, 'mark_unreadable', 'This server\'s mark of the numbers it issued could not be read just now. Try again in a minute.', { detail: unreadable })
+  }
   for (const s of series) await ensureSequenceAtLeast(orgId, s.prefix, s.year, s.last)
   // Never below what lgrai.app's mirror holds, when it could be asked.
   for (const f of floor ?? []) {
     if (isLegalSeries(f.prefix) && Number.isSafeInteger(f.year) && Number.isSafeInteger(f.last) && f.last > 0) await ensureSequenceAtLeast(orgId, f.prefix, f.year, f.last)
   }
-  // Nor below what this server's own mark says it issued (#549, on a master): a reading under it would
-  // hand out again a number the mark saw issued here. Empty off a master.
-  const mark = await legalMarkOf(orgId)
+  // Nor below the mark: a reading under it would hand out again a number the mark saw issued here.
   for (const m of mark) await ensureSequenceAtLeast(orgId, m.prefix, m.year, m.last)
   const read = new Map(series.map(s => [`${s.prefix}|${s.year}`, s.last]))
   const raisedByMark = mark.filter(m => m.last > (read.get(`${m.prefix}|${m.year}`) ?? 0))

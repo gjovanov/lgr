@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import type { Types } from 'mongoose'
@@ -293,11 +293,94 @@ describe('the legal counters\' mark, outside the database (#549)', () => {
     expect(await legalMarkTick()).toBe(0)
     expect(await frozen(s.oid)).toBeUndefined()
     expect(read(file).orgs[s.orgId]).toEqual({ [SALES]: { last: 120, at: expect.any(String) } })
-    // One that is not JSON is kept aside, never lost, and a new mark starts.
+    // One that is not JSON is kept aside under a dated name, never lost (a second one too), and a new mark starts.
     writeFileSync(file, '{ not json')
-    expect(await legalMarkTick()).toBe(0)
-    expect(readFileSync(`${file}.unreadable`, 'utf8')).toBe('{ not json')
+    expect(await legalMarkTick(new Date('2026-11-08T10:00:00Z'))).toBe(0)
+    writeFileSync(file, 'damaged again')
+    expect(await legalMarkTick(new Date('2026-11-08T10:01:00Z'))).toBe(0)
+    const aside = readdirSync(dirname(file)).filter(f => f.startsWith('legal-mark.json.unreadable-')).sort()
+    expect(aside.map(f => readFileSync(join(dirname(file), f), 'utf8'))).toEqual(['{ not json', 'damaged again'])
     expect(markOf(file, s.orgId)).toBe(120)
+  }, 60_000)
+
+  it('a backup share that does not answer: the tick ends within its bound, the database is still checked, and the hung share is not asked again', async () => {
+    const s = await homeHere()
+    await issue(s.orgId, 5)
+    expect(await legalMarkTick()).toBe(0)
+    // A share whose server went away: the check of its disk never answers.
+    mkdirSync(drive, { recursive: true })
+    ;(config.backup as any).localPath = drive
+    let calls = 0
+    let release!: (same: boolean) => void
+    localDisk.sameAsData = () => {
+      calls++
+      return new Promise<boolean>(resolve => { release = resolve })
+    }
+    await putBack(s.oid, 120)
+    const t0 = Date.now()
+    expect(await legalMarkTick()).toBe(1)
+    expect(Date.now() - t0).toBeLessThan(12_000)
+    expect(await frozen(s.oid)).toMatchObject({ reason: 'restored', detail: expect.stringContaining('up to 125 (its mark beside the database)') })
+    expect(calls).toBe(1)
+    // A minute later the earlier request still hangs: the share is not asked again, and the tick is quick.
+    const t1 = Date.now()
+    expect(await legalMarkTick()).toBe(0)
+    expect(Date.now() - t1).toBeLessThan(2_000)
+    expect(calls).toBe(1)
+    // The share answers again: its request ends, and the copy there is kept again.
+    localDisk.sameAsData = async () => false
+    release(false)
+    for (let i = 0; i < 50 && !existsSync(driveCopy()); i++) {
+      await legalMarkTick()
+      await Bun.sleep(20)
+    }
+    expect(markOf(driveCopy(), s.orgId)).toBe(125)
+  }, 60_000)
+
+  it('a mark that cannot be READ is no damage: left as it is, not replaced, and the unlock waits for it; the rollback is caught once it reads', async () => {
+    const s = await homeHere()
+    await issue(s.orgId, 5)
+    expect(await legalMarkTick()).toBe(0)
+    const file = legalMarkFile()!
+    const held = readFileSync(file, 'utf8')
+    // Something holds it this minute: a folder in its place reads as an I/O error, as a lock does.
+    const hold = () => { rmSync(file, { recursive: true, force: true }); mkdirSync(file) }
+    const letGo = () => { rmSync(file, { recursive: true, force: true }); writeFileSync(file, held) }
+    hold()
+    await putBack(s.oid, 120)
+    expect(await legalMarkTick()).toBe(0)
+    // Left as it is: never set aside as damage, never replaced by a mark made of the counters.
+    expect(statSync(file).isDirectory()).toBe(true)
+    expect(readdirSync(dirname(file)).filter(f => f.includes('unreadable'))).toEqual([])
+    expect(await frozen(s.oid)).toBeUndefined()
+    // It reads again: the mark it held still stands, and the rollback is caught.
+    letGo()
+    expect(await legalMarkTick()).toBe(1)
+    expect(await frozen(s.oid)).toMatchObject({ reason: 'restored' })
+    // An unlock while it cannot be read is refused, with nothing written.
+    hold()
+    const refused: any = await captureRejection(recordLastNumbers(s.orgId, s.by, await all(s.orgId, 121)))
+    expect([refused?.statusCode, refused?.code]).toEqual([503, 'mark_unreadable'])
+    expect(await frozen(s.oid)).toMatchObject({ reason: 'restored' })
+    expect(((await Sequence.collection.findOne({ orgId: s.oid, prefix: 'SALES_DOC', year } as any)) as any)?.lastNumber).toBe(120)
+    letGo()
+    await recordLastNumbers(s.orgId, s.by, await all(s.orgId, 121))
+    expect(await getNextNumber(s.orgId, 'SALES_DOC')).toBe(`SALES_DOC-${year}-00126`)
+  }, 60_000)
+
+  it('with the mark beside the database unreadable, the backup drive\'s copy still catches a rollback', async () => {
+    plugDrive()
+    const s = await homeHere()
+    await issue(s.orgId, 5)
+    expect(await legalMarkTick()).toBe(0)
+    const file = legalMarkFile()!
+    rmSync(file)
+    mkdirSync(file)
+    await putBack(s.oid, 120)
+    expect(await legalMarkTick()).toBe(1)
+    expect(await frozen(s.oid)).toMatchObject({ reason: 'restored', detail: expect.stringContaining('up to 125 (its mark on the backup drive)') })
+    expect(statSync(file).isDirectory()).toBe(true)
+    expect(markOf(driveCopy(), s.orgId)).toBe(125)
   }, 60_000)
 
   it('a mark that cannot be written is logged, never thrown, and the database is still checked', async () => {

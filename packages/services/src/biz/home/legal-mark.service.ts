@@ -26,6 +26,14 @@
  * - **Only an org written here and `active`.** A move into this server or a re-seed replaces the
  *   org's data while it is `frozen` (`move-worker.service.ts`), and the import's empty counters read
  *   against an earlier stay's mark would lock an org arriving whole.
+ * - **The drive is bounded** (`onDrive`): `BACKUP_LOCAL_PATH` may be a share, and a share whose
+ *   server went away blocks a `stat` for good, while the API's start and the minute's other checks
+ *   wait on this one. Past 10 s, or while an earlier operation there still hangs, the drive counts as
+ *   not there for that tick; the mark beside the database and the counters are checked regardless.
+ * - **An I/O error is not damage.** A mark that is no JSON, or no mark, is kept aside under a dated
+ *   name and a new one starts. One that could not be READ (held by a backup tool or an antivirus, a
+ *   permission) is left as it is and not written that minute, and the unlock refuses (503
+ *   `mark_unreadable`) rather than resume below a floor it could not read.
  *
  * What it cannot see: a revert of the database AND of the backup drive, or a server with no backup
  * drive whose whole disk went back. The runbook's procedure covers that (lock numbering by hand
@@ -60,10 +68,43 @@ export function legalMarkFile(): string | null {
   return token ? join(dirname(token), 'legal-mark.json') : null
 }
 
-/** The backup drive's copy, where it may be kept now, or why not. Null `file` and no `why`: none is configured. */
-async function driveTarget(): Promise<{ file: string | null; why?: string }> {
-  const base = config.backup.localPath
-  if (!base) return { file: null }
+/**
+ * How long the backup location may take to answer one operation. A share whose server went away
+ * blocks a `stat` for good (NFS `hard`, CIFS) or for a minute (a UNC path), and the API's start and
+ * every detector of the minute wait on this tick.
+ */
+const DRIVE_TIMEOUT_MS = 10_000
+
+/** The operation on the backup location still running, if one is: one a share stopped answering stays pending. */
+let driveBusy: Promise<unknown> | null = null
+
+/**
+ * One operation on the backup location, bounded, and one at a time. Past the bound, or while an
+ * earlier one still hangs in the thread pool, the drive counts as not there: a hung share holds
+ * neither the start nor the minute's checks, and never stacks one more blocked thread a minute.
+ * Never throws.
+ */
+async function onDrive<T>(base: string, op: () => Promise<T>): Promise<{ value: T } | { why: string }> {
+  if (driveBusy) return { why: `the backup location ${base} has not answered an earlier request yet (a share that is down?)` }
+  const run: Promise<{ value: T } | { why: string }> = Promise.resolve()
+    .then(op)
+    .then(value => ({ value }), (e: any) => ({ why: `the backup location ${base} failed: ${e?.message ?? e}` }))
+  driveBusy = run
+  void run.then(() => { if (driveBusy === run) driveBusy = null })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<{ why: string }>(resolve => {
+    timer = setTimeout(() => resolve({ why: `the backup location ${base} did not answer within ${DRIVE_TIMEOUT_MS / 1000} s (a share that is down?)` }), DRIVE_TIMEOUT_MS)
+    ;(timer as { unref?: () => void }).unref?.()
+  })
+  try {
+    return await Promise.race([run, late])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Where the backup drive's copy goes, or why it cannot. Run through `onDrive`: every call here may block. */
+async function driveTarget(base: string): Promise<{ file: string | null; why?: string }> {
   const node = thisNode()
   if (!node) return { file: null, why: 'this server has no node id yet' }
   if (!(await stat(base).then(s => s.isDirectory(), () => false))) {
@@ -75,21 +116,48 @@ async function driveTarget(): Promise<{ file: string | null; why?: string }> {
   return { file: join(base, 'LGR', 'State', `legal-mark-${node.replace(/[^A-Za-z0-9._-]/g, '_')}.json`) }
 }
 
-/** What a mark file holds, every entry checked; `error` when there is a file and it is no mark. */
-async function readMark(file: string): Promise<{ mark: MarkFile | null; error?: string }> {
+/**
+ * The backup drive's copy (this server's only: another's says nothing of it) and where it is
+ * written, bounded. No `file`: none is kept now, `why` says why; no `why` either, none is configured.
+ * `damaged`: there is one and it is no mark, so it is written again.
+ */
+async function readDrive(): Promise<{ file: string | null; why?: string; mark: MarkFile | null; damaged?: string }> {
+  const base = config.backup.localPath
+  if (!base) return { file: null, mark: null }
+  const got = await onDrive(base, async () => {
+    const target = await driveTarget(base)
+    return { ...target, read: target.file ? await readMark(target.file) : null }
+  })
+  if ('why' in got) return { file: null, why: got.why, mark: null }
+  const { file, why, read } = got.value
+  if (!file) return { file: null, why, mark: null }
+  if (read?.ioError) return { file: null, why: `the copy on the backup drive could not be read: ${read.ioError}`, mark: null }
+  return {
+    file,
+    mark: read?.mark && read.mark.node === thisNode() ? read.mark : null,
+    ...(read?.damaged ? { damaged: read.damaged } : {}),
+  }
+}
+
+/**
+ * What a mark file holds, every entry checked. `damaged`: the file is there and is no mark (kept
+ * aside, a new one starts). `ioError`: it could not be read at all (a backup tool or an antivirus
+ * holding it, a permission), which says nothing of what it holds: never handled as damage.
+ */
+async function readMark(file: string): Promise<{ mark: MarkFile | null; damaged?: string; ioError?: string }> {
   let text: string
   try {
     text = await readFile(file, 'utf8')
   } catch (e: any) {
-    return e?.code === 'ENOENT' ? { mark: null } : { mark: null, error: e?.message ?? String(e) }
+    return e?.code === 'ENOENT' ? { mark: null } : { mark: null, ioError: e?.message ?? String(e) }
   }
   let raw: any
   try {
     raw = JSON.parse(text)
   } catch (e: any) {
-    return { mark: null, error: `not JSON: ${e?.message ?? e}` }
+    return { mark: null, damaged: `not JSON: ${e?.message ?? e}` }
   }
-  if (!raw || typeof raw !== 'object' || !raw.orgs || typeof raw.orgs !== 'object') return { mark: null, error: 'not a mark of legal counters' }
+  if (!raw || typeof raw !== 'object' || !raw.orgs || typeof raw.orgs !== 'object') return { mark: null, damaged: 'not a mark of legal counters' }
   const orgs: MarkFile['orgs'] = {}
   for (const [org, series] of Object.entries<any>(raw.orgs)) {
     if (!/^[0-9a-f]{24}$/.test(org) || !series || typeof series !== 'object') continue
@@ -166,17 +234,21 @@ async function tick(now: Date): Promise<number> {
   try {
     const homes: any[] = await OrgHome.find({ home: node, state: 'active' }, { orgId: 1 }).lean()
     const local = await readMark(file)
-    // Kept aside, never overwritten: a mark that cannot be read is still somebody's evidence.
-    if (local.error) await rename(file, `${file}.unreadable`).catch(() => {})
-    condition('local-read', local.error ?? null,
-      err => logger.error({ file, err }, 'Legal mark: the mark beside the database could not be read; it is kept aside and a new one starts from the backup drive\'s copy and the counters'),
+    // Damaged: kept aside under its own name, never overwritten (a mark that cannot be read is still
+    // somebody's evidence), and a new one starts from the drive's copy and the counters.
+    if (local.damaged) await rename(file, `${file}.unreadable-${now.toISOString().replace(/[:.]/g, '-')}`).catch(() => {})
+    condition('local-damaged', local.damaged ?? null,
+      err => logger.error({ file, err }, 'Legal mark: the mark beside the database is damaged; it is kept aside and a new one starts from the backup drive\'s copy and the counters'))
+    // Not read at all: the file stays as it is and is not written this minute. The counters are still
+    // held against the drive's copy, and against this file again once it reads.
+    condition('local-io', local.ioError ?? null,
+      err => logger.warn({ file, err }, 'Legal mark: the mark beside the database could not be read this minute; it is left as it is'),
       'Legal mark: the mark beside the database is read again')
-    const drive = await driveTarget()
+    // Bounded: a share that does not answer is a drive not there, and the rest of the check goes on.
+    const drive = await readDrive()
     condition('drive', drive.why ?? null, why => logger.warn({ why }, 'Legal mark: no copy on the backup drive, so a restore of the whole system disk would go unseen'), 'Legal mark: the copy on the backup drive is kept again')
-    const copy = drive.file ? await readMark(drive.file) : { mark: null }
-    condition('drive-read', copy.error ?? null, err => logger.warn({ file: drive.file, err }, 'Legal mark: the backup drive\'s copy could not be read; it is written again'))
-    // A copy of another server's mark is no evidence about this one.
-    const driveMark = copy.mark && copy.mark.node === node ? copy.mark : null
+    condition('drive-damaged', drive.damaged ?? null, err => logger.warn({ file: drive.file, err }, 'Legal mark: the backup drive\'s copy is damaged; it is written again'))
+    const driveMark = drive.mark
     const merged = merge(local.mark, driveMark)
 
     const counters = new Map<string, Map<string, number>>()
@@ -206,17 +278,17 @@ async function tick(now: Date): Promise<number> {
     }
 
     const text = canonical(node, merged)
-    if (!local.mark || local.error || text !== canonical(node, local.mark.orgs)) {
+    if (!local.ioError && (!local.mark || text !== canonical(node, local.mark.orgs))) {
       await writeAtomic(file, text).then(
         () => condition('local-write', null, () => {}, 'Legal mark: the mark beside the database is written again'),
         (e: any) => condition('local-write', e?.message ?? String(e), err => logger.error({ file, err }, 'Legal mark: the mark beside the database could not be written')),
       )
     }
-    if (drive.file && (!driveMark || text !== canonical(node, driveMark.orgs))) {
-      await writeAtomic(drive.file, text).then(
-        () => condition('drive-write', null, () => {}, 'Legal mark: the copy on the backup drive is written again'),
-        (e: any) => condition('drive-write', e?.message ?? String(e), err => logger.warn({ file: drive.file, err }, 'Legal mark: the copy on the backup drive could not be written')),
-      )
+    const driveFile = drive.file
+    if (driveFile && (!driveMark || text !== canonical(node, driveMark.orgs))) {
+      const wrote = await onDrive(config.backup.localPath, () => writeAtomic(driveFile, text))
+      if ('why' in wrote) condition('drive-write', wrote.why, err => logger.warn({ file: driveFile, err }, 'Legal mark: the copy on the backup drive could not be written'))
+      else condition('drive-write', null, () => {}, 'Legal mark: the copy on the backup drive is written again')
     }
     condition('tick', null, () => {}, 'Legal mark: checked again')
     return locked
@@ -237,25 +309,33 @@ export function legalMarkTick(now = new Date()): Promise<number> {
   return run
 }
 
+export interface LegalMarkSeries { prefix: string; year: number; last: number; from: MarkSource }
+
 /**
- * This server's mark of what it issued for one org, both copies merged: the floor numbering resumes
- * above at the unlock, and what the person is shown. Empty off a master. Never throws.
+ * This server's mark of what it issued for one org, both copies merged, and `unreadable` when the
+ * one beside the database could not be read just now (an I/O error, never damage): the floor the
+ * unlock resumes above must not quietly lose it. The drive is bounded (`onDrive`); a drive that does
+ * not answer adds nothing. Empty off a master. Never throws.
  */
-export async function legalMarkOf(orgId: string): Promise<Array<{ prefix: string; year: number; last: number; from: MarkSource }>> {
-  if (nodeRole() !== 'master') return []
+export async function legalMarkFloor(orgId: string): Promise<{ series: LegalMarkSeries[]; unreadable?: string }> {
+  if (nodeRole() !== 'master') return { series: [] }
   const file = legalMarkFile()
-  if (!file) return []
+  if (!file) return { series: [] }
   try {
-    const node = thisNode()
     const local = await readMark(file)
-    const drive = await driveTarget()
-    const copy = drive.file ? await readMark(drive.file) : { mark: null }
-    const merged = merge(local.mark, copy.mark && copy.mark.node === node ? copy.mark : null)
-    return Object.entries(merged[String(orgId)] ?? {})
+    const drive = await readDrive()
+    const merged = merge(local.mark, drive.mark)
+    const series = Object.entries(merged[String(orgId)] ?? {})
       .map(([key, m]) => ({ prefix: key.slice(0, key.lastIndexOf('|')), year: Number(key.slice(key.lastIndexOf('|') + 1)), last: m.last, from: m.from }))
       .sort((a, b) => a.prefix.localeCompare(b.prefix) || a.year - b.year)
+    return local.ioError ? { series, unreadable: local.ioError } : { series }
   } catch (e: any) {
     logger.warn({ orgId, err: e?.message ?? String(e) }, 'Legal mark: the mark could not be read')
-    return []
+    return { series: [], unreadable: e?.message ?? String(e) }
   }
+}
+
+/** The mark for one org, as `legalMarkFloor` reads it: what the person is shown beside the series. */
+export async function legalMarkOf(orgId: string): Promise<LegalMarkSeries[]> {
+  return (await legalMarkFloor(orgId)).series
 }
