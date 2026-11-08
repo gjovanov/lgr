@@ -3955,8 +3955,16 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
       counters empty meanwhile, and an earlier stay's mark would lock the org arriving whole.
     - The drive copy follows `pushBundleToLocalPath`'s rule: there, and NOT on the data's disk
       (`localDisk.sameAsData`). The base path is never created.
-    - A copy naming another node is ignored. An unreadable local mark is renamed `.unreadable`,
-      never overwritten.
+    - **The drive is BOUNDED** (`onDrive`: 10 s, one operation at a time). `BACKUP_LOCAL_PATH` may
+      be a share, and a share whose server went away blocks a `stat` for good (NFS `hard`, CIFS) or a
+      minute (UNC), while the API's start and the minute's other detectors wait on this tick. Past
+      the bound, or while an earlier request still hangs, the drive is "not there". The local mark
+      and the counters are checked regardless, and no blocked thread piles up each minute.
+    - A copy naming another node is ignored.
+    - **Damage ≠ an I/O error.** No JSON or no mark: renamed `.unreadable-<date>`, never
+      overwritten, and a new mark starts. Not READ (an AV or a backup tool holding it, a
+      permission): left as it is and not written that minute, with the drive's copy still compared.
+      The unlock refuses 503 `mark_unreadable` meanwhile, before it writes anything.
     - Entries past a real counter's range (УНП > 9 999 999) are damage, dropped, never a floor;
   - the journal below **lgrai.app's watermark** (`linkAlarmsTick`; `/self`'s `mirrors`): the other
     mark kept outside, by global. A healthy master is never behind the pages it sent. ⚠ This is the
