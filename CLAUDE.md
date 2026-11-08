@@ -3942,7 +3942,22 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
   - the journal below its own high-water mark (`journalHwmTick`): the per-org `repl_orgs.seq` only
     grows in a database never rewound, and the mark lives OUTSIDE it, in `journal-hwm.json` beside
     the node token. Checked at the API's start, BEFORE it serves, and every minute
-    (`series-lock-tick`, masters, its first run at start);
+    (`series-lock-tick`, masters, its first run at start). ⚠ Only where the master CAPTURES: on an
+    Air-gapped one `seq` never grows and it sees nothing (#549);
+  - **the legal counters below their own mark** (`home/legal-mark.service.ts`, `legalMarkTick`,
+    #549, capture or not): per org and legal series (`legalCounters`, the filter `legalSeriesOf`
+    uses), the highest counter seen, in `state/legal-mark.json` AND copied to the backup drive
+    (`<BACKUP_LOCAL_PATH>/LGR/State/legal-mark-<node>.json`), which a restored system-disk image
+    leaves alone. The mark is the max of the two copies; never lowered; an older drive copy is
+    brought up, never a lock. Start (before serving) + `series-lock-tick`.
+    ⚠ Traps:
+    - Only orgs home here AND `active`: a move in (or a re-seed) imports while `frozen`, with the
+      counters empty meanwhile, and an earlier stay's mark would lock the org arriving whole.
+    - The drive copy follows `pushBundleToLocalPath`'s rule: there, and NOT on the data's disk
+      (`localDisk.sameAsData`). The base path is never created.
+    - A copy naming another node is ignored. An unreadable local mark is renamed `.unreadable`,
+      never overwritten.
+    - Entries past a real counter's range (УНП > 9 999 999) are damage, dropped, never a floor;
   - the journal below **lgrai.app's watermark** (`linkAlarmsTick`; `/self`'s `mirrors`): the other
     mark kept outside, by global. A healthy master is never behind the pages it sent. ⚠ This is the
     one that catches a reverted VM snapshot: its own mark went back with the disk;
@@ -3993,7 +4008,15 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
     numbers (`GET /api/node/v1/legal-series?orgId=`, `mirrorLegalSeries`; ⚠ a query parameter: a
     path with `:orgId` is a user's org route to the tenant guard); with the link down,
     the person's reading stands alone;
-  - it records `seriesUnlockedAt` and resets the mark.
+  - and, on a master, above its own legal mark (#549, `legalMarkOf`), with an audit change per
+    series the mark raised past the reading; the GET returns it as `mark`;
+  - it records `seriesUnlockedAt` and resets the journal's mark (never the legal mark).
+- **Locked by hand** (#549, the runbook after a revert nothing sees, server-install.md):
+  `POST /api/org/:orgId/numbering/lock {note?}`, admin, master only (404 on lgrai.app), reason
+  `restored`, detail `locked by <name>: <note>`, audited once, idempotent. The UI is
+  `portal-ui/views/settings/LastNumbersCard.vue`, shared by the Servers page (lgrai.app, after a
+  promotion) and the master's status page (`on-server`: the lock button, and the record card a
+  master never had: its Servers page shows only "not here").
   - ⚠ A sign seen again does not lock again: replication stays refused until a re-seed, and the
     journal may stay below its marks a while. The went-back record decides that (above); a clone
     alarm counts only when it is newer than `seriesUnlockedAt`.
@@ -4013,7 +4036,11 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
     process); `error` (including no answer in 5 s). Nothing asks a device while numbering is open.
   - Tests: `device-witness.flow` (3).
 - Bringing a re-seed's kept sales into the books is P3-7g (below).
-- Tests: `series-lock.flow` (7: the mark and the unlock; global's alarms, the mirror's floor, no
+- Tests: `legal-mark.flow` (11: written and raised by issuing, УНП included; an Air-gapped
+  database-only rollback locked where `journalHwmTick` sees nothing; a whole-disk revert caught by
+  the drive copy; no/unplugged/same-disk drive; an older or foreign drive copy; the unlock's floor
+  and its audit; not a master / not home / a move still frozen; non-counters and a damaged mark; a
+  write that fails; the lock by hand over HTTP, 403/409/404). `series-lock.flow` (7: the mark and the unlock; global's alarms, the mirror's floor, no
   re-lock, a refusal dated anew after the unlock locking nothing; the journal below global's
   watermark, no re-lock until the record is cleared; `nodeSelf`; a Replace locking before its first
   write where lgrai.app never knew the server, a refused one or a Merge locking nothing; a Replace

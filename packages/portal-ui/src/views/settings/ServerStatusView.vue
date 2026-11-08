@@ -83,6 +83,12 @@
           </v-card>
         </v-col>
 
+        <!-- FR-20.51 (#549): legal numbering on this server. Locked, the last numbers are recorded here;
+             open, a person can lock it by hand after a revert the server cannot see. -->
+        <v-col cols="12" md="6">
+          <LastNumbersCard ref="numberingCard" on-server @changed="numberingChanged" />
+        </v-col>
+
         <!-- FR-20.50: the trader's Прил. 32, ready to copy. -->
         <v-col cols="12" md="6">
           <v-card variant="outlined" data-test="server-pril32">
@@ -209,6 +215,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useNodeAlarms } from 'ui-shared/composables/useNodeAlarms'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAppStore } from '../../store/app.store'
+import LastNumbersCard from './LastNumbersCard.vue'
 
 /**
  * A master's own status page (FR-20.98, FR-20.50, plan step P3-8b): on the server, for the org's
@@ -398,12 +405,25 @@ async function confirmKept() {
   }
 }
 
+// #549: the numbering card, reloaded when the server's word on numbering changes. Never every 30 s:
+// a locked card asks each fiscal device for its last document.
+const numberingCard = ref<InstanceType<typeof LastNumbersCard> | null>(null)
+let numberingLocked: boolean | null = null
+/** The card changed it itself, and has reloaded: the status follows without asking it again. */
+function numberingChanged() {
+  numberingLocked = null
+  void load()
+}
+
 async function load() {
   const orgId = appStore.currentOrg?.id
   if (!orgId) return
   loading.value = true
   try {
     s.value = (await httpClient.get(`/org/${orgId}/server/status`)).data.status
+    const locked = !!s.value?.org?.home?.numberingLocked
+    if (numberingLocked !== null && locked !== numberingLocked) void numberingCard.value?.reload()
+    numberingLocked = locked
     kept.value = (await httpClient.get(`/org/${orgId}/server/kept`).catch(() => ({ data: { kept: [] } }))).data.kept ?? []
   } catch (e: any) {
     if (e?.response?.status === 404) elsewhere.value = true

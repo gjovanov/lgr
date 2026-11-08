@@ -22,15 +22,16 @@
  */
 import type { mongo } from 'mongoose'
 import { mongoose } from 'db/connection'
-import { LIVE_MOVE_STATES, MirrorState, Org, OrgHome, OrgMove, Sequence, ServerNode } from 'db/models'
+import { LIVE_MOVE_STATES, MirrorState, Org, OrgHome, OrgMove, ServerNode } from 'db/models'
 import { homeOf } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { recordAuditEntry } from '../audit-log.service.js'
 import { presenceOfNodes } from '../node/node.service.js'
 import { mirrorFilesStatus, type MirrorFilesStatus } from '../replication/mirror-blobs.js'
-import { LEGAL_SERIES, ensureSequenceAtLeast, isLegalSeries } from '../sequence.service.js'
+import { LEGAL_SERIES, ensureSequenceAtLeast, isLegalSeries, legalCounters } from '../sequence.service.js'
 import { MoveError, type PreflightCheck } from './move.service.js'
 import { resetJournalHwm } from '../home/series-lock.service.js'
+import { legalMarkOf } from '../home/legal-mark.service.js'
 import { evidenceChanges, type DeviceEvidence } from '../home/device-witness.service.js'
 
 type ObjectId = mongo.ObjectId
@@ -129,16 +130,9 @@ export interface LegalSeries {
 
 /** The org's legal series: what a person must give the last site number of. This year's always. */
 export async function legalSeriesOf(orgId: string, now = new Date()): Promise<LegalSeries[]> {
-  const rows: any[] = await Sequence.find({ orgId, $or: [{ prefix: { $in: [...LEGAL_SERIES] } }, { prefix: { $regex: '^UNP-' } }] }, { prefix: 1, year: 1, lastNumber: 1 }).lean()
   const out = new Map<string, LegalSeries>()
-  for (const r of rows) {
-    const unp = String(r.prefix).startsWith('UNP-')
-    // A display override lives on a year-0 row of a yearly series: not a counter.
-    if (!unp && r.year === 0) continue
-    // A legacy per-operator УНП counter is not a series of its own (migration 0001).
-    if (unp && !/^UNP-[^-]{8}$/.test(r.prefix)) continue
-    out.set(`${r.prefix}|${r.year}`, { prefix: r.prefix, year: r.year, last: r.lastNumber ?? 0 })
-  }
+  // A display override on a yearly series' year-0 row, or a legacy per-operator УНП counter, is no series.
+  for (const r of await legalCounters([orgId])) out.set(`${r.prefix}|${r.year}`, { prefix: r.prefix, year: r.year, last: r.last })
   for (const prefix of LEGAL_SERIES) {
     const key = `${prefix}|${now.getFullYear()}`
     if (!out.has(key)) out.set(key, { prefix, year: now.getFullYear(), last: 0 })
@@ -176,6 +170,12 @@ export async function recordLastNumbers(
   for (const f of floor ?? []) {
     if (isLegalSeries(f.prefix) && Number.isSafeInteger(f.year) && Number.isSafeInteger(f.last) && f.last > 0) await ensureSequenceAtLeast(orgId, f.prefix, f.year, f.last)
   }
+  // Nor below what this server's own mark says it issued (#549, on a master): a reading under it would
+  // hand out again a number the mark saw issued here. Empty off a master.
+  const mark = await legalMarkOf(orgId)
+  for (const m of mark) await ensureSequenceAtLeast(orgId, m.prefix, m.year, m.last)
+  const read = new Map(series.map(s => [`${s.prefix}|${s.year}`, s.last]))
+  const raisedByMark = mark.filter(m => m.last > (read.get(`${m.prefix}|${m.year}`) ?? 0))
   await OrgHome.updateOne({ orgId }, { $unset: { seriesFrozen: '' }, $set: { seriesUnlockedAt: new Date() } })
   // On a master, the journal's mark starts again from here (P3-7): the unlock settled what it showed.
   await resetJournalHwm(orgId)
@@ -189,6 +189,12 @@ export async function recordLastNumbers(
     entityType: 'sequence', entityId: String(home.seriesFrozen.moveId ?? orgId), entityName: 'last numbers issued at the site',
     changes: [
       ...series.map(s => ({ field: `${s.prefix} ${s.year}`, oldValue: was.get(`${s.prefix}|${s.year}`) ?? null, newValue: s.last })),
+      // Where numbering resumes above this server's mark rather than the person's reading.
+      ...raisedByMark.map(m => ({
+        field: `${m.prefix} ${m.year}: this server's mark (${m.from === 'drive' ? 'on the backup drive' : 'beside the database'})`,
+        oldValue: read.get(`${m.prefix}|${m.year}`) ?? null,
+        newValue: m.last,
+      })),
       ...evidenceChanges(devices),
     ],
   })
