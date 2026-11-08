@@ -316,8 +316,20 @@ export interface LegalMarkSeries { prefix: string; year: number; last: number; f
  * one beside the database could not be read just now (an I/O error, never damage): the floor the
  * unlock resumes above must not quietly lose it. The drive is bounded (`onDrive`); a drive that does
  * not answer adds nothing. Empty off a master. Never throws.
+ *
+ * ⚠ In turn with the ticks (`chain`). `onDrive` lets one operation at a time at the drive, so a read
+ * that landed while a tick was there found it busy and went without the drive's copy: after a system
+ * disk went back, that copy is the only evidence of what was issued, and the unlock resumed above
+ * the reverted mark beside the database instead. The tick then locked again a moment later, and a
+ * sale in between was given a number already given.
  */
-export async function legalMarkFloor(orgId: string): Promise<{ series: LegalMarkSeries[]; unreadable?: string }> {
+export function legalMarkFloor(orgId: string): Promise<{ series: LegalMarkSeries[]; unreadable?: string }> {
+  const run = chain.then(() => readFloor(orgId))
+  chain = run.then(() => 0, () => 0)
+  return run
+}
+
+async function readFloor(orgId: string): Promise<{ series: LegalMarkSeries[]; unreadable?: string }> {
   if (nodeRole() !== 'master') return { series: [] }
   const file = legalMarkFile()
   if (!file) return { series: [] }

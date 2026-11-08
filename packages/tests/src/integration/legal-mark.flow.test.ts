@@ -11,7 +11,7 @@ import { captureRejection } from '../helpers/capture-rejection'
 import { config } from 'config'
 import { AuditLog, OrgHome, ReplOrg, Sequence } from 'db/models'
 import { forgetAllHomes } from 'db/home/home'
-import { journalHwmTick } from 'services/biz/home/series-lock.service'
+import { journalHwmTick, lockLegalSeries } from 'services/biz/home/series-lock.service'
 import { legalMarkFile, legalMarkOf, legalMarkTick } from 'services/biz/home/legal-mark.service'
 import { recordLastNumbers, legalSeriesOf } from 'services/biz/move/promote.service'
 import { generateUNP, getNextNumber, legalCounterKey } from 'services/biz/sequence.service'
@@ -365,6 +365,34 @@ describe('the legal counters\' mark, outside the database (#549)', () => {
     expect(((await Sequence.collection.findOne({ orgId: s.oid, prefix: 'SALES_DOC', year } as any)) as any)?.lastNumber).toBe(120)
     letGo()
     await recordLastNumbers(s.orgId, s.by, await all(s.orgId, 121))
+    expect(await getNextNumber(s.orgId, 'SALES_DOC')).toBe(`SALES_DOC-${year}-00126`)
+  }, 60_000)
+
+  it('an unlock that lands while a tick holds the backup drive still resumes above the drive\'s copy', async () => {
+    plugDrive()
+    const s = await homeHere()
+    const file = legalMarkFile()!
+    expect(await legalMarkTick()).toBe(0)
+    const atImage = readFileSync(file, 'utf8')
+    await issue(s.orgId, 5)
+    expect(await legalMarkTick()).toBe(0)
+    expect(markOf(driveCopy(), s.orgId)).toBe(125)
+    // The system disk goes back to its image (the database and the mark beside it at 120), and a person
+    // locks numbering before any tick has read the drive's copy.
+    writeFileSync(file, atImage)
+    await putBack(s.oid, 120)
+    expect(await lockLegalSeries(s.orgId, 'restored', 'locked by hand')).toBe(true)
+    // The minute's tick is on the drive (a slow USB disk) as the person records 121 off the paper.
+    let calls = 0
+    localDisk.sameAsData = () => {
+      calls++
+      return new Promise<boolean>(resolve => setTimeout(() => resolve(false), 300))
+    }
+    const tick = legalMarkTick()
+    while (calls === 0) await Bun.sleep(5)
+    await recordLastNumbers(s.orgId, s.by, await all(s.orgId, 121))
+    await tick
+    // Above the drive's 125, never from 122: 122 to 125 were given before the disk went back.
     expect(await getNextNumber(s.orgId, 'SALES_DOC')).toBe(`SALES_DOC-${year}-00126`)
   }, 60_000)
 
