@@ -154,6 +154,12 @@ export default defineConfig({
       fullyParallel: false,
     },
     {
+      // #493's acceptance: a walk on a DEPLOYED build, run by hand (`--project=field-walk`), skipped without WALK_ORG.
+      name: 'field-walk',
+      use: { ...devices['Desktop Chrome'], baseURL },
+      testMatch: ['field-walk-*.spec.ts'],
+    },
+    {
       name: 'full-walkthrough',
       use: {
         ...devices['Desktop Chrome'],
