@@ -10,7 +10,7 @@ import {
   createTestNotification,
 } from '../helpers/factories'
 import { mongoose } from 'db/connection'
-import { AuditLog, Identity, Invoice, LeaveBalance, Org, OrgLogo, PermissionSet, Product, Role, Sequence, StockLevel, Tag, User } from 'db/models'
+import { AuditLog, Identity, Invoice, LeaveBalance, Org, OrgApp, OrgLogo, PermissionSet, Product, Role, Sequence, StockLevel, Tag, User } from 'db/models'
 import { tenantCollections } from 'services/biz/backup/backup-bundle.service'
 import {
   OrgCloneError, assertCloneAllowed, cloneOrgData, compareOrgs, convertToTestOrg, createTestOrgFrom,
@@ -117,6 +117,8 @@ async function realShop(label = 'real') {
     lines: [{ productId: products[0]._id, quantity: 3, unitCost: 5, totalCost: 15 }],
   } as any)
   await createTestTag(org._id)
+  await OrgApp.create({ orgId: org._id, appId: 'accounting', enabled: true })
+  await OrgApp.create({ orgId: org._id, appId: 'invoicing', enabled: true })
   await Sequence.create({ orgId: org._id, prefix: 'INV', year: 2026, lastNumber: 5 })
   await Sequence.create({ orgId: org._id, prefix: 'SM', year: 2026, lastNumber: 9, displayPrefix: 'SKL' })
   await AuditLog.create({
@@ -206,7 +208,7 @@ describe('the first copy', () => {
 
     expect(report.totals.errors).toBe(0)
     expect(report.totals.conflicts).toBe(0)
-    for (const m of ['Contact', 'Invoice', 'Product', 'StockLevel', 'StockMovement', 'Warehouse', 'Tag', 'Sequence', 'AuditLog', 'OrgLogo', 'PermissionSet', 'Role', 'User']) {
+    for (const m of ['Contact', 'Invoice', 'Product', 'StockLevel', 'StockMovement', 'Warehouse', 'Tag', 'Sequence', 'AuditLog', 'OrgLogo', 'OrgApp', 'PermissionSet', 'Role', 'User']) {
       expect(await countOf(m, id)).toBe(await countOf(m, shop.id))
     }
     expect(await countOf('Product', id)).toBe(3)
@@ -408,6 +410,8 @@ describe('people the test org already has', () => {
     const own = await createTestUser(target._id, { identityId: shop.adminPerson._id, role: 'admin', username: 'my-own-name', email: `own-${++seq}@x.test` } as any)
     const ownSet = await PermissionSet.create({ orgId: target._id, name: 'Seller', description: 'theirs', permissions: ['crm.read'], isSystem: true } as any)
     const ownRole = await Role.create({ orgId: target._id, name: 'Seller', isBuiltin: true, templateKey: 'seller', caps: ['crm.read'], legacy: { role: 'seller', permissions: [] } } as any)
+    // The app made this one itself when someone opened the hub, and the test org has switched it off.
+    await OrgApp.create({ orgId: target._id, appId: 'accounting', enabled: false })
 
     const run = await cloneOrgData({ sourceOrgId: shop.id, targetOrgId: String(target._id), execute: true, activateAdmins: true })
     expect(byName(run, 'User').merged).toBe(1)
@@ -415,6 +419,12 @@ describe('people the test org already has', () => {
     expect(byName(run, 'PermissionSet').merged).toBe(1)
     expect(byName(run, 'Role').merged).toBe(1)
     expect(await countOf('Role', String(target._id))).toBe(1)
+    // The enabled app is matched by which app it is: no clash, the test org's own switch stays, the other is added.
+    expect(byName(run, 'OrgApp').merged).toBe(1)
+    expect(byName(run, 'OrgApp').inserted).toBe(1)
+    expect(byName(run, 'OrgApp').conflicts).toBe(0)
+    const apps: any[] = await docsOf('OrgApp', String(target._id))
+    expect(apps.map(a => [a.appId, a.enabled]).sort()).toEqual([['accounting', false], ['invoicing', true]])
 
     const users: any[] = await docsOf('User', String(target._id))
     expect(users.length).toBe(2)

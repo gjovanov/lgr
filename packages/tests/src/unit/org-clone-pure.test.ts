@@ -163,7 +163,7 @@ describe('what a test copy holds', () => {
     for (const m of ['File', 'DocFile', 'ArchiveUnit', 'FiscalDevice', 'Workstation', 'Desktop', 'Invite', 'OAuthHandoff', 'Code', 'PersonalDataKey']) {
       expect(m in NEVER_CLONED).toBe(true)
     }
-    expect(SEED_ONLY).toEqual(['User', 'PermissionSet', 'Role'])
+    expect(SEED_ONLY).toEqual(['User', 'PermissionSet', 'Role', 'OrgApp'])
     // A reset keeps access and hardware, and nothing a copy would replace.
     expect(KEPT_ON_RESET).toContain('User')
     expect(KEPT_ON_RESET).toContain('FiscalDevice')
