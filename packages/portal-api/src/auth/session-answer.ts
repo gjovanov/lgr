@@ -15,9 +15,25 @@ export function orgList(memberships: Membership[], currentOrgId?: string) {
     orgId: m.org.id,
     name: m.org.name,
     slug: m.org.slug,
+    // The PROD / DEV badge the menu shows beside the name; absent for an org that has none.
+    ...(m.org.environment ? { environment: m.org.environment } : {}),
     role: m.user.role,
     current: m.org.id === currentOrgId,
   }))
+}
+
+/**
+ * The org as a sign-in answers it: what the top bar needs (name, slug, and the PROD / DEV badge)
+ * until `/auth/me` brings the whole record. One place, so every way into an org says it alike.
+ */
+export function orgBrief(org: { _id?: unknown; id?: unknown; name?: string | null; slug?: string | null; settings?: { environment?: string | null } | null }) {
+  const environment = org.settings?.environment
+  return {
+    id: String(org._id ?? org.id),
+    name: org.name ?? '',
+    slug: org.slug ?? '',
+    ...(environment === 'prod' || environment === 'dev' ? { environment } : {}),
+  }
 }
 
 export function personSummary(identity: Pick<IIdentity, '_id' | 'email' | 'firstName' | 'lastName'>) {
@@ -69,7 +85,7 @@ export async function enterOrg(
   exp: number | undefined,
   method: SignInMethod,
 ) {
-  const org = await Org.findById(member.orgId, { name: 1, slug: 1 }).lean().exec()
+  const org = await Org.findById(member.orgId, { name: 1, slug: 1, 'settings.environment': 1 }).lean().exec()
   const claims = await sessionFor(member, identity)
   const now = Math.floor(Date.now() / 1000)
   const until = exp ?? now + SESSION_TTL_SECONDS
@@ -84,7 +100,7 @@ export async function enterOrg(
   return {
     user: claims,
     token,
-    org: { id: String(member.orgId), name: org?.name ?? '', slug: org?.slug ?? '' },
+    org: orgBrief({ ...(org ?? {}), _id: member.orgId }),
     orgs: orgList(await membershipsOf(identity._id), claims.orgId),
     needsOrgChoice: false,
   }

@@ -1,7 +1,11 @@
 <template>
-  <v-list-item :title="org?.name || 'Ledger'" :subtitle="org?.slug" nav @click="rail && $emit('toggle-rail')">
+  <v-list-item :title="org?.name || 'Ledger'" nav @click="rail && $emit('toggle-rail')">
     <template #prepend>
       <v-icon color="primary">{{ rail ? 'mdi-chevron-right' : 'mdi-book-multiple' }}</v-icon>
+    </template>
+    <template #subtitle>
+      <span>{{ org?.slug }}</span>
+      <EnvBadge :environment="org?.environment" class="ml-2" />
     </template>
     <template #append>
       <v-btn
@@ -16,6 +20,7 @@
 </template>
 
 <script setup lang="ts">
+import EnvBadge from './EnvBadge.vue'
 import type { ShellOrg } from './types'
 
 defineProps<{

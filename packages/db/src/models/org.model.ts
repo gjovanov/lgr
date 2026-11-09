@@ -81,6 +81,17 @@ export interface IOrg extends Document {
     dateFormat: string
     timezone: string
     locale: string
+    /**
+     * Which kind of deployment of the company this org is, shown as a PROD / DEV badge beside its
+     * name in the org menu so nobody keys real work into a test copy, or the other way round.
+     * Unset reads as "no badge": every org that never asked for one.
+     *
+     * ⚠ Written only by `scripts/org-clone.ts`, never by an org admin: the `PUT /org/:orgId` body
+     * does not list it. A test copy (`dev`) is also the only kind of org the clone engine will
+     * ever write into (`services/biz/org-clone`), so a mislabelled production org cannot be
+     * overwritten by a sync that was pointed at the wrong slug.
+     */
+    environment?: 'prod' | 'dev'
     taxConfig: {
       vatEnabled: boolean
       defaultVatRate: number
@@ -271,6 +282,8 @@ const orgSchema = new Schema<IOrg>(
       dateFormat: { type: String, default: 'DD.MM.YYYY' },
       timezone: { type: String, default: 'Europe/Berlin' },
       locale: { type: String, default: 'en' },
+      // No default: unset is "no badge", so no org needs a backfill.
+      environment: { type: String, enum: ['prod', 'dev'] },
       taxConfig: {
         vatEnabled: { type: Boolean, default: true },
         defaultVatRate: { type: Number, default: 20 },

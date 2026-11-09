@@ -12,8 +12,11 @@
         <v-icon :start="!mobile">mdi-domain</v-icon>
         <template v-if="!mobile">
           <span class="org-switcher__name">{{ org?.name }}</span>
+          <EnvBadge :environment="org?.environment" class="ml-2" />
           <v-icon end size="small">mdi-chevron-down</v-icon>
         </template>
+        <!-- Icon-only on a phone: the marker rides on the corner of the icon, never lost. -->
+        <EnvBadge v-else :environment="org?.environment" class="org-switcher__corner" />
       </v-btn>
     </template>
 
@@ -37,7 +40,10 @@
           <template #prepend>
             <span class="org-initials mr-3">{{ initials(o.name) }}</span>
           </template>
-          <v-list-item-title>{{ o.name }}</v-list-item-title>
+          <v-list-item-title>
+            <span class="org-switcher__row-name">{{ o.name }}</span>
+            <EnvBadge :environment="o.environment" class="ml-2" />
+          </v-list-item-title>
           <v-list-item-subtitle>{{ o.slug }} · {{ roleLabel(o.role) }}</v-list-item-subtitle>
           <template #append>
             <v-progress-circular v-if="busy === o.orgId" indeterminate size="16" width="2" />
@@ -116,6 +122,7 @@ import {
 import { hasUnsavedWork, switchBlockedBy } from 'ui-shared/session/switch-guards'
 import { portalHref } from 'ui-shared/nav/navigate'
 import { useAccess } from 'ui-shared/access/useAccess'
+import EnvBadge from './EnvBadge.vue'
 import NewOrgDialog from './NewOrgDialog.vue'
 import type { ShellOrg } from './types'
 
@@ -263,6 +270,17 @@ async function go() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.org-switcher__row-name {
+  vertical-align: middle;
+}
+.org-switcher .org-switcher__corner {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  height: 14px;
+  padding: 0 4px;
+  font-size: 0.5625rem;
 }
 .org-initials {
   display: inline-flex;

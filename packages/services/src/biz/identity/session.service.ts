@@ -86,19 +86,19 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 
 export interface Membership {
   user: IUser
-  org: { id: string; name: string; slug: string }
+  org: { id: string; name: string; slug: string; environment?: 'prod' | 'dev' }
 }
 
 /** The person's active memberships, with their orgs, in a stable order (org name). */
 export async function membershipsOf(identityId: unknown): Promise<Membership[]> {
   const users = await User.find({ identityId, isActive: true }).exec()
-  const orgs = await Org.find({ _id: { $in: users.map(u => u.orgId) } }, { name: 1, slug: 1 }).lean().exec()
+  const orgs = await Org.find({ _id: { $in: users.map(u => u.orgId) } }, { name: 1, slug: 1, 'settings.environment': 1 }).lean().exec()
   const byId = new Map(orgs.map(o => [String(o._id), o]))
   return users
     .filter(u => byId.has(String(u.orgId)))
     .map(user => {
       const o = byId.get(String(user.orgId))!
-      return { user, org: { id: String(o._id), name: o.name, slug: o.slug } }
+      return { user, org: { id: String(o._id), name: o.name, slug: o.slug, ...(o.settings?.environment ? { environment: o.settings.environment } : {}) } }
     })
     .sort((a, b) => a.org.name.localeCompare(b.org.name))
 }

@@ -23,7 +23,10 @@
             <template #prepend>
               <span class="org-initials mr-4">{{ initials(o.name) }}</span>
             </template>
-            <v-list-item-title class="font-weight-medium">{{ o.name }}</v-list-item-title>
+            <v-list-item-title class="font-weight-medium">
+              {{ o.name }}
+              <EnvBadge :environment="o.environment" class="ml-2" />
+            </v-list-item-title>
             <v-list-item-subtitle>{{ o.slug }} · {{ roleLabel(o.role) }}</v-list-item-subtitle>
             <template #append>
               <v-progress-circular v-if="busy === o.orgId" indeterminate size="20" width="2" />
@@ -82,6 +85,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import NewOrgDialog from 'ui-shell/components/NewOrgDialog'
+import EnvBadge from 'ui-shell/components/EnvBadge'
 import {
   acceptInvite,
   fetchMyOrgs,

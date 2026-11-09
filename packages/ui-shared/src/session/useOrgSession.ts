@@ -16,6 +16,8 @@ export interface OrgChoice {
   orgId: string
   name: string
   slug: string
+  /** The PROD / DEV marker of the org; absent = no badge. */
+  environment?: 'prod' | 'dev'
   role: string
   current: boolean
 }

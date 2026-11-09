@@ -18,6 +18,7 @@ import {
   bearerPresent,
   callerOf,
   enterOrg,
+  orgBrief,
   orgList,
   personSummary,
 } from '../auth/session-answer.js'
@@ -173,7 +174,7 @@ export const authController = new Elysia({ prefix: '/auth' })
         return {
           user,
           token,
-          org: { id: String(org._id), name: org.name, slug: org.slug },
+          org: orgBrief(org),
           orgs: orgList(result.memberships, user.orgId),
           needsOrgChoice: false,
         }
@@ -221,7 +222,7 @@ export const authController = new Elysia({ prefix: '/auth' })
       // must not mint sessions in other orgs. The next sign-in names the person.
       const org = await orgDao.findById(user.orgId)
       return {
-        orgs: org ? [{ orgId: user.orgId, name: org.name, slug: org.slug, role: user.role, current: true }] : [],
+        orgs: org ? [{ orgId: user.orgId, name: org.name, slug: org.slug, ...(org.settings?.environment ? { environment: org.settings.environment } : {}), role: user.role, current: true }] : [],
         invitations: [],
       }
     }
@@ -511,7 +512,7 @@ export const authController = new Elysia({ prefix: '/auth' })
       return {
         user,
         token,
-        org: { id: String(org._id), name: org.name, slug: org.slug },
+        org: orgBrief(org),
         orgs: user.iid
           ? orgList(await membershipsOf(user.iid), user.orgId)
           : [{ orgId: user.orgId, name: org.name, slug: org.slug, role: user.role, current: true }],
@@ -561,7 +562,7 @@ export const authController = new Elysia({ prefix: '/auth' })
           entityName: `${user.firstName} ${user.lastName}`,
         })
 
-        return { user, token, org: { id: String(org._id), name: org.name, slug: org.slug } }
+        return { user, token, org: orgBrief(org) }
       } catch (err: any) {
         set.status = 400
         return { message: err instanceof HandoffError ? err.message : HANDOFF_REFUSED }
@@ -616,9 +617,7 @@ export const authController = new Elysia({ prefix: '/auth' })
       user,
       org: org
         ? {
-            id: String(org._id),
-            name: org.name,
-            slug: org.slug,
+            ...orgBrief(org),
             taxNumber: (org as any).taxNumber || undefined,
             vatNumber: (org as any).vatNumber || undefined,
             email: (org as any).email || undefined,
