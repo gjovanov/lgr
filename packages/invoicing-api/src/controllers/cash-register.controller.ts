@@ -8,7 +8,8 @@ import { readIdempotencyKey, requestHash } from 'services/biz/hot-path-key'
 import { Invoice, POSSession } from 'db/models'
 import { SETTLEABLE_TYPES, settleInDoubt } from 'services/biz/cash-register/settle.service'
 import { RegisterRefusal } from 'services/biz/cash-register/register.service'
-import { STORNO_ROLES, deviceless, settleDevice, stornoDoor } from '../lib/cash-register-till.js'
+import { can } from 'services/biz/access/evaluate'
+import { deviceless, settleDevice, stornoDoor } from '../lib/cash-register-till.js'
 
 /**
  * FR-21.12 — the cash-register journal („Касови продажби").
@@ -97,7 +98,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       // It decides what happened to money: the same roles as a storno.
-      if (!STORNO_ROLES.includes(user.role)) {
+      if (!can(user, 'cash-sales.settle')) {
         return status(403, { message: 'Settling a receipt requires manager or admin authorization' })
       }
       const held = Invoice.base.Types.ObjectId.isValid(id)
@@ -121,7 +122,7 @@ export const cashRegisterController = new Elysia({ prefix: '/org/:orgId/cash-reg
     async ({ params: { orgId, id }, body, user, status, headers }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       // H4: the same roles as the till's storno.
-      if (!STORNO_ROLES.includes(user.role)) {
+      if (!can(user, 'cash-sales.storno')) {
         return status(403, { message: 'Storno requires manager or admin authorization' })
       }
 

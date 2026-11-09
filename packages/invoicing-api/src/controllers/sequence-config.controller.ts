@@ -18,11 +18,12 @@ import { INVOICING_SEQUENCE_KEYS } from 'services/biz/sequence-registry'
 const OPEN_SEQUENCE_KEYS = INVOICING_SEQUENCE_KEYS.filter(e => !e.closed)
 const ALLOWED_PREFIXES = new Set(OPEN_SEQUENCE_KEYS.map(e => e.prefix))
 
+import { can } from 'services/biz/access/evaluate'
 export const sequenceConfigController = new Elysia({ prefix: '/org/:orgId/invoicing/sequences' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!['admin', 'manager'].includes(user.role)) {
+    if (!can(user, 'sequences.view')) {
       return status(403, { message: 'Sequence configuration requires admin or manager role' })
     }
 
@@ -51,7 +52,7 @@ export const sequenceConfigController = new Elysia({ prefix: '/org/:orgId/invoic
     '/:prefix',
     async ({ params: { orgId, prefix }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!['admin', 'manager'].includes(user.role)) {
+      if (!can(user, 'sequences.edit')) {
         return status(403, { message: 'Sequence configuration requires admin or manager role' })
       }
       if (!ALLOWED_PREFIXES.has(prefix)) {

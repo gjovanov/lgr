@@ -21,7 +21,8 @@ import { buildSessionReport, formatSessionReport, type SessionReport } from 'ser
 import { permissionRefusal } from 'services/biz/route-permission'
 import type { ZReportResult } from 'fiscal/types'
 import { fiscalCapabilities } from 'fiscal/capabilities'
-import { DEVICE_REPORT_KINDS, FISCAL_ADMIN_ROLES, printDeviceReport } from 'fiscal/device-command'
+import { can } from 'services/biz/access/evaluate'
+import { DEVICE_REPORT_KINDS, printDeviceReport } from 'fiscal/device-command'
 import { fiscalFailure } from 'fiscal/errors'
 import { interruptedDocuments, unfinishedReceipts, unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
 import { TURN_WAIT_MS, deviceTurn } from 'fiscal/device-turn'
@@ -31,7 +32,7 @@ import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import {
-  STORNO_ROLES, assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, finishDeadSales, finishInterruptedDocuments, floatInItsOwnTurn, getFiscalContext, owesDeviceFloat, saleResponse, stornoDoor, tillContext, tillSettings, zReportOwingFloat,
+  assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, finishDeadSales, finishInterruptedDocuments, floatInItsOwnTurn, getFiscalContext, owesDeviceFloat, saleResponse, stornoDoor, tillContext, tillSettings, zReportOwingFloat,
 } from '../lib/cash-register-till.js'
 
 // FR-21: the till's device, its receipts and the price a device is given live with the cash-register
@@ -644,7 +645,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
     if (!session) return status(404, { message: 'POS session not found' })
     // The close's rule: the cashier who owns the session, or a manager.
-    if (String(session.cashierId) !== String(user.id) && user.role !== 'admin' && user.role !== 'manager') {
+    if (String(session.cashierId) !== String(user.id) && !can(user, 'till.manage-sessions')) {
       return status(403, { message: 'Only the session owner or a manager can print its report' })
     }
     const device = await resolveFiscalDeviceForClose(orgId, String(session.warehouseId))
@@ -671,7 +672,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
    */
   .get('/session/:id/device-report', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.report')) return status(403, { message: 'Admin or manager required' })
     const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
     if (!session) return status(404, { message: 'POS session not found' })
     const device = await sessionReportDevice(orgId, session)
@@ -702,7 +703,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
    */
   .post('/session/:id/device-report', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.report')) return status(403, { message: 'Admin or manager required' })
     const session = await getRepos().posSessions.findOne({ id, orgId } as any) as any
     if (!session) return status(404, { message: 'POS session not found' })
     // An X reads the device's day as it stands, which belongs to no session but an open one.
@@ -790,7 +791,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       if (!session) return status(404, { message: 'POS session not found' })
 
       // The cashier who owns the session may close it; anyone else needs a manager role.
-      const isManager = user.role === 'admin' || user.role === 'manager'
+      const isManager = can(user, 'till.manage-sessions')
       const mayClose = String(session.cashierId) === String(user.id) || isManager
 
       // ⚠ A close that died in its Z goes back to `open`, and whoever pressed is told, before anything else
@@ -1140,7 +1141,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       if (!user) return status(401, { message: 'Unauthorized' })
 
       // H4: Storno requires manager or admin role
-      if (!STORNO_ROLES.includes(user.role)) {
+      if (!can(user, 'cash-sales.storno')) {
         return status(403, { message: 'Storno requires manager or admin authorization' })
       }
 

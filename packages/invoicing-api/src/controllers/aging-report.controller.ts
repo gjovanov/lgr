@@ -7,6 +7,7 @@ import { Invoice } from 'db/models'
  * Invoice Aging Report — server-side aggregation using $bucket.
  * Groups outstanding invoices by contact and aging bucket.
  */
+import { can } from 'services/biz/access/evaluate'
 export const agingReportController = new Elysia({ prefix: '/org/:orgId/invoicing/reports' })
   .use(AppAuthService)
   .get('/aging', async ({ params: { orgId }, query, user, status }) => {
@@ -14,7 +15,7 @@ export const agingReportController = new Elysia({ prefix: '/org/:orgId/invoicing
     // `reports.read` as the Reports API does (FR-26.6). Without it a Seller, who has no Reports,
     // still read every customer's outstanding balance here. Every default role with invoicing holds
     // it; admins pass, as on every route.
-    if (user && user.role !== 'admin' && !user.permissions?.includes('reports.read')) {
+    if (user && !can(user, 'reports.view')) {
       return status(403, { code: 'permission_required', permissions: ['reports.read'], message: 'The reports.read permission is required' })
     }
     const asOfDate = query.asOfDate ? new Date(query.asOfDate as string) : new Date()

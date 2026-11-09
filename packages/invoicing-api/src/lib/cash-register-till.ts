@@ -42,12 +42,6 @@ import { roundCents } from 'config/pos-totals'
 
 export { fiscalUnitPrice }
 
-/**
- * Who may reverse a sale (H4, #145), on top of the route's permission (`pos.write`, or the journal's
- * `pos.write`/`invoicing.write`). The UI's list (`ui-shared/cash-register/storno.ts`) is the same.
- * Not `warehouse_manager` (owner, 2026-10-27): its permissions reach no storno door.
- */
-export const STORNO_ROLES = ['admin', 'manager']
 
 export type FiscalCtx = {
   deviceId: string

@@ -5,18 +5,17 @@
  * grant is enough — including the read-only `member` and `nra_auditor` roles (an NRA inspector
  * whose whole job is reading and exporting sales data must never be told "Forbidden").
  *
- * The legacy `trade.*` grants are gone: migration 0005 rewrote them into these granular ones.
+ * FR-27 (#529): the capabilities `sales-docs.export` and `sales-docs.edit` (`config/access`).
  */
+import { can, type AccessCaller } from 'services/biz/access/evaluate'
 
-type MaybeUser = { permissions?: string[]; role?: string } | null | undefined
+type MaybeUser = AccessCaller | null | undefined
 
 export function canExport(user: MaybeUser): boolean {
-  const perms: string[] = user?.permissions || []
-  return perms.includes('invoicing.read') || perms.includes('invoicing.write') || user?.role === 'admin'
+  return can(user, 'sales-docs.export')
 }
 
 /** Mutating side-effects of a print (allocating a companion document number, storing a note). */
 export function canWrite(user: MaybeUser): boolean {
-  const perms: string[] = user?.permissions || []
-  return perms.includes('invoicing.write') || user?.role === 'admin'
+  return can(user, 'sales-docs.edit')
 }

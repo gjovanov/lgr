@@ -28,7 +28,8 @@ import { receiptMode, type ReceiptMode } from 'services/biz/cash-register/receip
 import {
   RegisterRefusal, giveWayToTheClose, insertRegisterDocument, originOf, sessionIsOpen, type RegisterContext, type RegisterUser,
 } from 'services/biz/cash-register/register.service'
-import { STORNO_ROLES, assertPrinterConnected, assertSaleMayOpen, assertTillTender, connectedInWarehouse, finishDeadSale, finishInterruptedDocuments, noOpenSession, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
+import { can } from 'services/biz/access/evaluate'
+import { assertPrinterConnected, assertSaleMayOpen, assertTillTender, connectedInWarehouse, finishDeadSale, finishInterruptedDocuments, noOpenSession, openSessionOf, tillContext, tillSettings } from './cash-register-till.js'
 import { settleKeyedReceipt } from './counter-receipt.js'
 
 export interface PreparedRefund {
@@ -108,7 +109,7 @@ export async function prepareRefund(orgId: string, user: RegisterUser & { role?:
 
   // H4: a storno door, and those who may reverse a sale are those who may use one. A storno at the
   // till needs a manager, and a credit note must not be the way round that.
-  if (!user.role || !STORNO_ROLES.includes(user.role)) {
+  if (!can(user, 'cash-sales.storno')) {
     throw new RegisterRefusal(403, { code: 'refund_requires_manager', message: 'A refund on a storno receipt requires manager or admin authorization' })
   }
 
