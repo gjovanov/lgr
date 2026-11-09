@@ -40,6 +40,10 @@ bun run scripts/assign-din-tags.ts [--org <slug=regal-pz>] [--execute]
     [--no-recategorize] [--force-category] [--batch 500] [--samples 30]
 ```
 
+Both write documents only: they connect without building indexes or collections, and `--execute` refuses while
+a unique index it relies on is missing (`din_catalog`, product categories, tags; `scripts/lib/require-indexes.ts`,
+#546). On a database the app has never started against, start the app once first.
+
 Writes are additive (`$addToSet`) — re-runs converge to 0 updates; rule changes never
 REMOVE stale tags (delete via portal tag admin, which `$pull`s from all products).
 Expected regal-pz scale: ~10.8k of 16.3k products tagged (~2.7k distinct tags),

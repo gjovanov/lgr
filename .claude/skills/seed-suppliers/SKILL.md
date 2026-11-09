@@ -39,6 +39,9 @@ replaces `notes` (old runs stored Адрес/Град there — the address now 
 bun run scripts/seed-contacts.ts --org <slug> --type supplier --file ap_ДОСТАВЧИЦИ_*.json [--execute]
 ```
 
+It writes documents only: it connects without building indexes or collections (`scripts/lib/require-indexes.ts`,
+#546), so a checkout ahead of prod no longer builds its indexes there.
+
 Local (dev DB):
 ```bash
 docker compose up -d mongo

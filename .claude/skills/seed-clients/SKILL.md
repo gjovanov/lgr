@@ -41,6 +41,9 @@ overwrites `addresses[0]` from the export.
 bun run scripts/seed-contacts.ts --org <slug> --type customer --file ap_КЛИЕНТИ_*.json [--execute]
 ```
 
+It writes documents only: it connects without building indexes or collections (`scripts/lib/require-indexes.ts`,
+#546), so a checkout ahead of prod no longer builds its indexes there.
+
 Local (dev DB):
 ```bash
 docker compose up -d mongo
