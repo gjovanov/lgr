@@ -1186,3 +1186,36 @@ Published 2026-11-08 00:51 UTC from draft 437892662.
 - Offered to the fleet by lgr-deploy `7f58329` (`DESKTOP_RELEASE_VERSION` 0.1.10). Both new pods read it, and ArgoCD is Synced and Healthy.
 - Through `/api/desktop/download/0.1.10`, the Windows installer, the MSI, and the x64 and Apple-silicon `.sig` files answer 200 with the release's own sha256 digests.
 
+#### desktop-v0.1.11 (2026-11-09), against the hub's v20261108-e3eee8a003df
+
+**What changed:** one fix in the shell, found by the FR-20 shop lane on LGR's own Windows 11 golden.
+
+- **#588 (#587): the registration record is written whole, and changed under one lock.** `keystore::save` was `std::fs::write`, which truncates the record and then writes it. Presence and the fiscal bridge each mint a token at every start, and a mint writes back what it learned (the clock's offset, `update_required`). A bridge that read the record in that window found it empty, minted as `not_registered`, and took that as final: no fiscal device until LGR Desktop was restarted, after any update, night restart or power cut. Now the record goes to a temporary file that is renamed over it (`write_atomically`), every read-change-write holds one process-wide lock (`keystore::update`), and `enroll::registered` looks a second time, 500 ms later, before a mint says `not_registered`.
+
+`packages/desktop` holds nothing else since 0.1.10 (`keystore.rs`, `enroll.rs` and `bridge.rs` only), and `packages/desktop-ui` is unchanged. The shell's own pages carry `ui-shared`'s new strings for #579's legal-numbering lock and #580's Z-report note. None of those pages shows them.
+
+**How it was found.** LGR's own Windows 11 golden (lgr-deploy#64) boots faster than roomler's. On it, `shop-win11` went 14/7 on 0.1.10: the bridge was refused `not_registered` 6 ms after it opened the device, and `bridge-lan` and the six checks after it failed. The same 0.1.10 was green on the Windows 10 golden and on roomler's slower one, where presence happened to mint first.
+
+**Lanes:** the FR-14 field lanes and the FR-20 shop lanes ran on 2026-11-08 and 09 on LGR's own Windows 11 golden (`win11-lgr-20261108.qcow2`), against the signed draft's own bytes (draft 438513258, run 42521709885, from `3f9f8b06`), staged on mars and checked against the draft's 14 digests. The harness was lgr-deploy#67 (`8a56935`).
+- `shop-win11`: 21/21, beside server 0.1.10's published bytes. `bridge-lan` passed where 0.1.10 failed on this golden.
+- `shop-ubuntu` 21/21, `shop-win10` 21/21, and `shop-ubuntu-nomcast` 20 PASS with `rediscover` NA.
+- Across the four shops the app started 19 times. The bridge registered with the hub 31 times, and logged `not_registered` and *"will not retry"* 0 times.
+- The desk lanes, cell for cell as on 0.1.10:
+  - `win11/nsis/user` with a one-time code: 12 PASS, 0 FAIL, 7 NA;
+  - with an ephemeral key: 11/0/8;
+  - `win11/msi/admin`: 13/0/6. Its first run went 12/1/6. `clock-skew`, the driver's first network call, threw *"The remote name could not be resolved: 'lgrai.app'"*: this golden starts the driver before the guest's DNS answers. lgr-deploy `05c0010` asks the server again for 90 s, and the second run passed every check.
+  - `ubuntu/deb/user`: 3/0/16.
+- `clock-skew` passed on the three Windows cells with the guest 180 min out, since lgr-deploy#67 puts a desktop guest 3 h ahead at boot (roomler's golden happened to be 8 h off). It is NA on Ubuntu.
+
+The NAs carry the same reasons as 0.1.10's. `lgr-fieldtest` has no active desktop. The three the lanes enrolled since 2026-11-08 23:00 UTC (the code cell, and the msi cell twice) were revoked at their runs' end, and the key cell's ephemeral desktop is gone from the list, as its clean shutdown removes it.
+
+Published 2026-11-09 13:41 UTC from draft 438513258.
+- Its tag's run built nothing (run 42627743070): `build` and `release` were skipped, because the release was already published. All 14 asset digests are the draft's.
+- Desktop CI passed on the tag.
+- Offered to the fleet by lgr-deploy `e81cec1` (`DESKTOP_RELEASE_VERSION` 0.1.11), and both new pods read it.
+- Through `/api/desktop/download/0.1.11`, the page answers 200, and the MSI and the Windows installer's `.sig` come back with the release's own sha256 digests.
+
+**Found on the way, not fixed in 0.1.11.** The FR-20 soak trial `soak-t2` updated a Windows master from 0.1.10 to 0.1.11 under two tills on 0.1.10. One till printed nothing for the trial's last hour.
+- **#591:** the fiscal bridge has no liveness check, so a connection that dies without a close leaves a till without its device until LGR Desktop restarts. Presence has its own deadline and was back within 2 s of it.
+- **#590:** why the update's close never arrived. On Windows the update moves the firewall rule to the new version's program before it stops the old server.
+
