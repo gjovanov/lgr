@@ -385,8 +385,9 @@ import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
-import { jwtRole, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
-import { runsDevices } from 'ui-shared/nav/page-registry'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { grantOfViewer, runsDevices } from 'ui-shared/nav/page-registry'
+import { can } from 'config/access'
 
 const { t, te } = useI18n()
 const route = useRoute()
@@ -520,8 +521,8 @@ function why(feature: string): string {
   return ''
 }
 
-const role = computed(() => appStore.user?.role || jwtRole())
-const isAdmin = computed(() => role.value === 'admin')
+// FR-27: naming the device's payment types is the admin's (`devices.name-payments`).
+const isAdmin = computed(() => can(grantOfViewer(sessionViewer()), 'devices.name-payments'))
 const codSlot = computed(() => caps.value?.cashOnDeliverySlot || null)
 
 // Operators — as many as the device numbers (an Eltrade 16); 8 until it says

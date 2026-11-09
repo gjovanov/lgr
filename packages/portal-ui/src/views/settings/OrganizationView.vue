@@ -374,7 +374,9 @@ import { useSettingsStore } from '../../store/settings.store'
 import { useAppStore } from '../../store/app.store'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { jwtRole } from 'ui-shared/composables/useStorageIdentity'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { grantOfViewer } from 'ui-shared/nav/page-registry'
+import { can } from 'config/access'
 import { resizeImage, ImageResizeError } from 'ui-shared/composables/useImageResize'
 
 const { t } = useI18n()
@@ -391,7 +393,8 @@ const logoUrl = ref<string>('')
 const logoBusy = ref(false)
 // The store's `user` is null until /auth/me runs, which does not happen on a plain page load —
 // so fall back to the JWT, which is always there. (The server enforces admin on POST/DELETE.)
-const isAdmin = computed(() => ((appStore.user as any)?.role || jwtRole()) === 'admin')
+// FR-27: what the org's PUT and its logo ask (`org-settings.edit`).
+const isAdmin = computed(() => can(grantOfViewer(sessionViewer()), 'org-settings.edit'))
 
 function setLogoObjectUrl(blob: Blob | null) {
   if (logoUrl.value) URL.revokeObjectURL(logoUrl.value)

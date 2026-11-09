@@ -7,7 +7,7 @@ import {
 } from 'config/access'
 import { orgRouteRest, permissionRefusal } from 'services/biz/route-permission'
 import { accessRefusal, grantOf } from 'services/biz/access/evaluate'
-import { PAGE_REGISTRY, PORTAL_PAGES, canOpenPage, type PageViewer } from 'ui-shared/nav/page-registry'
+import { PAGE_REGISTRY, PORTAL_PAGES, canOpenPage, legacyCanOpenPage, type PageViewer } from 'ui-shared/nav/page-registry'
 
 /**
  * FR-27 §6 — the differential test, the safety net of Phase 0 (#529).
@@ -95,8 +95,10 @@ describe('FR-27 Phase 0: the evaluator answers as today', () => {
     const differences: string[] = []
     for (const shape of SHAPES) {
       for (const page of [...PAGE_REGISTRY, ...PORTAL_PAGES]) {
-        const before = canOpenPage(page, shape)
+        const before = legacyCanOpenPage(page, shape)
         const after = canOpen(page.id, grantOf(shape), shape.amr)
+        // P0-6: what the client asks is the grant's answer.
+        if (canOpenPage(page, shape) !== after) differences.push(`${shape.label}: ${page.id} canOpenPage disagrees with canOpen`)
         if (before !== after) differences.push(`${shape.label}: ${page.id} was ${before ? 'open' : 'closed'}, now ${after ? 'open' : 'closed'}`)
       }
     }

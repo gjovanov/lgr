@@ -215,7 +215,8 @@ import { httpClient } from '../../composables/useHttpClient'
 import { useCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
-import { STORNO_ROLES, canStornoJournalRow } from '../../cash-register/storno'
+import { canStornoJournalRow } from '../../cash-register/storno'
+import { can, compileLegacy } from 'config/access'
 import { givesBack, kindColor } from '../../cash-register/journal-kind'
 import { receiptRefusalMessage } from '../../cash-register/receipt-refusal'
 
@@ -287,7 +288,8 @@ const settleWords = computed(() => (({
   sale: { inDoubt: 'saleInDoubt', confirm: 'settleConfirmSale', done: 'saleSettled' },
 } as Record<string, { inDoubt: string; confirm: string; done: string }>)[doc.value?.row.kind] ?? { inDoubt: 'inDoubt', confirm: 'settleConfirm', done: 'settled' }))
 const settleNumber = ref('')
-const canSettle = computed(() => !!props.role && (STORNO_ROLES as readonly string[]).includes(props.role))
+// FR-27: the settle door's right, `cash-sales.settle` (a storno's roles).
+const canSettle = computed(() => !!props.role && can(compileLegacy({ role: props.role }), 'cash-sales.settle'))
 const settling = ref<'printed' | 'notPrinted' | 'correct' | null>(null)
 /**
  * A storno cites the number: a sale must bring it, and a fiscal receipt may (R2's refund cites it). A fiscal
