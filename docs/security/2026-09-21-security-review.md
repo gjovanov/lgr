@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-08**, **S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-34** are fixed. The rest are open, ordered by
+**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-34** are fixed. The rest are open, ordered by
 severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
@@ -36,7 +36,7 @@ Files routes were read against the same rule.
 | S-06 | High | `/auth/register` returns the activation token in its response | **Fixed 2026-10-02** |
 | S-07 | Medium | CORS reflects any origin with `credentials: true` | **Fixed 2026-10-04** |
 | S-08 | Medium | No rate limiting or lockout on `/auth/login`; account enumeration | **Fixed 2026-10-04** |
-| S-09 | Medium | Password minimum is 6 characters | Open |
+| S-09 | Medium | Password minimum is 6 characters | **Fixed 2026-11-09** |
 | S-10 | Medium | `.dockerignore` does not exclude the secrets `.gitignore` protects | Fixed 2026-10-21 (root user: fixed 2026-10-23) |
 | S-11 | Medium | Swagger served unauthenticated in production | Open |
 | S-12 | Medium | Raw `err.message` returned on 500 | **Fixed 2026-11-09** |
@@ -491,12 +491,27 @@ the shared helper.
 
 ---
 
-## S-09 — Password minimum is 6 characters (Medium, open)
+## S-09 — Password minimum is 6 characters (Medium, **fixed 2026-11-09**)
 
 **Where:** `auth.controller.ts:36` — `password: t.String({ minLength: 6 })`
 
 No composition rule and no breach check, on a system holding payroll and fiscal records.
 Raise to 12. Hashing itself is fine (`Bun.password.hash`, bcrypt).
+
+### Fix
+
+A password change and a reset have asked for 12 since the multi-org work, and so has a server's
+local password (FR-20). Three routes still took 6: sign-up (`POST /auth/register`) and an admin
+creating or changing a user (`POST` and `PUT /org/:orgId/user`), so a password could go in that no
+change would ever accept again. All three take 12 to 256 now. The sign-up and Users forms say so
+before sending ("At least 12 characters."). A password already set keeps working: the rule applies
+when one is set.
+
+`integration/password-minimum.flow.test.ts` holds it over the real route table. A body field named
+like a password either sets one, and asks for at least 12, or proves one and is listed with why:
+sign-in, the current password before a change, a PIN's setup, a fiscal device's operator password.
+
+Not done: a composition rule (length is the rule) and a check against breached-password lists.
 
 ---
 
