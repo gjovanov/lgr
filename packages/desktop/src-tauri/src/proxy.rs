@@ -62,10 +62,17 @@ pub struct Upstream {
     pub origin: url::Url,
     /// TLS pinned to its CA (`trust::pinned_tls`).
     pub tls: Arc<rustls::ClientConfig>,
-    /// The desktop's token. A function, so the tests can hand in their own; the shell's mints one
-    /// (`enroll::mint_token`, blocking: it is called off the runtime's threads).
-    pub token: Arc<dyn Fn() -> Result<String, String> + Send + Sync>,
+    /// The desktop's token, minted at the master's address of the moment (`State::origin`). A
+    /// function, so the tests can hand in their own; the shell's mints one (`enroll::mint_token`,
+    /// blocking: it is called off the runtime's threads).
+    /// ⚠ Never at an address fixed when the proxy started: after `Running::retarget` nothing answers
+    /// there, and the window answered 503 `desktop_token_failed` once its cached token ran out
+    /// (lgr#596).
+    pub token: Arc<MintToken>,
 }
+
+/// Mints the desktop's token at the master's address it is given.
+pub type MintToken = dyn Fn(&url::Url) -> Result<String, String> + Send + Sync;
 
 type Log = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -438,8 +445,8 @@ impl State {
                 return Ok((t.clone(), true));
             }
         }
-        let mint = self.up.token.clone();
-        let fresh = tokio::task::spawn_blocking(move || mint()).await.map_err(|e| e.to_string())??;
+        let (mint, at) = (self.up.token.clone(), self.origin());
+        let fresh = tokio::task::spawn_blocking(move || mint(&at)).await.map_err(|e| e.to_string())??;
         *slot = Some((fresh.clone(), Instant::now()));
         Ok((fresh, false))
     }
@@ -845,7 +852,7 @@ mod tests {
         let up = Upstream {
             origin: url::Url::parse(&format!("https://127.0.0.1:{}", master.port)).unwrap(),
             tls: pinned(&master.ca_pem),
-            token: Arc::new(move || Ok(token(counter.fetch_add(1, Ordering::SeqCst) + 1))),
+            token: Arc::new(move |_: &url::Url| Ok(token(counter.fetch_add(1, Ordering::SeqCst) + 1))),
         };
         let proxy = start(up, 0, Arc::new(|_| {})).unwrap();
         Fixture { master, proxy, mints }
@@ -853,7 +860,11 @@ mod tests {
 
     /// The tokens the master was sent for requests whose line starts with `line`, in order.
     fn tokens_seen(f: &Fixture, line: &str) -> Vec<String> {
-        let seen = f.master.seen.lock().unwrap();
+        tokens_seen_at(&f.master, line)
+    }
+
+    fn tokens_seen_at(master: &FakeMaster, line: &str) -> Vec<String> {
+        let seen = master.seen.lock().unwrap();
         seen.iter().filter(|s| s.line.starts_with(line)).map(|s| s.get("x-lgr-desktop-token").unwrap_or_default().to_string()).collect()
     }
 
@@ -1178,7 +1189,7 @@ mod tests {
         let up = Upstream {
             origin: url::Url::parse(&format!("https://127.0.0.1:{closed}")).unwrap(),
             tls: pinned(&f.master.ca_pem),
-            token: Arc::new(|| Ok(TOKEN.to_string())),
+            token: Arc::new(|_: &url::Url| Ok(TOKEN.to_string())),
         };
         let dead = start(up, 0, Arc::new(|_| {})).unwrap();
         let p = dead.port;
@@ -1200,7 +1211,7 @@ mod tests {
         let up = Upstream {
             origin: url::Url::parse(&format!("https://127.0.0.1:{}", f.master.port)).unwrap(),
             tls: pinned(&other.ca_pem),
-            token: Arc::new(|| Ok(TOKEN.to_string())),
+            token: Arc::new(|_: &url::Url| Ok(TOKEN.to_string())),
         };
         let wrong = start(up, 0, Arc::new(|_| {})).unwrap();
         let p = wrong.port;
@@ -1216,7 +1227,7 @@ mod tests {
         let up = || Upstream {
             origin: url::Url::parse(&format!("https://127.0.0.1:{}", f.master.port)).unwrap(),
             tls: pinned(&f.master.ca_pem),
-            token: Arc::new(|| Ok(TOKEN.to_string())),
+            token: Arc::new(|_: &url::Url| Ok(TOKEN.to_string())),
         };
         // A port that was free a moment ago: the proxy takes it.
         let free = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap().local_addr().unwrap().port();
@@ -1246,15 +1257,14 @@ mod tests {
 
         assert!(crate::trust::set_pin(&server, Some(crate::trust::confirm(&server, &fp).unwrap())));
         crate::enroll::enroll(&server, &code, "P1-6C-TEST", env!("CARGO_PKG_VERSION")).expect("enrolls");
-        let token_server = server.clone();
         let mints = Arc::new(AtomicUsize::new(0));
         let counter = mints.clone();
         let up = Upstream {
             origin: url::Url::parse(&server).unwrap(),
             tls: Arc::new(crate::trust::pinned_tls(&server).unwrap().unwrap()),
-            token: Arc::new(move || {
+            token: Arc::new(move |at: &url::Url| {
                 counter.fetch_add(1, Ordering::SeqCst);
-                crate::enroll::mint_token(&token_server).map_err(|e| e.to_string())
+                crate::enroll::mint_token(at.as_str()).map_err(|e| e.to_string())
             }),
         };
         let lines = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -1278,26 +1288,41 @@ mod tests {
         let (ca_pem, config) = test_pki();
         let before = fake_master_with(ca_pem.clone(), config.clone());
         let after = fake_master_with(ca_pem.clone(), config);
+        let (was, moved) = (format!("https://127.0.0.1:{}", before.port), format!("https://127.0.0.1:{}", after.port));
+        // Where each token was minted: `t1` at the first entry, `t2` at the second, …
+        let minted_at = Arc::new(Mutex::new(Vec::<String>::new()));
+        let mints = minted_at.clone();
         let up = Upstream {
-            origin: url::Url::parse(&format!("https://127.0.0.1:{}", before.port)).unwrap(),
+            origin: url::Url::parse(&was).unwrap(),
             tls: pinned(&ca_pem),
-            token: Arc::new(|| Ok(TOKEN.to_string())),
+            token: Arc::new(move |at: &url::Url| {
+                let mut mints = mints.lock().unwrap();
+                mints.push(at.origin().ascii_serialization());
+                Ok(format!("t{}", mints.len()))
+            }),
         };
         let mut proxy = start(up, 0, Arc::new(|_| {})).unwrap();
         let (port, boot) = (proxy.port, proxy.boot_url("/"));
         let cookie = format!("Cookie: {LAUNCH_COOKIE}={}\r\n", proxy.secret);
-        let ask = || raw(port, &format!("GET /x HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{cookie}Connection: close\r\n\r\n"));
-        assert_eq!(status(&ask()), 200);
+        let ask = |path: &str| raw(port, &format!("GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{cookie}Connection: close\r\n\r\n"));
+        assert_eq!(status(&ask("/x")), 200);
         assert_eq!(before.seen.lock().unwrap().len(), 1);
 
-        proxy.retarget(url::Url::parse(&format!("https://127.0.0.1:{}", after.port)).unwrap());
-        assert_eq!(status(&ask()), 200);
+        proxy.retarget(url::Url::parse(&moved).unwrap());
+        assert_eq!(status(&ask("/x")), 200);
         assert_eq!(after.seen.lock().unwrap().len(), 1, "the next request goes to the new address");
         assert_eq!(after.seen.lock().unwrap()[0].get("host"), Some(format!("127.0.0.1:{}", after.port).as_str()));
         assert_eq!(before.seen.lock().unwrap().len(), 1);
+        assert_eq!(minted_at.lock().unwrap().as_slice(), std::slice::from_ref(&was), "the token from before the move is the same master's, and kept");
+        // ⚠ The next token is minted where the proxy forwards NOW. Minted at the old address, it met
+        // nothing there, and every page answered 503 desktop_token_failed (lgr#596).
+        let r = ask("/stale");
+        assert_eq!(status(&r), 200, "{r}");
+        assert_eq!(*minted_at.lock().unwrap(), [was, moved.clone()]);
+        assert_eq!(tokens_seen_at(&after, "GET /stale"), ["t1", "t2"]);
         // ⚠ The window's origin, its secret and so its sessions are untouched.
         assert_eq!((proxy.port, proxy.boot_url("/")), (port, boot));
-        assert_eq!(proxy.master, format!("https://127.0.0.1:{}", after.port));
+        assert_eq!(proxy.master, moved);
         proxy.stop();
     }
 
@@ -1311,7 +1336,7 @@ mod tests {
         let up = Upstream {
             origin: url::Url::parse(&format!("https://127.0.0.1:{}", master.port)).unwrap(),
             tls: pinned(&old_ca),
-            token: Arc::new(|| Ok(TOKEN.to_string())),
+            token: Arc::new(|_: &url::Url| Ok(TOKEN.to_string())),
         };
         let proxy = start(up, 0, Arc::new(|_| {})).unwrap();
         let (port, boot) = (proxy.port, proxy.boot_url("/"));

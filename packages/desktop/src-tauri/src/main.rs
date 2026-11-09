@@ -151,12 +151,13 @@ pub(crate) fn proxy_route(app: &AppHandle, server_url: &str, path: &str) -> Resu
     }
     if slot.is_none() {
         let mut cfg = settings::load(app);
-        let server = server_url.to_string();
         let log_app = app.clone();
         let up = proxy::Upstream {
             origin: master.clone(),
             tls: Arc::new(tls),
-            token: Arc::new(move || enroll::mint_token(&server).map_err(|e| e.to_string())),
+            // ⚠ Where the proxy forwards NOW: `refind_master` retargets it to the master's new address
+            // (lgr#596).
+            token: Arc::new(|at: &url::Url| enroll::mint_token(at.as_str()).map_err(|e| e.to_string())),
         };
         let log = Arc::new(move |m: &str| log_app.state::<AppState>().logger.info(m));
         let running = proxy::start(up, cfg.proxy_port, log)?;
