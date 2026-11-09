@@ -3,6 +3,7 @@ import { useSnackbar } from './useSnackbar'
 import { getToken, recoverFrom401 } from '../session/session'
 import { portalHref } from '../nav/navigate'
 import { currentReturnPath, signInPath } from '../nav/return-path'
+import { followAccessVersion } from '../access/live-grant'
 
 /**
  * FR-20.75 (P3-5): the app shell's words for a refusal the server names by code. The client has no
@@ -50,7 +51,11 @@ export function createHttpClient(baseURL = '/api'): AxiosInstance {
 
   // Response interceptor: on 401, sign this tab out (only this tab); show snackbar for other errors
   client.interceptors.response.use(
-    (response) => response,
+    (response) => {
+      // FR-27.5: a role edited or changed shows in the next response; `/auth/me` is asked again, once.
+      followAccessVersion(response.headers?.['x-access-version'] ?? undefined, /^\/?org\//.test(String(response.config?.url ?? '')))
+      return response
+    },
     (error) => {
       const data = error.response?.data
       if (error.response?.status === 409 && translateRefusal && typeof data?.code === 'string') {

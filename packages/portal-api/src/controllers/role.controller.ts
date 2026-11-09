@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { can } from 'services/biz/access/evaluate'
-import { RoleRefusal, createRole, deleteRole, getRole, listRoles, updateRole } from 'services/biz/access/role.service'
+import { RoleRefusal, createRole, defaultRoleOf, deleteRole, getRole, listRoles, setDefaultRole, updateRole } from 'services/biz/access/role.service'
 
 /**
  * FR-27.4 (#529) — Settings → Roles & access: the roles of the org, and what each grants.
@@ -23,8 +23,18 @@ export const roleController = new Elysia({ prefix: '/org/:orgId/roles' })
   .get('/', async ({ params: { orgId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!can(user, 'roles.view')) return status(403, { code: 'roles_required', message: 'Roles are not part of your role.' })
-    return { roles: await listRoles(orgId) }
+    return { roles: await listRoles(orgId), defaultRoleId: await defaultRoleOf(orgId) }
   }, { isSignIn: true })
+  // FR-27.3: the role an invite that names none starts with. Static, so it is matched before `/:roleId`.
+  .put('/default', async ({ params: { orgId }, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    try {
+      await setDefaultRole(user as any, orgId, body.roleId ?? null)
+      return { defaultRoleId: body.roleId ?? null }
+    } catch (e) {
+      return refused(status, e)
+    }
+  }, { isSignIn: true, body: t.Object({ roleId: t.Union([t.String(), t.Null()]) }) })
   .get('/:roleId', async ({ params: { orgId, roleId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!can(user, 'roles.view')) return status(403, { code: 'roles_required', message: 'Roles are not part of your role.' })

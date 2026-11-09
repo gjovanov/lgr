@@ -138,6 +138,8 @@ export interface IOrg extends Document {
      */
     access?: {
       model?: 'legacy' | 'shadow' | 'roles'
+      /** FR-27.3: the role an invite that names none starts a person with; replaces a set's `isDefault`. */
+      defaultRoleId?: Types.ObjectId
     }
     accounting?: {
       defaultReceivableAccountId?: string
@@ -313,6 +315,7 @@ const orgSchema = new Schema<IOrg>(
       // FR-27: unset is `legacy`.
       access: {
         model: { type: String, enum: ['legacy', 'shadow', 'roles'] },
+        defaultRoleId: { type: Schema.Types.ObjectId, ref: 'Role' },
       },
       accounting: {
         defaultReceivableAccountId: { type: Schema.Types.ObjectId, ref: 'Account' },

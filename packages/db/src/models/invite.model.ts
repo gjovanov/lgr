@@ -13,6 +13,8 @@ export interface IInvite extends Document {
   useCount: number
   status: InviteStatus
   assignRole: string
+  /** FR-27.4: the role the person starts with. `assignRole` keeps its legacy key, for a release that reads no roles. */
+  assignRoleId?: Types.ObjectId
   expiresAt?: Date
   createdAt: Date
   updatedAt: Date
@@ -32,6 +34,7 @@ const inviteSchema = new Schema<IInvite>(
       default: 'active',
     },
     assignRole: { type: String, default: 'member' },
+    assignRoleId: { type: Schema.Types.ObjectId, ref: 'Role' },
     expiresAt: { type: Date },
   },
   { timestamps: true },

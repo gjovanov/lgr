@@ -88,6 +88,7 @@ export const PAGE_ACCESS: Readonly<Record<string, PageAccess>> = {
   '/settings/organization': p('org-settings.view'),
   '/settings/users': p('users.view'),
   '/settings/permission-sets': p('roles.edit'),
+  '/settings/roles': p('roles.edit'),
   '/settings/invites': p('invites.manage'),
   '/settings/desktops': p('desktops.view'),
   '/settings/servers': p('servers.view'),

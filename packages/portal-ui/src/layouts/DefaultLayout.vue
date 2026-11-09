@@ -27,7 +27,7 @@
       <v-divider v-if="offeredPages.size" class="my-2" />
       <v-list-item v-if="offered('/settings/organization')" prepend-icon="mdi-cog" :title="$t('nav.organization')" to="/settings/organization" />
       <v-list-item v-if="offered('/settings/users')" prepend-icon="mdi-account-cog" :title="$t('nav.users')" to="/settings/users" />
-      <v-list-item v-if="offered('/settings/permission-sets')" prepend-icon="mdi-shield-key" :title="$t('permissionSets.title')" to="/settings/permission-sets" />
+      <v-list-item v-if="offered('/settings/roles')" prepend-icon="mdi-shield-key" :title="$t('access.ui.title')" to="/settings/roles" data-testid="nav-roles" />
       <v-list-item v-if="offered('/settings/invites')" prepend-icon="mdi-email-outline" title="Invites" to="/settings/invites" />
       <v-list-item v-if="offered('/settings/desktops')" prepend-icon="mdi-monitor-dashboard" :title="$t('desktops.title')" to="/settings/desktops" />
       <v-list-item v-if="offered('/settings/servers')" prepend-icon="mdi-server-network" :title="$t('servers.title')" to="/settings/servers" />
@@ -67,7 +67,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppShell from 'ui-shell/components/AppShell'
 import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
@@ -94,8 +94,9 @@ const canAdminBackups = ref(false)
 /** FR-20.98 (P3-8b): on a master, for an admin, the server's own status page. */
 const onServer = ref(false)
 /** What this person is offered: the one rule for who may open what, read off the session's token. A switch of org reloads. */
-const offeredPages = new Set(portalPagesFor(sessionViewer()))
-const offered = (path: string) => offeredPages.has(path)
+// FR-27.5: a computed, so a role edited live re-evaluates the menu.
+const offeredPages = computed(() => new Set(portalPagesFor(sessionViewer())))
+const offered = (path: string) => offeredPages.value.has(path)
 
 function handleRestore(entry: PendingChangeEntry) {
   pendingChangesOpen.value = false

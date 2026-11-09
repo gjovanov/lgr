@@ -53,7 +53,11 @@ export const portalRoutes: RouteRecordRaw[] = [
       { path: 'settings/users', name: 'settings.users', component: () => import('./views/settings/UsersView.vue') },
       { path: 'settings/invites', name: 'settings.invites', component: () => import('./views/settings/InvitesView.vue') },
       { path: 'settings/billing', name: 'settings.billing', component: () => import('./views/settings/BillingView.vue') },
+      // FR-27.4: Roles & access replaces Permission sets in the menu. The sets stay reachable from it while an org has
+      // no roles (migration 0015 not run there), and hold the roles' projections; Phase 3 removes them.
       { path: 'settings/permission-sets', name: 'settings.permissionSets', component: () => import('./views/settings/PermissionSetsView.vue') },
+      { path: 'settings/roles', name: 'settings.roles', component: () => import('./views/settings/RolesView.vue') },
+      { path: 'settings/roles/:id', name: 'settings.roles.edit', component: () => import('./views/settings/RoleEditorView.vue') },
       // FR-14.23 (#57). Route name is load-bearing (Playwright navigation) - named once, never renamed.
       { path: 'settings/desktops', name: 'settings.desktops', component: () => import('./views/settings/DesktopsView.vue') },
       { path: 'settings/servers', name: 'settings.servers', component: () => import('./views/settings/ServersView.vue') },

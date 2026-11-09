@@ -44,8 +44,8 @@ const { t } = useI18n()
 const router = useRouter()
 const { groupItems } = usePageFavorites()
 
-const viewer = sessionViewer()
-const pages = computed(() => groupItems(PAGE_REGISTRY.filter((p) => canOpenPage(p, viewer))).favorites)
+// FR-27.5: read inside the computed, so a role edited live re-evaluates it.
+const pages = computed(() => { const viewer = sessionViewer(); return groupItems(PAGE_REGISTRY.filter((p) => canOpenPage(p, viewer))).favorites })
 
 function appName(appId: string): string {
   const key = APP_NAV_META[appId]?.nameKey

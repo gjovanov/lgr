@@ -4494,5 +4494,173 @@
     "unknown": "an unknown time",
     "seriesFrozen": "Legal numbering waits: record the last numbers issued at the site, on the Servers page.",
     "fenced": "This server was replaced as the organization's home: it writes nothing more of it."
+  },
+  "access": {
+    "feature": {
+      "sales-docs": "Sales documents",
+      "proforma": "Proforma",
+      "bills": "Purchase documents",
+      "orders": "Orders and reservations",
+      "payments": "Payment and cash orders",
+      "contacts": "Contacts",
+      "cash-sales": "Cash sales",
+      "till": "Till: terminal and sessions",
+      "devices": "Fiscal devices",
+      "sequences": "Document numbering",
+      "products": "Products",
+      "categories": "Categories",
+      "warehouses": "Warehouses",
+      "movements": "Stock movements",
+      "stock-levels": "Stock levels",
+      "inventory-counts": "Inventory counts",
+      "valuation": "Inventory valuation",
+      "opening-stock": "Opening stock import",
+      "price-lists": "Price lists",
+      "bulk-pricing": "Bulk pricing",
+      "accounts": "Chart of accounts",
+      "bank-accounts": "Bank accounts",
+      "journal": "Journal entries",
+      "ledgers": "Ledgers and statements",
+      "vat": "VAT and tax returns",
+      "accounting-setup": "Fiscal years, periods and terms",
+      "exchange-rates": "Exchange rates",
+      "reconciliation": "Reconciliation",
+      "fixed-assets": "Fixed assets",
+      "books-import": "Import of books",
+      "payroll-runs": "Payroll runs",
+      "payroll-people": "Employees and their records",
+      "payroll-import": "Import of payroll",
+      "reports": "Reports",
+      "supto": "SUPTO tables",
+      "files": "Files",
+      "dashboard": "Dashboard",
+      "org-settings": "Organization",
+      "users": "Users",
+      "invites": "Invitations",
+      "roles": "Roles and access",
+      "apps": "Apps",
+      "digest": "Daily digest",
+      "integrations": "Integrations",
+      "billing": "Billing",
+      "desktops": "Desktops",
+      "servers": "Servers and moves",
+      "numbering": "Last numbers",
+      "audit-log": "Audit log",
+      "org": "Your organizations",
+      "pricing": "Prices",
+      "stock-availability": "Stock availability",
+      "doc-import": "Document import",
+      "tags": "Tags"
+    },
+    "action": {
+      "view": "View",
+      "browse": "Open from other apps",
+      "lookup": "Search from forms",
+      "read": "Read",
+      "check": "Check",
+      "create": "Create",
+      "edit": "Edit",
+      "delete": "Delete",
+      "export": "Export",
+      "totals": "Totals strip",
+      "import": "Import",
+      "storno": "Storno",
+      "settle": "Settle a receipt in doubt",
+      "sell": "Sell",
+      "manage_sessions": "Other cashiers' sessions",
+      "report": "Device reports",
+      "z_report": "Z-report",
+      "sync_time": "Set the clock",
+      "name_payments": "Name payment types",
+      "post": "Post and void",
+      "file": "File returns",
+      "run": "Run",
+      "approve": "Approve",
+      "reveal": "Reveal personal data",
+      "manage": "Manage",
+      "archives": "Archives",
+      "switch": "Change organization",
+      "create_transfer": "Transfers",
+      "transfer": "Create transfers",
+      "extract": "Read a document"
+    },
+    "group": {
+      "invoicing": "Invoicing",
+      "inventory": "Inventory",
+      "accounting": "Accounting",
+      "payroll": "Payroll",
+      "reports": "Reports",
+      "files": "Files",
+      "settings": "Settings and people",
+      "helpers": "Helpers"
+    },
+    "level": {
+      "none": "None",
+      "view": "View",
+      "work": "Work",
+      "full": "Full"
+    },
+    "roles": {
+      "admin": {
+        "description": "Everything, including people, roles and the organization."
+      },
+      "manager": {
+        "description": "Runs the business: every app but administration, and the till's manager actions."
+      },
+      "accountant": {
+        "description": "Books and invoices: accounting, sales and purchase documents, and reports."
+      },
+      "hr_manager": {
+        "description": "Payroll and the people it pays, with reports."
+      },
+      "warehouse_manager": {
+        "description": "Runs the warehouses: products, stock, movements, counts and the fiscal devices."
+      },
+      "sales": {
+        "description": "Sells and invoices at the counter and on paper, and reads stock."
+      },
+      "seller": {
+        "description": "Sells at the counter and on paper and moves stock between warehouses; nothing else."
+      },
+      "sales_consultant": {
+        "description": "What a Seller does, and orders and reservations."
+      },
+      "member": {
+        "description": "Reads the organization's documents and reports; changes nothing."
+      },
+      "nra_auditor": {
+        "description": "The tax inspector: reads everything and exports the SUPTO tables."
+      }
+    },
+    "ui": {
+      "title": "Roles and access",
+      "newRole": "New role",
+      "blank": "Blank",
+      "fromTemplate": "From a template",
+      "copyOf": "Copy of a role",
+      "name": "Name",
+      "description": "Description",
+      "people": "People",
+      "builtin": "Built-in",
+      "edited": "Edited",
+      "needsRelease": "Not all of it on older servers",
+      "needsReleaseHint": "A server on an older release, or the legacy model, gives this role's people less than it says, never more.",
+      "administratorFixed": "The Administrator holds everything, including what a later release adds, and is not edited.",
+      "unknownCaps": "Options this release no longer knows (not granted)",
+      "extras": "Extras",
+      "alwaysIncluded": "Always included: the person's account, notifications, language, favourites, the organization's name and its people.",
+      "canCreate": "Can create",
+      "readOnly": "Read-only",
+      "notVisible": "Not visible",
+      "defaultRole": "Default role for invitations",
+      "defaultRoleNone": "The invitation's own role",
+      "role": "Role",
+      "deleteRole": "Delete role",
+      "noRoles": "This organization has no roles yet: the roles migration has not run here.",
+      "saved": "Role saved",
+      "feature": "Feature",
+      "level": "Level",
+      "grants": "Grants"
+    }
   }
 }

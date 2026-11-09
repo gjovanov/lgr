@@ -3087,6 +3087,25 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - A person given a role is put on that set with the projection's role key. A set, not their own `permissions`: without a set, `tokenize()` adds the role's defaults.
   - On the legacy model, an assignment or a role edit ends the affected people's sessions; on `roles` it is live.
   - `scripts/restore-administrator.ts --org --user [--execute]` gives a locked-out org its Administrator back, audited.
+- **A person's first role** (`startingRoleOf` / `giveStartingRole`): a new org's founder (`provisionNewOrg` seeds the
+  ten built-ins, `seedBuiltinRoles`), an invite accepted, a member an admin creates.
+  - Chosen: a role named (`assignRoleId` on the invite, `roleId` on the create), or, when neither a role nor a legacy
+    role is named, the org's default (`Org.settings.access.defaultRoleId`, `PUT /roles/default`; an invite resolves it
+    when it is made). Written onto both models, as an assignment.
+  - Read off the legacy role (the built-in of that key): recorded only when it grants exactly what the person's
+    legacy fields do, and those are left alone. ⚠ So an org whose system set was edited changes nobody's access: that
+    person gets no role yet, and their claims decide.
+- **Screens** (`portal-ui` Settings → Roles & access, `RolesView` / `RoleEditorView`; `/settings/roles`, page rule
+  `roles.edit`). The editor is a level per feature, None / View / Work / Full, plus the extras beyond it
+  (`config/access/levels.ts`). A level is never stored: Save sends capabilities, and the server adds the helpers their
+  forms read (`withImplied`). `summarize(grant)` gives the three lines under a role, in the editor and the Users
+  dialog. Users and Invites show one Role select once the org has roles, the legacy controls until then.
+  - ⚠ Permission sets stay reachable (the empty Roles page links there) while an org has no roles, and hold the roles'
+    projections. Phase 3 removes them.
+- **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
+  null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
+  gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`
+  again, once (`followAccessVersion`, from `useHttpClient`). The grant belongs to one membership (`id@orgId`).
 
 ## Test copies of real orgs, and the PROD / DEV badge (2026-11-09)
 

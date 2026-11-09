@@ -7,7 +7,7 @@ import { paginateQuery } from 'services/utils/pagination'
 import { DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { endSessionsOf, setsForRole } from 'services/biz/permission-set.service'
-import { RoleRefusal, assertAssignable, assertNotLastAdministrator, assignRole } from 'services/biz/access/role.service'
+import { RoleRefusal, assertAssignable, assertNotLastAdministrator, assignRole, giveStartingRole, startingRoleOf } from 'services/biz/access/role.service'
 
 import { allocateOperatorCode } from 'services/biz/sequence.service'
 import {
@@ -133,6 +133,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'admin', entityType: 'user', entityId: String(created._id), entityName: `${body.firstName} ${body.lastName}` })
       if (roleId) await assignRole(user as any, orgId, String(created._id), roleId)
+      else await giveStartingRole(orgId, created._id, await startingRoleOf(orgId, { legacyRole: body.role }))
 
       // Never echo the hash back — the same rule as the list (FR-11.3) and the `/:userId` routes.
       return { user: publicUser(created.toJSON() as Record<string, any>) }

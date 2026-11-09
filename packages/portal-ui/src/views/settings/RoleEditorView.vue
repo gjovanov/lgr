@@ -1,0 +1,218 @@
+<template>
+  <v-container fluid>
+    <div class="d-flex align-center mb-2">
+      <v-btn icon="mdi-arrow-left" variant="text" :to="{ name: 'settings.roles' }" class="mr-2" />
+      <h1 class="text-h4">{{ form.name || $t('access.ui.title') }}</h1>
+      <v-chip v-if="role?.isBuiltin" size="small" variant="outlined" class="ml-3">{{ $t('access.ui.builtin') }}</v-chip>
+      <v-chip v-if="role?.edited" size="small" color="info" variant="tonal" class="ml-1">{{ $t('access.ui.edited') }}</v-chip>
+      <v-spacer />
+      <v-btn v-if="role && !role.isBuiltin && !people.length" variant="text" color="error" class="mr-2" data-testid="role-delete" @click="remove">{{ $t('access.ui.deleteRole') }}</v-btn>
+      <v-btn v-if="role && !role.all" color="primary" :loading="saving" data-testid="role-save" @click="save">{{ $t('common.save') }}</v-btn>
+    </div>
+
+    <v-progress-linear v-if="loading" indeterminate class="mb-4" />
+
+    <template v-if="role">
+      <v-row>
+        <v-col cols="12" md="5">
+          <v-text-field v-model="form.name" :label="$t('access.ui.name')" :disabled="role.all" data-testid="role-name" />
+        </v-col>
+        <v-col cols="12" md="7">
+          <v-text-field v-model="form.description" :label="$t('access.ui.description')" :disabled="role.all" :placeholder="role.isBuiltin && role.templateKey ? $t(`access.roles.${role.templateKey}.description`) : ''" />
+        </v-col>
+      </v-row>
+
+      <v-alert v-if="role.all" type="info" variant="tonal" class="mb-4">{{ $t('access.ui.administratorFixed') }}</v-alert>
+      <v-alert v-if="role.needsRelease" type="warning" variant="tonal" class="mb-4">{{ $t('access.ui.needsReleaseHint') }}</v-alert>
+      <v-alert v-if="role.unknownCaps?.length" type="warning" variant="tonal" class="mb-4">
+        {{ $t('access.ui.unknownCaps') }}: {{ role.unknownCaps.join(', ') }}
+      </v-alert>
+
+      <v-card variant="outlined" class="mb-4">
+        <v-card-text class="text-body-2">
+          <div><strong>{{ $t('access.ui.canCreate') }}:</strong> {{ names(summary.canCreate) }}</div>
+          <div><strong>{{ $t('access.ui.readOnly') }}:</strong> {{ names(summary.readOnly) }}</div>
+          <div><strong>{{ $t('access.ui.notVisible') }}:</strong> {{ names(summary.notVisible) }}</div>
+          <div class="text-medium-emphasis mt-2">{{ $t('access.ui.alwaysIncluded') }}</div>
+        </v-card-text>
+      </v-card>
+
+      <v-expansion-panels v-model="openGroups" multiple variant="accordion">
+        <v-expansion-panel v-for="group in groups" :key="group.id" :value="group.id">
+          <v-expansion-panel-title>
+            <span class="font-weight-medium">{{ $t(`access.group.${group.id}`) }}</span>
+          </v-expansion-panel-title>
+          <v-expansion-panel-text>
+            <v-table density="compact">
+              <thead>
+                <tr>
+                  <th>{{ $t('access.ui.feature') }}</th>
+                  <th v-for="level in LEVELS" :key="level" class="text-center">{{ $t(`access.level.${level}`) }}</th>
+                  <th>{{ $t('access.ui.extras') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="f in group.features" :key="f.id" :data-feature="f.id">
+                  <td>{{ $t(`access.feature.${f.id}`) }}</td>
+                  <td v-for="level in LEVELS" :key="level" class="text-center">
+                    <v-tooltip :disabled="level === 'none'" :text="grants(f, level)">
+                      <template #activator="{ props: tip }">
+                        <input
+                          v-bind="tip"
+                          type="radio"
+                          :name="`level-${f.id}`"
+                          :checked="levelOf(f, grant) === level"
+                          :disabled="role.all || !offers(f, level)"
+                          :data-cap="`${f.id}:${level}`"
+                          @change="setLevel(f, level)"
+                        >
+                      </template>
+                    </v-tooltip>
+                  </td>
+                  <td>
+                    <v-checkbox
+                      v-for="c in extrasOf(f)"
+                      :key="c"
+                      :model-value="selected.has(c)"
+                      :label="actionLabel(c)"
+                      :disabled="role.all"
+                      density="compact"
+                      hide-details
+                      class="d-inline-flex mr-3"
+                      :data-cap="c"
+                      @update:model-value="(on: any) => toggle(c, !!on)"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </v-table>
+          </v-expansion-panel-text>
+        </v-expansion-panel>
+      </v-expansion-panels>
+
+      <v-card v-if="people.length" variant="outlined" class="mt-4">
+        <v-card-title class="text-subtitle-1">{{ $t('access.ui.people') }} ({{ people.length }})</v-card-title>
+        <v-card-text>
+          <v-chip v-for="p in people" :key="p.id" size="small" class="mr-1 mb-1">{{ p.name || p.username }}</v-chip>
+        </v-card-text>
+      </v-card>
+    </template>
+  </v-container>
+</template>
+
+<script setup lang="ts">
+/**
+ * FR-27 §2.2 (#529) — the role editor: per feature a level, None, View, Work or Full, and the extras beyond it. A
+ * level is a shortcut, never stored: Save sends the role's capabilities, and the server holds them to FR-27.8 and adds
+ * the helpers their forms read.
+ */
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
+import {
+  EDITOR_FEATURES, FEATURE_GROUPS, LEVELS, beyondLevel, levelOf, levelsOf, summarize,
+  type CapabilityId, type Grant, type Level,
+} from 'config/access'
+import { useAppStore } from '../../store/app.store'
+import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
+
+type Feature = (typeof EDITOR_FEATURES)[number]
+
+const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
+const appStore = useAppStore()
+const { showSuccess, showError } = useSnackbar()
+
+const role = ref<any>(null)
+const people = ref<any[]>([])
+const loading = ref(false)
+const saving = ref(false)
+const form = reactive({ name: '', description: '' })
+const selected = ref(new Set<CapabilityId>())
+const openGroups = ref<string[]>(['invoicing', 'inventory'])
+
+const grant = computed<Grant>(() => (role.value?.all ? { all: true } : { caps: selected.value }))
+const summary = computed(() => summarize(grant.value))
+const groups = computed(() => FEATURE_GROUPS.filter(g => g !== 'helpers').map(g => ({ id: g, features: EDITOR_FEATURES.filter(f => f.group === g) })).filter(g => g.features.length))
+
+const actionLabel = (c: string) => t(`access.action.${c.slice(c.indexOf('.') + 1).replace(/[:-]/g, '_')}`)
+const names = (ids: string[]) => ids.map(id => t(`access.feature.${id}`)).join(', ') || '—'
+
+/** A level is offered when it says more than the one below it. */
+function offers(f: Feature, level: Level): boolean {
+  if (level === 'none') return true
+  const l = levelsOf(f)
+  if (level === 'view') return l.view.length > 0
+  if (level === 'work') return l.work.length > l.view.length
+  return l.full.length > l.work.length || (l.full.length > 0 && l.work.length === l.view.length && l.full.length > l.view.length)
+}
+
+/** What a level grants, for its hover (FR-27 §2.2). */
+function grants(f: Feature, level: Level): string {
+  if (level === 'none') return ''
+  return `${t('access.ui.grants')}: ${levelsOf(f)[level].map(actionLabel).join(', ')}`
+}
+
+/** The extras a feature shows: its own, and anything the role holds beyond its level. */
+function extrasOf(f: Feature): CapabilityId[] {
+  return [...new Set([...levelsOf(f).extras, ...beyondLevel(f, grant.value)])]
+}
+
+function setLevel(f: Feature, level: Level) {
+  const l = levelsOf(f)
+  const next = new Set(selected.value)
+  for (const c of l.full) next.delete(c)
+  if (level !== 'none') for (const c of l[level]) next.add(c)
+  selected.value = next
+}
+
+function toggle(c: CapabilityId, on: boolean) {
+  const next = new Set(selected.value)
+  if (on) next.add(c)
+  else next.delete(c)
+  selected.value = next
+}
+
+async function load() {
+  loading.value = true
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/roles/${route.params.id}`)
+    role.value = data.role
+    people.value = data.people ?? []
+    form.name = data.role.name
+    form.description = data.role.description ?? ''
+    selected.value = new Set(data.role.caps as CapabilityId[])
+  } catch (e: any) {
+    showError(e?.response?.data?.message ?? t('common.operationFailed'))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function save() {
+  saving.value = true
+  try {
+    const { data } = await httpClient.put(`${appStore.orgUrl()}/roles/${role.value.id}`, { name: form.name.trim(), description: form.description, caps: [...selected.value] })
+    role.value = data.role
+    selected.value = new Set(data.role.caps as CapabilityId[])
+    showSuccess(t('access.ui.saved'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message ?? t('common.operationFailed'))
+  } finally {
+    saving.value = false
+  }
+}
+
+async function remove() {
+  try {
+    await httpClient.delete(`${appStore.orgUrl()}/roles/${role.value.id}`)
+    router.push({ name: 'settings.roles' })
+  } catch (e: any) {
+    showError(e?.response?.data?.message ?? t('common.operationFailed'))
+  }
+}
+
+onMounted(load)
+</script>

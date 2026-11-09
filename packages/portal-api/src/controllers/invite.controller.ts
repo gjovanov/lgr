@@ -1,4 +1,6 @@
 import { Elysia, t } from 'elysia'
+import { RoleRefusal, assertAssignable, defaultRoleOf } from 'services/biz/access/role.service'
+import { Role } from 'db/models'
 import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { inviteDao } from 'services/dao/invite.dao'
@@ -87,8 +89,26 @@ export const inviteController = new Elysia()
         return status(422, { code: 'invalid_email', message: 'Enter the address the invitation is for' })
       }
       // #510: a role the system knows. Any string was stored, and the membership was made with it.
-      const assignRole = body.assignRole ?? 'member'
+      let assignRole = body.assignRole ?? 'member'
       if (!isRole(assignRole)) return status(422, { code: 'invalid_role', message: `Unknown role: ${assignRole}` })
+      // FR-27.4: the invite names a role, one the admin may give (FR-27.8). Its legacy key goes with it. Naming neither
+      // a role nor a legacy role is the org's default role (FR-27.3), when this admin may give it.
+      let assignRoleId = body.assignRoleId
+      if (assignRoleId) {
+        try {
+          await assertAssignable(user as any, orgId, assignRoleId)
+        } catch (e) {
+          if (e instanceof RoleRefusal) return status(e.status, e.body)
+          throw e
+        }
+      } else if (!body.assignRole) {
+        const fallback = await defaultRoleOf(orgId)
+        if (fallback) assignRoleId = await assertAssignable(user as any, orgId, fallback).then(() => fallback, () => undefined)
+      }
+      if (assignRoleId) {
+        const role: any = await Role.findOne({ _id: assignRoleId, orgId }, { all: 1, legacy: 1 }).lean().exec()
+        assignRole = role?.all ? 'admin' : role?.legacy?.role ?? assignRole
+      }
 
       const invite = await inviteDao.createInvite({
         orgId,
@@ -96,6 +116,7 @@ export const inviteController = new Elysia()
         targetEmail,
         maxUses: body.maxUses,
         assignRole,
+        ...(assignRoleId ? { assignRoleId } : {}),
         expiresInHours: body.expiresInHours,
       })
 
@@ -114,6 +135,7 @@ export const inviteController = new Elysia()
         targetEmail: t.Optional(t.String()),
         maxUses: t.Optional(t.Number()),
         assignRole: t.Optional(t.String()),
+        assignRoleId: t.Optional(t.String()),
         expiresInHours: t.Optional(t.Number()),
       }),
     },
