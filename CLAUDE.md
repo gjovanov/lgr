@@ -3025,6 +3025,29 @@ Spec: `docs/fr/FR-26-seller-and-sales-consultant-roles.md`. Roles `seller` („�
 - **Assigning a role takes effect** (FR-26.9): a role change swaps the user's SYSTEM sets for the role's (`setsForRole`, custom sets stay), an invite starts on the role's set (`inviteSetFor`; a restricted role whose set the org lacks gets none, never the default set), and a change of role, sets or own permissions bumps the person's `tokenVersion` (`endSessionsOf`): every session of theirs, in every org, ends within the minute.
 - **Migration `0014-seller-permission-sets`** seeds both system sets in every org. A set of either name somebody made is reported and left alone, never adopted. Rollback: move every Seller and Sales Consultant to another role first; the previous release rejects the names and ignores `areas`.
 
+## One access model: Phase 0 (FR-27, #529)
+
+Spec and catalogue: `docs/fr/FR-27-one-access-model.md` (Appendix A is `config/src/access` as a table). A person
+gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `feature.action` (`movements.create:transfer`).
+- **`config/src/access`** (`config/access`, import-pure):
+  - `catalogue.ts`: every feature and its actions. `CapabilityId` is typed from it.
+  - `routes.ts`: what each org route needs, by exact key then the longest prefix, as `anyOf | self | member`.
+  - `pages.ts`: which capabilities open each page, keyed by page-registry id.
+  - `legacy.ts`: `compileLegacy(claims)`, today's token (role, permissions, areas) as a grant. `LEGACY_BRIDGE` maps permissions, `LEGACY_ROLE_CAPS` maps the role names the controllers check, `AREA_OF` maps FR-26's areas.
+  - Actions: `view` opens a feature's page, `browse` opens it for another app's role, `lookup` reads its records without the page.
+- **Server.** `services/biz/access/evaluate.ts`:
+  - `accessRefusal(user, method, route)`, with the PIN scope first, unchanged;
+  - `can(user, cap)`, which controllers move onto slice by slice (Phase 0 PRs 2–5);
+  - `grantOf(user)`, memoised per claims.
+- **Phase 0 decides nothing new.** `route-permission.ts#permissionRefusal` still decides every request.
+  - ⚠ **`integration/access-differential.flow.test.ts`** holds the evaluator to its answer on every org route of `createApiApp()`, and `canOpen` to `canOpenPage` on every page. It covers every role × no, each single, default and an unknown permission × areas absent, `[]`, each alone, all × PIN.
+  - Single permissions suffice: today's rules are any-of, and the grant is a union. A change to the catalogue, bridge, routes or pages that moves any answer fails it.
+  - A new route needs a rule in BOTH `route-permission.ts` and `config/access/routes.ts` until Phase 0's last step.
+- **Shadow mode** (FR-27 §4). `Org.settings.access.model`: unset = `legacy`, or `shadow`; `roles` is Phase 1 and the script refuses it.
+  - In `shadow` both auth plugins call `shadowAccess`, which never waits. Every answer the evaluator would give differently is counted in `access_shadow_diffs` (`AccessShadowDiff`, class N, field `org` not `orgId`, a 30-day TTL, counts only).
+  - Switch and read it with `scripts/access-model.ts --org <slug> [--set legacy|shadow] [--days N]`, on the org's home. Pods cache the model for a minute.
+- **Client.** `ui-shared/access/useAccess` gives `can()` and `canOpen()` on the same grant, compiled from the tab's token as `sessionViewer` reads it.
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN

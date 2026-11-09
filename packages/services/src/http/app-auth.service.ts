@@ -5,6 +5,7 @@ import type { UserTokenized } from '../biz/auth.service'
 import { buildScopedRepos } from '../biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from '../biz/tenant-guard'
 import { permissionRefusal } from '../biz/route-permission'
+import { shadowAccess } from '../biz/access/shadow'
 import { homeGate } from '../biz/home-gate'
 import { licenceGate } from '../biz/licence/master-licence.service'
 import { isPublicRoute } from '../biz/public-routes'
@@ -52,6 +53,8 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
   .onTransform({ as: 'scoped' }, ({ user, params, request, route, status }: any) => {
     if (isForeignOrg(user, params?.orgId)) return
     const refusal = permissionRefusal(user, request.method, route)
+    // FR-27: an org in `shadow` also asks the new evaluator, and counts where it would answer otherwise.
+    shadowAccess(user, params?.orgId, request.method, route, !!refusal)
     if (refusal) throw status(403, refusal)
   })
   /**

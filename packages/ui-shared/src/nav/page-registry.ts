@@ -290,7 +290,7 @@ const portalPage = (path: string, need: readonly string[]): PageDef => ({ id: pa
  * (`route-permission.ts`). An empty `need` is an admin's alone: billing and invites are the server's admin role.
  * ⚠ Presentation, as ever: portal routes have no guard, and the server answers every request on its own.
  */
-const PORTAL_PAGES: PageDef[] = [
+export const PORTAL_PAGES: PageDef[] = [
   portalPage('/dashboard', READ_DASHBOARD),
   portalPage('/settings/organization', BACK_OFFICE),
   portalPage('/settings/users', BACK_OFFICE),

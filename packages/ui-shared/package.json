@@ -135,6 +135,7 @@
     "./composables/useProductSearchMenu": "./src/composables/useProductSearchMenu.ts",
     "./composables/usePageFavorites": "./src/composables/usePageFavorites.ts",
     "./nav/page-registry": "./src/nav/page-registry.ts",
+    "./access/useAccess": "./src/access/useAccess.ts",
     "./nav/navigate": "./src/nav/navigate.ts",
     "./nav/node-role": "./src/nav/node-role.ts",
     "./nav/open-page": "./src/nav/open-page.ts",

@@ -5,6 +5,7 @@ import type { MetaEntry } from './generate.js'
 
 export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   AbsenceEntry: { collection: 'absenceentries', class: 'R', orgPath: 'orgId' },
+  AccessShadowDiff: { collection: 'access_shadow_diffs', class: 'N', orgPath: null },
   Account: { collection: 'accounts', class: 'R', orgPath: 'orgId' },
   AccountingAnalytic: { collection: 'accountinganalytics', class: 'R', orgPath: 'orgId' },
   ArchiveUnit: { collection: 'archiveunits', class: 'R', orgPath: 'orgId' },
