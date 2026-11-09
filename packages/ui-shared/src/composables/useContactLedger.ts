@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from './useHttpClient'
+import { useSearchDebounce } from './useSearchDebounce'
 
 export interface ContactLedgerEntry {
   date: string
@@ -28,6 +29,10 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
   const dateFrom = ref('')
   const dateTo = ref('')
   const docTypes = ref<string[]>([])
+  // #526: typed searches, sent once typing pauses (like the Products search). Bind the field to the first ref, watch
+  // the second.
+  const { search: productSearch, debouncedSearch: productQuery } = useSearchDebounce()
+  const { search: documentNumber, debouncedSearch: numberQuery } = useSearchDebounce()
   const summary = ref({ totalSales: 0, totalPurchases: 0, balance: 0 })
 
   const DOC_TYPES = ['invoice', 'cash_sale', 'proforma', 'credit_note', 'debit_note'] as const
@@ -61,6 +66,8 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
       if (dateFrom.value) params.dateFrom = dateFrom.value
       if (dateTo.value) params.dateTo = dateTo.value
       if (docTypes.value.length) params.documentTypes = docTypes.value.join(',')
+      if (productQuery.value.trim()) params.productSearch = productQuery.value.trim()
+      if (numberQuery.value.trim()) params.documentNumber = numberQuery.value.trim()
 
       const { data } = await httpClient.get(`${orgUrl.value}/invoicing/contact-ledger/${contactId.value}`, { params })
       entries.value = data.entries || []
@@ -81,12 +88,17 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
     dateFrom.value = ''
     dateTo.value = ''
     docTypes.value = []
+    productSearch.value = ''
+    documentNumber.value = ''
+    productQuery.value = ''
+    numberQuery.value = ''
     page.value = 0
     fetchLedger()
   }
 
   return {
     loading, entries, total, page, pageSize, dateFrom, dateTo, docTypes, summary,
+    productSearch, productQuery, documentNumber, numberQuery,
     docTypeOptions, headers, docTypeColor, docTypeLabel,
     fetchLedger, onUpdateOptions, resetFilters,
   }

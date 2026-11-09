@@ -178,6 +178,18 @@ describe('incoming documents (purchases)', () => {
     expect(summary.status).toBe(200)
     expect(summary.json.invoiceCount).toBe(1)
   })
+
+  it("#526: the ledger's searches never reach a bill without the area", async () => {
+    const asSeller = await request('GET', `/invoicing/contact-ledger/${contactId}?documentNumber=bill-1`, tokens.seller)
+    expect(asSeller.status).toBe(200)
+    expect(asSeller.json.total).toBe(0)
+    expect(JSON.stringify(asSeller.json)).not.toContain('BILL-1')
+    const asAdmin = await request('GET', `/invoicing/contact-ledger/${contactId}?documentNumber=bill-1`, tokens.admin)
+    expect(asAdmin.json.entries.map((e: any) => e.documentNumber)).toEqual(['BILL-1'])
+    // The product search reaches the service too: a text no product holds leaves nothing.
+    expect((await request('GET', `/invoicing/contact-ledger/${contactId}?productSearch=no-such-thing`, tokens.admin)).json.total).toBe(0)
+    expect((await request('GET', `/invoicing/contact-ledger/${contactId}`, tokens.admin)).json.total).toBe(2)
+  })
 })
 
 describe('order links (orders)', () => {

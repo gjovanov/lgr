@@ -15,6 +15,9 @@ export const contactLedgerController = new Elysia({ prefix: '/org/:orgId/invoici
       options.documentTypes = (query.documentTypes as string).split(',').filter(Boolean)
     }
     if (!holdsArea(user, 'purchases')) options.outgoingOnly = true
+    // #526: they narrow the ledger; the area check above still decides which documents it holds.
+    if (typeof query.productSearch === 'string') options.productSearch = query.productSearch
+    if (typeof query.documentNumber === 'string') options.documentNumber = query.documentNumber
     options.page = Math.max(0, Number(query.page) || 0)
     options.size = query.size !== undefined ? Number(query.size) : 25
 

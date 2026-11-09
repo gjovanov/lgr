@@ -13,14 +13,20 @@
 
         <!-- Filters -->
         <v-row dense class="mb-2">
-          <v-col cols="12" sm="3">
+          <v-col cols="12" sm="6" md="2">
             <v-text-field v-model="dateFrom" :label="$t('common.from')" type="date" density="compact" hide-details clearable />
           </v-col>
-          <v-col cols="12" sm="3">
+          <v-col cols="12" sm="6" md="2">
             <v-text-field v-model="dateTo" :label="$t('common.to')" type="date" density="compact" hide-details clearable />
           </v-col>
-          <v-col cols="12" sm="6">
+          <v-col cols="12" sm="12" md="3">
             <v-select v-model="docTypes" :label="$t('common.type')" :items="docTypeOptions" multiple chips closable-chips density="compact" hide-details clearable />
+          </v-col>
+          <v-col cols="12" sm="6" md="3">
+            <v-text-field v-model="productSearch" :label="$t('warehouse.product')" prepend-inner-icon="mdi-magnify" density="compact" hide-details clearable />
+          </v-col>
+          <v-col cols="12" sm="6" md="2">
+            <v-text-field v-model="documentNumber" :label="$t('invoicing.invoiceNumber')" prepend-inner-icon="mdi-magnify" density="compact" hide-details clearable />
           </v-col>
         </v-row>
 
@@ -111,6 +117,7 @@ const orgUrlRef = computed(() => props.orgUrl)
 
 const {
   loading, entries, total, page, pageSize, dateFrom, dateTo, docTypes, summary,
+  productSearch, productQuery, documentNumber, numberQuery,
   docTypeOptions, headers, docTypeColor, docTypeLabel,
   fetchLedger, onUpdateOptions,
 } = useContactLedger(contactIdRef, orgUrlRef)
@@ -157,5 +164,5 @@ watch(() => props.modelValue, (open) => {
     fetchLedger()
   }
 })
-watch([dateFrom, dateTo, docTypes], () => { page.value = 0; fetchLedger() })
+watch([dateFrom, dateTo, docTypes, productQuery, numberQuery], () => { page.value = 0; fetchLedger() })
 </script>
