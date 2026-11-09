@@ -467,7 +467,7 @@ describe('an invoice issued at the counter (§2.4)', () => {
 
   it('a draft invoice for a cash sale prints nothing and asks for no session: that sale took the money', async () => {
     const w = await tillWorld(app)
-    const cs = (await w.backOfficeSale(1)).json.invoice
+    const cs = (await w.sessionlessSale(1)).json.invoice
     const contact = await createTestContact(w.oid, { companyName: 'Y', type: 'customer' } as any)
     const draft = await w.call('POST', `/invoices/${cs.id}/to-invoice`, { contactId: String(contact._id), issueDate: TODAY, issue: false }, undefined, w.clerkToken)
     expect(draft.status).toBe(200)
@@ -1924,7 +1924,7 @@ describe('a payment recorded later (§2.2)', () => {
 
   it('a bill, a credit note and an invoice for a cash sale print nothing', async () => {
     const w = await tillWorld(app)
-    const cs = (await w.backOfficeSale(1)).json.invoice
+    const cs = (await w.sessionlessSale(1)).json.invoice
     const contact = await createTestContact(w.oid, { companyName: 'Y', type: 'customer' } as any)
     const inv = await w.call('POST', `/invoices/${cs.id}/to-invoice`, { contactId: String(contact._id), issueDate: TODAY })
     expect(inv.status).toBe(200)
@@ -2766,7 +2766,7 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
   it('it cannot be attached to a cash sale either: its receipt took that money', async () => {
     const w = await tillWorld(app)
     const { id } = await issuedPaid(w)
-    const cs = (await w.backOfficeSale(2)).json.invoice
+    const cs = (await w.sessionlessSale(2)).json.invoice
     const r = await w.call('POST', `/invoices/${id}/attach-to-cash-sale`, { cashSaleId: String(cs.id) })
     expect(r.status).toBe(409)
     expect(r.json.code).toBe('fiscally_paid')
@@ -2875,7 +2875,7 @@ describe('§2.7 — once a receipt has printed, the total is the receipt\'s', ()
     async function attachable(w: TillWorld) {
       const d = await draftOf(w, { method: 'bank_transfer' })
       await send(w, d.id)
-      const cs = (await w.backOfficeSale(2, { issueDate: TODAY })).json.invoice
+      const cs = (await w.sessionlessSale(2, { issueDate: TODAY })).json.invoice
       return { d, cashSaleId: String(cs.id) }
     }
     const attach = (w: TillWorld, id: string, cashSaleId: string) => w.call('POST', `/invoices/${id}/attach-to-cash-sale`, { cashSaleId })

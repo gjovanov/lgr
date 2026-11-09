@@ -3,6 +3,7 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import {
+  allowSalesWithoutPrinter,
   createTestOrg,
   createTestUser,
   createTestContact,
@@ -63,6 +64,8 @@ async function tokenFor(u: { id: string; orgId: string }) {
 /** An org with a till warehouse short of stock and a depot that holds plenty. */
 async function world() {
   const org = await createTestOrg()
+  // No device here, so LGR prints nothing, as on such an org in production: a cash sale needs no session (#492).
+  await allowSalesWithoutPrinter(org._id)
   const orgId = String(org._id)
   const user = await createTestUser(org._id)
   const contact = await createTestContact(org._id)

@@ -18,7 +18,7 @@ import { stockAvailabilityController } from 'invoicing-api/src/controllers/stock
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
-import { StockLevel } from 'db/models'
+import { Org, StockLevel } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 
@@ -164,9 +164,27 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
     subtotal: 10 * quantity, taxTotal: 2 * quantity, total: 12 * quantity, paymentMethod: 'cash',
     ...extra,
   })
-  /** A back-office cash sale through `POST /invoices`, by the clerk, who has no session: sessionless. */
+  /**
+   * A back-office cash sale through `POST /invoices`, by the clerk, who has no session. Where LGR prints (the gate
+   * on, as in a world with a device) it is refused (#492); where it prints nothing it goes through sessionless.
+   */
   const backOfficeSale = (quantity = 2, extra: Record<string, unknown> = {}, key?: string) =>
     call('POST', '/invoices', cashSaleBody(quantity, extra), key, clerkToken)
+  /**
+   * A sessionless back-office cash sale on an org that prints, which #492 no longer makes: one from before it, or
+   * from while the org printed nothing. Made with the gate off for this one request, then the gate as it was. For a
+   * test about what such a sale meets later (a storno, an invoice, an attach), not about how it is made.
+   */
+  const sessionlessSale = async (quantity = 2, extra: Record<string, unknown> = {}, key?: string) => {
+    const gate = 'settings.cashRegister.requireConnectedDevice'
+    const was = ((await Org.findById(org._id, { [gate]: 1 }).lean().exec()) as any)?.settings?.cashRegister?.requireConnectedDevice
+    await Org.updateOne({ _id: org._id }, { $set: { [gate]: false } }).exec()
+    try {
+      return await backOfficeSale(quantity, extra, key)
+    } finally {
+      await Org.updateOne({ _id: org._id }, was === undefined ? { $unset: { [gate]: 1 } } : { $set: { [gate]: was } }).exec()
+    }
+  }
   /** The same, by the till's cashier, whose open session it joins (FR-21.31, D-13). */
   const cashierBackOfficeSale = (quantity = 2, extra: Record<string, unknown> = {}, key?: string) =>
     call('POST', '/invoices', cashSaleBody(quantity, extra), key, token)
@@ -178,7 +196,7 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
 
   return {
     org, orgId, warehouse, user, product, sim, deviceId, token, tokenAs, session, sessionId, clerk, clerkToken,
-    call, saleBody, sell, storno, backOfficeSale, cashierBackOfficeSale, stock,
+    call, saleBody, sell, storno, backOfficeSale, sessionlessSale, cashierBackOfficeSale, stock,
     oid: org._id as Types.ObjectId,
   }
 }

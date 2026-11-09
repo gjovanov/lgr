@@ -1239,7 +1239,7 @@ describe('the storno of a sale that died: it is finished first (finding 5)', () 
     const undo = diesAt(update => !!update?.$set?.completedAt)
     let r: any
     try {
-      r = await w.backOfficeSale(1, {}, key)
+      r = await w.sessionlessSale(1, {}, key)
     } finally {
       undo()
     }

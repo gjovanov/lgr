@@ -3,7 +3,7 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import {
-  createTestOrg, createTestUser, createTestContact, createTestWarehouse, createTestProduct, createTestStockLevel,
+  allowSalesWithoutPrinter, createTestOrg, createTestUser, createTestContact, createTestWarehouse, createTestProduct, createTestStockLevel,
 } from '../helpers/factories'
 import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
@@ -45,6 +45,8 @@ const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
  */
 async function day(on: string = DAY) {
   const org = await createTestOrg()
+  // No device here, so LGR prints nothing, as on such an org in production: a cash sale needs no session (#492).
+  await allowSalesWithoutPrinter(org._id)
   const orgId = String(org._id)
   const user = await createTestUser(org._id)
   const y = await createTestContact(org._id, { companyName: 'Y ООД', type: 'customer' } as any)

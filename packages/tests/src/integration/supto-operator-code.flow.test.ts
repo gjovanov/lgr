@@ -54,7 +54,7 @@ describe('SUPTO 18.1 — the operator code (#323)', () => {
     const text = await w.sell(1, { text: true })
     expect(text.status).toBe(200)
     // The clerk (operator 0002) has no session: a sessionless back-office cash sale.
-    const backOffice = await w.backOfficeSale(1)
+    const backOffice = await w.sessionlessSale(1)
     expect(backOffice.status).toBe(200)
     const imported = await w.backOfficeSale(1, { reference: 'salesAnalysis:2026-10-26', skipStockMovement: true })
     expect(imported.status).toBe(200)

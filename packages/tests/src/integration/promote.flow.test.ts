@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestContact, createTestOrg, createTestProduct, createTestStockLevel, createTestUser, createTestWarehouse } from '../helpers/factories'
+import { allowSalesWithoutPrinter, createTestContact, createTestOrg, createTestProduct, createTestStockLevel, createTestUser, createTestWarehouse } from '../helpers/factories'
 import { captureRejection } from '../helpers/capture-rejection'
 import { makeNodeStub, nodeEnrollBody } from '../helpers/node-stub'
 import { config } from 'config'
@@ -208,6 +208,8 @@ describe('promoting the mirror (FR-20.81)', () => {
 
   it('refuses a legal issue before it moves anything; drafts, proformas and bills go on', async () => {
     const org = await createTestOrg({ slug: `promote-${++n}` } as any)
+    // No device, so LGR prints nothing here: what refuses the cash sale below is the frozen series, not the session (#492).
+    await allowSalesWithoutPrinter(org._id)
     const orgId = String(org._id)
     const user = await createTestUser(org._id, { role: 'admin' } as any)
     const customer = await createTestContact(org._id, { companyName: 'Купувач ООД', type: 'customer' } as any)

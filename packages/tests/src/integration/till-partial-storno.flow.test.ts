@@ -1043,14 +1043,13 @@ describe('the shapes a part comes in', () => {
     const other = await createTestWarehouse(w.oid, { name: 'Втори', code: 'W2' } as any)
     const nut = await createTestProduct(w.oid, { name: 'Гайка', sellingPrice: 5, purchasePrice: 2, taxRate: 20, unit: 'бр.' } as any)
     await createTestStockLevel(w.oid, nut._id, other._id, { quantity: 10, availableQuantity: 10, avgCost: 2 } as any)
-    const sold = await w.call('POST', '/invoices', {
-      type: 'cash_sale', direction: 'outgoing', issueDate: '2026-10-26', currency: 'EUR',
+    const sold = await w.sessionlessSale(2, {
       lines: [
         { productId: String(w.product._id), warehouseId: String(w.warehouse._id), description: 'Болт', quantity: 2, unit: 'бр.', unitPrice: 10, taxRate: 20 },
         { productId: String(nut._id), warehouseId: String(other._id), description: 'Гайка', quantity: 4, unit: 'бр.', unitPrice: 5, taxRate: 20 },
       ],
-      subtotal: 40, taxTotal: 8, total: 48, paymentMethod: 'cash',
-    }, undefined, w.clerkToken)
+      subtotal: 40, taxTotal: 8, total: 48,
+    })
     expect(sold.status).toBe(200)
     const id = String(sold.json.invoice.id)
     const sale = await read(id)
@@ -1397,7 +1396,7 @@ describe('what else takes a partial storno, and what does not', () => {
 
   it('a back-office sale: no session and no receipt, and it can no longer be edited or voided', async () => {
     const w = await tillWorld(app)
-    const sold = await w.backOfficeSale(4)
+    const sold = await w.sessionlessSale(4)
     const id = String(sold.json.invoice.id)
     const sale = await read(id)
     const r = await w.call('POST', `/cash-register/documents/${id}/storno`, { reason: 'customer_return', lines: [{ lineId: String(sale.lines[0]._id), quantity: 1 }] }, undefined, w.clerkToken)
@@ -1418,7 +1417,7 @@ describe('what else takes a partial storno, and what does not', () => {
 
   describe('a back-office sale paid by bank: nothing prints, so the method is theirs (the reader, finding 4)', () => {
     async function byBank(w: TillWorld) {
-      const sold = await w.backOfficeSale(4, { paymentMethod: 'bank_transfer' })
+      const sold = await w.sessionlessSale(4, { paymentMethod: 'bank_transfer' })
       expect(sold.status).toBe(200)
       const id = String(sold.json.invoice.id)
       return { id, lineId: String((await read(id)).lines[0]._id) }

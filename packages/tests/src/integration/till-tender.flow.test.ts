@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import type { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
+import { allowSalesWithoutPrinter } from '../helpers/factories'
 import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { Invoice, POSSession, Sequence } from 'db/models'
 import { getPrinter } from 'fiscal/fiscal-device.service'
@@ -124,8 +125,17 @@ describe('a back-office sale joined to a session (D-13)', () => {
     expect(await footprint(w)).toEqual(before)
   })
 
-  it('a clerk with no session prints nothing, so the method is theirs to name', async () => {
+  it('a clerk with no session: where LGR prints, refused for want of one, whatever the method (#492)', async () => {
     const w = await tillWorld(app)
+    const r = await w.backOfficeSale(1, { paymentMethod: 'bank_transfer', receipt: 'fiscal' })
+    expect(r.status).toBe(409)
+    expect(r.json).toMatchObject({ code: 'fiscal_device_not_connected', noSession: true })
+    expect(w.sim!.receipts).toHaveLength(0)
+  })
+
+  it('a clerk with no session, where LGR prints nothing: nothing prints, so the method is theirs to name', async () => {
+    const w = await tillWorld(app)
+    await allowSalesWithoutPrinter(w.oid)
     expect((await w.backOfficeSale(1, { paymentMethod: 'bank_transfer', receipt: 'fiscal' })).status).toBe(200)
     expect(w.sim!.receipts).toHaveLength(0)
   })
@@ -177,7 +187,7 @@ describe('a storno', () => {
 
   it('a back-office sale paid by bank transfer keeps its storno: nothing prints', async () => {
     const w = await tillWorld(app)
-    const sale = (await w.backOfficeSale(1, { paymentMethod: 'bank_transfer' })).json.invoice
+    const sale = (await w.sessionlessSale(1, { paymentMethod: 'bank_transfer' })).json.invoice
     const r = await w.call('POST', `/cash-register/documents/${sale.id}/storno`, { reason: 'customer_return' })
     expect(r.status).toBe(200)
     expect(w.sim!.receipts).toHaveLength(0)
