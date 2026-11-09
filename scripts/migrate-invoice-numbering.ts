@@ -57,7 +57,8 @@ function currentPrefix(num: string): string {
 const LEGACY_OK = new Set(['CRN', 'DBN', 'DRF-CN', 'DRF-DN', 'TXN'])
 
 async function main() {
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
   console.log('Mode: AUDIT (read-only)')
   console.log(`Org filter: ${orgSlug || '(all)'}`)
 

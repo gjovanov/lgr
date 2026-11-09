@@ -35,6 +35,7 @@
  *   --execute            perform writes (default: dry-run)
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { Org, Warehouse, ProductCategory, Product, StockLevel } from '../packages/db/src/models/index.js'
 import { normalizeUomBg } from '../packages/services/src/biz/uom.utils.js'
@@ -214,7 +215,9 @@ async function main() {
 
   if (dryRun) { console.log('Dry run complete. Add --execute to write.'); return }
 
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
+  await requireUniqueIndexes([ProductCategory, Product, StockLevel])
   console.log('Connected to MongoDB')
 
   const org = await Org.findOne({ slug: orgSlug })

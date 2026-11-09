@@ -24,6 +24,7 @@ import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { Contact, Invoice, Org } from '../packages/db/src/models/index.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { applyInvoiceCustomer, contactsToCreate, createContact, planInvoiceCustomers, type PrintedDocument } from './lib/invoice-customer.js'
@@ -47,7 +48,9 @@ const printed: PrintedDocument[] = args.printed ? JSON.parse(readFileSync(String
 
 if (!orgSlug) { console.error('Required: --org <slug>. See the header.'); process.exit(2) }
 
-await connectDB()
+// Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+await connectDB({ readOnly: true })
+if (execute) await requireUniqueIndexes([Contact])
 try {
   const org: any = await Org.findOne({ slug: orgSlug }).lean()
   if (!org) { console.error(`Org "${orgSlug}" not found`); process.exit(1) }

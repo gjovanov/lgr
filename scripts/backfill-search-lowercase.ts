@@ -72,7 +72,8 @@ async function backfill<T extends Record<string, any>>(
 }
 
 async function main() {
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
   console.log(`Mode: ${execute ? 'EXECUTE' : 'DRY-RUN'}`)
   console.log(`Org filter: ${orgSlug || '(all)'}`)
 

@@ -66,7 +66,8 @@ function show(p: VoidPlan) {
   console.log(`✓ ${p.number}: ${head}\n     stock movements (left as they are): ${mv}`)
 }
 
-await connectDB()
+// Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+await connectDB({ readOnly: true })
 try {
   const org: any = await Org.findOne({ slug: orgSlug }).lean()
   if (!org) { console.error(`Org "${orgSlug}" not found`); process.exit(1) }

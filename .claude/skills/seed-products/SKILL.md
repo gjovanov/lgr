@@ -79,6 +79,11 @@ MONGODB_URI='mongodb://lgr_admin:LgR_5uper5ecretPa55word@localhost:27018/lgr?aut
   bun run scripts/seed-products.ts --org <slug> --file <path.xlsx> --execute
 ```
 
+`--execute` writes documents only. The script connects without building indexes or collections, and refuses
+to write while a unique index on product categories, products or stock levels is missing
+(`scripts/lib/require-indexes.ts`): on a database the app has never started against, start the app once first.
+Run from a checkout ahead of prod, it used to build that checkout's indexes there (#546).
+
 ## Run against production (cluster Mongo)
 
 The repeatable path is a host that has `kubectl` + the repo checkout + `bun` — the

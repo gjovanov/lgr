@@ -35,7 +35,8 @@ const daysAgo = (d: number) => new Date(Date.now() - d * 24 * 60 * 60 * 1000)
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(1)} MB`
 
 async function main() {
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
   // FR-20.4: only the orgs homed here; an org homed elsewhere is swept by its own home.
   const home = await tenantHomeScope()
 

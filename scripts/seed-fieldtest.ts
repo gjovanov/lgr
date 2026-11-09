@@ -28,7 +28,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { connectDB, disconnectDB, mongoose } from '../packages/db/src/connection.js'
-import { Contact, Identity, Org, Product, ProductCategory, Tag, User, Warehouse } from '../packages/db/src/models/index.js'
+import { requireUniqueIndexes } from './lib/require-indexes.js'
+import { Contact, Identity, Org, PermissionSet, Product, ProductCategory, Sequence, Tag, User, Warehouse } from '../packages/db/src/models/index.js'
 import { register } from '../packages/services/src/biz/auth.service.js'
 import { initServiceContext } from '../packages/services/src/context.js'
 import { createMongoRepositories } from '../packages/dal-mongo/src/index.js'
@@ -113,7 +114,9 @@ async function wipe(orgId: mongoose.Types.ObjectId): Promise<void> {
   for (const id of identityIds) if (!(await User.exists({ identityId: id }))) await Identity.deleteOne({ _id: id })
 }
 
-await connectDB()
+// Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+await connectDB({ readOnly: true })
+await requireUniqueIndexes([Org, User, Identity, PermissionSet, Sequence, Warehouse, ProductCategory, Tag, Product, Contact])
 // register() provisions the org's permission sets through the repositories, as the server's own start does.
 initServiceContext(await createMongoRepositories({ backend: 'mongo' }))
 const password = adminPassword()

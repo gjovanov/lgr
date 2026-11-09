@@ -49,7 +49,8 @@ function sameKey(a: Record<string, any>, b: Record<string, any>): boolean {
 }
 
 async function main() {
-  await connectDB()
+  // Its own index work is explicit below; every other index is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
   const coll = BackupRun.collection
   // FR-20.4: backfill only the orgs homed here. The index work below is per database, not per org.
   const home = await tenantHomeScope()

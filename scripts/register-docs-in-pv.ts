@@ -40,7 +40,15 @@ const mimeFor = (n: string) => /\.pdf$/i.test(n) ? 'application/pdf'
   : /\.xlsx?$/i.test(n) ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/octet-stream'
 
 ;(async () => {
-  await mongoose.connect(process.env.MONGODB_URI)
+  // Documents only: building indexes is the app's. The unique {orgId, docType, docNumber} index is what turns a
+  // document found in two folders into one row, so a write refuses without it (scripts/lib/require-indexes.ts,
+  // inlined: this runs from stdin in packages/db, where scripts/ is not).
+  await mongoose.connect(process.env.MONGODB_URI, { autoIndex: false, autoCreate: false })
+  if (EXECUTE) {
+    const held = new Set((await DocFile.collection.indexes().catch(() => [])).filter((i: any) => i.unique).map((i: any) => JSON.stringify(i.key)))
+    const missing = DocFile.schema.indexes().filter(([key, o]: any) => o?.unique && !held.has(JSON.stringify(key)))
+    if (missing.length) { console.log(`refusing to write: unique index missing on docfiles ${JSON.stringify(missing.map(([key]: any) => key))}`); process.exit(1) }
+  }
   const org: any = await Org.findOne({ slug: ORGSLUG }).lean()
   if (!org) { console.log(`org ${ORGSLUG} not found`); process.exit(1) }
   await require('./src/home/home').assertHomeIsHere(String(org._id), { fresh: true })  // FR-20.4: only on its home

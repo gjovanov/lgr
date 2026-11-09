@@ -39,6 +39,7 @@
  *   --samples <n>         sample lines in the report (default 30)
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { Org, Product, ProductCategory, DinCatalog, Tag } from '../packages/db/src/models/index.js'
 import {
@@ -68,7 +69,9 @@ const forceCategory = !!args['force-category']
 const BATCH = Math.max(1, Number(args.batch) || 500)
 const SAMPLES = Math.max(0, Number(args.samples) || 30)
 
-await connectDB()
+// Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+await connectDB({ readOnly: true })
+if (execute) await requireUniqueIndexes([Tag])
 const org: any = await Org.findOne({ slug: orgSlug }).lean()
 if (!org) { console.error(`Org "${orgSlug}" not found`); process.exit(1) }
 await assertScriptHome(org._id, orgSlug)

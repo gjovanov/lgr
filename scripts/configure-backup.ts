@@ -31,7 +31,8 @@ const execute = args.includes('--execute')
 const disable = args.includes('--disable')
 const list = args.includes('--list')
 
-await connectDB()
+// Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+await connectDB({ readOnly: true })
 
 if (list) {
   const orgs: any[] = await Org.find({}, { slug: 1, name: 1, settings: 1 }).lean()
