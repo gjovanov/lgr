@@ -9,6 +9,7 @@ export { User, type IUser, type IOAuthProvider, type IRoleHistoryEntry } from '.
 export { Identity, type IIdentity, type IIdentityProvider, type PasswordSetBy } from './identity.model.js'
 export { AuthToken, type IAuthToken, type AuthTokenPurpose } from './auth-token.model.js'
 export { PermissionSet, type IPermissionSet, type IOwnRecordsConfig } from './permission-set.model.js'
+export { Role, type IRole } from './role.model.js'
 export { Invite, type IInvite, type InviteStatus } from './invite.model.js'
 export { Code, type ICode, type CodeType } from './code.model.js'
 export { OAuthHandoff, type IOAuthHandoff } from './oauth-handoff.model.js'

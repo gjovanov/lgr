@@ -3063,6 +3063,18 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - `org.switch`: `OrgSwitcher` shows the org read-only, and `/orgs` redirects inside an org.
   - Such a session lands on Products where it can open them (`landingWithoutPortal`).
 
+## One access model: Phase 1, roles (FR-27, #529)
+
+- **`Role`** (`db/models/role.model.ts`, class R): one per person per org (`User.roleId`).
+  - Built-in (`isBuiltin`, `templateKey`): the ten legacy roles. Never edited, it takes its grant from its template (`config/access/templates.ts`, the role's defaults compiled), so it follows the catalogue.
+  - Imported (`legacyKey`): migration 0015's. `all`: the Administrator. `legacy`: the role key, permissions and areas a release that reads no roles serves.
+  - `grantOfRole` (`config/access/roles.ts`) resolves it. An id the catalogue does not know grants nothing (`unknownCaps` lists it).
+- **`legacyClaimsOf(user, sets)`** (`config/access/legacy.ts`) is what `tokenize()` reads: one function, so the migration reads a person as their token does.
+- **Migration `0015-roles-from-sets`** gives every person one role with exactly their token's access (`bun run migrate --dry-run` is §4's dry run).
+  - Their role's defaults, or an `admin`: the built-in role. Anything else: an imported role per distinct access, named after their sets ("A + B", told apart by the role where two accesses share it) or "Role + extras".
+  - ⚠ It reads live code (`legacyClaimsOf`, `compileLegacy`) on purpose: they are the oracle. It checks each person before it assigns them (`sameGrant`); a person it cannot match keeps no role.
+  - Nothing reads `roleId` until an org's access model is `roles`.
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN

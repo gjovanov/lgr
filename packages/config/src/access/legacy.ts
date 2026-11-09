@@ -1,4 +1,4 @@
-import type { Area, Permission } from '../constants'
+import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, mergeAreas, type Area, type Permission, type Role } from '../constants'
 import type { CapabilityId, FeatureId } from './catalogue'
 import { ALL, type Grant } from './grant'
 
@@ -146,6 +146,48 @@ export interface LegacyClaims {
   role?: string
   permissions?: readonly string[] | null
   areas?: readonly string[] | null
+}
+
+/** A permission set as `tokenize()` reads it. */
+export interface LegacySet {
+  permissions?: readonly string[] | null
+  isAdmin?: boolean
+  areas?: readonly string[] | null
+  ownRecordsOnly?: Record<string, boolean | undefined> | null
+}
+
+/**
+ * What `tokenize()` puts in a token today (`services/biz/auth.service.ts`), from a membership and the permission
+ * sets of ITS org that it names: the one function both use, so FR-27's migration reads a person exactly as their
+ * token does.
+ *
+ * Sets, when any resolves: the union of their permissions (every permission for an `isAdmin` set), their areas
+ * merged (`mergeAreas`), and "own records only" for a module only when every set says so. Otherwise the role's
+ * defaults, plus the user's own list, and the role's areas.
+ */
+export function legacyClaimsOf(
+  user: { role: string; permissions?: readonly string[] | null },
+  sets: readonly LegacySet[],
+): { role: string; permissions: string[]; areas?: string[]; ownRecordsModules: string[] } {
+  if (!sets.length) {
+    const roleDefaults = DEFAULT_ROLE_PERMISSIONS[user.role as Role] || DEFAULT_ROLE_PERMISSIONS.member
+    const areas = DEFAULT_ROLE_AREAS[user.role as Role]
+    return {
+      role: user.role,
+      permissions: [...new Set([...roleDefaults, ...(user.permissions || [])])],
+      ownRecordsModules: [],
+      ...(areas ? { areas: [...areas] } : {}),
+    }
+  }
+  const all = new Set<string>()
+  for (const set of sets) for (const p of set.permissions ?? []) all.add(p)
+  // "Own records only" for a module when a set says so, unless another set says it is not (most permissive wins).
+  const own: string[] = []
+  for (const set of sets) for (const [mod, on] of Object.entries(set.ownRecordsOnly ?? {})) if (on && !own.includes(mod)) own.push(mod)
+  for (const set of sets) for (const [mod, on] of Object.entries(set.ownRecordsOnly ?? {})) if (!on && own.includes(mod)) own.splice(own.indexOf(mod), 1)
+  const permissions = sets.some(s => s.isAdmin) ? [...PERMISSIONS] : [...all]
+  const areas = mergeAreas(sets)
+  return { role: user.role, permissions, ownRecordsModules: own, ...(areas ? { areas } : {}) }
 }
 
 /** Today's grant of these claims, as capabilities. `admin` holds everything, as on every route today. */

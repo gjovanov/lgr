@@ -13,5 +13,6 @@
   "0011-cash-sale-line-totals-gross-late": "f285684e4d09111d6691f12152cee49645af8593ab4193ff9550d991ebed6748",
   "0012-printer-gate-off": "b36f21d3055fa36220ad9f3804e61b49f1df55af009e8d6b0e9f3473c8af568b",
   "0013-accounting-file-permission": "99def8d96d0e33f3a97a0ef526dabd2ccd038d503a9aa788caf943a4a7b55950",
-  "0014-seller-permission-sets": "a44b27dbe48dd04649b0e49691ef6f6757f8493287b9e873c66364f642027d7c"
+  "0014-seller-permission-sets": "a44b27dbe48dd04649b0e49691ef6f6757f8493287b9e873c66364f642027d7c",
+  "0015-roles-from-sets": "de693614c8ddf9e92b067220e6e6a7cd6c7f80d2ca6bd832362c68924295732e"
 }

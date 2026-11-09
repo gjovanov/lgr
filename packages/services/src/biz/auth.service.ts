@@ -1,6 +1,7 @@
 import { Code, Identity, LocalCredential, Org, User, OrgApp, PermissionSet, type IIdentity, type IOrg, type IUser } from 'db/models'
 import { homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
-import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, MODULES, APP_IDS, mergeAreas, type Area, type Role } from 'config/constants'
+import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS, type Area, type Role } from 'config/constants'
+import { legacyClaimsOf, type LegacySet } from 'config/access'
 import { config, nodeRole } from 'config'
 import { logger } from '../logger/logger.js'
 import { inviteSetFor } from './permission-set.service.js'
@@ -608,66 +609,18 @@ export async function tokenize(user: IUser): Promise<UserTokenized> {
       )
     }
 
-    if (!sets.length) return tokenizeFromRole(user)
-
-    const isAdmin = sets.some(s => s.isAdmin)
-    const allPerms = new Set<string>()
-    const ownModules: string[] = []
-
-    for (const set of sets) {
-      for (const p of set.permissions) allPerms.add(p)
-      if (set.ownRecordsOnly) {
-        for (const [mod, own] of Object.entries(set.ownRecordsOnly)) {
-          if (own && !ownModules.includes(mod)) ownModules.push(mod)
-        }
-      }
-    }
-
-    // If ANY set is NOT ownRecordsOnly for a module, remove it from ownModules (most permissive wins)
-    for (const set of sets) {
-      if (set.ownRecordsOnly) {
-        for (const [mod, own] of Object.entries(set.ownRecordsOnly)) {
-          if (!own) {
-            const idx = ownModules.indexOf(mod)
-            if (idx >= 0) ownModules.splice(idx, 1)
-          }
-        }
-      }
-    }
-
-    if (isAdmin) {
-      allPerms.clear()
-      PERMISSIONS.forEach(p => allPerms.add(p))
-    }
-    const areas = mergeAreas(sets)
-
-    return {
-      id: String(user._id),
-      email: user.email,
-      username: user.username,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      role: user.role,
-      orgId: String(user.orgId),
-      permissions: [...allPerms],
-      ownRecordsModules: ownModules,
-      ...(areas ? { areas } : {}),
-      operatorCode: user.operatorCode,
-    }
+    return claimsToken(user, sets)
   }
 
-  return tokenizeFromRole(user)
+  return claimsToken(user, [])
 }
 
 /**
- * Role-based fallback: used when a user has no permission sets, and when none of the sets they
- * carry belong to their org.
+ * The token of a membership, given the sets of its org that it names (none: its role's defaults). What it may do is
+ * `config/access#legacyClaimsOf`, the one function FR-27's migration reads a person by too (#529).
  */
-function tokenizeFromRole(user: IUser): UserTokenized {
-  const roleDefaults = DEFAULT_ROLE_PERMISSIONS[user.role as Role] || DEFAULT_ROLE_PERMISSIONS.member
-  const merged = [...new Set([...roleDefaults, ...(user.permissions || [])])]
-  const areas = DEFAULT_ROLE_AREAS[user.role as Role]
-
+function claimsToken(user: IUser, sets: readonly LegacySet[]): UserTokenized {
+  const claims = legacyClaimsOf(user, sets)
   return {
     id: String(user._id),
     email: user.email,
@@ -676,9 +629,9 @@ function tokenizeFromRole(user: IUser): UserTokenized {
     lastName: user.lastName,
     role: user.role,
     orgId: String(user.orgId),
-    permissions: merged,
-    ownRecordsModules: [],
-    ...(areas ? { areas: [...areas] } : {}),
+    permissions: claims.permissions,
+    ownRecordsModules: claims.ownRecordsModules,
+    ...(claims.areas ? { areas: claims.areas } : {}),
     operatorCode: user.operatorCode,
   }
 }
