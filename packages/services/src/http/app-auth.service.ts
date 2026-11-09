@@ -4,8 +4,9 @@ import { config } from 'config'
 import type { UserTokenized } from '../biz/auth.service'
 import { buildScopedRepos } from '../biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from '../biz/tenant-guard'
-import { permissionRefusal } from '../biz/route-permission'
 import { shadowAccess } from '../biz/access/shadow'
+import { decideAccess } from '../biz/access/evaluate'
+import { attachAccess } from '../biz/access/live'
 import { homeGate } from '../biz/home-gate'
 import { licenceGate } from '../biz/licence/master-licence.service'
 import { isPublicRoute } from '../biz/public-routes'
@@ -29,13 +30,16 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
       secret: config.jwt.secret,
     }),
   )
-  .derive({ as: 'scoped' }, async ({ cookie, headers, jwt }) => {
+  .derive({ as: 'scoped' }, async ({ cookie, headers, jwt, set }) => {
     // A non-empty bearer token wins outright; the cookie is only for a request that sends none, and
     // an invalid bearer is never rescued by it. A verified signature is a session only if its claims
     // look like one. Both rules live in `services/biz/session-token.ts`, shared by all eight plugins.
     // A token naming a person (`iid`) is revoked by a password change or reset: `liveSessionUser`.
     const token = pickSessionToken(headers.authorization, sessionCookieValue(cookie, headers))
     const user: UserTokenized | null = token ? await liveSessionUser(asSessionUser(await jwt.verify(token))) : null
+    // FR-27.5: an org on `roles` takes the session's grant and claims from its role, read live.
+    const accessVersion = await attachAccess(user)
+    if (accessVersion) set.headers['x-access-version'] = accessVersion
 
     const scopedRepos = user?.ownRecordsModules?.length
       ? buildScopedRepos(user.ownRecordsModules, user.id)
@@ -52,8 +56,9 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
    */
   .onTransform({ as: 'scoped' }, ({ user, params, request, route, status }: any) => {
     if (isForeignOrg(user, params?.orgId)) return
-    const refusal = permissionRefusal(user, request.method, route)
-    // FR-27: an org in `shadow` also asks the new evaluator, and counts where it would answer otherwise.
+    // FR-27: an org on `roles` is decided by its people's roles, any other by the legacy rules; the other model is
+    // asked beside it in `shadow` and `roles`, and every answer it would give otherwise is counted.
+    const refusal = decideAccess(user, request.method, route)
     shadowAccess(user, params?.orgId, request.method, route, !!refusal)
     if (refusal) throw status(403, refusal)
   })

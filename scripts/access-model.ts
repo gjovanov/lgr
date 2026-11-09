@@ -5,6 +5,9 @@
  *   bun scripts/access-model.ts --org <slug> --set shadow     # legacy | shadow | roles (audited)
  *   bun scripts/access-model.ts --org <slug> --report --days 1
  *
+ * `roles` (FR-27 Phase 1): every request is decided by the person's role, and the legacy rules are counted beside it.
+ * It is refused while anyone in the org has no role. Back to `legacy` at any time: its fields are still written.
+ *
  * `shadow`: the legacy rules still decide, and the new evaluator counts each answer it would give differently
  * (`services/biz/access/shadow.ts`). An org moves to `roles` only after a day with none. Run on the org's home: the
  * setting is the home's (`settings` in `org.model.ts`), and the counts are each node's own.
@@ -12,7 +15,7 @@
  * Pods cache the model for a minute, so a switch reaches every request within it.
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
-import { AccessShadowDiff, Org } from '../packages/db/src/models/index.js'
+import { AccessShadowDiff, Org, User } from '../packages/db/src/models/index.js'
 import { recordAuditEntry } from '../packages/services/src/biz/audit-log.service.js'
 import { keepHomeOrgs } from './lib/home-guard.js'
 
@@ -26,7 +29,6 @@ const MODELS = ['legacy', 'shadow', 'roles']
 async function main() {
   if (!orgSlug) throw new Error('--org <slug> is required')
   if (set && !MODELS.includes(set)) throw new Error(`--set takes one of ${MODELS.join(', ')}`)
-  if (set === 'roles') throw new Error('`roles` arrives with FR-27 Phase 1: nothing reads it yet')
   // Indexes and collections are the deployed release's to build, not a script's.
   await connectDB({ readOnly: true })
 
@@ -37,6 +39,14 @@ async function main() {
   }
   const before = org.settings?.access?.model ?? 'legacy'
 
+  // FR-27 §4: `roles` decides by the person's role, so every person needs one (migration 0015).
+  if (set === 'roles') {
+    const without = await User.countDocuments({ orgId: org._id, roleId: { $exists: false } })
+    if (without) {
+      console.log(`${org.slug}: ${without} person(s) have no role yet; run \`bun run migrate\` (0015-roles-from-sets) first. Nothing changed.`)
+      return
+    }
+  }
   if (set && set !== before) {
     await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': set } }).exec()
     // Awaited: the script disconnects right after. No person: `via` says who.

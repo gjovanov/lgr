@@ -3064,6 +3064,13 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - Their role's defaults, or an `admin`: the built-in role. Anything else: an imported role per distinct access, named after their sets ("A + B", told apart by the role where two accesses share it) or "Role + extras".
   - ⚠ It reads live code (`legacyClaimsOf`, `compileLegacy`) on purpose: they are the oracle. It checks each person before it assigns them (`sameGrant`); a person it cannot match keeps no role.
   - Nothing reads `roleId` until an org's access model is `roles`.
+- **An org on `roles`** (`scripts/access-model.ts --set roles`; refused while anyone has no role):
+  - Both auth plugins call `attachAccess` (`services/biz/access/live.ts`). It reads the person's role live, membership and role each cached 60 s per process (`forgetMember`, `forgetRole` in the writing process), through the driver, not the models: the query budgets count only a request's own queries.
+  - The session gets the role's grant (`user.access`, non-enumerable, never serialised) and its claims from the role's projection, so what still reads claims follows the role.
+  - Responses carry `x-access-version: <roleId>:<version>`.
+  - `decideAccess` decides by the evaluator. `shadowAccess` asks the legacy rules on the projection beside it and counts where they differ.
+  - Sign-in issues the projection with `rid`/`rv`.
+  - A person with no role keeps their token's claims. Back to `legacy` at any time.
 
 ## Known Issues
 

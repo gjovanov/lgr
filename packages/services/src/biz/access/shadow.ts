@@ -1,6 +1,7 @@
 import { mongoose } from 'db/connection'
 import { AccessShadowDiff, Org } from 'db/models'
 import { logger } from '../../logger/logger.js'
+import { permissionRefusal } from '../route-permission'
 import { accessRefusal, type AccessCaller } from './evaluate'
 
 /**
@@ -88,16 +89,28 @@ function ensureFlushing(): void {
 }
 
 /**
- * For an org in `shadow`: what the evaluator answers, against what the legacy rules just answered. Returns at once;
- * the comparison runs after. `legacyRefused` is whether `permissionRefusal` refused.
+ * The other model's answer, against the one that just decided. Returns at once; the comparison runs after.
+ *   - `shadow`: the legacy rules decided; the evaluator is asked beside them.
+ *   - `roles` (FR-27.5): the evaluator decided on the role's grant; the legacy rules are asked on the role's
+ *     projection, so a role a release that reads no roles would serve differently shows up here.
+ * `decidedRefused` is whether the deciding model refused.
  */
-export function shadowAccess(user: AccessCaller | null | undefined, orgId: string | undefined, method: string, route: string, legacyRefused: boolean): void {
+export function shadowAccess(user: AccessCaller | null | undefined, orgId: string | undefined, method: string, route: string, decidedRefused: boolean): void {
   if (!user || !orgId || mongoose.connection.readyState !== 1) return
   void accessModelOf(orgId).then(model => {
-    if (model !== 'shadow') return
-    const evaluatorRefused = accessRefusal(user, method, route) !== null
+    let legacyRefused: boolean
+    let evaluatorRefused: boolean
+    if (model === 'shadow') {
+      legacyRefused = decidedRefused
+      evaluatorRefused = accessRefusal(user, method, route) !== null
+    } else if (model === 'roles' && user.access) {
+      evaluatorRefused = decidedRefused
+      legacyRefused = permissionRefusal(user as any, method, route) !== null
+    } else {
+      return
+    }
     if (evaluatorRefused === legacyRefused) return
-    recordShadowDiff({ orgId, method: method.toUpperCase(), route, role: user.role, legacyRefused })
+    recordShadowDiff({ orgId, method: method.toUpperCase(), route: route.replace(/\/+$/, ''), role: user.role, legacyRefused })
     ensureFlushing()
   }).catch(err => logger.warn({ err }, 'access shadow: could not compare'))
 }
