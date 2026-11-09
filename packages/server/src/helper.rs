@@ -247,8 +247,13 @@ fn reconcile(root: &Root, state: &UpdateState) -> Result<()> {
     }
     if pointer::service_version(root).as_deref() != Some(state.current.as_str()) {
         tracing::warn!(current = %state.current, "the service was not pointed where the update state says: pointing it there");
+        // #590: a running server is stopped before its pointer and firewall rule move.
+        let running = pointer::observe().map(|o| o.running).unwrap_or(false);
+        if running {
+            pointer::stop_for_switch()?;
+        }
         pointer::point_service(root, &state.current, &data_dir()?, false)?;
-        if pointer::observe().map(|o| o.running).unwrap_or(false) {
+        if running {
             pointer::restart()?;
         }
     }
@@ -468,6 +473,8 @@ fn try_update(root: &Root) -> Result<bool> {
     }
     let next = install::apply(&state, &offer.version, &plan, "helper");
     next.save(root)?;
+    // #590: stopped first, so every till sees its connections close before the firewall rule moves.
+    pointer::stop_for_switch()?;
     pointer::point_service(root, &next.current, &data_dir()?, false)?;
     pointer::point_helper(root, &next.last_known_good)?;
     tracing::info!(version = %offer.version, "switching to an update");
@@ -534,6 +541,7 @@ pub fn run(root: &Root) -> Result<()> {
                 // Marked before it is made: a crash from here on is finished by `reconcile`.
                 let next = install::rolled_back(&state, &attempt, &reason);
                 next.save(root)?;
+                pointer::stop_for_switch()?;
                 pointer::point_service(root, &next.current, &data_dir()?, false)?;
                 pointer::point_helper(root, &next.last_known_good)?;
                 pointer::restart()?;
@@ -617,6 +625,10 @@ pub fn install_bundle(root: Option<PathBuf>, bundle: Option<PathBuf>, start: boo
     }
     // The attempt is marked before the pointer moves.
     next.save(&root)?;
+    // #590: a server about to be restarted is stopped first; one left running keeps its rule.
+    if start {
+        pointer::stop_for_switch()?;
+    }
     pointer::point_service(&root, &next.current, &data, plan == Plan::First)?;
     pointer::point_helper(&root, &next.last_known_good)?;
     if start {
@@ -675,6 +687,7 @@ pub fn apply(bundle: PathBuf, sig: PathBuf, asc: Option<PathBuf>, no_backup: boo
         }
         let next = install::apply(&state, &v, &plan, "operator");
         next.save(&root)?;
+        pointer::stop_for_switch()?;
         pointer::point_service(&root, &next.current, &data, false)?;
         pointer::point_helper(&root, &next.last_known_good)?;
         pointer::restart()?;
