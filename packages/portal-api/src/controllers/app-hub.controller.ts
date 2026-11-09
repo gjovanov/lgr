@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { getAvailableApps, activateApp, deactivateApp } from 'services/biz/app-hub.service'
 import type { AppId } from 'config/constants'
@@ -15,7 +16,7 @@ export const appHubController = new Elysia({ prefix: '/org/:orgId/apps' })
     '/:appId/activate',
     async ({ params: { orgId, appId }, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+      if (!can(user, 'apps.manage')) return status(403, { message: 'Admin only' })
 
       try {
         const app = await activateApp(orgId, appId as AppId, user.id)
@@ -30,7 +31,7 @@ export const appHubController = new Elysia({ prefix: '/org/:orgId/apps' })
     '/:appId/deactivate',
     async ({ params: { orgId, appId }, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+      if (!can(user, 'apps.manage')) return status(403, { message: 'Admin only' })
 
       try {
         const app = await deactivateApp(orgId, appId as AppId)

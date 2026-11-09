@@ -13,7 +13,8 @@ import {
   lastFiscalized,
 } from 'fiscal/fiscal-device.service'
 import { fiscalCapabilities } from 'fiscal/capabilities'
-import { FISCAL_ADMIN_ROLES, onDevice, printDeviceReport, type DeviceReportRequest, type DeviceRow, type Status } from 'fiscal/device-command'
+import { can } from 'services/biz/access/evaluate'
+import { onDevice, printDeviceReport, type DeviceReportRequest, type DeviceRow, type Status } from 'fiscal/device-command'
 import { FiscalTargetError, fiscalTcpPolicy, resolveFiscalTcpTarget } from 'fiscal/tcp-target'
 import { nodeRole } from 'config'
 import { holdServerDevice, rebindBridgePrinter, releaseServerDevice } from '../websocket/fiscal-bridge.js'
@@ -47,8 +48,8 @@ const ManufacturerSchema = t.Union([
 ])
 
 /** Strip connection params for non-admin users (M1: sensitive data exposure) */
-function sanitizeDevice(device: any, userRole: string) {
-  if (FISCAL_ADMIN_ROLES.includes(userRole)) return device
+function sanitizeDevice(device: any, runsDevices: boolean) {
+  if (runsDevices) return device
   const { connectionParams, ...safe } = typeof device.toJSON === 'function' ? device.toJSON() : { ...device }
   return safe
 }
@@ -100,7 +101,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       // `capabilities`: what the device's driver can do (`fiscal/capabilities`), from its
       // manufacturer and connection alone — known whether or not it is connected.
       fiscalDevices: items.map((d: any) => ({
-        ...sanitizeDevice(d, user.role),
+        ...sanitizeDevice(d, can(user, 'devices.edit')),
         // Held by this process, or by a live row on any pod.
         connected: isDeviceConnected(d.id) || live.has(String(d.deviceNumber)),
         bridgedBy: holderOf(live.get(String(d.deviceNumber))) ?? undefined,
@@ -113,7 +114,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
   }, { isSignIn: true })
   .post('/', async ({ params: { orgId }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.edit')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     if (body.deviceNumber.length !== 8) {
@@ -163,14 +164,14 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     // The device page disables what the driver cannot do, and says why (`fiscal/capabilities`).
     return {
       fiscalDevice: {
-        ...sanitizeDevice(device, user.role),
+        ...sanitizeDevice(device, can(user, 'devices.edit')),
         capabilities: fiscalCapabilities(device.manufacturer, device.connectionType),
       },
     }
   }, { isSignIn: true })
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.edit')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const existing = await r.fiscalDevices.findOne({ id, orgId } as any) as any
@@ -226,7 +227,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
   })
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.edit')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const existing = await r.fiscalDevices.findOne({ id, orgId } as any)
@@ -243,7 +244,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
   // ── Device operations ──
   .post('/:id/connect', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.edit')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as any
@@ -285,7 +286,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
   }, { isSignIn: true, fiscalDevice: deviceFromParams })
   .post('/:id/disconnect', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.edit')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any)
@@ -320,7 +321,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
    */
   .post('/:id/z-report', async ({ params: { orgId, id }, user, status, body }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!['admin', 'manager'].includes(user.role)) return status(403, { message: 'Admin or manager required for Z-reports' })
+    if (!can(user, 'devices.z-report')) return status(403, { message: 'Admin or manager required for Z-reports' })
     const r = getRepos()
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
@@ -352,7 +353,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
    */
   .post('/:id/sync-time', async ({ params: { orgId, id }, user, status, body }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!['admin', 'manager'].includes(user.role)) return status(403, { message: 'Admin or manager required for time sync' })
+    if (!can(user, 'devices.sync-time')) return status(403, { message: 'Admin or manager required for time sync' })
     const r = getRepos()
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
@@ -393,7 +394,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
   // ── Report and operator endpoints ──
   .post('/:id/x-report', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.report')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
@@ -403,7 +404,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
   }, { isSignIn: true, fiscalDevice: deviceFromParams })
   .post('/:id/operator-report', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.report')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
@@ -418,7 +419,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
   })
   .post('/:id/fm-report', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.report')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
@@ -441,7 +442,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
   })
   .post('/:id/ej-report', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.report')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
@@ -457,7 +458,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
   })
   .post('/:id/program-operator', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.edit')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
@@ -487,7 +488,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
   })
   .post('/:id/read-operator', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.report')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
@@ -513,7 +514,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
    */
   .get('/:id/payment-names', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.edit')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
@@ -531,7 +532,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
    */
   .post('/:id/payment-names', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (user.role !== 'admin') return status(403, { message: 'Admin required to name payment types' })
+    if (!can(user, 'devices.name-payments')) return status(403, { message: 'Admin required to name payment types' })
     const r = getRepos()
 
     const device = await r.fiscalDevices.findOne({ id, orgId } as any) as DeviceRow | null
@@ -580,7 +581,7 @@ export const workstationController = new Elysia({ prefix: '/org/:orgId/fiscal/wo
   }, { isSignIn: true })
   .post('/', async ({ params: { orgId }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.edit')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const workstation = await r.workstations.create({ ...body, orgId, isActive: true } as any)
@@ -606,7 +607,7 @@ export const workstationController = new Elysia({ prefix: '/org/:orgId/fiscal/wo
   }, { isSignIn: true })
   .put('/:id', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.edit')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const existing = await r.workstations.findOne({ id, orgId } as any)
@@ -629,7 +630,7 @@ export const workstationController = new Elysia({ prefix: '/org/:orgId/fiscal/wo
   })
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!FISCAL_ADMIN_ROLES.includes(user.role)) return status(403, { message: 'Admin or manager required' })
+    if (!can(user, 'devices.edit')) return status(403, { message: 'Admin or manager required' })
     const r = getRepos()
 
     const existing = await r.workstations.findOne({ id, orgId } as any)

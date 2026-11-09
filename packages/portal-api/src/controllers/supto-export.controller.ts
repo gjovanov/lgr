@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { cashRegisterRefusal } from 'services/biz/cash-register/freeze-check'
 import {
@@ -25,7 +26,6 @@ import {
   generateTable189,
 } from 'reporting/excel/supto.excel'
 
-const ALLOWED_ROLES = ['admin', 'nra_auditor']
 
 const TABLE_DESCRIPTIONS: Record<string, string> = {
   '18.1': 'Summarized Sales',
@@ -54,7 +54,7 @@ export const suptoExportController = new Elysia({ prefix: '/org/:orgId/supto/exp
   // List available tables
   .get('/tables', async ({ user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!ALLOWED_ROLES.includes(user.role)) return status(403, { message: 'Admin or NRA auditor required' })
+    if (!can(user, 'supto.export')) return status(403, { message: 'Admin or NRA auditor required' })
 
     return {
       tables: Object.entries(TABLE_DESCRIPTIONS).map(([id, description]) => ({ id, description })),
@@ -63,7 +63,7 @@ export const suptoExportController = new Elysia({ prefix: '/org/:orgId/supto/exp
   // Export a specific table
   .get('/:tableId', async ({ params: { orgId, tableId }, query, user, status, set }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!ALLOWED_ROLES.includes(user.role)) return status(403, { message: 'Admin or NRA auditor required' })
+    if (!can(user, 'supto.export')) return status(403, { message: 'Admin or NRA auditor required' })
 
     if (!TABLE_DESCRIPTIONS[tableId]) {
       return status(400, { message: `Invalid table: ${tableId}. Valid: ${Object.keys(TABLE_DESCRIPTIONS).join(', ')}` })

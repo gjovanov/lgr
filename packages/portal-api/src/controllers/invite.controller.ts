@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { inviteDao } from 'services/dao/invite.dao'
 import { orgDao } from 'services/dao/org.dao'
@@ -64,7 +65,7 @@ export const inviteController = new Elysia()
     '/org/:orgId/invite',
     async ({ params: { orgId }, user, status, query }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+      if (!can(user, 'invites.manage')) return status(403, { message: 'Admin only' })
 
       const filter: Record<string, any> = { orgId }
       const result = await paginateQuery(Invite, filter, query)
@@ -77,7 +78,7 @@ export const inviteController = new Elysia()
     '/org/:orgId/invite',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+      if (!can(user, 'invites.manage')) return status(403, { message: 'Admin only' })
 
       // #510: an address that is sent must be one. A blank one used to make the invite an open link
       // with unlimited uses, which anyone holding it could join through.
@@ -122,7 +123,7 @@ export const inviteController = new Elysia()
     '/org/:orgId/invite/:inviteId',
     async ({ params: { orgId, inviteId }, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+      if (!can(user, 'invites.manage')) return status(403, { message: 'Admin only' })
 
       const invite = await inviteDao.revoke(inviteId, orgId)
       if (!invite) return status(404, { message: 'Invite not found or already revoked' })

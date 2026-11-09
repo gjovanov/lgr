@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
+import { can } from 'services/biz/access/evaluate'
 import { holdsArea } from 'config/constants'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
@@ -72,7 +73,7 @@ async function getNextCountNumber(orgId: string): Promise<string> {
  * transfers and nothing else. `inventory.write` keeps every type; `admin` is refused nothing.
  */
 function transferOnly(user: { role?: string; permissions?: readonly string[] }): boolean {
-  return user.role !== 'admin' && !user.permissions?.includes('inventory.write')
+  return !can(user, 'movements.create')
 }
 
 const TRANSFER_ONLY = { code: 'transfer_only', message: 'Your role moves stock between warehouses only: a transfer.' } as const

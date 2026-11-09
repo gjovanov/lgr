@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { Org } from 'db/models'
 import { config } from 'config'
@@ -34,7 +35,7 @@ function guard(user: any, orgId: string, status: any) {
   // ⚠ Load-bearing, not defensive: per CLAUDE.md the `isSignIn` macro does not by itself
   // reject anonymous callers on these controllers.
   if (!user) return status(401, { message: 'Unauthorized' })
-  if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+  if (!can(user, 'integrations.manage')) return status(403, { message: 'Admin only' })
   if (String(user.orgId || '') !== String(orgId)) {
     return status(403, { message: 'This integration belongs to a different organisation' })
   }

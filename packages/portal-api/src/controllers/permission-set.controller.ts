@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import {
   listPermissionSets,
@@ -43,14 +44,14 @@ const ownRecordsSchema = t.Optional(
  * set to a person is `admin`'s alone (`user.controller`). So defining what a set grants is too:
  * `admin.settings` reads the sets and cannot change what they grant.
  */
-const mayWrite = (user: { role?: string }) => user.role === 'admin'
+const mayWrite = (user: { role?: string; permissions?: readonly string[] }) => can(user, 'roles.edit')
 
 export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permission-sets' })
   .use(AuthService)
   // GET / — list all permission sets for the org
   .get('/', async ({ params: { orgId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('admin.settings') && user.role !== 'admin') {
+    if (!can(user, 'roles.view')) {
       return status(403, { message: 'Forbidden' })
     }
 
@@ -69,7 +70,7 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
   // GET /effective/:userId — compute effective permissions for a user
   .get('/effective/:userId', async ({ params: { orgId, userId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('admin.settings') && user.role !== 'admin') {
+    if (!can(user, 'roles.view')) {
       return status(403, { message: 'Forbidden' })
     }
 
@@ -84,7 +85,7 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
   // GET /:id — get one permission set
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!user.permissions?.includes('admin.settings') && user.role !== 'admin') {
+    if (!can(user, 'roles.view')) {
       return status(403, { message: 'Forbidden' })
     }
 

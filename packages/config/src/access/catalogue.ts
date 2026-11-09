@@ -38,7 +38,7 @@ export const CATALOGUE = [
   { id: 'cash-sales', group: 'invoicing', actions: ['view', 'storno', 'settle'] },
   // The terminal and its sessions.
   { id: 'till', group: 'invoicing', actions: ['view', 'sell', 'manage-sessions'] },
-  { id: 'devices', group: 'invoicing', actions: ['view', 'edit', 'report', 'z-report', 'sync-time'] },
+  { id: 'devices', group: 'invoicing', actions: ['view', 'edit', 'report', 'z-report', 'sync-time', 'name-payments'] },
   { id: 'sequences', group: 'invoicing', actions: ['view', 'edit'] },
 
   // ── Inventory ── `view` opens the page (`inventory.read`); `lookup` is what the other inventory permissions read.

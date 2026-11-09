@@ -5,7 +5,7 @@ import { config } from 'config'
 import { createAuditEntry, diffChanges, recordAuditEntry } from 'services/biz/audit-log.service'
 import { approvePayroll, calculatePayroll, PayrollRunRefusedError } from 'services/biz/payroll.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
-import { holdsPersonal } from 'services/biz/route-permission'
+import { can } from 'services/biz/access/evaluate'
 import { emitImportedDeclaration } from 'services/biz/payroll/bg/import.service'
 import { openRunItems, runDocument } from 'services/biz/payroll/bg/run.service'
 import { runView } from 'services/biz/payroll/bg/views'
@@ -58,7 +58,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
 
     const result = await r.payrollRuns.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
     // FR-25 §3.11: `payroll.read` is a run's totals. No line of anyone's without `payroll.personal`.
-    const items = result.items.map(run => runView(run, holdsPersonal(user)))
+    const items = result.items.map(run => runView(run, can(user, 'payroll-people.view')))
     return { ...result, payrollRuns: items, items }
   }, { isSignIn: true })
   .post(
@@ -77,7 +77,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'payroll', entityType: 'payroll_run', entityId: run.id, entityName: (run as any).name })
 
-      return { payrollRun: runView(run, holdsPersonal(user)) }
+      return { payrollRun: runView(run, can(user, 'payroll-people.view')) }
     },
     {
       isSignIn: true,
@@ -98,7 +98,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     const run = await r.payrollRuns.findOne({ id, orgId } as any)
     if (!run) return status(404, { message: 'Payroll run not found' })
 
-    return { payrollRun: runView(run, holdsPersonal(user)) }
+    return { payrollRun: runView(run, can(user, 'payroll-people.view')) }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -115,7 +115,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (updated as any).name, changes: diffChanges(existing as any, updated as any) })
 
-      return { payrollRun: runView(updated, holdsPersonal(user)) }
+      return { payrollRun: runView(updated, can(user, 'payroll-people.view')) }
     },
     {
       isSignIn: true,
@@ -154,7 +154,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
 
     // FR-25 §6.4: under the Bulgarian engine this reads and seals one person at a time.
     const org = await r.orgs.findById(orgId)
-    if (org?.settings?.payroll?.engine === 'bg' && !holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+    if (org?.settings?.payroll?.engine === 'bg' && !can(user, 'payroll-people.view')) return status(403, PERSONAL_REFUSAL)
 
     let updatedRun
     try {
@@ -166,7 +166,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
 
     createAuditEntry({ orgId, userId: user.id, action: 'calculate', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (run as any).name })
 
-    return { payrollRun: runView(updatedRun, holdsPersonal(user)) }
+    return { payrollRun: runView(updatedRun, can(user, 'payroll-people.view')) }
   }, { isSignIn: true, body: t.Optional(t.Object({ inputs: t.Optional(t.Array(MonthInputBody)) })) })
   .post('/:id/approve', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -187,7 +187,7 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
 
     createAuditEntry({ orgId, userId: user.id, action: 'approve', module: 'payroll', entityType: 'payroll_run', entityId: id, entityName: (run as any).name })
 
-    return { payrollRun: runView(updatedRun, holdsPersonal(user)) }
+    return { payrollRun: runView(updatedRun, can(user, 'payroll-people.view')) }
   }, { isSignIn: true })
   // FR-25 §3.12: one person's month on a Bulgarian run is sealed, and this is how a person reads it.
   // The route rule needs `payroll.personal`. ⚠ The audit row is written first, and no row means no value.

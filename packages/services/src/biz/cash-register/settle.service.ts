@@ -1,6 +1,6 @@
 /**
  * FR-23 — the settle door: a person looked at the device, and says whether a document nothing could
- * prove printed. One door and one set of rights (`STORNO_ROLES`) for everything held in doubt:
+ * prove printed. One door and one right (`cash-sales.settle`: a storno's roles) for everything held in doubt:
  * `POST /cash-register/documents/:id/settle`.
  *
  *   - **A payment's receipt.** Printed: its session counts it and its payment is recorded. Not printed:

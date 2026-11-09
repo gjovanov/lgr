@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { nodeRole } from 'config'
 import { AuthService } from '../auth/auth.service.js'
 import { isSysAdmin } from 'services/biz/sys-admin'
@@ -14,7 +15,7 @@ import { AddressError, addressView, decideAddress, listAddresses, requestAddress
  */
 
 function canAdmin(user: any): boolean {
-  return user?.role === 'admin' || !!user?.permissions?.includes('admin.settings')
+  return can(user, 'servers.manage')
 }
 
 const refusal = (status: any, e: unknown) => {

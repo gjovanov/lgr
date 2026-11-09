@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { nodeRole } from 'config'
 import { AuthService } from '../auth/auth.service.js'
 import { serverStatus, tunnelReach } from 'services/biz/node/server-status'
@@ -22,7 +23,7 @@ import { thisNode } from 'db/home/home'
  */
 
 function canAdmin(user: any): boolean {
-  return user?.role === 'admin' || !!user?.permissions?.includes('admin.settings')
+  return can(user, 'servers.manage')
 }
 
 export const serverStatusController = new Elysia({ prefix: '/org/:orgId/server' })

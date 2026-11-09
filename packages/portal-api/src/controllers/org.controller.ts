@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { orgDao } from 'services/dao/org.dao'
 import { createAuditEntry } from 'services/biz/audit-log.service'
@@ -18,7 +19,7 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+      if (!can(user, 'org-settings.edit')) return status(403, { message: 'Admin only' })
 
       // Each settings block sent replaces that block, and only that one. A whole `settings` in the
       // update replaced every block the page never sends — the org's time zone (the digest's days,

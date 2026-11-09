@@ -1,4 +1,6 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
+import type { CapabilityId } from 'config/access'
 import { AuthService } from '../auth/auth.service.js'
 import { Tag, Product, Contact, Warehouse, Employee, Invoice } from 'db/models'
 import { createAuditEntry } from 'services/biz/audit-log.service'
@@ -26,9 +28,18 @@ const WRITE_BY_TYPE: Readonly<Record<string, string>> = {
   employee: 'payroll.write',
 }
 
+/** FR-27: what a tag write asks, by the type it tags; each is what `WRITE_BY_TYPE`'s permission gives. */
+const CAP_BY_TYPE: Readonly<Record<string, CapabilityId>> = {
+  product: 'products.edit',
+  warehouse: 'warehouses.edit',
+  contact: 'contacts.edit',
+  invoice: 'sales-docs.edit',
+  employee: 'payroll-people.edit',
+}
+
 function tagWriteRefusal(user: { role?: string; permissions?: readonly string[] }, type: string) {
   const need = WRITE_BY_TYPE[type]
-  if (!need || user.role === 'admin' || user.permissions?.includes(need)) return null
+  if (!need || can(user, CAP_BY_TYPE[type])) return null
   return { code: 'permission_required', permissions: [need], message: `Permission required: ${need}` }
 }
 

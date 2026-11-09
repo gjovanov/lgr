@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { mongoose } from 'db/connection'
 import {
@@ -39,7 +40,7 @@ const MAX_BATCH = 60
 /** Explicit auth + `admin.settings` gate. Returns a 401/403 Response to short-circuit, or null. */
 function gate(user: any, status: any) {
   if (!user) return status(401, { message: 'Unauthorized' })
-  if (user.role !== 'admin' && !user.permissions?.includes('admin.settings')) {
+  if (!can(user, 'files.view')) {
     return status(403, { message: 'Administrator access required' })
   }
   return null
@@ -56,7 +57,7 @@ function gate(user: any, status: any) {
  */
 function readGate(user: any, status: any) {
   if (!user) return status(401, { message: 'Unauthorized' })
-  if (user.role === 'nra_auditor') return null
+  if (can(user, 'files.archives')) return null
   return gate(user, status)
 }
 

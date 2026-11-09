@@ -81,7 +81,8 @@ export const LEGACY_BRIDGE: Readonly<Record<Permission, readonly Cap[]>> = {
 
   // ⚠ Checked by nothing today (FR-27 §1.3).
   'admin.users': [...BACK_OFFICE],
-  'admin.settings': ['files.view', 'files.manage', 'desktops.view', 'servers.view', ...BACK_OFFICE],
+  // The pages (`.view`, a portal page each) and what their controllers ask (`.manage`, no area).
+  'admin.settings': ['files.view', 'files.manage', 'desktops.view', 'desktops.manage', 'servers.view', 'servers.manage', 'numbering.manage', 'roles.view', ...BACK_OFFICE],
   'admin.audit': ['audit-log.view', 'audit-log.lookup', ...BACK_OFFICE],
 }
 
