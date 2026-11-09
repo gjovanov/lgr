@@ -20,6 +20,7 @@ import {
 } from '../lib/counter-receipt.js'
 import { issueTender, prepareIssueRefund, prepareRefund, refund, refundOutcome, refundedBy, type PreparedRefund } from '../lib/counter-refund.js'
 import { computePosTotals } from 'config/pos-totals'
+import { cashSaleLineAmounts } from 'config/line-amounts'
 import { assertHomeIsHere } from 'db/home/home'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { InvoiceWriteLost, createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
@@ -857,12 +858,16 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // sequence, where every losing duplicate of a racing retry would otherwise burn a number.
       if (isCashSale) {
         const origin = originOf(body)
+        // #573: each line's VAT and gross are the server's, from its terms, as the cash-sale form computes
+        // them. They are what the total is shared out by per rate, on a joined sale's receipt and in the
+        // VAT it books, and the request's could be anything. An imported day keeps its file's.
+        const saleLines = origin === 'import' ? lines : lines.map((l: any) => ({ ...l, ...cashSaleLineAmounts(l) }))
         // FR-21.30: a cash sale entered here is totalled as the till totals one — the same function,
         // the same tolerance — and stored with the server's figures, so a joined sale's receipt
         // and its document agree to the cent. An imported day keeps the totals of its file.
         const pos = origin === 'import'
           ? null
-          : computePosTotals(lines.map((l: any) => ({
+          : computePosTotals(saleLines.map((l: any) => ({
               quantity: Number(l.quantity) || 0, unitPrice: Number(l.unitPrice) || 0,
               taxRate: Number(l.taxRate) || 0, discount: Number(l.discount) || 0,
             })))
@@ -874,7 +879,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           })
         }
         // #554: its VAT and net as the device books them, out of the gross per rate its lines give it.
-        if (pos) Object.assign(pos, deviceTotals({ total: pos.total, discountTotal: pos.discountTotal, lines }))
+        if (pos) Object.assign(pos, deviceTotals({ total: pos.total, discountTotal: pos.discountTotal, lines: saleLines }))
         // FR-21.31 (D-13): a sale entered here by someone with an open session joins it. An imported
         // till day never does: it is a day's takings, not one drawer's sale.
         createCtx.joined = origin === 'backoffice' ? await openSessionOf(orgId, user.id) : null
@@ -906,7 +911,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         const printer = context.printer ?? null
         const fields = {
           ...body,
-          lines,
+          lines: saleLines,
           dueDate,
           orgId,
           direction: 'outgoing',
@@ -1178,6 +1183,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // What the request leaves out, as `POST` derives it, and every write below carries it. ⚠ Before the
       // freeze reads the request: a total only derived here still moves what a receipt printed. An
       // invoice for a cash sale takes all of it from the sale, below.
+      // #573: a cash sale's line amounts are the server's, as when it was made. An imported day keeps its file's.
+      if (existing.type === 'cash_sale' && body.lines && originOf(existing) !== 'import') {
+        ;(body as any).lines = body.lines.map((l: any) => ({ ...l, ...cashSaleLineAmounts(l) }))
+      }
       if (!(existing as any).cashSaleRef?.cashSaleId) Object.assign(body, editedAmounts(existing as any, body as any))
       // FR-23 §2.7: a printed receipt cannot change, so what it printed cannot either. Anything else
       // on the document stays editable, as on every other.

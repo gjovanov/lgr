@@ -71,6 +71,32 @@ describe('tillTotals (#554)', () => {
   })
 })
 
+describe('tillLineAmounts (#573)', () => {
+  it('for the terminal, which gives no discount, the amounts are what they always were, to the bit', () => {
+    // The expressions as they stood before the server computed them, verbatim.
+    const before = (l: { quantity: number; unitPrice: number; taxRate: number }) => ({
+      taxAmount: Math.round(l.quantity * l.unitPrice * ((l.taxRate || 0) / 100) * 100) / 100,
+      lineTotal: l.quantity * l.unitPrice,
+    })
+    let seed = 11
+    const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647
+    for (let i = 0; i < 5000; i++) {
+      const l = {
+        quantity: 1 + Math.floor(rnd() * 120),
+        unitPrice: Math.round(rnd() * 400 * 10000) / 10000,
+        taxRate: [0, 9, 20][Math.floor(rnd() * 3)],
+      }
+      expect(tillLineAmounts(l)).toEqual(before(l))
+      expect(tillLineAmounts({ ...l, discount: 0 })).toEqual(before(l))
+    }
+  })
+
+  it('a discount, which only an API client sends, comes off the net as computePosTotals takes it off the total', () => {
+    expect(tillLineAmounts({ quantity: 4, unitPrice: 25, discount: 10, taxRate: 20 })).toEqual({ taxAmount: 18, lineTotal: 90 })
+    expect(computePosTotals([{ quantity: 4, unitPrice: 25, discount: 10, taxRate: 20 }]).total).toBe(108)
+  })
+})
+
 describe('roundCents', () => {
   it('rounds half away from zero, including values whose binary form sits just below the half', () => {
     expect(roundCents(1.005)).toBe(1.01)

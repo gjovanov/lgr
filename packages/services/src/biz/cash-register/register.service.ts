@@ -31,7 +31,7 @@
  * key, and the user.
  */
 import { Invoice, POSSession, StockMovement } from 'db/models'
-import { roundCents } from 'config/pos-totals'
+import { roundCents, tillLineAmounts } from 'config/pos-totals'
 import { getRepos } from '../../context.js'
 import { logger } from '../../logger/logger.js'
 import { createAuditEntry } from '../audit-log.service.js'
@@ -179,7 +179,9 @@ export async function tillSaleDocument(input: TillSaleInput): Promise<Record<str
     type: 'sale',
     status: 'completed',
     ...(input.customerId ? { customerId: oid(input.customerId) } : {}),
-    lines: input.lines.map(l => ({ ...l, productId: oid(l.productId) })),
+    // #573: each line's VAT and net are the server's, from its terms. They are what the sale's total is
+    // shared out by per rate, on the receipt and in the VAT it books, and the request's could be anything.
+    lines: input.lines.map(l => ({ ...l, ...tillLineAmounts(l), productId: oid(l.productId) })),
     subtotal: totals.subtotal,
     discountTotal: totals.discountTotal,
     taxTotal: totals.taxTotal,
