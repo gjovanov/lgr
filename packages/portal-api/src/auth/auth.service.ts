@@ -5,6 +5,7 @@ import type { SessionUser } from 'services/biz/auth.service'
 import { buildScopedRepos } from 'services/biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
 import { permissionRefusal } from 'services/biz/route-permission'
+import { shadowAccess } from 'services/biz/access/shadow'
 import { homeGate } from 'services/biz/home-gate'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { isPublicRoute } from 'services/biz/public-routes'
@@ -58,6 +59,8 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
     }
     if (isForeignOrg(user, params?.orgId)) return
     const refusal = permissionRefusal(user, request.method, route)
+    // FR-27: an org in `shadow` also asks the new evaluator, and counts where it would answer otherwise.
+    shadowAccess(user, params?.orgId, request.method, route, !!refusal)
     if (refusal) throw status(403, refusal)
   })
   /**

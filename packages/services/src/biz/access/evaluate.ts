@@ -1,0 +1,62 @@
+import { accessRuleFor, can as grantCan, compileLegacy, type CapabilityId, type Grant, type LegacyClaims } from 'config/access'
+import { orgRouteRest, pinScopeRefusal } from '../route-permission'
+
+/**
+ * FR-27.2 — the one evaluator (#529).
+ *
+ * Phase 0: a session's grant is compiled from its token's legacy claims (`compileLegacy`), so it decides exactly
+ * what `route-permission.ts#permissionRefusal` decides. It runs beside it in shadow (`./shadow.ts`), and the
+ * controllers' own checks move onto `can()` slice by slice. Phase 1 resolves the grant from the person's role.
+ *
+ * Import-pure apart from config: no Elysia, no database.
+ */
+
+export interface AccessCaller extends LegacyClaims {
+  amr?: readonly string[]
+}
+
+const MAX_MEMO = 5_000
+const memo = new Map<string, Grant>()
+
+/** The grant a session's claims compile to, memoised: the auth plugins ask on every request. */
+export function grantOf(user: AccessCaller | null | undefined): Grant {
+  if (!user) return compileLegacy(null)
+  const key = `${user.role ?? ''}|${(user.permissions ?? []).join(',')}|${Array.isArray(user.areas) ? user.areas.join(',') : '*'}`
+  let grant = memo.get(key)
+  if (!grant) {
+    if (memo.size >= MAX_MEMO) memo.clear()
+    grant = compileLegacy(user)
+    memo.set(key, grant)
+  }
+  return grant
+}
+
+/** May this session do this? The one question controllers ask (FR-27.2). */
+export function can(user: AccessCaller | null | undefined, cap: CapabilityId | readonly CapabilityId[]): boolean {
+  return !!user && grantCan(grantOf(user), cap)
+}
+
+export type AccessRefusal =
+  | { message: string; code: 'permission_required'; capabilities?: readonly CapabilityId[] }
+  | { message: string; code: 'pin_session_scope' }
+
+/**
+ * Why this session may not make this request, or null when it may. The same exemptions as `permissionRefusal`:
+ * routes outside an org, a request without a caller (the 401 is the auth plugin's) and an OPTIONS preflight.
+ * A PIN session's scope first, unchanged (FR-20.40).
+ */
+export function accessRefusal(user: AccessCaller | null | undefined, method: string, route: string): AccessRefusal | null {
+  const pin = pinScopeRefusal(user, method, route)
+  if (pin) return pin
+  const m = method.toUpperCase()
+  if (!user || m === 'OPTIONS') return null
+  const path = route.startsWith('/api/') ? route : `/api${route.startsWith('/') ? '' : '/'}${route}`
+  const rest = orgRouteRest(path)
+  if (rest === null) return null
+  const grant = grantOf(user)
+  if (grant.all) return null
+  const rule = accessRuleFor(m, rest)
+  if (!rule) return { message: 'This route has no permission rule', code: 'permission_required' }
+  if (!('anyOf' in rule) || grantCan(grant, rule.anyOf)) return null
+  return { message: `Not part of your role: ${rule.anyOf.join(' or ')}`, code: 'permission_required', capabilities: rule.anyOf }
+}
