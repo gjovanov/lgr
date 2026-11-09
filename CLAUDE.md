@@ -4457,3 +4457,23 @@ shape; nothing else spells them) · `plusminus-exports` (the parsers, import-pur
   "equal" or counts, never an amount, so its output can go in a public PR.
 - **Tests:** `unit/accounting-books.test.ts`, `integration/accounting-books-import.flow.test.ts` (every
   row of §1.4 as a made-up fixture), `dal/repos/journal-entry.repo.test.ts`.
+
+## The contact ledger searches by product and by number (2026-11-09, #526)
+
+`GET /invoicing/contact-ledger/:contactId` takes `productSearch` (the Products page's matching,
+`buildProductSearchFilter`) and `documentNumber` (part of the number, any case). The page and the
+line-picking dialog (`useContactLedger`) send them debounced. Both narrow through an `$and`, never a
+key of their own, so `outgoingOnly` (FR-26.6) still decides what a session sees.
+- ⚠ **With a product search the summary is per line, from the documents' own money.** Each matching
+  line takes the share of its document's `subtotal` / `taxTotal` / `total` that its terms (quantity ×
+  price, discount, rate) weigh among the document's lines. Never sum the stored `lineTotal`: an
+  imported invoice line's is NET (`map-invoice.ts`, `document-amounts.ts`) where a form's is gross,
+  so the table's Total column mixes the two. A search that finds every line gives exactly the
+  unfiltered summary, and a test holds that.
+- The cost behind profitability keeps a Type filter. Its `type: { $nin: … }` used to REPLACE the
+  filter's, so under Type = Invoice it cost every type sold.
+- Rows sort with the line's place in its document as the last key: a page boundary inside a
+  document is the same on every request. The page is cut before the lookups.
+- Tests: `integration/contact-ledger.flow.test.ts` (the `#526` block), the Seller case in
+  `seller-roles.flow.test.ts`, `e2e/tests/contact-ledger-search.spec.ts`. ⚠ A new e2e spec runs
+  nowhere until a project in `playwright.config.ts` lists it by name.

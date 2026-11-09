@@ -1,5 +1,6 @@
 import { Invoice, Product } from 'db/models'
 import { NOT_PAYMENT_RECEIPT, NOT_UNPROVED_STORNO, saleScopeFilter } from './sale-counting.js'
+import { buildProductSearchFilter, buildSearchFilter } from './search.utils.js'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
 
@@ -45,8 +46,61 @@ export interface ContactLedgerOptions {
   documentTypes?: string[]
   /** FR-26.6: a session without `purchases` sees the contact's outgoing documents only. */
   outgoingOnly?: boolean
+  /**
+   * #526: only the lines of the products this text finds, matched as the Products page matches it
+   * (`buildProductSearchFilter`). The rows and the summary both count those lines alone.
+   */
+  productSearch?: string
+  /** #526: only the documents whose number contains this text, case-insensitive, as the invoice list matches it. */
+  documentNumber?: string
   page?: number
   size?: number
+}
+
+/**
+ * A line's money from its terms, as the document forms reckon it (`config/line-amounts`): what it weighs among its
+ * document's lines. `l` is the line's path in the pipeline (`$lines`, `$$l`).
+ */
+function lineWeights(l: string): { net: any; tax: any; gross: any } {
+  const n = (field: string) => ({ $ifNull: [`${l}.${field}`, 0] })
+  const net = { $multiply: [n('quantity'), n('unitPrice')] }
+  const taxable = { $multiply: [net, { $subtract: [1, { $divide: [n('discount'), 100] }] }] }
+  const rate = { $divide: [n('taxRate'), 100] }
+  return { net, tax: { $multiply: [taxable, rate] }, gross: { $multiply: [taxable, { $add: [1, rate] }] } }
+}
+
+/**
+ * #526: the summary rows of the lines a product search found, in the shape of the documents' own
+ * (`{ _id: { direction, type }, subtotal, taxTotal, total }`).
+ *
+ * Each line takes the share of its document's net, VAT and gross that its terms weigh among all the document's
+ * lines. The stored line amounts are not read, because they do not mean one thing: an imported line's `lineTotal`
+ * is net where a form's is gross (`document-amounts.ts`). So a document whose every line matches counts exactly as
+ * the unfiltered summary counts it, and the rest of the document's money stays out.
+ */
+function productLinesSummary(matchStage: Record<string, any>, productIds: unknown[]): any[] {
+  const all = (k: 'net' | 'tax' | 'gross') => ({ $sum: { $map: { input: '$lines', as: 'l', in: lineWeights('$$l')[k] } } })
+  const share = (k: 'net' | 'tax' | 'gross', amount: string) => ({
+    $cond: [
+      { $eq: [`$_weights.${k}`, 0] },
+      0,
+      { $multiply: [{ $ifNull: [amount, 0] }, { $divide: [lineWeights('$lines')[k], `$_weights.${k}`] }] },
+    ],
+  })
+  return [
+    { $match: matchStage },
+    { $addFields: { _weights: { net: all('net'), tax: all('tax'), gross: all('gross') } } },
+    { $unwind: '$lines' },
+    { $match: { 'lines.productId': { $in: productIds } } },
+    {
+      $group: {
+        _id: { direction: '$direction', type: '$type' },
+        subtotal: { $sum: share('net', '$subtotal') },
+        taxTotal: { $sum: share('tax', '$taxTotal') },
+        total: { $sum: share('gross', '$total') },
+      },
+    },
+  ]
 }
 
 export async function getContactLedger(
@@ -81,10 +135,35 @@ export async function getContactLedger(
     if (options.dateTo) matchStage.issueDate.$lte = new Date(options.dateTo)
   }
 
-  const pipeline: any[] = [
+  // #526: the two searches only narrow what the filters above let through. They go in an `$and`, never under a key of
+  // their own, so they cannot replace one: a session limited to outgoing documents finds no bill by either.
+  const narrowing: Record<string, any>[] = []
+  const numberQuery = options.documentNumber?.trim()
+  if (numberQuery) narrowing.push(buildSearchFilter(numberQuery, ['invoiceNumber']))
+  let productIds: unknown[] | null = null
+  const productQuery = options.productSearch?.trim()
+  if (productQuery) {
+    // The tenant plugin filters nothing: the org is named here.
+    const found = await Product.find({ orgId: orgOid, ...buildProductSearchFilter(productQuery) }, { _id: 1 }).lean().exec()
+    productIds = found.map((p: any) => p._id)
+    narrowing.push({ 'lines.productId': { $in: productIds } })
+  }
+  if (narrowing.length) matchStage.$and = [...(matchStage.$and ?? []), ...narrowing]
+  // A row is a line: with a product search, a line of a product it found.
+  const lineMatch: any[] = productIds ? [{ $match: { 'lines.productId': { $in: productIds } } }] : []
+
+  const rows: any[] = [
     { $match: matchStage },
-    { $unwind: '$lines' },
-    { $sort: { issueDate: -1, _id: -1 } },
+    // The line's place in its document breaks the sort's ties, so a page ends on the same line every time.
+    { $unwind: { path: '$lines', includeArrayIndex: '_line' } },
+    ...lineMatch,
+  ]
+
+  const pipeline: any[] = [
+    ...rows,
+    { $sort: { issueDate: -1, _id: -1, _line: 1 } },
+    // The page is cut before the lookups, which then run for its rows alone.
+    ...(size > 0 ? [{ $skip: page * size }, { $limit: size }] : []),
     {
       $lookup: {
         from: 'products',
@@ -126,16 +205,9 @@ export async function getContactLedger(
     },
   ]
 
-  // Get total count
-  const countPipeline = [...pipeline, { $count: 'total' }]
+  const countPipeline = [...rows, { $count: 'total' }]
   const countResult = await Invoice.aggregate(countPipeline)
   const total = countResult[0]?.total ?? 0
-
-  // Paginate
-  if (size > 0) {
-    pipeline.push({ $skip: page * size })
-    pipeline.push({ $limit: size })
-  }
 
   const docs = await Invoice.aggregate(pipeline)
 
@@ -154,8 +226,8 @@ export async function getContactLedger(
     lineTotal: d.lineTotal || 0,
   }))
 
-  // Compute expanded summary from all matching invoices (not paginated)
-  const summaryPipeline: any[] = [
+  // Compute expanded summary from all matching invoices (not paginated); with a product search, from their lines of it.
+  const summaryPipeline: any[] = productIds ? productLinesSummary(matchStage, productIds) : [
     { $match: matchStage },
     {
       $group: {
@@ -202,9 +274,17 @@ export async function getContactLedger(
 
   // Compute profitability based on purchasePrice of products sold
   const costPipeline: any[] = [
-    // After the spread: this `type` replaces the one `matchStage` carries, so it names the receipt too.
-    { $match: { ...matchStage, direction: 'outgoing', type: { $nin: ['credit_note', 'payment_receipt', 'payment_storno'] } } },
+    // The receipts and the credit notes in an `$and`, beside the `type` `matchStage` carries: a `type` key of its own
+    // here replaced that one, so under a Type filter the cost was the cost of every type sold.
+    {
+      $match: {
+        ...matchStage,
+        direction: 'outgoing',
+        $and: [...(matchStage.$and ?? []), { type: { $nin: ['credit_note', 'payment_receipt', 'payment_storno'] } }],
+      },
+    },
     { $unwind: '$lines' },
+    ...lineMatch,
     {
       $lookup: {
         from: 'products',
