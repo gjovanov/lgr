@@ -35,6 +35,14 @@ describe('lineItemName', () => {
     expect(stripLabel('УСЛУГИ:Комисионна')).toBe('Комисионна')
     expect(stripLabel('КИТ:Винт DIN 914')).toBe('КИТ:Винт DIN 914')
   })
+
+  it('strips the other groups PlusMinus files stock items under, so a receipt finds the product', () => {
+    expect(lineItemName({ name: 'НОЖ - ЗЕГЕ - Т144D', item: 'ПАРТНЬОРИ:НОЖ - ЗЕГЕ - Т144D' })).toBe('НОЖ - ЗЕГЕ - Т144D')
+    expect(stripLabel('ПРОДУКЦИЯ:U-БОЛТ - М10')).toBe('U-БОЛТ - М10')
+    expect(stripLabel('МАТЕРИАЛИ:Опаковка')).toBe('Опаковка')
+    // Only a leading group: a name that merely contains one keeps it.
+    expect(stripLabel('СТОКИ:ПАРТНЬОРИ:X')).toBe('ПАРТНЬОРИ:X')
+  })
 })
 
 describe('docLineEffects', () => {
