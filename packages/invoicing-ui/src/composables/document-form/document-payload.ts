@@ -19,6 +19,7 @@
 import type { DocumentTypeConfig } from './types'
 import { MAX_PRICE_TIERS } from 'config/constants'
 import { computePosTotals, deviceTotals } from 'config/pos-totals'
+import { lineAmounts } from 'config/line-amounts'
 import { buildProductUpdates as buildGRProductUpdates, type GRBase, type GRTier } from 'ui-shared/composables/gr-product-update'
 
 /**
@@ -124,32 +125,12 @@ export function round2(v: number): number {
   return +num(v).toFixed(2)
 }
 
-export interface LineAmounts {
-  net: number
-  discountAmount: number
-  taxable: number
-  taxAmount: number
-  total: number
-}
-
 /**
- * Per-line raw (unrounded) amounts.
- *  - discount-aware (sales invoice, proforma, credit and debit notes): taxable =
- *    net − net·discount%, then tax.
- *  - non-discount (purchase invoice, cash sale): legacy expressions reproduced exactly
- *    (`qty·price·rate/100` and `qty·price·(1 + rate/100)`).
+ * Per-line raw (unrounded) amounts. In config since #573: the server stores a back-office cash sale's
+ * line amounts by the same rule, rather than as the request sends them.
  */
-export function lineAmounts(l: LineInput, hasDiscount: boolean): LineAmounts {
-  const net = num(l.quantity) * num(l.unitPrice)
-  if (hasDiscount) {
-    const discountAmount = net * (num(l.discount) / 100)
-    const taxable = net - discountAmount
-    const taxAmount = taxable * (num(l.taxRate) / 100)
-    return { net, discountAmount, taxable, taxAmount, total: taxable + taxAmount }
-  }
-  const taxAmount = net * num(l.taxRate) / 100
-  return { net, discountAmount: 0, taxable: net, taxAmount, total: net * (1 + num(l.taxRate) / 100) }
-}
+export { lineAmounts }
+export type { LineAmounts } from 'config/line-amounts'
 
 /** Lines that count toward totals / get persisted: those linked to a product OR
  *  free-text lines with a description (e.g. OCR-imported lines whose product had no

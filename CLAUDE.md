@@ -1279,6 +1279,10 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   `computePosTotals`' own VAT, so the screens show the stored figures too: the till through `tillTotals` (and
   sends `tillLineAmounts`), the cash-sale form through `computeTotals`, whose net is the „Словом" note's tax base.
   The total never moves. Sales stored before keep their cent.
+  ⚠ So a cash sale's line amounts are the SERVER's (#573), whatever the request carries: the till stores
+  `tillLineAmounts`, the back office (POST and PUT) the cash-sale form's rule, `config/line-amounts#cashSaleLineAmounts`
+  (the forms re-export its `lineAmounts`). They were stored as sent, so an old tab, an API client or a test helper
+  moved the per-rate split, on the receipt and in the books. An imported day keeps its file's.
 - A device's own reports (X, Z, fiscal memory) count only fiscal receipts. A unit not yet fiscalized prints every
   till sale as a text receipt, so its reports print 0.00 against a session that sold, correctly. POS Sessions →
   Device reports says how many text receipts they leave out (`GET …/device-report` → `notOnDevice`).

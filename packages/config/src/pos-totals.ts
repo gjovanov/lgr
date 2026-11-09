@@ -147,13 +147,19 @@ export function deviceTotals(doc: GrossSource): { taxTotal: number; subtotal: nu
 }
 
 /**
- * A till line's VAT and net as the terminal sends them; the till gives no discount. The till stores their sum,
- * rounded, as the line's gross (FR-21.5, `fromPosTransaction`), which is what `grossByRate` shares the sale's total by.
+ * A till line's VAT and net. The till stores their sum, rounded, as the line's gross (FR-21.5, `fromPosTransaction`),
+ * which is what `grossByRate` shares the sale's total by. So the server computes them from the line's terms, whatever
+ * the request says (#573); the terminal sends the same.
+ *
+ * The terminal gives no discount, and for it these are the amounts they always were. A discount, which only an API
+ * client sends, comes off the net, as `computePosTotals` takes it off the total.
  */
 export function tillLineAmounts(line: PosTotalsLine): { taxAmount: number; lineTotal: number } {
+  const base = line.quantity * line.unitPrice
+  const net = base - base * ((line.discount || 0) / 100)
   return {
-    taxAmount: Math.round(line.quantity * line.unitPrice * ((line.taxRate || 0) / 100) * 100) / 100,
-    lineTotal: line.quantity * line.unitPrice,
+    taxAmount: Math.round(net * ((line.taxRate || 0) / 100) * 100) / 100,
+    lineTotal: net,
   }
 }
 
