@@ -10,7 +10,7 @@ import {
   createTestNotification,
 } from '../helpers/factories'
 import { mongoose } from 'db/connection'
-import { AuditLog, Identity, Invoice, Org, OrgLogo, PermissionSet, Product, Role, Sequence, StockLevel, User } from 'db/models'
+import { AuditLog, Identity, Invoice, LeaveBalance, Org, OrgLogo, PermissionSet, Product, Role, Sequence, StockLevel, Tag, User } from 'db/models'
 import { tenantCollections } from 'services/biz/backup/backup-bundle.service'
 import {
   OrgCloneError, assertCloneAllowed, cloneOrgData, compareOrgs, convertToTestOrg, createTestOrgFrom,
@@ -661,5 +661,61 @@ describe('the command line (scripts/org-clone.ts)', () => {
     const wipe = await cli(['reset', '--org', o.slug, '--no-bundle', '--execute'])
     expect(wipe.code).toBe(1)
     expect(wipe.out).toContain('[target_not_dev]')
+  })
+})
+
+describe('the unique indexes the copy relies on (scripts/org-clone.ts)', () => {
+  const REPO = join(import.meta.dir, '..', '..', '..', '..')
+
+  async function cli(args: string[]) {
+    const proc = Bun.spawn(['bun', join(REPO, 'scripts', 'org-clone.ts'), ...args], {
+      cwd: REPO,
+      env: { ...process.env, MONGODB_URI: testDbUri() },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+    return { code, out: out + err }
+  }
+
+  async function uniqueIndexNames(model: { collection: any }): Promise<string[]> {
+    return (await model.collection.indexes()).filter((i: any) => i.unique && i.name !== '_id_').map((i: any) => i.name as string)
+  }
+
+  it('does not ask for the unique index of a model the real org holds no rows of', async () => {
+    // Production's leave balances: a schema index the app could not build over the old data. The shop being
+    // copied has no leave balances, so the missing index must not stop its copy.
+    await LeaveBalance.init()
+    const names = await uniqueIndexNames(LeaveBalance)
+    expect(names.length).toBeGreaterThan(0)
+    try {
+      for (const name of names) await LeaveBalance.collection.dropIndex(name)
+      const shop = await realShop()
+      const made = await createTestOrgFrom({ sourceOrgId: shop.id, slug: slugOf('noidx'), name: 'Test NoIdx', execute: true })
+      const copy: any = await Org.findById(made.orgId).lean().exec()
+      const res = await cli(['sync', '--source', shop.org.slug, '--target', copy.slug, '--execute'])
+      expect(res.code).toBe(0)
+      expect(await countOf('Product', made.orgId)).toBe(3)
+    } finally {
+      await LeaveBalance.syncIndexes()
+    }
+  })
+
+  it('refuses, and writes nothing, when a model the real org holds rows of lacks its unique index', async () => {
+    await Tag.init()
+    const names = await uniqueIndexNames(Tag)
+    expect(names.length).toBeGreaterThan(0)
+    try {
+      const shop = await realShop()
+      const made = await createTestOrgFrom({ sourceOrgId: shop.id, slug: slugOf('idx'), name: 'Test Idx', execute: true })
+      const copy: any = await Org.findById(made.orgId).lean().exec()
+      for (const name of names) await Tag.collection.dropIndex(name)
+      const res = await cli(['sync', '--source', shop.org.slug, '--target', copy.slug, '--execute'])
+      expect(res.code).toBe(1)
+      expect(res.out).toContain('unique index missing')
+      expect(await countOf('Product', made.orgId)).toBe(0)
+    } finally {
+      await Tag.syncIndexes()
+    }
   })
 })

@@ -49,8 +49,7 @@ import {
   resetOrgData,
   type CloneReport,
 } from '../packages/services/src/biz/org-clone/clone.service.js'
-import { clonedModels } from '../packages/services/src/biz/org-clone/policy.js'
-import { buildBundle, tenantCollections, verifyBundle } from '../packages/services/src/biz/backup/backup-bundle.service.js'
+import { buildBundle, verifyBundle } from '../packages/services/src/biz/backup/backup-bundle.service.js'
 
 const argv = process.argv.slice(2)
 const command = argv[0]
@@ -99,10 +98,10 @@ async function orgBySlug(slug: string): Promise<any> {
 function printReport(report: CloneReport) {
   const would = report.execute ? '' : ' (would)'
   out(`\n${report.source.slug} -> ${report.target.slug}${report.execute ? '' : '   DRY RUN: nothing was written'}  [${(report.durationMs / 1000).toFixed(1)} s]`)
-  out('model'.padEnd(24) + 'read'.padStart(8) + `inserted${would}`.padStart(16) + `updated${would}`.padStart(15) + 'same'.padStart(8) + 'merged'.padStart(8) + 'clash'.padStart(7))
+  out('model'.padEnd(24) + 'read'.padStart(8) + `inserted${would}`.padStart(19) + `updated${would}`.padStart(18) + 'same'.padStart(8) + 'merged'.padStart(8) + 'clash'.padStart(7))
   for (const c of report.collections) {
     if (!c.scanned && !c.errors.length) continue
-    out(c.model.padEnd(24) + String(c.scanned).padStart(8) + String(c.inserted).padStart(16) + String(c.updated).padStart(15) + String(c.unchanged).padStart(8) + String(c.merged).padStart(8) + String(c.conflicts).padStart(7))
+    out(c.model.padEnd(24) + String(c.scanned).padStart(8) + String(c.inserted).padStart(19) + String(c.updated).padStart(18) + String(c.unchanged).padStart(8) + String(c.merged).padStart(8) + String(c.conflicts).padStart(7))
     for (const s of c.conflictSamples) out(`    clash: ${s}`)
     for (const e of c.errors) out(`    ERROR: ${e}`)
   }
@@ -193,12 +192,20 @@ async function main(): Promise<number> {
   if (command === 'sync') {
     let failures = 0
     const reports: CloneReport[] = []
-    if (execute) await requireUniqueIndexes(clonedModels(tenantCollections()).map(n => mongoose.models[n]))
     for (const p of pairs()) {
       try {
         const [s, t] = [await orgBySlug(p.source), await orgBySlug(p.target)]
         await assertScriptHome(s._id, p.source)
         await assertScriptHome(t._id, p.target)
+        if (execute) {
+          // The unique index of every model this pair will INSERT into is the safety net against a duplicate, and
+          // the deployed app is what builds it. Only the models the real org holds rows of are asked for: an index
+          // the app never managed to build on a model with no rows here (production's leave balances, 2026-11-10:
+          // a schema index it could not build over the old data) must not stop the copy of a shop that has none.
+          const only = value('only')?.split(',').map(x => x.trim()).filter(Boolean)
+          const holding = (await compareOrgs(String(s._id), String(t._id))).filter(r => r.source > 0 && (!only?.length || only.includes(r.model)))
+          await requireUniqueIndexes(holding.map(r => mongoose.models[r.model]!))
+        }
         const report = await cloneOrgData({
           sourceOrgId: String(s._id),
           targetOrgId: String(t._id),
