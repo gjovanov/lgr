@@ -1947,10 +1947,12 @@ only its own extras (the list's totals box and per-document bands, cash-agg's cu
 - **Shared by EVERY PDF, forms included (2026-11-08, #578):** the side margins,
   `PAGE_SIDE_MARGIN` = 18 mm in `pdf/page-margins.ts` (1.5 × the old 12 mm; build a page's
   margin with `pageMargin(top, bottom)`, top/bottom stay per document). The forms' line grid is
-  `pdf/line-grid.ts`: no padding before the first column or after the last, every column but the
-  free text fitted to its widest entry (`fit`), one 10px gutter (8px let „1000" + „9999.99" read
-  as one figure), free text `overflow-wrap: anywhere` (an unbroken name made Chrome shrink the
-  whole page). ⚠ A Puppeteer footer template spans the whole sheet: it insets itself by the same
+  `pdf/line-grid.ts`: the grid's box runs margin to margin and its first and last columns' text
+  sits `GRID_EDGE_PADDING_PX` (5px, never less) inside it — flush, as #578 first printed it, put
+  the line numbers and amounts against the ends of the heading band; the invoice's amount in
+  words follows the line numbers. Every column but the free text fitted to its widest entry
+  (`fit`), one 10px gutter (8px let „1000" + „9999.99" read as one figure), free text
+  `overflow-wrap: anywhere` (an unbroken name made Chrome shrink the whole page). ⚠ A Puppeteer footer template spans the whole sheet: it insets itself by the same
   margin and must keep `width:100%` (Chrome lays it out in a flex row, where it shrinks to its
   text). `unit/pdf-page-layout.test.ts` measures the grid as Chrome prints it.
 
