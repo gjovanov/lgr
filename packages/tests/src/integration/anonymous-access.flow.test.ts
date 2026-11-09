@@ -29,10 +29,10 @@ import { isPublicRoute, PUBLIC_ROUTE_KEYS } from 'services/biz/public-routes'
  * cookie and no Authorization header, and assert the handler was not reached. A controller
  * mounted next year is covered the day it appears, with no edit here.
  *
- * The property is "the handler did not run", not "the status was 401", because Elysia runs
- * body validation BEFORE `beforeHandle`: a POST with a schema answers 422 to an anonymous
- * caller and never reaches the guard. `rejects the anonymous caller once the body validates`
- * below closes that gap directly rather than leaving it to inference.
+ * The property is "the handler did not run", and since S-15 (2026-11-09) also "the status was
+ * 401": Elysia runs body validation BEFORE `beforeHandle`, so until the auth plugins refused in
+ * their transform hook too, a POST with a schema answered 422 to an anonymous caller, with its
+ * schema, and never reached the guard.
  *
  * ⚠ No database. The guard runs before any handler touches Mongo, so a route that is properly
  * guarded never needs one — and that is exactly what makes the probe sharp. An UNGUARDED
@@ -85,26 +85,27 @@ describe('anonymous access', () => {
     expect(reached).toEqual([])
   })
 
-  it('answers 401 or 422 on every non-public route', async () => {
+  /**
+   * S-15: 401 and nothing else. Until 2026-11-09 the 401 came from a `beforeHandle` hook, which
+   * Elysia runs AFTER body validation, so ~74 routes answered an anonymous caller 422 with their
+   * whole body schema. The auth plugins now refuse in their transform hook, before validation.
+   */
+  it('answers 401 on every non-public route, never the route\'s schema', async () => {
     const wrong: string[] = []
     for (const target of targets) {
       if (isPublicRoute(target.method, target.route)) continue
       const res = await probeAnonymously(app, target)
-      // 401 = the guard. 422 = body validation ran first and the guard was never reached;
-      // the test below proves those routes still 401 once the body is valid.
-      if (res.status !== 401 && res.status !== 422) {
-        wrong.push(`${target.method} ${target.route} -> ${res.status}`)
-      }
+      if (res.status !== 401) wrong.push(`${target.method} ${target.route} -> ${res.status}`)
     }
     expect(wrong).toEqual([])
   })
 
   /**
-   * ⚠ The 422s above are the one place this probe cannot see the guard, so prove the ordering
-   * on a route of the same shape rather than assuming it. Without this, a future change that
-   * moved the guard after the handler would still show a table full of reassuring 422s.
+   * The ordering, on a route of the same shape: an invalid body and a valid one are refused
+   * alike, and the refusal names no field. Without this, a guard moved back after validation
+   * would show up only as a table of 422s again.
    */
-  it('rejects the anonymous caller once the body validates', async () => {
+  it('rejects the anonymous caller before the body is validated', async () => {
     const { AuthService } = await import('../../../portal-api/src/auth/auth.service.js')
     const guarded = new Elysia({ prefix: '/api' }).use(
       new Elysia({ prefix: '/org/:orgId/probe' })
@@ -120,8 +121,10 @@ describe('anonymous access', () => {
         }),
       )
 
-    expect((await call('{}')).status).toBe(422) // schema first…
-    const valid = await call('{"name":"x"}') // …then the guard
+    const invalid = await call('{}')
+    expect(invalid.status).toBe(401)
+    expect(await invalid.json()).toEqual({ message: 'Unauthorized' })
+    const valid = await call('{"name":"x"}')
     expect(valid.status).toBe(401)
     expect(await valid.json()).toEqual({ message: 'Unauthorized' })
   })

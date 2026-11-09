@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-08**, **S-10**, **S-12** and **S-17**–**S-34** are fixed. The rest are open, ordered by
+**S-01**–**S-08**, **S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-34** are fixed. The rest are open, ordered by
 severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
@@ -41,8 +41,8 @@ Files routes were read against the same rule.
 | S-11 | Medium | Swagger served unauthenticated in production | Open |
 | S-12 | Medium | Raw `err.message` returned on 500 | **Fixed 2026-11-09** |
 | S-13 | Low | Live credentials in a OneDrive-synced working copy | Open |
-| S-14 | Low | `User.password` has no `select: false` | Open |
-| S-15 | Low | Body validation runs before the auth guard (schema disclosure) | Open |
+| S-14 | Low | `User.password` has no `select: false` | **Fixed 2026-11-09** (by a sweep of every route) |
+| S-15 | Low | Body validation runs before the auth guard (schema disclosure) | **Fixed 2026-11-09** |
 | S-16 | Info | Dependency audit: 2 transitive advisories, neither reachable | Open |
 | **S-17** | **Critical** | **OAuth self-enrolment — anyone could join any org they could name** | **Fixed** |
 | **S-18** | **High** | **`/ws/fiscal-bridge` authenticated nothing; a registration evicted the till's bridge** | **Fixed 2026-09-29** |
@@ -592,22 +592,59 @@ OneDrive, or relocate `.env` and the seal key.
 
 ---
 
-## S-14 — `User.password` has no `select: false` (Low, open)
+## S-14 — `User.password` has no `select: false` (Low, **fixed 2026-11-09**, by a sweep)
 
 FR-11.3 patched the one endpoint that was leaking bcrypt hashes (`GET /org/:orgId/user`) with an
 explicit projection, but the model-level default is still "include the hash", so the next
 handler that forgets a projection leaks again. `config.backup.emailAttachBundle`'s comment
 already names this as the reason that flag defaults off.
 
+### Fix
+
+The property is measured, not assumed: `integration/no-secrets-in-responses.flow.test.ts`.
+
+- Every model whose schema has a secret-looking field gets a marker in that field: a password, a
+  credential verifier, a token or the hash of one, an OAuth link's provider tokens, the org's
+  cloud-storage token slots. That covers the org's own row, the signed-in admin's user row, and one
+  probe document per collection under the id every by-id route is then asked for.
+- Every route of the real table (GET, POST, PUT, PATCH) is called as that org's admin. No answer may
+  carry a marker, or anything shaped like a password hash. A controller mounted later is covered
+  the day it appears, as in `anonymous-access` and `tenant-isolation`.
+- It found one: the three `/org/:orgId/user` routes answered with each OAuth link's `accessToken`
+  and `refreshToken`. Latent: sign-in stores only the provider and its id, and production held none
+  on 2026-11-09 (a count; nothing was read). They are projected out with the hash
+  (`services/dao/user.dao.ts#USER_PUBLIC_PROJECTION`, `publicUser`).
+
+`User.password` itself is still not `select: false`, on purpose. Backups read every model through
+Mongoose (`backup-bundle.service.ts`), and so do org moves and FR-20's replication. A hash that
+silently drops out of those locks people out after a restore. `Identity.password`, the one sign-in
+uses for every linked person, has been `select: false` since the multi-org work.
+
+What the sweep cannot see: a route that needs a valid body or particular query parameters before it
+answers with data. User creation, the one such route that returns a user, has its own case.
+
 ---
 
-## S-15 — Body validation runs before the auth guard (Low, open)
+## S-15 — Body validation runs before the auth guard (Low, **fixed 2026-11-09**)
 
 Elysia runs schema validation before `beforeHandle`, so ~74 POST/PUT routes answer **422 with
 the full expected schema** to a caller holding no token. Not a bypass — the handler is never
 reached, and those routes 401 once the body validates (asserted in
 `anonymous-access.flow.test.ts`) — but it discloses the API shape to anonymous callers and
 muddies the 401 signal. Worth moving the auth check to `onRequest` if that ordering matters.
+
+### Fix
+
+The four auth plugins (`AuthService`, `AppAuthService`, `DesktopAuth`, `NodeAuth`) refuse a request
+without a valid credential in their **transform** hook as well, which Elysia runs before validation.
+S-28's permission check already ran there, for the same reason. The `beforeHandle` checks stay as a
+second belt. A signed-in caller sees no change, and an anonymous one gets the 401 it used to get only
+for a valid body.
+
+`anonymous-access.flow.test.ts` now asserts 401, and only 401, on every non-public route; it accepted
+422 before. Its probe route shows an invalid body and a valid one refused alike. With only the two
+user plugins changed, nine desktop and server routes still answered 422; the machine-credential
+plugins got the same hook.
 
 ---
 
