@@ -30,6 +30,8 @@ export interface IUser extends Document {
   position?: string
   roleHistory: IRoleHistoryEntry[]
   permissionSetIds?: Types.ObjectId[]
+  /** FR-27.3 (#529): the person's one role in this org. Set by migration 0015; decides from FR-27 Phase 1's switch. */
+  roleId?: Types.ObjectId
   orgId: Types.ObjectId
   avatar?: string
   isActive: boolean
@@ -72,6 +74,7 @@ const userSchema = new Schema<IUser>(
       },
     ],
     permissionSetIds: [{ type: Schema.Types.ObjectId, ref: 'PermissionSet' }],
+    roleId: { type: Schema.Types.ObjectId, ref: 'Role' },
     avatar: String,
     isActive: { type: Boolean, default: true },
     deactivatedAt: Date,
@@ -105,7 +108,7 @@ userSchema.index({ identityId: 1, orgId: 1 }, { unique: true, partialFilterExpre
 replicate(userSchema, {
   class: 'S',
   // The membership is the home's. ⚠ `identityId` is applied only where global sanctioned the link.
-  home: ['username', 'middleName', 'role', 'operatorCode', 'position', 'roleHistory', 'permissionSetIds', 'permissions', 'avatar', 'isActive', 'deactivatedAt', 'preferences', 'identityId', 'createdAt', 'updatedAt'],
+  home: ['username', 'middleName', 'role', 'operatorCode', 'position', 'roleHistory', 'permissionSetIds', 'roleId', 'permissions', 'avatar', 'isActive', 'deactivatedAt', 'preferences', 'identityId', 'createdAt', 'updatedAt'],
   // The person is global's: email and names come from the identity feed, and a password or a
   // provider link is never on a master.
   global: ['email', 'firstName', 'lastName', 'password', 'oauthProviders'],
