@@ -87,6 +87,31 @@ pub fn version_in(command_line: &str, root: &Root) -> Option<String> {
         .flatten()
 }
 
+/// What moving the service's pointer does to the Windows firewall rule "LGR Server (LAN)" (#590).
+#[cfg_attr(not(windows), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleChange {
+    /// The server is stopped: the one rule now names the new version only.
+    Replace,
+    /// The server runs: the rule it runs under stays, and the new version's is added beside it. The
+    /// next switch, made with the server stopped, replaces both.
+    Add,
+}
+
+/// ⚠ #590. A rule is never taken from under a running server. The update used to move it first and
+/// stop the server second, and on soak-t2's Windows master every till's connection went silent
+/// instead of closing: presence noticed only by its own deadline, and the fiscal bridge, which had
+/// none (#591), never did. So a switch stops the server first (`stop_for_switch`), and a pointer
+/// moved under a running one (an install for its next start) only adds.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn rule_change(server_running: bool) -> RuleChange {
+    if server_running {
+        RuleChange::Add
+    } else {
+        RuleChange::Replace
+    }
+}
+
 #[cfg(windows)]
 pub use self::windows::*;
 #[cfg(unix)]
@@ -111,9 +136,15 @@ mod windows {
     }
 
     /// Point `LGRServer` at `version` (creating it on a first install, with its data directory's ACL).
+    /// The firewall rule follows as `rule_change` says: replaced while the server is stopped, added
+    /// beside while it runs (#590).
     pub fn point_service(root: &Root, version: &str, data: &Path, first: bool) -> Result<()> {
-        crate::service::platform::install_at(&root.exe_of(version), data, false, first)?;
-        firewall(&root.exe_of(version))
+        let exe = root.exe_of(version);
+        crate::service::platform::install_at(&exe, data, false, first)?;
+        match rule_change(observe().map(|o| o.running).unwrap_or(false)) {
+            RuleChange::Replace => firewall(&exe),
+            RuleChange::Add => add_firewall_rule(&exe),
+        }
     }
 
     /// Point the helper at `version`, the last known good.
@@ -173,11 +204,19 @@ mod windows {
 
     /// The inbound rule for the LAN ingress, on `exe`: from the local subnet, on every profile
     /// (FR-20.92: Windows calls a new network Public). Replaced, so it never names an old version.
+    /// ⚠ Only with the server stopped (`rule_change`, #590): every rule of the name goes first.
     pub fn firewall(exe: &Path) -> Result<()> {
         use std::os::windows::process::CommandExt;
         let netsh = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows")).join("System32").join("netsh.exe");
         // "No rules match": there was none to replace.
         let _ = std::process::Command::new(&netsh).raw_arg(format!("advfirewall firewall delete rule name=\"{FIREWALL_RULE}\"")).output();
+        add_firewall_rule(exe)
+    }
+
+    /// One more rule of the name, on `exe`, the ones there already kept: for a running server (#590).
+    fn add_firewall_rule(exe: &Path) -> Result<()> {
+        use std::os::windows::process::CommandExt;
+        let netsh = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows")).join("System32").join("netsh.exe");
         let out = std::process::Command::new(&netsh)
             .raw_arg(format!(
                 "advfirewall firewall add rule name=\"{FIREWALL_RULE}\" dir=in action=allow enable=yes profile=any remoteip=localsubnet program=\"{}\"",
@@ -219,6 +258,24 @@ mod windows {
     pub fn restart() -> Result<()> {
         let m = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
         let s = m.open_service(crate::service::NAME, ServiceAccess::QUERY_STATUS | ServiceAccess::STOP | ServiceAccess::START)?;
+        stop_and_wait(&s)?;
+        s.start::<&str>(&[]).context("starting the service")?;
+        Ok(())
+    }
+
+    /// Stop the server before its pointer moves, and wait until it has (#590): its connections close
+    /// under the rule that admitted them, and `point_service` then replaces the rule. `restart` only
+    /// starts it after that.
+    pub fn stop_for_switch() -> Result<()> {
+        let m = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
+        // A first install has no service yet: nothing to stop.
+        let Ok(s) = m.open_service(crate::service::NAME, ServiceAccess::QUERY_STATUS | ServiceAccess::STOP) else {
+            return Ok(());
+        };
+        stop_and_wait(&s)
+    }
+
+    fn stop_and_wait(s: &windows_service::service::Service) -> Result<()> {
         let status = s.query_status()?;
         if status.current_state != ServiceState::Stopped {
             let _ = s.stop();
@@ -239,7 +296,6 @@ mod windows {
                 }
             }
         }
-        s.start::<&str>(&[]).context("starting the service")?;
         Ok(())
     }
 
@@ -348,6 +404,12 @@ mod unix {
         systemctl(&["--no-block", "restart", UNIT]).map(|_| ())
     }
 
+    /// Nothing to stop first: no firewall rule follows the version on Linux (#590 is Windows's), and
+    /// `restart` is one systemd job.
+    pub fn stop_for_switch() -> Result<()> {
+        Ok(())
+    }
+
     pub fn start_helper() -> Result<()> {
         systemctl(&["--no-block", "start", HELPER_UNIT]).map(|_| ())
     }
@@ -379,6 +441,13 @@ mod unix {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_running_servers_rule_is_never_moved_out_from_under_it() {
+        // #590: soak-t2's update moved the rule while 0.1.10 still held every till's connection.
+        assert_eq!(rule_change(true), RuleChange::Add);
+        assert_eq!(rule_change(false), RuleChange::Replace);
+    }
 
     #[test]
     fn a_service_sid_is_the_one_windows_computes() {
