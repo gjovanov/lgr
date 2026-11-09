@@ -145,11 +145,17 @@ describe('★ and the page search', () => {
 })
 
 describe('the portal (FR-26.8.4)', () => {
-  it('a Seller has none of its pages, and lands in Invoicing', () => {
+  it('a Seller has none of its pages, and lands on Products (#493 item 3)', () => {
     expect(portalPagesFor(seller)).toEqual([])
     expect(portalPagesFor(consultant)).toEqual([])
-    expect(landingWithoutPortal(seller)).toBe('/invoicing/')
+    expect(landingWithoutPortal(seller)).toBe('/inventory/products')
+    expect(landingWithoutPortal(consultant)).toBe('/inventory/products')
     expect(portalPagesFor(as('sales'))).toContain('/dashboard')
+  })
+
+  it('a session without the portal that cannot open Products lands in its first app, as before', () => {
+    expect(landingWithoutPortal({ role: 'member', permissions: ['invoicing.read'], areas: [] })).toBe('/invoicing/')
+    expect(landingWithoutPortal({ role: 'member', permissions: [], areas: [] })).toBe('/account')
   })
 
   it('the paths a session without the portal does not reach', () => {

@@ -413,10 +413,13 @@ export function isPortalAreaPath(path: string): boolean {
 }
 
 /**
- * Where a session without the `portal` area lands instead of the App Hub: the first app it opens,
- * in the order of `APP_NAV_META` (Invoicing first), else its own account page.
+ * Where a session without the `portal` area lands instead of the App Hub: Products, where it opens them (#493
+ * item 3: what a Seller and a Sales Consultant use most), else the first app it opens, in the order of
+ * `APP_NAV_META` (Invoicing first), else its own account page.
  */
 export function landingWithoutPortal(who: PageViewer | null | undefined): string {
+  const products = pageById('/inventory/products')
+  if (products && canOpenPage(products, who)) return products.path
   for (const [, meta] of Object.entries(APP_NAV_META)) {
     const need = meta.reads ?? [meta.permission]
     if (who && (who.role === 'admin' || need.some(p => (who.permissions ?? []).includes(p)))) return `${meta.base}/`

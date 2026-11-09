@@ -51,17 +51,26 @@ test.describe('The Seller and the Sales Consultant', () => {
     }
   })
 
-  test('the portal is no place of theirs: /apps lands on Invoicing, and the switcher has no Portal tile', async ({ page }) => {
+  test('the portal is no place of theirs: /apps lands on Products (#493 item 3), and the switcher has no Portal tile', async ({ page }) => {
     await loginForApp(page, 'acme-corp', users.seller, PASSWORD)
-    for (const path of ['/apps', '/dashboard', '/settings/users']) {
+    // #493 item 4: inside an org, /orgs is no way out either.
+    for (const path of ['/apps', '/dashboard', '/settings/users', '/orgs']) {
       await page.goto(path)
-      await expect(page, path).toHaveURL(/\/invoicing\//, { timeout: 15000 })
+      await expect(page, path).toHaveURL(/\/inventory\/products/, { timeout: 15000 })
     }
     await page.locator('button:has(.mdi-apps)').first().click()
     const tiles = page.locator('.v-overlay--active .app-tile')
     await expect(tiles.first()).toBeVisible()
     expect((await tiles.allInnerTexts()).map(t => t.trim()).sort()).toEqual(['Inventory', 'Invoicing'])
     await expect(page.locator('.v-overlay--active').getByText('Portal', { exact: true })).toHaveCount(0)
+  })
+
+  test('the invoices list shows no totals and no Import for the Seller (#493 items 2, 5)', async ({ page }) => {
+    await loginForApp(page, 'acme-corp', users.seller, PASSWORD)
+    await page.goto('/invoicing/invoices')
+    await expect(page.locator('.top-menu-inline')).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText('Outstanding', { exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Import', exact: true })).toHaveCount(0)
   })
 
   test('the Seller\'s invoicing menu: no Orders, no incoming documents, no payments, no Sequences', async ({ page }) => {

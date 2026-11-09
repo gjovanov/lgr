@@ -262,6 +262,20 @@ describe('prices, stock control, the portal, payments', () => {
   })
 })
 
+describe('the invoices totals (#493 item 2, FR-27 D-8)', () => {
+  it('GET /invoices/summary is refused to both roles, as the strip is hidden, and answers every other role', async () => {
+    for (const role of ['seller', 'sales_consultant']) {
+      const r = await request('GET', '/invoices/summary?direction=outgoing&type=invoice', tokens[role])
+      expect({ role, status: r.status, code: r.json?.code }).toEqual({ role, status: 403, code: 'capability_required' })
+    }
+    for (const role of ['admin', 'sales']) {
+      const r = await request('GET', '/invoices/summary?direction=outgoing&type=invoice', tokens[role])
+      expect({ role, status: r.status }).toEqual({ role, status: 200 })
+      expect(r.json.summary).toBeTruthy()
+    }
+  })
+})
+
 describe('reports need reports.read (FR-26.6)', () => {
   it('the catalog, a run and an export', async () => {
     expect((await request('GET', '/reports/catalog', tokens.seller)).status).toBe(403)

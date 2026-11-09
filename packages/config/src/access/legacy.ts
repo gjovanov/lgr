@@ -29,7 +29,7 @@ const BACK_OFFICE: Cap[] = ['org-settings.view', 'users.view']
 
 /** Every invoicing permission reads the invoicing app (INVOICING in route-permission.ts). */
 const INVOICING_READS: Cap[] = [
-  'sales-docs.view', 'proforma.view', 'bills.view', 'orders.view', 'payments.view', 'contacts.view', 'cash-sales.view',
+  'sales-docs.view', 'sales-docs.totals', 'bills.totals', 'proforma.view', 'bills.view', 'orders.view', 'payments.view', 'contacts.view', 'cash-sales.view',
   'dashboard.view', 'pricing.read', 'doc-import.read', ...BACK_OFFICE,
 ]
 
@@ -47,7 +47,7 @@ export const LEGACY_BRIDGE: Readonly<Record<Permission, readonly Cap[]>> = {
   'invoicing.read': [...INVOICING_READS, 'sales-docs.export', 'stock-availability.check'],
   'invoicing.write': [
     ...INVOICING_READS, 'sales-docs.export',
-    ...work(['sales-docs', 'proforma', 'bills', 'orders', 'payments', 'contacts']),
+    ...work(['sales-docs', 'proforma', 'bills', 'orders', 'payments', 'contacts']), 'sales-docs.import',
     'stock-availability.transfer', 'doc-import.extract', 'tags.edit',
   ],
   // ⚠ Opens reads only: no route and no controller checks `invoicing.send`, and `canExport` ignores it.
@@ -132,6 +132,15 @@ export function areaOfCap(cap: string): Area | undefined {
   return AREA_OF[cap] ?? AREA_OF[cap.slice(0, cap.indexOf('.'))]
 }
 
+/**
+ * #493 items 2, 4, 5 (FR-27 D-8: catalogue entries on the Phase 0 evaluator, not areas). What a session whose
+ * claim carries an `areas` list does not get: the invoices' totals strip and `GET invoices/summary`, the Import
+ * button on the invoices list, and changing organization. Item 2's own rule: sessions without a list keep the
+ * strip. The lists today are the Seller's and the Sales Consultant's, as a role or as a set. No rule of today's
+ * reads these capabilities, so the differential test is untouched.
+ */
+export const NOT_WITH_AN_AREAS_LIST: readonly Cap[] = ['sales-docs.totals', 'bills.totals', 'sales-docs.import', 'org.switch']
+
 /** What a token says today: its role, its permissions, and FR-26's areas (absent: every area). */
 export interface LegacyClaims {
   role?: string
@@ -146,11 +155,13 @@ export function compileLegacy(claims: LegacyClaims | null | undefined): Grant {
   const caps = new Set<Cap>()
   for (const p of claims.permissions ?? []) for (const c of LEGACY_BRIDGE[p as Permission] ?? []) caps.add(c)
   for (const c of LEGACY_ROLE_CAPS[claims.role ?? ''] ?? []) caps.add(c)
+  caps.add('org.switch')
   if (Array.isArray(claims.areas)) {
     for (const c of [...caps]) {
       const area = areaOfCap(c)
       if (area && !claims.areas.includes(area)) caps.delete(c)
     }
+    for (const c of NOT_WITH_AN_AREAS_LIST) caps.delete(c)
   }
   return { caps }
 }

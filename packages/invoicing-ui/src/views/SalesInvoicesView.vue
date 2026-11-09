@@ -17,7 +17,8 @@
     <template #actions>
       <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" />
       <v-btn variant="outlined" prepend-icon="mdi-download" :loading="exportLoading" @click="showExportDialog = true">{{ $t('common.export') }}</v-btn>
-      <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
+      <!-- #493 item 5 (FR-27): not for a Seller or a Sales Consultant. -->
+      <v-btn v-if="showsImport" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
       <!-- FR-22.50 (D-8): says what it creates; the notes beside it. A list filtered to one kind
            of note creates that note. -->
       <CreateButton :label="create.label" :to="create.to" :more="create.more" :more-label="$t('invoicing.createOther')" />
@@ -208,6 +209,7 @@ import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import StatusChip from 'ui-shared/components/StatusChip'
 import ExportDialog from 'ui-shared/components/ExportDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
+import { useAccess } from 'ui-shared/access/useAccess'
 import SendEmailDialog from 'ui-shared/components/SendEmailDialog.vue'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
@@ -327,10 +329,16 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 })
 
 // ── KPI summary ────────────────────────────────────────────────────────────
+// #493 item 2 (FR-27): no strip for a role without the totals, and no request for it (the server refuses it).
+const access = useAccess()
+const showsTotals = access.can('sales-docs.totals')
+// #493 item 5: the list's Import button.
+const showsImport = access.can('sales-docs.import')
 const summary = ref<any>(null)
 const summaryLoading = ref(false)
 
 async function fetchSummary() {
+  if (!showsTotals) return
   summaryLoading.value = true
   try {
     const params: Record<string, any> = { direction: 'outgoing', type: 'invoice' }
@@ -351,6 +359,7 @@ function statusFilterEquals(target: string[]): boolean {
 }
 
 const kpis = computed<StatCardDef[]>(() => {
+  if (!showsTotals) return []
   const s = summary.value
   return [
     {
