@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { DigestRun, Org } from 'db/models'
 import { buildDailyDigest, orgLocalParts, previousLocalDate } from 'services/biz/digest/daily-digest.service'
@@ -9,7 +10,7 @@ import { sendDigestTo } from 'services/biz/digest/digest-runner.service'
  * FR-11.15 (#21) — the digest's operator surface: send myself one now, look at one, see how
  * the last scheduled run went.
  *
- * Admin-only, using the same raw `role !== 'admin'` guard as the org PUT it sits beside —
+ * Admin-only, asking `digest.manage` (an admin's alone), as the org PUT beside it asks `org-settings.edit` —
  * `admin.settings` deliberately does NOT suffice there, and a test button that mails people
  * is settings-grade, not report-grade.
  *
@@ -33,7 +34,7 @@ export const digestController = new Elysia({ prefix: '/org/:orgId/digest' })
     '/test',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+      if (!can(user, 'digest.manage')) return status(403, { message: 'Admin only' })
       if (!user.email) return status(422, { message: 'Your account has no email address' })
 
       const b = (body || {}) as any
@@ -61,7 +62,7 @@ export const digestController = new Elysia({ prefix: '/org/:orgId/digest' })
   /** The same HTML the mail would carry — for an in-card preview, no send. */
   .get('/preview', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+    if (!can(user, 'digest.manage')) return status(403, { message: 'Admin only' })
 
     const { date } = await reportDateFor(orgId)
     const reportDate = (query.date as string) || date
@@ -73,7 +74,7 @@ export const digestController = new Elysia({ prefix: '/org/:orgId/digest' })
   .get('/last-run', async ({ params: { orgId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     // S-29: admin-only like its two siblings. It was the one route of the three without the guard.
-    if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+    if (!can(user, 'digest.manage')) return status(403, { message: 'Admin only' })
     const run = await DigestRun.findOne({ orgId }).sort({ startedAt: -1 }).lean().exec()
     return { run: run || null }
   }, { isSignIn: true })

@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { nodeRole } from 'config'
 import { NodeEnrollmentCode, NodeEnrollmentKey, NodeEnrollmentKeyUse, Org, ServerNode } from 'db/models'
 import { homeOf } from 'db/home/home'
@@ -35,7 +36,7 @@ import { logger } from 'services/logger'
  */
 
 function canAdmin(user: any): boolean {
-  return user?.role === 'admin' || !!user?.permissions?.includes('admin.settings')
+  return can(user, 'servers.manage')
 }
 
 function fail(status: any, e: unknown) {

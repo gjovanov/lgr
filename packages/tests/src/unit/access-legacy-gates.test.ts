@@ -44,6 +44,23 @@ const GATES: Array<{ cap: CapabilityId; was: string; old: (c: Claims) => boolean
   // file.controller: gate, and readGate's auditor.
   { cap: 'files.view', was: "role === 'admin' || admin.settings", old: c => has(c, 'admin.settings') },
   { cap: 'files.archives', was: "role === 'nra_auditor' (admin through gate)", old: c => ['admin', 'nra_auditor'].includes(c.role) },
+  // P0-5, the portal: the settings pages' controllers (admin, or admin.settings), the admin's own, and tag writes by type.
+  { cap: 'desktops.manage', was: "role === 'admin' || admin.settings", old: c => has(c, 'admin.settings') },
+  { cap: 'servers.manage', was: "role === 'admin' || admin.settings", old: c => has(c, 'admin.settings') },
+  { cap: 'numbering.manage', was: "role === 'admin' || admin.settings", old: c => has(c, 'admin.settings') },
+  { cap: 'roles.view', was: "role === 'admin' || admin.settings", old: c => has(c, 'admin.settings') },
+  { cap: 'apps.manage', was: "role === 'admin'", old: c => c.role === 'admin' },
+  { cap: 'digest.manage', was: "role === 'admin'", old: c => c.role === 'admin' },
+  { cap: 'integrations.manage', was: "role === 'admin'", old: c => c.role === 'admin' },
+  { cap: 'invites.manage', was: "role === 'admin'", old: c => c.role === 'admin' },
+  { cap: 'org-settings.edit', was: "role === 'admin'", old: c => c.role === 'admin' },
+  { cap: 'billing.manage', was: "role === 'admin'", old: c => c.role === 'admin' },
+  { cap: 'users.edit', was: "role === 'admin'", old: c => c.role === 'admin' },
+  { cap: 'roles.edit', was: "role === 'admin'", old: c => c.role === 'admin' },
+  { cap: 'products.edit', was: "tag.controller: role === 'admin' || inventory.write", old: c => has(c, 'inventory.write') },
+  { cap: 'warehouses.edit', was: "tag.controller: role === 'admin' || inventory.write", old: c => has(c, 'inventory.write') },
+  { cap: 'contacts.edit', was: "tag.controller: role === 'admin' || invoicing.write", old: c => has(c, 'invoicing.write') },
+  { cap: 'payroll-people.edit', was: "tag.controller: role === 'admin' || payroll.write", old: c => has(c, 'payroll.write') },
 ]
 
 function shapes(): Claims[] {

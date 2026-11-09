@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { nodeRole } from 'config'
 import { OrgHome } from 'db/models'
 import { thisNode } from 'db/home/home'
@@ -51,7 +52,7 @@ async function readDevice(deviceId: string): Promise<DeviceReading> {
 }
 
 function canAdmin(user: any): boolean {
-  return user?.role === 'admin' || !!user?.permissions?.includes('admin.settings')
+  return can(user, 'numbering.manage')
 }
 
 export const numberingController = new Elysia({ prefix: '/org/:orgId/numbering' })

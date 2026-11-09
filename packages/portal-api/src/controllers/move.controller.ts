@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { nodeRole } from 'config'
 import { AuthService } from '../auth/auth.service.js'
 import { fiscalInFlight } from 'fiscal/in-flight'
@@ -32,7 +33,7 @@ const MOVE_BODY = t.Object({
 })
 
 function canAdmin(user: any): boolean {
-  return user?.role === 'admin' || !!user?.permissions?.includes('admin.settings')
+  return can(user, 'servers.manage')
 }
 
 function fail(status: any, e: unknown) {

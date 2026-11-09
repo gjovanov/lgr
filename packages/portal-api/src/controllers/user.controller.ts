@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { userDao } from 'services/dao/user.dao'
 import { User, PermissionSet } from 'db/models'
@@ -57,7 +58,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+      if (!can(user, 'users.edit')) return status(403, { message: 'Admin only' })
 
       // ⚠ Multi-org: an admin never attaches a person who already has an account (here or, before
       // the migration, as a user anywhere). Whoever could then set their password would have every
@@ -153,7 +154,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
     '/:userId',
     async ({ params: { orgId, userId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+      if (!can(user, 'users.edit')) return status(403, { message: 'Admin only' })
 
       const existing = await userDao.findInOrg(userId, orgId)
       if (!existing) return status(404, { message: 'User not found' })
@@ -266,7 +267,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
   // Soft-delete: deactivate instead of hard delete (Appendix 29 compliance)
   .delete('/:userId', async ({ params: { orgId, userId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+    if (!can(user, 'users.edit')) return status(403, { message: 'Admin only' })
 
     const existing = await userDao.findInOrg(userId, orgId)
     if (!existing) return status(404, { message: 'User not found' })

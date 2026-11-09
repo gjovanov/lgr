@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { stripeService } from 'services/biz/stripe.service'
 
@@ -9,7 +10,7 @@ export const stripeController = new Elysia({ prefix: '/stripe' })
   })
   .post('/checkout', async ({ body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+    if (!can(user, 'billing.manage')) return status(403, { message: 'Admin only' })
     const result = await stripeService.createCheckoutSession(user.orgId, body.planId, user.email)
     return result
   }, {
@@ -18,7 +19,7 @@ export const stripeController = new Elysia({ prefix: '/stripe' })
   })
   .post('/portal', async ({ user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+    if (!can(user, 'billing.manage')) return status(403, { message: 'Admin only' })
     const result = await stripeService.createPortalSession(user.orgId)
     return result
   }, {

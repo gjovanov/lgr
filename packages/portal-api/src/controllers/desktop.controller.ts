@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { paginateQuery } from 'services/utils/pagination'
@@ -33,7 +34,7 @@ import { stopDesktopBridges } from '../websocket/fiscal-bridge.js'
 
 /** Admin-or-`admin.settings`, the same expression the other admin controllers use. */
 function canAdmin(user: any): boolean {
-  return user?.role === 'admin' || !!user?.permissions?.includes('admin.settings')
+  return can(user, 'desktops.manage')
 }
 
 function fail(status: any, e: unknown) {

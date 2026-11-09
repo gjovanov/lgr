@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import {
@@ -43,7 +44,7 @@ export const orgLogoController = new Elysia({ prefix: '/org/:orgId/logo' })
     '/',
     async ({ params: { orgId }, body, request, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+      if (!can(user, 'org-settings.edit')) return status(403, { message: 'Admin only' })
 
       const file = await readUploadedFile(body, request)
       if (!file) return status(400, { message: 'No file provided' })
@@ -100,7 +101,7 @@ export const orgLogoController = new Elysia({ prefix: '/org/:orgId/logo' })
   // ── Remove ──
   .delete('/', async ({ params: { orgId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+    if (!can(user, 'org-settings.edit')) return status(403, { message: 'Admin only' })
 
     const removed = await deleteOrgLogo(orgId)
     if (!removed) return status(404, { message: 'No logo' })
