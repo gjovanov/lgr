@@ -312,6 +312,15 @@ async function main() {
     if (source === 'mixed') problems.push('some lines are on БЕЗСКЛАД and some are not: LGR dispatches a document whole, so this one is for a person')
     const stockSource = source && source !== 'mixed' ? source : null
 
+    // A line with a quantity and no product makes the issue step refuse, and the invoice stays a draft:
+    // `unbookableStockLines` (services/biz/invoicing.service.ts), mirrored because that module needs the
+    // database. The server matches the printed description, which PlusMinus cuts at 31 characters, so a
+    // cut name that fits two articles links neither (2026-11-09, „…БЕЗЦ" for „…БЕЗЦВ." and „…БЕЗЦВ.-50МЛ").
+    // Repair: link the product on that line in LGR, then issue the draft with `POST /doc-import/convert`.
+    const dispatches = !noStock && !stockSource && (doc.mapped?.type ?? 'invoice') === 'invoice'
+    const unlinked = dispatches ? (doc.mapped?.lines || []).filter((l: any) => !l.productId && Number(l.quantity || 0) !== 0 && !!l.sourceText) : []
+    if (unlinked.length) warnings.push(`NO PRODUCT on ${unlinked.length} line(s), so it will stay a DRAFT: ${unlinked.slice(0, 3).map((l: any) => JSON.stringify(String(l.description ?? '').slice(0, 40))).join(', ')}`)
+
     const till = stockSource ? null : await loadCommittedTillDay(doc.mapped?.issueDate)
     const overlap = till ? findTillOverlap(doc.mapped, till) : null
     if (overlap) {
@@ -354,13 +363,23 @@ async function main() {
   const result = await pollTask(res.taskId)
   const results: any[] = result?.results || []
   console.log('\n─── Commit + convert ───')
+  // Converted means an issued number. The commit answers `ok` for a draft whose issue step it refused
+  // (`created, but convert failed: …`, doc-import/commit.ts), so counting `ok` reported such a draft as
+  // converted, under its DRF- number (2026-11-09).
+  const issued = (r: any) => !!r?.ok && !!r?.issuedNumber
   for (let i = 0; i < results.length; i++) {
     const r = results[i]
     const row = eligible[i]
-    console.log(`  ${r.ok ? '✓' : '✗'} ${row.num} → ${r.issuedNumber || r.number || r.error}`)
+    if (issued(r)) console.log(`  ✓ ${row.num} → ${r.issuedNumber}`)
+    else console.log(`  ✗ ${row.num} → ${r.ok ? `${r.number}, still a DRAFT: ${r.error || 'not issued'}` : r.error}`)
   }
   const mvAfter = (await http('GET', org('/warehouse/movement?page=0&size=1'))).total ?? 0
-  console.log(`Converted: ${results.filter(r => r.ok).length}/${eligible.length} | stock movements: ${mvBefore} → ${mvAfter} (+${mvAfter - mvBefore})`)
+  const notIssued = results.filter(r => !issued(r)).length
+  console.log(`Converted: ${results.filter(issued).length}/${eligible.length} | stock movements: ${mvBefore} → ${mvAfter} (+${mvAfter - mvBefore})`)
+  if (notIssued) {
+    console.log(`⚠ ${notIssued} document(s) NOT issued (✗ above). A draft keeps its PlusMinus number as its reference: fix what it names, then issue it with POST /doc-import/convert {target:'sales_invoice', ids:[<draft id>]}, which issues it under that number. A plain /send would draw the next SALES_DOC number instead.`)
+    process.exitCode = 1
+  }
 
   // A till sale's invoice becomes the till day's, or the sale counts twice: once here, once on the day.
   // Refused or not, no stock moved: the invoice is real and stays, and it says what is left to do.

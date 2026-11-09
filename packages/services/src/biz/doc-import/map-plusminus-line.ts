@@ -13,8 +13,14 @@
  * server-side, so an aliased invoice line is repaired by linking the product, not by renaming it.
  */
 
-/** PlusMinus prefixes an item key with its group. Only the known groups are stripped (a colon inside a name is kept). */
-export const stripItemLabel = (s: unknown): string => String(s ?? '').replace(/^(СТОКИ|УСЛУГИ|МАТЕРИАЛИ):/, '').trim()
+/**
+ * PlusMinus prefixes an item key with its group. Only the known groups are stripped (a colon inside a name is kept).
+ *
+ * A stock item can sit in a group other than СТОКИ: regal-pz files 9 under ПАРТНЬОРИ and 2 under ПРОДУКЦИЯ
+ * (snapshot of 2026-11-09), while its products in LGR carry the plain name, as the snapshot's `name` does. A
+ * receipt of one kept the label, matched nothing and would have CREATED a duplicate of the product.
+ */
+export const stripItemLabel = (s: unknown): string => String(s ?? '').replace(/^(СТОКИ|УСЛУГИ|МАТЕРИАЛИ|ПРОДУКЦИЯ|ПАРТНЬОРИ):/, '').trim()
 
 export function lineItemName(l: { name?: unknown; item?: unknown }): string {
   return stripItemLabel(l.item) || String(l.name ?? '').trim()
