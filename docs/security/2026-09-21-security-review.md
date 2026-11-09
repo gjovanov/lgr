@@ -3,7 +3,8 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-08**, **S-17**–**S-34** are fixed. The rest are open, ordered by severity below.
+**S-01**–**S-08**, **S-10**, **S-12** and **S-17**–**S-34** are fixed. The rest are open, ordered by
+severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
 function, and is the most serious finding in this document — an unauthenticated stranger could join
@@ -38,7 +39,7 @@ Files routes were read against the same rule.
 | S-09 | Medium | Password minimum is 6 characters | Open |
 | S-10 | Medium | `.dockerignore` does not exclude the secrets `.gitignore` protects | Fixed 2026-10-21 (root user: fixed 2026-10-23) |
 | S-11 | Medium | Swagger served unauthenticated in production | Open |
-| S-12 | Medium | Raw `err.message` returned on 500 | Open |
+| S-12 | Medium | Raw `err.message` returned on 500 | **Fixed 2026-11-09** |
 | S-13 | Low | Live credentials in a OneDrive-synced working copy | Open |
 | S-14 | Low | `User.password` has no `select: false` | Open |
 | S-15 | Low | Body validation runs before the auth guard (schema disclosure) | Open |
@@ -538,12 +539,42 @@ anyone who can reach the port. Gate on `NODE_ENV !== 'production'`.
 
 ---
 
-## S-12 — Raw `err.message` returned on 500 (Medium, open)
+## S-12 — Raw `err.message` returned on 500 (Medium, **fixed 2026-11-09**)
 
 **Where:** `unified.ts:72` — `return { message: err.message || 'Internal server error' }`
 
 Leaks Mongoose validation internals and occasionally filesystem paths. Log the detail with a
 correlation id; return the id and a generic string.
+
+### Fix
+
+The line had moved, unchanged, to `portal-api/src/spa-fallback.ts#spaErrorHandler`. A 500 now
+says only what `portal-api/src/lib/server-error.ts` lets through:
+
+- **Every 500 carries a `ref`** (ten hex characters). The log line has the same `ref`, the method,
+  the path without its query string, and the whole error. Before, it had the error alone, so a
+  person's report could not be matched to a request.
+- **The machinery's errors say only "Internal server error (ref …)":** the JavaScript runtime's
+  (`TypeError` and kin), Mongoose's and the driver's (`CastError`, `Mongo*`, `BSON*`), the operating
+  system's (`errno`/`syscall`, or a code such as `ENOENT` or `ECONNREFUSED`), anything thrown that
+  is not an `Error`, and any message quoting a path on the server.
+- **Two are still said plainly, because a person can act on them.** A schema rejection names the
+  fields and why (`Not saved: "billingAddress.postalCode" is required`), never the model, the cast
+  or the values. A duplicate key names the fields (`Not saved: another record already has the same
+  "sku"`), never the database, collection, index or values.
+- **The server's own words pass unchanged.** About 260 `throw new Error('…')` in the services reach
+  the caller this way, and the UI shows them in its snackbar. That is why the rule is a deny-list:
+  an allow-list would turn every message that did not opt in into a reference number.
+- A body the server cannot parse (`{bad json`) is a 400. It was a 500.
+- The goods receipt with product updates (`POST /warehouse/movement/with-update`) answered its own
+  500s with the raw message and logged nothing. It hands them to the same handler now.
+
+Nothing else changes status: a 500 is still a 500, so the UI shows it as before.
+
+**Tests:** `unit/server-error.test.ts` (the rule, on real Mongoose errors) and
+`integration/server-error.flow.test.ts` (the real handler), including a goods receipt booked twice
+under one number, which used to answer with the driver's `E11000 duplicate key error collection: …
+index: …`. All six cases of the second file fail on the previous handler.
 
 ---
 

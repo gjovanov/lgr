@@ -324,7 +324,9 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         return { stockMovement: { _id: movementId, movementNumber }, updatedProductIds }
       } catch (e: any) {
         if (e instanceof GRValidationError) return status(422, { message: e.message })
-        return status(500, { message: e?.message || 'GR-with-update failed' })
+        // To the app's error handler, which logs it and says only what S-12 lets through. Answered
+        // here, a failed transaction's driver error reached the caller verbatim and the log not at all.
+        throw e
       }
     },
     {
