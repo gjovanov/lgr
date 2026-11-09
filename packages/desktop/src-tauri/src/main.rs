@@ -1319,6 +1319,10 @@ fn start_bridges(app: &AppHandle) {
                         .state::<AppState>()
                         .logger
                         .warn(&format!("bridge: {label} disconnected (device {id}), retrying")),
+                    bridge::Event::Silent(id) => h.state::<AppState>().logger.warn(&format!(
+                        "bridge: {label} heard nothing from the hub for {} s (device {id}); connecting again",
+                        bridge::SILENT_AFTER.as_secs()
+                    )),
                 });
             });
         }

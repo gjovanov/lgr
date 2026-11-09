@@ -54,6 +54,42 @@ const SERIAL_READ_SLICE: Duration = Duration::from_millis(100);
 /// How long the WS read blocks before the loop re-checks `stop`.
 const WS_READ_SLICE: Duration = Duration::from_millis(500);
 
+/// #591 — once the hub has said nothing for this long, the bridge asks it (`ping`, which the hub
+/// answers `pong`), and asks again as often while it stays quiet.
+pub const PING_AFTER: Duration = Duration::from_secs(20);
+/// A hub that has said nothing for this long is gone, whatever the socket says: two pings went
+/// unanswered. Presence waits 75 s (`presence::SILENT_AFTER`); this is the path a cashier waits on.
+pub const SILENT_AFTER: Duration = Duration::from_secs(60);
+const PING: &str = r#"{"type":"ping"}"#;
+
+/// What the bridge's loop does next, about the link (the commands are the hub's business).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Next {
+    /// Wait for the hub (one `WS_READ_SLICE` at most).
+    Listen,
+    /// The hub has been quiet: ask it.
+    Ping,
+    /// The hub has been quiet past `SILENT_AFTER`: give the connection up, and `run` connects again.
+    Dead,
+}
+
+/// The loop's decision from how long ago the hub was last heard and the last ping went.
+///
+/// ⚠ Pure and tested, like `presence::next`. Until #591 the bridge only ever read: a connection that
+/// died without a close (a master's update on Windows, #590; a power cut; a dropped link) read
+/// nothing, never failed, and the till printed nothing until LGR Desktop was restarted, while
+/// presence, which has a deadline, was back within seconds. Dead wins over a ping: only a new
+/// connection can tell whether the hub is back.
+fn next(since_heard: Duration, since_ping: Duration) -> Next {
+    if since_heard >= SILENT_AFTER {
+        Next::Dead
+    } else if since_heard >= PING_AFTER && since_ping >= PING_AFTER {
+        Next::Ping
+    } else {
+        Next::Listen
+    }
+}
+
 /// Set once this desktop learns it is revoked — every bridge thread then lets its port go.
 ///
 /// ⚠ **Process-global, deliberately.** Revocation is discovered in two very different places: the
@@ -261,6 +297,8 @@ pub enum Event {
     /// Refused for a reason retrying will not fix (unassigned, revoked, taken over).
     Refused { device_id: String, code: String },
     Disconnected(String),
+    /// The hub said nothing for `SILENT_AFTER`, pings unanswered: given up, and connecting again.
+    Silent(String),
 }
 
 /// Fetch what this desktop may bridge.
@@ -444,14 +482,24 @@ pub fn run(
     let mut attempt = 0u32;
     while !stop.load(Ordering::SeqCst) && !halted() {
         match connect_once(&server_url, &device, &port_name, &state, &stop, &mut on_event) {
-            Outcome::Closed => attempt = 0,
-            Outcome::Unreachable => attempt = attempt.saturating_add(1),
+            Outcome::Closed => {
+                attempt = 0;
+                on_event(Event::Disconnected(device.id.clone()));
+            }
+            // A link that went silent was up a minute ago: the hub may well be back already.
+            Outcome::Silent => {
+                attempt = 0;
+                on_event(Event::Silent(device.id.clone()));
+            }
+            Outcome::Unreachable => {
+                attempt = attempt.saturating_add(1);
+                on_event(Event::Disconnected(device.id.clone()));
+            }
             Outcome::Fatal(code) => {
                 on_event(Event::Refused { device_id: device.id.clone(), code });
                 return;
             }
         }
-        on_event(Event::Disconnected(device.id.clone()));
 
         let wait = presence::backoff_secs(attempt);
         for _ in 0..(wait * 10) {
@@ -467,6 +515,8 @@ pub fn run(
 #[derive(Debug, PartialEq, Eq)]
 enum Outcome {
     Closed,
+    /// The hub said nothing for `SILENT_AFTER` (#591).
+    Silent,
     Unreachable,
     Fatal(String),
 }
@@ -594,6 +644,8 @@ fn connect_once(
         return Outcome::Unreachable;
     }
 
+    let mut last_heard = Instant::now();
+    let mut last_ping = Instant::now();
     loop {
         // ⚠ `halted()` as well as `stop`: revocation may be discovered by a different thread
         // entirely (`mark_revoked`, from inside `mint_token`), and this port has to be let go of
@@ -603,10 +655,32 @@ fn connect_once(
             return Outcome::Closed;
         }
 
+        // #591: ask a quiet hub, and give a silent one up rather than read it for ever.
+        match next(last_heard.elapsed(), last_ping.elapsed()) {
+            Next::Dead => {
+                state.set_link(&device.id, DeviceLink::Offline, Some("the hub stopped answering".into()));
+                return Outcome::Silent;
+            }
+            Next::Ping => {
+                if socket.send(Message::Text(PING.to_string())).is_err() {
+                    state.set_link(&device.id, DeviceLink::Offline, None);
+                    return Outcome::Unreachable;
+                }
+                last_ping = Instant::now();
+            }
+            Next::Listen => {}
+        }
+
         let text = match socket.read() {
-            Ok(Message::Text(t)) => t,
-            Ok(Message::Close(_)) => return Outcome::Closed,
-            Ok(_) => continue,
+            Ok(message) => {
+                // Anything at all is the hub alive: its `pong`, a command, a control frame.
+                last_heard = Instant::now();
+                match message {
+                    Message::Text(t) => t,
+                    Message::Close(_) => return Outcome::Closed,
+                    _ => continue,
+                }
+            }
             Err(e) if is_read_timeout(&e) => continue,
             Err(_) => {
                 state.set_link(&device.id, DeviceLink::Offline, None);
@@ -644,6 +718,9 @@ fn connect_once(
             }
             Some(Incoming::Command { id, frame, isl, timeout_ms }) => {
                 relay(&mut socket, &mut *serial, state, device, &id, &frame, isl, timeout_ms);
+                // The exchange held the loop for as long as the device took (a Z report runs for
+                // minutes): the hub was waiting on it, not silent.
+                last_heard = Instant::now();
             }
             Some(Incoming::Info) | Some(Incoming::Pong) | None => {}
         }
@@ -919,6 +996,36 @@ mod tests {
         assert!(classify("{}").is_none());
         assert!(classify(r#"{"type":"something:else"}"#).is_none());
         assert!(classify(r#"{"type":123}"#).is_none());
+    }
+
+    #[test]
+    fn a_quiet_hub_is_asked_and_a_silent_one_given_up() {
+        // lgr#591: the soak's master was updated, its connections died without a close, and this
+        // bridge read nothing for the trial's last hour while presence, which has a deadline, was
+        // back in seconds.
+        let s = Duration::from_secs;
+        assert_eq!(next(s(0), s(0)), Next::Listen);
+        assert_eq!(next(s(19), s(19)), Next::Listen, "quiet, not for long");
+        assert_eq!(next(s(20), s(20)), Next::Ping);
+        assert_eq!(next(s(25), s(5)), Next::Listen, "asked 5 s ago: waiting for its pong");
+        assert_eq!(next(s(40), s(20)), Next::Ping, "asked again while it stays quiet");
+        assert_eq!(next(s(59), s(19)), Next::Listen);
+        assert_eq!(next(s(60), s(0)), Next::Dead, "a ping into a silent link tells nothing");
+        assert_eq!(next(s(3_600), s(3_600)), Next::Dead);
+    }
+
+    #[test]
+    fn one_lost_pong_never_ends_the_link() {
+        assert!(SILENT_AFTER >= PING_AFTER * 3, "two pings go unanswered before the link is given up");
+        assert!(SILENT_AFTER < crate::presence::SILENT_AFTER, "the fiscal path notices no later than presence");
+    }
+
+    #[test]
+    fn the_ping_is_what_the_hub_answers_with_pong() {
+        // fiscal-bridge.ts: `case 'ping': ws.send({ type: 'pong', … })`, and a pong reads as the hub alive.
+        let v: serde_json::Value = serde_json::from_str(PING).unwrap();
+        assert_eq!(v["type"], "ping");
+        assert_eq!(classify(r#"{"type":"pong","timestamp":1}"#), Some(Incoming::Pong));
     }
 
     #[test]
