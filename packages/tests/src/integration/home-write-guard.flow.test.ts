@@ -139,6 +139,10 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     why: 'a lost key row brought back as the bundle has it (FR-25 §3.12): only from applyRestore(), after its assertHomeIsHere(orgId)',
   },
   'services/src/biz/login-throttle.service.ts': { count: 1, why: 'login throttles: not org data' },
+  'services/src/biz/org-clone/clone.service.ts': {
+    count: 3,
+    why: 'a test copy of an org (the Org row of a copy: its finish, its conversion, its marker): assertCloneAllowed, convertToTestOrg and markOrgEnvironment call assertHomeIsHere first, and the copy is written only into an org marked dev; the copy itself is written through a local handle, after assertCloneAllowed',
+  },
   'services/src/biz/cash-register/payment-receipt.service.ts': {
     count: 1,
     why: 'a payment\'s receipt recording its payment (FR-23): the same atomic pipeline update as the route\'s; calls assertHomeIsHere first',
