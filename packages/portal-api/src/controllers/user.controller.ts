@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
-import { userDao } from 'services/dao/user.dao'
+import { publicUser, userDao, USER_PUBLIC_PROJECTION } from 'services/dao/user.dao'
 import { User, PermissionSet } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
 import { DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
@@ -42,7 +42,8 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
     // `select: false`, so every caller of this endpoint was receiving bcrypt hashes. The
     // digest's recipient picker is what put a browser in front of it. Nothing reads
     // `password` from this response (verified), so the projection is unconditional.
-    const result = await paginateQuery(User, filter, query, { select: '-password' })
+    // S-14: the provider tokens an OAuth link has room for are excluded with it.
+    const result = await paginateQuery(User, filter, query, { select: USER_PUBLIC_PROJECTION })
     // Multi-org (rule 2): who also works in another org. Their password, email and name are theirs
     // alone, and the admin screen disables those fields for them (never which other org it is).
     const people = result.items.map((u: any) => u.identityId).filter(Boolean)
@@ -121,8 +122,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'admin', entityType: 'user', entityId: String(created._id), entityName: `${body.firstName} ${body.lastName}` })
 
       // Never echo the hash back — the same rule as the list (FR-11.3) and the `/:userId` routes.
-      const { password: _hash, ...safe } = created.toJSON() as Record<string, unknown>
-      return { user: safe }
+      return { user: publicUser(created.toJSON() as Record<string, any>) }
     },
     {
       isSignIn: true,
