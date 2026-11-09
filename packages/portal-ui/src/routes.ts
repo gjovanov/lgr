@@ -3,6 +3,7 @@ import { servedByMaster } from 'ui-shared/nav/node-role'
 import { getToken, hasOrgSession } from 'ui-shared/session/session'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { isPortalAreaPath, landingWithoutPortal } from 'ui-shared/nav/page-registry'
+import { useAccess } from 'ui-shared/access/useAccess'
 import { holdsArea } from 'config/constants'
 
 /**
@@ -119,6 +120,10 @@ export function portalGuard(to: RouteLocationNormalized, next: NavigationGuardNe
   } else if (signedIn && !isPublic && !forPerson && !hasOrgSession()) {
     // Signed in as a person who has not entered an org yet: every other screen needs one.
     next({ name: 'orgs' })
+  } else if (signedIn && hasOrgSession() && to.path.replace(/\/+$/, '') === '/orgs' && !useAccess().can('org.switch')) {
+    // #493 item 4 (FR-27): inside an org, a session that changes no org (a Seller) has no All organizations either.
+    // Before an org is entered, the screen after sign-in, it is the way in, as ever (the branch above).
+    next({ path: landingWithoutPortal(sessionViewer()), replace: true })
   } else if (signedIn && hasOrgSession() && isPortalAreaPath(to.path) && !holdsArea(sessionViewer(), 'portal')) {
     // FR-26.8.4: a session without the portal (a Seller) lands in its first app instead. Presentation:
     // the server refuses what it must on its own (`route-permission.ts#AREA_PREFIXES`).

@@ -3057,6 +3057,11 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - In `shadow` both auth plugins call `shadowAccess`, which never waits. Every answer the evaluator would give differently is counted in `access_shadow_diffs` (`AccessShadowDiff`, class N, field `org` not `orgId`, a 30-day TTL, counts only).
   - Switch and read it with `scripts/access-model.ts --org <slug> [--set legacy|shadow] [--days N]`, on the org's home. Pods cache the model for a minute.
 - **Client.** `ui-shared/access/useAccess` gives `can()` and `canOpen()` on the same grant, compiled from the tab's token as `sessionViewer` reads it.
+- **#493 items 2–5 ride on it (FR-27 D-8): capabilities, not areas.** A session whose claim carries an `areas` list, the Seller and the Sales Consultant, does not get these (`legacy.ts#NOT_WITH_AN_AREAS_LIST`):
+  - `sales-docs.totals` and `bills.totals`: the strip, and `GET invoices/summary`, which answers 403 `capability_required`;
+  - `sales-docs.import`: the invoices list's Import button only; the API still takes the import;
+  - `org.switch`: `OrgSwitcher` shows the org read-only, and `/orgs` redirects inside an org.
+  - Such a session lands on Products where it can open them (`landingWithoutPortal`).
 
 ## Known Issues
 

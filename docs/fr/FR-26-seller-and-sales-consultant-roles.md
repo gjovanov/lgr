@@ -73,9 +73,12 @@ So it does not reproduce from her data or from the deployed code.
 | Price lists, Bulk pricing | ✗ | ✗ |
 | **Other apps** | | |
 | Portal (App Hub, Dashboard, Settings, Admin) | ✗ | ✗ |
+| The invoices' totals strip (Outstanding, Overdue, Paid 30d, Drafts) and `GET /invoices/summary` (#493 item 2) | ✗ | ✗ |
+| The Import button on the invoices list (#493 item 5; the API still takes a sales-invoice import) | ✗ | ✗ |
 | Accounting, Payroll, Reports, Files | ✗ | ✗ |
 | **Their own** | | |
-| Account (password), the org menu, sign-out, notifications, language, ★ | ✓ | ✓ |
+| Account (password), sign-out, notifications, language, ★ | ✓ | ✓ |
+| The org menu: the org's name, slug and their role, read-only; no other org, invitation, New organization or All organizations (#493 item 4) | ✓ | ✓ |
 
 ✗ means hidden **and** refused by the server. A hidden page whose data a kept page needs stays readable; §2.4 says which.
 
@@ -205,8 +208,9 @@ The route table:
 3. **Sequences: admin and manager only.** The row gets `need: []` and `roles: ['admin', 'manager']`, as the server already decides. This also removes the entry for every other role, which the server refuses today.
 4. **Portal.**
    - There is no Portal tile in the switcher, and no App Hub, Dashboard, Settings or Admin page.
-   - Sign-in, an org switch, `/`, `/apps`, `/dashboard`, `/settings/*` and `/admin/*` land on the first app they may open: Invoicing.
-   - `/account`, `/orgs`, sign-out, notifications, language, theme and ★ stay.
+   - Sign-in, an org switch, `/`, `/apps`, `/dashboard`, `/settings/*`, `/admin/*` and, inside an org, `/orgs` land on Products (#493 item 3), or the first app they may open where they cannot open Products.
+   - `/account`, sign-out, notifications, language, theme and ★ stay. `/orgs` stays before an org is entered.
+   - Since FR-27 (#529, D-8) items 2–5 of #493 are capabilities, not areas: `sales-docs.totals`, `sales-docs.import` and `org.switch`, which a session carrying an `areas` list does not get (`config/access/legacy.ts#NOT_WITH_AN_AREAS_LIST`).
 5. **The movement form**, for a session without `inventory.write`:
    - Type offers Transfer only, preselected, and both warehouses are required.
    - The receipt-only parts never show: the product-update chip and the bill link.
@@ -231,7 +235,7 @@ The route table:
 ### 2.5 Edge cases
 
 - **Several sets.** An unrestricted set wins. Seller plus Sales Consultant is the union, so Sales Consultant.
-- **Several orgs.** Sessions are per membership: a person can be a Seller in one org and an admin in another.
+- **Several orgs.** Sessions are per membership: a person can be a Seller in one org and an admin in another. A Seller's session offers no way to another membership (#493 item 4); switching, founding an org and accepting an invitation stay the person's own on the server (`/auth/switch`, `/auth/orgs`, `/invite/:code/accept`).
 - **A tab.** Each tab keeps its own session (FR-19 Phase 3). A Seller's tab never adopts a role from another tab.
 - **A PIN session** (FR-20) still reaches the till only, whatever the role.
 - **An on-prem master** (FR-20).
@@ -271,7 +275,8 @@ The route table:
   - the switcher shows exactly Фактуриране and Склад, with no Portal tile;
   - the menus match §2.1, and „+ Нов" matches per role;
   - the movement form offers Transfer only;
-  - `/apps` lands on Invoicing.
+  - `/apps`, `/dashboard`, `/settings/users` and `/orgs` land on Products;
+  - the invoices list shows no totals and no Import.
 - ⚠ Never `.rejects` or `.resolves` in this suite (CLAUDE.md, Known Issues).
 
 ## 5. Acceptance criteria

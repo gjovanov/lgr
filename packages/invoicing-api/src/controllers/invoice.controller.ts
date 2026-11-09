@@ -1,4 +1,5 @@
 import { FiscalRoute, deviceFromAuthorSession, deviceFromCounter, deviceFromDeadReceipt } from 'fiscal/fiscal-route'
+import { can } from 'services/biz/access/evaluate'
 import { Elysia, t } from 'elysia'
 import { holdsArea } from 'config/constants'
 import { AppAuthService } from '../auth/app-auth.service.js'
@@ -732,6 +733,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   // Cloud-only (Mongo aggregation); desktop-ui does not request it.
   .get('/summary', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    // #493 item 2 (FR-27 D-8): the totals strip is a capability. A Seller and a Sales Consultant have none: hidden
+    // is not enough, the figures stay on the server.
+    if (!can(user, ['sales-docs.totals', 'bills.totals'])) {
+      return status(403, { code: 'capability_required', capabilities: ['sales-docs.totals'], message: 'The totals are not part of your role.' })
+    }
     const summary = await getInvoiceSummary(orgId, (holdsArea(user, 'purchases') ? query : { ...query, direction: 'outgoing' }) as any)
     return { summary }
   }, { isSignIn: true })

@@ -26,9 +26,10 @@ const WORK = ['create', 'edit', 'delete'] as const
 
 export const CATALOGUE = [
   // ── Invoicing ──
-  { id: 'sales-docs', group: 'invoicing', actions: ['view', ...WORK, 'export'] },
+  // `totals`: the list's strip and `GET invoices/summary`; `import`: the list's Import button (#493 items 2, 5).
+  { id: 'sales-docs', group: 'invoicing', actions: ['view', ...WORK, 'export', 'totals', 'import'] },
   { id: 'proforma', group: 'invoicing', actions: ['view', ...WORK] },
-  { id: 'bills', group: 'invoicing', actions: ['view', ...WORK] },
+  { id: 'bills', group: 'invoicing', actions: ['view', ...WORK, 'totals'] },
   // `browse`: the inventory roles open Orders (READ_WITH_INVENTORY). `lookup`: a transfer-only session reads them.
   { id: 'orders', group: 'invoicing', actions: ['view', 'browse', 'lookup', ...WORK] },
   { id: 'payments', group: 'invoicing', actions: ['view', ...WORK] },
@@ -91,6 +92,8 @@ export const CATALOGUE = [
   { id: 'numbering', group: 'settings', actions: ['view', 'manage'] },
   // `view` opens the page (a portal page); `lookup` reads a filing's files, which no area holds.
   { id: 'audit-log', group: 'settings', actions: ['view', 'lookup'] },
+  // The org menu's other orgs, invitations and New organization, and `/orgs` inside an org (#493 item 4).
+  { id: 'org', group: 'settings', actions: ['switch'] },
 
   // ── Helpers: no row in the editor; what several forms share ──
   { id: 'pricing', group: 'helpers', actions: ['read'] },

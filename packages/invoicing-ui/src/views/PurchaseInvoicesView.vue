@@ -165,6 +165,7 @@
 </template>
 
 <script setup lang="ts">
+import { useAccess } from 'ui-shared/access/useAccess'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -283,10 +284,14 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
 })
 
 // ── KPI summary ────────────────────────────────────────────────────────────
+// #493 item 2 (FR-27): no strip for a role without the totals, and no request for it (the server refuses it).
+const access = useAccess()
+const showsTotals = access.can('bills.totals')
 const summary = ref<any>(null)
 const summaryLoading = ref(false)
 
 async function fetchSummary() {
+  if (!showsTotals) return
   summaryLoading.value = true
   try {
     const params: Record<string, any> = { direction: 'incoming', type: 'invoice' }
@@ -307,6 +312,7 @@ function statusFilterEquals(target: string[]): boolean {
 }
 
 const kpis = computed<StatCardDef[]>(() => {
+  if (!showsTotals) return []
   const s = summary.value
   return [
     {

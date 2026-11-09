@@ -23,14 +23,16 @@
         <div v-if="loading" class="d-flex justify-center py-3">
           <v-progress-circular indeterminate size="24" />
         </div>
+        <!-- #493 item 4 (FR-27): without `org.switch`, the current org alone, read-only, and nothing to act on. -->
         <v-list-item
-          v-for="o in orgs"
+          v-for="o in shown"
           :key="o.orgId"
           :active="o.current"
           color="primary"
           :disabled="!!busy"
+          :link="switches"
           data-testid="org-switcher-org"
-          @click="choose(o)"
+          @click="switches && choose(o)"
         >
           <template #prepend>
             <span class="org-initials mr-3">{{ initials(o.name) }}</span>
@@ -43,7 +45,7 @@
           </template>
         </v-list-item>
 
-        <template v-if="invitations.length">
+        <template v-if="switches && invitations.length">
           <v-divider class="my-1" />
           <v-list-subheader>{{ $t('orgSwitcher.invitations') }}</v-list-subheader>
           <v-list-item v-for="i in invitations" :key="i.code" :disabled="!!busy && busy !== i.code">
@@ -60,6 +62,7 @@
           </v-list-item>
         </template>
 
+        <template v-if="switches">
         <v-divider class="my-1" />
         <v-list-item :title="$t('orgSwitcher.newOrg')" :disabled="!!busy" @click="openNewOrg">
           <template #prepend>
@@ -71,6 +74,7 @@
             <span class="org-initials org-initials--action mr-3"><v-icon size="20">mdi-view-grid-outline</v-icon></span>
           </template>
         </v-list-item>
+        </template>
       </v-list>
       <v-alert v-if="error" type="error" density="compact" variant="tonal" class="ma-2">
         {{ error }}
@@ -111,6 +115,7 @@ import {
 } from 'ui-shared/session/useOrgSession'
 import { hasUnsavedWork, switchBlockedBy } from 'ui-shared/session/switch-guards'
 import { portalHref } from 'ui-shared/nav/navigate'
+import { useAccess } from 'ui-shared/access/useAccess'
 import NewOrgDialog from './NewOrgDialog.vue'
 import type { ShellOrg } from './types'
 
@@ -139,6 +144,10 @@ const busy = ref('')
 const newOrgOpen = ref(false)
 const confirmOpen = ref(false)
 let pending: (() => void) | null = null
+
+/** #493 item 4: a Seller and a Sales Consultant see their org, and change nothing from here (FR-27, `org.switch`). */
+const switches = useAccess().can('org.switch')
+const shown = computed(() => (switches ? orgs.value : orgs.value.filter(o => o.current)))
 
 const allOrgsHref = computed(() => portalHref('/orgs'))
 const accountHref = computed(() => portalHref('/account'))
