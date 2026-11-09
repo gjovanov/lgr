@@ -3,7 +3,7 @@ import { mongoose } from 'db/connection'
 import { AbsenceEntry, Employee, EmploymentContract, LeaveBalance } from 'db/models'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { createAuditEntry, recordAuditEntry } from 'services/biz/audit-log.service'
-import { holdsPersonal } from 'services/biz/route-permission'
+import { can } from 'services/biz/access/evaluate'
 import { ABSENCE_CODES, openAbsenceDetail, sealAbsenceDetail } from 'services/biz/payroll/bg/absence'
 import { openContractPay, sealContractPay } from 'services/biz/payroll/bg/contract-pay'
 import { absenceView, contractView, leaveBalanceView } from 'services/biz/payroll/bg/views'
@@ -69,7 +69,7 @@ export const contractController = new Elysia({ prefix: '/org/:orgId/payroll/cont
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+      if (!can(user, 'payroll-people.view')) return status(403, PERSONAL_REFUSAL)
       if (!(await inThisOrg(orgId, body.employeeId))) return status(404, NOT_HERE)
       const { salaries, ...plain } = body
       const id = new mongoose.Types.ObjectId()
@@ -91,7 +91,7 @@ export const contractController = new Elysia({ prefix: '/org/:orgId/payroll/cont
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+      if (!can(user, 'payroll-people.view')) return status(403, PERSONAL_REFUSAL)
       const existing = await EmploymentContract.findOne({ _id: id, orgId }).lean().exec()
       if (!existing) return status(404, { message: 'Contract not found' })
       const { salaries, ...plain } = body
@@ -144,7 +144,7 @@ export const absenceController = new Elysia({ prefix: '/org/:orgId/payroll/absen
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+      if (!can(user, 'payroll-people.view')) return status(403, PERSONAL_REFUSAL)
       if (!(await inThisOrg(orgId, body.employeeId))) return status(404, NOT_HERE)
       const { code, document, ...plain } = body
       const id = new mongoose.Types.ObjectId()
@@ -172,7 +172,7 @@ export const absenceController = new Elysia({ prefix: '/org/:orgId/payroll/absen
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+    if (!can(user, 'payroll-people.view')) return status(403, PERSONAL_REFUSAL)
     const removed = await AbsenceEntry.findOneAndDelete({ _id: id, orgId }).lean().exec()
     if (!removed) return status(404, { message: 'Absence not found' })
     createAuditEntry({ orgId, userId: user.id, action: 'delete', module: 'payroll', entityType: 'absence', entityId: id })
@@ -214,7 +214,7 @@ export const leaveBalanceController = new Elysia({ prefix: '/org/:orgId/payroll/
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+      if (!can(user, 'payroll-people.view')) return status(403, PERSONAL_REFUSAL)
       const { employeeId, year, ...values } = body
       if (!(await inThisOrg(orgId, employeeId))) return status(404, NOT_HERE)
       const balance = await LeaveBalance.findOneAndUpdate({ orgId, employeeId, year }, { $set: values }, { new: true, upsert: true }).lean().exec()

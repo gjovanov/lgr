@@ -3,7 +3,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges, recordAuditEntry } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
-import { holdsPersonal } from 'services/biz/route-permission'
+import { can } from 'services/biz/access/evaluate'
 import { upsertTags } from 'services/biz/tag.service'
 import { forOrg } from 'services/biz/personal-data/personal-data.service'
 import {
@@ -97,7 +97,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!holdsPersonal(user)) return personalRefusal(status)
+      if (!can(user, 'payroll-people.view')) return personalRefusal(status)
       const r = getRepos()
 
       const { personal, ...plain } = body
@@ -209,7 +209,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!holdsPersonal(user)) return personalRefusal(status)
+      if (!can(user, 'payroll-people.view')) return personalRefusal(status)
       const r = getRepos()
 
       const existing: any = await r.employees.findOne({ id, orgId } as any)
@@ -276,7 +276,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    if (!holdsPersonal(user)) return personalRefusal(status)
+    if (!can(user, 'payroll-people.view')) return personalRefusal(status)
     const r = getRepos()
 
     const existing = await r.employees.findOne({ id, orgId } as any)

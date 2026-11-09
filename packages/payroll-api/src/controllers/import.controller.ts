@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry } from 'services/biz/audit-log.service'
-import { holdsPersonal } from 'services/biz/route-permission'
+import { can } from 'services/biz/access/evaluate'
 import { importContracts, importEmployees, importMonth } from 'services/biz/payroll/bg/import.service'
 import { isEmplRow } from 'services/biz/payroll/bg/files/empl2021'
 import { lockedAnswer, PERSONAL_REFUSAL } from './answers.js'
@@ -28,7 +28,7 @@ export const payrollImportController = new Elysia({ prefix: '/org/:orgId/payroll
     '/employees',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+      if (!can(user, 'payroll-people.view')) return status(403, PERSONAL_REFUSAL)
       if (await refusesImport(orgId)) return status(409, NOT_A_PAYROLL_ORG)
       try {
         const report = await importEmployees(orgId, body.people, { dryRun: dry(body) })
@@ -58,7 +58,7 @@ export const payrollImportController = new Elysia({ prefix: '/org/:orgId/payroll
     '/contracts',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+      if (!can(user, 'payroll-people.view')) return status(403, PERSONAL_REFUSAL)
       if (await refusesImport(orgId)) return status(409, NOT_A_PAYROLL_ORG)
       try {
         const report = await importContracts(orgId, body as any, { dryRun: dry(body) })
@@ -91,7 +91,7 @@ export const payrollImportController = new Elysia({ prefix: '/org/:orgId/payroll
     '/months',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!holdsPersonal(user)) return status(403, PERSONAL_REFUSAL)
+      if (!can(user, 'payroll-people.view')) return status(403, PERSONAL_REFUSAL)
       if (await refusesImport(orgId)) return status(409, NOT_A_PAYROLL_ORG)
       if (!body.rows.every(isEmplRow)) return status(422, { message: 'A row is not an обр. 1 record', code: 'bad_row' })
       try {

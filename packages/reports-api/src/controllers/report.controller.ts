@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Org } from 'db/models'
 import {
@@ -165,7 +166,7 @@ function filenameFor(id: string, format: string): string {
  * `order-sheet`. Admins pass, as on every route.
  */
 function reportsRefusal(user: { role?: string; permissions?: readonly string[] }): string | null {
-  if (user.role === 'admin' || user.permissions?.includes('reports.read')) return null
+  if (can(user, 'reports.view')) return null
   return 'The reports.read permission is required'
 }
 

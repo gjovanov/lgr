@@ -31,8 +31,19 @@ const GATES: Array<{ cap: CapabilityId; was: string; old: (c: Claims) => boolean
   // export-access.ts.
   { cap: 'sales-docs.export', was: 'canExport', old: c => has(c, 'invoicing.read') || has(c, 'invoicing.write') },
   { cap: 'sales-docs.edit', was: 'canWrite', old: c => has(c, 'invoicing.write') },
-  // aging-report.controller.
+  // aging-report.controller, report.controller's reportsRefusal.
   { cap: 'reports.view', was: "role === 'admin' || reports.read", old: c => has(c, 'reports.read') },
+  // movement.controller: a transfer-only session (FR-26.7) is one without this.
+  { cap: 'movements.create', was: "role === 'admin' || inventory.write", old: c => has(c, 'inventory.write') },
+  // account.controller.
+  { cap: 'accounts.create', was: "['admin', 'accountant'].includes(role)", old: c => ['admin', 'accountant'].includes(c.role) },
+  // the payroll controllers' holdsPersonal (FR-25 §3.11).
+  { cap: 'payroll-people.view', was: 'holdsPersonal', old: c => has(c, 'payroll.personal') },
+  // supto-export.controller.
+  { cap: 'supto.export', was: "['admin', 'nra_auditor'].includes(role)", old: c => ['admin', 'nra_auditor'].includes(c.role) },
+  // file.controller: gate, and readGate's auditor.
+  { cap: 'files.view', was: "role === 'admin' || admin.settings", old: c => has(c, 'admin.settings') },
+  { cap: 'files.archives', was: "role === 'nra_auditor' (admin through gate)", old: c => ['admin', 'nra_auditor'].includes(c.role) },
 ]
 
 function shapes(): Claims[] {

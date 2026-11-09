@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { can } from 'services/biz/access/evaluate'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
@@ -49,7 +50,7 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      if (!['admin', 'accountant'].includes(user.role))
+      if (!can(user, 'accounts.create'))
         return status(403, { message: 'Accountant or admin only' })
       const r = getRepos()
 
