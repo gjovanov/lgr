@@ -765,7 +765,7 @@ pub fn status(json: bool) -> Result<i32> {
 
 /// The helper's log: in `update/`, never in the data directory.
 fn log_to(root: &Root) {
-    crate::init_logging(Some(&root.update().join("helper.log")));
+    crate::init_logging(Some((&root.update().join("helper.log"), crate::logs::Limits::default())));
 }
 
 /// `update-helper`: what the OS starts.

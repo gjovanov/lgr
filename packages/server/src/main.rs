@@ -21,6 +21,7 @@ mod lan_clone;
 mod install;
 mod ipc;
 mod licence;
+mod logs;
 mod mdns_wire;
 mod mongod;
 mod night_restart;
@@ -222,14 +223,11 @@ enum LicenceAction {
     Import { file: std::path::PathBuf },
 }
 
-fn init_logging(to_file: Option<&std::path::Path>) {
+fn init_logging(to_file: Option<(&std::path::Path, logs::Limits)>) {
     let filter = tracing_subscriber::EnvFilter::try_from_env("LGR_SERVER_LOG").unwrap_or_else(|_| "info".into());
     let builder = tracing_subscriber::fmt().with_env_filter(filter).with_target(false);
-    match to_file.and_then(|p| {
-        std::fs::create_dir_all(p.parent()?).ok()?;
-        std::fs::OpenOptions::new().create(true).append(true).open(p).ok()
-    }) {
-        // A service has no console: its log is a file.
+    match to_file.and_then(|(p, limits)| logs::Rotating::open(p, limits).ok()) {
+        // A service has no console: its log is a file, which starts over past its limit (#592).
         Some(file) => builder.with_ansi(false).with_writer(std::sync::Mutex::new(file)).init(),
         None => builder.with_writer(std::io::stderr).init(),
     }
@@ -295,6 +293,11 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
             Ok(o) => o,
             Err(e) => return config_error(e),
         };
+        // #592: how big a log grows before it starts over. A wrong setting keeps its default, loudly.
+        let (log_limits, log_wrong) = logs::Limits::from_operator(&operator);
+        for w in log_wrong {
+            tracing::warn!("{w}");
+        }
         // FR-20.25: loud, never fatal. Without its browser a master still sells and books; it
         // prints no invoice or report as a PDF.
         match config::pdf_browser(&paths, &operator) {
@@ -458,6 +461,9 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
                     return Err(1);
                 }
             }
+            // #592: the logs the children hold open, each from its own spec, and mongod's own.
+            let mut held = Vec::new();
+            let mongod_plan = plan.clone();
             // The database first, ready before the API connects (FR-20.15).
             let mongo_uri = match plan {
                 None => None,
@@ -471,6 +477,7 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
                         return Err(backoff::EXIT_CONFIG);
                     }
                     let spec = mongod::spec(&plan).map_err(config_error)?;
+                    held.extend(spec.log.clone());
                     sup.add(spec);
                     sup.pending("api", "waiting for the database");
                     let mut attempt = 0u32;
@@ -491,8 +498,10 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
                 }
             };
             let api = config::api_spec(&paths, mongo_uri.as_deref(), Some(&front)).map_err(config_error)?;
+            held.extend(api.log.clone());
             sup.add(api);
             sup.set_api_control(front.socket.clone(), front.secret.clone());
+            sup.add_service(tokio::spawn(logs::run(held, mongod_plan, log_limits, logs::EVERY)));
 
             // The ingresses last (FR-20.11): the console only while setup is not complete.
             let upstream = std::sync::Arc::new(ingress::Upstream { port: front.port, secret: front.secret.clone() });
@@ -763,7 +772,10 @@ fn real_main(cli: Cli) -> Result<i32> {
                     Ok(0)
                 }
                 ServiceAction::Run => {
-                    init_logging(Some(&paths.data.join("logs").join("lgr-server.log")));
+                    // The operator's limits (#592), read leniently: what is wrong is said once the log is
+                    // up (`run_round`).
+                    let limits = config::operator_env(&paths).map(|o| logs::Limits::from_operator(&o).0).unwrap_or_default();
+                    init_logging(Some((&paths.data.join("logs").join("lgr-server.log"), limits)));
                     service::platform::run()?;
                     Ok(0)
                 }

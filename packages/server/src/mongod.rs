@@ -295,6 +295,17 @@ impl OplogWindow {
     }
 }
 
+/// #592: mongod starts its log over (`logRotate`, as the administrator): it renames `mongod.log` to
+/// `mongod.log.<time>` and opens a new one, and `logs::prune_mongod` deletes the oldest. Only ever
+/// reads the secrets: `secrets` writes them when they are missing.
+pub async fn rotate_log(plan: &Plan) -> Result<()> {
+    let env = parse_env(&std::fs::read_to_string(&plan.secrets)?);
+    let admin = env.get("MONGO_ADMIN_PASSWORD").ok_or_else(|| anyhow!("no administrator password yet"))?;
+    let c = client(plan, Some((ADMIN_USER, admin))).await?;
+    c.database("admin").run_command(doc! { "logRotate": 1 }).await?;
+    Ok(())
+}
+
 /// The API's URI as `keys/mongo.env` gives it, without touching the database: what `run-script`
 /// hands a script, so it reaches the database the API does.
 pub fn known_app_uri(plan: &Plan) -> Option<String> {
@@ -627,6 +638,58 @@ mod tests {
         assert!(second.stop(&after_loss.stop, Duration::from_secs(10)).await.is_some());
         assert!(started.elapsed() < Duration::from_secs(8), "took {:?}", started.elapsed());
         assert_eq!(by_command(), 1, "the refused command must not have stopped it");
+    }
+
+    /// #592 against the real thing: `logRotate` as the administrator renames the log to a name
+    /// `logs::prune_mongod` knows as mongod's, and mongod opens a new one. Skipped without a binary.
+    #[tokio::test]
+    async fn a_real_mongod_starts_its_log_over_when_asked() {
+        let Some(binary) = std::env::var_os("LGR_SERVER_TEST_MONGOD").filter(|v| !v.is_empty()).map(PathBuf::from) else {
+            eprintln!("LGR_SERVER_TEST_MONGOD not set: skipped");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let port = {
+            let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().port()
+        };
+        let plan = Plan {
+            binary,
+            port,
+            dbpath: dir.path().join("db"),
+            keyfile: dir.path().join("keys").join("mongo.keyfile"),
+            secrets: dir.path().join("keys").join("mongo.env"),
+            log: dir.path().join("logs").join("mongod.log"),
+            cache_gb: 0.25,
+            oplog_mb: 64,
+        };
+        let spec = spec(&plan).unwrap();
+        let running = crate::child::spawn(&spec).unwrap();
+        bootstrap(&plan).await.unwrap();
+        let logs = plan.log.parent().unwrap().to_path_buf();
+        let rotated = || -> Vec<String> {
+            let mut v: Vec<String> = std::fs::read_dir(&logs)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().into_string().unwrap())
+                .filter(|n| n.starts_with("mongod.log."))
+                .collect();
+            v.sort();
+            v
+        };
+        assert!(rotated().is_empty(), "{:?}", rotated());
+
+        rotate_log(&plan).await.unwrap();
+        assert_eq!(rotated().len(), 1, "one rotated log: {:?}", rotated());
+        assert!(plan.log.exists(), "and a new one, mongod's own");
+        // The name is one prune_mongod deletes: keeping none deletes it, and only it.
+        assert_eq!(crate::logs::prune_mongod(&plan.log, 5).unwrap(), 0);
+        assert_eq!(crate::logs::prune_mongod(&plan.log, 0).unwrap(), 1, "{:?}", rotated());
+        assert!(rotated().is_empty());
+        assert!(plan.log.exists() && logs.join("mongod.console.log").exists(), "nothing else went");
+
+        assert_eq!(running.stop(&spec.stop, Duration::from_secs(10)).await, Some(0));
+        let after = std::fs::read_to_string(&plan.log).unwrap();
+        assert!(after.contains("Terminating via shutdown command"), "mongod went on writing to its new log");
     }
 
     #[tokio::test]
