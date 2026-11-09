@@ -129,7 +129,8 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       body: t.Object({
         email: t.String({ format: 'email' }),
         username: t.String({ minLength: 3 }),
-        password: t.String({ minLength: 6 }),
+        // S-09: the rule a password change and a reset already apply (12; was 6 here).
+        password: t.String({ minLength: 12, maxLength: 256 }),
         firstName: t.String({ minLength: 1 }),
         middleName: t.Optional(t.String()),
         lastName: t.String({ minLength: 1 }),
@@ -251,7 +252,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       body: t.Object({
         email: t.Optional(t.String({ format: 'email' })),
         username: t.Optional(t.String({ minLength: 3 })),
-        password: t.Optional(t.String({ minLength: 6 })),
+        password: t.Optional(t.String({ minLength: 12, maxLength: 256 })), // S-09
         firstName: t.Optional(t.String()),
         middleName: t.Optional(t.String()),
         lastName: t.Optional(t.String()),

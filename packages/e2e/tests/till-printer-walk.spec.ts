@@ -5,7 +5,7 @@ import { loginForApp } from './helpers/login'
 import { SESSION_FILES, filesGone } from './helpers/nav'
 
 const API = process.env.BASE_URL || 'http://localhost:4001'
-const PASSWORD = 'test12345'
+const PASSWORD = 'e2e-test-pw-12345'
 
 /**
  * FR-24's point: moving between the till and an invoice is a router push, not a page load, because a

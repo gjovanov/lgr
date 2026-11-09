@@ -74,7 +74,7 @@
           </v-row>
           <v-text-field v-model="form.email" :label="$t('common.email')" type="email" class="mb-2" :disabled="identityLocked" />
           <v-text-field v-model="form.username" :label="$t('auth.username')" class="mb-2" />
-          <v-text-field v-if="!editing" v-model="form.password" :label="$t('auth.password')" type="password" class="mb-2" />
+          <v-text-field v-if="!editing" v-model="form.password" :label="$t('auth.password')" type="password" :rules="[passwordRule]" class="mb-2" />
           <!-- The address already belongs to a person: an org admin never takes over their account (rule 2). -->
           <v-alert v-if="existingPerson" type="info" variant="tonal" density="compact" class="mb-4">
             {{ $t('settings.identityExists', { email: existingPerson }) }}
@@ -378,7 +378,14 @@ function openDialog(item?: any) {
   dialog.value = true
 }
 
+/** S-09: the server's rule for every password a person sets (12), said before the request. */
+const passwordRule = (v: string) => (v ?? '').length >= 12 || t('account.passwordRule')
+
 async function save() {
+  if (!editing.value && passwordRule(form.password) !== true) {
+    showError(t('account.passwordRule'))
+    return
+  }
   saving.value = true
   existingPerson.value = ''
   try {

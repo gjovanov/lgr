@@ -70,9 +70,9 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     const person = async (role: 'sales' | 'manager') => {
       const username = `e2e-${role}-${run}`
       await ok(admin, 'POST', '/user', {
-        email: `${username}@lgr.test`, username, password: 'test12345', firstName: 'E2E', lastName: role, role,
+        email: `${username}@lgr.test`, username, password: 'e2e-test-pw-12345', firstName: 'E2E', lastName: role, role,
       })
-      return apiLogin('acme-corp', username, 'test12345')
+      return apiLogin('acme-corp', username, 'e2e-test-pw-12345')
     }
     cashier = await person('sales')
     cashierName = `e2e-sales-${run}`
@@ -194,7 +194,7 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     const p = articles[0]
     const before = (await device()).receipts.length
 
-    await loginForApp(page, 'acme-corp', cashierName, 'test12345')
+    await loginForApp(page, 'acme-corp', cashierName, 'e2e-test-pw-12345')
     await page.goto('/invoicing/cash-sales/new')
     // A fresh browser, and nothing to set: the device says how it prints, and this one is fiscalized (#461, D1).
     const search = page.getByRole('textbox', { name: /Search products/i })
