@@ -13,7 +13,7 @@ import { apiLogin, apiDelete, apiGet, apiPost } from './helpers/api'
  */
 test.describe.configure({ mode: 'serial' })
 
-const PASSWORD = 'test12345'
+const PASSWORD = 'e2e-test-pw-12345'
 const stamp = Date.now()
 const users = { seller: `seller-${stamp}`, sales_consultant: `consultant-${stamp}` } as const
 

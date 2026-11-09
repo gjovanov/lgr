@@ -19,7 +19,7 @@ const API = process.env.BASE_URL || 'http://localhost:4001'
 const STUB_PORT = Number(process.env.ELTRADE_STUB_PORT) || 8299
 const STUB = `http://127.0.0.1:${STUB_PORT + 1}`
 const SERIAL = 'ED123456' // the simulator's
-const PASSWORD = 'test12345'
+const PASSWORD = 'e2e-test-pw-12345'
 const CLOSE = 0x38
 /**
  * Where this device's numbers start. A real device's repeat only when its fiscal memory is replaced, and this

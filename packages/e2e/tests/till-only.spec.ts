@@ -6,7 +6,7 @@ import { BETA, signInAsMultiInAcme, switchTo } from './helpers/org-switcher'
 import { openNavDrawer } from './helpers/nav'
 
 const API = process.env.BASE_URL || 'http://localhost:4001'
-const PASSWORD = 'test12345'
+const PASSWORD = 'e2e-test-pw-12345'
 
 /**
  * The till lives in the invoicing app, and not everyone there has it, or anything else of it.

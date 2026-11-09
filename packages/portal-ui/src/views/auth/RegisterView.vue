@@ -15,7 +15,7 @@
         </v-row>
         <v-text-field v-model="form.email" :label="$t('auth.email')" type="email" prepend-inner-icon="mdi-email" required class="mb-2" :readonly="isOAuth" />
         <v-text-field v-model="form.username" :label="$t('auth.username')" prepend-inner-icon="mdi-account" required class="mb-2" />
-        <v-text-field v-if="!isOAuth" v-model="form.password" :label="$t('auth.password')" prepend-inner-icon="mdi-lock" type="password" required class="mb-2" />
+        <v-text-field v-if="!isOAuth" v-model="form.password" :label="$t('auth.password')" prepend-inner-icon="mdi-lock" type="password" :rules="[passwordRule]" required class="mb-2" />
         <v-row v-if="!inviteCode">
           <v-col cols="6">
             <v-select v-model="form.baseCurrency" :label="$t('auth.baseCurrency')" :items="['EUR','USD','GBP','CHF','MKD','BGN']" />
@@ -72,7 +72,12 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
+
+const { t } = useI18n()
+/** S-09: the server's rule for every password a person sets (12), said before the request. */
+const passwordRule = (v: string) => (v ?? '').length >= 12 || t('account.passwordRule')
 
 const appStore = useAppStore()
 const router = useRouter()
@@ -181,6 +186,10 @@ async function handleRegister() {
       })
       sessionStorage.removeItem('lgr_invite_code')
       router.push('/dashboard')
+      return
+    }
+    if (passwordRule(form.password) !== true) {
+      error.value = t('account.passwordRule')
       return
     }
     const payload = { ...form }

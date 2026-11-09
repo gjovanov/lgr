@@ -19,7 +19,7 @@ const API = process.env.BASE_URL || 'http://localhost:4001'
 const STUB_PORT = Number(process.env.ELTRADE_STUB_PORT) || 8299
 const STUB = `http://127.0.0.1:${STUB_PORT + 1}`
 const SERIAL = 'ED123456' // the simulator's
-const PASSWORD = 'test12345'
+const PASSWORD = 'e2e-test-pw-12345'
 const LAST_NUMBER = 100_000 + (Date.now() % 800_000)
 const INVOICE_ACTION = 'Issue invoice'
 

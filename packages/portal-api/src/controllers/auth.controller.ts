@@ -115,7 +115,8 @@ export const authController = new Elysia({ prefix: '/auth' })
         orgSlug: t.Optional(t.String({ minLength: 2 })),
         email: t.String({ format: 'email' }),
         username: t.String({ minLength: 3 }),
-        password: t.String({ minLength: 6 }),
+        // S-09: the rule a password change and a reset already apply (12; was 6 here).
+        password: t.String({ minLength: 12, maxLength: 256 }),
         firstName: t.String({ minLength: 1 }),
         middleName: t.Optional(t.String()),
         lastName: t.String({ minLength: 1 }),
