@@ -11,6 +11,8 @@ export interface IOAuthProvider {
 
 export interface IRoleHistoryEntry {
   role: string
+  /** FR-27.8: the role's name at the time (the key alone says nothing of a custom role). */
+  roleName?: string
   startDate: Date
   endDate?: Date
   assignedBy?: Types.ObjectId
@@ -67,6 +69,7 @@ const userSchema = new Schema<IUser>(
     roleHistory: [
       {
         role: { type: String, required: true },
+        roleName: String,
         startDate: { type: Date, required: true },
         endDate: Date,
         assignedBy: { type: Schema.Types.ObjectId, ref: 'User' },

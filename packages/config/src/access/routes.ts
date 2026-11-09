@@ -132,6 +132,7 @@ export const READ_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['integration', self(ADMIN)],
   ['invite', self(ADMIN)],
   ['permission-sets', self(ADMIN_OR_SETTINGS)],
+  ['roles', self('roles.view (FR-27.4, role.controller)')],
 
   ['apps', member('the app hub, filtered by what the caller may open')],
   ['licence', member("this server's licence for the org, for the banner and the till (FR-20.55)")],
@@ -212,6 +213,7 @@ export const WRITE_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['user', self('admin role (S-21)')],
   ['invite', self(ADMIN)],
   ['permission-sets', self(ADMIN)],
+  ['roles', self('roles.edit, and FR-27.8 in role.service')],
   ['apps', self(ADMIN)],
   ['digest', self(ADMIN)],
   ['backup', self('requireSysAdmin')],

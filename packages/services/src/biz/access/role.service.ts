@@ -1,0 +1,295 @@
+import {
+  CAPABILITIES, ROLE_TEMPLATES, grantOfRole, isCapability, projectGrant, templateGrant, unknownCaps,
+  type CapabilityId, type Grant,
+} from 'config/access'
+import { PermissionSet, Role, User } from 'db/models'
+import { createAuditEntry } from '../audit-log.service'
+import { endSessionsOf } from '../permission-set.service'
+import { grantOf, type AccessCaller } from './evaluate'
+import { forgetMember, forgetRole } from './live'
+import { accessModelOf } from './shadow'
+
+/**
+ * FR-27.3, FR-27.8 (#529) — roles: create, copy, edit, delete, and give one to a person. The one place that writes
+ * them, so the safety rules hold whichever route asks.
+ *
+ * Safety (FR-27.8):
+ *   - managing roles takes `roles.edit`;
+ *   - nobody edits their own role, nor changes their own;
+ *   - nobody makes, edits or gives a role that holds a capability they do not hold;
+ *   - only an Administrator gives the Administrator role, or `roles.edit` / `roles.view`;
+ *   - the Administrator role cannot be edited or deleted, and the last active Administrator cannot lose it;
+ *   - roles are the org's own: another org's role id is not found;
+ *   - every create, edit, delete and assignment is audited with what it grants before and after.
+ *
+ * Both models are written until Phase 3 (FR-27 §4 step 3): a role keeps its legacy projection (`projectGrant`)
+ * and a permission set that carries it (`legacy.setId`), and a person given a role is put on that set with the
+ * role's legacy key. So an org on the legacy model, and a master on an older release, serve each person their
+ * role, or less where the projection cannot say it all (`needsRelease`), never more.
+ */
+
+export class RoleRefusal extends Error {
+  constructor(public status: number, public body: { code: string; message: string; [k: string]: unknown }) {
+    super(body.message)
+    this.name = 'RoleRefusal'
+  }
+}
+
+const refuse = (status: number, code: string, message: string, extra: Record<string, unknown> = {}): never => {
+  throw new RoleRefusal(status, { code, message, ...extra })
+}
+
+const ROLE_CAPS: readonly CapabilityId[] = ['roles.edit', 'roles.view']
+
+interface Actor extends AccessCaller {
+  id: string
+}
+
+function assertManages(actor: Actor): void {
+  if (!grantOf(actor).all && !grantOf(actor).caps.has('roles.edit')) refuse(403, 'roles_required', 'Managing roles is not part of your role.')
+}
+
+/** FR-27.8: what this actor may give: nothing beyond their own grant; `*` and the roles capabilities an Administrator's only. */
+function assertWithin(actor: Actor, grant: Grant): void {
+  const mine = grantOf(actor)
+  if (mine.all) return
+  if (grant.all) refuse(403, 'administrator_only', 'Only an Administrator gives the Administrator role.')
+  for (const cap of grant.all ? [] : grant.caps) {
+    if (ROLE_CAPS.includes(cap)) refuse(403, 'administrator_only', 'Only an Administrator gives the right to manage roles.', { capability: cap })
+    if (!mine.caps.has(cap)) refuse(403, 'beyond_your_role', `You cannot give what your own role does not hold: ${cap}.`, { capability: cap })
+  }
+}
+
+const capsOf = (grant: Grant): string[] => (grant.all ? [] : [...grant.caps].sort())
+
+/** The stored ids a body names: unknown ones are kept out (FR-27.8), and listed back. */
+function cleanCaps(caps: readonly string[] | undefined): { caps: CapabilityId[]; unknown: string[] } {
+  const all = [...new Set(caps ?? [])]
+  return { caps: all.filter(isCapability) as CapabilityId[], unknown: all.filter(c => !isCapability(c)) }
+}
+
+async function roleInOrg(orgId: string, roleId: string): Promise<any> {
+  const role = await Role.findOne({ _id: roleId, orgId }).lean().exec().catch(() => null)
+  if (!role) refuse(404, 'role_not_found', 'Role not found')
+  return role
+}
+
+/** Whether a stored role is an Administrator's: every capability. */
+const isAdministratorRole = (role: any) => !!role?.all
+
+async function administratorRoleIds(orgId: string): Promise<string[]> {
+  return (await Role.find({ orgId, all: true }, { _id: 1 }).lean().exec()).map(r => String(r._id))
+}
+
+/** The active people of an org who are an Administrator: their role is, or (no role yet) their legacy role is `admin`. */
+async function activeAdministrators(orgId: string): Promise<string[]> {
+  const adminRoles = await administratorRoleIds(orgId)
+  const people = await User.find({
+    orgId, isActive: { $ne: false },
+    $or: [{ roleId: { $in: adminRoles } }, { roleId: { $exists: false }, role: 'admin' }],
+  }, { _id: 1 }).lean().exec()
+  return people.map(p => String(p._id))
+}
+
+/** FR-27.8: the last active Administrator keeps the role and stays active. */
+export async function assertNotLastAdministrator(orgId: string, userId: string): Promise<void> {
+  const admins = await activeAdministrators(orgId)
+  if (admins.length === 1 && admins[0] === String(userId)) {
+    refuse(409, 'last_administrator', 'This is the last active Administrator of the organization: give another person the Administrator role first.')
+  }
+}
+
+/** The role's projection and the set that carries it, written so the legacy model serves it (see the header). */
+async function writeProjection(orgId: string, role: any, grant: Grant): Promise<{ legacy: any; needsRelease: boolean }> {
+  const { legacy, exact } = projectGrant(grant)
+  let setId = role?.legacy?.setId
+  if (!grant.all) {
+    const name = `Role · ${role.name}`
+    const fields = { name, description: `What the role „${role.name}" gives, for the legacy model (FR-27)`, permissions: legacy.permissions, areas: legacy.areas, isAdmin: false, isSystem: true, isDefault: false, ownRecordsOnly: {} }
+    const set = setId
+      ? await PermissionSet.findOneAndUpdate({ _id: setId, orgId }, { $set: fields }, { new: true }).exec()
+      : null
+    setId = set ? set._id : (await PermissionSet.create({ orgId, ...fields }))._id
+  }
+  return { legacy: { ...legacy, ...(setId ? { setId } : {}) }, needsRelease: !exact }
+}
+
+/** Every person on the role, given its projection: their legacy key and its set. */
+async function projectOntoPeople(orgId: string, role: any): Promise<void> {
+  const update = role.all
+    ? { role: 'admin', permissionSetIds: [], permissions: [] }
+    : { role: role.legacy.role, permissionSetIds: role.legacy.setId ? [role.legacy.setId] : [], permissions: [] }
+  await User.updateMany({ orgId, roleId: role._id }, { $set: update }).exec()
+}
+
+/** On the legacy model a person's claims are their token's: the sessions of the people on the role end (FR-26.9.4). */
+async function endSessionsOnLegacy(orgId: string, userIds: unknown[]): Promise<void> {
+  if ((await accessModelOf(orgId)) === 'roles') return
+  const people = await User.find({ orgId, _id: { $in: userIds } }, { identityId: 1 }).lean().exec()
+  for (const p of people) await endSessionsOf((p as any).identityId)
+}
+
+export interface RoleView {
+  id: string
+  name: string
+  description?: string
+  isBuiltin: boolean
+  templateKey?: string
+  edited: boolean
+  all: boolean
+  caps: string[]
+  unknownCaps: string[]
+  needsRelease: boolean
+  version: number
+  people: number
+}
+
+function view(role: any, people: number): RoleView {
+  const grant = grantOfRole(role)
+  return {
+    id: String(role._id), name: role.name, description: role.description, isBuiltin: !!role.isBuiltin, templateKey: role.templateKey,
+    edited: !!role.edited, all: !!role.all, caps: capsOf(grant), unknownCaps: unknownCaps(role), needsRelease: !!role.needsRelease,
+    version: role.version ?? 1, people,
+  }
+}
+
+export async function listRoles(orgId: string): Promise<RoleView[]> {
+  const roles = await Role.find({ orgId }).sort({ isBuiltin: -1, name: 1 }).lean().exec()
+  const counts = await User.aggregate([{ $match: { orgId: roles[0]?.orgId ?? null, isActive: { $ne: false }, roleId: { $exists: true } } }, { $group: { _id: '$roleId', n: { $sum: 1 } } }])
+  const byRole = new Map(counts.map((c: any) => [String(c._id), c.n]))
+  return roles.map(r => view(r, byRole.get(String(r._id)) ?? 0))
+}
+
+export async function getRole(orgId: string, roleId: string): Promise<{ role: RoleView; people: Array<{ id: string; username: string; name: string }> }> {
+  const role = await roleInOrg(orgId, roleId)
+  const people = await User.find({ orgId, roleId: role._id, isActive: { $ne: false } }, { username: 1, firstName: 1, lastName: 1 }).lean().exec()
+  return {
+    role: view(role, people.length),
+    people: people.map((p: any) => ({ id: String(p._id), username: p.username, name: `${p.firstName ?? ''} ${p.lastName ?? ''}`.trim() })),
+  }
+}
+
+export interface RoleInput {
+  name?: string
+  description?: string
+  caps?: string[]
+  /** Copy a template's or another role's access (FR-27.4). */
+  from?: { templateKey?: string; roleId?: string }
+}
+
+export async function createRole(actor: Actor, orgId: string, input: RoleInput): Promise<RoleView> {
+  assertManages(actor)
+  const name = input.name?.trim()
+  if (!name) refuse(422, 'role_name_required', 'A role needs a name.')
+  if (await Role.exists({ orgId, name }).exec()) refuse(409, 'role_name_taken', `A role named „${name}" exists.`)
+  let grant: Grant
+  if (input.from?.templateKey) {
+    if (!ROLE_TEMPLATES.some(t => t.key === input.from!.templateKey)) refuse(422, 'template_unknown', 'No such template.')
+    grant = templateGrant(input.from.templateKey)
+  } else if (input.from?.roleId) {
+    grant = grantOfRole(await roleInOrg(orgId, input.from.roleId))
+  } else {
+    grant = { caps: new Set(cleanCaps(input.caps).caps) }
+  }
+  // A copy of the Administrator is a role with every capability there is today, not `*`.
+  if (grant.all) grant = { caps: new Set([...CAPABILITIES] as CapabilityId[]) }
+  assertWithin(actor, grant)
+  const draft: any = { orgId, name, description: input.description, isBuiltin: false, edited: false, all: false, caps: capsOf(grant), version: 1 }
+  const { legacy, needsRelease } = await writeProjection(orgId, draft, grant)
+  const role = await Role.create({ ...draft, legacy, needsRelease })
+  createAuditEntry({ orgId, userId: actor.id, action: 'create', module: 'admin', entityType: 'role', entityId: String(role._id), entityName: name, changes: [{ field: 'caps', oldValue: [], newValue: capsOf(grant) }] })
+  return view(role.toObject(), 0)
+}
+
+export async function updateRole(actor: Actor, orgId: string, roleId: string, input: RoleInput): Promise<RoleView> {
+  assertManages(actor)
+  const role = await roleInOrg(orgId, roleId)
+  if (isAdministratorRole(role)) refuse(409, 'administrator_role_fixed', 'The Administrator role cannot be edited.')
+  const me = await User.findOne({ _id: actor.id, orgId }, { roleId: 1 }).lean().exec()
+  if (me && String((me as any).roleId) === String(role._id)) refuse(403, 'own_role', 'You cannot edit your own role.')
+
+  const before = grantOfRole(role)
+  const set: Record<string, unknown> = {}
+  if (input.name !== undefined) {
+    const name = input.name.trim()
+    if (!name) refuse(422, 'role_name_required', 'A role needs a name.')
+    if (name !== role.name && (await Role.exists({ orgId, name }).exec())) refuse(409, 'role_name_taken', `A role named „${name}" exists.`)
+    set.name = name
+  }
+  if (input.description !== undefined) set.description = input.description
+  let after = before
+  if (input.caps !== undefined) {
+    after = { caps: new Set(cleanCaps(input.caps).caps) }
+    assertWithin(actor, after)
+    // Taking a capability away is the actor's to do only within their own reach too: what they do not hold, they
+    // neither give nor remove.
+    assertWithin(actor, { caps: new Set([...(before.all ? [] : before.caps)].filter(c => !(after as any).caps.has(c))) })
+    set.caps = capsOf(after)
+    set.edited = true
+  }
+  const next = { ...role, ...set }
+  const { legacy, needsRelease } = await writeProjection(orgId, next, after)
+  const changed = input.caps !== undefined || set.name !== undefined
+  const updated = await Role.findOneAndUpdate(
+    { _id: role._id, orgId },
+    { $set: { ...set, legacy, needsRelease }, ...(changed ? { $inc: { version: 1 } } : {}) },
+    { new: true },
+  ).lean().exec()
+  forgetRole(role._id)
+  await projectOntoPeople(orgId, updated)
+  if (input.caps !== undefined) {
+    const people = (await User.find({ orgId, roleId: role._id }, { _id: 1 }).lean().exec()).map(p => p._id)
+    await endSessionsOnLegacy(orgId, people)
+  }
+  createAuditEntry({ orgId, userId: actor.id, action: 'update', module: 'admin', entityType: 'role', entityId: roleId, entityName: String(updated!.name), changes: [{ field: 'caps', oldValue: capsOf(before), newValue: capsOf(after) }] })
+  return view(updated, await User.countDocuments({ orgId, roleId: role._id, isActive: { $ne: false } }))
+}
+
+export async function deleteRole(actor: Actor, orgId: string, roleId: string): Promise<void> {
+  assertManages(actor)
+  const role = await roleInOrg(orgId, roleId)
+  if (role.isBuiltin) refuse(409, 'builtin_role', 'A built-in role cannot be deleted.')
+  if (await User.exists({ orgId, roleId: role._id }).exec()) refuse(409, 'role_in_use', 'Give its people another role first.')
+  await Role.deleteOne({ _id: role._id, orgId }).exec()
+  if (role.legacy?.setId) await PermissionSet.deleteOne({ _id: role.legacy.setId, orgId }).exec()
+  forgetRole(role._id)
+  createAuditEntry({ orgId, userId: actor.id, action: 'delete', module: 'admin', entityType: 'role', entityId: roleId, entityName: role.name, changes: [{ field: 'caps', oldValue: capsOf(grantOfRole(role)), newValue: [] }] })
+}
+
+/** Whether this actor may give this role (FR-27.8), before anything that would carry it is created. */
+export async function assertAssignable(actor: Actor, orgId: string, roleId: string): Promise<void> {
+  assertWithin(actor, grantOfRole(await roleInOrg(orgId, roleId)))
+}
+
+/** FR-27.3: give a person their one role, and write its projection onto them (see the header). */
+export async function assignRole(actor: Actor, orgId: string, userId: string, roleId: string): Promise<void> {
+  if (String(actor.id) === String(userId)) refuse(403, 'own_role', 'You cannot change your own role.')
+  const role = await roleInOrg(orgId, roleId)
+  assertWithin(actor, grantOfRole(role))
+  const person: any = await User.findOne({ _id: userId, orgId }).lean().exec()
+  if (!person) refuse(404, 'user_not_found', 'User not found')
+  if (String(person.roleId ?? '') === String(role._id)) return
+  if (!isAdministratorRole(role)) await assertNotLastAdministrator(orgId, userId)
+  const previous = person.roleId ? await Role.findOne({ _id: person.roleId, orgId }).lean().exec() : null
+
+  // Appendix 29: the role history keeps the role's key and name at the time.
+  const now = new Date()
+  const history = [...(person.roleHistory ?? [])]
+  const open = history.find((h: any) => !h.endDate)
+  if (open) open.endDate = now
+  history.push({ role: role.all ? 'admin' : role.legacy?.role ?? 'member', roleName: role.name, startDate: now, assignedBy: actor.id, assignedAt: now })
+
+  const legacy = role.all
+    ? { role: 'admin', permissionSetIds: [], permissions: [] }
+    : { role: role.legacy?.role ?? 'member', permissionSetIds: role.legacy?.setId ? [role.legacy.setId] : [], permissions: [] }
+  await User.updateOne({ _id: person._id, orgId }, { $set: { roleId: role._id, roleHistory: history, ...legacy } }).exec()
+  forgetMember(person._id)
+  await endSessionsOnLegacy(orgId, [person._id])
+  createAuditEntry({
+    orgId, userId: actor.id, action: 'update', module: 'admin', entityType: 'user', entityId: String(person._id), entityName: person.username,
+    changes: [
+      { field: 'role', oldValue: previous?.name ?? person.role, newValue: role.name },
+      { field: 'caps', oldValue: previous ? capsOf(grantOfRole(previous)) : null, newValue: capsOf(grantOfRole(role)) },
+    ],
+  })
+}

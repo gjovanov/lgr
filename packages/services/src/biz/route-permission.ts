@@ -112,6 +112,8 @@ export const PREFIX_WRITE_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['invite', { self: 'admin role' }],
   // Writing a set is assigning access, as `PUT user` is: the sets are READ under admin.settings too (below).
   ['permission-sets', { self: 'admin role' }],
+  // FR-27.8: role.service holds every write: roles.edit, nothing beyond the actor's own grant.
+  ['roles', { self: 'roles.edit, and FR-27.8 in role.service' }],
   ['apps', { self: 'admin role' }],
   ['digest', { self: 'admin role' }],
   ['backup', { self: 'requireSysAdmin' }],
@@ -215,6 +217,8 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['integration', { self: 'admin role' }],
   ['invite', { self: 'admin role' }],
   ['permission-sets', { self: 'admin role, or admin.settings' }],
+  // FR-27.4: the roles screen; role.controller asks roles.view.
+  ['roles', { self: 'roles.view (FR-27.4, role.controller)' }],
 
   ['apps', { member: 'the app hub, filtered by what the caller may open' }],
   ['licence', { member: "this server's licence for the org, for the banner and the till (FR-20.55); nothing in it is secret" }],
