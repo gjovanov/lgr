@@ -2,6 +2,7 @@ import staticPlugin from '@elysiajs/static'
 import { APP_IDS } from 'config/constants'
 import { logger } from 'services/logger'
 import { posRedirect } from './lib/pos-redirect.js'
+import { errorRef, serverErrorMessage } from './lib/server-error.js'
 
 /**
  * Serving the built SPAs from the API process: their files, and their shell for every browser
@@ -102,8 +103,9 @@ export function validationMessage(err: any): string {
 }
 
 /**
- * The app's `onError`: 422 for validation, a 302 for one of the POS app's old addresses, the SPA
- * shell for a browser route nothing else answered, 404 for anything else unknown, 500 for the rest.
+ * The app's `onError`: 422 for validation, 400 for a body that could not be read, a 302 for one of
+ * the POS app's old addresses, the SPA shell for a browser route nothing else answered, 404 for
+ * anything else unknown, 500 for the rest, saying only what `lib/server-error.ts` lets through.
  *
  * ⚠ The shell answer sets `set.status = 200` AND returns a `Response` carrying 200. Each alone
  * is 200 in only one of `@elysiajs/static`'s two modes, and the mode follows `NODE_ENV`
@@ -137,6 +139,12 @@ export function spaErrorHandler(given?: OneSpaShell | Record<string, never> | nu
     if (code === 'VALIDATION') {
       set.status = 422
       return { message: validationMessage(err) }
+    }
+    // A body that is not what its content type says (`{bad json`): the caller's mistake, which
+    // fell through to the 500 below with the parser's own words.
+    if (code === 'PARSE') {
+      set.status = 400
+      return { message: 'The request body could not be read' }
     }
     // FR-20.4: a write the home guard refused below the routes, on a route with no `:orgId` for the
     // home gate to see (a desktop's own `PUT /desktop/v1/self` for an org that moved): the gate's
@@ -189,8 +197,20 @@ export function spaErrorHandler(given?: OneSpaShell | Record<string, never> | nu
       set.status = 404
       return { message: 'Not found' }
     }
-    logger.error(err)
+    // S-12: the whole error goes to the log under a reference; the caller gets the reference and
+    // only what `serverErrorMessage` lets through (`lib/server-error.ts`).
+    const ref = errorRef()
+    logger.error({ err, ref, method: request.method, path: pathOf(request) }, String(err?.message || 'Request failed'))
     set.status = 500
-    return { message: err?.message || 'Internal server error' }
+    return { message: serverErrorMessage(err, ref), ref }
+  }
+}
+
+/** The request's path for the log, without its query string. */
+function pathOf(request: Request): string | undefined {
+  try {
+    return new URL(request.url).pathname
+  } catch {
+    return undefined
   }
 }
