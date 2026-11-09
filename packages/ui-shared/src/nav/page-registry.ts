@@ -1,4 +1,5 @@
 import { FISCAL_ADMIN_ROLES, PERMISSIONS, holdsArea, type Area } from 'config/constants'
+import { PAGE_ACCESS, can, canOpen, compileLegacy, type CapabilityId, type Grant } from 'config/access'
 
 /**
  * Cross-app registry of the favouritable PAGES/functions surfaced by the global top-bar ★ menu.
@@ -46,6 +47,16 @@ export const APP_NAV_META: Record<string, { base: string; nameKey: string; permi
   payroll: { base: '/payroll', nameKey: 'apps.payroll', permission: 'payroll.read', color: '#9c27b0' },
   reports: { base: '/reports', nameKey: 'apps.reports', permission: 'reports.read', color: '#8e24aa' },
   files: { base: '/files', nameKey: 'apps.files', permission: 'admin.settings', color: '#607d8b' },
+}
+
+/** FR-27: what opens each app, in `APP_NAV_META`'s `reads ?? permission` terms (`config/access/legacy.ts`). */
+const APP_OPENED_BY: Readonly<Record<string, CapabilityId>> = {
+  invoicing: 'sales-docs.view',
+  inventory: 'products.view',
+  accounting: 'accounts.view',
+  payroll: 'payroll-runs.view',
+  reports: 'reports.view',
+  files: 'files.view',
 }
 
 function page(appId: string, to: string, labelKey: string, icon: string, need?: readonly string[]): PageDef {
@@ -255,8 +266,24 @@ export interface PageViewer {
   areas?: readonly string[]
 }
 
+/** FR-27 (#529): the grant a page viewer's claims compile to, as the server compiles them. */
+export function grantOfViewer(who: PageViewer | null | undefined): Grant {
+  return compileLegacy(who)
+}
+
 /**
  * May this person open the page? ★ and „+ Нов" list only what this answers yes to (FR-22 §5.8).
+ *
+ * FR-27.2: one line on the grant (`config/access/pages.ts`), a PIN session the till only.
+ * `access-differential.flow` holds it to `legacyCanOpenPage` for every shape.
+ */
+export function canOpenPage(page: PageDef, who: PageViewer | null | undefined): boolean {
+  return !!who && canOpen(page.id, grantOfViewer(who), who.amr)
+}
+
+/**
+ * ⚠ The oracle, until FR-27 Phase 3: what `canOpenPage` answered before the grant, from `need`, `roles` and `area`.
+ * Only the differential test calls it.
  *
  * It mirrors the server rather than deciding anything: the read rule for an app's pages, the
  * write rule for a new-document form, an `admin` always (as `route-permission.ts#writeRefusal`),
@@ -266,7 +293,7 @@ export interface PageViewer {
  * ⚠ The ONE rule for who may open what. ★, „+ Нов", the invoicing menu, the till's guard and the
  * landing after a PIN and after an org switch all ask it, so none of them can come to another answer.
  */
-export function canOpenPage(page: PageDef, who: PageViewer | null | undefined): boolean {
+export function legacyCanOpenPage(page: PageDef, who: PageViewer | null | undefined): boolean {
   if (!who) return false
   if (who.amr?.includes('pin') && !page.till) return false
   if (who.role === 'admin') return true
@@ -318,10 +345,9 @@ export function portalPagesFor(who: PageViewer | null | undefined): string[] {
 export function isTillOnly(who: PageViewer | null | undefined): boolean {
   if (!who) return false
   if (who.amr?.includes('pin')) return true
-  if (who.role === 'admin') return false
-  const held = who.permissions ?? []
-  const reads = (ps: readonly string[]) => ps.some((p) => held.includes(p))
-  return !reads(READ_WITH_INVENTORY) && reads(READ_TILL)
+  const grant = grantOfViewer(who)
+  // What opens the back office of the invoicing app: its documents, or its contacts for an inventory role.
+  return !can(grant, PAGE_ACCESS['/invoicing/contacts'].anyOf) && can(grant, 'till.view')
 }
 
 /**
@@ -330,15 +356,14 @@ export function isTillOnly(who: PageViewer | null | undefined): boolean {
  * Transfer alone, as the server accepts.
  */
 export function isTransferOnly(who: PageViewer | null | undefined): boolean {
-  if (!who || who.role === 'admin') return false
-  const held = who.permissions ?? []
-  return held.includes('inventory.transfer') && !held.includes('inventory.write')
+  if (!who) return false
+  const grant = grantOfViewer(who)
+  return can(grant, 'movements.create:transfer') && !can(grant, 'movements.create')
 }
 
 /** Whether this session writes the inventory's records (products, categories, warehouses): `inventory.write`, or `admin`. */
 export function writesInventory(who: PageViewer | null | undefined): boolean {
-  if (!who) return false
-  return who.role === 'admin' || (who.permissions ?? []).includes('inventory.write')
+  return !!who && can(grantOfViewer(who), 'products.edit')
 }
 
 /**
@@ -348,7 +373,7 @@ export function writesInventory(who: PageViewer | null | undefined): boolean {
  * the Devices page reads it (FR-26 D-8).
  */
 export function runsDevices(who: PageViewer | null | undefined): boolean {
-  return !!who?.role && FISCAL_ADMIN_ROLES.includes(who.role)
+  return !!who && can(grantOfViewer(who), 'devices.edit')
 }
 
 /**
@@ -420,9 +445,10 @@ export function isPortalAreaPath(path: string): boolean {
 export function landingWithoutPortal(who: PageViewer | null | undefined): string {
   const products = pageById('/inventory/products')
   if (products && canOpenPage(products, who)) return products.path
-  for (const [, meta] of Object.entries(APP_NAV_META)) {
-    const need = meta.reads ?? [meta.permission]
-    if (who && (who.role === 'admin' || need.some(p => (who.permissions ?? []).includes(p)))) return `${meta.base}/`
+  if (!who) return '/account'
+  const grant = grantOfViewer(who)
+  for (const [appId, meta] of Object.entries(APP_NAV_META)) {
+    if (APP_OPENED_BY[appId] && can(grant, APP_OPENED_BY[appId])) return `${meta.base}/`
   }
   return '/account'
 }

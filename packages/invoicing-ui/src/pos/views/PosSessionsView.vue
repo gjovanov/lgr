@@ -233,7 +233,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { FISCAL_ADMIN_ROLES } from 'config/constants'
 import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -241,8 +240,9 @@ import ChartView from 'ui-shared/components/ChartView.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { jwtRole, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
-import { canOpenPage, pageById } from 'ui-shared/nav/page-registry'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { canOpenPage, grantOfViewer, pageById, runsDevices as runsDevicesFor } from 'ui-shared/nav/page-registry'
+import { can } from 'config/access'
 import StatusPipeline from 'ui-shell/components/StatusPipeline'
 import SessionReportCard, { type SessionReportData } from '../components/SessionReportCard.vue'
 import CloseSessionDialog from '../components/CloseSessionDialog.vue'
@@ -263,7 +263,8 @@ const statusOptions = computed(() => ['open', 'closed'].map(value => ({ title: t
 // A session whose close died in its Z: the dialog asks the server, which puts it back and says what to do.
 const closing = ref<any>(null)
 const closeOpen = ref(false)
-const canSkipFiscal = computed(() => ['admin', 'manager'].includes(jwtRole() ?? ''))
+// FR-27: what the server asks to close without the Z (`till.manage-sessions`, pos.controller).
+const canSkipFiscal = computed(() => can(grantOfViewer(sessionViewer()), 'till.manage-sessions'))
 /** Its lease lapsed, or it has none, from before there was one: the server has the last word on that. */
 const closeDied = (item: any) => item.status === 'closing_control' && (!item.closeLeaseUntil || new Date(item.closeLeaseUntil).getTime() < Date.now())
 function closeAgain(item: any) {
@@ -347,7 +348,7 @@ interface ReportDevice { name: string; connected: boolean; capabilities: { featu
 const canPrintReport = canOpenPage(pageById('/invoicing/cash-sales/new')!, sessionViewer())
 
 /** The roles of the device page's report routes: not a cashier. The server refuses them too. */
-const runsDevices = computed(() => FISCAL_ADMIN_ROLES.includes(appStore.user?.role || jwtRole()))
+const runsDevices = computed(() => runsDevicesFor(sessionViewer()))
 
 const REPORT_LABEL: Record<ReportKind, string> = {
   x: 'pos.deviceReport.x',
