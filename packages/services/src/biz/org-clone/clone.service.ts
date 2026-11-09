@@ -45,6 +45,7 @@ import {
   NEVER_CLONED,
   OUTWARD_SWITCHES_OFF,
   REFUSED_SOURCE_MODELS,
+  clonePlain,
   clonedModels,
   copyOrder,
   testOrgSettings,
@@ -615,7 +616,7 @@ export async function createTestOrgFrom(opts: { sourceOrgId: string; slug: strin
     settings,
     subscription: { plan: 'professional', maxUsers: 50, status: 'active', cancelAtPeriodEnd: false },
   }
-  for (const f of IDENTITY_FIELDS) if (source[f] !== undefined) doc[f] = JSON.parse(JSON.stringify(source[f]))
+  for (const f of IDENTITY_FIELDS) if (source[f] !== undefined) doc[f] = clonePlain(source[f])
   if (source.ownerId) doc.ownerId = env.oid(env.idOf(String(source.ownerId)) ?? String(source.ownerId))
   await Org.create(doc as any)
   opts.log?.(`created ${slug}`, { orgId: tgtHex })
@@ -653,7 +654,7 @@ export async function convertToTestOrg(opts: {
     if (await Org.collection.findOne({ slug, _id: { $ne: oid } })) throw new OrgCloneError('slug_taken', `${slug} is taken`)
   }
   const changes: Record<string, unknown> = { slug, name: opts.newName, ...OUTWARD_SWITCHES_OFF }
-  for (const f of IDENTITY_FIELDS) if (source[f] !== undefined) changes[f] = JSON.parse(JSON.stringify(source[f]))
+  for (const f of IDENTITY_FIELDS) if (source[f] !== undefined) changes[f] = clonePlain(source[f])
   if (opts.execute) await Org.collection.updateOne({ _id: oid }, { $set: changes })
   opts.log?.(`${org.slug} -> ${slug}`, { name: opts.newName })
   return { changes }

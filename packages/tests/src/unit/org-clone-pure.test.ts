@@ -4,7 +4,7 @@ import { cloneIdHex, cloneMask, HEX24 } from 'services/biz/org-clone/ids'
 import { canonicalize, contentHash } from 'services/biz/org-clone/canonical'
 import { remapDoc, remapValue, type RemapEnv } from 'services/biz/org-clone/remap'
 import {
-  KEPT_ON_RESET, NEVER_CLONED, SEED_ONLY, clonedModels, copyOrder, testOrgSettings,
+  KEPT_ON_RESET, NEVER_CLONED, SEED_ONLY, clonePlain, clonedModels, copyOrder, testOrgSettings,
 } from 'services/biz/org-clone/policy'
 
 const ObjectId = mongoose.Types.ObjectId
@@ -129,6 +129,23 @@ describe('the rewrite into the copy', () => {
 
   it('always writes the target org, even into a document that never named one', () => {
     expect(String(remapDoc({ a: 1 }, env).orgId)).toBe(tgt)
+  })
+})
+
+describe('copying a document without changing what its values are', () => {
+  it('keeps an ObjectId an ObjectId and a Date a Date, and shares nothing mutable with the source', () => {
+    const id = new ObjectId()
+    const when = new Date(9)
+    const src = { a: { id, when, list: [{ id }] }, n: 1 }
+    const copy = clonePlain(src)
+    expect(copy.a.id).toBe(id)
+    expect(copy.a.when).toBe(when)
+    expect(copy.a.list[0]!.id).toBe(id)
+    expect(copy).not.toBe(src)
+    expect(copy.a).not.toBe(src.a)
+    expect(copy.a.list).not.toBe(src.a.list)
+    copy.a.list.push({ id })
+    expect(src.a.list.length).toBe(1)
   })
 })
 

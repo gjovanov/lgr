@@ -70,6 +70,8 @@ async function realShop(label = 'real') {
       'settings.integrations': { googleDrive: { accessToken: 'tok', refreshToken: 'ref', email: 'a@b.c' } },
       taxNumber: 'BG123456789',
       vatNumber: 'BG123456789',
+      addresses: [{ type: 'billing', street: '1 Main', city: 'Pazardzhik', postalCode: '4400', country: 'BG' }],
+      bankDetails: [{ bankName: 'A Bank', iban: 'BG00AAAA11112222333344' }],
     },
   })
   const wh1 = await createTestWarehouse(org._id, { code: 'pz', isDefault: true })
@@ -264,6 +266,11 @@ describe('the first copy', () => {
     // No fiscal device is ever copied, so the printer gate is off: a till sale could never find a printer.
     expect(org.settings.cashRegister.requireConnectedDevice).toBe(false)
     expect(org.taxNumber).toBe('BG123456789')
+    // The company's address and bank are the real org's, with their ids still ids and not text.
+    const raw: any = await Org.collection.findOne({ _id: oid(id) })
+    expect(raw.addresses[0].city).toBe('Pazardzhik')
+    expect(raw.addresses[0]._id._bsontype).toBe('ObjectId')
+    expect(raw.bankDetails[0].iban).toBe('BG00AAAA11112222333344')
     expect(org.subscription.stripeCustomerId).toBeUndefined()
     // The owner is a membership OF THE COPY, and the logo URL names the copy.
     const owner: any = await User.findOne({ _id: org.ownerId }).lean().exec()
@@ -446,6 +453,9 @@ describe('an existing org becomes a test copy', () => {
     expect(org.settings.backup.enabled).toBe(false)
     expect(org.settings.cashRegister.requireConnectedDevice).toBe(true) // its own, untouched
     expect(org.taxNumber).toBe('BG123456789') // the company's identity, from the real org
+    const raw: any = await Org.collection.findOne({ _id: old._id })
+    expect(raw.addresses[0].street).toBe('1 Main')
+    expect(raw.addresses[0]._id._bsontype).toBe('ObjectId') // not turned into text on the way
     expect(org.subscription.plan).toBe('professional')
   })
 

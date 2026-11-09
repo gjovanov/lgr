@@ -61,6 +61,24 @@ export const KEPT_ON_RESET: readonly string[] = [
 /** A source org that holds any of these is refused: the engine does not know how to copy them safely. */
 export const REFUSED_SOURCE_MODELS: readonly string[] = ['PersonalDataKey']
 
+/**
+ * A deep copy of the plain objects and arrays of a document, with every other value (an ObjectId, a
+ * Date, a Buffer) carried by reference. Not a JSON round trip: that would turn an ObjectId into a
+ * string and a Date into its text, and the copy would hold the wrong types.
+ */
+export function clonePlain<T>(v: T): T {
+  if (Array.isArray(v)) return v.map(clonePlain) as unknown as T
+  if (v && typeof v === 'object') {
+    const proto = Object.getPrototypeOf(v)
+    if (proto === Object.prototype || proto === null) {
+      const out: Record<string, unknown> = {}
+      for (const [k, x] of Object.entries(v as Record<string, unknown>)) out[k] = clonePlain(x)
+      return out as T
+    }
+  }
+  return v
+}
+
 /** The models a copy carries, given every model with an `orgId` that a backup would bundle. */
 export function clonedModels(tenantModels: readonly string[]): string[] {
   return tenantModels.filter(m => !(m in NEVER_CLONED)).sort()
@@ -82,7 +100,7 @@ export function copyOrder(models: readonly string[]): string[] {
  * - the link to a legal entity's books (`accounting.books`): the one place an org knows of another.
  */
 export function testOrgSettings(source: any): any {
-  const s = JSON.parse(JSON.stringify(source ?? {}))
+  const s = clonePlain(source ?? {})
   delete s.integrations
   delete s.desktop
   delete s.node
