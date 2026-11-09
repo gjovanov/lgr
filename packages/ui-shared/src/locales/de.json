@@ -843,7 +843,8 @@
       "hint": "Gehört zu Ihrer offenen Sitzung {session}: ihre Kasse nimmt das Geld.",
       "noReceipt": "Kein Beleg",
       "fiscal": "Beleg drucken",
-      "prints": "Der Beleg wird auf dem Gerät der Sitzung gedruckt."
+      "prints": "Der Beleg wird auf dem Gerät der Sitzung gedruckt.",
+      "noSession": "Öffnen Sie zuerst eine Kassensitzung: Wo LGR druckt, läuft ein Barverkauf über eine Kasse und druckt seinen Beleg auf dem Gerät dieser Sitzung."
     },
     "printerError": "Druckerfehler",
     "printerConnected": "Fiskaldrucker verbunden",

@@ -742,7 +742,7 @@ describe('a storno\'s claim with no document: the process died between the claim
 
     it('a back-office sale the same, with nothing to print', async () => {
       const w = await tillWorld(app)
-      const saleId = String((await w.backOfficeSale(1)).json.invoice.id)
+      const saleId = String((await w.sessionlessSale(1)).json.invoice.id)
 
       const run = await stalls(saleId, () => w.call('POST', `/cash-register/documents/${saleId}/storno`, { reason: 'customer_return' }, undefined, w.clerkToken))
 

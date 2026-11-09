@@ -128,7 +128,7 @@ describe('#573 — a cash sale stores the line amounts its door computes', () =>
     expect(lines.map(l => [l.taxAmount, l.lineTotal])).toEqual(right)
 
     // The clerk has no session: the sale stays the back office's, and stays editable.
-    const res = await w.backOfficeSale(1, { lines: lines.map(GARBLES.lopsided), subtotal: totals.subtotal, taxTotal: totals.taxTotal, total: totals.total })
+    const res = await w.sessionlessSale(1, { lines: lines.map(GARBLES.lopsided), subtotal: totals.subtotal, taxTotal: totals.taxTotal, total: totals.total })
     expect(res.status).toBe(200)
     const id = res.json.invoice.id
     const made = await stored(id)

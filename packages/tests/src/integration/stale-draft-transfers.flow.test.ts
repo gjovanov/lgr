@@ -70,6 +70,18 @@ describe('a joined sale refused before it is written (#454)', () => {
     expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(0)
   }, 60_000)
 
+  it('a sale refused for want of a session (#492) cancels its own drafts too', async () => {
+    const w = await tillWorld(app)
+    const own = await transfer(w, 'draft', w.clerk._id)
+
+    const r = await w.backOfficeSale(1, { pendingTransferIds: [own] })   // the clerk, who has no session
+
+    expect(r.status).toBe(409)
+    expect(r.json).toMatchObject({ code: 'fiscal_device_not_connected', noSession: true })
+    expect(await statusOf(own)).toBe('cancelled')
+    expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(0)
+  }, 60_000)
+
   it('a refused list of transfers cancels the drafts in it', async () => {
     const w = await tillWorld(app)
     const own = await transfer(w, 'draft')

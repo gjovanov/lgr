@@ -1573,7 +1573,8 @@
       "hint": "Joins your open session {session}: its drawer takes the money.",
       "noReceipt": "No receipt",
       "fiscal": "Print a receipt",
-      "prints": "It prints on that session's device."
+      "prints": "It prints on that session's device.",
+      "noSession": "Open a session at the till first: where LGR prints, a cash sale goes through a drawer and prints its receipt on that session's device."
     },
     "printerError": "Printer Error",
     "printerConnected": "Fiscal printer connected",

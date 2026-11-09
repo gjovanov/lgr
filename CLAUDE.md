@@ -2588,6 +2588,12 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
   LGR prints nothing only when it says so. Either value only asks: the device says which it prints. An imported day
   never joins, so the import skills are not this path, `--no-stock` or not. Test fixtures: `till-world`'s
   `backOfficeSale` posts as a clerk with no session, `cashierBackOfficeSale` as the till's cashier.
+  ⚠ **Where LGR prints, a back-office cash sale with no open session is refused** (#492, owner 2026-11-08):
+  409 `fiscal_device_not_connected` with `noSession: true`, as a cash invoice at the counter is (or
+  `session_closing` while the author's session closes), before anything is written. Where LGR prints nothing,
+  it still goes through sessionless, printing nothing; an imported till day is never refused. So a test that
+  posts `backOfficeSale` with the gate on expects the refusal; one that needs a sessionless sale turns the gate
+  off (`allowSalesWithoutPrinter`).
 - **One selling surface** (FR-21.29): `ui-shared/components/cash-register/RegisterTerminal.vue` is
   the catalog, the cart and the totals of the till (`/invoicing/cash-sales/new`) AND of the form a
   saved sale opens on (`/invoicing/cash-sales/:id/edit`), which a restored draft opens on too

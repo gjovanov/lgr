@@ -252,6 +252,17 @@
               class="mt-2"
               data-testid="cash-sale-receipt"
             />
+            <!-- #492: where LGR prints, a sale with no open session is refused; say so before Save, not after. -->
+            <v-alert
+              v-else-if="!readonly && sessionChecked && printsHere"
+              type="warning"
+              variant="tonal"
+              density="compact"
+              class="mt-2"
+              data-testid="cash-sale-no-session"
+            >
+              {{ $t('pos.joinSession.noSession') }}
+            </v-alert>
             <v-btn
               v-if="!readonly"
               color="primary"
@@ -432,6 +443,8 @@ async function addToCart(p: RegisterCatalogProduct) {
 // ── FR-21.31 (D-13): the author's open session, which this sale joins ──
 const { t } = useI18n()
 const openSession = ref<{ _id: string; sessionNumber: string } | null>(null)
+/** Whether the session lookup has answered, so the no-session warning does not flash while it runs. */
+const sessionChecked = ref(false)
 /** Where LGR prints nothing there is something to choose: whether this sale prints on the session's device anyway. */
 const printsHere = computed(() => (appStore.currentOrg as any)?.settings?.cashRegister?.requireConnectedDevice !== false)
 const receipt = ref<'' | 'fiscal'>('')
@@ -447,6 +460,8 @@ async function loadOpenSession() {
     openSession.value = (data.sessions || [])[0] || null
   } catch {
     openSession.value = null // no till access: the sale stays sessionless, as the server decides too
+  } finally {
+    sessionChecked.value = true
   }
 }
 onMounted(loadOpenSession)

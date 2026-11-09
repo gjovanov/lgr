@@ -188,7 +188,7 @@ describe('a storno of a till sale', () => {
 describe('a storno of a back-office sale', () => {
   it('needs no session and prints nothing; the goods come back and no drawer moves', async () => {
     const w = await tillWorld(app)
-    const sale = await w.backOfficeSale(2)
+    const sale = await w.sessionlessSale(2)
     expect(sale.status).toBe(200)
     expect((await w.stock()).quantity).toBe(8)
 

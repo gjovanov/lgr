@@ -12,7 +12,8 @@ import { config } from 'config'
  *
  * The cash is in that cashier's drawer, so the sale counts in the session's totals and in its close
  * JE (which reads the session's till documents), and, when asked, prints on the session's device as
- * a till sale does. With no open session it stays sessionless. And the terminal rings into the user's
+ * a till sale does. With no open session it is refused where LGR prints (#492), and stays sessionless
+ * where it prints nothing. And the terminal rings into the user's
  * OWN session (owner, 2026-10-27): a sale into another cashier's session is refused.
  *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
@@ -81,16 +82,6 @@ describe('FR-21.31 — a back-office sale joins its author\'s open session', () 
     expect(((await Invoice.findById(id).lean()) as any).register.stornoState).toBe('full')
   }, 60_000)
 
-  it('with no open session it stays sessionless, as before', async () => {
-    const w = await tillWorld(app)
-    const res = await w.backOfficeSale(1)   // the clerk, who has no session
-    expect(res.status).toBe(200)
-    const doc: any = await Invoice.findById(res.json.invoice.id).lean()
-    expect(doc.register.origin).toBe('backoffice')
-    expect(doc.register.sessionId).toBeUndefined()
-    expect((await session(w.sessionId)).transactionCount).toBe(0)
-  }, 60_000)
-
   it('an imported till day never joins: it is a day\'s takings, not one drawer\'s sale', async () => {
     const w = await tillWorld(app)
     const res = await w.cashierBackOfficeSale(1, { reference: 'salesAnalysis:2026-10-26', tags: ['cash-register-import'] })
@@ -108,6 +99,73 @@ describe('FR-21.31 — a back-office sale joins its author\'s open session', () 
     expect(again.json.invoice.id).toBe(first.json.invoice.id)
     expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(1)
     expect((await session(w.sessionId)).transactionCount).toBe(1)
+  }, 60_000)
+})
+
+describe('#492 — where LGR prints, a cash sale with no open session is refused (owner, 2026-11-08, option 2)', () => {
+  it('refuses it as a cash invoice at the counter is, and writes nothing: no document, no number, no stock', async () => {
+    const w = await tillWorld(app)
+    const before = await w.stock()
+    const res = await w.backOfficeSale(1)   // the clerk, who has no session
+    expect(res.status).toBe(409)
+    expect(res.json).toMatchObject({ code: 'fiscal_device_not_connected', noSession: true })
+    expect(res.json.message).toContain('Open a session at the till first: a cash sale prints its receipt')
+    expect(res.json.message).toContain('Settings → Organization → Cash register')
+    expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(0)
+    expect(await StockMovement.countDocuments({ orgId: w.oid })).toBe(0)
+    expect(await w.stock()).toEqual(before)
+    expect(w.sim!.executed).toHaveLength(0)
+    expect((await session(w.sessionId)).transactionCount).toBe(0)
+  }, 60_000)
+
+  it('the same with no device at all: the gate, not the device, decides', async () => {
+    const w = await tillWorld(app, { device: false, requireDevice: true })
+    const res = await w.backOfficeSale(1)
+    expect(res.status).toBe(409)
+    expect(res.json).toMatchObject({ code: 'fiscal_device_not_connected', noSession: true })
+    expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(0)
+  }, 60_000)
+
+  it('a session being closed takes nothing new, and is no reason to send its cashier to open another', async () => {
+    const w = await tillWorld(app)
+    await POSSession.updateOne({ _id: w.sessionId }, { $set: { status: 'closing_control' } }).exec()
+    const res = await w.cashierBackOfficeSale(1)
+    expect(res.status).toBe(409)
+    expect(res.json.code).toBe('session_closing')
+    expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(0)
+  }, 60_000)
+
+  it('where LGR prints nothing it stays sessionless, as before: a back-office document, in no drawer', async () => {
+    const w = await tillWorld(app)
+    await Org.updateOne({ _id: w.oid }, { $set: { 'settings.cashRegister.requireConnectedDevice': false } }).exec()
+    const res = await w.backOfficeSale(1)
+    expect(res.status).toBe(200)
+    const doc: any = await Invoice.findById(res.json.invoice.id).lean()
+    expect(doc.register.origin).toBe('backoffice')
+    expect(doc.register.sessionId).toBeUndefined()
+    expect(w.sim!.executed).toHaveLength(0)
+    expect((await session(w.sessionId)).transactionCount).toBe(0)
+  }, 60_000)
+
+  it('an imported till day is not refused: another system printed its receipts', async () => {
+    const w = await tillWorld(app)
+    const res = await w.backOfficeSale(1, { reference: 'salesAnalysis:2026-10-26', tags: ['cash-register-import'] })
+    expect(res.status).toBe(200)
+    const doc: any = await Invoice.findById(res.json.invoice.id).lean()
+    expect(doc.register.origin).toBe('import')
+    expect(doc.register.sessionId).toBeUndefined()
+  }, 60_000)
+
+  it('a keyed retry of a sale made before the gate went on replays it: the retry is answered first', async () => {
+    const w = await tillWorld(app)
+    await Org.updateOne({ _id: w.oid }, { $set: { 'settings.cashRegister.requireConnectedDevice': false } }).exec()
+    const first = await w.backOfficeSale(1, {}, 'no-session-key-0001')
+    expect(first.status).toBe(200)
+    await Org.updateOne({ _id: w.oid }, { $set: { 'settings.cashRegister.requireConnectedDevice': true } }).exec()
+    const again = await w.backOfficeSale(1, {}, 'no-session-key-0001')
+    expect(again.status).toBe(200)
+    expect(again.json.invoice.id).toBe(first.json.invoice.id)
+    expect(await Invoice.countDocuments({ orgId: w.oid, type: 'cash_sale' })).toBe(1)
   }, 60_000)
 })
 

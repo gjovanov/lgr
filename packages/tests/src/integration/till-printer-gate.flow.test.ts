@@ -76,7 +76,7 @@ describe('no sale without a connected printer', () => {
     expect(await documents(w.orgId)).toBe(1)
   })
 
-  it('a back-office sale that joins a session is refused too, whether or not it asks for a receipt; a clerk with no session prints nothing, as FR-21.31 has it', async () => {
+  it('a back-office sale that joins a session is refused too, whether or not it asks for a receipt; a clerk with no session is refused for want of one (#492)', async () => {
     const w = await tillWorld(app, { device: false, requireDevice: true })
     for (const asked of [await w.cashierBackOfficeSale(1, { receipt: 'fiscal' }), await w.cashierBackOfficeSale(1)]) {
       expect(asked.status).toBe(409)
@@ -85,8 +85,9 @@ describe('no sale without a connected printer', () => {
     expect(await documents(w.orgId)).toBe(0)
 
     const none = await w.backOfficeSale(1)
-    expect(none.status).toBe(200)
-    expect(await documents(w.orgId)).toBe(1)
+    expect(none.status).toBe(409)
+    expect(none.json).toMatchObject({ code: 'fiscal_device_not_connected', noSession: true })
+    expect(await documents(w.orgId)).toBe(0)
   })
 
   describe('a missing `receipt` on a cash sale reads as fiscal, where LGR prints (D6)', () => {

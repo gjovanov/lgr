@@ -13,7 +13,7 @@ import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumbe
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
 import { Invoice, Org, POSSession, Reservation, StockMovement } from 'db/models'
-import { assertJoinedSaleTender, assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, finishInterruptedDocuments, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
+import { assertJoinedSaleTender, assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, finishInterruptedDocuments, noOpenSession, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
 import {
   keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt,
   type PreparedReceipt,
@@ -883,10 +883,21 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // FR-21.31 (D-13): a sale entered here by someone with an open session joins it. An imported
         // till day never does: it is a day's takings, not one drawer's sale.
         createCtx.joined = origin === 'backoffice' ? await openSessionOf(orgId, user.id) : null
+        const { requireConnectedDevice } = await tillSettings(orgId)
+        // #492 (owner, 2026-11-08, option 2): where LGR prints, every cash sale goes through a drawer. One entered
+        // here by someone with no open session is refused as a cash invoice at the counter is (FR-23 R1), before
+        // anything is written. Before, it went through printing nothing, its money in no drawer. An imported till
+        // day joins nothing and is not refused; where LGR prints nothing, a sale with no session is a back-office
+        // document, as it always was.
+        if (origin === 'backoffice' && !createCtx.joined && requireConnectedDevice) {
+          const refusal = await noOpenSession(orgId, user.id, 'a cash sale prints its receipt')
+          await discardRequested()
+          return status(refusal.statusCode, refusal.body)
+        }
         // ⚠ Where LGR prints, a sale that joins a drawer prints. With no `receipt` one got past the gate with the
         // device gone: 200, paid, in the drawer, and nothing on the device. An imported day joins nothing, so it
         // never comes this far, and where LGR prints nothing it still takes asking.
-        createCtx.receipt = (body as any).receipt ?? (createCtx.joined && (await tillSettings(orgId)).requireConnectedDevice ? 'fiscal' : undefined)
+        createCtx.receipt = (body as any).receipt ?? (createCtx.joined && requireConnectedDevice ? 'fiscal' : undefined)
         let context: RegisterContext
         try {
           context = await cashSaleContext(createCtx)
