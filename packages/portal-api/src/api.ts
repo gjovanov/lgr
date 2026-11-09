@@ -24,6 +24,7 @@ import { appHubController } from './controllers/app-hub.controller.js'
 import { tagController } from './controllers/tag.controller.js'
 import { auditLogController } from './controllers/audit-log.controller.js'
 import { permissionSetController } from './controllers/permission-set.controller.js'
+import { roleController } from './controllers/role.controller.js'
 import { dashboardController } from './controllers/dashboard.controller.js'
 import { posPaymentMethodController } from './controllers/pos-payment-method.controller.js'
 
@@ -222,6 +223,7 @@ export function createApiApp() {
         .use(tagController)
         .use(auditLogController)
         .use(permissionSetController)
+        .use(roleController)
         .use(dashboardController)
 
         // Accounting

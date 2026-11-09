@@ -7,6 +7,7 @@ import { paginateQuery } from 'services/utils/pagination'
 import { DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { endSessionsOf, setsForRole } from 'services/biz/permission-set.service'
+import { RoleRefusal, assertAssignable, assertNotLastAdministrator, assignRole } from 'services/biz/access/role.service'
 
 import { allocateOperatorCode } from 'services/biz/sequence.service'
 import {
@@ -68,6 +69,16 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         const r = refused(new IdentityError('identity_exists'))!
         return status(r.status, r.body)
       }
+      // FR-27.3: a role named here must be one the admin may give, before anything is created.
+      const { roleId, ...fields } = body
+      if (roleId) {
+        try {
+          await assertAssignable(user as any, orgId, roleId)
+        } catch (e) {
+          if (e instanceof RoleRefusal) return status(e.status, e.body)
+          throw e
+        }
+      }
 
       const hashedPassword = await Bun.password.hash(body.password)
       const role = body.role || 'member'
@@ -99,7 +110,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         const operatorCode = await allocateOperatorCode(orgId)
 
         created = await userDao.create({
-          ...body,
+          ...fields,
           email: normalizeEmail(body.email),
           password: hashedPassword, // the legacy copy, kept in step until it is retired
           identityId: identity._id,
@@ -121,6 +132,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       }
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'admin', entityType: 'user', entityId: String(created._id), entityName: `${body.firstName} ${body.lastName}` })
+      if (roleId) await assignRole(user as any, orgId, String(created._id), roleId)
 
       // Never echo the hash back — the same rule as the list (FR-11.3) and the `/:userId` routes.
       return { user: publicUser(created.toJSON() as Record<string, any>) }
@@ -137,6 +149,8 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         lastName: t.String({ minLength: 1 }),
         position: t.Optional(t.String()),
         role: t.Optional(t.Union(roleValues)),
+        // FR-27.3: the person's role; it decides once the org is on `roles`, and writes `role` from its projection.
+        roleId: t.Optional(t.String()),
       }),
     },
   )
@@ -171,6 +185,29 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         }).lean().exec()
         if (validSets.length !== body.permissionSetIds.length) {
           return status(400, { message: 'One or more permission set IDs are invalid' })
+        }
+      }
+
+      // FR-27.3: the person's one role. role.service holds it to FR-27.8 (not your own, nothing beyond your own,
+      // the Administrator's only an Administrator's, never the last Administrator's) and writes both models.
+      if (body.roleId !== undefined) {
+        if (body.role || body.permissions || body.permissionSetIds) {
+          return status(422, { code: 'role_and_legacy', message: 'Send a role (roleId), or the legacy role, sets and permissions: not both.' })
+        }
+        try {
+          await assignRole(user as any, orgId, userId, body.roleId)
+        } catch (e) {
+          if (e instanceof RoleRefusal) return status(e.status, e.body)
+          throw e
+        }
+        delete updateData.roleId
+      }
+      if (body.isActive === false && existing.isActive !== false) {
+        try {
+          await assertNotLastAdministrator(orgId, userId)
+        } catch (e) {
+          if (e instanceof RoleRefusal) return status(e.status, e.body)
+          throw e
         }
       }
 
@@ -262,6 +299,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         isActive: t.Optional(t.Boolean()),
         permissions: t.Optional(t.Array(t.String())),
         permissionSetIds: t.Optional(t.Array(t.String())),
+        roleId: t.Optional(t.String()),
       }),
     },
   )
@@ -272,6 +310,12 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
 
     const existing = await userDao.findInOrg(userId, orgId)
     if (!existing) return status(404, { message: 'User not found' })
+    try {
+      await assertNotLastAdministrator(orgId, userId)
+    } catch (e) {
+      if (e instanceof RoleRefusal) return status(e.status, e.body)
+      throw e
+    }
 
     // Soft delete: set isActive=false and deactivatedAt
     await userDao.updateInOrg(userId, orgId, { isActive: false, deactivatedAt: new Date() })

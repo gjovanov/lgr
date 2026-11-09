@@ -3081,6 +3081,12 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - `decideAccess` decides by the evaluator. `shadowAccess` asks the legacy rules on the projection beside it and counts where they differ.
   - Sign-in issues the projection with `rid`/`rv`.
   - A person with no role keeps their token's claims. Back to `legacy` at any time.
+- **Roles API** (`portal-api/.../role.controller.ts`; `GET/POST /roles`, `GET/PUT/DELETE /roles/:id`; a person's role through `PUT /user/:id` `roleId`).
+  - Every write goes through `services/biz/access/role.service.ts`, which holds FR-27.8: managing takes `roles.edit`; not your own role, nor your own assignment; nothing beyond the actor's grant; `*` and `roles.*` an Administrator's only; the Administrator role is fixed; the last active Administrator keeps it and stays active; roles are the org's own; everything audited with caps before and after.
+  - ⚠ Both models are written. A role keeps `projectGrant(grant)` (`config/access/projection.ts`: never more than the role; `needsRelease` when not exact) and a permission set that carries it (`legacy.setId`, "Role · <name>").
+  - A person given a role is put on that set with the projection's role key. A set, not their own `permissions`: without a set, `tokenize()` adds the role's defaults.
+  - On the legacy model, an assignment or a role edit ends the affected people's sessions; on `roles` it is live.
+  - `scripts/restore-administrator.ts --org --user [--execute]` gives a locked-out org its Administrator back, audited.
 
 ## Known Issues
 

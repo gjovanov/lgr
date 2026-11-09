@@ -53,7 +53,8 @@ export const LEGACY_BRIDGE: Readonly<Record<Permission, readonly Cap[]>> = {
   // ⚠ Opens reads only: no route and no controller checks `invoicing.send`, and `canExport` ignores it.
   'invoicing.send': [...INVOICING_READS],
 
-  'inventory.read': [...INVENTORY_LOOKUPS, ...each(INVENTORY_FEATURES, 'view'), ...INVENTORY_OPENS, 'stock-availability.check'],
+  // `products.export`: the Products page's export, which ProductsView offers whoever holds `catalogExport` (FR-26).
+  'inventory.read': [...INVENTORY_LOOKUPS, ...each(INVENTORY_FEATURES, 'view'), ...INVENTORY_OPENS, 'stock-availability.check', 'products.export'],
   'inventory.write': [...INVENTORY_LOOKUPS, ...INVENTORY_OPENS, ...work(INVENTORY_WRITABLE), 'doc-import.extract', 'tags.edit'],
   // ⚠ Opens reads only: nothing checks `inventory.adjust` beyond the read lists.
   'inventory.adjust': [...INVENTORY_LOOKUPS, ...INVENTORY_OPENS],
