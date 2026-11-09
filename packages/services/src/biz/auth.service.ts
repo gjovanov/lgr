@@ -2,6 +2,7 @@ import { Code, Identity, LocalCredential, Org, User, OrgApp, PermissionSet, type
 import { homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS, type Area, type Role } from 'config/constants'
 import { legacyClaimsOf, type LegacySet } from 'config/access'
+import { liveRoleOf } from './access/live'
 import { config, nodeRole } from 'config'
 import { logger } from '../logger/logger.js'
 import { inviteSetFor } from './permission-set.service.js'
@@ -79,6 +80,9 @@ export interface UserTokenized {
    */
   areas?: Area[]
   operatorCode?: string
+  /** FR-27.5: the role and its version, in an org on `roles`. The grant itself is read live, never from here. */
+  rid?: string
+  rv?: number
 }
 
 /**
@@ -578,6 +582,22 @@ export async function sessionFor(member: IUser, identity?: Pick<IIdentity, '_id'
 }
 
 export async function tokenize(user: IUser): Promise<UserTokenized> {
+  // FR-27.5: an org on `roles` signs its people in with their role's projection, for what still reads claims (the
+  // SPA's menus until P1-5, FR-26's area checks, a master on an older release). Every request reads the role live.
+  const role = await liveRoleOf({ id: String(user._id), orgId: String(user.orgId) })
+  if (role?.legacy) {
+    // ⚠ Not the membership's own areas: absent in the projection means every area.
+    const { areas: _membershipAreas, ...identity } = claimsToken(user, [])
+    return {
+      ...identity,
+      role: role.legacy.role,
+      permissions: [...role.legacy.permissions],
+      ownRecordsModules: [],
+      ...(Array.isArray(role.legacy.areas) ? { areas: [...role.legacy.areas] as Area[] } : {}),
+      rid: String(role._id),
+      rv: role.version ?? 1,
+    }
+  }
   // If user has permission sets, compute permissions from them
   if (user.permissionSetIds?.length) {
     /**
