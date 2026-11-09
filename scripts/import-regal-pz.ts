@@ -41,6 +41,7 @@
  * do not need them.
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import {
   Org, User, OrgApp, PermissionSet, ProductCategory,
@@ -339,7 +340,9 @@ async function main() {
     return
   }
 
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
+  await requireUniqueIndexes([Org, User, Identity, OrgApp, Warehouse, ProductCategory, Product, StockLevel])
   console.log('Connected to MongoDB')
 
   const { org, warehouse, category } = await bootstrapOrg()

@@ -16,6 +16,7 @@
  *   bun run scripts/reconcile-sequences.ts --org regal   # single org
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { keepHomeOrgs } from './lib/home-guard.js'
 import { Invoice, Org, Sequence } from '../packages/db/src/models/index.js'
 import { ensureSequenceAtLeast } from '../packages/services/src/biz/sequence.service.js'
@@ -38,7 +39,9 @@ const execute = args.includes('--execute')
 const orgSlug = args.includes('--org') ? args[args.indexOf('--org') + 1] : null
 
 async function main() {
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
+  if (execute) await requireUniqueIndexes([Sequence])
   console.log(`Mode: ${execute ? 'EXECUTE' : 'DRY-RUN'}`)
   console.log(`Org filter: ${orgSlug || '(all)'}`)
 

@@ -41,7 +41,8 @@ const reason = String(args.reason || 'the VAT number the filed sales register na
 
 if (!booksSlug || !periods.length) { console.error('Required: --books <slug> --period <YYYYMM>[,<YYYYMM>]. See the header.'); process.exit(2) }
 
-await connectDB()
+// Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+await connectDB({ readOnly: true })
 try {
   const books: any = await Org.findOne({ slug: booksSlug }).lean()
   if (!books) { console.error(`Org "${booksSlug}" not found`); process.exit(1) }

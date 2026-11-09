@@ -42,7 +42,8 @@ async function main() {
     console.error('Usage: bun run scripts/backfill-movement-reference.ts --org <slug> [--execute]')
     process.exit(1)
   }
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
   const db = mongoose.connection.db!
 
   // ⚠ `orgs`, the collection Mongoose names for the Org model. This read `organizations`, which

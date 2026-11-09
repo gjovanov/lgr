@@ -67,7 +67,8 @@ async function main() {
   }
 
   // Connect to DB
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
   console.log('Connected to MongoDB')
 
   // Find org

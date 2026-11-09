@@ -41,7 +41,8 @@ if (!orgSlug) {
   process.exit(1)
 }
 
-await connectDB()
+// Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+await connectDB({ readOnly: true })
 const org: any = await Org.findOne({ slug: orgSlug }).lean()
 if (!org) { console.error(`Org "${orgSlug}" not found`); process.exit(1) }
 await assertScriptHome(org._id, orgSlug)

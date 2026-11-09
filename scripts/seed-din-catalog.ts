@@ -19,6 +19,7 @@
  *   bun run scripts/seed-din-catalog.ts --org regal-pz --execute # + org categories
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { Org, DinCatalog, ProductCategory } from '../packages/db/src/models/index.js'
 // Imported, not read from beside the script: a server package carries the script bundled, and the
@@ -68,7 +69,9 @@ const categories = [...new Map(rows.map(r => [r.categoryIndex, r.category])).ent
 
 console.log(`din-catalog.json: ${rows.length} rows, ${categories.length} categories — ${execute ? 'EXECUTE' : 'DRY-RUN'}`)
 
-await connectDB()
+// Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+await connectDB({ readOnly: true })
+if (execute) await requireUniqueIndexes([DinCatalog, ProductCategory])
 
 // ── catalog upsert (global, no org) ──────────────────────────────────────────
 const existing = await DinCatalog.countDocuments({})

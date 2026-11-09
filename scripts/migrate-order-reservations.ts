@@ -31,6 +31,7 @@
  *   bun run scripts/migrate-order-reservations.ts --org regal-pz   # single org
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { keepHomeOrgs } from './lib/home-guard.js'
 import { Org, Order, Reservation, Sequence } from '../packages/db/src/models/index.js'
 import { getNextNumber } from '../packages/services/src/biz/sequence.service.js'
@@ -262,7 +263,9 @@ async function main() {
   const execute = args.includes('--execute') || strip
   const orgSlug = args.includes('--org') ? args[args.indexOf('--org') + 1] : null
 
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
+  if (execute) await requireUniqueIndexes([Reservation, Sequence])
   console.log(`Mode: ${strip ? 'STRIP (upsert + verify + strip)' : execute ? 'EXECUTE (upsert)' : 'DRY-RUN'}`)
   console.log(`Org filter: ${orgSlug || '(all)'}`)
 

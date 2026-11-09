@@ -15,6 +15,7 @@
  *   bun run scripts/import-products.ts --execute --clean   # delete existing Regal products first
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { Org, Product, Warehouse, StockLevel } from '../packages/db/src/models/index.js'
 import ExcelJS from 'exceljs'
@@ -83,7 +84,9 @@ async function main() {
   }
 
   // Connect to DB
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
+  await requireUniqueIndexes([Product, StockLevel])
   console.log('Connected to MongoDB')
 
   // Find org

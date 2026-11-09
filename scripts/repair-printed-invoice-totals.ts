@@ -41,7 +41,8 @@ const cents = (v: unknown) => Math.round((Number(v) || 0) * 100)
 
 if (!orgSlug) { console.error('Required: --org <slug>. See the header.'); process.exit(2) }
 
-await connectDB()
+// Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+await connectDB({ readOnly: true })
 try {
   const org: any = await Org.findOne({ slug: orgSlug }).lean()
   if (!org) { console.error(`Org "${orgSlug}" not found`); process.exit(1) }

@@ -33,6 +33,7 @@
  */
 
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { keepHomeOrgs } from './lib/home-guard.js'
 import { Org, PermissionSet, OrgApp } from '../packages/db/src/models/index.js'
 
@@ -52,7 +53,9 @@ function needsExport(permissions: string[]): boolean {
 }
 
 async function main() {
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
+  if (execute) await requireUniqueIndexes([OrgApp])
 
   const orgFilter = orgSlug ? { slug: orgSlug } : {}
   const orgs = await keepHomeOrgs(await Org.find(orgFilter).lean() as any[], { named: !!orgSlug })

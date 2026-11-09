@@ -26,6 +26,7 @@
  *   --execute      perform writes (default: dry-run — parses + reports, no DB)
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { Org, Contact } from '../packages/db/src/models/index.js'
 import { readFileSync } from 'node:fs'
@@ -123,7 +124,9 @@ async function main() {
 
   if (dryRun) { console.log('Dry run complete. Add --execute to upsert.'); return }
 
-  await connectDB()
+  // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
+  await connectDB({ readOnly: true })
+  await requireUniqueIndexes([Contact])
   console.log('Connected to MongoDB')
   const org = await Org.findOne({ slug: orgSlug })
   if (!org) { console.error(`Org "${orgSlug}" not found.`); process.exit(1) }
