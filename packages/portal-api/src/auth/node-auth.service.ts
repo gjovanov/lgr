@@ -31,12 +31,25 @@ export const NodeAuth = new Elysia({ name: 'Service.NodeAuth' })
       return { node: null as IServerNode | null, nodeError: e instanceof NodeError ? e : null }
     }
   })
-  .onBeforeHandle({ as: 'scoped' }, ({ node, nodeError, status, request, route }) => {
-    if (nodeRole() !== 'global') return status(404, { message: 'Not found' })
-    if (node) return
-    if (nodeError) return status(nodeError.statusCode, { code: nodeError.code, message: nodeError.message })
-    // Fails CLOSED: an unexpected route value makes everything non-public.
-    if (!isPublicRoute(request.method, route)) {
-      return status(401, { code: 'unauthenticated', message: 'A server credential is required.' })
-    }
+  // S-15: refused in the transform hook as well, before the body is validated. From the
+  // `beforeHandle` alone, a request without a credential was answered 422 with the route's schema.
+  .onTransform({ as: 'scoped' }, (ctx: any) => {
+    const refusal = nodeRefusal(ctx)
+    if (refusal) throw ctx.status(refusal.status, refusal.body)
   })
+  .onBeforeHandle({ as: 'scoped' }, (ctx: any) => {
+    const refusal = nodeRefusal(ctx)
+    if (refusal) return ctx.status(refusal.status, refusal.body)
+  })
+
+/** The guard's answer for a request, or null to let it through. Both hooks above ask it. */
+function nodeRefusal({ node, nodeError, request, route }: any): { status: number; body: Record<string, string> } | null {
+  if (nodeRole() !== 'global') return { status: 404, body: { message: 'Not found' } }
+  if (node) return null
+  if (nodeError) return { status: nodeError.statusCode, body: { code: nodeError.code, message: nodeError.message } }
+  // Fails CLOSED: an unexpected route value makes everything non-public.
+  if (!isPublicRoute(request.method, route)) {
+    return { status: 401, body: { code: 'unauthenticated', message: 'A server credential is required.' } }
+  }
+  return null
+}

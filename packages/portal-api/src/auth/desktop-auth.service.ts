@@ -44,16 +44,26 @@ export const DesktopAuth = new Elysia({ name: 'Service.DesktopAuth' })
       return { desktop: null as IDesktop | null, desktopError: e instanceof DesktopError ? e : null }
     }
   })
-  .onBeforeHandle({ as: 'scoped' }, ({ desktop, desktopError, status, request, route }) => {
-    if (desktop) return
-    if (desktopError) {
-      return status(desktopError.statusCode, {
-        code: desktopError.code,
-        message: desktopError.message,
-      })
-    }
-    // Fails CLOSED: an unexpected route value makes everything non-public.
-    if (!isPublicRoute(request.method, route)) {
-      return status(401, { code: 'unauthenticated', message: 'A desktop credential is required.' })
-    }
+  // S-15: refused in the transform hook as well, before the body or query is validated. From the
+  // `beforeHandle` alone, a request without a credential was answered 422 with the route's schema.
+  .onTransform({ as: 'scoped' }, (ctx: any) => {
+    const refusal = desktopRefusal(ctx)
+    if (refusal) throw ctx.status(refusal.status, refusal.body)
   })
+  .onBeforeHandle({ as: 'scoped' }, (ctx: any) => {
+    const refusal = desktopRefusal(ctx)
+    if (refusal) return ctx.status(refusal.status, refusal.body)
+  })
+
+/** The guard's answer for a request, or null to let it through. Both hooks above ask it. */
+function desktopRefusal({ desktop, desktopError, request, route }: any): { status: number; body: Record<string, string> } | null {
+  if (desktop) return null
+  if (desktopError) {
+    return { status: desktopError.statusCode, body: { code: desktopError.code, message: desktopError.message } }
+  }
+  // Fails CLOSED: an unexpected route value makes everything non-public.
+  if (!isPublicRoute(request.method, route)) {
+    return { status: 401, body: { code: 'unauthenticated', message: 'A desktop credential is required.' } }
+  }
+  return null
+}

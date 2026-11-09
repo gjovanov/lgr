@@ -50,7 +50,12 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
    * without the permission gets 403, never the route's schema. Another org's URL is left to the
    * tenant guard below, which answers it with its own message.
    */
-  .onTransform({ as: 'scoped' }, ({ user, params, request, route, status }: any) => {
+  .onTransform({ as: 'scoped' }, ({ user, person, params, request, route, status }: any) => {
+    // S-15: a caller with no session is refused here too, before the body is validated. Left to
+    // the hook below, ~74 routes answered an anonymous caller 422 with the whole body schema.
+    if (!user && !isPublicRoute(request.method, route) && !(person && isIdentityRoute(request.method, route))) {
+      throw status(401, { message: 'Unauthorized' })
+    }
     if (isForeignOrg(user, params?.orgId)) return
     const refusal = permissionRefusal(user, request.method, route)
     if (refusal) throw status(403, refusal)
