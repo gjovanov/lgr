@@ -21,4 +21,6 @@ export interface ShellOrg {
   id: string
   name: string
   slug: string
+  /** The PROD / DEV marker (`Org.settings.environment`); absent = no badge. */
+  environment?: 'prod' | 'dev' | string | null
 }

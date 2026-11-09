@@ -4361,6 +4361,10 @@
     }
   },
   "orgSwitcher": {
+    "env": {
+      "prod": "Production: the company’s real data",
+      "dev": "Test copy: safe to experiment in, nothing here is real"
+    },
     "label": "Organization: {org}",
     "title": "Your organizations",
     "invitations": "Invitations",

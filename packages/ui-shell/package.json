@@ -8,6 +8,7 @@
     "./components/AppSwitcher": "./src/components/AppSwitcher.vue",
     "./components/OrgSelector": "./src/components/OrgSelector.vue",
     "./components/OrgSwitcher": "./src/components/OrgSwitcher.vue",
+    "./components/EnvBadge": "./src/components/EnvBadge.vue",
     "./components/NewOrgDialog": "./src/components/NewOrgDialog.vue",
     "./components/UserMenu": "./src/components/UserMenu.vue",
     "./components/NotificationBell": "./src/components/NotificationBell.vue",

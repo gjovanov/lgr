@@ -58,6 +58,8 @@ export interface Organization {
   id: string
   name: string
   slug: string
+  /** The PROD / DEV marker (`Org.settings.environment`); absent = no badge. */
+  environment?: 'prod' | 'dev'
   baseCurrency?: string
   locale?: string
   taxNumber?: string

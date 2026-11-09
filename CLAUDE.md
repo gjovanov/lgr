@@ -3088,6 +3088,36 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - On the legacy model, an assignment or a role edit ends the affected people's sessions; on `roles` it is live.
   - `scripts/restore-administrator.ts --org --user [--execute]` gives a locked-out org its Administrator back, audited.
 
+## Test copies of real orgs, and the PROD / DEV badge (2026-11-09)
+
+`test-regal-pz` and `test-regal-sf` are copies of `regal-pz` and `regal-sf` (data, numbering, memberships) in orgs
+marked **dev**, where nothing can print a fiscal receipt, mail a customer or touch a real shelf. Skill:
+**`sync-test-orgs`**; CLI `scripts/org-clone.ts`; engine `packages/services/src/biz/org-clone/` (its header lists
+the rules); daily job: CronJob `lgr-org-sync` in lgr-deploy (04:30 Europe/Sofia).
+
+- ⚠ **`Org.settings.environment` (`prod` | `dev`, unset = no badge) is not an org admin's to set.** The `PUT /org/:orgId`
+  body does not list it (asserted in `org-environment.flow.test.ts`); only `org-clone.ts mark` writes it. It is also
+  the guard: a copy is written ONLY into an org marked `dev` and never from one (`assertCloneAllowed`), so a sync
+  pointed at the wrong slug stops with `[target_not_dev]` instead of overwriting a company's books.
+- **The badge** (`ui-shell/EnvBadge.vue`: PROD = the theme's error red darkened to pass AA, DEV = a neutral gray from
+  `on-surface`, both themes) sits beside the org's name in the org menu button and list, the sidebar header and the
+  org picker. Every sign-in answer carries `org.environment` (`session-answer.ts#orgBrief`), so the top bar shows it
+  before `/auth/me` answers; `/auth/orgs` carries it per row.
+- **A copy's `_id` is a pure function of its source's** (`ids.ts`: the last 8 bytes XORed with a mask from the target
+  org; the creation time stays), so a sync needs no table and a second run changes nothing. References are rewritten
+  BY VALUE (the restore's remap rule): an ObjectId or 24-hex string that is a source document's id becomes its copy's,
+  anything else (identities) is left. The test asserts not one id of the real org survives in the copy.
+- ⚠ **Never copied** (`policy.ts#NEVER_CLONED`, and `org-clone.flow.test.ts` makes every model with an `orgId` take a
+  side): the file store (files, documents, archives, backups; owner's rule), fiscal devices and workstations, enrolled
+  desktops, invites, mail logs, inboxes, credentials. A model added to the app must be listed there or in the test's
+  `CARRIED`, or the test fails: copied by default would be a leak by default.
+- **People are access, not data.** Matched by identity (an existing membership is reused, so the documents its person
+  made name it), a permission set by name; a membership the copy adds is switched off (an admin's stays on for the
+  first copy, `--activate-admins`). A reset keeps people, permission sets, invites, desktops and fiscal devices.
+- **Source wins** on a document both orgs hold; a tester's edit of a copied document is overwritten at the next run,
+  documents only the test org holds are never touched, a deletion in the real org is not propagated, numbering is
+  `max(copy, real)`, and a unique-index clash is a counted `clash`, not a failure.
+
 ## Known Issues
 
 - [MEDIUM] [2026-07-19] Cluster pod external DNS is INTERMITTENT: CoreDNS forwards to 10.10.20.1 (zeus virbr1 dnsmasq — answers fine locally) and periodically times out (CoreDNS logs `read udp 10.244.x→10.10.20.1:53: i/o timeout`; zeus shows no explicit 10.244.0.0/16 return route) → ArgoCD sync intermittently fails with ComparisonError "server misbehaving" on github.com, then succeeds on retry minutes later (observed 2026-07-19: first sync Error, queued retry completed → Synced). Workaround when stuck: `kubectl apply -k k8s/overlays/prod` from the mars `~/lgr-deploy` checkout (live state converges with git). Root-cause hunt belongs in k8s-cluster-multi (zeus WG/libvirt routing). Also: argocd CLI token on mars is expired — trigger syncs via `kubectl -n argocd patch application lgr --type merge --patch '{"operation":{"sync":{}}}'` or re-login. — Status: OPEN
