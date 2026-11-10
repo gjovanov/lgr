@@ -2049,7 +2049,25 @@
         "order_has_invoices": "Die Lieferantenbestellung hat Rechnungen: stornieren oder löschen Sie sie vor dem Abbruch."
       },
       "clientReservations": "Kundenreservierungen",
-      "allocateFirst": "Teilen Sie die Zeile zuerst einem Lager zu und reservieren Sie dann für Kunden."
+      "allocateFirst": "Teilen Sie die Zeile zuerst einem Lager zu und reservieren Sie dann für Kunden.",
+      "page": {
+        "who": "Kunde, Artikel und Menge",
+        "lateShort": "Verspätet",
+        "summaryWho": "{client} · {product} · {quantity} reserviert · {invoiced} fakturiert · {dispatched} versandt",
+        "allocationGoneShort": "Zuteilung fehlt",
+        "historyAndLinks": "Verlauf und Verknüpfungen",
+        "events": "{n} Ereignis | {n} Ereignisse",
+        "linkedCount": "{n} verknüpft",
+        "supplyTitle": "Wer wie viel reserviert hat",
+        "supplyHintOrder": "Diese Position der Lieferantenbestellung, die Lager, auf die sie verteilt ist, und jede Reservierung darauf. Diese Reservierung ist hinterlegt.",
+        "supplyHintStock": "Der Bestand dieses Lagers und jede aktive Reservierung darauf. Diese Reservierung ist hinterlegt.",
+        "supplyItemStock": "Lager / Kunde",
+        "orderQtyHint": "Position: bestellt. Lager: darauf verteilt. Kunde: für diesen Kunden reserviert.",
+        "stockQtyHint": "Lager: vorhanden. Kunde: für diesen Kunden reserviert.",
+        "stockFreeHint": "Was eine neue Reservierung hier noch nehmen könnte. Es zählt auch Ware, die für Lieferantenbestellungen zurückgehalten und schon in dieses Lager eingegangen ist; reserviert und frei ergeben also nicht immer den Bestand.",
+        "thisReservation": "Diese Reservierung",
+        "truncated": "{shown} von {total} Reservierungen dieser Quelle werden angezeigt."
+      }
     },
     "shortLine": "{name} ({missing} fehlen)",
     "reservedFromStockShort": "Reservierungen erstellt: {count}. Nicht genug freier Bestand für: {lines}",
