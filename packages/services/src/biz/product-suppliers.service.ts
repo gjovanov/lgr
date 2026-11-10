@@ -94,13 +94,13 @@ export function canSeeSupplierFacts(user: AccessCaller | null | undefined): bool
 }
 
 /**
- * The price on a fact is a cost. FR-27 makes costs a field group of their own (`products.costs`), which the
- * catalogue does not have yet: until it does, whoever reads a bill reads its prices, and `purchasePrice` is
- * shown to everyone who reads a product. Callers ask this, never `canSeeSupplierFacts`, so the day the field
- * group lands this is the only line that changes.
+ * The price on a fact is a cost (FR-27.11.C.1): `lastUnitPrice` on a fact and `unitPrice` on a document are purchase
+ * prices by another route. So they go with `products.costs`, on top of the facts' own `bills.view` (who we bought
+ * from, and when, is not a price level). On the legacy model whoever reads a bill reads products, and so their costs:
+ * the same answer as before.
  */
 export function canSeeSupplierPrices(user: AccessCaller | null | undefined): boolean {
-  return canSeeSupplierFacts(user)
+  return canSeeSupplierFacts(user) && can(user, 'products.costs')
 }
 
 // ── The documents that count ────────────────────────────────────────────────────────────────────────

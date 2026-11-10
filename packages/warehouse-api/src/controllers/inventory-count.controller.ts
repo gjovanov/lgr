@@ -4,6 +4,12 @@ import { getRepos } from 'services/context'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { priceCountLines } from 'services/biz/inventory-count-pricing'
+import { grantOf } from 'services/biz/access/evaluate'
+import { seesCosts } from 'config/access'
+
+/** FR-27.11.C.1: a count's lines without their cost for a role that does not see the costs. */
+const withoutCost = (user: any, lines: any[]) => (seesCosts(grantOf(user)) ? lines : lines.map(({ varianceCost: _cost, ...l }) => l))
 
 async function getNextCountNumber(orgId: string): Promise<string> {
   const r = getRepos()
@@ -37,7 +43,7 @@ const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProper
 
 export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/warehouse/inventory-count' })
   .use(AppAuthService)
-  .get('/', async ({ params: { orgId }, query }) => {
+  .get('/', async ({ params: { orgId }, query, user }) => {
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -82,9 +88,11 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
       }
     })
 
-    return { inventoryCounts, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages }
+    // FR-27.11.C.1: no line's cost for a role that does not see the costs.
+    const shown = seesCosts(grantOf(user as any)) ? inventoryCounts : inventoryCounts.map((ic: any) => (Array.isArray(ic.lines) ? { ...ic, lines: withoutCost(user, ic.lines) } : ic))
+    return { inventoryCounts: shown, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages }
   }, { isSignIn: true })
-  .get('/:id', async ({ params }) => {
+  .get('/:id', async ({ params, user }) => {
     const r = getRepos()
 
     const doc = await r.inventoryCounts.findByIdInOrg(params.id, params.orgId)
@@ -104,16 +112,18 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
       productSku: productMap.get(l.productId)?.sku || '',
     }))
 
-    return { inventoryCount: { ...doc, lines } }
+    return { inventoryCount: { ...doc, lines: withoutCost(user, lines) } }
   }, { isSignIn: true })
   .post('/', async ({ params, body, user }) => {
     const r = getRepos()
     const countNumber = await getNextCountNumber(params.orgId)
-    const item = await r.inventoryCounts.create({ ...body, orgId: params.orgId, createdBy: user.id, countNumber } as any)
+    // FR-27.11.C.4: priced here, from the stock level's average cost; the body's figure is ignored.
+    const lines = await priceCountLines(params.orgId, (body as any)?.warehouseId, (body as any)?.lines)
+    const item = await r.inventoryCounts.create({ ...(body as any), lines, orgId: params.orgId, createdBy: user.id, countNumber } as any)
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'inventory_count', entityId: item.id, entityName: countNumber })
 
-    return { inventoryCount: item }
+    return { inventoryCount: item && { ...(item as any), lines: withoutCost(user, (item as any).lines ?? []) } }
   }, { isSignIn: true })
   .put('/:id', async ({ params, body, user, status }) => {
     const r = getRepos()
@@ -126,12 +136,15 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
         message: `Inventory count ${(existing as any).countNumber} is completed and linked to movement ${(existing as any).adjustmentMovementId || '—'}. Create a new count to correct it.`,
       })
     }
-    const item = await r.inventoryCounts.updateInOrg(params.id, params.orgId, body as any)
+    // FR-27.11.C.4: priced here, from the stock level's average cost; the body's figure is ignored.
+    const update: any = { ...(body as any) }
+    if (Array.isArray(update.lines)) update.lines = await priceCountLines(params.orgId, update.warehouseId ?? (existing as any).warehouseId, update.lines)
+    const item = await r.inventoryCounts.updateInOrg(params.id, params.orgId, update)
     if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'inventory_count', entityId: params.id, entityName: (existing as any)?.countNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
-    return { inventoryCount: item }
+    return { inventoryCount: item && { ...(item as any), lines: withoutCost(user, (item as any).lines ?? []) } }
   }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
     const r = getRepos()
@@ -158,8 +171,11 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     if (!doc) return status(404, { message: 'Inventory count not found' })
     if (doc.status === 'completed') return status(400, { message: 'Already completed' })
 
+    // FR-27.11.C.4: priced again now, at the average cost the adjustment is booked against.
+    const priced = await priceCountLines(orgId, doc.warehouseId, doc.lines as any[])
+    ;(doc as any).lines = priced
     // Build adjustment lines for products with non-zero variance
-    const varianceLines = doc.lines.filter(line => line.variance !== 0)
+    const varianceLines = priced.filter(line => line.variance !== 0)
 
     let adjustmentMovementId: string | undefined
     if (varianceLines.length > 0) {
@@ -205,6 +221,7 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     }
 
     const completed = await r.inventoryCounts.updateInOrg(id, orgId, {
+      lines: priced,
       status: 'completed',
       completedAt: new Date(),
       completedBy: user.id,
@@ -213,5 +230,5 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
 
     createAuditEntry({ orgId, userId: user.id, action: 'complete', module: 'warehouse', entityType: 'inventory_count', entityId: id, entityName: doc.countNumber })
 
-    return { inventoryCount: completed }
+    return { inventoryCount: completed && { ...(completed as any), lines: withoutCost(user, (completed as any).lines ?? []) } }
   }, { isSignIn: true })

@@ -1,6 +1,17 @@
 import { ref, isRef, watch, computed, type Ref } from 'vue'
 import { httpClient } from './useHttpClient'
 import { useListQueryState, ALLOWED_PAGE_SIZES } from './useListQueryState'
+import { sortRefusal } from 'config/access'
+import { accessGrant } from '../access/useAccess'
+
+/**
+ * A sort key from the address bar: well formed, and (FR-27.11.D) one the role may sort by. A `sortBy=tier_3` left in an
+ * old URL by a role that no longer sees Цена 3 is dropped, and the list opens on its default sort.
+ */
+function sortKeyFromUrl(v: string): string | undefined {
+  if (!/^[A-Za-z0-9_.]{1,60}$/.test(v)) return undefined
+  return sortRefusal(accessGrant(), v) ? undefined : v
+}
 
 export interface PaginationState {
   page: number
@@ -68,7 +79,7 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
     useListQueryState([
       { key: 'page', ref: pageUrl as unknown as Ref<any>, codec: 'int', default: 1, sanitize: v => (v >= 1 ? v : undefined) },
       { key: 'size', ref: sizeUrl as unknown as Ref<any>, codec: 'int', default: defaultSize, sanitize: v => (ALLOWED_PAGE_SIZES.includes(v) ? v : undefined) },
-      { key: 'sortBy', ref: sortByUrl as unknown as Ref<any>, default: defaultSortBy, sanitize: v => (/^[A-Za-z0-9_.]{1,60}$/.test(v) ? v : undefined) },
+      { key: 'sortBy', ref: sortByUrl as unknown as Ref<any>, default: defaultSortBy, sanitize: sortKeyFromUrl },
       { key: 'sortOrder', ref: sortOrderUrl as unknown as Ref<any>, default: defaultSortOrder, sanitize: v => (v === 'asc' || v === 'desc' ? v : undefined) },
     ])
   }

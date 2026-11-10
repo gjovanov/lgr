@@ -81,7 +81,8 @@ describe('FR-27.3: a new org', () => {
 describe('FR-27.3: the default role', () => {
   it('none at first; an Administrator names one, and clears it', async () => {
     expect((await call('GET', `/org/${orgId}/roles`, adminToken)).json.defaultRoleId).toBeNull()
-    const made = await call('POST', `/org/${orgId}/roles`, adminToken, { name: 'Counter', from: { templateKey: 'seller' } })
+    // `sales` withholds nothing (FR-27.11.B), so its projection is exact.
+    const made = await call('POST', `/org/${orgId}/roles`, adminToken, { name: 'Counter', from: { templateKey: 'sales' } })
     expect(made.status).toBe(200)
     counter = await Role.findById(made.json.role.id).lean().exec()
 

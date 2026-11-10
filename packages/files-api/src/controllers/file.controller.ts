@@ -1,5 +1,5 @@
 import { Elysia } from 'elysia'
-import { can } from 'services/biz/access/evaluate'
+import { can, grantOf } from 'services/biz/access/evaluate'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { mongoose } from 'db/connection'
 import {
@@ -440,6 +440,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
     async ({ params: { orgId }, query, user, status }) => {
       const denied = gate(user, status); if (denied) return denied
       return queryAuditLogs(orgId, {
+        viewer: grantOf(user as any),
         module: 'files', action: query.action, entityType: query.entityType,
         dateFrom: query.dateFrom, dateTo: query.dateTo,
         page: query.page ? Number(query.page) : 0, size: query.size ? Number(query.size) : 50,

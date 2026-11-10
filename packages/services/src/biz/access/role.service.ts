@@ -1,6 +1,6 @@
 import {
   CAPABILITIES, ROLE_TEMPLATES, compileLegacy, grantOfRole, isCapability, legacyClaimsOf, projectGrant, sameGrant,
-  templateGrant, unknownCaps, withImplied, type CapabilityId, type Grant, type LegacySet,
+  TEMPLATE_WITHHOLDS, templateDefaults, unknownCaps, withImplied, type CapabilityId, type Grant, type LegacySet,
 } from 'config/access'
 import { Org, PermissionSet, Role, User } from 'db/models'
 import { createAuditEntry } from '../audit-log.service'
@@ -182,7 +182,8 @@ export async function createRole(actor: Actor, orgId: string, input: RoleInput):
   let grant: Grant
   if (input.from?.templateKey) {
     if (!ROLE_TEMPLATES.some(t => t.key === input.from!.templateKey)) refuse(422, 'template_unknown', 'No such template.')
-    grant = templateGrant(input.from.templateKey)
+    // FR-27.11.B: a role made from a template starts with what the template ships with (D-11, D-12).
+    grant = templateDefaults(input.from.templateKey)
   } else if (input.from?.roleId) {
     grant = grantOfRole(await roleInOrg(orgId, input.from.roleId))
   } else {
@@ -293,6 +294,20 @@ function legacyFieldsOf(role: any) {
 export async function seedBuiltinRoles(orgId: unknown): Promise<void> {
   // The schema's timestamps fill createdAt/updatedAt: naming them here too is a conflicting update.
   for (const t of ROLE_TEMPLATES) {
+    // FR-27.11.B (D-11, D-12): a NEW organization's Seller and Sales Consultant start without the cost figures,
+    // Цена на едро and Цена 0. Stored, as an edited role's are (so they no longer follow the template), with the
+    // projection a release that reads no roles serves (which cannot withhold them: `needsRelease`). An existing
+    // organization's built-ins are never touched (`$setOnInsert`).
+    if (TEMPLATE_WITHHOLDS[t.key]?.length) {
+      const grant = templateDefaults(t.key)
+      const p = projectGrant(grant)
+      await Role.updateOne(
+        { orgId, isBuiltin: true, templateKey: t.key },
+        { $setOnInsert: { orgId, name: t.name, templateKey: t.key, isBuiltin: true, edited: true, all: false, caps: capsOf(grant), legacy: p.legacy, version: 1, needsRelease: !p.exact } },
+        { upsert: true },
+      ).exec()
+      continue
+    }
     const grant = grantOfRole({ isBuiltin: true, templateKey: t.key, all: t.key === 'admin' })
     await Role.updateOne(
       { orgId, isBuiltin: true, templateKey: t.key },

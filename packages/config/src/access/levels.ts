@@ -21,12 +21,15 @@ type Feature = (typeof CATALOGUE)[number]
 const VIEW_ACTIONS = ['view', 'browse', 'lookup', 'read', 'check']
 /** Extras that only read more: a role holding them with View still only reads (the summary's lines). */
 const READING_EXTRAS = ['export', 'totals', 'costs']
+/** FR-27.11: a price level reads a figure; it is never work. */
+const reads = (action: string) => READING_EXTRAS.includes(action) || action.startsWith('price:')
 const FULL_ONLY = ['delete', 'manage', 'run']
 
 const EXTRAS: Partial<Record<FeatureId, readonly string[]>> = {
   'sales-docs': ['totals', 'import', 'export'],
   bills: ['totals'],
-  products: ['export', 'costs'],
+  // FR-27.11: "Prices it may see": the cost figures and one tick per price level.
+  products: ['export', 'costs', 'price:selling', 'price:wholesale', 'price:0', 'price:1', 'price:2', 'price:3', 'price:4', 'price:5', 'price:6', 'price:7', 'price:8', 'price:9', 'price:10', 'price:other'],
   movements: ['create:transfer'],
   'cash-sales': ['storno', 'settle'],
   till: ['manage-sessions'],
@@ -86,20 +89,36 @@ export function beyondLevel(feature: Feature, grant: Grant): CapabilityId[] {
  * The helpers a feature's form reads, granted with it (FR-27 §2.5 `implies`): what the legacy permissions gave as
  * a matter of course. A role made in the editor gets them, so its pages work.
  */
+/** FR-27.11.A: what writes prices sees them all: a role cannot write a figure it cannot see. */
+const EVERY_PRICE: readonly CapabilityId[] = [
+  'products.costs', 'products.price:selling', 'products.price:wholesale', 'products.price:0', 'products.price:1', 'products.price:2',
+  'products.price:3', 'products.price:4', 'products.price:5', 'products.price:6', 'products.price:7', 'products.price:8',
+  'products.price:9', 'products.price:10', 'products.price:other',
+]
+
 const IMPLIES: Partial<Record<CapabilityId, readonly CapabilityId[]>> = {
   'sales-docs.view': ['pricing.read', 'doc-import.read', 'stock-availability.check'],
   'proforma.view': ['pricing.read'],
   'bills.view': ['pricing.read', 'doc-import.read', 'products.costs'],
   'orders.view': ['pricing.read'],
   'contacts.view': ['pricing.read'],
-  'sales-docs.create': ['stock-availability.transfer', 'doc-import.extract', 'tags.edit'],
+  // FR-27.11.A: what sells sees the selling price.
+  'sales-docs.create': ['stock-availability.transfer', 'doc-import.extract', 'tags.edit', 'products.price:selling'],
+  'proforma.create': ['products.price:selling'],
+  'till.sell': ['products.price:selling'],
   'bills.create': ['doc-import.extract', 'tags.edit'],
   'contacts.create': ['tags.edit'],
   'contacts.edit': ['tags.edit'],
   'products.view': ['pricing.read', 'doc-import.read', 'stock-availability.check', 'stock-levels.lookup'],
   'products.edit': ['tags.edit', 'doc-import.extract'],
   'warehouses.edit': ['tags.edit'],
-  'movements.create': ['doc-import.extract', 'products.costs'],
+  // FR-27.11.A: what writes prices sees every one (receipts and adjustments price their lines; the price writers set them).
+  'movements.create': ['doc-import.extract', ...EVERY_PRICE],
+  'price-lists.create': EVERY_PRICE,
+  'price-lists.edit': EVERY_PRICE,
+  'bulk-pricing.create': EVERY_PRICE,
+  'bulk-pricing.edit': EVERY_PRICE,
+  'opening-stock.create': EVERY_PRICE,
   'movements.create:transfer': ['products.lookup', 'warehouses.lookup', 'categories.lookup', 'stock-levels.lookup', 'pricing.read'],
   'till.view': ['pricing.read', 'contacts.lookup'],
 }
@@ -121,7 +140,7 @@ export function summarize(grant: Grant): { canCreate: FeatureId[]; readOnly: Fea
   for (const f of EDITOR_FEATURES) {
     const l = levelsOf(f)
     const sees = grant.all || l.view.some(c => grant.caps.has(c))
-    const works = grant.all || [...l.work, ...l.extras].some(c => !l.view.includes(c) && !READING_EXTRAS.includes(c.slice(c.indexOf('.') + 1)) && grant.caps.has(c))
+    const works = grant.all || [...l.work, ...l.extras].some(c => !l.view.includes(c) && !reads(c.slice(c.indexOf('.') + 1)) && grant.caps.has(c))
     if (works) canCreate.push(f.id)
     else if (sees) readOnly.push(f.id)
     else notVisible.push(f.id)

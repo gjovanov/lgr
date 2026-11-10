@@ -1,6 +1,8 @@
 import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, mergeAreas, type Area, type Permission, type Role } from '../constants'
 import type { CapabilityId, FeatureId } from './catalogue'
 import { ALL, type Grant } from './grant'
+// FR-27.11: every price level. Legacy grants them all with any product read, as it grants the costs.
+import { PRICE_LEVEL_CAPS } from './fields'
 
 /**
  * FR-27 §4 — today's grant, as capabilities: the Phase 0 oracle, and in Phase 1 the migration's engine.
@@ -150,7 +152,7 @@ export const NOT_WITH_AN_AREAS_LIST: readonly Cap[] = ['sales-docs.totals', 'bil
 const PRODUCT_READERS: readonly Cap[] = ['products.view', 'products.lookup', 'sales-docs.view', 'till.view']
 
 /** What no legacy claim can withhold where it grants its feature: the projection holds it even when the role does not. */
-export const LEGACY_CANNOT_WITHHOLD: readonly Cap[] = ['products.costs']
+export const LEGACY_CANNOT_WITHHOLD: readonly Cap[] = ['products.costs', ...PRICE_LEVEL_CAPS]
 
 /** What a token says today: its role, its permissions, and FR-26's areas (absent: every area). */
 export interface LegacyClaims {
@@ -209,7 +211,7 @@ export function compileLegacy(claims: LegacyClaims | null | undefined): Grant {
   for (const p of claims.permissions ?? []) for (const c of LEGACY_BRIDGE[p as Permission] ?? []) caps.add(c)
   for (const c of LEGACY_ROLE_CAPS[claims.role ?? ''] ?? []) caps.add(c)
   caps.add('org.switch')
-  if (PRODUCT_READERS.some(c => caps.has(c))) caps.add('products.costs')
+  if (PRODUCT_READERS.some(c => caps.has(c))) for (const c of ['products.costs', ...PRICE_LEVEL_CAPS] as Cap[]) caps.add(c)
   if (Array.isArray(claims.areas)) {
     for (const c of [...caps]) {
       const area = areaOfCap(c)

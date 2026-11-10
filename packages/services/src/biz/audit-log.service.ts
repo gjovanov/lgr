@@ -3,6 +3,25 @@ import { AuditLog, Desktop, User } from 'db/models'
 import { mongoose } from 'db/connection'
 import { currentRequest } from 'db/home/request-context'
 import { getRepos } from '../context.js'
+import { capsOfSortKey, seesCosts, seesEveryPrice, seesLevel, type Grant } from 'config/access'
+
+/** Records whose `lines` carry a cost (`unitCost`, `varianceCost`, an order's expected price). */
+const COST_LINE_ENTITIES = new Set(['stock_movement', 'inventory_count', 'order', 'StockMovement', 'InventoryCount', 'Order'])
+
+/**
+ * FR-27.11.C.5 (#529): what changed is itself a figure. For a caller whose role does not see a price level or the cost
+ * figures, a change of such a field is dropped from an entry (its field named as a sort key is: `purchasePrice`,
+ * `priceTiers`, `sellingPrice`…, and a movement's, a count's or an order's `lines` without the costs). No grant: the
+ * system's own reader (the digest), which sees everything.
+ */
+export function visibleChanges<C extends { field: string }>(grant: Grant | null | undefined, entityType: string | undefined, changes: readonly C[] | null | undefined): C[] {
+  const list = Array.isArray(changes) ? [...changes] : []
+  if (!grant || seesEveryPrice(grant)) return list
+  return list.filter(c => {
+    if (c?.field === 'lines' && COST_LINE_ENTITIES.has(String(entityType)) && !seesCosts(grant)) return false
+    return capsOfSortKey(c?.field).every(cap => seesLevel(grant, cap))
+  })
+}
 const { Types } = mongoose
 
 const SENSITIVE_FIELDS = new Set(['password', 'token', 'secret', 'apiKey', 'creditCard', 'oauthProviders'])
@@ -39,6 +58,8 @@ export interface AuditQueryOptions {
   dateTo?: string
   page?: number
   size?: number
+  /** FR-27.11.C.5: the caller's grant; changes of a figure it does not see are dropped. Absent: every change. */
+  viewer?: Grant | null
 }
 
 /** ObjectId when castable, else the raw string (entityId is Mixed — e.g. sequence prefixes). */
@@ -221,7 +242,7 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
     entityName: d.entityName || '',
     unpNumber: d.unpNumber,
     correlationId: d.correlationId ? String(d.correlationId) : undefined,
-    changes: d.changes || [],
+    changes: visibleChanges(options.viewer, d.entityType, d.changes),
     ipAddress: d.ipAddress,
     userAgent: d.userAgent,
     ...viaWire(d, desktops),
@@ -316,7 +337,7 @@ export function generateCorrelationId(): string {
 /**
  * Query all audit entries sharing a correlation ID.
  */
-export async function queryByCorrelationId(orgId: string, correlationId: string) {
+export async function queryByCorrelationId(orgId: string, correlationId: string, viewer?: Grant | null) {
   const docs = await AuditLog.find({
     orgId: new Types.ObjectId(orgId),
     correlationId: new Types.ObjectId(correlationId),
@@ -338,7 +359,7 @@ export async function queryByCorrelationId(orgId: string, correlationId: string)
     entityId: String(d.entityId),
     entityName: d.entityName || '',
     correlationId: d.correlationId ? String(d.correlationId) : undefined,
-    changes: d.changes || [],
+    changes: visibleChanges(viewer, d.entityType, d.changes),
     timestamp: d.timestamp?.toISOString(),
   }))
 }
