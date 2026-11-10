@@ -86,11 +86,125 @@ async function enrich(orgId: string, items: any[]) {
   })
 }
 
+/** How many other reservations one supply's tree names: a line seldom has a dozen, and the page must stay light. */
+const SUPPLY_RESERVATION_CAP = 200
+
+/** What the supply tree reads of a reservation: no history, no notes. */
+const SUPPLY_RESERVATION_FIELDS = {
+  reservationNumber: 1, status: 1, contactId: 1, quantity: 1, invoicedQuantity: 1, dispatchedQuantity: 1,
+  source: 1, warehouseId: 1, orderId: 1, lineId: 1, allocationId: 1, internalOrderId: 1, internalOrderLineId: 1,
+  expectedDate: 1, createdAt: 1,
+}
+
+/**
+ * FR-28.45: where a reservation sits, as the page draws it — the supply it hangs on and every reservation on that supply.
+ *
+ *  - on a supplier order: the order's line with ALL its warehouses (allocations), and the live reservations on them;
+ *  - on stock: the warehouse (on the shelf, and what a new reservation could still take) and the active stock
+ *    reservations on that article there.
+ *
+ * This one is always among the rows, whatever its state (a cancelled one is no longer a hold, but the page about it
+ * still shows where it was); every other cancelled reservation is left out. At most `SUPPLY_RESERVATION_CAP` others,
+ * oldest first, with `truncated` and `total` saying so. `null` when the allocation it was on is no longer on the
+ * order (the page already says so), or when a stock reservation names no article.
+ *
+ * Nothing here is behind a rule of its own: the figures are the ones `GET /reservations` (the list: every client, number
+ * and quantity) and `GET /orders/:id` (the line and its warehouses) already give to the same `orders.view`.
+ */
+async function reservationSupply(orgId: string, res: any, found: { line: any; alloc: any }) {
+  let filter: Record<string, any>
+  let head: Record<string, any>
+  if (res.source === 'order') {
+    const { line, alloc } = found
+    if (!res.orderId || !line || !alloc) return null
+    const allocations: any[] = line.allocations || []
+    const warehouses = await Warehouse.find(
+      { orgId, _id: { $in: allocations.map((a) => a.warehouseId).filter(Boolean) } } as any,
+      { name: 1 },
+    ).lean().exec()
+    const warehouseName = new Map((warehouses as any[]).map((w) => [idStr(w._id), w.name || '']))
+    filter = {
+      orgId, orderId: res.orderId, allocationId: { $in: allocations.map((a) => a._id) }, status: { $ne: 'cancelled' },
+    }
+    head = {
+      kind: 'order',
+      line: { _id: idStr(line._id), description: line.description || '', quantity: num(line.quantity), receivedQuantity: num(line.receivedQuantity) },
+      allocations: allocations.map((a) => ({
+        _id: idStr(a._id),
+        warehouseId: idStr(a.warehouseId),
+        warehouseName: warehouseName.get(idStr(a.warehouseId)) || '',
+        quantity: num(a.quantity),
+        receivedQuantity: num(a.receivedQuantity),
+      })),
+    }
+  } else {
+    if (!res.productId || !res.warehouseId) return null
+    const [level, warehouse] = await Promise.all([
+      StockLevel.findOne({ orgId, productId: res.productId, warehouseId: res.warehouseId } as any, { quantity: 1, availableQuantity: 1 }).lean().exec(),
+      Warehouse.findOne({ _id: res.warehouseId, orgId } as any, { name: 1 }).lean().exec(),
+    ])
+    filter = { orgId, source: 'stock', productId: res.productId, warehouseId: res.warehouseId, status: 'active' }
+    head = {
+      kind: 'stock',
+      warehouse: {
+        _id: idStr(res.warehouseId),
+        name: (warehouse as any)?.name || '',
+        onHand: num((level as any)?.quantity),
+        available: num((level as any)?.availableQuantity),
+      },
+    }
+  }
+
+  const others: any[] = await Reservation.find({ ...filter, _id: { $ne: res._id } } as any, SUPPLY_RESERVATION_FIELDS)
+    .sort({ createdAt: 1, _id: 1 }).limit(SUPPLY_RESERVATION_CAP + 1).lean().exec()
+  const truncated = others.length > SUPPLY_RESERVATION_CAP
+  const total = truncated ? (await Reservation.countDocuments({ ...filter, _id: { $ne: res._id } } as any).exec()) + 1 : others.length + 1
+  // This one is in the list whether or not the cap reached it, and in its place by age.
+  const rows = [...others.slice(0, SUPPLY_RESERVATION_CAP), res]
+    .sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime() || idStr(a._id).localeCompare(idStr(b._id)))
+
+  const contactIds = [...new Set(rows.map((r) => idStr(r.contactId)).filter(Boolean))]
+  const ordiIds = [...new Set(rows.map((r) => idStr(r.internalOrderId)).filter(Boolean))]
+  const [contacts, ordis] = await Promise.all([
+    contactIds.length ? Contact.find({ orgId, _id: { $in: contactIds } } as any, { companyName: 1, firstName: 1, lastName: 1 }).lean().exec() : [],
+    ordiIds.length ? InternalOrder.find({ orgId, _id: { $in: ordiIds } } as any, { orderNumber: 1 }).lean().exec() : [],
+  ])
+  const contactById = new Map((contacts as any[]).map((c) => [idStr(c._id), contactName(c)]))
+  const ordiNumber = new Map((ordis as any[]).map((o) => [idStr(o._id), o.orderNumber || '']))
+  const opt = (v: unknown) => (v ? idStr(v) : undefined)
+
+  return {
+    ...head,
+    reservations: rows.map((r) => ({
+      _id: idStr(r._id),
+      reservationNumber: r.reservationNumber,
+      status: r.status,
+      contactId: idStr(r.contactId),
+      contactName: contactById.get(idStr(r.contactId)) || '',
+      quantity: num(r.quantity),
+      invoicedQuantity: num(r.invoicedQuantity),
+      dispatchedQuantity: num(r.dispatchedQuantity),
+      source: r.source,
+      warehouseId: opt(r.warehouseId),
+      orderId: opt(r.orderId),
+      lineId: opt(r.lineId),
+      allocationId: opt(r.allocationId),
+      internalOrderId: opt(r.internalOrderId),
+      internalOrderNumber: r.internalOrderId ? ordiNumber.get(idStr(r.internalOrderId)) || '' : undefined,
+      internalOrderLineId: opt(r.internalOrderLineId),
+      expectedDate: r.expectedDate || null,
+    })),
+    truncated,
+    total,
+  }
+}
+
 /**
  * What a reservation's page shows and links to (FR-22.37): its supplier order and allocation, its
  * incoming order and line, every invoice that names it (any status — a voided one is history
  * too), the reservation it repeats and the one that repeats it, what a preemption took it from
- * or gave away, and the names of the people in its history.
+ * or gave away, and the names of the people in its history. And (FR-28.45) the supply it hangs on
+ * with every reservation on it: `supply`.
  */
 async function reservationDetail(orgId: string, res: any) {
   const [order, invoices, repeatOf, repeatedAs, preemptedFrom, preemptedTo] = await Promise.all([
@@ -132,13 +246,14 @@ async function reservationDetail(orgId: string, res: any) {
     idStr(res.preemptedBy?.userId),
     ...(res.statusHistory || []).map((h: any) => idStr(h.changedBy)),
   ].filter(isId))
-  const [ordis, users, allocWarehouse, supplier] = await Promise.all([
+  const [ordis, users, allocWarehouse, supplier, supply] = await Promise.all([
     ordiIds.size
       ? InternalOrder.find({ orgId, _id: { $in: [...ordiIds] } } as any, { orderNumber: 1, status: 1, priority: 1, requestedDeliveryDate: 1, lines: 1 }).lean().exec()
       : [],
     userIds.size ? User.find({ orgId, _id: { $in: [...userIds] } } as any, { firstName: 1, lastName: 1, username: 1 }).lean().exec() : [],
     alloc?.warehouseId ? Warehouse.findOne({ _id: alloc.warehouseId, orgId } as any, { name: 1 }).lean().exec() : null,
     group?.supplierId ? Contact.findOne({ _id: group.supplierId, orgId } as any, { companyName: 1, firstName: 1, lastName: 1 }).lean().exec() : null,
+    reservationSupply(orgId, res, { line, alloc }),
   ])
   const ordiById = new Map((ordis as any[]).map((o) => [idStr(o._id), o]))
   const ordi: any = res.internalOrderId ? ordiById.get(idStr(res.internalOrderId)) : null
@@ -205,6 +320,7 @@ async function reservationDetail(orgId: string, res: any) {
       createdAt: r.createdAt,
     })),
     users: Object.fromEntries((users as any[]).map((u) => [idStr(u._id), [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username || ''])),
+    supply,
   }
 }
 
