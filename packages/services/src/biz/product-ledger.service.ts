@@ -320,7 +320,7 @@ export async function getProductLedger(
 
   // Load warehouse names for legacy counts
   const whIds = [...new Set(legacyCounts.map(ic => String(ic.warehouseId)))]
-  const whDocs = whIds.length ? await Warehouse.find({ _id: { $in: whIds } }).select('name').lean().exec() : []
+  const whDocs = whIds.length ? await Warehouse.find({ _id: { $in: whIds }, orgId: orgOid }).select('name').lean().exec() : []
   const whMap = new Map(whDocs.map(w => [String(w._id), (w as any).name]))
 
   for (const ic of legacyCounts) {

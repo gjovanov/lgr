@@ -180,8 +180,8 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     const allWhIds = new Set([...fromWhIds, ...toWhIds])
     const [warehouses, contacts] = await Promise.all([
-      allWhIds.size > 0 ? r.warehouses.findMany({ id: { $in: [...allWhIds] } } as any) : [],
-      contactIds.size > 0 ? r.contacts.findMany({ id: { $in: [...contactIds] } } as any) : [],
+      allWhIds.size > 0 ? r.warehouses.findMany({ orgId, id: { $in: [...allWhIds] } } as any) : [],
+      contactIds.size > 0 ? r.contacts.findMany({ orgId, id: { $in: [...contactIds] } } as any) : [],
     ])
 
     const warehouseMap = new Map(warehouses.map(w => [w.id, w]))
@@ -368,7 +368,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       if (l.productId) productIds.add(l.productId)
     }
     const products = productIds.size > 0
-      ? await r.products.findMany({ id: { $in: [...productIds] } } as any)
+      ? await r.products.findMany({ orgId, id: { $in: [...productIds] } } as any)
       : []
     const productMap = new Map(products.map(p => [p.id, p]))
 
