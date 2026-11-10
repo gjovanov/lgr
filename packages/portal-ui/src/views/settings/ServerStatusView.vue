@@ -109,7 +109,7 @@
                 {{ inspectionAlert.text }}
               </v-alert>
               <div class="mt-2">
-                <v-btn size="small" variant="tonal" prepend-icon="mdi-shield-search" data-test="inspection-edit" @click="openInspection">{{ $t('serverStatus.inspection.edit') }}</v-btn>
+                <v-btn v-cap="'servers.manage'" size="small" variant="tonal" prepend-icon="mdi-shield-search" data-test="inspection-edit" @click="openInspection">{{ $t('serverStatus.inspection.edit') }}</v-btn>
               </div>
             </v-card-text>
           </v-card>
@@ -124,7 +124,7 @@
               <p v-if="run.kept?.salesNumbers?.length" class="text-caption text-medium-emphasis mb-2">{{ $t('serverStatus.kept.salesNumbers', { numbers: run.kept.salesNumbers.join(', ') }) }}</p>
               <p v-if="!run.done" class="text-body-2">{{ $t('serverStatus.kept.notDone') }}</p>
               <template v-else-if="!run.import">
-                <v-btn size="small" color="primary" variant="tonal" prepend-icon="mdi-book-arrow-down" data-test="kept-import" @click="askKept(run)">{{ $t('serverStatus.kept.action') }}</v-btn>
+                <v-btn v-cap="'servers.manage'" size="small" color="primary" variant="tonal" prepend-icon="mdi-book-arrow-down" data-test="kept-import" @click="askKept(run)">{{ $t('serverStatus.kept.action') }}</v-btn>
               </template>
               <template v-else>
                 <p class="text-body-2 mb-1" data-test="kept-state">
@@ -166,7 +166,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="keptDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" variant="flat" :loading="askingKept" data-test="kept-confirm" @click="confirmKept">{{ $t('serverStatus.kept.confirm') }}</v-btn>
+          <v-btn v-cap="'servers.manage'" color="primary" variant="flat" :loading="askingKept" data-test="kept-confirm" @click="confirmKept">{{ $t('serverStatus.kept.confirm') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -201,7 +201,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="inspectionDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" variant="flat" :loading="savingInspection" :disabled="!formReady" data-test="inspection-save" @click="saveInspection">{{ $t('common.save') }}</v-btn>
+          <v-btn v-cap="'servers.manage'" color="primary" variant="flat" :loading="savingInspection" :disabled="!formReady" data-test="inspection-save" @click="saveInspection">{{ $t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
