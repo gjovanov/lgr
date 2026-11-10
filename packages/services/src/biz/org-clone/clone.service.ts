@@ -39,6 +39,7 @@ import { logger } from '../../logger/logger.js'
 import { tenantCollections } from '../backup/backup-bundle.service.js'
 import { contentHash } from './canonical.js'
 import { HEX24, cloneIdHex } from './ids.js'
+import { namedIds } from './leaks.js'
 import {
   IDENTITY_FIELDS,
   KEPT_ON_RESET,
@@ -750,4 +751,68 @@ export async function compareOrgs(sourceOrgId: string, targetOrgId: string): Pro
     if (source || target) rows.push({ model: name, source, target })
   }
   return rows
+}
+
+// ── Checking ──────────────────────────────────────────────────────────────────────────────
+
+export interface LeakScan {
+  /** The ids of the real org the scan looked for: its own, and every document's it holds in any collection. */
+  sourceIds: number
+  /** Documents of the copy that were read (its org row included). */
+  copyDocs: number
+  /** Documents of the copy that name an id of the real org. Zero is the only acceptable answer. */
+  leaking: number
+  /** Per collection: how many documents of the copy leak. */
+  byCollection: Record<string, number>
+  /** Up to three of the COPY's own document ids per collection, to go and look at. Never an id of the real org. */
+  samples: Record<string, string[]>
+}
+
+/**
+ * READ-ONLY: does any document of the copy still name the real org, its id or the id of any document it holds?
+ * That is a link into another tenant, which is what a copy exists not to have.
+ *
+ * Independent of the engine on purpose. It does not use the models a copy is built from, nor the rewrite's
+ * rule: it walks EVERY collection of the database that has a row under either org's `orgId` and looks at
+ * every 24-hex window of every document (`leaks.ts`). A test's fixture cannot hold the shapes real data has
+ * (the first production copies named real-org ids inside tags and audit text that no fixture had), so this
+ * is what to run on the real copies after a change to `remap.ts`, a new model with an `orgId`, or a doubt.
+ * It takes exactly the pairs a sync takes (`assertCloneAllowed`) and reports counts and the copy's own ids only.
+ */
+export async function scanCopyForLeaks(sourceOrgId: string, targetOrgId: string): Promise<LeakScan> {
+  const { source, target } = await assertCloneAllowed(sourceOrgId, targetOrgId)
+  const db = mongoose.connection.db
+  if (!db) throw new OrgCloneError('not_connected', 'no database connection')
+  const names = (await db.listCollections({}, { nameOnly: true }).toArray()).map(c => c.name).filter(n => !n.startsWith('system.')).sort()
+
+  const ids = new Set<string>([String(source._id)])
+  for (const name of names) {
+    const c = db.collection(name)
+    if (!(await c.countDocuments({ orgId: source._id }, { limit: 1 }))) continue
+    for await (const d of c.find({ orgId: source._id }, { projection: { _id: 1 } })) {
+      const id = String(d._id).toLowerCase()
+      if (HEX24.test(id)) ids.add(id)
+    }
+  }
+
+  const byCollection: Record<string, number> = {}
+  const samples: Record<string, string[]> = {}
+  let copyDocs = 0
+  let leaking = 0
+  const look = (name: string, d: any) => {
+    copyDocs++
+    if (!namedIds(JSON.stringify(d), ids).length) return
+    leaking++
+    byCollection[name] = (byCollection[name] ?? 0) + 1
+    const list = (samples[name] ??= [])
+    if (list.length < 3) list.push(String(d._id))
+  }
+
+  look(Org.collection.collectionName, target) // the copy's own org row must not name the real one either
+  for (const name of names) {
+    const c = db.collection(name)
+    if (!(await c.countDocuments({ orgId: target._id }, { limit: 1 }))) continue
+    for await (const d of c.find({ orgId: target._id })) look(name, d)
+  }
+  return { sourceIds: ids.size, copyDocs, leaking, byCollection, samples }
 }

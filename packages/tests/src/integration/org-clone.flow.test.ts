@@ -14,7 +14,7 @@ import { AuditLog, Identity, Invoice, LeaveBalance, Org, OrgApp, OrgLogo, Permis
 import { tenantCollections } from 'services/biz/backup/backup-bundle.service'
 import {
   OrgCloneError, assertCloneAllowed, cloneOrgData, compareOrgs, convertToTestOrg, createTestOrgFrom,
-  markOrgEnvironment, resetOrgData,
+  markOrgEnvironment, resetOrgData, scanCopyForLeaks,
 } from 'services/biz/org-clone/clone.service'
 import { cloneIdHex } from 'services/biz/org-clone/ids'
 import { contentHash } from 'services/biz/org-clone/canonical'
@@ -744,5 +744,88 @@ describe('the unique indexes the copy relies on (scripts/org-clone.ts)', () => {
     } finally {
       await Tag.syncIndexes()
     }
+  })
+})
+
+describe('the leak scan (scripts/org-clone.ts leaks)', () => {
+  const REPO = join(import.meta.dir, '..', '..', '..', '..')
+
+  async function leaksCli(pair: string) {
+    const proc = Bun.spawn(['bun', join(REPO, 'scripts', 'org-clone.ts'), 'leaks', '--pairs', pair], {
+      cwd: REPO,
+      env: { ...process.env, MONGODB_URI: testDbUri() },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+    return { code, out: out + err }
+  }
+
+  it('finds nothing in a clean copy, says how much it looked at, and only looks', async () => {
+    const shop = await realShop()
+    const { id } = await testCopyOf(shop)
+    const before = await fingerprint(id)
+
+    const scan = await scanCopyForLeaks(shop.id, id)
+    expect(scan.leaking).toBe(0)
+    expect(scan.byCollection).toEqual({})
+    expect(scan.sourceIds).toBeGreaterThan(20)
+    expect(scan.copyDocs).toBeGreaterThan(20)
+    expect(await fingerprint(id)).toEqual(before)
+  })
+
+  it('finds a real-org id the rewrite does not follow, in a collection no model names, and in the org row of the copy', async () => {
+    const shop = await realShop()
+    const { id } = await testCopyOf(shop)
+
+    // 1. An id glued to other hex digits is not a token the rewrite follows.
+    const contact: any = (await docsOf('Contact', id))[0]
+    await coll('Contact').updateOne({ _id: contact._id }, { $set: { notes: `ref ab${shop.contact._id}` } })
+    // 2. A collection no model names is one the engine never reads.
+    const stray = await mongoose.connection.db!.collection('stray_notes').insertOne({ orgId: oid(id), text: `see ${shop.invoices[0]._id}` })
+    // 3. The real org's own id, in the org row of the copy.
+    await Org.collection.updateOne({ _id: oid(id) }, { $set: { scanProbe: `x ${shop.id}` } })
+
+    const scan = await scanCopyForLeaks(shop.id, id)
+    const contacts = coll('Contact').collectionName
+    const orgs = Org.collection.collectionName
+    expect(scan.leaking).toBe(3)
+    expect(scan.byCollection).toEqual({ [contacts]: 1, stray_notes: 1, [orgs]: 1 })
+    // It points at documents of the COPY, and never prints an id of the real org.
+    expect(scan.samples[contacts]).toEqual([String(contact._id)])
+    expect(scan.samples.stray_notes).toEqual([String(stray.insertedId)])
+    const printed = JSON.stringify(scan)
+    for (const real of [shop.id, String(shop.contact._id), String(shop.invoices[0]._id)]) expect(printed.includes(real)).toBe(false)
+  })
+
+  it('takes exactly the pairs a sync takes', async () => {
+    const shop = await realShop()
+    const plain = await createTestOrg({ slug: slugOf('plain') } as any)
+    expect(((await captureRejection(scanCopyForLeaks(shop.id, String(plain._id)))) as OrgCloneError)?.code).toBe('target_not_dev')
+    expect(((await captureRejection(scanCopyForLeaks(shop.id, shop.id))) as OrgCloneError)?.code).toBe('same_org')
+  })
+
+  it('exits 0 on a clean copy, 1 naming the collection on a leak, 1 when it could not look, and never prints an id of the real org', async () => {
+    const shop = await realShop()
+    const made = await createTestOrgFrom({ sourceOrgId: shop.id, slug: slugOf('leaks'), name: 'Test Leaks', execute: true })
+    await cloneOrgData({ sourceOrgId: shop.id, targetOrgId: made.orgId, execute: true, activateAdmins: true })
+    const copy: any = await Org.findById(made.orgId).lean().exec()
+    const pair = `${shop.org.slug}:${copy.slug}`
+
+    const clean = await leaksCli(pair)
+    expect(clean.code).toBe(0)
+    expect(clean.out).toContain('NO LEAKS')
+
+    await coll('Invoice').updateOne({ orgId: oid(made.orgId), status: 'sent' }, { $set: { notes: `ref ${shop.products[0]._id}` } })
+    const dirty = await leaksCli(pair)
+    expect(dirty.code).toBe(1)
+    expect(dirty.out).toContain('LEAKS FOUND')
+    expect(dirty.out).toContain(`${coll('Invoice').collectionName}: 1`)
+    expect(dirty.out.includes(String(shop.products[0]._id))).toBe(false)
+
+    const missing = await leaksCli(`${shop.org.slug}:no-such-test-org`)
+    expect(missing.code).toBe(1)
+    expect(missing.out).toContain('[no_such_org]')
+    expect(missing.out).toContain('NOT CHECKED')
   })
 })

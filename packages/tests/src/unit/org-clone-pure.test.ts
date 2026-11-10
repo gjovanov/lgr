@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { mongoose } from 'db/connection'
 import { cloneIdHex, cloneMask, HEX24 } from 'services/biz/org-clone/ids'
 import { canonicalize, contentHash } from 'services/biz/org-clone/canonical'
+import { namedIds } from 'services/biz/org-clone/leaks'
 import { remapDoc, remapValue, type RemapEnv } from 'services/biz/org-clone/remap'
 import {
   KEPT_ON_RESET, NEVER_CLONED, SEED_ONLY, clonePlain, clonedModels, copyOrder, testOrgSettings,
@@ -210,5 +211,39 @@ describe('what a test copy holds', () => {
     // The real org's own settings are not changed by building the copy's.
     expect(real.dailyDigest.enabled).toBe(true)
     expect((real.accounting as any).books).toBeDefined()
+  })
+})
+
+describe('the leak matcher (the second opinion on the rewrite)', () => {
+  const id = rand()
+  const ids = new Set([id])
+
+  it('finds an id as a whole value, inside a sentence, and as a key, whatever the case', () => {
+    expect(namedIds(JSON.stringify({ a: id }), ids)).toEqual([id])
+    expect(namedIds(`converted-from:${id} and more`, ids)).toEqual([id])
+    expect(namedIds(JSON.stringify({ [id]: 5 }), ids)).toEqual([id])
+    expect(namedIds(id.toUpperCase(), ids)).toEqual([id])
+  })
+
+  it('finds an id the rewrite leaves alone: glued to other hex digits, at any offset', () => {
+    // The rewrite follows a whole 24-hex token only, and a longer run of hex digits is not one.
+    expect(namedIds(`ab${id}`, ids)).toEqual([id])
+    expect(namedIds(`${id}cd`, ids)).toEqual([id])
+    expect(namedIds(`${rand()}${id}${rand()}`, ids)).toEqual([id])
+    // An odd offset: what a scan stepping 24 digits at a time would miss.
+    expect(namedIds(`a${id}b`, ids)).toEqual([id])
+    expect(namedIds(`1${id}`, ids)).toEqual([id])
+  })
+
+  it('ignores what is not in the set: another id, a near miss, a digit that is not hex', () => {
+    expect(namedIds(rand(), ids)).toEqual([])
+    expect(namedIds(id.slice(1), ids)).toEqual([])
+    expect(namedIds(`${id.slice(0, 23)}g`, ids)).toEqual([])
+    expect(namedIds('', ids)).toEqual([])
+  })
+
+  it('names each id once, however often it stands, and every id it finds', () => {
+    const other = rand()
+    expect(namedIds(`${id} ${id} ${other}`, new Set([id, other])).sort()).toEqual([id, other].sort())
   })
 })

@@ -8,6 +8,12 @@
  *   bun scripts/org-clone.ts status --pairs regal-pz:test-regal-pz,regal-sf:test-regal-sf
  *       counts per collection, real org against its copy
  *
+ *   bun scripts/org-clone.ts leaks --pairs regal-pz:test-regal-pz,regal-sf:test-regal-sf
+ *       READ-ONLY. Does any document of a copy still name an id of its real org (the org's own, or any
+ *       document it holds)? Counts per collection and the copy's own document ids, never the real org's.
+ *       Exit 1 if any does. It walks every collection on its own rule, not the engine's: run it on the real
+ *       copies after a change to the rewrite (`remap.ts`), a new model with an `orgId`, or a doubt.
+ *
  *   bun scripts/org-clone.ts mark   --org regal-pz --env prod [--execute]
  *       the PROD / DEV badge beside an org's name (`settings.environment`)
  *
@@ -47,6 +53,7 @@ import {
   createTestOrgFrom,
   markOrgEnvironment,
   resetOrgData,
+  scanCopyForLeaks,
   type CloneReport,
 } from '../packages/services/src/biz/org-clone/clone.service.js'
 import { buildBundle, verifyBundle } from '../packages/services/src/biz/backup/backup-bundle.service.js'
@@ -123,6 +130,27 @@ async function main(): Promise<number> {
       for (const r of await compareOrgs(String(s._id), String(t._id))) out(r.model.padEnd(24) + String(r.source).padStart(10) + String(r.target).padStart(10) + (r.target < r.source ? '   <- behind' : ''))
     }
     return 0
+  }
+
+  if (command === 'leaks') {
+    let leaking = 0
+    let failed = 0
+    for (const p of pairs()) {
+      try {
+        const [s, t] = [await orgBySlug(p.source), await orgBySlug(p.target)]
+        out('')
+        out(`${p.source} (${s.settings?.environment ?? 'unmarked'}) vs ${p.target} (${t.settings?.environment ?? 'unmarked'})`)
+        const scan = await scanCopyForLeaks(String(s._id), String(t._id))
+        out(`${scan.copyDocs} documents of the copy read against ${scan.sourceIds} ids of the real org: ${scan.leaking} name one`)
+        for (const [collection, n] of Object.entries(scan.byCollection)) out(`    ${collection}: ${n}   (copy documents ${scan.samples[collection]!.join(', ')})`)
+        leaking += scan.leaking
+      } catch (e: any) {
+        failed++
+        console.error(`${p.source} -> ${p.target}: ${e instanceof OrgCloneError ? `[${e.code}] ` : ''}${e?.message ?? e}`)
+      }
+    }
+    out(leaking ? 'LEAKS FOUND' : failed ? 'NOT CHECKED' : 'NO LEAKS')
+    return leaking || failed ? 1 : 0
   }
 
   if (command === 'mark') {
@@ -228,7 +256,7 @@ async function main(): Promise<number> {
     return failures ? 1 : 0
   }
 
-  return fail('commands: status | mark | create | convert | reset | sync   (see the header of scripts/org-clone.ts)', 2)
+  return fail('commands: status | leaks | mark | create | convert | reset | sync   (see the header of scripts/org-clone.ts)', 2)
 }
 
 let code = 1
