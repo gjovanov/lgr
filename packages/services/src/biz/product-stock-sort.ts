@@ -26,8 +26,12 @@ export function stockColumnForSortKey(sortBy: string | undefined | null): StockC
  * - `stock`: on hand, from the stock levels the badges list. A level at 0 shows no badge.
  * - `reserved` / `onOrder`: the list's own figures (`getProductsSupplyTotals`, FR-22.45), asked
  *   only about the articles that can have one — something held on the shelf, or on a sent order.
+ *
+ * FR-28.4: this is THE stock figure. The sort ranks by it (an article it does not name goes last: its cell
+ * shows a dash), and the quantity filters, "below minimum" and the order dialog's defaults read it through
+ * `product-stock-filter.ts`, where an article it does not name is at 0. One sum, two readings of "absent".
  */
-async function columnFigures(orgId: string, column: StockColumn, warehouseId?: string): Promise<Map<string, number>> {
+export async function columnFigures(orgId: string, column: StockColumn, warehouseId?: string): Promise<Map<string, number>> {
   const org = new Types.ObjectId(orgId)
   // A warehouse id that is no id matches nothing, as it does in the list's own filter.
   const inWarehouse = warehouseId

@@ -9,7 +9,10 @@
  *   {
  *     "receipt": "3000619107",            // стокова разписка number (dedup key)
  *     "date": "2026-07-27",               // delivery date (movement date)
- *     "supplier": "BEISPIEL-...",           // optional, recorded in movement notes
+ *     "supplier": "BEISPIEL-...",           // optional, recorded in movement notes, and looked up among the org's ACTIVE
+ *                                          // suppliers by exact name (FR-28.12): the one it matches becomes the receipt's
+ *                                          // supplier. No contact is ever created; no match (or several) names nobody
+ *     "contactId": "<contact id>",          // optional: the supplier, when the caller already found it (null = nobody)
  *     "items": [
  *       { "name": "<exact name from разписка>", "qty": 2, "unit": "pcs",
  *         "cost": 8.00,                    // разписка "Цена", the delivery price: opens a NEW product's cost, never written to an existing one
@@ -47,7 +50,9 @@
  */
 import { readFileSync } from 'node:fs'
 import { assertTokenOrg } from './lib/token-org.js'
+import { createSupplierResolver } from './lib/supplier-partner.js'
 import { deliveryNote, movementMarker } from '../packages/config/src/movement-notes.js'
+import { describeMatch, partnerOf } from '../packages/services/src/biz/doc-import/supplier-name.js'
 
 const TIER_NAMES = ['Доставна цена', 'Цена на едро', 'Цена 0', 'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4', 'Цена 5', 'Цена 6', 'Цена 7', 'Цена 8', 'Цена 9', 'Цена 10']
 const UNIT_MAP: Record<string, string> = { 'БР': 'pcs', 'БР.': 'pcs', 'М': 'm', 'КГ': 'kg', 'Л': 'l', 'ЧФ': 'pair', 'К-Т': 'set', 'ОП': 'pack' }
@@ -74,7 +79,12 @@ const execute = !!args.execute
 if (!itemsPath) { console.error('Required: --items <items.json>'); process.exit(2) }
 
 interface ItemIn { name: string; qty: number; unit?: string; cost: number; selling?: number; tiers?: Record<string, number> }
-interface Input { receipt?: string; date: string; supplier?: string; items: ItemIn[] }
+/**
+ * `supplier` is the partner's name as the document prints it (it goes into the notes). `contactId` is the supplier the
+ * receipt names (FR-28.12): when the caller already looked the partner up it passes the contact's id, or `null` for
+ * "looked up, nobody" (a name that matched none or several); left out, it is looked up here from `supplier`.
+ */
+interface Input { receipt?: string; date: string; supplier?: string; contactId?: string | null; items: ItemIn[] }
 
 const input: Input = JSON.parse(readFileSync(itemsPath, 'utf8'))
 if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date || '')) { console.error(`items JSON "date" must be YYYY-MM-DD, got "${input.date}"`); process.exit(2) }
@@ -229,6 +239,19 @@ async function main() {
 
   await login()
 
+  // FR-28.12: the supplier the receipt names, so the supplier facts and the order dialog can see the purchase. The
+  // caller may have found it already; otherwise the partner's name is looked up among the organization's ACTIVE
+  // suppliers by exact name (never created, never guessed). No match leaves the receipt supplier-less, said here.
+  let contactId: string | undefined = input.contactId || undefined
+  if (input.contactId === undefined && input.supplier) {
+    const partner = partnerOf(input.supplier)
+    if (partner.kind === 'supplier') {
+      const match = await createSupplierResolver(path => http('GET', org(path))).resolve(partner.name)
+      console.log(describeMatch(partner.name, match))
+      if (match.status === 'matched') contactId = match.contactId
+    }
+  } else if (contactId) console.log(`Supplier contact: ${contactId}`)
+
   // warehouse
   const whs = (await http('GET', org('/warehouse/warehouse?page=0&size=100'))).warehouses || []
   if (!whs.length) { console.error('Org has no warehouses.'); process.exit(1) }
@@ -341,6 +364,7 @@ async function main() {
   const mvBefore = (await http('GET', org('/warehouse/movement?page=0&size=1'))).total ?? 0
   const createdMv = await http('POST', org('/warehouse/movement'), {
     type: 'receipt', date: input.date, toWarehouseId: wh._id, totalAmount,
+    ...(contactId ? { contactId } : {}),
     notes: deliveryNote(input.date, marker, input.supplier),
     lines: lines.map(({ _name, _existing, ...l }) => l),
   })

@@ -50,7 +50,7 @@ LGR has 50 entity types across 8 modules. Each entity has a TypeScript interface
 | [PaymentOrder](invoicing/payment-order.md) | `IPaymentOrder` | `payment_orders` | Bank payment/receipt |
 | [CashOrder](invoicing/cash-order.md) | `ICashOrder` | `cash_orders` | Cash receipt/disbursement |
 
-## Warehouse (6 entities)
+## Warehouse (7 entities)
 
 | Entity | Interface | SQLite Table | Description |
 |--------|-----------|-------------|-------------|
@@ -60,6 +60,7 @@ LGR has 50 entity types across 8 modules. Each entity has a TypeScript interface
 | [StockMovement](warehouse/stock-movement.md) | `IStockMovement` | `stock_movements` | Inventory transaction |
 | [InventoryCount](warehouse/inventory-count.md) | `IInventoryCount` | `inventory_counts` | Physical stock count |
 | [PriceList](warehouse/price-list.md) | `IPriceList` | `price_lists` | Product pricing tier |
+| [ProductSupplier](warehouse/product-supplier.md) | `IProductSupplier` | — | What a person records about an article's supplier (preferred, the supplier's code, lead time); the facts of who sold it are read from the documents |
 
 ## Payroll (4 entities)
 
