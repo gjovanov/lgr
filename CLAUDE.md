@@ -3203,6 +3203,21 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - Read off the legacy role (the built-in of that key): recorded only when it grants exactly what the person's
     legacy fields do, and those are left alone. ⚠ So an org whose system set was edited changes nobody's access: that
     person gets no role yet, and their claims decide.
+- **A page the role does not open (FR-27.7, Phase 2) shows "Not available for your role"** (`ui-shell/NotAvailable.vue`):
+  both layouts (`ModuleLayout`, the portal's `DefaultLayout`) ask `ui-shared/access/page-access#usePageAccess`, and its
+  view never mounts. The page is `pageAt(path, query)`: a registry page at its own path (a list, a new-document form)
+  or a portal page under Settings or Admin, never the Dashboard; any other route shows. The rule is `canOpenPage`, the
+  menus' own, so an offered page always opens.
+  - ⚠ A module's record route is never blocked: other apps link to records (an invoice's product, a bill's receipt)
+    that their people read through the feature's `lookup`, so the server decides those.
+  - ⚠ An org on `roles` (`rid` in the claims) whose `/auth/me` has not answered yet: a page the claims (the role's
+    projection, never more than the role) do not open WAITS (`accessSettled` / `settleAccess`, one `/auth/me`), then
+    decides. A failed `/auth/me` ends the wait, and the claims decide. Legacy orgs decide at once and ask nothing.
+- **A role's start page (FR-27.4)**: `Role.landing`, a page id the role opens (`role.service#cleanLanding`: 422
+  `landing_unknown` / `landing_not_open`; capabilities that stop opening it drop it). A change bumps the role's
+  version, and `/auth/me` answers it as `access.landing`. `startPage(who)`: the landing, else the Dashboard, else
+  (no portal) `landingWithoutPortal`, which prefers a landing outside the portal. The first Dashboard of a
+  membership in a tab goes there (`useRoleLanding`, once, `sessionStorage` `lgr_landed`), and "Not available" offers it.
 - **Screens** (`portal-ui` Settings → Roles & access, `RolesView` / `RoleEditorView`; `/settings/roles`, page rule
   `roles.edit`). The editor is a level per feature, None / View / Work / Full, plus the extras beyond it
   (`config/access/levels.ts`). A level is never stored: Save sends capabilities, and the server adds the helpers their

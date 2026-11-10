@@ -17,6 +17,8 @@
     "./components/types": "./src/components/types.ts",
     "./components/PendingChangesPanel": "./src/components/PendingChangesPanel.vue",
     "./components/PendingChangesPanel.vue": "./src/components/PendingChangesPanel.vue",
+    "./components/NotAvailable": "./src/components/NotAvailable.vue",
+    "./components/NotAvailable.vue": "./src/components/NotAvailable.vue",
     "./components/TopMenuBar": "./src/components/TopMenuBar.vue",
     "./components/AppBreadcrumb": "./src/components/AppBreadcrumb.vue",
     "./components/HubPageHeader": "./src/components/HubPageHeader.vue",

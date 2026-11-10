@@ -20,6 +20,20 @@
         <v-col cols="12" md="7">
           <v-text-field v-model="form.description" :label="$t('access.ui.description')" :disabled="role.all" :placeholder="role.isBuiltin && role.templateKey ? $t(`access.roles.${role.templateKey}.description`) : ''" />
         </v-col>
+        <v-col v-if="!role.all" cols="12" md="5">
+          <!-- FR-27.4: where the role's people start; only pages the role opens are offered. -->
+          <v-autocomplete
+            v-model="form.landing"
+            :items="landingOptions"
+            :label="$t('access.ui.landing')"
+            :hint="$t('access.ui.landingHint')"
+            :placeholder="$t('access.ui.landingDefault')"
+            persistent-hint
+            persistent-placeholder
+            clearable
+            data-testid="role-landing"
+          />
+        </v-col>
       </v-row>
 
       <v-alert v-if="role.all" type="info" variant="tonal" class="mb-4">{{ $t('access.ui.administratorFixed') }}</v-alert>
@@ -114,6 +128,8 @@ import {
   type CapabilityId, type Grant, type Level,
 } from 'config/access'
 import { useAppStore } from '../../store/app.store'
+import { APP_NAV_META, PAGE_REGISTRY } from 'ui-shared/nav/page-registry'
+import { canOpen } from 'config/access'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 
@@ -129,12 +145,16 @@ const role = ref<any>(null)
 const people = ref<any[]>([])
 const loading = ref(false)
 const saving = ref(false)
-const form = reactive({ name: '', description: '' })
+const form = reactive({ name: '', description: '', landing: null as string | null })
 const selected = ref(new Set<CapabilityId>())
 const openGroups = ref<string[]>(['invoicing', 'inventory'])
 
 const grant = computed<Grant>(() => (role.value?.all ? { all: true } : { caps: selected.value }))
 const summary = computed(() => summarize(grant.value))
+/** FR-27.4: the pages this role opens, as it stands in the editor, by app; one with a query is a variant of a form. */
+const landingOptions = computed(() => PAGE_REGISTRY
+  .filter(p => !p.id.includes('?') && canOpen(p.id, grant.value))
+  .map(p => ({ value: p.id, title: `${APP_NAV_META[p.appId] ? t(APP_NAV_META[p.appId].nameKey) : p.appId} · ${t(p.labelKey)}` })))
 const groups = computed(() => FEATURE_GROUPS.filter(g => g !== 'helpers').map(g => ({ id: g, features: EDITOR_FEATURES.filter(f => f.group === g) })).filter(g => g.features.length))
 
 const actionLabel = (c: string) => t(`access.action.${c.slice(c.indexOf('.') + 1).replace(/[:-]/g, '_')}`)
@@ -183,6 +203,7 @@ async function load() {
     people.value = data.people ?? []
     form.name = data.role.name
     form.description = data.role.description ?? ''
+    form.landing = data.role.landing ?? null
     selected.value = new Set(data.role.caps as CapabilityId[])
   } catch (e: any) {
     showError(e?.response?.data?.message ?? t('common.operationFailed'))
@@ -194,8 +215,11 @@ async function load() {
 async function save() {
   saving.value = true
   try {
-    const { data } = await httpClient.put(`${appStore.orgUrl()}/roles/${role.value.id}`, { name: form.name.trim(), description: form.description, caps: [...selected.value] })
+    // A landing the capabilities chosen no longer open is cleared rather than refused.
+    const landing = form.landing && landingOptions.value.some(o => o.value === form.landing) ? form.landing : null
+    const { data } = await httpClient.put(`${appStore.orgUrl()}/roles/${role.value.id}`, { name: form.name.trim(), description: form.description, caps: [...selected.value], landing })
     role.value = data.role
+    form.landing = data.role.landing ?? null
     selected.value = new Set(data.role.caps as CapabilityId[])
     showSuccess(t('access.ui.saved'))
   } catch (e: any) {
