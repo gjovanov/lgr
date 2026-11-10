@@ -127,6 +127,9 @@ const stockMovementSchema = new Schema<IStockMovement>(
 stockMovementSchema.plugin(tenantPlugin)
 stockMovementSchema.index({ orgId: 1, movementNumber: 1 }, { unique: true })
 stockMovementSchema.index({ orgId: 1, type: 1, date: -1 })
+// FR-28.2: the receipts a supplier delivered (`product-suppliers.service.ts`). The reverse question, which
+// suppliers delivered an article, is served by the index below.
+stockMovementSchema.index({ orgId: 1, type: 1, contactId: 1 })
 stockMovementSchema.index({ orgId: 1, 'lines.productId': 1, date: -1 })
 /**
  * FR-11.10 (#21): "sales without a stock document" `$lookup`s movements BY invoiceId.

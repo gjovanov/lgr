@@ -1,6 +1,7 @@
 import { mongoose } from 'db/connection'
 import { Order, InternalOrder, Invoice, Reservation, StockLevel, Contact, Product, Warehouse } from 'db/models'
 import { getNextNumber } from './sequence.service.js'
+import { getDefaultSuppliers } from './product-suppliers.service.js'
 import { sequenceDefFor, resolveSequencePrefix } from './sequence-registry.js'
 import {
   reservationReleasable,
@@ -794,7 +795,11 @@ export interface LineSuggestions {
     releasable: number
   }>
   preemptableTotal: number
-  supplierHint?: { supplierId: string; orderNumber: string }
+  /**
+   * FR-28.11: the supplier to offer for the article — the one rule of `getDefaultSuppliers`. `source` says what
+   * named it; `orderNumber` is there when it was a supplier order (today's hint, now the last fallback).
+   */
+  supplierHint?: { supplierId: string; orderNumber?: string; source?: 'purchase' | 'order' }
 }
 
 /** Cover suggestions for every short line: free stock → unreserved incoming → preemptable RES. */
@@ -808,6 +813,8 @@ export async function getInternalOrderSuggestions(orgId: string, internalOrderId
     { internalOrderLineId: 1, quantity: 1, status: 1 },
   ).lean().exec()
   const reservedByLine = sumBy(existing, 'internalOrderLineId')
+  // FR-28.11: the supplier to offer for every article of the order, in one go: a few queries however many lines.
+  const defaultSuppliers = await getDefaultSuppliers(orgId, (ordi.lines || []).map((l: any) => idStr(l.productId)))
 
   const out: LineSuggestions[] = []
   for (const line of ordi.lines || []) {
@@ -906,17 +913,11 @@ export async function getInternalOrderSuggestions(orgId: string, internalOrderId
         releasable,
       }))
 
-    // Supplier hint: the most recent external order carrying this product.
+    // Supplier hint (FR-28.11): who the article was last bought from, else the newest supplier order that
+    // carried it. One rule for every caller (`getDefaultSuppliers`).
     let supplierHint: LineSuggestions['supplierHint']
-    const lastOrder: any = await Order.findOne(
-      { orgId, 'supplierGroups.lines.productId': productId } as any,
-      { orderNumber: 1, supplierGroups: 1 },
-    ).sort({ createdAt: -1 }).lean().exec()
-    if (lastOrder) {
-      const g = (lastOrder.supplierGroups || []).find((gr: any) =>
-        (gr.lines || []).some((l: any) => String(l.productId) === productId))
-      if (g) supplierHint = { supplierId: String(g.supplierId), orderNumber: lastOrder.orderNumber }
-    }
+    const hint = defaultSuppliers.get(productId)
+    if (hint) supplierHint = { supplierId: hint.supplierId, source: hint.basis, ...(hint.orderNumber ? { orderNumber: hint.orderNumber } : {}) }
 
     out.push({
       lineId: String(line._id),
