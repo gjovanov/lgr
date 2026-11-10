@@ -9,12 +9,13 @@ import {
 import { productController } from 'warehouse-api/src/controllers/product.controller'
 import { productSupplierController, productSupplierRecordController } from 'warehouse-api/src/controllers/product-supplier.controller'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
-import { AuditLog, InternalOrder, Order, ProductSupplier } from 'db/models'
+import { AuditLog, Contact, InternalOrder, Order, ProductSupplier } from 'db/models'
 import { mongoose } from 'db/connection'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { accessRefusal } from 'services/biz/access/evaluate'
 import { getInternalOrderSuggestions } from 'services/biz/reservation-ops.service'
+import { previewOrderFromProducts } from 'services/biz/orders-from-products.service'
 import {
   findProductIdsBySuppliers, findProductIdsWithoutSupplier, getDefaultSuppliers, getSupplierFacts,
 } from 'services/biz/product-suppliers.service'
@@ -495,5 +496,196 @@ describe('the default supplier of an article (FR-28.11): the recorded preference
     } as any)
     const [line] = await getInternalOrderSuggestions(w.orgId, String(ordi._id))
     expect(line.supplierHint).toEqual({ supplierId: String(w.alfa._id), source: 'recorded' })
+  })
+})
+
+describe('the order preview offers a recorded supplier, and agrees with the customer-order hint (FR-28.11)', () => {
+  const rowOf = async (w: Awaited<ReturnType<typeof world>>, product: any, kind: 'supplier' | 'customer' = 'supplier') => {
+    const caller = { id: String(w.user._id), orgId: w.orgId, role: 'admin', permissions: DEFAULT_ROLE_PERMISSIONS.admin, ownRecordsModules: [] } as any
+    const res = await previewOrderFromProducts(w.orgId, caller, { productIds: [String(product._id)], kind })
+    return res.rows[0]
+  }
+  const hintOf = async (w: Awaited<ReturnType<typeof world>>, product: any) => {
+    const ordi: any = await InternalOrder.create({
+      orgId: w.org._id, orderNumber: `ORDI-2026-${String(Math.floor(Math.random() * 99999)).padStart(5, '0')}`, status: 'confirmed',
+      statusHistory: [{ status: 'confirmed', changedAt: new Date() }], contactId: w.client._id, issueDate: new Date(),
+      requestedDeliveryDate: new Date(Date.now() + 7 * 864e5), priority: 'normal', currency: 'EUR', exchangeRate: 1,
+      lines: [{ productId: product._id, description: 'line', quantity: 5, unit: 'pcs' }], createdBy: w.user._id,
+    } as any)
+    return (await getInternalOrderSuggestions(w.orgId, String(ordi._id)))[0].supplierHint
+  }
+
+  it('a preferred supplier no document names is the default and heads the choices; the dialog and the hint name the same one', async () => {
+    const w = await world()
+    await w.put(w.bolt, w.alfa, { preferred: true })
+    const row = await rowOf(w, w.bolt)
+    expect(row.supplierId).toBe(String(w.alfa._id))
+    expect(row.suppliers.map((s: any) => s.name)).toEqual(['Alfa Fasteners'])
+    expect((await hintOf(w, w.bolt))?.supplierId).toBe(row.supplierId)
+  })
+
+  it('a recorded supplier that is not preferred is offered too, after the ones the documents name, and changes no default', async () => {
+    const w = await world()
+    await w.bill(w.beta, [[w.bolt, 10, 0.12]])
+    await w.put(w.bolt, w.gamma, { supplierSku: 'GS-1' })
+    const row = await rowOf(w, w.bolt)
+    expect(row.suppliers.map((s: any) => s.name)).toEqual(['Beta Tools', 'Gamma Supply'])
+    expect(row.supplierId).toBe(String(w.beta._id))
+    expect((await hintOf(w, w.bolt))).toMatchObject({ supplierId: String(w.beta._id), source: 'purchase' })
+  })
+
+  it('a preference for a supplier the documents also name moves it to the head, and the default is that supplier', async () => {
+    const w = await world()
+    await w.bill(w.alfa, [[w.bolt, 10, 0.1]], { issueDate: day('2026-04-01') })
+    await w.bill(w.beta, [[w.bolt, 10, 0.12]], { issueDate: day('2026-05-01') })
+    expect((await rowOf(w, w.bolt)).suppliers.map((s: any) => s.name)).toEqual(['Beta Tools', 'Alfa Fasteners'])
+    await w.put(w.bolt, w.alfa, { preferred: true })
+    const row = await rowOf(w, w.bolt)
+    expect(row.suppliers.map((s: any) => s.name)).toEqual(['Alfa Fasteners', 'Beta Tools'])
+    expect(row.supplierId).toBe(String(w.alfa._id))
+    expect((await hintOf(w, w.bolt))).toMatchObject({ supplierId: String(w.alfa._id), source: 'recorded' })
+  })
+
+  it('offers only what an order may be placed with: a recorded supplier since deactivated or retyped is not a choice', async () => {
+    const w = await world()
+    await w.put(w.bolt, w.alfa, { preferred: true })
+    await w.put(w.bolt, w.gamma, {})
+    await Contact.updateOne({ _id: w.alfa._id }, { $set: { isActive: false } })
+    await Contact.updateOne({ _id: w.gamma._id }, { $set: { type: 'customer' } })
+    const row = await rowOf(w, w.bolt)
+    expect(row.suppliers).toEqual([])
+    expect(row.supplierId).toBeUndefined()
+    expect(await hintOf(w, w.bolt)).toBeUndefined()
+  })
+
+  it('a customer order lists no supplier at all, recorded or not', async () => {
+    const w = await world()
+    await w.put(w.bolt, w.alfa, { preferred: true })
+    const row = await rowOf(w, w.bolt, 'customer')
+    expect(row.suppliers).toBeUndefined()
+    expect(row.supplierId).toBeUndefined()
+  })
+})
+
+describe('the Products list\'s Suppliers column names a recorded supplier too (FR-28.9)', () => {
+  const byProducts = async (w: Awaited<ReturnType<typeof world>>, products: any[], tok?: string) =>
+    w.http('GET', `/product-supplier/by-products?productIds=${products.map((p) => p._id).join(',')}`, tok ?? await w.token())
+
+  it('an article found by the Supplier filter only through a recorded link is not a dash: the supplier is listed, with no purchase', async () => {
+    const w = await world()
+    await w.put(w.bolt, w.alfa, { preferred: true, supplierSku: 'AF-1' })
+    const res = await byProducts(w, [w.bolt, w.nut])
+    expect(res.status).toBe(200)
+    expect(res.json.suppliers[String(w.bolt._id)]).toEqual([{ supplierId: String(w.alfa._id), supplierName: 'Alfa Fasteners', quantity: 0, documents: 0 }])
+    expect(res.json.counts[String(w.bolt._id)]).toBe(1)
+    // An article with neither is still answered, with nobody: that is the dash (an absent key would read "not loaded yet").
+    expect(res.json.suppliers[String(w.nut._id)]).toEqual([])
+    expect(res.json.counts[String(w.nut._id)]).toBe(0)
+  })
+
+  it('the documents\' suppliers come first, most recent first; a supplier both name is listed once, with its facts', async () => {
+    const w = await world()
+    await w.bill(w.alfa, [[w.bolt, 10, 0.1]], { issueDate: day('2026-04-01') })
+    await w.bill(w.beta, [[w.bolt, 10, 0.12]], { issueDate: day('2026-05-01') })
+    await w.put(w.bolt, w.alfa, { preferred: true })
+    await w.put(w.bolt, w.gamma, {})
+    const list = (await byProducts(w, [w.bolt])).json.suppliers[String(w.bolt._id)]
+    expect(list.map((s: any) => s.supplierName)).toEqual(['Beta Tools', 'Alfa Fasteners', 'Gamma Supply'])
+    expect(list[0].documents).toBe(1)
+    expect(list[1].documents).toBe(1)
+    expect(list[2]).toEqual({ supplierId: String(w.gamma._id), supplierName: 'Gamma Supply', quantity: 0, documents: 0 })
+  })
+
+  it('counts every supplier, but lists five at most', async () => {
+    const w = await world()
+    for (let i = 0; i < 7; i++) {
+      const s = await createTestContact(w.org._id, { type: 'supplier', companyName: `Recorded Supplier ${i}` } as any)
+      await w.put(w.bolt, s, {})
+    }
+    const res = await byProducts(w, [w.bolt])
+    expect(res.json.suppliers[String(w.bolt._id)]).toHaveLength(5)
+    expect(res.json.counts[String(w.bolt._id)]).toBe(7)
+  })
+
+  it('is still nothing at all for a caller who reads no bills', async () => {
+    const w = await world()
+    await w.put(w.bolt, w.alfa, { preferred: true })
+    const res = await byProducts(w, [w.bolt], await w.token({ role: 'member', permissions: ['inventory.read'] }))
+    expect(res.json).toEqual({})
+    expect(res.text).not.toContain('Alfa')
+  })
+})
+
+describe('searching by the supplier\'s code (FR-28.10)', () => {
+  const find = async (w: Awaited<ReturnType<typeof world>>, search: string, tok?: string) => {
+    const res = await w.http('GET', `/product?search=${encodeURIComponent(search)}`, tok ?? await w.token())
+    expect(res.status).toBe(200)
+    return (res.json.products as any[]).map((p) => p.sku).sort()
+  }
+
+  it('finds the article by a code a person recorded, in any case', async () => {
+    const w = await world()
+    await w.put(w.bolt, w.alfa, { supplierSku: 'AF-8.8-M8X40' })
+    expect(await find(w, 'AF-8.8-M8X40')).toEqual(['PRD-0001'])
+    expect(await find(w, 'af-8.8-m8x40')).toEqual(['PRD-0001'])
+    // A part of the code is a term like any other.
+    expect(await find(w, 'm8x40')).toEqual(['PRD-0001'])
+    expect(await find(w, 'AF-9.9')).toEqual([])
+  })
+
+  it('is an AND of the keywords: each may match the article\'s own fields or the code', async () => {
+    const w = await world()
+    await w.put(w.bolt, w.alfa, { supplierSku: 'AF-12' })
+    await w.put(w.nut, w.alfa, { supplierSku: 'AF-13' })
+    // "hex" is in both names; the code tells them apart.
+    expect(await find(w, 'hex AF-12')).toEqual(['PRD-0001'])
+    expect(await find(w, 'hex AF-13')).toEqual(['PRD-0002'])
+    expect(await find(w, 'hex AF')).toEqual(['PRD-0001', 'PRD-0002'])
+    // The name of a bolt and the code of a nut are two different articles: nothing is both.
+    expect(await find(w, 'bolt AF-13')).toEqual([])
+  })
+
+  it('finds a Cyrillic code, in either case, and a look-alike Latin letter counts as the Cyrillic one', async () => {
+    const w = await world()
+    await w.put(w.bolt, w.alfa, { supplierSku: 'КВ-77' })
+    expect(await find(w, 'КВ-77')).toEqual(['PRD-0001'])
+    expect(await find(w, 'кв-77')).toEqual(['PRD-0001'])
+    // A Latin K and B in place of the Cyrillic К and В, which look the same.
+    expect(await find(w, 'KB-77')).toEqual(['PRD-0001'])
+    // A letter that only resembles another in some fonts is no match: Б is not B.
+    expect(await find(w, 'КБ-77')).toEqual([])
+  })
+
+  it('does not search a supplier\'s NAME: the Supplier filter does that', async () => {
+    const w = await world()
+    await w.put(w.bolt, w.alfa, { supplierSku: 'AF-1' })
+    expect(await find(w, 'Alfa')).toEqual([])
+    expect(await find(w, 'Fasteners')).toEqual([])
+  })
+
+  it('is for a caller who may read bills: anyone else gets the article search and nothing of the code, and is not refused', async () => {
+    const w = await world()
+    await w.put(w.bolt, w.alfa, { supplierSku: 'AF-8.8-M8X40' })
+    const reader = await w.token({ role: 'member', permissions: ['inventory.read'] })
+    expect(await find(w, 'AF-8.8-M8X40', reader)).toEqual([])
+    expect(await find(w, 'Hex bolt', reader)).toEqual(['PRD-0001'])
+  })
+
+  it('stays inside the organization: another organization\'s recorded code is no hit', async () => {
+    const w = await world()
+    const other = await createTestOrg()
+    const otherSupplier = await createTestContact(other._id, { type: 'supplier', companyName: 'Elsewhere Supply' } as any)
+    const otherProduct = await createTestProduct(other._id, { name: 'Other bolt', sku: 'OTH-1' } as any)
+    await ProductSupplier.create({ orgId: other._id, productId: otherProduct._id, supplierId: otherSupplier._id, preferred: false, supplierSku: 'SHARED-CODE', supplierSkuLower: 'shared-code' } as any)
+    expect(await find(w, 'SHARED-CODE')).toEqual([])
+  })
+
+  it('narrows with the other filters, as any search does', async () => {
+    const w = await world()
+    await w.bill(w.alfa, [[w.bolt, 10, 0.1]])
+    await w.put(w.bolt, w.alfa, { supplierSku: 'AF-1' })
+    await w.put(w.nut, w.beta, { supplierSku: 'AF-2' })
+    const res = await w.http('GET', `/product?search=AF&supplierId=${w.alfa._id}`, await w.token())
+    expect((res.json.products as any[]).map((p) => p.sku)).toEqual(['PRD-0001'])
   })
 })

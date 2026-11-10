@@ -9,6 +9,7 @@ import { getNextInternalOrderNumber, getNextOrderNumber } from './order-numberin
 import { productIdsMatching } from './product-list-filter.js'
 import { resolveProductListFilter, type ProductListQuery } from './product-list-query.js'
 import { getProductsSupplyTotals } from './product-supply.service.js'
+import { getRecordedSupplierNames } from './recorded-suppliers.service.js'
 import {
   SUPPLIER_FACTS_PER_PRODUCT,
   canSeeSupplierFacts,
@@ -175,11 +176,15 @@ export async function previewOrderFromProducts(orgId: string, user: AccessCaller
   // for a caller who may not see it, and neither is looked up for a customer order.
   const wantsSuppliers = kind === 'supplier' && canSeeSupplierFacts(user)
   const wantsCosts = kind === 'supplier' && canSeeSupplierPrices(user)
-  const [facts, defaults] = wantsSuppliers
-    ? await Promise.all([getSupplierFacts(orgId, present, { includePrices: wantsCosts }), getDefaultSuppliers(orgId, present)])
-    : [{} as Awaited<ReturnType<typeof getSupplierFacts>>, new Map()]
+  const [facts, defaults, recorded] = wantsSuppliers
+    ? await Promise.all([getSupplierFacts(orgId, present, { includePrices: wantsCosts }), getDefaultSuppliers(orgId, present), getRecordedSupplierNames(orgId, present)])
+    : [{} as Awaited<ReturnType<typeof getSupplierFacts>>, new Map(), new Map<string, Array<{ supplierId: string }>>()]
   const suppliers = wantsSuppliers
-    ? await activeSuppliers(orgId, [...Object.values(facts).flatMap((l) => l.map((f) => f.supplierId)), ...[...defaults.values()].map((d) => d.supplierId)])
+    ? await activeSuppliers(orgId, [
+      ...Object.values(facts).flatMap((l) => l.map((f) => f.supplierId)),
+      ...[...defaults.values()].map((d) => d.supplierId),
+      ...[...recorded.values()].flatMap((l) => l.map((r) => r.supplierId)),
+    ])
     : new Map<string, string>()
 
   const rows: PreviewRow[] = []
@@ -213,10 +218,17 @@ export async function previewOrderFromProducts(orgId: string, user: AccessCaller
           ...(wantsCosts && f.lastUnitPrice != null ? { lastUnitPrice: f.lastUnitPrice, currency: f.currency } : {}),
         })
       }
+      // A supplier a person recorded for the article (FR-28.9) is offered too, after the ones the documents name:
+      // the default below is chosen by the one rule (`getDefaultSuppliers`), this only completes the choices.
+      for (const r of recorded.get(id) ?? []) {
+        if (suppliers.has(r.supplierId) && !named.some((s) => s.supplierId === r.supplierId)) named.push({ supplierId: r.supplierId, name: suppliers.get(r.supplierId)! })
+      }
       const dflt = defaults.get(id)
-      // A supplier named only by an order (no purchase yet) has no fact: it still heads the list.
-      if (dflt && suppliers.has(dflt.supplierId) && !named.some((s) => s.supplierId === dflt.supplierId)) {
-        named.unshift({ supplierId: dflt.supplierId, name: suppliers.get(dflt.supplierId)! })
+      // A supplier named only by an order (no purchase yet) or by a recorded preference has no fact: it still heads the list.
+      if (dflt && suppliers.has(dflt.supplierId)) {
+        const at = named.findIndex((s) => s.supplierId === dflt.supplierId)
+        if (at < 0) named.unshift({ supplierId: dflt.supplierId, name: suppliers.get(dflt.supplierId)! })
+        else if (at > 0 && dflt.basis === 'recorded') named.unshift(...named.splice(at, 1))
       }
       row.suppliers = named
       if (dflt && suppliers.has(dflt.supplierId)) row.supplierId = dflt.supplierId

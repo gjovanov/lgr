@@ -269,6 +269,23 @@ test('clearing what is recorded leaves a supplier the documents name listed with
   expect(await again.json()).toEqual({ deleted: false })
 })
 
+test('the Products list names a recorded supplier too: an article the Supplier filter finds through a recorded link is not a dash', async ({ page }) => {
+  expect((await apiPut(`/warehouse/product/${ids.product}/suppliers/${ids.suppliers.C}`, { preferred: false })).status).toBe(200)
+  await loginForApp(page)
+  // Found by the Supplier filter through the recorded link alone (no document names C).
+  await page.goto(`/inventory/products?q=${sku}&supplier=${ids.suppliers.C}`)
+  const cell = page.locator('.v-data-table tbody tr').filter({ hasText: sku }).getByTestId('product-suppliers')
+  await expect(cell).toContainText(nameOf('C'), { timeout: 15000 })
+  await expect(cell).not.toHaveText('—')
+  // The documents' supplier is listed first, and the tooltip says the recorded one has no purchase.
+  await page.goto(`/inventory/products?q=${sku}`)
+  await expect(cell).toContainText(nameOf('A'), { timeout: 15000 })
+  await expect(cell).toContainText(nameOf('C'))
+  await cell.hover()
+  await expect(page.getByRole('tooltip')).toContainText('Recorded, no documents')
+  await apiDelete(admin, `/warehouse/product/${ids.product}/suppliers/${ids.suppliers.C}`)
+})
+
 test('a recorded supplier that is no longer an active one is listed with a warning', async ({ page }) => {
   expect((await apiPut(`/warehouse/product/${ids.product}/suppliers/${ids.suppliers.D}`, { preferred: false, supplierSku: 'D-9' })).status).toBe(200)
   expect((await apiDelete(admin, `/invoicing/contact/${ids.suppliers.D}`)).ok).toBe(true)

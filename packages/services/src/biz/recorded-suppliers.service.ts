@@ -264,6 +264,35 @@ export async function getRecordedPreferred(orgId: string, productIds: string[]):
   return out
 }
 
+export interface RecordedSupplierName {
+  supplierId: string
+  supplierName: string
+  preferred: boolean
+}
+
+/**
+ * The recorded suppliers of each of these articles, named, in any state of the contact (the Products list's Suppliers
+ * column names who the article is bought from, deactivated or not, as the facts do; the order preview narrows them to
+ * the ones an order may be placed with). The preferred one first, then by name. Articles with none are not in the map.
+ */
+export async function getRecordedSupplierNames(orgId: string, productIds: string[]): Promise<Map<string, RecordedSupplierName[]>> {
+  const pids = [...new Set(productIds.filter(wellFormed))].map(oid)
+  const out = new Map<string, RecordedSupplierName[]>()
+  if (!pids.length) return out
+  const rows: any[] = await ProductSupplier.find({ orgId: oid(orgId), productId: { $in: pids } } as any, { productId: 1, supplierId: 1, preferred: 1 }).lean().exec()
+  if (!rows.length) return out
+  const contacts = await contactsById(orgId, rows.map((r) => idStr(r.supplierId)))
+  for (const r of rows) {
+    const list = out.get(idStr(r.productId)) ?? []
+    list.push({ supplierId: idStr(r.supplierId), supplierName: nameOfContact(contacts.get(idStr(r.supplierId))), preferred: !!r.preferred })
+    out.set(idStr(r.productId), list)
+  }
+  for (const list of out.values()) {
+    list.sort((a, b) => Number(b.preferred) - Number(a.preferred) || a.supplierName.localeCompare(b.supplierName) || a.supplierId.localeCompare(b.supplierId))
+  }
+  return out
+}
+
 /**
  * FR-28.10: the articles whose RECORDED supplier code matches a keyword of the search, per keyword (the search is an
  * AND of its keywords, each of which may match any field, this one included). Runs on the lowered mirror with the
