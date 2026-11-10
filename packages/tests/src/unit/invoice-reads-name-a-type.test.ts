@@ -34,6 +34,7 @@ const SAYS_SO: Record<string, string> = {
   'services/src/biz/move/fenced-export.service.ts find { orgId, invoiceNumber: { $in: numbers } }': 'a number taken is taken, whoever took it',
   'services/src/biz/number-clash.service.ts find { orgId: org, \'numberClash.withId\': { $exists: true } }': 'flagged documents, listed for a person',
   'services/src/biz/product-ledger.service.ts aggregate pipeline': 'its $match names the sale types',
+  'services/src/biz/product-suppliers.service.ts distinct \'lines.productId\'': 'its filter is billEvidenceFilter, which names type: invoice (incoming, received) in the second argument',
   'services/src/biz/reports/sales-history.report.ts find docMatch': 'names its types where it is built',
   'services/src/biz/reservation-ops.service.ts countDocuments { orgId, status: { $nin: [\'voided\', \'cancelled\'] }, $or: [{ internalOrderId }, { \'lines.orderRef.internalOr': 'an order link, which a receipt never carries',
   'services/src/biz/reservation.service.ts find { orgId, orderId, direction: \'incoming\', status: { $nin: LIVE_STATUSES_EXCLUDED } } as any': 'incoming: a receipt is outgoing',

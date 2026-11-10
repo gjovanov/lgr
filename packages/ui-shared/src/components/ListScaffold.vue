@@ -65,7 +65,11 @@
             @reset="resetCols"
           />
 
+          <!-- FR-28.13: what a list does with its ticked rows (a bar, a banner). Only a selectable list has the slot. -->
+          <slot v-if="selectable" name="bulk-bar" :selected="selected" />
+
           <v-data-table-server
+            v-bind="selectable ? { showSelect: true, modelValue: selected } : {}"
             :headers="effectiveHeaders"
             :items="items"
             :items-length="pagination.total"
@@ -77,6 +81,7 @@
             :density="density"
             hover
             @update:options="$emit('update:options', $event)"
+            @update:model-value="onSelectedChange"
           >
             <!-- First-load skeleton; thin progress bar on subsequent page loads -->
             <template #loading>
@@ -161,6 +166,13 @@ const props = withDefaults(defineProps<{
    * (FR-21's cash-register journal) names itself, so both remember the same columns.
    */
   gridId?: string
+  /**
+   * FR-28.13: a tick column and a header checkbox for the page. `v-model:selected` holds the IDS of the ticked rows
+   * (`itemValue`), never the rows, so the selection holds across pages, sorts and filters. A list that does not set
+   * `selectable` is unchanged.
+   */
+  selectable?: boolean
+  selected?: string[]
 }>(), {
   view: 'list',
   itemValue: '_id',
@@ -177,10 +189,15 @@ const props = withDefaults(defineProps<{
   ],
 })
 
-defineEmits<{
+const emit = defineEmits<{
   'update:options': [opts: any]
   'kpi-click': [kpi: StatCardDef]
+  'update:selected': [ids: string[]]
 }>()
+
+function onSelectedChange(ids: unknown) {
+  if (props.selectable) emit('update:selected', (Array.isArray(ids) ? ids : []).map(String))
+}
 
 // ── per-user column visibility + order (every ListScaffold grid gets this) ──
 const route = useRoute()
@@ -199,7 +216,7 @@ const {
 
 const slots = useSlots()
 const RESERVED = new Set([
-  'actions', 'kpis', 'filters', 'view', 'empty-actions', 'results-actions', 'no-data', 'loading', 'default',
+  'actions', 'kpis', 'filters', 'view', 'empty-actions', 'results-actions', 'no-data', 'loading', 'default', 'bulk-bar',
 ])
 const forwardedSlots = computed(() => Object.keys(slots).filter((n) => !RESERVED.has(n)))
 

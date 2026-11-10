@@ -5,6 +5,7 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 import { getProductsSupplyTotals } from 'services/biz/product-supply.service'
 import { grantOf } from 'services/biz/access/evaluate'
 import { redactStockCost } from 'config/access'
+import { productIdsPassingStockFilter } from 'services/biz/product-stock-filter'
 
 export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/stock-level' })
   .use(AppAuthService)
@@ -31,6 +32,17 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
     if (needProductLookup) {
       const products = await r.products.findMany(productFilter)
       filter.productId = { $in: products.map(p => p.id) }
+    }
+    // FR-28.5: the page's „low stock only" switch is the Products list's „below minimum" — one definition
+    // (`product-stock-filter.ts`), where the page sent a parameter nothing read. With a warehouse chosen it is
+    // that warehouse's quantity against the minimum; without, the article's total.
+    if (query.lowStockOnly === 'true' || query.lowStockOnly === '1') {
+      const low = await productIdsPassingStockFilter(r.products, orgId, { orgId } as any, {
+        belowMin: true,
+        warehouseId: query.warehouseId ? String(query.warehouseId) : undefined,
+      })
+      const named: string[] | null = filter.productId?.$in ? filter.productId.$in.map(String) : filter.productId ? [String(filter.productId)] : null
+      filter.productId = { $in: (named ?? [...low]).filter((id) => low.has(id)) }
     }
 
     const page = Math.max(0, Number(query.page) || 0)

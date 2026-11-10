@@ -51,11 +51,14 @@
                 <ProductSearch
                   :org-url="appStore.orgUrl()"
                   :initial-product="item.productId ? { _id: item.productId, name: productNames[item.productId] || '' } : null"
+                  price-field="sellingPrice"
+                  :base-currency="form.currency"
                   class="flex-grow-1"
                   @product-selected="onItemProduct(idx, $event)"
                   @product-cleared="item.productId = ''"
+                  @details="openPicker(idx, $event)"
                 />
-                <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.browseProducts')" @click="openPicker(idx)" />
+                <ProductDetailsButton @click="openPicker(idx)" />
               </div>
             </td>
             <td><v-text-field v-model.number="item.price" type="number" step="0.01" density="compact" hide-details variant="underlined" /></td>
@@ -71,7 +74,14 @@
       <div class="text-caption text-medium-emphasis pa-2">{{ $t('common.noData') }}</div>
     </template>
 
-    <ProductPickerDialog v-model="pickerOpen" :org-url="appStore.orgUrl()" @select="onPickerSelect" />
+    <ProductPickerDialog
+      v-model="pickerOpen"
+      :org-url="appStore.orgUrl()"
+      :base-currency="form.currency"
+      price-field="sellingPrice"
+      :initial-search="pickerText"
+      @select="onPickerSelect"
+    />
   </EntityFormShell>
 </template>
 
@@ -87,6 +97,7 @@ import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import ProductSearch from 'ui-shared/components/ProductSearch'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
+import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -107,7 +118,9 @@ function onItemProduct(idx: number, p: any) {
   productNames.value[p._id] = p.name
   if (!form.value.items[idx].price) form.value.items[idx].price = p.sellingPrice || 0
 }
-function openPicker(idx: number) { pickerIdx.value = idx; pickerOpen.value = true }
+/** FR-28.25: what the user had typed in the field when they asked for Details (F4, "Show all N results"). */
+const pickerText = ref('')
+function openPicker(idx: number, text = '') { pickerIdx.value = idx; pickerText.value = text; pickerOpen.value = true }
 function onPickerSelect(p: any) {
   if (pickerIdx.value < 0) return
   onItemProduct(pickerIdx.value, p)

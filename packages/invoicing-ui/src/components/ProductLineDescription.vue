@@ -5,7 +5,7 @@
        the input, so ↑/↓ only move `highlightedIndex` and the list stays open until click/Enter/Esc.
        While it's open, the shared productSearchMenuOpen flag makes the line-table grid navigation
        yield ↑/↓/Enter/Esc to us (see the menuOpen watcher). -->
-  <div ref="rootRef" class="product-line-description" style="position:relative">
+  <div ref="rootRef" class="product-line-description" data-testid="product-field" style="position:relative">
     <v-text-field
       ref="inputRef"
       :model-value="description"
@@ -36,18 +36,30 @@
           @click="selectProduct(p)"
         >
           <div class="pld-item-title">{{ p.name }}</div>
-          <div class="pld-item-sub">{{ p.sku }} &mdash; {{ fmtPrice(p) }}</div>
+          <!-- FR-28.24: SKU · unit · stock · price, the same row as every other product search. -->
+          <div class="pld-item-sub">{{ hitLine(p) }}</div>
         </div>
         <div v-if="products.length === 0" class="pld-item pld-item--empty">
           {{ $t('invoicing.noProductsFound') }}
+        </div>
+        <!-- FR-28.25: more articles match than the ten shown — the dialog has them all, with the typed text. -->
+        <div
+          v-if="showAll"
+          class="pld-item pld-item--all"
+          :class="{ 'pld-item--active': highlightedIndex === products.length }"
+          data-testid="product-show-all"
+          @mousemove="highlightedIndex = products.length"
+          @click="showAllResults"
+        >
+          {{ $t('invoicing.productHit.showAll', { n: total }) }}
         </div>
         <!-- FR-22.30: what was typed is not in the catalog — create it from the line. -->
         <div
           v-if="offerCreate"
           class="pld-item pld-item--create"
-          :class="{ 'pld-item--active': highlightedIndex === products.length }"
+          :class="{ 'pld-item--active': highlightedIndex === createIndex }"
           data-testid="product-line-create"
-          @mousemove="highlightedIndex = products.length"
+          @mousemove="highlightedIndex = createIndex"
           @click="createProduct"
         >
           {{ $t('warehouse.quickProduct.option', { name: searchText.trim() }) }}
@@ -69,10 +81,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { setProductSearchMenuOpen } from 'ui-shared/composables/useProductSearchMenu'
+import {
+  SEARCH_DEBOUNCE_MS, SEARCH_MIN_CHARS, hitPriceText, hitStockText, hitSubtitle, loadHitStock, searchProductHits, type HitStock,
+} from 'ui-shared/composables/product-hit'
 
 interface Product {
   _id: string
@@ -91,6 +106,8 @@ const props = defineProps<{
   priceField: 'sellingPrice' | 'purchasePrice'
   /** Offer „+ Нов продукт „…"" for what was typed (FR-22.30): the parent opens the dialog. */
   allowCreate?: boolean
+  /** The warehouse whose stock the hits show (the document's); none: the sum over the warehouses. */
+  stockWarehouseId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -100,10 +117,12 @@ const emit = defineEmits<{
   'product-cleared': []
   /** The user asked to create the article they typed. */
   'create-product': [name: string]
+  /** FR-28.25: F4, or "Show all N results": the parent opens the product dialog, searching for what was typed. */
+  'details': [text: string]
 }>()
 
 const appStore = useAppStore()
-const { formatCurrency } = useCurrency()
+const { t } = useI18n()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 
@@ -112,6 +131,10 @@ const inputRef = ref<any>()
 const menuOpen = ref(false)
 const highlightedIndex = ref(-1)
 const products = ref<Product[]>([])
+/** How many articles match in all: more than the hits shown means "Show all N results". */
+const total = ref(0)
+const hitStock = ref<Record<string, HitStock>>({})
+const stockLoading = ref(false)
 const loading = ref(false)
 const linkedProductName = ref('')
 const searchText = ref('')
@@ -131,8 +154,17 @@ const offerCreate = computed(() => {
   // A result called — or coded — what was typed is the article, not a new one.
   return !products.value.some((p: any) => [p.name, p.sku, p.barcode].some((n) => String(n || '').trim().toLocaleLowerCase() === q))
 })
-/** Rows the keyboard walks: the results, then the create row. */
-const rowCount = computed(() => products.value.length + (offerCreate.value ? 1 : 0))
+/** More articles match than the ten shown: the last hit opens the dialog with all of them (FR-28.25). */
+const showAll = computed(() => products.value.length > 0 && total.value > products.value.length)
+/** Where the create row sits among the rows the keyboard walks: the results, then "show all", then create. */
+const createIndex = computed(() => products.value.length + (showAll.value ? 1 : 0))
+/** Rows the keyboard walks: the results, "show all", then the create row. */
+const rowCount = computed(() => products.value.length + (showAll.value ? 1 : 0) + (offerCreate.value ? 1 : 0))
+
+function showAllResults() {
+  menuOpen.value = false
+  emit('details', searchText.value)
+}
 
 function createProduct() {
   const name = searchText.value.trim()
@@ -148,17 +180,34 @@ function positionOverlay() {
   const el = inputRef.value?.$el as HTMLElement | undefined
   if (!el) return
   const r = el.getBoundingClientRect()
+  // The list lives in the room it has: under the field when there is room for a useful list, above it when a
+  // document's lines have run to the bottom of the screen (there is more room there). Either way it is never
+  // taller than that room, so its own scroll reaches the last row — "Show all N results" is the last row, and a
+  // list that ran past the bottom of the window hid it (FR-28.25).
+  const margin = 8
+  const below = window.innerHeight - r.bottom - 2 - margin
+  const above = r.top - 2 - margin
+  const placeAbove = below < 160 && above > below
+  const room = Math.max(96, Math.min(320, placeAbove ? above : below))
   overlayStyle.value = {
     position: 'fixed',
-    top: `${r.bottom + 2}px`,
+    ...(placeAbove ? { bottom: `${window.innerHeight - r.top + 2}px` } : { top: `${r.bottom + 2}px` }),
     left: `${r.left}px`,
     width: `${Math.max(r.width, 260)}px`,
+    maxHeight: `${room}px`,
     zIndex: '2500',
   }
 }
 
-function fmtPrice(p: Product) {
-  return formatCurrency(p[props.priceField], p.currency || baseCurrency.value, localeCode.value)
+const fmtQty = (n: number) => new Intl.NumberFormat(localeCode.value, { maximumFractionDigits: 3 }).format(n || 0)
+
+/** FR-28.24: the hit's second line — SKU · unit · stock · price. The stock fills in when its call has answered. */
+function hitLine(p: Product): string {
+  const known = hitStock.value[p._id]
+  const stock = !known && stockLoading.value
+    ? '…'
+    : hitStockText(known, { fmtQty, reservedLabel: (n) => t('invoicing.productHit.reserved', { n }), named: !!props.stockWarehouseId })
+  return hitSubtitle({ sku: p.sku, unit: p.unit, stock, price: hitPriceText(p, props.priceField, baseCurrency.value, localeCode.value) })
 }
 
 // Plain input event → a request every time. ≥2 chars triggers the debounced server search.
@@ -166,12 +215,13 @@ function onInput(val: string) {
   searchText.value = val ?? ''
   emit('update:description', searchText.value)
   if (debounceTimer) clearTimeout(debounceTimer)
-  if (searchText.value.length < 2) {
+  if (searchText.value.length < SEARCH_MIN_CHARS) {
     products.value = []
+    total.value = 0
     menuOpen.value = false
     return
   }
-  debounceTimer = setTimeout(() => fetchProducts(searchText.value), 300)
+  debounceTimer = setTimeout(() => fetchProducts(searchText.value), SEARCH_DEBOUNCE_MS)
 }
 
 async function fetchProducts(query: string) {
@@ -179,15 +229,28 @@ async function fetchProducts(query: string) {
   try {
     const orgId = appStore.currentOrg?.id
     if (!orgId) return
-    const { data } = await httpClient.get(`/org/${orgId}/warehouse/product`, { params: { search: query, size: 10 } })
-    products.value = data.products || []
+    const found = await searchProductHits(`/org/${orgId}`, query)
+    products.value = found.products
+    total.value = found.total
     answeredFor.value = query.trim()
+    void loadStockOfHits(`/org/${orgId}`, query.trim())
     highlightedIndex.value = products.value.length || props.allowCreate ? 0 : -1
     menuOpen.value = products.value.length > 0 || (!!props.allowCreate && query.trim().length >= 2)
     if (menuOpen.value) nextTick(positionOverlay)
   } catch { /* */ } finally {
     loading.value = false
   }
+}
+
+/** The stock of the hits just shown: a second, small call. A newer search leaves an older answer unused. */
+let stockSeq = 0
+async function loadStockOfHits(orgUrl: string, forQuery: string) {
+  const mine = ++stockSeq
+  stockLoading.value = true
+  const stock = await loadHitStock(orgUrl, products.value.map((p) => p._id), props.stockWarehouseId)
+  if (mine !== stockSeq || answeredFor.value !== forQuery) return
+  hitStock.value = { ...hitStock.value, ...stock }
+  stockLoading.value = false
 }
 
 function onFocus() {
@@ -211,6 +274,14 @@ function scrollHighlightedIntoView() {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // FR-28.25: F4 is "Details" on every product field.
+  if (e.key === 'F4') {
+    e.preventDefault()
+    e.stopPropagation()
+    menuOpen.value = false
+    emit('details', searchText.value)
+    return
+  }
   if (e.key === 'ArrowDown') {
     e.preventDefault()
     e.stopPropagation()
@@ -228,7 +299,8 @@ function onKeydown(e: KeyboardEvent) {
     if (!menuOpen.value || !rowCount.value) return
     e.preventDefault()
     e.stopPropagation()
-    if (offerCreate.value && highlightedIndex.value === products.value.length) { createProduct(); return }
+    if (showAll.value && highlightedIndex.value === products.value.length) { showAllResults(); return }
+    if (offerCreate.value && highlightedIndex.value === createIndex.value) { createProduct(); return }
     const p = products.value[highlightedIndex.value]
     if (p) selectProduct(p)
   } else if (e.key === 'Escape') {
@@ -322,6 +394,10 @@ onBeforeUnmount(() => {
 }
 .pld-item--empty:hover {
   background: transparent;
+}
+.pld-item--all {
+  color: rgb(var(--v-theme-primary));
+  border-top: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
 }
 .pld-item--create {
   color: rgb(var(--v-theme-primary));

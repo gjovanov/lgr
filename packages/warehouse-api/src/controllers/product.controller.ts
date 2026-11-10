@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
-import { buildProductListFilter } from 'services/biz/product-list-filter'
+import { resolveProductListFilter } from 'services/biz/product-list-query'
 import { QuickProductError, createQuickProduct } from 'services/biz/quick-product.service'
 import { findProductsByTierPrice, tierForSortKey } from 'services/biz/product-tier-sort'
 import { findProductsByStockColumn, stockColumnForSortKey } from 'services/biz/product-stock-sort'
@@ -15,24 +15,12 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
-    // FR-22.48: the Products list asks for active or deactivated articles; without the param every
-    // caller (the pickers, the API clients) still gets both. The Movements list filters by the
-    // same rules (`buildProductListFilter`).
-    const filter = buildProductListFilter(orgId, {
-      search: query.search as string | undefined,
-      category: query.category as string | undefined,
-      type: query.type as string | undefined,
-      tags: query.tags as string | string[] | undefined,
-      isActive: query.isActive as string | undefined,
-    })
-    if (query.warehouseId) {
-      // Restrict to products that currently hold stock in the selected warehouse.
-      const stock = await r.stockLevels.findMany({ orgId, warehouseId: query.warehouseId, quantity: { $gt: 0 } } as any)
-      filter.id = { $in: stock.map((s: any) => s.productId) }
-    }
-    // Several articles at once, as the bill and goods-receipt forms seed their lines
-    // (`productsForSeed`). What is not an id matches nothing.
-    if (query.ids) filter.id = { $in: String(query.ids).split(',').filter(id => /^[0-9a-f]{24}$/i.test(id)) }
+    // FR-22.48 / FR-28.3: the list's filters, resolved to one query by `resolveProductListFilter` (the same builder
+    // the order preview of FR-28.16 resolves "all that match the filter" with). A caller who may not read bills is
+    // refused the supplier filters.
+    const resolved = await resolveProductListFilter(orgId, query as Record<string, unknown>, user)
+    if (resolved.refusal) return status(resolved.refusal.statusCode, resolved.refusal.body)
+    const { filter } = resolved
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10

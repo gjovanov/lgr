@@ -16,10 +16,14 @@ import {
 } from 'services/biz/reservation.service'
 import { Order, Reservation, InternalOrder, Contact, Warehouse, Product, Invoice, Org } from 'db/models'
 import { sequenceDefFor, resolveSequencePrefix } from 'services/biz/sequence-registry'
+import { getNextOrderNumber } from 'services/biz/order-numbering'
 import {
   hasReservationChanges, saveOrderWithReservations, cancelOrderReservations, type ReservationChanges,
 } from 'services/biz/order-reservations.service'
 import { ReservationOpsError } from 'services/biz/reservation-ops.service'
+import {
+  OrdersFromProductsError, checkOrderReferences, createSupplierOrderFromProducts, previewOrderFromProducts, supplierOrderRefs,
+} from 'services/biz/orders-from-products.service'
 import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
 import { canExport } from '../lib/export-access.js'
 import { generateOrderSheetXLSX } from 'reporting/excel/order-sheet.excel'
@@ -33,15 +37,9 @@ import type { OrderSheetCtx } from 'reporting/order-sheet.i18n'
 // display-prefix overrides via the Sequences configuration page (keys whitelisted in
 // sequence-config.controller).
 
-export async function getNextOrderNumber(orgId: string, draft: boolean): Promise<string> {
-  const variant = draft ? 'draft' : 'issued'
-  const key = sequenceDefFor('order', variant)!.prefix
-  const year = new Date().getFullYear()
-  const numberFromService = await getNextNumber(orgId, key, 5, year)
-  const seqPart = numberFromService.split('-').pop()!
-  const display = await resolveSequencePrefix(orgId, 'order', variant)
-  return `${display}-${year}-${seqPart}`
-}
+// The numbering moved to `services/biz/order-numbering` (FR-28.17: the order made from the Products list allocates
+// numbers the same way); re-exported under its old name for the controllers that import it from here.
+export { getNextOrderNumber }
 
 function statusEntry(toStatus: string, fromStatus?: string, userId?: string, reason?: string) {
   return { status: toStatus, fromStatus, changedAt: new Date(), changedBy: userId, reason }
@@ -221,6 +219,37 @@ function sanitizeGroups(groups: any[]): any[] {
   }))
 }
 
+/** The answer to a refused order-from-products request, with its code and figures, or rethrow. */
+function fromProductsRefusal(status: any, e: any) {
+  if (e instanceof OrdersFromProductsError) return status(e.statusCode, { message: e.message, ...e.details })
+  throw e
+}
+
+const scalar = t.Union([t.String(), t.Number(), t.Boolean()])
+
+/** FR-28.16: the Products list's own query (the parameters of `GET /warehouse/product`), for "all that match". */
+const listFilterBody = t.Object({
+  search: t.Optional(t.String()),
+  category: t.Optional(t.String()),
+  type: t.Optional(t.String()),
+  tags: t.Optional(t.Union([t.String(), t.Array(t.String())])),
+  isActive: t.Optional(t.String()),
+  warehouseId: t.Optional(t.String()),
+  supplierId: t.Optional(t.String()),
+  noSupplier: t.Optional(scalar),
+  stockMin: t.Optional(scalar),
+  stockMax: t.Optional(scalar),
+  belowMin: t.Optional(scalar),
+  basis: t.Optional(t.String()),
+})
+
+const previewBody = t.Object({
+  productIds: t.Optional(t.Array(t.String())),
+  filter: t.Optional(listFilterBody),
+  warehouseId: t.Optional(t.String()),
+  kind: t.Optional(t.Union([t.Literal('supplier'), t.Literal('customer')])),
+})
+
 export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/orders' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
@@ -323,6 +352,8 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
 
       const invalid = validateSupplierGroups(body.supplierGroups as any[])
       if (invalid) return status(422, { message: invalid })
+      // FR-28.20: every supplier, article and warehouse is one of THIS organization (the rule of the Products list's create).
+      try { await checkOrderReferences(orgId, supplierOrderRefs(body.supplierGroups as any[])) } catch (e) { return fromProductsRefusal(status, e) }
 
       // #203: reservations staged in the form of a NEW order — saved with it, in one transaction.
       if (hasReservationChanges(body.reservationChanges as ReservationChanges)) {
@@ -391,6 +422,50 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
     },
     { isSignIn: true, body: orderBody },
   )
+  // FR-28.16: the order dialog of the Products list — one row per article with the defaults the server computes (so every
+  // client gets the same ones), "all that match the filter" resolved with the list's own filter builder. Reads only.
+  .post(
+    '/from-products/preview',
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      try {
+        return await previewOrderFromProducts(orgId, user, body as any)
+      } catch (e: any) {
+        return fromProductsRefusal(status, e)
+      }
+    },
+    { isSignIn: true, body: previewBody },
+  )
+  // FR-28.17: ONE draft supplier order from the Products list: a group per supplier, a line per article, one allocation of
+  // the whole quantity. Idempotent on `requestId` (a double click makes one order). Sends, confirms and reserves nothing.
+  .post(
+    '/from-products',
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      try {
+        const made = await createSupplierOrderFromProducts(orgId, user.id, body as any)
+        return { order: made.order, skipped: made.skipped, ...(made.replayed ? { replayed: true } : {}) }
+      } catch (e: any) {
+        return fromProductsRefusal(status, e)
+      }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        requestId: t.String({ minLength: 1, maxLength: 100 }),
+        items: t.Array(
+          t.Object({
+            productId: t.String(),
+            quantity: t.Number(),
+            supplierId: t.String(),
+            warehouseId: t.String(),
+            expectedUnitPrice: t.Optional(t.Number()),
+          }),
+        ),
+        appendToOrderId: t.Optional(t.String()),
+      }),
+    },
+  )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const order: any = await Order.findOne({ _id: id, orgId } as any).lean().exec()
@@ -411,6 +486,9 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
 
       const invalid = validateSupplierGroups(body.supplierGroups as any[])
       if (invalid) return status(422, { message: invalid })
+      // FR-28.20: what this save introduces is one of THIS organization's, and active when new. What the order already
+      // held is left alone: an article deactivated since must not lock the order out of its own notes and dates.
+      try { await checkOrderReferences(orgId, supplierOrderRefs(body.supplierGroups as any[], existing)) } catch (e) { return fromProductsRefusal(status, e) }
 
       // #203: the form's reservation changes and the order, in one transaction. The rules are
       // checked on the result, so lowering an allocation together with its reservations is one save.

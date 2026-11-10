@@ -9,29 +9,15 @@
     :back-label="$t('nav.internalOrders')"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
   >
+    <!-- FR-28.32 (D-14): the same banner as the documents'. The coverage chip stays beside the status. -->
     <template #document-header>
-      <div class="d-flex align-center justify-space-between px-4 py-3 ga-4 flex-wrap">
-        <div class="d-flex align-center ga-3">
-          <v-avatar size="36" color="primary" variant="tonal">
-            <v-icon size="20">mdi-account-clock-outline</v-icon>
-          </v-avatar>
-          <div>
-            <div class="text-overline text-medium-emphasis">{{ appStore.currentOrg?.name || '—' }}</div>
-            <div class="text-subtitle-1 font-weight-bold">{{ isEdit ? $t('invoicing.editInternalOrder') : $t('invoicing.newInternalOrder') }}</div>
-          </div>
-        </div>
-        <div class="text-end">
-          <div class="text-h6 font-weight-bold">{{ documentNumber || '—' }}</div>
-          <div class="d-flex ga-1 justify-end mt-1">
-            <v-chip size="x-small" label color="primary" variant="tonal">
-              {{ $t(`invoicing.status.${orderStatus}`) }}
-            </v-chip>
-            <v-chip v-if="isEdit" size="x-small" label variant="tonal" :color="coverageColor(coverage)">
-              {{ $t(`invoicing.coverage.${coverage}`) }}
-            </v-chip>
-          </div>
-        </div>
-      </div>
+      <DocumentBanner :number="documentNumber" :status="$t(`invoicing.status.${orderStatus}`)">
+        <template #chips>
+          <v-chip v-if="isEdit" size="x-small" label variant="tonal" :color="coverageColor(coverage)">
+            {{ $t(`invoicing.coverage.${coverage}`) }}
+          </v-chip>
+        </template>
+      </DocumentBanner>
     </template>
 
     <v-form ref="formRef" @submit.prevent="onSave">
@@ -75,130 +61,199 @@
           </v-col>
         </v-row>
 
-        <!-- Lines -->
-        <v-card variant="outlined" rounded="lg" class="mt-2">
+        <!-- Lines. FR-28.43: a panel; folded, it still says how many lines, how much is needed and how much is reserved.
+             FR-28.44: the lines are a tree of two levels, a line and the reservations that cover it, in the supplier
+             order's columns and drawn by the same component. A reservation is still made, changed and released AT ONCE,
+             each with its own dialog: nothing here is staged. What a row is and what it adds up to is the node model's
+             (`composables/order-tree/customer-order-tree.ts`); the cells say it. -->
+        <CollapsiblePanel ref="linesPanelRef" screen="internal-orders.edit" panel-id="lines" :summary="linesSummary" class="mt-2" data-testid="internal-order-lines">
+          <template #title>
+            <v-icon size="20" color="primary">mdi-format-list-bulleted</v-icon>
+            {{ $t('invoicing.lineItems') }}
+          </template>
+          <template v-if="isEdit" #actions>
+            <!-- FR-28.42: open or close every line at once. -->
+            <v-btn size="x-small" variant="text" icon="mdi-unfold-more-horizontal" :title="$t('invoicing.tree.expandAll')" :aria-label="$t('invoicing.tree.expandAll')" data-testid="tree-expand-all" @click="treeRef?.expandAll()" />
+            <v-btn size="x-small" variant="text" icon="mdi-unfold-less-horizontal" :title="$t('invoicing.tree.collapseAll')" :aria-label="$t('invoicing.tree.collapseAll')" data-testid="tree-collapse-all" @click="treeRef?.collapseAll()" />
+          </template>
           <v-card-text class="pa-2">
-            <div ref="linesRef" style="overflow-x: auto">
-              <v-table density="compact">
-                <thead>
-                  <tr>
-                    <th style="width:45%;min-width:45vw">{{ $t('common.description') }}</th>
-                    <th class="text-end" style="width: 110px">{{ $t('invoicing.qty') }}</th>
-                    <th style="width:110px;min-width:110px">{{ $t('invoicing.unit') }}</th>
-                    <th class="text-end" style="width: 130px">{{ $t('invoicing.expectedPrice') }}</th>
-                    <th v-if="isEdit" style="min-width: 180px">{{ $t('invoicing.coverage.label') }}</th>
-                    <th style="width: 40px"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <template v-for="(line, li) in form.lines" :key="line._id || li">
-                  <!-- The blank line waiting for the next article (FR-22.43) is not shown once nothing can be added. -->
-                  <tr v-if="!readonly || line.productId || line.description">
-                    <td style="min-width:160px">
-                      <div class="d-flex align-center ga-1">
-                        <ProductLineDescription
-                          :description="line.description"
-                          :product-id="line.productId"
-                          price-field="sellingPrice"
-                          class="flex-grow-1"
-                          @update:description="line.description = $event"
-                          @update:product-id="line.productId = $event"
-                          @product-selected="onProductSelected(line, $event)"
-                          @product-cleared="line.productId = undefined"
-                        />
-                        <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.browseProducts')" :aria-label="$t('invoicing.browseProducts')" @click="openProductPicker(li)" />
-                      </div>
+            <div ref="linesRef">
+              <OrderTree ref="treeRef" :nodes="shownNodes" :columns="treeColumns">
+                <template #item="{ node }">
+                  <!-- The article: the line's own search and picker, as they were. -->
+                  <div v-if="node.kind === 'line'" class="d-flex align-center ga-1 flex-grow-1" style="min-width: 0">
+                    <ProductLineDescription
+                      :description="lineOf(node).description"
+                      :product-id="lineOf(node).productId"
+                      price-field="sellingPrice"
+                      class="flex-grow-1"
+                      style="min-width: 0"
+                      :stock-warehouse-id="form.warehouseId || undefined"
+                      @update:description="lineOf(node).description = $event"
+                      @update:product-id="lineOf(node).productId = $event"
+                      @product-selected="onProductSelected(lineOf(node), $event)"
+                      @product-cleared="lineOf(node).productId = undefined"
+                      @details="openProductPicker(node.source.lineIndex!, $event)"
+                    />
+                    <ProductDetailsButton @click="openProductPicker(node.source.lineIndex!)" />
+                  </div>
+                  <!-- A reservation of the line (#203): its number, where the goods come from, and the warehouse. -->
+                  <div v-else-if="node.kind === 'reservation' && node.reservation" class="d-flex align-center flex-wrap text-body-2" style="min-width: 0; column-gap: 8px">
+                    <EntityLink
+                      :label="node.reservation.number || ''"
+                      :to="{ name: 'invoicing.reservations.detail', params: { id: String(node.reservation.resId) } }"
+                      class="text-no-wrap"
+                    />
+                    <!-- FR-28.46: the supplier order opens on the line (and the warehouse) the reservation is on. -->
+                    <v-chip
+                      size="x-small"
+                      variant="tonal"
+                      :color="node.reservation.source === 'order' ? 'info' : undefined"
+                      :to="rowOrderLink(node.reservation)"
+                    >
+                      {{ node.reservation.source === 'order' ? (orderNumbers[String(node.reservation.orderId)] || 'ORDO') : $t('invoicing.sourceStock') }}
+                    </v-chip>
+                    <span class="text-medium-emphasis">{{ warehouseName(node.reservation.warehouseId || '') }}</span>
+                  </div>
+                  <!-- Nothing reserved for the line yet. -->
+                  <span v-else class="text-caption text-medium-emphasis ps-1">{{ $t('invoicing.tree.noReservations') }}</span>
+                </template>
+
+                <template #cells="{ node, open, hidden, span }">
+                  <!-- A line with nothing reserved: one cell, with the same + Reserve as the line's own. -->
+                  <template v-if="node.kind === 'placeholder'">
+                    <td :colspan="span - 1" class="text-end">
+                      <ReserveMenu :disabled="node.actions[0]?.disabled" @pick="onReservePick(node, $event)" />
                     </td>
-                    <td>
-                      <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" style="min-width: 100px" :readonly="readonly" :data-line-qty="li" :aria-label="$t('invoicing.qty')" />
+                  </template>
+                  <template v-else>
+                    <td data-col="qty">
+                      <v-text-field
+                        v-if="node.kind === 'line'"
+                        v-model.number="lineOf(node).quantity"
+                        type="number"
+                        min="0"
+                        class="order-tree__num"
+                        density="compact"
+                        hide-details
+                        variant="underlined"
+                        :aria-label="$t('invoicing.qty')"
+                        :data-line-qty="node.id"
+                        :readonly="readonly"
+                      />
+                      <span v-else class="d-block text-end" :class="node.status === 'cancelled' ? 'text-decoration-line-through text-medium-emphasis' : ''">{{ node.figures.quantity }}</span>
                     </td>
-                    <td>
-                      <v-autocomplete v-model="line.unit" :items="uomOptions" item-title="title" item-value="value" density="compact" hide-details variant="underlined" :readonly="readonly">
+                    <td data-col="unit">
+                      <v-autocomplete
+                        v-if="node.kind === 'line'"
+                        v-model="lineOf(node).unit"
+                        :items="uomOptions"
+                        item-title="title"
+                        item-value="value"
+                        density="compact"
+                        hide-details
+                        variant="underlined"
+                        :aria-label="$t('invoicing.unit')"
+                        :readonly="readonly"
+                      >
                         <template #selection="{ item }">{{ item.raw.short }}</template>
                         <template #item="{ item, props: ip }">
                           <v-list-item v-bind="ip" :title="item.raw.short" :subtitle="item.raw.full" />
                         </template>
                       </v-autocomplete>
                     </td>
-                    <td>
-                      <v-text-field v-model.number="line.expectedUnitPrice" type="number" step="0.0001" min="0" density="compact" hide-details variant="underlined" style="min-width: 110px" :readonly="readonly" />
+                    <td data-col="price">
+                      <v-text-field
+                        v-if="node.kind === 'line'"
+                        v-model.number="lineOf(node).expectedUnitPrice"
+                        type="number"
+                        step="0.0001"
+                        min="0"
+                        class="order-tree__num"
+                        density="compact"
+                        hide-details
+                        variant="underlined"
+                        :aria-label="$t('invoicing.expectedPrice')"
+                        :readonly="readonly"
+                      />
                     </td>
-                    <td v-if="isEdit">
-                      <div v-if="line._id" class="d-flex align-center ga-1 flex-wrap">
-                        <!-- FR-22.44: a line whose cover waits on a supplier order not sent yet reads „Поръчана". -->
-                        <v-chip
+                    <template v-if="isEdit">
+                      <td class="text-end" data-col="reserved">{{ figureOf(node, node.figures.reserved) }}</td>
+                      <td class="text-end" data-col="free">{{ figureOf(node, node.figures.free) }}</td>
+                      <!-- Delivered is a column of its own while there is room; when there is not, its figure is the tooltip of Invoiced. -->
+                      <td class="text-end" data-col="invoiced" :title="hidden.has('dispatched') ? invoicedAndDelivered(node.figures) : undefined">{{ figureOf(node, node.figures.invoiced, true) }}</td>
+                      <td v-if="!hidden.has('dispatched')" class="text-end" data-col="dispatched">{{ figureOf(node, node.figures.dispatched, true) }}</td>
+                      <td data-col="status">
+                        <div class="d-flex flex-wrap ga-1">
+                          <v-chip v-for="c in statusChips(node, open)" :key="c.key" size="x-small" variant="tonal" :label="c.label" :color="c.color" :prepend-icon="c.icon" :title="c.title || c.text">{{ c.text }}</v-chip>
+                        </div>
+                      </td>
+                    </template>
+                    <td class="text-no-wrap text-end" data-col="actions">
+                      <template v-for="a in node.actions" :key="a.type">
+                        <ReserveMenu v-if="a.type === 'reserve'" :disabled="a.disabled" @pick="onReservePick(node, $event)" />
+                        <v-btn
+                          v-else
                           size="x-small"
-                          variant="tonal"
-                          :color="lineCoverageColor(line)"
-                          :title="figuresOf(line).onUnsentOrder > 0 ? $t('invoicing.onUnsentOrder', { count: figuresOf(line).onUnsentOrder }) : undefined"
-                        >
-                          {{ lineCoverageOf(line).status === 'ordered' ? $t('invoicing.coverage.ordered') : $t('invoicing.reservedQty') }}: {{ figuresOf(line).reserved }}/{{ line.quantity || 0 }}
-                        </v-chip>
-                        <v-chip v-if="figuresOf(line).delivered > 0" size="x-small" variant="tonal" color="success">
-                          {{ $t('invoicing.deliveredQty') }}: {{ figuresOf(line).delivered }}
-                        </v-chip>
-                      </div>
+                          variant="text"
+                          :icon="actionIcon(a.type)"
+                          :color="actionColor(a.type)"
+                          :loading="a.type === 'reserveAgain' && repeating === node.reservation?.resId"
+                          :tabindex="a.type === 'remove' ? -1 : undefined"
+                          :title="actionTitle(a.type)"
+                          :aria-label="actionTitle(a.type)"
+                          :data-testid="`tree-${a.type}`"
+                          @click="onAction(node, a.type)"
+                        />
+                      </template>
                     </td>
-                    <td>
-                      <v-btn v-if="!readonly" icon="mdi-close" size="x-small" variant="text" tabindex="-1" :title="$t('common.remove')" :aria-label="$t('common.remove')" @click="form.lines.splice(li, 1)" />
-                    </td>
-                  </tr>
-                  <!-- #203: the line's reservations, where the line is — changed, cancelled or made again here. -->
-                  <tr v-if="isEdit && line._id && lineReservations(line).length">
-                    <td :colspan="6" class="pt-0 pb-2">
-                      <div v-for="res in lineReservations(line)" :key="res._id" class="d-flex align-center flex-wrap ga-2 text-body-2 ps-2">
-                        <v-icon size="14" :color="resStatusColor(res.status)">mdi-lock-clock</v-icon>
-                        <EntityLink :label="res.reservationNumber" :to="{ name: 'invoicing.reservations.detail', params: { id: String(res._id) } }" />
-                        <v-chip
-                          size="x-small"
-                          variant="tonal"
-                          :color="res.source === 'order' ? 'info' : undefined"
-                          :to="res.source === 'order' && res.orderId ? { name: 'invoicing.orders.edit', params: { id: String(res.orderId) } } : undefined"
-                        >
-                          {{ res.source === 'order' ? (orderNumbers[String(res.orderId)] || 'ORDO') : $t('invoicing.sourceStock') }}
-                        </v-chip>
-                        <span class="text-medium-emphasis">{{ warehouseName(res.warehouseId) }}</span>
-                        <span>{{ $t('invoicing.qty') }}: {{ res.quantity }}</span>
-                        <span v-if="res.invoicedQuantity || res.dispatchedQuantity" class="text-medium-emphasis">
-                          ({{ $t('invoicing.invoicedQty') }} {{ res.invoicedQuantity || 0 }} · {{ $t('invoicing.dispatchedQty') }} {{ res.dispatchedQuantity || 0 }})
-                        </span>
-                        <v-chip size="x-small" label variant="tonal" :color="resStatusColor(res.status)">{{ $t(`invoicing.status.${res.status}`) }}</v-chip>
-                        <v-btn v-if="res.status === 'active' && !readonly" icon="mdi-pencil" size="x-small" variant="text" :title="$t('invoicing.reservations.changeQuantity')" :aria-label="$t('invoicing.reservations.changeQuantity')" @click="openResEdit(res)" />
-                        <v-btn v-if="res.status === 'active' && !readonly" icon="mdi-close" size="x-small" variant="text" color="error" :title="$t('invoicing.reservations.release')" :aria-label="$t('invoicing.reservations.release')" @click="openRelease(res)" />
-                        <v-btn v-if="res.status === 'cancelled' && canReserve" icon="mdi-restore" size="x-small" variant="text" color="primary" :loading="repeating === res._id" :title="$t('invoicing.reservations.reserveAgain')" :aria-label="$t('invoicing.reservations.reserveAgain')" @click="reserveAgain(res)" />
-                      </div>
-                    </td>
-                  </tr>
                   </template>
-                </tbody>
-              </v-table>
+                </template>
+
+                <!-- What the lines add up to, in the columns above. -->
+                <template #totals="{ hidden }">
+                  <td data-col="item">{{ $t('invoicing.tree.totalsOrder') }}</td>
+                  <td class="text-end" data-col="qty">{{ tree.totals.ordered }}</td>
+                  <td data-col="unit"></td>
+                  <td data-col="price"></td>
+                  <template v-if="isEdit">
+                    <td class="text-end" data-col="reserved">{{ tree.totals.reserved }}</td>
+                    <td class="text-end" data-col="free">{{ tree.totals.short }}</td>
+                    <td class="text-end" data-col="invoiced" :title="hidden.has('dispatched') ? invoicedAndDelivered({ invoiced: tree.totals.invoiced, dispatched: tree.totals.delivered }) : undefined">{{ tree.totals.invoiced }}</td>
+                    <td v-if="!hidden.has('dispatched')" class="text-end" data-col="dispatched">{{ tree.totals.delivered }}</td>
+                    <td data-col="status"></td>
+                  </template>
+                  <td data-col="actions"></td>
+                </template>
+              </OrderTree>
             </div>
             <v-btn v-if="!readonly" color="primary" variant="text" size="small" prepend-icon="mdi-plus" class="mt-1" @click="form.lines.push(emptyLine())">
               {{ $t('invoicing.addLine') }}
             </v-btn>
           </v-card-text>
-        </v-card>
+        </CollapsiblePanel>
 
-        <!-- Coverage toolbox + linked reservations -->
-        <v-card v-if="isEdit" variant="outlined" rounded="lg" class="mt-4">
-          <v-card-title class="d-flex align-center ga-2 py-2 flex-wrap">
+        <!-- Coverage toolbox + linked reservations. The order-wide buttons stay on the header, folded or
+             not: they act on the whole order, not on what the panel shows. -->
+        <CollapsiblePanel v-if="isEdit" screen="internal-orders.edit" panel-id="reservations" :default-open="false" :summary="$t('invoicing.panels.reservationsCount', activeReservations.length)" class="mt-4" data-testid="internal-order-reservations">
+          <template #title>
             <v-icon size="20" color="primary">mdi-lock-clock</v-icon>
             {{ $t('nav.reservations') }}
             <v-chip size="x-small" variant="tonal">{{ activeReservations.length }}</v-chip>
-            <v-spacer />
+          </template>
+          <template #actions>
             <template v-if="canReserve">
               <v-btn size="small" variant="outlined" color="primary" prepend-icon="mdi-warehouse" :loading="reserving" @click="reserveAvailable">
                 {{ $t('invoicing.reserveAvailable') }}
               </v-btn>
-              <v-btn size="small" variant="outlined" color="warning" prepend-icon="mdi-shield-search" @click="openCoverDialog">
+              <v-btn size="small" variant="outlined" color="warning" prepend-icon="mdi-shield-search" @click="openCoverDialog()">
                 {{ $t('invoicing.coverShortages') }}
               </v-btn>
-              <v-btn size="small" variant="outlined" prepend-icon="mdi-factory" @click="openGenerateDialog">
+              <v-btn size="small" variant="outlined" prepend-icon="mdi-factory" @click="openGenerateDialog()">
                 {{ $t('invoicing.generateExternalOrder') }}
               </v-btn>
             </template>
-          </v-card-title>
-          <v-divider />
+          </template>
           <v-card-text class="pa-2">
             <div v-if="!reservations.length" class="text-medium-emphasis text-body-2 pa-2">
               {{ $t('invoicing.noReservationsYet') }}
@@ -228,7 +283,7 @@
                         size="x-small"
                         variant="tonal"
                         color="info"
-                        :to="res.orderId ? { name: 'invoicing.orders.edit', params: { id: String(res.orderId) } } : undefined"
+                        :to="orderLink(res)"
                       >
                         {{ orderNumbers[String(res.orderId)] || 'ORDO' }}
                       </v-chip>
@@ -272,8 +327,8 @@
               </v-table>
             </div>
           </v-card-text>
-        </v-card>
-        <OrderInvoicesCard v-if="isEdit" :invoices="linkedInvoices" :contacts="contactNames" :currency="form.currency || baseCurrency" :locale-code="localeCode" />
+        </CollapsiblePanel>
+        <OrderInvoicesCard v-if="isEdit" screen="internal-orders.edit" :invoices="linkedInvoices" :contacts="contactNames" :currency="form.currency || baseCurrency" :locale-code="localeCode" />
         <ReservationQuantityDialog
           v-model="resEditDialog"
           :reservation="resEditing"
@@ -335,7 +390,18 @@
       <EntityNotesPanel :org-url="orgUrl()" entity-type="internal_order" :entity-id="isEdit ? (route.params.id as string) : undefined" />
     </template>
 
-    <ProductPickerDialog v-model="productPickerOpen" :org-url="orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
+    <ProductPickerDialog
+      v-model="productPickerOpen"
+      :org-url="orgUrl()"
+      :base-currency="baseCurrency"
+      :locale="localeCode"
+      multiple
+      :stock-warehouse-id="form.warehouseId || undefined"
+      price-field="sellingPrice"
+      :existing-product-ids="existingProductIds"
+      :initial-search="productPickerText"
+      @select-many="onProductsPicked"
+    />
     <ContactPickerDialog v-model="contactPickerOpen" :org-url="orgUrl()" :type="contactPickerTarget?.kind === 'supplier' ? 'supplier' : 'customer'" @select="onContactPicked" />
 
     <!-- Cover-shortages dialog: free stock → unreserved incoming → preemptable reservations -->
@@ -349,14 +415,17 @@
         </v-card-title>
         <v-card-text>
           <div v-if="loadingSuggestions" class="text-center pa-4"><v-progress-circular indeterminate /></div>
-          <div v-else-if="!suggestions.length" class="text-medium-emphasis pa-4">{{ $t('invoicing.noShortages') }}</div>
-          <div v-for="line in suggestions" :key="line.lineId" class="mb-4">
+          <div v-else-if="!visibleSuggestions.length" class="text-medium-emphasis pa-4">{{ $t('invoicing.noShortages') }}</div>
+          <div v-for="line in visibleSuggestions" :key="line.lineId" class="mb-4" data-testid="cover-line">
             <div class="text-subtitle-2 mb-1">
               {{ sugLookup.products?.[line.productId]?.name || line.productId }}
               — {{ $t('invoicing.shortQty') }}: <b>{{ line.openQuantity }}</b>
             </div>
+            <!-- Opened from a line's + Reserve: only the source it asked for, and a word when that source has nothing for it. -->
+            <div v-if="coverScope?.section === 'stock' && !line.freeStock.length" class="text-medium-emphasis text-body-2 mb-2">{{ $t('invoicing.tree.nothingFromStock') }}</div>
+            <div v-if="coverScope?.section === 'order' && !line.incoming.length" class="text-medium-emphasis text-body-2 mb-2">{{ $t('invoicing.tree.nothingFromOrders') }}</div>
 
-            <div v-if="line.freeStock.length" class="mb-2">
+            <div v-if="showSection('stock') && line.freeStock.length" class="mb-2">
               <div class="text-caption text-medium-emphasis mb-1">{{ $t('invoicing.freeStock') }}</div>
               <div v-for="fs in line.freeStock" :key="fs.warehouseId" class="d-flex align-center ga-2 mb-1">
                 <v-chip size="x-small" variant="tonal">{{ sugLookup.warehouses?.[fs.warehouseId] || fs.warehouseId }}</v-chip>
@@ -366,7 +435,7 @@
               </div>
             </div>
 
-            <div v-if="line.incoming.length" class="mb-2">
+            <div v-if="showSection('order') && line.incoming.length" class="mb-2">
               <div class="text-caption text-medium-emphasis mb-1">{{ $t('invoicing.incomingStock') }}</div>
               <div v-for="inc in line.incoming" :key="inc.allocationId" class="d-flex align-center ga-2 mb-1 flex-wrap">
                 <v-chip size="x-small" variant="tonal" color="info">{{ inc.orderNumber }}</v-chip>
@@ -381,7 +450,7 @@
               </div>
             </div>
 
-            <div v-if="line.preemptable.length" class="mb-2">
+            <div v-if="!coverScope && line.preemptable.length" class="mb-2">
               <div class="text-caption text-medium-emphasis mb-1">
                 {{ $t('invoicing.preemptable') }}
                 <span v-if="line.preemptableTotal > line.preemptable.length">({{ line.preemptable.length }}/{{ line.preemptableTotal }})</span>
@@ -480,7 +549,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
@@ -493,6 +562,7 @@ import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/comp
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
+import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import { useConversionFeedback } from '../composables/useConversionFeedback'
@@ -500,11 +570,19 @@ import ReservationQuantityDialog from '../components/ReservationQuantityDialog.v
 import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { reservationErrorMessage } from '../composables/reservation-errors'
-import { lineCoverage, orderCoverage } from 'config/order-coverage'
+import { orderCoverage } from 'config/order-coverage'
 import { asDraftOrder, defaultDraftFor, pickDraftsFor, type DraftOrder } from '../composables/order-generate'
 import { cascadeSummary } from '../composables/order-cascade'
 import OrderCascadeDialog from '../components/OrderCascadeDialog.vue'
 import OrderInvoicesCard from '../components/OrderInvoicesCard.vue'
+import DocumentBanner from '../components/document-form/DocumentBanner.vue'
+import CollapsiblePanel from 'ui-shared/components/CollapsiblePanel.vue'
+import OrderTree from '../components/order-tree/OrderTree.vue'
+import ReserveMenu from '../components/order-tree/ReserveMenu.vue'
+import { buildCustomerOrderTree, customerLineNodeId } from '../composables/order-tree/customer-order-tree'
+import { isLateReservation } from '../composables/order-tree/figures'
+import { orderLineQuery } from '../composables/order-tree/links'
+import type { ReservationRow, TreeActionType, TreeColumn, TreeNode } from '../composables/order-tree/types'
 
 /** A line as the user edits it. What the server derives for it lives in `lineFigures`, not here. */
 interface LineRow {
@@ -579,10 +657,6 @@ const activeReservations = computed(() => reservations.value.filter((r) => r.sta
 function resStatusColor(status: string) {
   return status === 'active' ? 'primary' : status === 'fulfilled' ? 'success' : 'error'
 }
-/** #203: a line's reservations, shown under it. */
-function lineReservations(line: any) {
-  return reservations.value.filter((r) => String(r.internalOrderLineId) === String(line._id))
-}
 function lineDescription(res: any) {
   return form.lines.find((l: any) => String(l._id) === String(res.internalOrderLineId))?.description || '—'
 }
@@ -653,8 +727,9 @@ async function refreshReservations() {
   }
 }
 
+/** One rule for "late" on the tree and on the flat card (`figures.ts`): a reservation still waiting for goods that a supplier order brings after the day asked for. */
 function isLate(res: any) {
-  return !!(res.expectedDate && form.requestedDeliveryDate && res.expectedDate.split('T')[0] > form.requestedDeliveryDate)
+  return isLateReservation({ status: res.status, expectedDate: res.expectedDate }, form.requestedDeliveryDate)
 }
 /** FR-22.44: covered on stock (`full`), or partly only by a supplier order not sent yet (`ordered`). */
 function coverageInput(line: LineRow) {
@@ -662,9 +737,7 @@ function coverageInput(line: LineRow) {
   return { quantity: line.quantity, reserved: f.reserved, onUnsentOrder: f.onUnsentOrder }
 }
 const coverage = computed(() => orderCoverage(form.lines.map(coverageInput)).status)
-function lineCoverageOf(line: LineRow) { return lineCoverage(coverageInput(line)) }
 function coverageColor(c: string) { return ({ none: 'error', partial: 'warning', ordered: 'info', full: 'success' }[c] || 'grey') }
-function lineCoverageColor(line: LineRow) { return coverageColor(lineCoverageOf(line).status) }
 
 // ── contacts (server-searched pools) + warehouses ──
 const clientOptions = ref<any[]>([])
@@ -710,16 +783,34 @@ function warehouseName(id: string) { return warehouses.value.find((w) => w._id =
 // ── pickers ──
 const productPickerOpen = ref(false)
 const productPickerTarget = ref<number | null>(null)
-function openProductPicker(li: number) {
+/** FR-28.25: what the user had typed in the line's field when they asked for Details (F4, "Show all N results"). */
+const productPickerText = ref('')
+/** FR-28.28: the articles already on the order are marked in the dialog, not hidden from it. */
+const existingProductIds = computed(() => form.lines.map((l) => String(l.productId || '')).filter(Boolean))
+function openProductPicker(li: number, text = '') {
   productPickerTarget.value = li
+  productPickerText.value = text
   productPickerOpen.value = true
 }
-function onProductPicked(p: any) {
-  const line = productPickerTarget.value !== null ? form.lines[productPickerTarget.value] : undefined
-  if (!line) return
-  line.productId = p._id
-  line.description = p.name
-  onProductSelected(line, p)
+/**
+ * FR-28.28: several articles at once. The first goes on the line the dialog was opened from, as one pick would; each
+ * of the others on the next free line, through the line's own after-pick logic.
+ */
+function onProductsPicked(ps: any[]) {
+  if (productPickerTarget.value === null || !ps.length) return
+  let li = productPickerTarget.value
+  ps.forEach((p, i) => {
+    if (i > 0) {
+      li += 1
+      const next = form.lines[li]
+      if (!next || next.productId || next.description) form.lines.splice(li, 0, emptyLine())
+    }
+    const line = form.lines[li]
+    if (!line) return
+    line.productId = p._id
+    line.description = p.name
+    onProductSelected(line, p)
+  })
 }
 
 type ContactPickTarget = { kind: 'client' } | { kind: 'supplier' }
@@ -762,16 +853,178 @@ const linesRef = ref<HTMLElement>()
 /** Deferred past the article search closing (and a picker dialog handing focus back). */
 function focusLineQuantity(idx: number) {
   setTimeout(() => {
-    const input = linesRef.value?.querySelector<HTMLInputElement>(`[data-line-qty="${idx}"] input`)
+    const line = form.lines[idx]
+    if (!line) return
+    const input = linesRef.value?.querySelector<HTMLInputElement>(`[data-line-qty="${CSS.escape(customerLineNodeId(line, idx))}"] input`)
     if (!input || input.readOnly) return
     input.focus()
     try { input.select() } catch { /* a number input may refuse select() */ }
   }, 200)
 }
 
-const totalOrdered = computed(() => form.lines.reduce((s, l) => s + (Number(l.quantity) || 0), 0))
-const totalReserved = computed(() => form.lines.reduce((s, l) => s + figuresOf(l).reserved, 0))
-const totalDelivered = computed(() => form.lines.reduce((s, l) => s + figuresOf(l).delivered, 0))
+// ── the lines as a tree (FR-28.44) ──
+// What a row is and what a line adds up to is the node model's (`composables/order-tree/customer-order-tree.ts`), rebuilt
+// from the form's lines, the reservations and what the server derives per saved line. The cells above only say it. Nothing
+// here is staged: a reservation is made, changed and released AT ONCE, each with its own dialog.
+const linesPanelRef = ref<any>(null)
+const treeRef = ref<any>(null)
+
+const tree = computed(() => buildCustomerOrderTree(form.lines, reservations.value, {
+  readonly: readonly.value,
+  canReserve: canReserve.value,
+  requestedDeliveryDate: form.requestedDeliveryDate,
+  server: lineFigures.value,
+}))
+/** A closed order shows no blank line waiting for an article. */
+const shownNodes = computed(() => readonly.value
+  ? tree.value.nodes.filter((n) => { const l = form.lines[n.source.lineIndex!]; return !!(l?.productId || l?.description) })
+  : tree.value.nodes)
+function lineOf(node: TreeNode): LineRow { return form.lines[node.source.lineIndex!] }
+
+/**
+ * The widths of the two figures the user types: a quantity of five digits and a price to 9,999.99 are read whole at 1366 px
+ * (the right panel open or folded) and at 1920 px, which `customer-order-tree.spec.ts` measures on the fields. They rest on
+ * the number-field rules of `OrderTree.vue` (no spin buttons, no padding in the field): with those a digit takes 9 px.
+ */
+const QTY_COL = '68px'
+const PRICE_COL = '84px'
+
+/**
+ * The columns are the supplier order's, with what a customer order says in them: Free is what is still SHORT, and Delivered
+ * (not Dispatched) is the goods that left. A new order has nothing to show in the figures, so it has only the line's own fields.
+ */
+const treeColumns = computed<TreeColumn[]>(() => [
+  { key: 'item', title: t('invoicing.tree.itemOrder') },
+  { key: 'qty', title: t('invoicing.qty'), align: 'end', width: QTY_COL },
+  { key: 'unit', title: t('invoicing.unit'), width: '68px' },
+  { key: 'price', title: t('invoicing.tree.price'), align: 'end', width: PRICE_COL },
+  ...(isEdit.value
+    ? ([
+        { key: 'reserved', title: t('invoicing.tree.reserved'), align: 'end', width: '80px' },
+        { key: 'free', title: t('invoicing.shortQty'), hint: t('invoicing.tree.shortHint'), align: 'end', width: '60px' },
+        { key: 'invoiced', title: t('invoicing.tree.invoiced'), align: 'end', width: '74px' },
+        { key: 'dispatched', title: t('invoicing.tree.delivered'), align: 'end', width: '90px', optional: true },
+        { key: 'status', title: t('common.status'), width: '142px' },
+      ] as TreeColumn[])
+    : []),
+  // + Reserve and the remove button side by side, in the longest of the four languages (Reservieren, 104 px).
+  { key: 'actions', title: '', width: isEdit.value ? '152px' : '64px' },
+])
+
+/** The tooltip of Invoiced while Delivered has no column of its own (a narrow screen): both figures, so neither is lost. */
+const invoicedAndDelivered = (f: { invoiced: number; dispatched: number }) =>
+  `${t('invoicing.tree.invoiced')} ${f.invoiced} · ${t('invoicing.tree.delivered')} ${f.dispatched}`
+
+/**
+ * A line not saved yet (or the blank one waiting for an article) has no figures to show: nothing is reserved or invoiced against it.
+ * A reservation shows its own invoiced and dispatched, but no Reserved or Free (its quantity is its own column).
+ */
+function figureOf(node: TreeNode, value: number | null | undefined, ownToo = false): string | number {
+  if (node.kind === 'line' && !node.coverage) return ''
+  if (node.kind === 'reservation' && !ownToo) return ''
+  return value ?? ''
+}
+
+/** EXACTLY what the line's chip has always said: 'Reserved Qty: 4/4', or 'Ordered: 4/4' while the cover waits on a supplier order not sent. */
+function coverageText(node: TreeNode): string {
+  const label = node.coverage?.status === 'ordered' ? t('invoicing.coverage.ordered') : t('invoicing.reservedQty')
+  return `${label}: ${node.figures.reserved}/${node.figures.quantity}`
+}
+
+interface StatusChip { key: string; text: string; color?: string; label?: boolean; icon?: string; title?: string }
+/**
+ * A reservation says its status (and that it is late); a line says how far it is covered, and, while it is closed, what
+ * is wrong below it (`rolledFlags`), so folding a line never hides the thing that needs a look.
+ */
+function statusChips(node: TreeNode, open: boolean): StatusChip[] {
+  const lateChip: StatusChip = { key: 'late', text: t('invoicing.tree.late'), color: 'error', icon: 'mdi-clock-alert-outline', title: t('invoicing.lateDelivery') }
+  if (node.kind === 'reservation' && node.reservation) {
+    const status = node.reservation.status || ''
+    const chips: StatusChip[] = [{ key: 'status', text: t(`invoicing.status.${status}`), color: resStatusColor(status), label: true }]
+    if (node.reservation.late) chips.push(lateChip)
+    return chips
+  }
+  if (node.kind !== 'line' || !node.coverage) return []
+  const chips: StatusChip[] = [{
+    key: 'coverage',
+    text: coverageText(node),
+    color: coverageColor(node.coverage.status),
+    // FR-22.44: a line whose cover waits on a supplier order not sent yet reads "Ordered".
+    title: node.coverage.onUnsentOrder > 0 ? t('invoicing.onUnsentOrder', { count: node.coverage.onUnsentOrder }) : undefined,
+  }]
+  const flags = open ? node.flags : node.rolledFlags
+  if (flags.includes('overReserved')) chips.push({ key: 'overReserved', text: t('invoicing.tree.overReserved'), color: 'error' })
+  if (flags.includes('late')) chips.push(lateChip)
+  return chips
+}
+
+// The controls of a row. The labels are the ones the buttons have always had: specs and walks look them up by name.
+function actionIcon(type: TreeActionType): string {
+  return ({ remove: 'mdi-close', editQuantity: 'mdi-pencil', release: 'mdi-close', reserveAgain: 'mdi-restore' } as Record<string, string>)[type] || 'mdi-dots-horizontal'
+}
+function actionColor(type: TreeActionType): string | undefined {
+  return type === 'release' || type === 'remove' ? 'error' : type === 'reserveAgain' ? 'primary' : undefined
+}
+function actionTitle(type: TreeActionType): string {
+  return ({
+    remove: t('common.remove'),
+    editQuantity: t('invoicing.reservations.changeQuantity'),
+    release: t('invoicing.reservations.release'),
+    reserveAgain: t('invoicing.reservations.reserveAgain'),
+  } as Record<string, string>)[type] || ''
+}
+/** The reservation the way the server has it: the dialogs and the repeat call take that, not the row. */
+function rawReservation(node: TreeNode) {
+  return reservations.value.find((r) => String(r._id) === node.reservation?.resId)
+}
+function onAction(node: TreeNode, type: TreeActionType) {
+  if (type === 'remove') { form.lines.splice(node.source.lineIndex!, 1); return }
+  const raw = rawReservation(node)
+  if (!raw) return
+  if (type === 'editQuantity') openResEdit(raw)
+  else if (type === 'release') openRelease(raw)
+  else if (type === 'reserveAgain') reserveAgain(raw)
+}
+/** + Reserve on a line: where the goods come from. Each source opens the dialog that already made that reservation, for this line. */
+function onReservePick(node: TreeNode, source: 'stock' | 'order' | 'generate') {
+  const lineId = String(lineOf(node)?._id || '')
+  if (!lineId) return
+  if (source === 'generate') openGenerateDialog(lineId)
+  else openCoverFor(lineId, source)
+}
+
+/** FR-28.46: the supplier order opens on the line (and the warehouse) a reservation is on, not at the top of the document. */
+function orderLink(res: any) {
+  return res.orderId ? { name: 'invoicing.orders.edit', params: { id: String(res.orderId) }, query: orderLineQuery(res) } : undefined
+}
+function rowOrderLink(row: ReservationRow) {
+  return row.source === 'order' && row.orderId
+    ? { name: 'invoicing.orders.edit', params: { id: row.orderId }, query: orderLineQuery({ lineId: row.orderLineId, allocationId: row.allocationId }) }
+    : undefined
+}
+
+// ── FR-28.46: a link can name the line ──
+// `…/internal-orders/:id/edit?line=<lineId>` opens the card and the line, scrolls to it and marks it for a moment.
+// An id that matches nothing opens the form as usual.
+async function applyDeepLink() {
+  const lineId = String(route.query.line || '')
+  if (!lineId) return
+  const node = tree.value.index.get(`l:${lineId}`)
+  if (!node) return
+  linesPanelRef.value?.setOpen(true)
+  await nextTick()
+  await treeRef.value?.reveal(node.id, { openSelf: true, highlight: true })
+}
+watch(() => route.query.line, () => { applyDeepLink() })
+
+const totalOrdered = computed(() => tree.value.totals.ordered)
+const totalReserved = computed(() => tree.value.totals.reserved)
+const totalDelivered = computed(() => tree.value.totals.delivered)
+/** FR-28.43: the lines card, folded — how many lines, how much is needed, how much is reserved. */
+const linesSummary = computed(() => {
+  const totals = tree.value.totals
+  return [t('invoicing.panels.lines', totals.lines), t('invoicing.panels.needed', { n: totals.ordered }), t('invoicing.panels.reserved', { n: totals.reserved })].join(' · ')
+})
 const estimatedTotal = computed(() => form.lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.expectedUnitPrice) || 0), 0))
 
 // ── status pipeline + actions ──
@@ -976,7 +1229,21 @@ const acting = ref(false)
 const suggestions = ref<any[]>([])
 const sugLookup = ref<any>({})
 
+/** Opened from a line's + Reserve: the line, and the source it asked for. The toolbox's Cover shortages leaves it null and shows everything. */
+const coverScope = ref<{ lineId: string; section: 'stock' | 'order' } | null>(null)
+const visibleSuggestions = computed(() => coverScope.value
+  ? suggestions.value.filter((l) => String(l.lineId) === coverScope.value!.lineId)
+  : suggestions.value)
+function showSection(section: 'stock' | 'order'): boolean {
+  return !coverScope.value || coverScope.value.section === section
+}
 function openCoverDialog() {
+  coverScope.value = null
+  coverDialog.value = true
+  loadSuggestions()
+}
+function openCoverFor(lineId: string, section: 'stock' | 'order') {
+  coverScope.value = { lineId, section }
   coverDialog.value = true
   loadSuggestions()
 }
@@ -1081,10 +1348,10 @@ async function loadDraftOrders() {
   }
 }
 
-async function openGenerateDialog() {
+async function openGenerateDialog(lineId?: string) {
   // Fresh every time: a reservation made since the cover dialog last looked changes what is short.
   await Promise.all([loadSuggestions(), loadDraftOrders()])
-  generateRows.value = suggestions.value.map((line) => ({
+  generateRows.value = suggestions.value.filter((line) => !lineId || String(line.lineId) === lineId).map((line) => ({
     internalOrderLineId: line.lineId,
     description: sugLookup.value.products?.[line.productId]?.name || line.productId,
     quantity: line.openQuantity,
@@ -1183,7 +1450,10 @@ async function fetchPeekedNumber() {
 onMounted(async () => {
   await Promise.all([fetchContacts('client'), fetchWarehouses()])
   if (tryRestore()) return
-  if (isEdit.value) await loadOrder()
-  else fetchPeekedNumber()
+  if (isEdit.value) {
+    await loadOrder()
+    await nextTick()
+    await applyDeepLink()
+  } else fetchPeekedNumber()
 })
 </script>

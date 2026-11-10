@@ -34,7 +34,11 @@ async function world(tag: string): Promise<World> {
   const stamp = `${tag}-${Date.now().toString(36)}`
   const warehouses = (await api.get('/warehouse/warehouse?size=100')).warehouses
   const warehouse = warehouses.find((w: any) => w.isDefault) || warehouses[0]
-  const supplier = (await api.get('/invoicing/contact?type=supplier&size=5')).contacts[0]
+  // The newest ACTIVE supplier. The list is newest first and keeps deactivated contacts, and `product-suppliers*.spec` deactivate
+  // the suppliers they made when they finish, so `contacts[0]` can be one the server refuses (422 supplier_not_found) when those
+  // specs ran first in the same database.
+  const supplier = ((await api.get('/invoicing/contact?type=supplier&size=50')).contacts as any[]).find((c) => c.isActive !== false)
+  expect(supplier, 'the seed has an active supplier').toBeTruthy()
   const { product } = await api.post('/warehouse/product', {
     sku: `E2E-RB-${stamp}`, name: `E2E доставка ${stamp}`, category: 'General', type: 'goods', unit: 'pcs',
     purchasePrice: 2.5, sellingPrice: 4, taxRate: 20,

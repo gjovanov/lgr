@@ -160,14 +160,16 @@
                 :product-id="line.productId"
                 :price-field="config.priceField"
                 :allow-create="!!config.allowCreateProduct"
+                :stock-warehouse-id="docWarehouseId"
                 class="flex-grow-1"
                 @update:description="line.description = $event"
                 @update:product-id="line.productId = $event"
                 @product-selected="onProductSelected(idx, $event)"
                 @product-cleared="onProductCleared(idx)"
                 @create-product="openQuickProduct(idx, $event)"
+                @details="openProductPicker(idx, $event)"
               />
-              <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.browseProducts')" :aria-label="$t('invoicing.browseProducts')" @click="openProductPicker(idx)" />
+              <ProductDetailsButton @click="openProductPicker(idx)" />
             </div>
           </td>
           <td v-if="isColActive('qty')">
@@ -278,6 +280,7 @@
 
 <script setup lang="ts">
 import ProductLineDescription from '../ProductLineDescription.vue'
+import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import PriceSelectButton from 'ui-shared/components/PriceSelectButton'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
