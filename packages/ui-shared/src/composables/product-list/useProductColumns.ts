@@ -86,8 +86,9 @@ export function productColumnHeaders(t: Translate, opts: ProductColumnsOptions):
     // the tier out of `tier_<slot>`); the slots regal prices by are shown, the rest wait on the cog.
     ...TIER_COLUMNS.map((c) => ({ title: c.name, key: c.key, align: 'end' as const, ...hidden(c.key, c.defaultHidden), ...PRICE_CELL })),
     // FR-22.48: only when the list can hold deactivated articles. Among active ones it says "yes"
-    // on every row, and its width is what keeps the row actions inside 1366 px.
-    ...(opts.activeFilter === 'active' ? [] : [{ title: t('common.active'), key: 'isActive', align: 'center' as const }]),
+    // on every row, and its width is what keeps the row actions inside 1366 px. It takes the price columns' 8 px
+    // gutters too: the tick column of FR-28.13 is 48 px of that width, and "all statuses" has to fit as it did.
+    ...(opts.activeFilter === 'active' ? [] : [{ title: t('common.active'), key: 'isActive', align: 'center' as const, ...PRICE_CELL }]),
     ...(opts.withActions === false ? [] : [{ title: t('common.actions'), key: 'actions', sortable: false, fixed: 'end' as const }]),
   ]
 }
