@@ -3118,7 +3118,7 @@ Spec: `docs/fr/FR-26-seller-and-sales-consultant-roles.md`. Roles `seller` („�
 - **Areas** (`config/constants#AREAS`: `portal orders purchases payments pricing stockControl catalogExport`) are a claim on the session, `areas?: Area[]`, merged from the sets (`mergeAreas`) or the role (`DEFAULT_ROLE_AREAS`, the two new roles only). `holdsArea` is the one test, server and UI.
   - ⚠ **Absent and `[]` mean opposite things.** Absent: unrestricted (every existing set, role and token). `[]`: none. The model path is `default: undefined`, the set API takes `areas: null` for "every area" (`$unset`), and `sessionViewer` passes the claim only when the token carries a list.
   - Merge: an `isAdmin` set or any set without `areas` wins (unrestricted), else the union. So a custom set without areas makes a Seller unrestricted; the Users screen warns when role and sets disagree.
-- **Server.** `route-permission.ts#AREA_PREFIXES` refuses whole prefixes (`area_required`, reads and writes), `admin` exempt. What no prefix can say is the controllers': an incoming document under `/invoices` is 404 by id and absent from the list, summary, exports, ledger and aging (`purchases`); an invoice adds or changes no order link (`orders`, existing links round-trip); `product-supply` names no order (`orders`). `reports/*` needs `reports.read` on top of `canAccessReport`. A movement write takes `inventory.write` or `inventory.transfer`, and the controller holds a transfer-only caller to transfers with both warehouses (`movement.controller#transferRefusal`).
+- **Server.** `route-permission.ts#AREA_PREFIXES` refuses whole prefixes (`area_required`, reads and writes), `admin` exempt. What no prefix can say is the controllers': an incoming document under `/invoices` is 404 by id and absent from the list, summary, exports, ledger and aging (`purchases`, now `bills.view`: FR-27.6 partitions, below); an invoice adds or changes no order link (`orders`, existing links round-trip); `product-supply` names no order (`orders`). `reports/*` needs `reports.read` on top of `canAccessReport`. A movement write takes `inventory.write` or `inventory.transfer`, and the controller holds a transfer-only caller to transfers with both warehouses (`movement.controller#transferRefusal`).
 - **UI.** `PageDef.area` and `canOpenPage`; the inventory menu goes through `withPageRules` (`ui-shell/module.ts`). A session without `portal` has no Portal tile and lands in its first app (`portalGuard`, `landingWithoutPortal`). `isTransferOnly` gives the movement form Transfer only; `writesInventory` makes Products, Categories and Warehouses read-only. Sequences is admin and manager only, as the server always was.
 - **Assigning a role takes effect** (FR-26.9): a role change swaps the user's SYSTEM sets for the role's (`setsForRole`, custom sets stay), an invite starts on the role's set (`inviteSetFor`; a restricted role whose set the org lacks gets none, never the default set), and a change of role, sets or own permissions bumps the person's `tokenVersion` (`endSessionsOf`): every session of theirs, in every org, ends within the minute.
 - **Migration `0014-seller-permission-sets`** seeds both system sets in every org. A set of either name somebody made is reported and left alone, never adopted. Rollback: move every Seller and Sales Consultant to another role first; the previous release rejects the names and ignores `areas`.
@@ -3147,9 +3147,29 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
 - **Client.** `ui-shared/access/useAccess` gives `can()` and `canOpen()` on the same grant, compiled from the tab's token as `sessionViewer` reads it.
 - **#493 items 2–5 ride on it (FR-27 D-8): capabilities, not areas.** A session whose claim carries an `areas` list, the Seller and the Sales Consultant, does not get these (`legacy.ts#NOT_WITH_AN_AREAS_LIST`):
   - `sales-docs.totals` and `bills.totals`: the strip, and `GET invoices/summary`, which answers 403 `capability_required`;
-  - `sales-docs.import`: the invoices list's Import button only; the API still takes the import;
+  - `sales-docs.import`: the invoices list's Import button, and (Phase 2) the import itself: `doc-import`'s
+    `targetRefusal` answers 403 `capability_required` for a sales invoice or a cash sale without it;
   - `org.switch`: `OrgSwitcher` shows the org read-only, and `/orgs` redirects inside an org.
   - Such a session lands on Products where it can open them (`landingWithoutPortal`).
+- **Partitions (FR-27.6, Phase 2): sales documents, proforma and bills share `/invoices`** (`config/access/partition.ts`).
+  `kindOfDocument`: incoming is `bills`, an outgoing `proforma` is `proforma`, the rest `sales-docs`. A role reads the
+  kinds whose `view` it holds (`readsKind`) and writes those whose `create`/`edit` it holds (`writesKind`; deleting
+  takes the kind's `delete`).
+  - `invoice.controller`: by id, another kind is 404 (as an unknown id) and a kind it only reads is 403
+    `capability_required`; the list adds `partitionFilter(grant)` (`{ direction }` or an `$or`); the summary covers
+    `readableDirection`; a create of a kind it does not make is refused before anything is written. The exports,
+    contact ledger and card, aging, stats, movements' bill links read `seesBills` and the import's bill target
+    `bills.create`, where they read the `purchases` area.
+  - ⚠ **Where another app's session reaches it, `services/biz/access/partition.ts#seesBills` / `seesOrders`**: on the
+    legacy model FR-26's area, as before (an absent `areas` list holds it whatever the permissions: a warehouse
+    manager, with no invoicing permission, is told of the bill that holds a receipt), on a role the partition's
+    capabilities. `bills.view` alone is NOT the area there: legacy grants it only with an invoicing permission.
+    `product-supply` and the invoice's order links read `seesOrders`. The invoice controller's own routes, which only
+    invoicing sessions reach, read the grant (`unit/access-legacy-gates.test.ts` proves both).
+  - Route rules: `invoices` reads take any kind's `view`, writes any kind's work; the controller does the rest.
+  - ⚠ Legacy grants the three together from the invoicing permissions, and an `areas` list without `purchases`
+    takes `bills` away, so nobody's answer changes (`access-differential`). A grant that reads every kind and works
+    on every kind costs no query.
 
 ## One access model: Phase 1, roles (FR-27, #529)
 
@@ -3205,6 +3225,10 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - The Files app reads with `files.view` and changes documents with `files.manage` (`file.controller#writeGate`:
     upload, OCR, book, undo, reconcile, delete, pack and unpack); analyses and the snapshot diff are reads. Legacy
     grants both with `admin.settings`.
+- **Role tools (FR-27.9)**, import-pure in `config/access/compare.ts`, on the roles screens: "Who can…" (`whoCan` over
+  `ASKABLE_CAPABILITIES`, with the people count), "Compare" (`compareGrants`: each feature's level per role and the
+  capabilities one holds the other does not) and the editor's preview (`pagesOpenedBy`: the pages the role as it
+  stands opens, by app). All from the grants and page rules the server and the menus decide by; nothing is stored.
 - **A role's start page (FR-27.4)**: `Role.landing`, a page id the role opens (`role.service#cleanLanding`: 422
   `landing_unknown` / `landing_not_open`; capabilities that stop opening it drop it). A change bumps the role's
   version, and `/auth/me` answers it as `access.landing`. `startPage(who)`: the landing, else the Dashboard, else
@@ -3217,6 +3241,22 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   dialog. Users and Invites show one Role select once the org has roles, the legacy controls until then.
   - ⚠ Permission sets stay reachable (the empty Roles page links there) while an org has no roles, and hold the roles'
     projections. Phase 3 removes them.
+- **Field groups (FR-27.6, Phase 2): `products.costs`** (`config/access/fields.ts`, "Cost figures" in the editor).
+  `purchasePrice`, `standardCost`, the „Доставна цена" slot, every slot's `percent` (a margin gives the cost back)
+  and a stock level's `avgCost` are ABSENT from the JSON for a role without it: the product list (`products` and
+  `items`), by id, create, quick create, update, `/pricing/options`, `/warehouse/stock-level`; `/warehouse/cost-layer`
+  answers 403 `capability_required`. A write by such a role keeps the stored costs (`keepStoredCosts`: the cost slot
+  goes back first, margins by name, duplicates dropped).
+  - ⚠ The legacy compiler grants it with any product read (`PRODUCT_READERS`), so nobody's answer changes. The
+    legacy model cannot withhold it (`LEGACY_CANNOT_WITHHOLD`): a role without it projects as `needsRelease`.
+  - ⚠ A new serializer that sends a product or a stock level's cost goes through `redactProduct` /
+    `redactStockCost`.
+  - **Reports**: a column with `fieldGroup: 'costs'` (`ReportColumn`) is dropped by the runner, its cells and total
+    with it, on screen and in the file (`withoutFieldGroups`, `meta.withheld` names the keys): valuation, stock levels,
+    product ledger, stock movements, and warehouse operations' cost and profit (on the purchases side its prices too,
+    which are what the goods cost). ⚠ A new report column that carries a cost says so.
+    A report that is nothing but costs (`inventory-valuation`) carries `fieldGroup: 'costs'` itself: not listed, and
+    404 to run, for a role without them (`canAccessReport`).
 - **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
   null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
   gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`

@@ -13,6 +13,7 @@
  * `GET /org/:orgId/reports/catalog`, which returns `ReportMeta[]` — this file's shape,
  * mirrored (deliberately, not imported) in `reports-ui/src/types/report.ts`.
  */
+import { compileLegacy, seesCosts, type Grant } from 'config/access'
 
 export const REPORT_CATEGORIES = ['sales', 'purchase', 'receivables', 'inventory', 'accounting', 'fiscal'] as const
 export type ReportCategory = (typeof REPORT_CATEGORIES)[number]
@@ -75,6 +76,11 @@ export interface ReportColumn {
   labelKey: string
   type?: ColumnType
   align?: 'start' | 'end' | 'center'
+  /**
+   * FR-27.6 field groups: a column only a role holding the group sees (`costs`: `products.costs`). The runner drops it,
+   * its cells and its total for any other, on screen and in the file (`withoutFieldGroups`).
+   */
+  fieldGroup?: 'costs'
 }
 
 export interface ReportResult {
@@ -213,6 +219,11 @@ export interface ReportEntry extends ReportMeta {
   roles?: string[]
   /** Absent for `view: 'custom'` entries — those are their own page. */
   handler?: (ctx: ReportHandlerContext) => Promise<ReportResult>
+  /**
+   * FR-27.11.C.1: a report that is ONLY a field group's figures (`inventory-valuation` is cost figures through and
+   * through) is not offered to a role without the group, rather than shown with every value column dropped.
+   */
+  fieldGroup?: 'costs'
   /** Row → absolute, cross-SPA href of the source document (FR-6.10). */
   drilldown?: (row: Record<string, any>) => string | undefined
 }
@@ -317,7 +328,13 @@ export function canAccessReport(entry: ReportEntry, user: ReportCaller | null | 
   const perms = user.permissions || []
   if (!perms.includes(entry.permission) && user.role !== 'admin') return false
   if (entry.roles && !entry.roles.includes(user.role || '')) return false
+  if (entry.fieldGroup === 'costs' && !seesCosts(callerGrant(user))) return false
   return true
+}
+
+/** The caller's grant: its role's, live (an org on `roles`), else its claims compiled, as the server decides by. */
+function callerGrant(user: ReportCaller): Grant {
+  return ((user as any).access as Grant | undefined) ?? compileLegacy(user as any)
 }
 
 /**
@@ -338,4 +355,21 @@ export function canExportReport(entry: ReportEntry, user: ReportCaller | null | 
 export function toReportMeta(entry: ReportEntry): ReportMeta {
   const { id, category, labelKey, descriptionKey, icon, outputs, params, view, route } = entry
   return { id, category, labelKey, descriptionKey, icon, outputs, params, view, route }
+}
+
+/**
+ * FR-27.6: the report without the columns of a field group the caller does not see: the column, every row's cell and
+ * the total are gone (never blanked), and `meta.withheld` names the keys. Unchanged when nothing is withheld.
+ */
+export function withoutFieldGroups(result: ReportResult, sees: (group: NonNullable<ReportColumn['fieldGroup']>) => boolean): ReportResult {
+  const hidden = new Set(result.columns.filter(c => c.fieldGroup && !sees(c.fieldGroup)).map(c => c.key))
+  if (!hidden.size) return result
+  const drop = (o: Record<string, any>) => Object.fromEntries(Object.entries(o).filter(([k]) => !hidden.has(k)))
+  return {
+    ...result,
+    columns: result.columns.filter(c => !hidden.has(c.key)),
+    rows: result.rows.map(drop),
+    ...(result.totals ? { totals: drop(result.totals) as Record<string, number> } : {}),
+    meta: { ...result.meta, withheld: [...hidden] } as any,
+  }
 }

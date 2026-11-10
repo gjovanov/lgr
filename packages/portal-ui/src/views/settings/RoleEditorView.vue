@@ -104,6 +104,19 @@
         </v-expansion-panel>
       </v-expansion-panels>
 
+      <!-- FR-27.9: preview as the role, as it stands in the editor: the pages its people would be offered. -->
+      <v-card variant="outlined" class="mt-4" data-testid="role-preview">
+        <v-card-title class="text-subtitle-1">{{ $t('access.tools.preview') }} ({{ previewCount }})</v-card-title>
+        <v-card-subtitle>{{ $t('access.tools.previewHint') }}</v-card-subtitle>
+        <v-card-text>
+          <div v-if="!previewCount" class="text-medium-emphasis">{{ $t('access.tools.previewNone') }}</div>
+          <div v-for="g in preview" :key="g.app" class="mb-2">
+            <div class="text-caption text-medium-emphasis">{{ g.title }}</div>
+            <v-chip v-for="p in g.pages" :key="p.id" size="small" class="mr-1 mb-1" :data-page="p.id">{{ p.title }}</v-chip>
+          </div>
+        </v-card-text>
+      </v-card>
+
       <v-card v-if="people.length" variant="outlined" class="mt-4">
         <v-card-title class="text-subtitle-1">{{ $t('access.ui.people') }} ({{ people.length }})</v-card-title>
         <v-card-text>
@@ -129,7 +142,7 @@ import {
 } from 'config/access'
 import { useAppStore } from '../../store/app.store'
 import { APP_NAV_META, PAGE_REGISTRY } from 'ui-shared/nav/page-registry'
-import { canOpen } from 'config/access'
+import { canOpen, pagesOpenedBy } from 'config/access'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 
@@ -151,6 +164,25 @@ const openGroups = ref<string[]>(['invoicing', 'inventory'])
 
 const grant = computed<Grant>(() => (role.value?.all ? { all: true } : { caps: selected.value }))
 const summary = computed(() => summarize(grant.value))
+/** FR-27.9: the portal's pages by the label its menu gives them (`DefaultLayout`). */
+const PORTAL_LABELS: Record<string, string> = {
+  '/dashboard': 'nav.dashboard', '/settings/organization': 'nav.organization', '/settings/users': 'nav.users',
+  '/settings/roles': 'access.ui.title', '/settings/permission-sets': 'permissionSets.title', '/settings/desktops': 'desktops.title',
+  '/settings/servers': 'servers.title', '/settings/server': 'serverStatus.title', '/admin/audit-log': 'nav.auditLog',
+}
+/** FR-27.9 preview as the role: what it opens as it stands, by app, the portal last. */
+const preview = computed(() => {
+  const byId = new Map(PAGE_REGISTRY.map(p => [p.id, p]))
+  const groups = new Map<string, { app: string; title: string; pages: Array<{ id: string; title: string }> }>()
+  for (const id of pagesOpenedBy(grant.value)) {
+    const page = byId.get(id)
+    const app = page?.appId ?? 'portal'
+    if (!groups.has(app)) groups.set(app, { app, title: APP_NAV_META[app] ? t(APP_NAV_META[app].nameKey) : t('access.tools.portal'), pages: [] })
+    groups.get(app)!.pages.push({ id, title: page ? t(page.labelKey) : PORTAL_LABELS[id] ? t(PORTAL_LABELS[id]) : id })
+  }
+  return [...groups.values()].sort((a, b) => (a.app === 'portal' ? 1 : 0) - (b.app === 'portal' ? 1 : 0))
+})
+const previewCount = computed(() => preview.value.reduce((n, g) => n + g.pages.length, 0))
 /** FR-27.4: the pages this role opens, as it stands in the editor, by app; one with a query is a variant of a form. */
 const landingOptions = computed(() => PAGE_REGISTRY
   .filter(p => !p.id.includes('?') && canOpen(p.id, grant.value))
