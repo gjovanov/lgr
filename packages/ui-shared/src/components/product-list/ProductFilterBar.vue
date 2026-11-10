@@ -42,7 +42,9 @@
         <v-col cols="12" md="2">
           <v-select v-model="list.typeFilter" :label="$t('common.type')" :items="productTypeItems(['goods', 'service'])" clearable hide-details density="compact" />
         </v-col>
-        <v-col cols="12" md="2">
+        <!-- Less padding on this one column: at 1366 px „Филтриране по тагове" was cut to "…таг…" in Bulgarian, five
+             pixels short of its room, and the field is 16 px wider without it (`product-search.spec` asserts it). -->
+        <v-col cols="12" md="2" class="px-1">
           <TagInput v-model="list.tagFilter" type="product" :org-url="orgUrl" :label="$t('common.filterByTags')" />
         </v-col>
         <v-col cols="12" md="2">

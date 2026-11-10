@@ -2,7 +2,7 @@
   <v-dialog
     :model-value="modelValue"
     @update:model-value="emit('update:modelValue', $event)"
-    max-width="1400"
+    max-width="1840"
     scrollable
   >
     <v-card data-testid="product-picker">

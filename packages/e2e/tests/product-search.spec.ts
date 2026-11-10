@@ -289,21 +289,26 @@ test('the dialog keeps the columns the user chose for the Products list', async 
 })
 
 // The stock range's two inputs sat in a twelfth of the filter row each (about 86 px at 1366), so their labels read
-// "Stoc…" and said nothing. A label that is cut has a scroll width wider than its box.
-for (const lang of ['en', 'bg'] as const) {
-  test(`the labels of the stock range are not cut at 1366 px, in the Products list and in the dialog (${lang})`, async ({ page }) => {
+// "Stoc…" and said nothing. A label that is cut has a scroll width wider than its box. The tags filter's label is the
+// longest of the first row: „Филтриране по тагове" was cut to "Филтриране по таг…" there, five pixels short.
+const STOCK_WORD = { en: 'Stock', bg: 'Наличност', de: 'Bestand', mk: 'Залиха' } as const
+for (const lang of ['en', 'bg', 'de', 'mk'] as const) {
+  test(`the labels of the stock range and of the tags filter are not cut at 1366 px, in the Products list and in the dialog (${lang})`, async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 900 })
     await loginForApp(page)
     await page.addInitScript((l: string) => localStorage.setItem('lgr_locale', l), lang)
-    const word = lang === 'bg' ? 'Наличност' : 'Stock'
+    const word = STOCK_WORD[lang]
 
     const expectReadable = async (scope: any, where: string) => {
+      // Every Vuetify field has two label nodes (resting and floating): the resting one is what is read.
+      const resting = 'label.v-field-label:not(.v-field-label--floating)'
       for (const id of ['filter-stock-min', 'filter-stock-max']) {
-        // Every Vuetify field has two label nodes (resting and floating): the resting one is what is read.
-        const label = scope.getByTestId(id).locator('label.v-field-label:not(.v-field-label--floating)')
+        const label = scope.getByTestId(id).locator(resting)
         await expect(label).toContainText(word)
         expect(await label.evaluate((el: HTMLElement) => el.scrollWidth <= el.clientWidth), `${where}: ${id} label "${await label.innerText()}" is not cut`).toBe(true)
       }
+      const tags = scope.locator('.product-filter-bar .v-combobox').locator(resting)
+      expect(await tags.evaluate((el: HTMLElement) => el.scrollWidth <= el.clientWidth), `${where}: the tags label "${await tags.innerText()}" is not cut`).toBe(true)
     }
 
     await page.goto('/inventory/products')
