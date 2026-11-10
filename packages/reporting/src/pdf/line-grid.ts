@@ -4,9 +4,11 @@
  * certificate printed beside them, and the stock receipt. The list and report exports keep
  * their own banded table (house-style.ts).
  *
- * - **Flush outer edges.** No padding before the first column's text and none after the last
- *   column's, so the grid starts and ends on the page margins, as the parties band above it
- *   and the totals box below it do.
+ * - **A small inset at the outer edges.** The grid's box runs from margin to margin, as the
+ *   parties band above it and the totals box below it do, and the first and last columns' text
+ *   sits `GRID_EDGE_PADDING_PX` inside that box. The first version (2026-11-08) set the text
+ *   flush on the box's edges: on paper the line numbers and the amounts then touched the ends
+ *   of the shaded heading band and of the rules, so since 2026-11-10 there are at least 5px.
  * - **Columns as wide as their contents.** Every column but the item's name gets `GRID_FIT_CLASS`,
  *   which makes it exactly as wide as its widest entry, heading or value. The name takes the
  *   rest of the line. With the old fixed percentages a quantity of „2" sat alone in a column a
@@ -19,9 +21,9 @@
  *   8px still read that way, 10px did not. The old grid had 12px plus fixed column widths.
  *
  * Each form keeps its own `table.lines` rules (type size, rules, shading, vertical padding) and
- * writes its horizontal cell padding as `GRID_CELL_PADDING_X`. `LINE_GRID_CSS` then takes it off
- * the outer edges and sizes the fitted columns. Its selectors are more specific than those
- * per-form rules, so it does not depend on where in the stylesheet it is placed.
+ * writes its horizontal cell padding as `GRID_CELL_PADDING_X`. `LINE_GRID_CSS` then sets the
+ * outer edges and sizes the fitted columns. Its selectors are more specific than those per-form
+ * rules, so it does not depend on where in the stylesheet it is placed.
  */
 
 /** The whole gap between two neighbouring columns' text. */
@@ -29,6 +31,17 @@ export const GRID_GUTTER_PX = 10
 
 /** Horizontal padding of every grid cell: half the gutter on each side of a column boundary. */
 export const GRID_CELL_PADDING_X = `${GRID_GUTTER_PX / 2}px`
+
+/**
+ * The space between the grid's box and the text of its first and last columns: before the line
+ * numbers, after the amounts. Never below 5px. It is its own number, not the half gutter it
+ * happens to equal today, because it answers a different question (text against the box's edge,
+ * not text against its neighbour): narrowing the gutter must not take the edges with it.
+ */
+export const GRID_EDGE_PADDING_PX = 5
+
+/** `GRID_EDGE_PADDING_PX` as CSS, for what lines up with the first column's text. */
+export const GRID_EDGE_PADDING_X = `${GRID_EDGE_PADDING_PX}px`
 
 /**
  * The class that sizes a column to its widest entry. Every column but the free text has it: the
@@ -49,8 +62,8 @@ export const GRID_FIT_CLASS = 'fit'
  * NB this is a template literal: no backticks in the CSS comments.
  */
 export const LINE_GRID_CSS = `
-  table.lines thead th:first-child, table.lines tbody td:first-child { padding-left: 0; }
-  table.lines thead th:last-child, table.lines tbody td:last-child { padding-right: 0; }
+  table.lines thead th:first-child, table.lines tbody td:first-child { padding-left: ${GRID_EDGE_PADDING_X}; }
+  table.lines thead th:last-child, table.lines tbody td:last-child { padding-right: ${GRID_EDGE_PADDING_X}; }
   table.lines th.${GRID_FIT_CLASS}, table.lines td.${GRID_FIT_CLASS} { width: 1%; white-space: nowrap; }
   table.lines th:not(.${GRID_FIT_CLASS}), table.lines td:not(.${GRID_FIT_CLASS}) { overflow-wrap: anywhere; }
 `

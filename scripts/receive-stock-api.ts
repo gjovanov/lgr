@@ -20,6 +20,15 @@
  * comment for the real regal-pz "2000 КОРЕКЦИЯ" and regal-sf whole-document-return cases this
  * covers).
  *
+ * A receipt names its SUPPLIER (FR-28.12): the partner's name is looked up among the organization's own
+ * ACTIVE suppliers (`doc-import/supplier-name.ts#pickSupplierByName`, an exact name apart from case and
+ * runs of whitespace) and the one it matches becomes the receipt's `contactId`, which is what the
+ * supplier facts and the order dialog read. It creates no contact and books nothing otherwise
+ * differently: a partner that matches none or several leaves the receipt supplier-less (the name stays
+ * in its notes) and is listed, with its documents, at the end of the run. A КОРЕКЦИЯ, a document with
+ * no partner and the negative-line half of a document are nobody's purchase and are not looked up. A
+ * receipt that is already booked is never changed, so it keeps whatever supplier it had.
+ *
  * ⚠ A sale price PRICE_TYPO_FACTOR times or more from the rest of its line ("0172" for 0.172) is a
  * typo on the PlusMinus item card: it is not written, and the run lists it at the end so the store
  * can correct the card. Every receipt of that article repeats the typo until they do.
@@ -43,7 +52,9 @@ import { readdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { assertTokenOrg } from './lib/token-org.js'
+import { createSupplierResolver } from './lib/supplier-partner.js'
 import { mapStokrazpDoc, PRICE_TYPO_FACTOR, type StokrazpPriceWarning } from '../packages/services/src/biz/doc-import/map-plusminus-stokrazp.js'
+import { describeMatch, formatPartnerReport, summarizePartners, type PartnerResult } from '../packages/services/src/biz/doc-import/supplier-name.js'
 import type { PlusMinusDocument } from '../packages/services/src/biz/doc-import/map-plusminus-invoice.js'
 
 function parseArgs(argv: string[]) {
@@ -189,9 +200,13 @@ async function bookAdjustment(docNumber: string, date: string, lines: { name: st
   console.log(`    ✓ adjustment ${mv.movementNumber} confirmed | ${built.length} line(s), Σqty ${built.reduce((s, l) => s + l.quantity, 0)}`)
 }
 
-async function bookReceipt(docNumber: string, date: string, partner: string | undefined, items: any[]): Promise<void> {
+/**
+ * `contactId` is the supplier the receipt names, or `null` when the partner was looked up and is nobody's (the
+ * child then does not look it up again and report it a second time). The notes keep the partner's name as sent.
+ */
+async function bookReceipt(docNumber: string, date: string, partner: string | undefined, contactId: string | null, items: any[]): Promise<void> {
   const tmpFile = join(tmpdir(), `stokrazp-${docNumber}-${process.pid}.json`)
-  writeFileSync(tmpFile, JSON.stringify({ receipt: docNumber, date, supplier: partner, items }))
+  writeFileSync(tmpFile, JSON.stringify({ receipt: docNumber, date, supplier: partner, contactId, items }))
   try {
     const cliArgs = ['run', 'scripts/receive-new-products.ts', '--items', tmpFile, '--org', orgSlug, '--api', api]
     if (warehouseCode) cliArgs.push('--warehouse', warehouseCode)
@@ -222,6 +237,10 @@ async function main() {
 
   let ok = 0, failed = 0
   const typos: { docNumber: string; w: StokrazpPriceWarning }[] = []
+  // FR-28.12: who each receipt came from. A lookup that FAILS (the API, not "no such supplier") fails its document
+  // before anything is booked: a receipt booked without its supplier stays without it, so the run is repeated.
+  const suppliers = createSupplierResolver(path => http('GET', org(path)))
+  const partners: PartnerResult[] = []
   for (const f of files) {
     const doc: PlusMinusDocument = JSON.parse(readFileSync(join(dir, f), 'utf8'))
     const docNumber = String((doc.header as any)?.docNumber || '')
@@ -233,8 +252,17 @@ async function main() {
         console.log(`    ⚠ PlusMinus price typo? "${w.name}": ${describeTypo(w)}`)
         typos.push({ docNumber: m.docNumber, w })
       }
+      // Only a document that books a receipt has a supplier to name: a price-only restatement books nothing, and the
+      // negative lines are a correction or a return, not a purchase.
+      let contactId: string | null = null
+      if (m.receiptItems.length) {
+        const match = m.supplier.kind === 'supplier' ? await suppliers.resolve(m.supplier.name) : undefined
+        partners.push({ docNumber: m.docNumber, partner: m.supplier, match })
+        if (match) console.log(`    ${describeMatch(m.supplier.name, match)}`)
+        if (match?.status === 'matched') contactId = match.contactId
+      }
       const items = [...m.receiptItems, ...m.priceOnlyItems]
-      if (items.length) await bookReceipt(m.docNumber, m.date, m.partner, items)
+      if (items.length) await bookReceipt(m.docNumber, m.date, m.partner, contactId, items)
       if (m.adjustmentLines.length) await bookAdjustment(m.docNumber, m.date, m.adjustmentLines, wh)
       ok++
     } catch (e: any) {
@@ -243,6 +271,8 @@ async function main() {
     }
   }
   console.log(`\n${execute ? 'Processed' : 'Would process'}: ${ok} document(s), ${failed} failed`)
+  console.log()
+  for (const line of formatPartnerReport(summarizePartners(partners))) console.log(line)
   if (typos.length) {
     const held = typos.filter(t => t.w.held).length
     console.log(`\n⚠ ${typos.length} price(s) ${PRICE_TYPO_FACTOR}× or more off the rest of their line, ${held} of them not written. ` +

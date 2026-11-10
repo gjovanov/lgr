@@ -209,6 +209,8 @@ interface IInvoice extends Document {
 **MongoDB indexes:**
 - `{ orgId: 1, invoiceNumber: 1 }` (unique)
 - `{ orgId: 1, contactId: 1 }`
+- `{ orgId: 1, direction: 1, 'lines.productId': 1 }` (FR-28.2: which suppliers sold an article)
+- `{ orgId: 1, direction: 1, contactId: 1 }` (FR-28.2: which articles a supplier sold)
 - `{ orgId: 1, status: 1 }`
 - `{ orgId: 1, direction: 1, issueDate: -1 }`
 - `{ orgId: 1, dueDate: 1, status: 1 }`

@@ -18,11 +18,15 @@ its header for the rules); the daily run is the CronJob `lgr-org-sync` in lgr-de
   warehouses, tags, sequences, orders and reservations, POS sessions, audit log, the logo, apps, ...).
   A copy's `_id` is a pure function of its source's (`ids.ts`), so a second run changes nothing and no
   table is kept. Every reference is rewritten to point INSIDE the copy; not one id of the real org is left.
+  That includes an id inside a longer string (a tag, an audit entry's text) and the id of a record the copy
+  never holds (a backup run): it becomes the id the copy WOULD have, which points at nothing. `leaks`
+  (below) is the check.
 - **Never copied** (`policy.ts#NEVER_CLONED`): the file store (files, documents, archives, backups: the
   owner's 2026-11-09 rule), fiscal devices and workstations, enrolled desktops and their keys, invites,
   mail logs, inboxes, sign-in credentials, sealed personal data (a source holding it is refused).
 - **People:** a membership already in the test org is matched by WHO it is (the identity), not copied
-  twice. A membership the copy adds arrives **switched off**, except an admin's on the first copy
+  twice; a permission set or a role by name; an enabled app by app (the app creates those rows itself the first time
+  anyone opens the hub, so a copy made right after a reset meets them). A membership the copy adds arrives **switched off**, except an admin's on the first copy
   (`--activate-admins`): who may enter a test org is decided there. A sync never adds access.
 - **Switched off on a copy:** the daily digest, the nightly backup, the integrations, the link to the
   books org. Its numbering never goes backwards (`max(copy, real)`).
@@ -44,6 +48,23 @@ bun scripts/org-clone.ts create  --source regal-sf --target test-regal-sf --name
 bun scripts/org-clone.ts convert --org regal --to test-regal-pz --name "Test Regal PZ OOD" --source regal-pz [--execute]
 bun scripts/org-clone.ts reset   --org test-regal-pz [--execute]     # empties a DEV org, after a verified bundle
 ```
+
+## Checking that a copy names nothing of the real org
+
+```bash
+bun scripts/org-clone.ts leaks --pairs regal-pz:test-regal-pz,regal-sf:test-regal-sf    # READ-ONLY, counts only
+```
+
+Prints `NO LEAKS` (exit 0), or `LEAKS FOUND` (exit 1) with, per collection, how many documents of the copy name an
+id of the real org (the org's own, or any document's it holds) and up to three of the COPY's own document ids to go
+and look at. It never prints an id of the real org. It reads every collection of the database by its own rule, every
+24-hex window of every document, which is stricter than the rewrite's whole-token rule: a second opinion on the
+rewrite, not a repeat of it, and the one thing that finds a shape the test fixture does not have (the first production
+copies named real-org ids inside tags and audit text).
+
+Run it on the real copies (the recipe below) after any change to `remap.ts`, a new model with an `orgId`, a new
+`NEVER_CLONED` entry, or whenever a copy looks wrong. A hit is a bug in the rewrite: fix `remap.ts`, `sync --execute`
+(it rewrites exactly the documents whose copy differs), then run `leaks` again.
 
 ## Run it against production
 

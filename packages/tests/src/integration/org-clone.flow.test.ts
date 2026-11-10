@@ -10,11 +10,11 @@ import {
   createTestNotification,
 } from '../helpers/factories'
 import { mongoose } from 'db/connection'
-import { AuditLog, Identity, Invoice, Org, OrgLogo, PermissionSet, Product, Role, Sequence, StockLevel, User } from 'db/models'
+import { AuditLog, Identity, Invoice, LeaveBalance, Org, OrgApp, OrgLogo, PermissionSet, Product, Role, Sequence, StockLevel, Tag, User } from 'db/models'
 import { tenantCollections } from 'services/biz/backup/backup-bundle.service'
 import {
   OrgCloneError, assertCloneAllowed, cloneOrgData, compareOrgs, convertToTestOrg, createTestOrgFrom,
-  markOrgEnvironment, resetOrgData,
+  markOrgEnvironment, resetOrgData, scanCopyForLeaks,
 } from 'services/biz/org-clone/clone.service'
 import { cloneIdHex } from 'services/biz/org-clone/ids'
 import { contentHash } from 'services/biz/org-clone/canonical'
@@ -105,6 +105,8 @@ async function realShop(label = 'real') {
       status: 'sent',
       createdBy: admin._id,
       attachments: [fileId],
+      // A tag that names the document it came from: the id is INSIDE the text.
+      tags: [`converted-from:${products[0]._id}`, 'plain'],
       lines: [{
         description: 'Bolt', quantity: 3, unit: 'pcs', unitPrice: 5, discount: 0, taxRate: 20, taxAmount: 3, lineTotal: 18,
         productId: products[0]._id, warehouseId: wh1._id,
@@ -117,6 +119,8 @@ async function realShop(label = 'real') {
     lines: [{ productId: products[0]._id, quantity: 3, unitCost: 5, totalCost: 15 }],
   } as any)
   await createTestTag(org._id)
+  await OrgApp.create({ orgId: org._id, appId: 'accounting', enabled: true })
+  await OrgApp.create({ orgId: org._id, appId: 'invoicing', enabled: true })
   await Sequence.create({ orgId: org._id, prefix: 'INV', year: 2026, lastNumber: 5 })
   await Sequence.create({ orgId: org._id, prefix: 'SM', year: 2026, lastNumber: 9, displayPrefix: 'SKL' })
   await AuditLog.create({
@@ -127,6 +131,13 @@ async function realShop(label = 'real') {
   const png = Buffer.from('not really a png')
   await OrgLogo.create({ orgId: org._id, data: png, mimeType: 'image/png', size: png.length, width: 1, height: 1, hash: 'abc123', uploadedBy: admin._id } as any)
   await Org.updateOne({ _id: org._id }, { $set: { logo: `/api/org/${org._id}/logo?v=abc123` } })
+
+  // An operational record the copy never holds, and an audit entry that names it.
+  const backupRun = await coll('BackupRun').insertOne({ orgId: org._id, status: 'completed', kind: 'full' })
+  await AuditLog.create({
+    orgId: org._id, userId: admin._id, action: 'create', module: 'backup', entityType: 'backup',
+    entityId: backupRun.insertedId, entityName: 'a backup',
+  } as any)
 
   // Things a test copy must never inherit.
   await createTestFiscalDevice(org._id, wh1._id)
@@ -206,7 +217,7 @@ describe('the first copy', () => {
 
     expect(report.totals.errors).toBe(0)
     expect(report.totals.conflicts).toBe(0)
-    for (const m of ['Contact', 'Invoice', 'Product', 'StockLevel', 'StockMovement', 'Warehouse', 'Tag', 'Sequence', 'AuditLog', 'OrgLogo', 'PermissionSet', 'Role', 'User']) {
+    for (const m of ['Contact', 'Invoice', 'Product', 'StockLevel', 'StockMovement', 'Warehouse', 'Tag', 'Sequence', 'AuditLog', 'OrgLogo', 'OrgApp', 'PermissionSet', 'Role', 'User']) {
       expect(await countOf(m, id)).toBe(await countOf(m, shop.id))
     }
     expect(await countOf('Product', id)).toBe(3)
@@ -225,14 +236,22 @@ describe('the first copy', () => {
     const shop = await realShop()
     const { id } = await testCopyOf(shop)
 
+    // Every model that holds an org's documents, operational records and node state included: a copied
+    // audit entry may name a backup run of the real org, and that id must not survive either.
+    const scoped = Object.keys(mongoose.models).filter(n => !!mongoose.models[n]!.schema.path('orgId'))
     const sourceIds = new Set<string>()
-    for (const name of tenantCollections()) for (const d of await docsOf(name, shop.id)) sourceIds.add(String(d._id))
+    for (const name of scoped) for (const d of await docsOf(name, shop.id)) sourceIds.add(String(d._id))
     sourceIds.add(shop.id)
     expect(sourceIds.size).toBeGreaterThan(20)
 
     let text = ''
-    for (const name of tenantCollections()) text += JSON.stringify(await docsOf(name, id))
+    for (const name of scoped) text += JSON.stringify(await docsOf(name, id))
     for (const sid of sourceIds) expect(text.includes(sid)).toBe(false)
+
+    // The tag that carried an id inside its text now carries the copy's.
+    const tagged: any = (await docsOf('Invoice', id)).find((i: any) => i.status === 'sent')
+    expect(tagged.tags[0]).toBe(`converted-from:${cloneIdHex(String(shop.products[0]._id), id)}`)
+    expect(tagged.tags[1]).toBe('plain')
 
     // And the references that matter still resolve inside the copy.
     const products = await docsOf('Product', id)
@@ -408,6 +427,8 @@ describe('people the test org already has', () => {
     const own = await createTestUser(target._id, { identityId: shop.adminPerson._id, role: 'admin', username: 'my-own-name', email: `own-${++seq}@x.test` } as any)
     const ownSet = await PermissionSet.create({ orgId: target._id, name: 'Seller', description: 'theirs', permissions: ['crm.read'], isSystem: true } as any)
     const ownRole = await Role.create({ orgId: target._id, name: 'Seller', isBuiltin: true, templateKey: 'seller', caps: ['crm.read'], legacy: { role: 'seller', permissions: [] } } as any)
+    // The app made this one itself when someone opened the hub, and the test org has switched it off.
+    await OrgApp.create({ orgId: target._id, appId: 'accounting', enabled: false })
 
     const run = await cloneOrgData({ sourceOrgId: shop.id, targetOrgId: String(target._id), execute: true, activateAdmins: true })
     expect(byName(run, 'User').merged).toBe(1)
@@ -415,6 +436,12 @@ describe('people the test org already has', () => {
     expect(byName(run, 'PermissionSet').merged).toBe(1)
     expect(byName(run, 'Role').merged).toBe(1)
     expect(await countOf('Role', String(target._id))).toBe(1)
+    // The enabled app is matched by which app it is: no clash, the test org's own switch stays, the other is added.
+    expect(byName(run, 'OrgApp').merged).toBe(1)
+    expect(byName(run, 'OrgApp').inserted).toBe(1)
+    expect(byName(run, 'OrgApp').conflicts).toBe(0)
+    const apps: any[] = await docsOf('OrgApp', String(target._id))
+    expect(apps.map(a => [a.appId, a.enabled]).sort()).toEqual([['accounting', false], ['invoicing', true]])
 
     const users: any[] = await docsOf('User', String(target._id))
     expect(users.length).toBe(2)
@@ -538,7 +565,7 @@ describe('every model with an orgId takes a side', () => {
     'CostLayer', 'Employee', 'EmploymentContract', 'ExchangeRate', 'FiscalPeriod', 'FiscalPosition', 'FiscalYear', 'FixedAsset',
     'InternalOrder', 'InventoryCount', 'Invoice', 'Journal', 'JournalEntry', 'LeaveBalance', 'OperationType', 'Order', 'OrgApp',
     'OrgLogo', 'POSPaymentMethod', 'POSSession', 'POSTransaction', 'PaymentOrder', 'PaymentTerm', 'PayrollElement', 'PayrollRun',
-    'Payslip', 'PermissionSet', 'PriceList', 'Product', 'ProductCategory', 'Reservation', 'Role', 'Sequence', 'StockLevel',
+    'Payslip', 'PermissionSet', 'PriceList', 'Product', 'ProductCategory', 'ProductSupplier', 'Reservation', 'Role', 'Sequence', 'StockLevel',
     'StockLocation', 'StockLot', 'StockMovement', 'SupplierProductAlias', 'Tag', 'TaxReturn', 'Timesheet', 'User',
     'VatRegisterEntry', 'Warehouse',
   ].sort()
@@ -661,5 +688,144 @@ describe('the command line (scripts/org-clone.ts)', () => {
     const wipe = await cli(['reset', '--org', o.slug, '--no-bundle', '--execute'])
     expect(wipe.code).toBe(1)
     expect(wipe.out).toContain('[target_not_dev]')
+  })
+})
+
+describe('the unique indexes the copy relies on (scripts/org-clone.ts)', () => {
+  const REPO = join(import.meta.dir, '..', '..', '..', '..')
+
+  async function cli(args: string[]) {
+    const proc = Bun.spawn(['bun', join(REPO, 'scripts', 'org-clone.ts'), ...args], {
+      cwd: REPO,
+      env: { ...process.env, MONGODB_URI: testDbUri() },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+    return { code, out: out + err }
+  }
+
+  async function uniqueIndexNames(model: { collection: any }): Promise<string[]> {
+    return (await model.collection.indexes()).filter((i: any) => i.unique && i.name !== '_id_').map((i: any) => i.name as string)
+  }
+
+  it('does not ask for the unique index of a model the real org holds no rows of', async () => {
+    // Production's leave balances: a schema index the app could not build over the old data. The shop being
+    // copied has no leave balances, so the missing index must not stop its copy.
+    await LeaveBalance.init()
+    const names = await uniqueIndexNames(LeaveBalance)
+    expect(names.length).toBeGreaterThan(0)
+    try {
+      for (const name of names) await LeaveBalance.collection.dropIndex(name)
+      const shop = await realShop()
+      const made = await createTestOrgFrom({ sourceOrgId: shop.id, slug: slugOf('noidx'), name: 'Test NoIdx', execute: true })
+      const copy: any = await Org.findById(made.orgId).lean().exec()
+      const res = await cli(['sync', '--source', shop.org.slug, '--target', copy.slug, '--execute'])
+      expect(res.code).toBe(0)
+      expect(await countOf('Product', made.orgId)).toBe(3)
+    } finally {
+      await LeaveBalance.syncIndexes()
+    }
+  })
+
+  it('refuses, and writes nothing, when a model the real org holds rows of lacks its unique index', async () => {
+    await Tag.init()
+    const names = await uniqueIndexNames(Tag)
+    expect(names.length).toBeGreaterThan(0)
+    try {
+      const shop = await realShop()
+      const made = await createTestOrgFrom({ sourceOrgId: shop.id, slug: slugOf('idx'), name: 'Test Idx', execute: true })
+      const copy: any = await Org.findById(made.orgId).lean().exec()
+      for (const name of names) await Tag.collection.dropIndex(name)
+      const res = await cli(['sync', '--source', shop.org.slug, '--target', copy.slug, '--execute'])
+      expect(res.code).toBe(1)
+      expect(res.out).toContain('unique index missing')
+      expect(await countOf('Product', made.orgId)).toBe(0)
+    } finally {
+      await Tag.syncIndexes()
+    }
+  })
+})
+
+describe('the leak scan (scripts/org-clone.ts leaks)', () => {
+  const REPO = join(import.meta.dir, '..', '..', '..', '..')
+
+  async function leaksCli(pair: string) {
+    const proc = Bun.spawn(['bun', join(REPO, 'scripts', 'org-clone.ts'), 'leaks', '--pairs', pair], {
+      cwd: REPO,
+      env: { ...process.env, MONGODB_URI: testDbUri() },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+    return { code, out: out + err }
+  }
+
+  it('finds nothing in a clean copy, says how much it looked at, and only looks', async () => {
+    const shop = await realShop()
+    const { id } = await testCopyOf(shop)
+    const before = await fingerprint(id)
+
+    const scan = await scanCopyForLeaks(shop.id, id)
+    expect(scan.leaking).toBe(0)
+    expect(scan.byCollection).toEqual({})
+    expect(scan.sourceIds).toBeGreaterThan(20)
+    expect(scan.copyDocs).toBeGreaterThan(20)
+    expect(await fingerprint(id)).toEqual(before)
+  })
+
+  it('finds a real-org id the rewrite does not follow, in a collection no model names, and in the org row of the copy', async () => {
+    const shop = await realShop()
+    const { id } = await testCopyOf(shop)
+
+    // 1. An id glued to other hex digits is not a token the rewrite follows.
+    const contact: any = (await docsOf('Contact', id))[0]
+    await coll('Contact').updateOne({ _id: contact._id }, { $set: { notes: `ref ab${shop.contact._id}` } })
+    // 2. A collection no model names is one the engine never reads.
+    const stray = await mongoose.connection.db!.collection('stray_notes').insertOne({ orgId: oid(id), text: `see ${shop.invoices[0]._id}` })
+    // 3. The real org's own id, in the org row of the copy.
+    await Org.collection.updateOne({ _id: oid(id) }, { $set: { scanProbe: `x ${shop.id}` } })
+
+    const scan = await scanCopyForLeaks(shop.id, id)
+    const contacts = coll('Contact').collectionName
+    const orgs = Org.collection.collectionName
+    expect(scan.leaking).toBe(3)
+    expect(scan.byCollection).toEqual({ [contacts]: 1, stray_notes: 1, [orgs]: 1 })
+    // It points at documents of the COPY, and never prints an id of the real org.
+    expect(scan.samples[contacts]).toEqual([String(contact._id)])
+    expect(scan.samples.stray_notes).toEqual([String(stray.insertedId)])
+    const printed = JSON.stringify(scan)
+    for (const real of [shop.id, String(shop.contact._id), String(shop.invoices[0]._id)]) expect(printed.includes(real)).toBe(false)
+  })
+
+  it('takes exactly the pairs a sync takes', async () => {
+    const shop = await realShop()
+    const plain = await createTestOrg({ slug: slugOf('plain') } as any)
+    expect(((await captureRejection(scanCopyForLeaks(shop.id, String(plain._id)))) as OrgCloneError)?.code).toBe('target_not_dev')
+    expect(((await captureRejection(scanCopyForLeaks(shop.id, shop.id))) as OrgCloneError)?.code).toBe('same_org')
+  })
+
+  it('exits 0 on a clean copy, 1 naming the collection on a leak, 1 when it could not look, and never prints an id of the real org', async () => {
+    const shop = await realShop()
+    const made = await createTestOrgFrom({ sourceOrgId: shop.id, slug: slugOf('leaks'), name: 'Test Leaks', execute: true })
+    await cloneOrgData({ sourceOrgId: shop.id, targetOrgId: made.orgId, execute: true, activateAdmins: true })
+    const copy: any = await Org.findById(made.orgId).lean().exec()
+    const pair = `${shop.org.slug}:${copy.slug}`
+
+    const clean = await leaksCli(pair)
+    expect(clean.code).toBe(0)
+    expect(clean.out).toContain('NO LEAKS')
+
+    await coll('Invoice').updateOne({ orgId: oid(made.orgId), status: 'sent' }, { $set: { notes: `ref ${shop.products[0]._id}` } })
+    const dirty = await leaksCli(pair)
+    expect(dirty.code).toBe(1)
+    expect(dirty.out).toContain('LEAKS FOUND')
+    expect(dirty.out).toContain(`${coll('Invoice').collectionName}: 1`)
+    expect(dirty.out.includes(String(shop.products[0]._id))).toBe(false)
+
+    const missing = await leaksCli(`${shop.org.slug}:no-such-test-org`)
+    expect(missing.code).toBe(1)
+    expect(missing.out).toContain('[no_such_org]')
+    expect(missing.out).toContain('NOT CHECKED')
   })
 })
