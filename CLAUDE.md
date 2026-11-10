@@ -3093,11 +3093,12 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   naming a reservation).
 - ⚠ **A geometry spec must check that every VALUE fits its field, not only that the table does not scroll.** Slice 5
   passed a spec that measured the table and shipped number fields that clipped three digits ("100" read "10", #632).
-  `order-tree.spec` and `customer-order-tree.spec` read each field's value whole at four widths in all four languages.
+  `customer-order-tree.spec` reads a quantity of five digits and a price of 9,999.99 whole at 1366 and 1920 px, panel open and folded.
   The tree measures its room and drops a column its screen marks `optional` (Dispatched / Delivered, whose figure moves
   into Invoiced's tooltip) rather than scroll; cells carry `data-col`, and specs find a cell by it, never by position.
-- The reservation page's supply tree and the links generated from the reservation list arrive with slice 6b: see
-  FR-28 §11 (`docs/fr/FR-28-supplier-facts-product-search-order-tree.md`).
+- The reservation page (`ReservationDetailView.vue`) shows the supply a reservation hangs on as a tree (`supply-tree.ts`),
+  and the Reservations list and that page link to the exact line of the order they are under (`?line=`, `links.ts`): see
+  FR-28 §11 (`docs/fr/FR-28-supplier-facts-product-search-order-tree.md`), slice 6.
 
 ## VAT files (2026-11-03, FR-25 R2)
 
