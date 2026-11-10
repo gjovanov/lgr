@@ -3109,6 +3109,16 @@ the rules); daily job: CronJob `lgr-org-sync` in lgr-deploy (04:30 Europe/Sofia)
   org; the creation time stays), so a sync needs no table and a second run changes nothing. References are rewritten
   BY VALUE (the restore's remap rule): an ObjectId or 24-hex string that is a source document's id becomes its copy's,
   anything else (identities) is left. The test asserts not one id of the real org survives in the copy.
+- ⚠ **"A source document's id" is wider than it looks, and a copy that keeps one is a link into another tenant.** The
+  rewrite also follows a whole 24-hex token INSIDE a longer string (a tag `<word>:<24-hex>`, an audit entry's text),
+  and the ids it knows are every `_id` of the real org in EVERY collection with an `orgId`, the never-copied and
+  operational ones (backup runs, background tasks) included: an audit entry about a backup names a record the copy
+  does not hold, and that id becomes the one the copy WOULD have (it points at nothing) instead of staying a real
+  org's. Both gaps shipped in the first version and were found, on 2026-11-10, only by scanning the real copies (the
+  fixture had neither shape; it has both now). **`bun scripts/org-clone.ts leaks --pairs …`** is that scan:
+  read-only, counts only, every collection of the database, every 24-hex window of every document (stricter than
+  the rewrite's whole-token rule, so a second opinion and not a repeat), exit 1 on a hit. Run it on the real copies
+  after any change to `remap.ts` or a new model with an `orgId`; the fixture cannot stand in for it.
 - ⚠ **Never copied** (`policy.ts#NEVER_CLONED`, and `org-clone.flow.test.ts` makes every model with an `orgId` take a
   side): the file store (files, documents, archives, backups; owner's rule), fiscal devices and workstations, enrolled
   desktops, invites, mail logs, inboxes, credentials. A model added to the app must be listed there or in the test's
