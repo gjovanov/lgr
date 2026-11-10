@@ -196,6 +196,17 @@ describe('the reference guard below the routes, every kind of write', () => {
     expect(String((await Invoice.findById(inv._id).lean() as any).lines[0].productId)).toBe(id(w.own.product))
   })
 
+  it('the same kinds of write naming the org\'s own records go through (no hook holds a write up)', async () => {
+    const saved: any = await inRequest(() => CashOrder.create(cashOrder(w.own.contact._id)))
+    const many: any[] = await inRequest(() => CashOrder.insertMany([cashOrder(String(w.own.contact._id)), cashOrder(String(w.own.contact._id))]))
+    const bulk: any = await inRequest(() => CashOrder.bulkWrite([{ updateOne: { filter: { _id: saved._id, orgId: w.A._id }, update: { $set: { description: 'bulk' } } } }] as any))
+    const pushed: any = await inRequest(() => CashOrder.updateOne({ _id: saved._id }, { contactId: w.own.contact._id }).exec())
+    expect(many).toHaveLength(2)
+    expect(bulk.modifiedCount).toBe(1)
+    expect(pushed.matchedCount).toBe(1)
+    await CashOrder.deleteMany({ _id: { $in: [saved._id, ...many.map(m => m._id)] } })
+  })
+
   it('outside a request the guard is off: scripts, migrations and the copy job write as trusted code', async () => {
     const made: any = await CashOrder.create(cashOrder(w.foreign.contact._id))
     expect(String(made.contactId)).toBe(id(w.foreign.contact))
