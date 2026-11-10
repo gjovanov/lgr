@@ -50,7 +50,8 @@ export const manifest: ModuleManifest = {
       { path: 'products/new/:tab(edit|pricing|settings)', name: 'inventory.products.new', component: () => import('./views/ProductFormView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'New' }] } },
       { path: 'products/:id', redirect: (to) => ({ name: 'inventory.products.edit', params: { id: to.params.id, tab: 'edit' } }) },
       { path: 'products/:id/:tab(edit|pricing|settings)', name: 'inventory.products.edit', component: () => import('./views/ProductFormView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'Edit' }] } },
-      { path: 'products/:id/:tab(stock|ledger|movements|levels)', name: 'inventory.products.stock', component: () => import('./views/ProductStockView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'Stock' }] } },
+      // FR-28.7: `suppliers` joins the flat tab route — who the article was bought from.
+      { path: 'products/:id/:tab(stock|ledger|movements|levels|suppliers)', name: 'inventory.products.stock', component: () => import('./views/ProductStockView.vue'), meta: { breadcrumb: [{ title: 'Products', to: '/products' }, { title: 'Stock' }] } },
       { path: 'opening-stock', name: 'inventory.opening-stock', component: () => import('./views/OpeningStockImportView.vue'), meta: { breadcrumb: [{ title: 'Opening Stock Import' }] } },
       { path: 'categories', name: 'inventory.categories', component: () => import('./views/CategoriesView.vue'), meta: { breadcrumb: [{ title: 'Categories' }] } },
       { path: 'categories/new', name: 'inventory.categories.new', component: () => import('./views/CategoryFormView.vue'), meta: { breadcrumb: [{ title: 'Categories', to: '/categories' }, { title: 'New' }] } },

@@ -20,9 +20,10 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { useAccess } from 'ui-shared/access/useAccess'
 
 const props = defineProps<{
-  /** URL tab slug — one of edit|pricing|settings|stock|ledger|movements|levels */
+  /** URL tab slug — one of edit|pricing|settings|stock|ledger|movements|levels|suppliers */
   activeTab: string
   /** When true, non-edit tabs are disabled (create flow — save first). */
   isNew?: boolean
@@ -33,6 +34,9 @@ const props = defineProps<{
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+// FR-28.7: who we buy an article from is incoming-document data (`bills.view`): a role that may not read bills is
+// not offered the tab, as the server refuses it the facts.
+const seesSuppliers = useAccess().can('bills.view')
 
 // FR-04 (#11): the LABEL VALUES of tabLedger/tabMovements are deliberately inverted in the
 // locale files — users call the per-line journal (/ledger) "Movements"/"Движения" and the
@@ -46,6 +50,9 @@ const tabs = computed(() => [
   { value: 'ledger',    label: t('warehouse.tabLedger'),    icon: 'mdi-book-open-variant', disabled: !!props.isNew },
   { value: 'movements', label: t('warehouse.tabMovements'), icon: 'mdi-swap-horizontal',   disabled: !!props.isNew },
   { value: 'levels',    label: t('warehouse.tabLevels'),    icon: 'mdi-counter',           disabled: !!props.isNew },
+  ...(seesSuppliers ? [
+    { value: 'suppliers', label: t('warehouse.tabSuppliers'), icon: 'mdi-truck-delivery-outline', disabled: !!props.isNew },
+  ] : []),
 ])
 
 function goTo(tab: string) {
