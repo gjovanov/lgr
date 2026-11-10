@@ -3222,6 +3222,10 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     write, must consult access (`useAccess`, `v-cap`, a `cap`, a page rule), or be on `NOT_YET`, which only shrinks.
     Every capability id a view names must be in the catalogue (an unknown one hides the control).
   - Keep a record's pencil when it is the only way to READ the record (a dialog): gate the dialog's Save instead.
+- **Role tools (FR-27.9)**, import-pure in `config/access/compare.ts`, on the roles screens: "Who can…" (`whoCan` over
+  `ASKABLE_CAPABILITIES`, with the people count), "Compare" (`compareGrants`: each feature's level per role and the
+  capabilities one holds the other does not) and the editor's preview (`pagesOpenedBy`: the pages the role as it
+  stands opens, by app). All from the grants and page rules the server and the menus decide by; nothing is stored.
 - **A role's start page (FR-27.4)**: `Role.landing`, a page id the role opens (`role.service#cleanLanding`: 422
   `landing_unknown` / `landing_not_open`; capabilities that stop opening it drop it). A change bumps the role's
   version, and `/auth/me` answers it as `access.landing`. `startPage(who)`: the landing, else the Dashboard, else

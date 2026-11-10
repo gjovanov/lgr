@@ -3,6 +3,13 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h4">{{ $t('access.ui.title') }}</h1>
       <v-spacer />
+      <!-- FR-27.9: who can do something, and two roles side by side. -->
+      <responsive-btn v-if="roles.length" icon="mdi-account-search" variant="outlined" class="mr-2" data-testid="role-who-can" @click="whoOpen = true">
+        {{ $t('access.tools.whoCan') }}
+      </responsive-btn>
+      <responsive-btn v-if="roles.length > 1" icon="mdi-compare-horizontal" variant="outlined" class="mr-2" data-testid="role-compare" @click="openCompare">
+        {{ $t('access.tools.compare') }}
+      </responsive-btn>
       <responsive-btn v-if="roles.length" icon="mdi-plus" color="primary" data-testid="role-new" @click="openNew">
         {{ $t('access.ui.newRole') }}
       </responsive-btn>
@@ -48,6 +55,74 @@
       </v-card-text>
     </v-card>
 
+    <v-dialog v-model="whoOpen" max-width="640">
+      <v-card :title="$t('access.tools.whoCan')">
+        <v-card-text>
+          <v-autocomplete
+            v-model="whoCap"
+            :items="capabilityOptions"
+            :label="$t('access.tools.capability')"
+            :hint="$t('access.tools.whoCanHint')"
+            persistent-hint
+            autofocus
+            data-testid="role-who-can-cap"
+          />
+          <v-list v-if="whoCap" density="compact" class="mt-4" data-testid="role-who-can-result">
+            <v-list-item v-for="r in whoCanRoles" :key="r.id" :title="r.name" :subtitle="`${$t('access.ui.people')}: ${r.people}`" @click="open(r)">
+              <template #append>
+                <v-chip v-if="r.all" size="x-small" color="error" variant="tonal">*</v-chip>
+              </template>
+            </v-list-item>
+            <v-list-item v-if="!whoCanRoles.length" :title="$t('access.tools.nobody')" />
+          </v-list>
+          <div v-if="whoCap" class="text-body-2 text-medium-emphasis mt-2">{{ $t('access.tools.peopleTotal', { n: whoCanPeople }) }}</div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="whoOpen = false">{{ $t('common.close') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <v-dialog v-model="compareOpen" max-width="900" scrollable>
+      <v-card :title="$t('access.tools.compare')">
+        <v-card-text>
+          <v-row dense>
+            <v-col cols="12" sm="6"><v-select v-model="compareA" :items="roleOptions" item-title="title" item-value="value" :label="$t('access.tools.roleA')" hide-details data-testid="role-compare-a" /></v-col>
+            <v-col cols="12" sm="6"><v-select v-model="compareB" :items="roleOptions" item-title="title" item-value="value" :label="$t('access.tools.roleB')" hide-details data-testid="role-compare-b" /></v-col>
+          </v-row>
+          <v-switch v-model="compareAll" :label="$t('access.tools.showAll')" color="primary" density="compact" hide-details class="mt-2" />
+          <v-alert v-if="compareA && compareB && !comparisonRows.length && !compareAll" type="success" variant="tonal" class="mt-3">{{ $t('access.tools.identical') }}</v-alert>
+          <v-table v-else-if="compareA && compareB" density="compact" class="mt-3" data-testid="role-compare-table">
+            <thead>
+              <tr>
+                <th>{{ $t('access.ui.feature') }}</th>
+                <th>{{ roleName(compareA) }}</th>
+                <th>{{ roleName(compareB) }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in comparisonRows" :key="row.feature" :class="{ 'bg-amber-lighten-5': row.differs }">
+                <td>{{ $t(`access.feature.${row.feature}`) }}</td>
+                <td>
+                  {{ $t(`access.level.${row.a}`) }}
+                  <v-chip v-for="c in row.onlyA" :key="c" size="x-small" color="success" variant="tonal" class="ml-1">+ {{ actionLabel(c) }}</v-chip>
+                </td>
+                <td>
+                  {{ $t(`access.level.${row.b}`) }}
+                  <v-chip v-for="c in row.onlyB" :key="c" size="x-small" color="success" variant="tonal" class="ml-1">+ {{ actionLabel(c) }}</v-chip>
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="compareOpen = false">{{ $t('common.close') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <v-dialog v-model="newOpen" max-width="520">
       <v-card :title="$t('access.ui.newRole')">
         <v-card-text>
@@ -79,7 +154,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ROLE_TEMPLATES } from 'config/access'
+import { ASKABLE_CAPABILITIES, ROLE_TEMPLATES, compareGrants, whoCan, type CapabilityId, type Grant } from 'config/access'
 import { useAppStore } from '../../store/app.store'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -96,6 +171,35 @@ const saving = ref(false)
 const defaultRoleId = ref<string | null>(null)
 const newOpen = ref(false)
 const draft = reactive({ name: '', description: '', from: 'blank' as 'blank' | 'template' | 'role', templateKey: 'member', roleId: '' })
+
+// ── FR-27.9: who can…, compare ──
+const grantOfView = (r: any): Grant => (r.all ? { all: true } : { caps: new Set(r.caps as CapabilityId[]) })
+const actionLabel = (c: string) => t(`access.action.${c.slice(c.indexOf('.') + 1).replace(/[:-]/g, '_')}`)
+const capabilityOptions = computed(() => ASKABLE_CAPABILITIES.map(c => ({ value: c, title: `${t(`access.feature.${c.slice(0, c.indexOf('.'))}`)} · ${actionLabel(c)}` })))
+const roleOptions = computed(() => roles.value.map(r => ({ title: r.name, value: r.id })))
+const roleName = (id: string) => roles.value.find(r => r.id === id)?.name ?? ''
+
+const whoOpen = ref(false)
+const whoCap = ref<CapabilityId | null>(null)
+const whoCanRoles = computed(() => (whoCap.value ? whoCan(roles.value, grantOfView, whoCap.value) : []))
+const whoCanPeople = computed(() => whoCanRoles.value.reduce((n, r) => n + (r.people ?? 0), 0))
+
+const compareOpen = ref(false)
+const compareA = ref<string | null>(null)
+const compareB = ref<string | null>(null)
+const compareAll = ref(false)
+const comparisonRows = computed(() => {
+  const a = roles.value.find(r => r.id === compareA.value)
+  const b = roles.value.find(r => r.id === compareB.value)
+  if (!a || !b) return []
+  const rows = compareGrants(grantOfView(a), grantOfView(b))
+  return compareAll.value ? rows.filter(r => r.differs || r.a !== 'none' || r.b !== 'none') : rows.filter(r => r.differs)
+})
+function openCompare() {
+  compareA.value ??= roles.value[0]?.id ?? null
+  compareB.value ??= roles.value[1]?.id ?? null
+  compareOpen.value = true
+}
 
 const headers = computed(() => [
   { title: t('access.ui.name'), key: 'name' },

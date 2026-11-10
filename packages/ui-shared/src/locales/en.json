@@ -4857,6 +4857,22 @@
       "text": "“{page}” is not part of your role. Ask an administrator if you need it.",
       "textAny": "This page is not part of your role. Ask an administrator if you need it.",
       "home": "Go to my start page"
+    },
+    "tools": {
+      "whoCan": "Who can…",
+      "whoCanHint": "The roles that hold it, and how many people have them.",
+      "capability": "Can do",
+      "nobody": "No role holds it.",
+      "peopleTotal": "People with it: {n}",
+      "compare": "Compare",
+      "roleA": "Role",
+      "roleB": "With role",
+      "showAll": "Show every feature either role has",
+      "identical": "The two roles grant exactly the same.",
+      "preview": "What this role opens",
+      "previewHint": "The pages its people are offered, as the role stands here (before Save).",
+      "previewNone": "No page: the person sees their account only.",
+      "portal": "Portal"
     }
   }
 }
