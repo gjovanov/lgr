@@ -11,8 +11,8 @@ import { loginForApp } from './helpers/login'
  * a flag on the header whether the panel is open or not; and the buttons that act on the whole
  * order stay on a folded header.
  *
- * (Slice 1 ships every panel OPEN: the flat Reservations cards start closed only once the tree
- * of FR-28.40 replaces what they repeat.)
+ * (The flat Reservations cards start CLOSED, on both orders, since the tree of FR-28.40 and FR-28.44 shows the
+ * reservations under the line they serve: FR-28 D-6. Everything else starts open.)
  */
 
 const apiBase = process.env.BASE_URL || 'http://localhost:4001'
@@ -171,12 +171,17 @@ test.describe('Customer order — the cards fold away', () => {
     await expect(lines.getByTestId('panel-body')).toBeHidden()
     await expect(lines.getByTestId('panel-summary')).toHaveText('1 line · 3 needed · 0 reserved')
 
-    // The Reservations card's buttons act on the whole order, so they are on its header, folded or not.
+    // The flat Reservations card starts closed: the tree shows the reservations under their line (FR-28 D-6). Its buttons act
+    // on the whole order, so they are on its header, folded or not.
     const reservations = page.getByTestId('internal-order-reservations')
-    await reservations.getByTestId('panel-toggle').click()
+    await expect(reservations.getByTestId('panel-toggle')).toHaveAttribute('aria-expanded', 'false')
     await expect(reservations.getByTestId('panel-body')).toBeHidden()
     await expect(reservations.getByRole('button', { name: 'Reserve from stock' })).toBeVisible()
     await expect(reservations.getByRole('button', { name: 'Cover shortages' })).toBeVisible()
+    await reservations.getByTestId('panel-toggle').click()
+    await expect(reservations.getByTestId('panel-body')).toBeVisible()
+    await reservations.getByTestId('panel-toggle').click()
+    await expect(reservations.getByTestId('panel-body')).toBeHidden()
 
     // This screen's state is not the supplier order's: the keys are per screen.
     expect(Object.keys(await keptPanels(page, 'internal-orders.edit')).sort()).toEqual(['lines', 'reservations'])
