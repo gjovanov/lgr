@@ -156,6 +156,15 @@ export interface StagedChanges {
   cancels: string[]
 }
 
+/** A column of the tree: every row of every kind has a cell under each, in this order. */
+export interface TreeColumn {
+  key: string
+  title: string
+  align?: 'start' | 'end' | 'center'
+  /** CSS width of the column; none: it takes what is left. */
+  width?: string
+}
+
 export interface FigureInput {
   reservations: ServerReservation[]
   staged: StagedChanges

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test'
 // PURE modules: no Vue, no store. `invoicing-ui` is not a workspace package, so they are reached by path.
 import { buildSupplierOrderTree, createOrderFigures, lineNodeId, allocationNodeId } from '../../../invoicing-ui/src/composables/order-tree/supplier-order-tree'
 import { countedQuantity } from '../../../invoicing-ui/src/composables/order-tree/figures'
+import { orderLineQuery } from '../../../invoicing-ui/src/composables/order-tree/links'
 import {
   ancestorIds,
   collapseAll,
@@ -446,5 +447,28 @@ describe('what is showing, and what opens and closes it', () => {
   it('leaves a row with no children (a reservation) alone', () => {
     const state = revealed({}, t.index, 'r:r1', true)
     expect(state['r:r1']).toBeUndefined()
+  })
+})
+
+describe('a link to a line of an order (FR-28.46)', () => {
+  it('names the line and the warehouse a reservation is under', () => {
+    expect(orderLineQuery({ lineId: 'L1', allocationId: 'A1' })).toEqual({ line: 'L1', allocation: 'A1' })
+  })
+
+  it('names the line alone when the warehouse is not known', () => {
+    expect(orderLineQuery({ lineId: 'L1' })).toEqual({ line: 'L1' })
+    expect(orderLineQuery({ lineId: 'L1', allocationId: '' })).toEqual({ line: 'L1' })
+  })
+
+  it('is no query at all without a line, so the link stays the one to the document', () => {
+    expect(orderLineQuery({})).toBeUndefined()
+    expect(orderLineQuery({ allocationId: 'A1' })).toBeUndefined()
+    expect(orderLineQuery(null)).toBeUndefined()
+    expect(orderLineQuery(undefined)).toBeUndefined()
+  })
+
+  it('takes ids as the server sends them, objects or strings', () => {
+    const id = { toString: () => '6af2fe9991957a1baa7a9dfc' }
+    expect(orderLineQuery({ lineId: id, allocationId: id })).toEqual({ line: '6af2fe9991957a1baa7a9dfc', allocation: '6af2fe9991957a1baa7a9dfc' })
   })
 })

@@ -8,10 +8,16 @@ import { startWalk, uxApi } from '../helpers/ux-budget'
  * A client wants 4, and the other 8 are to arrive at the retail store: add that warehouse to the
  * line and reserve the client's 4 there." (FR-28.49)
  *
- * The first version of this walk (FR-28 slice 5, before the tree) is the cost of the path TODAY, on
- * the form that has an allocation editor and a client-reservations grid under each line: the
- * allocation editor, a warehouse row, the reservations grid, a dialog for the client, and Save,
- * because a reservation made on this form is staged and saved with the order.
+ * Before the tree (the first commit of this walk, on the form with an allocation editor and a
+ * client-reservations grid under each line): 11 clicks, 1 typed, 0 keys, 1 dialog.
+ *
+ * On the tree (FR-28.40): + Warehouse opens a row under the line with its list open and the cursor in
+ * it, so the warehouse is one click on the list; the cursor then moves to the quantity, which starts at
+ * what is left to place, so the 4 is typed over it and Enter adds the row. + Client does the same on the
+ * new warehouse; the client's name is typed (the open list shows only the first of a real customer
+ * list) and picked, and the quantity is already at what the warehouse has free, so only Enter. Save is
+ * still a click: the reservation is staged and saved with the order. The target is at most 7 clicks, 2
+ * typed and no dialog.
  *
  * Products used: PRD-0031, this walk's share of the acme-corp seed. Supplier: Quality Materials.
  * Client: Delta Services. Warehouses: the default one, and Retail Store.
@@ -86,31 +92,36 @@ test('P7 tree: reserve 4 units for a client on a new warehouse row of a supplier
   await expect(page.locator('.form-paper-header').getByText(order.orderNumber)).toBeVisible()
   await walk.shot('order-form')
 
-  const lineRow = page.locator('tbody tr').filter({ has: page.locator('.v-chip').filter({ hasText: product.name }) }).first()
+  const lineRow = page.locator('tr[data-kind="line"]').filter({ has: page.locator('.v-chip').filter({ hasText: product.name }) })
 
-  // ── 1. The allocation editor, and a row for the new warehouse ──
-  await walk.click(lineRow.getByRole('button', { name: 'Складови разпределения' }), 'open the line\'s warehouse allocations')
-  await walk.click(page.getByRole('button', { name: 'Добави склад' }), 'add a warehouse')
-  const editor = page.locator('.v-sheet').filter({ has: page.getByRole('button', { name: 'Добави склад' }) }).last()
-  const newRow = editor.locator('div.mb-2').last()
-  await walk.choose(newRow, /^Склад$/, NEW_WAREHOUSE, `choose „${NEW_WAREHOUSE}"`)
-  await walk.fill(newRow.locator('input[type="number"]'), String(RESERVED), 'type the quantity the warehouse takes')
-  await walk.shot('warehouse-row')
+  // ── 1. + Warehouse: a row under the line, its list open ──
+  await walk.click(lineRow.getByTestId('tree-addWarehouse'), 'add a warehouse to the line (+ Warehouse)')
+  const editor = page.locator('[data-tree-editor]')
+  await expect(editor).toBeVisible()
+  await walk.click(page.getByRole('option', { name: NEW_WAREHOUSE }), `pick „${NEW_WAREHOUSE}" from the open list`)
+  // The cursor is in the quantity, which starts at what the line has left to place (8): typed over with 4.
+  const quantity = page.locator('[data-tree-editor-qty] input')
+  await expect(quantity).toBeFocused()
+  await expect(quantity).toHaveValue(String(ORDERED - ON_MAIN))
+  await walk.fill(quantity, String(RESERVED), 'type the quantity the warehouse takes', { focused: true })
+  await walk.press(page, 'Enter', 'add the warehouse')
+  await expect(editor).toHaveCount(0)
+  await expect(page.locator('tr[data-kind="allocation"]')).toHaveCount(2)
+  await walk.shot('warehouse-added')
 
-  // ── 2. The line's client reservations, and the dialog that reserves ──
-  await walk.click(lineRow.getByRole('button', { name: 'Клиентски резервации' }), 'open the line\'s client reservations')
-  const reserveButtons = page.getByRole('button', { name: 'Резервирай за клиент' })
-  await expect(reserveButtons).toHaveCount(2)
-  await walk.click(reserveButtons.last(), 'reserve for a client, on the new warehouse')
-  walk.dialog('the reserve-for-client dialog')
-  const dialog = page.locator('.v-overlay--active .v-card').filter({ hasText: 'Записва се заедно с поръчката' })
-  await expect(dialog).toBeVisible()
-  await walk.choose(dialog, /^Клиент$/, CLIENT, `choose „${CLIENT}"`)
-  // The quantity starts at what the warehouse has free: 4.
-  await expect(dialog.locator('input[type="number"]')).toHaveValue(String(RESERVED))
-  await walk.shot('reserve-dialog')
-  await walk.click(dialog.getByRole('button', { name: 'Резервирай', exact: true }), 'reserve')
-  await expect(dialog).toBeHidden()
+  // ── 2. + Client on it: its list open, the quantity already what it has free ──
+  const warehouseRow = page.locator('tr[data-kind="allocation"]').last()
+  await walk.click(warehouseRow.getByTestId('tree-addClient'), 'reserve for a client on it (+ Client)')
+  await expect(editor).toBeVisible()
+  // A customer list is long: the open list shows the first of it, so the name is typed to find the client.
+  await walk.type(editor.locator('input').first(), CLIENT, `type „${CLIENT}"`, { focused: true })
+  await walk.click(page.getByRole('option', { name: CLIENT }), `pick „${CLIENT}" from the list`)
+  await expect(quantity).toBeFocused()
+  await expect(quantity).toHaveValue(String(RESERVED))
+  await walk.press(page, 'Enter', 'add the reservation')
+  await expect(editor).toHaveCount(0)
+  await expect(page.getByText(CLIENT).first()).toBeVisible()
+  await walk.shot('client-added')
 
   // ── 3. Save: a reservation made on this form is staged and saved with the order ──
   await walk.click(page.getByRole('button', { name: 'Запази', exact: true }).first(), 'save the order')
@@ -128,6 +139,8 @@ test('P7 tree: reserve 4 units for a client on a new warehouse row of a supplier
   expect(String(held[0].contactId)).toBe(String(client._id))
 
   const result = walk.finish()
-  // Today's cost, recorded before the tree (FR-28.49). The tree's target is in the later version of this walk.
-  console.log(`P7-tree baseline: ${result.clicks} clicks, ${result.typed} typed, ${result.keys} keys, ${result.dialogs} dialog(s)`)
+  // FR-28.49: at most 7 clicks, 2 typed and no dialog (it was 11, 1 and 1).
+  expect(result.clicks).toBeLessThanOrEqual(7)
+  expect(result.typed).toBeLessThanOrEqual(2)
+  expect(result.dialogs).toBe(0)
 })
