@@ -4660,7 +4660,16 @@
       "saved": "Role saved",
       "feature": "Feature",
       "level": "Level",
-      "grants": "Grants"
+      "grants": "Grants",
+      "landing": "Start page",
+      "landingHint": "Where the role's people land after signing in, and from a page their role does not open.",
+      "landingDefault": "The Dashboard"
+    },
+    "notAvailable": {
+      "title": "Not available for your role",
+      "text": "“{page}” is not part of your role. Ask an administrator if you need it.",
+      "textAny": "This page is not part of your role. Ask an administrator if you need it.",
+      "home": "Go to my start page"
     }
   }
 }

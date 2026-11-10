@@ -4660,7 +4660,16 @@
       "saved": "Rolle gespeichert",
       "feature": "Funktion",
       "level": "Stufe",
-      "grants": "Gewährt"
+      "grants": "Gewährt",
+      "landing": "Startseite",
+      "landingHint": "Wo die Personen dieser Rolle nach der Anmeldung landen, und von einer Seite aus, die ihre Rolle nicht öffnet.",
+      "landingDefault": "Das Dashboard"
+    },
+    "notAvailable": {
+      "title": "Für Ihre Rolle nicht verfügbar",
+      "text": "„{page}“ gehört nicht zu Ihrer Rolle. Wenden Sie sich an einen Administrator, wenn Sie es brauchen.",
+      "textAny": "Diese Seite gehört nicht zu Ihrer Rolle. Wenden Sie sich an einen Administrator, wenn Sie sie brauchen.",
+      "home": "Zu meiner Startseite"
     }
   }
 }

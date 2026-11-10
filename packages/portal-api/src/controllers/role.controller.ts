@@ -17,6 +17,8 @@ const refused = (status: any, e: unknown) => {
 }
 
 const capsBody = t.Optional(t.Array(t.String({ maxLength: 120 }), { maxItems: 1000 }))
+/** FR-27.4: a page id the role opens, or null / empty to clear it (the service checks it). */
+const landingBody = t.Optional(t.Union([t.String({ maxLength: 200 }), t.Null()]))
 
 export const roleController = new Elysia({ prefix: '/org/:orgId/roles' })
   .use(AuthService)
@@ -57,6 +59,7 @@ export const roleController = new Elysia({ prefix: '/org/:orgId/roles' })
       name: t.String({ minLength: 1, maxLength: 80 }),
       description: t.Optional(t.String({ maxLength: 300 })),
       caps: capsBody,
+      landing: landingBody,
       from: t.Optional(t.Object({ templateKey: t.Optional(t.String()), roleId: t.Optional(t.String()) })),
     }),
   })
@@ -73,6 +76,7 @@ export const roleController = new Elysia({ prefix: '/org/:orgId/roles' })
       name: t.Optional(t.String({ minLength: 1, maxLength: 80 })),
       description: t.Optional(t.String({ maxLength: 300 })),
       caps: capsBody,
+      landing: landingBody,
     }),
   })
   .delete('/:roleId', async ({ params: { orgId, roleId }, user, status }) => {

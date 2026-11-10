@@ -1,5 +1,5 @@
 import {
-  CAPABILITIES, ROLE_TEMPLATES, compileLegacy, grantOfRole, isCapability, legacyClaimsOf, projectGrant, sameGrant,
+  CAPABILITIES, PAGE_ACCESS, ROLE_TEMPLATES, canOpen, compileLegacy, grantOfRole, isCapability, legacyClaimsOf, projectGrant, sameGrant,
   templateGrant, unknownCaps, withImplied, type CapabilityId, type Grant, type LegacySet,
 } from 'config/access'
 import { Org, PermissionSet, Role, User } from 'db/models'
@@ -139,6 +139,8 @@ export interface RoleView {
   needsRelease: boolean
   version: number
   people: number
+  /** FR-27.4: the page the role's people start on (a page id it opens), or null: the App Hub's default. */
+  landing: string | null
 }
 
 function view(role: any, people: number): RoleView {
@@ -146,8 +148,19 @@ function view(role: any, people: number): RoleView {
   return {
     id: String(role._id), name: role.name, description: role.description, isBuiltin: !!role.isBuiltin, templateKey: role.templateKey,
     edited: !!role.edited, all: !!role.all, caps: capsOf(grant), unknownCaps: unknownCaps(role), needsRelease: !!role.needsRelease,
-    version: role.version ?? 1, people,
+    version: role.version ?? 1, people, landing: role.landing ?? null,
   }
+}
+
+/**
+ * FR-27.4: a landing is a page the role opens (`config/access/pages.ts`), never a variant with a query: where the
+ * person starts after signing in, entering the org, or a page their role does not open. Empty clears it.
+ */
+function cleanLanding(landing: string | null | undefined, grant: Grant): string | null {
+  if (landing == null || landing === '') return null
+  if (landing.includes('?') || !PAGE_ACCESS[landing]) refuse(422, 'landing_unknown', `No page „${landing}".`)
+  if (!canOpen(landing, grant)) refuse(422, 'landing_not_open', 'The landing page must be one the role opens.')
+  return landing
 }
 
 export async function listRoles(orgId: string): Promise<RoleView[]> {
@@ -170,6 +183,8 @@ export interface RoleInput {
   name?: string
   description?: string
   caps?: string[]
+  /** FR-27.4: where the role's people start; null or empty clears it. */
+  landing?: string | null
   /** Copy a template's or another role's access (FR-27.4). */
   from?: { templateKey?: string; roleId?: string }
 }
@@ -191,7 +206,8 @@ export async function createRole(actor: Actor, orgId: string, input: RoleInput):
   // A copy of the Administrator is a role with every capability there is today, not `*`.
   if (grant.all) grant = { caps: new Set([...CAPABILITIES] as CapabilityId[]) }
   assertWithin(actor, grant)
-  const draft: any = { orgId, name, description: input.description, isBuiltin: false, edited: false, all: false, caps: capsOf(grant), version: 1 }
+  const landing = cleanLanding(input.landing, grant)
+  const draft: any = { orgId, name, description: input.description, isBuiltin: false, edited: false, all: false, caps: capsOf(grant), version: 1, ...(landing ? { landing } : {}) }
   const { legacy, needsRelease } = await writeProjection(orgId, draft, grant)
   const role = await Role.create({ ...draft, legacy, needsRelease })
   createAuditEntry({ orgId, userId: actor.id, action: 'create', module: 'admin', entityType: 'role', entityId: String(role._id), entityName: name, changes: [{ field: 'caps', oldValue: [], newValue: capsOf(grant) }] })
@@ -224,12 +240,23 @@ export async function updateRole(actor: Actor, orgId: string, roleId: string, in
     set.caps = capsOf(after)
     set.edited = true
   }
+  // FR-27.4: a landing the role opens. One the new capabilities no longer open is dropped, unless it was just named.
+  const stored = (role as any).landing ?? null
+  let landing = stored
+  if (input.landing !== undefined) landing = cleanLanding(input.landing, after)
+  else if (stored && !canOpen(stored, after)) landing = null
+  const unset: Record<string, ''> = {}
+  if (landing !== stored) {
+    if (landing) set.landing = landing
+    else unset.landing = ''
+  }
   const next = { ...role, ...set }
   const { legacy, needsRelease } = await writeProjection(orgId, next, after)
-  const changed = input.caps !== undefined || set.name !== undefined
+  // A new version: the people's tabs ask `/auth/me` again (`x-access-version`), and a landing is part of the answer.
+  const changed = input.caps !== undefined || set.name !== undefined || landing !== stored
   const updated = await Role.findOneAndUpdate(
     { _id: role._id, orgId },
-    { $set: { ...set, legacy, needsRelease }, ...(changed ? { $inc: { version: 1 } } : {}) },
+    { $set: { ...set, legacy, needsRelease }, ...(Object.keys(unset).length ? { $unset: unset } : {}), ...(changed ? { $inc: { version: 1 } } : {}) },
     { new: true },
   ).lean().exec()
   forgetRole(role._id)

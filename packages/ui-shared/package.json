@@ -137,6 +137,7 @@
     "./nav/page-registry": "./src/nav/page-registry.ts",
     "./access/useAccess": "./src/access/useAccess.ts",
     "./access/live-grant": "./src/access/live-grant.ts",
+    "./access/page-access": "./src/access/page-access.ts",
     "./nav/navigate": "./src/nav/navigate.ts",
     "./nav/node-role": "./src/nav/node-role.ts",
     "./nav/open-page": "./src/nav/open-page.ts",
