@@ -168,7 +168,18 @@ export async function assertCloneAllowed(sourceOrgId: string, targetOrgId: strin
 
 // ── The environment the rewrite runs in ───────────────────────────────────────────────────
 
-/** Every `_id` of the source org in every collection a backup would bundle, the never-copied ones included. */
+/**
+ * Every model that holds an org's documents under an `orgId`: what a backup would bundle, the never-copied
+ * ones included, AND the org's operational records and node state (backup runs, background tasks, the digest
+ * log...). The last are never copied, but a copied document may still name one (an audit entry about a
+ * backup): its id is then rewritten to the id the copy WOULD have, which points at nothing, instead of
+ * being left naming a record of the real org.
+ */
+function orgScopedModels(): string[] {
+  return Object.keys(mongoose.models).filter(name => !!mongoose.models[name]!.schema.path('orgId')).sort()
+}
+
+/** Every `_id` of the source org in every collection that holds its documents (see `orgScopedModels`). */
 async function loadKnownIds(srcOid: Oid, models: readonly string[]): Promise<Set<string>> {
   const known = new Set<string>()
   for (const name of models) {
@@ -180,7 +191,8 @@ async function loadKnownIds(srcOid: Oid, models: readonly string[]): Promise<Set
 
 /**
  * Source ids that map onto a document the target ALREADY has, not onto a fresh copy: a person who
- * is already a member (matched by their identity), a permission set or a role of the same name. Without it
+ * is already a member (matched by their identity), a permission set or a role of the same name, an
+ * enabled app of the same app. Without it
  * a membership that exists would be copied a second time and refused by the unique index, and
  * every document the person created would point at a membership nobody holds.
  */
@@ -203,6 +215,16 @@ async function buildOverrides(srcOid: Oid, tgtOid: Oid): Promise<Map<string, str
   for await (const s of sets.find({ orgId: srcOid }, { projection: { name: 1 } }) as any) {
     const there = byName.get(String(s.name))
     if (there) overrides.set(String(s._id), there)
+  }
+
+  // An enabled app is matched by which app it is: the unique key (orgId, appId), and a row the app made by
+  // itself when someone opened the hub is the same switch as the real org's.
+  const apps = model('OrgApp').collection
+  const appByKey = new Map<string, string>()
+  for await (const a of apps.find({ orgId: tgtOid }, { projection: { appId: 1 } }) as any) appByKey.set(String(a.appId), String(a._id))
+  for await (const a of apps.find({ orgId: srcOid }, { projection: { appId: 1 } }) as any) {
+    const there = appByKey.get(String(a.appId))
+    if (there) overrides.set(String(a._id), there)
   }
 
   // A role (FR-27) is matched by its name, then as the same built-in template, then as the same
@@ -456,7 +478,7 @@ export async function cloneOrgData(opts: CloneOptions): Promise<CloneReport> {
   if (unknown.length) throw new OrgCloneError('bad_only', `not a model a copy carries: ${unknown.join(', ')}`)
 
   log('reading the source ids', { source: source.slug })
-  const known = await loadKnownIds(srcOid, tenant)
+  const known = await loadKnownIds(srcOid, orgScopedModels())
   const overrides = await buildOverrides(srcOid, tgtOid)
   const env = makeEnv(srcHex, tgtHex, known, overrides)
   log('ids read', { documents: known.size, mapped: overrides.size })
@@ -475,7 +497,7 @@ export async function cloneOrgData(opts: CloneOptions): Promise<CloneReport> {
     let res: CollectionResult
     try {
       if (name === 'User') res = await copySeedOnly(name, ctx, membershipAccess(ctx))
-      else if (name === 'PermissionSet' || name === 'Role') res = await copySeedOnly(name, ctx)
+      else if (name === 'PermissionSet' || name === 'Role' || name === 'OrgApp') res = await copySeedOnly(name, ctx)
       else if (name === 'Sequence') res = await copySequences(ctx)
       else res = await copyOrdinary(name, ctx)
     } catch (e: any) {
@@ -600,7 +622,7 @@ export async function createTestOrgFrom(opts: { sourceOrgId: string; slug: strin
   const tgtOid = new ObjectId()
   const tgtHex = String(tgtOid)
   // The rewrite needs the source's ids to turn the settings' account and journal ids into the copy's.
-  const known = await loadKnownIds(srcOid, tenantCollections())
+  const known = await loadKnownIds(srcOid, orgScopedModels())
   const env = makeEnv(String(srcOid), tgtHex, known, new Map())
 
   const settings: any = remapValue(testOrgSettings(source.settings), env)

@@ -3112,7 +3112,8 @@ the rules); daily job: CronJob `lgr-org-sync` in lgr-deploy (04:30 Europe/Sofia)
   desktops, invites, mail logs, inboxes, credentials. A model added to the app must be listed there or in the test's
   `CARRIED`, or the test fails: copied by default would be a leak by default.
 - **People are access, not data.** Matched by identity (an existing membership is reused, so the documents its person
-  made name it), a permission set by name; a membership the copy adds is switched off (an admin's stays on for the
+  made name it), a permission set or a role by name, an enabled app by app (the app creates those rows itself the
+  first time anyone opens the hub, so a copy made after a reset finds them there); a membership the copy adds is switched off (an admin's stays on for the
   first copy, `--activate-admins`). A reset keeps people, permission sets, invites, desktops and fiscal devices.
 - **Source wins** on a document both orgs hold; a tester's edit of a copied document is overwritten at the next run,
   documents only the test org holds are never touched, a deletion in the real org is not propagated, numbering is
