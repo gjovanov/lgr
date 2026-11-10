@@ -50,6 +50,23 @@ export async function apiGet(session: ApiSession, path: string): Promise<any> {
 }
 
 /**
+ * The newest ACTIVE contact of a side, for a fixture that needs "a supplier" or "a customer".
+ *
+ * ⚠ Never `contacts[0]`. The list is newest first and keeps deactivated contacts, and the specs that
+ * make contacts of their own (`product-suppliers*`, `product-orders`) deactivate them when they
+ * finish. The suite runs in file-name order in one database, so for every later spec the first
+ * contact is one of those, and a deactivated one is refused where it matters:
+ * `POST /invoicing/bills/from-receipt` (422 `supplier_not_found`), and a new supplier order or
+ * customer order (`supplier_inactive`, `client_inactive`).
+ *
+ * Undefined when the side has no active contact: the caller says what it expected of the seed.
+ */
+export async function activeContact(session: ApiSession, side: 'customer' | 'supplier'): Promise<any> {
+  const { contacts } = await apiGet(session, `/invoicing/contact?type=${side}&size=100`)
+  return (contacts || []).find((c: any) => c.isActive !== false)
+}
+
+/**
  * Make sure at least one ProductCategory exists, and return its name.
  *
  * ⚠ The seed does NOT create any. It gives products a `category` STRING ('Electronics',

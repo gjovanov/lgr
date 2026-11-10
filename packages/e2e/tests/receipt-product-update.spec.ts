@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { apiGet, apiLogin, apiPost } from './helpers/api'
+import { activeContact, apiGet, apiLogin, apiPost } from './helpers/api'
 import { okJson } from './helpers/bills'
 
 /**
@@ -15,9 +15,10 @@ import { okJson } from './helpers/bills'
 test('turning „With product update" on for a draft receipt sends no product update until a price is edited', async ({ page }) => {
   const s = await apiLogin()
   const stamp = Date.now().toString(36)
-  const supplier = ((await apiGet(s, '/invoicing/contact?type=supplier&size=5')).contacts || [])[0]
+  const supplier = await activeContact(s, 'supplier')
   const warehouses = (await apiGet(s, '/warehouse/warehouse?size=100')).warehouses || []
   const warehouse = warehouses.find((w: any) => w.isDefault) || warehouses[0]
+  expect(supplier && warehouse, 'the seed has an active supplier and a warehouse').toBeTruthy()
   const { product } = await okJson(await apiPost(s, '/warehouse/product', {
     sku: `E2E-GR-${stamp}`, name: `E2E receipt article ${stamp}`, category: 'General', type: 'goods', unit: 'pcs',
     purchasePrice: 2.5, sellingPrice: 4, taxRate: 20,

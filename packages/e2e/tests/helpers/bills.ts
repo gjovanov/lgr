@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test'
-import { apiGet, apiLogin, apiPost } from './api'
+import { activeContact, apiGet, apiLogin, apiPost } from './api'
 
 /**
  * A supplier bill fixture for the bill-form specs: an article of its own (so no other spec's stock
@@ -22,11 +22,10 @@ export interface ReceivedBill {
 export async function receivedBill(): Promise<ReceivedBill> {
   const s = await apiLogin()
   const stamp = Date.now().toString(36)
-  const suppliers = (await apiGet(s, '/invoicing/contact?type=supplier&size=5')).contacts || []
+  const supplier = await activeContact(s, 'supplier')
   const warehouses = (await apiGet(s, '/warehouse/warehouse?size=100')).warehouses || []
-  const supplier = suppliers[0]
   const warehouse = warehouses.find((w: any) => w.isDefault) || warehouses[0]
-  expect(supplier && warehouse, 'the seed has a supplier and a warehouse').toBeTruthy()
+  expect(supplier && warehouse, 'the seed has an active supplier and a warehouse').toBeTruthy()
   const { product } = await okJson(await apiPost(s, '/warehouse/product', {
     sku: `E2E-BILL-${stamp}`, name: `E2E bill article ${stamp}`, category: 'General', type: 'goods', unit: 'pcs',
     purchasePrice: 2.5, sellingPrice: 4, taxRate: 20,
