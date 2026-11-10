@@ -21,7 +21,9 @@ import {
   hasReservationChanges, saveOrderWithReservations, cancelOrderReservations, type ReservationChanges,
 } from 'services/biz/order-reservations.service'
 import { ReservationOpsError } from 'services/biz/reservation-ops.service'
-import { OrdersFromProductsError, createSupplierOrderFromProducts, previewOrderFromProducts } from 'services/biz/orders-from-products.service'
+import {
+  OrdersFromProductsError, checkOrderReferences, createSupplierOrderFromProducts, previewOrderFromProducts, supplierOrderRefs,
+} from 'services/biz/orders-from-products.service'
 import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
 import { canExport } from '../lib/export-access.js'
 import { generateOrderSheetXLSX } from 'reporting/excel/order-sheet.excel'
@@ -350,6 +352,8 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
 
       const invalid = validateSupplierGroups(body.supplierGroups as any[])
       if (invalid) return status(422, { message: invalid })
+      // FR-28.20: every supplier, article and warehouse is one of THIS organization (the rule of the Products list's create).
+      try { await checkOrderReferences(orgId, supplierOrderRefs(body.supplierGroups as any[])) } catch (e) { return fromProductsRefusal(status, e) }
 
       // #203: reservations staged in the form of a NEW order — saved with it, in one transaction.
       if (hasReservationChanges(body.reservationChanges as ReservationChanges)) {
@@ -482,6 +486,9 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
 
       const invalid = validateSupplierGroups(body.supplierGroups as any[])
       if (invalid) return status(422, { message: invalid })
+      // FR-28.20: what this save introduces is one of THIS organization's, and active when new. What the order already
+      // held is left alone: an article deactivated since must not lock the order out of its own notes and dates.
+      try { await checkOrderReferences(orgId, supplierOrderRefs(body.supplierGroups as any[], existing)) } catch (e) { return fromProductsRefusal(status, e) }
 
       // #203: the form's reservation changes and the order, in one transaction. The rules are
       // checked on the result, so lowering an allocation together with its reservations is one save.

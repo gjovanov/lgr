@@ -48,6 +48,30 @@ const idStr = (v: unknown): string => (v == null ? '' : String(v))
 const num = (v: unknown): number => Number(v) || 0
 const nameOfContact = (c: any): string => c?.companyName || [c?.firstName, c?.lastName].filter(Boolean).join(' ') || ''
 
+// ── what an order may point at: ONE rule (FR-28.17, .18, .20) ──────────────────────────────────────────────────────
+// The Products list's creates skip an item (or refuse the request) for these reasons, and a save through the order's
+// own POST / PUT (`checkOrderReferences`, below) refuses with the same codes. `p` / `c` is what was found in THIS
+// organization, or nothing: another organization's article, supplier, client or warehouse is "not found", exactly as
+// one that does not exist.
+
+export type RefusalCode =
+  | 'product_not_found' | 'product_inactive'
+  | 'supplier_not_found' | 'not_a_supplier' | 'supplier_inactive'
+  | 'client_not_found' | 'not_a_customer' | 'client_inactive'
+  | 'warehouse_not_found'
+
+/** Why an article cannot go on a new line, or null. */
+export const productRefusal = (p: any): 'product_not_found' | 'product_inactive' | null =>
+  !p ? 'product_not_found' : p.isActive === false ? 'product_inactive' : null
+
+/** Why a contact cannot be the supplier of an order, or null. */
+export const supplierRefusal = (c: any): 'supplier_not_found' | 'not_a_supplier' | 'supplier_inactive' | null =>
+  !c ? 'supplier_not_found' : !['supplier', 'both'].includes(c.type) ? 'not_a_supplier' : c.isActive === false ? 'supplier_inactive' : null
+
+/** Why a contact cannot be the client of a customer order, or null. */
+export const clientRefusal = (c: any): 'client_not_found' | 'not_a_customer' | 'client_inactive' | null =>
+  !c ? 'client_not_found' : !['customer', 'both'].includes(c.type) ? 'not_a_customer' : c.isActive === false ? 'client_inactive' : null
+
 async function baseCurrencyOf(orgId: string): Promise<string> {
   const org: any = await Org.findOne({ _id: orgId } as any, { 'settings.baseCurrency': 1 }).lean().exec()
   return org?.settings?.baseCurrency || 'EUR'
@@ -327,16 +351,13 @@ export async function createSupplierOrderFromProducts(
     const product = productById.get(productId)
     const supplier = supplierById.get(idStr(item.supplierId))
     const price = item.expectedUnitPrice
-    const reason = !product ? 'product_not_found'
-      : product.isActive === false ? 'product_inactive'
-        : !(Number.isFinite(Number(item.quantity)) && Number(item.quantity) > 0) ? 'invalid_quantity'
-          : !idStr(item.supplierId) ? 'supplier_required'
-            : !supplier ? 'supplier_not_found'
-              : !['supplier', 'both'].includes(supplier.type) ? 'not_a_supplier'
-                : supplier.isActive === false ? 'supplier_inactive'
-                  : !warehouseIds.has(idStr(item.warehouseId)) ? 'warehouse_not_found'
-                    : price != null && !(Number.isFinite(Number(price)) && Number(price) >= 0) ? 'invalid_price'
-                      : null
+    // The order of the checks is the order of the reasons a caller sees when more than one applies.
+    const reason: string | null = productRefusal(product)
+      ?? (!(Number.isFinite(Number(item.quantity)) && Number(item.quantity) > 0) ? 'invalid_quantity' : null)
+      ?? (!idStr(item.supplierId) ? 'supplier_required' : null)
+      ?? supplierRefusal(supplier)
+      ?? (!warehouseIds.has(idStr(item.warehouseId)) ? 'warehouse_not_found' : null)
+      ?? (price != null && !(Number.isFinite(Number(price)) && Number(price) >= 0) ? 'invalid_price' : null)
     if (reason) skipped.push({ productId, reason })
     else valid.push({ ...item, product })
   }
@@ -441,9 +462,11 @@ export async function createCustomerOrderFromProducts(
 
   // The client: a customer (or both) of THIS organization.
   const client: any = OBJECT_ID.test(idStr(input.contactId)) ? await Contact.findOne({ _id: input.contactId, orgId } as any, { type: 1, isActive: 1 }).lean().exec() : null
-  if (!client) throw new OrdersFromProductsError(404, 'Client not found', { code: 'client_not_found' })
-  if (!['customer', 'both'].includes(client.type)) throw new OrdersFromProductsError(422, 'The contact is not a customer', { code: 'not_a_customer' })
-  if (client.isActive === false) throw new OrdersFromProductsError(422, 'The client is deactivated', { code: 'client_inactive' })
+  const clientRefused = clientRefusal(client)
+  if (clientRefused) {
+    const text = { client_not_found: 'Client not found', not_a_customer: 'The contact is not a customer', client_inactive: 'The client is deactivated' }
+    throw new OrdersFromProductsError(clientRefused === 'client_not_found' ? 404 : 422, text[clientRefused], { code: clientRefused })
+  }
   const delivery = validDate(input.requestedDeliveryDate)
   if (!delivery) throw new OrdersFromProductsError(422, 'requestedDeliveryDate is required', { code: 'delivery_date_required' })
   const issued = input.issueDate ? validDate(input.issueDate) : new Date()
@@ -463,10 +486,8 @@ export async function createCustomerOrderFromProducts(
   for (const item of items) {
     const productId = idStr(item.productId)
     const p = productById.get(productId)
-    const reason = !p ? 'product_not_found'
-      : p.isActive === false ? 'product_inactive'
-        : !(Number.isFinite(Number(item.quantity)) && Number(item.quantity) > 0) ? 'invalid_quantity'
-          : null
+    const reason: string | null = productRefusal(p)
+      ?? (!(Number.isFinite(Number(item.quantity)) && Number(item.quantity) > 0) ? 'invalid_quantity' : null)
     if (reason) { skipped.push({ productId, reason }); continue }
     lines.push({
       productId: p._id,
@@ -514,4 +535,113 @@ export async function createCustomerOrderFromProducts(
     }
   }
   throw new OrdersFromProductsError(409, `Could not allocate order number: ${lastErr?.message || 'duplicate'}`, { code: 'number_unavailable' })
+}
+
+// ── FR-28.20: the save of an order through its own POST / PUT ───────────────────────────────────────────────────────
+// Until now `POST` and `PUT` of a supplier order (ORDO) or a customer order (ORDI) took any string for a supplier,
+// client, article or warehouse. They get the rule above, so the Products list and the order forms refuse the same things.
+//
+// ⚠ The "active" rule belongs to what a save INTRODUCES. A PUT edits an old order with the references it already had,
+// whatever has become of them since: an article deactivated, a supplier retyped. Refusing that would lock an order out of
+// its own notes, dates and quantities for something nobody did to it. A reference is "fresh" when the order did not hold
+// it before: everything on a POST; on a PUT a group whose supplier is not the stored group's (same `_id`), a line whose
+// article is not the stored line's, an allocation whose warehouse is not the stored allocation's, a client or warehouse
+// that differs from the stored one. Membership of the organization is checked for the fresh ones only, for the same reason.
+
+/** One id a request points at, where it is, and whether this save introduces it. */
+interface Ref { id: string; at: string; fresh: boolean }
+
+export interface OrderRefs { suppliers: Ref[]; clients: Ref[]; products: Ref[]; warehouses: Ref[] }
+
+const blank = (v: unknown): boolean => idStr(v).trim() === ''
+const key = (v: unknown): string => idStr(v).trim().toLowerCase()
+/** The stored thing is there and holds `now` in `field`: the save keeps what it had. */
+const keeps = (old: any, field: string, now: unknown): boolean => !!old && key(old[field]) === key(now)
+
+/** What a supplier order's groups point at (`existing`: the stored order, on a PUT). */
+export function supplierOrderRefs(groups: any[] | undefined, existing?: any): OrderRefs {
+  const oldGroup = new Map<string, any>()
+  const oldLine = new Map<string, any>()
+  const oldAllocation = new Map<string, any>()
+  for (const g of existing?.supplierGroups ?? []) {
+    oldGroup.set(key(g._id), g)
+    for (const l of g.lines ?? []) {
+      oldLine.set(key(l._id), l)
+      for (const a of l.allocations ?? []) oldAllocation.set(key(a._id), a)
+    }
+  }
+  const refs: OrderRefs = { suppliers: [], clients: [], products: [], warehouses: [] }
+  ;(groups ?? []).forEach((g, gi) => {
+    const at = `Group ${gi + 1}`
+    if (!blank(g.supplierId)) refs.suppliers.push({ id: key(g.supplierId), at, fresh: !keeps(oldGroup.get(key(g._id)), 'supplierId', g.supplierId) })
+    ;(g.lines ?? []).forEach((l: any, li: number) => {
+      const lineAt = `${at}, line ${li + 1}`
+      if (!blank(l.productId)) refs.products.push({ id: key(l.productId), at: lineAt, fresh: !keeps(oldLine.get(key(l._id)), 'productId', l.productId) })
+      ;(l.allocations ?? []).forEach((a: any, ai: number) => {
+        if (blank(a.warehouseId)) return
+        refs.warehouses.push({ id: key(a.warehouseId), at: `${lineAt}, allocation ${ai + 1}`, fresh: !keeps(oldAllocation.get(key(a._id)), 'warehouseId', a.warehouseId) })
+      })
+    })
+  })
+  return refs
+}
+
+/** What a customer order points at (`existing`: the stored order, on a PUT). */
+export function customerOrderRefs(body: { contactId?: unknown; warehouseId?: unknown; lines?: any[] }, existing?: any): OrderRefs {
+  const oldLine = new Map<string, any>((existing?.lines ?? []).map((l: any) => [key(l._id), l]))
+  const refs: OrderRefs = { suppliers: [], clients: [], products: [], warehouses: [] }
+  if (!blank(body.contactId)) refs.clients.push({ id: key(body.contactId), at: 'Client', fresh: !keeps(existing, 'contactId', body.contactId) })
+  if (!blank(body.warehouseId)) refs.warehouses.push({ id: key(body.warehouseId), at: 'Preferred warehouse', fresh: !keeps(existing, 'warehouseId', body.warehouseId) })
+  ;(body.lines ?? []).forEach((l, li) => {
+    if (!blank(l.productId)) refs.products.push({ id: key(l.productId), at: `Line ${li + 1}`, fresh: !keeps(oldLine.get(key(l._id)), 'productId', l.productId) })
+  })
+  return refs
+}
+
+const REFUSAL_TEXT: Record<RefusalCode, string> = {
+  product_not_found: 'the article does not exist in this organization',
+  product_inactive: 'the article is deactivated',
+  supplier_not_found: 'the supplier does not exist in this organization',
+  not_a_supplier: 'the contact is not a supplier',
+  supplier_inactive: 'the supplier is deactivated',
+  client_not_found: 'the client does not exist in this organization',
+  not_a_customer: 'the contact is not a customer',
+  client_inactive: 'the client is deactivated',
+  warehouse_not_found: 'the warehouse does not exist in this organization',
+}
+
+/**
+ * Resolves when every reference this save introduces is acceptable; otherwise throws the first refusal as a 422 with
+ * its `code` and a message that says where it is ("Group 2, line 1: the article is deactivated"). Suppliers are
+ * checked first, then the client, the articles, the warehouses. An id that is not an ObjectId is "not found".
+ * One query per kind, however many lines the order has.
+ */
+export async function checkOrderReferences(orgId: string, refs: OrderRefs): Promise<void> {
+  const fresh = (list: Ref[]) => list.filter((r) => r.fresh)
+  const suppliers = fresh(refs.suppliers)
+  const clients = fresh(refs.clients)
+  const products = fresh(refs.products)
+  const warehouses = fresh(refs.warehouses)
+  if (!suppliers.length && !clients.length && !products.length && !warehouses.length) return
+
+  const wellFormed = (list: Ref[]) => [...new Set(list.map((r) => r.id).filter((i) => OBJECT_ID.test(i)))]
+  const contactIds = wellFormed([...suppliers, ...clients])
+  const productIds = wellFormed(products)
+  const warehouseIds = wellFormed(warehouses)
+  const [contacts, articles, depots]: [any[], any[], any[]] = await Promise.all([
+    contactIds.length ? Contact.find({ orgId, _id: { $in: contactIds } } as any, { type: 1, isActive: 1 }).lean().exec() : [],
+    productIds.length ? Product.find({ orgId, _id: { $in: productIds } } as any, { isActive: 1 }).lean().exec() : [],
+    warehouseIds.length ? Warehouse.find({ orgId, _id: { $in: warehouseIds } } as any, { _id: 1 }).lean().exec() : [],
+  ])
+  const contactById = new Map(contacts.map((c) => [String(c._id), c]))
+  const productById = new Map(articles.map((p) => [String(p._id), p]))
+  const warehouseById = new Set(depots.map((w) => String(w._id)))
+
+  const refuse = (code: RefusalCode, at: string): never => {
+    throw new OrdersFromProductsError(422, `${at}: ${REFUSAL_TEXT[code]}`, { code })
+  }
+  for (const r of suppliers) { const code = supplierRefusal(contactById.get(r.id)); if (code) refuse(code, r.at) }
+  for (const r of clients) { const code = clientRefusal(contactById.get(r.id)); if (code) refuse(code, r.at) }
+  for (const r of products) { const code = productRefusal(productById.get(r.id)); if (code) refuse(code, r.at) }
+  for (const r of warehouses) { if (!warehouseById.has(r.id)) refuse('warehouse_not_found', r.at) }
 }

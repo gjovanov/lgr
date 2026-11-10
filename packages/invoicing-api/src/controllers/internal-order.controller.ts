@@ -16,7 +16,9 @@ import {
 import { InternalOrder, Reservation, Invoice, Order, Contact, Warehouse, Product } from 'db/models'
 import { sequenceDefFor, resolveSequencePrefix } from 'services/biz/sequence-registry'
 import { getNextOrderNumber, getNextInternalOrderNumber } from 'services/biz/order-numbering'
-import { OrdersFromProductsError, createCustomerOrderFromProducts } from 'services/biz/orders-from-products.service'
+import {
+  OrdersFromProductsError, checkOrderReferences, createCustomerOrderFromProducts, customerOrderRefs,
+} from 'services/biz/orders-from-products.service'
 import { orderCoverage } from 'config/order-coverage'
 import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
 
@@ -235,6 +237,12 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      // FR-28.20: the client, the articles and the preferred warehouse are one of THIS organization's (the rule of the
+      // Products list's create): a customer or both contact, active.
+      try { await checkOrderReferences(orgId, customerOrderRefs(body)) } catch (e) {
+        if (e instanceof OrdersFromProductsError) return status(e.statusCode, { message: e.message, ...e.details })
+        throw e
+      }
 
       let ordi: any
       let lastErr: any
@@ -318,6 +326,12 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
       if (!existing) return status(404, { message: 'Incoming order not found' })
       if (!['draft', 'confirmed'].includes(existing.status)) {
         return status(400, { message: `Cannot edit a ${existing.status} incoming order` })
+      }
+      // FR-28.20: what this save introduces is one of THIS organization's, and active when new. The client, warehouse and
+      // articles the order already held are left alone: one deactivated since must not lock the order out of its own dates.
+      try { await checkOrderReferences(orgId, customerOrderRefs(body, existing)) } catch (e) {
+        if (e instanceof OrdersFromProductsError) return status(e.statusCode, { message: e.message, ...e.details })
+        throw e
       }
 
       // Lines carrying reservations or deliveries must survive with enough quantity.
