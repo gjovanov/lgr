@@ -35,8 +35,12 @@ import { logger } from '../logger/logger.js'
 /** Order statuses whose reservations hold stock. */
 export const ORDER_HOLDING_STATUSES = ['sent', 'partially_received', 'received']
 
-/** Bill statuses that count as physically received. */
-const BILL_RECEIVED_STATUSES = ['received', 'partially_paid', 'paid', 'overdue']
+/**
+ * Bill statuses that count as physically received. FR-28 reads purchases from the same list
+ * (`product-suppliers.service.ts`): what the stock machinery calls "received" is what the Products
+ * list calls "bought", so the two cannot disagree about a bill.
+ */
+export const BILL_RECEIVED_STATUSES = ['received', 'partially_paid', 'paid', 'overdue']
 
 /** Outgoing-invoice statuses that mean the goods left the warehouse. */
 const INVOICE_DISPATCHED_STATUSES = ['sent', 'partially_paid', 'paid', 'overdue']

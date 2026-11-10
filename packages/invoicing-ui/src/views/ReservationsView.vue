@@ -53,7 +53,7 @@
     <template #item.contactName="{ item }">{{ item.contactName }}</template>
     <!-- #203: where the goods come from — the shelf, or the outgoing order (ORDO) it waits for, by number. -->
     <template #item.source="{ item }">
-      <router-link v-if="item.source === 'order' && item.orderId" class="text-no-wrap" :to="{ name: 'invoicing.orders.edit', params: { id: item.orderId } }">
+      <router-link v-if="item.source === 'order' && item.orderId" class="text-no-wrap" :to="{ name: 'invoicing.orders.edit', params: { id: item.orderId }, query: orderLineQuery(item) }">
         {{ item.orderNumber || '…' }}
       </router-link>
       <v-chip v-else size="x-small" variant="tonal">{{ $t('invoicing.sourceStock') }}</v-chip>
@@ -62,7 +62,7 @@
       </div>
     </template>
     <template #item.internalOrderNumber="{ item }">
-      <router-link v-if="item.internalOrderId" class="text-no-wrap" :to="{ name: 'invoicing.internalOrders.edit', params: { id: item.internalOrderId } }">
+      <router-link v-if="item.internalOrderId" class="text-no-wrap" :to="{ name: 'invoicing.internalOrders.edit', params: { id: item.internalOrderId }, query: internalOrderLineQuery(item) }">
         {{ item.internalOrderNumber }}
       </router-link>
       <span v-else class="text-medium-emphasis">—</span>
@@ -164,6 +164,7 @@ import ReservationQuantityDialog from '../components/ReservationQuantityDialog.v
 import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
 import ReservationCreateDialog from '../components/ReservationCreateDialog.vue'
 import { isShortage, reservationErrorMessage } from '../composables/reservation-errors'
+import { internalOrderLineQuery, orderLineQuery } from '../composables/order-tree/links'
 
 const { t } = useI18n()
 const route = useRoute()

@@ -1,6 +1,6 @@
 import { markdownToPdf } from './base.pdf.js'
 import { logoImgTag, LOGO_CSS } from './logo.js'
-import { GRID_CELL_PADDING_X, GRID_FIT_CLASS, LINE_GRID_CSS } from './line-grid.js'
+import { GRID_CELL_PADDING_X, GRID_EDGE_PADDING_X, GRID_FIT_CLASS, GRID_GUTTER_PX, LINE_GRID_CSS } from './line-grid.js'
 import { pageMargin } from './page-margins.js'
 import { productCredit } from '../product-credit.js'
 import { companionDocI18n, type CompanionDocKind } from '../companion-doc.i18n.js'
@@ -89,10 +89,14 @@ const CSS = `
   table.meta td.v { text-align: right; font-weight: 700; }
   table.parties { margin-bottom: 14px; font-size: 9pt; }
   table.parties td { padding: 2px 0; vertical-align: top; }
-  table.parties td.k { width: 13%; padding-left: 4px; }
-  table.parties td.v { width: 31%; }
+  /* Each party's half follows the line grid's rules (line-grid.ts): its text starts one edge
+     inset inside it (the band's title and the keys, in line with the line numbers) and ends one
+     inset short of its end, and a key keeps one gutter from its value, whatever the language's
+     title. The band sets only its vertical padding: a shorthand there outranks these. */
+  table.parties td.k { width: 13%; padding-left: ${GRID_EDGE_PADDING_X}; padding-right: ${GRID_GUTTER_PX}px; }
+  table.parties td.v { width: 31%; padding-right: ${GRID_EDGE_PADDING_X}; }
   table.parties td.gap { width: 6%; }
-  table.parties tr.band td { background: #ebebeb; font-weight: 700; padding: 3px 0; }
+  table.parties tr.band td { background: #ebebeb; font-weight: 700; padding-top: 3px; padding-bottom: 3px; }
   table.parties tr.band td.gap { background: transparent; }
   table.lines { font-size: 9pt; }
   table.lines thead th { border-bottom: 1px solid #000; border-top: 1px solid #000;

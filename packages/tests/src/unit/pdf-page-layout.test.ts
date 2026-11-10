@@ -5,16 +5,18 @@ import { HOUSE_MARGIN, footerTemplate } from 'reporting/pdf/house-style'
 import { buildInvoiceHtml, INVOICE_MARGIN } from 'reporting/pdf/invoice.pdf'
 import { buildCompanionHtml, COMPANION_MARGIN } from 'reporting/pdf/companion-doc.pdf'
 import { buildStockReceiptHtml, STOCK_RECEIPT_MARGIN } from 'reporting/pdf/stock-receipt.pdf'
-import { GRID_GUTTER_PX } from 'reporting/pdf/line-grid'
+import { GRID_EDGE_PADDING_PX, GRID_GUTTER_PX } from 'reporting/pdf/line-grid'
 
 /**
  * The page every PDF prints on (2026-11-08): one side margin for all of them, and on the
- * document forms a line grid that is flush at its outer edges, fitted to its contents and kept
- * apart by one gutter.
+ * document forms a line grid that runs from margin to margin with its outer columns' text a
+ * small inset inside it (2026-11-10), fitted to its contents and kept apart by one gutter. The
+ * parties band above the grid follows the same rules in each of its two halves.
  *
- * The grid is asserted on the page as Chrome lays it out for printing, every stylesheet
- * applied: a class on the right cell proves nothing if another rule outranks it, so the test
- * measures where the text actually lands.
+ * The grid and the band are asserted on the page as Chrome lays it out for printing, every
+ * stylesheet applied: a class on the right cell proves nothing if another rule outranks it (the
+ * band's titles printed flush for exactly that reason), so the test measures where the text
+ * actually lands.
  *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
@@ -170,11 +172,15 @@ function expectCompactGrid(m: Measured, wrappingColumns: number) {
   for (const cells of m.rows) {
     const first = cells[0]
     const last = cells[cells.length - 1]
-    // Flush outer edges: no padding before the first column or after the last.
-    expect(first.padLeft).toBe(0)
-    expect(last.padRight).toBe(0)
+    // The cells reach the grid's edges, which are the margins...
     expect(first.left).toBeCloseTo(0, 0)
     expect(last.right).toBeCloseTo(m.width, 0)
+    // ...and pad the outer columns' text in from them.
+    expect(first.padLeft).toBe(GRID_EDGE_PADDING_PX)
+    expect(last.padRight).toBe(GRID_EDGE_PADDING_PX)
+    // No text nearer an edge than the inset, whatever the column holds or however it wraps.
+    if (first.textBox) expect(first.textBox.left).toBeGreaterThanOrEqual(GRID_EDGE_PADDING_PX - 0.5)
+    if (last.textBox) expect(m.width - last.textBox.right).toBeGreaterThanOrEqual(GRID_EDGE_PADDING_PX - 0.5)
     // Every inner boundary is padded by half the gutter on each side.
     for (const c of cells.slice(1)) expect(c.padLeft).toBe(half)
     for (const c of cells.slice(0, -1)) expect(c.padRight).toBe(half)
@@ -185,8 +191,8 @@ function expectCompactGrid(m: Measured, wrappingColumns: number) {
     }
   }
 
-  // The line numbers start on the margin itself.
-  for (const cells of m.rows) expect(cells[0].textBox!.left).toBeCloseTo(0, 0)
+  // The line numbers, and their heading, start exactly one inset in from the margin.
+  for (const cells of m.rows) expect(cells[0].textBox!.left).toBeCloseTo(GRID_EDGE_PADDING_PX, 0)
 
   // Fitted columns are exactly their widest entry, heading or value, plus their padding.
   const header = m.rows[0]
@@ -200,17 +206,21 @@ function expectCompactGrid(m: Measured, wrappingColumns: number) {
 }
 
 describe('the line grid of the document forms, as Chrome prints it', () => {
-  it('the invoicing documents: flush, fitted, one gutter apart, the amount in words in line', async () => {
+  it('never lets the outer columns touch the edges: at least 5px', () => {
+    expect(GRID_EDGE_PADDING_PX).toBeGreaterThanOrEqual(5)
+  })
+
+  it('the invoicing documents: inset, fitted, one gutter apart, the amount in words in line', async () => {
     const m = await measure(invoice)
     expectCompactGrid(m, 1)
-    // The amounts end on the right margin.
-    for (const cells of m.rows) expect(cells[cells.length - 1].textBox!.right).toBeCloseTo(m.width, 0)
+    // The amounts end one inset short of the right margin.
+    for (const cells of m.rows) expect(cells[cells.length - 1].textBox!.right).toBeCloseTo(m.width - GRID_EDGE_PADDING_PX, 0)
     // The name, the one column that wraps, takes the rest of the line.
     const name = m.rows[0][1]
     expect(name.text).toBe('Име')
     expect(name.right - name.left).toBeGreaterThan(m.width / 3)
-    // The amount in words below starts on the same margin as the grid.
-    expect(m.words!.left).toBeCloseTo(0, 0)
+    // The amount in words below starts in line with the line numbers.
+    expect(m.words!.left).toBeCloseTo(m.rows[1][0].textBox!.left, 0)
   }, RENDER_TIMEOUT)
 
   it('the protocol and the certificate: the remark column keeps its share for free text', async () => {
@@ -221,10 +231,129 @@ describe('the line grid of the document forms, as Chrome prints it', () => {
     expect(note.textBox!.left).toBeCloseTo(note.left + note.padLeft, 0)
   }, RENDER_TIMEOUT)
 
-  it('the stock receipt: flush, fitted, one gutter apart', async () => {
+  it('the stock receipt: inset, fitted, one gutter apart', async () => {
     const m = await measure(stockReceipt)
     expectCompactGrid(m, 1)
-    for (const cells of m.rows) expect(cells[cells.length - 1].textBox!.right).toBeCloseTo(m.width, 0)
+    for (const cells of m.rows) expect(cells[cells.length - 1].textBox!.right).toBeCloseTo(m.width - GRID_EDGE_PADDING_PX, 0)
+  }, RENDER_TIMEOUT)
+})
+
+// ── The parties band above the grid ──────────────────────────────────────────────────────────
+
+/** Long enough that the name and the address wrap inside their half of the band. */
+const PARTY = {
+  name: 'ДРУЖЕСТВО ЗА ТЪРГОВИЯ С КРЕПЕЖНИ ЕЛЕМЕНТИ И ИНСТРУМЕНТИ БЪЛГАРИЯ ЕООД КЛОН СОФИЯ',
+  city: 'Велико Търново',
+  street: 'бул. „Цар Освободител" № 126, вх. Б, ет. 4, ап. 17, Промишлена зона Север, склад 3',
+  taxId: '123456789',
+  vatId: 'BG123456789',
+}
+
+/** Every language a form prints in: their band titles differ in width (ДОСТАВУВАЧ, EMPFÄNGER). */
+const LOCALES = ['bg', 'en', 'de', 'mk']
+
+const invoiceIn = (locale: string) => buildInvoiceHtml(
+  {
+    invoiceNumber: 'INV-2026-00001', type: 'invoice', direction: 'outgoing', status: 'sent',
+    issueDate: new Date('2026-05-04'), currency: 'EUR', subtotal: 1, taxTotal: 1, total: 1,
+    lines: [{ description: 'Болт М10х40 - DIN 931 - 8.8 - ZN', unit: 'pcs', quantity: 3, unitPrice: 41, taxRate: 20, lineTotal: 147.6 }],
+  } as any,
+  { name: PARTY.name, taxNumber: PARTY.taxId, vatNumber: PARTY.vatId, addresses: [{ city: PARTY.city, street: PARTY.street }] } as any,
+  { companyName: PARTY.name, taxId: PARTY.taxId, vatNumber: PARTY.vatId, addresses: [{ city: PARTY.city, street: PARTY.street }] } as any,
+  ['lineNo', 'description', 'unit', 'quantity', 'unitPrice', 'taxRate', 'lineTotal'],
+  { locale, copyMark: 'original' },
+)
+
+const certificateIn = (locale: string) => buildCompanionHtml({
+  kind: 'certificate',
+  number: 'CERT-2026-00001',
+  date: new Date('2026-11-03'),
+  recipient: { name: PARTY.name, city: PARTY.city, address: PARTY.street, taxId: PARTY.taxId },
+  supplier: { name: PARTY.name, city: PARTY.city, address: PARTY.street, taxId: PARTY.taxId },
+  lines: [{ name: 'Болт М10х40 - DIN 931 - 8.8 - ZN', unit: 'pcs', quantity: 3, note: 'EN 10204 3.1' }],
+  sourceDocs: [],
+  locale,
+})
+
+/** Every parties table on the page, cell by cell, and where the first line number starts; px from the page's left. */
+const MEASURE_PARTIES = `(() => {
+  const page = document.body.getBoundingClientRect()
+  const textBox = (el) => {
+    if (!el || !el.textContent.trim()) return null
+    const r = document.createRange()
+    r.selectNodeContents(el)
+    const b = r.getBoundingClientRect()
+    return { left: b.left - page.left, right: b.right - page.left }
+  }
+  return {
+    lineNumber: textBox(document.querySelector('table.lines tbody td')).left,
+    tables: [...document.querySelectorAll('table.parties')].map(table => [...table.rows].map(tr => [...tr.cells].map(c => {
+      const b = c.getBoundingClientRect()
+      const s = getComputedStyle(c)
+      return {
+        cls: c.className,
+        left: b.left - page.left,
+        right: b.right - page.left,
+        padLeft: parseFloat(s.paddingLeft),
+        padRight: parseFloat(s.paddingRight),
+        textBox: textBox(c),
+      }
+    }))),
+  }
+})()`
+
+interface PartyCell {
+  cls: string
+  left: number
+  right: number
+  padLeft: number
+  padRight: number
+  textBox: { left: number; right: number } | null
+}
+interface PartiesMeasured {
+  lineNumber: number
+  tables: PartyCell[][][]
+}
+
+/** One form in every language, on one page: its stylesheet is the same whatever the language. */
+async function measureParties(build: (locale: string) => { html: string; css: string }): Promise<PartiesMeasured> {
+  const docs = LOCALES.map(build)
+  for (const d of docs) expect(d.css).toBe(docs[0].css)
+  return evaluateRenderedPage<PartiesMeasured>(docs.map(d => d.html).join('\n'), { css: `${docs[0].css}\n${PRINTED_WIDTH}` }, MEASURE_PARTIES)
+}
+
+/** What the parties band of every document form must hold, measured: both halves, every row. */
+function expectInsetParties(m: PartiesMeasured) {
+  // One table per language: each form here prints a single copy.
+  expect(m.tables.length).toBe(LOCALES.length)
+  for (const rows of m.tables) {
+    expect(rows[0].map(c => c.cls)).toEqual(['k', 'v', 'gap', 'k', 'v'])
+    for (const cells of rows) {
+      for (const at of [0, 3]) { // the recipient's half, then the supplier's
+        const [key, value] = [cells[at], cells[at + 1]]
+        // The title on the band and every key under it: one inset in from the half's edge...
+        expect(key.padLeft).toBe(GRID_EDGE_PADDING_PX)
+        expect(key.textBox!.left - key.left).toBeCloseTo(GRID_EDGE_PADDING_PX, 0)
+        // ...one gutter from its value, however wide the language's title is...
+        expect(key.padRight).toBe(GRID_GUTTER_PX)
+        if (value.textBox) expect(value.textBox.left - key.textBox!.right).toBeGreaterThanOrEqual(GRID_GUTTER_PX - 0.5)
+        // ...and the value, wrapped or not, ends at least one inset short of the half's other edge.
+        expect(value.padRight).toBe(GRID_EDGE_PADDING_PX)
+        if (value.textBox) expect(value.right - value.textBox.right).toBeGreaterThanOrEqual(GRID_EDGE_PADDING_PX - 0.5)
+      }
+      // The recipient's title and keys start in line with the line numbers below them.
+      expect(cells[0].textBox!.left).toBeCloseTo(m.lineNumber, 0)
+    }
+  }
+}
+
+describe('the parties band of the document forms, as Chrome prints it', () => {
+  it('the invoicing documents: titles and keys inset, a gutter before the value, values short of the end', async () => {
+    expectInsetParties(await measureParties(invoiceIn))
+  }, RENDER_TIMEOUT)
+
+  it('the protocol and the certificate: the same', async () => {
+    expectInsetParties(await measureParties(certificateIn))
   }, RENDER_TIMEOUT)
 })
 

@@ -2,13 +2,15 @@
   <ListScaffold
     :title="$t('nav.products')"
     :headers="headers"
-    :items="items"
-    :loading="loading"
-    :pagination="pagination"
-    :has-active-filters="hasActiveFilters"
+    :items="list.items"
+    :loading="list.loading"
+    :pagination="list.pagination"
+    :has-active-filters="list.hasActiveFilters"
+    selectable
+    v-model:selected="selection.ticked"
     :empty="{ icon: 'mdi-package-variant-closed', title: $t('list.empty.products'), description: $t('list.empty.productsHint') }"
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
-    @update:options="onUpdateOptions"
+    @update:options="list.onUpdateOptions"
   >
     <template #actions>
       <!-- FR-26.8.7: the Export menu only for a session with the catalog's export area. -->
@@ -16,109 +18,101 @@
       <responsive-btn v-if="writes" color="primary" icon="mdi-plus" :to="{ name: 'inventory.products.new', params: { tab: 'edit' } }">{{ $t('common.create') }}</responsive-btn>
     </template>
 
+    <!-- FR-28.22: the filters are the product list's own (`ProductFilterBar`), the same two rows the product dialog shows. -->
     <template #filters>
       <v-card class="mb-4">
         <v-card-text class="pb-4">
-          <v-row>
-            <v-col cols="12" md="2">
-              <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
-            </v-col>
-            <v-col cols="12" md="2">
-              <v-autocomplete
-                v-model="warehouseFilter"
-                :items="warehouseOptions"
-                item-title="name"
-                item-value="_id"
-                :label="$t('warehouse.warehouse')"
-                prepend-inner-icon="mdi-warehouse"
-                clearable
-                hide-details
-                density="compact"
-              />
-            </v-col>
-            <v-col cols="12" md="2">
-              <v-select v-model="categoryFilter" :label="$t('warehouse.category')" :items="categoryOptions" clearable hide-details density="compact" />
-            </v-col>
-            <v-col cols="12" md="2">
-              <v-select v-model="typeFilter" :label="$t('common.type')" :items="productTypeItems(['goods', 'service'])" clearable hide-details density="compact" />
-            </v-col>
-            <v-col cols="12" md="2">
-              <TagInput v-model="tagFilter" type="product" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
-            </v-col>
-            <v-col cols="12" md="2">
-              <!-- FR-22.48: a deactivated article stays out of the list unless this asks for it. -->
-              <v-select v-model="activeFilter" :label="$t('common.status')" :items="activeFilterItems" hide-details density="compact" />
-            </v-col>
-          </v-row>
+          <ProductFilterBar :list="list" :org-url="appStore.orgUrl()" />
         </v-card-text>
       </v-card>
     </template>
 
-    <!-- A code with no break in it (E2E-CSP-1793022750769) must not widen the list past 1366 px. -->
-    <template #item.sku="{ item }"><span style="overflow-wrap: anywhere">{{ item.sku }}</span></template>
+    <!-- FR-28.14 / .15: what is ticked, and what to do with it: a supplier order or a customer order from the ticked
+         articles, or from "all that match the filter" (which travels as the filter). -->
+    <template #bulk-bar>
+      <div v-if="selection.offerSelectAll || selection.isMatching || selection.count" class="mb-3" data-testid="selection-bar">
+        <v-alert
+          v-if="selection.offerSelectAll"
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mb-2"
+          data-testid="select-all-banner"
+        >
+          <div class="d-flex align-center ga-3 flex-wrap">
+            <span>{{ $t('productOrders.banner.page', { n: list.items.length }) }}</span>
+            <v-btn size="small" variant="text" color="primary" data-testid="select-all-matching" @click="selection.selectAll()">
+              {{ $t('productOrders.banner.selectAll', { total: list.pagination.total }) }}
+            </v-btn>
+          </div>
+        </v-alert>
+        <v-alert
+          v-else-if="selection.isMatching && selection.matchingCurrent"
+          type="info"
+          variant="tonal"
+          density="compact"
+          class="mb-2"
+          data-testid="all-matching-banner"
+        >
+          {{ $t('productOrders.banner.all', { total: list.pagination.total }) }}
+        </v-alert>
+        <div v-if="selection.count" class="d-flex align-center ga-2 flex-wrap">
+          <v-chip color="primary" variant="tonal" data-testid="selection-count">
+            {{ $t('productOrders.bar.selected', { n: selection.count }) }}
+            <span v-if="selection.outside" class="ms-1" data-testid="selection-outside">({{ $t('productOrders.bar.outside', { n: selection.outside }) }})</span>
+            <span v-else-if="selection.isMatching && !selection.matchingCurrent" class="ms-1" data-testid="selection-earlier">({{ $t('productOrders.bar.earlierFilter') }})</span>
+          </v-chip>
+          <template v-if="canCreateOrders">
+            <v-tooltip :disabled="!selection.overCap" location="bottom">
+              <template #activator="{ props: tip }">
+                <span v-bind="tip">
+                  <v-btn color="primary" variant="flat" prepend-icon="mdi-truck-delivery-outline" :disabled="selection.overCap" data-testid="create-supplier-order" @click="openOrderDialog('supplier')">
+                    {{ $t('productOrders.bar.supplierOrder') }}
+                  </v-btn>
+                </span>
+              </template>
+              {{ $t('productOrders.bar.tooMany', { max: selection.max }) }}
+            </v-tooltip>
+            <v-tooltip :disabled="!selection.overCap" location="bottom">
+              <template #activator="{ props: tip }">
+                <span v-bind="tip">
+                  <v-btn color="primary" variant="outlined" prepend-icon="mdi-account-arrow-left-outline" :disabled="selection.overCap" data-testid="create-customer-order" @click="openOrderDialog('customer')">
+                    {{ $t('productOrders.bar.customerOrder') }}
+                  </v-btn>
+                </span>
+              </template>
+              {{ $t('productOrders.bar.tooMany', { max: selection.max }) }}
+            </v-tooltip>
+          </template>
+          <v-btn variant="text" data-testid="selection-clear" @click="selection.clear()">{{ $t('productOrders.bar.clear') }}</v-btn>
+          <span v-if="selection.overCap" class="text-body-2 text-error" data-testid="selection-too-many">{{ $t('productOrders.bar.tooMany', { max: selection.max }) }}</span>
+        </div>
+      </div>
+    </template>
+
     <template #item.name="{ item }">
       <entity-link :label="item.name" :to="{ name: 'inventory.products.edit', params: { id: item._id, tab: 'edit' } }" />
     </template>
-    <template #item.type="{ item }">{{ productTypeLabel(item.type) }}</template>
-    <template #item.stock="{ item }">
-      <div class="d-flex flex-wrap ga-1 py-1">
-        <v-chip
-          v-for="s in stockFor(item._id)"
-          :key="s.warehouseId"
-          size="x-small"
-          :color="s.quantity > 0 ? 'success' : 'error'"
-          variant="tonal"
-          :title="s.warehouseName"
-        >
-          {{ s.warehouseName }}: {{ fmtQty(s.quantity) }}
-        </v-chip>
-        <span v-if="!stockFor(item._id).length" class="text-disabled text-caption">—</span>
-      </div>
-    </template>
-    <!--
-      FR-22.45 (#203.8, #4.5): held for clients, and ordered from suppliers but not yet here. Each
-      figure opens the article's stock tab, which lists the reservations and the orders behind it.
-    -->
-    <template #item.reserved="{ item }">
-      <entity-link
-        v-if="supplyFor(item._id).reserved"
-        :label="fmtQty(supplyFor(item._id).reserved)"
-        :to="stockTab(item)"
-        :aria-label="`${$t('warehouse.supply.reserved')}: ${fmtQty(supplyFor(item._id).reserved)}`"
-      />
-      <span v-else class="text-disabled">—</span>
-    </template>
-    <template #item.onOrder="{ item }">
-      <template v-if="supplyFor(item._id).incoming">
-        <entity-link
-          :label="fmtQty(supplyFor(item._id).incoming)"
-          :to="stockTab(item)"
-          :aria-label="`${$t('warehouse.supply.onOrder')}: ${fmtQty(supplyFor(item._id).incoming)}`"
-        />
-        <div v-if="supplyFor(item._id).reservedIncoming" class="text-caption text-medium-emphasis text-no-wrap">
-          {{ $t('warehouse.supply.reservedIncoming') }}: {{ fmtQty(supplyFor(item._id).reservedIncoming) }}
-        </div>
-      </template>
-      <span v-else class="text-disabled">—</span>
-    </template>
-    <template #item.purchasePrice="{ item }">{{ fmtPrice(item.purchasePrice) }}</template>
-    <template #item.sellingPrice="{ item }">{{ fmtPrice(item.sellingPrice) }}</template>
-    <!-- The price tiers, a column per slot (product-price-columns.ts). An article with no price at
-         a tier's level shows a dash, as it shows nothing reserved. -->
-    <template v-for="col in TIER_COLUMNS" #[`item.${col.key}`]="{ item }">
-      <span v-if="tierPrice(item.priceTiers, col.name) === null" class="text-disabled">—</span>
-      <template v-else>{{ fmtPrice(tierPrice(item.priceTiers, col.name)!) }}</template>
-    </template>
-    <template #item.isActive="{ item }">
-      <v-icon :color="item.isActive !== false ? 'success' : 'grey'">
-        {{ item.isActive !== false ? 'mdi-check-circle' : 'mdi-close-circle' }}
-      </v-icon>
+    <!-- Every other cell is the product list's own (`ProductCell`): the dialog draws the same ones. The page's
+         figures for what is reserved and on order open the article's stock tab (`linkable`). -->
+    <template v-for="key in PRODUCT_CELL_KEYS" #[`item.${key}`]="{ item }">
+      <ProductCell :column="key" :item="item" :list="list" linkable />
     </template>
     <template #item.actions="{ item }">
       <!-- FR-22.23 / .47: the row's actions in one menu — the article's pages, the documents it
            starts („Заприходи", „Продай", „Резервирай"), and Delete apart. -->
       <RowActionsMenu :actions="rowActions(item)" />
     </template>
+
+    <OrderFromProductsDialog
+      v-if="canCreateOrders"
+      v-model="orderDialog"
+      :kind="orderKind"
+      :org-url="appStore.orgUrl()"
+      :selection="orderSelection"
+      :locale="intlLocale()"
+      @created="onOrderCreated"
+    />
 
     <v-dialog v-model="deleteDialog" max-width="400">
       <v-card>
@@ -135,172 +129,91 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, onMounted, toRef } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { holdsArea } from 'config/constants'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { writesInventory } from 'ui-shared/nav/page-registry'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import { useListQueryState } from 'ui-shared/composables/useListQueryState'
-import { useProductTypes } from 'ui-shared/composables/useProductTypes'
+import { useProductList } from 'ui-shared/composables/product-list/useProductList'
+import { useProductSelection } from 'ui-shared/composables/product-list/useProductSelection'
+import { useAccess } from 'ui-shared/access/useAccess'
+import OrderFromProductsDialog from 'ui-shared/components/product-list/OrderFromProductsDialog.vue'
+import { useProductColumns, PRODUCT_CELL_KEYS } from 'ui-shared/composables/product-list/useProductColumns'
+import type { ProductRow } from 'ui-shared/composables/product-list/types'
+import ProductFilterBar from 'ui-shared/components/product-list/ProductFilterBar.vue'
+import ProductCell from 'ui-shared/components/product-list/ProductCell.vue'
 import ListScaffold from 'ui-shared/components/ListScaffold'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
-import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import RowActionsMenu, { type RowAction } from 'ui-shared/components/RowActionsMenu.vue'
 import { useProductDocActions } from '../composables/useProductDocActions'
-import { TIER_COLUMNS, tierPrice, formatUnitPrice, type TierLike } from '../composables/product-price-columns'
-
-interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; priceTiers?: TierLike[]; isActive: boolean; trackInventory?: boolean }
-interface StockBadge { warehouseId: string; warehouseName: string; quantity: number; availableQuantity: number }
-/** `getProductsSupplyTotals` — the definitions of the product's stock tab, summed. */
-interface SupplyTotals { reserved: number; incoming: number; reservedIncoming: number; planned: number }
-const NO_SUPPLY: SupplyTotals = { reserved: 0, incoming: 0, reservedIncoming: 0, planned: 0 }
-
-/** FR-22.48: which articles the list shows. A deactivated one only when asked for. */
-const ACTIVE_FILTERS = ['active', 'inactive', 'all'] as const
-type ActiveFilter = (typeof ACTIVE_FILTERS)[number]
 
 const { t } = useI18n()
+const router = useRouter()
 const appStore = useAppStore()
-const { showSuccess, showError } = useSnackbar()
-const { productTypeLabel, productTypeItems } = useProductTypes()
-const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
-
-const { search, debouncedSearch } = useSearchDebounce()
+const { showSuccess, showError, showSnackbar } = useSnackbar()
 const deleteDialog = ref(false)
 const selectedId = ref('')
 
-const categoryFilter = ref<string | null>(null)
-const typeFilter = ref<string | null>(null)
-const tagFilter = ref<string[]>([])
-const warehouseFilter = ref<string | null>(null)
-const activeFilter = ref<ActiveFilter>('active')
-const categoryOptions = ref<string[]>([])
-const warehouseOptions = ref<any[]>([])
-const stockMap = ref<Record<string, StockBadge[]>>({})
-const supplyMap = ref<Record<string, SupplyTotals>>({})
-
-const activeFilterItems = computed(() => [
-  { title: t('warehouse.activeFilter.active'), value: 'active' },
-  { title: t('warehouse.activeFilter.inactive'), value: 'inactive' },
-  { title: t('common.all'), value: 'all' },
-])
-
-const filters = computed(() => {
-  const f: Record<string, any> = {}
-  if (debouncedSearch.value) f.search = debouncedSearch.value
-  if (categoryFilter.value) f.category = categoryFilter.value
-  if (typeFilter.value) f.type = typeFilter.value
-  if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
-  if (warehouseFilter.value) f.warehouseId = warehouseFilter.value
-  if (activeFilter.value !== 'all') f.isActive = activeFilter.value === 'active' ? 'true' : 'false'
-  return f
-})
-
-const hasActiveFilters = computed(() =>
-  !!(debouncedSearch.value || categoryFilter.value || typeFilter.value || tagFilter.value.length || warehouseFilter.value || activeFilter.value !== 'active'),
-)
-
-const url = computed(() => `${appStore.orgUrl()}/warehouse/product`)
-// FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
-useListQueryState([
-  { key: 'q', ref: search, mirror: debouncedSearch },
-  { key: 'category', ref: categoryFilter },
-  { key: 'type', ref: typeFilter },
-  { key: 'tags', ref: tagFilter, codec: 'csv' },
-  { key: 'warehouse', ref: warehouseFilter },
-  // The default is declared, so a bare URL stays bare and means "active articles".
-  { key: 'status', ref: activeFilter, default: 'active', sanitize: (v) => (ACTIVE_FILTERS.includes(v) ? v : undefined) },
-])
-
-const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
-  url,
-  entityKey: 'products',
-  filters,
+// FR-28.22: the filters, the request and its paging, the three side calls that fill a page's cells (stock and
+// supply, supplier facts) and what a cell says are the product list's own (`useProductList`), shared with the
+// product dialog. This page keeps what is its own: the URL (FR-05), the row menu, delete and export.
+const intlLocale = () => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale as string] || 'en-US')
+const list = useProductList({
+  orgUrl: () => appStore.orgUrl(),
+  baseCurrency: () => appStore.currentOrg?.baseCurrency || 'EUR',
+  locale: intlLocale,
   urlSync: true,
 })
 
+// FR-28.13 / .14: the ticked articles — ids, across pages, sorts, columns and filter changes — and "all that match the
+// filter", which travels as the filter. Not in the URL. The two order dialogs start from it (FR-28.19); a created order
+// clears it, and closing a dialog keeps it. The buttons are for a role that may create an order (FR-28.15).
+const selection = useProductSelection(list, () => appStore.orgUrl())
+const canCreateOrders = useAccess().can('orders.create')
+const orderDialog = ref(false)
+const orderKind = ref<'supplier' | 'customer'>('supplier')
+const orderSelection = ref<{ productIds?: string[]; filter?: Record<string, string>; warehouseId?: string }>({})
+function openOrderDialog(kind: 'supplier' | 'customer') {
+  // The selection as it is NOW: the dialog works on this, whatever the list does behind it.
+  orderSelection.value = selection.body()
+  orderKind.value = kind
+  orderDialog.value = true
+}
+function onOrderCreated(result: { kind: 'supplier' | 'customer'; order: { _id: string }; skipped: unknown[] }) {
+  selection.clear()
+  if (result.skipped.length) showSnackbar(t('productOrders.dialog.skipped', { n: result.skipped.length }), 'warning')
+  // FR-22.35: the new draft opens; its number does not live only in a snackbar.
+  void router.push(result.kind === 'supplier' ? '/invoicing/orders/' + result.order._id + '/edit' : '/invoicing/internal-orders/' + result.order._id + '/edit')
+}
+
 // FR-22.46 (#4.1): stock before unit, and what is reserved and on order right after the stock.
 // A user who reordered the columns keeps their order; the two new ones join it after „Наличност"
-// (useGridColumns).
-//
-// The three stock columns sort by the figure the cell shows, over every filtered article (the
-// server computes them, `product-stock-sort.ts`); a dash goes last either way.
-//
-// With the price tiers shown the list is wider than a 1366 px screen, so the name and the row
-// menu stay put while the prices scroll sideways (`fixed`), and the name keeps a readable width
-// instead of shrinking to a word per line. The price columns take FR-22.23's 8 px gutters, which
-// is what lets the whole list fit 1920 px in Bulgarian. „Покупна цена" waits on the cog: it is
-// „Доставна цена" again wherever the tiers are kept.
-const PRICE_CELL = { headerProps: { class: 'px-2' }, cellProps: { class: 'px-2' } }
-const headers = computed(() => [
-  { title: t('warehouse.sku'), key: 'sku', sortable: true },
-  { title: t('common.name'), key: 'name', sortable: true, fixed: 'start' as const, minWidth: '180px' },
-  { title: t('warehouse.category'), key: 'category', sortable: true },
-  { title: t('common.type'), key: 'type' },
-  { title: t('warehouse.stock'), key: 'stock' },
-  { title: t('warehouse.supply.reserved'), key: 'reserved', align: 'end' as const },
-  { title: t('warehouse.supply.onOrder'), key: 'onOrder', align: 'end' as const },
-  { title: t('warehouse.unit'), key: 'unit' },
-  { title: t('warehouse.purchasePrice'), key: 'purchasePrice', align: 'end' as const, defaultHidden: true, ...PRICE_CELL },
-  { title: t('warehouse.sellingPrice'), key: 'sellingPrice', align: 'end' as const, ...PRICE_CELL },
-  // A column per price tier, headed by the tier's name and sorted by its price (the server reads
-  // the tier out of `tier_<slot>`); the slots regal prices by are shown, the rest wait on the cog.
-  ...TIER_COLUMNS.map((c) => ({ title: c.name, key: c.key, align: 'end' as const, defaultHidden: c.defaultHidden, ...PRICE_CELL })),
-  // FR-22.48: only when the list can hold deactivated articles. Among active ones it says "yes"
-  // on every row, and its width is what keeps the row actions inside 1366 px.
-  ...(activeFilter.value === 'active' ? [] : [{ title: t('common.active'), key: 'isActive', align: 'center' as const }]),
-  { title: t('common.actions'), key: 'actions', sortable: false, fixed: 'end' as const },
-])
-
-function fmtPrice(amount: number) { return formatUnitPrice(amount, baseCurrency.value, localeCode.value) }
-function fmtQty(n: number) { return new Intl.NumberFormat(localeCode.value, { maximumFractionDigits: 3 }).format(n || 0) }
-function stockFor(id: string): StockBadge[] { return (stockMap.value[id] || []).filter((s) => (s.quantity || 0) !== 0) }
-function supplyFor(id: string): SupplyTotals { return supplyMap.value[id] || NO_SUPPLY }
-function stockTab(item: Product) { return { name: 'inventory.products.stock', params: { id: item._id, tab: 'stock' } } }
-
-// After each page loads, badge the visible products' per-warehouse stock — and what is reserved
-// and on order (FR-22.45) — in one bulk call. With a warehouse chosen, all of it is that
-// warehouse's. A slower answer for an earlier page never overwrites the current one.
-let stockRequest = 0
-async function fetchStockBadges() {
-  const ids = (items.value as Product[]).map((p) => p._id).filter(Boolean)
-  const mine = ++stockRequest
-  if (!ids.length) { stockMap.value = {}; supplyMap.value = {}; return }
-  try {
-    const params: Record<string, string> = { productIds: ids.join(',') }
-    if (warehouseFilter.value) params.warehouseId = warehouseFilter.value
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level/by-products`, { params })
-    if (mine !== stockRequest) return
-    stockMap.value = data.stock || {}
-    supplyMap.value = data.supply || {}
-  } catch {
-    if (mine !== stockRequest) return
-    stockMap.value = {}
-    supplyMap.value = {}
-  }
-}
-watch(items, fetchStockBadges)
+// (useGridColumns). The three stock columns sort by the figure the cell shows, over every filtered article
+// (the server computes them, `product-stock-sort.ts`); a dash goes last either way. With the price tiers
+// shown the list is wider than a 1366 px screen, so the name and the row menu stay put while the prices scroll
+// sideways (`fixed`). The columns themselves are `useProductColumns`, which the dialog uses too.
+const { headers } = useProductColumns({ seesSuppliers: list.seesSuppliers, activeFilter: toRef(list, 'activeFilter') })
 
 const { actionsFor } = useProductDocActions()
 // FR-26.8.7: without `inventory.write` (a Seller) the page reads, and offers no New, Save or Delete.
 const writes = writesInventory(sessionViewer())
 const exportsCatalog = holdsArea(sessionViewer(), 'catalogExport')
 
+function stockTab(item: ProductRow) { return { name: 'inventory.products.stock', params: { id: item._id, tab: 'stock' } } }
+
 /**
  * A row's menu: the article's two pages, then what it starts (FR-22.47) — each offered only to a
  * role whose Save the form's API takes, never receiving or reserving a service, and selling or
  * reserving a deactivated article disabled with the reason — then Delete, apart.
  */
-function rowActions(item: Product): RowAction[] {
-  const documents: RowAction[] = actionsFor(item).map((a, i) => ({
+function rowActions(item: ProductRow): RowAction[] {
+  const documents: RowAction[] = actionsFor(item as any).map((a, i) => ({
     key: a.key,
     label: t(a.labelKey),
     icon: a.icon,
@@ -318,11 +231,11 @@ function rowActions(item: Product): RowAction[] {
   ]
 }
 
-function confirmDelete(item: Product) { selectedId.value = item._id; deleteDialog.value = true }
+function confirmDelete(item: ProductRow) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
     await httpClient.delete(`${appStore.orgUrl()}/warehouse/product/${selectedId.value}`)
-    await fetchItems()
+    await list.fetchItems()
     deleteDialog.value = false
     showSuccess(t('common.deletedSuccessfully'))
   } catch (e: any) {
@@ -331,19 +244,5 @@ async function doDelete() {
 }
 function onExport(format: string) { console.log('Export products as', format) }
 
-async function fetchCategories() {
-  try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category`, { params: { isActive: 'true' } })
-    categoryOptions.value = (data.productCategories || []).map((c: { name: string }) => c.name)
-  } catch { /* */ }
-}
-
-async function fetchWarehouses() {
-  try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 0 } })
-    warehouseOptions.value = data.warehouses || []
-  } catch { /* */ }
-}
-
-onMounted(() => { fetchItems(); fetchCategories(); fetchWarehouses() })
+onMounted(() => list.start())
 </script>

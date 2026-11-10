@@ -31,6 +31,7 @@
  */
 import type { PlusMinusDocument } from './map-plusminus-invoice.js'
 import { lineItemName } from './map-plusminus-line.js'
+import { partnerOf, type PartnerName } from './supplier-name.js'
 
 export interface StokrazpItem {
   name: string
@@ -68,7 +69,14 @@ export interface StokrazpPriceWarning {
 export interface StokrazpMapped {
   docNumber: string
   date: string
+  /** `header.partner` as PlusMinus sent it (`ПАРТНЬОРИ:…` prefix included): what the movement's notes carry. */
   partner?: string
+  /**
+   * Who the partner is, for finding the supplier (FR-28.12): its bare name when it names a supplier, `correction` for
+   * the КОРЕКЦИЯ placeholder (nobody's name), `nobody` when the document has none. Resolving it to a contact is the
+   * caller's: `matching.ts#matchSupplierByName`, or the API's contact list for a script.
+   */
+  supplier: PartnerName
   /** Positive-qty lines — feed to `receive-new-products.ts` as `{receipt,date,supplier,items}`. */
   receiptItems: StokrazpItem[]
   /**
@@ -186,5 +194,5 @@ export function mapStokrazpDoc(doc: PlusMinusDocument): StokrazpMapped {
     }
   }
 
-  return { docNumber, date, partner: h.partner ? String(h.partner) : undefined, receiptItems, priceOnlyItems, adjustmentLines, priceWarnings }
+  return { docNumber, date, partner: h.partner ? String(h.partner) : undefined, supplier: partnerOf(h.partner), receiptItems, priceOnlyItems, adjustmentLines, priceWarnings }
 }
