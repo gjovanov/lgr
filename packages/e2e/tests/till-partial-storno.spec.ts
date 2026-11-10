@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 import { computePosTotals } from '../../config/src/pos-totals'
 import { apiLogin } from './helpers/api'
 import { loginForApp } from './helpers/login'
-import { openTillSession } from './helpers/cash-register'
+import { openTillSession, tillCatalog } from './helpers/cash-register'
 
 /**
  * FR-23 R3 (#363): a customer brings back one of two articles, through the storno dialog, on the simulated Eltrade.
@@ -64,7 +64,7 @@ test.describe('FR-23 R3 — the till\'s partial storno', () => {
     manager = await apiLogin('acme-corp', managerName, PASSWORD)
     till = await openTillSession(manager)
 
-    const { products } = await ok(manager, 'GET', `/trade/pos/catalog?warehouseId=${till.warehouseId}&type=goods&size=100`)
+    const products = await tillCatalog(manager, till.warehouseId)
     const articles = (products || []).filter((p: any) => (p.stockAvailable ?? 0) >= 3 && p.unitPrice > 0)
     // Two of one VAT rate, so one VAT group on the device.
     const rate = Number(articles[0]?.taxRate || 0)

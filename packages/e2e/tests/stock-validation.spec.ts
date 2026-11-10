@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
-import { apiLogin, apiGet, apiPost } from './helpers/api'
+import { activeContact, apiLogin, apiGet, apiPost } from './helpers/api'
 import { lineUnitPrice } from './helpers/document-form'
 import { rowAction, rowOf, rowsWithStatus } from './helpers/row-actions'
 import { createBackOfficeCashSale } from './helpers/cash-register'
@@ -45,14 +45,14 @@ test.describe('Stock Validation on Invoicing', () => {
     // something else, passed. The draft is now made through the API; what is tested is the list:
     // issuing a draft the warehouses cannot cover is refused, says so, and leaves it a draft.
     const admin = await apiLogin()
-    const { contacts } = await apiGet(admin, '/invoicing/contact?type=customer&size=1')
+    const customer = await activeContact(admin, 'customer')
     const { warehouses } = await apiGet(admin, '/warehouse/warehouse?size=50')
     const wh = warehouses.find((w: any) => w.code === 'WH-01') || warehouses[0]
     const { products } = await apiGet(admin, `/trade/pos/catalog?warehouseId=${wh.id || wh._id}&type=goods&size=1`)
-    expect(contacts?.length && products?.length, 'a customer and an article — is the DB seeded?').toBeTruthy()
+    expect(customer && products?.length, 'an active customer and an article — is the DB seeded?').toBeTruthy()
     const p = products[0]
     const res = await apiPost(admin, '/invoices', {
-      type: 'invoice', direction: 'outgoing', contactId: contacts[0].id || contacts[0]._id,
+      type: 'invoice', direction: 'outgoing', contactId: customer.id || customer._id,
       issueDate: new Date().toISOString().slice(0, 10), currency: 'EUR',
       lines: [{
         productId: p.productId, warehouseId: wh.id || wh._id, description: p.productName, unit: p.unit || 'pcs',

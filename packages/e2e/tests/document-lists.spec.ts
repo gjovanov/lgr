@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { apiLogin, apiGet, apiPost } from './helpers/api'
+import { activeContact, apiLogin, apiPost } from './helpers/api'
 import { rowAction, rowOffers, rowOf } from './helpers/row-actions'
 import { listGeometry } from './helpers/list-geometry'
 import { lineValues } from './helpers/document-form'
@@ -30,12 +30,12 @@ const LISTS = [
 async function draftDocument(type: string, direction: string, description = `E2E list ${Date.now().toString(36)}`): Promise<any> {
   const session = await apiLogin()
   const side = direction === 'incoming' ? 'supplier' : 'customer'
-  const { contacts } = await apiGet(session, `/invoicing/contact?type=${side}&size=1`)
-  expect(contacts?.[0], `a seeded ${side}`).toBeTruthy()
+  const contact = await activeContact(session, side)
+  expect(contact, `a seeded, active ${side}`).toBeTruthy()
   const res = await apiPost(session, '/invoices', {
     type,
     direction,
-    contactId: contacts[0]._id,
+    contactId: contact._id,
     issueDate: new Date().toISOString().split('T')[0],
     currency: 'EUR',
     exchangeRate: 1,
@@ -47,7 +47,7 @@ async function draftDocument(type: string, direction: string, description = `E2E
     total: 120,
   })
   expect(res.status, `setup ${direction} ${type}: ${res.status}`).toBeLessThan(300)
-  return { ...(await res.json()).invoice, contact: contacts[0], description }
+  return { ...(await res.json()).invoice, contact, description }
 }
 
 for (const list of LISTS) {

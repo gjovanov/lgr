@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test'
 import { computePosTotals } from '../../config/src/pos-totals'
 import { apiLogin } from './helpers/api'
 import { loginForApp } from './helpers/login'
-import { openTillSession } from './helpers/cash-register'
+import { openTillSession, tillCatalog } from './helpers/cash-register'
 import { openSelect } from './helpers/vuetify'
 
 /**
@@ -83,7 +83,7 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     // The articles this spec sells: three with stock at the store, all at ONE VAT rate. In a full run
     // other specs have changed articles before this one, so "the first article's rate" was not the
     // rate of the ones sold, and the device refused a line (a voided receipt).
-    const { products } = await ok(cashier, 'GET', `/trade/pos/catalog?warehouseId=${till.warehouseId}&type=goods&size=100`)
+    const products = await tillCatalog(cashier, till.warehouseId)
     const sellable = (products || []).filter((p: any) => (p.stockAvailable ?? 0) >= 2 && p.unitPrice > 0)
     const byRate = new Map<number, any[]>()
     for (const p of sellable) byRate.set(Number(p.taxRate || 0), [...(byRate.get(Number(p.taxRate || 0)) || []), p])

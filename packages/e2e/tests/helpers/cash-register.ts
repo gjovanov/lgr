@@ -63,6 +63,27 @@ export async function openTillSession(session: ApiSession): Promise<{ id: string
 }
 
 /**
+ * Every active article of a type that the till's catalog lists, in the catalog's own order (by name),
+ * each with its stock at `warehouseId`.
+ *
+ * ⚠ Never ONE page of it. Every spec that makes an article of its own names it "E2E …", which sorts
+ * ahead of the seed's "Product N …", and the suite runs in one database. By the time the till specs
+ * run there are more of those than a page holds, so the first hundred goods include no seeded
+ * article and a fixture that looks there for "a product with stock" finds none. Twelve specs failed
+ * on exactly that, with "is the DB seeded?", the night FR-28's specs joined the suite.
+ */
+export async function tillCatalog(session: ApiSession, warehouseId: string, type = 'goods'): Promise<any[]> {
+  const byId = new Map<string, any>()
+  for (let page = 0; ; page++) {
+    const { products, totalPages } = await call(session, 'GET', `/trade/pos/catalog?warehouseId=${warehouseId}&type=${type}&size=200&page=${page}`)
+    // By id: two articles of one name have no order between them, so a page boundary can repeat one.
+    for (const p of products || []) if (!byId.has(String(p.productId))) byId.set(String(p.productId), p)
+    if (!products?.length || page + 1 >= (totalPages ?? 1)) break
+  }
+  return [...byId.values()]
+}
+
+/**
  * A cashier of this test's own. The seed's `sales` user has one open session, which every spec shares
  * and each one closes: under parallel workers a terminal can lose it mid-test. Pass this to
  * `openTillSession` and `ringTillSale` when a test holds a session while it works a page.
@@ -98,7 +119,7 @@ export async function ownCashier(name = 'cashier'): Promise<OwnCashier> {
 export async function ringTillSale(session?: ApiSession, method = 'card'): Promise<TillSale> {
   const cashier = session || await apiLogin('acme-corp', 'sales', 'test123')
   const till = await openTillSession(cashier)
-  const { products } = await call(cashier, 'GET', `/trade/pos/catalog?warehouseId=${till.warehouseId}&type=goods&size=100`)
+  const products = await tillCatalog(cashier, till.warehouseId)
   const product = products.find((p: any) => (p.stockAvailable ?? 0) >= 1 && p.unitPrice > 0)
   if (!product) throw new Error('no product with stock at the till\'s warehouse — is the DB seeded?')
 
@@ -178,7 +199,8 @@ export async function createBackOfficeCashSale(session?: ApiSession): Promise<{ 
   const { warehouses } = await call(admin, 'GET', '/warehouse/warehouse?size=50')
   const main = warehouses.find((w: any) => w.code === 'WH-01') || warehouses[0]
   const warehouseId = main.id || main._id
-  const { products } = await call(admin, 'GET', `/trade/pos/catalog?warehouseId=${warehouseId}&type=goods&size=100&sortOrder=desc`)
+  // From the end of the catalog, as before: the seed's "Product N …" sort after the specs' "E2E …".
+  const products = (await tillCatalog(admin, warehouseId)).reverse()
   const product = products.find((p: any) => (p.stockAvailable ?? 0) >= 1 && p.unitPrice > 0)
   if (!product) throw new Error('no product with stock in the main warehouse — is the DB seeded?')
 
