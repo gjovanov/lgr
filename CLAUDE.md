@@ -3077,8 +3077,14 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - `invoice.controller`: by id, another kind is 404 (as an unknown id) and a kind it only reads is 403
     `capability_required`; the list adds `partitionFilter(grant)` (`{ direction }` or an `$or`); the summary covers
     `readableDirection`; a create of a kind it does not make is refused before anything is written. The exports,
-    contact ledger and card, aging, stats, movements' bill links and the import's bill target read `bills.view` /
-    `bills.create` where they read the `purchases` area.
+    contact ledger and card, aging, stats, movements' bill links read `seesBills` and the import's bill target
+    `bills.create`, where they read the `purchases` area.
+  - ⚠ **Where another app's session reaches it, `services/biz/access/partition.ts#seesBills` / `seesOrders`**: on the
+    legacy model FR-26's area, as before (an absent `areas` list holds it whatever the permissions: a warehouse
+    manager, with no invoicing permission, is told of the bill that holds a receipt), on a role the partition's
+    capabilities. `bills.view` alone is NOT the area there: legacy grants it only with an invoicing permission.
+    `product-supply` and the invoice's order links read `seesOrders`. The invoice controller's own routes, which only
+    invoicing sessions reach, read the grant (`unit/access-legacy-gates.test.ts` proves both).
   - Route rules: `invoices` reads take any kind's `view`, writes any kind's work; the controller does the rest.
   - ⚠ Legacy grants the three together from the invoicing permissions, and an `areas` list without `purchases`
     takes `bills` away, so nobody's answer changes (`access-differential`). A grant that reads every kind and works
