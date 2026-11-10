@@ -1753,6 +1753,21 @@
     "orderExecuted": "Налогот за плаќање е извршен",
     "searchProduct": "Барајте производи...",
     "noProductsFound": "Нема пронајдени производи",
+    "productDialog": {
+      "title": "Најдете производ",
+      "alreadyThere": "Веќе е во документот",
+      "selected": "{n} избрани",
+      "tickHint": "Означете ги артиклите за додавање",
+      "add": "Додади {n} артикл | Додади {n} артикли"
+    },
+    "productDetails": {
+      "button": "Детали",
+      "tooltip": "Детали (F4)"
+    },
+    "productHit": {
+      "reserved": "{n} резервирани",
+      "showAll": "Прикажи ги сите {n} резултати..."
+    },
     "browseProducts": "Прегледајте производи",
     "invoice": "Фактура",
     "invoiceRef": "Фактура #",

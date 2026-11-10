@@ -5,7 +5,7 @@
   <div class="product-filter-bar">
     <v-row v-if="variant === 'till'">
       <v-col cols="12" md="4">
-        <v-text-field v-model="list.search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" :autofocus="autofocusSearch" data-testid="filter-search" @keydown="$emit('search-keydown', $event)" />
+        <v-text-field ref="searchField" v-model="list.search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" :autofocus="autofocusSearch" data-testid="filter-search" @keydown="$emit('search-keydown', $event)" />
       </v-col>
       <v-col cols="12" md="3">
         <v-select v-model="list.categoryFilter" :label="$t('warehouse.category')" :items="list.categoryOptions" clearable hide-details density="compact" />
@@ -21,7 +21,7 @@
     <template v-else>
       <v-row>
         <v-col cols="12" md="2">
-          <v-text-field v-model="list.search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" :autofocus="autofocusSearch" data-testid="filter-search" @keydown="$emit('search-keydown', $event)" />
+          <v-text-field ref="searchField" v-model="list.search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" :autofocus="autofocusSearch" data-testid="filter-search" @keydown="$emit('search-keydown', $event)" />
         </v-col>
         <v-col cols="12" md="2">
           <v-autocomplete
@@ -112,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import TagInput from '../TagInput.vue'
 import { useProductTypes } from '../../composables/useProductTypes'
@@ -133,6 +133,9 @@ defineEmits<{
 }>()
 
 const { t } = useI18n()
+const searchField = ref<{ focus: () => void } | null>(null)
+/** A dialog puts the cursor in the search box when it opens. */
+defineExpose({ focusSearch: () => searchField.value?.focus() })
 const { productTypeItems } = useProductTypes()
 
 const activeFilterItems = computed(() => [

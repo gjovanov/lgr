@@ -93,10 +93,12 @@
                           class="flex-grow-1"
                           @update:description="line.description = $event"
                           @update:product-id="line.productId = $event"
+                          :stock-warehouse-id="form.warehouseId || undefined"
                           @product-selected="onProductSelected(line, $event)"
                           @product-cleared="line.productId = undefined"
+                          @details="openProductPicker(li, $event)"
                         />
-                        <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.browseProducts')" :aria-label="$t('invoicing.browseProducts')" @click="openProductPicker(li)" />
+                        <ProductDetailsButton @click="openProductPicker(li)" />
                       </div>
                     </td>
                     <td>
@@ -326,7 +328,18 @@
       <EntityNotesPanel :org-url="orgUrl()" entity-type="internal_order" :entity-id="isEdit ? (route.params.id as string) : undefined" />
     </template>
 
-    <ProductPickerDialog v-model="productPickerOpen" :org-url="orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
+    <ProductPickerDialog
+      v-model="productPickerOpen"
+      :org-url="orgUrl()"
+      :base-currency="baseCurrency"
+      :locale="localeCode"
+      multiple
+      :stock-warehouse-id="form.warehouseId || undefined"
+      price-field="sellingPrice"
+      :existing-product-ids="existingProductIds"
+      :initial-search="productPickerText"
+      @select-many="onProductsPicked"
+    />
     <ContactPickerDialog v-model="contactPickerOpen" :org-url="orgUrl()" :type="contactPickerTarget?.kind === 'supplier' ? 'supplier' : 'customer'" @select="onContactPicked" />
 
     <!-- Cover-shortages dialog: free stock → unreserved incoming → preemptable reservations -->
@@ -484,6 +497,7 @@ import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/comp
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
+import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import { useConversionFeedback } from '../composables/useConversionFeedback'
@@ -703,16 +717,34 @@ function warehouseName(id: string) { return warehouses.value.find((w) => w._id =
 // ── pickers ──
 const productPickerOpen = ref(false)
 const productPickerTarget = ref<number | null>(null)
-function openProductPicker(li: number) {
+/** FR-28.25: what the user had typed in the line's field when they asked for Details (F4, "Show all N results"). */
+const productPickerText = ref('')
+/** FR-28.28: the articles already on the order are marked in the dialog, not hidden from it. */
+const existingProductIds = computed(() => form.lines.map((l) => String(l.productId || '')).filter(Boolean))
+function openProductPicker(li: number, text = '') {
   productPickerTarget.value = li
+  productPickerText.value = text
   productPickerOpen.value = true
 }
-function onProductPicked(p: any) {
-  const line = productPickerTarget.value !== null ? form.lines[productPickerTarget.value] : undefined
-  if (!line) return
-  line.productId = p._id
-  line.description = p.name
-  onProductSelected(line, p)
+/**
+ * FR-28.28: several articles at once. The first goes on the line the dialog was opened from, as one pick would; each
+ * of the others on the next free line, through the line's own after-pick logic.
+ */
+function onProductsPicked(ps: any[]) {
+  if (productPickerTarget.value === null || !ps.length) return
+  let li = productPickerTarget.value
+  ps.forEach((p, i) => {
+    if (i > 0) {
+      li += 1
+      const next = form.lines[li]
+      if (!next || next.productId || next.description) form.lines.splice(li, 0, emptyLine())
+    }
+    const line = form.lines[li]
+    if (!line) return
+    line.productId = p._id
+    line.description = p.name
+    onProductSelected(line, p)
+  })
 }
 
 type ContactPickTarget = { kind: 'client' } | { kind: 'supplier' }

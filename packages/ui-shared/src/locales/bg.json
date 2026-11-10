@@ -1198,6 +1198,21 @@
     "orderExecuted": "Платежното нареждане е изпълнено",
     "searchProduct": "Търсете продукти...",
     "noProductsFound": "Няма намерени продукти",
+    "productDialog": {
+      "title": "Намерете продукт",
+      "alreadyThere": "Вече е в документа",
+      "selected": "{n} избрани",
+      "tickHint": "Отбележете артикулите за добавяне",
+      "add": "Добави {n} артикул | Добави {n} артикула"
+    },
+    "productDetails": {
+      "button": "Детайли",
+      "tooltip": "Детайли (F4)"
+    },
+    "productHit": {
+      "reserved": "{n} резервирани",
+      "showAll": "Покажи всички {n} резултата..."
+    },
     "browseProducts": "Разгледайте продукти",
     "invoice": "Фактура",
     "invoiceRef": "Фактура #",

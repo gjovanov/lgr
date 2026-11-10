@@ -54,6 +54,11 @@ export interface UseProductListOptions {
   stockWarehouseId?: () => string | null | undefined
   /** Whether the Suppliers column is shown. Its facts are fetched only then (the page always shows it). */
   wantSupplierFacts?: () => boolean
+  /**
+   * Whether the list is in use. A dialog that is closed must not fetch because a filter it reads (the screen's
+   * warehouse, for the till) changed under it: only an open one does. The page is always in use.
+   */
+  active?: () => boolean
 }
 
 /** A till catalog row as the list's own row. */
@@ -237,7 +242,7 @@ export function useProductList(opts: UseProductListOptions) {
   /** While a dialog is being reset to what it opens with, the filter watcher must not fetch what the open fetches. */
   let quiet = false
   watch(filters, () => {
-    if (quiet) return
+    if (quiet || (opts.active && !opts.active())) return
     pagination.value.page = 0
     void fetchItems()
   }, { deep: true })

@@ -116,8 +116,9 @@
                               @update:product-id="line.productId = $event"
                               @product-selected="onProductSelected(line, $event)"
                               @product-cleared="line.productId = undefined"
+                              @details="openProductPicker(gi, li, $event)"
                             />
-                            <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.browseProducts')" :aria-label="$t('invoicing.browseProducts')" @click="openProductPicker(gi, li)" />
+                            <ProductDetailsButton @click="openProductPicker(gi, li)" />
                           </div>
                         </td>
                         <td>
@@ -454,7 +455,17 @@
       <EntityNotesPanel :org-url="orgUrl()" entity-type="order" :entity-id="isEdit ? (route.params.id as string) : undefined" />
     </template>
 
-    <ProductPickerDialog v-model="productPickerOpen" :org-url="orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
+    <ProductPickerDialog
+      v-model="productPickerOpen"
+      :org-url="orgUrl()"
+      :base-currency="baseCurrency"
+      :locale="localeCode"
+      multiple
+      price-field="purchasePrice"
+      :existing-product-ids="existingProductIds"
+      :initial-search="productPickerText"
+      @select-many="onProductsPicked"
+    />
     <ContactPickerDialog v-model="contactPickerOpen" :org-url="orgUrl()" :type="contactPickerTarget?.kind === 'supplier' ? 'supplier' : 'customer'" @select="onContactPicked" />
 
     <!-- Reserve-for-client dialog (creates a RES- document on this allocation) -->
@@ -570,6 +581,7 @@ import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/comp
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
+import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import { useConversionFeedback } from '../composables/useConversionFeedback'
@@ -717,17 +729,37 @@ function warehouseName(id: string) { return warehouses.value.find((w) => w._id =
 // ── picker dialogs (wide server-searched tables, same pattern as the invoice forms) ──
 const productPickerOpen = ref(false)
 const productPickerTarget = ref<{ gi: number; li: number } | null>(null)
-function openProductPicker(gi: number, li: number) {
+/** FR-28.25: what the user had typed in the line's field when they asked for Details (F4, "Show all N results"). */
+const productPickerText = ref('')
+/** FR-28.28: the articles already on the order are marked in the dialog, not hidden from it. */
+const existingProductIds = computed(() => form.supplierGroups.flatMap((g) => g.lines.map((l) => String(l.productId || ''))).filter(Boolean))
+function openProductPicker(gi: number, li: number, text = '') {
   productPickerTarget.value = { gi, li }
+  productPickerText.value = text
   productPickerOpen.value = true
 }
-function onProductPicked(p: any) {
+/**
+ * FR-28.28: several articles at once. The first goes on the line the dialog was opened from, as one pick would; each
+ * of the others on the next free line of the same supplier, through the line's own after-pick logic.
+ */
+function onProductsPicked(ps: any[]) {
   const t = productPickerTarget.value
-  const line = t ? form.supplierGroups[t.gi]?.lines[t.li] : undefined
-  if (!line) return
-  line.productId = p._id
-  line.description = p.name
-  onProductSelected(line, p)
+  if (!t || !ps.length) return
+  let li = t.li
+  ps.forEach((p, i) => {
+    const lines = form.supplierGroups[t.gi]?.lines
+    if (!lines) return
+    if (i > 0) {
+      li += 1
+      const next = lines[li]
+      if (!next || next.productId || next.description) lines.splice(li, 0, emptyLine())
+    }
+    const line = lines[li]
+    if (!line) return
+    line.productId = p._id
+    line.description = p.name
+    onProductSelected(line, p)
+  })
 }
 
 type ContactPickTarget = { kind: 'supplier'; gi: number } | { kind: 'client' }
