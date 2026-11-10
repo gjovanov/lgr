@@ -4,10 +4,10 @@
       <h1 class="text-h4">{{ $t('settings.users') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <responsive-btn icon="mdi-email-plus" variant="outlined" @click="inviteDialog = true">
+        <responsive-btn v-cap="'invites.manage'" icon="mdi-email-plus" variant="outlined" @click="inviteDialog = true">
           {{ $t('settings.inviteUser') }}
         </responsive-btn>
-        <responsive-btn icon="mdi-plus" color="primary" @click="openDialog()">
+        <responsive-btn v-cap="'users.edit'" icon="mdi-plus" color="primary" @click="openDialog()">
           {{ $t('common.create') }}
         </responsive-btn>
       </div>
@@ -178,7 +178,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
+          <v-btn v-cap="'users.edit'" color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

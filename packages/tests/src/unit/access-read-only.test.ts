@@ -114,7 +114,7 @@ const VIEWS = readdirSync(join(ROOT, 'packages'))
 /** A view writes: it sends a write, or shows Save / Delete / an edit pencil. (`CreateButton` gates itself.) */
 const WRITES = [/httpClient\.(post|put|patch|delete)\s*[<(]/, /\$t\(\s*'common\.(save|delete)'\s*\)/, /\bt\(\s*'common\.(save|delete)'\s*\)/, /mdi-delete\b/, /mdi-pencil\b/]
 /** It consults the session's access: the grant, a gated control, or one of the page rules. */
-const CONSULTS = [/\buseAccess\b/, /\bv-cap\b/, /\bcap:\s*(isEdit|'|\[)/, /\bcanOpenPage\b/, /\bwritesInventory\b/, /\bisTransferOnly\b/, /\brunsDevices\b/, /\bisTillOnly\b/, /\breadsDocuments\b/, /\bholdsArea\b/]
+const CONSULTS = [/\buseAccess\b/, /\bgrantOfViewer\b/, /\bv-cap\b/, /\bcap:\s*(isEdit|'|\[)/, /\bcanOpenPage\b/, /\bwritesInventory\b/, /\bisTransferOnly\b/, /\brunsDevices\b/, /\bisTillOnly\b/, /\breadsDocuments\b/, /\bholdsArea\b/]
 
 /** The person's own: their account, their password, their sign-in. No role gates these. */
 const PERSONAL = new Set([
@@ -127,22 +127,27 @@ const PERSONAL = new Set([
 ])
 
 /**
+ * A page that opens only for the capability every one of its writes needs, or a platform operator's page no org role
+ * reaches: the page rule is the gate, and nothing on it is offered to someone the server would refuse.
+ */
+const PAGE_GATED = new Set([
+  // `/settings/billing` opens with `billing.manage`, which every Stripe call needs.
+  'portal-ui/src/views/settings/BillingView.vue',
+  // `/settings/permission-sets` opens with `roles.edit`, which every set write needs (the legacy screen; Phase 3 removes it).
+  'portal-ui/src/views/settings/PermissionSetsView.vue',
+  // `/admin/nodes`, `/admin/licences`: lgrai.app's operators (the sys-admin list), not an org's roles.
+  'portal-ui/src/views/admin/NodesView.vue',
+  'portal-ui/src/views/admin/LicencesView.vue',
+])
+
+/**
  * ⚠ Only shrinks. Views that write and do not consult access yet: the server refuses what the role lacks, and the
  * page still offers it. Fix one with `v-cap` / a form action's `cap`, then take it off this list.
  */
 const NOT_YET = new Set([
-  'portal-ui/src/views/admin/LicencesView.vue',
-  'portal-ui/src/views/admin/NodesView.vue',
-  'portal-ui/src/views/settings/BillingView.vue',
-  'portal-ui/src/views/settings/DesktopsView.vue',
-  'portal-ui/src/views/settings/LastNumbersCard.vue',
-  'portal-ui/src/views/settings/OrganizationView.vue',
-  'portal-ui/src/views/settings/PermissionSetsView.vue',
+  // `/settings/roles` opens with `roles.edit`; the role tools (#644) change these two views, so they wait for it.
   'portal-ui/src/views/settings/RoleEditorView.vue',
   'portal-ui/src/views/settings/RolesView.vue',
-  'portal-ui/src/views/settings/ServerStatusView.vue',
-  'portal-ui/src/views/settings/ServersView.vue',
-  'portal-ui/src/views/settings/UsersView.vue',
 ])
 
 const offends = (text: string) => WRITES.some(r => r.test(text)) && !CONSULTS.some(r => r.test(text))
@@ -153,13 +158,13 @@ describe('FR-27.7: every view that writes consults access (the ratchet)', () => 
   })
 
   it('a view that writes and consults nothing is on the list', () => {
-    const missing = VIEWS.filter(v => offends(v.text) && !PERSONAL.has(v.file) && !NOT_YET.has(v.file)).map(v => v.file)
+    const missing = VIEWS.filter(v => offends(v.text) && !PERSONAL.has(v.file) && !PAGE_GATED.has(v.file) && !NOT_YET.has(v.file)).map(v => v.file)
     expect(missing).toEqual([])
   })
 
   it('and leaves it once it does (or is gone)', () => {
     const byFile = new Map(VIEWS.map(v => [v.file, v.text]))
-    const stale = [...NOT_YET, ...PERSONAL].filter(f => !byFile.has(f) || !offends(byFile.get(f)!))
+    const stale = [...NOT_YET, ...PERSONAL, ...PAGE_GATED].filter(f => !byFile.has(f) || !offends(byFile.get(f)!))
     expect(stale).toEqual([])
   })
 
