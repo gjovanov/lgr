@@ -3114,6 +3114,9 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     write, must consult access (`useAccess`, `v-cap`, a `cap`, a page rule), or be on `NOT_YET`, which only shrinks.
     Every capability id a view names must be in the catalogue (an unknown one hides the control).
   - Keep a record's pencil when it is the only way to READ the record (a dialog): gate the dialog's Save instead.
+  - The Files app reads with `files.view` and changes documents with `files.manage` (`file.controller#writeGate`:
+    upload, OCR, book, undo, reconcile, delete, pack and unpack); analyses and the snapshot diff are reads. Legacy
+    grants both with `admin.settings`.
 - **A role's start page (FR-27.4)**: `Role.landing`, a page id the role opens (`role.service#cleanLanding`: 422
   `landing_unknown` / `landing_not_open`; capabilities that stop opening it drop it). A change bumps the role's
   version, and `/auth/me` answers it as `access.landing`. `startPage(who)`: the landing, else the Dashboard, else
