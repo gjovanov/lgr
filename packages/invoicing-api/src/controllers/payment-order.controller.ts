@@ -63,8 +63,8 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
     }
 
     const [contacts, bankAccounts] = await Promise.all([
-      contactIds.size > 0 ? r.contacts.findMany({ id: { $in: [...contactIds] } } as any) : [],
-      bankAccountIds.size > 0 ? r.bankAccounts.findMany({ id: { $in: [...bankAccountIds] } } as any) : [],
+      contactIds.size > 0 ? r.contacts.findMany({ orgId: params.orgId, id: { $in: [...contactIds] } } as any) : [],
+      bankAccountIds.size > 0 ? r.bankAccounts.findMany({ orgId: params.orgId, id: { $in: [...bankAccountIds] } } as any) : [],
     ])
 
     const contactMap = new Map(contacts.map(c => [c.id, c]))

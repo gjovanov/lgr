@@ -274,12 +274,12 @@ export async function runSalesHistory(ctx: ReportHandlerContext): Promise<Report
 
   const [contacts, users, warehouses] = await Promise.all([
     contactIds.length
-      ? Contact.find({ _id: { $in: contactIds.map(oid) } }, { companyName: 1, firstName: 1, lastName: 1 }).lean()
+      ? Contact.find({ _id: { $in: contactIds.map(oid) }, orgId: orgObjectId }, { companyName: 1, firstName: 1, lastName: 1 }).lean()
       : [],
     userIds.length
-      ? User.find({ _id: { $in: userIds.map(oid) } }, { firstName: 1, lastName: 1, username: 1, email: 1 }).lean()
+      ? User.find({ _id: { $in: userIds.map(oid) }, orgId: orgObjectId }, { firstName: 1, lastName: 1, username: 1, email: 1 }).lean()
       : [],
-    whIds.length ? Warehouse.find({ _id: { $in: whIds.map(oid) } }, { name: 1 }).lean() : [],
+    whIds.length ? Warehouse.find({ _id: { $in: whIds.map(oid) }, orgId: orgObjectId }, { name: 1 }).lean() : [],
   ])
   const contactMap = new Map(contacts.map((c: any) => [String(c._id), c]))
   const userMap = new Map(users.map((u: any) => [String(u._id), u]))

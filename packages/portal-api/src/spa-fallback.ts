@@ -153,6 +153,11 @@ export function spaErrorHandler(given?: OneSpaShell | Record<string, never> | nu
       set.status = 409
       return { code: 'org_home_elsewhere', message: err.message, home: { kind: err.info?.home === 'global' ? 'global' : 'master', state: err.info?.state } }
     }
+    // A body that named a record of another org by id (`db/plugins/reference-guard.ts`).
+    if (err?.name === 'ForeignReferenceError') {
+      set.status = 422
+      return { code: 'foreign_reference', message: err.message, path: err.path }
+    }
     // FR-20.81 (P3-6d): a legal number asked for while the series wait for the site's last numbers.
     if (err?.name === 'SeriesFrozenError') {
       set.status = 409

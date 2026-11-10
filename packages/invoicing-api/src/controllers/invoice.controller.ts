@@ -664,8 +664,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     }
 
     const [contacts, relatedInvoices] = await Promise.all([
-      contactIds.size > 0 ? r.contacts.findMany({ id: { $in: [...contactIds] } } as any) : [],
-      relatedInvoiceIds.size > 0 ? r.invoices.findMany({ id: { $in: [...relatedInvoiceIds] } } as any) : [],
+      contactIds.size > 0 ? r.contacts.findMany({ orgId, id: { $in: [...contactIds] } } as any) : [],
+      relatedInvoiceIds.size > 0 ? r.invoices.findMany({ orgId, id: { $in: [...relatedInvoiceIds] } } as any) : [],
     ])
 
     const contactMap = new Map(contacts.map(c => [c.id, c]))
@@ -1157,7 +1157,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // Manual lookup for contact
     let contact = null
     if (invoice.contactId) {
-      contact = await r.contacts.findById(invoice.contactId)
+      contact = await r.contacts.findByIdInOrg(String(invoice.contactId), orgId)
     }
 
     return {

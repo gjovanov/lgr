@@ -57,7 +57,7 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     // Lookup warehouse names
     const whIds = new Set<string>()
     for (const ic of result.items) if (ic.warehouseId) whIds.add(ic.warehouseId)
-    const warehouses = whIds.size > 0 ? await r.warehouses.findMany({ id: { $in: [...whIds] } } as any) : []
+    const warehouses = whIds.size > 0 ? await r.warehouses.findMany({ orgId, id: { $in: [...whIds] } } as any) : []
     const whMap = new Map(warehouses.map(w => [w.id, w]))
 
     const inventoryCounts = result.items.map(ic => {
@@ -94,7 +94,7 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     const productIds = new Set<string>()
     for (const l of doc.lines) if (l.productId) productIds.add(l.productId)
     const products = productIds.size > 0
-      ? await r.products.findMany({ id: { $in: [...productIds] } } as any)
+      ? await r.products.findMany({ orgId: params.orgId, id: { $in: [...productIds] } } as any)
       : []
     const productMap = new Map(products.map(p => [p.id, p]))
 

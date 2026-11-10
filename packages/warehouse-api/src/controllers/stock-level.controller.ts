@@ -59,8 +59,8 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
     }
 
     const [products, warehouses] = await Promise.all([
-      productIds.size > 0 ? r.products.findMany({ id: { $in: [...productIds] } } as any) : [],
-      warehouseIds.size > 0 ? r.warehouses.findMany({ id: { $in: [...warehouseIds] } } as any) : [],
+      productIds.size > 0 ? r.products.findMany({ orgId, id: { $in: [...productIds] } } as any) : [],
+      warehouseIds.size > 0 ? r.warehouses.findMany({ orgId, id: { $in: [...warehouseIds] } } as any) : [],
     ])
 
     const productMap = new Map(products.map(p => [p.id, p]))
@@ -100,7 +100,7 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
       getProductsSupplyTotals(orgId, ids, { warehouseId: warehouseId || undefined }),
     ])
     const whIds = [...new Set(rows.map((s: any) => s.warehouseId).filter(Boolean))]
-    const warehouses = whIds.length ? await r.warehouses.findMany({ id: { $in: whIds } } as any) : []
+    const warehouses = whIds.length ? await r.warehouses.findMany({ orgId, id: { $in: whIds } } as any) : []
     const whMap = new Map(warehouses.map((w: any) => [w.id, w.name]))
 
     const stock: Record<string, any[]> = {}

@@ -456,7 +456,7 @@ async function buildCompanionData(
   number: string,
 ): Promise<CompanionDocData> {
   const [contact, org] = await Promise.all([
-    invoice.contactId ? Contact.findById(invoice.contactId).lean() : null,
+    invoice.contactId ? Contact.findOne({ _id: invoice.contactId, orgId }).lean() : null,
     Org.findById(orgId).lean(),
   ])
 
