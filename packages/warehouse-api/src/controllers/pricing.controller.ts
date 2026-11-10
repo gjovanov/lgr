@@ -2,6 +2,8 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { resolvePrice, listPriceOptions } from 'services/biz/pricing.service'
 import { lastPricesForContact } from 'services/biz/last-price.service'
+import { can } from 'services/biz/access/evaluate'
+import { COST_TIER_NAMES } from 'config/access'
 
 export const pricingController = new Elysia({ prefix: '/org/:orgId/pricing' })
   .use(AppAuthService)
@@ -41,6 +43,10 @@ export const pricingController = new Elysia({ prefix: '/org/:orgId/pricing' })
         undefined,
         { all: query.all === 'true' || query.all === '1' },
       )
+      // FR-27.6: the buying-price slot is a cost figure.
+      if (!can(user as any, 'products.costs') && Array.isArray((result as any).options)) {
+        return { ...result, options: (result as any).options.filter((o: any) => !COST_TIER_NAMES.includes(o?.name)) }
+      }
       return result
     },
     { isSignIn: true },

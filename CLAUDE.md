@@ -3102,6 +3102,16 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   dialog. Users and Invites show one Role select once the org has roles, the legacy controls until then.
   - ⚠ Permission sets stay reachable (the empty Roles page links there) while an org has no roles, and hold the roles'
     projections. Phase 3 removes them.
+- **Field groups (FR-27.6, Phase 2): `products.costs`** (`config/access/fields.ts`, "Cost figures" in the editor).
+  `purchasePrice`, `standardCost`, the „Доставна цена" slot, every slot's `percent` (a margin gives the cost back)
+  and a stock level's `avgCost` are ABSENT from the JSON for a role without it: the product list (`products` and
+  `items`), by id, create, quick create, update, `/pricing/options`, `/warehouse/stock-level`; `/warehouse/cost-layer`
+  answers 403 `capability_required`. A write by such a role keeps the stored costs (`keepStoredCosts`: the cost slot
+  goes back first, margins by name, duplicates dropped).
+  - ⚠ The legacy compiler grants it with any product read (`PRODUCT_READERS`), so nobody's answer changes. The
+    legacy model cannot withhold it (`LEGACY_CANNOT_WITHHOLD`): a role without it projects as `needsRelease`.
+  - ⚠ A new serializer that sends a product or a stock level's cost goes through `redactProduct` /
+    `redactStockCost`. Reports (stock levels, product ledger, valuation) are not redacted yet.
 - **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
   null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
   gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`

@@ -6,6 +6,8 @@ import { buildProductListFilter } from 'services/biz/product-list-filter'
 import { QuickProductError, createQuickProduct } from 'services/biz/quick-product.service'
 import { findProductsByTierPrice, tierForSortKey } from 'services/biz/product-tier-sort'
 import { findProductsByStockColumn, stockColumnForSortKey } from 'services/biz/product-stock-sort'
+import { grantOf } from 'services/biz/access/evaluate'
+import { keepStoredCosts, redactProduct, redactProducts } from 'config/access'
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AppAuthService)
@@ -46,7 +48,9 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       : stockColumn
         ? await findProductsByStockColumn(r.products, orgId, filter, stockColumn, (query.warehouseId as string) || undefined, sortOrder, page, size)
         : await r.products.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
-    return { products: result.items, ...result }
+    // FR-27.6: the cost figures only for a role that holds `products.costs`; absent, not blanked.
+    const items = redactProducts(grantOf(user as any), result.items as any[])
+    return { ...result, products: items, items }
   }, { isSignIn: true })
   .post(
     '/',
@@ -64,7 +68,9 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         }))
       }
 
-      const product = await r.products.create({ ...body, orgId } as any)
+      // FR-27.6: a role without the cost figures sets none.
+      const grant = grantOf(user as any)
+      const product = await r.products.create({ ...keepStoredCosts(grant, body, null), orgId } as any)
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'product', entityId: product.id, entityName: (product as any).name })
 
@@ -76,7 +82,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         }
       }
 
-      return { product }
+      return { product: redactProduct(grant, product as any) }
     },
     {
       isSignIn: true,
@@ -122,7 +128,8 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       try {
-        return { product: await createQuickProduct(orgId, user, body) }
+        const grant = grantOf(user as any)
+        return { product: redactProduct(grant, await createQuickProduct(orgId, user, keepStoredCosts(grant, body, null) as typeof body) as any) }
       } catch (e: any) {
         if (e instanceof QuickProductError) return status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
         throw e
@@ -147,7 +154,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     const product = await r.products.findOne({ id, orgId } as any)
     if (!product) return status(404, { message: 'Product not found' })
 
-    return { product }
+    return { product: redactProduct(grantOf(user as any), product as any) }
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -168,7 +175,10 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         }))
       }
 
-      const product = await r.products.updateInOrg(id, orgId, body as any)
+      // FR-27.6: a role that read the product without its costs keeps the stored ones: its body has none to send,
+      // and the tiers it sends come back with the cost slot and every margin as stored.
+      const grant = grantOf(user as any)
+      const product = await r.products.updateInOrg(id, orgId, keepStoredCosts(grant, body, existing as any) as any)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: id, entityName: (product as any).name, changes: diffChanges(existing as any, product as any) })
 
@@ -180,7 +190,7 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         }
       }
 
-      return { product }
+      return { product: redactProduct(grant, product as any) }
     },
     {
       isSignIn: true,

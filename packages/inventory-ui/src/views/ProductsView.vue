@@ -155,6 +155,8 @@ import EntityLink from 'ui-shared/components/EntityLink'
 import RowActionsMenu, { type RowAction } from 'ui-shared/components/RowActionsMenu.vue'
 import { useProductDocActions } from '../composables/useProductDocActions'
 import { TIER_COLUMNS, tierPrice, formatUnitPrice, type TierLike } from '../composables/product-price-columns'
+import { useAccess } from 'ui-shared/access/useAccess'
+import { COST_TIER_NAMES } from 'config/access'
 
 interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; priceTiers?: TierLike[]; isActive: boolean; trackInventory?: boolean }
 interface StockBadge { warehouseId: string; warehouseName: string; quantity: number; availableQuantity: number }
@@ -167,6 +169,9 @@ const ACTIVE_FILTERS = ['active', 'inactive', 'all'] as const
 type ActiveFilter = (typeof ACTIVE_FILTERS)[number]
 
 const { t } = useI18n()
+// FR-27.6: the cost figures' columns only for a role that holds them (the server sends none otherwise).
+const access = useAccess()
+const seesCosts = computed(() => access.can('products.costs'))
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { productTypeLabel, productTypeItems } = useProductTypes()
@@ -249,11 +254,11 @@ const headers = computed(() => [
   { title: t('warehouse.supply.reserved'), key: 'reserved', align: 'end' as const },
   { title: t('warehouse.supply.onOrder'), key: 'onOrder', align: 'end' as const },
   { title: t('warehouse.unit'), key: 'unit' },
-  { title: t('warehouse.purchasePrice'), key: 'purchasePrice', align: 'end' as const, defaultHidden: true, ...PRICE_CELL },
+  ...(seesCosts.value ? [{ title: t('warehouse.purchasePrice'), key: 'purchasePrice', align: 'end' as const, defaultHidden: true, ...PRICE_CELL }] : []),
   { title: t('warehouse.sellingPrice'), key: 'sellingPrice', align: 'end' as const, ...PRICE_CELL },
   // A column per price tier, headed by the tier's name and sorted by its price (the server reads
   // the tier out of `tier_<slot>`); the slots regal prices by are shown, the rest wait on the cog.
-  ...TIER_COLUMNS.map((c) => ({ title: c.name, key: c.key, align: 'end' as const, defaultHidden: c.defaultHidden, ...PRICE_CELL })),
+  ...TIER_COLUMNS.filter((c) => seesCosts.value || !COST_TIER_NAMES.includes(c.name)).map((c) => ({ title: c.name, key: c.key, align: 'end' as const, defaultHidden: c.defaultHidden, ...PRICE_CELL })),
   // FR-22.48: only when the list can hold deactivated articles. Among active ones it says "yes"
   // on every row, and its width is what keeps the row actions inside 1366 px.
   ...(activeFilter.value === 'active' ? [] : [{ title: t('common.active'), key: 'isActive', align: 'center' as const }]),

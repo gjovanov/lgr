@@ -2,9 +2,16 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { getInventoryValuation, initializeCostLayers } from 'services/biz/costing.service'
+import { can } from 'services/biz/access/evaluate'
+
+/** FR-27.6 (A.4 note 8): a product's cost layers are its cost figures; a role without `products.costs` is refused. */
+const costsRefused = { code: 'capability_required', capabilities: ['products.costs'], message: 'Cost figures are not part of your role.' }
 
 export const costLayerController = new Elysia({ prefix: '/org/:orgId/warehouse/cost-layer' })
   .use(AppAuthService)
+  .onBeforeHandle(({ user, status }: any) => {
+    if (user && !can(user, 'products.costs')) return status(403, costsRefused)
+  })
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()

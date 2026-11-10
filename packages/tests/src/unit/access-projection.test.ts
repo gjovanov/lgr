@@ -1,13 +1,14 @@
 import { describe, it, expect } from 'bun:test'
 import { ROLES } from 'config/constants'
-import { CAPABILITIES, compileLegacy, projectGrant, sameGrant, templateGrant, type CapabilityId, type Grant } from 'config/access'
+import { CAPABILITIES, LEGACY_CANNOT_WITHHOLD, compileLegacy, projectGrant, sameGrant, templateGrant, type CapabilityId, type Grant } from 'config/access'
 
 /**
  * FR-27 §4 step 3 (#529) — a role's legacy projection: what an org on the legacy model, or a master on an older
  * release, serves its people. Exact for every built-in role; never more than the role, for any role.
  */
 
-const within = (inner: Grant, outer: Grant) => outer.all || (!inner.all && [...inner.caps].every(c => outer.caps.has(c)))
+// What the legacy model cannot withhold (FR-27.6, the cost figures) is the one thing a projection may serve beyond the role.
+const within = (inner: Grant, outer: Grant) => outer.all || (!inner.all && [...inner.caps].every(c => outer.caps.has(c) || LEGACY_CANNOT_WITHHOLD.includes(c)))
 
 describe('the legacy projection', () => {
   it('is exact for every built-in role', () => {
