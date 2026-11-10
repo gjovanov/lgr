@@ -50,6 +50,77 @@ export function addGroupFigures(into: GroupFigures, from: GroupFigures): GroupFi
   return into
 }
 
+// ── what the customer order and the reservation page read from the server's reservations ──────────
+
+/**
+ * What a saved reservation holds: its quantity, and nothing once it is cancelled. A fulfilled one still counts: the
+ * server's own `reservedQuantity` on a customer order's line adds up every reservation that is not cancelled
+ * (`recomputeInternalOrder`), and this adds up the same rows.
+ */
+export function heldQuantity(r: { status?: string; quantity?: unknown }): number {
+  return r.status === 'cancelled' ? 0 : num(r.quantity)
+}
+
+/** A date as the day it names (`YYYY-MM-DD`), from the ISO string or the Date the server sent; empty where there is none. */
+export function dayOf(d: string | Date | null | undefined): string {
+  if (!d) return ''
+  if (typeof d === 'string') return d.slice(0, 10)
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10)
+}
+
+/**
+ * Late: the supplier order a reservation sits on is expected AFTER the day the customer asked for. Only a reservation
+ * still waiting for its goods can be late; one that is fulfilled or cancelled is history, not a call to act.
+ */
+export function isLateReservation(r: { status?: string; expectedDate?: string | Date | null }, requestedDeliveryDate?: string | Date | null): boolean {
+  if (r.status !== 'active') return false
+  const expected = dayOf(r.expectedDate)
+  const requested = dayOf(requestedDeliveryDate)
+  return !!expected && !!requested && expected > requested
+}
+
+export interface ReservationRowContext {
+  /** A screen that cannot change anything (a document that is closed, the reservation page) takes the actions away. */
+  readonly: boolean
+  requestedDeliveryDate?: string | Date | null
+}
+
+/**
+ * A saved reservation as a row, for the screens that act on it at once (the customer order) or only read it (the
+ * reservation page). Nothing is staged here: `cancelled` and `changed` are the supplier order's words for a change
+ * waiting for Save, and are false.
+ */
+export function reservationRowFrom(r: ServerReservation, ctx: ReservationRowContext): ReservationRow {
+  const id = String(r._id)
+  const invoiced = num(r.invoicedQuantity)
+  const dispatched = num(r.dispatchedQuantity)
+  return {
+    key: id,
+    resId: id,
+    number: r.reservationNumber,
+    status: r.status,
+    contactId: String(r.contactId || ''),
+    quantity: num(r.quantity),
+    invoiced,
+    dispatched,
+    consumed: Math.max(invoiced, dispatched),
+    internalOrderId: r.internalOrderId ? String(r.internalOrderId) : undefined,
+    cancelled: false,
+    changed: false,
+    editable: !ctx.readonly && r.status === 'active',
+    cancellable: r.status === 'active',
+    canChangeClient: false,
+    source: r.source,
+    warehouseId: r.warehouseId ? String(r.warehouseId) : undefined,
+    orderId: r.orderId ? String(r.orderId) : undefined,
+    orderLineId: r.lineId ? String(r.lineId) : undefined,
+    allocationId: r.allocationId ? String(r.allocationId) : undefined,
+    internalOrderLineId: r.internalOrderLineId ? String(r.internalOrderLineId) : undefined,
+    expectedDate: dayOf(r.expectedDate) || undefined,
+    late: isLateReservation(r, ctx.requestedDeliveryDate),
+  }
+}
+
 /** A line nobody has filled in: it is a row waiting for its article, not part of the order. */
 export function isBlankLine(line: LineInput): boolean {
   return !line.productId && !String(line.description || '').trim()
