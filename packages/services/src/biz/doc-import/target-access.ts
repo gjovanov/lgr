@@ -1,4 +1,4 @@
-import { holdsArea } from 'config/constants'
+import { can } from '../access/evaluate'
 import type { ImportTarget } from './types.js'
 
 /**
@@ -20,13 +20,15 @@ export interface ImportActor {
   role?: string
   permissions?: readonly string[]
   areas?: readonly string[] | null
+  /** FR-27.5: an org on `roles`, the role's grant. */
+  access?: any
 }
 
-/** Why this session may not import into `target`, or null. FR-26.6: a bill also needs `purchases`. */
+/** Why this session may not import into `target`, or null. FR-27.6 (FR-26.6): a bill also needs bills. */
 export function targetRefusal(user: ImportActor, target: ImportTarget) {
   const permission = PERMISSION_BY_TARGET[target]
   if (permission && !user.permissions?.includes(permission)) return { message: `Permission required: ${permission}` }
-  if (target === 'bill' && !holdsArea(user, 'purchases')) {
+  if (target === 'bill' && !can(user as any, 'bills.create')) {
     return { code: 'area_required', area: 'purchases', message: 'Incoming documents are not part of your role.' }
   }
   return null
