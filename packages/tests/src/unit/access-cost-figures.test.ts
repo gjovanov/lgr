@@ -30,7 +30,8 @@ const FILES = readdirSync(join(ROOT, 'packages'))
 
 /** A cost figure rendered by a template: in a mustache, a binding, a column key or an item slot. */
 const FIGURE = /(?:\{\{[^}]*|:[\w-]+="[^"]*|key:\s*'|#item\.)\b(purchasePrice|standardCost|avgCost|unitCost|varianceCost|lineTotalCost|runningValue|expectedUnitPrice|lastCost|profitabilityNet|profitabilityGross|costAllocations|resolvedUnitCost|currentValue)\b/
-const CONSULTS = [/\bseesCosts\b/, /'products\.costs'/, /\bcapOfTier\b/, /\bv-cap\b/, /\bdata-cap\b/, /\bcanSeeSupplierPrices\b/]
+/** The cost rule itself: `seesCosts`, `products.costs` (in a `can()`, a `v-cap` or a `data-cap`), a slot's level, the supplier prices'. */
+const CONSULTS = [/\bseesCosts\b/, /products\.costs/, /\bcapOfTier\b/, /\bcanSeeSupplierPrices\b/]
 
 /** The books' own figures: Accounting's cost of a fixed asset follows the accounting features, not the price levels. */
 const BOOKS = new Set([
