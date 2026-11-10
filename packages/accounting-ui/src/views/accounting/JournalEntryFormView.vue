@@ -189,15 +189,15 @@ const formActions = computed<FormAction[]>(() => {
 
   if (!isEdit.value) {
     // New entry: Save + Save & Post
-    actions.push({ label: t('common.save'), color: 'primary', handler: handleSubmit, loading: store.loading, disabled: !isBalanced.value })
-    actions.push({ label: t('accounting.saveAndPost'), color: 'primary', variant: 'outlined', handler: saveAndPost, loading: store.loading, disabled: !isBalanced.value })
+    actions.push({ label: t('common.save'), color: 'primary', handler: handleSubmit, cap: 'journal.create', loading: store.loading, disabled: !isBalanced.value })
+    actions.push({ label: t('accounting.saveAndPost'), color: 'primary', variant: 'outlined', handler: saveAndPost, cap: 'journal.post', loading: store.loading, disabled: !isBalanced.value })
   } else if (s === 'draft') {
     // Editing draft: Save + Post
-    actions.push({ label: t('common.save'), color: 'primary', handler: handleSubmit, loading: store.loading, disabled: !isBalanced.value })
-    actions.push({ label: t('accounting.post'), color: 'primary', variant: 'outlined', icon: 'mdi-check', handler: postEntry, loading: store.loading })
+    actions.push({ label: t('common.save'), color: 'primary', handler: handleSubmit, cap: ['journal.create', 'journal.edit'], loading: store.loading, disabled: !isBalanced.value })
+    actions.push({ label: t('accounting.post'), color: 'primary', variant: 'outlined', icon: 'mdi-check', handler: postEntry, cap: 'journal.post', loading: store.loading })
   } else if (s === 'posted') {
     // Posted: Void
-    actions.push({ label: t('accounting.void'), color: 'warning', icon: 'mdi-cancel', handler: voidEntry, loading: store.loading })
+    actions.push({ label: t('accounting.void'), color: 'warning', icon: 'mdi-cancel', handler: voidEntry, cap: 'journal.post', loading: store.loading })
   }
 
   return actions

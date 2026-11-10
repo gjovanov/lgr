@@ -3,7 +3,7 @@
     <div class="d-flex align-center mb-2 flex-wrap ga-2">
       <h1 class="text-h5">{{ $t('servers.title') }}</h1>
       <v-spacer />
-      <v-btn v-if="!notHere" color="primary" data-test="add-server" @click="openAdd">
+      <v-btn v-if="!notHere" v-cap="'servers.manage'" color="primary" data-test="add-server" @click="openAdd">
         <v-icon start>mdi-plus</v-icon>
         {{ $t('servers.add') }}
       </v-btn>
@@ -63,7 +63,7 @@
           <div v-else>{{ $t('servers.move.state.aborted') }}<span v-if="move.error"> · {{ move.error }}</span></div>
         </template>
         <template v-if="ABORTABLE.includes(move.state)" #append>
-          <v-btn size="small" variant="text" color="error" :loading="moveBusy" data-test="abort-move" @click="abortMove">{{ $t('servers.move.abort') }}</v-btn>
+          <v-btn v-cap="'servers.manage'" size="small" variant="text" color="error" :loading="moveBusy" data-test="abort-move" @click="abortMove">{{ $t('servers.move.abort') }}</v-btn>
         </template>
       </v-alert>
       <!-- FR-20.81 (P3-6d): after a promotion, legal numbering waits for the site's last numbers. -->
@@ -88,7 +88,7 @@
             <!-- FR-20.84 (P3-6e): the audited import, asked for here, run by lgrai.app. -->
             <div class="d-flex align-center flex-wrap ga-2 my-2" data-test="fenced-import">
               <template v-if="!ex.import">
-                <v-btn v-if="ex.state === 'received'" color="primary" variant="tonal" size="small" data-test="fenced-import-start" @click="importOpen = ex">{{ $t('servers.fenced.import.action') }}</v-btn>
+                <v-btn v-if="ex.state === 'received'" v-cap="'servers.manage'" color="primary" variant="tonal" size="small" data-test="fenced-import-start" @click="importOpen = ex">{{ $t('servers.fenced.import.action') }}</v-btn>
               </template>
               <v-chip v-else-if="ex.import.state !== 'done'" size="small" color="info" variant="tonal" data-test="fenced-import-running">{{ $t('servers.fenced.import.running') }}</v-chip>
               <template v-else>
@@ -150,7 +150,7 @@
             <span v-if="address.address.state === 'retired' && address.address.noticeUntil" class="text-body-2 text-medium-emphasis">{{ $t('servers.address.noticeUntil', { when: new Date(address.address.noticeUntil).toLocaleDateString() }) }}</span>
           </div>
           <div v-if="!address.address || ['refused', 'retired'].includes(address.address.state)" class="d-flex align-center flex-wrap ga-2 mt-2">
-            <v-btn v-if="address.request.ok" size="small" color="primary" variant="tonal" :loading="addressBusy" data-test="org-address-request" @click="requestAddress">{{ $t('servers.address.request', { url: address.request.url }) }}</v-btn>
+            <v-btn v-if="address.request.ok" v-cap="'servers.manage'" size="small" color="primary" variant="tonal" :loading="addressBusy" data-test="org-address-request" @click="requestAddress">{{ $t('servers.address.request', { url: address.request.url }) }}</v-btn>
             <span v-else-if="address.request.reason && address.request.reason !== 'already'" class="text-body-2 text-medium-emphasis" data-test="org-address-why-not">{{ $t(`servers.address.why.${address.request.reason}`, { label: address.request.label }) }}</span>
           </div>
         </v-card-text>
@@ -166,7 +166,7 @@
             :hint="mirror.files ? '' : $t('servers.files.metadataOnly')"
             :persistent-hint="!mirror.files"
             :loading="mirrorBusy"
-            :disabled="mirrorBusy"
+            :disabled="mirrorBusy || !manages"
             color="primary"
             density="compact"
             data-test="mirror-files-switch"
@@ -280,6 +280,7 @@
               :hint="item.relays?.[kind + 'Chosen'] ? '' : $t('servers.relayDefault')"
               :persistent-hint="!item.relays?.[kind + 'Chosen']"
               :loading="relayBusy === item.id + ':' + kind"
+              :disabled="!manages"
               density="compact"
               color="primary"
               :data-test="'relay-' + kind"
@@ -292,6 +293,7 @@
         </template>
         <template #item.actions="{ item }">
           <v-btn
+            v-cap="'servers.manage'"
             v-if="item.status === 'active' && item.linkLevel === 'full' && !(move && LIVE.includes(move.state)) && (!mirror || mirror.home === 'global')"
             size="small"
             variant="text"
@@ -302,6 +304,7 @@
             {{ $t('servers.move.action') }}
           </v-btn>
           <v-btn
+            v-cap="'servers.manage'"
             v-if="item.status === 'active' && mirror?.home === item.id && !(move && LIVE.includes(move.state))"
             size="small"
             variant="text"
@@ -312,6 +315,7 @@
             {{ $t('servers.moveBack.action') }}
           </v-btn>
           <v-btn
+            v-cap="'servers.manage'"
             v-if="mirror?.home === item.id && !item.connected?.interactive && !item.connected?.bulk && !(move && LIVE.includes(move.state))"
             size="small"
             variant="text"
@@ -322,6 +326,7 @@
             {{ $t('servers.promote.action') }}
           </v-btn>
           <v-btn
+            v-cap="'servers.manage'"
             v-if="item.status === 'active' && mirror?.home === item.id && item.orgState?.wentBack && item.connected?.interactive && item.connected?.bulk && !(move && LIVE.includes(move.state))"
             size="small"
             variant="text"
@@ -332,6 +337,7 @@
             {{ $t('servers.reseed.action') }}
           </v-btn>
           <v-btn
+            v-cap="'servers.manage'"
             v-if="item.status === 'active'"
             size="small"
             variant="text"
@@ -564,6 +570,7 @@ import { useI18n } from 'vue-i18n'
 import { useNodeAlarms } from 'ui-shared/composables/useNodeAlarms'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useAccess } from 'ui-shared/access/useAccess'
 import { announceHomeChanged } from 'ui-shared/composables/useHomeChanged'
 import { useAppStore } from '../../store/app.store'
 import LastNumbersCard from './LastNumbersCard.vue'
@@ -606,6 +613,9 @@ interface ServerRow {
 }
 
 const { t, te } = useI18n()
+// FR-27.7: what changes a server (relays, mirrored files, moves, codes) takes `servers.manage`; `servers.view` reads.
+const { can } = useAccess()
+const manages = computed(() => can('servers.manage'))
 const { alarmText } = useNodeAlarms()
 const appStore = useAppStore()
 const { showSnackbar } = useSnackbar()

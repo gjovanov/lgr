@@ -56,7 +56,7 @@
 
         <div class="d-flex justify-end ga-2">
           <v-btn variant="text" @click="router.back()">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="loading" :disabled="!canSubmit" @click="confirmDialog = true">
+          <v-btn v-cap="['bulk-pricing.create', 'bulk-pricing.edit']" color="primary" :loading="loading" :disabled="!canSubmit" @click="confirmDialog = true">
             {{ $t('warehouse.applyAdjustment')  }}
           </v-btn>
         </div>

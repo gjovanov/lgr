@@ -26,8 +26,8 @@ const COLUMNS: ReportColumn[] = [
   { key: 'startQty',       labelKey: 'reports.columns.startQty',    type: 'quantity', align: 'end' },
   { key: 'quantityChange', labelKey: 'reports.columns.change',      type: 'quantity', align: 'end' },
   { key: 'endQty',         labelKey: 'reports.columns.endQty',      type: 'quantity', align: 'end' },
-  { key: 'unitCost',       labelKey: 'reports.columns.avgCost',     type: 'money',    align: 'end' },
-  { key: 'lineTotalCost',  labelKey: 'reports.columns.value',       type: 'money',    align: 'end' },
+  { key: 'unitCost',       labelKey: 'reports.columns.avgCost',     type: 'money',    align: 'end', fieldGroup: 'costs' },
+  { key: 'lineTotalCost',  labelKey: 'reports.columns.value',       type: 'money',    align: 'end', fieldGroup: 'costs' },
 ]
 
 export async function runProductLedger(ctx: ReportHandlerContext): Promise<ReportResult> {

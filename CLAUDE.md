@@ -3147,7 +3147,8 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
 - **Client.** `ui-shared/access/useAccess` gives `can()` and `canOpen()` on the same grant, compiled from the tab's token as `sessionViewer` reads it.
 - **#493 items 2–5 ride on it (FR-27 D-8): capabilities, not areas.** A session whose claim carries an `areas` list, the Seller and the Sales Consultant, does not get these (`legacy.ts#NOT_WITH_AN_AREAS_LIST`):
   - `sales-docs.totals` and `bills.totals`: the strip, and `GET invoices/summary`, which answers 403 `capability_required`;
-  - `sales-docs.import`: the invoices list's Import button only; the API still takes the import;
+  - `sales-docs.import`: the invoices list's Import button, and (Phase 2) the import itself: `doc-import`'s
+    `targetRefusal` answers 403 `capability_required` for a sales invoice or a cash sale without it;
   - `org.switch`: `OrgSwitcher` shows the org read-only, and `/orgs` redirects inside an org.
   - Such a session lands on Products where it can open them (`landingWithoutPortal`).
 - **Partitions (FR-27.6, Phase 2): sales documents, proforma and bills share `/invoices`** (`config/access/partition.ts`).
@@ -3202,6 +3203,37 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - Read off the legacy role (the built-in of that key): recorded only when it grants exactly what the person's
     legacy fields do, and those are left alone. ⚠ So an org whose system set was edited changes nobody's access: that
     person gets no role yet, and their claims decide.
+- **A page the role does not open (FR-27.7, Phase 2) shows "Not available for your role"** (`ui-shell/NotAvailable.vue`):
+  both layouts (`ModuleLayout`, the portal's `DefaultLayout`) ask `ui-shared/access/page-access#usePageAccess`, and its
+  view never mounts. The page is `pageAt(path, query)`: a registry page at its own path (a list, a new-document form)
+  or a portal page under Settings or Admin, never the Dashboard; any other route shows. The rule is `canOpenPage`, the
+  menus' own, so an offered page always opens.
+  - ⚠ A module's record route is never blocked: other apps link to records (an invoice's product, a bill's receipt)
+    that their people read through the feature's `lookup`, so the server decides those.
+  - ⚠ An org on `roles` (`rid` in the claims) whose `/auth/me` has not answered yet: a page the claims (the role's
+    projection, never more than the role) do not open WAITS (`accessSettled` / `settleAccess`, one `/auth/me`), then
+    decides. A failed `/auth/me` ends the wait, and the claims decide. Legacy orgs decide at once and ask nothing.
+- **Generic read-only (FR-27.7)**: a role that reads a feature and does not work on it is offered no New, Save or
+  Delete. `v-cap="'contacts.delete'"` (or a list: any one) hides a control (`ui-shared/access/v-cap.ts`, registered
+  by `registerPlugins`; `data-cap`, and `data-cap-hidden` while hidden; it follows the live grant). A form's action
+  and a row action take `cap` (`EntityFormShell`, `RowActionsMenu`): a hidden Save takes Ctrl+S with it.
+  `CreateButton` shows itself only for a form the role opens (`opensTarget`), or for a dialog its `cap`.
+  - ⚠ The ratchet, `unit/access-read-only.test.ts`: a view that shows Save, Delete or an edit pencil, or sends a
+    write, must consult access (`useAccess`, `v-cap`, a `cap`, a page rule), or be on `NOT_YET`, which only shrinks.
+    Every capability id a view names must be in the catalogue (an unknown one hides the control).
+  - Keep a record's pencil when it is the only way to READ the record (a dialog): gate the dialog's Save instead.
+  - The Files app reads with `files.view` and changes documents with `files.manage` (`file.controller#writeGate`:
+    upload, OCR, book, undo, reconcile, delete, pack and unpack); analyses and the snapshot diff are reads. Legacy
+    grants both with `admin.settings`.
+- **Role tools (FR-27.9)**, import-pure in `config/access/compare.ts`, on the roles screens: "Who can…" (`whoCan` over
+  `ASKABLE_CAPABILITIES`, with the people count), "Compare" (`compareGrants`: each feature's level per role and the
+  capabilities one holds the other does not) and the editor's preview (`pagesOpenedBy`: the pages the role as it
+  stands opens, by app). All from the grants and page rules the server and the menus decide by; nothing is stored.
+- **A role's start page (FR-27.4)**: `Role.landing`, a page id the role opens (`role.service#cleanLanding`: 422
+  `landing_unknown` / `landing_not_open`; capabilities that stop opening it drop it). A change bumps the role's
+  version, and `/auth/me` answers it as `access.landing`. `startPage(who)`: the landing, else the Dashboard, else
+  (no portal) `landingWithoutPortal`, which prefers a landing outside the portal. The first Dashboard of a
+  membership in a tab goes there (`useRoleLanding`, once, `sessionStorage` `lgr_landed`), and "Not available" offers it.
 - **Screens** (`portal-ui` Settings → Roles & access, `RolesView` / `RoleEditorView`; `/settings/roles`, page rule
   `roles.edit`). The editor is a level per feature, None / View / Work / Full, plus the extras beyond it
   (`config/access/levels.ts`). A level is never stored: Save sends capabilities, and the server adds the helpers their
@@ -3219,6 +3251,12 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     legacy model cannot withhold it (`LEGACY_CANNOT_WITHHOLD`): a role without it projects as `needsRelease`.
   - ⚠ A new serializer that sends a product or a stock level's cost goes through `redactProduct` /
     `redactStockCost` (a cost on a line: `redactMovementLine`).
+  - **Reports**: a column with `fieldGroup: 'costs'` (`ReportColumn`) is dropped by the runner, its cells and total
+    with it, on screen and in the file (`withoutFieldGroups`, `meta.withheld` names the keys): valuation, stock levels,
+    product ledger, stock movements, and warehouse operations' cost and profit (on the purchases side its prices too,
+    which are what the goods cost). ⚠ A new report column that carries a cost says so.
+    A report that is nothing but costs (`inventory-valuation`) carries `fieldGroup: 'costs'` itself: not listed, and
+    404 to run, for a role without them (`canAccessReport`).
 - **Price levels (FR-27.11, owner 2026-11-10; D-5 revised, D-11 to D-13)**: a role carries the prices it may see.
   `products.price:selling`, a level per `PRICE_TIERS` slot but „Доставна цена" (`products.price:wholesale`,
   `products.price:0` … `:10`, found by name, spaces ignored: `capOfTier`), and `products.price:other` (an org's own tier

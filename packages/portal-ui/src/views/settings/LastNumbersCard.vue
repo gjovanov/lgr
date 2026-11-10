@@ -38,7 +38,7 @@
       </v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn color="primary" :disabled="!lastNumbersConfirmed" :loading="lastNumbersBusy" data-test="last-numbers-save" @click="saveLastNumbers">{{ $t('servers.lastNumbers.save') }}</v-btn>
+        <v-btn v-cap="'numbering.manage'" color="primary" :disabled="!lastNumbersConfirmed" :loading="lastNumbersBusy" data-test="last-numbers-save" @click="saveLastNumbers">{{ $t('servers.lastNumbers.save') }}</v-btn>
       </v-card-actions>
     </v-card>
 
@@ -50,7 +50,7 @@
       </v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn color="warning" variant="tonal" prepend-icon="mdi-lock" data-test="numbering-lock" @click="openLock">{{ $t('servers.lastNumbers.lock.action') }}</v-btn>
+        <v-btn v-cap="'numbering.manage'" color="warning" variant="tonal" prepend-icon="mdi-lock" data-test="numbering-lock" @click="openLock">{{ $t('servers.lastNumbers.lock.action') }}</v-btn>
       </v-card-actions>
     </v-card>
 
@@ -66,7 +66,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="lockDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="warning" variant="flat" :disabled="!lockConfirmed" :loading="lockBusy" data-test="numbering-lock-save" @click="lock">{{ $t('servers.lastNumbers.lock.save') }}</v-btn>
+          <v-btn v-cap="'numbering.manage'" color="warning" variant="flat" :disabled="!lockConfirmed" :loading="lockBusy" data-test="numbering-lock-save" @click="lock">{{ $t('servers.lastNumbers.lock.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

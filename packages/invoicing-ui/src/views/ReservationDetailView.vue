@@ -463,9 +463,9 @@ const formActions = computed<FormAction[]>(() => {
   const r = res.value
   if (!r) return []
   return [
-    { label: t('invoicing.reservations.changeQuantity'), icon: 'mdi-pencil', variant: 'outlined', handler: () => { editDialog.value = true }, show: r.status === 'active' },
-    { label: t('invoicing.reservations.release'), icon: 'mdi-lock-open-variant-outline', color: 'error', variant: 'outlined', handler: () => { releaseDialog.value = true }, show: r.status === 'active' && (r.releasable || 0) > 0 },
-    { label: t('invoicing.reservations.reserveAgain'), icon: 'mdi-restore', handler: reserveAgain, loading: repeating.value, show: r.status === 'cancelled' && !detail.value?.repeatedAs },
+    { label: t('invoicing.reservations.changeQuantity'), icon: 'mdi-pencil', variant: 'outlined', handler: () => { editDialog.value = true }, show: r.status === 'active', cap: ['orders.create', 'orders.edit'] },
+    { label: t('invoicing.reservations.release'), icon: 'mdi-lock-open-variant-outline', color: 'error', variant: 'outlined', handler: () => { releaseDialog.value = true }, show: r.status === 'active' && (r.releasable || 0) > 0, cap: ['orders.edit', 'orders.delete'] },
+    { label: t('invoicing.reservations.reserveAgain'), icon: 'mdi-restore', handler: reserveAgain, loading: repeating.value, show: r.status === 'cancelled' && !detail.value?.repeatedAs, cap: 'orders.create' },
   ]
 })
 

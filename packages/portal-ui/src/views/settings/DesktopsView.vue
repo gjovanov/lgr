@@ -13,11 +13,11 @@
         clearable
         style="max-width: 220px"
       />
-      <v-btn variant="text" :loading="updatingAll" @click="handleUpdateAll">
+      <v-btn v-cap="'desktops.manage'" variant="text" :loading="updatingAll" @click="handleUpdateAll">
         <v-icon start>mdi-update</v-icon>
         {{ $t('desktops.updateAll') }}
       </v-btn>
-      <v-btn color="primary" @click="openRegister">
+      <v-btn v-cap="'desktops.manage'" color="primary" @click="openRegister">
         <v-icon start>mdi-plus</v-icon>
         {{ $t('desktops.register') }}
       </v-btn>
@@ -113,7 +113,7 @@
       <template #item.actions="{ item }">
         <v-menu>
           <template #activator="{ props }">
-            <v-btn icon size="small" variant="text" v-bind="props">
+            <v-btn v-cap="'desktops.manage'" icon size="small" variant="text" v-bind="props">
               <v-icon>mdi-dots-vertical</v-icon>
             </v-btn>
           </template>
@@ -252,7 +252,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="assignOpen = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="saving" @click="handleAssign">{{ $t('common.save') }}</v-btn>
+          <v-btn v-cap="'desktops.manage'" color="primary" :loading="saving" @click="handleAssign">{{ $t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -273,7 +273,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="rotateOpen = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="warning" :loading="saving" @click="handleRotate">
+          <v-btn v-cap="'desktops.manage'" color="warning" :loading="saving" @click="handleRotate">
             {{ $t('desktops.rotateConfirm') }}
           </v-btn>
         </v-card-actions>
@@ -306,7 +306,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="revokeOpen = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="error" :loading="saving" @click="handleRevoke">
+          <v-btn v-cap="'desktops.manage'" color="error" :loading="saving" @click="handleRevoke">
             {{ $t('desktops.revokeAction') }}
           </v-btn>
         </v-card-actions>

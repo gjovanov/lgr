@@ -41,8 +41,8 @@ const LINE_COLUMNS: ReportColumn[] = [
   { key: 'toWarehouse',    labelKey: 'reports.columns.toWarehouse' },
   { key: 'contactName',    labelKey: 'reports.columns.contact' },
   { key: 'quantity',       labelKey: 'reports.columns.quantity',  type: 'quantity', align: 'end' },
-  { key: 'unitCost',       labelKey: 'reports.columns.avgCost',   type: 'money',    align: 'end' },
-  { key: 'totalCost',      labelKey: 'reports.columns.value',     type: 'money',    align: 'end' },
+  { key: 'unitCost',       labelKey: 'reports.columns.avgCost',   type: 'money',    align: 'end', fieldGroup: 'costs' },
+  { key: 'totalCost',      labelKey: 'reports.columns.value',     type: 'money',    align: 'end', fieldGroup: 'costs' },
 ]
 
 const DOC_COLUMNS: ReportColumn[] = [
@@ -55,7 +55,7 @@ const DOC_COLUMNS: ReportColumn[] = [
   { key: 'contactName',    labelKey: 'reports.columns.contact' },
   { key: 'lineCount',      labelKey: 'reports.columns.lines',     type: 'int',      align: 'end' },
   { key: 'quantity',       labelKey: 'reports.columns.quantity',  type: 'quantity', align: 'end' },
-  { key: 'totalCost',      labelKey: 'reports.columns.value',     type: 'money',    align: 'end' },
+  { key: 'totalCost',      labelKey: 'reports.columns.value',     type: 'money',    align: 'end', fieldGroup: 'costs' },
 ]
 
 export async function runStockMovements(ctx: ReportHandlerContext): Promise<ReportResult> {

@@ -4862,8 +4862,33 @@
       "feature": "Funktion",
       "level": "Stufe",
       "grants": "Gewährt",
+      "landing": "Startseite",
+      "landingHint": "Wo die Personen dieser Rolle nach der Anmeldung landen, und von einer Seite aus, die ihre Rolle nicht öffnet.",
+      "landingDefault": "Das Dashboard",
       "pricesNote": "Sichtbare Preise: erst ausgeblendet, wenn das Zugriffsmodell der Organisation „Rollen“ ist. Der Preis eines Kunden gilt auch auf einer Stufe, die die Rolle nicht sieht, und eine Rolle, die Kontakte bearbeitet, kann eine ausgeblendete Stufe lesen, indem sie einen Kontakt mit ihrem Namen markiert; entziehen Sie „Kontakte: bearbeiten“, um das zu schließen.",
       "pricesHidden": "Nicht sichtbare Preise"
+    },
+    "notAvailable": {
+      "title": "Für Ihre Rolle nicht verfügbar",
+      "text": "„{page}“ gehört nicht zu Ihrer Rolle. Wenden Sie sich an einen Administrator, wenn Sie es brauchen.",
+      "textAny": "Diese Seite gehört nicht zu Ihrer Rolle. Wenden Sie sich an einen Administrator, wenn Sie sie brauchen.",
+      "home": "Zu meiner Startseite"
+    },
+    "tools": {
+      "whoCan": "Wer darf…",
+      "whoCanHint": "Die Rollen, die es gewähren, und wie viele Personen sie haben.",
+      "capability": "Darf",
+      "nobody": "Keine Rolle gewährt es.",
+      "peopleTotal": "Personen damit: {n}",
+      "compare": "Vergleichen",
+      "roleA": "Rolle",
+      "roleB": "Mit Rolle",
+      "showAll": "Alles zeigen, was eine der beiden Rollen hat",
+      "identical": "Beide Rollen gewähren genau dasselbe.",
+      "preview": "Was diese Rolle öffnet",
+      "previewHint": "Die Seiten, die ihren Personen angeboten werden, so wie die Rolle hier steht (vor dem Speichern).",
+      "previewNone": "Keine Seite: die Person sieht nur ihr Konto.",
+      "portal": "Portal"
     }
   }
 }

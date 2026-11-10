@@ -133,6 +133,7 @@ import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { downloadAsSession } from 'ui-shared/composables/useSessionDownload'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useAccess } from 'ui-shared/access/useAccess'
 import { VAT_CELLS, periodLabel, statusColor } from './vat-cells'
 
 interface VatReturn {
@@ -162,7 +163,9 @@ const busy = ref(false)
 
 /** A return that has not been filed. The server holds the same line (`vat-return.service.ts`). */
 const open = computed(() => !taxReturn.value || ['draft', 'generated'].includes(taxReturn.value.status))
-const canFile = computed(() => appStore.user?.role === 'admin' || !!appStore.user?.permissions?.includes('accounting.file'))
+// FR-27.7: the route rule's own capability (`vat.file`), from the session's grant, followed live.
+const { can } = useAccess()
+const canFile = computed(() => can('vat.file'))
 /** The files name a person, so they go to who files them or audits them, as the server's read rule says. */
 const canDownload = computed(() => canFile.value || !!appStore.user?.permissions?.includes('admin.audit'))
 
