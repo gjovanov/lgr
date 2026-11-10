@@ -62,20 +62,17 @@ test.describe('Client reservations in the supplier order (#203)', () => {
     await page.goto(`/invoicing/orders/${s.orderId}/edit`)
     await expect(page.getByRole('heading', { name: /edit supplier order/i }).first()).toBeVisible({ timeout: 15000 })
 
-    // The line's client-reservations grid is folded while the line holds none; reserving is per
-    // allocation inside it.
-    const grid = page.getByRole('button', { name: /client reservations/i }).first()
-    await expect(grid).toHaveAttribute('aria-expanded', 'false')
-    await grid.click()
-    await page.getByRole('button', { name: /reserve for client/i }).first().click()
-    const dialog = page.locator('.v-dialog').filter({ hasText: /reserve for client/i })
-    await expect(dialog).toBeVisible()
-    const client = dialog.getByRole('combobox', { name: /customer/i })
-    await client.locator('xpath=ancestor::div[contains(@class,"v-field")][1]').click()
+    // The line is folded while it holds no reservation; reserving is a + Client row on its warehouse
+    // (FR-28.40), not a dialog.
+    const lineToggle = () => page.locator('tr[data-kind="line"]').first().getByTestId('tree-toggle')
+    await expect(lineToggle()).toHaveAttribute('aria-expanded', 'false')
+    await lineToggle().click()
+    await page.locator('tr[data-kind="allocation"]').first().getByTestId('tree-addClient').click()
+    const client = page.locator('[data-tree-editor]').getByRole('combobox', { name: /customer/i })
     await client.pressSequentially(`E2E Клиент ${s.ts}`, { delay: 30 })
     await page.getByRole('option', { name: new RegExp(`E2E Клиент ${s.ts}`) }).click()
-    await dialog.getByLabel(/qty/i).fill('4')
-    await dialog.getByRole('button', { name: /^reserve$/i }).click()
+    await page.locator('[data-tree-editor-qty] input').fill('4')
+    await page.getByTestId('tree-add').click()
 
     // Staged under its allocation, nothing posted yet.
     await expect(page.getByText(`E2E Клиент ${s.ts}`).first()).toBeVisible()
@@ -88,17 +85,17 @@ test.describe('Client reservations in the supplier order (#203)', () => {
     await expect(page.getByText('unsaved changes')).toBeHidden()
     const number = (await reservationsOf(token, orgId, s.orderId))[0].reservationNumber
 
-    // The grid stays as the user left it across the save's reload, and folds and unfolds on demand.
+    // The tree stays as the user left it across the save's reload, and folds and unfolds on demand.
     const qtyField = page.getByRole('spinbutton', { name: new RegExp(number) })
     await expect(qtyField).toBeVisible()
-    await grid.click()
+    await lineToggle().click()
     await expect(qtyField).toBeHidden()
-    await grid.click()
+    await lineToggle().click()
     await expect(qtyField).toBeVisible()
-    // Opened fresh, a line that holds a reservation shows its grid without a click.
+    // Opened fresh, a line that holds a reservation shows it without a click.
     await page.reload()
     await expect(qtyField).toBeVisible({ timeout: 15000 })
-    await expect(grid).toHaveAttribute('aria-expanded', 'true')
+    await expect(lineToggle()).toHaveAttribute('aria-expanded', 'true')
 
     // Change it in place, then cancel it — each a save of the order.
     await page.getByRole('spinbutton', { name: new RegExp(number) }).fill('3')
