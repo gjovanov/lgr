@@ -7,6 +7,7 @@ import { Invoice } from 'db/models'
  * Groups outstanding invoices by contact and aging bucket.
  */
 import { can } from 'services/biz/access/evaluate'
+import { seesBills } from 'services/biz/access/partition'
 export const agingReportController = new Elysia({ prefix: '/org/:orgId/invoicing/reports' })
   .use(AppAuthService)
   .get('/aging', async ({ params: { orgId }, query, user, status }) => {
@@ -20,7 +21,7 @@ export const agingReportController = new Elysia({ prefix: '/org/:orgId/invoicing
     const asOfDate = query.asOfDate ? new Date(query.asOfDate as string) : new Date()
     const direction = (query.direction as string) || 'outgoing'
     // FR-26.6: the payables are the bills, which a session without `purchases` does not see.
-    if (direction !== 'outgoing' && user && !can(user as any, 'bills.view')) {
+    if (direction !== 'outgoing' && user && !seesBills(user as any)) {
       return status(403, { code: 'area_required', area: 'purchases', message: 'Incoming documents are not part of your role.' })
     }
 

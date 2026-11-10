@@ -1,5 +1,5 @@
 import { Elysia } from 'elysia'
-import { can } from 'services/biz/access/evaluate'
+import { seesBills } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getContactLedger } from 'services/biz/contact-ledger.service'
 
@@ -14,7 +14,7 @@ export const contactLedgerController = new Elysia({ prefix: '/org/:orgId/invoici
     if (query.documentTypes) {
       options.documentTypes = (query.documentTypes as string).split(',').filter(Boolean)
     }
-    if (!can(user as any, 'bills.view')) options.outgoingOnly = true
+    if (!seesBills(user as any)) options.outgoingOnly = true
     // #526: they narrow the ledger; the area check above still decides which documents it holds.
     if (typeof query.productSearch === 'string') options.productSearch = query.productSearch
     if (typeof query.documentNumber === 'string') options.documentNumber = query.documentNumber

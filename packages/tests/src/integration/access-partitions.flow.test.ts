@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
-import { createTestContact, createTestInvoice, createTestOrg, createTestUser } from '../helpers/factories'
+import { createTestContact, createTestInvoice, createTestOrg, createTestStockMovement, createTestUser } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
@@ -128,5 +128,27 @@ describe('FR-27.6: and writes the kinds it works on', () => {
     const bill = await call('POST', '/invoices', tokens.counter, { type: 'invoice', direction: 'incoming', contactId: String(new mongoose.Types.ObjectId()), issueDate: new Date().toISOString(), currency: 'EUR', subtotal: 0, taxTotal: 0, total: 0, lines: [] })
     expect(bill.status).toBe(403)
     expect(bill.json.capabilities).toEqual(['bills.create'])
+  })
+})
+
+describe('FR-27.6 on the legacy model: the areas, for every session (`seesBills`)', () => {
+  it("a warehouse manager, who holds no invoicing permission, is still told of the bill that holds a receipt; a Seller is not", async () => {
+    const legacy: any = await createTestOrg({ slug: 'access-partitions-legacy' } as any)
+    const contact = await createTestContact(legacy._id)
+    const bill = await createTestInvoice(legacy._id, contact._id as any, { invoiceNumber: 'BILL-L-1', direction: 'incoming' } as any)
+    const receipt: any = await createTestStockMovement(legacy._id, { type: 'receipt', invoiceId: bill._id } as any)
+    const read = async (role: string) => {
+      const u = await createTestUser(legacy._id, { role, username: role, email: `${role}@partitions-legacy.test` } as any)
+      const token = await (signer as any).decorator.jwt.sign(await tokenize((await User.findById(u._id).exec())!))
+      const res = await app.handle(new Request(`http://localhost/api/org/${legacy._id}/warehouse/movement/${receipt._id}`, { headers: { authorization: `Bearer ${token}` } }))
+      return { status: res.status, json: await res.json() as any }
+    }
+    const wm = await read('warehouse_manager')
+    expect(wm.status).toBe(200)
+    expect(String(wm.json.stockMovement.invoiceId)).toBe(String(bill._id))
+    // FR-26.6: a Seller's areas leave `purchases` out, and the bill is not named.
+    const seller = await read('seller')
+    expect(seller.status).toBe(200)
+    expect(seller.json.stockMovement.invoiceId).toBeUndefined()
   })
 })

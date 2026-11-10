@@ -2,7 +2,7 @@ import { FiscalRoute, deviceFromAuthorSession, deviceFromCounter, deviceFromDead
 import { can, grantOf } from 'services/biz/access/evaluate'
 import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, writesKind } from 'config/access'
 import { Elysia, t } from 'elysia'
-import { holdsArea } from 'config/constants'
+import { seesOrders } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createInvoiceStockMovement, reverseInvoiceStockMovement, stockBookingRefusal, validateStockAvailability } from 'services/biz/invoicing.service'
@@ -529,12 +529,13 @@ function lineOrderKey(ref: Record<string, unknown> | null | undefined): string {
 const ORDERS_REFUSED = { code: 'area_required', area: 'orders', message: 'Orders and reservations are not part of your role: this document may not be linked to one.' } as const
 
 /**
- * FR-26.6 `orders`: may a session without the area write these order links? A create may carry
- * none. An edit may keep the ones the document has (the form round-trips `orderRef` verbatim, so
- * an invoice converted from an order saves unchanged) and may add or change none.
+ * FR-26.6 `orders` (FR-27.6: `seesOrders`, the area on the legacy model, the orders capabilities on a role): may a
+ * session without them write these order links? A create may carry none. An edit may keep the ones the document has
+ * (the form round-trips `orderRef` verbatim, so an invoice converted from an order saves unchanged) and may add or
+ * change none.
  */
 function orderLinkRefusal(user: { role?: string; areas?: readonly string[] }, body: any, existing?: any): typeof ORDERS_REFUSED | null {
-  if (holdsArea(user, 'orders')) return null
+  if (seesOrders(user as any)) return null
   for (const f of ORDER_HEAD_FIELDS) {
     if (body?.[f] === undefined) continue
     if (String(body[f] || '') !== String(existing?.[f] || '')) return ORDERS_REFUSED

@@ -1,4 +1,4 @@
-import { can } from 'services/biz/access/evaluate'
+import { seesBills } from 'services/biz/access/partition'
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
@@ -146,7 +146,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
   .get('/:id/summary', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     // FR-26.6: without `purchases` the contact's bills are no part of what they are shown.
-    const side = can(user as any, 'bills.view') ? {} : { direction: 'outgoing' }
+    const side = seesBills(user as any) ? {} : { direction: 'outgoing' }
 
     const [documents, receipts, unpaid, movementCount] = await Promise.all([
       // FR-23: the two counts, not a `$ne` on the type, which would fetch every document the contact has.
