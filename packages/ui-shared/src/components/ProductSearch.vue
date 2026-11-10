@@ -55,6 +55,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useAccess } from '../access/useAccess'
 import { useI18n } from 'vue-i18n'
 import {
   SEARCH_DEBOUNCE_MS, SEARCH_MIN_CHARS, hitPriceText, hitStockText, hitSubtitle, loadHitStock, searchProductHits, type HitStock,
@@ -138,7 +139,15 @@ function showAllResults() {
 // ── FR-28.24: the hit's second line — SKU · unit · stock · price ──
 const resolvedLocale = computed(() => props.locale || 'en-US')
 const fmtQty = (n: number) => new Intl.NumberFormat(resolvedLocale.value, { maximumFractionDigits: 3 }).format(n || 0)
-const priceField = computed(() => (props.priceField === undefined ? 'purchasePrice' : props.priceField))
+// FR-27.11.D: a price the role does not see is no price to show: the purchase price needs the cost figures, the selling
+// price its level.
+const access = useAccess()
+const priceField = computed(() => {
+  const wanted = props.priceField === undefined ? 'purchasePrice' : props.priceField
+  if (wanted === 'purchasePrice' && !access.can('products.costs')) return null
+  if (wanted === 'sellingPrice' && !access.can('products.price:selling')) return null
+  return wanted
+})
 
 function hitLine(p: ProductResult): string {
   const known = hitStock.value[p._id]
