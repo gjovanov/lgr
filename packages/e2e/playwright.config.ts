@@ -39,6 +39,8 @@ export default defineConfig({
         'reports.spec.ts',
         // Multi-org sign-in: the org menu, the picker and per-tab orgs.
         'org-switcher.spec.ts',
+        // The left navigation's header beside the app bar: collapsed, and on a phone.
+        'shell-rail.spec.ts',
       ],
     },
     {
