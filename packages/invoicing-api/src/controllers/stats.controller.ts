@@ -1,5 +1,5 @@
 import { Elysia } from 'elysia'
-import { holdsArea } from 'config/constants'
+import { seesBills } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { NOT_PAYMENT_RECEIPT } from 'services/biz/sale-counting'
@@ -17,7 +17,7 @@ export const statsController = new Elysia({ prefix: '/org/:orgId/stats' })
     const invoice = await r.invoices.findByIdInOrg(params.id, params.orgId) as any
     if (!invoice) return { stats: {} }
     // FR-26.6: an incoming document does not exist for a session without `purchases`.
-    if (invoice.direction === 'incoming' && user && !holdsArea(user, 'purchases')) return { stats: {} }
+    if (invoice.direction === 'incoming' && user && !seesBills(user as any)) return { stats: {} }
 
     const payments = invoice.payments || []
     const totalPaid = payments.reduce((s: number, p: any) => s + (p.amount || 0), 0)
