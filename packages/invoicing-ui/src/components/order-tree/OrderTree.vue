@@ -249,9 +249,12 @@ defineExpose({ toggle, setOpen, isOpen, expandAll, collapseAll, reveal, highligh
 /* Cells keep half the padding Vuetify gives a table: eleven columns of figures need the room. A header too long for
    its column (Резервирано, Фактурирано, Empfangen) goes onto a second line, hyphenated where the browser can,
    instead of running into its neighbour. */
+.order-tree {
+  --tree-cell-pad: 8px;
+}
 .order-tree :deep(.v-table__wrapper > table > thead > tr > th),
 .order-tree :deep(.v-table__wrapper > table > tbody > tr > td) {
-  padding-inline: 8px;
+  padding-inline: var(--tree-cell-pad);
 }
 .order-tree :deep(th) {
   white-space: normal;
@@ -297,8 +300,30 @@ defineExpose({ toggle, setOpen, isOpen, expandAll, collapseAll, reveal, highligh
     background: rgba(var(--v-theme-warning), 0.4);
   }
 }
+/* A number typed into the tree is read whole: 99,999 in a quantity, 9,999.99 in a price (a column cannot be widened for
+   it, the table has 9 px to spare at 1341 px with the right panel open). Three things took its room, all gone:
+   - the spin buttons, which a number input keeps 15 px for even while they are not drawn (100 read 10);
+   - the field's own padding, 8 px a side: the cell has its own, and an underlined field shows no edge to pad;
+   - the cell's padding on the field's start side, which an end-aligned figure leaves empty. The figure itself stays
+     where the column's other figures are, flush with its header. */
+.order-tree :deep(.order-tree__num) {
+  margin-inline-start: calc(-1 * var(--tree-cell-pad));
+}
 .order-tree :deep(.order-tree__num input) {
   text-align: end;
+  padding-inline: 0;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.order-tree :deep(.order-tree__num input::-webkit-inner-spin-button),
+.order-tree :deep(.order-tree__num input::-webkit-outer-spin-button) {
+  -webkit-appearance: none;
+  margin: 0;
+}
+/* A figure is never split over two lines (a Free of 99,999 read 9999 over 9): it keeps its line, and one wider than its
+   column spends the padding of its cell instead. */
+.order-tree :deep(td.text-end) {
+  white-space: nowrap;
 }
 .order-tree__spacer {
   display: inline-block;

@@ -1042,7 +1042,19 @@
       "unallocated": "{n} unallocated",
       "unsaved": "unsaved",
       "changed": "changed",
-      "freeHint": "Line: ordered − allocated to warehouses. Warehouse: allocated − reserved for clients."
+      "freeHint": "Line: ordered − allocated to warehouses. Warehouse: allocated − reserved for clients.",
+      "itemOrder": "Article / Reservation",
+      "shortHint": "Still to cover: needed minus reserved.",
+      "delivered": "Delivered",
+      "totalsOrder": "Totals",
+      "reserveMenu": "+ Reserve",
+      "reserveFromStock": "From stock",
+      "reserveFromOrder": "From a supplier order",
+      "noReservations": "Nothing reserved yet",
+      "overReserved": "Over-reserved",
+      "late": "Late",
+      "nothingFromStock": "No free stock for this line.",
+      "nothingFromOrders": "No supplier order has room for this line."
     },
     "panels": {
       "lines": "{n} line | {n} lines",
