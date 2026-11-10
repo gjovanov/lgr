@@ -145,6 +145,7 @@ import { inModule } from '../nav/open-page'
 import { useI18n } from 'vue-i18n'
 import SmartButton from './SmartButton.vue'
 import { focusFirstField, isMacPlatform, useFormShortcuts } from '../composables/form-shortcuts'
+import { capShows, type CapValue } from '../access/v-cap'
 
 export interface FormAction {
   label: string
@@ -163,6 +164,11 @@ export interface FormAction {
    * journal entry that is „Анулирай", and no shortcut should reach a step like that unasked.
    */
   primary?: boolean
+  /**
+   * FR-27.7: shown only to a role holding one of these capabilities (`v-cap`'s rule): a form a role only reads has no
+   * Save, and Ctrl+S does nothing.
+   */
+  cap?: CapValue
 }
 
 export interface SmartButtonDef {
@@ -228,7 +234,7 @@ function toggleSidebar() {
 }
 
 const visibleActions = computed(() =>
-  (props.actions || []).filter(a => a.show !== false)
+  (props.actions || []).filter(a => a.show !== false && capShows(a.cap))
 )
 
 // ── FR-22.52: keyboard ──

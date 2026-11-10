@@ -151,7 +151,8 @@ const rules = {
 }
 
 const formActions = computed<FormAction[]>(() => [
-  { label: t('common.save'), color: 'primary', handler: handleSubmit, loading: loading.value },
+  // FR-27.7: a new account is `accounts.create` (the admin's and the accountant's), a change `accounts.edit`.
+  { label: t('common.save'), color: 'primary', handler: handleSubmit, cap: isEdit.value ? 'accounts.edit' : 'accounts.create', loading: loading.value },
 ])
 
 function orgUrl() {
