@@ -688,3 +688,36 @@ What each slice shipped, and where building it differed from the plan above. Onl
 - **Cash sale.** The companion-documents note moved with the others, to the notes column of the terminal. That form has no totals card to put it under.
 - **Panels.** A panel keeps its body mounted while folded (`v-show`), so its fields still validate and keep what was typed. A `flag` stays on the header either way: a supplier card with no supplier says so folded, because a save refuses it. The Reservations card of a customer order keeps its order-wide buttons on its header.
 - **Walks, before and after** (clicks, typed): P3 3, 1. P5-credit 5, 1. P5-invoice 14, 6. P6 12, 5: equal. P7-chain 18, P7-new 4, P7-repeat 3, P7-who 1: inside their budgets.
+
+
+### Slice 3: one product search (in progress: done / next)
+
+Branch `feat/fr28-s3-product-search`, on slice 2's branch. Not yet a PR.
+
+**Done** (built; verified on an isolated server and the unit directory; CI and the full suite not yet run).
+
+- **The engine.** `useProductList`, `product-list-params`, `useProductColumns`, `ProductFilterBar` and `ProductCell` in `ui-shared`, under both the Products page (unchanged for the user: the specs that pin it pass unmodified) and `ProductPickerDialog`.
+- **The dialog is the Products list in a window.** Its filters (supplier and quantity ones for a role that may read bills), its columns and the user's saved choice of them (`inventory.products`), page sizes to All, Status on Active, name order. `multiple` adds a tick column and "Add N articles" in the order ticked; the articles the document already holds are marked; `stockWarehouseId` scopes the figures and never the rows; `priceField` starts the cost column shown on a bill; the typed text is carried in; Enter picks, Escape closes. `source="till"` reads the till's catalog.
+- **One hit row** for `ProductSearch` and `ProductLineDescription` (`product-hit`): the name, then SKU · unit · stock · price; a last row "Show all N results"; F4 and a `ProductDetailsButton` open the dialog with the typed text.
+- **The screens.** Details on movements, invoices, bills, proformas, customer orders, supplier orders, the back-office cash sale and the till (which keeps its card grid and scanning; F4 too). The price-list form takes the same pieces in single-pick mode. After a pick on a document the cursor goes to the quantity.
+- **Tests.** `product-search.spec` (28), unit `product-hit`, `product-list-params`, `product-columns`, and the walk P8. Opening the dialog makes one page request and the calls its cells need (asserted, FR-28.29). The stock range's two labels are not cut at 1366 px in English and Bulgarian (asserted).
+- **Walks** (clicks, typed, dialogs): all 17 existing walks equal to the numbers measured on slice 2's head. P8: 5, 0, 1 through the multi-select; 6, 0, 3 when each article is its own trip through the old dialog.
+
+**Where the plan was silent or wrong.**
+
+- *One request, not two.* A Vuetify server table asks for its page when it mounts, and the owner asks when the dialog opens: two identical requests (the Products page has always made two on load). The engine keeps one request in flight per set of parameters and ignores a stale answer.
+- *The dialog's supplier calls are lazy.* The facts are asked for only while the Suppliers column is shown, the supplier filter's choices when it is first used. The page loads both at once, as before.
+- *A closed dialog must not fetch.* The till's filters read the screen's warehouse; when it arrived the filter watcher fetched the catalog for a dialog nobody had opened. The engine has an `active` gate.
+- *No `sort-by` on the dialog's table.* A controlled `sort-by` on a Vuetify server table swallows the header clicks (`update:options` never fires).
+- *The list's capital headers are AppShell's CSS*; a teleported dialog does not get them, so the dialog says the same again.
+- *"Active" was not one rule for the inline search either.* It listed deactivated articles, so "Show all 13 results" opened a dialog of 12. The inline search now asks for active articles, as the list, the dialog and the till do; a deactivated article is one Status change away in Details. A small behaviour change: **to be confirmed by the owner**.
+- *The inline overlay ran off the bottom of the window*, which hid its last row (now "Show all N results"). It takes the room it has and goes above the field when there is more.
+- *The cost column.* A screen whose pick starts from the purchase price (a bill, a supplier order, a movement) shows that column by default. It only moves the default: the user's saved choice still wins.
+- *The cursor after a pick* goes to the quantity only while it is still where the pick left it: an unconditional timer took it from a user who had already moved on.
+
+**Next.**
+
+1. Rebase on master once slice 2 has merged; open the PR with the walks table above; CI and the full `bun run test`.
+2. FR-28.27 on the supplier order (the next line and the quantity focus), after slice 5 has rewritten that form's lines. The customer order and the movement already had both.
+3. FR-28.30, not done: the reservation-create dialog and the reports parameter field keep their own product autocompletes. Their search is tied to their own state (the reservation dialog resolves the chosen article for its unit and availability; the report field is one branch of a generic entity picker), so a swap needs a pass of its own.
+4. The field test of §8.3 on production, in the demo organization.
