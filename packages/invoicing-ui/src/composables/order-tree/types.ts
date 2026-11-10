@@ -8,6 +8,7 @@
  *
  * Only types in this file: it costs nothing at run time.
  */
+import type { CoverageStatus } from 'config/order-coverage'
 
 /** What a row is. A `placeholder` stands where something is missing (or is being added) under a parent. */
 export type TreeNodeKind = 'line' | 'allocation' | 'reservation' | 'placeholder'
@@ -15,12 +16,20 @@ export type TreeNodeKind = 'line' | 'allocation' | 'reservation' | 'placeholder'
 /**
  * Something about a row a person should notice, shown on the row and rolled up to its closed parents.
  * `unallocated` is information (a new line always starts with it) and does not open anything; the
- * others are the order's own state of repair and do.
+ * others are the order's own state of repair and do. `overReserved` is a customer-order line holding more
+ * than it needs (a quantity edited down below what is reserved), and `late` a reservation whose supplier order
+ * is expected after the date the customer asked for.
  */
-export type TreeFlag = 'overAllocated' | 'unallocated' | 'new' | 'changed' | 'cancelledOnSave' | 'late'
+export type TreeFlag = 'overAllocated' | 'overReserved' | 'unallocated' | 'new' | 'changed' | 'cancelledOnSave' | 'late'
 
-/** What can be done to a row; the screen draws a control for each one it is given and acts on it. */
-export type TreeActionType = 'addWarehouse' | 'addClient' | 'remove' | 'changeClient' | 'cancel' | 'undo'
+/**
+ * What can be done to a row; the screen draws a control for each one it is given and acts on it.
+ * The supplier order's are `addWarehouse` .. `undo` (staged, saved with the order); the customer order acts at once:
+ * `reserve` (a menu on a line), and `editQuantity`, `release` and `reserveAgain` on a reservation.
+ */
+export type TreeActionType =
+  | 'addWarehouse' | 'addClient' | 'remove' | 'changeClient' | 'cancel' | 'undo'
+  | 'reserve' | 'editQuantity' | 'release' | 'reserveAgain'
 export interface TreeAction {
   type: TreeActionType
   /** Offered, but not now: a warehouse with nothing free cannot take a client. */
@@ -64,6 +73,25 @@ export interface ReservationRow {
   editable: boolean
   cancellable: boolean
   canChangeClient: boolean
+  // ── what a customer order and the reservation page say of it (the supplier order's rows leave these out) ──
+  /** Held on free stock, or on a supplier order's warehouse. */
+  source?: 'stock' | 'order'
+  warehouseId?: string
+  /** The supplier order it sits on, its line and its warehouse (an allocation): a link to them opens that line. */
+  orderId?: string
+  orderLineId?: string
+  allocationId?: string
+  /** The line of the customer order it serves: a link to that order opens it. */
+  internalOrderLineId?: string
+  /** When its supplier order is expected, and whether that is after the date the customer asked for. */
+  expectedDate?: string
+  late?: boolean
+}
+
+/** How far a customer-order line is covered: `config/order-coverage`, and what of it waits on a supplier order not sent. */
+export interface NodeCoverage {
+  status: CoverageStatus
+  onUnsentOrder: number
 }
 
 export interface TreeNode {
@@ -98,6 +126,8 @@ export interface TreeNode {
   }
   /** A reservation node's own row. */
   reservation?: ReservationRow
+  /** A customer-order line's coverage: what the chip on its row says. */
+  coverage?: NodeCoverage
 }
 
 // ── inputs ─────────────────────────────────────────────────────────────────────────────────────
@@ -139,6 +169,16 @@ export interface ServerReservation {
   dispatchedQuantity?: number
   allocationId?: string
   internalOrderId?: string
+  // ── what the customer order and the reservation page read besides ──
+  internalOrderLineId?: string
+  source?: 'stock' | 'order'
+  warehouseId?: string
+  orderId?: string
+  /** The line of the supplier order it sits on. */
+  lineId?: string
+  expectedDate?: string | Date | null
+  /** The client's name, where the server says it (the reservation page); a screen's own labels say it otherwise. */
+  contactName?: string
 }
 
 export interface StagedCreate {
@@ -210,4 +250,53 @@ export interface SupplierOrderTree {
   totals: GroupFigures
   /** Every node by id, for finding a row from where it was clicked or linked to. */
   index: Map<string, TreeNode>
+}
+
+// ── the customer order (ORDI): lines and their reservations, two levels ─────────────────────────
+
+/** A line of a customer order as the form has it, with the changes typed since it was loaded. */
+export interface CustomerLineInput {
+  _id?: string
+  productId?: string
+  description: string
+  quantity: number
+}
+
+/** What the server derives per saved line and nothing on the form can: the invoices and deliveries against it. */
+export interface CustomerLineServerFigures {
+  /** Of what the line holds, what waits on a supplier order not sent yet (FR-22.44). */
+  onUnsentOrder: number
+  invoiced: number
+  delivered: number
+}
+
+export interface CustomerOrderTotals {
+  lines: number
+  ordered: number
+  reserved: number
+  /** What is still short: the lines' short quantities added up. */
+  short: number
+  invoiced: number
+  delivered: number
+}
+
+export interface CustomerOrderTree {
+  /** The lines, in the order of the form. */
+  nodes: TreeNode[]
+  totals: CustomerOrderTotals
+  index: Map<string, TreeNode>
+}
+
+// ── the reservation page: where a reservation sits ──────────────────────────────────────────────
+
+/** What the server says about the supply a reservation hangs on (`detail.supply` of `GET /reservations/:id`). */
+export interface SupplyInput {
+  kind: 'order' | 'stock'
+  /** An order's line and every warehouse (allocation) it was given. */
+  line?: { _id: string; description: string; quantity: number; receivedQuantity: number }
+  allocations?: Array<{ _id: string; warehouseId: string; warehouseName: string; quantity: number; receivedQuantity: number }>
+  /** Free stock in one warehouse: what is on the shelf, and what a new reservation could still take. */
+  warehouse?: { _id: string; name: string; onHand: number; available: number }
+  /** The reservations on it, this one among them. */
+  reservations: ServerReservation[]
 }

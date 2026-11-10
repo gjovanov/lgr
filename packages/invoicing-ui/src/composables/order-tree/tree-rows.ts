@@ -13,10 +13,10 @@ import type { TreeFlag, TreeNode } from './types'
  * user decides otherwise, and a node the user has closed stays closed.
  */
 
-export const FLAG_ORDER: readonly TreeFlag[] = ['overAllocated', 'unallocated', 'new', 'changed', 'cancelledOnSave', 'late']
+export const FLAG_ORDER: readonly TreeFlag[] = ['overAllocated', 'overReserved', 'unallocated', 'new', 'changed', 'cancelledOnSave', 'late']
 
 /** The flags that mean "look here" and so open a row by default. `unallocated` only informs. */
-const ATTENTION: ReadonlySet<TreeFlag> = new Set<TreeFlag>(['overAllocated', 'new', 'changed', 'cancelledOnSave', 'late'])
+const ATTENTION: ReadonlySet<TreeFlag> = new Set<TreeFlag>(['overAllocated', 'overReserved', 'new', 'changed', 'cancelledOnSave', 'late'])
 
 export function needsAttention(flags: readonly TreeFlag[]): boolean {
   return flags.some((f) => ATTENTION.has(f))
