@@ -58,7 +58,7 @@ async function world(api: Api) {
 }
 type World = Awaited<ReturnType<typeof world>>
 
-interface LineSpec { product: 'p1' | 'p2'; qty: number; allocations: Array<{ wh: 'main' | 'other'; qty: number; holds?: Array<{ client: 'A' | 'B'; qty: number }> }> }
+interface LineSpec { product: 'p1' | 'p2'; qty: number; price?: number; allocations: Array<{ wh: 'main' | 'other'; qty: number; holds?: Array<{ client: 'A' | 'B'; qty: number }> }> }
 
 /**
  * A supplier order of the lines given (sent, so reservations can be held on it), with the reservations made.
@@ -71,7 +71,7 @@ async function sentOrder(api: Api, w: World, lines: LineSpec[], opts: { send?: b
     supplierGroups: [{
       supplierId: w.supplier._id || w.supplier.id,
       lines: lines.map((l) => ({
-        productId: w[l.product]._id || w[l.product].id, description: w[l.product].name, quantity: l.qty, unit: 'pcs',
+        productId: w[l.product]._id || w[l.product].id, description: w[l.product].name, quantity: l.qty, unit: 'pcs', expectedUnitPrice: l.price,
         allocations: l.allocations.map((a) => ({ warehouseId: wh(a.wh), quantity: a.qty })),
       })),
     }],
@@ -652,6 +652,80 @@ test.describe('The room the tree has (FR-28.41)', () => {
     const { order } = await savedOrder()
     await open(page, order)
     await expect(page.locator('[data-testid="order-tree"] thead th[data-col="free"]')).toHaveAttribute('title', /ordered.*allocated.*reserved/)
+  })
+
+  // ── a number is read whole ──
+  // The tests above only ask whether the TABLE scrolls sideways, never whether a value fits its own field: on
+  // production a quantity of 100 read 10 (the last digit sat under the field's spin buttons) and a Free of 99,999
+  // was printed as 9999 over 9, which is how a user re-types a quantity that was never wrong.
+
+  /**
+   * An order whose quantities run to five digits: a line of 12,500 at 1,234.56 with all of it in a warehouse and held
+   * for a client, a second of 99,999 at 9,999.99 and a third of 50,000, with nothing placed on either. Their Free
+   * is 99,999 and 50,000 and the supplier's total 162,499 (a total of 11xxxx would not do: the font kerns "11", and
+   * a total of 112,499 just fits). Every kind of cell that holds a number is in it.
+   */
+  async function bigOrder() {
+    const api = await session()
+    const w = await world(api)
+    return sentOrder(api, w, [
+      { product: 'p1', qty: 12500, price: 1234.56, allocations: [{ wh: 'main', qty: 12500, holds: [{ client: 'A', qty: 12500 }] }] },
+      { product: 'p2', qty: 99999, price: 9999.99, allocations: [] },
+      { product: 'p1', qty: 50000, allocations: [] },
+    ])
+  }
+
+  /** What each number in the tree shows of itself: a field's text against the room it has, a figure's lines. */
+  async function numbers(page: any) {
+    return page.evaluate(() => {
+      const tree = document.querySelector('[data-testid="order-tree"]') as HTMLElement
+      const where = (el: HTMLElement) => `${el.closest('tr')?.getAttribute('data-kind') || 'totals'}/${el.closest('td')?.getAttribute('data-col')}`
+      const lines = (el: HTMLElement) => {
+        const r = document.createRange()
+        r.selectNodeContents(el)
+        return new Set([...r.getClientRects()].map((c) => Math.round(c.top))).size
+      }
+      const inputs = [...tree.querySelectorAll('input[type="number"]')] as HTMLInputElement[]
+      const figures = [...tree.querySelectorAll('td')].filter((td) => /^\d+$/.test(td.textContent!.trim())) as HTMLElement[]
+      return {
+        inputs: inputs.map((i) => ({ at: where(i), value: i.value, client: i.clientWidth, scroll: i.scrollWidth })),
+        figures: figures.map((td) => ({ at: where(td), value: td.textContent!.trim(), lines: lines(td) })),
+      }
+    })
+  }
+
+  test('every number typed into the tree shows whole: 12,500 and 99,999 in a quantity, 1,234.56 and 9,999.99 in a price', async ({ page }) => {
+    const { order, group } = await bigOrder()
+    for (const [width, panelOpen] of [[1366, true], [1920, true]] as const) {
+      await page.setViewportSize({ width, height: 800 })
+      await panel(page, panelOpen)
+      await open(page, order)
+      // The row being added too: its quantity starts at what is left of the second line.
+      await lineRow(page, group.lines[1]._id).getByTestId('tree-addWarehouse').click()
+      await expect(page.locator('[data-tree-editor-qty] input')).toHaveValue('99999')
+      const n = await numbers(page)
+      // Every kind of field is in the tree (a test that measured nothing would pass) ...
+      expect([...new Set(n.inputs.map((i) => i.at))].sort(), `${width} px`).toEqual(['allocation/qty', 'line/price', 'line/qty', 'placeholder/qty', 'reservation/qty'])
+      expect(n.inputs.map((i) => i.value), `${width} px`).toEqual(expect.arrayContaining(['12500', '99999', '1234.56', '9999.99']))
+      // ... and each one's text is no wider than its room (a pixel of rounding is allowed): a field that scrolls inside shows less than it holds.
+      const cut = n.inputs.filter((i) => i.scroll > i.client + 1).map((i) => `${i.at} ${i.value}: ${i.scroll} px of text in ${i.client}`)
+      expect(cut, `${width} px: fields that show less than their value`).toEqual([])
+    }
+  })
+
+  test('a figure of five or six digits is not split over two lines: Free 99,999 and 50,000, the supplier total 162,499', async ({ page }) => {
+    const { order } = await bigOrder()
+    for (const [width, panelOpen] of [[1366, true], [1920, true]] as const) {
+      await page.setViewportSize({ width, height: 800 })
+      await panel(page, panelOpen)
+      await open(page, order)
+      const n = await numbers(page)
+      // The figures this test is about are on the page (a test that measured something else would pass).
+      expect(n.figures.find((f) => f.at === 'totals/qty')?.value, `${width} px`).toBe('162499')
+      expect(n.figures.filter((f) => f.at === 'line/free').map((f) => f.value), `${width} px`).toEqual(expect.arrayContaining(['99999', '50000']))
+      const split = n.figures.filter((f) => f.lines > 1).map((f) => `${f.at} ${f.value}`)
+      expect(split, `${width} px: figures printed on two lines`).toEqual([])
+    }
   })
 })
 
