@@ -4864,8 +4864,33 @@
       "feature": "Feature",
       "level": "Level",
       "grants": "Grants",
+      "landing": "Start page",
+      "landingHint": "Where the role's people land after signing in, and from a page their role does not open.",
+      "landingDefault": "The Dashboard",
       "pricesNote": "Prices it may see: hidden only once the organization's access model is \"roles\". A customer's price still applies at a level the role does not see, and a role that edits contacts can read a hidden level by tagging a contact with its name; take \"Contacts: edit\" away to close that.",
       "pricesHidden": "Prices not visible"
+    },
+    "notAvailable": {
+      "title": "Not available for your role",
+      "text": "“{page}” is not part of your role. Ask an administrator if you need it.",
+      "textAny": "This page is not part of your role. Ask an administrator if you need it.",
+      "home": "Go to my start page"
+    },
+    "tools": {
+      "whoCan": "Who can…",
+      "whoCanHint": "The roles that hold it, and how many people have them.",
+      "capability": "Can do",
+      "nobody": "No role holds it.",
+      "peopleTotal": "People with it: {n}",
+      "compare": "Compare",
+      "roleA": "Role",
+      "roleB": "With role",
+      "showAll": "Show every feature either role has",
+      "identical": "The two roles grant exactly the same.",
+      "preview": "What this role opens",
+      "previewHint": "The pages its people are offered, as the role stands here (before Save).",
+      "previewNone": "No page: the person sees their account only.",
+      "portal": "Portal"
     }
   }
 }

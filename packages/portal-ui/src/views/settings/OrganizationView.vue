@@ -359,7 +359,7 @@
       </v-card>
 
       <div class="d-flex justify-end">
-        <v-btn color="primary" type="submit" :loading="saving" size="large">
+        <v-btn v-cap="'org-settings.edit'" color="primary" type="submit" :loading="saving" size="large">
           {{ $t('common.save') }}
         </v-btn>
       </div>
@@ -579,6 +579,8 @@ async function sendTestDigest() {
 }
 
 async function save() {
+  // FR-27.7: Enter in a field submits the form; a role that only reads the settings has no Save to send.
+  if (!isAdmin.value) return
   saving.value = true
   try {
     const enabledModules = Object.entries(form.modules)

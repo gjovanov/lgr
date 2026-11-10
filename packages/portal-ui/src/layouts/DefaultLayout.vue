@@ -62,7 +62,10 @@
       />
     </template>
 
-    <router-view />
+    <!-- FR-27.7: a Settings or Admin page the role does not open shows why instead; its view never mounts. -->
+    <NotAvailable v-if="pageAccess.state.value === 'blocked'" :page="pageAccess.page.value" />
+    <v-progress-linear v-else-if="pageAccess.state.value === 'waiting'" indeterminate color="primary" data-testid="page-access-waiting" />
+    <router-view v-else />
   </AppShell>
 </template>
 
@@ -71,6 +74,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppShell from 'ui-shell/components/AppShell'
 import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
+import NotAvailable from 'ui-shell/components/NotAvailable'
+import { usePageAccess, useRoleLanding } from 'ui-shared/access/page-access'
 import { useAppStore } from '../store/app.store'
 import { useNotificationStore } from '../store/notification.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -97,6 +102,9 @@ const onServer = ref(false)
 // FR-27.5: a computed, so a role edited live re-evaluates the menu.
 const offeredPages = computed(() => new Set(portalPagesFor(sessionViewer())))
 const offered = (path: string) => offeredPages.value.has(path)
+// FR-27.7: "Not available for your role"; FR-27.4: a role's landing page, the first time the Dashboard opens.
+const pageAccess = usePageAccess()
+useRoleLanding()
 
 function handleRestore(entry: PendingChangeEntry) {
   pendingChangesOpen.value = false

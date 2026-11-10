@@ -305,13 +305,13 @@ function rowActions(item: Item): RowAction[] {
   const row = { type: 'proforma', direction: 'outgoing', status: item.status }
   return [
     { key: 'open', label: t('common.open'), icon: 'mdi-open-in-app', to: { name: 'invoicing.proforma.edit', params: { id: item._id } } },
-    { key: 'issue', label: t('invoicing.issueFlow.issue'), icon: 'mdi-send-check', show: can.canIssue(row), handler: () => issue({ _id: item._id, type: 'proforma' }) },
+    { key: 'issue', label: t('invoicing.issueFlow.issue'), icon: 'mdi-send-check', show: can.canIssue(row), cap: ['proforma.create', 'proforma.edit'], handler: () => issue({ _id: item._id, type: 'proforma' }) },
     { key: 'print', label: t('common.print'), icon: 'mdi-printer', handler: () => printRow(item) },
     { key: 'email', label: t('invoicing.sendEmail.action'), icon: 'mdi-email-arrow-right-outline', show: can.canEmail(row), handler: () => openRowEmail(item) },
-    { key: 'convert', label: t('invoicing.convertToInvoice'), icon: 'mdi-swap-horizontal', show: can.canConvert(row), handler: () => convert(item) },
-    { key: 'copy', label: t('common.copy'), icon: 'mdi-content-copy', to: { name: 'invoicing.proforma.new', query: { copyOf: item._id } } },
-    { key: 'void', label: t('invoicing.void'), icon: 'mdi-cancel', color: 'error', divider: true, show: can.canVoid(row), handler: () => confirmVoid(item) },
-    { key: 'delete', label: t('common.delete'), icon: 'mdi-delete', color: 'error', divider: true, show: can.canDelete(row), handler: () => confirmDelete(item) },
+    { key: 'convert', label: t('invoicing.convertToInvoice'), icon: 'mdi-swap-horizontal', show: can.canConvert(row), cap: 'sales-docs.create', handler: () => convert(item) },
+    { key: 'copy', label: t('common.copy'), icon: 'mdi-content-copy', cap: 'proforma.create', to: { name: 'invoicing.proforma.new', query: { copyOf: item._id } } },
+    { key: 'void', label: t('invoicing.void'), icon: 'mdi-cancel', color: 'error', divider: true, show: can.canVoid(row), cap: 'proforma.edit', handler: () => confirmVoid(item) },
+    { key: 'delete', label: t('common.delete'), icon: 'mdi-delete', color: 'error', divider: true, show: can.canDelete(row), cap: 'proforma.delete', handler: () => confirmDelete(item) },
   ]
 }
 

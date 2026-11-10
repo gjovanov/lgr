@@ -45,8 +45,11 @@
       data-testid="shell-bridge-chip"
     >{{ bridge.deviceNumber.value || bridge.status.value }}</v-chip>
 
+    <!-- FR-27.7: a page the role does not open shows why instead; its view never mounts. -->
+    <NotAvailable v-if="pageAccess.state.value === 'blocked'" :page="pageAccess.page.value" />
+    <v-progress-linear v-else-if="pageAccess.state.value === 'waiting'" indeterminate color="primary" data-testid="page-access-waiting" />
     <!-- FR-24.6: `viewKey` remounts the view when a page opens the same view it shows. -->
-    <router-view :key="viewKey" />
+    <router-view v-else :key="viewKey" />
   </AppShell>
 </template>
 
@@ -62,6 +65,8 @@ import { useI18n } from 'vue-i18n'
 import AppShell from './AppShell.vue'
 import TopMenuBar, { type TopMenuItem, type TopMenuChild } from './TopMenuBar.vue'
 import PendingChangesPanel from './PendingChangesPanel.vue'
+import NotAvailable from './NotAvailable.vue'
+import { usePageAccess } from 'ui-shared/access/page-access'
 import { appHomeHref, goTo, portalHref } from 'ui-shared/nav/navigate'
 import { inModule, pendingRestoreUrl, viewKey } from 'ui-shared/nav/open-page'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
@@ -86,6 +91,7 @@ const apps = ref<AppInfo[]>([])
 const pendingChangesOpen = ref(false)
 const bridge = useFiscalBridge()
 useFiscalBridgeAlerts()
+const pageAccess = usePageAccess()
 
 function child(item: ModuleMenuItem): TopMenuChild {
   if (item.divider) return { label: '', divider: true }

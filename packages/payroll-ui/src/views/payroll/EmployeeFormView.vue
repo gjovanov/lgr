@@ -94,7 +94,7 @@
       <v-card-actions>
         <v-spacer />
         <v-btn @click="$router.back()">{{ $t('common.cancel') }}</v-btn>
-        <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
+        <v-btn v-cap="'payroll-people.edit'" color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-container>

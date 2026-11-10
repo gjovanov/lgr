@@ -6,6 +6,7 @@
       <div class="d-flex ga-2">
         <export-menu module="accounting" />
         <responsive-btn
+          v-cap="'journal.create'"
           color="primary"
           icon="mdi-plus"
           @click="openDialog()"
@@ -86,6 +87,7 @@
       <template #item.actions="{ item }">
         <v-btn
           v-if="item.status === 'draft'"
+          v-cap="['journal.create', 'journal.edit']"
           icon="mdi-pencil"
           size="small"
           variant="text"
@@ -93,6 +95,7 @@
         />
         <v-btn
           v-if="item.status === 'draft'"
+          v-cap="'journal.post'"
           icon="mdi-check"
           size="small"
           variant="text"
@@ -102,6 +105,7 @@
         />
         <v-btn
           v-if="item.status === 'posted'"
+          v-cap="'journal.post'"
           icon="mdi-close-circle"
           size="small"
           variant="text"
@@ -264,6 +268,7 @@
           <v-spacer />
           <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
           <v-btn
+            v-cap="['journal.create', 'journal.edit']"
             color="primary"
             :loading="store.loading"
             :disabled="!isBalanced"
@@ -273,6 +278,7 @@
           </v-btn>
           <v-btn
             v-if="!editing"
+            v-cap="'journal.post'"
             color="success"
             :loading="store.loading"
             :disabled="!isBalanced"

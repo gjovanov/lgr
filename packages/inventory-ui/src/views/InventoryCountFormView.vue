@@ -135,7 +135,7 @@ const readonly = computed(() => isEdit.value && countStatus.value === 'completed
 const formActions = computed<FormAction[]>(() => {
   const actions: FormAction[] = []
   if (!readonly.value) {
-    actions.push({ label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value })
+    actions.push({ label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, cap: isEdit.value ? ['inventory-counts.create', 'inventory-counts.edit'] : 'inventory-counts.create', loading: saving.value })
   }
   if (isEdit.value && countStatus.value === 'in_progress') {
     actions.push({ label: t('warehouse.completeCount'), color: 'success', icon: 'mdi-check-all', handler: completeCount, loading: saving.value })

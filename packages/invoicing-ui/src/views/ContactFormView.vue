@@ -218,6 +218,8 @@ const formActions = computed<FormAction[]>(() => {
       color: 'primary',
       handler: handleSubmit,
       loading: loading.value,
+      // FR-27.7: a role that only reads contacts has no Save.
+      cap: isEdit.value ? ['contacts.create', 'contacts.edit'] : 'contacts.create',
     },
   ]
   if (isEdit.value && form.isActive) {
@@ -226,6 +228,7 @@ const formActions = computed<FormAction[]>(() => {
       icon: 'mdi-archive',
       color: 'warning',
       variant: 'outlined',
+      cap: ['contacts.edit', 'contacts.delete'],
       handler: () => {
         form.isActive = false
         handleSubmit()

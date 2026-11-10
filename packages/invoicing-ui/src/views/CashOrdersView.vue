@@ -11,7 +11,7 @@
     @update:options="onUpdateOptions"
   >
     <template #actions>
-      <CreateButton :label="$t('invoicing.newCashOrder')" @click="openCreate" />
+      <CreateButton cap="payments.create" :label="$t('invoicing.newCashOrder')" @click="openCreate" />
     </template>
 
     <template #filters>
@@ -23,7 +23,7 @@
     </template>
 
     <template #empty-actions>
-      <CreateButton :label="$t('invoicing.newCashOrder')" @click="openCreate" />
+      <CreateButton cap="payments.create" :label="$t('invoicing.newCashOrder')" @click="openCreate" />
     </template>
 
     <!-- Cell renderers -->
@@ -36,7 +36,7 @@
     <template #item.amount="{ item }">{{ fmtCurrency(item.amount) }}</template>
     <template #item.actions="{ item }">
       <v-btn icon="mdi-pencil" size="small" variant="text" :title="$t('common.edit')" :aria-label="$t('common.edit')" @click="openEdit(item)" />
-      <v-btn icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
+      <v-btn v-cap="'payments.delete'" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
     </template>
 
     <!-- Create/Edit Dialog -->
@@ -68,7 +68,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="loading" @click="save">{{ $t('common.save') }}</v-btn>
+          <v-btn v-cap="editing ? ['payments.create', 'payments.edit'] : 'payments.create'" color="primary" :loading="loading" @click="save">{{ $t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
