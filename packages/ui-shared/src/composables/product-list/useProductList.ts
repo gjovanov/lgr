@@ -17,12 +17,17 @@ import {
   type ProductFilterState,
 } from './product-list-params'
 import { NO_SUPPLY, type ProductRow, type StockBadge, type SupplierFact, type SupplyTotals } from './types'
-import { sortRefusal } from 'config/access'
+import { capsOfSortKey, sortRefusal } from 'config/access'
 
 /**
  * A sort key from the address bar: well formed, and (FR-27.11.D) one the role may sort by. A `sortBy=tier_3` left in an
  * old URL by a role that no longer sees Цена 3 is dropped, and the list opens on its default sort.
  */
+/** Was this answer a refused sort on a price level (and is there a default to fall back to)? */
+function refusedSort(e: any, sortBy: string, fallback: string): boolean {
+  return e?.response?.status === 403 && e.response.data?.code === 'capability_required' && sortBy !== fallback && capsOfSortKey(sortBy).length > 0
+}
+
 function sortKeyFromUrl(v: string): string | undefined {
   if (!/^[A-Za-z0-9_.]{1,60}$/.test(v)) return undefined
   return sortRefusal(accessGrant(), v) ? undefined : v
@@ -230,6 +235,15 @@ export function useProductList(opts: UseProductListOptions) {
         items.value = source === 'till' ? rows.map(tillRow) : rows
         pagination.value.total = data.total ?? 0
         pagination.value.totalPages = data.totalPages ?? 0
+      } catch (e: any) {
+        // FR-27.11.C.3 / D: the server refused a sort on a price the role does not see (an old URL, read before the
+        // tab had the role's live grant): the list opens on its default sort instead of failing.
+        if (mine === requestSeq && refusedSort(e, pagination.value.sortBy, defaultSortBy)) {
+          pagination.value.sortBy = defaultSortBy
+          queueMicrotask(() => void fetchItems())
+          return
+        }
+        throw e
       } finally {
         if (mine === requestSeq) loading.value = false
         // Only the request that is still THE one in flight clears the marker (a newer one has replaced it).
