@@ -2539,11 +2539,13 @@
       "sell": "Продай",
       "reserve": "Резервирай",
       "inactive": "Продуктът е неактивен — активирайте го, за да го продадете или резервирате."
-    }
+    },
+    "valuationNeedsCosts": "Оценката на склада е от себестойности, които не са част от вашата роля."
   },
   "pricing": {
     "explainPrice": "Обясни цена",
-    "priceBreakdown": "Ценообразуване"
+    "priceBreakdown": "Ценообразуване",
+    "customerPrice": "Цена за клиента"
   },
   "defaultCategories": {
     "electronics": "Електроника",

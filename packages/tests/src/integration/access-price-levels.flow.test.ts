@@ -285,3 +285,29 @@ describe('C.1 / C.2 what else carries a cost', () => {
     expect(typeof theirs.json.summary.profitabilityNet).toBe('number')
   })
 })
+
+describe("C.6 a document's stored price trail", () => {
+  it('names no level the reader does not see; a hidden winning level reads "Customer price", and the line price stays', async () => {
+    const org: any = await Org.findById(orgId).lean().exec()
+    const caps = [...(compileLegacy({ role: 'member', permissions: ['invoicing.read'] }) as any).caps].filter((c: string) => c !== 'products.price:3')
+    const role: any = await Role.create({ orgId: org._id, name: 'Invoices without Цена 3', isBuiltin: false, edited: true, version: 1, legacy: { role: 'member', permissions: ['invoicing.read'] }, caps } as any)
+    const person = await createTestUser(org._id, { role: 'member', username: 'no-tier-3', email: 'no-tier-3@price-levels.test' } as any)
+    await User.updateOne({ _id: person._id }, { $set: { roleId: role._id } }).exec()
+    forgetMember(person._id)
+    forgetRole(role._id)
+    const token = await sign(person._id)
+    const trail = [{ type: 'base', label: 'Selling price', price: 20 }, { type: 'tier', label: 'Цена 3', price: 15 }]
+    const inv: any = await createTestInvoice(org._id, contactId as any, {
+      invoiceNumber: 'INV-PL-TRAIL', status: 'sent',
+      lines: [{ productId, description: 'Bolt', quantity: 1, unit: 'pcs', unitPrice: 15, taxRate: 20, taxAmount: 3, lineTotal: 15, priceExplanation: trail }],
+    } as any)
+
+    const mine = await call('GET', `/invoices/${inv._id}`, token)
+    expect(mine.status).toBe(200)
+    const line = mine.json.invoice.lines[0]
+    expect(line.unitPrice).toBe(15)
+    expect(line.priceExplanation).toEqual([trail[0], { type: 'customer', label: 'Customer price', price: 15 }])
+    expect(JSON.stringify(mine.json)).not.toContain('Цена 3')
+    expect((await call('GET', `/invoices/${inv._id}`, tokens.admin)).json.invoice.lines[0].priceExplanation).toEqual(trail)
+  })
+})

@@ -8,8 +8,13 @@
       </div>
     </div>
 
+    <!-- FR-27.11.C.1: the valuation is cost figures through and through; its route answers 403 without them. -->
+    <v-alert v-if="!seesCosts" type="info" variant="tonal" class="mb-4" data-cap="products.costs" data-cap-hidden>
+      {{ $t('warehouse.valuationNeedsCosts') }}
+    </v-alert>
+
     <!-- Filters -->
-    <v-card class="mb-4">
+    <v-card v-if="seesCosts" class="mb-4">
       <v-card-text class="pb-4">
         <v-row>
           <v-col cols="12" md="4">
@@ -23,7 +28,7 @@
     </v-card>
 
     <!-- Summary Cards -->
-    <v-row class="mb-4">
+    <v-row v-if="seesCosts" class="mb-4">
       <v-col cols="12" sm="4">
         <v-card>
           <v-card-text class="text-center">
@@ -55,7 +60,7 @@
     </v-row>
 
     <!-- Table -->
-    <v-card>
+    <v-card v-if="seesCosts">
       <v-card-text>
         <v-data-table
           :headers="headers"
@@ -88,11 +93,13 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import EntityLink from 'ui-shared/components/EntityLink'
+import { useAccess } from 'ui-shared/access/useAccess'
 
 interface Warehouse { _id: string; name: string }
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const seesCosts = computed(() => useAccess().can('products.costs'))
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
@@ -157,5 +164,5 @@ async function fetchWarehouses() {
 function onExport(format: string) { console.log('Export valuation as', format) }
 
 watch(warehouseFilter, fetchValuation)
-onMounted(() => { fetchValuation(); fetchWarehouses() })
+onMounted(() => { if (seesCosts.value) fetchValuation(); fetchWarehouses() })
 </script>

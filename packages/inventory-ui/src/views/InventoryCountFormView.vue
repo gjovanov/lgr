@@ -202,7 +202,8 @@ async function handleSubmit() {
         systemQuantity: l.systemQuantity,
         countedQuantity: l.countedQuantity,
         variance: l.countedQuantity - l.systemQuantity,
-        varianceCost: (l.countedQuantity - l.systemQuantity) * (l.avgCost || 0),
+        // FR-27.11.C.4: no `varianceCost`. The server prices a count from the stock level's average cost, which a role
+        // without the cost figures never reads.
       })),
     }
     if (isEdit.value) {

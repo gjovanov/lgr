@@ -1,6 +1,6 @@
 import { FiscalRoute, deviceFromAuthorSession, deviceFromCounter, deviceFromDeadReceipt } from 'fiscal/fiscal-route'
 import { can, grantOf } from 'services/biz/access/evaluate'
-import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, writesKind } from 'config/access'
+import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, redactResolution, writesKind } from 'config/access'
 import { Elysia, t } from 'elysia'
 import { seesOrders } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
@@ -1200,6 +1200,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // FR-23: the receipts that paid it, and what they leave to do.
         ...await receiptFacts(orgId, invoice),
         statusHistory: synthesizeStatusHistory(invoice),
+        // FR-27.11.C.6: a line's stored price trail names no level the reader does not see; a hidden winning one
+        // reads "Customer price" (the line's price itself is the document's, whoever looks).
+        lines: Array.isArray((invoice as any).lines)
+          ? (invoice as any).lines.map((l: any) => (Array.isArray(l?.priceExplanation)
+            ? { ...l, priceExplanation: redactResolution(grantOf(user as any), { steps: l.priceExplanation }).steps }
+            : l))
+          : (invoice as any).lines,
         contactId: contact ? { _id: contact.id, id: contact.id, companyName: (contact as any).companyName, firstName: (contact as any).firstName, lastName: (contact as any).lastName, email: (contact as any).email } : invoice.contactId,
       },
     }
