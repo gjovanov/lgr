@@ -607,6 +607,18 @@ test.describe('The room the tree has (FR-28.41)', () => {
     await expect(cell(lineRow(page, line), STATUS)).toContainText('unallocated')
   })
 
+  test('1341 px, which is 1366 px with a classic scrollbar, with the right panel open: still no sideways scroll', async ({ page }) => {
+    // Headless Chromium hides its scrollbars; a real Windows browser keeps 25 px of this layout for one.
+    await page.setViewportSize({ width: 1341, height: 800 })
+    await panel(page, true)
+    const { order } = await savedOrder()
+    await open(page, order)
+    const g = await geometry(page)
+    expect(g.scroll, 'the table scrolls sideways').toBeLessThanOrEqual(g.client)
+    expect(g.actionsRight).toBeLessThanOrEqual(g.edge)
+    expect(g.columns).not.toContain('dispatched')
+  })
+
   test('the same at 1366 px in Bulgarian, whose headers are the longest', async ({ page }) => {
     await page.setViewportSize({ width: 1366, height: 800 })
     await panel(page, true)

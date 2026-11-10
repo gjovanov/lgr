@@ -9,7 +9,7 @@ import type { TreeColumn } from './types'
  */
 
 /** What the first column (the article, the warehouse, the client) needs to stay readable when it has no width of its own. */
-export const ITEM_MIN_WIDTH = 180
+export const ITEM_MIN_WIDTH = 160
 
 /** The width a column asks for. A column with no width takes what is left, and is held to at least `ITEM_MIN_WIDTH`. */
 export function columnWidth(column: TreeColumn): number {
