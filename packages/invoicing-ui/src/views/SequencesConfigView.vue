@@ -38,6 +38,7 @@
               />
               <v-btn
                 v-if="isDirty(item)"
+                v-cap="'sequences.edit'"
                 size="x-small"
                 color="primary"
                 variant="flat"

@@ -12,13 +12,13 @@
   >
     <!-- FR-22.37: a reservation is made here too, not only from an order. -->
     <template #actions>
-      <responsive-btn color="primary" icon="mdi-plus" data-testid="reservation-new" @click="openCreate()">
+      <responsive-btn v-cap="'orders.create'" color="primary" icon="mdi-plus" data-testid="reservation-new" @click="openCreate()">
         {{ $t('invoicing.reservations.create') }}
       </responsive-btn>
     </template>
 
     <template #empty-actions="{ filtered }">
-      <responsive-btn v-if="!filtered" color="primary" icon="mdi-plus" @click="openCreate()">
+      <responsive-btn v-if="!filtered" v-cap="'orders.create'" color="primary" icon="mdi-plus" @click="openCreate()">
         {{ $t('invoicing.reservations.create') }}
       </responsive-btn>
     </template>
@@ -85,6 +85,7 @@
     <template #item.actions="{ item }">
       <template v-if="item.status === 'active'">
         <v-btn
+          v-cap="['orders.create', 'orders.edit']"
           icon="mdi-pencil"
           size="small"
           variant="text"
@@ -94,6 +95,7 @@
         />
         <v-btn
           v-if="(item.releasable || 0) > 0"
+          v-cap="['orders.edit', 'orders.delete']"
           icon="mdi-close"
           size="small"
           variant="text"
@@ -106,6 +108,7 @@
       <!-- #203: a cancelled reservation can be made again directly — once. -->
       <v-btn
         v-else-if="item.status === 'cancelled'"
+        v-cap="'orders.create'"
         icon="mdi-restore"
         size="small"
         variant="text"
