@@ -565,7 +565,7 @@ describe('every model with an orgId takes a side', () => {
     'CostLayer', 'Employee', 'EmploymentContract', 'ExchangeRate', 'FiscalPeriod', 'FiscalPosition', 'FiscalYear', 'FixedAsset',
     'InternalOrder', 'InventoryCount', 'Invoice', 'Journal', 'JournalEntry', 'LeaveBalance', 'OperationType', 'Order', 'OrgApp',
     'OrgLogo', 'POSPaymentMethod', 'POSSession', 'POSTransaction', 'PaymentOrder', 'PaymentTerm', 'PayrollElement', 'PayrollRun',
-    'Payslip', 'PermissionSet', 'PriceList', 'Product', 'ProductCategory', 'Reservation', 'Role', 'Sequence', 'StockLevel',
+    'Payslip', 'PermissionSet', 'PriceList', 'Product', 'ProductCategory', 'ProductSupplier', 'Reservation', 'Role', 'Sequence', 'StockLevel',
     'StockLocation', 'StockLot', 'StockMovement', 'SupplierProductAlias', 'Tag', 'TaxReturn', 'Timesheet', 'User',
     'VatRegisterEntry', 'Warehouse',
   ].sort()

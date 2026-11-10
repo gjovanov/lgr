@@ -2421,6 +2421,36 @@
       "open": "Offen",
       "fromStock": "Lager"
     },
+    "recordedSuppliers": {
+      "intro": "Hier von einer Person erfasst: der bevorzugte Lieferant (wird bei der Bestellung dieses Artikels zuerst angeboten), die eigene Artikelnummer des Lieferanten, die Lieferzeit und eine Notiz. Der Stern speichert sofort; der Stift bearbeitet die Zeile.",
+      "preferred": "Bevorzugt",
+      "supplierSku": "Lieferantencode",
+      "leadTime": "Lieferzeit (Tage)",
+      "note": "Notiz",
+      "noDocuments": "Erfasst, keine Belege",
+      "inactive": "Kein aktiver Lieferant",
+      "inactiveHint": "Dieser Kontakt ist deaktiviert oder kein Lieferant mehr: die Bestellung bietet ihn nicht an. Eintrag löschen oder Kontakt reaktivieren.",
+      "setPreferred": "Als bevorzugten Lieferanten festlegen",
+      "unsetPreferred": "Nicht mehr der bevorzugte Lieferant",
+      "edit": "Erfasste Angaben bearbeiten",
+      "clear": "Erfasste Angaben löschen",
+      "clearKeepsFacts": "Erfasste Angaben löschen (der Lieferant bleibt gelistet: Belege nennen ihn)",
+      "add": "Lieferanten erfassen",
+      "addPlaceholder": "Lieferanten suchen, um ihn für diesen Artikel zu erfassen",
+      "noMatches": "Kein Lieferant gefunden",
+      "saved": "Gespeichert",
+      "cleared": "Gelöscht",
+      "clearedKeepsFacts": "Gelöscht. Der Lieferant bleibt gelistet, weil Belege ihn nennen.",
+      "errors": {
+        "supplierInactive": "Dieser Lieferant ist deaktiviert.",
+        "notASupplier": "Dieser Kontakt ist kein Lieferant.",
+        "supplierNotFound": "Dieser Lieferant existiert nicht.",
+        "tooLong": "Der Code oder die Notiz ist zu lang.",
+        "invalidLeadTime": "Die Lieferzeit ist eine ganze Zahl von Tagen, 0 bis 3650.",
+        "preferredConflict": "Im selben Moment wurde ein anderer Lieferant bevorzugt. Bitte erneut versuchen.",
+        "generic": "Die erfassten Angaben konnten nicht gespeichert werden."
+      }
+    },
     "supplierFacts": {
       "column": "Lieferanten",
       "lastPurchase": "Letzter Einkauf",

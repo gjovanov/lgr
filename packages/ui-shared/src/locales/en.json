@@ -2421,6 +2421,36 @@
       "open": "Open",
       "fromStock": "Stock"
     },
+    "recordedSuppliers": {
+      "intro": "Written here by a person: the preferred supplier (offered first when ordering this article), the supplier's own code for it, the lead time and a note. The star saves at once; the pencil edits the row.",
+      "preferred": "Preferred",
+      "supplierSku": "Supplier code",
+      "leadTime": "Lead time (days)",
+      "note": "Note",
+      "noDocuments": "Recorded, no documents",
+      "inactive": "Not an active supplier",
+      "inactiveHint": "This contact is deactivated or no longer a supplier: ordering does not offer it. Clear the record or reactivate the contact.",
+      "setPreferred": "Make this the preferred supplier",
+      "unsetPreferred": "Not the preferred supplier any more",
+      "edit": "Edit the recorded details",
+      "clear": "Clear the recorded details",
+      "clearKeepsFacts": "Clear the recorded details (the supplier stays listed: documents name it)",
+      "add": "Record a supplier",
+      "addPlaceholder": "Search a supplier to record it for this article",
+      "noMatches": "No supplier found",
+      "saved": "Saved",
+      "cleared": "Cleared",
+      "clearedKeepsFacts": "Cleared. The supplier stays listed because documents name it.",
+      "errors": {
+        "supplierInactive": "That supplier is deactivated.",
+        "notASupplier": "That contact is not a supplier.",
+        "supplierNotFound": "That supplier does not exist.",
+        "tooLong": "The code or the note is too long.",
+        "invalidLeadTime": "The lead time is a whole number of days, 0 to 3650.",
+        "preferredConflict": "Another supplier was made preferred at the same moment. Try again.",
+        "generic": "The recorded details could not be saved."
+      }
+    },
     "supplierFacts": {
       "column": "Suppliers",
       "lastPurchase": "Last purchase",
