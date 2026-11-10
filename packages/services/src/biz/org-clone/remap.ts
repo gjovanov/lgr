@@ -12,6 +12,11 @@
  * person's id, a reference into a global collection, a string that merely looks like one).
  * The TYPE is kept: an ObjectId stays an ObjectId and a hex string stays a string.
  *
+ * An id that stands INSIDE a longer string is a reference too, and is rewritten the same way: a tag
+ * such as `<word>:<24-hex>` names the document it came from, and a copy that kept it would name a
+ * document of the real org. Only a whole 24-hex token counts (a longer run of hex digits is not an
+ * id), and only when it is the id of a source document, so ordinary text is untouched.
+ *
  * Paths are rewritten too: a stored file path starts with the org's id, and a copy that kept the
  * source's would point into another tenant's directory.
  */
@@ -30,6 +35,9 @@ export interface RemapEnv {
 /** Keys whose string value is a path or a URL that embeds the org's id. */
 const PATH_KEYS = new Set(['currentPath', 'storagePath', 'path', 'filePath', 'logo'])
 
+/** A 24-hex token that is not part of a longer run of hex digits. */
+const EMBEDDED_ID = /(?<![0-9a-fA-F])[0-9a-f]{24}(?![0-9a-fA-F])/g
+
 const isObjectId = (v: any): boolean => !!v && typeof v === 'object' && (v._bsontype === 'ObjectId' || v._bsontype === 'ObjectID')
 const isPlain = (v: any): boolean => {
   const proto = Object.getPrototypeOf(v)
@@ -41,6 +49,7 @@ export function remapValue(value: any, env: RemapEnv, key?: string): any {
   if (typeof value === 'string') {
     if (key && PATH_KEYS.has(key) && value.includes(env.sourceOrgId)) return value.split(env.sourceOrgId).join(env.targetOrgId)
     if (value.length === 24 && HEX24.test(value)) return env.idOf(value) ?? value
+    if (value.length > 24) return value.replace(EMBEDDED_ID, token => env.idOf(token) ?? token)
     return value
   }
   if (typeof value !== 'object') return value

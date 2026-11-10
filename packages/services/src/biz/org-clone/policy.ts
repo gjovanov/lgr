@@ -43,9 +43,11 @@ export const NEVER_CLONED: Readonly<Record<string, string>> = {
 /**
  * Seeded when missing, never overwritten and never wiped by a sync. A membership is access, and who
  * may enter the test org is decided there, not by a sync from the real one; a permission set or a
- * role (FR-27) is matched by its name, so a person's role in the test org stays the test org's.
+ * role (FR-27) is matched by its name, so a person's role in the test org stays the test org's. The
+ * apps an org has enabled are its own switches, and the app creates them by itself the first time
+ * anyone opens the app hub, so a copy made after a reset finds them already there: matched by app.
  */
-export const SEED_ONLY: readonly string[] = ['User', 'PermissionSet', 'Role']
+export const SEED_ONLY: readonly string[] = ['User', 'PermissionSet', 'Role', 'OrgApp']
 
 /**
  * Kept by a reset (the wipe that precedes the first copy into an org that already exists): access,
