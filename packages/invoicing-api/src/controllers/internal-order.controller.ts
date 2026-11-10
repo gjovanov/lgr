@@ -15,7 +15,10 @@ import {
 } from 'services/biz/reservation-ops.service'
 import { InternalOrder, Reservation, Invoice, Order, Contact, Warehouse, Product } from 'db/models'
 import { sequenceDefFor, resolveSequencePrefix } from 'services/biz/sequence-registry'
-import { getNextOrderNumber } from './order.controller.js'
+import { getNextOrderNumber, getNextInternalOrderNumber } from 'services/biz/order-numbering'
+import {
+  OrdersFromProductsError, checkOrderReferences, createCustomerOrderFromProducts, customerOrderRefs,
+} from 'services/biz/orders-from-products.service'
 import { orderCoverage } from 'config/order-coverage'
 import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
 
@@ -23,15 +26,7 @@ import { buildConversionInvoice, planConversion, ConversionError, type Conversio
 // Internal orders: issued ORDI-YYYY-NNNNN (key INTERNAL_ORDER), drafts
 // DRF-ORDI-YYYY-NNNNN (key DRAFT_ORDI); display overrides via the Sequences page.
 
-export async function getNextInternalOrderNumber(orgId: string, draft: boolean): Promise<string> {
-  const variant = draft ? 'draft' : 'issued'
-  const key = sequenceDefFor('internal_order', variant)!.prefix
-  const year = new Date().getFullYear()
-  const numberFromService = await getNextNumber(orgId, key, 5, year)
-  const seqPart = numberFromService.split('-').pop()!
-  const display = await resolveSequencePrefix(orgId, 'internal_order', variant)
-  return `${display}-${year}-${seqPart}`
-}
+export { getNextInternalOrderNumber }
 
 function statusEntry(toStatus: string, fromStatus?: string, userId?: string, reason?: string) {
   return { status: toStatus, fromStatus, changedAt: new Date(), changedBy: userId, reason }
@@ -242,6 +237,12 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
     '/',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      // FR-28.20: the client, the articles and the preferred warehouse are one of THIS organization's (the rule of the
+      // Products list's create): a customer or both contact, active.
+      try { await checkOrderReferences(orgId, customerOrderRefs(body)) } catch (e) {
+        if (e instanceof OrdersFromProductsError) return status(e.statusCode, { message: e.message, ...e.details })
+        throw e
+      }
 
       let ordi: any
       let lastErr: any
@@ -281,6 +282,32 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
     },
     { isSignIn: true, body: orderBody },
   )
+  // FR-28.18: ONE draft customer order from the Products list. Idempotent on `requestId`; confirms, reserves and sends nothing.
+  .post(
+    '/from-products',
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      try {
+        const made = await createCustomerOrderFromProducts(orgId, user.id, body as any)
+        return { order: made.order, skipped: made.skipped, ...(made.replayed ? { replayed: true } : {}) }
+      } catch (e: any) {
+        if (e instanceof OrdersFromProductsError) return status(e.statusCode, { message: e.message, ...e.details })
+        throw e
+      }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        requestId: t.String({ minLength: 1, maxLength: 100 }),
+        contactId: t.String(),
+        requestedDeliveryDate: t.String(),
+        issueDate: t.Optional(t.String()),
+        priority: t.Optional(t.Union([t.Literal('low'), t.Literal('normal'), t.Literal('high'), t.Literal('urgent')])),
+        warehouseId: t.Optional(t.String()),
+        items: t.Array(t.Object({ productId: t.String(), quantity: t.Number() })),
+      }),
+    },
+  )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const ordi: any = await InternalOrder.findOne({ _id: id, orgId } as any).lean().exec()
@@ -299,6 +326,12 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
       if (!existing) return status(404, { message: 'Incoming order not found' })
       if (!['draft', 'confirmed'].includes(existing.status)) {
         return status(400, { message: `Cannot edit a ${existing.status} incoming order` })
+      }
+      // FR-28.20: what this save introduces is one of THIS organization's, and active when new. The client, warehouse and
+      // articles the order already held are left alone: one deactivated since must not lock the order out of its own dates.
+      try { await checkOrderReferences(orgId, customerOrderRefs(body, existing)) } catch (e) {
+        if (e instanceof OrdersFromProductsError) return status(e.statusCode, { message: e.message, ...e.details })
+        throw e
       }
 
       // Lines carrying reservations or deliveries must survive with enough quantity.

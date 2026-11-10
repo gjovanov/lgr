@@ -25,6 +25,17 @@ export interface BuildSearchFilterOptions {
    * Cyrillic х, in the query or in the name — and the two are indistinguishable on screen.
    */
   homoglyphs?: boolean
+  /**
+   * FR-28.10: per keyword, in the order `searchKeywords` gives them, the ids of documents the keyword matches
+   * through something that is not one of `fields` (an article's recorded supplier code lives on another collection).
+   * They join that keyword's OR, so the search stays an AND of keywords each of which finds SOMETHING.
+   */
+  alsoIds?: string[][]
+}
+
+/** The keywords of a search text: whitespace-separated, none empty. */
+export function searchKeywords(search: string): string[] {
+  return search.trim().split(/\s+/).filter(Boolean)
 }
 
 /**
@@ -53,7 +64,7 @@ export function buildSearchFilter(
   fields: string[],
   options?: BuildSearchFilterOptions,
 ): Record<string, any> {
-  const keywords = search.trim().split(/\s+/).filter(Boolean)
+  const keywords = searchKeywords(search)
   if (!keywords.length || !fields.length) return {}
 
   const lowered = options?.lowered
@@ -69,12 +80,16 @@ export function buildSearchFilter(
     ? keywords.map(k => (glyphs ? glyphs(k) : escapeRegex(k.toLocaleLowerCase(locale))))
     : escaped
 
-  const orClause = (idx: number) =>
-    fields.map(f => {
+  const orClause = (idx: number) => {
+    const clauses: Record<string, any>[] = fields.map(f => {
       const target = lowered?.[f]
       if (target) return { [target]: { $regex: escapedLower[idx] } }
       return { [f]: { $regex: escaped[idx], $options: 'i' } }
     })
+    const also = options?.alsoIds?.[idx]
+    if (also?.length) clauses.push({ _id: { $in: also } })
+    return clauses
+  }
 
   if (escaped.length === 1) {
     return { $or: orClause(0) }
@@ -100,8 +115,8 @@ export const PRODUCT_SEARCH_LOWERED: Record<string, string> = {
   category: 'categoryLower',
 }
 
-export function buildProductSearchFilter(search: string): Record<string, any> {
-  return buildSearchFilter(search, PRODUCT_SEARCH_FIELDS, { lowered: PRODUCT_SEARCH_LOWERED, homoglyphs: true })
+export function buildProductSearchFilter(search: string, opts: { alsoIds?: string[][] } = {}): Record<string, any> {
+  return buildSearchFilter(search, PRODUCT_SEARCH_FIELDS, { lowered: PRODUCT_SEARCH_LOWERED, homoglyphs: true, alsoIds: opts.alsoIds })
 }
 
 /**

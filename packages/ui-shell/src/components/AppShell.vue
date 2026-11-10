@@ -12,7 +12,8 @@
       :border="0"
     >
       <div class="org-header">
-        <OrgSelector :org="org" :rail="!mobile && rail" @toggle-rail="rail = !rail" />
+        <!-- On a phone the drawer is an overlay with no rail: its chevron closes it. -->
+        <OrgSelector :org="org" :rail="!mobile && rail" @toggle-rail="mobile ? (mobileDrawerOpen = false) : (rail = !rail)" />
       </div>
       <v-list density="compact" nav>
         <slot name="nav-items" />

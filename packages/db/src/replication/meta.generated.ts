@@ -89,6 +89,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   PriceList: { collection: 'pricelists', class: 'R', orgPath: 'orgId' },
   Product: { collection: 'products', class: 'R', orgPath: 'orgId' },
   ProductCategory: { collection: 'productcategories', class: 'R', orgPath: 'orgId' },
+  ProductSupplier: { collection: 'productsuppliers', class: 'R', orgPath: 'orgId' },
   RelayJob: { collection: 'relay_jobs', class: 'N', orgPath: 'orgId' },
   RelayReceipt: { collection: 'relay_receipts', class: 'N', orgPath: 'orgId' },
   ReplEngine: { collection: 'repl_engine', class: 'N', orgPath: null },

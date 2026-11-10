@@ -39,6 +39,7 @@ import { logger } from '../../logger/logger.js'
 import { tenantCollections } from '../backup/backup-bundle.service.js'
 import { contentHash } from './canonical.js'
 import { HEX24, cloneIdHex } from './ids.js'
+import { namedIds } from './leaks.js'
 import {
   IDENTITY_FIELDS,
   KEPT_ON_RESET,
@@ -168,7 +169,18 @@ export async function assertCloneAllowed(sourceOrgId: string, targetOrgId: strin
 
 // ── The environment the rewrite runs in ───────────────────────────────────────────────────
 
-/** Every `_id` of the source org in every collection a backup would bundle, the never-copied ones included. */
+/**
+ * Every model that holds an org's documents under an `orgId`: what a backup would bundle, the never-copied
+ * ones included, AND the org's operational records and node state (backup runs, background tasks, the digest
+ * log...). The last are never copied, but a copied document may still name one (an audit entry about a
+ * backup): its id is then rewritten to the id the copy WOULD have, which points at nothing, instead of
+ * being left naming a record of the real org.
+ */
+function orgScopedModels(): string[] {
+  return Object.keys(mongoose.models).filter(name => !!mongoose.models[name]!.schema.path('orgId')).sort()
+}
+
+/** Every `_id` of the source org in every collection that holds its documents (see `orgScopedModels`). */
 async function loadKnownIds(srcOid: Oid, models: readonly string[]): Promise<Set<string>> {
   const known = new Set<string>()
   for (const name of models) {
@@ -180,7 +192,8 @@ async function loadKnownIds(srcOid: Oid, models: readonly string[]): Promise<Set
 
 /**
  * Source ids that map onto a document the target ALREADY has, not onto a fresh copy: a person who
- * is already a member (matched by their identity), a permission set or a role of the same name. Without it
+ * is already a member (matched by their identity), a permission set or a role of the same name, an
+ * enabled app of the same app. Without it
  * a membership that exists would be copied a second time and refused by the unique index, and
  * every document the person created would point at a membership nobody holds.
  */
@@ -203,6 +216,16 @@ async function buildOverrides(srcOid: Oid, tgtOid: Oid): Promise<Map<string, str
   for await (const s of sets.find({ orgId: srcOid }, { projection: { name: 1 } }) as any) {
     const there = byName.get(String(s.name))
     if (there) overrides.set(String(s._id), there)
+  }
+
+  // An enabled app is matched by which app it is: the unique key (orgId, appId), and a row the app made by
+  // itself when someone opened the hub is the same switch as the real org's.
+  const apps = model('OrgApp').collection
+  const appByKey = new Map<string, string>()
+  for await (const a of apps.find({ orgId: tgtOid }, { projection: { appId: 1 } }) as any) appByKey.set(String(a.appId), String(a._id))
+  for await (const a of apps.find({ orgId: srcOid }, { projection: { appId: 1 } }) as any) {
+    const there = appByKey.get(String(a.appId))
+    if (there) overrides.set(String(a._id), there)
   }
 
   // A role (FR-27) is matched by its name, then as the same built-in template, then as the same
@@ -456,7 +479,7 @@ export async function cloneOrgData(opts: CloneOptions): Promise<CloneReport> {
   if (unknown.length) throw new OrgCloneError('bad_only', `not a model a copy carries: ${unknown.join(', ')}`)
 
   log('reading the source ids', { source: source.slug })
-  const known = await loadKnownIds(srcOid, tenant)
+  const known = await loadKnownIds(srcOid, orgScopedModels())
   const overrides = await buildOverrides(srcOid, tgtOid)
   const env = makeEnv(srcHex, tgtHex, known, overrides)
   log('ids read', { documents: known.size, mapped: overrides.size })
@@ -475,7 +498,7 @@ export async function cloneOrgData(opts: CloneOptions): Promise<CloneReport> {
     let res: CollectionResult
     try {
       if (name === 'User') res = await copySeedOnly(name, ctx, membershipAccess(ctx))
-      else if (name === 'PermissionSet' || name === 'Role') res = await copySeedOnly(name, ctx)
+      else if (name === 'PermissionSet' || name === 'Role' || name === 'OrgApp') res = await copySeedOnly(name, ctx)
       else if (name === 'Sequence') res = await copySequences(ctx)
       else res = await copyOrdinary(name, ctx)
     } catch (e: any) {
@@ -600,7 +623,7 @@ export async function createTestOrgFrom(opts: { sourceOrgId: string; slug: strin
   const tgtOid = new ObjectId()
   const tgtHex = String(tgtOid)
   // The rewrite needs the source's ids to turn the settings' account and journal ids into the copy's.
-  const known = await loadKnownIds(srcOid, tenantCollections())
+  const known = await loadKnownIds(srcOid, orgScopedModels())
   const env = makeEnv(String(srcOid), tgtHex, known, new Map())
 
   const settings: any = remapValue(testOrgSettings(source.settings), env)
@@ -728,4 +751,68 @@ export async function compareOrgs(sourceOrgId: string, targetOrgId: string): Pro
     if (source || target) rows.push({ model: name, source, target })
   }
   return rows
+}
+
+// ── Checking ──────────────────────────────────────────────────────────────────────────────
+
+export interface LeakScan {
+  /** The ids of the real org the scan looked for: its own, and every document's it holds in any collection. */
+  sourceIds: number
+  /** Documents of the copy that were read (its org row included). */
+  copyDocs: number
+  /** Documents of the copy that name an id of the real org. Zero is the only acceptable answer. */
+  leaking: number
+  /** Per collection: how many documents of the copy leak. */
+  byCollection: Record<string, number>
+  /** Up to three of the COPY's own document ids per collection, to go and look at. Never an id of the real org. */
+  samples: Record<string, string[]>
+}
+
+/**
+ * READ-ONLY: does any document of the copy still name the real org, its id or the id of any document it holds?
+ * That is a link into another tenant, which is what a copy exists not to have.
+ *
+ * Independent of the engine on purpose. It does not use the models a copy is built from, nor the rewrite's
+ * rule: it walks EVERY collection of the database that has a row under either org's `orgId` and looks at
+ * every 24-hex window of every document (`leaks.ts`). A test's fixture cannot hold the shapes real data has
+ * (the first production copies named real-org ids inside tags and audit text that no fixture had), so this
+ * is what to run on the real copies after a change to `remap.ts`, a new model with an `orgId`, or a doubt.
+ * It takes exactly the pairs a sync takes (`assertCloneAllowed`) and reports counts and the copy's own ids only.
+ */
+export async function scanCopyForLeaks(sourceOrgId: string, targetOrgId: string): Promise<LeakScan> {
+  const { source, target } = await assertCloneAllowed(sourceOrgId, targetOrgId)
+  const db = mongoose.connection.db
+  if (!db) throw new OrgCloneError('not_connected', 'no database connection')
+  const names = (await db.listCollections({}, { nameOnly: true }).toArray()).map(c => c.name).filter(n => !n.startsWith('system.')).sort()
+
+  const ids = new Set<string>([String(source._id)])
+  for (const name of names) {
+    const c = db.collection(name)
+    if (!(await c.countDocuments({ orgId: source._id }, { limit: 1 }))) continue
+    for await (const d of c.find({ orgId: source._id }, { projection: { _id: 1 } })) {
+      const id = String(d._id).toLowerCase()
+      if (HEX24.test(id)) ids.add(id)
+    }
+  }
+
+  const byCollection: Record<string, number> = {}
+  const samples: Record<string, string[]> = {}
+  let copyDocs = 0
+  let leaking = 0
+  const look = (name: string, d: any) => {
+    copyDocs++
+    if (!namedIds(JSON.stringify(d), ids).length) return
+    leaking++
+    byCollection[name] = (byCollection[name] ?? 0) + 1
+    const list = (samples[name] ??= [])
+    if (list.length < 3) list.push(String(d._id))
+  }
+
+  look(Org.collection.collectionName, target) // the copy's own org row must not name the real one either
+  for (const name of names) {
+    const c = db.collection(name)
+    if (!(await c.countDocuments({ orgId: target._id }, { limit: 1 }))) continue
+    for await (const d of c.find({ orgId: target._id })) look(name, d)
+  }
+  return { sourceIds: ids.size, copyDocs, leaking, byCollection, samples }
 }
