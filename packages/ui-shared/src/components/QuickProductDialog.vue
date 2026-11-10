@@ -44,7 +44,8 @@
               class="mt-2"
             />
             <v-row dense class="mt-2">
-              <v-col cols="6">
+              <!-- FR-27.11.D: the purchase price is a cost figure; a role without them neither sees nor sets it. -->
+              <v-col v-if="seesCosts" cols="6">
                 <v-text-field
                   ref="purchaseRef"
                   v-model.number="form.purchasePrice"
@@ -89,10 +90,14 @@
 
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { useAccess } from '../access/useAccess'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from '../composables/useHttpClient'
 import { useProductUnits } from '../composables/useProductUnits'
 import TaxRateCombobox from './TaxRateCombobox.vue'
+
+// FR-27.11.D: the purchase price only for a role that holds the cost figures.
+const seesCosts = computed(() => useAccess().can('products.costs'))
 
 /** Where a new article lands until it is recategorised — the server's default (quick-product.service). */
 const DEFAULT_CATEGORY = 'Общи'
@@ -189,7 +194,7 @@ async function create() {
     const body: Record<string, any> = { name: form.name.trim(), unit: form.unit || 'pcs' }
     if (form.categoryId) body.categoryId = form.categoryId
     if (form.taxRate !== null && form.taxRate !== undefined) body.taxRate = Number(form.taxRate)
-    if (form.purchasePrice !== null && String(form.purchasePrice) !== '') body.purchasePrice = Number(form.purchasePrice) || 0
+    if (seesCosts.value && form.purchasePrice !== null && String(form.purchasePrice) !== '') body.purchasePrice = Number(form.purchasePrice) || 0
     if (form.sellingPrice !== null && String(form.sellingPrice) !== '') body.sellingPrice = Number(form.sellingPrice) || 0
     const { data } = await httpClient.post(`${props.orgUrl}/warehouse/product/quick`, body)
     emit('created', data.product)

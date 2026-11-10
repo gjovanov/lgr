@@ -1,6 +1,8 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getProductLedger } from 'services/biz/product-ledger.service'
+import { grantOf } from 'services/biz/access/evaluate'
+import { redactMovementLine, seesCosts } from 'config/access'
 
 export const productLedgerController = new Elysia({ prefix: '/org/:orgId/warehouse/product-ledger' })
   .use(AppAuthService)
@@ -23,5 +25,9 @@ export const productLedgerController = new Elysia({ prefix: '/org/:orgId/warehou
       size: query.size ? parseInt(query.size as string, 10) : undefined,
     })
 
-    return result
+    // FR-27.11.C.1: the ledger's costs (unit cost, the line's and the running value, the current value) only with them.
+    const grant = grantOf(user as any)
+    if (seesCosts(grant)) return result
+    const { currentValue: _value, ...summary } = result.summary as any
+    return { ...result, entries: result.entries.map(e => redactMovementLine(grant, e as any)), summary }
   }, { isSignIn: true })

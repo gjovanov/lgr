@@ -111,6 +111,7 @@
               <div><strong>{{ $t('access.ui.canCreate') }}:</strong> {{ roleSummary.canCreate }}</div>
               <div><strong>{{ $t('access.ui.readOnly') }}:</strong> {{ roleSummary.readOnly }}</div>
               <div><strong>{{ $t('access.ui.notVisible') }}:</strong> {{ roleSummary.notVisible }}</div>
+              <div v-if="roleSummary.hiddenPrices"><strong>{{ $t('access.ui.pricesHidden') }}:</strong> {{ roleSummary.hiddenPrices }}</div>
             </div>
           </template>
           <template v-else>
@@ -357,7 +358,9 @@ const roleSummary = computed(() => {
   const r = selectedRole.value
   const s = summarize(r ? grantOfRole({ all: r.all, caps: r.caps }) : { caps: new Set() } as any)
   const names = (ids: string[]) => ids.map(id => t(`access.feature.${id}`)).join(', ') || '—'
-  return { canCreate: names(s.canCreate), readOnly: names(s.readOnly), notVisible: names(s.notVisible) }
+  // FR-27.11.B: the prices it does not see, by the editor's names for them.
+  const hiddenPrices = s.hiddenPrices.map(c => t(`access.action.${c.slice(c.indexOf('.') + 1).replace(/[:-]/g, '_')}`)).join(', ')
+  return { canCreate: names(s.canCreate), readOnly: names(s.readOnly), notVisible: names(s.notVisible), hiddenPrices }
 })
 
 function permissionSetName(id: string): string {

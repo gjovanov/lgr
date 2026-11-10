@@ -84,8 +84,8 @@
               <th style="min-width:220px">{{ $t('warehouse.product') }}</th>
               <th style="width:76px">{{ $t('warehouse.stock') }}</th>
               <th class="text-end" style="width:90px;min-width:80px">{{ $t('warehouse.quantity') }}</th>
-              <th class="text-end" style="width:104px;min-width:96px">{{ $t('warehouse.unitCost') }}</th>
-              <th class="text-end" style="width:96px">{{ $t('common.total') }}</th>
+              <th v-if="seesCosts" class="text-end" style="width:104px;min-width:96px">{{ $t('warehouse.unitCost') }}</th>
+              <th v-if="seesCosts" class="text-end" style="width:96px">{{ $t('common.total') }}</th>
               <!-- A fixed width: the room they leave goes to the article's name, which is what a line is read by. -->
               <th v-for="col in (grWithUpdate ? activeColumns : [])" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''" style="width: 88px; min-width: 80px">
                 {{ col.label || $t(col.i18n || '') }}
@@ -120,7 +120,7 @@
                 <span v-else class="text-grey">&mdash;</span>
               </td>
               <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" :disabled="readonly" /></td>
-              <td>
+              <td v-if="seesCosts">
                 <v-text-field
                   v-model.number="line.unitCost"
                   type="number"
@@ -132,7 +132,7 @@
                   @update:model-value="onUnitCostChange(idx)"
                 />
               </td>
-              <td class="text-end text-no-wrap">{{ fmtCurrency(line.quantity * (line.unitCost || 0)) }}</td>
+              <td v-if="seesCosts" class="text-end text-no-wrap">{{ fmtCurrency(line.quantity * (line.unitCost || 0)) }}</td>
 
               <!-- Extra product-update columns (only when grWithUpdate is ON) -->
               <td v-for="col in (grWithUpdate ? activeColumns : [])" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''">
@@ -196,8 +196,9 @@
           </tbody>
           <tfoot>
             <tr>
-              <td :colspan="4" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
-              <td class="text-end text-subtitle-2 text-no-wrap">{{ fmtCurrency(computedTotal) }}</td>
+              <td v-if="seesCosts" :colspan="4" class="text-end text-subtitle-2">{{ $t('common.total') }}</td>
+              <td v-if="seesCosts" class="text-end text-subtitle-2 text-no-wrap">{{ fmtCurrency(computedTotal) }}</td>
+              <td v-else :colspan="3"></td>
               <td v-if="grWithUpdate" :colspan="activeColumns.length"></td>
               <td v-if="!readonly"></td>
             </tr>
@@ -314,6 +315,7 @@ import { pinnedWarehouseId, rememberedFlag } from 'ui-shared/composables/useUser
 import { appHref, goTo } from 'ui-shared/nav/navigate'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { isTransferOnly } from 'ui-shared/nav/page-registry'
+import { useAccess } from 'ui-shared/access/useAccess'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import DateField from 'ui-shared/components/DateField.vue'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
@@ -367,6 +369,8 @@ const movement = ref<MovementState>({ status: 'draft' })
  * `inventory.write`). The server refuses it every other type (`movement.controller#transferRefusal`).
  */
 const transferOnly = isTransferOnly(sessionViewer())
+// FR-27.11.D: cost figures only for a role that holds them (the server sends none otherwise).
+const seesCosts = computed(() => useAccess().can('products.costs'))
 // Draft movements stay editable; confirmed/completed are read-only (stock already applied). A
 // transfer-only session reads a movement of any other type and changes nothing on it.
 const readonly = computed(() => (isEdit.value && movement.value.status !== 'draft') || (transferOnly && form.value.type !== 'transfer'))

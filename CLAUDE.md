@@ -3250,13 +3250,44 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - ⚠ The legacy compiler grants it with any product read (`PRODUCT_READERS`), so nobody's answer changes. The
     legacy model cannot withhold it (`LEGACY_CANNOT_WITHHOLD`): a role without it projects as `needsRelease`.
   - ⚠ A new serializer that sends a product or a stock level's cost goes through `redactProduct` /
-    `redactStockCost`.
+    `redactStockCost` (a cost on a line: `redactMovementLine`).
   - **Reports**: a column with `fieldGroup: 'costs'` (`ReportColumn`) is dropped by the runner, its cells and total
     with it, on screen and in the file (`withoutFieldGroups`, `meta.withheld` names the keys): valuation, stock levels,
     product ledger, stock movements, and warehouse operations' cost and profit (on the purchases side its prices too,
     which are what the goods cost). ⚠ A new report column that carries a cost says so.
     A report that is nothing but costs (`inventory-valuation`) carries `fieldGroup: 'costs'` itself: not listed, and
     404 to run, for a role without them (`canAccessReport`).
+- **Price levels (FR-27.11, owner 2026-11-10; D-5 revised, D-11 to D-13)**: a role carries the prices it may see.
+  `products.price:selling`, a level per `PRICE_TIERS` slot but „Доставна цена" (`products.price:wholesale`,
+  `products.price:0` … `:10`, found by name, spaces ignored: `capOfTier`), and `products.price:other` (an org's own tier
+  names, the legacy tag and contact prices); „Доставна цена", `percent` and every cost stay `products.costs`.
+  `config/access/fields.ts` is the one rule; levels are "Prices it may see" extras on the editor's Products row.
+  - ⚠ Legacy grants every level with any product read (`PRICE_LEVEL_CAPS`, `LEGACY_CANNOT_WITHHOLD`): enforced only
+    on `roles`, and a role hiding one is `needsRelease`. What sells implies the selling price; what writes prices
+    (price lists, bulk pricing, opening stock, `movements.create`) implies them all; `products.edit` none.
+  - **Templates (D-11, D-12)**: `TEMPLATE_WITHHOLDS` (Seller, Sales Consultant: the costs, Цена на едро, Цена 0) applies
+    only where a role is MADE (`templateDefaults`: a new org's `seedBuiltinRoles`, stored as edited; "New role → from
+    a template"). ⚠ `templateGrant` stays the legacy role's access: unedited built-ins, migration 0015 and every
+    "same access" check read it, so nobody's access changes.
+  - **C.1 reads**: `redactProduct` (list, by id, the pickers, create and quick replies), `redactPriceOptions` /
+    `redactResolution` (`/pricing/options`, `/pricing/resolve`: the final price stays, whoever looks; a hidden winning
+    level is "Customer price", a hidden losing one is not named, D-13), `redactMovementLine` (a movement's lines by id,
+    the product ledger), a count's `varianceCost`, an outgoing order's `expectedUnitPrice` (the order controller's
+    `onAfterHandle`), `canSeeSupplierPrices` = `bills.view` and `products.costs`.
+  - **C.2 derived**: the contact ledger's row `purchasePrice` and its profitability, the dashboard's `stock.totalValue`
+    (its tile is not drawn without it).
+  - **C.3 sort**: both auth plugins refuse `?sortBy=` naming a level the role lacks (`sortAccessRefusal`, 403
+    `capability_required`), on every route: `tier_<slot>`, a cost by any name or path, `priceTiers.*`. The list
+    composables drop such a key from an old URL (`sortKeyFromUrl`).
+  - **C.4 writes**: `keepStoredPrices` (product create and update) merges `priceTiers` by slot, a hidden slot staying
+    byte-identical where it stood; the server prices an inventory count itself (`inventory-count-pricing.ts`: variance
+    × the stock level's `avgCost`, on save and on complete; the body's `varianceCost` is ignored); an order's save
+    keeps each line's stored `expectedUnitPrice`.
+  - **C.5 history**: `audit-log.service#visibleChanges` drops a change of a hidden field in both readers
+    (`queryAuditLogs` `viewer`, `queryByCorrelationId`): the record history, the correlation lookup, the dashboard's
+    recent activity, the Files audit.
+  - **C.7 / D views**: the Products grid offers only the levels held (`useProductColumns`), the product form edits
+    only those, and an open product list re-reads its rows when `x-access-version` changes.
 - **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
   null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
   gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`

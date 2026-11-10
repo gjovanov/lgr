@@ -5,7 +5,7 @@ import type { SessionUser } from 'services/biz/auth.service'
 import { buildScopedRepos } from 'services/biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
 import { shadowAccess } from 'services/biz/access/shadow'
-import { decideAccess } from 'services/biz/access/evaluate'
+import { decideAccess, sortAccessRefusal } from 'services/biz/access/evaluate'
 import { attachAccess } from 'services/biz/access/live'
 import { homeGate } from 'services/biz/home-gate'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
@@ -67,6 +67,9 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
     const refusal = decideAccess(user, request.method, route)
     shadowAccess(user, params?.orgId, request.method, route, !!refusal)
     if (refusal) throw status(403, refusal)
+    // FR-27.11.C.3: a sort on a price the role does not see.
+    const sorted = sortAccessRefusal(user, request.url)
+    if (sorted) throw status(403, sorted)
   })
   /**
    * gjovanov/lgr#41 — the cross-tenant guard, applied to every route of every controller that

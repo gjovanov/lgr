@@ -4769,7 +4769,21 @@
       "switch": "Organisation wechseln",
       "create_transfer": "Umlagerungen",
       "transfer": "Umlagerungen anlegen",
-      "extract": "Beleg auslesen"
+      "extract": "Beleg auslesen",
+      "price_selling": "Verkaufspreis",
+      "price_wholesale": "Цена на едро",
+      "price_0": "Цена 0",
+      "price_1": "Цена 1",
+      "price_2": "Цена 2",
+      "price_3": "Цена 3",
+      "price_4": "Цена 4",
+      "price_5": "Цена 5",
+      "price_6": "Цена 6",
+      "price_7": "Цена 7",
+      "price_8": "Цена 8",
+      "price_9": "Цена 9",
+      "price_10": "Цена 10",
+      "price_other": "Andere Preise (eigene Namen, Etiketten- und Kundenpreise)"
     },
     "group": {
       "invoicing": "Fakturierung",
@@ -4850,7 +4864,9 @@
       "grants": "Gewährt",
       "landing": "Startseite",
       "landingHint": "Wo die Personen dieser Rolle nach der Anmeldung landen, und von einer Seite aus, die ihre Rolle nicht öffnet.",
-      "landingDefault": "Das Dashboard"
+      "landingDefault": "Das Dashboard",
+      "pricesNote": "Sichtbare Preise: erst ausgeblendet, wenn das Zugriffsmodell der Organisation „Rollen“ ist. Der Preis eines Kunden gilt auch auf einer Stufe, die die Rolle nicht sieht, und eine Rolle, die Kontakte bearbeitet, kann eine ausgeblendete Stufe lesen, indem sie einen Kontakt mit ihrem Namen markiert; entziehen Sie „Kontakte: bearbeiten“, um das zu schließen.",
+      "pricesHidden": "Nicht sichtbare Preise"
     },
     "notAvailable": {
       "title": "Für Ihre Rolle nicht verfügbar",

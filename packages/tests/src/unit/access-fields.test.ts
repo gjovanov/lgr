@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import {
-  COST_TIER_NAMES, compileLegacy, keepStoredCosts, levelsOf, CATALOGUE, projectGrant, redactProduct, redactStockCost,
+  COST_TIER_NAMES, PRICE_LEVEL_CAPS, compileLegacy, keepStoredCosts, levelsOf, CATALOGUE, projectGrant, redactProduct, redactStockCost,
   summarize, templateGrant, withImplied, type CapabilityId,
 } from 'config/access'
 import { DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
@@ -18,8 +18,9 @@ const product = {
   ],
   variants: [{ sku: 'B-1', purchasePrice: 2, sellingPrice: 5 }],
 }
-const viewer = { caps: new Set<CapabilityId>(['products.view']) }
-const costs = { caps: new Set<CapabilityId>(['products.view', 'products.costs']) }
+// Every price level (FR-27.11), so these tests are about the cost figures alone.
+const viewer = { caps: new Set<CapabilityId>(['products.view', ...PRICE_LEVEL_CAPS]) }
+const costs = { caps: new Set<CapabilityId>(['products.view', 'products.costs', ...PRICE_LEVEL_CAPS]) }
 
 describe('nobody loses the cost figures on the legacy model', () => {
   it('every legacy role that reads a product holds them', () => {

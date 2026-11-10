@@ -1,6 +1,7 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { hasNoReorderLevels, reorderPosition, toOrderQuantity } from 'config/reorder-quantity'
-import { useAccess } from '../../access/useAccess'
+import { accessGrant, useAccess } from '../../access/useAccess'
+import { liveAccessVersion } from '../../access/live-grant'
 import { httpClient } from '../useHttpClient'
 import { useListQueryState } from '../useListQueryState'
 import { useSearchDebounce } from '../useSearchDebounce'
@@ -16,6 +17,16 @@ import {
   type ProductFilterState,
 } from './product-list-params'
 import { NO_SUPPLY, type ProductRow, type StockBadge, type SupplierFact, type SupplyTotals } from './types'
+import { sortRefusal } from 'config/access'
+
+/**
+ * A sort key from the address bar: well formed, and (FR-27.11.D) one the role may sort by. A `sortBy=tier_3` left in an
+ * old URL by a role that no longer sees Цена 3 is dropped, and the list opens on its default sort.
+ */
+function sortKeyFromUrl(v: string): string | undefined {
+  if (!/^[A-Za-z0-9_.]{1,60}$/.test(v)) return undefined
+  return sortRefusal(accessGrant(), v) ? undefined : v
+}
 
 /**
  * FR-28.22 — ONE engine behind every product list: the Products page and the product dialog (and the
@@ -175,7 +186,7 @@ export function useProductList(opts: UseProductListOptions) {
     useListQueryState([
       { key: 'page', ref: pageUrl as any, codec: 'int', default: 1, sanitize: (v) => (v >= 1 ? v : undefined) },
       { key: 'size', ref: sizeUrl as any, codec: 'int', default: defaultSize, sanitize: (v) => ([10, 25, 50, 100, -1].includes(v) ? v : undefined) },
-      { key: 'sortBy', ref: sortByUrl as any, default: defaultSortBy, sanitize: (v) => (/^[A-Za-z0-9_.]{1,60}$/.test(v) ? v : undefined) },
+      { key: 'sortBy', ref: sortByUrl as any, default: defaultSortBy, sanitize: sortKeyFromUrl },
       { key: 'sortOrder', ref: sortOrderUrl as any, default: defaultSortOrder, sanitize: (v) => (v === 'asc' || v === 'desc' ? v : undefined) },
     ])
   }
@@ -247,6 +258,16 @@ export function useProductList(opts: UseProductListOptions) {
     pagination.value.page = 0
     void fetchItems()
   }, { deep: true })
+
+  // FR-27.11.C.7: a role edited while the list is open. The rows were read under the old grant: they go, and the page is
+  // read again under the new one, so no grid keeps a price its role no longer holds (a sort it may no longer use falls
+  // back to the default).
+  watch(() => liveAccessVersion(), (now, before) => {
+    if (now === before || (opts.active && !opts.active())) return
+    items.value = []
+    if (sortRefusal(accessGrant(), pagination.value.sortBy)) pagination.value.sortBy = defaultSortBy
+    void fetchItems()
+  })
 
   // ── what the cells say: stock, supply, suppliers ──
   const stockMap = ref<Record<string, StockBadge[]>>({})

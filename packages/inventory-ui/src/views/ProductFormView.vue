@@ -70,7 +70,8 @@
                     @update:model-value="onPurchasePriceChange"
                   />
                 </v-col>
-                <v-col cols="12" sm="6" md="3">
+                <!-- FR-27.11.D: the selling price is a level of its own. -->
+                <v-col v-if="seesSelling" cols="12" sm="6" md="3">
                   <div class="d-flex ga-2 align-start">
                     <v-text-field
                       v-model.number="form.sellingPrice"
@@ -251,7 +252,7 @@ import ProductTabBar from '../components/ProductTabBar.vue'
 import ProductDocActions from '../components/ProductDocActions.vue'
 import type { ProductForActions } from '../composables/product-doc-actions'
 import { PRICE_TIER_NAMES } from 'config/constants'
-import { COST_TIER_NAMES } from 'config/access'
+import { capOfTier } from 'config/access'
 import { useAccess } from 'ui-shared/access/useAccess'
 
 const { t } = useI18n()
@@ -262,6 +263,8 @@ const route = useRoute()
 // without them: no buying price, no margins, no buying-price slot. The server keeps the stored ones.
 const access = useAccess()
 const seesCosts = computed(() => access.can('products.costs'))
+// FR-27.11.D: the selling price and each price slot are levels a role sees or does not.
+const seesSelling = computed(() => access.can('products.price:selling'))
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
@@ -365,8 +368,8 @@ let updatingFromPercent = false
 // the storeAvailability export carries Цена0..Цена9 (the old 10-slot model truncated
 // Цена8/Цена9), and Цена 10 is headroom for the full PlusMinus price-level range.
 const CANONICAL_TIER_NAMES: readonly string[] = PRICE_TIER_NAMES
-/** The slots this role edits: without the cost figures, never the buying-price one. */
-const tierNames = (): readonly string[] => (seesCosts.value ? CANONICAL_TIER_NAMES : CANONICAL_TIER_NAMES.filter(n => !COST_TIER_NAMES.includes(n)))
+/** The slots this role edits: the levels it sees (FR-27.11), the buying-price one only with the cost figures. */
+const tierNames = (): readonly string[] => CANONICAL_TIER_NAMES.filter(n => access.can(capOfTier(n)))
 
 function makeDefaultTier(i: number, sellingPrice: number): PriceTier {
   return { name: tierNames()[i] || `Цена ${i}`, percent: 0, finalPrice: sellingPrice || 0, manualOverride: false, contactIds: [], tags: [], minQuantity: null, validFrom: '', validTo: '' }
@@ -653,6 +656,8 @@ async function handleSubmit() {
       delete payload.standardCost
       for (const t of tiersPayload as any[]) delete t.percent
     }
+    // FR-27.11.C.4: nor a price of a level it does not see; the server merges the slots by name.
+    if (!seesSelling.value) delete payload.sellingPrice
 
     if (isEdit.value) {
       const { data } = await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)

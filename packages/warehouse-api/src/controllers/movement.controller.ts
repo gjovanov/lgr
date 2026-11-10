@@ -1,7 +1,8 @@
 import { Elysia, t } from 'elysia'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
-import { can } from 'services/biz/access/evaluate'
+import { can, grantOf } from 'services/biz/access/evaluate'
 import { seesBills } from 'services/biz/access/partition'
+import { redactMovementLine } from 'config/access'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement, MovementClaimedError, MovementNotDraftError, unclaimedMovement } from 'services/biz/warehouse.service'
@@ -371,7 +372,9 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       : []
     const productMap = new Map(products.map(p => [p.id, p]))
 
-    const lines = movement.lines.map(l => ({
+    // FR-27.11.C.1: no line's cost, and a receipt line's product update by the product's rule, for a role without them.
+    const grant = grantOf(user as any)
+    const lines = movement.lines.map(l => redactMovementLine(grant, {
       ...l,
       productName: productMap.get(l.productId)?.name || '',
       productSku: productMap.get(l.productId)?.sku || '',

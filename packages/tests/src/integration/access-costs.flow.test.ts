@@ -13,7 +13,7 @@ import { tokenize } from 'services/biz/auth.service'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { forgetAccessModel } from 'services/biz/access/shadow'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
-import { compileLegacy } from 'config/access'
+import { PRICE_LEVEL_CAPS, compileLegacy } from 'config/access'
 
 /**
  * FR-27.6 (#529, D-5; §8 field test step 3) — turn the cost figures off on a role, and read a product through the
@@ -74,7 +74,8 @@ beforeAll(async () => {
   forgetAccessModel(orgId)
   for (const key of Object.keys(people)) await sign(key)
   // A role that reads and edits products, without the cost figures, given to the clerk.
-  const role = await call('POST', '/roles', tokens.admin, { name: 'Shelf', caps: ['products.view', 'products.edit'] })
+  // Every price level (FR-27.11), so this is about the cost figures alone.
+  const role = await call('POST', '/roles', tokens.admin, { name: 'Shelf', caps: ['products.view', 'products.edit', ...PRICE_LEVEL_CAPS] })
   expect(role.json.role.caps).not.toContain('products.costs')
   expect((await call('PUT', `/user/${people.clerk._id}`, tokens.admin, { roleId: role.json.role.id })).status).toBe(200)
 }, 60_000)

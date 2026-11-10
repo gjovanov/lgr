@@ -1,4 +1,4 @@
-import { accessRuleFor, can as grantCan, compileLegacy, type CapabilityId, type Grant, type LegacyClaims } from 'config/access'
+import { accessRuleFor, can as grantCan, compileLegacy, sortRefusal as fieldSortRefusal, type CapabilityId, type Grant, type LegacyClaims } from 'config/access'
 import { orgRouteRest, permissionRefusal, pinScopeRefusal } from '../route-permission'
 
 /**
@@ -69,6 +69,17 @@ export function accessRefusal(user: AccessCaller | null | undefined, method: str
  * The one decision the auth plugins take on every request (FR-27.5): an org on `roles` (a session carrying its
  * role's `access`) is decided by the evaluator; any other by the legacy rules, as before Phase 1.
  */
+/**
+ * FR-27.11.C.3: a list sorted by a figure the session's role does not see is refused, on every route, by the auth
+ * plugins (so no list route can forget it). The legacy model grants every level: only a role is ever refused.
+ */
+export function sortAccessRefusal(user: AccessCaller | null | undefined, url: string) {
+  if (!user) return null
+  let sortBy: string | null = null
+  try { sortBy = new URL(url, 'http://local').searchParams.get('sortBy') } catch { return null }
+  return sortBy ? fieldSortRefusal(grantOf(user), sortBy) : null
+}
+
 export function decideAccess(user: AccessCaller | null | undefined, method: string, route: string) {
   return user?.access ? accessRefusal(user, method, route) : permissionRefusal(user as any, method, route)
 }

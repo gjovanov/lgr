@@ -98,3 +98,20 @@ describe('the till\'s catalog', () => {
     expect(PRODUCT_CELL_KEYS).toContain('stockAvailable')
   })
 })
+
+describe('FR-27.11.D: only the price levels the role sees', () => {
+  it("regal-pz's Seller: the selling price, Цена 1 and Цена 2; no purchase price, no cost slot, no other slot", () => {
+    const sees = (cap: string) => ['products.price:selling', 'products.price:1', 'products.price:2', 'products.price:other'].includes(cap)
+    const cols = productColumnHeaders(t, { seesSuppliers: true, activeFilter: 'active', seesCosts: false, sees: sees as any }).map((h: any) => h.key)
+    expect(cols).toContain('sellingPrice')
+    expect(cols.filter((k: string) => k.startsWith('tier_'))).toEqual(['tier_1', 'tier_2'])
+    expect(cols).not.toContain('purchasePrice')
+    expect(cols).not.toContain('lastCost')
+  })
+
+  it('without the selling price, no selling price column', () => {
+    const cols = productColumnHeaders(t, { seesSuppliers: false, activeFilter: 'active', sees: (() => false) as any }).map((h: any) => h.key)
+    expect(cols).not.toContain('sellingPrice')
+    expect(cols.filter((k: string) => k.startsWith('tier_'))).toEqual(['tier_delivery'])
+  })
+})

@@ -82,6 +82,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useAccess } from 'ui-shared/access/useAccess'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -96,6 +97,8 @@ import EntityLink from 'ui-shared/components/EntityLink'
 interface Warehouse { _id: string; name: string }
 
 const { t } = useI18n()
+// FR-27.11.D: cost figures only for a role that holds them (the server sends none otherwise).
+const seesCosts = computed(() => useAccess().can('products.costs'))
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
@@ -142,7 +145,8 @@ const headers = computed(() => [
   { title: t('warehouse.warehouse'), key: 'warehouseName', sortable: true },
   { title: t('warehouse.quantity'), key: 'quantity', align: 'end' as const, sortable: true },
   { title: t('warehouse.reorderLevel'), key: 'reorderLevel', align: 'end' as const },
-  { title: t('warehouse.value'), key: 'value', align: 'end' as const },
+  // FR-27.11.D: the value is quantity × average cost, a cost figure.
+  ...(seesCosts.value ? [{ title: t('warehouse.value'), key: 'value', align: 'end' as const }] : []),
   { title: t('common.status'), key: 'status' },
 ])
 

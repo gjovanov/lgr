@@ -1,5 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
+import { grantOf } from 'services/biz/access/evaluate'
+import { seesCosts } from 'config/access'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
@@ -250,8 +252,43 @@ const previewBody = t.Object({
   kind: t.Optional(t.Union([t.Literal('supplier'), t.Literal('customer')])),
 })
 
+/**
+ * FR-27.11.C.1 / C.4 (#529): an outgoing order's `expectedUnitPrice` is a purchase price, a cost figure. A role without
+ * the costs reads no line's, and its save sets none: a new line's goes, an existing line's stays as stored.
+ */
+function withoutExpectedPrices(order: any): any {
+  const o = order?.toObject ? order.toObject() : order
+  if (!o || !Array.isArray(o.supplierGroups)) return o
+  return {
+    ...o,
+    supplierGroups: o.supplierGroups.map((g: any) => ({
+      ...g,
+      lines: Array.isArray(g?.lines) ? g.lines.map(({ expectedUnitPrice: _price, ...l }: any) => l) : g?.lines,
+    })),
+  }
+}
+
+function keepExpectedPrices(user: any, groups: any[] | undefined, existing?: any): void {
+  if (!Array.isArray(groups) || seesCosts(grantOf(user))) return
+  const stored = new Map<string, number | undefined>()
+  for (const g of existing?.supplierGroups ?? []) for (const l of g?.lines ?? []) stored.set(String(l?._id), l?.expectedUnitPrice)
+  for (const g of groups) {
+    for (const l of g?.lines ?? []) {
+      const was = l?._id ? stored.get(String(l._id)) : undefined
+      if (was === undefined) delete l.expectedUnitPrice
+      else l.expectedUnitPrice = was
+    }
+  }
+}
+
 export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/orders' })
   .use(AppAuthService)
+  // FR-27.11.C.1: every answer that carries an order, or a list of them, without the expected prices for such a role.
+  .onAfterHandle(({ response, user }: any) => {
+    if (!response || typeof response !== 'object' || seesCosts(grantOf(user))) return
+    if (response.order) return { ...response, order: withoutExpectedPrices(response.order) }
+    if (Array.isArray(response.orders)) return { ...response, orders: response.orders.map(withoutExpectedPrices) }
+  })
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
@@ -352,6 +389,7 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
 
       const invalid = validateSupplierGroups(body.supplierGroups as any[])
       if (invalid) return status(422, { message: invalid })
+      keepExpectedPrices(user, body.supplierGroups as any[])
       // FR-28.20: every supplier, article and warehouse is one of THIS organization (the rule of the Products list's create).
       try { await checkOrderReferences(orgId, supplierOrderRefs(body.supplierGroups as any[])) } catch (e) { return fromProductsRefusal(status, e) }
 
@@ -486,6 +524,7 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
 
       const invalid = validateSupplierGroups(body.supplierGroups as any[])
       if (invalid) return status(422, { message: invalid })
+      keepExpectedPrices(user, body.supplierGroups as any[], existing)
       // FR-28.20: what this save introduces is one of THIS organization's, and active when new. What the order already
       // held is left alone: an article deactivated since must not lock the order out of its own notes and dates.
       try { await checkOrderReferences(orgId, supplierOrderRefs(body.supplierGroups as any[], existing)) } catch (e) { return fromProductsRefusal(status, e) }
