@@ -193,6 +193,11 @@ async function listenersDuringRender(render: () => Promise<unknown>): Promise<st
       for (const s of await listeningSockets()) {
         const key = `${s.pid} ${s.addr}`
         if (baseline.has(key)) continue
+        // Windows lists some listeners with pid 0, the kernel's own, and on a busy machine they come
+        // and go on the LAN and VPN addresses during a render. Neither this process nor Chrome is ever
+        // pid 0 there. (On Linux pid 0 means "a process we may not read", which a sandboxed Chrome
+        // could be, so it still counts.)
+        if (s.pid === 0 && process.platform === 'win32') continue
         if (s.pid === process.pid || !preexisting.has(s.pid)) seen.add(`pid ${s.pid} listening on ${s.addr}`)
       }
       // Yield: Puppeteer drives Chrome through this same event loop.
