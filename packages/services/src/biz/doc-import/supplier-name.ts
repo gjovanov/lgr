@@ -75,6 +75,13 @@ export function pickSupplierByName(name: string, candidates: readonly SupplierCa
   return same.length ? { status: 'ambiguous', count: same.length } : { status: 'none' }
 }
 
+/** One line for a run's log: what this partner name resolved to. */
+export function describeMatch(name: string, match: SupplierNameMatch): string {
+  if (match.status === 'matched') return `supplier: ${match.name} (${match.contactId})`
+  if (match.status === 'ambiguous') return `⚠ supplier: ${match.count} active suppliers are named "${name}", so the receipt names none`
+  return `⚠ supplier: no active supplier is named "${name}", so the receipt names none`
+}
+
 // ── The import's report ──────────────────────────────────────────────────────────────────────────────
 
 /** One document of the run and what its partner resolved to. */
@@ -127,7 +134,7 @@ export function formatPartnerReport(s: PartnerSummary): string[] {
   if (!s.unresolved.length) return out
   out.push(
     `⚠ ${s.unresolved.length} partner name(s) matched no single active supplier, so ${total} receipt(s) carry no supplier ` +
-      '(the name stays in the notes). Add or rename the supplier in LGR, then re-run: a day already booked is not touched.',
+      '(the name stays in the notes). Add or rename the supplier in LGR before the next import: a receipt already booked is not changed.',
   )
   for (const u of s.unresolved) {
     const why = u.reason === 'ambiguous' ? `${u.candidates} suppliers share that name` : 'no active supplier of that name'
