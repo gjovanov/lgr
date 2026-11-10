@@ -1075,7 +1075,7 @@ Run the **most specific** command first. If a backend change also affects the fr
 
 ## ERP Modules
 
-Accounting (accounts, journal entries, fiscal years/periods, fixed assets, bank accounts, reconciliation, tax returns, exchange rates) · **Sales** (quotations, sales orders with state machine, quotation templates, auto-invoice from SO, event-driven stock dispatch) · **Purchase** (RFQs, purchase orders with approval workflow, blanket orders, reorder rules, auto-receipt from PO, vendor bill creation) · **Project** (projects with Kanban stages, tasks with subtasks/dependencies, milestones, timesheets with auto-sync, profitability tracking) · **Helpdesk** (tickets with SLA tracking, auto-assignment round-robin/least-busy, state machine transitions, SLA breach detection, customer ratings, multi-channel intake) · **Documents** (workspaces with hierarchy, document versioning, access control private/workspace/public, sharing, archive, entity linking, e-signatures with sequential/parallel signing, audit trail, expiry) · **Subscriptions** (recurring billing with MRR tracking, auto-invoice generation, pause/resume/cancel lifecycle) · **Approvals** (configurable multi-step approval workflows, cross-module: PO, leave, expense) · **Planning** (shift scheduling with open shifts, shift templates, appointments with custom questions, auto-confirm, reminders) · **Recruitment** (job positions with publish/close lifecycle, applicant pipeline with stage transitions, hire tracking) · **Appraisals** (employee performance reviews, self/manager evaluation, goal tracking) · **Fleet** (vehicle management with odometer, fuel/service costs, insurance tracking) · **Maintenance** (equipment MTBF/MTTR, corrective/preventive requests, recurring scheduling) · **Knowledge** (articles with versioning, nested hierarchy, access control, sharing, publishing, full-text search) · **Field Service** (on-site tasks with scheduling, parts tracking, labor/parts cost computation, customer/technician signatures, GPS location) · **Advanced MRP** (work centers with capacity/cost, manufacturing routings with ordered steps) · **PLM** (Engineering Change Orders with review/approve/apply workflow) · **POS Restaurant** (floor plans with positioned tables, kitchen display orders with per-line state tracking) · **Trade** (merged warehouse + invoicing: products, warehouses, stock levels, stock movements, inventory counts, price lists, **tag-based pricing**, **bulk pricing**, contacts, invoices, cash sales, proforma, credit notes, payment/cash orders, **contact ledger**, **cross-warehouse transfers**) · Payroll (employees, payroll runs, payslips, timesheets) · HR (departments, leave types/requests/balances, business trips, employee documents) · CRM (leads, deals, pipelines, activities) · ERP (BOM, production orders, construction projects, POS)
+Accounting (accounts, journal entries, fiscal years/periods, fixed assets, bank accounts, reconciliation, tax returns, exchange rates) · **Sales** (quotations, sales orders with state machine, quotation templates, auto-invoice from SO, event-driven stock dispatch) · **Purchase** (supplier orders — ORDO, draft → sent → received, per-warehouse allocations, client reservations, see Orders below —, vendor bills and goods receipts, document import, and the supplier facts read from them, FR-28; ⚠ there are NO RFQs, approval workflow, blanket orders or reorder rules: no package, model or route exists for them — a minimum is `Product.minStockLevel`, and what is short is the Products list's "Below minimum" filter and the Reports `stock-levels` report) · **Project** (projects with Kanban stages, tasks with subtasks/dependencies, milestones, timesheets with auto-sync, profitability tracking) · **Helpdesk** (tickets with SLA tracking, auto-assignment round-robin/least-busy, state machine transitions, SLA breach detection, customer ratings, multi-channel intake) · **Documents** (workspaces with hierarchy, document versioning, access control private/workspace/public, sharing, archive, entity linking, e-signatures with sequential/parallel signing, audit trail, expiry) · **Subscriptions** (recurring billing with MRR tracking, auto-invoice generation, pause/resume/cancel lifecycle) · **Approvals** (configurable multi-step approval workflows, cross-module: PO, leave, expense) · **Planning** (shift scheduling with open shifts, shift templates, appointments with custom questions, auto-confirm, reminders) · **Recruitment** (job positions with publish/close lifecycle, applicant pipeline with stage transitions, hire tracking) · **Appraisals** (employee performance reviews, self/manager evaluation, goal tracking) · **Fleet** (vehicle management with odometer, fuel/service costs, insurance tracking) · **Maintenance** (equipment MTBF/MTTR, corrective/preventive requests, recurring scheduling) · **Knowledge** (articles with versioning, nested hierarchy, access control, sharing, publishing, full-text search) · **Field Service** (on-site tasks with scheduling, parts tracking, labor/parts cost computation, customer/technician signatures, GPS location) · **Advanced MRP** (work centers with capacity/cost, manufacturing routings with ordered steps) · **PLM** (Engineering Change Orders with review/approve/apply workflow) · **POS Restaurant** (floor plans with positioned tables, kitchen display orders with per-line state tracking) · **Trade** (merged warehouse + invoicing: products, warehouses, stock levels, stock movements, inventory counts, price lists, **tag-based pricing**, **bulk pricing**, contacts, invoices, cash sales, proforma, credit notes, payment/cash orders, **contact ledger**, **cross-warehouse transfers**) · Payroll (employees, payroll runs, payslips, timesheets) · HR (departments, leave types/requests/balances, business trips, employee documents) · CRM (leads, deals, pipelines, activities) · ERP (BOM, production orders, construction projects, POS)
 
 ### Tag-Based Pricing
 
@@ -3019,6 +3019,86 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
 - Tests: `unit/product-doc-actions` (7), e2e `product-actions.spec` (10: both places × three
   landings, deactivated, service, two roles, the list at 1366 px); walk P1-act: the row menu →
   „Продай", 2 clicks · 0 typed · 1 page load (the invoice is another app).
+
+## Supplier facts: read from the documents, never stored (FR-28, #622, slices 2 and 7)
+
+- **Who we buy an article from is READ every time**, never kept (`services/biz/product-suppliers.service.ts`:
+  `getSupplierFacts`, `findProductIdsBySuppliers`, `findProductIdsWithoutSupplier`). Evidence: a received bill
+  (`direction: 'incoming'`, `type: 'invoice'`, status received / partially_paid / paid / overdue) and a completed
+  receipt that no bill covers and that carries a `contactId`; a bill and the receipt it covers count once. Drafts,
+  voided or cancelled bills, incoming credit and debit notes, reversed or `recordOnly` receipts and supplier orders
+  never count. ⚠ A stored "last price" would go on showing a corrected bill's old price: documents are editable in
+  every status and nothing re-posts.
+- ⚠ **Only a caller with `bills.view` gets them** (`canSeeSupplierFacts`; `canSeeSupplierPrices` for the price): for
+  anyone else the KEYS are absent from the answer and a `supplierId` / `noSupplier` filter is a 403. The Suppliers
+  tab, column and filters are not drawn for such a role, so a warehouse manager who may edit products but not read
+  bills sees no Suppliers tab and cannot record a supplier (a known follow-up).
+- **The default supplier of an article is ONE function, `getDefaultSuppliers`**: the recorded preferred supplier
+  (while that contact is still an active supplier), else the supplier of the most recent purchase, else the supplier
+  of the newest supplier order with a line for it, else none. The order dialog's preview and
+  `getInternalOrderSuggestions` (the customer-order form's `supplierHint`) both ask it.
+- **Recorded suppliers** (`ProductSupplier`, `docs/models/warehouse/product-supplier.md`, replication class **R**,
+  `services/biz/recorded-suppliers.service.ts`): what a PERSON writes on the article's Suppliers tab: `preferred`,
+  `supplierSku`, `leadTimeDays`, `note`. `PUT` / `DELETE /warehouse/product/:id/suppliers/:supplierId` need
+  `products.edit`; the supplier must be an ACTIVE supplier or both contact of the same org. ⚠ `preferred` is unique
+  per article by a PARTIAL unique index, so setting one clears the previous one first (a moment with none, never
+  with two). No bill, receipt or import writes one, and clearing one leaves a supplier the documents name listed
+  with its facts. The Products list's Suppliers column lists a supplier only a person recorded (`documents: 0`), and
+  the search matches `supplierSku` through its lowered mirror (never a Cyrillic `$regex` from Bun).
+- **Receipts name their supplier**: `scripts/receive-stock-api.ts` and `receive-new-products.ts` resolve the PlusMinus
+  `partner` by EXACT normalized name (`doc-import/supplier-name.ts`, `scripts/lib/supplier-partner.ts`: case and
+  whitespace folded, the `ПАРТНЬОРИ:` prefix stripped, no homoglyph folding, an ACTIVE supplier or both contact, never
+  a natural person) and post its `contactId`. They create no contact and do not use the matching ladder's fuzzy
+  rungs (a miss is reported, not guessed); the run ends with the partners it could not resolve and their documents.
+  ⚠ A booked receipt is never changed (a movement is editable only as a draft): add the supplier BEFORE the next
+  run. Historic receipts stay supplier-less (no backfill).
+
+## One product search, and orders from the Products list (FR-28, #622, slices 3 and 4)
+
+- **One engine** (`ui-shared/composables/product-list`: `useProductList`, `product-list-params`,
+  `useProductColumns`, with `ProductFilterBar` and `ProductCell`) runs under the Products page AND
+  `ProductPickerDialog`, which is the Products list in a window ("Details"): the same filters, the same columns, the
+  user's saved column choice (`inventory.products`). `multiple` adds a tick column and "Add N articles", in the order
+  ticked; `stockWarehouseId` scopes the figures, never the rows; `source="till"` reads the cash register's catalogue.
+  A screen that picks an article takes the dialog; it does not write a search of its own.
+- **The hit row** (`product-hit`, in `ProductSearch` and `ProductLineDescription`): the name, then SKU · unit · stock ·
+  price, and "Show all N results"; F4 or `ProductDetailsButton` opens the dialog with what was typed. **Active
+  articles only**, in the inline search as in the list, the dialog and the till. A caller who may read bills also
+  finds an article by its supplier's own code.
+- ⚠ A Vuetify server table asks for its page when it mounts, so the engine keeps ONE request in flight per set of
+  parameters and a closed dialog does not fetch (`active`); a spec counts the requests (FR-28.29).
+- **Selection and orders** (FR-28.13 to .21): `ListScaffold` `selectable` + `v-model:selected` hold ids across pages;
+  "all that match" travels as the FILTER, never as ids, and the server resolves it with the list's own builder
+  (`services/biz/product-list-query.ts#resolveProductListFilter`, one function for the list and the preview). The cap
+  is **500** (422 `selection_too_large`). `services/biz/orders-from-products.service.ts`:
+  `POST invoicing/orders/from-products/preview`, `POST invoicing/orders/from-products` (ONE draft supplier order: a
+  group per supplier, a line per article, one allocation of the whole quantity, by the builder `generateExternalOrder`
+  also uses) and `POST invoicing/internal-orders/from-products` (ONE draft customer order). They need what creating an
+  order by hand needs. ⚠ **Idempotent on `requestId`**, made once per dialog opening: `createdFrom { source,
+  requestId }` under a PARTIAL unique index (a `sparse` one indexes every document under a null id and refuses the
+  second); an append goes to a DRAFT only, is one conditional update, and a replay answers `replayed: true`.
+
+## Orders as a tree (FR-28, #622, slices 5 and 6)
+
+- **One component, two orders**: `invoicing-ui/components/order-tree/OrderTree.vue` draws the node models of
+  `invoicing-ui/composables/order-tree/` (plain code, no Vue, unit-tested): `supplier-order-tree.ts` (a line, under it
+  its warehouses, under those the clients reserved there), `customer-order-tree.ts` (a line, under it the reservations
+  that cover it) and `supply-tree.ts` (the reservation page's), with ONE set of figures (`figures.ts`) and `tree-rows.ts`,
+  `columns.ts`, `links.ts`. A parent carries what its children add up to, in the same columns. The save payload did not
+  change: a reservation is staged and saved with the order.
+- ⚠ **Free is two things, by level**: a supplier-order line's Free is ordered minus allocated, a warehouse's is
+  allocated minus reserved (so a line's Free is not the sum of its warehouses'); on the customer order the column is
+  "Short" (needed minus reserved). The header says so in a tooltip. On the customer order Reserved is added up from
+  the rows, while Invoiced and Delivered stay the server's per-line figures (an invoice can name a line without
+  naming a reservation).
+- ⚠ **A geometry spec must check that every VALUE fits its field, not only that the table does not scroll.** Slice 5
+  passed a spec that measured the table and shipped number fields that clipped three digits ("100" read "10", #632).
+  `customer-order-tree.spec` reads a quantity of five digits and a price of 9,999.99 whole at 1366 and 1920 px, panel open and folded.
+  The tree measures its room and drops a column its screen marks `optional` (Dispatched / Delivered, whose figure moves
+  into Invoiced's tooltip) rather than scroll; cells carry `data-col`, and specs find a cell by it, never by position.
+- The reservation page (`ReservationDetailView.vue`) shows the supply a reservation hangs on as a tree (`supply-tree.ts`),
+  and the Reservations list and that page link to the exact line of the order they are under (`?line=`, `links.ts`): see
+  FR-28 §11 (`docs/fr/FR-28-supplier-facts-product-search-order-tree.md`), slice 6.
 
 ## VAT files (2026-11-03, FR-25 R2)
 

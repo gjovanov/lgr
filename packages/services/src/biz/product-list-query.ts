@@ -4,6 +4,7 @@ import type { AccessCaller } from './access/evaluate.js'
 import { buildProductListFilter } from './product-list-filter.js'
 import { hasStockFilter, parseStockFilter, productIdsPassingStockFilter, type StockFilter } from './product-stock-filter.js'
 import { canSeeSupplierFacts, findProductIdsBySuppliers, findProductIdsWithoutSupplier } from './product-suppliers.service.js'
+import { findProductIdsBySupplierCode } from './recorded-suppliers.service.js'
 
 /**
  * The Products list's query — the parameters of `GET /warehouse/product` — resolved to ONE product filter.
@@ -46,6 +47,13 @@ export async function resolveProductListFilter(
 ): Promise<ResolvedProductListFilter> {
   const r = getRepos()
 
+  // FR-28.10: the supplier's own code for an article, as a person recorded it (FR-28.9), is searchable like the
+  // article's SKU: each keyword of the search may also match an article by it. A code says who we buy from, so only a
+  // caller who may read bills searches it. The search stays a text search on the ARTICLE: a supplier's name is not a
+  // term (the Supplier filter does that job).
+  const searchText = typeof query.search === 'string' ? query.search : ''
+  const codeHits = searchText && canSeeSupplierFacts(user) ? await findProductIdsBySupplierCode(orgId, searchText) : []
+
   // FR-22.48: the Products list asks for active or deactivated articles; without the param every caller (the
   // pickers, the API clients) still gets both. The Movements list filters by the same rules.
   const filter = buildProductListFilter(orgId, {
@@ -54,6 +62,7 @@ export async function resolveProductListFilter(
     type: query.type as string | undefined,
     tags: query.tags as string | string[] | undefined,
     isActive: query.isActive as string | undefined,
+    ...(codeHits.some((ids) => ids.length) ? { supplierCodeIds: codeHits } : {}),
   })
 
   // FR-28.3: filter by supplier and by quantity. Who we buy from is incoming-document data, so a caller who may

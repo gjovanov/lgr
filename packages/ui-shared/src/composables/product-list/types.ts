@@ -27,11 +27,14 @@ export interface ProductRow {
   raw?: any
 }
 
-/** `GET /warehouse/product-supplier/by-products` — the wire shape (`SupplierFact` in product-suppliers.service). */
+/**
+ * `GET /warehouse/product-supplier/by-products` — the wire shape (`SupplierFact` in product-suppliers.service). A
+ * supplier only a person recorded (FR-28.9) has no document behind it: no `lastPurchasedAt`, `documents` 0.
+ */
 export interface SupplierFact {
   supplierId: string
   supplierName: string
-  lastPurchasedAt: string
+  lastPurchasedAt?: string
   lastUnitPrice?: number
   currency?: string
   quantity: number

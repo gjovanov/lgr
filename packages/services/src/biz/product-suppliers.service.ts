@@ -2,6 +2,7 @@ import { mongoose } from 'db/connection'
 import { Contact, Invoice, Order, Org, Product, StockMovement } from 'db/models'
 import { can, type AccessCaller } from './access/evaluate.js'
 import { BILL_RECEIVED_STATUSES } from './reservation.service.js'
+import { findRecordedProductIds, findRecordedProductIdsBySuppliers, getRecordedPreferred } from './recorded-suppliers.service.js'
 
 const { Types } = mongoose
 type ObjectId = InstanceType<typeof Types.ObjectId>
@@ -312,29 +313,34 @@ export async function getSupplierFacts(
   return out
 }
 
-/** FR-28.1: the articles any of these suppliers sold us (a bill or an uncovered receipt says so). */
+/**
+ * FR-28.1: the articles any of these suppliers sold us (a bill or an uncovered receipt says so), and, since
+ * FR-28.9, the articles a person recorded the supplier for: a recorded link counts beside the documents (§2.3).
+ */
 export async function findProductIdsBySuppliers(orgId: string, supplierIds: string[]): Promise<string[]> {
   const suppliers = validIds(supplierIds).map(oid)
   if (!suppliers.length) return []
   const draftClaims = await draftClaimBillIds(orgId)
-  const [fromBills, fromReceipts] = await Promise.all([
+  const [fromBills, fromReceipts, recorded] = await Promise.all([
     Invoice.distinct('lines.productId', { ...billEvidenceFilter(orgId), contactId: { $in: suppliers } } as any).exec(),
     StockMovement.distinct('lines.productId', { ...receiptEvidenceFilter(orgId, draftClaims), contactId: { $in: suppliers } } as any).exec(),
+    findRecordedProductIdsBySuppliers(orgId, supplierIds),
   ])
-  return validIds([...fromBills, ...fromReceipts])
+  return validIds([...fromBills, ...fromReceipts, ...recorded])
 }
 
-/** Every article with at least one supplier fact. */
+/** Every article with at least one supplier fact, or a supplier a person recorded for it (FR-28.9). */
 async function findProductIdsWithAnySupplier(orgId: string): Promise<Set<string>> {
   const draftClaims = await draftClaimBillIds(orgId)
-  const [fromBills, fromReceipts] = await Promise.all([
+  const [fromBills, fromReceipts, recorded] = await Promise.all([
     Invoice.distinct('lines.productId', billEvidenceFilter(orgId) as any).exec(),
     StockMovement.distinct('lines.productId', receiptEvidenceFilter(orgId, draftClaims) as any).exec(),
+    findRecordedProductIds(orgId),
   ])
-  return new Set(validIds([...fromBills, ...fromReceipts]))
+  return new Set(validIds([...fromBills, ...fromReceipts, ...recorded]))
 }
 
-/** FR-28.1: the articles of the organization that no document says a supplier sold us. */
+/** FR-28.1: the articles of the organization with neither a document that says a supplier sold it to us nor a recorded supplier. */
 export async function findProductIdsWithoutSupplier(orgId: string): Promise<string[]> {
   const [withSupplier, all] = await Promise.all([
     findProductIdsWithAnySupplier(orgId),
@@ -347,8 +353,8 @@ export async function findProductIdsWithoutSupplier(orgId: string): Promise<stri
 
 export interface DefaultSupplier {
   supplierId: string
-  /** What named it: the most recent purchase, or the newest supplier order carrying the article. */
-  basis: 'purchase' | 'order'
+  /** What named it: a person's recorded preference, the most recent purchase, or the newest supplier order carrying the article. */
+  basis: 'recorded' | 'purchase' | 'order'
   /** The supplier order, when `basis` is 'order'. */
   orderNumber?: string
 }
@@ -356,21 +362,27 @@ export interface DefaultSupplier {
 /**
  * FR-28.11: the supplier to offer for an article, in one rule for every caller (the order dialog of FR-28.16,
  * and `getInternalOrderSuggestions`' `supplierHint`):
- *   1. a RECORDED preferred supplier (FR-28.9; none exists until that slice ships);
+ *   1. the RECORDED preferred supplier (FR-28.9), while that contact is still an active supplier: a preference
+ *      is a standing decision that goes stale when the supplier stops being one, and the rule then reads on;
  *   2. the supplier of the most recent purchase;
  *   3. the supplier of the newest supplier order with a line for the article, whatever its status (what the
  *      customer-order form's hint was before there were facts);
  *   4. none.
- * Articles with no answer are absent from the map. Three queries whatever the number of articles.
+ * Articles with no answer are absent from the map. A handful of queries whatever the number of articles.
  */
 export async function getDefaultSuppliers(orgId: string, productIds: string[]): Promise<Map<string, DefaultSupplier>> {
   const ids = validIds(productIds)
   const out = new Map<string, DefaultSupplier>()
   if (!ids.length) return out
 
-  const facts = await collectFacts(orgId, ids)
+  const recorded = await getRecordedPreferred(orgId, ids)
+  for (const [productId, supplierId] of recorded) out.set(productId, { supplierId, basis: 'recorded' })
+  const open = ids.filter((id) => !out.has(id))
+  if (!open.length) return out
+
+  const facts = await collectFacts(orgId, open)
   const unanswered: string[] = []
-  for (const id of ids) {
+  for (const id of open) {
     const first = facts.get(id)?.[0]
     if (first) out.set(id, { supplierId: first.supplierId, basis: 'purchase' })
     else unanswered.push(id)

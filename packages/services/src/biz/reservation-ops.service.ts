@@ -800,7 +800,7 @@ export interface LineSuggestions {
    * FR-28.11: the supplier to offer for the article — the one rule of `getDefaultSuppliers`. `source` says what
    * named it; `orderNumber` is there when it was a supplier order (today's hint, now the last fallback).
    */
-  supplierHint?: { supplierId: string; orderNumber?: string; source?: 'purchase' | 'order' }
+  supplierHint?: { supplierId: string; orderNumber?: string; source?: 'recorded' | 'purchase' | 'order' }
 }
 
 /** Cover suggestions for every short line: free stock → unreserved incoming → preemptable RES. */

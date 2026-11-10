@@ -70,7 +70,7 @@ import { cashRegisterController } from 'invoicing-api/src/controllers/cash-regis
 
 // Warehouse controllers
 import { productController } from 'warehouse-api/src/controllers/product.controller.js'
-import { productSupplierController } from 'warehouse-api/src/controllers/product-supplier.controller.js'
+import { productSupplierController, productSupplierRecordController } from 'warehouse-api/src/controllers/product-supplier.controller.js'
 import { warehouseController } from 'warehouse-api/src/controllers/warehouse.controller.js'
 import { movementController } from 'warehouse-api/src/controllers/movement.controller.js'
 import { openingStockController } from 'warehouse-api/src/controllers/opening-stock.controller.js'
@@ -271,6 +271,8 @@ export function createApiApp() {
         .use(productController)
         // FR-28: which suppliers an article was bought from, read from the documents.
         .use(productSupplierController)
+        // FR-28.9: what a person records about an article's supplier (preferred, the supplier's code, lead time).
+        .use(productSupplierRecordController)
         .use(warehouseController)
         .use(movementController)
         .use(openingStockController)

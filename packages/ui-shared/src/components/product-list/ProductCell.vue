@@ -69,7 +69,7 @@
       <v-chip v-if="list.moreSuppliers(item._id) > 0" size="x-small" variant="tonal">+{{ list.moreSuppliers(item._id) }}</v-chip>
       <v-tooltip activator="parent" location="top" max-width="420">
         <div v-for="f in list.factsOf(item._id)" :key="f.supplierId">
-          <strong>{{ f.supplierName || '—' }}</strong>: {{ list.fmtDate(f.lastPurchasedAt) }}<template v-if="f.lastUnitPrice !== undefined"> · {{ list.fmtPrice(f.lastUnitPrice, f.currency) }}</template>
+          <strong>{{ f.supplierName || '—' }}</strong>: <template v-if="f.lastPurchasedAt">{{ list.fmtDate(f.lastPurchasedAt) }}</template><template v-else>{{ $t('warehouse.recordedSuppliers.noDocuments') }}</template><template v-if="f.lastUnitPrice !== undefined"> · {{ list.fmtPrice(f.lastUnitPrice, f.currency) }}</template>
         </div>
         <div v-if="list.moreSuppliers(item._id) > list.factsOf(item._id).length - 2" class="text-caption mt-1">
           {{ $t('warehouse.supplierFacts.andMore', { n: list.moreSuppliers(item._id) - (list.factsOf(item._id).length - 2) }) }}
@@ -79,7 +79,7 @@
   </template>
 
   <template v-else-if="column === 'lastPurchase'">
-    <span v-if="list.factsOf(item._id).length" class="text-no-wrap">{{ list.fmtDate(list.factsOf(item._id)[0].lastPurchasedAt) }}</span>
+    <span v-if="list.factsOf(item._id)[0]?.lastPurchasedAt" class="text-no-wrap">{{ list.fmtDate(list.factsOf(item._id)[0].lastPurchasedAt) }}</span>
     <span v-else class="text-disabled">—</span>
   </template>
 

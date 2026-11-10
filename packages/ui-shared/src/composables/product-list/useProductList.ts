@@ -421,7 +421,7 @@ export function useProductList(opts: UseProductListOptions) {
 
   // ── what a cell says ──
   const fmtPrice = (amount: number, currency?: string) => formatUnitPrice(amount, currency || opts.baseCurrency() || 'EUR', opts.locale())
-  const fmtDate = (iso: string) => (iso ? new Date(iso).toLocaleDateString(opts.locale()) : '')
+  const fmtDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString(opts.locale()) : '')
   const fmtQty = (n: number) => new Intl.NumberFormat(opts.locale(), { maximumFractionDigits: 3 }).format(n || 0)
   const stockFor = (id: string): StockBadge[] => (stockMap.value[id] || []).filter((s) => (s.quantity || 0) !== 0)
   const supplyFor = (id: string): SupplyTotals => supplyMap.value[id] || NO_SUPPLY
