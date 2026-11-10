@@ -26,6 +26,18 @@ export function searchOf(query: Record<string, unknown>): string {
   return s ? `?${s}` : ''
 }
 
+/**
+ * FR-27.7: does a link lead somewhere this session opens? A page `pageAt` knows is answered by its rule (the claims while
+ * an org on `roles` has not answered: never more than the role); anything else, yes: the server decides. `CreateButton`
+ * shows itself, and each of its other documents, only for a form the session opens.
+ */
+export function opensTarget(path: string, query: Record<string, unknown> = {}): boolean {
+  const page = pageAt(path, searchOf(query))
+  if (!page) return true
+  const who = sessionViewer()
+  return !who || canOpenPage(page, who)
+}
+
 /** The rule itself, for a path, a query string and a session: what `usePageAccess` answers. */
 export function pageAccessState(path: string, search: string): { page: PageDef | null; state: PageAccessState } {
   const page = pageAt(path, search)

@@ -73,7 +73,8 @@ const { markSaved, tryRestore } = usePendingChanges({
 })
 
 const formActions = computed<FormAction[]>(() => [
-  { label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value },
+  // FR-27.7: a timesheet is a person's (`payroll-people`).
+  { label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, cap: 'payroll-people.edit', loading: saving.value },
 ])
 
 async function fetchEmployees() {

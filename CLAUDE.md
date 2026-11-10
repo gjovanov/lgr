@@ -3213,6 +3213,15 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - ⚠ An org on `roles` (`rid` in the claims) whose `/auth/me` has not answered yet: a page the claims (the role's
     projection, never more than the role) do not open WAITS (`accessSettled` / `settleAccess`, one `/auth/me`), then
     decides. A failed `/auth/me` ends the wait, and the claims decide. Legacy orgs decide at once and ask nothing.
+- **Generic read-only (FR-27.7)**: a role that reads a feature and does not work on it is offered no New, Save or
+  Delete. `v-cap="'contacts.delete'"` (or a list: any one) hides a control (`ui-shared/access/v-cap.ts`, registered
+  by `registerPlugins`; `data-cap`, and `data-cap-hidden` while hidden; it follows the live grant). A form's action
+  and a row action take `cap` (`EntityFormShell`, `RowActionsMenu`): a hidden Save takes Ctrl+S with it.
+  `CreateButton` shows itself only for a form the role opens (`opensTarget`), or for a dialog its `cap`.
+  - ⚠ The ratchet, `unit/access-read-only.test.ts`: a view that shows Save, Delete or an edit pencil, or sends a
+    write, must consult access (`useAccess`, `v-cap`, a `cap`, a page rule), or be on `NOT_YET`, which only shrinks.
+    Every capability id a view names must be in the catalogue (an unknown one hides the control).
+  - Keep a record's pencil when it is the only way to READ the record (a dialog): gate the dialog's Save instead.
 - **A role's start page (FR-27.4)**: `Role.landing`, a page id the role opens (`role.service#cleanLanding`: 422
   `landing_unknown` / `landing_not_open`; capabilities that stop opening it drop it). A change bumps the role's
   version, and `/auth/me` answers it as `access.landing`. `startPage(who)`: the landing, else the Dashboard, else
