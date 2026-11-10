@@ -50,6 +50,62 @@
               <v-select v-model="activeFilter" :label="$t('common.status')" :items="activeFilterItems" hide-details density="compact" />
             </v-col>
           </v-row>
+          <!-- FR-28.3: who we buy it from, and how much of it there is. The quantity is the Stock column's own
+               figure; "below minimum" is the Reports rule, and "out of stock" is the range at 0. Supplier facts are
+               incoming-document data (FR-28.6): a role that may not read bills is not offered them. -->
+          <v-row class="mt-1 align-center" data-testid="stock-filters">
+            <v-col v-if="seesSuppliers" cols="12" md="3">
+              <v-autocomplete
+                v-model="supplierFilter"
+                v-model:search="supplierSearch"
+                :items="supplierOptions"
+                item-title="name"
+                item-value="_id"
+                :label="$t('warehouse.supplierFacts.filterSupplier')"
+                prepend-inner-icon="mdi-truck-delivery-outline"
+                multiple
+                chips
+                closable-chips
+                clearable
+                no-filter
+                hide-details
+                density="compact"
+                :loading="loadingSuppliers"
+                :disabled="noSupplier"
+                data-testid="filter-supplier"
+              />
+            </v-col>
+            <v-col v-if="seesSuppliers" cols="12" md="2">
+              <v-checkbox v-model="noSupplier" :label="$t('warehouse.supplierFacts.noSupplier')" hide-details density="compact" data-testid="filter-no-supplier" />
+            </v-col>
+            <v-col cols="6" md="1">
+              <v-text-field v-model="stockMin" :label="$t('warehouse.supplierFacts.stockFrom')" type="number" hide-details density="compact" data-testid="filter-stock-min" />
+            </v-col>
+            <v-col cols="6" md="1">
+              <v-text-field v-model="stockMax" :label="$t('warehouse.supplierFacts.stockTo')" type="number" hide-details density="compact" data-testid="filter-stock-max" />
+            </v-col>
+            <v-col cols="12" md="5" class="d-flex align-center flex-wrap ga-2">
+              <v-chip
+                :variant="belowMin ? 'flat' : 'outlined'"
+                :color="belowMin ? 'primary' : undefined"
+                :prepend-icon="belowMin ? 'mdi-check' : undefined"
+                data-testid="filter-below-min"
+                @click="belowMin = !belowMin"
+              >
+                {{ $t('warehouse.supplierFacts.belowMinimum') }}
+              </v-chip>
+              <v-chip
+                :variant="outOfStockOn ? 'flat' : 'outlined'"
+                :color="outOfStockOn ? 'primary' : undefined"
+                :prepend-icon="outOfStockOn ? 'mdi-check' : undefined"
+                data-testid="filter-out-of-stock"
+                @click="toggleOutOfStock"
+              >
+                {{ $t('warehouse.supplierFacts.outOfStock') }}
+              </v-chip>
+              <v-checkbox v-model="projected" :label="$t('warehouse.supplierFacts.countOpenOrders')" hide-details density="compact" class="flex-grow-0" data-testid="filter-projected" />
+            </v-col>
+          </v-row>
         </v-card-text>
       </v-card>
     </template>
@@ -101,6 +157,47 @@
       </template>
       <span v-else class="text-disabled">—</span>
     </template>
+    <!--
+      FR-28.6: which suppliers the article was bought from — the two most recent, "+N" for the rest, and every
+      one with its last purchase in the tooltip. Read from the received bills and the receipts that name a
+      supplier, one call per page. A dash is "nobody", never "not loaded yet" (that is an ellipsis).
+    -->
+    <template v-if="seesSuppliers" #item.suppliers="{ item }">
+      <v-icon v-if="supplierFailed" size="small" color="warning" :title="$t('warehouse.supplierFacts.loadFailed')" data-testid="product-suppliers-failed">mdi-alert-circle-outline</v-icon>
+      <div v-else-if="!suppliersLoaded(item._id)" class="text-disabled" data-testid="product-suppliers-loading">…</div>
+      <div v-else-if="!factsOf(item._id).length" class="suppliers-cell text-disabled" data-testid="product-suppliers">—</div>
+      <div v-else data-testid="product-suppliers" class="suppliers-cell">
+        <!-- One line per name, cut with an ellipsis: the tooltip has them whole. -->
+        <div v-for="f in factsOf(item._id).slice(0, 2)" :key="f.supplierId" class="text-truncate">{{ f.supplierName || '—' }}</div>
+        <v-chip v-if="moreSuppliers(item._id) > 0" size="x-small" variant="tonal">+{{ moreSuppliers(item._id) }}</v-chip>
+        <v-tooltip activator="parent" location="top" max-width="420">
+          <div v-for="f in factsOf(item._id)" :key="f.supplierId">
+            <strong>{{ f.supplierName || '—' }}</strong>: {{ fmtDate(f.lastPurchasedAt) }}<template v-if="f.lastUnitPrice !== undefined"> · {{ fmtPrice(f.lastUnitPrice, f.currency) }}</template>
+          </div>
+          <div v-if="moreSuppliers(item._id) > factsOf(item._id).length - 2" class="text-caption mt-1">
+            {{ $t('warehouse.supplierFacts.andMore', { n: moreSuppliers(item._id) - (factsOf(item._id).length - 2) }) }}
+          </div>
+        </v-tooltip>
+      </div>
+    </template>
+    <template v-if="seesSuppliers" #item.lastPurchase="{ item }">
+      <span v-if="factsOf(item._id).length" class="text-no-wrap">{{ fmtDate(factsOf(item._id)[0].lastPurchasedAt) }}</span>
+      <span v-else class="text-disabled">—</span>
+    </template>
+    <template v-if="seesSuppliers" #item.lastCost="{ item }">
+      <span v-if="factsOf(item._id)[0]?.lastUnitPrice !== undefined" class="text-no-wrap">{{ fmtPrice(factsOf(item._id)[0].lastUnitPrice!, factsOf(item._id)[0].currency) }}</span>
+      <span v-else class="text-disabled">—</span>
+    </template>
+    <template #item.minStockLevel="{ item }">
+      <span v-if="item.minStockLevel">{{ fmtQty(item.minStockLevel) }}</span>
+      <span v-else class="text-disabled">—</span>
+    </template>
+    <!-- What to order to be back at the maximum (the minimum when there is none): the figure the order dialog of
+         FR-28.16 starts from. Only for an article at or below its minimum. -->
+    <template #item.toOrder="{ item }">
+      <span v-if="toOrder(item) !== null" class="font-weight-medium">{{ fmtQty(toOrder(item)!) }}</span>
+      <span v-else class="text-disabled">—</span>
+    </template>
     <template #item.purchasePrice="{ item }">{{ fmtPrice(item.purchasePrice) }}</template>
     <template #item.sellingPrice="{ item }">{{ fmtPrice(item.sellingPrice) }}</template>
     <!-- The price tiers, a column per slot (product-price-columns.ts). An article with no price at
@@ -140,6 +237,7 @@ import { useI18n } from 'vue-i18n'
 import { holdsArea } from 'config/constants'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { writesInventory } from 'ui-shared/nav/page-registry'
+import { useAccess } from 'ui-shared/access/useAccess'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -156,7 +254,13 @@ import RowActionsMenu, { type RowAction } from 'ui-shared/components/RowActionsM
 import { useProductDocActions } from '../composables/useProductDocActions'
 import { TIER_COLUMNS, tierPrice, formatUnitPrice, type TierLike } from '../composables/product-price-columns'
 
-interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; priceTiers?: TierLike[]; isActive: boolean; trackInventory?: boolean }
+interface Product { _id: string; sku: string; name: string; category: string; type: string; unit: string; purchasePrice: number; sellingPrice: number; priceTiers?: TierLike[]; isActive: boolean; trackInventory?: boolean; minStockLevel?: number; maxStockLevel?: number }
+/** `GET /warehouse/product-supplier/by-products` — the wire shape (`SupplierFact` in product-suppliers.service). */
+interface SupplierFact { supplierId: string; supplierName: string; lastPurchasedAt: string; lastUnitPrice?: number; currency?: string; quantity: number; documents: number }
+/** How many suppliers a cell names before "+N". */
+const SUPPLIERS_SHOWN = 2
+/** The API's cap on articles per supplier call; a page of "All" goes in chunks. */
+const SUPPLIER_CALL_SIZE = 100
 interface StockBadge { warehouseId: string; warehouseName: string; quantity: number; availableQuantity: number }
 /** `getProductsSupplyTotals` — the definitions of the product's stock tab, summed. */
 interface SupplyTotals { reserved: number; incoming: number; reservedIncoming: number; planned: number }
@@ -187,6 +291,40 @@ const warehouseOptions = ref<any[]>([])
 const stockMap = ref<Record<string, StockBadge[]>>({})
 const supplyMap = ref<Record<string, SupplyTotals>>({})
 
+// FR-28.6: supplier facts are incoming-document data (`bills.view`, the server's rule too): a role without it is
+// offered no Suppliers, Last purchase or Last cost column, and no supplier filter. The price is a cost figure,
+// which FR-27 will give its own right (`products.costs`); until the catalogue has it, whoever reads bills reads it.
+const access = useAccess()
+const seesSuppliers = access.can('bills.view')
+const supplierMap = ref<Record<string, SupplierFact[]>>({})
+const supplierCounts = ref<Record<string, number>>({})
+/** The last call for supplier facts failed: the cells say so, instead of a dash that would read "nobody". */
+const supplierFailed = ref(false)
+
+// The new filters (FR-28.3). The supplier ids and the two stock bounds are what the user chose; the bounds are
+// typed, so they are debounced like the search is.
+const supplierFilter = ref<string[]>([])
+const noSupplier = ref(false)
+const supplierSearch = ref('')
+const supplierOptions = ref<Array<{ _id: string; name: string }>>([])
+const loadingSuppliers = ref(false)
+const { search: stockMin, debouncedSearch: debouncedStockMin } = useSearchDebounce(500)
+const { search: stockMax, debouncedSearch: debouncedStockMax } = useSearchDebounce(500)
+const belowMin = ref(false)
+const projected = ref(false)
+/** "Out of stock" is the range at 0 (FR-28.3): on while that is exactly what is set. */
+const outOfStockOn = computed(() => debouncedStockMax.value === '0' && debouncedStockMin.value === '')
+function toggleOutOfStock() {
+  if (outOfStockOn.value) {
+    stockMax.value = ''
+  } else {
+    stockMin.value = ''
+    stockMax.value = '0'
+  }
+}
+// A supplier or "no supplier", not both: together they match nothing, so choosing one clears the other.
+watch(noSupplier, (on) => { if (on) supplierFilter.value = [] })
+
 const activeFilterItems = computed(() => [
   { title: t('warehouse.activeFilter.active'), value: 'active' },
   { title: t('warehouse.activeFilter.inactive'), value: 'inactive' },
@@ -201,11 +339,23 @@ const filters = computed(() => {
   if (tagFilter.value.length) f.tags = tagFilter.value.join(',')
   if (warehouseFilter.value) f.warehouseId = warehouseFilter.value
   if (activeFilter.value !== 'all') f.isActive = activeFilter.value === 'active' ? 'true' : 'false'
+  // FR-28.3. A URL that carries a supplier filter to a role that may not read bills is ignored, not refused:
+  // the server would answer 403, and the list would not open.
+  if (seesSuppliers) {
+    if (supplierFilter.value.length) f.supplierId = supplierFilter.value.join(',')
+    if (noSupplier.value) f.noSupplier = 'true'
+  }
+  if (debouncedStockMin.value !== '') f.stockMin = debouncedStockMin.value
+  if (debouncedStockMax.value !== '') f.stockMax = debouncedStockMax.value
+  if (belowMin.value) f.belowMin = 'true'
+  if (projected.value) f.basis = 'projected'
   return f
 })
 
 const hasActiveFilters = computed(() =>
-  !!(debouncedSearch.value || categoryFilter.value || typeFilter.value || tagFilter.value.length || warehouseFilter.value || activeFilter.value !== 'active'),
+  !!(debouncedSearch.value || categoryFilter.value || typeFilter.value || tagFilter.value.length || warehouseFilter.value || activeFilter.value !== 'active'
+    || (seesSuppliers && (supplierFilter.value.length || noSupplier.value))
+    || debouncedStockMin.value !== '' || debouncedStockMax.value !== '' || belowMin.value),
 )
 
 const url = computed(() => `${appStore.orgUrl()}/warehouse/product`)
@@ -218,6 +368,13 @@ useListQueryState([
   { key: 'warehouse', ref: warehouseFilter },
   // The default is declared, so a bare URL stays bare and means "active articles".
   { key: 'status', ref: activeFilter, default: 'active', sanitize: (v) => (ACTIVE_FILTERS.includes(v) ? v : undefined) },
+  // FR-28.3: what to buy again. A bound that is no number is dropped from the URL, as the server drops it.
+  { key: 'supplier', ref: supplierFilter, codec: 'csv' },
+  { key: 'noSupplier', ref: noSupplier, codec: 'bool' },
+  { key: 'stockMin', ref: stockMin, mirror: debouncedStockMin, sanitize: (v) => (Number.isFinite(Number(v)) ? String(v) : undefined) },
+  { key: 'stockMax', ref: stockMax, mirror: debouncedStockMax, sanitize: (v) => (Number.isFinite(Number(v)) ? String(v) : undefined) },
+  { key: 'belowMin', ref: belowMin, codec: 'bool' },
+  { key: 'projected', ref: projected, codec: 'bool' },
 ])
 
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
@@ -248,6 +405,19 @@ const headers = computed(() => [
   { title: t('warehouse.stock'), key: 'stock' },
   { title: t('warehouse.supply.reserved'), key: 'reserved', align: 'end' as const },
   { title: t('warehouse.supply.onOrder'), key: 'onOrder', align: 'end' as const },
+  // FR-28.6: who sold it to us, right after what is on order — where "what do we do about it" is asked. None of
+  // these sorts: they are read from the documents, not a field of the article. The supplier names are shown;
+  // the last purchase and its cost, the minimum and what to order wait on the cog (`defaultHidden`), so a
+  // user's saved columns neither lose the names nor gain the rest.
+  ...(seesSuppliers ? [
+    // The names are cut inside a capped box and the column takes the price columns' 8 px gutters: with it shown by
+    // default the list still fits 1366 px without the tiers (FR-22.23, product-actions.spec).
+    { title: t('warehouse.supplierFacts.column'), key: 'suppliers', sortable: false, ...PRICE_CELL },
+    { title: t('warehouse.supplierFacts.lastPurchase'), key: 'lastPurchase', sortable: false, defaultHidden: true },
+    { title: t('warehouse.supplierFacts.lastCost'), key: 'lastCost', sortable: false, align: 'end' as const, defaultHidden: true, ...PRICE_CELL },
+  ] : []),
+  { title: t('warehouse.supplierFacts.minimum'), key: 'minStockLevel', align: 'end' as const, defaultHidden: true },
+  { title: t('warehouse.supplierFacts.toOrder'), key: 'toOrder', sortable: false, align: 'end' as const, defaultHidden: true },
   { title: t('warehouse.unit'), key: 'unit' },
   { title: t('warehouse.purchasePrice'), key: 'purchasePrice', align: 'end' as const, defaultHidden: true, ...PRICE_CELL },
   { title: t('warehouse.sellingPrice'), key: 'sellingPrice', align: 'end' as const, ...PRICE_CELL },
@@ -260,7 +430,8 @@ const headers = computed(() => [
   { title: t('common.actions'), key: 'actions', sortable: false, fixed: 'end' as const },
 ])
 
-function fmtPrice(amount: number) { return formatUnitPrice(amount, baseCurrency.value, localeCode.value) }
+function fmtPrice(amount: number, currency?: string) { return formatUnitPrice(amount, currency || baseCurrency.value, localeCode.value) }
+function fmtDate(iso: string) { return iso ? new Date(iso).toLocaleDateString(localeCode.value) : '' }
 function fmtQty(n: number) { return new Intl.NumberFormat(localeCode.value, { maximumFractionDigits: 3 }).format(n || 0) }
 function stockFor(id: string): StockBadge[] { return (stockMap.value[id] || []).filter((s) => (s.quantity || 0) !== 0) }
 function supplyFor(id: string): SupplyTotals { return supplyMap.value[id] || NO_SUPPLY }
@@ -288,6 +459,97 @@ async function fetchStockBadges() {
   }
 }
 watch(items, fetchStockBadges)
+
+// ── FR-28.6: the Suppliers column ──
+function factsOf(id: string): SupplierFact[] { return supplierMap.value[id] || [] }
+function suppliersLoaded(id: string): boolean { return id in supplierMap.value }
+/** The suppliers beyond the ones named in the cell: the server's count, not just what it sent (five at most). */
+function moreSuppliers(id: string): number { return Math.max(0, (supplierCounts.value[id] ?? factsOf(id).length) - SUPPLIERS_SHOWN) }
+
+/**
+ * What to order to be back at the maximum (the minimum when there is none): `target − position`, where the
+ * position is on hand − reserved + on order, scoped as the list is (the warehouse filter). Only an article at or
+ * below its minimum has anything to order, and a service never does. The order dialog of FR-28.16 starts from
+ * the same figure (`max(1, target − position)`).
+ */
+function toOrder(item: Product): number | null {
+  const min = Number(item.minStockLevel) || 0
+  const max = Number(item.maxStockLevel) || 0
+  if (item.trackInventory === false || (!min && !max)) return null
+  const onHand = (stockMap.value[item._id] || []).reduce((sum, s) => sum + (s.quantity || 0), 0)
+  const supply = supplyFor(item._id)
+  const position = onHand - supply.reserved + supply.incoming
+  if (min > 0 && position >= min) return null
+  const quantity = (max > 0 ? max : min) - position
+  return quantity > 0 ? quantity : null
+}
+
+// One call per page, like the stock badges; a page of "All" goes in chunks of the API's cap. A slower answer for
+// an earlier page never overwrites the current one. A failure leaves the list usable, and the cells say they could
+// not be loaded: a dash would say "nobody".
+let factsRequest = 0
+async function fetchSupplierFacts() {
+  if (!seesSuppliers) return
+  const ids = (items.value as Product[]).map((p) => p._id).filter(Boolean)
+  const mine = ++factsRequest
+  supplierFailed.value = false
+  supplierMap.value = {}
+  supplierCounts.value = {}
+  if (!ids.length) return
+  try {
+    const chunks: string[][] = []
+    for (let i = 0; i < ids.length; i += SUPPLIER_CALL_SIZE) chunks.push(ids.slice(i, i + SUPPLIER_CALL_SIZE))
+    const answers = await Promise.all(chunks.map((c) => httpClient.get(`${appStore.orgUrl()}/warehouse/product-supplier/by-products`, { params: { productIds: c.join(',') } })))
+    if (mine !== factsRequest) return
+    const suppliers: Record<string, SupplierFact[]> = {}
+    const counts: Record<string, number> = {}
+    for (const { data } of answers) {
+      Object.assign(suppliers, data.suppliers || {})
+      Object.assign(counts, data.counts || {})
+    }
+    supplierMap.value = suppliers
+    supplierCounts.value = counts
+  } catch {
+    if (mine === factsRequest) supplierFailed.value = true
+  }
+}
+watch(items, fetchSupplierFacts)
+
+// The supplier filter's choices: the first suppliers, then whatever is typed (server-side, so a thousand suppliers
+// are never loaded). The ids a pasted URL carries are named one by one, since the search may not return them.
+const contactName = (c: any): string => c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || c._id
+function addSupplierOptions(rows: any[]) {
+  const known = new Map(supplierOptions.value.map((o) => [o._id, o]))
+  for (const c of rows) if (c?._id) known.set(c._id, { _id: c._id, name: contactName(c) })
+  supplierOptions.value = [...known.values()]
+}
+let supplierSearchRequest = 0
+let supplierSearchTimer: ReturnType<typeof setTimeout> | null = null
+async function searchSuppliers(q: string) {
+  const mine = ++supplierSearchRequest
+  loadingSuppliers.value = true
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`, {
+      params: { type: 'supplier', size: 20, sortBy: 'companyName', sortOrder: 'asc', ...(q ? { search: q } : {}) },
+    })
+    if (mine === supplierSearchRequest) addSupplierOptions(data.contacts || [])
+  } catch { /* the filter keeps what it has */ } finally {
+    if (mine === supplierSearchRequest) loadingSuppliers.value = false
+  }
+}
+watch(supplierSearch, (q) => {
+  if (supplierSearchTimer) clearTimeout(supplierSearchTimer)
+  supplierSearchTimer = setTimeout(() => searchSuppliers(q || ''), 300)
+})
+async function nameChosenSuppliers() {
+  const missing = supplierFilter.value.filter((id) => !supplierOptions.value.some((o) => o._id === id))
+  await Promise.all(missing.map(async (id) => {
+    try {
+      const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact/${id}`)
+      addSupplierOptions([data.contact])
+    } catch { /* an id that is no contact keeps its id as its name */ }
+  }))
+}
 
 const { actionsFor } = useProductDocActions()
 // FR-26.8.7: without `inventory.write` (a Seller) the page reads, and offers no New, Save or Delete.
@@ -345,5 +607,24 @@ async function fetchWarehouses() {
   } catch { /* */ }
 }
 
-onMounted(() => { fetchItems(); fetchCategories(); fetchWarehouses() })
+onMounted(() => {
+  fetchItems(); fetchCategories(); fetchWarehouses()
+  if (seesSuppliers) { searchSuppliers(''); nameChosenSuppliers() }
+})
 </script>
+
+<style scoped>
+/*
+ * A supplier's name can be as long as a company's: it is cut here (the tooltip has it whole) instead of widening the
+ * list or making the row tall. On a laptop the column never grows past its own header, which is what keeps the list
+ * inside 1366 px with the tiers hidden (FR-22.23); a wide screen has room for more of the name.
+ */
+.suppliers-cell {
+  max-width: 100px;
+}
+@media (min-width: 1600px) {
+  .suppliers-cell {
+    max-width: 220px;
+  }
+}
+</style>
