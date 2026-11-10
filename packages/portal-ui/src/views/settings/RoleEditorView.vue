@@ -82,6 +82,10 @@
                       :data-cap="c"
                       @update:model-value="(on: any) => toggle(c, !!on)"
                     />
+                    <!-- FR-27.11.B: what the price ticks do, and do not (D-13). -->
+                    <div v-if="f.id === 'products'" class="text-caption text-medium-emphasis mt-1" data-testid="role-prices-note">
+                      {{ $t('access.ui.pricesNote') }}
+                    </div>
                   </td>
                 </tr>
               </tbody>
