@@ -1506,7 +1506,25 @@
         "order_has_invoices": "The supplier order has invoices: void or delete them before cancelling it."
       },
       "clientReservations": "Client reservations",
-      "allocateFirst": "Allocate the line to a warehouse first, then reserve for clients."
+      "allocateFirst": "Allocate the line to a warehouse first, then reserve for clients.",
+      "page": {
+        "who": "Client, article and quantity",
+        "lateShort": "Late",
+        "summaryWho": "{client} · {product} · {quantity} reserved · {invoiced} invoiced · {dispatched} dispatched",
+        "allocationGoneShort": "Allocation gone",
+        "historyAndLinks": "History and links",
+        "events": "{n} event | {n} events",
+        "linkedCount": "{n} linked",
+        "supplyTitle": "Who has reserved how much",
+        "supplyHintOrder": "This line of the supplier order, the warehouses it was given and every reservation on them. This reservation is shaded.",
+        "supplyHintStock": "The stock of this warehouse and every active reservation on it. This reservation is shaded.",
+        "supplyItemStock": "Warehouse / Client",
+        "orderQtyHint": "Line: ordered. Warehouse: allocated to it. Client: reserved for that client.",
+        "stockQtyHint": "Warehouse: on the shelf. Client: reserved for that client.",
+        "stockFreeHint": "What a new reservation could still take here. It also counts goods held for supplier orders and already received into this warehouse, so reserved and free need not add up to what is on the shelf.",
+        "thisReservation": "This reservation",
+        "truncated": "Showing {shown} of {total} reservations on this supply."
+      }
     },
     "shortLine": "{name} ({missing} short)",
     "reservedFromStockShort": "Reservations created: {count}. Not enough free stock for: {lines}",

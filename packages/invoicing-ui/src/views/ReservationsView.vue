@@ -62,7 +62,7 @@
       </div>
     </template>
     <template #item.internalOrderNumber="{ item }">
-      <router-link v-if="item.internalOrderId" class="text-no-wrap" :to="{ name: 'invoicing.internalOrders.edit', params: { id: item.internalOrderId } }">
+      <router-link v-if="item.internalOrderId" class="text-no-wrap" :to="{ name: 'invoicing.internalOrders.edit', params: { id: item.internalOrderId }, query: internalOrderLineQuery(item) }">
         {{ item.internalOrderNumber }}
       </router-link>
       <span v-else class="text-medium-emphasis">—</span>
@@ -161,7 +161,7 @@ import ReservationQuantityDialog from '../components/ReservationQuantityDialog.v
 import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
 import ReservationCreateDialog from '../components/ReservationCreateDialog.vue'
 import { isShortage, reservationErrorMessage } from '../composables/reservation-errors'
-import { orderLineQuery } from '../composables/order-tree/links'
+import { internalOrderLineQuery, orderLineQuery } from '../composables/order-tree/links'
 
 const { t } = useI18n()
 const route = useRoute()

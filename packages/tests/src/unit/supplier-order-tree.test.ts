@@ -119,7 +119,7 @@ describe('an over-allocated line', () => {
 
 describe('a line with live reservations', () => {
   const reservations = [
-    res({ _id: 'r1', quantity: 25, invoicedQuantity: 10, allocationId: 'A1', internalOrderId: 'i1' }),
+    res({ _id: 'r1', quantity: 25, invoicedQuantity: 10, allocationId: 'A1', internalOrderId: 'i1', internalOrderLineId: 'il1' }),
     res({ _id: 'r2', quantity: 15, contactId: 'c2', allocationId: 'A1' }),
     res({ _id: 'r3', quantity: 20, contactId: 'c3', allocationId: 'A2' }),
   ]
@@ -153,6 +153,13 @@ describe('a line with live reservations', () => {
     // Part of it is invoiced and it serves a client order: the client cannot be changed, it can be cancelled.
     expect(actionTypes(r1)).toEqual(['cancel'])
     expect(actionTypes(main.children[1])).toEqual(['changeClient', 'cancel'])
+  })
+
+  it('carries the line of the customer order it serves, which the link to that order opens (FR-28.46)', () => {
+    expect(main.children[0].reservation).toMatchObject({ internalOrderId: 'i1', internalOrderLineId: 'il1' })
+    // A reservation that serves no customer order has neither.
+    expect(main.children[1].reservation?.internalOrderId).toBeUndefined()
+    expect(main.children[1].reservation?.internalOrderLineId).toBeUndefined()
   })
 
   it('offers + Client on a warehouse with something free, and only disables it when nothing is', () => {

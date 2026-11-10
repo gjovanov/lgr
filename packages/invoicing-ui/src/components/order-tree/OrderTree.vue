@@ -286,6 +286,11 @@ defineExpose({ toggle, setOpen, isOpen, expandAll, collapseAll, reveal, highligh
 .order-tree :deep(.order-tree__row--editing > td) {
   background: rgba(var(--v-theme-primary), 0.06);
 }
+/* The reservation a page is about, among the others on the same supply (the reservation page's supply tree). */
+.order-tree :deep(.order-tree__row--self > td) {
+  background: rgba(var(--v-theme-primary), 0.12);
+  font-weight: 600;
+}
 .order-tree :deep(.order-tree__row--hit > td) {
   animation: order-tree-hit 2.4s ease-out;
 }
