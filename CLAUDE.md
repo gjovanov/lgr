@@ -3222,6 +3222,9 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     write, must consult access (`useAccess`, `v-cap`, a `cap`, a page rule), or be on `NOT_YET`, which only shrinks.
     Every capability id a view names must be in the catalogue (an unknown one hides the control).
   - Keep a record's pencil when it is the only way to READ the record (a dialog): gate the dialog's Save instead.
+  - The Files app reads with `files.view` and changes documents with `files.manage` (`file.controller#writeGate`:
+    upload, OCR, book, undo, reconcile, delete, pack and unpack); analyses and the snapshot diff are reads. Legacy
+    grants both with `admin.settings`.
 - **Role tools (FR-27.9)**, import-pure in `config/access/compare.ts`, on the roles screens: "Who can…" (`whoCan` over
   `ASKABLE_CAPABILITIES`, with the people count), "Compare" (`compareGrants`: each feature's level per role and the
   capabilities one holds the other does not) and the editor's preview (`pagesOpenedBy`: the pages the role as it

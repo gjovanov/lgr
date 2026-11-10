@@ -40,7 +40,7 @@
         <div class="d-flex align-center">
           <span class="text-caption text-grey">{{ $t('files.upload.hint') }}</span>
           <v-spacer />
-          <v-btn color="primary" :loading="uploading" :disabled="!files.length" prepend-icon="mdi-cloud-upload" @click="doUpload">
+          <v-btn v-cap="'files.manage'" color="primary" :loading="uploading" :disabled="!files.length" prepend-icon="mdi-cloud-upload" @click="doUpload">
             {{ $t('files.upload.action') }}
           </v-btn>
         </div>
@@ -85,9 +85,9 @@
             </template>
             <template v-else>
               <v-chip v-if="item.status === 'committed'" size="x-small" color="success" label prepend-icon="mdi-check">{{ $t('files.status.committed') }}</v-chip>
-              <v-btn v-if="canOcr(item)" size="x-small" variant="tonal" :loading="item._ocr" prepend-icon="mdi-text-recognition" @click="ocr(item)">{{ $t('files.ocrAction') }}</v-btn>
+              <v-btn v-if="canOcr(item)" v-cap="'files.manage'" size="x-small" variant="tonal" :loading="item._ocr" prepend-icon="mdi-text-recognition" @click="ocr(item)">{{ $t('files.ocrAction') }}</v-btn>
               <v-btn v-if="canAnalyze(item)" size="x-small" variant="tonal" color="primary" :loading="item._busy" prepend-icon="mdi-magnify-scan" @click="analyze(item)">{{ $t('files.analyze') }}</v-btn>
-              <v-btn v-if="canReconcile(item)" size="x-small" variant="tonal" color="deep-purple" :loading="item._busy" prepend-icon="mdi-sync-alert" @click="reconcile(item)">{{ $t('files.reconcile.action') }}</v-btn>
+              <v-btn v-if="canReconcile(item)" v-cap="'files.manage'" size="x-small" variant="tonal" color="deep-purple" :loading="item._busy" prepend-icon="mdi-sync-alert" @click="reconcile(item)">{{ $t('files.reconcile.action') }}</v-btn>
             </template>
           </div>
         </template>
@@ -137,7 +137,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="analysisDialog = false">{{ $t('common.close') }}</v-btn>
-          <v-btn color="primary" :loading="current._busy" prepend-icon="mdi-database-check" @click="commit(current)">{{ $t('files.commit') }}</v-btn>
+          <v-btn v-cap="'files.manage'" color="primary" :loading="current._busy" prepend-icon="mdi-database-check" @click="commit(current)">{{ $t('files.commit') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -181,6 +181,7 @@
           <v-btn variant="text" @click="reconcileDialog = false">{{ $t('common.close') }}</v-btn>
           <v-btn
             v-if="!current._reconcile?.executed && current._reconcile?.deltas?.length"
+            v-cap="'files.manage'"
             color="deep-purple" :loading="current._busy" prepend-icon="mdi-database-sync"
             @click="reconcile(current, true)"
           >{{ $t('files.reconcile.execute') }}</v-btn>

@@ -121,6 +121,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { useAccess } from 'ui-shared/access/useAccess'
 import HubPageHeader from 'ui-shell/components/HubPageHeader'
 import { useAppStore } from '../store/app.store'
 
@@ -140,7 +141,9 @@ const busy = ref<string | null>(null)
  * ⚠ Cosmetic only. The server's `readGate`/`gate` pair is the actual control — hiding a
  * button hides nothing from anyone who can open a devtools console.
  */
-const canWrite = computed(() => appStore.user?.role !== 'nra_auditor')
+// FR-27.7: packing and unpacking take `files.manage` (the auditor reads the index only, `files.archives`).
+const { can } = useAccess()
+const canWrite = computed(() => can('files.manage'))
 
 const unitHeaders = computed(() => [
   { title: t('files.archives.year'), key: 'fiscalYearName' },

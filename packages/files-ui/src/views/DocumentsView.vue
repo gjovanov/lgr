@@ -29,12 +29,12 @@
       <v-card v-if="selected.size" variant="flat" color="primary" class="mb-3">
         <v-card-text class="d-flex flex-wrap align-center ga-3 py-2">
           <span class="font-weight-medium">{{ $t('files.batch.selected', { n: selected.size }) }}</span>
-          <v-btn size="small" color="white" variant="flat" :loading="busy" prepend-icon="mdi-play-circle" @click="processSelected">{{ $t('files.batch.process') }}</v-btn>
-          <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-text-recognition" @click="ocrSelected">{{ $t('files.batch.ocr') }}</v-btn>
+          <v-btn v-cap="'files.manage'" size="small" color="white" variant="flat" :loading="busy" prepend-icon="mdi-play-circle" @click="processSelected">{{ $t('files.batch.process') }}</v-btn>
+          <v-btn v-cap="'files.manage'" size="small" variant="tonal" :loading="busy" prepend-icon="mdi-text-recognition" @click="ocrSelected">{{ $t('files.batch.ocr') }}</v-btn>
           <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-magnify-scan" @click="analyzeSelected">{{ $t('files.batch.analyze') }}</v-btn>
           <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-database-check" @click="reviewSelected">{{ $t('files.batch.review') }}</v-btn>
-          <v-btn size="small" variant="tonal" :loading="busy" prepend-icon="mdi-sync-alert" @click="reconcileSelected">{{ $t('files.reconcile.action') }}</v-btn>
-          <v-btn size="small" variant="tonal" color="red-lighten-4" :loading="busy" prepend-icon="mdi-delete-outline" @click="planDelete">{{ $t('files.batch.delete') }}</v-btn>
+          <v-btn v-cap="'files.manage'" size="small" variant="tonal" :loading="busy" prepend-icon="mdi-sync-alert" @click="reconcileSelected">{{ $t('files.reconcile.action') }}</v-btn>
+          <v-btn v-cap="'files.manage'" size="small" variant="tonal" color="red-lighten-4" :loading="busy" prepend-icon="mdi-delete-outline" @click="planDelete">{{ $t('files.batch.delete') }}</v-btn>
           <v-checkbox v-model="options.force" :label="$t('files.batch.force')" density="compact" hide-details color="white" />
           <v-spacer />
           <v-btn size="small" variant="text" @click="clearSelection">{{ $t('files.batch.clear') }}</v-btn>
@@ -72,7 +72,7 @@
       </template>
       <template #item.actions="{ item }">
         <v-btn size="x-small" variant="text" icon="mdi-clipboard-text-search-outline" :title="$t('files.batch.review')" @click="reviewOne(item)" />
-        <v-btn v-if="canReconcile(item)" size="x-small" variant="text" color="deep-purple" icon="mdi-sync-alert" :title="$t('files.reconcile.action')" @click="reconcileOne(item)" />
+        <v-btn v-if="canReconcile(item)" v-cap="'files.manage'" size="x-small" variant="text" color="deep-purple" icon="mdi-sync-alert" :title="$t('files.reconcile.action')" @click="reconcileOne(item)" />
         <v-btn size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(item))" />
       </template>
     </v-data-table-server>
@@ -122,7 +122,7 @@
                   <td>v{{ doc.version }}</td>
                   <td class="text-no-wrap">
                     <v-btn size="x-small" variant="text" icon="mdi-clipboard-text-search-outline" :title="$t('files.batch.review')" @click="reviewOne(doc)" />
-                    <v-btn v-if="canReconcile(doc)" size="x-small" variant="text" color="deep-purple" icon="mdi-sync-alert" :title="$t('files.reconcile.action')" @click="reconcileOne(doc)" />
+                    <v-btn v-if="canReconcile(doc)" v-cap="'files.manage'" size="x-small" variant="text" color="deep-purple" icon="mdi-sync-alert" :title="$t('files.reconcile.action')" @click="reconcileOne(doc)" />
                     <v-btn size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(doc))" />
                   </td>
                 </tr>
@@ -237,7 +237,7 @@
             prepend-icon="mdi-magnify-scan" @click="analyzePendingInReview"
           >{{ $t('files.review.analyzePending', { n: reviewCounts.pending }) }}</v-btn>
           <v-btn variant="text" @click="reviewOpen = false">{{ $t('common.close') }}</v-btn>
-          <v-btn color="primary" :loading="busy" :disabled="!commitSel.size" prepend-icon="mdi-database-check" @click="commitReviewed">
+          <v-btn v-cap="'files.manage'" color="primary" :loading="busy" :disabled="!commitSel.size" prepend-icon="mdi-database-check" @click="commitReviewed">
             {{ $t('files.review.commitSelected', { n: commitSel.size }) }}
           </v-btn>
         </v-card-actions>
