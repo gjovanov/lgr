@@ -1574,6 +1574,16 @@
     "discountTotal": "Вкупен Попуст",
     "taxTotal": "Вкупен ДДВ",
     "taxTotalWithRate": "Вкупен ДДВ ({rate}%)",
+    "panels": {
+      "lines": "{n} ставка | {n} ставки",
+      "ordered": "{n} нарачани",
+      "needed": "{n} потребни",
+      "reserved": "{n} резервирани",
+      "reservationsCount": "{n} резервација | {n} резервации",
+      "clients": "{n} клиент | {n} клиенти",
+      "invoices": "{n} фактура | {n} фактури",
+      "supplierMissing": "Недостасува добавувач"
+    },
     "printNote": "Белешка за печатење",
     "printNoteHint": "Се печати под бројот — се зачувува со документот",
     "companionNote": "Белешка за придружните документи",

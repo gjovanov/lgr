@@ -1019,6 +1019,16 @@
     "discountTotal": "Discount Total",
     "taxTotal": "Tax Total",
     "taxTotalWithRate": "Tax Total ({rate}%)",
+    "panels": {
+      "lines": "{n} line | {n} lines",
+      "ordered": "{n} ordered",
+      "needed": "{n} needed",
+      "reserved": "{n} reserved",
+      "reservationsCount": "{n} reservation | {n} reservations",
+      "clients": "{n} client | {n} clients",
+      "invoices": "{n} invoice | {n} invoices",
+      "supplierMissing": "Supplier missing"
+    },
     "printNote": "Print note",
     "printNoteHint": "Printed under the number block — saved with the document",
     "companionNote": "Companion documents note",

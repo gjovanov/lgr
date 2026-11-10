@@ -9,29 +9,15 @@
     :back-label="$t('nav.internalOrders')"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
   >
+    <!-- FR-28.32 (D-14): the same banner as the documents'. The coverage chip stays beside the status. -->
     <template #document-header>
-      <div class="d-flex align-center justify-space-between px-4 py-3 ga-4 flex-wrap">
-        <div class="d-flex align-center ga-3">
-          <v-avatar size="36" color="primary" variant="tonal">
-            <v-icon size="20">mdi-account-clock-outline</v-icon>
-          </v-avatar>
-          <div>
-            <div class="text-overline text-medium-emphasis">{{ appStore.currentOrg?.name || '—' }}</div>
-            <div class="text-subtitle-1 font-weight-bold">{{ isEdit ? $t('invoicing.editInternalOrder') : $t('invoicing.newInternalOrder') }}</div>
-          </div>
-        </div>
-        <div class="text-end">
-          <div class="text-h6 font-weight-bold">{{ documentNumber || '—' }}</div>
-          <div class="d-flex ga-1 justify-end mt-1">
-            <v-chip size="x-small" label color="primary" variant="tonal">
-              {{ $t(`invoicing.status.${orderStatus}`) }}
-            </v-chip>
-            <v-chip v-if="isEdit" size="x-small" label variant="tonal" :color="coverageColor(coverage)">
-              {{ $t(`invoicing.coverage.${coverage}`) }}
-            </v-chip>
-          </div>
-        </div>
-      </div>
+      <DocumentBanner :number="documentNumber" :status="$t(`invoicing.status.${orderStatus}`)">
+        <template #chips>
+          <v-chip v-if="isEdit" size="x-small" label variant="tonal" :color="coverageColor(coverage)">
+            {{ $t(`invoicing.coverage.${coverage}`) }}
+          </v-chip>
+        </template>
+      </DocumentBanner>
     </template>
 
     <v-form ref="formRef" @submit.prevent="onSave">
@@ -75,8 +61,12 @@
           </v-col>
         </v-row>
 
-        <!-- Lines -->
-        <v-card variant="outlined" rounded="lg" class="mt-2">
+        <!-- Lines. FR-28.43: a panel; folded, it still says how many lines, how much is needed and how much is reserved. -->
+        <CollapsiblePanel screen="internal-orders.edit" panel-id="lines" :summary="linesSummary" class="mt-2" data-testid="internal-order-lines">
+          <template #title>
+            <v-icon size="20" color="primary">mdi-format-list-bulleted</v-icon>
+            {{ $t('invoicing.lineItems') }}
+          </template>
           <v-card-text class="pa-2">
             <div ref="linesRef" style="overflow-x: auto">
               <v-table density="compact">
@@ -177,15 +167,17 @@
               {{ $t('invoicing.addLine') }}
             </v-btn>
           </v-card-text>
-        </v-card>
+        </CollapsiblePanel>
 
-        <!-- Coverage toolbox + linked reservations -->
-        <v-card v-if="isEdit" variant="outlined" rounded="lg" class="mt-4">
-          <v-card-title class="d-flex align-center ga-2 py-2 flex-wrap">
+        <!-- Coverage toolbox + linked reservations. The order-wide buttons stay on the header, folded or
+             not: they act on the whole order, not on what the panel shows. -->
+        <CollapsiblePanel v-if="isEdit" screen="internal-orders.edit" panel-id="reservations" :summary="$t('invoicing.panels.reservationsCount', activeReservations.length)" class="mt-4" data-testid="internal-order-reservations">
+          <template #title>
             <v-icon size="20" color="primary">mdi-lock-clock</v-icon>
             {{ $t('nav.reservations') }}
             <v-chip size="x-small" variant="tonal">{{ activeReservations.length }}</v-chip>
-            <v-spacer />
+          </template>
+          <template #actions>
             <template v-if="canReserve">
               <v-btn size="small" variant="outlined" color="primary" prepend-icon="mdi-warehouse" :loading="reserving" @click="reserveAvailable">
                 {{ $t('invoicing.reserveAvailable') }}
@@ -197,8 +189,7 @@
                 {{ $t('invoicing.generateExternalOrder') }}
               </v-btn>
             </template>
-          </v-card-title>
-          <v-divider />
+          </template>
           <v-card-text class="pa-2">
             <div v-if="!reservations.length" class="text-medium-emphasis text-body-2 pa-2">
               {{ $t('invoicing.noReservationsYet') }}
@@ -272,8 +263,8 @@
               </v-table>
             </div>
           </v-card-text>
-        </v-card>
-        <OrderInvoicesCard v-if="isEdit" :invoices="linkedInvoices" :contacts="contactNames" :currency="form.currency || baseCurrency" :locale-code="localeCode" />
+        </CollapsiblePanel>
+        <OrderInvoicesCard v-if="isEdit" screen="internal-orders.edit" :invoices="linkedInvoices" :contacts="contactNames" :currency="form.currency || baseCurrency" :locale-code="localeCode" />
         <ReservationQuantityDialog
           v-model="resEditDialog"
           :reservation="resEditing"
@@ -505,6 +496,8 @@ import { asDraftOrder, defaultDraftFor, pickDraftsFor, type DraftOrder } from '.
 import { cascadeSummary } from '../composables/order-cascade'
 import OrderCascadeDialog from '../components/OrderCascadeDialog.vue'
 import OrderInvoicesCard from '../components/OrderInvoicesCard.vue'
+import DocumentBanner from '../components/document-form/DocumentBanner.vue'
+import CollapsiblePanel from 'ui-shared/components/CollapsiblePanel.vue'
 
 /** A line as the user edits it. What the server derives for it lives in `lineFigures`, not here. */
 interface LineRow {
@@ -772,6 +765,11 @@ function focusLineQuantity(idx: number) {
 const totalOrdered = computed(() => form.lines.reduce((s, l) => s + (Number(l.quantity) || 0), 0))
 const totalReserved = computed(() => form.lines.reduce((s, l) => s + figuresOf(l).reserved, 0))
 const totalDelivered = computed(() => form.lines.reduce((s, l) => s + figuresOf(l).delivered, 0))
+/** FR-28.43: the lines card, folded — how many lines, how much is needed, how much is reserved. */
+const linesSummary = computed(() => {
+  const lines = form.lines.filter((l) => l.productId || l.description)
+  return [t('invoicing.panels.lines', lines.length), t('invoicing.panels.needed', { n: totalOrdered.value }), t('invoicing.panels.reserved', { n: totalReserved.value })].join(' · ')
+})
 const estimatedTotal = computed(() => form.lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.expectedUnitPrice) || 0), 0))
 
 // ── status pipeline + actions ──

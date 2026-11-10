@@ -132,6 +132,15 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   // ── refs / collections ──
   const formRef = ref<any>()
+  /**
+   * FR-28.35: the header banner sits OUTSIDE `formRef`'s <v-form>, which is why its party select's
+   * `required` has never taken part in a save. Its issue date, moved up there from inside the form,
+   * was required and still has to be, so `validate()` asks the date itself as well as the form.
+   * Only the date: the party select must stay out of it, or a draft could no longer be saved before
+   * its party is chosen. (`DateField` exposes `validate()`; no second <form> is added to the page,
+   * which specs and `.v-form` selectors would see.)
+   */
+  const issueDateRef = ref<{ validate: (silent?: boolean) => Promise<string[]> } | null>(null)
   const loading = ref(false)
   const loadingContacts = ref(false)
   const contacts = ref<any[]>([])
@@ -1359,9 +1368,12 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   async function validate(): Promise<boolean> {
-    if (!formRef.value) return true
-    const { valid } = await formRef.value.validate()
-    return valid
+    // The date and the form are both asked, one after the other and never short-circuited, so every
+    // field that is wrong says so on the one press of Save (a bill with no supplier invoice number
+    // AND no date).
+    const dateErrors = issueDateRef.value ? await issueDateRef.value.validate() : []
+    const main = formRef.value ? (await formRef.value.validate()).valid : true
+    return dateErrors.length === 0 && main
   }
 
   const createAttempt = createIdempotentAction()
@@ -1868,6 +1880,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     selectedContact,
     // refs
     formRef,
+    issueDateRef,
     loading,
     rules,
     ledgerDialog,
