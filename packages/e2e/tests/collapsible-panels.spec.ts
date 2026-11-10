@@ -127,17 +127,19 @@ test.describe('Supplier order — the cards fold away', () => {
     await page.goto(`/invoicing/orders/${order._id}/edit`)
     await expect(page.locator('.form-paper-header').getByText(order.orderNumber)).toBeVisible({ timeout: 15000 })
 
+    // The flat Reservations card starts closed: the tree shows the reservations under their warehouse (FR-28 D-6).
     const reservations = page.getByTestId('order-reservations')
-    await expect(reservations.getByTestId('panel-toggle')).toHaveAttribute('aria-expanded', 'true')
-    await reservations.getByTestId('panel-toggle').click()
     await expect(reservations.getByTestId('panel-toggle')).toHaveAttribute('aria-expanded', 'false')
     await expect(reservations.getByTestId('panel-summary')).toHaveText('0 reservations · 0 clients')
+    await reservations.getByTestId('panel-toggle').click()
+    await expect(reservations.getByTestId('panel-toggle')).toHaveAttribute('aria-expanded', 'true')
+    await expect(reservations.getByTestId('panel-body')).toBeVisible()
 
     // The supplier's card is its own panel.
     await expect(page.getByTestId('order-group').first().getByTestId('panel-toggle')).toHaveAttribute('aria-expanded', 'true')
-    // Putting the card back leaves nothing of the folded state behind on the screen.
+    // Putting the card back leaves nothing of the opened state behind on the screen.
     await reservations.getByTestId('panel-toggle').click()
-    await expect(reservations.getByTestId('panel-body')).toBeVisible()
+    await expect(reservations.getByTestId('panel-body')).toBeHidden()
   })
 
   test('a supplier card with no supplier keeps its warning while it is folded', async ({ page }) => {

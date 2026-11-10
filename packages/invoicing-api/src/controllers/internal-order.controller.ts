@@ -15,7 +15,8 @@ import {
 } from 'services/biz/reservation-ops.service'
 import { InternalOrder, Reservation, Invoice, Order, Contact, Warehouse, Product } from 'db/models'
 import { sequenceDefFor, resolveSequencePrefix } from 'services/biz/sequence-registry'
-import { getNextOrderNumber } from './order.controller.js'
+import { getNextOrderNumber, getNextInternalOrderNumber } from 'services/biz/order-numbering'
+import { OrdersFromProductsError, createCustomerOrderFromProducts } from 'services/biz/orders-from-products.service'
 import { orderCoverage } from 'config/order-coverage'
 import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
 
@@ -23,15 +24,7 @@ import { buildConversionInvoice, planConversion, ConversionError, type Conversio
 // Internal orders: issued ORDI-YYYY-NNNNN (key INTERNAL_ORDER), drafts
 // DRF-ORDI-YYYY-NNNNN (key DRAFT_ORDI); display overrides via the Sequences page.
 
-export async function getNextInternalOrderNumber(orgId: string, draft: boolean): Promise<string> {
-  const variant = draft ? 'draft' : 'issued'
-  const key = sequenceDefFor('internal_order', variant)!.prefix
-  const year = new Date().getFullYear()
-  const numberFromService = await getNextNumber(orgId, key, 5, year)
-  const seqPart = numberFromService.split('-').pop()!
-  const display = await resolveSequencePrefix(orgId, 'internal_order', variant)
-  return `${display}-${year}-${seqPart}`
-}
+export { getNextInternalOrderNumber }
 
 function statusEntry(toStatus: string, fromStatus?: string, userId?: string, reason?: string) {
   return { status: toStatus, fromStatus, changedAt: new Date(), changedBy: userId, reason }
@@ -280,6 +273,32 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
       return { internalOrder: ordi }
     },
     { isSignIn: true, body: orderBody },
+  )
+  // FR-28.18: ONE draft customer order from the Products list. Idempotent on `requestId`; confirms, reserves and sends nothing.
+  .post(
+    '/from-products',
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      try {
+        const made = await createCustomerOrderFromProducts(orgId, user.id, body as any)
+        return { order: made.order, skipped: made.skipped, ...(made.replayed ? { replayed: true } : {}) }
+      } catch (e: any) {
+        if (e instanceof OrdersFromProductsError) return status(e.statusCode, { message: e.message, ...e.details })
+        throw e
+      }
+    },
+    {
+      isSignIn: true,
+      body: t.Object({
+        requestId: t.String({ minLength: 1, maxLength: 100 }),
+        contactId: t.String(),
+        requestedDeliveryDate: t.String(),
+        issueDate: t.Optional(t.String()),
+        priority: t.Optional(t.Union([t.Literal('low'), t.Literal('normal'), t.Literal('high'), t.Literal('urgent')])),
+        warehouseId: t.Optional(t.String()),
+        items: t.Array(t.Object({ productId: t.String(), quantity: t.Number() })),
+      }),
+    },
   )
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })

@@ -2,6 +2,7 @@ import { mongoose } from 'db/connection'
 import { Order, InternalOrder, Invoice, Reservation, StockLevel, Contact, Product, Warehouse } from 'db/models'
 import { getNextNumber } from './sequence.service.js'
 import { getDefaultSuppliers } from './product-suppliers.service.js'
+import { addLineToSupplierGroup } from './order-builder.js'
 import { sequenceDefFor, resolveSequencePrefix } from './sequence-registry.js'
 import {
   reservationReleasable,
@@ -1079,22 +1080,18 @@ export async function generateExternalOrder(
         const whId = l.warehouseId || defaultWhId
         if (!whId) throw new ReservationOpsError(422, 'No target warehouse (set one on the line, the incoming order, or mark a default warehouse)', { code: 'no_target_warehouse' })
 
-        let group = (order.supplierGroups as any[]).find((g: any) => String(g.supplierId) === String(l.supplierId))
-        if (!group) {
-          order.supplierGroups.push({ supplierId: l.supplierId, lines: [] })
-          group = order.supplierGroups[order.supplierGroups.length - 1]
-        }
-        group.lines.push({
+        // One builder for a supplier order's group, line and allocation (`order-builder.ts`): the order made from the
+        // Products list (FR-28.17) uses it too.
+        const { group, line: newLine, allocation: newAlloc } = addLineToSupplierGroup(order, {
+          supplierId: l.supplierId,
           productId: ordiLine.productId,
           description: ordiLine.description || product?.name || '',
           sku: ordiLine.sku || product?.sku,
           quantity: l.quantity,
           unit: ordiLine.unit || product?.unit || 'pcs',
           expectedUnitPrice: product?.purchasePrice,
-          allocations: [{ warehouseId: whId, quantity: l.quantity }],
+          warehouseId: whId,
         })
-        const newLine = group.lines[group.lines.length - 1]
-        const newAlloc = newLine.allocations[0]
 
         pendingRes.push({
           orgId,

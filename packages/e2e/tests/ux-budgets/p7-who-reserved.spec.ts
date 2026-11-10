@@ -37,7 +37,7 @@ async function contactByName(api: Api, name: string): Promise<any> {
 
 /**
  * Setup (uncounted): an ORDO sent to the supplier with two lines allocated to the default
- * warehouse, and client reservations on the allocations — what „Резервирай за клиент" on the
+ * warehouse, and client reservations on the allocations — what „+ Клиент" on a warehouse row of the
  * ORDO form makes. Earlier runs' orders are cancelled first, which releases their reservations.
  */
 async function sentOrderWithHolds(api: Api, supplier: any): Promise<any> {
@@ -107,31 +107,31 @@ test('P7 who reserved: per-client reserved quantity on one line of a supplier or
   // ── 1. Open the order: the answer is on it ──
   await walk.click(ordoLink, 'open the external order')
   await page.waitForURL(/\/orders\/[0-9a-f]{24}\/edit/)
-  const lineRow = (p: any) => page.locator('tbody tr').filter({ has: page.locator('.v-chip').filter({ hasText: p.name }) }).first()
-  // #252: a line holding reservations opens its client-reservations grid by itself, the row right
-  // under the line; each reservation is a row in it, grouped by allocation — client, number, and the
-  // quantity in a field named after the number.
-  const editorOf = (p: any) => lineRow(p).locator('xpath=following-sibling::tr[1]')
+  // FR-28.42: a line holding reservations opens by itself, and so does each warehouse that holds one. Under the
+  // line a row per warehouse, under that a row per client — the client, the reservation's number, and the
+  // quantity in a field named after the number. `data-root-id` says which line a row is under.
+  const lineIdOf = (p: any) => order.supplierGroups[0].lines.find((l: any) => String(l.productId) === String(p._id))._id
+  const rowsUnder = (p: any) => page.locator(`tr[data-root-id="l:${lineIdOf(p)}"]`)
   for (const [spec, p] of [[ASKED, asked], [OTHER, other]] as const) {
-    const editor = editorOf(p)
     for (const hold of spec.holds) {
       const number = numbers[`${spec.sku}:${hold.client}`]
-      await expect(editor).toContainText(hold.client)
-      await expect(editor.getByRole('spinbutton', { name: new RegExp(number) })).toHaveValue(String(hold.qty))
+      const row = rowsUnder(p).filter({ hasText: hold.client })
+      await expect(row).toHaveCount(1)
+      await expect(row.getByRole('spinbutton', { name: new RegExp(number) })).toHaveValue(String(hold.qty))
     }
   }
   // Per line, not per order: Stellar Components holds nothing on the other line.
-  await expect(editorOf(other)).not.toContainText(ASKED.holds[0].client)
+  await expect(rowsUnder(other).filter({ hasText: ASKED.holds[0].client })).toHaveCount(0)
   await settledShot(walk, 'ordo-form')
 
-  // The line's allocation chip: the total reserved, and the clients in its tooltip.
+  // The total reserved is on the warehouse's row and on the line's, in the Reserved column: what the clients' rows add up to.
   const reservedTotal = ASKED.holds.reduce((s, h) => s + h.qty, 0)
-  const allocChip = lineRow(asked).locator('.v-chip').filter({ hasText: /·/ })
-  await expect(allocChip).toHaveCount(1)
-  await expect(allocChip).toContainText(String(reservedTotal))
-  for (const hold of ASKED.holds) await expect(allocChip).toHaveAttribute('title', new RegExp(`${hold.client} ${hold.qty}`))
-  const allocText = (await allocChip.textContent())!.replace(/\s+/g, ' ').trim()
-  walk.note(`Answer read on the ORDO, one click from the list: under the „${asked.name}" line's allocation, ${ASKED.holds.map((h) => `${h.client} ${h.qty}`).join(' and ')} — a row per reservation with its number, client and quantity, changeable in place and saved with the order. The allocation chip reads „${allocText}" (the reserved total; its tooltip names the clients).`)
+  const RESERVED_COLUMN = 4
+  const warehouseRow = page.locator(`tr[data-kind="allocation"][data-root-id="l:${lineIdOf(asked)}"]`)
+  await expect(warehouseRow).toHaveCount(1)
+  await expect(warehouseRow.locator('td').nth(RESERVED_COLUMN)).toHaveText(String(reservedTotal))
+  await expect(page.locator(`tr[data-kind="line"][data-root-id="l:${lineIdOf(asked)}"]`).locator('td').nth(RESERVED_COLUMN)).toHaveText(String(reservedTotal))
+  walk.note(`Answer read on the ORDO, one click from the list: under the „${asked.name}" line, its warehouse and under that ${ASKED.holds.map((h) => `${h.client} ${h.qty}`).join(' and ')} — a row per client with the reservation's number and quantity, changeable in place and saved with the order. The line's and the warehouse's Reserved read ${reservedTotal}.`)
   walk.note('The Reservations list names the ORDO as a link in „Източник", and the product\'s „Наличност" tab lists the expected delivery with the clients holding it.')
 
   const result = walk.finish()

@@ -69,7 +69,7 @@
                   <EntityLink
                     v-if="detail?.order"
                     :label="detail.order.orderNumber"
-                    :to="{ name: 'invoicing.orders.edit', params: { id: detail.order._id } }"
+                    :to="{ name: 'invoicing.orders.edit', params: { id: detail.order._id }, query: orderLineQuery(res) }"
                   />
                   <span v-else>{{ res.orderNumber || '—' }}</span>
                   <v-chip v-if="detail?.order" size="x-small" label variant="tonal">{{ $t(`invoicing.status.${detail.order.status}`) }}</v-chip>
@@ -213,6 +213,7 @@ import ReservationCreateDialog from '../components/ReservationCreateDialog.vue'
 import DocumentBanner from '../components/document-form/DocumentBanner.vue'
 import { reservationHistory, type HistoryTone } from '../composables/reservation-history'
 import { isShortage, reservationErrorMessage } from '../composables/reservation-errors'
+import { orderLineQuery } from '../composables/order-tree/links'
 
 /**
  * FR-22.37: a reservation's own page — `/reservations/:id`. Who it is for, what and how much, where

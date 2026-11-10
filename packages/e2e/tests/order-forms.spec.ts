@@ -130,8 +130,8 @@ test.describe('An untouched order form is not „unsaved changes" (FR-22.13)', (
     await slowFirst(page, new RegExp(`/invoicing/orders/${order._id}$`), 1200)
     await page.goto(`/invoicing/orders/${order._id}/edit`)
     await expect(page.locator('.form-paper-header').getByText(order.orderNumber)).toBeVisible({ timeout: 15000 })
-    // Opening a line's allocations is looking, not editing.
-    await page.getByRole('button', { name: 'Allocations' }).first().click()
+    // Opening a line's warehouses is looking, not editing.
+    await page.getByTestId('tree-toggle').first().click()
 
     await page.getByTestId('form-back').click()
     await page.waitForURL(/\/invoicing\/orders(\?|$)/)

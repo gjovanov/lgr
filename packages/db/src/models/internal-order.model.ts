@@ -64,6 +64,8 @@ export interface IInternalOrder extends Document {
   tags?: string[]
   draftNumber?: string
   numberHistory?: Array<{ number: string; allocatedAt: Date; status: string }>
+  /** FR-28.17 / .18: where a draft came from, and the request that made it (the idempotency key). */
+  createdFrom?: { source: 'products'; requestId: string }
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -123,6 +125,15 @@ const internalOrderSchema = new Schema<IInternalOrder>(
         status: { type: String, required: true },
       },
     ],
+    /**
+     * FR-28.17 / .18: set only on a draft made from the Products list. `requestId` is the dialog's idempotency key:
+     * a second request with the same id answers with the document the first one created
+     * (`{ orgId, createdFrom.requestId }` is unique among the documents that carry one).
+     */
+    createdFrom: {
+      type: new Schema({ source: { type: String, enum: ['products'], required: true }, requestId: { type: String, required: true } }, { _id: false }),
+      required: false,
+    },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true },
@@ -133,6 +144,12 @@ internalOrderSchema.index({ orgId: 1, orderNumber: 1 }, { unique: true })
 internalOrderSchema.index({ orgId: 1, status: 1 })
 internalOrderSchema.index({ orgId: 1, contactId: 1 })
 internalOrderSchema.index({ orgId: 1, requestedDeliveryDate: 1 })
+// FR-28.17: one document per request. A PARTIAL index, not a sparse one: `orgId` is on every document, so a sparse
+// compound index would hold every document under a null `requestId` and refuse the second.
+internalOrderSchema.index(
+  { orgId: 1, 'createdFrom.requestId': 1 },
+  { unique: true, partialFilterExpression: { 'createdFrom.requestId': { $type: 'string' } } },
+)
 
 replicate(internalOrderSchema, { class: 'R' })
 
