@@ -128,7 +128,8 @@ test('at 1366 px the Products list keeps the name and the row menu in view — a
     expect(geo.rows, `${path}: rows to measure`).toBeGreaterThan(0)
     expect(new Set(geo.actionButtons), `${path}: one menu button per row`).toEqual(new Set([1]))
     for (const scroll of ['start', 'end'] as const) {
-      expect(await pinnedInView(page, scroll, 1), `${path}, scrolled to the ${scroll}: the name and the menu`).toEqual({ cell: true, menu: true })
+      // Cell 0 is the tick column (FR-28.13), 1 the SKU: the name is the third cell.
+      expect(await pinnedInView(page, scroll, 2), `${path}, scrolled to the ${scroll}: the name and the menu`).toEqual({ cell: true, menu: true })
     }
   }
 

@@ -101,12 +101,17 @@
                     :org-url="appStore.orgUrl()"
                     :initial-product="line.productId ? { _id: line.productId, name: line.productName || '' } : null"
                     :allow-create="isReceipt"
+                    price-field="purchasePrice"
+                    :stock-warehouse-id="stockWarehouseId"
+                    :base-currency="baseCurrency"
+                    :locale="localeCode"
                     class="flex-grow-1"
                     @product-selected="onLineProductSelected(idx, $event)"
                     @product-cleared="onLineProductCleared(idx)"
                     @create-product="openQuickProduct(idx, $event)"
+                    @details="openProductPicker(idx, $event)"
                   />
-                  <v-btn icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.browseProducts')" @click="openProductPicker(idx)" />
+                  <ProductDetailsButton @click="openProductPicker(idx)" />
                 </div>
                 <span v-else>{{ line.productName || line.productId }}</span>
               </td>
@@ -209,7 +214,18 @@
       <div class="text-caption text-medium-emphasis pa-2">{{ $t('common.noData') }}</div>
     </template>
 
-    <ProductPickerDialog v-model="productPickerOpen" :org-url="appStore.orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
+    <ProductPickerDialog
+      v-model="productPickerOpen"
+      :org-url="appStore.orgUrl()"
+      :base-currency="baseCurrency"
+      :locale="localeCode"
+      multiple
+      :stock-warehouse-id="stockWarehouseId"
+      price-field="purchasePrice"
+      :existing-product-ids="existingProductIds"
+      :initial-search="productPickerText"
+      @select-many="onProductsPicked"
+    />
 
     <!-- FR-22.30: the article the line's search did not find, created without leaving the receipt. -->
     <QuickProductDialog
@@ -302,6 +318,7 @@ import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import DateField from 'ui-shared/components/DateField.vue'
 import ProductSearch from 'ui-shared/components/ProductSearch.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
+import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
 import QuickProductDialog from 'ui-shared/components/QuickProductDialog.vue'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
@@ -923,17 +940,38 @@ function onLineProductCleared(idx: number) {
 
 const productPickerOpen = ref(false)
 const productPickerRowIdx = ref(-1)
+/** FR-28.25: what the user had typed in the line's field when they asked for Details (F4, "Show all N results"). */
+const productPickerText = ref('')
+/** FR-28.28: the articles already on the document are marked in the dialog, not hidden from it. */
+const existingProductIds = computed(() => form.value.lines.map((l: any) => String(l.productId || '')).filter(Boolean))
 
-function openProductPicker(idx: number) {
+function openProductPicker(idx: number, text = '') {
   productPickerRowIdx.value = idx
+  productPickerText.value = text
   productPickerOpen.value = true
 }
 
-async function onProductPicked(product: any) {
-  const idx = productPickerRowIdx.value
+/** The line after `idx` that is free for an article: the blank one that follows, else a new one inserted there. */
+function lineAfter(idx: number): number {
+  const next = idx + 1
+  const line = form.value.lines[next]
+  if (line && !line.productId) return next
+  form.value.lines.splice(next, 0, emptyLine())
+  return next
+}
+
+/**
+ * FR-28.28: several articles at once. The first goes on the line the dialog was opened from, as one pick would;
+ * each of the others on the next free line. Each runs the line's own after-pick logic, in the order ticked.
+ */
+async function onProductsPicked(products: any[]) {
+  let idx = productPickerRowIdx.value
   productPickerRowIdx.value = -1
-  if (idx < 0) return
-  await onLineProductSelected(idx, product)
+  if (idx < 0 || !products.length) return
+  for (let i = 0; i < products.length; i++) {
+    if (i > 0) idx = lineAfter(idx)
+    await onLineProductSelected(idx, products[i])
+  }
 }
 
 // ── FR-22.30: „+ Нов продукт „…"" on a receipt line ──

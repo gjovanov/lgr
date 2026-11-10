@@ -198,3 +198,31 @@ describe('mapStokrazpDoc', () => {
     expect(m.receiptItems.map(i => i.name)).toEqual(['ГАЙКА М10 - DIN 985 - А2', 'ПLAIN'])
   })
 })
+
+// FR-28.12: who the receipt names, in the shape the supplier lookup reads. `partner` stays as sent (the notes keep it).
+describe('mapStokrazpDoc — the supplier a receipt names', () => {
+  it('a plain receipt names its supplier by the bare name; `partner` keeps the prefix for the notes', () => {
+    const m = mapStokrazpDoc(PLAIN_RECEIPT)
+    expect(m.supplier).toEqual({ kind: 'supplier', name: 'ТЕСТ СЕНТЕР ЕООД' })
+    expect(m.partner).toBe('ПАРТНЬОРИ:ТЕСТ СЕНТЕР ЕООД')
+  })
+
+  it('a "2000 КОРЕКЦИЯ" receipt names nobody: the placeholder is not a supplier', () => {
+    const m = mapStokrazpDoc(MIXED_CORRECTION)
+    expect(m.supplier).toEqual({ kind: 'correction', name: '' })
+    expect(m.partner).toBe('ПАРТНЬОРИ:2000 КОРЕКЦИЯ')
+  })
+
+  it('a document with no partner names nobody', () => {
+    const m = mapStokrazpDoc(PRICE_ONLY)
+    expect(m.supplier).toEqual({ kind: 'nobody', name: '' })
+    expect(m.partner).toBeUndefined()
+  })
+
+  it('a whole-document return still names its (ordinary) partner: it is the caller that gives it no receipt', () => {
+    const m = mapStokrazpDoc(WHOLE_DOC_RETURN)
+    expect(m.supplier).toEqual({ kind: 'supplier', name: 'ПРИМЕРЕН ДОСТАВЧИК' })
+    expect(m.receiptItems).toEqual([])
+    expect(m.adjustmentLines).toHaveLength(2)
+  })
+})

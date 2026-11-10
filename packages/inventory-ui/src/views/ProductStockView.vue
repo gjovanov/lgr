@@ -312,6 +312,12 @@
             </v-data-table>
           </v-card-text>
         </v-tabs-window-item>
+
+        <!-- FR-28.7: who the article was bought from, read from the received bills and receipts. A window item
+             mounts when first shown, so the facts are asked for only by someone who opens the tab. -->
+        <v-tabs-window-item v-if="seesSuppliers" value="suppliers">
+          <ProductSuppliersTab :product-id="productId" />
+        </v-tabs-window-item>
       </v-tabs-window>
     </v-card>
   </v-container>
@@ -328,6 +334,8 @@ import EntityLink from 'ui-shared/components/EntityLink'
 import { appHref } from 'ui-shared/nav/navigate'
 import ProductTabBar from '../components/ProductTabBar.vue'
 import ProductDocActions from '../components/ProductDocActions.vue'
+import ProductSuppliersTab from '../components/ProductSuppliersTab.vue'
+import { useAccess } from 'ui-shared/access/useAccess'
 
 const route = useRoute()
 const router = useRouter()
@@ -340,10 +348,12 @@ const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 
 const productId = computed(() => route.params.id as string)
 const product = ref<any>(null)
 const activeTab = ref('levels')
+// FR-28.7: the Suppliers tab is incoming-document data (`bills.view`), as the server holds it.
+const seesSuppliers = useAccess().can('bills.view')
 
-// URL tab → internal activeTab binding. URL uses stock|ledger|movements|levels;
-// internal uses levels|ledger|movements|counts.
-const URL_TO_INTERNAL: Record<string, string> = { stock: 'levels', ledger: 'ledger', movements: 'movements', levels: 'counts' }
+// URL tab → internal activeTab binding. URL uses stock|ledger|movements|levels|suppliers;
+// internal uses levels|ledger|movements|counts|suppliers.
+const URL_TO_INTERNAL: Record<string, string> = { stock: 'levels', ledger: 'ledger', movements: 'movements', levels: 'counts', suppliers: 'suppliers' }
 const urlTab = computed(() => (route.params.tab as string) || 'stock')
 watch(urlTab, (v) => { activeTab.value = URL_TO_INTERNAL[v] || 'levels' }, { immediate: true })
 

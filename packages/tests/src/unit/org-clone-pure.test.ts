@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { mongoose } from 'db/connection'
 import { cloneIdHex, cloneMask, HEX24 } from 'services/biz/org-clone/ids'
 import { canonicalize, contentHash } from 'services/biz/org-clone/canonical'
+import { namedIds } from 'services/biz/org-clone/leaks'
 import { remapDoc, remapValue, type RemapEnv } from 'services/biz/org-clone/remap'
 import {
   KEPT_ON_RESET, NEVER_CLONED, SEED_ONLY, clonePlain, clonedModels, copyOrder, testOrgSettings,
@@ -108,9 +109,23 @@ describe('the rewrite into the copy', () => {
     expect(typeof out.lines[1].productId).toBe('string')
     expect(String(out.nested.deep[0].contactId)).toBe(cloneIdHex(contact, tgt))
     expect(String(out.identityId)).toBe(person)
-    expect(out.text).toBe(`see ${product} in the text`)
+    // An id inside a longer string is a reference as well: it is the copy's now.
+    expect(out.text).toBe(`see ${cloneIdHex(product, tgt)} in the text`)
     expect(out.when).toBeInstanceOf(Date)
     expect(Buffer.isBuffer(out.blob)).toBe(true)
+  })
+
+  it('rewrites a source id that stands inside a longer string, and only a whole token of one', () => {
+    const stranger = rand()
+    const out = remapValue({
+      tags: [`converted:${product}`, `see ${contact} and ${product}.`, 'plain', `from:${stranger}`],
+      glued: `${product}ab`,
+    }, env)
+    expect(out.tags[0]).toBe(`converted:${cloneIdHex(product, tgt)}`)
+    expect(out.tags[1]).toBe(`see ${cloneIdHex(contact, tgt)} and ${cloneIdHex(product, tgt)}.`)
+    expect(out.tags[2]).toBe('plain')
+    expect(out.tags[3]).toBe(`from:${stranger}`) // not a document of the source org
+    expect(out.glued).toBe(`${product}ab`) // a longer run of hex digits is not an id
   })
 
   it('does not touch its input', () => {
@@ -124,7 +139,7 @@ describe('the rewrite into the copy', () => {
     const out = remapValue({ currentPath: `${src}/docs/a.pdf`, logo: `/api/org/${src}/logo?v=abc`, other: `${src}/x` }, env)
     expect(out.currentPath).toBe(`${tgt}/docs/a.pdf`)
     expect(out.logo).toBe(`/api/org/${tgt}/logo?v=abc`)
-    expect(out.other).toBe(`${src}/x`) // only path-like keys: a free text field is not rewritten
+    expect(out.other).toBe(`${tgt}/x`) // the org's own id inside any string is the copy's, path-like key or not
   })
 
   it('always writes the target org, even into a document that never named one', () => {
@@ -163,7 +178,7 @@ describe('what a test copy holds', () => {
     for (const m of ['File', 'DocFile', 'ArchiveUnit', 'FiscalDevice', 'Workstation', 'Desktop', 'Invite', 'OAuthHandoff', 'Code', 'PersonalDataKey']) {
       expect(m in NEVER_CLONED).toBe(true)
     }
-    expect(SEED_ONLY).toEqual(['User', 'PermissionSet', 'Role'])
+    expect(SEED_ONLY).toEqual(['User', 'PermissionSet', 'Role', 'OrgApp'])
     // A reset keeps access and hardware, and nothing a copy would replace.
     expect(KEPT_ON_RESET).toContain('User')
     expect(KEPT_ON_RESET).toContain('FiscalDevice')
@@ -196,5 +211,39 @@ describe('what a test copy holds', () => {
     // The real org's own settings are not changed by building the copy's.
     expect(real.dailyDigest.enabled).toBe(true)
     expect((real.accounting as any).books).toBeDefined()
+  })
+})
+
+describe('the leak matcher (the second opinion on the rewrite)', () => {
+  const id = rand()
+  const ids = new Set([id])
+
+  it('finds an id as a whole value, inside a sentence, and as a key, whatever the case', () => {
+    expect(namedIds(JSON.stringify({ a: id }), ids)).toEqual([id])
+    expect(namedIds(`converted-from:${id} and more`, ids)).toEqual([id])
+    expect(namedIds(JSON.stringify({ [id]: 5 }), ids)).toEqual([id])
+    expect(namedIds(id.toUpperCase(), ids)).toEqual([id])
+  })
+
+  it('finds an id the rewrite leaves alone: glued to other hex digits, at any offset', () => {
+    // The rewrite follows a whole 24-hex token only, and a longer run of hex digits is not one.
+    expect(namedIds(`ab${id}`, ids)).toEqual([id])
+    expect(namedIds(`${id}cd`, ids)).toEqual([id])
+    expect(namedIds(`${rand()}${id}${rand()}`, ids)).toEqual([id])
+    // An odd offset: what a scan stepping 24 digits at a time would miss.
+    expect(namedIds(`a${id}b`, ids)).toEqual([id])
+    expect(namedIds(`1${id}`, ids)).toEqual([id])
+  })
+
+  it('ignores what is not in the set: another id, a near miss, a digit that is not hex', () => {
+    expect(namedIds(rand(), ids)).toEqual([])
+    expect(namedIds(id.slice(1), ids)).toEqual([])
+    expect(namedIds(`${id.slice(0, 23)}g`, ids)).toEqual([])
+    expect(namedIds('', ids)).toEqual([])
+  })
+
+  it('names each id once, however often it stands, and every id it finds', () => {
+    const other = rand()
+    expect(namedIds(`${id} ${id} ${other}`, new Set([id, other])).sort()).toEqual([id, other].sort())
   })
 })

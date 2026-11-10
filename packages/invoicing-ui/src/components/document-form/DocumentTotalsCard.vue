@@ -1,5 +1,5 @@
 <template>
-  <v-card variant="outlined">
+  <v-card variant="outlined" data-testid="document-totals">
     <v-card-text>
       <div class="d-flex justify-space-between mb-2">
         <span>{{ $t('invoicing.subtotal') }}</span>

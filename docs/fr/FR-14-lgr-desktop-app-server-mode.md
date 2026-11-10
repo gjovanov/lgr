@@ -1219,3 +1219,29 @@ Published 2026-11-09 13:41 UTC from draft 438513258.
 - **#591:** the fiscal bridge has no liveness check, so a connection that dies without a close leaves a till without its device until LGR Desktop restarts. Presence has its own deadline and was back within 2 s of it.
 - **#590:** why the update's close never arrived. On Windows the update moves the firewall rule to the new version's program before it stops the old server.
 
+
+#### desktop-v0.1.12 (2026-11-10), against the hub's v20261110-7a27f8cdf3b2
+
+**What changed:** two fixes in the shell, each found by an FR-20 field lane.
+
+- **#594 (#591): the fiscal bridge notices a hub that went silent.** It only ever read, so a connection that died without a close read nothing and never failed. Causes include a master's update on Windows (#590), a power cut, or a dropped link. The till then printed nothing until LGR Desktop was restarted, while presence, which has a deadline, was back within seconds. Now the bridge pings a hub that has been quiet for 20 s and gives the connection up after 60 s of silence, then connects again. Every server answers the ping: the hub has replied `pong` since the bridge's first commit.
+- **#597 (#596): the window's proxy mints its token where it forwards.** After its master moved to a new address (FR-20.28), the proxy forwarded to the new address but minted every new token at the old one, where nothing answers. Once its cached token was 10 minutes old, or the master refused it, every page answered `503 desktop_token_failed` until LGR Desktop restarted. `Upstream.token` now takes the proxy's current origin.
+
+`packages/desktop` holds nothing else since 0.1.11 (`bridge.rs`, `proxy.rs`, `main.rs`).
+
+**How it was found.**
+- #591: the FR-20 soak trial `soak-t2` (2026-11-08). A Windows master was updated from 0.1.10 to 0.1.11, and its till printed nothing for the rest of the trial.
+- #596: the shop lane `v0111c-shop` (2026-11-09). `rediscover` moved the master right after `restore-lock`, whose two server stops (about 8 minutes) let the till's cached token pass 10 minutes. `rediscover`, `clock-push` and `snapshot-revert` all answered 503. Earlier shop lanes passed `rediscover` only because it ran within 10 minutes of the last mint.
+
+**Lanes:** the FR-14 desk lanes and the FR-20 shop lanes, now 23 checks with #549's `restore-lock` and `snapshot-revert` (lgr-deploy#66), on LGR's own Windows 11 golden. They ran against the signed draft's own bytes (draft 439313648, run 42645599890, from `ad32e557`), staged on mars and checked against GitHub's digests, beside server 0.1.11's signed rehearsal (42518215223), whose release they also gated. Harness `72d96bf` (lgr-deploy #67 on #66). Its first pass on `cbbcc30` went 22/1 on `shop-ubuntu`: `snapshot-revert` found the window signed out by `clock-push`, a harness gap that d673cd4 fixed.
+- `shop-ubuntu` 23/23, `shop-win11` 23/23, `shop-ubuntu-nomcast` 22 PASS with its `rediscover` NA, `shop-win10` 23/23.
+- `rediscover` passed after `restore-lock` on every shop that runs it: the window follows its master past the token's 10 minutes.
+- The desk lanes, cell for cell as on 0.1.11: code 12/0/7, key 11/0/8, msi/admin 13/0/6 (on its first run), ubuntu 3/0/16. `clock-skew` passed on the three Windows cells with the guest 180 min out.
+
+Published 2026-11-09 23:22 UTC from draft 439313648 (its `target_commitish` was `ad32e557`, the tested commit).
+- Its tag's run built nothing (run 42719983490): `build` and `release` were skipped, because the release was already published.
+- All 14 asset digests are the draft's, and they equal the files the lanes ran, hashed on mars.
+- Offered to the fleet by lgr-deploy `c2378a9` (`DESKTOP_RELEASE_VERSION` 0.1.12). ArgoCD is Synced and Healthy, and both new pods read it.
+- Through `/api/desktop/download/0.1.12`, the page answers 200, and the MSI, the Windows installer and its `.sig` come back with the release's own sha256 digests.
+
+**What the 72 h soak adds.** The FR-20 soak (lgr-deploy#65) started at 23:22 UTC on these tills, beside a Windows master that moves from 0.1.10 to 0.1.11 at 36 h: the same update that left soak-t2's till printing nothing. #591 closes on that run's verdict.

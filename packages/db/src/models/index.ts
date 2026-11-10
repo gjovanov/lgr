@@ -64,6 +64,7 @@ export { CashOrder, type ICashOrder } from './cash-order.model.js'
 
 // Warehouse
 export { Product, type IProduct } from './product.model.js'
+export { ProductSupplier, type IProductSupplier } from './product-supplier.model.js'
 export { Warehouse, type IWarehouse } from './warehouse.model.js'
 export { StockLevel, type IStockLevel } from './stock-level.model.js'
 export { StockMovement, type IStockMovement } from './stock-movement.model.js'

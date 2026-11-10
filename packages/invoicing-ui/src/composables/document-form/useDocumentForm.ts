@@ -132,6 +132,15 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   // ── refs / collections ──
   const formRef = ref<any>()
+  /**
+   * FR-28.35: the header banner sits OUTSIDE `formRef`'s <v-form>, which is why its party select's
+   * `required` has never taken part in a save. Its issue date, moved up there from inside the form,
+   * was required and still has to be, so `validate()` asks the date itself as well as the form.
+   * Only the date: the party select must stay out of it, or a draft could no longer be saved before
+   * its party is chosen. (`DateField` exposes `validate()`; no second <form> is added to the page,
+   * which specs and `.v-form` selectors would see.)
+   */
+  const issueDateRef = ref<{ validate: (silent?: boolean) => Promise<string[]> } | null>(null)
   const loading = ref(false)
   const loadingContacts = ref(false)
   const contacts = ref<any[]>([])
@@ -146,6 +155,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const ledgerDialog = ref(false)
   const productPickerOpen = ref(false)
   const productPickerRowIdx = ref(-1)
+  /** FR-28.25: what the user had typed in the line's field when they asked for Details (F4, "Show all N results"). */
+  const productPickerText = ref('')
   const importDialogOpen = ref(false)
 
   // ── line columns ──
@@ -552,6 +563,26 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     if (grColumnsVisible.value && line.productId) await seedLineProductUpdate(idx, priceAtPick)
     // Selecting a product on the last row appends a fresh blank row (matches legacy UX).
     if (idx === form.lines.length - 1) form.lines.push(emptyLine())
+    // FR-28.27: the quantity is what the line needs next, so the cursor goes there.
+    focusLineQuantity(idx)
+  }
+
+  /**
+   * After a pick the cursor goes to the line's quantity, deferred past the search closing (and a dialog handing focus
+   * back). Only while the cursor is still where the pick left it — on this line, or nowhere: a user who has already
+   * moved on to another field keeps it.
+   */
+  function focusLineQuantity(idx: number) {
+    if (typeof document === 'undefined') return
+    setTimeout(() => {
+      const row = document.querySelectorAll('.line-table tbody tr')[idx] as HTMLElement | undefined
+      const input = row?.querySelector('input[type="number"]') as HTMLInputElement | null
+      if (!input || input.disabled || input.readOnly) return
+      const active = document.activeElement
+      if (active && active !== document.body && !row!.contains(active)) return
+      input.focus()
+      try { input.select() } catch { /* a number input may refuse select() */ }
+    }, 200)
   }
 
   function onProductCleared(idx: number) {
@@ -565,9 +596,40 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     line.productBase = undefined
   }
 
-  function openProductPicker(idx: number) {
+  function openProductPicker(idx: number, text = '') {
     productPickerRowIdx.value = idx
+    productPickerText.value = text
     productPickerOpen.value = true
+  }
+
+  /** FR-28.28: the articles already on the document are marked in the dialog, not hidden from it. */
+  const existingProductIds = computed(() => form.lines.map((l: any) => String(l.productId || '')).filter(Boolean))
+
+  /** The line after `idx` that is free for an article: the blank one that follows, else a new one inserted there. */
+  function lineAfter(idx: number): number {
+    const next = idx + 1
+    const line = form.lines[next]
+    if (line && !line.productId && !line.description) return next
+    form.lines.splice(next, 0, emptyLine())
+    return next
+  }
+
+  /**
+   * FR-28.28: several articles at once. The first goes on the line the dialog was opened from, as one pick would;
+   * each of the others on the next free line. Each runs the line's own after-pick logic — price resolution, unit and
+   * tax — in the order ticked. A repeated article is a line of its own, as it is when picked one at a time.
+   */
+  async function onProductsPicked(products: any[]) {
+    let idx = productPickerRowIdx.value
+    productPickerRowIdx.value = -1
+    if (idx < 0 || !products.length || !form.lines[idx]) return
+    for (let i = 0; i < products.length; i++) {
+      if (i > 0) idx = lineAfter(idx)
+      const line = form.lines[idx]
+      line.productId = products[i]._id
+      line.description = products[i].name
+      await onProductSelected(idx, products[i])
+    }
   }
 
   async function onProductPicked(product: any) {
@@ -1359,9 +1421,12 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   async function validate(): Promise<boolean> {
-    if (!formRef.value) return true
-    const { valid } = await formRef.value.validate()
-    return valid
+    // The date and the form are both asked, one after the other and never short-circuited, so every
+    // field that is wrong says so on the one press of Save (a bill with no supplier invoice number
+    // AND no date).
+    const dateErrors = issueDateRef.value ? await issueDateRef.value.validate() : []
+    const main = formRef.value ? (await formRef.value.validate()).valid : true
+    return dateErrors.length === 0 && main
   }
 
   const createAttempt = createIdempotentAction()
@@ -1868,11 +1933,14 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     selectedContact,
     // refs
     formRef,
+    issueDateRef,
     loading,
     rules,
     ledgerDialog,
     productPickerOpen,
     productPickerRowIdx,
+    productPickerText,
+    existingProductIds,
     columnPickerOpen,
     importDialogOpen,
     applyImportedDocument,
@@ -1940,6 +2008,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     onProductCleared,
     openProductPicker,
     onProductPicked,
+    onProductsPicked,
     resolvePriceForLine,
     onLinePriceChange,
     onLinePriceManualChange,

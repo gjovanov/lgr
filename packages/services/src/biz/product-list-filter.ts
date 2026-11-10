@@ -18,13 +18,18 @@ export interface ProductListQuery {
   tags?: string | string[]
   /** FR-22.48: 'true' = active, 'false' = deactivated, anything else = both. */
   isActive?: string
+  /**
+   * FR-28.10: per keyword of `search`, the articles whose RECORDED supplier code matches it
+   * (`findProductIdsBySupplierCode`). Only the caller who may see supplier data passes them.
+   */
+  supplierCodeIds?: string[][]
 }
 
 export function buildProductListFilter(orgId: string, q: ProductListQuery): Record<string, any> {
   const filter: Record<string, any> = { orgId }
   if (q.category) filter.category = q.category
   if (q.type) filter.type = q.type
-  if (q.search) Object.assign(filter, buildProductSearchFilter(q.search))
+  if (q.search) Object.assign(filter, buildProductSearchFilter(q.search, { alsoIds: q.supplierCodeIds }))
   if (q.tags) {
     const tagList = Array.isArray(q.tags) ? q.tags : q.tags.split(',')
     filter.tags = { $in: tagList }

@@ -722,6 +722,11 @@ invoiceSchema.index(
   { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } },
 )
 invoiceSchema.index({ orgId: 1, contactId: 1 })
+// FR-28.2: which suppliers sold an article, and which articles a supplier sold. The Products list reads
+// purchases from the bills themselves (`product-suppliers.service.ts`), so both questions need an index
+// of their own: `contactId` alone cannot say "incoming", and no index named a line's article.
+invoiceSchema.index({ orgId: 1, direction: 1, 'lines.productId': 1 })
+invoiceSchema.index({ orgId: 1, direction: 1, contactId: 1 })
 invoiceSchema.index({ orgId: 1, status: 1 })
 invoiceSchema.index({ orgId: 1, direction: 1, issueDate: -1 })
 invoiceSchema.index({ orgId: 1, dueDate: 1, status: 1 })

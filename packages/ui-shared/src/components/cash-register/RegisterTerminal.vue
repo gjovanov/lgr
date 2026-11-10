@@ -20,7 +20,11 @@
             style="min-width: 200px; flex: 2 1 220px"
             @update:model-value="onSearchChange"
             @keydown.enter.prevent="onSearchEnter"
+            @keydown.f4.prevent="openDetails"
           />
+          <!-- FR-28.25: the grid stays the till's search; "Details" is the Products list in a window, reading this
+               catalog (active articles, this warehouse's stock), for the article the grid does not show. -->
+          <ProductDetailsButton class="align-self-center" @click="openDetails" />
           <v-select
             v-model="categoryFilter"
             :items="categoryOptions"
@@ -152,15 +156,32 @@
         </v-card-text>
       </v-card>
     </v-col>
+
+    <!-- FR-28.26: a pick adds one unit, as a card click does; several ticked add one of each. -->
+    <ProductPickerDialog
+      v-if="!readonly"
+      v-model="detailsOpen"
+      source="till"
+      multiple
+      :org-url="orgUrl"
+      :base-currency="currency"
+      :locale="localeTag"
+      :stock-warehouse-id="warehouseId"
+      :initial-search="detailsText"
+      @select="(p: any) => emit('add', p)"
+      @select-many="addMany"
+    />
   </v-row>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from '../../composables/useHttpClient'
 import TagInput from '../TagInput.vue'
 import PriceSelectButton from '../PriceSelectButton.vue'
+import ProductDetailsButton from '../ProductDetailsButton.vue'
+import ProductPickerDialog from '../ProductPickerDialog.vue'
 
 /** A cart line as either door holds it: the till's cart item, or a document line. */
 export interface RegisterLine {
@@ -221,7 +242,22 @@ const emit = defineEmits<{
   (e: 'price', idx: number, option: any): void
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+
+/** The app's language as a BCP 47 tag, for the figures the dialog prints. */
+const localeTag = computed(() => ({ en: 'en-US', bg: 'bg-BG', de: 'de-DE', mk: 'mk-MK' } as Record<string, string>)[String(locale.value)] || 'en-US')
+
+// ── FR-28.25: Details ──
+const detailsOpen = ref(false)
+/** What was typed in the grid's search when Details was asked for: the dialog opens searching for it. */
+const detailsText = ref('')
+function openDetails() {
+  detailsText.value = search.value || ''
+  detailsOpen.value = true
+}
+function addMany(ps: any[]) {
+  for (const p of ps) emit('add', p)
+}
 
 function fmt(n: number, decimals = 2) {
   return new Intl.NumberFormat(undefined, { style: 'currency', currency: props.currency || 'EUR', minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n || 0)
