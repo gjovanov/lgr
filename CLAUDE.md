@@ -3038,7 +3038,7 @@ Spec: `docs/fr/FR-26-seller-and-sales-consultant-roles.md`. Roles `seller` („�
 - **Areas** (`config/constants#AREAS`: `portal orders purchases payments pricing stockControl catalogExport`) are a claim on the session, `areas?: Area[]`, merged from the sets (`mergeAreas`) or the role (`DEFAULT_ROLE_AREAS`, the two new roles only). `holdsArea` is the one test, server and UI.
   - ⚠ **Absent and `[]` mean opposite things.** Absent: unrestricted (every existing set, role and token). `[]`: none. The model path is `default: undefined`, the set API takes `areas: null` for "every area" (`$unset`), and `sessionViewer` passes the claim only when the token carries a list.
   - Merge: an `isAdmin` set or any set without `areas` wins (unrestricted), else the union. So a custom set without areas makes a Seller unrestricted; the Users screen warns when role and sets disagree.
-- **Server.** `route-permission.ts#AREA_PREFIXES` refuses whole prefixes (`area_required`, reads and writes), `admin` exempt. What no prefix can say is the controllers': an incoming document under `/invoices` is 404 by id and absent from the list, summary, exports, ledger and aging (`purchases`); an invoice adds or changes no order link (`orders`, existing links round-trip); `product-supply` names no order (`orders`). `reports/*` needs `reports.read` on top of `canAccessReport`. A movement write takes `inventory.write` or `inventory.transfer`, and the controller holds a transfer-only caller to transfers with both warehouses (`movement.controller#transferRefusal`).
+- **Server.** `route-permission.ts#AREA_PREFIXES` refuses whole prefixes (`area_required`, reads and writes), `admin` exempt. What no prefix can say is the controllers': an incoming document under `/invoices` is 404 by id and absent from the list, summary, exports, ledger and aging (`purchases`, now `bills.view`: FR-27.6 partitions, below); an invoice adds or changes no order link (`orders`, existing links round-trip); `product-supply` names no order (`orders`). `reports/*` needs `reports.read` on top of `canAccessReport`. A movement write takes `inventory.write` or `inventory.transfer`, and the controller holds a transfer-only caller to transfers with both warehouses (`movement.controller#transferRefusal`).
 - **UI.** `PageDef.area` and `canOpenPage`; the inventory menu goes through `withPageRules` (`ui-shell/module.ts`). A session without `portal` has no Portal tile and lands in its first app (`portalGuard`, `landingWithoutPortal`). `isTransferOnly` gives the movement form Transfer only; `writesInventory` makes Products, Categories and Warehouses read-only. Sequences is admin and manager only, as the server always was.
 - **Assigning a role takes effect** (FR-26.9): a role change swaps the user's SYSTEM sets for the role's (`setsForRole`, custom sets stay), an invite starts on the role's set (`inviteSetFor`; a restricted role whose set the org lacks gets none, never the default set), and a change of role, sets or own permissions bumps the person's `tokenVersion` (`endSessionsOf`): every session of theirs, in every org, ends within the minute.
 - **Migration `0014-seller-permission-sets`** seeds both system sets in every org. A set of either name somebody made is reported and left alone, never adopted. Rollback: move every Seller and Sales Consultant to another role first; the previous release rejects the names and ignores `areas`.
@@ -3070,6 +3070,19 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - `sales-docs.import`: the invoices list's Import button only; the API still takes the import;
   - `org.switch`: `OrgSwitcher` shows the org read-only, and `/orgs` redirects inside an org.
   - Such a session lands on Products where it can open them (`landingWithoutPortal`).
+- **Partitions (FR-27.6, Phase 2): sales documents, proforma and bills share `/invoices`** (`config/access/partition.ts`).
+  `kindOfDocument`: incoming is `bills`, an outgoing `proforma` is `proforma`, the rest `sales-docs`. A role reads the
+  kinds whose `view` it holds (`readsKind`) and writes those whose `create`/`edit` it holds (`writesKind`; deleting
+  takes the kind's `delete`).
+  - `invoice.controller`: by id, another kind is 404 (as an unknown id) and a kind it only reads is 403
+    `capability_required`; the list adds `partitionFilter(grant)` (`{ direction }` or an `$or`); the summary covers
+    `readableDirection`; a create of a kind it does not make is refused before anything is written. The exports,
+    contact ledger and card, aging, stats, movements' bill links and the import's bill target read `bills.view` /
+    `bills.create` where they read the `purchases` area.
+  - Route rules: `invoices` reads take any kind's `view`, writes any kind's work; the controller does the rest.
+  - ⚠ Legacy grants the three together from the invoicing permissions, and an `areas` list without `purchases`
+    takes `bills` away, so nobody's answer changes (`access-differential`). A grant that reads every kind and works
+    on every kind costs no query.
 
 ## One access model: Phase 1, roles (FR-27, #529)
 

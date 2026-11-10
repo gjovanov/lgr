@@ -1,7 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
 import { can } from 'services/biz/access/evaluate'
-import { holdsArea } from 'config/constants'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement, MovementClaimedError, MovementNotDraftError, unclaimedMovement } from 'services/biz/warehouse.service'
@@ -83,7 +82,7 @@ const TRANSFER_ONLY = { code: 'transfer_only', message: 'Your role moves stock b
  * without the area; empty for one that has it (nothing is hidden from it). One query per call.
  */
 async function hiddenBills(user: { role?: string; areas?: readonly string[] }, orgId: string, movements: any[]): Promise<Set<string>> {
-  if (holdsArea(user, 'purchases')) return new Set()
+  if (can(user as any, 'bills.view')) return new Set()
   const ids = [...new Set(movements.map(m => m.invoiceId).filter(Boolean).map(String))].filter(id => /^[0-9a-f]{24}$/i.test(id))
   if (!ids.length) return new Set()
   const bills = await Invoice.find({ _id: { $in: ids }, orgId, direction: 'incoming' } as any, { _id: 1 }).lean().exec()
@@ -187,7 +186,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const contactMap = new Map(contacts.map(c => [c.id, c]))
     // FR-22.31: a receipt names the live bill that holds it (the list's „Фактурирана" marker).
     // #493: none for a session without `purchases`, and the bills it would name are hidden (`withoutBill`).
-    const receipts = holdsArea(user, 'purchases') ? result.items.filter((m: any) => m.type === 'receipt' && m.invoiceId) : []
+    const receipts = can(user as any, 'bills.view') ? result.items.filter((m: any) => m.type === 'receipt' && m.invoiceId) : []
     const billing = receipts.length ? await billingByMovement(orgId, receipts) : new Map()
     const hidden = await hiddenBills(user, orgId, result.items)
 
@@ -379,7 +378,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     // FR-22.31: the bill that holds this receipt, or whether one may be made from it.
     // #493: a session without `purchases` makes no bill and is told of none.
-    const billing = movement.type === 'receipt' && holdsArea(user, 'purchases')
+    const billing = movement.type === 'receipt' && can(user as any, 'bills.view')
       ? await receiptBillingFor(orgId, { ...movement, _id: movement.id }, user.id)
       : { billable: false }
 
