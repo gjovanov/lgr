@@ -4,8 +4,15 @@
 # Also untags `latest` if older than the most-recent versioned tag (it'll be re-tagged
 # on next push).
 #
-# Run before each `docker push` to prevent the build host from filling its disk —
-# images are ~7.5GB each and accumulate quickly during rapid iteration.
+# Run before each `docker push` to prevent the build host from filling its disk: an image is
+# ~1.7 GB (it was ~7.5 GB while every app had its own UI build), and a deploy adds one.
+#
+# ⚠ The build cache is TRIMMED to a budget, never emptied. Until 2026-11 this script ran
+# `docker builder prune -af` before every build, so no layer was ever reused: each deploy
+# reinstalled the OS packages and node_modules and rebuilt the SPA (2 min), then pushed the 1.5 GB
+# it had just remade (1.8 min). It also emptied the cache of every other project that builds on
+# this host, nine times a day. The budget keeps the most recently used layers
+# (LGR_BUILD_CACHE_KEEP, 20 GB unless set); what a deploy adds is the ~35 MB its commit changed.
 #
 # Usage:
 #   ./scripts/prune-docker-tags.sh           # dry-run
@@ -15,6 +22,7 @@ set -euo pipefail
 
 REPO="registry.roomler.ai/lgr"
 KEEP=2
+CACHE_KEEP="${LGR_BUILD_CACHE_KEEP:-20GB}"
 APPLY="${1:-}"
 
 # List versioned tags (v20260428-..., build-..., p2-p3, final, etc.) sorted by created-at desc.
@@ -49,9 +57,9 @@ for t in "${DROP_LIST[@]}"; do
   docker rmi "$REPO:$t" 2>&1 | tail -1
 done
 
-# Final cleanup: dangling layers + build cache.
+# Final cleanup: dangling layers, and the build cache down to its budget (least recently used first).
 docker image prune -f >/dev/null
-docker builder prune -af >/dev/null
+docker builder prune -af --keep-storage "$CACHE_KEEP" >/dev/null
 
 echo "[prune-docker-tags] Done."
 docker images "$REPO" --format 'table {{.Tag}}\t{{.CreatedAt}}\t{{.Size}}'

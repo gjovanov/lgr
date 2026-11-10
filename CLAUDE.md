@@ -1445,9 +1445,20 @@ its own `newTag`: a blanket `sed -i "s|newTag:.*|...|"` clobbers both and breaks
 sidecar. Bump the `newTag` line inside the matching `- name:` block only, and verify both
 lines still match `newTag: v[0-9]{8}-[0-9a-f]{12}$` before committing.
 
+### How long a deploy takes, and why (2026-11-11)
+
+About **a minute** for a commit that changes no dependency, ~30 s more when it changes the UI. The first deploy of a month, a `bun.lock` / `package.json` change or a new base image rebuilds everything: ~5 min, which is what **every** deploy took until 2026-11-10 (176 deploy logs, 2026-09-26 → 11-10: build ~2 min, push ~1.8 min, rollout ~1 min).
+
+- **The image's layers are ordered by how often they change** (`Dockerfile`: `base` OS packages → `deps` node_modules + Chrome → `web` the built SPA → the repository, last). A deploy rebuilds, pushes and pulls only what its commit touched. Until 2026-11 the repository was copied *before* `bun install` and the OS packages were installed after it, so a one-line fix remade and re-pushed 1.5 GB.
+- ⚠ **The `web` stage is given only the packages the SPA is built from** (`web`, `config`, `ui-shared`, `ui-shell`, `*-ui`), so a backend commit reuses the built SPA *and its build id*: no open tab is told to reload for a deploy that changed no UI file (FR-24.14). A UI file importing from another package fails that build; `unit/image-layers.test.ts` says so in CI first.
+- **Every deploy log ends with `DEPLOY_TIMING`** (per phase, and `layers: os=… deps=… web=…`). ⚠ A `deps=rebuilt` or `os=rebuilt` that no lockfile change or new month explains means the build cache was lost: every deploy is back to five minutes until someone reads that line.
+- The OS packages are not pinned, so `deploy-prod.sh` passes the month (`OS_REFRESH`) and they are reinstalled once a month.
+
 ### Disk hygiene: max 2 image tags retained locally
 
-The lgr image is ~7.5 GB; previous builds accumulated to 50+ GB and once exhausted disk on the build host (mid-push), leaving the registry with a partial image. **Always run `./scripts/prune-docker-tags.sh --apply` before building.** It keeps the two most-recently-created versioned tags (current + previous for rollback), drops everything else (`build-*`, older `vYYYYMMDD-*`, `final`/`p2-p3`/named scratch tags), and runs `docker image prune -f` + `docker builder prune -af` for the dangling layers and build cache. Dry-run by default; pass `--apply` to actually untag.
+The lgr image is ~1.7 GB (it was ~7.5 GB before FR-24's one SPA); builds once accumulated to 50+ GB and exhausted the disk on the build host (mid-push), leaving the registry with a partial image. **Always run `./scripts/prune-docker-tags.sh --apply` before building.** It keeps the two most-recently-created versioned tags (current + previous for rollback), drops everything else (`build-*`, older `vYYYYMMDD-*`, `final`/`p2-p3`/named scratch tags), runs `docker image prune -f` for the dangling layers and trims the build cache to a budget (`docker builder prune -af --keep-storage`, 20 GB unless `LGR_BUILD_CACHE_KEEP` says otherwise). Dry-run by default; pass `--apply` to actually untag.
+
+⚠ **Never `docker builder prune -af` without `--keep-storage` on the build host.** That was this script until 2026-11: it emptied the cache before every build, so nothing was ever reused, and it emptied every other project's cache on that host with it.
 
 Note: First request after pod restart has ~6s cold start (Bun JIT + Mongoose compilation). Subsequent requests are ~70ms.
 

@@ -31,9 +31,17 @@
 # FR-20.50: a build whose SUPTO version (packages/config/src/supto.json) is new and not declared to
 # НАП is refused, once anything is declared. See `supto_gate` below.
 #
-# Long runs (a cold build is 15–30 min) must be backgrounded and polled by log
-# file, never by tmux scrollback — see .claude/skills/deploy-prod/SKILL.md.
-# Prints `DEPLOY_DONE <sha> <tag>` on success, `DEPLOY_FAILED <sha>` on error.
+# How long it takes: about a minute for a commit that changes no dependency, plus ~30 s when it
+# changes the UI. The image's layers are ordered so that only what the commit touched is rebuilt,
+# pushed and pulled (see the Dockerfile's header). The first deploy of a month, a lockfile change
+# or a new base image rebuilds everything: ~5 min, which is what EVERY deploy took until 2026-11.
+# Background it and poll the log file, never tmux scrollback (.claude/skills/deploy-prod/SKILL.md).
+#
+# Prints `DEPLOY_TIMING total=… prepare=… build-lgr=… push-lgr=… bump=… rollout=… smoke=…` and
+# which layers were reused, then `DEPLOY_DONE <sha> <tag>` on success, `DEPLOY_FAILED <sha>` on
+# error. ⚠ Read DEPLOY_TIMING when a deploy feels slow: a `deps=rebuilt` or `os=rebuilt` that no
+# lockfile change or new month explains means the build cache was lost, and every deploy pays the
+# full five minutes again until someone notices (nothing else would say so).
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -55,6 +63,12 @@ die()  { printf '\033[1;31m[deploy] FATAL:\033[0m %s\n' "$*" >&2; exit 1; }
 run()  { if [[ $DRY == 1 ]]; then printf '  DRY: %s\n' "$*"; else "$@"; fi; }
 
 trap 'rc=$?; [[ $rc -eq 0 ]] || echo "DEPLOY_FAILED $SHA (exit $rc)"' EXIT
+
+# Where the time went: `phase_done <name>` closes the phase that just ran.
+TIMINGS="" LAYERS=""
+PHASE_AT=$SECONDS
+phase_done() { TIMINGS+="$1=$((SECONDS - PHASE_AT))s "; PHASE_AT=$SECONDS; }
+print_timing() { echo "DEPLOY_TIMING total=${SECONDS}s ${TIMINGS}${LAYERS:+| layers: $LAYERS}"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -118,14 +132,39 @@ supto_gate() {
 if [[ $DO_BUILD == 1 && $DO_APP == 1 ]]; then supto_gate; fi
 
 # ── build + push ─────────────────────────────────────────────────────────────
-# `prune-docker-tags.sh --apply` keeps only the 2 newest local tags and clears the
-# builder cache — run BEFORE building so the push can never hit a full disk.
+# `prune-docker-tags.sh --apply` keeps only the 2 newest local tags and trims the builder cache to
+# its budget — run BEFORE building so the push can never hit a full disk.
+
+# Which of the three slow layers this build reused, read from BuildKit's plain progress
+# (`#9 [deps 3/3] RUN bun install …` followed by `#9 CACHED`, or by `#9 DONE 33.7s`).
+layer_report() {   # $1 = build log
+  local buildlog="$1" entry name pat n out=""
+  for entry in 'os:apt-get update' 'deps:bun install --frozen-lockfile' 'web:bun run build'; do
+    name="${entry%%:*}" pat="${entry#*:}"
+    n="$(grep -m1 -E "^#[0-9]+ \[.*\] RUN .*${pat}" "$buildlog" | sed -E 's/^#([0-9]+) .*/\1/' || true)"
+    if [[ -z "$n" ]]; then out+="$name=? "
+    elif grep -qE "^#$n CACHED" "$buildlog"; then out+="$name=reused "
+    else out+="$name=rebuilt "; fi
+  done
+  printf '%s' "$out"
+}
+
 BUILT_TAG=""
-build_and_push() {   # $1 = repo suffix (lgr|lgr-ocr), $2 = dockerfile; sets BUILT_TAG
-  local repo="$REGISTRY/$1" dockerfile="$2" tmp="$REGISTRY/$1:build-tmp" id
-  log "Building $repo (dockerfile: $dockerfile) — cold builds take 15–30 min"
-  run docker build -f "$SRC/$dockerfile" -t "$tmp" "$SRC"
-  if [[ $DRY == 1 ]]; then BUILT_TAG="v00000000-000000000000"; return; fi
+build_and_push() {   # $1 = repo suffix (lgr|lgr-ocr), $2 = dockerfile, $3… = extra build flags; sets BUILT_TAG
+  local repo="$REGISTRY/$1" dockerfile="$2" tmp="$REGISTRY/$1:build-tmp" id buildlog
+  local name="$1"; shift 2
+  log "Building $repo (dockerfile: $dockerfile)"
+  if [[ $DRY == 1 ]]; then
+    printf '  DRY: DOCKER_BUILDKIT=1 docker build --progress=plain %s -f %s -t %s %s\n' "$*" "$SRC/$dockerfile" "$tmp" "$SRC"
+    BUILT_TAG="v00000000-000000000000"; return
+  fi
+  buildlog="$(mktemp)"
+  # BuildKit, said out loud: the Dockerfile's reuse is BuildKit's content-keyed COPY. Plain
+  # progress, so the log reads the same from a terminal as from nohup (layer_report parses it).
+  DOCKER_BUILDKIT=1 docker build --progress=plain "$@" -f "$SRC/$dockerfile" -t "$tmp" "$SRC" 2>&1 | tee "$buildlog"
+  [[ "$name" == lgr ]] && LAYERS="$(layer_report "$buildlog")"
+  rm -f "$buildlog"
+  phase_done "build-$name"
   id="$(docker images -q "$tmp" | head -c 12)"
   [[ -n "$id" ]] || die "build produced no image id for $tmp"
   BUILT_TAG="v$(date +%Y%m%d)-$id"
@@ -134,12 +173,15 @@ build_and_push() {   # $1 = repo suffix (lgr|lgr-ocr), $2 = dockerfile; sets BUI
   docker rmi "$tmp" >/dev/null
   docker push "$repo:$BUILT_TAG"
   docker push "$repo:latest"
+  phase_done "push-$name"
 }
 
 if [[ $DO_BUILD == 1 ]]; then
-  log "Pruning old local image tags (keeps 2 + clears builder cache)"
+  log "Pruning old local image tags (keeps 2, trims the builder cache to its budget)"
   run "$SRC/scripts/prune-docker-tags.sh" --apply
-  if [[ $DO_APP == 1 ]]; then build_and_push lgr Dockerfile;         APP_TAG="$BUILT_TAG"; fi
+  phase_done prepare
+  # OS_REFRESH: the OS packages are not pinned, so they are reinstalled once a month (Dockerfile).
+  if [[ $DO_APP == 1 ]]; then build_and_push lgr Dockerfile --build-arg "OS_REFRESH=$(date +%Y-%m)"; APP_TAG="$BUILT_TAG"; fi
   if [[ $DO_OCR == 1 ]]; then build_and_push lgr-ocr Dockerfile.ocr; OCR_TAG="$BUILT_TAG"; fi
 fi
 [[ $DO_APP == 1 ]] && log "App image tag: $APP_TAG"
@@ -147,6 +189,7 @@ fi
 
 if [[ $DO_BUMP == 0 ]]; then
   log "--build-only: skipping gitops bump"
+  print_timing
   echo "DEPLOY_DONE $SHA ${APP_TAG:-$OCR_TAG}"
   exit 0
 fi
@@ -227,6 +270,7 @@ if [[ $DRY == 0 ]]; then
     git -C "$DEPLOY_REPO" push origin master
   fi
 fi
+phase_done bump
 
 # ── sync + rollout ───────────────────────────────────────────────────────────
 # ArgoCD auto-syncs (automated + selfHeal, 60s reconcile); the patch just skips
@@ -248,6 +292,7 @@ wait_rollout() {   # $1 = deployment, $2 = expected tag
 }
 [[ $DO_APP == 1 ]] && wait_rollout lgr "$APP_TAG"
 [[ $DO_OCR == 1 && -n "$OCR_TAG" ]] && wait_rollout lgr-ocr "$OCR_TAG"
+phase_done rollout
 
 # ── verify ───────────────────────────────────────────────────────────────────
 if [[ $DRY == 0 ]]; then
@@ -268,6 +313,8 @@ if [[ $DRY == 0 ]]; then
   smoke / 200   # first hit after a restart pays ~6s cold start (Bun JIT + Mongoose compile)
   smoke /app-hub 200
   smoke /api/__smoke_unknown_route__ 404
+  phase_done smoke
 fi
 
+print_timing
 echo "DEPLOY_DONE $SHA ${APP_TAG:-$OCR_TAG}"
