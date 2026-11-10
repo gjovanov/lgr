@@ -1952,9 +1952,15 @@ only its own extras (the list's totals box and per-document bands, cash-agg's cu
   the line numbers and amounts against the ends of the heading band; the invoice's amount in
   words follows the line numbers. Every column but the free text fitted to its widest entry
   (`fit`), one 10px gutter (8px let „1000" + „9999.99" read as one figure), free text
-  `overflow-wrap: anywhere` (an unbroken name made Chrome shrink the whole page). ⚠ A Puppeteer footer template spans the whole sheet: it insets itself by the same
+  `overflow-wrap: anywhere` (an unbroken name made Chrome shrink the whole page). The parties
+  band above the grid (invoice + companions, 2026-11-10) takes the same rules per half: titles
+  and keys one inset in (in line with the line numbers), a 10px gutter before the value, values
+  ending one inset short; the invoice's keys take 13% like the companions' (at 11% ДОСТАВУВАЧ
+  plus its padding unbalanced the two halves by 20px). ⚠ The band row sets only `padding-top`/
+  `-bottom`: its old `padding: 3px 0` shorthand outranked the keys' inset, which is why the
+  titles printed flush. ⚠ A Puppeteer footer template spans the whole sheet: it insets itself by the same
   margin and must keep `width:100%` (Chrome lays it out in a flex row, where it shrinks to its
-  text). `unit/pdf-page-layout.test.ts` measures the grid as Chrome prints it.
+  text). `unit/pdf-page-layout.test.ts` measures the grid and the band as Chrome prints them.
 
 ## FR-09 — POS end-of-day close (2026-08-25)
 
