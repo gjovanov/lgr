@@ -3223,6 +3223,8 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     with it, on screen and in the file (`withoutFieldGroups`, `meta.withheld` names the keys): valuation, stock levels,
     product ledger, stock movements, and warehouse operations' cost and profit (on the purchases side its prices too,
     which are what the goods cost). ⚠ A new report column that carries a cost says so.
+    A report that is nothing but costs (`inventory-valuation`) carries `fieldGroup: 'costs'` itself: not listed, and
+    404 to run, for a role without them (`canAccessReport`).
 - **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
   null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
   gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`

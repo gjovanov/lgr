@@ -175,6 +175,8 @@ export const REPORT_REGISTRY: ReportEntry[] = [
   {
     id: 'inventory-valuation',
     category: 'inventory',
+    // FR-27.11.C.1: nothing but cost figures.
+    fieldGroup: 'costs',
     labelKey: 'reports.inventoryValuation.label',
     descriptionKey: 'reports.inventoryValuation.description',
     icon: 'mdi-chart-areaspline',

@@ -13,6 +13,7 @@
  * `GET /org/:orgId/reports/catalog`, which returns `ReportMeta[]` — this file's shape,
  * mirrored (deliberately, not imported) in `reports-ui/src/types/report.ts`.
  */
+import { compileLegacy, seesCosts, type Grant } from 'config/access'
 
 export const REPORT_CATEGORIES = ['sales', 'purchase', 'receivables', 'inventory', 'accounting', 'fiscal'] as const
 export type ReportCategory = (typeof REPORT_CATEGORIES)[number]
@@ -218,6 +219,11 @@ export interface ReportEntry extends ReportMeta {
   roles?: string[]
   /** Absent for `view: 'custom'` entries — those are their own page. */
   handler?: (ctx: ReportHandlerContext) => Promise<ReportResult>
+  /**
+   * FR-27.11.C.1: a report that is ONLY a field group's figures (`inventory-valuation` is cost figures through and
+   * through) is not offered to a role without the group, rather than shown with every value column dropped.
+   */
+  fieldGroup?: 'costs'
   /** Row → absolute, cross-SPA href of the source document (FR-6.10). */
   drilldown?: (row: Record<string, any>) => string | undefined
 }
@@ -322,7 +328,13 @@ export function canAccessReport(entry: ReportEntry, user: ReportCaller | null | 
   const perms = user.permissions || []
   if (!perms.includes(entry.permission) && user.role !== 'admin') return false
   if (entry.roles && !entry.roles.includes(user.role || '')) return false
+  if (entry.fieldGroup === 'costs' && !seesCosts(callerGrant(user))) return false
   return true
+}
+
+/** The caller's grant: its role's, live (an org on `roles`), else its claims compiled, as the server decides by. */
+function callerGrant(user: ReportCaller): Grant {
+  return ((user as any).access as Grant | undefined) ?? compileLegacy(user as any)
 }
 
 /**

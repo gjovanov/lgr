@@ -151,6 +151,14 @@ describe('FR-27.6: the reports drop the cost columns for such a role', () => {
     expect(admins.json.columns.map((c: any) => c.key)).toContain('avgCost')
     expect(admins.json.meta.withheld).toBeUndefined()
   })
+
+  it('the valuation, which is nothing but cost figures, is not offered at all (FR-27.11.C.1)', async () => {
+    const ids = (r: any) => (r.json.reports ?? []).map((e: any) => e.id)
+    expect(ids(await call('GET', '/reports/catalog', tokens.reader))).not.toContain('inventory-valuation')
+    expect(ids(await call('GET', '/reports/catalog', tokens.reader))).toContain('stock-levels')
+    expect((await call('POST', '/reports/inventory-valuation/run', tokens.reader, { params: {} })).status).toBe(404)
+    expect(ids(await call('GET', '/reports/catalog', tokens.admin))).toContain('inventory-valuation')
+  })
 })
 
 describe('everyone else, as before', () => {
