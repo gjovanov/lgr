@@ -61,7 +61,7 @@
               <!-- Base prices: 4 fields in one row -->
               <p class="text-subtitle-1 font-weight-bold mb-3">{{ $t('warehouse.basePrices') }}</p>
               <v-row>
-                <v-col cols="12" sm="6" md="3">
+                <v-col v-if="seesCosts" cols="12" sm="6" md="3">
                   <v-text-field
                     v-model.number="form.purchasePrice"
                     :label="$t('warehouse.purchasePrice')"
@@ -81,6 +81,7 @@
                       @update:model-value="onSellingPriceChange"
                     />
                     <v-text-field
+                      v-if="seesCosts"
                       v-model.number="sellingPricePercent"
                       :label="$t('warehouse.margin')"
                       type="number"
@@ -95,7 +96,7 @@
                 <v-col cols="12" sm="6" md="3">
                   <v-text-field v-model.number="form.taxRate" :label="$t('warehouse.taxRate')" type="number" suffix="%" />
                 </v-col>
-                <v-col cols="12" sm="6" md="3">
+                <v-col v-if="seesCosts" cols="12" sm="6" md="3">
                   <v-text-field :model-value="margin" :label="$t('warehouse.margin')" suffix="%" readonly />
                 </v-col>
               </v-row>
@@ -125,7 +126,7 @@
                   <tr>
                     <th style="width: 40px">#</th>
                     <th style="width: 22%">{{ $t('common.name') }}</th>
-                    <th style="width: 80px">%</th>
+                    <th v-if="seesCosts" style="width: 80px">%</th>
                     <th style="width: 120px">{{ $t('warehouse.finalPrice') }}</th>
                     <th v-if="visibleFilters.contact">{{ $t('invoicing.contact') }}</th>
                     <th v-if="visibleFilters.tags">{{ $t('warehouse.contactTags') }}</th>
@@ -140,7 +141,7 @@
                     <td>
                       <v-text-field v-model="tier.name" density="compact" hide-details variant="plain" :rules="[rules.required]" />
                     </td>
-                    <td>
+                    <td v-if="seesCosts">
                       <v-text-field
                         v-model.number="tier.percent"
                         type="number"
@@ -219,7 +220,7 @@
                     persistent-hint
                   />
                 </v-col>
-                <v-col v-if="form.costingMethod === 'standard'" cols="12" md="4">
+                <v-col v-if="seesCosts && form.costingMethod === 'standard'" cols="12" md="4">
                   <v-text-field v-model.number="form.standardCost" :label="$t('warehouse.standardCost')" type="number" min="0" step="0.01" />
                 </v-col>
               </v-row>
@@ -250,11 +251,17 @@ import ProductTabBar from '../components/ProductTabBar.vue'
 import ProductDocActions from '../components/ProductDocActions.vue'
 import type { ProductForActions } from '../composables/product-doc-actions'
 import { PRICE_TIER_NAMES } from 'config/constants'
+import { COST_TIER_NAMES } from 'config/access'
+import { useAccess } from 'ui-shared/access/useAccess'
 
 const { t } = useI18n()
 // FR-26.8.7: without `inventory.write` (a Seller) the page reads, and offers no New, Save or Delete.
 const writes = writesInventory(sessionViewer())
 const route = useRoute()
+// FR-27.6: a role without the cost figures reads the product without them (the server sends none) and edits it
+// without them: no buying price, no margins, no buying-price slot. The server keeps the stored ones.
+const access = useAccess()
+const seesCosts = computed(() => access.can('products.costs'))
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
@@ -358,14 +365,15 @@ let updatingFromPercent = false
 // the storeAvailability export carries Цена0..Цена9 (the old 10-slot model truncated
 // Цена8/Цена9), and Цена 10 is headroom for the full PlusMinus price-level range.
 const CANONICAL_TIER_NAMES: readonly string[] = PRICE_TIER_NAMES
-const TIER_SLOT_COUNT = CANONICAL_TIER_NAMES.length
+/** The slots this role edits: without the cost figures, never the buying-price one. */
+const tierNames = (): readonly string[] => (seesCosts.value ? CANONICAL_TIER_NAMES : CANONICAL_TIER_NAMES.filter(n => !COST_TIER_NAMES.includes(n)))
 
 function makeDefaultTier(i: number, sellingPrice: number): PriceTier {
-  return { name: CANONICAL_TIER_NAMES[i] || `Цена ${i}`, percent: 0, finalPrice: sellingPrice || 0, manualOverride: false, contactIds: [], tags: [], minQuantity: null, validFrom: '', validTo: '' }
+  return { name: tierNames()[i] || `Цена ${i}`, percent: 0, finalPrice: sellingPrice || 0, manualOverride: false, contactIds: [], tags: [], minQuantity: null, validFrom: '', validTo: '' }
 }
 
 function ensureTierSlots() {
-  const target = TIER_SLOT_COUNT
+  const target = tierNames().length
   while (priceTiers.value.length < target) {
     priceTiers.value.push(makeDefaultTier(priceTiers.value.length, form.sellingPrice))
   }
@@ -638,7 +646,13 @@ async function handleSubmit() {
       validFrom: t.validFrom || undefined,
       validTo: t.validTo || undefined,
     }))
-    const payload = { ...form, priceTiers: tiersPayload }
+    const payload: Record<string, any> = { ...form, priceTiers: tiersPayload }
+    if (!seesCosts.value) {
+      // Nothing it cannot see: the server keeps the stored costs and margins.
+      delete payload.purchasePrice
+      delete payload.standardCost
+      for (const t of tiersPayload as any[]) delete t.percent
+    }
 
     if (isEdit.value) {
       const { data } = await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)

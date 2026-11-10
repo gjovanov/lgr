@@ -1,7 +1,7 @@
 import { AREAS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, ROLES, type Area, type Permission } from '../constants'
 import type { CapabilityId } from './catalogue'
 import type { Grant } from './grant'
-import { LEGACY_BRIDGE, LEGACY_ROLE_CAPS, NOT_WITH_AN_AREAS_LIST, areaOfCap, compileLegacy } from './legacy'
+import { LEGACY_BRIDGE, LEGACY_CANNOT_WITHHOLD, LEGACY_ROLE_CAPS, NOT_WITH_AN_AREAS_LIST, areaOfCap, compileLegacy } from './legacy'
 import { sameGrant } from './roles'
 
 /**
@@ -57,7 +57,8 @@ export function projectGrant(grant: Grant): Projection {
   const kept = AREAS.filter(a => [...grant.caps].some(c => areaOfCap(c) === a))
   const listed = { role, permissions: permissionsWith(kept), areas: [...kept] }
   const listedGrant = compileLegacy(listed)
-  const within = (g: Grant) => !g.all && [...g.caps].every(c => grant.caps.has(c))
+  // What the legacy model cannot withhold (the cost figures) is never what makes a projection exceed the role.
+  const within = (g: Grant) => !g.all && [...g.caps].every(c => grant.caps.has(c) || LEGACY_CANNOT_WITHHOLD.includes(c))
   const size = (g: Grant) => (g.all ? Infinity : g.caps.size)
   const legacy = !within(plainGrant) || size(listedGrant) > size(plainGrant) ? listed : plain
   return { legacy, exact: sameGrant(legacy === listed ? listedGrant : plainGrant, grant) }
