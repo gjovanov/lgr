@@ -323,7 +323,7 @@
         <template v-if="!readonly">
           <v-divider class="my-4" />
           <div class="d-flex justify-end ga-2 flex-wrap pb-2">
-            <v-btn color="primary" variant="flat" prepend-icon="mdi-content-save" :loading="saving" @click="onSave">
+            <v-btn v-cap="isEdit ? ['orders.create', 'orders.edit'] : 'orders.create'" color="primary" variant="flat" prepend-icon="mdi-content-save" :loading="saving" @click="onSave">
               {{ $t('common.save') }}
             </v-btn>
           </div>
@@ -783,12 +783,12 @@ const statusDef = computed<StatusDef | undefined>(() => ({
 
 const saving = ref(false)
 const formActions = computed<FormAction[]>(() => [
-  { label: t('common.save'), icon: 'mdi-content-save', handler: onSave, loading: saving.value, show: !readonly.value && ['draft', 'confirmed'].includes(orderStatus.value) },
-  { label: t('invoicing.confirmOrder'), icon: 'mdi-check', color: 'success', handler: confirmOrder, show: isEdit.value && orderStatus.value === 'draft' },
-  { label: t('invoicing.convertToInvoice'), icon: 'mdi-swap-horizontal', color: 'info', handler: convertOrder, show: isEdit.value && ['confirmed', 'partially_delivered', 'delivered'].includes(orderStatus.value) },
-  { label: t('invoicing.completeOrder'), icon: 'mdi-check-all', variant: 'outlined', handler: completeOrder, show: isEdit.value && ['confirmed', 'partially_delivered', 'delivered'].includes(orderStatus.value) },
-  { label: t('invoicing.cancelOrder'), icon: 'mdi-cancel', color: 'error', variant: 'outlined', handler: cancelOrder, show: isEdit.value && ['draft', 'confirmed'].includes(orderStatus.value) },
-  { label: t('common.delete'), icon: 'mdi-delete', color: 'error', variant: 'text', handler: deleteOrder, show: isEdit.value && orderStatus.value === 'draft' },
+  { label: t('common.save'), icon: 'mdi-content-save', handler: onSave, loading: saving.value, show: !readonly.value && ['draft', 'confirmed'].includes(orderStatus.value), cap: isEdit.value ? ['orders.create', 'orders.edit'] : 'orders.create' },
+  { label: t('invoicing.confirmOrder'), icon: 'mdi-check', color: 'success', handler: confirmOrder, show: isEdit.value && orderStatus.value === 'draft', cap: ['orders.create', 'orders.edit'] },
+  { label: t('invoicing.convertToInvoice'), icon: 'mdi-swap-horizontal', color: 'info', handler: convertOrder, show: isEdit.value && ['confirmed', 'partially_delivered', 'delivered'].includes(orderStatus.value), cap: 'sales-docs.create' },
+  { label: t('invoicing.completeOrder'), icon: 'mdi-check-all', variant: 'outlined', handler: completeOrder, show: isEdit.value && ['confirmed', 'partially_delivered', 'delivered'].includes(orderStatus.value), cap: ['orders.create', 'orders.edit'] },
+  { label: t('invoicing.cancelOrder'), icon: 'mdi-cancel', color: 'error', variant: 'outlined', handler: cancelOrder, show: isEdit.value && ['draft', 'confirmed'].includes(orderStatus.value), cap: ['orders.create', 'orders.edit'] },
+  { label: t('common.delete'), icon: 'mdi-delete', color: 'error', variant: 'text', handler: deleteOrder, show: isEdit.value && orderStatus.value === 'draft', cap: 'orders.delete' },
 ])
 
 // ── pending changes ──

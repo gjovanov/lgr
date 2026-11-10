@@ -134,8 +134,6 @@ const NOT_YET = new Set([
   'files-ui/src/views/ArchivesView.vue',
   'files-ui/src/views/DocumentsView.vue',
   'files-ui/src/views/FileUploadView.vue',
-  'invoicing-ui/src/views/InternalOrderFormView.vue',
-  'invoicing-ui/src/views/OrderFormView.vue',
   'portal-ui/src/views/admin/LicencesView.vue',
   'portal-ui/src/views/admin/NodesView.vue',
   'portal-ui/src/views/settings/BillingView.vue',
