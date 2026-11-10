@@ -1753,6 +1753,21 @@
     "orderExecuted": "Zahlungsauftrag ausgeführt",
     "searchProduct": "Produkte suchen...",
     "noProductsFound": "Keine Produkte gefunden",
+    "productDialog": {
+      "title": "Produkt finden",
+      "alreadyThere": "Bereits im Beleg",
+      "selected": "{n} ausgewählt",
+      "tickHint": "Artikel zum Hinzufügen ankreuzen",
+      "add": "{n} Artikel hinzufügen | {n} Artikel hinzufügen"
+    },
+    "productDetails": {
+      "button": "Details",
+      "tooltip": "Details (F4)"
+    },
+    "productHit": {
+      "reserved": "{n} reserviert",
+      "showAll": "Alle {n} Ergebnisse anzeigen..."
+    },
     "browseProducts": "Produkte durchsuchen",
     "invoice": "Rechnung",
     "invoiceRef": "Rechnung #",

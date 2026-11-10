@@ -477,7 +477,18 @@
     </template>
 
     <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId || ''" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
-    <ProductPickerDialog v-model="productPickerOpen" :org-url="orgUrl()" :base-currency="baseCurrency" :locale="localeCode" @select="onProductPicked" />
+    <ProductPickerDialog
+      v-model="productPickerOpen"
+      :org-url="orgUrl()"
+      :base-currency="baseCurrency"
+      :locale="localeCode"
+      multiple
+      :stock-warehouse-id="docWarehouseId"
+      :price-field="config.priceField"
+      :existing-product-ids="existingProductIds"
+      :initial-search="productPickerText"
+      @select-many="onProductsPicked"
+    />
     <ContactPickerDialog v-model="contactPickerOpen" :org-url="orgUrl()" :type="(config.contactFetchParams as any)?.type" @select="onContactPicked" />
 
     <!-- FR-22.32: the supplier's receipts this bill can pay for. The list scrolls: the receipts that
@@ -657,6 +668,10 @@ const {
   localeCode,
   ledgerDialog,
   productPickerOpen,
+  productPickerText,
+  existingProductIds,
+  docWarehouseId,
+  onProductsPicked,
   showExportDialog,
   printNote,
   companionNote,

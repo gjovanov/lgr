@@ -1198,6 +1198,21 @@
     "orderExecuted": "Payment order executed successfully",
     "searchProduct": "Type to search products...",
     "noProductsFound": "No products found",
+    "productDialog": {
+      "title": "Find a product",
+      "alreadyThere": "Already on this document",
+      "selected": "{n} selected",
+      "tickHint": "Tick the articles to add",
+      "add": "Add {n} article | Add {n} articles"
+    },
+    "productDetails": {
+      "button": "Details",
+      "tooltip": "Details (F4)"
+    },
+    "productHit": {
+      "reserved": "{n} reserved",
+      "showAll": "Show all {n} results..."
+    },
     "browseProducts": "Browse products",
     "invoice": "Invoice",
     "invoiceRef": "Invoice #",
