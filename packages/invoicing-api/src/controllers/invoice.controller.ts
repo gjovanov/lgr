@@ -1,7 +1,8 @@
 import { FiscalRoute, deviceFromAuthorSession, deviceFromCounter, deviceFromDeadReceipt } from 'fiscal/fiscal-route'
-import { can } from 'services/biz/access/evaluate'
+import { can, grantOf } from 'services/biz/access/evaluate'
+import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, writesKind } from 'config/access'
 import { Elysia, t } from 'elysia'
-import { holdsArea } from 'config/constants'
+import { seesOrders } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createInvoiceStockMovement, reverseInvoiceStockMovement, stockBookingRefusal, validateStockAvailability } from 'services/biz/invoicing.service'
@@ -528,12 +529,13 @@ function lineOrderKey(ref: Record<string, unknown> | null | undefined): string {
 const ORDERS_REFUSED = { code: 'area_required', area: 'orders', message: 'Orders and reservations are not part of your role: this document may not be linked to one.' } as const
 
 /**
- * FR-26.6 `orders`: may a session without the area write these order links? A create may carry
- * none. An edit may keep the ones the document has (the form round-trips `orderRef` verbatim, so
- * an invoice converted from an order saves unchanged) and may add or change none.
+ * FR-26.6 `orders` (FR-27.6: `seesOrders`, the area on the legacy model, the orders capabilities on a role): may a
+ * session without them write these order links? A create may carry none. An edit may keep the ones the document has
+ * (the form round-trips `orderRef` verbatim, so an invoice converted from an order saves unchanged) and may add or
+ * change none.
  */
 function orderLinkRefusal(user: { role?: string; areas?: readonly string[] }, body: any, existing?: any): typeof ORDERS_REFUSED | null {
-  if (holdsArea(user, 'orders')) return null
+  if (seesOrders(user as any)) return null
   for (const f of ORDER_HEAD_FIELDS) {
     if (body?.[f] === undefined) continue
     if (String(body[f] || '') !== String(existing?.[f] || '')) return ORDERS_REFUSED
@@ -553,16 +555,32 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   // FR-24.50: the routes that reach a fiscal device say which; one held on another pod runs there.
   .use(FiscalRoute)
   /**
-   * FR-26.6 `purchases`: an incoming document does not exist for a session without the area. Bills
-   * share `/invoices` with sales documents and only `direction` tells them apart, so no route rule
-   * can say this: every by-id route of this controller answers 404 for one, as for an unknown id.
+   * FR-27.6 (FR-26.6 `purchases`, as data): sales documents, proforma and bills share `/invoices`, and only a
+   * document's `direction` and `type` tell them apart (`kindOfDocument`), so no route rule can say this. Every by-id
+   * route answers 404 for a document of a kind the session does not read, as for an unknown id, and 403 for a write
+   * on a kind it does not write (deleting needs the kind's `delete`).
+   *
+   * A session that reads and writes every kind (every legacy one but an `areas` list without `purchases`) costs no
+   * query.
    */
-  .onBeforeHandle(async ({ params, user, status }: any) => {
-    if (!user || holdsArea(user, 'purchases')) return
+  .onBeforeHandle(async ({ params, user, status, request }: any) => {
+    if (!user) return
+    const grant = grantOf(user)
+    if (grant.all) return
     const id = params?.id
     if (typeof id !== 'string' || !/^[0-9a-f]{24}$/i.test(id)) return
-    const doc = await Invoice.findOne({ _id: id, orgId: params.orgId }, { direction: 1 }).lean().exec()
-    if ((doc as any)?.direction === 'incoming') return status(404, { message: 'Invoice not found' })
+    const method = String(request?.method ?? 'GET').toUpperCase()
+    const reading = method === 'GET' || method === 'HEAD'
+    const action = method === 'DELETE' ? 'delete' : 'edit'
+    if (partitionFilter(grant) === null && (reading || DOC_KINDS.every(k => writesKind(grant, k, action)))) return
+    const doc = await Invoice.findOne({ _id: id, orgId: params.orgId }, { direction: 1, type: 1 }).lean().exec()
+    if (!doc) return
+    const kind = kindOfDocument(doc as any)
+    if (!readsKind(grant, kind)) return status(404, { message: 'Invoice not found' })
+    if (!reading && !writesKind(grant, kind, action)) {
+      const feature = kind === 'sales' ? 'sales-docs' : kind
+      return status(403, { code: 'capability_required', capabilities: [`${feature}.${action}`], message: 'This kind of document is read-only for your role.' })
+    }
   })
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
@@ -603,8 +621,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // FR-23: a payment's receipt is not a document of these lists. It has its own, the journal.
     if (!filter.type) Object.assign(filter, NOT_PAYMENT_RECEIPT)
     if (query.direction) filter.direction = query.direction
-    // FR-26.6: without `purchases` the list is the outgoing documents, whatever it asks for.
-    if (!holdsArea(user, 'purchases')) filter.direction = 'outgoing'
+    // FR-27.6 (FR-26.6): the kinds the role reads, whatever the list asks for.
+    const part = partitionFilter(grantOf(user as any))
+    if (part && 'direction' in part) filter.direction = part.direction
+    else if (part) filter.$and = [...(filter.$and ?? []), part]
     if (query.status) {
       const list = String(query.status).split(',').map(s => s.trim()).filter(Boolean)
       if (list.length === 1) filter.status = list[0]
@@ -738,7 +758,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!can(user, ['sales-docs.totals', 'bills.totals'])) {
       return status(403, { code: 'capability_required', capabilities: ['sales-docs.totals'], message: 'The totals are not part of your role.' })
     }
-    const summary = await getInvoiceSummary(orgId, (holdsArea(user, 'purchases') ? query : { ...query, direction: 'outgoing' }) as any)
+    // FR-27.6: the side the role reads (null, neither: the route rule lets no such session in).
+    const side = readableDirection(grantOf(user as any))
+    const summary = await getInvoiceSummary(orgId, (side ? { ...query, direction: side } : query) as any)
     return { summary }
   }, { isSignIn: true })
   .post(
@@ -756,9 +778,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         return status(e.statusCode, { code: e.code, message: e.message })
       }
       const hash = key ? requestHash('invoice.create', body) : undefined
-      // FR-26.6: a session without `purchases` makes no incoming document, and without `orders` links none.
-      if (body.direction === 'incoming' && !holdsArea(user, 'purchases')) {
+      // FR-27.6 (FR-26.6): a document of a kind the role makes, and, without `orders`, linked to none.
+      const grant = grantOf(user as any)
+      const kind = kindOfDocument(body as any)
+      if (kind === 'bills' && !readsKind(grant, 'bills')) {
         return status(403, { code: 'area_required', area: 'purchases', message: 'Incoming documents are not part of your role.' })
+      }
+      if (!writesKind(grant, kind, 'create')) {
+        const feature = kind === 'sales' ? 'sales-docs' : kind
+        return status(403, { code: 'capability_required', capabilities: [`${feature}.create`], message: 'This kind of document is not one your role makes.' })
       }
       const unlinked = orderLinkRefusal(user, body)
       if (unlinked) return status(403, unlinked)
