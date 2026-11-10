@@ -9,7 +9,7 @@
     </div>
 
     <!-- FR-27.11.C.1: the valuation is cost figures through and through; its route answers 403 without them. -->
-    <v-alert v-if="!seesCosts" type="info" variant="tonal" class="mb-4" data-cap="products.costs" data-cap-hidden>
+    <v-alert v-if="!seesCosts" type="info" variant="tonal" class="mb-4" data-cap="products.costs">
       {{ $t('warehouse.valuationNeedsCosts') }}
     </v-alert>
 

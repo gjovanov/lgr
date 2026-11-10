@@ -1,6 +1,7 @@
 import { FiscalRoute, deviceFromAuthorSession, deviceFromCounter, deviceFromDeadReceipt } from 'fiscal/fiscal-route'
 import { can, grantOf } from 'services/biz/access/evaluate'
-import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, redactResolution, writesKind } from 'config/access'
+import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, writesKind } from 'config/access'
+import { keepStoredTrails, withVisibleTrails } from 'services/biz/access/price-trails'
 import { Elysia, t } from 'elysia'
 import { seesOrders } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
@@ -552,6 +553,9 @@ function orderLinkRefusal(user: { role?: string; areas?: readonly string[] }, bo
 
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   .use(AppAuthService)
+  // FR-27.11.C.6: every answer of this controller (create, read, list, send, void, pay…) names no price level the
+  // role does not see in a line's stored trail.
+  .onAfterHandle(({ response, user }: any) => withVisibleTrails(grantOf(user), response))
   // FR-24.50: the routes that reach a fiscal device say which; one held on another pod runs there.
   .use(FiscalRoute)
   /**
@@ -1119,7 +1123,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           accountId: t.Optional(t.String()),
           warehouseId: t.Optional(t.String()),
           priceExplanation: t.Optional(t.Array(t.Object({
-            type: t.Union([t.Literal('base'), t.Literal('category'), t.Literal('tag'), t.Literal('contact'), t.Literal('tier'), t.Literal('override')]),
+            type: t.Union([t.Literal('base'), t.Literal('category'), t.Literal('tag'), t.Literal('contact'), t.Literal('tier'), t.Literal('override'), t.Literal('customer')]),
             label: t.String(),
             price: t.Number(),
           }))),
@@ -1200,13 +1204,6 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // FR-23: the receipts that paid it, and what they leave to do.
         ...await receiptFacts(orgId, invoice),
         statusHistory: synthesizeStatusHistory(invoice),
-        // FR-27.11.C.6: a line's stored price trail names no level the reader does not see; a hidden winning one
-        // reads "Customer price" (the line's price itself is the document's, whoever looks).
-        lines: Array.isArray((invoice as any).lines)
-          ? (invoice as any).lines.map((l: any) => (Array.isArray(l?.priceExplanation)
-            ? { ...l, priceExplanation: redactResolution(grantOf(user as any), { steps: l.priceExplanation }).steps }
-            : l))
-          : (invoice as any).lines,
         contactId: contact ? { _id: contact.id, id: contact.id, companyName: (contact as any).companyName, firstName: (contact as any).firstName, lastName: (contact as any).lastName, email: (contact as any).email } : invoice.contactId,
       },
     }
@@ -1236,6 +1233,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // freeze reads the request: a total only derived here still moves what a receipt printed. An
       // invoice for a cash sale takes all of it from the sale, below.
       // #573: a cash sale's line amounts are the server's, as when it was made. An imported day keeps its file's.
+      // FR-27.11.C.4: a role shown a redacted trail does not overwrite the stored one on a line it did not reprice.
+      if (Array.isArray((body as any).lines)) (body as any).lines = keepStoredTrails(grantOf(user as any), (body as any).lines, (existing as any).lines)
       if (existing.type === 'cash_sale' && body.lines && originOf(existing) !== 'import') {
         ;(body as any).lines = body.lines.map((l: any) => ({ ...l, ...cashSaleLineAmounts(l) }))
       }
@@ -1450,7 +1449,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           lineTotal: t.Optional(t.Number()),
           warehouseId: t.Optional(t.String()),
           priceExplanation: t.Optional(t.Array(t.Object({
-            type: t.Union([t.Literal('base'), t.Literal('category'), t.Literal('tag'), t.Literal('contact'), t.Literal('tier'), t.Literal('override')]),
+            type: t.Union([t.Literal('base'), t.Literal('category'), t.Literal('tag'), t.Literal('contact'), t.Literal('tier'), t.Literal('override'), t.Literal('customer')]),
             label: t.String(),
             price: t.Number(),
           }))),
