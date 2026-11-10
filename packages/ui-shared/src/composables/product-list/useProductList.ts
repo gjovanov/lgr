@@ -1,4 +1,5 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { hasNoReorderLevels, reorderPosition, toOrderQuantity } from 'config/reorder-quantity'
 import { useAccess } from '../../access/useAccess'
 import { httpClient } from '../useHttpClient'
 import { useListQueryState } from '../useListQueryState'
@@ -436,15 +437,11 @@ export function useProductList(opts: UseProductListOptions) {
    * the same figure (`max(1, target − position)`).
    */
   function toOrder(item: ProductRow): number | null {
-    const min = Number(item.minStockLevel) || 0
-    const max = Number(item.maxStockLevel) || 0
-    if (item.trackInventory === false || (!min && !max)) return null
+    // The arithmetic is `config/reorder-quantity`'s: the order dialog's preview starts from the same function.
+    if (hasNoReorderLevels(item)) return null
     const onHand = (stockMap.value[item._id] || []).reduce((sum, s) => sum + (s.quantity || 0), 0)
     const supply = supplyFor(item._id)
-    const position = onHand - supply.reserved + supply.incoming
-    if (min > 0 && position >= min) return null
-    const quantity = (max > 0 ? max : min) - position
-    return quantity > 0 ? quantity : null
+    return toOrderQuantity(item, reorderPosition(onHand, supply.reserved, supply.incoming))
   }
 
   return reactive({
