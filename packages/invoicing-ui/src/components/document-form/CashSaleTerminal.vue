@@ -9,22 +9,11 @@
     :back-label="config.backLabelKey ? $t(config.backLabelKey) : undefined"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
   >
-    <!-- Same banner as DocumentForm: org + title | client picker | number + print note -->
+    <!-- The same banner as DocumentForm (FR-28.32, D-14): the client picker and the number with its
+         status. The organization's name and the title it used to repeat are gone. -->
     <template #document-header>
-      <div class="doc-banner d-flex align-center justify-space-between px-4 py-3 ga-4 flex-wrap">
-        <div class="d-flex align-center ga-3">
-          <v-avatar size="36" color="primary" variant="tonal">
-            <v-icon size="20">{{ config.pendingIcon }}</v-icon>
-          </v-avatar>
-          <div>
-            <div class="text-overline text-medium-emphasis">{{ appStore.currentOrg?.name || '—' }}</div>
-            <div class="text-subtitle-1 font-weight-bold">
-              {{ isEdit ? $t(config.titleEditKey) : $t(config.titleNewKey) }}
-            </div>
-          </div>
-        </div>
-
-        <div style="flex: 1 1 260px; max-width: 460px;">
+      <DocumentBanner :number="documentNumber" :status="statusDef ? $t(statusDef.current) : ''">
+        <template #party>
           <v-defaults-provider :defaults="{
             VAutocomplete: { density: 'compact', variant: 'filled', hideDetails: 'auto', persistentPlaceholder: true },
             VTextField: { density: 'compact', variant: 'filled', persistentPlaceholder: true },
@@ -63,32 +52,8 @@
               />
             </div>
           </v-defaults-provider>
-        </div>
-
-        <div class="text-end terminal-banner-meta">
-          <div class="text-h6 font-weight-bold">{{ documentNumber || '—' }}</div>
-          <v-chip v-if="statusDef" size="x-small" label color="primary" variant="tonal" class="mt-1">
-            {{ $t(statusDef.current) }}
-          </v-chip>
-          <!-- Fills the "Допълнителна информация" block of the companion documents. A saved
-               cash sale is read-only, so the box is only worth showing while it can still be
-               typed — or afterwards, when it actually carries something. -->
-          <v-textarea
-            v-if="!readonly || companionNote"
-            v-model="companionNote"
-            :readonly="readonly"
-            :label="$t('invoicing.companionNote')"
-            :hint="$t('invoicing.companionNoteHint')"
-            :counter="readonly ? undefined : COMPANION_NOTE_MAX"
-            :maxlength="COMPANION_NOTE_MAX"
-            persistent-hint
-            rows="2"
-            auto-grow
-            variant="outlined"
-            class="mt-2 text-start"
-          />
-        </div>
-      </div>
+        </template>
+      </DocumentBanner>
     </template>
 
     <div v-if="isEdit" class="d-flex justify-end align-center flex-wrap ga-2 mb-2">
@@ -234,6 +199,23 @@
           </template>
           <template #cart-actions>
             <v-textarea v-model="notesModel" :label="$t(config.notesFieldLabelKey)" rows="2" auto-grow />
+            <!-- Fills the "Допълнителна информация" block of the companion documents. A saved
+                 cash sale is read-only, so the box is only worth showing while it can still be
+                 typed — or afterwards, when it actually carries something. It sat in the banner
+                 under the number (FR-28.34): beside the sale's other notes is where it belongs. -->
+            <v-textarea
+              v-if="!readonly || companionNote"
+              v-model="companionNote"
+              data-testid="companion-note"
+              :readonly="readonly"
+              :label="$t('invoicing.companionNote')"
+              :hint="$t('invoicing.companionNoteHint')"
+              :counter="readonly ? undefined : COMPANION_NOTE_MAX"
+              :maxlength="COMPANION_NOTE_MAX"
+              persistent-hint
+              rows="2"
+              auto-grow
+            />
             <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-1" />
             <!-- FR-21.31 (D-13): the author's open session takes this sale. Where LGR prints, it prints on
                  that session's device, and the device says how, so there is nothing to choose. -->
@@ -321,6 +303,7 @@ import { useI18n } from 'vue-i18n'
 import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
 import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
+import DocumentBanner from './DocumentBanner.vue'
 import CashSaleInvoiceDialog from '../CashSaleInvoiceDialog.vue'
 import { joinedSaleReceipt } from '../../composables/document-issue'
 import { useRouter } from 'vue-router'
@@ -470,15 +453,3 @@ onMounted(loadOpenSession)
 defineExpose({ submitCreate, doc })
 </script>
 
-<style scoped>
-.terminal-banner-meta {
-  min-width: 180px;
-}
-.doc-banner {
-  background: linear-gradient(
-    90deg,
-    rgba(var(--v-theme-primary), 0.06),
-    rgba(var(--v-theme-primary), 0.01)
-  );
-}
-</style>

@@ -1574,6 +1574,16 @@
     "discountTotal": "Rabatt gesamt",
     "taxTotal": "Steuer gesamt",
     "taxTotalWithRate": "Steuer gesamt ({rate} %)",
+    "panels": {
+      "lines": "{n} Position | {n} Positionen",
+      "ordered": "{n} bestellt",
+      "needed": "{n} benötigt",
+      "reserved": "{n} reserviert",
+      "reservationsCount": "{n} Reservierung | {n} Reservierungen",
+      "clients": "{n} Kunde | {n} Kunden",
+      "invoices": "{n} Rechnung | {n} Rechnungen",
+      "supplierMissing": "Lieferant fehlt"
+    },
     "printNote": "Druckvermerk",
     "printNoteHint": "Wird unter dem Nummernblock gedruckt — mit dem Beleg gespeichert",
     "companionNote": "Vermerk für die Begleitdokumente",

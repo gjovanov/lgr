@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed 2026-11-10. The defaults in §9 stand unless the owner answers otherwise on the issue. Nothing built. |
+| **Status** | Proposed 2026-11-10. The defaults in §9 stand unless the owner answers otherwise on the issue. Built so far: slice 1 (§11). |
 | **Builds on** | FR-22 (the Reserved and On-order figures, the row menu, the reservation screens, the click-budget walks P1 to P7), FR-05 (grid state in the URL, the column picker), FR-27 (the access catalogue, `products.costs` as a field group), FR-24 (one app, one SPA), FR-21 / FR-03 (the cash-register terminal), FR-01 (the six document types in one form), the Orders model in `CLAUDE.md` (ORDO, ORDI, RES) |
 | **Touches** | `inventory-ui` (Products), `invoicing-ui` (document form, order forms, reservations), `ui-shared` (the product search, the list engine, the tree), `warehouse-api` and `invoicing-api` (list filters, supplier links, orders from products), `db` (`ProductSupplier`), `migrations` |
 | **Tracking** | [gjovanov/lgr#622](https://github.com/gjovanov/lgr/issues/622) |
@@ -674,3 +674,17 @@ Almost nothing is stored, which is the point of reading supplier facts from the 
 - Typing a supplier's name into the product search box: the Supplier filter does that job.
 - A redesign of the till's card grid, or of the sales-side price resolution.
 - Layouts below the width the forms already stack at.
+
+## 11. Build log
+
+What each slice shipped, and where building it differed from the plan above. Only what is new: the requirements stand as written.
+
+### Slice 1: headers and panels
+
+- **Built.** `DocumentBanner`, one component for the five banners (the six document types, the cash sale, both order forms, the reservation page); the two notes moved (FR-28.34); `CollapsiblePanel` with its state kept under `lgr:ui:panels:<userId>:<orgId>:<screen>`, on the order forms' cards, all open. Tests: the `document-header-layout` and `collapsible-panels` specs, and the `panel-state` unit test.
+- **A new document has no status chip.** §2.5's drawing shows `[Draft]` under the number of a new bill. The code never showed a chip there (`statusDef` is undefined until the document is saved) and FR-28.35 keeps the chip as it is, so a new document shows its number alone.
+- **One `.v-form` on the page.** Moving the issue date out of the document's `<v-form>` would drop its `required` check from a save (FR-28.35). A form of its own round the date works, but it is a second `.v-form`, and `credit-notes-fix`, `invoicing` and `proforma-convert` find the form by `page.locator('.v-form')` in strict mode. So `DateField` exposes `validate()`, and `validate()` in `useDocumentForm` asks the date as well as the form. The layout spec pins both: an emptied date still stops a save, and there is one form.
+- **The banner keeps room for one message.** Without the print note, nothing in the banner set its height but the party select. When the select lost focus its `required` message appeared, the banner grew by a line, and everything under it moved while the mouse button was still down. The click that took the focus away was dropped: the first click on „With product update" did nothing (`bill-product-update` caught it). A banner that holds a field now reserves the line, and the layout spec asserts nothing below it moves when a field loses focus.
+- **Cash sale.** The companion-documents note moved with the others, to the notes column of the terminal. That form has no totals card to put it under.
+- **Panels.** A panel keeps its body mounted while folded (`v-show`), so its fields still validate and keep what was typed. A `flag` stays on the header either way: a supplier card with no supplier says so folded, because a save refuses it. The Reservations card of a customer order keeps its order-wide buttons on its header.
+- **Walks, before and after** (clicks, typed): P3 3, 1. P5-credit 5, 1. P5-invoice 14, 6. P6 12, 5: equal. P7-chain 18, P7-new 4, P7-repeat 3, P7-who 1: inside their budgets.

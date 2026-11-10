@@ -9,24 +9,14 @@
     :back-label="$t('nav.reservations')"
     :entity-id="res?._id"
   >
+    <!-- FR-28.32 (D-14): the same banner as the documents', without the organization's name and the title. -->
     <template #document-header>
-      <div class="d-flex align-center justify-space-between px-4 py-3 ga-4 flex-wrap">
-        <div class="d-flex align-center ga-3">
-          <v-avatar size="36" color="primary" variant="tonal">
-            <v-icon size="20">mdi-lock-clock</v-icon>
-          </v-avatar>
-          <div>
-            <div class="text-overline text-medium-emphasis">{{ appStore.currentOrg?.name || '—' }}</div>
-            <div class="text-subtitle-1 font-weight-bold">{{ $t('invoicing.reservations.title') }}</div>
-          </div>
-        </div>
-        <div class="text-end">
-          <div class="text-h6 font-weight-bold" data-testid="reservation-number">{{ res?.reservationNumber || '—' }}</div>
-          <div v-if="res" class="d-flex ga-1 justify-end mt-1">
-            <v-chip size="x-small" label variant="tonal" :color="statusColor(res.status)">{{ $t(`invoicing.status.${res.status}`) }}</v-chip>
-          </div>
-        </div>
-      </div>
+      <DocumentBanner
+        :number="res?.reservationNumber"
+        :status="res ? $t(`invoicing.status.${res.status}`) : ''"
+        :status-color="res ? statusColor(res.status) : undefined"
+        number-test-id="reservation-number"
+      />
     </template>
 
     <div v-if="notFound" class="text-medium-emphasis pa-4">{{ $t('common.noData') }}</div>
@@ -220,6 +210,7 @@ import { useAppStore } from '../store/app.store'
 import ReservationQuantityDialog from '../components/ReservationQuantityDialog.vue'
 import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
 import ReservationCreateDialog from '../components/ReservationCreateDialog.vue'
+import DocumentBanner from '../components/document-form/DocumentBanner.vue'
 import { reservationHistory, type HistoryTone } from '../composables/reservation-history'
 import { isShortage, reservationErrorMessage } from '../composables/reservation-errors'
 

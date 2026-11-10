@@ -1,5 +1,6 @@
 <template>
   <v-text-field
+    ref="field"
     :model-value="modelValue"
     type="date"
     append-inner-icon="mdi-calendar"
@@ -22,6 +23,16 @@ defineProps<{ modelValue?: string }>()
 defineEmits<{ 'update:modelValue': [v: string] }>()
 
 const root = ref()
+const field = ref<{ validate?: (silent?: boolean) => Promise<string[]> } | null>(null)
+
+/**
+ * Check this field's own rules now and show what they say: the messages that failed, none when it
+ * is valid. A field inside a `<v-form>` is checked by the form; this is for one that sits outside it
+ * (the document banner's issue date), where adding a second `<form>` would change the page's DOM.
+ */
+defineExpose({
+  validate: (silent = false): Promise<string[]> => field.value?.validate?.(silent) ?? Promise.resolve([]),
+})
 
 function openPicker(e: MouseEvent) {
   const input = (e.currentTarget as HTMLElement)

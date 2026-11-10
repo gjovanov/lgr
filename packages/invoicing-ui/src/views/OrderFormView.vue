@@ -9,24 +9,10 @@
     :back-label="$t('nav.externalOrders')"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
   >
+    <!-- FR-28.32 (D-14): the same banner as the documents', without the organization's name and the
+         title the shell's <h1> already carries. -->
     <template #document-header>
-      <div class="d-flex align-center justify-space-between px-4 py-3 ga-4 flex-wrap">
-        <div class="d-flex align-center ga-3">
-          <v-avatar size="36" color="primary" variant="tonal">
-            <v-icon size="20">mdi-clipboard-list-outline</v-icon>
-          </v-avatar>
-          <div>
-            <div class="text-overline text-medium-emphasis">{{ appStore.currentOrg?.name || '—' }}</div>
-            <div class="text-subtitle-1 font-weight-bold">{{ isEdit ? $t('invoicing.editOrder') : $t('invoicing.newOrder') }}</div>
-          </div>
-        </div>
-        <div class="text-end">
-          <div class="text-h6 font-weight-bold">{{ documentNumber || '—' }}</div>
-          <v-chip size="x-small" label color="primary" variant="tonal" class="mt-1">
-            {{ $t(`invoicing.status.${orderStatus}`) }}
-          </v-chip>
-        </div>
-      </div>
+      <DocumentBanner :number="documentNumber" :status="$t(`invoicing.status.${orderStatus}`)" />
     </template>
 
     <v-form ref="formRef" @submit.prevent="onSave">
@@ -51,8 +37,17 @@
 
         <!-- Supplier groups -->
         <div v-for="(group, gi) in form.supplierGroups" :key="group._id || gi" class="mt-4">
-          <v-card variant="outlined" rounded="lg">
-            <v-card-title class="d-flex align-center ga-2 py-2 flex-wrap">
+          <!-- FR-28.43: a supplier's card folds away, and says what it holds while it is folded. A group
+               with no supplier chosen keeps a flag on its header, so closing it cannot hide why a save
+               is refused. -->
+          <CollapsiblePanel
+            screen="orders.edit"
+            :panel-id="`group-${group._id || `new${gi}`}`"
+            :summary="groupSummary(group)"
+            :flag="group.supplierId ? undefined : $t('invoicing.panels.supplierMissing')"
+            data-testid="order-group"
+          >
+            <template #title>
               <v-icon size="20" color="primary">mdi-factory</v-icon>
               <div style="min-width: 260px; max-width: 380px" class="flex-grow-1 d-flex align-center ga-1">
                 <v-autocomplete
@@ -72,7 +67,8 @@
                 <v-btn v-if="!readonly" icon="mdi-magnify-expand" size="x-small" variant="text" tabindex="-1" :title="$t('invoicing.searchContact')" :aria-label="$t('invoicing.searchContact')" @click="openContactPicker({ kind: 'supplier', gi })" />
               </div>
               <v-text-field v-model="group.reference" :label="$t('invoicing.reference')" hide-details style="max-width: 200px" :readonly="readonly" />
-              <v-spacer />
+            </template>
+            <template #actions>
               <v-menu v-if="isEdit && group._id">
                 <template #activator="{ props: mp }">
                   <v-btn v-bind="mp" size="small" variant="outlined" prepend-icon="mdi-download">{{ $t('common.export') }}</v-btn>
@@ -88,8 +84,7 @@
                 </v-list>
               </v-menu>
               <v-btn v-if="!readonly" icon="mdi-close" size="small" variant="text" color="error" :title="$t('common.remove')" :aria-label="$t('common.remove')" @click="removeGroup(gi)" />
-            </v-card-title>
-            <v-divider />
+            </template>
             <v-card-text class="pa-2">
               <div style="overflow-x: auto">
                 <v-table density="compact">
@@ -323,7 +318,7 @@
                 {{ $t('invoicing.addLine') }}
               </v-btn>
             </v-card-text>
-          </v-card>
+          </CollapsiblePanel>
         </div>
 
         <v-btn v-if="!readonly" color="primary" variant="outlined" prepend-icon="mdi-factory" class="mt-4" @click="addGroup">
@@ -331,14 +326,13 @@
         </v-btn>
 
         <!-- Linked reservations (first-class RES- documents) -->
-        <v-card v-if="isEdit" variant="outlined" rounded="lg" class="mt-4">
-          <v-card-title class="d-flex align-center ga-2 py-2">
+        <CollapsiblePanel v-if="isEdit" screen="orders.edit" panel-id="reservations" :summary="reservationsSummary" class="mt-4" data-testid="order-reservations">
+          <template #title>
             <v-icon size="20" color="primary">mdi-lock-clock</v-icon>
             {{ $t('nav.reservations') }}
             <v-chip size="x-small" variant="tonal">{{ activeReservations.length }}</v-chip>
             <v-chip v-if="hasStaged" size="x-small" variant="tonal" color="warning">{{ $t('invoicing.reservations.unsaved') }}</v-chip>
-          </v-card-title>
-          <v-divider />
+          </template>
           <v-card-text class="pa-2">
             <div v-if="!reservations.length" class="text-medium-emphasis text-body-2 pa-2">
               {{ $t('invoicing.noReservationsYet') }}
@@ -409,8 +403,8 @@
               </v-table>
             </div>
           </v-card-text>
-        </v-card>
-        <OrderInvoicesCard v-if="isEdit" :invoices="linkedInvoices" :contacts="contactNames" :currency="form.currency || baseCurrency" :locale-code="localeCode" />
+        </CollapsiblePanel>
+        <OrderInvoicesCard v-if="isEdit" screen="orders.edit" :invoices="linkedInvoices" :contacts="contactNames" :currency="form.currency || baseCurrency" :locale-code="localeCode" />
 
         <!-- Notes / terms / tags -->
         <v-row class="mt-4">
@@ -583,6 +577,8 @@ import { reservationErrorMessage } from '../composables/reservation-errors'
 import { cascadeSummary } from '../composables/order-cascade'
 import OrderCascadeDialog from '../components/OrderCascadeDialog.vue'
 import OrderInvoicesCard from '../components/OrderInvoicesCard.vue'
+import DocumentBanner from '../components/document-form/DocumentBanner.vue'
+import CollapsiblePanel from 'ui-shared/components/CollapsiblePanel.vue'
 
 /** `_key` names an allocation before it is saved, so a reservation staged on it can point at it. */
 interface AllocRow { _id?: string; _key?: string; warehouseId: string; quantity: number; receivedQuantity?: number }
@@ -904,6 +900,24 @@ function removeGroup(gi: number) { form.supplierGroups.splice(gi, 1) }
 const totalOrdered = computed(() => form.supplierGroups.reduce((s, g) => s + g.lines.reduce((ls, l) => ls + (Number(l.quantity) || 0), 0), 0))
 const totalReceived = computed(() => form.supplierGroups.reduce((s, g) => s + g.lines.reduce((ls, l) => ls + (Number(l.receivedQuantity) || 0), 0), 0))
 const totalReserved = computed(() => activeReservations.value.reduce((s, r) => s + (Number(r.quantity) || 0), 0))
+
+// ── FR-28.43: what a folded card still says ──
+/**
+ * One supplier's card, folded: how many lines, how much is ordered and how much of it is reserved.
+ * Reserved counts the staged reservations too, the way each allocation's own Free does, so the
+ * line it prints is the one the open card would add up to.
+ */
+function groupSummary(group: GroupRow): string {
+  const lines = group.lines.filter((l) => l.productId || l.description)
+  const ordered = lines.reduce((s, l) => s + (Number(l.quantity) || 0), 0)
+  const reserved = lines.reduce((s, l) => s + l.allocations.reduce((as, a) => as + allocReserved(a), 0), 0)
+  return [t('invoicing.panels.lines', lines.length), t('invoicing.panels.ordered', { n: ordered }), t('invoicing.panels.reserved', { n: reserved })].join(' · ')
+}
+/** The Reservations card, folded: how many hold stock, for how many clients. */
+const reservationsSummary = computed(() => {
+  const clients = new Set(activeReservations.value.map((r) => String(r.contactId || '')).filter(Boolean))
+  return [t('invoicing.panels.reservationsCount', activeReservations.value.length), t('invoicing.panels.clients', clients.size)].join(' · ')
+})
 const estimatedTotal = computed(() =>
   form.supplierGroups.reduce((s, g) => s + g.lines.reduce((ls, l) => ls + (Number(l.quantity) || 0) * (Number(l.expectedUnitPrice) || 0), 0), 0),
 )

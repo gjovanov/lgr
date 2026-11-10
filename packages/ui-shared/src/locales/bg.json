@@ -1019,6 +1019,16 @@
     "discountTotal": "Общо отстъпки",
     "taxTotal": "Общо ДДС",
     "taxTotalWithRate": "Общо ДДС ({rate}%)",
+    "panels": {
+      "lines": "{n} ред | {n} реда",
+      "ordered": "{n} поръчани",
+      "needed": "{n} необходими",
+      "reserved": "{n} резервирани",
+      "reservationsCount": "{n} резервация | {n} резервации",
+      "clients": "{n} клиент | {n} клиенти",
+      "invoices": "{n} фактура | {n} фактури",
+      "supplierMissing": "Липсва доставчик"
+    },
     "printNote": "Бележка за печат",
     "printNoteHint": "Отпечатва се под номера — запазва се с документа",
     "companionNote": "Бележка към придружаващите документи",

@@ -10,23 +10,14 @@
     :back-label="config.backLabelKey ? $t(config.backLabelKey) : undefined"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
   >
-    <!-- Evolved document-preview banner -->
+    <!-- FR-28.32 / .33: the banner is one row of three equal columns — who (the party), which document
+         (its number and status), when (the issue date). The organization's name and the title it
+         used to repeat are gone: the shell's <h1> is the title, the top bar names the organization. -->
     <template #document-header>
-      <div class="doc-banner d-flex align-center justify-space-between px-4 py-3 ga-4 flex-wrap">
-        <div class="d-flex align-center ga-3">
-          <v-avatar size="36" color="primary" variant="tonal">
-            <v-icon size="20">{{ config.pendingIcon }}</v-icon>
-          </v-avatar>
-          <div>
-            <div class="text-overline text-medium-emphasis doc-banner-org">{{ appStore.currentOrg?.name || '—' }}</div>
-            <div class="text-subtitle-1 font-weight-bold doc-banner-title">
-              {{ isEdit ? $t(config.titleEditKey) : $t(config.titleNewKey) }}
-            </div>
-          </div>
-        </div>
-
-        <!-- Party selector (contact DDL + ledger) — moved up into the banner -->
-        <div class="doc-banner-party" style="flex: 1 1 260px; max-width: 460px;">
+      <DocumentBanner :number="documentNumber" :status="statusDef ? $t(statusDef.current) : ''">
+        <!-- Party selector (contact DDL + ledger). It stays the FIRST autocomplete in the DOM: the
+             specs, and focusFirstField, take it that way. -->
+        <template #party>
           <v-defaults-provider :defaults="{
             VAutocomplete: { density: 'compact', variant: 'filled', hideDetails: 'auto', persistentPlaceholder: true },
             VTextField: { density: 'compact', variant: 'filled', persistentPlaceholder: true },
@@ -93,44 +84,26 @@
               />
             </div>
           </v-defaults-provider>
-        </div>
-
-        <div class="text-end doc-banner-meta">
-          <div class="text-h6 font-weight-bold">{{ documentNumber || '—' }}</div>
-          <v-chip v-if="statusDef" size="x-small" label color="primary" variant="tonal" class="mt-1">
-            {{ $t(statusDef.current) }}
-          </v-chip>
-          <!-- Free text printed under the number block. Saved with the document, so every
-               later reprint carries it; an empty value prints nothing at all. -->
-          <v-textarea
-            v-model="printNote"
-            :label="$t('invoicing.printNote')"
-            :hint="$t('invoicing.printNoteHint')"
-            :counter="HEADER_NOTE_MAX"
-            :maxlength="HEADER_NOTE_MAX"
-            persistent-hint
-            rows="4"
-            auto-grow
-            variant="outlined"
-            class="mt-2 doc-banner-note text-start"
-          />
-          <!-- Fills the "Допълнителна информация" block of the companion documents. Outgoing
-               only, for the same reason the companions themselves are (see `companionDocs`). -->
-          <v-textarea
-            v-if="companionDocs"
-            v-model="companionNote"
-            :label="$t('invoicing.companionNote')"
-            :hint="$t('invoicing.companionNoteHint')"
-            :counter="COMPANION_NOTE_MAX"
-            :maxlength="COMPANION_NOTE_MAX"
-            persistent-hint
-            rows="2"
-            auto-grow
-            variant="outlined"
-            class="mt-2 doc-banner-note text-start"
-          />
-        </div>
-      </div>
+        </template>
+        <template #date>
+          <!-- The banner sits OUTSIDE the document's <v-form> (which is why the party select's
+               `required` takes no part in a save), so a date moved up here would have dropped out of
+               what a save validates: it was required, and an empty one must still stop the save. The
+               date checks itself: `validate()` asks it as well as the form (FR-28.35). It is not wrapped
+               in a <form> of its own, because that would be a second `.v-form` on the page. -->
+          <v-defaults-provider :defaults="{
+            VTextField: { density: 'compact', variant: 'filled', hideDetails: 'auto', persistentPlaceholder: true },
+          }">
+            <DateField
+              ref="issueDateRef"
+              v-model="form.issueDate"
+              :label="$t('invoicing.issueDate')"
+              :rules="[rules.required]"
+              data-testid="issue-date"
+            />
+          </v-defaults-provider>
+        </template>
+      </DocumentBanner>
     </template>
 
     <!-- On a saved document only: a new one has „Издай и печатай" in the action bar and Печат
@@ -362,17 +335,48 @@
           <DocumentLineTable :doc="doc" :receipt-cost-of="billReceipts.enabled ? billReceipts.receiptCostOf : undefined" />
         </template>
 
-        <!-- Notes / terms / tags (left) + Totals (right) -->
+        <!-- Notes / terms / tags (left) + Totals (right). FR-28.34: the PRINT note heads the left
+             column, above Reason / Notes, and the COMPANION-documents note closes the right one,
+             under the totals; both used to be stacked under the number in the banner, where the two
+             textareas set the height of the whole header. Only their place moved. -->
         <v-row class="mt-4">
           <v-col cols="12" md="6">
+            <!-- Free text printed under the number block. Saved with the document, so every
+                 later reprint carries it; an empty value prints nothing at all. -->
+            <v-textarea
+              v-model="printNote"
+              data-testid="print-note"
+              :label="$t('invoicing.printNote')"
+              :hint="$t('invoicing.printNoteHint')"
+              :counter="HEADER_NOTE_MAX"
+              :maxlength="HEADER_NOTE_MAX"
+              persistent-hint
+              rows="2"
+              auto-grow
+            />
             <slot name="notes" :doc="doc">
-              <v-textarea v-model="notesModel" :label="$t(config.notesFieldLabelKey)" rows="2" auto-grow />
+              <v-textarea v-model="notesModel" data-testid="document-notes" :label="$t(config.notesFieldLabelKey)" rows="2" auto-grow />
               <v-textarea v-if="config.showTermsField" v-model="form.terms" :label="$t('invoicing.terms')" rows="2" auto-grow />
               <TagInput v-model="form.tags" type="invoice" :org-url="orgUrl()" class="mt-2" />
             </slot>
           </v-col>
           <v-col cols="12" md="6">
             <DocumentTotalsCard :doc="doc" />
+            <!-- Fills the "Допълнителна информация" block of the companion documents. Outgoing
+                 only, for the same reason the companions themselves are (see `companionDocs`). -->
+            <v-textarea
+              v-if="companionDocs"
+              v-model="companionNote"
+              data-testid="companion-note"
+              :label="$t('invoicing.companionNote')"
+              :hint="$t('invoicing.companionNoteHint')"
+              :counter="COMPANION_NOTE_MAX"
+              :maxlength="COMPANION_NOTE_MAX"
+              persistent-hint
+              rows="2"
+              auto-grow
+              class="mt-3"
+            />
           </v-col>
         </v-row>
 
@@ -579,6 +583,8 @@ import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
 import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
+import DateField from 'ui-shared/components/DateField.vue'
+import DocumentBanner from './DocumentBanner.vue'
 import DocumentUpperSection from './DocumentUpperSection.vue'
 import DocumentLineTable from './DocumentLineTable.vue'
 import DocumentTotalsCard from './DocumentTotalsCard.vue'
@@ -634,6 +640,7 @@ const {
   formActions,
   smartButtons,
   formRef,
+  issueDateRef,
   loading,
   form,
   contacts,
@@ -815,36 +822,9 @@ defineExpose({ submitCreate, doc })
 </script>
 
 <style scoped>
-/* The banner's right-hand column: number, status and the print-only note stacked under it.
-   The note is a full textarea, so the column is wide enough to type a few lines into. */
-.doc-banner-meta {
-  flex: 1 1 380px;
-  max-width: 460px;
-  min-width: 280px;
-}
-/* The number and status stay right-aligned; the note reads as a normal left-aligned field. */
-.doc-banner-note :deep(.v-field__input),
-.doc-banner-note :deep(.v-messages),
-.doc-banner-note :deep(.v-label) {
-  text-align: start;
-}
 /* FR-22.20: „Печат" and its options, one control in two parts. */
 .print-split .print-options {
   padding-inline: 8px;
   border-inline-start-width: 0;
-}
-.doc-banner {
-  background: linear-gradient(
-    90deg,
-    rgba(var(--v-theme-primary), 0.06),
-    rgba(var(--v-theme-primary), 0.01)
-  );
-}
-.doc-banner-org {
-  line-height: 1;
-  letter-spacing: 0.08em;
-}
-.doc-banner-title {
-  line-height: 1.2;
 }
 </style>
