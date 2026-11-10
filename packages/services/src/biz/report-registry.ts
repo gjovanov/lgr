@@ -125,8 +125,8 @@ async function runInventoryValuation(ctx: ReportHandlerContext): Promise<ReportR
       { key: 'unit',       labelKey: 'reports.columns.unit' },
       { key: 'quantity',   labelKey: 'reports.columns.quantity',   type: 'quantity', align: 'end' },
       { key: 'reserved',   labelKey: 'reports.columns.reserved',   type: 'quantity', align: 'end' },
-      { key: 'avgCost',    labelKey: 'reports.columns.avgCost',    type: 'money',    align: 'end' },
-      { key: 'totalValue', labelKey: 'reports.columns.totalValue', type: 'money',    align: 'end' },
+      { key: 'avgCost',    labelKey: 'reports.columns.avgCost',    type: 'money',    align: 'end', fieldGroup: 'costs' },
+      { key: 'totalValue', labelKey: 'reports.columns.totalValue', type: 'money',    align: 'end', fieldGroup: 'costs' },
     ],
     rows: page,
     totals: {

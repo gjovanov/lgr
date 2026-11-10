@@ -75,6 +75,11 @@ export interface ReportColumn {
   labelKey: string
   type?: ColumnType
   align?: 'start' | 'end' | 'center'
+  /**
+   * FR-27.6 field groups: a column only a role holding the group sees (`costs`: `products.costs`). The runner drops it,
+   * its cells and its total for any other, on screen and in the file (`withoutFieldGroups`).
+   */
+  fieldGroup?: 'costs'
 }
 
 export interface ReportResult {
@@ -338,4 +343,21 @@ export function canExportReport(entry: ReportEntry, user: ReportCaller | null | 
 export function toReportMeta(entry: ReportEntry): ReportMeta {
   const { id, category, labelKey, descriptionKey, icon, outputs, params, view, route } = entry
   return { id, category, labelKey, descriptionKey, icon, outputs, params, view, route }
+}
+
+/**
+ * FR-27.6: the report without the columns of a field group the caller does not see: the column, every row's cell and
+ * the total are gone (never blanked), and `meta.withheld` names the keys. Unchanged when nothing is withheld.
+ */
+export function withoutFieldGroups(result: ReportResult, sees: (group: NonNullable<ReportColumn['fieldGroup']>) => boolean): ReportResult {
+  const hidden = new Set(result.columns.filter(c => c.fieldGroup && !sees(c.fieldGroup)).map(c => c.key))
+  if (!hidden.size) return result
+  const drop = (o: Record<string, any>) => Object.fromEntries(Object.entries(o).filter(([k]) => !hidden.has(k)))
+  return {
+    ...result,
+    columns: result.columns.filter(c => !hidden.has(c.key)),
+    rows: result.rows.map(drop),
+    ...(result.totals ? { totals: drop(result.totals) as Record<string, number> } : {}),
+    meta: { ...result.meta, withheld: [...hidden] } as any,
+  }
 }

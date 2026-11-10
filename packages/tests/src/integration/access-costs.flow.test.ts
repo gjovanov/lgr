@@ -13,6 +13,7 @@ import { tokenize } from 'services/biz/auth.service'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { forgetAccessModel } from 'services/biz/access/shadow'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
+import { compileLegacy } from 'config/access'
 
 /**
  * FR-27.6 (#529, D-5; §8 field test step 3) — turn the cost figures off on a role, and read a product through the
@@ -119,6 +120,36 @@ describe('FR-27.6: a role without the cost figures', () => {
     const layers = await call('GET', '/warehouse/cost-layer', tokens.clerk)
     expect(layers.status).toBe(403)
     expect(layers.json.code).toBe('capability_required')
+  })
+})
+
+describe('FR-27.6: the reports drop the cost columns for such a role', () => {
+  it('stock levels without „Средна цена" and the value, cells and totals gone; the Administrator keeps them', async () => {
+    // What `inventory.read` + `reports.read` give, less the cost figures: the inventory reports open, the costs do not.
+    const caps = [...(compileLegacy({ role: 'member', permissions: ['inventory.read', 'reports.read'] }) as any).caps].filter((c: string) => c !== 'products.costs')
+    const role = await call('POST', '/roles', tokens.admin, { name: 'Stock reader', caps })
+    expect(role.status).toBe(200)
+    people.reader = await createTestUser(org._id, { role: 'member', username: 'reader', email: 'reader@access-costs.test' } as any)
+    expect((await call('PUT', `/user/${people.reader._id}`, tokens.admin, { roleId: role.json.role.id })).status).toBe(200)
+    await sign('reader')
+
+    const mine = await call('POST', '/reports/stock-levels/run', tokens.reader, { params: {} })
+    expect(mine.status).toBe(200)
+    const keys = mine.json.columns.map((c: any) => c.key)
+    expect(keys).toContain('quantity')
+    expect(keys).not.toContain('avgCost')
+    expect(keys).not.toContain('totalValue')
+    expect(mine.json.rows.length).toBeGreaterThan(0)
+    for (const row of mine.json.rows) {
+      expect('avgCost' in row).toBe(false)
+      expect('totalValue' in row).toBe(false)
+    }
+    expect('totalValue' in (mine.json.totals ?? {})).toBe(false)
+    expect(mine.json.meta.withheld).toEqual(['avgCost', 'totalValue'])
+
+    const admins = await call('POST', '/reports/stock-levels/run', tokens.admin, { params: {} })
+    expect(admins.json.columns.map((c: any) => c.key)).toContain('avgCost')
+    expect(admins.json.meta.withheld).toBeUndefined()
   })
 })
 
