@@ -168,7 +168,18 @@ export async function assertCloneAllowed(sourceOrgId: string, targetOrgId: strin
 
 // ── The environment the rewrite runs in ───────────────────────────────────────────────────
 
-/** Every `_id` of the source org in every collection a backup would bundle, the never-copied ones included. */
+/**
+ * Every model that holds an org's documents under an `orgId`: what a backup would bundle, the never-copied
+ * ones included, AND the org's operational records and node state (backup runs, background tasks, the digest
+ * log...). The last are never copied, but a copied document may still name one (an audit entry about a
+ * backup): its id is then rewritten to the id the copy WOULD have, which points at nothing, instead of
+ * being left naming a record of the real org.
+ */
+function orgScopedModels(): string[] {
+  return Object.keys(mongoose.models).filter(name => !!mongoose.models[name]!.schema.path('orgId')).sort()
+}
+
+/** Every `_id` of the source org in every collection that holds its documents (see `orgScopedModels`). */
 async function loadKnownIds(srcOid: Oid, models: readonly string[]): Promise<Set<string>> {
   const known = new Set<string>()
   for (const name of models) {
@@ -467,7 +478,7 @@ export async function cloneOrgData(opts: CloneOptions): Promise<CloneReport> {
   if (unknown.length) throw new OrgCloneError('bad_only', `not a model a copy carries: ${unknown.join(', ')}`)
 
   log('reading the source ids', { source: source.slug })
-  const known = await loadKnownIds(srcOid, tenant)
+  const known = await loadKnownIds(srcOid, orgScopedModels())
   const overrides = await buildOverrides(srcOid, tgtOid)
   const env = makeEnv(srcHex, tgtHex, known, overrides)
   log('ids read', { documents: known.size, mapped: overrides.size })
@@ -611,7 +622,7 @@ export async function createTestOrgFrom(opts: { sourceOrgId: string; slug: strin
   const tgtOid = new ObjectId()
   const tgtHex = String(tgtOid)
   // The rewrite needs the source's ids to turn the settings' account and journal ids into the copy's.
-  const known = await loadKnownIds(srcOid, tenantCollections())
+  const known = await loadKnownIds(srcOid, orgScopedModels())
   const env = makeEnv(String(srcOid), tgtHex, known, new Map())
 
   const settings: any = remapValue(testOrgSettings(source.settings), env)

@@ -108,9 +108,23 @@ describe('the rewrite into the copy', () => {
     expect(typeof out.lines[1].productId).toBe('string')
     expect(String(out.nested.deep[0].contactId)).toBe(cloneIdHex(contact, tgt))
     expect(String(out.identityId)).toBe(person)
-    expect(out.text).toBe(`see ${product} in the text`)
+    // An id inside a longer string is a reference as well: it is the copy's now.
+    expect(out.text).toBe(`see ${cloneIdHex(product, tgt)} in the text`)
     expect(out.when).toBeInstanceOf(Date)
     expect(Buffer.isBuffer(out.blob)).toBe(true)
+  })
+
+  it('rewrites a source id that stands inside a longer string, and only a whole token of one', () => {
+    const stranger = rand()
+    const out = remapValue({
+      tags: [`converted:${product}`, `see ${contact} and ${product}.`, 'plain', `from:${stranger}`],
+      glued: `${product}ab`,
+    }, env)
+    expect(out.tags[0]).toBe(`converted:${cloneIdHex(product, tgt)}`)
+    expect(out.tags[1]).toBe(`see ${cloneIdHex(contact, tgt)} and ${cloneIdHex(product, tgt)}.`)
+    expect(out.tags[2]).toBe('plain')
+    expect(out.tags[3]).toBe(`from:${stranger}`) // not a document of the source org
+    expect(out.glued).toBe(`${product}ab`) // a longer run of hex digits is not an id
   })
 
   it('does not touch its input', () => {
@@ -124,7 +138,7 @@ describe('the rewrite into the copy', () => {
     const out = remapValue({ currentPath: `${src}/docs/a.pdf`, logo: `/api/org/${src}/logo?v=abc`, other: `${src}/x` }, env)
     expect(out.currentPath).toBe(`${tgt}/docs/a.pdf`)
     expect(out.logo).toBe(`/api/org/${tgt}/logo?v=abc`)
-    expect(out.other).toBe(`${src}/x`) // only path-like keys: a free text field is not rewritten
+    expect(out.other).toBe(`${tgt}/x`) // the org's own id inside any string is the copy's, path-like key or not
   })
 
   it('always writes the target org, even into a document that never named one', () => {

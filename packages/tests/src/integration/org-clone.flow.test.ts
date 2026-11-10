@@ -105,6 +105,8 @@ async function realShop(label = 'real') {
       status: 'sent',
       createdBy: admin._id,
       attachments: [fileId],
+      // A tag that names the document it came from: the id is INSIDE the text.
+      tags: [`converted-from:${products[0]._id}`, 'plain'],
       lines: [{
         description: 'Bolt', quantity: 3, unit: 'pcs', unitPrice: 5, discount: 0, taxRate: 20, taxAmount: 3, lineTotal: 18,
         productId: products[0]._id, warehouseId: wh1._id,
@@ -129,6 +131,13 @@ async function realShop(label = 'real') {
   const png = Buffer.from('not really a png')
   await OrgLogo.create({ orgId: org._id, data: png, mimeType: 'image/png', size: png.length, width: 1, height: 1, hash: 'abc123', uploadedBy: admin._id } as any)
   await Org.updateOne({ _id: org._id }, { $set: { logo: `/api/org/${org._id}/logo?v=abc123` } })
+
+  // An operational record the copy never holds, and an audit entry that names it.
+  const backupRun = await coll('BackupRun').insertOne({ orgId: org._id, status: 'completed', kind: 'full' })
+  await AuditLog.create({
+    orgId: org._id, userId: admin._id, action: 'create', module: 'backup', entityType: 'backup',
+    entityId: backupRun.insertedId, entityName: 'a backup',
+  } as any)
 
   // Things a test copy must never inherit.
   await createTestFiscalDevice(org._id, wh1._id)
@@ -227,14 +236,22 @@ describe('the first copy', () => {
     const shop = await realShop()
     const { id } = await testCopyOf(shop)
 
+    // Every model that holds an org's documents, operational records and node state included: a copied
+    // audit entry may name a backup run of the real org, and that id must not survive either.
+    const scoped = Object.keys(mongoose.models).filter(n => !!mongoose.models[n]!.schema.path('orgId'))
     const sourceIds = new Set<string>()
-    for (const name of tenantCollections()) for (const d of await docsOf(name, shop.id)) sourceIds.add(String(d._id))
+    for (const name of scoped) for (const d of await docsOf(name, shop.id)) sourceIds.add(String(d._id))
     sourceIds.add(shop.id)
     expect(sourceIds.size).toBeGreaterThan(20)
 
     let text = ''
-    for (const name of tenantCollections()) text += JSON.stringify(await docsOf(name, id))
+    for (const name of scoped) text += JSON.stringify(await docsOf(name, id))
     for (const sid of sourceIds) expect(text.includes(sid)).toBe(false)
+
+    // The tag that carried an id inside its text now carries the copy's.
+    const tagged: any = (await docsOf('Invoice', id)).find((i: any) => i.status === 'sent')
+    expect(tagged.tags[0]).toBe(`converted-from:${cloneIdHex(String(shop.products[0]._id), id)}`)
+    expect(tagged.tags[1]).toBe('plain')
 
     // And the references that matter still resolve inside the copy.
     const products = await docsOf('Product', id)
