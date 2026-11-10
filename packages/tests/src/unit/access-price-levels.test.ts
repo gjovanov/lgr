@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import {
   CAPABILITIES, CUSTOMER_PRICE_LABEL, PRICE_LEVELS, PRICE_LEVEL_CAPS, capOfTier, compileLegacy, keepStoredPrices,
-  capsOfSortKey, redactPriceOptions, redactProduct, redactResolution, sameGrant, sortRefusal, templateDefaults, templateGrant, templateOf, withImplied, type CapabilityId,
+  capsOfSortKey, hiddenPricesOf, redactPriceOptions, redactProduct, redactResolution, sameGrant, sortRefusal, templateDefaults, templateGrant, templateOf, withImplied, type CapabilityId,
 } from 'config/access'
 import { DEFAULT_ROLE_PERMISSIONS, PRICE_TIERS, ROLES } from 'config/constants'
 
@@ -183,5 +183,19 @@ describe('C.3 the levels a sort key reads', () => {
     expect(sortRefusal(regalPz, 'name')).toBeNull()
     expect(sortRefusal({ all: true }, 'purchasePrice')).toBeNull()
     expect(sortRefusal(compileLegacy({ role: 'member', permissions: ['inventory.read'] }), 'purchasePrice')).toBeNull()
+  })
+})
+
+describe('B. the summary names the prices a role does not see', () => {
+  it("regal-pz's Seller: the costs, Цена на едро, Цена 0, Цена 3 to Цена 10", () => {
+    expect(hiddenPricesOf(regalPz)).toEqual([
+      'products.costs', 'products.price:wholesale', 'products.price:0', 'products.price:3', 'products.price:4', 'products.price:5',
+      'products.price:6', 'products.price:7', 'products.price:8', 'products.price:9', 'products.price:10',
+    ])
+  })
+
+  it('nothing for the Administrator, or for a role that reads no product', () => {
+    expect(hiddenPricesOf({ all: true })).toEqual([])
+    expect(hiddenPricesOf({ caps: new Set(['payroll-runs.view']) } as any)).toEqual([])
   })
 })

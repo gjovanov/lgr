@@ -4862,7 +4862,8 @@
       "feature": "Funktion",
       "level": "Stufe",
       "grants": "Gewährt",
-      "pricesNote": "Sichtbare Preise: erst ausgeblendet, wenn das Zugriffsmodell der Organisation „Rollen“ ist. Der Preis eines Kunden gilt auch auf einer Stufe, die die Rolle nicht sieht, und eine Rolle, die Kontakte bearbeitet, kann eine ausgeblendete Stufe lesen, indem sie einen Kontakt mit ihrem Namen markiert; entziehen Sie „Kontakte: bearbeiten“, um das zu schließen."
+      "pricesNote": "Sichtbare Preise: erst ausgeblendet, wenn das Zugriffsmodell der Organisation „Rollen“ ist. Der Preis eines Kunden gilt auch auf einer Stufe, die die Rolle nicht sieht, und eine Rolle, die Kontakte bearbeitet, kann eine ausgeblendete Stufe lesen, indem sie einen Kontakt mit ihrem Namen markiert; entziehen Sie „Kontakte: bearbeiten“, um das zu schließen.",
+      "pricesHidden": "Nicht sichtbare Preise"
     }
   }
 }

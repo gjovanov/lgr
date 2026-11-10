@@ -1,5 +1,6 @@
 import { CATALOGUE, type CapabilityId, type FeatureId } from './catalogue'
 import type { Grant } from './grant'
+import { PRICE_LEVEL_CAPS } from './fields'
 
 /**
  * FR-27 §2.1, §2.2 (#529) — what the role editor shows: per feature a level, None, View, Work or Full, and the
@@ -133,7 +134,7 @@ export function withImplied(caps: Iterable<CapabilityId>): CapabilityId[] {
  * FR-27.4 §2.3 — the three lines under a role: what it can create, what it only reads, what it does not see. Feature
  * ids, in catalogue order; the screens name them.
  */
-export function summarize(grant: Grant): { canCreate: FeatureId[]; readOnly: FeatureId[]; notVisible: FeatureId[] } {
+export function summarize(grant: Grant): { canCreate: FeatureId[]; readOnly: FeatureId[]; notVisible: FeatureId[]; hiddenPrices: CapabilityId[] } {
   const canCreate: FeatureId[] = []
   const readOnly: FeatureId[] = []
   const notVisible: FeatureId[] = []
@@ -145,5 +146,16 @@ export function summarize(grant: Grant): { canCreate: FeatureId[]; readOnly: Fea
     else if (sees) readOnly.push(f.id)
     else notVisible.push(f.id)
   }
-  return { canCreate, readOnly, notVisible }
+  return { canCreate, readOnly, notVisible, hiddenPrices: hiddenPricesOf(grant) }
+}
+
+/**
+ * FR-27.11.B: what the summary says a role does not see of the prices: the cost figures and each price level it lacks,
+ * for a role that reads products at all (one that reads none sees no price anyway). Catalogue order.
+ */
+export function hiddenPricesOf(grant: Grant): CapabilityId[] {
+  if (grant.all) return []
+  const readsProducts = (['products.view', 'products.lookup', 'sales-docs.view', 'till.view'] as CapabilityId[]).some(c => grant.caps.has(c))
+  if (!readsProducts) return []
+  return (['products.costs', ...PRICE_LEVEL_CAPS] as CapabilityId[]).filter(c => !grant.caps.has(c))
 }

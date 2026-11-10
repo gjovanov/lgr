@@ -33,6 +33,8 @@
           <div><strong>{{ $t('access.ui.canCreate') }}:</strong> {{ names(summary.canCreate) }}</div>
           <div><strong>{{ $t('access.ui.readOnly') }}:</strong> {{ names(summary.readOnly) }}</div>
           <div><strong>{{ $t('access.ui.notVisible') }}:</strong> {{ names(summary.notVisible) }}</div>
+          <!-- FR-27.11.B: the prices the role does not see. -->
+          <div v-if="summary.hiddenPrices.length" data-testid="role-hidden-prices"><strong>{{ $t('access.ui.pricesHidden') }}:</strong> {{ summary.hiddenPrices.map(actionLabel).join(', ') }}</div>
           <div class="text-medium-emphasis mt-2">{{ $t('access.ui.alwaysIncluded') }}</div>
         </v-card-text>
       </v-card>

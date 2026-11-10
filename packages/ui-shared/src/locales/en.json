@@ -4862,7 +4862,8 @@
       "feature": "Feature",
       "level": "Level",
       "grants": "Grants",
-      "pricesNote": "Prices it may see: hidden only once the organization's access model is \"roles\". A customer's price still applies at a level the role does not see, and a role that edits contacts can read a hidden level by tagging a contact with its name; take \"Contacts: edit\" away to close that."
+      "pricesNote": "Prices it may see: hidden only once the organization's access model is \"roles\". A customer's price still applies at a level the role does not see, and a role that edits contacts can read a hidden level by tagging a contact with its name; take \"Contacts: edit\" away to close that.",
+      "pricesHidden": "Prices not visible"
     }
   }
 }
