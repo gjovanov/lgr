@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test'
 import { computePosTotals } from '../../config/src/pos-totals'
 import { apiLogin } from './helpers/api'
 import { loginForApp } from './helpers/login'
-import { openTillSession } from './helpers/cash-register'
+import { openTillSession, tillCatalog } from './helpers/cash-register'
 
 /**
  * FR-23: a storno whose print goes `unknown` is held, never voided, on the simulated Eltrade.
@@ -67,7 +67,7 @@ test.describe('FR-23 — a storno that may have printed', () => {
     manager = await apiLogin('acme-corp', managerName, PASSWORD)
     till = await openTillSession(manager)
 
-    const { products } = await ok(manager, 'GET', `/trade/pos/catalog?warehouseId=${till.warehouseId}&type=goods&size=100`)
+    const products = await tillCatalog(manager, till.warehouseId)
     const article = (products || []).find((p: any) => (p.stockAvailable ?? 0) >= 2 && p.unitPrice > 0)
     expect(article, 'an article with stock at the store — is the DB seeded?').toBeTruthy()
     const rate = Number(article.taxRate || 0)

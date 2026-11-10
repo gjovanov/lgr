@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { apiGet, apiLogin, type ApiSession } from './helpers/api'
-import { createBackOfficeCashSale } from './helpers/cash-register'
+import { createBackOfficeCashSale, tillCatalog } from './helpers/cash-register'
 import { restoreEntry } from './helpers/document-form'
 import { loginForApp } from './helpers/login'
 
@@ -239,7 +239,7 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
 
   /** The stock the catalog shows for the draft's article at the main warehouse. */
   async function stockOf(product: any) {
-    const { products } = await apiGet(await apiLogin(), `/trade/pos/catalog?warehouseId=${product.warehouseId}&type=goods&size=100&sortOrder=desc`)
+    const products = await tillCatalog(await apiLogin(), product.warehouseId)
     return products.find((p: any) => p.productId === product.productId).stockAvailable
   }
 
@@ -250,7 +250,8 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
     const { warehouses } = await apiGet(admin, '/warehouse/warehouse?size=50')
     const main = warehouses.find((w: any) => w.code === 'WH-01') ?? warehouses[0]
     const warehouseId = main.id || main._id
-    const { products } = await apiGet(admin, `/trade/pos/catalog?warehouseId=${warehouseId}&type=goods&size=100&sortOrder=desc`)
+    // From the end of the catalog, as before: the seed's "Product N …" sort after the specs' "E2E …".
+    const products = (await tillCatalog(admin, warehouseId)).reverse()
     const product = products.find((p: any) => (p.stockAvailable ?? 0) >= 5 && p.unitPrice > 0)
     await seedPendingChange(page, session, {
       id: 'old-cash-draft', entityType: 'cashSale', mode: 'create', appId: 'invoicing',

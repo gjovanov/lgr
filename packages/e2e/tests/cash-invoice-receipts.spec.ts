@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { apiLogin } from './helpers/api'
 import { loginForApp } from './helpers/login'
-import { openTillSession } from './helpers/cash-register'
+import { openTillSession, tillCatalog } from './helpers/cash-register'
 import { openSelect } from './helpers/vuetify'
 
 /**
@@ -83,7 +83,7 @@ test.describe('FR-23 — a receipt for a payment on an invoice', () => {
     cashier = await apiLogin('acme-corp', cashierName, PASSWORD)
     till = await openTillSession(cashier)
 
-    const { products } = await ok(cashier, 'GET', `/trade/pos/catalog?warehouseId=${till.warehouseId}&type=goods&size=100`)
+    const products = await tillCatalog(cashier, till.warehouseId)
     article = (products || []).find((p: any) => (p.stockAvailable ?? 0) >= 6 && p.unitPrice > 0)
     expect(article, 'an article with stock at the store — is the DB seeded?').toBeTruthy()
     const rate = article.taxRate || 0
