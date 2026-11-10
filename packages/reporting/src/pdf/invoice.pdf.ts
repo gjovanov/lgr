@@ -4,7 +4,7 @@ import { invoiceDocI18n, invoiceDocTitle, AMOUNT_IN_WORDS_RE } from '../invoice-
 import { unitLabel } from '../unit.i18n.js'
 import { productCredit } from '../product-credit.js'
 import { logoImgTag, LOGO_CSS } from './logo.js'
-import { GRID_CELL_PADDING_X, GRID_EDGE_PADDING_X, GRID_FIT_CLASS, LINE_GRID_CSS } from './line-grid.js'
+import { GRID_CELL_PADDING_X, GRID_EDGE_PADDING_X, GRID_FIT_CLASS, GRID_GUTTER_PX, LINE_GRID_CSS } from './line-grid.js'
 import { pageMargin } from './page-margins.js'
 
 /**
@@ -124,10 +124,17 @@ const CSS = `
     white-space: pre-wrap; overflow-wrap: break-word; }
   table.parties { margin-bottom: 16px; font-size: 8.5pt; }
   table.parties td { padding: 2px 0; vertical-align: top; }
-  table.parties td.k { width: 11%; padding-left: 4px; }
-  table.parties td.v { width: 33%; }
+  /* Each party's half follows the line grid's rules (line-grid.ts): its text starts one edge
+     inset inside it (the band's title and the keys, in line with the line numbers) and ends one
+     inset short of its end, and a key keeps one gutter from its value, whatever the language's
+     title. The band sets only its vertical padding: a shorthand there outranks these.
+     The keys take 13% of the line, as on the protocol and the certificate. At 11% a title and
+     its padding outgrew that share in some languages, the table took the difference from the
+     other half, and the band's two halves came out up to 20px unequal (ДОСТАВУВАЧ). */
+  table.parties td.k { width: 13%; padding-left: ${GRID_EDGE_PADDING_X}; padding-right: ${GRID_GUTTER_PX}px; }
+  table.parties td.v { width: 31%; padding-right: ${GRID_EDGE_PADDING_X}; }
   table.parties td.gap { width: 6%; }
-  table.parties tr.band td { background: #ebebeb; font-weight: 700; padding: 3px 0; }
+  table.parties tr.band td { background: #ebebeb; font-weight: 700; padding-top: 3px; padding-bottom: 3px; }
   table.parties tr.band td.gap { background: transparent; }
   table.lines { font-size: 8.5pt; }
   table.lines thead th { border-bottom: 1px solid #000; border-top: 1px solid #000;
