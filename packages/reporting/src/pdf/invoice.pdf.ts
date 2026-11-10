@@ -4,7 +4,7 @@ import { invoiceDocI18n, invoiceDocTitle, AMOUNT_IN_WORDS_RE } from '../invoice-
 import { unitLabel } from '../unit.i18n.js'
 import { productCredit } from '../product-credit.js'
 import { logoImgTag, LOGO_CSS } from './logo.js'
-import { GRID_CELL_PADDING_X, GRID_FIT_CLASS, LINE_GRID_CSS } from './line-grid.js'
+import { GRID_CELL_PADDING_X, GRID_EDGE_PADDING_X, GRID_FIT_CLASS, LINE_GRID_CSS } from './line-grid.js'
 import { pageMargin } from './page-margins.js'
 
 /**
@@ -137,8 +137,9 @@ const CSS = `
   ${LINE_GRID_CSS}
   table.totals { margin-top: 8px; font-size: 8.5pt; }
   table.totals td { padding: 0 0 1px 0; }
-  /* Flush left, in line with the first column of the line grid above it. */
-  table.totals td.words { vertical-align: top; width: 52%; padding-left: 0; padding-top: 4px; }
+  /* In line with the text of the line grid's first column above it, the line numbers. */
+  table.totals td.words { vertical-align: top; width: 52%; padding-left: ${GRID_EDGE_PADDING_X};
+    padding-top: 4px; }
   table.totals td.box-cell { width: 48%; vertical-align: top; }
   /* The 1px right margin keeps the border off the page's clip edge — sitting exactly on it,
      Chromium shaves the stroke on some renders. The wider right padding stops the amounts
