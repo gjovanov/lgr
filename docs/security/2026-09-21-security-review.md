@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-34** are fixed. The rest are open, ordered by
+**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-35** are fixed. The rest are open, ordered by
 severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
@@ -24,7 +24,8 @@ the fix had been verified on production. They are written up at the end too. S-2
 out of the same month: S-29 while designing FR-20's till PINs, S-30 during FR-22's review of the till
 and fiscal-device screens, and S-31 while fixing #168. S-32 came a few days later, while writing
 FR-27 (#529), and S-33 while handling it. S-34 turned up while closing S-33, when the rest of the
-Files routes were read against the same rule.
+Files routes were read against the same rule. S-35 came out of re-checking the Known Issue about the
+controllers that take any field.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -62,6 +63,7 @@ Files routes were read against the same rule.
 | S-32 | Medium | Writing a permission set was open to any holder of `admin.settings`: they could change what the sets they hold grant, their own included | **Fixed** (#530) |
 | S-33 | Medium | Booking, undoing or reconciling a document in the Files app asked for `admin.settings` alone: a holder could issue invoices and move stock without the write permission of what the document books | **Fixed** (#536) |
 | S-34 | Low | Analysing a document in the Files app, and the diff of a stock snapshot, asked for `admin.settings` alone: a holder could read the catalog, contacts, costs and stock they are matched against without the permission that guards them | **Fixed** (#541) |
+| S-35 | Medium | A body could name another org's record by id, and the views that resolve stored ids showed it | **Fixed 2026-11-11** (#641) |
 
 ---
 
@@ -1684,3 +1686,63 @@ Through Files both were open to the gate alone.
   did.
 - FR-27 (#529) makes Files a feature of its own with levels.
 
+## S-35 — A body could name another org's records by id, and the views showed them (Medium, **fixed 2026-11-11**)
+
+> Found on 2026-11-10 while re-checking the Known Issue about the controllers that take any field.
+> Fixed in #641, whose wording does not describe the flaw, and written up here once the fix had been
+> verified on production.
+
+**Where:** the write routes that take ids in their bodies (about ninety; confirmed on six: cash
+orders, payment orders, journal entries, inventory counts, stock movements and invoices, on POST and
+PUT), and the views that resolve the ids a document holds: the cash-order, payment-order, invoice,
+movement, inventory-count and stock-level lists, a journal entry, a movement, an inventory count, an
+invoice, the handover protocol's print, the cash register journal, the sales-history report and the
+product ledger.
+
+**What was wrong:** S-25 scoped the id in the URL to the caller's org. The ids INSIDE a body were
+stored as sent. A cash order could name another org's contact and accounts, a stock movement another
+org's warehouse, product and contact, an invoice another org's contact and products. The views then
+looked those ids up by id alone and showed the other org's record: a contact's name and email, an
+account's code and name, a product's name and SKU, a warehouse's or bank account's name, and on an
+invoice's own page the whole contact (address, tax numbers).
+
+- **Who:** a user holding the write permission of one of those modules in any org, which on
+  lgrai.app means anyone who signs up, in the org they create.
+- **Impact:** read-only, one record per id. Nothing was written to the other org: posting a journal
+  entry already checked its accounts against the entry's org, stock levels are kept per org, and a
+  product's cost is updated within its org.
+- **Why Medium:** it needed the id of the other org's record, and no route hands one to another org.
+  An ObjectId is partly predictable: a record made by the same server process shortly before can be
+  guessed from its neighbours, an older one cannot. It read one record at a time.
+- **Exposure on the day:** none. A read-only count over all 92 org-scoped models on production,
+  made before the fix (346,779 documents, 1,666,748 references), found no reference to a record of
+  another org.
+
+### Fix
+
+- `db/plugins/reference-guard.ts`, installed by `tenantPlugin` beside the home guard, so every
+  org-scoped model has it and a new one cannot forget it. The reference fields come from the schemas
+  (`ref:`), at any depth. A write made inside a request whose NEW references name a record of another
+  org is refused with 422 `{ code: 'foreign_reference', path }`: create and save, `insertMany`, the
+  update queries (`$set` on dotted, numeric and positional paths, `$setOnInsert`, `$push`,
+  `$addToSet`, plain fields) and `bulkWrite`. A saved document is checked only in the paths the save
+  changes, and an id already checked in the request is not asked again.
+  - An id that names no record passes: old documents keep references to deleted records (tens of
+    thousands on production), and a transaction may name what it created a moment ago.
+  - Outside a request it is off: scripts, migrations and the test-org copy job write as trusted code.
+    Raw driver writes pass, as with the home guard.
+- The 17 lookups that resolved stored ids by id alone, in 7 controllers and 3 services, filter by the
+  org, so neither side relies on the other.
+- Tests: `integration/foreign-references.flow.test.ts` (30: the six routes, each reference field on
+  POST and PUT; every kind of write below the routes, refused and allowed; ten views over references
+  planted outside a request; a static check on controller lookups) and `unit/reference-guard.test.ts`
+  (7). With the guard switched off the 18 write tests fail; with the views reverted the view test and
+  the static check fail.
+- Deployed as `v20261111-067725690d3b`. Verified on production on 2026-11-11 in the two demo orgs.
+  beta-inc held no records, so the check made one throwaway contact and warehouse there. From
+  acme-corp, a cash order naming the contact, a receipt into the warehouse and an invoice to the
+  contact were each refused with 422 `foreign_reference`, and acme-corp's cash orders, movements and
+  invoices kept their counts. The same cash order with acme-corp's own records was stored, its
+  list named its contact, and it was deleted. The six lists answered 200. The throwaway rows were
+  removed (beta-inc is back to no contacts, warehouses or stock levels); the audit trail keeps its
+  entries for what the test did.
