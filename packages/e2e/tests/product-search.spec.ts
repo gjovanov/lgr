@@ -288,6 +288,35 @@ test('the dialog keeps the columns the user chose for the Products list', async 
   expect(shown).toContain('SKU')
 })
 
+// The stock range's two inputs sat in a twelfth of the filter row each (about 86 px at 1366), so their labels read
+// "Stoc…" and said nothing. A label that is cut has a scroll width wider than its box.
+for (const lang of ['en', 'bg'] as const) {
+  test(`the labels of the stock range are not cut at 1366 px, in the Products list and in the dialog (${lang})`, async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 900 })
+    await loginForApp(page)
+    await page.addInitScript((l: string) => localStorage.setItem('lgr_locale', l), lang)
+    const word = lang === 'bg' ? 'Наличност' : 'Stock'
+
+    const expectReadable = async (scope: any, where: string) => {
+      for (const id of ['filter-stock-min', 'filter-stock-max']) {
+        // Every Vuetify field has two label nodes (resting and floating): the resting one is what is read.
+        const label = scope.getByTestId(id).locator('label.v-field-label:not(.v-field-label--floating)')
+        await expect(label).toContainText(word)
+        expect(await label.evaluate((el: HTMLElement) => el.scrollWidth <= el.clientWidth), `${where}: ${id} label "${await label.innerText()}" is not cut`).toBe(true)
+      }
+    }
+
+    await page.goto('/inventory/products')
+    await expect(page.getByTestId('stock-filters')).toBeVisible({ timeout: 15000 })
+    await expectReadable(page, 'the Products list')
+
+    await page.goto('/invoicing/invoices/new')
+    await openDetails(page)
+    await expect(dialog(page).getByTestId('stock-filters')).toBeVisible()
+    await expectReadable(dialog(page), 'the dialog')
+  })
+}
+
 test.describe('the cash register keeps its card grid and gains Details', () => {
   test('the till: Details reads the till catalog, and several ticked articles add one unit of each', async ({ page }) => {
     const cashier = await ownCashier('details')

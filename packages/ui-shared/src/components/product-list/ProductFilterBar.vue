@@ -76,16 +76,19 @@
             @focus="list.ensureSupplierOptions()"
           />
         </v-col>
-        <v-col v-if="list.seesSuppliers" cols="12" md="2">
+        <!-- These three take the width their content needs, and the chips take what is left. A twelfth of the row
+             (about 86 px at 1366) cut "Stock from" to "Stoc…", and „Наличност от" the same: a field of 150 px leaves
+             its label room in all four languages (`product-search.spec` asserts the label is not cut). -->
+        <v-col v-if="list.seesSuppliers" cols="12" md="auto">
           <v-checkbox v-model="list.noSupplier" :label="$t('warehouse.supplierFacts.noSupplier')" hide-details density="compact" data-testid="filter-no-supplier" />
         </v-col>
-        <v-col cols="6" md="1">
-          <v-text-field v-model="list.stockMin" :label="$t('warehouse.supplierFacts.stockFrom')" type="number" hide-details density="compact" data-testid="filter-stock-min" />
+        <v-col cols="6" md="auto">
+          <v-text-field v-model="list.stockMin" :label="$t('warehouse.supplierFacts.stockFrom')" type="number" hide-details density="compact" class="stock-bound" data-testid="filter-stock-min" />
         </v-col>
-        <v-col cols="6" md="1">
-          <v-text-field v-model="list.stockMax" :label="$t('warehouse.supplierFacts.stockTo')" type="number" hide-details density="compact" data-testid="filter-stock-max" />
+        <v-col cols="6" md="auto">
+          <v-text-field v-model="list.stockMax" :label="$t('warehouse.supplierFacts.stockTo')" type="number" hide-details density="compact" class="stock-bound" data-testid="filter-stock-max" />
         </v-col>
-        <v-col cols="12" md="5" class="d-flex align-center flex-wrap ga-2">
+        <v-col cols="12" md class="d-flex align-center flex-wrap ga-2">
           <v-chip
             :variant="list.belowMin ? 'flat' : 'outlined'"
             :color="list.belowMin ? 'primary' : undefined"
@@ -144,3 +147,11 @@ const activeFilterItems = computed(() => [
   { title: t('common.all'), value: 'all' },
 ])
 </script>
+
+<style scoped>
+/* The two bounds of the stock range: room for their labels (see the row's comment), and never wider than a phone's column. */
+.stock-bound {
+  width: 150px;
+  max-width: 100%;
+}
+</style>
