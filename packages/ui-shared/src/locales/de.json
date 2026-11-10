@@ -1597,7 +1597,19 @@
       "unallocated": "{n} nicht verteilt",
       "unsaved": "ungespeichert",
       "changed": "geändert",
-      "freeHint": "Position: bestellt − auf Lager verteilt. Lager: verteilt − für Kunden reserviert."
+      "freeHint": "Position: bestellt − auf Lager verteilt. Lager: verteilt − für Kunden reserviert.",
+      "itemOrder": "Artikel / Reservierung",
+      "shortHint": "Noch zu decken: benötigt − reserviert.",
+      "delivered": "Geliefert",
+      "totalsOrder": "Summe",
+      "reserveMenu": "+ Reservieren",
+      "reserveFromStock": "Aus dem Lager",
+      "reserveFromOrder": "Aus einer Lieferantenbestellung",
+      "noReservations": "Noch nichts reserviert",
+      "overReserved": "Überreserviert",
+      "late": "Verspätet",
+      "nothingFromStock": "Kein freier Bestand für diese Position.",
+      "nothingFromOrders": "Keine Lieferantenbestellung hat noch Platz für diese Position."
     },
     "panels": {
       "lines": "{n} Position | {n} Positionen",
