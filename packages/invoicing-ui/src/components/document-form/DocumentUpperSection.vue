@@ -1,5 +1,5 @@
 <template>
-  <v-row dense>
+  <v-row dense data-testid="document-upper">
     <!-- Col 1: the contact party (Client for sales, Supplier for purchase). Selector lives in the banner. -->
     <v-col cols="12" md="4">
       <p class="text-overline text-medium-emphasis mb-1">{{ $t(config.partyLabelKey) }}</p>
@@ -40,22 +40,16 @@
           @update:search="onRelatedInvoiceSearch"
         />
 
-        <!-- Dates: issue + due/valid-until in one row, two equal columns (stack on mobile) -->
-        <v-row dense>
-          <v-col cols="12" :sm="config.secondaryDate === 'none' ? 12 : 6">
-            <DateField
-              v-model="form.issueDate"
-              :label="$t('invoicing.issueDate')"
-              :rules="[rules.required]"
-            />
-          </v-col>
-          <v-col v-if="config.secondaryDate === 'validUntil'" cols="12" sm="6">
+        <!-- Dates. The ISSUE date is in the banner now (FR-28.33): it is the third of the header's
+             three columns. What stays here is the due / valid-until date, which takes the whole row. -->
+        <v-row v-if="config.secondaryDate === 'validUntil' || config.secondaryDate === 'dueDate'" dense>
+          <v-col v-if="config.secondaryDate === 'validUntil'" cols="12">
             <DateField
               v-model="form.validUntil"
               :label="$t(config.secondaryDateLabelKey || 'invoicing.dueDate')"
             />
           </v-col>
-          <v-col v-else-if="config.secondaryDate === 'dueDate'" cols="12" sm="6">
+          <v-col v-else cols="12">
             <DateField
               v-model="form.dueDate"
               :label="$t(config.secondaryDateLabelKey || 'invoicing.dueDate')"

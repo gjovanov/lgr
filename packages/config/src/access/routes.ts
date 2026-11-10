@@ -267,6 +267,11 @@ export const EXACT_WRITES: ReadonlyMap<string, AccessRule> = new Map([
   ['POST doc-import/commit', self('PERMISSION_BY_TARGET: the write permission of the surface imported into')],
   ['POST doc-import/convert', self('PERMISSION_BY_TARGET: the write permission of the surface imported into')],
 
+  // FR-28.9: what a person records about an article's supplier is editing the article. `warehouse/product` would
+  // let a role that may only create articles do it.
+  ['PUT warehouse/product/:id/suppliers/:supplierId', any('products.edit')],
+  ['DELETE warehouse/product/:id/suppliers/:supplierId', any('products.edit')],
+
   // Shared vocabulary on products and contacts.
   ['POST tags', any('tags.edit')],
   ['PUT tags/:id', any('tags.edit')],

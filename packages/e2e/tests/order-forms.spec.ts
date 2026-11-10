@@ -111,6 +111,9 @@ test.describe('An untouched order form is not „unsaved changes" (FR-22.13)', (
     await notes.fill('saved note')
     await page.getByRole('button', { name: /^save$/i }).first().click()
     await expect(page.getByText(/saved successfully/i).first()).toBeVisible()
+    // The toast comes first; the order is then reloaded and its clean baseline taken. An edit typed in that gap would be
+    // part of the baseline, not an edit (it flaked 1 run in 15 without this wait): the Save button is busy until it is done.
+    await expect(page.getByRole('button', { name: /^save$/i }).first()).not.toHaveClass(/v-btn--loading/)
 
     // The form stays on the order. An edit from here must not slip away unasked.
     await notes.fill('saved note, then changed')
@@ -130,8 +133,8 @@ test.describe('An untouched order form is not „unsaved changes" (FR-22.13)', (
     await slowFirst(page, new RegExp(`/invoicing/orders/${order._id}$`), 1200)
     await page.goto(`/invoicing/orders/${order._id}/edit`)
     await expect(page.locator('.form-paper-header').getByText(order.orderNumber)).toBeVisible({ timeout: 15000 })
-    // Opening a line's allocations is looking, not editing.
-    await page.getByRole('button', { name: 'Allocations' }).first().click()
+    // Opening a line's warehouses is looking, not editing.
+    await page.getByTestId('tree-toggle').first().click()
 
     await page.getByTestId('form-back').click()
     await page.waitForURL(/\/invoicing\/orders(\?|$)/)

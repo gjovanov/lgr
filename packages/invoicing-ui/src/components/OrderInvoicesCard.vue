@@ -1,12 +1,19 @@
 <template>
   <!-- FR-22.36: the order's invoices, each number a link to its document. -->
-  <v-card v-if="rows.length" variant="outlined" rounded="lg" class="mt-4" data-testid="order-invoices">
-    <v-card-title class="d-flex align-center ga-2 py-2">
+  <!-- FR-28.43: a panel, so the order's other cards can have the room when nobody is reading this one. -->
+  <CollapsiblePanel
+    v-if="rows.length"
+    :screen="screen"
+    panel-id="invoices"
+    :summary="$t('invoicing.panels.invoices', rows.length)"
+    class="mt-4"
+    data-testid="order-invoices"
+  >
+    <template #title>
       <v-icon size="20" color="primary">mdi-file-document-multiple-outline</v-icon>
       {{ $t('invoicing.invoices') }}
       <v-chip size="x-small" variant="tonal">{{ rows.length }}</v-chip>
-    </v-card-title>
-    <v-divider />
+    </template>
     <v-card-text class="pa-2">
       <div style="overflow-x: auto">
         <v-table density="compact">
@@ -35,17 +42,20 @@
         </v-table>
       </div>
     </v-card-text>
-  </v-card>
+  </CollapsiblePanel>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import EntityLink from 'ui-shared/components/EntityLink'
+import CollapsiblePanel from 'ui-shared/components/CollapsiblePanel.vue'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { orderInvoiceRows, type OrderInvoiceInfo } from '../composables/order-invoices'
 
 const props = defineProps<{
+  /** The screen the card is on (`orders.edit`, `internal-orders.edit`): its state is kept per screen. */
+  screen: string
   /** `lookup.invoices` of the order's GET. */
   invoices: Record<string, OrderInvoiceInfo> | null | undefined
   /** `lookup.contacts`: id → name. */
