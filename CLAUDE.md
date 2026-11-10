@@ -3067,7 +3067,8 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
 - **Client.** `ui-shared/access/useAccess` gives `can()` and `canOpen()` on the same grant, compiled from the tab's token as `sessionViewer` reads it.
 - **#493 items 2–5 ride on it (FR-27 D-8): capabilities, not areas.** A session whose claim carries an `areas` list, the Seller and the Sales Consultant, does not get these (`legacy.ts#NOT_WITH_AN_AREAS_LIST`):
   - `sales-docs.totals` and `bills.totals`: the strip, and `GET invoices/summary`, which answers 403 `capability_required`;
-  - `sales-docs.import`: the invoices list's Import button only; the API still takes the import;
+  - `sales-docs.import`: the invoices list's Import button, and (Phase 2) the import itself: `doc-import`'s
+    `targetRefusal` answers 403 `capability_required` for a sales invoice or a cash sale without it;
   - `org.switch`: `OrgSwitcher` shows the org read-only, and `/orgs` redirects inside an org.
   - Such a session lands on Products where it can open them (`landingWithoutPortal`).
 - **Partitions (FR-27.6, Phase 2): sales documents, proforma and bills share `/invoices`** (`config/access/partition.ts`).
