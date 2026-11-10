@@ -300,4 +300,9 @@ watch(() => props.modelValue, (open) => {
 .picker-table :deep(tbody tr.picker-row--active) {
   background: rgba(var(--v-theme-primary), 0.08);
 }
+/* The Name column is fixed, and a fixed cell paints its own opaque background, so the row's translucent tint left a
+   white hole in it: the first row, highlighted on every open, looked broken. The same tint goes over the cell. */
+.picker-table :deep(tbody tr.picker-row--active td.v-data-table-column--fixed) {
+  background-image: linear-gradient(rgba(var(--v-theme-primary), 0.08), rgba(var(--v-theme-primary), 0.08));
+}
 </style>

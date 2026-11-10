@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { apiLogin, apiPost } from './helpers/api'
+import { apiDelete, apiLogin, apiPost } from './helpers/api'
+import { okJson } from './helpers/bills'
 import { closeTillSession, openTillSession, ownCashier } from './helpers/cash-register'
 
 /**
@@ -261,6 +262,67 @@ test('the dialog lists active articles until Status says otherwise; Enter picks 
   await openDetails(page, fx.sku(7))
   await waitForRows(page, 1)
   await expect(rows(page).first().getByTestId('product-on-document')).toBeVisible()
+})
+
+test('the arrow keys move the highlighted row in the dialog, and Enter picks that one', async ({ page }) => {
+  const fx = await fixture()
+  await loginForApp(page)
+  await page.goto('/invoicing/invoices/new')
+  await openDetails(page, `${PREFIX}-${fx.stamp}`)
+  await waitForRows(page, COUNT)
+  const search = dialog(page).locator('[data-testid="filter-search"] input')
+  await expect(rows(page).nth(0)).toHaveClass(/picker-row--active/)
+
+  // Down, down, up: the second row (the names run 01, 02, 03 …).
+  await search.press('ArrowDown')
+  await search.press('ArrowDown')
+  await search.press('ArrowUp')
+  await expect(rows(page).nth(1)).toHaveClass(/picker-row--active/)
+  await expect(rows(page).nth(0)).not.toHaveClass(/picker-row--active/)
+  // Up at the top stays on the first row, down at the bottom on the last.
+  await search.press('ArrowUp')
+  await search.press('ArrowUp')
+  await expect(rows(page).nth(0)).toHaveClass(/picker-row--active/)
+  for (let i = 0; i < COUNT + 2; i++) await search.press('ArrowDown')
+  await expect(rows(page).nth(COUNT - 1)).toHaveClass(/picker-row--active/)
+
+  for (let i = 0; i < COUNT; i++) await search.press('ArrowUp')
+  await search.press('ArrowDown')
+  await search.press('Enter')
+  await expect(dialog(page)).toBeHidden()
+  await expect.poll(async () => (await fieldValues(page))[0], { timeout: 10000 }).toContain(fx.name(2))
+})
+
+test('a Seller, who may not read bills, gets the dialog without the supplier filter and column, and asks nothing about suppliers', async ({ page }) => {
+  const admin = await apiLogin()
+  const name = `seller-pd-${Date.now().toString(36)}`
+  const password = 'e2e-test-pw-12345'
+  const { user } = await okJson(await apiPost(admin, '/user', {
+    email: `${name}@acme.com`, username: name, password, firstName: 'Counter', lastName: 'Seller', role: 'seller',
+  }))
+  try {
+    await loginForApp(page, 'acme-corp', name, password)
+    await page.goto('/invoicing/invoices/new')
+    await page.waitForLoadState('networkidle')
+    const calls: string[] = []
+    page.on('request', (r: any) => {
+      const u = new URL(r.url())
+      if (u.pathname.startsWith('/api/')) calls.push(`${u.pathname.replace(/\/org\/[^/]+/, '')}${u.search}`)
+    })
+
+    await openDetails(page)
+    await waitForRows(page, 25)
+    await page.waitForLoadState('networkidle')
+    await expect(dialog(page).getByTestId('stock-filters')).toBeVisible()
+    // What is not about suppliers is still theirs: the quantity filters.
+    await expect(dialog(page).getByTestId('filter-below-min')).toBeVisible()
+    await expect(dialog(page).getByTestId('filter-supplier')).toHaveCount(0)
+    await expect(dialog(page).getByTestId('filter-no-supplier')).toHaveCount(0)
+    expect(await headers(dialog(page))).not.toContain('Suppliers')
+    expect(calls.filter((c) => /product-supplier|\/invoicing\/contact/.test(c)), 'nothing asked about suppliers').toEqual([])
+  } finally {
+    await apiDelete(admin, `/user/${user?._id || user?.id}`).catch(() => null)
+  }
 })
 
 test('the dialog keeps the columns the user chose for the Products list', async ({ page }) => {
