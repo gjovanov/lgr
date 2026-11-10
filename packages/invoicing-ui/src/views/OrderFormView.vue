@@ -133,10 +133,10 @@
                     <span v-else class="text-body-2">{{ node.label }}</span>
                   </template>
                   <!-- A client's reservation: who, its number and the customer order it serves, as links. -->
-                  <div v-else-if="node.kind === 'reservation' && node.reservation" class="d-flex align-center flex-wrap column-gap-3 text-body-2" style="min-width: 0">
+                  <div v-else-if="node.kind === 'reservation' && node.reservation" class="d-flex align-center flex-wrap gc-3 text-body-2" style="min-width: 0">
                     <span :class="node.reservation.cancelled ? 'text-decoration-line-through text-medium-emphasis' : ''" :title="node.label">{{ node.label }}</span>
-                    <router-link v-if="node.reservation.number && node.reservation.resId" class="text-no-wrap flex-shrink-0" :to="{ name: 'invoicing.reservations.detail', params: { id: String(node.reservation.resId) } }">{{ node.reservation.number }}</router-link>
-                    <router-link v-if="node.reservation.internalOrderId" class="text-no-wrap flex-shrink-0" :to="{ name: 'invoicing.internalOrders.edit', params: { id: node.reservation.internalOrderId } }">{{ internalOrderNumbers[node.reservation.internalOrderId] || '…' }}</router-link>
+                    <EntityLink v-if="node.reservation.number && node.reservation.resId" class="text-no-wrap flex-shrink-0" :label="node.reservation.number" :to="{ name: 'invoicing.reservations.detail', params: { id: String(node.reservation.resId) } }" />
+                    <EntityLink v-if="node.reservation.internalOrderId" class="text-no-wrap flex-shrink-0" :label="internalOrderNumbers[node.reservation.internalOrderId] || '…'" :to="{ name: 'invoicing.internalOrders.edit', params: { id: node.reservation.internalOrderId }, query: internalOrderLineQuery(node.reservation) }" />
                   </div>
                   <!-- The row being added (FR-28.40): Enter adds it, Escape drops it. -->
                   <div v-else-if="node.editing" data-tree-editor class="d-flex align-center ga-1 flex-grow-1" style="min-width: 0" @keydown.capture="onEditorKeydown">
@@ -404,7 +404,7 @@
                     <td>{{ allocLineDescription(res.allocationId) }}</td>
                     <td>{{ contactNames[res.contactId] || '—' }}</td>
                     <td class="text-no-wrap">
-                      <router-link v-if="res.internalOrderId" :to="{ name: 'invoicing.internalOrders.edit', params: { id: res.internalOrderId } }">
+                      <router-link v-if="res.internalOrderId" :to="{ name: 'invoicing.internalOrders.edit', params: { id: res.internalOrderId }, query: internalOrderLineQuery(res) }">
                         {{ internalOrderNumbers[res.internalOrderId] || '…' }}
                       </router-link>
                       <span v-else>—</span>
@@ -620,6 +620,7 @@ import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { triggerBlobDownload } from 'ui-shared/composables/useInvoicingExport'
 import { upsertAmountInWords } from 'config/amount-in-words'
 import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/components/EntityFormShell.vue'
+import EntityLink from 'ui-shared/components/EntityLink'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
@@ -634,6 +635,7 @@ import OrderInvoicesCard from '../components/OrderInvoicesCard.vue'
 import DocumentBanner from '../components/document-form/DocumentBanner.vue'
 import CollapsiblePanel from 'ui-shared/components/CollapsiblePanel.vue'
 import OrderTree from '../components/order-tree/OrderTree.vue'
+import { internalOrderLineQuery } from '../composables/order-tree/links'
 import { buildSupplierOrderTree, createOrderFigures, lineNodeId } from '../composables/order-tree/supplier-order-tree'
 import type { AddingRow, ReservationRow, StagedChanges, TreeActionType, TreeColumn, TreeNode } from '../composables/order-tree/types'
 

@@ -182,6 +182,8 @@ export function createOrderFigures(input: FigureInput) {
           dispatched,
           consumed,
           internalOrderId: r.internalOrderId ? String(r.internalOrderId) : undefined,
+          // The line of that customer order it serves: what a link to the order opens (FR-28.46).
+          internalOrderLineId: r.internalOrderLineId ? String(r.internalOrderLineId) : undefined,
           cancelled,
           changed: !cancelled && (u.quantity !== undefined || u.contactId !== undefined),
           editable: !readonly && !cancelled && r.status === 'active',
