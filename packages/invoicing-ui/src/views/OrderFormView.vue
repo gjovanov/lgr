@@ -107,6 +107,7 @@
                       :product-id="lineOf(node).productId"
                       price-field="purchasePrice"
                       class="flex-grow-1"
+                      style="min-width: 0"
                       @update:description="lineOf(node).description = $event"
                       @update:product-id="lineOf(node).productId = $event"
                       @product-selected="onProductSelected(lineOf(node), $event)"
@@ -179,10 +180,10 @@
                   <span v-else class="text-caption text-medium-emphasis ps-1">{{ $t(node.placeholderOf === 'allocation' ? 'invoicing.tree.noWarehouse' : 'invoicing.tree.noClients') }}</span>
                 </template>
 
-                <template #cells="{ node, open }">
+                <template #cells="{ node, open, hidden, span }">
                   <!-- An empty parent: one cell, with its +. -->
                   <template v-if="node.kind === 'placeholder' && !node.editing">
-                    <td :colspan="treeColumns.length - 1" class="text-end">
+                    <td :colspan="span - 1" class="text-end">
                       <v-btn
                         v-for="a in node.actions"
                         :key="a.type"
@@ -197,7 +198,7 @@
                   </template>
                   <!-- The row being added: its quantity under Qty, and what it needs beside it. -->
                   <template v-else-if="node.kind === 'placeholder'">
-                    <td @keydown.capture="onEditorKeydown">
+                    <td data-col="qty" @keydown.capture="onEditorKeydown">
                       <v-text-field
                         v-model.number="draft.quantity"
                         type="number"
@@ -211,7 +212,7 @@
                         :error-messages="draftMessages.qty"
                       />
                     </td>
-                    <td :colspan="treeColumns.length - 2" @keydown.capture="onEditorKeydown">
+                    <td :colspan="span - 2" @keydown.capture="onEditorKeydown">
                       <div class="d-flex align-center ga-2 flex-wrap">
                         <v-btn size="x-small" color="primary" variant="flat" data-testid="tree-add" @click="commitAdding">{{ $t('common.add') }}</v-btn>
                         <v-btn size="x-small" variant="text" data-testid="tree-add-cancel" @click="cancelAdding">{{ $t('common.cancel') }}</v-btn>
@@ -220,7 +221,7 @@
                     </td>
                   </template>
                   <template v-else>
-                    <td>
+                    <td data-col="qty">
                       <v-text-field
                         v-if="node.kind === 'line'"
                         v-model.number="lineOf(node).quantity"
@@ -231,6 +232,7 @@
                         hide-details
                         variant="underlined"
                         :aria-label="$t('invoicing.qty')"
+                        :data-line-qty="node.id"
                         :readonly="readonly"
                       />
                       <v-text-field
@@ -261,7 +263,7 @@
                         <span v-else class="d-block text-end" :class="node.reservation.cancelled ? 'text-decoration-line-through text-medium-emphasis' : ''">{{ node.reservation.quantity }}</span>
                       </template>
                     </td>
-                    <td>
+                    <td data-col="unit">
                       <v-autocomplete
                         v-if="node.kind === 'line'"
                         v-model="lineOf(node).unit"
@@ -280,7 +282,7 @@
                         </template>
                       </v-autocomplete>
                     </td>
-                    <td>
+                    <td data-col="price">
                       <v-text-field
                         v-if="node.kind === 'line'"
                         v-model.number="lineOf(node).expectedUnitPrice"
@@ -295,21 +297,22 @@
                         :readonly="readonly"
                       />
                     </td>
-                    <td class="text-end">{{ node.kind === 'reservation' ? '' : node.figures.reserved }}</td>
-                    <td class="text-end">{{ node.figures.free ?? '' }}</td>
+                    <td class="text-end" data-col="reserved">{{ node.kind === 'reservation' ? '' : node.figures.reserved }}</td>
+                    <td class="text-end" data-col="free">{{ node.figures.free ?? '' }}</td>
                     <template v-if="isEdit">
-                      <td class="text-end">
+                      <td class="text-end" data-col="received">
                         <span v-if="node.figures.received !== null" :class="node.kind === 'line' && node.figures.received >= node.figures.quantity && node.figures.quantity > 0 ? 'text-success' : ''">{{ node.figures.received }}</span>
                       </td>
-                      <td class="text-end">{{ node.figures.invoiced }}</td>
-                      <td class="text-end">{{ node.figures.dispatched }}</td>
+                      <!-- Dispatched is a column of its own while there is room; when there is not, its figure is the tooltip of Invoiced. -->
+                      <td class="text-end" data-col="invoiced" :title="hidden.has('dispatched') ? invoicedAndDispatched(node.figures) : undefined">{{ node.figures.invoiced }}</td>
+                      <td v-if="!hidden.has('dispatched')" class="text-end" data-col="dispatched">{{ node.figures.dispatched }}</td>
                     </template>
-                    <td>
+                    <td data-col="status">
                       <div class="d-flex flex-wrap ga-1">
-                        <v-chip v-for="c in statusChips(node, open)" :key="c.key" size="x-small" :label="c.label" :variant="c.variant || 'tonal'" :color="c.color">{{ c.text }}</v-chip>
+                        <v-chip v-for="c in statusChips(node, open)" :key="c.key" size="x-small" :label="c.label" :variant="c.variant || 'tonal'" :color="c.color" :title="c.text">{{ c.text }}</v-chip>
                       </div>
                     </td>
-                    <td class="text-no-wrap text-end">
+                    <td class="text-no-wrap text-end" data-col="actions">
                       <template v-for="a in node.actions" :key="a.type">
                         <v-btn
                           v-if="a.type === 'addWarehouse' || a.type === 'addClient'"
@@ -337,20 +340,20 @@
                 </template>
 
                 <!-- This supplier's totals, in the columns above. -->
-                <template #totals>
-                  <td>{{ $t('invoicing.tree.totalsOf') }}</td>
-                  <td class="text-end">{{ tree.groups[gi]?.figures.ordered }}</td>
-                  <td></td>
-                  <td></td>
-                  <td class="text-end">{{ tree.groups[gi]?.figures.reserved }}</td>
-                  <td></td>
+                <template #totals="{ hidden }">
+                  <td data-col="item">{{ $t('invoicing.tree.totalsOf') }}</td>
+                  <td class="text-end" data-col="qty">{{ tree.groups[gi]?.figures.ordered }}</td>
+                  <td data-col="unit"></td>
+                  <td data-col="price"></td>
+                  <td class="text-end" data-col="reserved">{{ tree.groups[gi]?.figures.reserved }}</td>
+                  <td data-col="free"></td>
                   <template v-if="isEdit">
-                    <td class="text-end">{{ tree.groups[gi]?.figures.received }}</td>
-                    <td class="text-end">{{ tree.groups[gi]?.figures.invoiced }}</td>
-                    <td class="text-end">{{ tree.groups[gi]?.figures.dispatched }}</td>
+                    <td class="text-end" data-col="received">{{ tree.groups[gi]?.figures.received }}</td>
+                    <td class="text-end" data-col="invoiced" :title="hidden.has('dispatched') && tree.groups[gi] ? invoicedAndDispatched(tree.groups[gi].figures) : undefined">{{ tree.groups[gi]?.figures.invoiced }}</td>
+                    <td v-if="!hidden.has('dispatched')" class="text-end" data-col="dispatched">{{ tree.groups[gi]?.figures.dispatched }}</td>
                   </template>
-                  <td></td>
-                  <td></td>
+                  <td data-col="status"></td>
+                  <td data-col="actions"></td>
                 </template>
               </OrderTree>
               <v-btn v-if="!readonly" color="primary" variant="text" size="small" prepend-icon="mdi-plus" class="mt-1" @click="group.lines.push(emptyLine())">
@@ -631,7 +634,7 @@ import OrderInvoicesCard from '../components/OrderInvoicesCard.vue'
 import DocumentBanner from '../components/document-form/DocumentBanner.vue'
 import CollapsiblePanel from 'ui-shared/components/CollapsiblePanel.vue'
 import OrderTree from '../components/order-tree/OrderTree.vue'
-import { buildSupplierOrderTree, createOrderFigures } from '../composables/order-tree/supplier-order-tree'
+import { buildSupplierOrderTree, createOrderFigures, lineNodeId } from '../composables/order-tree/supplier-order-tree'
 import type { AddingRow, ReservationRow, StagedChanges, TreeActionType, TreeColumn, TreeNode } from '../composables/order-tree/types'
 
 /** `_key` names an allocation before it is saved, so a reservation staged on it can point at it. */
@@ -823,6 +826,26 @@ function onProductSelected(line: LineRow, product: any) {
   line.sku = product.sku
   if (!line.expectedUnitPrice) line.expectedUnitPrice = product.purchasePrice || undefined
   if (!line.quantity) line.quantity = 1
+  focusLineQuantity(line)
+}
+/**
+ * FR-28.27: after a pick the cursor goes to the line's quantity, deferred past the search closing (and a dialog
+ * handing focus back). Only while the cursor is still where the pick left it, on this line or nowhere: a user who
+ * has already moved on to another field keeps it. The quantity field says which line it belongs to (`data-line-qty`).
+ */
+function focusLineQuantity(line: LineRow) {
+  if (typeof document === 'undefined') return
+  setTimeout(() => {
+    const gi = form.supplierGroups.findIndex((g) => g.lines.includes(line))
+    if (gi < 0) return
+    const id = lineNodeId(line, gi, form.supplierGroups[gi].lines.indexOf(line))
+    const input = document.querySelector<HTMLInputElement>(`[data-line-qty="${CSS.escape(id)}"] input`)
+    if (!input || input.disabled || input.readOnly) return
+    const active = document.activeElement
+    if (active && active !== document.body && !input.closest('tr')?.contains(active)) return
+    input.focus()
+    try { input.select() } catch { /* a number input may refuse select() */ }
+  }, 200)
 }
 // ── #203: client reservations staged in the form, saved with the order (`reservationChanges`) ──
 const staged = reactive<StagedChanges>({
@@ -948,21 +971,25 @@ const estimatedTotal = computed(() =>
 // The rows are the form's own objects (`lineOf`, `allocOf`), edited in place; the tree is rebuilt from them.
 const treeColumns = computed<TreeColumn[]>(() => [
   { key: 'item', title: t('invoicing.tree.item') },
-  { key: 'qty', title: t('invoicing.qty'), align: 'end', width: '84px' },
-  { key: 'unit', title: t('invoicing.unit'), width: '80px' },
-  { key: 'price', title: t('invoicing.tree.price'), align: 'end', width: '88px' },
-  { key: 'reserved', title: t('invoicing.tree.reserved'), align: 'end', width: '76px' },
-  { key: 'free', title: t('invoicing.freeQty'), align: 'end', width: '52px' },
+  { key: 'qty', title: t('invoicing.qty'), align: 'end', width: '64px' },
+  { key: 'unit', title: t('invoicing.unit'), width: '68px' },
+  { key: 'price', title: t('invoicing.tree.price'), align: 'end', width: '76px' },
+  { key: 'reserved', title: t('invoicing.tree.reserved'), align: 'end', width: '80px' },
+  { key: 'free', title: t('invoicing.freeQty'), hint: t('invoicing.tree.freeHint'), align: 'end', width: '56px' },
   ...(isEdit.value
     ? ([
-        { key: 'received', title: t('invoicing.tree.received'), align: 'end', width: '70px' },
-        { key: 'invoiced', title: t('invoicing.tree.invoiced'), align: 'end', width: '70px' },
-        { key: 'dispatched', title: t('invoicing.tree.dispatched'), align: 'end', width: '84px' },
+        { key: 'received', title: t('invoicing.tree.received'), align: 'end', width: '82px' },
+        { key: 'invoiced', title: t('invoicing.tree.invoiced'), align: 'end', width: '74px' },
+        { key: 'dispatched', title: t('invoicing.tree.dispatched'), align: 'end', width: '90px', optional: true },
       ] as TreeColumn[])
     : []),
-  { key: 'status', title: t('common.status'), width: '116px' },
-  { key: 'actions', title: '', width: '150px' },
+  { key: 'status', title: t('common.status'), width: '96px' },
+  { key: 'actions', title: '', width: '144px' },
 ])
+
+/** The tooltip of Invoiced while Dispatched has no column of its own (a narrow screen): both figures, so neither is lost. */
+const invoicedAndDispatched = (f: { invoiced: number; dispatched: number }) =>
+  `${t('invoicing.tree.invoiced')} ${f.invoiced} · ${t('invoicing.tree.dispatched')} ${f.dispatched}`
 
 /** One tree per supplier, and the card around it: kept so a link can open the card and the row. */
 const treeRefs: Record<number, any> = {}

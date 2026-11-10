@@ -1041,7 +1041,8 @@
       "overAllocated": "Over-allocated",
       "unallocated": "{n} unallocated",
       "unsaved": "unsaved",
-      "changed": "changed"
+      "changed": "changed",
+      "freeHint": "Line: ordered − allocated to warehouses. Warehouse: allocated − reserved for clients."
     },
     "panels": {
       "lines": "{n} line | {n} lines",

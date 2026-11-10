@@ -9,15 +9,16 @@ import { loginForApp } from './helpers/login'
  * look; the user's changes win over that; + Warehouse and + Client are rows (Enter adds, Escape drops) and
  * everything they make is staged until Save, exactly as the dialog they replace staged it.
  *
- * Columns of the table, by position (an order that is saved): item, qty, unit, price, reserved, free,
- * received, invoiced, dispatched, status, actions.
+ * Columns of the table (an order that is saved): item, qty, unit, price, reserved, free, received, invoiced,
+ * dispatched, status, actions. A cell is found by the column it sits under (`data-col`), not by its position: the
+ * table leaves Dispatched out on a screen with no room for it (see "The room the tree has").
  */
 
 const apiBase = process.env.BASE_URL || 'http://localhost:4001'
-const QTY = 1
-const RESERVED = 4
-const FREE = 5
-const STATUS = 9
+const QTY = 'qty'
+const RESERVED = 'reserved'
+const FREE = 'free'
+const STATUS = 'status'
 
 async function session() {
   const res = await fetch(`${apiBase}/api/auth/login`, {
@@ -106,7 +107,7 @@ async function open(page: any, order: any, query = '') {
 const lineRow = (page: any, lineId: string) => page.locator(`tr[data-kind="line"][data-root-id="l:${lineId}"]`)
 const rowsUnder = (page: any, lineId: string) => page.locator(`tr[data-root-id="l:${lineId}"]`)
 const warehouseRows = (page: any, lineId: string) => page.locator(`tr[data-kind="allocation"][data-root-id="l:${lineId}"]`)
-const cell = (row: any, col: number) => row.locator('td').nth(col)
+const cell = (row: any, col: string) => row.locator(`td[data-col="${col}"]`)
 const totalsCard = (page: any, label: string) => page.getByText(label, { exact: true }).locator('xpath=following-sibling::span').first()
 
 test.describe('What is open', () => {
@@ -544,5 +545,166 @@ test.describe('An order that cannot be changed', () => {
     await expect(page.getByTestId('tree-addClient')).toHaveCount(0)
     await expect(page.getByTestId('tree-cancel')).toHaveCount(0)
     await expect(lineRow(page, group.lines[0]._id)).toBeVisible()
+  })
+})
+
+test.describe('The room the tree has (FR-28.41)', () => {
+  /** The right panel (notes and activity) starts folded; open it before the page loads, as a user who keeps it open has. */
+  const panel = (page: any, open: boolean) => page.addInitScript((v: string) => localStorage.setItem('lgr:entity-form-sidebar:collapsed', v), String(!open))
+  const locale = (page: any, l: string) => page.addInitScript((v: string) => localStorage.setItem('lgr_locale', v), l)
+
+  /** What the browser laid out: the table's own sideways scroll, the columns it drew, and which headers run to a second line. */
+  async function geometry(page: any) {
+    return page.evaluate(() => {
+      const tree = document.querySelector('[data-testid="order-tree"]') as HTMLElement
+      const wrap = tree.querySelector('.v-table__wrapper') as HTMLElement
+      const box = wrap.getBoundingClientRect()
+      const headers = [...tree.querySelectorAll('thead th')] as HTMLElement[]
+      const lines = (el: HTMLElement) => {
+        const r = document.createRange()
+        r.selectNodeContents(el)
+        return new Set([...r.getClientRects()].map((c) => Math.round(c.top))).size
+      }
+      const actions = tree.querySelector('tbody td[data-col="actions"]') as HTMLElement
+      return {
+        client: wrap.clientWidth,
+        scroll: wrap.scrollWidth,
+        columns: headers.map((th) => th.getAttribute('data-col')),
+        wrapped: headers.filter((th) => lines(th) > 1).map((th) => th.getAttribute('data-col')),
+        statusRight: Math.round(headers.find((th) => th.getAttribute('data-col') === 'status')!.getBoundingClientRect().right),
+        actionsRight: Math.round(actions.getBoundingClientRect().right),
+        edge: Math.round(box.right),
+      }
+    })
+  }
+
+  /** A saved order whose line has a warehouse with a client reserved on it, another warehouse, and 5 still to place. */
+  async function savedOrder() {
+    const api = await session()
+    const w = await world(api)
+    return sentOrder(api, w, [{ product: 'p1', qty: 50, allocations: [{ wh: 'main', qty: 30, holds: [{ client: 'A', qty: 20 }] }, { wh: 'other', qty: 15 }] }])
+  }
+
+  test('1366 px with the right panel open: no sideways scroll, Status and the actions in view, Dispatched said in Invoiced', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 800 })
+    await panel(page, true)
+    const { order, group } = await savedOrder()
+    await open(page, order)
+    const line = group.lines[0]._id
+
+    const g = await geometry(page)
+    expect(g.scroll, 'the table scrolls sideways').toBeLessThanOrEqual(g.client)
+    // What a sideways scroll hid: the status, and the + and the remove at the far edge.
+    expect(g.statusRight).toBeLessThanOrEqual(g.edge)
+    expect(g.actionsRight).toBeLessThanOrEqual(g.edge)
+    expect(g.columns).toEqual(['item', 'qty', 'unit', 'price', 'reserved', 'free', 'received', 'invoiced', 'status', 'actions'])
+    // English headers stay on one line; a figure left out is not lost, it is the tooltip of its neighbour.
+    expect(g.wrapped).toEqual([])
+    await expect(cell(lineRow(page, line), 'invoiced')).toHaveAttribute('title', 'Invoiced 0 · Dispatched 0')
+    await expect(cell(page.getByTestId('tree-totals'), 'invoiced')).toHaveAttribute('title', 'Invoiced 0 · Dispatched 0')
+    // And the part that is there still works at this width.
+    await expect(page.getByTestId('tree-addWarehouse').first()).toBeVisible()
+    await expect(cell(lineRow(page, line), STATUS)).toContainText('unallocated')
+  })
+
+  test('the same at 1366 px in Bulgarian, whose headers are the longest', async ({ page }) => {
+    await page.setViewportSize({ width: 1366, height: 800 })
+    await panel(page, true)
+    await locale(page, 'bg')
+    const { order } = await savedOrder()
+    await open(page, order)
+    const g = await geometry(page)
+    expect(g.scroll, 'the table scrolls sideways').toBeLessThanOrEqual(g.client)
+    expect(g.actionsRight).toBeLessThanOrEqual(g.edge)
+    expect(g.columns).not.toContain('dispatched')
+  })
+
+  test('with room, nothing is left out: 1920 px with the panel open, 1280 px with it folded', async ({ page }) => {
+    const { order, group } = await savedOrder()
+    const line = group.lines[0]._id
+    for (const [width, panelOpen] of [[1920, true], [1280, false]] as const) {
+      await page.setViewportSize({ width, height: 800 })
+      await panel(page, panelOpen)
+      await open(page, order)
+      await expect(cell(lineRow(page, line), 'dispatched')).toBeVisible()
+      const g = await geometry(page)
+      expect(g.scroll, `${width} px scrolls sideways`).toBeLessThanOrEqual(g.client)
+      expect(g.columns, `${width} px`).toContain('dispatched')
+      expect(g.wrapped, `${width} px`).toEqual([])
+      // The tooltip is only there while Dispatched has no column of its own.
+      await expect(cell(lineRow(page, line), 'invoiced')).not.toHaveAttribute('title', /Dispatched/)
+    }
+  })
+
+  test('the Free header says what it counts on each level', async ({ page }) => {
+    const { order } = await savedOrder()
+    await open(page, order)
+    await expect(page.locator('[data-testid="order-tree"] thead th[data-col="free"]')).toHaveAttribute('title', /ordered.*allocated.*reserved/)
+  })
+})
+
+test.describe('After an article is picked (FR-28.27, FR-28.28)', () => {
+  /** Type the article's SKU in the first line's field and pick the hit. */
+  async function pickByTyping(page: any, sku: string) {
+    const input = page.locator('[data-testid="product-field"] input').first()
+    await input.click()
+    await input.pressSequentially(sku, { delay: 20 })
+    const hit = page.locator('.pld-overlay .pld-item').filter({ hasText: sku }).first()
+    await expect(hit).toBeVisible({ timeout: 10000 })
+    await hit.click({ force: true })
+  }
+
+  test("the cursor goes to that line's quantity, ready to be typed over", async ({ page }) => {
+    const api = await session()
+    const w = await world(api)
+    await loginForApp(page)
+    await page.goto('/invoicing/orders/new')
+    await pickByTyping(page, w.p1.sku)
+    const qty = page.locator('[data-line-qty] input').first()
+    await expect(qty).toBeFocused({ timeout: 5000 })
+    await expect(qty).toHaveValue('1')
+    // Typed over, not appended to: what is there is selected.
+    await page.keyboard.type('7')
+    await expect(qty).toHaveValue('7')
+  })
+
+  test('a user who has already moved on to another field keeps the cursor', async ({ page }) => {
+    const api = await session()
+    const w = await world(api)
+    await loginForApp(page)
+    await page.goto('/invoicing/orders/new')
+    await pickByTyping(page, w.p1.sku)
+    const date = page.getByRole('textbox', { name: 'Expected Date' })
+    await date.focus()
+    await page.waitForTimeout(600) // past the moment the cursor would have been moved
+    await expect(date).toBeFocused()
+    await expect(page.locator('[data-line-qty] input').first()).not.toBeFocused()
+  })
+
+  test('"Add N articles" puts them on the lines of the supplier the dialog was opened from, one line each', async ({ page }) => {
+    const api = await session()
+    const w = await world(api)
+    await loginForApp(page)
+    await page.goto('/invoicing/orders/new')
+    await page.getByRole('button', { name: /add supplier/i }).click()
+    const groups = page.getByTestId('order-group')
+    await expect(groups).toHaveCount(2)
+    const second = groups.nth(1)
+    await second.getByTestId('product-details').first().click()
+    const dialog = page.getByTestId('product-picker')
+    await expect(dialog).toBeVisible()
+    await dialog.locator('[data-testid="filter-search"] input').fill(w.ts)
+    const rows = dialog.locator('.picker-table tbody tr')
+    await expect(rows).toHaveCount(2, { timeout: 10000 })
+    await rows.nth(0).click()
+    await rows.nth(1).click()
+    await dialog.getByTestId('product-picker-add').click()
+    await expect(dialog).toBeHidden()
+
+    await expect(second.locator('tr[data-kind="line"]')).toHaveCount(2)
+    await expect(groups.nth(0).locator('tr[data-kind="line"]')).toHaveCount(1)
+    await expect(second).toContainText(w.p1.name)
+    await expect(second).toContainText(w.p2.name)
+    await expect(groups.nth(0)).not.toContainText(w.p1.name)
   })
 })

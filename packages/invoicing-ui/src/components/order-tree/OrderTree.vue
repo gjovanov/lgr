@@ -17,11 +17,17 @@
     @keydown="onKeydown"
   >
     <colgroup>
-      <col v-for="c in columns" :key="c.key" :style="c.width ? { width: c.width } : undefined" />
+      <col v-for="c in shown" :key="c.key" :style="c.width ? { width: c.width } : undefined" />
     </colgroup>
     <thead>
       <tr>
-        <th v-for="c in columns" :key="c.key" :class="c.align === 'end' ? 'text-end' : c.align === 'center' ? 'text-center' : undefined">{{ c.title }}</th>
+        <th
+          v-for="c in shown"
+          :key="c.key"
+          :data-col="c.key"
+          :title="c.hint"
+          :class="[c.align === 'end' ? 'text-end' : c.align === 'center' ? 'text-center' : undefined, { 'order-tree__hinted': !!c.hint }]"
+        >{{ c.title }}</th>
       </tr>
     </thead>
     <tbody>
@@ -36,7 +42,7 @@
         :data-root-id="rootOf.get(row.node.id)"
         :data-depth="row.node.depth"
       >
-        <td class="order-tree__item">
+        <td class="order-tree__item" data-col="item">
           <div class="d-flex align-center" :style="{ paddingInlineStart: `${row.node.depth * 20}px` }">
             <v-btn
               v-if="row.expandable"
@@ -57,19 +63,20 @@
             <slot name="item" :node="row.node" :open="row.open" :expandable="row.expandable" />
           </div>
         </td>
-        <slot name="cells" :node="row.node" :open="row.open" :expandable="row.expandable" />
+        <slot name="cells" :node="row.node" :open="row.open" :expandable="row.expandable" :hidden="hidden" :span="shown.length" />
       </tr>
       <!-- A supplier's totals: what its lines add up to, in the same columns. -->
       <tr v-if="$slots.totals" class="order-tree__totals" data-testid="tree-totals">
-        <slot name="totals" />
+        <slot name="totals" :hidden="hidden" :span="shown.length" />
       </tr>
     </tbody>
   </v-table>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { columnsWidth, fitColumns } from '../../composables/order-tree/columns'
 import type { TreeColumn, TreeNode } from '../../composables/order-tree/types'
 import {
   collapseAll as collapseAllRows,
@@ -113,7 +120,23 @@ const lookup = computed(() => {
 })
 const rootOf = computed(() => lookup.value.roots)
 
-const minWidth = computed(() => props.columns.reduce((sum, c) => sum + (parseInt(c.width || '', 10) || 300), 0))
+// ── room: how wide the table can be. A column that its screen can say another way gives way before the table
+// would scroll sideways (a scroll hides the status and the actions, the columns at the far edge): see `columns.ts`.
+const room = ref(0)
+const fitted = computed(() => fitColumns(props.columns, room.value))
+const shown = computed(() => fitted.value.shown)
+const hidden = computed(() => new Set(fitted.value.hidden))
+const minWidth = computed(() => columnsWidth(shown.value))
+
+let resizeObserver: ResizeObserver | null = null
+onMounted(() => {
+  const el = tableRef.value?.$el as HTMLElement | undefined
+  if (!el) return
+  room.value = el.clientWidth
+  if (typeof ResizeObserver === 'undefined') return
+  resizeObserver = new ResizeObserver(() => { room.value = el.clientWidth })
+  resizeObserver.observe(el)
+})
 
 const highlighted = ref('')
 let highlightTimer: ReturnType<typeof setTimeout> | null = null
@@ -167,7 +190,10 @@ function mark(id: string) {
   if (highlightTimer) clearTimeout(highlightTimer)
   highlightTimer = setTimeout(() => { highlighted.value = '' }, 2400)
 }
-onBeforeUnmount(() => { if (highlightTimer) clearTimeout(highlightTimer) })
+onBeforeUnmount(() => {
+  if (highlightTimer) clearTimeout(highlightTimer)
+  resizeObserver?.disconnect()
+})
 
 // ── keyboard: arrows move between the rows that have a toggle, right opens and left closes ──
 const tableRef = ref<any>(null)
@@ -220,12 +246,28 @@ defineExpose({ toggle, setOpen, isOpen, expandAll, collapseAll, reveal, highligh
   width: 100%;
   min-width: var(--tree-min-width, 0);
 }
+/* Cells keep half the padding Vuetify gives a table: eleven columns of figures need the room. A header too long for
+   its column (Резервирано, Фактурирано, Empfangen) goes onto a second line, hyphenated where the browser can,
+   instead of running into its neighbour. */
+.order-tree :deep(.v-table__wrapper > table > thead > tr > th),
+.order-tree :deep(.v-table__wrapper > table > tbody > tr > td) {
+  padding-inline: 8px;
+}
 .order-tree :deep(th) {
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+  line-height: 1.15;
   font-size: 0.75rem;
 }
 .order-tree :deep(td) {
   vertical-align: middle;
+}
+/* A header that explains itself when the pointer rests on it says so. */
+.order-tree :deep(th.order-tree__hinted) {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
 }
 /* Levels read apart without a border each: the line is the strongest, a client the plainest. */
 /* The cells of a row come from the screen's slots, which carry the screen's scope, not this component's. */

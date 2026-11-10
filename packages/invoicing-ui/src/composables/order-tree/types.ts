@@ -160,9 +160,13 @@ export interface StagedChanges {
 export interface TreeColumn {
   key: string
   title: string
+  /** What the header says when the pointer rests on it (a figure that means something different on each level). */
+  hint?: string
   align?: 'start' | 'end' | 'center'
   /** CSS width of the column; none: it takes what is left. */
   width?: string
+  /** Left out while the table would otherwise scroll sideways; the screen says its figure another way (`columns.ts`). */
+  optional?: boolean
 }
 
 export interface FigureInput {

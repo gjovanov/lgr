@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test'
 // PURE modules: no Vue, no store. `invoicing-ui` is not a workspace package, so they are reached by path.
 import { buildSupplierOrderTree, createOrderFigures, lineNodeId, allocationNodeId } from '../../../invoicing-ui/src/composables/order-tree/supplier-order-tree'
 import { countedQuantity } from '../../../invoicing-ui/src/composables/order-tree/figures'
+import { columnsWidth, fitColumns, ITEM_MIN_WIDTH } from '../../../invoicing-ui/src/composables/order-tree/columns'
 import { orderLineQuery } from '../../../invoicing-ui/src/composables/order-tree/links'
 import {
   ancestorIds,
@@ -21,6 +22,7 @@ import type {
   LineInput,
   ServerReservation,
   StagedChanges,
+  TreeColumn,
   TreeNode,
 } from '../../../invoicing-ui/src/composables/order-tree/types'
 
@@ -470,5 +472,59 @@ describe('a link to a line of an order (FR-28.46)', () => {
   it('takes ids as the server sends them, objects or strings', () => {
     const id = { toString: () => '6af2fe9991957a1baa7a9dfc' }
     expect(orderLineQuery({ lineId: id, allocationId: id })).toEqual({ line: '6af2fe9991957a1baa7a9dfc', allocation: '6af2fe9991957a1baa7a9dfc' })
+  })
+})
+
+describe('the columns that fit (FR-28.41)', () => {
+  // The supplier order's columns once it is saved: the article takes what is left, Dispatched can be said another way.
+  const cols: TreeColumn[] = [
+    { key: 'item', title: 'Article' },
+    { key: 'qty', title: 'Qty', width: '80px' },
+    { key: 'received', title: 'Received', width: '70px' },
+    { key: 'invoiced', title: 'Invoiced', width: '70px' },
+    { key: 'dispatched', title: 'Dispatched', width: '84px', optional: true },
+    { key: 'status', title: 'Status', width: '116px' },
+    { key: 'actions', title: '', width: '150px' },
+  ]
+  const all = columnsWidth(cols) // 240 + 80 + 70 + 70 + 84 + 116 + 150
+
+  it('adds up what the columns ask for, the article holding to a minimum of its own', () => {
+    expect(all).toBe(ITEM_MIN_WIDTH + 80 + 70 + 70 + 84 + 116 + 150)
+  })
+
+  it('keeps every column while there is room for them', () => {
+    expect(fitColumns(cols, all).shown.map((c) => c.key)).toEqual(['item', 'qty', 'received', 'invoiced', 'dispatched', 'status', 'actions'])
+    expect(fitColumns(cols, all).hidden).toEqual([])
+    expect(fitColumns(cols, 5000).hidden).toEqual([])
+  })
+
+  it('leaves the optional column out when the table would scroll sideways, and names it', () => {
+    const f = fitColumns(cols, all - 1)
+    expect(f.hidden).toEqual(['dispatched'])
+    expect(f.shown.map((c) => c.key)).toEqual(['item', 'qty', 'received', 'invoiced', 'status', 'actions'])
+  })
+
+  it('does not decide before the tree is measured', () => {
+    expect(fitColumns(cols, 0).hidden).toEqual([])
+    expect(fitColumns(cols, NaN).hidden).toEqual([])
+  })
+
+  it('never drops a column that is not optional, however narrow, and does not mutate its input', () => {
+    const before = JSON.stringify(cols)
+    const f = fitColumns(cols, 100)
+    expect(f.shown.map((c) => c.key)).toEqual(['item', 'qty', 'received', 'invoiced', 'status', 'actions'])
+    expect(JSON.stringify(cols)).toBe(before)
+  })
+
+  it('drops optional columns from the right, one at a time, and stops as soon as the table fits', () => {
+    const two: TreeColumn[] = [
+      { key: 'item', title: 'Article' },
+      { key: 'a', title: 'A', width: '100px', optional: true },
+      { key: 'b', title: 'B', width: '100px', optional: true },
+      { key: 'c', title: 'C', width: '100px' },
+    ]
+    expect(fitColumns(two, ITEM_MIN_WIDTH + 300).hidden).toEqual([])
+    expect(fitColumns(two, ITEM_MIN_WIDTH + 299).hidden).toEqual(['b'])
+    expect(fitColumns(two, ITEM_MIN_WIDTH + 199).hidden).toEqual(['b', 'a'])
   })
 })

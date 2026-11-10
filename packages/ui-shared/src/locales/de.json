@@ -1596,7 +1596,8 @@
       "overAllocated": "Überverteilt",
       "unallocated": "{n} nicht verteilt",
       "unsaved": "ungespeichert",
-      "changed": "geändert"
+      "changed": "geändert",
+      "freeHint": "Position: bestellt − auf Lager verteilt. Lager: verteilt − für Kunden reserviert."
     },
     "panels": {
       "lines": "{n} Position | {n} Positionen",
