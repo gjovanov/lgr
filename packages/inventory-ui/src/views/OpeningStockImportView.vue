@@ -32,7 +32,7 @@
         </v-col>
       </v-row>
 
-      <v-btn color="primary" :loading="running" :disabled="!warehouseId || !file" prepend-icon="mdi-upload" @click="doImport">
+      <v-btn v-cap="'opening-stock.create'" color="primary" :loading="running" :disabled="!warehouseId || !file" prepend-icon="mdi-upload" @click="doImport">
         {{ $t('openingStock.import') }}
       </v-btn>
 

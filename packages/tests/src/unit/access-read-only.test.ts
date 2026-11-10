@@ -131,15 +131,9 @@ const PERSONAL = new Set([
  * page still offers it. Fix one with `v-cap` / a form action's `cap`, then take it off this list.
  */
 const NOT_YET = new Set([
-  'accounting-ui/src/views/accounting/FiscalYearsView.vue',
-  'accounting-ui/src/views/accounting/JournalEntriesView.vue',
-  'accounting-ui/src/views/accounting/ReconciliationView.vue',
-  'accounting-ui/src/views/accounting/VatReturnView.vue',
   'files-ui/src/views/ArchivesView.vue',
   'files-ui/src/views/DocumentsView.vue',
   'files-ui/src/views/FileUploadView.vue',
-  'inventory-ui/src/views/BulkPriceAdjustmentView.vue',
-  'inventory-ui/src/views/OpeningStockImportView.vue',
   'invoicing-ui/src/views/InternalOrderFormView.vue',
   'invoicing-ui/src/views/OrderFormView.vue',
   'portal-ui/src/views/admin/LicencesView.vue',
