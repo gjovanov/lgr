@@ -151,7 +151,7 @@ Not evidence: drafts, voided and cancelled bills, incoming credit and debit note
 
 **Recorded information (SHOULD).** `ProductSupplier { orgId, productId, supplierId, preferred, supplierSku?, leadTimeDays?, note? }`, unique on `{orgId, productId, supplierId}`, replication class **R** (`replicate(schema, { class: 'R' })`; `unit/replication-meta.test.ts` fails the build without it). Written by a person on the Suppliers tab, never by a document. `preferred` wins the default supplier on an order; `supplierSku` is searchable. It sits beside `SupplierProductAlias`, which stays what it is: a dictionary of the wording a supplier's bills use for an article, written by the import.
 
-**The default supplier of an article** (used by the order dialog, and by `generateExternalOrder` in place of its `supplierHint`): the recorded preferred supplier, else the supplier of the most recent purchase, else the supplier of the newest supplier order with a line for the article (today's `supplierHint`), else none.
+**The default supplier of an article** (used by the order dialog, and by `getInternalOrderSuggestions` in place of the `supplierHint` it returns, which the customer-order form's Generate dialog prefills from): the recorded preferred supplier, else the supplier of the most recent purchase, else the supplier of the newest supplier order with a line for the article (today's `supplierHint`), else none.
 
 **Receipts that name no supplier.** The receipt form and bill-born receipts write `contactId`. The daily PlusMinus receipt import does not: `partner` is free text and goes into `notes` only (`map-plusminus-stokrazp.ts`, `scripts/receive-stock-api.ts`), as do `receive-stock.ts` and `receive-new-products.ts`. For an organization whose purchases arrive that way, the facts are only as complete as the bills. FR-28.12 lets the import resolve the partner to an existing supplier by exact normalized name, create nothing, and report the names it could not resolve.
 
@@ -409,9 +409,9 @@ S-1 builds the supplier order's tree twice from one fixture, with `group-by` and
 - `preferred` is unique per article: setting it clears the previous one.
 - The Suppliers tab edits it in place. The row shows facts and recorded fields together, with a badge where a supplier is recorded and has no documents.
 
-**FR-28.10 — Searching by the supplier's code (MAY).** With FR-28.9, the product search also matches a recorded `supplierSku`.
+**FR-28.10 — Searching by the supplier's code (MAY).** With FR-28.9, the product search also matches a recorded `supplierSku`, through a lowered mirror field kept by `loweredFieldsPlugin` like the other searchable fields. A Cyrillic pattern is never sent to Mongo as a `$regex` from Bun (it becomes `\uXXXX` and fails). The search box stays a text search on the article: a supplier's name is not a search term, and the Supplier filter does that job.
 
-**FR-28.11 — One default supplier (MUST).** The rule of §2.2 is one function. The order dialog and `generateExternalOrder` use it. `supplierHint` survives as the last fallback inside it, and the Customer-order form's prefill (`InternalOrderFormView.vue:1091`) calls it.
+**FR-28.11 — One default supplier (MUST).** The rule of §2.2 is one function. The preview of FR-28.16 and `getInternalOrderSuggestions` use it, so the `supplierHint` the customer-order form's Generate dialog prefills from (`InternalOrderFormView.vue:1091`) becomes its answer. Today's rule, the newest supplier order with a line for the article (`reservation-ops.service.ts:909-919`), survives as its last fallback. `generateExternalOrder` takes the supplier as an input and does not change.
 
 **FR-28.12 — Receipts that name a supplier (SHOULD).**
 - The PlusMinus receipt import (`map-plusminus-stokrazp.ts`, `scripts/receive-stock-api.ts`) resolves `partner` to an existing supplier by exact normalized name through the matching ladder and posts `contactId`. It creates no contact from free text and books nothing differently.
@@ -457,9 +457,9 @@ S-1 builds the supplier order's tree twice from one fixture, with `group-by` and
 **FR-28.22 — One list engine (MUST).**
 - `useProductList`, `ProductFilterBar` and `useProductColumns` in `ui-shared`, used by `ProductsView` and by the dialog. `ProductsView` does not change for the user: its URL keys, default query (`?page=0&size=10&sortBy=createdAt&sortOrder=desc&isActive=true`), column order, test ids and row menu stay. The specs that pin them pass unmodified: `product-actions`, `products-price-columns`, `products-stock-sort`, the `warehouse*` specs, `tags.spec`, `roles.spec`.
 
-**FR-28.23 — The dialog (MUST).** As §2.4: the list's filters and columns, the list's per-user column choice (`inventory.products`), page sizes 10 to 100 and All, Status defaulting to Active, name order, categories from `GET /warehouse/product-category`, props `multiple`, `stockWarehouseId` (scopes figures, never rows) and `priceField`, Enter and double click to pick, Escape to close.
+**FR-28.23 — The dialog (MUST).** As §2.4: the list's filters and columns, the list's per-user column choice (`inventory.products`), page sizes 10 to 100 and All, Status defaulting to Active, name order, categories from `GET /warehouse/product-category`, props `multiple`, `stockWarehouseId` (scopes figures, never rows) and `priceField`, Enter and double click to pick, Escape to close. Price columns follow FR-27's field groups (FR-27.6, and the price-visibility amendment on #529 of 2026-11-10): the server omits what a role may not see, and the dialog draws what arrives, as the list does.
 
-**FR-28.24 — The autocomplete (MUST).** One result list under both widgets: a row is the name, then `SKU · unit · stock · price` (§2.4). Two characters, 300 ms and ten hits stay. A scanned code that matches one article is added with no list. Free text stays possible on document lines.
+**FR-28.24 — The autocomplete (MUST).** One result list under both widgets: a row is the name, then `SKU · unit · stock · price` (§2.4). Two characters, 300 ms and ten hits stay. A scanned code that matches one article is added with no list. Free text stays possible on document lines. A price the role may not see is not in the hit.
 
 **FR-28.25 — Details everywhere (MUST).** A Details button with a tooltip and the shortcut F4 at the end of every product field and every line's product cell on the seven screens, and a "Show all N results" last hit that opens the dialog with the typed text.
 
@@ -671,5 +671,6 @@ Almost nothing is stored, which is the point of reading supplier facts from the 
 - Bulk actions on the Products list other than the two orders (a selection of articles into an invoice, a receipt or a price change is the natural next use of FR-28.13), and the Products list's Export, whose `onExport` only logs.
 - What a document line becomes after a pick: price resolution, units, tax and the product-update switch.
 - Merging products or suppliers, or creating a supplier from a free-text name.
+- Typing a supplier's name into the product search box: the Supplier filter does that job.
 - A redesign of the till's card grid, or of the sales-side price resolution.
 - Layouts below the width the forms already stack at.
