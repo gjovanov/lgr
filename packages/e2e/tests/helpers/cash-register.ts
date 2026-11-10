@@ -41,6 +41,23 @@ async function call(session: ApiSession, method: string, path: string, body?: un
   return json
 }
 
+/**
+ * Every good of the till's catalog at `warehouseId`, all pages. The specs look for the seed's goods
+ * with stock, and the catalog is sorted by name: by the time the till specs run, the run has made
+ * over a hundred "E2E …" goods with no stock (the order specs make two or three per test), and the
+ * first page of 100 held none of the seed's "Product N …". A spec that pages cannot be starved by
+ * how many goods the specs before it made.
+ */
+export async function tillCatalog(session: ApiSession, warehouseId: string): Promise<any[]> {
+  const all: any[] = []
+  for (let page = 0; page < 50; page++) {
+    const r = await call(session, 'GET', `/trade/pos/catalog?warehouseId=${warehouseId}&type=goods&size=200&page=${page}`)
+    all.push(...(r.products || []))
+    if (page + 1 >= (r.totalPages || 1)) break
+  }
+  return all
+}
+
 function userIdOf(token: string): string {
   return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')).id
 }
@@ -98,7 +115,7 @@ export async function ownCashier(name = 'cashier'): Promise<OwnCashier> {
 export async function ringTillSale(session?: ApiSession, method = 'card'): Promise<TillSale> {
   const cashier = session || await apiLogin('acme-corp', 'sales', 'test123')
   const till = await openTillSession(cashier)
-  const { products } = await call(cashier, 'GET', `/trade/pos/catalog?warehouseId=${till.warehouseId}&type=goods&size=100`)
+  const products = await tillCatalog(cashier, till.warehouseId)
   const product = products.find((p: any) => (p.stockAvailable ?? 0) >= 1 && p.unitPrice > 0)
   if (!product) throw new Error('no product with stock at the till\'s warehouse — is the DB seeded?')
 
@@ -178,7 +195,7 @@ export async function createBackOfficeCashSale(session?: ApiSession): Promise<{ 
   const { warehouses } = await call(admin, 'GET', '/warehouse/warehouse?size=50')
   const main = warehouses.find((w: any) => w.code === 'WH-01') || warehouses[0]
   const warehouseId = main.id || main._id
-  const { products } = await call(admin, 'GET', `/trade/pos/catalog?warehouseId=${warehouseId}&type=goods&size=100&sortOrder=desc`)
+  const products = await tillCatalog(admin, warehouseId)
   const product = products.find((p: any) => (p.stockAvailable ?? 0) >= 1 && p.unitPrice > 0)
   if (!product) throw new Error('no product with stock in the main warehouse — is the DB seeded?')
 

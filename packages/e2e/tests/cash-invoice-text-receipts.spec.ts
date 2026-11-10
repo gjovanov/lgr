@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { apiLogin } from './helpers/api'
 import { loginForApp } from './helpers/login'
-import { openTillSession } from './helpers/cash-register'
+import { openTillSession, tillCatalog } from './helpers/cash-register'
 
 /**
  * FR-23 (owner, 2026-11-01) — a cash invoice on a device that is not fiscalized.
@@ -60,7 +60,7 @@ test.describe('FR-23 — a cash invoice on a device that is not fiscalized', () 
     cashier = await apiLogin('acme-corp', cashierName, PASSWORD)
     till = await openTillSession(cashier)
 
-    const { products } = await ok(cashier, 'GET', `/trade/pos/catalog?warehouseId=${till.warehouseId}&type=goods&size=100`)
+    const products = await tillCatalog(cashier, till.warehouseId)
     const article = (products || []).find((p: any) => (p.stockAvailable ?? 0) >= 2 && p.unitPrice > 0)
     expect(article, 'an article with stock at the store — is the DB seeded?').toBeTruthy()
     await fetch(`${STUB}/reset`, { method: 'POST', body: JSON.stringify({ unfiscalized: true }) })
