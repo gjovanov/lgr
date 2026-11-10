@@ -3234,7 +3234,13 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - ⚠ The legacy compiler grants it with any product read (`PRODUCT_READERS`), so nobody's answer changes. The
     legacy model cannot withhold it (`LEGACY_CANNOT_WITHHOLD`): a role without it projects as `needsRelease`.
   - ⚠ A new serializer that sends a product or a stock level's cost goes through `redactProduct` /
-    `redactStockCost`. Reports (stock levels, product ledger, valuation) are not redacted yet.
+    `redactStockCost`.
+  - **Reports**: a column with `fieldGroup: 'costs'` (`ReportColumn`) is dropped by the runner, its cells and total
+    with it, on screen and in the file (`withoutFieldGroups`, `meta.withheld` names the keys): valuation, stock levels,
+    product ledger, stock movements, and warehouse operations' cost and profit (on the purchases side its prices too,
+    which are what the goods cost). ⚠ A new report column that carries a cost says so.
+    A report that is nothing but costs (`inventory-valuation`) carries `fieldGroup: 'costs'` itself: not listed, and
+    404 to run, for a role without them (`canAccessReport`).
 - **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
   null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
   gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`
