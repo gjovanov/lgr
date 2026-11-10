@@ -142,6 +142,16 @@ export function areaOfCap(cap: string): Area | undefined {
  */
 export const NOT_WITH_AN_AREAS_LIST: readonly Cap[] = ['sales-docs.totals', 'bills.totals', 'sales-docs.import', 'org.switch']
 
+/**
+ * FR-27.6 (D-5): whoever reads a product today reads its costs, so the legacy model grants `products.costs` with any
+ * capability that opens a product route (`warehouse/product`'s read rule). A role may leave it out; the legacy
+ * model cannot (`LEGACY_CANNOT_WITHHOLD`), so such a role's projection is not exact (`needsRelease`).
+ */
+const PRODUCT_READERS: readonly Cap[] = ['products.view', 'products.lookup', 'sales-docs.view', 'till.view']
+
+/** What no legacy claim can withhold where it grants its feature: the projection holds it even when the role does not. */
+export const LEGACY_CANNOT_WITHHOLD: readonly Cap[] = ['products.costs']
+
 /** What a token says today: its role, its permissions, and FR-26's areas (absent: every area). */
 export interface LegacyClaims {
   role?: string
@@ -199,6 +209,7 @@ export function compileLegacy(claims: LegacyClaims | null | undefined): Grant {
   for (const p of claims.permissions ?? []) for (const c of LEGACY_BRIDGE[p as Permission] ?? []) caps.add(c)
   for (const c of LEGACY_ROLE_CAPS[claims.role ?? ''] ?? []) caps.add(c)
   caps.add('org.switch')
+  if (PRODUCT_READERS.some(c => caps.has(c))) caps.add('products.costs')
   if (Array.isArray(claims.areas)) {
     for (const c of [...caps]) {
       const area = areaOfCap(c)

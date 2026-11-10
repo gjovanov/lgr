@@ -47,6 +47,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
+import { capShows, type CapValue } from '../access/v-cap'
 
 export interface RowAction {
   /** Stable id, also the item's `data-testid` (`row-action-<key>`). */
@@ -63,6 +64,8 @@ export interface RowAction {
   handler?: () => void
   /** A divider above it: what cannot be undone sits apart. */
   divider?: boolean
+  /** FR-27.7: offered only to a role holding one of these (`v-cap`'s rule). The row's own rule is `show`. */
+  cap?: CapValue
   /** Listed, but not to be taken on this row now; `hint` says why. */
   disabled?: boolean
   /** Why it is disabled, shown on hover. */
@@ -71,5 +74,5 @@ export interface RowAction {
 
 const props = defineProps<{ actions: RowAction[] }>()
 
-const shown = computed(() => props.actions.filter((a) => a.show !== false))
+const shown = computed(() => props.actions.filter((a) => a.show !== false && capShows(a.cap)))
 </script>

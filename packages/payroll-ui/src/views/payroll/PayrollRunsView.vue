@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <ExportMenu @export="handleExport" />
-        <responsive-btn icon="mdi-plus" color="primary" :to="{ name: 'payroll.runs.new' }">
+        <responsive-btn v-cap="'payroll-runs.create'" icon="mdi-plus" color="primary" :to="{ name: 'payroll.runs.new' }">
           {{ $t('common.create') }}
         </responsive-btn>
       </div>

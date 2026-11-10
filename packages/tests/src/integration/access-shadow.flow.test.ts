@@ -13,7 +13,13 @@ import { accessModelOf, flushShadowDiffs, forgetAccessModel, shadowAccess } from
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
 
-beforeAll(async () => { await setupTestDB() }, 60_000)
+beforeAll(async () => {
+  await setupTestDB()
+  // The buffer is per process: an earlier file's `roles` org may have left a difference in it (a role the
+  // test gave caps its stored legacy projection lacks). Start from an empty one.
+  await flushShadowDiffs()
+  await clearCollections()
+}, 60_000)
 afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { await clearCollections() }, 30_000)
 

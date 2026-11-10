@@ -98,13 +98,13 @@ const { markSaved, tryRestore } = usePendingChanges({
 
 const formActions = computed<FormAction[]>(() => {
   const actions: FormAction[] = [
-    { label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value },
+    { label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, cap: isEdit.value ? ['payroll-runs.create', 'payroll-runs.edit'] : 'payroll-runs.create', loading: saving.value },
   ]
   if (isEdit.value && runStatus.value === 'draft') {
-    actions.push({ label: t('payroll.calculate'), color: 'info', icon: 'mdi-calculator', handler: calculate })
+    actions.push({ label: t('payroll.calculate'), color: 'info', icon: 'mdi-calculator', handler: calculate, cap: ['payroll-runs.create', 'payroll-runs.edit'] })
   }
   if (isEdit.value && runStatus.value === 'calculated') {
-    actions.push({ label: t('payroll.approve'), color: 'success', icon: 'mdi-check-circle', handler: approve })
+    actions.push({ label: t('payroll.approve'), color: 'success', icon: 'mdi-check-circle', handler: approve, cap: 'payroll-runs.approve' })
   }
   return actions
 })

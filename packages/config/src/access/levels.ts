@@ -19,12 +19,14 @@ export const LEVELS: readonly Level[] = ['none', 'view', 'work', 'full']
 type Feature = (typeof CATALOGUE)[number]
 
 const VIEW_ACTIONS = ['view', 'browse', 'lookup', 'read', 'check']
+/** Extras that only read more: a role holding them with View still only reads (the summary's lines). */
+const READING_EXTRAS = ['export', 'totals', 'costs']
 const FULL_ONLY = ['delete', 'manage', 'run']
 
 const EXTRAS: Partial<Record<FeatureId, readonly string[]>> = {
   'sales-docs': ['totals', 'import', 'export'],
   bills: ['totals'],
-  products: ['export'],
+  products: ['export', 'costs'],
   movements: ['create:transfer'],
   'cash-sales': ['storno', 'settle'],
   till: ['manage-sessions'],
@@ -87,7 +89,7 @@ export function beyondLevel(feature: Feature, grant: Grant): CapabilityId[] {
 const IMPLIES: Partial<Record<CapabilityId, readonly CapabilityId[]>> = {
   'sales-docs.view': ['pricing.read', 'doc-import.read', 'stock-availability.check'],
   'proforma.view': ['pricing.read'],
-  'bills.view': ['pricing.read', 'doc-import.read'],
+  'bills.view': ['pricing.read', 'doc-import.read', 'products.costs'],
   'orders.view': ['pricing.read'],
   'contacts.view': ['pricing.read'],
   'sales-docs.create': ['stock-availability.transfer', 'doc-import.extract', 'tags.edit'],
@@ -97,7 +99,7 @@ const IMPLIES: Partial<Record<CapabilityId, readonly CapabilityId[]>> = {
   'products.view': ['pricing.read', 'doc-import.read', 'stock-availability.check', 'stock-levels.lookup'],
   'products.edit': ['tags.edit', 'doc-import.extract'],
   'warehouses.edit': ['tags.edit'],
-  'movements.create': ['doc-import.extract'],
+  'movements.create': ['doc-import.extract', 'products.costs'],
   'movements.create:transfer': ['products.lookup', 'warehouses.lookup', 'categories.lookup', 'stock-levels.lookup', 'pricing.read'],
   'till.view': ['pricing.read', 'contacts.lookup'],
 }
@@ -119,7 +121,7 @@ export function summarize(grant: Grant): { canCreate: FeatureId[]; readOnly: Fea
   for (const f of EDITOR_FEATURES) {
     const l = levelsOf(f)
     const sees = grant.all || l.view.some(c => grant.caps.has(c))
-    const works = grant.all || [...l.work, ...l.extras].some(c => !l.view.includes(c) && grant.caps.has(c))
+    const works = grant.all || [...l.work, ...l.extras].some(c => !l.view.includes(c) && !READING_EXTRAS.includes(c.slice(c.indexOf('.') + 1)) && grant.caps.has(c))
     if (works) canCreate.push(f.id)
     else if (sees) readOnly.push(f.id)
     else notVisible.push(f.id)

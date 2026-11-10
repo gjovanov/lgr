@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <export-menu @export="onExport" />
-        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'inventory.price-lists.new' }">{{ $t('common.create') }}</responsive-btn>
+        <responsive-btn v-cap="'price-lists.create'" color="primary" icon="mdi-plus" :to="{ name: 'inventory.price-lists.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
 
@@ -41,7 +41,7 @@
           </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.price-lists.edit', params: { id: item._id } }" />
-            <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
+            <v-btn v-cap="'price-lists.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>

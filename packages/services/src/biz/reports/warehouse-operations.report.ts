@@ -105,8 +105,8 @@ const PRODUCT_COLUMNS: ReportColumn[] = [
   { key: 'quantity', labelKey: 'reports.columns.quantity', type: 'quantity', align: 'end' },
   { key: 'avgPrice', labelKey: 'reports.columns.avgPrice', type: 'money', align: 'end' },
   { key: 'value', labelKey: 'reports.columns.value', type: 'money', align: 'end' },
-  { key: 'cost', labelKey: 'reports.columns.cost', type: 'money', align: 'end' },
-  { key: 'profit', labelKey: 'reports.columns.profit', type: 'money', align: 'end' },
+  { key: 'cost', labelKey: 'reports.columns.cost', type: 'money', align: 'end', fieldGroup: 'costs' },
+  { key: 'profit', labelKey: 'reports.columns.profit', type: 'money', align: 'end', fieldGroup: 'costs' },
 ]
 
 const DOCUMENT_COLUMNS: ReportColumn[] = [
@@ -362,11 +362,15 @@ export async function runWarehouseOperations(ctx: ReportHandlerContext): Promise
   const truncated = raw.length > cap
   const rows = truncated ? raw.slice(0, cap) : raw
 
-  const columns = groupByDocument
+  const shown = groupByDocument
     ? DOCUMENT_COLUMNS
     : withBatches
       ? [...PRODUCT_COLUMNS.slice(0, 4), { key: 'batchNumber', labelKey: 'reports.columns.batch' } as ReportColumn, ...PRODUCT_COLUMNS.slice(4)]
       : PRODUCT_COLUMNS
+  // FR-27.6: a purchase's price is what the goods cost, so on the purchases side the prices are cost figures too.
+  const columns = operation === 'purchases'
+    ? shown.map(c => (['avgPrice', 'price', 'value'].includes(c.key) ? { ...c, fieldGroup: 'costs' as const } : c))
+    : shown
 
   const totals: Record<string, number> = {
     quantity: +rows.reduce((s, r) => s + (r.quantity || 0), 0).toFixed(3),

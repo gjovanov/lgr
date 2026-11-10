@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <export-menu module="accounting" />
-        <responsive-btn color="primary" icon="mdi-plus" @click="router.push({ name: 'accounting.fixed-asset-new' })">
+        <responsive-btn v-cap="'fixed-assets.create'" color="primary" icon="mdi-plus" @click="router.push({ name: 'accounting.fixed-asset-new' })">
           {{ $t('common.add') }}
         </responsive-btn>
       </div>
@@ -50,7 +50,7 @@
       </template>
       <template #item.actions="{ item }">
         <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="navigateToEdit(item)" />
-        <v-btn icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
+        <v-btn v-cap="'fixed-assets.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
       </template>
     </v-data-table-server>
 

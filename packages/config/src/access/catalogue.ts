@@ -43,7 +43,8 @@ export const CATALOGUE = [
   { id: 'sequences', group: 'invoicing', actions: ['view', 'edit'] },
 
   // ── Inventory ── `view` opens the page (`inventory.read`); `lookup` is what the other inventory permissions read.
-  { id: 'products', group: 'inventory', actions: ['view', 'lookup', ...WORK, 'export'] },
+  // `costs`: the cost figures, a field group (FR-27.6, D-5): `purchasePrice`, the buying-price slot, margins (`fields.ts`).
+  { id: 'products', group: 'inventory', actions: ['view', 'lookup', ...WORK, 'export', 'costs'] },
   { id: 'categories', group: 'inventory', actions: ['view', 'lookup', ...WORK] },
   { id: 'warehouses', group: 'inventory', actions: ['view', 'lookup', ...WORK] },
   { id: 'movements', group: 'inventory', actions: ['view', 'lookup', ...WORK, 'create:transfer'] },

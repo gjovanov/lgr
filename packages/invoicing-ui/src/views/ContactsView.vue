@@ -55,7 +55,7 @@
     <template #item.actions="{ item }">
       <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.contacts.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
       <v-btn icon="mdi-book-open-variant" size="small" variant="text" color="info" :to="{ name: 'invoicing.contacts.ledger', params: { id: item._id } }" :title="$t('invoicing.contactLedger')" :aria-label="$t('invoicing.contactLedger')" />
-      <v-btn icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
+      <v-btn v-cap="'contacts.delete'" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
     </template>
 
     <!-- Delete Confirmation -->

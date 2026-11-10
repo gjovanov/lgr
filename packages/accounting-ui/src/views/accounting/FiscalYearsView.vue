@@ -6,7 +6,7 @@
         <p class="text-body-2 text-grey mb-0">{{ $t('fiscalYear.subtitle') }}</p>
       </div>
       <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ $t('fiscalYear.new') }}</v-btn>
+      <v-btn v-cap="'accounting-setup.create'" color="primary" prepend-icon="mdi-plus" @click="openCreate">{{ $t('fiscalYear.new') }}</v-btn>
     </div>
 
     <v-card variant="outlined">
@@ -71,7 +71,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="formOpen = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
+          <v-btn v-cap="['accounting-setup.create', 'accounting-setup.edit']" color="primary" :loading="saving" @click="save">{{ $t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -95,7 +95,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="text" @click="lockOpen = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="warning" :loading="!!busy" @click="confirmLock">{{ $t('fiscalYear.lock') }}</v-btn>
+          <v-btn v-cap="'accounting-setup.edit'" color="warning" :loading="!!busy" @click="confirmLock">{{ $t('fiscalYear.lock') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

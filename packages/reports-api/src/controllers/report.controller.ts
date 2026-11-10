@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
-import { can } from 'services/biz/access/evaluate'
+import { can, grantOf } from 'services/biz/access/evaluate'
+import { seesCosts } from 'config/access'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Org } from 'db/models'
 import {
@@ -10,6 +11,7 @@ import {
   validateParams,
   ReportParamError,
   rowCapFor,
+  withoutFieldGroups,
   type ReportEntry,
   type ReportResult,
 } from 'services/biz/report-registry'
@@ -33,6 +35,9 @@ import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
  * mounted and byte-compatible (FR-6.20), but the Reports app reaches it behind
  * `invoicing.read`.
  */
+
+/** FR-27.6: the field groups a caller sees: `costs` is `products.costs`, as on every product route. */
+const seesGroup = (user: any) => (group: 'costs') => (group === 'costs' ? seesCosts(grantOf(user)) : true)
 
 /** Column headers arrive translated from the UI — see reporting/excel/report.excel.ts. */
 const MAX_LABEL_LEN = 120
@@ -199,12 +204,12 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
     const resolved = resolve(id, (body as any)?.params, user)
     if ('error' in resolved) return status(resolved.error.status, { message: resolved.error.message })
 
-    const result = await resolved.entry.handler!({
+    const result = withoutFieldGroups(await resolved.entry.handler!({
       orgId,
       params: resolved.params,
       output: 'table',
       locale: (body as any)?.locale,
-    })
+    }), seesGroup(user))
 
     // FR-6.10: the drill-down is the registry's rule, resolved here per row, so the runner keeps
     // no second copy of it — that copy opened every document as an invoice, a cash sale and a
@@ -252,12 +257,12 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
       return status(422, { message: `Report ${id} does not offer ${format}` })
     }
 
-    const result = await resolved.entry.handler!({
+    const result = withoutFieldGroups(await resolved.entry.handler!({
       orgId,
       params: resolved.params,
       output: format,
       locale: b.locale,
-    })
+    }), seesGroup(user))
 
     const org = await Org.findById(orgId).lean()
     const orgName = (org as any)?.name || 'Organization'
