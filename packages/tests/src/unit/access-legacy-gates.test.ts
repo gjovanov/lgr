@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
-import { AREAS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, ROLES } from 'config/constants'
-import { can, compileLegacy, type CapabilityId } from 'config/access'
+import { AREAS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, ROLES, holdsArea } from 'config/constants'
+import { DOC_KINDS, can, compileLegacy, partitionFilter, readsKind, writesKind, type CapabilityId } from 'config/access'
+import { seesBills, seesOrders } from 'services/biz/access/partition'
 
 /**
  * FR-27.2 (#529) — the controllers' own checks, moved onto `can()`, answer as the role and permission checks they
@@ -84,4 +85,67 @@ describe('FR-27.2: a controller check on can() answers as the check it replaced'
       expect(differences).toEqual([])
     })
   }
+})
+
+/** Every role × no, each single and its default permissions × areas absent, `[]`, each area alone, and all of them. */
+function areaShapes(): Claims[] {
+  const out: Claims[] = []
+  for (const role of ROLES) {
+    for (const permissions of [[], ...PERMISSIONS.map(p => [p]), [...DEFAULT_ROLE_PERMISSIONS[role]]]) {
+      for (const areas of [undefined, [], ...AREAS.map(a => [a]), [...AREAS]]) out.push({ role, permissions: [...permissions], ...(areas ? { areas: [...areas] } : {}) })
+    }
+  }
+  return out
+}
+const label = (c: Claims) => `${c.role} [${c.permissions.join(',')}] areas=${c.areas ? `[${c.areas.join(',')}]` : 'absent'}`
+
+describe("FR-27.6: partitions answer as FR-26's areas did", () => {
+  // The `invoices` route rules (config/access/routes.ts): only a session they let in reaches the controller.
+  const READS_INVOICES: CapabilityId[] = ['sales-docs.view', 'proforma.view', 'bills.view']
+  const WRITES_INVOICES: CapabilityId[] = ['sales-docs.create', 'sales-docs.edit', 'sales-docs.delete', 'proforma.create', 'proforma.edit', 'proforma.delete', 'bills.create', 'bills.edit', 'bills.delete']
+
+  it("invoice.controller's reads: the kinds a session reads ≡ `holdsArea(user, 'purchases')`", () => {
+    const differences = areaShapes()
+      .filter(c => can(compileLegacy(c), READS_INVOICES))
+      .filter(c => {
+        const g = compileLegacy(c)
+        const old = holdsArea(c, 'purchases') ? null : { direction: 'outgoing' }
+        return readsKind(g, 'bills') !== holdsArea(c, 'purchases') || JSON.stringify(partitionFilter(g)) !== JSON.stringify(old)
+      })
+      .map(label)
+    expect(differences).toEqual([])
+  })
+
+  it("invoice.controller's create: refused for a bill without purchases, and for nothing else", () => {
+    const differences = areaShapes()
+      .filter(c => can(compileLegacy(c), WRITES_INVOICES))
+      .filter(c => {
+        const g = compileLegacy(c)
+        return DOC_KINDS.some(k => {
+          const now = !(k === 'bills' && !readsKind(g, 'bills')) && writesKind(g, k, 'create')
+          const was = !(k === 'bills' && !holdsArea(c, 'purchases'))
+          return now !== was
+        })
+      })
+      .map(label)
+    expect(differences).toEqual([])
+  })
+
+  it("seesBills and seesOrders are the areas on the legacy model, for any session (a warehouse manager sees a receipt's bill)", () => {
+    const differences = areaShapes()
+      .filter(c => seesBills(c as any) !== holdsArea(c, 'purchases') || seesOrders(c as any) !== holdsArea(c, 'orders'))
+      .map(label)
+    expect(differences).toEqual([])
+    expect(seesBills({ role: 'warehouse_manager', permissions: [...DEFAULT_ROLE_PERMISSIONS.warehouse_manager] } as any)).toBe(true)
+    expect(can(compileLegacy({ role: 'warehouse_manager', permissions: [...DEFAULT_ROLE_PERMISSIONS.warehouse_manager] }), 'bills.view')).toBe(false)
+  })
+
+  it("and a role's capabilities on a role", () => {
+    const access = { caps: new Set(['products.view']) }
+    expect(seesBills({ role: 'member', permissions: [], access } as any)).toBe(false)
+    expect(seesOrders({ role: 'member', permissions: [], access } as any)).toBe(false)
+    const buyer = { caps: new Set(['bills.view', 'orders.lookup']) }
+    expect(seesBills({ role: 'member', permissions: [], areas: [], access: buyer } as any)).toBe(true)
+    expect(seesOrders({ role: 'member', permissions: [], areas: [], access: buyer } as any)).toBe(true)
+  })
 })

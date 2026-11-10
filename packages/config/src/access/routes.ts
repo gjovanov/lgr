@@ -80,7 +80,8 @@ export const READ_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['invoicing/export', self('canExport')],
   ['invoicing/sequences', self('admin or manager: the sequence configuration')],
   ['invoicing', any('sales-docs.view')],
-  ['invoices', any('sales-docs.view')],
+  // FR-27.6: one collection, three kinds (`partition.ts`); the controller holds each document to its own.
+  ['invoices', any('sales-docs.view', 'proforma.view', 'bills.view')],
 
   // The invoice form, the cash-sale terminal, the POS terminal and the report pickers.
   ['warehouse/product-category', reads('categories', 'sales-docs.view', 'till.view')],
@@ -167,7 +168,7 @@ export const WRITE_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['accounting/tax-return', writes('vat')],
   ['accounting', writes('accounting-setup')],
 
-  ['invoices', writes('sales-docs')],
+  ['invoices', writes('sales-docs', 'proforma.create', 'proforma.edit', 'proforma.delete', 'bills.create', 'bills.edit', 'bills.delete')],
   ['invoicing/orders', writes('orders')],
   ['invoicing/internal-orders', writes('orders')],
   ['invoicing/reservations', writes('orders')],
