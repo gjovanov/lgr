@@ -81,7 +81,15 @@ describe('FR-27.4: the roles of an org', () => {
     const role: any = await Role.findById(r.json.role.id).lean().exec()
     expect(sameGrant(grantOfRole(role), templateGrant('seller'))).toBe(true)
     expect(await PermissionSet.exists({ _id: role.legacy.setId, orgId: org._id, name: 'Role · Counter' })).toBeTruthy()
-    const audit: any = await AuditLog.findOne({ entityType: 'role', action: 'create', entityId: role._id }).lean().exec()
+    // The create does not wait for its audit row: `createAuditEntry` never makes the operation it records
+    // wait for, or fail on, its own trail. A read at once is a race, so read the row when it is there
+    // (the idiom of audit-via.flow.test.ts).
+    const end = Date.now() + 5000
+    let audit: any = null
+    while (!audit && Date.now() < end) {
+      audit = await AuditLog.findOne({ entityType: 'role', action: 'create', entityId: role._id }).lean().exec()
+      if (!audit) await Bun.sleep(20)
+    }
     expect(audit?.changes?.[0]?.field).toBe('caps')
   })
 
