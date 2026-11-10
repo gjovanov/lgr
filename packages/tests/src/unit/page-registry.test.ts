@@ -19,7 +19,7 @@ import { readRuleFor, writeRuleFor } from 'services/biz/route-permission'
 
 describe('what the portal\'s menu offers: what `canOpenPage` lets them open (D10)', () => {
   const asRole = (role: Role): PageViewer => ({ role, permissions: DEFAULT_ROLE_PERMISSIONS[role] })
-  const EVERY = ['/dashboard', '/settings/organization', '/settings/users', '/settings/permission-sets', '/settings/invites', '/settings/desktops', '/settings/servers', '/settings/server', '/settings/billing', '/admin/audit-log']
+  const EVERY = ['/dashboard', '/settings/organization', '/settings/users', '/settings/permission-sets', '/settings/roles', '/settings/invites', '/settings/desktops', '/settings/servers', '/settings/server', '/settings/billing', '/admin/audit-log']
 
   it('a till-only person is offered none of it', () => {
     expect(portalPagesFor({ role: 'member', permissions: ['pos.read', 'pos.write'] })).toEqual([])

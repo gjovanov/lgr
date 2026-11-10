@@ -97,7 +97,20 @@
             class="mb-2"
           />
           <!-- #510: every role the server knows (`ROLES`), named as the Users screen names them. -->
+          <!-- FR-27.4: in an org with roles, a role of the org; the org's default first. -->
           <v-select
+            v-if="orgRoles.length"
+            v-model="createForm.assignRoleId"
+            :label="$t('access.ui.role')"
+            :items="orgRoles.map(r => ({ title: r.name, value: r.id }))"
+            item-title="title"
+            item-value="value"
+            variant="outlined"
+            density="compact"
+            data-testid="invite-role-select"
+          />
+          <v-select
+            v-else
             v-model="createForm.assignRole"
             :label="$t('settings.role')"
             :items="roleItems"
@@ -131,13 +144,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ROLES } from 'config/constants'
 import { useInviteStore } from '../../store/invite.store'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { httpClient } from 'ui-shared/composables/useHttpClient'
 import InviteResultDialog, { type InviteResult } from './InviteResultDialog.vue'
 import { inviteErrorText } from './invite-errors'
 
@@ -163,7 +177,23 @@ const createForm = reactive({
   maxUses: null as number | null,
   expiresInHours: null as number | null,
   assignRole: 'member',
+  assignRoleId: '',
 })
+
+/** FR-27.4: the org's roles; none (no migration here yet, or no right to read them): the legacy roles. */
+const orgRoles = ref<any[]>([])
+let defaultRoleId = ''
+async function fetchRoles() {
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/roles`)
+    orgRoles.value = data.roles || []
+    defaultRoleId = data.defaultRoleId || orgRoles.value.find(r => r.templateKey === 'member')?.id || ''
+    createForm.assignRoleId = defaultRoleId
+  } catch {
+    orgRoles.value = []
+  }
+}
+onMounted(fetchRoles)
 
 const headers = [
   { title: 'Code', key: 'code', sortable: false },
@@ -186,7 +216,7 @@ function copyLink(code: string) {
 }
 
 async function handleCreate() {
-  const params: any = { assignRole: createForm.assignRole }
+  const params: any = orgRoles.value.length && createForm.assignRoleId ? { assignRoleId: createForm.assignRoleId } : { assignRole: createForm.assignRole }
   if (createMode.value === 'email') {
     params.targetEmail = createForm.targetEmail.trim()
   } else if (createForm.maxUses) {
@@ -203,6 +233,7 @@ async function handleCreate() {
     createForm.maxUses = null
     createForm.expiresInHours = null
     createForm.assignRole = 'member'
+    createForm.assignRoleId = defaultRoleId
     inviteResult.value = { link: data.link, targetEmail: data.invite?.targetEmail, email: data.email }
     await fetchItems()
   } catch (e: any) {

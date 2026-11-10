@@ -1,4 +1,5 @@
 import { Code, Identity, LocalCredential, Org, User, OrgApp, PermissionSet, type IIdentity, type IOrg, type IUser } from 'db/models'
+import { giveStartingRole, seedBuiltinRoles, startingRoleOf } from './access/role.service'
 import { homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS, type Area, type Role } from 'config/constants'
 import { legacyClaimsOf, type LegacySet } from 'config/access'
@@ -145,6 +146,9 @@ export async function provisionNewOrg(org: IOrg, admin: IUser): Promise<void> {
     admin.permissionSetIds = [adminSet._id]
     await admin.save()
   }
+  // FR-27.3: the ten built-in roles, and the founder the Administrator.
+  await seedBuiltinRoles(org._id)
+  await giveStartingRole(org._id, admin._id, await startingRoleOf(org._id, { legacyRole: 'admin' }))
 }
 
 export interface RegisterOptions {

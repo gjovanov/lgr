@@ -615,6 +615,11 @@ export const authController = new Elysia({ prefix: '/auth' })
           }
         : null,
       user,
+      // FR-27.5: an org on `roles`: the session's grant, read live from its role. The SPA follows it, and refetches
+      // this when a response's `x-access-version` changes. Null: the token's claims decide, as before.
+      access: (user as any).access
+        ? { all: !!(user as any).access.all, caps: (user as any).access.all ? [] : [...(user as any).access.caps].sort(), role: (user as any).accessRole ?? null }
+        : null,
       org: org
         ? {
             ...orgBrief(org),

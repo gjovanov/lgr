@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'crypto'
+import { giveStartingRole, startingRoleOf } from '../access/role.service.js'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import { AuthToken, Identity, Org, PermissionSet, User, type IIdentity, type IOrg, type IUser } from 'db/models'
@@ -169,6 +170,8 @@ export async function joinOrgByInvite(identityId: unknown, code: string): Promis
   if (!claimed) throw new IdentityError('invite_invalid')
   try {
     const member = await createMembership(identity, org, (invite.assignRole || 'member') as Role)
+    // FR-27.3: the invite's role, else the built-in role of its legacy one, else the org's default (no roles yet: none).
+    await giveStartingRole(org._id, member._id, await startingRoleOf(org._id, { roleId: (invite as any).assignRoleId, legacyRole: invite.assignRole || 'member' }))
     return { member, org }
   } catch (err) {
     await inviteDao.releaseUse(String(invite._id)).catch(() => undefined)

@@ -88,7 +88,8 @@ describe('FR-27.4: the roles of an org', () => {
   it('a name is unique; an unknown capability is no grant', async () => {
     expect((await call('POST', '/roles', tokens.admin1, { name: 'Counter' })).status).toBe(409)
     const r = await call('POST', '/roles', tokens.admin1, { name: 'Lookers', caps: ['products.view', 'products.teleport'] })
-    expect(r.json.role.caps).toEqual(['products.view'])
+    // The unknown id is dropped; the helpers the Products form reads come with View (FR-27.4 `withImplied`).
+    expect(r.json.role.caps).toEqual(['doc-import.read', 'pricing.read', 'products.view', 'stock-availability.check', 'stock-levels.lookup'])
   })
 })
 

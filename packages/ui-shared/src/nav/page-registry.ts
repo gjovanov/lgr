@@ -264,11 +264,13 @@ export interface PageViewer {
   amr?: readonly string[]
   /** FR-26: the only areas the session opens; absent = every area. */
   areas?: readonly string[]
+  /** FR-27.5: the session's live grant from its role (an org on `roles`); it decides over the claims. */
+  grant?: Grant
 }
 
-/** FR-27 (#529): the grant a page viewer's claims compile to, as the server compiles them. */
+/** FR-27 (#529): the viewer's grant: its role's, live, else its claims compiled as the server compiles them. */
 export function grantOfViewer(who: PageViewer | null | undefined): Grant {
-  return compileLegacy(who)
+  return who?.grant ?? compileLegacy(who)
 }
 
 /**
@@ -323,6 +325,8 @@ export const PORTAL_PAGES: PageDef[] = [
   portalPage('/settings/users', BACK_OFFICE),
   // Writing a set is assigning access, which is the server's admin role (`permission-set.controller`).
   portalPage('/settings/permission-sets', []),
+  // FR-27.4: Roles & access, the permission sets' successor; an admin's as theirs.
+  portalPage('/settings/roles', []),
   portalPage('/settings/invites', []),
   portalPage('/settings/desktops', ['admin.settings']),
   portalPage('/settings/servers', ['admin.settings']),
