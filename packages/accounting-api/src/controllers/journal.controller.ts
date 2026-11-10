@@ -155,7 +155,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     // Manual batch lookup for account details on lines
     const accountIds = [...new Set((entry as any).lines?.map((l: any) => l.accountId).filter(Boolean) || [])]
     if (accountIds.length > 0) {
-      const accounts = await r.accounts.findMany({ id: { $in: accountIds } } as any)
+      const accounts = await r.accounts.findMany({ orgId, id: { $in: accountIds } } as any)
       const accountMap = new Map(accounts.map(a => [String(a.id), a]))
       ;(entry as any).lines = (entry as any).lines.map((l: any) => {
         const acc = accountMap.get(String(l.accountId))

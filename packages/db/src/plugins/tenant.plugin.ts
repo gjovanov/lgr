@@ -1,5 +1,6 @@
 import type { Schema } from 'mongoose'
 import { homeWriteGuard } from '../home/write-guard.js'
+import { referenceGuard } from './reference-guard.js'
 
 /**
  * Adds `orgId` to a schema, and (FR-20.4) the write guard that refuses writes to an org whose home
@@ -42,4 +43,6 @@ export function tenantPlugin(schema: Schema) {
   })
   // FR-20.4: a write to an org whose home is elsewhere is refused, whatever makes it.
   homeWriteGuard(schema)
+  // Inside a request, a document may not be made to point at another org's record.
+  referenceGuard(schema)
 }
