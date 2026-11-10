@@ -27,6 +27,7 @@ import { buildSearchFilter } from '../search.utils.js'
 import { clean, digits } from './detect.js'
 import type { MatchedBy, Party } from './types.js'
 import { ocrMatchLines } from './ocr-client.js'
+import { normalizeName, pickSupplierByName, type SupplierNameMatch } from './supplier-name.js'
 
 export interface ProductMatch {
   productId: string
@@ -179,6 +180,26 @@ export async function matchContact(
     isActive: true,
   })
   return { contactId: String(created._id), name, created: true, address: address ? partyAddressEntry(address, city) : undefined }
+}
+
+/**
+ * FR-28.12: the EXISTING supplier a free-text partner names (a PlusMinus goods receipt's `ПАРТНЬОРИ:…`), by EXACT
+ * normalized name: the same words, any case, any run of whitespace between them (`supplier-name.ts#normalizeName`).
+ * Active contacts of type supplier or both only. A name that matches none, or several, resolves to nothing (the
+ * caller says so in its report); this never creates a contact from free text, and has no looser rung: the answer
+ * decides who an article is "bought from", and a near name is another company until a person says otherwise.
+ * ⚠ The pattern is built at runtime from a string: a Cyrillic regex LITERAL would be transpiled by Bun to \uXXXX
+ * escapes and rejected by Mongo (PCRE2 51091), as the product ladder's whitespace rung is.
+ */
+export async function matchSupplierByName(orgId: string, partner: string): Promise<SupplierNameMatch> {
+  const key = normalizeName(partner)
+  if (!key) return { status: 'none' }
+  const pattern = '^\\s*' + key.split(' ').map(escapeRe).join('\\s+') + '\\s*$'
+  const rows: any[] = await Contact.find(
+    { orgId, type: { $in: ['supplier', 'both'] }, isActive: { $ne: false }, companyNameLower: { $regex: pattern } } as any,
+    { companyName: 1, type: 1, isActive: 1 },
+  ).lean()
+  return pickSupplierByName(key, rows.map(c => ({ id: String(c._id), companyName: c.companyName, type: c.type, isActive: c.isActive })))
 }
 
 /**
