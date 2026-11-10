@@ -4670,6 +4670,22 @@
       "text": "„{page}“ gehört nicht zu Ihrer Rolle. Wenden Sie sich an einen Administrator, wenn Sie es brauchen.",
       "textAny": "Diese Seite gehört nicht zu Ihrer Rolle. Wenden Sie sich an einen Administrator, wenn Sie sie brauchen.",
       "home": "Zu meiner Startseite"
+    },
+    "tools": {
+      "whoCan": "Wer darf…",
+      "whoCanHint": "Die Rollen, die es gewähren, und wie viele Personen sie haben.",
+      "capability": "Darf",
+      "nobody": "Keine Rolle gewährt es.",
+      "peopleTotal": "Personen damit: {n}",
+      "compare": "Vergleichen",
+      "roleA": "Rolle",
+      "roleB": "Mit Rolle",
+      "showAll": "Alles zeigen, was eine der beiden Rollen hat",
+      "identical": "Beide Rollen gewähren genau dasselbe.",
+      "preview": "Was diese Rolle öffnet",
+      "previewHint": "Die Seiten, die ihren Personen angeboten werden, so wie die Rolle hier steht (vor dem Speichern).",
+      "previewNone": "Keine Seite: die Person sieht nur ihr Konto.",
+      "portal": "Portal"
     }
   }
 }
