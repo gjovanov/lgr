@@ -155,6 +155,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.export.description',
     icon: 'mdi-download',
     permission: 'invoicing.read',
+    cap: 'sales-docs.export',
     params: [],
     outputs: ['table', 'xlsx', 'pdf'],
     view: 'custom',
@@ -167,6 +168,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.aging.description',
     icon: 'mdi-clock-alert-outline',
     permission: 'invoicing.read',
+    cap: 'sales-docs.view',
     params: [],
     outputs: ['table'],
     view: 'custom',
@@ -181,6 +183,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.inventoryValuation.description',
     icon: 'mdi-chart-areaspline',
     permission: 'inventory.read',
+    cap: 'valuation.view',
     params: [
       { key: 'warehouseId', type: 'warehouse', labelKey: 'reports.params.warehouse' },
       { key: 'includeZero', type: 'bool', labelKey: 'reports.params.includeZeroStock', default: false },
@@ -200,6 +203,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.warehouseOps.description',
     icon: 'mdi-swap-horizontal',
     permission: 'inventory.read',
+    cap: 'movements.view',
     params: [
       { key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'this_month' } },
       {
@@ -253,6 +257,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.salesHistory.description',
     icon: 'mdi-cash-clock',
     permission: 'invoicing.read',
+    cap: 'sales-docs.view',
     params: [
       // The legacy screen opens on the current day — this is a day-end reconciliation tool.
       { key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'today' } },
@@ -302,17 +307,17 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     const spec = {
       outgoing: {
         id: 'sales-documents', category: 'sales' as const, icon: 'mdi-file-document-outline',
-        i18n: 'salesDocuments', drilldownApp: '/invoicing/invoices',
+        i18n: 'salesDocuments', drilldownApp: '/invoicing/invoices', cap: 'sales-docs.view' as const,
         contactSide: 'customer' as const,
       },
       incoming: {
         id: 'purchase-documents', category: 'purchase' as const, icon: 'mdi-file-import-outline',
-        i18n: 'purchaseDocuments', drilldownApp: '/invoicing/bills',
+        i18n: 'purchaseDocuments', drilldownApp: '/invoicing/bills', cap: 'bills.view' as const,
         contactSide: 'supplier' as const,
       },
       cash_register: {
         id: 'cash-register', category: 'sales' as const, icon: 'mdi-cash-register',
-        i18n: 'cashRegister', drilldownApp: '/invoicing/cash-sales',
+        i18n: 'cashRegister', drilldownApp: '/invoicing/cash-sales', cap: 'cash-sales.view' as const,
         contactSide: 'customer' as const,
       },
     }[kind]
@@ -324,6 +329,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
       descriptionKey: `reports.${spec.i18n}.description`,
       icon: spec.icon,
       permission: 'invoicing.read',
+      cap: spec.cap,
       params: [
         { key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'this_month' } },
         {
@@ -360,6 +366,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.contactLedger.description',
     icon: 'mdi-account-details-outline',
     permission: 'invoicing.read',
+    cap: 'contacts.view',
     params: [
       // Required: a ledger without a counterparty is the document register, not a ledger.
       { key: 'contactId', type: 'contact', labelKey: 'reports.params.contact', required: true },
@@ -388,6 +395,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.productLedger.description',
     icon: 'mdi-book-open-variant',
     permission: 'inventory.read',
+    cap: 'products.view',
     params: [
       { key: 'productId', type: 'product', labelKey: 'reports.params.product', required: true },
       { key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'this_year' } },
@@ -414,6 +422,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.stockLevels.description',
     icon: 'mdi-warehouse',
     permission: 'inventory.read',
+    cap: 'stock-levels.view',
     params: [
       { key: 'warehouseId', type: 'warehouse', labelKey: 'reports.params.warehouse' },
       { key: 'productId', type: 'product', labelKey: 'reports.params.product' },
@@ -441,6 +450,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.stockMovements.description',
     icon: 'mdi-transfer',
     permission: 'inventory.read',
+    cap: 'movements.view',
     params: [
       { key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'this_month' } },
       {
@@ -477,6 +487,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.orderSheet.description',
     icon: 'mdi-clipboard-list-outline',
     permission: 'invoicing.read',
+    cap: 'orders.view',
     params: [
       { key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'this_quarter' } },
       { key: 'contactId', type: 'contact', labelKey: 'reports.params.supplier' },
@@ -502,6 +513,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.accountingTrialBalance.description',
     icon: 'mdi-scale-balance',
     permission: 'accounting.read',
+    cap: 'ledgers.view',
     params: [{ key: 'period', type: 'period', labelKey: 'reports.params.period', required: true, default: { preset: 'this_year' } }],
     outputs: ['table', 'xlsx', 'pdf'],
     view: 'runner',
@@ -515,6 +527,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.accountingAnalyticBalance.description',
     icon: 'mdi-file-tree-outline',
     permission: 'accounting.read',
+    cap: 'ledgers.view',
     params: [
       { key: 'period', type: 'period', labelKey: 'reports.params.period', required: true, default: { preset: 'this_year' } },
       {
@@ -534,6 +547,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.accountingMainBook.description',
     icon: 'mdi-book-open-page-variant-outline',
     permission: 'accounting.read',
+    cap: 'ledgers.view',
     params: [{ key: 'period', type: 'period', labelKey: 'reports.params.period', required: true, default: { preset: 'this_year' } }],
     outputs: ['table', 'xlsx', 'pdf'],
     view: 'runner',
@@ -547,6 +561,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.accountingChronology.description',
     icon: 'mdi-timeline-text-outline',
     permission: 'accounting.read',
+    cap: 'journal.view',
     params: [
       { key: 'period', type: 'period', labelKey: 'reports.params.period', required: true, default: { preset: 'this_month' } },
       { key: 'accountCode', type: 'text', labelKey: 'reports.params.accountCode', required: true },
@@ -563,6 +578,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     descriptionKey: 'reports.accountingDocuments.description',
     icon: 'mdi-file-document-multiple-outline',
     permission: 'accounting.read',
+    cap: 'journal.view',
     params: [
       { key: 'period', type: 'period', labelKey: 'reports.params.period', required: true, default: { preset: 'this_month' } },
       { key: 'docType', type: 'text', labelKey: 'reports.columns.docType' },
@@ -584,6 +600,7 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     icon: 'mdi-shield-check-outline',
     permission: SUPTO_PERMISSION,
     roles: SUPTO_ROLES,
+    cap: 'supto.view',
     params: t.needsPeriod
       ? [{ key: 'period', type: 'period', labelKey: 'reports.params.period', default: { preset: 'last_month' } }]
       : [],

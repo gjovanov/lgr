@@ -13,7 +13,7 @@
  * `GET /org/:orgId/reports/catalog`, which returns `ReportMeta[]` — this file's shape,
  * mirrored (deliberately, not imported) in `reports-ui/src/types/report.ts`.
  */
-import { compileLegacy, seesCosts, type Grant } from 'config/access'
+import { can as grantCan, compileLegacy, seesCosts, type CapabilityId, type Grant } from 'config/access'
 
 export const REPORT_CATEGORIES = ['sales', 'purchase', 'receivables', 'inventory', 'accounting', 'fiscal'] as const
 export type ReportCategory = (typeof REPORT_CATEGORIES)[number]
@@ -213,10 +213,15 @@ export interface ReportHandlerContext {
 }
 
 export interface ReportEntry extends ReportMeta {
-  /** Exact-match against the caller's JWT permissions. */
+  /** Exact-match against the caller's JWT permissions (the legacy model). */
   permission: string
-  /** Optional role allow-list, applied ON TOP of `permission`. */
+  /** Optional role allow-list, applied ON TOP of `permission` (the legacy model). */
   roles?: string[]
+  /**
+   * FR-27 (#529): the capability of what the report shows, which decides in an org on `roles`: the role's own, not
+   * its projection's permissions, which may say less than the role. The legacy model keeps `permission` and `roles`.
+   */
+  cap: CapabilityId
   /** Absent for `view: 'custom'` entries — those are their own page. */
   handler?: (ctx: ReportHandlerContext) => Promise<ReportResult>
   /**
@@ -325,9 +330,15 @@ export function canAccessReport(entry: ReportEntry, user: ReportCaller | null | 
   if (!user) return false
   // Admin holds every module permission by construction; keep it explicit so a report whose
   // permission is not in an admin's set (there are none today) still resolves sensibly.
-  const perms = user.permissions || []
-  if (!perms.includes(entry.permission) && user.role !== 'admin') return false
-  if (entry.roles && !entry.roles.includes(user.role || '')) return false
+  const access = (user as any).access as Grant | undefined
+  if (access) {
+    // FR-27.5: an org on `roles`: what the report shows is the role's to read, or not.
+    if (!grantCan(access, entry.cap)) return false
+  } else {
+    const perms = user.permissions || []
+    if (!perms.includes(entry.permission) && user.role !== 'admin') return false
+    if (entry.roles && !entry.roles.includes(user.role || '')) return false
+  }
   if (entry.fieldGroup === 'costs' && !seesCosts(callerGrant(user))) return false
   return true
 }
@@ -347,8 +358,9 @@ function callerGrant(user: ReportCaller): Grant {
  */
 export function canExportReport(entry: ReportEntry, user: ReportCaller | null | undefined): boolean {
   if (!canAccessReport(entry, user)) return false
-  if (user!.role === 'admin') return true
-  return (user!.permissions || []).includes('reports.export')
+  // FR-27: the capability, on the caller's grant. On the legacy model it is exactly the old rule (the admin role, or
+  // the `reports.export` permission); in an org on `roles` the role's, not its projection's.
+  return grantCan(callerGrant(user!), 'reports.export')
 }
 
 /** The serialisable projection — `permission`/`roles`/`handler` never cross the wire. */
