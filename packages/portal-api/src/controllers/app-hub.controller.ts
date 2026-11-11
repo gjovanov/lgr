@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia'
-import { can } from 'services/biz/access/evaluate'
+import { can, grantOf } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { getAvailableApps, activateApp, deactivateApp } from 'services/biz/app-hub.service'
 import type { AppId } from 'config/constants'
@@ -9,7 +9,8 @@ export const appHubController = new Elysia({ prefix: '/org/:orgId/apps' })
   .get('/', async ({ params: { orgId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    const apps = await getAvailableApps(orgId, user.permissions || [], user.id, undefined, { role: user.role })
+    // FR-27.5: an org on `roles` (the live grant on `user.access`) shows the tiles of the role's apps.
+    const apps = await getAvailableApps(orgId, user.permissions || [], user.id, undefined, { role: user.role, grant: (user as any).access ? grantOf(user as any) : undefined })
     return { apps }
   }, { isSignIn: true })
   .post(
