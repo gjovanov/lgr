@@ -13,9 +13,9 @@ full, `items()` returns the whole stock snapshot. See
 and its `pclntab-tools/handover-api-investigation.md` for how these call shapes were found
 (reading the vendor's own embedded client JS — not disassembly, not guessing).
 
-**This is the raw-extraction layer only.** Nothing here writes into LGR; no import skill reads
-this JSON yet. It's a separate decision whether/how `import-sales-invoices` etc. should consume
-it instead of OCR'd PDFs.
+**This is the raw-extraction layer only.** Nothing here writes into LGR. The `scripts/*-api.ts`
+importers read this JSON: the `daily-import` skills run them day by day, and the two
+`audit-regal-*-period` skills over a whole period.
 
 ## Everything is per-org, nothing is shared by assumption
 

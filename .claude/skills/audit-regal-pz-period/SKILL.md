@@ -26,8 +26,8 @@ Backed by `.claude/skills/pull-plusminus-api/pull-api.ts` (pull), `scripts/audit
 
 ## 0. Credentials
 
-LGR: `LGR_USERNAME`/`LGR_PASSWORD` (or `LGR_TOKEN`) for regal-pz. With no live account, create a throwaway
-one and drop it at the end — memory `lgr-temp-service-account` (and see its 2026-11-01 note on ssh/bun).
+LGR: `LGR_USERNAME`/`LGR_PASSWORD` (or `LGR_TOKEN`) for regal-pz. With no live account, the `temp-admin` skill
+creates a throwaway one, and drops it at the end.
 PlusMinus: the credentials file named in `pull-plusminus-api/orgs.ts`; the puller **never evicts** the store's
 own session — exit code 3 means someone is logged in, ask, do not retry in a loop.
 
@@ -206,11 +206,11 @@ cancels.
   decimal-comma price is common.
 - A movement names its document in both notes and reference — count it once.
 - Homoglyphs (Latin `K`, `P`, `X` for Cyrillic) fork products; compare on folded names, never create from them.
-- `ssh`/`bun`/path-conversion traps are in memory `lgr-temp-service-account`.
+- In Git Bash an argument that starts with `/` is rewritten to a Windows path (`MSYS_NO_PATHCONV=1`, as above).
 
 ## 8. Clean up
 
-Drop the throwaway LGR account and verify a login now answers 401. Nothing else was left running: regal-pz needs
+Drop the throwaway LGR account (`temp-admin.sh drop`, which proves sign-in is refused). Nothing else was left running: regal-pz needs
 no tunnel.
 
 ## Known baseline (2026-11-01, range 2026-07-21 … 2026-11-01)
