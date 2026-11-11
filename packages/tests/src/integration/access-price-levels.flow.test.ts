@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
+import ExcelJS from 'exceljs'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestContact, createTestInvoice, createTestOrg, createTestStockMovement, createTestUser, createTestWarehouse } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
@@ -8,7 +9,7 @@ import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { PRICE_TIERS } from 'config/constants'
 import { compileLegacy } from 'config/access'
-import { InventoryCount, Invoice, Org, Product, Role, StockLevel, StockMovement, User } from 'db/models'
+import { InventoryCount, Invoice, Order, Org, Product, Role, StockLevel, StockMovement, User } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
 import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
@@ -283,6 +284,38 @@ describe('C.1 / C.2 what else carries a cost', () => {
     for (const e of mine.json.entries) expect('purchasePrice' in e).toBe(false)
     const theirs = await call('GET', `/invoicing/contact-ledger/${contactId}`, tokens.admin)
     expect(typeof theirs.json.summary.profitabilityNet).toBe('number')
+  })
+
+  it("an outgoing order's sheet (XLSX), like its JSON: no expected purchase price; the Administrator's has it", async () => {
+    const org: any = await Org.findById(orgId).lean().exec()
+    const wh: any = await createTestWarehouse(org._id)
+    const supplier: any = await createTestContact(org._id, { type: 'supplier', companyName: 'Supplier PL' } as any)
+    const order: any = await Order.create({
+      orgId: org._id, orderNumber: 'ORDO-PL-1', status: 'sent', issueDate: new Date(), currency: 'EUR', exchangeRate: 1, createdBy: org.ownerId ?? undefined,
+      supplierGroups: [{ supplierId: supplier._id, lines: [{ productId, description: 'Bolt', quantity: 10, unit: 'pcs', expectedUnitPrice: 7.77, allocations: [{ warehouseId: wh._id, quantity: 10 }] }] }],
+    } as any)
+    const groupId = String(order.supplierGroups[0]._id)
+    const sheet = async (token: string, variant: string) => {
+      const res = await app.handle(new Request(`http://localhost/api/org/${orgId}/invoicing/orders/${order._id}/export?groupId=${groupId}&variant=${variant}&format=xlsx`, {
+        headers: { authorization: `Bearer ${token}` },
+      }))
+      expect(res.status).toBe(200)
+      const wb = new ExcelJS.Workbook()
+      await wb.xlsx.load(await res.arrayBuffer())
+      const cells: unknown[] = []
+      wb.eachSheet(ws => ws.eachRow(row => row.eachCell(cell => { cells.push(cell.value) })))
+      return cells
+    }
+    for (const variant of ['internal', 'supplier']) {
+      const mine = await sheet(reader, variant)
+      expect(mine.some(v => String(v).includes('Bolt'))).toBe(true)
+      expect(mine.some(v => Number(v) === 7.77)).toBe(false)
+    }
+    expect((await sheet(tokens.admin, 'internal')).some(v => Number(v) === 7.77)).toBe(true)
+    // And the JSON, as before.
+    const json = await call('GET', `/invoicing/orders/${order._id}`, reader)
+    expect(json.status).toBe(200)
+    expect('expectedUnitPrice' in json.json.order.supplierGroups[0].lines[0]).toBe(false)
   })
 })
 
