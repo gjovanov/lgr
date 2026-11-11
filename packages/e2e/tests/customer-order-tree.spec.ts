@@ -409,6 +409,21 @@ test.describe('A quantity and a price are read whole (a line of 12,500 at 9,999.
       expect(typed.map((f: any) => f.value)).toEqual(expect.arrayContaining(['12500', '9999.99', '99999', '1234.5']))
       for (const f of fields) expect(f.scroll, `${f.label} = ${f.value} is cut short in a field ${f.client}px wide`).toBeLessThanOrEqual(f.client + 1)
 
+      // Each price has its „Select price" before it, in the same cell: a target of its own, clear of the figure.
+      const picks = await page.evaluate(() => [...document.querySelectorAll('[data-testid="order-tree"] tr[data-kind="line"] td[data-col="price"]')].map((td) => {
+        const button = td.querySelector('button')?.getBoundingClientRect()
+        const field = td.querySelector('input')!.getBoundingClientRect()
+        const cellBox = td.getBoundingClientRect()
+        return button ? { width: button.width, clear: button.right <= field.left, inside: button.left >= cellBox.left && field.right <= cellBox.right } : null
+      }))
+      expect(picks.length).toBeGreaterThanOrEqual(2)
+      for (const p of picks) {
+        expect(p, 'a line\'s price has no Select price').not.toBeNull()
+        expect(p!.width).toBeGreaterThanOrEqual(20)
+        expect(p!.clear, 'the button lies over the figure').toBe(true)
+        expect(p!.inside, 'the button or the figure leaves the price cell').toBe(true)
+      }
+
       // And the table needs no sideways scroll to show them (the status and the actions are at its far edge).
       const g = await page.evaluate(() => {
         const wrap = document.querySelector('[data-testid="order-tree"] .v-table__wrapper') as HTMLElement
@@ -417,4 +432,83 @@ test.describe('A quantity and a price are read whole (a line of 12,500 at 9,999.
       expect(g.scroll, 'the table scrolls sideways').toBeLessThanOrEqual(g.client + 1)
     })
   }
+})
+
+test.describe('A line\'s price is picked from the article\'s prices, as on an invoice line („Select price")', () => {
+  /** An article sold at 10, with two named prices of its own. */
+  async function pricedArticle(api: Api, ts: string) {
+    return (await api.call('POST', '/warehouse/product', {
+      sku: `E2E-CTREE-P-${ts}`, name: `E2E ctree priced ${ts}`, category: 'Test', type: 'goods', unit: 'pcs', sellingPrice: 10, purchasePrice: 4, taxRate: 20,
+      priceTiers: [
+        { name: 'Цена 1', percent: 0, finalPrice: 9, manualOverride: true, contactIds: [], tags: [] },
+        { name: 'Цена 2', percent: 0, finalPrice: 8, manualOverride: true, contactIds: [], tags: [] },
+      ],
+    })).product
+  }
+  const options = (page: any) => page.locator('.v-overlay--active .v-list-item')
+  const priceOf = (row: any) => cell(row, 'price').getByRole('spinbutton', { name: 'Expected Price' })
+  const pickerOf = (row: any) => cell(row, 'price').getByRole('button', { name: 'Select price' })
+
+  test('on a saved order: the menu names the selling price and every named one, and the one picked is saved as the line\'s price', async ({ page }) => {
+    const api = await session()
+    const w = await world(api, 0)
+    const priced = await pricedArticle(api, w.ts)
+    const { internalOrder } = await api.call('POST', '/invoicing/internal-orders', {
+      contactId: idOf(w.client), issueDate: new Date().toISOString().slice(0, 10), requestedDeliveryDate: '2026-11-20',
+      lines: [{ productId: idOf(priced), description: priced.name, quantity: 2, unit: 'pcs', expectedUnitPrice: 10 }],
+    })
+    const ordi = (await api.call('POST', `/invoicing/internal-orders/${internalOrder._id}/confirm`)).internalOrder
+    await open(page, ordi)
+
+    const row = lineRow(page, ordi.lines[0]._id)
+    await expect(priceOf(row)).toHaveValue('10')
+    await pickerOf(row).click()
+    await expect(options(page).filter({ hasText: 'Цена 1' })).toBeVisible()
+    await expect(options(page).filter({ hasText: 'Цена 2' })).toBeVisible()
+    // The selling price is among them too: the list is every price the article has, not only the others.
+    await expect(options(page).filter({ hasText: '10.00' })).toBeVisible()
+    await options(page).filter({ hasText: 'Цена 2' }).click()
+    await expect(priceOf(row)).toHaveValue('8')
+
+    await page.getByRole('button', { name: /^save$/i }).first().click()
+    await expect(page.getByText(/saved successfully/i).first()).toBeVisible()
+    const saved = (await api.call('GET', `/invoicing/internal-orders/${ordi._id}`)).internalOrder
+    expect(saved.lines[0].expectedUnitPrice).toBe(8)
+  })
+
+  test('on a new order: a line with no article has nothing to pick from; once it has one, a pick replaces the selling price', async ({ page }) => {
+    const api = await session()
+    const ts = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+    const priced = await pricedArticle(api, ts)
+    await loginForApp(page)
+    await page.goto('/invoicing/internal-orders/new')
+    const row = page.locator('tr[data-kind="line"]').first()
+    await expect(row).toBeVisible({ timeout: 15000 })
+
+    // No article yet: the button is there, and opens nothing.
+    await pickerOf(row).click()
+    await expect(options(page)).toHaveCount(0)
+
+    const search = row.getByPlaceholder(/search products/i)
+    await search.click()
+    await page.keyboard.type(priced.sku, { delay: 20 })
+    await page.locator('.pld-overlay .pld-item').filter({ hasText: priced.sku }).first().click()
+    await expect(priceOf(row)).toHaveValue('10')
+
+    await pickerOf(row).click()
+    await options(page).filter({ hasText: 'Цена 1' }).click()
+    await expect(priceOf(row)).toHaveValue('9')
+  })
+
+  test('a closed order shows its prices and offers no pick', async ({ page }) => {
+    const api = await session()
+    const w = await world(api, 0)
+    const ordi = await customerOrder(api, w, [{ product: 'p1', qty: 1 }])
+    await api.call('POST', `/invoicing/internal-orders/${ordi._id}/cancel`, {})
+    await loginForApp(page)
+    await page.goto(`/invoicing/internal-orders/${ordi._id}/edit`)
+    const row = lineRow(page, ordi.lines[0]._id)
+    await expect(priceOf(row)).toHaveValue('3', { timeout: 15000 })
+    await expect(pickerOf(row)).toHaveCount(0)
+  })
 })

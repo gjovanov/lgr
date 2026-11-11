@@ -163,19 +163,32 @@
                       </v-autocomplete>
                     </td>
                     <td data-col="price">
-                      <v-text-field
-                        v-if="node.kind === 'line'"
-                        v-model.number="lineOf(node).expectedUnitPrice"
-                        type="number"
-                        step="0.0001"
-                        min="0"
-                        class="order-tree__num"
-                        density="compact"
-                        hide-details
-                        variant="underlined"
-                        :aria-label="$t('invoicing.expectedPrice')"
-                        :readonly="readonly"
-                      />
+                      <!-- The article's prices for this client, as on an invoice line („Select price"): the selling
+                           price and every named one. What is picked is the line's price; nothing else is kept. -->
+                      <div v-if="node.kind === 'line'" class="order-tree__num-group">
+                        <PriceSelectButton
+                          v-if="!readonly"
+                          density="comfortable"
+                          :product-id="lineOf(node).productId"
+                          :contact-id="form.contactId || undefined"
+                          :quantity="Number(lineOf(node).quantity) || 1"
+                          :org-url="orgUrl()"
+                          :currency="form.currency || baseCurrency"
+                          @select="lineOf(node).expectedUnitPrice = $event.price"
+                        />
+                        <v-text-field
+                          v-model.number="lineOf(node).expectedUnitPrice"
+                          type="number"
+                          step="0.0001"
+                          min="0"
+                          class="order-tree__num"
+                          density="compact"
+                          hide-details
+                          variant="underlined"
+                          :aria-label="$t('invoicing.expectedPrice')"
+                          :readonly="readonly"
+                        />
+                      </div>
                     </td>
                     <template v-if="isEdit">
                       <td class="text-end" data-col="reserved">{{ figureOf(node, node.figures.reserved) }}</td>
@@ -563,6 +576,7 @@ import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
+import PriceSelectButton from 'ui-shared/components/PriceSelectButton'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import { useConversionFeedback } from '../composables/useConversionFeedback'
@@ -885,9 +899,12 @@ function lineOf(node: TreeNode): LineRow { return form.lines[node.source.lineInd
  * The widths of the two figures the user types: a quantity of five digits and a price to 9,999.99 are read whole at 1366 px
  * (the right panel open or folded) and at 1920 px, which `customer-order-tree.spec.ts` measures on the fields. They rest on
  * the number-field rules of `OrderTree.vue` (no spin buttons, no padding in the field): with those a digit takes 9 px.
+ * The price column also holds the line's „Select price" before the field: the button's 20 px and the 4 px between them
+ * are added to the 84 px the column had, so the field is as wide as it was. The article's column pays for it, and still
+ * has more than its minimum at 1366 px with the right panel open.
  */
 const QTY_COL = '68px'
-const PRICE_COL = '84px'
+const PRICE_COL = '108px'
 
 /**
  * The columns are the supplier order's, with what a customer order says in them: Free is what is still SHORT, and Delivered

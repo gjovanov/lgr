@@ -320,6 +320,19 @@ defineExpose({ toggle, setOpen, isOpen, expandAll, collapseAll, reveal, highligh
   -webkit-appearance: none;
   margin: 0;
 }
+/* A number with a control before it (the customer order's price and its „Select price"): the pair takes the cell's
+   start padding, the control first, and the field keeps every pixel that is left. */
+.order-tree :deep(.order-tree__num-group) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: calc(-1 * var(--tree-cell-pad));
+}
+.order-tree :deep(.order-tree__num-group .order-tree__num) {
+  margin-inline-start: 0;
+  flex: 1 1 0;
+  min-width: 0;
+}
 /* A figure is never split over two lines (a Free of 99,999 read 9999 over 9): it keeps its line, and one wider than its
    column spends the padding of its cell instead. */
 .order-tree :deep(td.text-end) {
