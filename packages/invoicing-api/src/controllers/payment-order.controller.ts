@@ -111,7 +111,7 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
     const existing = await r.paymentOrders.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
     const mapped = mapPaymentOrderBody(clientUpdate('PaymentOrder', body, existing))
-    const item = await r.paymentOrders.updateInOrg(params.id, params.orgId, mapped as any)
+    const item = await r.paymentOrders.updateInOrg(params.id, params.orgId, mapped as any, {}, { validate: true })
     if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'payment_order', entityId: params.id, entityName: (existing as any)?.orderNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
@@ -141,7 +141,7 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
       status: 'executed',
       executedAt: new Date(),
       executedBy: user.id,
-    } as any)
+    } as any, {}, { validate: true })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'execute', module: 'invoicing', entityType: 'payment_order', entityId: params.id, entityName: item.orderNumber })
 

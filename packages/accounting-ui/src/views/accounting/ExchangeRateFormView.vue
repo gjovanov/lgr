@@ -45,9 +45,11 @@
           />
         </v-col>
         <v-col cols="12" md="4">
-          <v-text-field
+          <!-- #675: the model's own values; a free-text box saved anything else as a 500. -->
+          <v-select
             v-model="form.source"
             :label="$t('accounting.source')"
+            :items="sourceItems"
             density="compact"
           />
         </v-col>
@@ -81,13 +83,14 @@ const { showSuccess, showError } = useSnackbar()
 const formRef = ref()
 const loading = ref(false)
 const isEdit = computed(() => !!route.params.id)
+const sourceItems = computed(() => ['manual', 'api'].map(value => ({ value, title: t(`accounting.rateSources.${value}`) })))
 
 const form = ref({
   fromCurrency: '',
   toCurrency: '',
   rate: 1,
   date: new Date().toISOString().split('T')[0],
-  source: '',
+  source: 'manual',
 })
 
 const { markSaved, tryRestore } = usePendingChanges({
@@ -147,7 +150,7 @@ async function loadExchangeRate() {
       toCurrency: rate.toCurrency || '',
       rate: rate.rate || 1,
       date: rate.date?.split('T')[0] || '',
-      source: rate.source || '',
+      source: rate.source || 'manual',
     }
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

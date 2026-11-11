@@ -78,7 +78,7 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
     if (!existing) return status(404, { message: 'Not found' })
     // A sealed slip is what a run generated. It changes with the run, never field by field.
     if ((existing as any).sealed) return status(409, { message: 'A sealed payslip cannot be edited', code: 'payslip_sealed' })
-    const item = await r.payslips.updateInOrg(params.id, params.orgId, clientUpdate('Payslip', body, existing) as any)
+    const item = await r.payslips.updateInOrg(params.id, params.orgId, clientUpdate('Payslip', body, existing) as any, {}, { validate: true })
     if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'payroll', entityType: 'payslip', entityId: params.id, entityName: (item as any).payslipNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })

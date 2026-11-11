@@ -470,6 +470,20 @@
     "ppProtocol": "Приемо-предавателен протокол"
   },
   "accounting": {
+    "salvageValue": "Остаточна вредност",
+    "assetAccount": "Сметка на средството",
+    "depreciationAccount": "Сметка за трошоци за амортизација",
+    "accumulatedDepAccount": "Сметка за акумулирана амортизација",
+    "years": "години",
+    "depreciationMethods": {
+      "straight_line": "Праволиниски",
+      "declining_balance": "Опаѓачки остаток",
+      "units_of_production": "Според производството"
+    },
+    "rateSources": {
+      "manual": "Рачно",
+      "api": "Автоматски (API)"
+    },
     "reconciliationUi": {
       "importStatement": "Увези извод",
       "addLine": "Додај ред",
@@ -639,6 +653,18 @@
     "default": "Подразбиран"
   },
   "payroll": {
+    "timesheetTypes": {
+      "regular": "Редовно",
+      "overtime": "Прекувремено",
+      "holiday": "Празник",
+      "sick": "Боледување",
+      "vacation": "Одмор"
+    },
+    "timesheetStatuses": {
+      "submitted": "Поднесен",
+      "approved": "Одобрен",
+      "rejected": "Одбиен"
+    },
     "employees": "Вработени",
     "employee": "Вработен",
     "newEmployee": "Нов Вработен",

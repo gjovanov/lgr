@@ -58,7 +58,7 @@ export const SERVER_OWNED = {
   // Invoicing.
   CashOrder: ['orderNumber', 'createdBy', 'journalEntryId'],
   // `executed` is `POST /:id/execute`.
-  PaymentOrder: ['orderNumber', 'createdBy', 'status', 'executedAt', 'journalEntryId'],
+  PaymentOrder: ['orderNumber', 'createdBy', 'status', 'executedAt', 'executedBy', 'journalEntryId'],
   // Payroll. A sealed slip is what a run generated (FR-25 §3.12).
   Payslip: ['engine', 'sealed'],
   // Stamped by the controller when the status becomes `approved`.

@@ -49,7 +49,7 @@ export const exchangeRateController = new Elysia({ prefix: '/org/:orgId/accounti
     const r = getRepos()
     const existing = await r.exchangeRates.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
-    const item = await r.exchangeRates.updateInOrg(params.id, params.orgId, clientUpdate('ExchangeRate', body, existing) as any)
+    const item = await r.exchangeRates.updateInOrg(params.id, params.orgId, clientUpdate('ExchangeRate', body, existing) as any, {}, { validate: true })
     if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'exchange_rate', entityId: params.id, entityName: `${(item as any).fromCurrency}/${(item as any).toCurrency}`, changes: existing ? diffChanges(existing as any, item as any) : undefined })

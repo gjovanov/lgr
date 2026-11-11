@@ -42,7 +42,11 @@ export interface IRepository<T extends BaseEntity> {
    * `data` is ignored: a document can never be moved to another org through an update.
    */
   /** `where`: what else must hold for the write to happen. A caller's condition, never a client's. */
-  updateInOrg(id: string, orgId: string, data: Partial<T>, where?: Record<string, unknown>): Promise<T | null>
+  /**
+   * `opts.validate`: run the model's validators on the fields set (#675). Off by default: an update otherwise casts its
+   * values and checks no enum, so a route that stores the body as the document passes it.
+   */
+  updateInOrg(id: string, orgId: string, data: Partial<T>, where?: Record<string, unknown>, opts?: { validate?: boolean }): Promise<T | null>
 
   /** Delete an entity by ID **within one org**; false when it is not that org's. */
   deleteInOrg(id: string, orgId: string, where?: Record<string, unknown>): Promise<boolean>

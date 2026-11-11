@@ -52,7 +52,7 @@ export const priceListController = new Elysia({ prefix: '/org/:orgId/warehouse/p
     const existing = await r.priceLists.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
     const data = clientUpdate('PriceList', body, existing)
-    const item = await r.priceLists.updateInOrg(params.id, params.orgId, { ...data, ...deactivation(data.isActive, (existing as any).isActive !== false) } as any)
+    const item = await r.priceLists.updateInOrg(params.id, params.orgId, { ...data, ...deactivation(data.isActive, (existing as any).isActive !== false) } as any, {}, { validate: true })
     if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'price_list', entityId: params.id, entityName: (item as any).name, changes: existing ? diffChanges(existing as any, item as any) : undefined })
@@ -65,7 +65,7 @@ export const priceListController = new Elysia({ prefix: '/org/:orgId/warehouse/p
     const existing = await r.priceLists.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Price list not found' })
 
-    await r.priceLists.updateInOrg(params.id, params.orgId, { isActive: false, deactivatedAt: new Date() } as any)
+    await r.priceLists.updateInOrg(params.id, params.orgId, { isActive: false, deactivatedAt: new Date() } as any, {}, { validate: true })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'deactivate', module: 'warehouse', entityType: 'price_list', entityId: params.id, entityName: (existing as any)?.name })
 

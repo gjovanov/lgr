@@ -15,11 +15,12 @@
           <v-text-field v-model.number="form.hoursWorked" :label="$t('payroll.hoursWorked')" type="number" step="0.5" min="0" max="24" density="compact" />
         </v-col>
         <v-col cols="12" md="6">
-          <v-text-field v-model.number="form.overtime" :label="$t('payroll.overtime')" type="number" step="0.5" min="0" max="24" density="compact" />
+          <v-text-field v-model.number="form.overtimeHours" :label="$t('payroll.overtime')" type="number" step="0.5" min="0" max="24" density="compact" />
         </v-col>
       </v-row>
-      <v-select v-model="form.type" :label="$t('common.type')" :items="['Regular', 'Overtime', 'Holiday', 'Sick Leave', 'Vacation']" density="compact" class="mb-2" />
-      <v-select v-model="form.status" :label="$t('common.status')" :items="['Draft', 'Submitted', 'Approved', 'Rejected']" density="compact" />
+      <!-- #675: the model's own values (`timesheet.model.ts`): lower case, and no draft. -->
+      <v-select v-model="form.type" :label="$t('common.type')" :items="typeItems" density="compact" class="mb-2" />
+      <v-select v-model="form.status" :label="$t('common.status')" :items="statusItems" density="compact" />
     </v-form>
 
     <template #sidebar>
@@ -48,13 +49,22 @@ const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 
 const isEdit = computed(() => !!route.params.id)
+const TYPES = ['regular', 'overtime', 'holiday', 'sick', 'vacation'] as const
+const STATUSES = ['submitted', 'approved', 'rejected'] as const
+const typeItems = computed(() => TYPES.map(value => ({ value, title: t(`payroll.timesheetTypes.${value}`) })))
+const statusItems = computed(() => STATUSES.map(value => ({ value, title: t(`payroll.timesheetStatuses.${value}`) })))
+/** A stored value read as the model's: an edit before #675 could store `Approved` or `Sick Leave` as typed. */
+function valueOf(values: readonly string[], stored: unknown, fallback: string): string {
+  const v = String(stored ?? '').toLowerCase().replace(/ leave$/, '')
+  return values.includes(v) ? v : fallback
+}
 const loading = ref(false)
 const saving = ref(false)
 const formRef = ref()
 const employees = ref<any[]>([])
 
 const emptyForm = () => ({
-  _id: '', employeeId: '', date: '', hoursWorked: 8, overtime: 0, type: 'Regular', status: 'Draft',
+  _id: '', employeeId: '', date: '', hoursWorked: 8, overtimeHours: 0, type: 'regular', status: 'submitted',
 })
 const form = ref(emptyForm())
 
@@ -95,9 +105,9 @@ async function fetchItem() {
       employeeId: item.employeeId || '',
       date: item.date?.split?.('T')?.[0] || item.date || '',
       hoursWorked: item.hoursWorked ?? 8,
-      overtime: item.overtime ?? 0,
-      type: item.type || 'Regular',
-      status: item.status || 'Draft',
+      overtimeHours: item.overtimeHours ?? item.overtime ?? 0,
+      type: valueOf(TYPES, item.type, 'regular'),
+      status: valueOf(STATUSES, item.status, 'submitted'),
     }
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
