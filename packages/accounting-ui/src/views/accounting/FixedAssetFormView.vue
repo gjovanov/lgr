@@ -35,16 +35,26 @@
         </v-col>
         <v-col cols="12" md="4">
           <v-text-field
-            v-model="form.acquisitionDate"
+            v-model="form.purchaseDate"
             :label="$t('accounting.purchaseDate')"
             type="date"
+            :rules="[rules.required]"
             density="compact"
           />
         </v-col>
         <v-col cols="12" md="4">
           <v-text-field
-            v-model.number="form.acquisitionCost"
+            v-model.number="form.purchasePrice"
             :label="$t('accounting.purchasePrice')"
+            type="number"
+            :rules="[rules.required]"
+            density="compact"
+          />
+        </v-col>
+        <v-col cols="12" md="4">
+          <v-text-field
+            v-model.number="form.salvageValue"
+            :label="$t('accounting.salvageValue')"
             type="number"
             density="compact"
           />
@@ -59,10 +69,45 @@
         </v-col>
         <v-col cols="12" md="4">
           <v-text-field
-            v-model.number="form.usefulLife"
+            v-model.number="form.usefulLifeYears"
             :label="$t('accounting.usefulLife')"
             type="number"
-            suffix="years"
+            :suffix="$t('accounting.years')"
+            :rules="[rules.required]"
+            density="compact"
+          />
+        </v-col>
+        <!-- The three accounts the model needs (#675): the asset, the depreciation expense, the accumulated depreciation. -->
+        <v-col cols="12" md="4">
+          <v-autocomplete
+            v-model="form.accountId"
+            :label="$t('accounting.assetAccount')"
+            :items="accountOptions"
+            item-title="label"
+            item-value="_id"
+            :rules="[rules.required]"
+            density="compact"
+          />
+        </v-col>
+        <v-col cols="12" md="4">
+          <v-autocomplete
+            v-model="form.depreciationAccountId"
+            :label="$t('accounting.depreciationAccount')"
+            :items="accountOptions"
+            item-title="label"
+            item-value="_id"
+            :rules="[rules.required]"
+            density="compact"
+          />
+        </v-col>
+        <v-col cols="12" md="4">
+          <v-autocomplete
+            v-model="form.accumulatedDepAccountId"
+            :label="$t('accounting.accumulatedDepAccount')"
+            :items="accountOptions"
+            item-title="label"
+            item-value="_id"
+            :rules="[rules.required]"
             density="compact"
           />
         </v-col>
@@ -120,6 +165,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
+import { useAccountingStore } from '../../store/accounting.store'
 
 interface DepreciationRow {
   year: number
@@ -144,19 +190,51 @@ const localeCode = computed(() => {
   return map[appStore.locale] || 'en-US'
 })
 
-const depreciationMethods = ['straight-line', 'declining-balance', 'units-of-production']
-const statusItems = ['active', 'disposed', 'fully-depreciated']
+// #675: the model's own values (`fixed-asset.model.ts`); the form sent `straight-line` and other names it rejects.
+const depreciationMethods = computed(() => ['straight_line', 'declining_balance', 'units_of_production']
+  .map(value => ({ value, title: t(`accounting.depreciationMethods.${value}`) })))
+const statusItems = ['active', 'disposed', 'fully_depreciated']
+
+const store = useAccountingStore()
+const accountOptions = computed(() => store.accounts.map((a: any) => ({ _id: a._id, label: `${a.code} - ${a.name}` })))
 
 const form = ref({
   code: '',
   name: '',
   category: '',
-  acquisitionDate: '',
-  acquisitionCost: 0,
-  depreciationMethod: 'straight-line',
-  usefulLife: 5,
+  purchaseDate: '',
+  purchasePrice: 0,
+  salvageValue: 0,
+  depreciationMethod: 'straight_line',
+  usefulLifeYears: 5,
   status: 'active',
+  accountId: '',
+  depreciationAccountId: '',
+  accumulatedDepAccountId: '',
 })
+
+/**
+ * What the route stores: the model's fields, the useful life in months. A new asset's book value (`currentValue`)
+ * starts at its price; an edit leaves the stored one, which depreciation lowers.
+ */
+function payload() {
+  const f = form.value
+  return {
+    code: f.code,
+    name: f.name,
+    category: f.category,
+    purchaseDate: f.purchaseDate,
+    purchasePrice: Number(f.purchasePrice) || 0,
+    salvageValue: Number(f.salvageValue) || 0,
+    usefulLifeMonths: Math.max(1, Math.round((Number(f.usefulLifeYears) || 0) * 12)),
+    depreciationMethod: f.depreciationMethod,
+    status: f.status,
+    accountId: f.accountId,
+    depreciationAccountId: f.depreciationAccountId,
+    accumulatedDepAccountId: f.accumulatedDepAccountId,
+    ...(isEdit.value ? {} : { currentValue: Number(f.purchasePrice) || 0 }),
+  }
+}
 
 const depSchedule = ref<DepreciationRow[]>([])
 
@@ -187,8 +265,8 @@ function orgUrl() {
 }
 
 function computeDepreciation() {
-  const cost = form.value.acquisitionCost
-  const life = form.value.usefulLife || 1
+  const cost = (Number(form.value.purchasePrice) || 0) - (Number(form.value.salvageValue) || 0)
+  const life = Math.round(Number(form.value.usefulLifeYears) || 0)
   if (!cost || !life) {
     depSchedule.value = []
     return
@@ -208,7 +286,7 @@ function computeDepreciation() {
   depSchedule.value = schedule
 }
 
-watch(() => [form.value.acquisitionCost, form.value.usefulLife], computeDepreciation)
+watch(() => [form.value.purchasePrice, form.value.salvageValue, form.value.usefulLifeYears], computeDepreciation)
 
 async function handleSubmit() {
   const { valid } = await formRef.value.validate()
@@ -217,9 +295,9 @@ async function handleSubmit() {
   loading.value = true
   try {
     if (isEdit.value) {
-      await httpClient.put(`${orgUrl()}/accounting/fixed-asset/${route.params.id}`, form.value)
+      await httpClient.put(`${orgUrl()}/accounting/fixed-asset/${route.params.id}`, payload())
     } else {
-      await httpClient.post(`${orgUrl()}/accounting/fixed-asset`, form.value)
+      await httpClient.post(`${orgUrl()}/accounting/fixed-asset`, payload())
     }
     markSaved()
     showSuccess(t('common.savedSuccessfully'))
@@ -240,11 +318,15 @@ async function loadFixedAsset() {
       code: asset.code || '',
       name: asset.name || '',
       category: asset.category || '',
-      acquisitionDate: asset.acquisitionDate?.split('T')[0] || '',
-      acquisitionCost: asset.acquisitionCost || 0,
-      depreciationMethod: asset.depreciationMethod || 'straight-line',
-      usefulLife: asset.usefulLife || 5,
+      purchaseDate: asset.purchaseDate?.split('T')[0] || '',
+      purchasePrice: asset.purchasePrice || 0,
+      salvageValue: asset.salvageValue || 0,
+      depreciationMethod: asset.depreciationMethod || 'straight_line',
+      usefulLifeYears: asset.usefulLifeMonths ? Math.round((asset.usefulLifeMonths / 12) * 100) / 100 : 5,
       status: asset.status || 'active',
+      accountId: asset.accountId || '',
+      depreciationAccountId: asset.depreciationAccountId || '',
+      accumulatedDepAccountId: asset.accumulatedDepAccountId || '',
     }
     computeDepreciation()
   } catch (e: any) {
@@ -255,6 +337,7 @@ async function loadFixedAsset() {
 }
 
 onMounted(async () => {
+  void store.fetchAccounts()
   if (tryRestore()) return
   if (isEdit.value) {
     await loadFixedAsset()

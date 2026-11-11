@@ -47,7 +47,7 @@ export const reconciliationController = new Elysia({ prefix: '/org/:orgId/accoun
     const existing = await r.bankReconciliations.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
     const data = clientUpdate('BankReconciliation', body, existing)
-    const item = await r.bankReconciliations.updateInOrg(params.id, params.orgId, { ...data, ...completion(data.status, (existing as any).status, user.id) } as any)
+    const item = await r.bankReconciliations.updateInOrg(params.id, params.orgId, { ...data, ...completion(data.status, (existing as any).status, user.id) } as any, {}, { validate: true })
     if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'reconciliation', entityId: params.id, changes: existing ? diffChanges(existing as any, item as any) : undefined })

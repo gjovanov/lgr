@@ -96,7 +96,7 @@ export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/c
     const r = getRepos()
     const existing = await r.cashOrders.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
-    const item = await r.cashOrders.updateInOrg(params.id, params.orgId, clientUpdate('CashOrder', body, existing) as any)
+    const item = await r.cashOrders.updateInOrg(params.id, params.orgId, clientUpdate('CashOrder', body, existing) as any, {}, { validate: true })
     if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'cash_order', entityId: params.id, entityName: (existing as any)?.orderNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })

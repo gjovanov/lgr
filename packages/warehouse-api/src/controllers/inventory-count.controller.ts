@@ -142,7 +142,7 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     // FR-27.11.C.4: priced here, from the stock level's average cost; the body's figure is ignored.
     const update: any = clientUpdate('InventoryCount', body, existing)
     if (Array.isArray(update.lines)) update.lines = await priceCountLines(params.orgId, update.warehouseId ?? (existing as any).warehouseId, update.lines)
-    const item = await r.inventoryCounts.updateInOrg(params.id, params.orgId, update)
+    const item = await r.inventoryCounts.updateInOrg(params.id, params.orgId, update, {}, { validate: true })
     if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'inventory_count', entityId: params.id, entityName: (existing as any)?.countNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })

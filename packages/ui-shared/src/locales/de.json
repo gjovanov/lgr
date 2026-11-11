@@ -470,6 +470,20 @@
     "ppProtocol": "Übergabe- und Abnahmeprotokoll"
   },
   "accounting": {
+    "salvageValue": "Restwert",
+    "assetAccount": "Anlagekonto",
+    "depreciationAccount": "Abschreibungsaufwandskonto",
+    "accumulatedDepAccount": "Konto für kumulierte Abschreibungen",
+    "years": "Jahre",
+    "depreciationMethods": {
+      "straight_line": "Linear",
+      "declining_balance": "Degressiv",
+      "units_of_production": "Leistungsabhängig"
+    },
+    "rateSources": {
+      "manual": "Manuell",
+      "api": "Automatisch (API)"
+    },
     "accounts": "Kontenplan",
     "journalEntries": "Buchungen",
     "generalLedger": "Hauptbuch",
@@ -622,6 +636,18 @@
     "default": "Standard"
   },
   "payroll": {
+    "timesheetTypes": {
+      "regular": "Regulär",
+      "overtime": "Überstunden",
+      "holiday": "Feiertag",
+      "sick": "Krankheit",
+      "vacation": "Urlaub"
+    },
+    "timesheetStatuses": {
+      "submitted": "Eingereicht",
+      "approved": "Genehmigt",
+      "rejected": "Abgelehnt"
+    },
     "employees": "Mitarbeiter",
     "employee": "Mitarbeiter",
     "newEmployee": "Neuer Mitarbeiter",

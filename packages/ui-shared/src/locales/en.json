@@ -470,6 +470,20 @@
     "ppProtocol": "Acceptance & Handover Protocol"
   },
   "accounting": {
+    "salvageValue": "Salvage value",
+    "assetAccount": "Asset account",
+    "depreciationAccount": "Depreciation expense account",
+    "accumulatedDepAccount": "Accumulated depreciation account",
+    "years": "years",
+    "depreciationMethods": {
+      "straight_line": "Straight line",
+      "declining_balance": "Declining balance",
+      "units_of_production": "Units of production"
+    },
+    "rateSources": {
+      "manual": "Manual",
+      "api": "Automatic (API)"
+    },
     "accounts": "Chart of Accounts",
     "journalEntries": "Journal Entries",
     "generalLedger": "General Ledger",
@@ -622,6 +636,18 @@
     "default": "Default"
   },
   "payroll": {
+    "timesheetTypes": {
+      "regular": "Regular",
+      "overtime": "Overtime",
+      "holiday": "Holiday",
+      "sick": "Sick leave",
+      "vacation": "Vacation"
+    },
+    "timesheetStatuses": {
+      "submitted": "Submitted",
+      "approved": "Approved",
+      "rejected": "Rejected"
+    },
     "employees": "Employees",
     "employee": "Employee",
     "newEmployee": "New Employee",
