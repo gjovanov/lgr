@@ -20,12 +20,19 @@ import type { CapabilityId, FeatureId } from './catalogue'
 
 export type AccessRule =
   | { readonly anyOf: readonly CapabilityId[] }
-  | { readonly self: string }
+  /**
+   * The controller decides (`why` says by what). `floor`: capabilities without one of which no caller passes that
+   * check. The auth plugins refuse such a caller before the body is validated (`floorRefusal`), so a role that may
+   * not write there gets 403, never a 422 describing the body (S-28's order). The controller still decides the rest.
+   */
+  | { readonly self: string; readonly floor?: readonly CapabilityId[] }
   | { readonly member: string }
 
 type Cap = CapabilityId
 const any = (...caps: Cap[]): AccessRule => ({ anyOf: caps })
-const self = (why: string): AccessRule => ({ self: why })
+const self = (why: string, floor?: readonly Cap[]): AccessRule => (floor ? { self: why, floor } : { self: why })
+/** Every fiscal-device write the controllers take, each asking one of these (`fiscal-device.controller`). */
+const DEVICE_WRITES: readonly Cap[] = ['devices.edit', 'devices.report', 'devices.z-report', 'devices.sync-time', 'devices.name-payments']
 const member = (why: string): AccessRule => ({ member: why })
 /** A feature's reads: its page's capability and its page-less one. */
 const reads = (f: FeatureId, ...also: Cap[]): AccessRule => any(`${f}.view` as Cap, `${f}.lookup` as Cap, ...also)
@@ -210,13 +217,13 @@ export const WRITE_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['pos', any('till.sell')],
 
   ['files', self('files-api: admin, or admin.settings; booking, undoing, reconciling or analysing a document also takes the write permission of what it books (booksRefusal)')],
-  ['fiscal', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager')],
-  ['user', self('admin role (S-21)')],
-  ['invite', self(ADMIN)],
-  ['permission-sets', self(ADMIN)],
-  ['roles', self('roles.edit, and FR-27.8 in role.service')],
-  ['apps', self(ADMIN)],
-  ['digest', self(ADMIN)],
+  ['fiscal', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager', DEVICE_WRITES)],
+  ['user', self('admin role (S-21)', ['users.edit'])],
+  ['invite', self(ADMIN, ['invites.manage'])],
+  ['permission-sets', self(ADMIN, ['roles.edit'])],
+  ['roles', self('roles.edit, and FR-27.8 in role.service', ['roles.edit'])],
+  ['apps', self(ADMIN, ['apps.manage'])],
+  ['digest', self(ADMIN, ['digest.manage'])],
   ['backup', self('requireSysAdmin')],
   ['desktops', self(ADMIN_OR_SETTINGS)],
   ['nodes', self(`${ADMIN_OR_SETTINGS} (FR-20.2; global only, 404 on a master)`)],
@@ -224,7 +231,7 @@ export const WRITE_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['address', self(`${ADMIN_OR_SETTINGS} (FR-20.72; global only, 404 on a master)`)],
   ['server', self(`${ADMIN_OR_SETTINGS} (FR-20.47; on the server only, 404 on lgrai.app)`)],
   ['numbering', self(`${ADMIN_OR_SETTINGS} (FR-20.51; every node)`)],
-  ['integration', self(ADMIN)],
+  ['integration', self(ADMIN, ['integrations.manage'])],
   ['logo', self(ADMIN)],
 ]
 
@@ -262,7 +269,7 @@ export const EXACT_WRITES: ReadonlyMap<string, AccessRule> = new Map([
   // FR-21.18, FR-23: the journal's storno and its settle. The route also requires a storno role.
   ['POST cash-register/documents/:id/storno', any('till.sell', 'sales-docs.edit')],
   ['POST cash-register/documents/:id/settle', any('till.sell', 'sales-docs.edit')],
-  ['POST trade/pos/session/:id/device-report', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager')],
+  ['POST trade/pos/session/:id/device-report', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager', ['devices.report'])],
   ['POST doc-import/extract', any('doc-import.extract')],
   ['POST doc-import/analyze', self('PERMISSION_BY_TARGET: the write permission of the surface imported into')],
   ['POST doc-import/commit', self('PERMISSION_BY_TARGET: the write permission of the surface imported into')],
@@ -287,7 +294,7 @@ export const EXACT_WRITES: ReadonlyMap<string, AccessRule> = new Map([
   ['DELETE file/:id', any('files.manage')],
 
   // The org itself.
-  ['PUT ', self('admin role (org.controller)')],
+  ['PUT ', self('admin role (org.controller)', ['org-settings.edit'])],
 ])
 
 const byLength = (rules: ReadonlyArray<readonly [string, AccessRule]>) => [...rules].sort((a, b) => b[0].length - a[0].length)
