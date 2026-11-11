@@ -25,8 +25,13 @@ export interface IAuditLog extends Document {
   timestamp: Date
 }
 
+/** An entry a sys-admin script wrote on the server: it names the script, not a person. */
+export const isScriptVia = (via: unknown): boolean => typeof via === 'string' && via.startsWith('scripts/')
+
 const auditLogSchema = new Schema<IAuditLog>({
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  // Who: a person, always, but for a sys-admin script run on the server (`via: 'scripts/<name>.ts'`), which acts as
+  // nobody in the org (FR-27: `access-model.ts`, `restore-administrator.ts`). `via` names it instead.
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: function (this: any) { return !isScriptVia(this?.via) } },
   operatorCode: String,
   action: { type: String, required: true },
   module: { type: String, required: true },

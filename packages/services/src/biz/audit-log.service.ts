@@ -100,7 +100,8 @@ export async function recordAuditEntry(entry: AuditEntry): Promise<boolean> {
 function auditDoc(entry: AuditEntry) {
   return {
     orgId: new Types.ObjectId(entry.orgId),
-    userId: new Types.ObjectId(entry.userId),
+    // A script's entry has no person (`via: 'scripts/…'`): an empty id is no id, never a cast that throws.
+    userId: entry.userId ? new Types.ObjectId(entry.userId) : undefined,
     operatorCode: entry.operatorCode,
     action: entry.action,
     module: entry.module,
@@ -230,10 +231,10 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
 
   const logs = docs.map((d: any) => ({
     _id: String(d._id),
-    userId: d.userId?._id ? String(d.userId._id) : String(d.userId),
+    userId: d.userId?._id ? String(d.userId._id) : d.userId ? String(d.userId) : null,
     userName: d.userId?.firstName
       ? `${d.userId.firstName} ${d.userId.lastName || ''}`.trim()
-      : d.userId?.email || d.userId?.username || String(d.userId),
+      : d.userId?.email || d.userId?.username || (d.userId ? String(d.userId) : String(d.via ?? '')),
     operatorCode: d.operatorCode,
     action: d.action,
     module: d.module,
@@ -349,10 +350,10 @@ export async function queryByCorrelationId(orgId: string, correlationId: string,
 
   return docs.map((d: any) => ({
     _id: String(d._id),
-    userId: d.userId?._id ? String(d.userId._id) : String(d.userId),
+    userId: d.userId?._id ? String(d.userId._id) : d.userId ? String(d.userId) : null,
     userName: d.userId?.firstName
       ? `${d.userId.firstName} ${d.userId.lastName || ''}`.trim()
-      : d.userId?.email || d.userId?.username || String(d.userId),
+      : d.userId?.email || d.userId?.username || (d.userId ? String(d.userId) : String(d.via ?? '')),
     action: d.action,
     module: d.module,
     entityType: d.entityType,
