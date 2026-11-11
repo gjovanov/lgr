@@ -57,9 +57,10 @@ identity signed in twice at once has answered 401.
 
 ## Where things are
 
-- **The import checkout:** a worktree of this repository outside any temp directory (a cleaner that removes empty
-  files also removes every `node_modules` link). Step 1 moves it and proves its importers are the ones production
-  was built with; every command of a run starts there.
+- **The import checkout:** a worktree of this repository at master, outside any temp directory (a cleaner that
+  removes empty files also removes every `node_modules` link). Every command of a run starts there. Step 1 moves it
+  and proves its importers are the ones production was built with; when they are not, the importers get a second
+  worktree at the deployed commit, named with `--importers` on every phase.
 - **The stores' identifiers:** `.secrets/plusminus-stores.env`, read by name (`pull-plusminus-api`, "Store
   identifiers"). `<PREFIX>_DOCS_ROOT` is a store's private document root.
 - **A day folder:** `<docs root>/<day>/api/`, or `<from>_<day>/api/` when the range starts earlier.

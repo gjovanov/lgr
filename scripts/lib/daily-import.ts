@@ -614,7 +614,7 @@ export function gateAuditBefore(text: string, baseline: string): Finding[] {
   if (a.invoices.drafts) out.push(finding('act', `${a.invoices.drafts} unissued draft(s) carry a PlusMinus number: issue them with POST /doc-import/convert, never /send`))
   // Each document is judged alone here. Two things explain an ALREADY, and each has its own check: another document of
   // the day undoes the line (the prediction nets the whole day and then says 0), or the line moved no stock (the scan).
-  if (a.guardAlready.length) out.push(finding('note', `the guard says LGR already agrees with the snapshot without ${a.guardAlready.length} unbooked document(s), each judged alone. Fine when the scan is clean and the prediction says 0; find-item.ts shows the other document of the pair.`, a.guardAlready))
+  if (a.guardAlready.length) out.push(finding('note', `the guard says LGR already agrees with the snapshot without ${a.guardAlready.length} unbooked document(s), each judged alone. Fine when the scan is clean and the prediction says 0; \`doc.ts find\` shows the other document of the pair.`, a.guardAlready))
   return out
 }
 

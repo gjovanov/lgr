@@ -46,9 +46,19 @@ The importers call production's API, so the importers that run are the ones prod
    ```
 
    It follows the imports of every importer and the puller, and compares those files with the deployed commit's.
-   `ok`: they are identical, and the checkout keeps master's tools. `STOP` lists the files that differ: read the
-   difference, then take the checkout to the deployed commit (`git checkout --detach <deployed sha>`, install, run
-   it again). Production is deployed first only on the owner's word.
+   `ok`: they are identical, and the run goes on from this checkout. `STOP` lists the files that differ: read the
+   difference, then give the importers their own checkout at the deployed commit, and name it on every command of
+   the run:
+
+   ```bash
+   git worktree add --detach <importers checkout> <deployed sha>     # once; on later days: git -C <it> checkout --detach <deployed sha>
+   (cd <importers checkout> && bun install --frozen-lockfile)
+   bun .claude/skills/daily-import/daily.ts checkout --deployed <deployed sha> --importers <importers checkout>     # ok now
+   ```
+
+   This skill's tools stay on master; the importers and the puller run from the other checkout. `--importers` then
+   goes on every `daily.ts` phase (a shell variable does not outlive one command here; `LGR_IMPORTERS_ROOT` is the
+   same thing for a shell that keeps it).
 3. Read what changed on the server since the previous run's commit (its report names it):
 
    ```bash

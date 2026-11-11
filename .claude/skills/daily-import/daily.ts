@@ -29,6 +29,8 @@
 // Options: --day YYYY-MM-DD (default: today in Sofia) · --from YYYY-MM-DD (first unbooked day, default --day) ·
 //   --prev <evidence folder name> · --suffix eve|late (default eve) · --base-url URL (an org behind a tunnel; or
 //   PLUSMINUS_BASE_URL) · --session <tag> (reads .secrets/lgr-session-<tag>.env; or LGR_SESSION_TAG; else the env) ·
+//   --importers DIR (run the importers and the puller of another checkout, one at the deployed commit; or
+//   LGR_IMPORTERS_ROOT) ·
 //   --only n,n · --dir DIR (book or dry from another folder: a corrected copy, a history chunk) · --date YYYY-MM-DD
 //   (one till day of a range) · --no-pull (history: diff what is already pulled) · --execute
 //
@@ -69,6 +71,13 @@ const suffix = opt('suffix') ?? 'eve'
 if (!ISO.test(day) || !ISO.test(from) || from > day) die(`--day and --from must be YYYY-MM-DD, with --from on or before --day (got ${from} … ${day})`)
 const period = from === day ? day : `${from}…${day}`
 const root = resolve(import.meta.dir, '../../..')
+/**
+ * The checkout the importers and the puller run from. This one by default. Another, when production runs a commit
+ * whose importers differ from this checkout's: then these tools stay here and drive the importers of a second
+ * checkout that sits at the deployed commit.
+ */
+const importersRoot = resolve(opt('importers') ?? process.env.LGR_IMPORTERS_ROOT ?? root)
+if (!existsSync(join(importersRoot, 'scripts'))) die(`--importers ${importersRoot}: not a checkout of this repository`)
 const skill = import.meta.dir
 const stamp = () => new Date().toISOString().slice(11, 19)
 
@@ -161,7 +170,9 @@ function freeName(dir: string, base: string): string {
 function run(label: string, args: string[], file: string): { code: number; text: string } {
   mkdirSync(dirname(file), { recursive: true })
   const started = Date.now()
-  const r = Bun.spawnSync(['bun', ...args], { cwd: root, env: process.env, stdout: 'pipe', stderr: 'pipe' })
+  // A script named by a relative path (an importer, the puller) is the importers checkout's; this skill's own tools
+  // are named by their absolute path and run from wherever.
+  const r = Bun.spawnSync(['bun', ...args], { cwd: importersRoot, env: process.env, stdout: 'pipe', stderr: 'pipe' })
   const text = r.stdout.toString() + (r.stderr.length ? `\n${r.stderr.toString()}` : '')
   writeFileSync(file, text)
   console.log(`[${stamp()}] ${label}: exit ${r.exitCode} in ${((Date.now() - started) / 1000).toFixed(0)} s → ${file}`)
@@ -225,9 +236,9 @@ function importClosure(entries: string[]): string[] {
   // The scanner does not take a `#!` line.
   const importsOf = (file: string) => transpilers[file.endsWith('.ts') ? 'ts' : file.endsWith('.tsx') ? 'tsx' : 'js'].scanImports(readFileSync(file, 'utf8').replace(/^#!.*/, ''))
   const norm = (p: string) => realpathSync(p).replaceAll('\\', '/')
-  const base = norm(root)
+  const base = norm(importersRoot)
   const seen = new Set<string>()
-  const queue = entries.map(e => norm(join(root, e)))
+  const queue = entries.map(e => join(importersRoot, e)).filter(p => existsSync(p)).map(norm)
   while (queue.length) {
     const file = queue.pop()!
     if (seen.has(file)) continue
@@ -249,17 +260,20 @@ function importClosure(entries: string[]): string[] {
  */
 function checkout(): Finding[] {
   const deployed = opt('deployed') ?? die('checkout needs --deployed <the commit production runs> (the deploy repository names it)')
-  const git = (...args: string[]) => { const r = Bun.spawnSync(['git', ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' }); return { code: r.exitCode, text: r.stdout.toString().trim() } }
-  if (git('cat-file', '-e', `${deployed}^{commit}`).code !== 0) return [finding('stop', `commit ${deployed} is not in this checkout: fetch first`)]
+  const git = (...args: string[]) => { const r = Bun.spawnSync(['git', ...args], { cwd: importersRoot, stdout: 'pipe', stderr: 'pipe' }); return { code: r.exitCode, text: r.stdout.toString().trim() } }
+  if (git('cat-file', '-e', `${deployed}^{commit}`).code !== 0) return [finding('stop', `commit ${deployed} is not in ${importersRoot}: fetch first`)]
   const head = git('rev-parse', '--short', 'HEAD').text
-  if (!existsSync(join(root, 'node_modules'))) return [finding('stop', 'no node_modules here: run bun install --frozen-lockfile (without it the importers do not load, and their imports cannot be followed)')]
+  if (!existsSync(join(importersRoot, 'node_modules'))) return [finding('stop', `no node_modules in ${importersRoot}: run bun install --frozen-lockfile there (without it the importers do not load, and their imports cannot be followed)`)]
+  const absent = IMPORTER_ENTRIES.filter(e => !existsSync(join(importersRoot, e)))
+  if (absent.length) return [finding('stop', `${absent.length} importer(s) do not exist in ${importersRoot}: that checkout is older than the importers this run needs`, absent)]
   const files = importClosure(IMPORTER_ENTRIES)
   const changed = git('diff', '--name-only', deployed, 'HEAD', '--', ...files).text.split('\n').filter(Boolean)
   const dirty = git('status', '--porcelain', '--', ...files).text.split('\n').filter(Boolean)
   const out: Finding[] = []
-  if (dirty.length) out.push(finding('stop', `${dirty.length} file(s) the importers load are modified in this checkout`, dirty))
-  if (changed.length) out.push(finding('stop', `${changed.length} file(s) the importers load differ between this checkout (${head}) and the deployed commit ${deployed}. Read the difference; then either production is deployed first, or this checkout goes to ${deployed}.`, changed))
-  if (!dirty.length && !changed.length) out.push(finding('ok', `the ${files.length} files the importers load are identical to the deployed commit ${deployed} (checkout at ${head})`))
+  const where = importersRoot === root ? 'this checkout' : importersRoot
+  if (dirty.length) out.push(finding('stop', `${dirty.length} file(s) the importers load are modified in ${where}`, dirty))
+  if (changed.length) out.push(finding('stop', `${changed.length} file(s) the importers load differ between ${where} (${head}) and the deployed commit ${deployed}. Read the difference, then run the importers from a checkout at ${deployed}: pass --importers <that checkout> to every phase.`, changed))
+  if (!dirty.length && !changed.length) out.push(finding('ok', `the ${files.length} files the importers load are identical to the deployed commit ${deployed} (${where} at ${head})`))
   return out
 }
 
@@ -523,7 +537,7 @@ function facts(c: Ctx): Finding[] {
 const PHASES: Record<string, (c: Ctx) => Finding[] | Promise<Finding[]>> = {
   grant, pull, history, scan, predict, dry: c => dry(c, false), book, after, prices, rerun: c => dry(c, true), audit: auditAfter, facts,
 }
-if (!phase || has('help')) { console.log(readFileSync(import.meta.path, 'utf8').split('\n').slice(1, 36).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(phase ? 0 : 2) }
+if (!phase || has('help')) { console.log(readFileSync(import.meta.path, 'utf8').split('\n').slice(1, 38).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(phase ? 0 : 2) }
 let findings: Finding[]
 if (phase === 'plan') findings = plan()
 else if (phase === 'checkout') findings = checkout()
