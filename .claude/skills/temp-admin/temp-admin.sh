@@ -24,7 +24,10 @@ port=${LGR_TEMP_ADMIN_PORT:-27124}
 remote_checkout=${LGR_REMOTE_CHECKOUT:-'$HOME/lgr'}
 key=${LGR_SSH_KEY:-$HOME/.ssh/id_ed25519}
 SSH=(ssh -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=12 -i "$key" "$host")
-SCP=(scp -q -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=12 -i "$key")
+# A script for the build host goes over without carriage returns. A checkout that hands it out with CRLF (Windows,
+# autocrlf) would otherwise have bash there refuse its first line (`set -euo pipefail`), after the session file is
+# written: found 2026-11-11 from a fresh worktree.
+put() { tr -d '\r' < "$1" | "${SSH[@]}" "cat > '$2'"; }
 user="jamesbond-$tag"; email="$user@lgr.internal"
 if [[ -n ${LGR_SECRETS_DIR:-} ]]; then secrets=$LGR_SECRETS_DIR
 else secrets="$(dirname "$(git -C "$here" rev-parse --path-format=absolute --git-common-dir)")/.secrets"; fi
@@ -56,7 +59,7 @@ create)
   pw=$(openssl rand -hex 16 | tr -d '\r\n'); [[ ${#pw} -eq 32 ]] || { echo "could not make a password"; exit 1; }
   mkdir -p "$secrets"; ( umask 077; printf 'LGR_USERNAME=%s\nLGR_PASSWORD=%s\n' "$user" "$pw" > "$session" )
   say "session file written: $session"
-  "${SCP[@]}" "$here/remote/seed.sh" "$host:/tmp/jb-$tag-seed.sh"
+  put "$here/remote/seed.sh" "/tmp/jb-$tag-seed.sh"
   send_pw() { printf %s "$pw" | "${SSH[@]}" "umask 077; cat > /tmp/jb-$tag-pw"; }
   say "dry run on the build host"
   send_pw; "${SSH[@]}" "TAG=$tag ORGS='${orgs[*]}' PORT=$port CHECKOUT=$remote_checkout bash /tmp/jb-$tag-seed.sh" | grep -v -i -E 'password|^Permissions'
@@ -81,7 +84,7 @@ drop)
   # Sessions made now, while the account exists: after the drop they must stop working.
   declare -A token
   for o in "${orgs[@]}"; do token[$o]=$(login_token "$o"); [[ -n ${token[$o]} ]] && echo "live session taken in $o" || echo "no session in $o (not a member there, or already gone)"; done
-  "${SCP[@]}" "$here/remote/drop.ts" "$host:/tmp/jb-$tag-drop.ts"; "${SCP[@]}" "$here/remote/drop.sh" "$host:/tmp/jb-$tag-drop.sh"
+  put "$here/remote/drop.ts" "/tmp/jb-$tag-drop.ts"; put "$here/remote/drop.sh" "/tmp/jb-$tag-drop.sh"
   say "dropping $email in every org"
   result=$("${SSH[@]}" "TAG=$tag EMAIL=$email PORT=$port CHECKOUT=$remote_checkout bash /tmp/jb-$tag-drop.sh"); echo "$result"
   dropped=$(date -u +%s)

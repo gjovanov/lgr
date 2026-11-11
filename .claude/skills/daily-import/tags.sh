@@ -18,7 +18,9 @@ checkout=${LGR_REMOTE_CHECKOUT:-'$HOME/lgr'}
 key=${LGR_SSH_KEY:-$HOME/.ssh/id_ed25519}
 SSH=(ssh -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=12 -i "$key" "$host")
 remote=/tmp/jb-tags-$$.sh
-scp -q -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=12 -i "$key" "$here/remote/tags.sh" "$host:$remote"
+# Without carriage returns: a checkout that hands the script out with CRLF (Windows, autocrlf) would have bash on the
+# build host refuse its first line (`set -euo pipefail`).
+tr -d '\r' < "$here/remote/tags.sh" | "${SSH[@]}" "cat > $remote"
 trap '"${SSH[@]}" "rm -f $remote" || true' EXIT
 pass() { "${SSH[@]}" "ORGS='$*' PORT=$port CHECKOUT=$checkout EXECUTE=${mode:-} bash $remote"; }
 echo "[$(date -u +%T)] ${execute:+writing }tags for: $*"
