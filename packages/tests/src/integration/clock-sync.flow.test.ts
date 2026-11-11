@@ -202,3 +202,57 @@ describe('an Eltrade an hour ahead (#450)', () => {
     expect(Math.abs(sim.clock.getTime() - Date.now())).toBeLessThan(5_000)
   })
 })
+
+// #450, the owner's decision: LGR adds no rule of its own on a fiscalized unit (the device refuses a time before its last
+// fiscal record by itself), and it says when a device's clock waits for a person, so the October hour is not found by
+// reading a Z-report. The scheduled sync notes it on the device; the device page, the device list and the sessions list
+// show it; a person's confirmed time sync settles it.
+describe('a clock the sync left for a person is noted on the device (#450)', () => {
+  const HOUR = 60 * MIN
+  const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
+
+  test('noted when held, carried by the device list and by id, and cleared by the confirmed sync', async () => {
+    const { FiscalDevice } = await import('db/models')
+    const org = await createTestOrg()
+    const wh = await createTestWarehouse(org._id)
+    const d = await createTestFiscalDevice(org._id, wh._id, { connectionType: 'browser', name: 'Каса 1' } as any)
+    const orgId = String(org._id)
+    const deviceId = String(d._id)
+    fakeDevice(deviceId, HOUR)
+    await serverClock(0)
+
+    const r = await syncAllFiscalDevices()
+    expect(r.set).toEqual([])
+    const noted: any = (await FiscalDevice.findById(deviceId).lean().exec())!.clockHeld
+    expect(noted).toBeTruthy()
+    // Ahead by an hour: the step is minus an hour, give or take the test's own seconds.
+    expect(Math.abs(noted.stepMs + HOUR)).toBeLessThan(5_000)
+
+    const auth = { authorization: `Bearer ${await (signer as any).decorator.jwt.sign({ id: '000000000000000000000001', orgId, role: 'admin', permissions: [...PERMISSIONS], ownRecordsModules: [] })}` }
+    const list = await (await fetch(`http://localhost:${port}/org/${orgId}/fiscal/device?size=100`, { headers: auth })).json()
+    expect(list.fiscalDevices.find((x: any) => String(x._id ?? x.id) === deviceId)?.clockHeld?.stepMs).toBe(noted.stepMs)
+    const one = await (await fetch(`http://localhost:${port}/org/${orgId}/fiscal/device/${deviceId}`, { headers: auth })).json()
+    expect(one.fiscalDevice.clockHeld?.stepMs).toBe(noted.stepMs)
+
+    const confirmed = await fetch(`http://localhost:${port}/org/${orgId}/fiscal/device/${deviceId}/sync-time`, {
+      method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ confirm: true }),
+    })
+    expect(confirmed.status).toBe(200)
+    expect((await FiscalDevice.findById(deviceId).lean().exec())!.clockHeld).toBeUndefined()
+  })
+
+  test('a clock the sync sets clears what an earlier sync noted', async () => {
+    const { FiscalDevice } = await import('db/models')
+    const org = await createTestOrg()
+    const wh = await createTestWarehouse(org._id)
+    const d = await createTestFiscalDevice(org._id, wh._id, { connectionType: 'browser' } as any)
+    const deviceId = String(d._id)
+    await FiscalDevice.updateOne({ _id: deviceId }, { $set: { clockHeld: { deviceTime: new Date(), serverTime: new Date(), stepMs: -HOUR, at: new Date() } } }).exec()
+    const set = fakeDevice(deviceId, -30_000)
+    await serverClock(0)
+    const r = await syncAllFiscalDevices()
+    expect(r.set).toEqual([deviceId])
+    expect(set.length).toBe(1)
+    expect((await FiscalDevice.findById(deviceId).lean().exec())!.clockHeld).toBeUndefined()
+  })
+})

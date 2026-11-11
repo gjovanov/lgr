@@ -1815,6 +1815,21 @@
       "vatGroup": "VAT group {group}"
     },
     "device": {
+      "clock": {
+        "setButton": "Set the clock",
+        "set": "The device's clock is set",
+        "failed": "The clock could not be set",
+        "keptSummerTime": "The device's clock is an hour ahead: it has not switched to winter time.",
+        "keptWinterTime": "The device's clock is an hour behind: it has not switched to summer time.",
+        "off": "The device's clock is {step} off the verified time.",
+        "chip": "Clock {step}",
+        "confirmTitle": "Set the device's clock?",
+        "confirmHint": "A fiscalized device refuses a time earlier than its last fiscal record, and says so.",
+        "deviceTime": "Device's clock",
+        "serverTime": "Verified time",
+        "confirm": "Set it",
+        "sessionsBanner": "A fiscal device's clock needs setting:"
+      },
       "why": {
         "protocol": {
           "readOperator": "{brand} devices cannot report their operators — program them from here",

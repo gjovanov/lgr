@@ -4,6 +4,14 @@
       <h1 class="text-h5">{{ $t('nav.crSessions') }}</h1>
     </div>
 
+    <!-- #450: a device whose clock the scheduled sync left for a person, for whoever sets it (its page does). -->
+    <v-alert v-if="clockDevices.length" type="warning" variant="tonal" density="compact" class="mb-4" data-testid="sessions-clock-held">
+      {{ t('pos.device.clock.sessionsBanner') }}
+      <template v-for="(d, i) in clockDevices" :key="d.id">
+        <router-link :to="{ name: 'pos.devices.detail', params: { id: d.id } }">{{ d.name }}</router-link><span v-if="i < clockDevices.length - 1">, </span>
+      </template>
+    </v-alert>
+
     <!-- Filters -->
     <v-card class="mb-4">
       <v-card-text class="pb-4">
@@ -481,7 +489,22 @@ function statusColor(s: string) {
   return map[s] || 'grey'
 }
 
+/** #450: the devices whose clock the scheduled sync left for a person, for whoever may set a clock. */
+const clockDevices = ref<{ id: string; name: string }[]>([])
+async function loadClockDevices() {
+  if (!can(grantOfViewer(sessionViewer()), 'devices.sync-time')) return
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/fiscal/device`, { params: { size: 100 } })
+    clockDevices.value = (data.fiscalDevices || [])
+      .filter((d: any) => d.clockHeld && d.isActive !== false)
+      .map((d: any) => ({ id: String(d._id || d.id), name: d.name }))
+  } catch {
+    clockDevices.value = []
+  }
+}
+
 onMounted(() => {
+  void loadClockDevices()
   fetchItems()
 })
 

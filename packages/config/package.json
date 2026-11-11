@@ -9,6 +9,7 @@
     "./access": "./src/access/index.ts",
     "./cp1251": "./src/cp1251.ts",
     "./pos-totals": "./src/pos-totals.ts",
+    "./fiscal-clock": "./src/fiscal-clock.ts",
     "./line-amounts": "./src/line-amounts.ts",
     "./amount-in-words": "./src/amount-in-words.ts",
     "./order-coverage": "./src/order-coverage.ts",
