@@ -6,6 +6,9 @@ allowed-tools: Bash(bun:*), Read
 
 # Receive NEW products (catalog-new delivery items → products + receipt)
 
+> **The daily run needs no hand-written items file**: `scripts/receive-stock-api.ts` drives this script from the
+> API pull, through the `daily-import` skills. This skill is the route for a single `stokrazp_*.pdf`.
+
 > **UI equivalent:** *Inventory → Stock Movements → Import* a `stokrazp_*.pdf` directly —
 > no hand-transcribed JSON. The OCR sidecar reads the `Кол` / `Цена` / `Цена 1..N` columns,
 > and the review step lists every unmatched row with its cost and tier prices ready to create.

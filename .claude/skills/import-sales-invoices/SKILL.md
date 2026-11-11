@@ -6,6 +6,10 @@ allowed-tools: Bash(bun:*)
 
 # Import daily sales invoices (legacy PlusMinus → LGR)
 
+> **The daily run imports invoices from the API pull**, with no OCR: `scripts/import-sales-invoices-api.ts` over
+> `invoicem_*.json`, through the `daily-import` skills. This skill is the route for a folder of `invoicem_*.pdf`
+> exports.
+
 > **UI equivalent:** *Invoicing → Sales Invoices → Import*. Same OCR→AI pipeline, same
 > `INV-<legacy number>` preservation, same duplicate detection. Use this script for a whole
 > day folder; use the UI for a handful of PDFs or to fix one document. Both are safe to mix —

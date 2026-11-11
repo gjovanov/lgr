@@ -6,6 +6,9 @@ allowed-tools: Bash(bun:*), Read
 
 # Adjust stock — write-offs (materials issued / consumed / damaged / lost)
 
+> **The daily run books write-offs from the API pull**: `scripts/adjust-stock-api.ts` over `sklisk_*.json`,
+> through the `daily-import` skills. This skill is the route for a `sklisk_*.pdf` export.
+
 > **UI equivalent:** *Inventory → Stock Movements → Import* a `sklisk_*.pdf` directly. Same
 > `stock_note` OCR profile, same result: `type:'adjustment'`, `fromWarehouseId` set, and
 > `sklisk:<number>` in the notes.

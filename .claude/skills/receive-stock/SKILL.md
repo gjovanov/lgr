@@ -6,6 +6,10 @@ allowed-tools: Bash(bun:*)
 
 # Receive stock — daily goods receipts (legacy PlusMinus → LGR)
 
+> **The daily run books receipts from the API pull**, not from this export: `scripts/receive-stock-api.ts`
+> over `stokrazp_*.json` (prices, new products and the outgoing lines of a correction included), through the
+> `daily-import` skills. This skill is the route for a `storeOperations_*.xlsx` GUI export.
+
 > **UI equivalent:** *Inventory → Stock Movements → Import* accepts the same
 > `storeOperations_*.xlsx`, applies the same `Операция: Доставки` gate, header check,
 > `Всичко` cross-check and period↔date guard, and writes the same
