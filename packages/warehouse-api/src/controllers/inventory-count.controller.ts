@@ -3,6 +3,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { clientCreate, clientUpdate } from 'services/biz/server-owned'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { priceCountLines } from 'services/biz/inventory-count-pricing'
 import { grantOf } from 'services/biz/access/evaluate'
@@ -37,8 +38,9 @@ async function getNextMovementNumber(orgId: string): Promise<string> {
   return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
 }
 
-// A PUT may carry any field of the document except `orgId`: a document never moves between
-// orgs (FR-20.7). `updateInOrg` drops it too; this answers 422 instead of ignoring it.
+// A PUT never carries `orgId`: a document does not move between orgs (FR-20.7). `updateInOrg`
+// drops it too; this answers 422 instead of ignoring it. What else a body may not choose (the
+// fields the server sets) is refused in the handlers: `services/biz/server-owned.ts`.
 const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/warehouse/inventory-count' })
@@ -116,10 +118,11 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
   }, { isSignIn: true })
   .post('/', async ({ params, body, user }) => {
     const r = getRepos()
+    const data = clientCreate('InventoryCount', body, { orgId: params.orgId, createdBy: user.id, status: 'in_progress' })
     const countNumber = await getNextCountNumber(params.orgId)
     // FR-27.11.C.4: priced here, from the stock level's average cost; the body's figure is ignored.
-    const lines = await priceCountLines(params.orgId, (body as any)?.warehouseId, (body as any)?.lines)
-    const item = await r.inventoryCounts.create({ ...(body as any), lines, orgId: params.orgId, createdBy: user.id, countNumber } as any)
+    const lines = await priceCountLines(params.orgId, data.warehouseId, data.lines)
+    const item = await r.inventoryCounts.create({ ...data, lines, orgId: params.orgId, createdBy: user.id, countNumber } as any)
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'inventory_count', entityId: item.id, entityName: countNumber })
 
@@ -137,7 +140,7 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
       })
     }
     // FR-27.11.C.4: priced here, from the stock level's average cost; the body's figure is ignored.
-    const update: any = { ...(body as any) }
+    const update: any = clientUpdate('InventoryCount', body, existing)
     if (Array.isArray(update.lines)) update.lines = await priceCountLines(params.orgId, update.warehouseId ?? (existing as any).warehouseId, update.lines)
     const item = await r.inventoryCounts.updateInOrg(params.id, params.orgId, update)
     if (!item) return status(404, { message: 'Not found' })

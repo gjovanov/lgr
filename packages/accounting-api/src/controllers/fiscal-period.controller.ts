@@ -2,9 +2,11 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { clientCreate, clientUpdate } from 'services/biz/server-owned'
 
-// A PUT may carry any field of the document except `orgId`: a document never moves between
-// orgs (FR-20.7). `updateInOrg` drops it too; this answers 422 instead of ignoring it.
+// A PUT never carries `orgId`: a document does not move between orgs (FR-20.7). `updateInOrg`
+// drops it too; this answers 422 instead of ignoring it. What else a body may not choose (the
+// fields the server sets) is refused in the handlers: `services/biz/server-owned.ts`.
 const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 export const fiscalPeriodController = new Elysia({ prefix: '/org/:orgId/accounting/fiscal-period' })
@@ -33,7 +35,7 @@ export const fiscalPeriodController = new Elysia({ prefix: '/org/:orgId/accounti
   }, { isSignIn: true })
   .post('/', async ({ params, body, user }) => {
     const r = getRepos()
-    const item = await r.fiscalPeriods.create({ ...body, orgId: params.orgId } as any)
+    const item = await r.fiscalPeriods.create({ ...clientCreate('FiscalPeriod', body, { orgId: params.orgId }), orgId: params.orgId } as any)
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'accounting', entityType: 'fiscal_period', entityId: item.id, entityName: (item as any).name })
 
@@ -43,7 +45,7 @@ export const fiscalPeriodController = new Elysia({ prefix: '/org/:orgId/accounti
     const r = getRepos()
     const existing = await r.fiscalPeriods.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
-    const item = await r.fiscalPeriods.updateInOrg(params.id, params.orgId, body as any)
+    const item = await r.fiscalPeriods.updateInOrg(params.id, params.orgId, clientUpdate('FiscalPeriod', body, existing) as any)
     if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'fiscal_period', entityId: params.id, entityName: (item as any).name, changes: existing ? diffChanges(existing as any, item as any) : undefined })

@@ -871,6 +871,13 @@ export const fooController = new Elysia({ prefix: '/org/:orgId/module/foo' })
 
 **Store response contract**: List endpoints must return a named key matching the store's expectation (e.g., `{ products: data, total }` not `{ data, total }`). Each Pinia store destructures a specific key.
 
+**A body never chooses a field the server sets.** A route either declares its body (`t.Object({...})`: Elysia drops what a schema does not declare, a field or a `lines.0.cost` path) or, if it stores the body as the document, passes it through `services/biz/server-owned.ts`: `clientCreate(model, body, initial)` on a create, `clientUpdate(model, body, stored)` on a save. Twelve controllers do the second (bank-account, exchange-rate, fiscal-period, fiscal-year, fixed-asset, reconciliation, cash-order, payment-order, payslip, timesheet, inventory-count, price-list).
+- `SERVER_OWNED` lists, per model, what only the server sets: a number it allocates, who did something (`createdBy`, `completedBy`, `approvedBy`), a step with its own route (a count's `completed` is `POST /:id/complete`, a payment order's `executed` is `POST /:id/execute`), a seal, a ledger link. `_id`, `orgId` and the timestamps are the server's on every model.
+- A body may RESTATE such a field (what a new document starts with, or what the stored one holds), so a document sent back as it was loaded still saves. Choosing one answers 422 `{ code: 'server_owned_field', path }`. Refused, never dropped: a caller that asked for `status: 'completed'` and got 200 would believe it.
+- ⚠ Update syntax in a body (`$set`, `lines.0.varianceCost`) is refused too. `updateInOrg` puts a body in a `$set`, where a dotted key writes inside a field the handler has just computed.
+- ⚠ A status the screens change with a plain save stays the body's (a fiscal year's lock, a timesheet's approval, a fixed asset's disposal). The stamp beside it is the server's, and the controller sets it as the status changes (`approvedBy`, `reconciledBy` / `reconciledAt`, a price list's `deactivatedAt`).
+- `unit/server-owned.test.ts` holds the table to the schemas, fails on a new stamp field (`…By`, `…At`) that is neither listed nor waived, and fails on a controller that hands a body to the store without being reviewed for it. `integration/server-owned-fields.flow.test.ts` runs every field over the real routes.
+
 ## DB Model Pattern
 
 ```typescript

@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { clientCreate, clientUpdate } from 'services/biz/server-owned'
 import { buildSearchFilter } from 'services/biz/search.utils'
 
 function mapPaymentOrderBody(body: any) {
@@ -32,8 +33,9 @@ async function getNextOrderNumber(orgId: string): Promise<string> {
   return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
 }
 
-// A PUT may carry any field of the document except `orgId`: a document never moves between
-// orgs (FR-20.7). `updateInOrg` drops it too; this answers 422 instead of ignoring it.
+// A PUT never carries `orgId`: a document does not move between orgs (FR-20.7). `updateInOrg`
+// drops it too; this answers 422 instead of ignoring it. What else a body may not choose (the
+// fields the server sets) is refused in the handlers: `services/biz/server-owned.ts`.
 const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/payment-order' })
@@ -96,7 +98,7 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
   }, { isSignIn: true })
   .post('/', async ({ params, body, user }) => {
     const r = getRepos()
-    const mapped = mapPaymentOrderBody(body)
+    const mapped = mapPaymentOrderBody(clientCreate('PaymentOrder', body, { orgId: params.orgId, createdBy: user.id, status: 'draft' }))
     const orderNumber = await getNextOrderNumber(params.orgId)
     const item = await r.paymentOrders.create({ ...mapped, orgId: params.orgId, createdBy: user.id, orderNumber } as any)
 
@@ -108,7 +110,7 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
     const r = getRepos()
     const existing = await r.paymentOrders.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
-    const mapped = mapPaymentOrderBody(body)
+    const mapped = mapPaymentOrderBody(clientUpdate('PaymentOrder', body, existing))
     const item = await r.paymentOrders.updateInOrg(params.id, params.orgId, mapped as any)
     if (!item) return status(404, { message: 'Not found' })
 
