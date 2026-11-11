@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup.js'
 import { createTestOrg, createTestUser, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories.js'
-import { AuditLog, FiscalDevice } from 'db/models'
+import { AuditLog, FiscalDevice, Org, Role, User } from 'db/models'
+import { forgetAccessModel } from 'services/biz/access/shadow'
+import { forgetMember, forgetRole } from 'services/biz/access/live'
 import { getPrinter, isDeviceConnected } from 'fiscal/fiscal-device.service'
 import { captureRejection } from '../helpers/capture-rejection'
 import {
@@ -472,5 +474,73 @@ describe('fiscal bridge — housekeeping unchanged', () => {
     expect(ws.has('pong')).toBe(true)
 
     await handleClose(ws)
+  })
+})
+
+describe('fiscal bridge — FR-27.5: in an org on roles the live role decides (#529)', () => {
+  /**
+   * An org on `roles` whose cashier holds `role`'s capabilities. The token is signed with the claims of the moment, the
+   * role's legacy projection, exactly as `tokenize` would put them; the bridge must read the role, not the token.
+   */
+  async function rolesOrg(caps: string[], legacy: { role: string; permissions: string[] }) {
+    const { org, device, user } = await seed({ permissions: [] })
+    await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
+    forgetAccessModel(String(org._id))
+    const role: any = await Role.create({ orgId: org._id, name: `Till ${Math.random()}`, isBuiltin: false, edited: true, version: 1, caps, legacy } as any)
+    await User.updateOne({ _id: user._id }, { $set: { roleId: role._id } }).exec()
+    forgetMember(user._id)
+    forgetRole(role._id)
+    const token = await signToken({ id: String(user._id), orgId: String(org._id), role: legacy.role, permissions: legacy.permissions, firstName: 'Till', lastName: 'Clerk' })
+    return { org, device, user, role, token }
+  }
+
+  it('a role that sells at the till bridges its printer, though its projection holds no pos.write', async () => {
+    const { org, device, token } = await rolesOrg(['till.view', 'till.sell'], { role: 'member', permissions: [] })
+    const ws = fakeWs()
+    await handleMessage(ws, registerMsg({ deviceNumber: device.deviceNumber, orgId: String(org._id), token }))
+    expect(ws.has('fiscal:bridge:registered')).toBe(true)
+    await handleClose(ws)
+  })
+
+  it('a role that does not sell is refused, whatever its token says', async () => {
+    const { org, device, token } = await rolesOrg(['till.view'], { role: 'member', permissions: ['pos.write'] })
+    const ws = fakeWs()
+    await handleMessage(ws, registerMsg({ deviceNumber: device.deviceNumber, orgId: String(org._id), token }))
+    expect(ws.last('fiscal:bridge:error')?.code).toBe('forbidden')
+    expect(isDeviceConnected(String(device._id))).toBe(false)
+  })
+
+  it('an edit reaches the bridge with the same token: given the till, the cashier bridges', async () => {
+    const { org, device, role, token } = await rolesOrg(['till.view'], { role: 'member', permissions: [] })
+    const before = fakeWs()
+    await handleMessage(before, registerMsg({ deviceNumber: device.deviceNumber, orgId: String(org._id), token }))
+    expect(before.last('fiscal:bridge:error')?.code).toBe('forbidden')
+
+    await Role.updateOne({ _id: role._id }, { $set: { caps: ['till.view', 'till.sell'], version: 2 } }).exec()
+    forgetRole(role._id)
+    const after = fakeWs()
+    await handleMessage(after, registerMsg({ deviceNumber: device.deviceNumber, orgId: String(org._id), token }))
+    expect(after.has('fiscal:bridge:registered')).toBe(true)
+    await handleClose(after)
+  })
+
+  it("a takeover reads the role's live projection: a token that claims admin.settings takes nothing over", async () => {
+    const holder = await rolesOrg(['till.view', 'till.sell'], { role: 'member', permissions: [] })
+    const first = fakeWs()
+    await handleMessage(first, registerMsg({ deviceNumber: holder.device.deviceNumber, orgId: String(holder.org._id), token: holder.token }))
+    expect(first.has('fiscal:bridge:registered')).toBe(true)
+
+    // Another cashier of the same org: a role without admin.settings, whose (stale) token claims it.
+    const other = await createTestUser(holder.org._id, { permissions: [] } as any)
+    const role: any = await Role.create({ orgId: holder.org._id, name: 'Till 2', isBuiltin: false, edited: true, version: 1, caps: ['till.view', 'till.sell'], legacy: { role: 'member', permissions: [] } } as any)
+    await User.updateOne({ _id: other._id }, { $set: { roleId: role._id } }).exec()
+    forgetMember(other._id)
+    forgetRole(role._id)
+    const stale = await signToken({ id: String(other._id), orgId: String(holder.org._id), role: 'member', permissions: ['pos.write', 'admin.settings'] })
+    const second = fakeWs()
+    await handleMessage(second, registerMsg({ deviceNumber: holder.device.deviceNumber, orgId: String(holder.org._id), token: stale, takeover: true }))
+    expect(second.last('fiscal:bridge:error')?.code).toBe('bridge_in_use')
+    expect(first.closed.length).toBe(0)
+    await handleClose(first)
   })
 })
