@@ -40,6 +40,9 @@ export interface ContactSearchOptions {
   size?: number
   /** Debounce for typed queries, in ms. */
   delayMs?: number
+  /** The order of a page. Nothing = the API's own (newest first); a filter's choices read better by name. */
+  sortBy?: string
+  sortOrder?: 'asc' | 'desc'
 }
 
 /** What a contact is called in a picker: the company, else the person, else the email. */
@@ -72,6 +75,10 @@ export function useContactSearch(opts: ContactSearchOptions) {
       const params: Record<string, string | number> = { size: opts.size ?? 20 }
       const type = opts.type?.()
       if (type) params.type = type
+      if (opts.sortBy) {
+        params.sortBy = opts.sortBy
+        params.sortOrder = opts.sortOrder ?? 'asc'
+      }
       const q = (text ?? '').trim()
       if (q) params.search = q
       const { data } = await httpClient.get(`${opts.orgUrl()}/invoicing/contact`, { params })

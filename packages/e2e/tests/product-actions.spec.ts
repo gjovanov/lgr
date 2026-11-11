@@ -1,6 +1,7 @@
 import { test, expect, type Locator, type Page } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { apiLogin, apiGet, apiPost, type ApiSession } from './helpers/api'
+import { apiDelete, apiLogin, apiGet, apiPost, type ApiSession } from './helpers/api'
+import { okJson } from './helpers/bills'
 import { rowAction } from './helpers/row-actions'
 import { lineValues } from './helpers/document-form'
 import { listGeometry, pinnedInView } from './helpers/list-geometry'
@@ -115,9 +116,12 @@ test.beforeAll(async () => {
 
 /**
  * The six price tiers shown by default make the list wider than 1366 px, so it scrolls sideways
- * with the article's name and its row menu pinned. Hide them on the cog and it fits as before.
+ * with the article's name and its row menu pinned. Since 2026-11-11 a code and a name are read on
+ * one line each (the owner's word: `NAME_MIN_WIDTH`, the next test), which is more room than a
+ * 1366 px screen has even with the tiers hidden: there it still scrolls, still pinned. On a desktop
+ * screen, hide the tiers on the cog and every column is in view.
  */
-test('at 1366 px the Products list keeps the name and the row menu in view — and fits without the price tiers', async ({ page }) => {
+test('at 1366 px the Products list keeps the name and the row menu in view — and a desktop screen fits it without the price tiers', async ({ page }) => {
   await loginForApp(page)
   const paths = ['/inventory/products', '/inventory/products?status=all']
   for (const path of paths) {
@@ -143,7 +147,54 @@ test('at 1366 px the Products list keeps the name and the row menu in view — a
     await page.goto(path)
     await expect(page.locator('.v-data-table tbody tr').first()).toBeVisible({ timeout: 15000 })
     await page.waitForLoadState('networkidle')
-    expect((await listGeometry(page)).hidden, `${path}: no sideways scroll at 1366 px without the tiers`).toBeLessThanOrEqual(1)
+    for (const scroll of ['start', 'end'] as const) {
+      expect(await pinnedInView(page, scroll, 2), `${path} without the tiers, scrolled to the ${scroll}: the name and the menu`).toEqual({ cell: true, menu: true })
+    }
+  }
+  await page.setViewportSize({ width: 1920, height: 900 })
+  for (const path of paths) {
+    await page.goto(path)
+    await expect(page.locator('.v-data-table tbody tr').first()).toBeVisible({ timeout: 15000 })
+    await page.waitForLoadState('networkidle')
+    expect((await listGeometry(page)).hidden, `${path}: no sideways scroll at 1920 px without the tiers`).toBeLessThanOrEqual(1)
+  }
+})
+
+/**
+ * A code and a name are read whole, on one line (owner, 2026-11-11). The code used to break anywhere, so that a
+ * squeezed list stayed narrow, and the name had 180 px: with the price tiers shown, a 13-character code stood on
+ * two lines and most names on two or three. The article here has the shape of a real catalogue's: a code of seven
+ * letters, a hyphen and five digits, and a 36-character name in capitals.
+ */
+test('a code and a name of a real catalogue stand on one line each, at 1366 and at 1920 px', async ({ page }) => {
+  const sku = `EEROWSS-${String(Date.now() % 100000).padStart(5, '0')}`
+  const name = '4294 АРОМАТИЗАТОР - СПАРКО - ВАНИЛИЯ'
+  const { product: made } = await okJson(await apiPost(session, '/warehouse/product', {
+    sku, name, category: 'General', type: 'goods', unit: 'pcs', purchasePrice: 1, sellingPrice: 2, taxRate: 20,
+  }))
+  try {
+    await loginForApp(page)
+    for (const width of [1366, 1920]) {
+      await page.setViewportSize({ width, height: 800 })
+      const row = await productRow(page, sku)
+      await page.waitForLoadState('networkidle')
+      const code = row.getByTestId('product-sku')
+      await expect(code).toHaveText(sku)
+      const read = await row.evaluate((tr) => {
+        const code = tr.querySelector('[data-testid="product-sku"]') as HTMLElement
+        const link = tr.children[2].querySelector('a') as HTMLElement
+        return {
+          codeLines: Math.round(code.offsetHeight / parseFloat(getComputedStyle(code).lineHeight)),
+          codeCut: code.scrollWidth > code.clientWidth,
+          // An inline link that wraps has one box per line.
+          nameLines: link.getClientRects().length,
+          nameInCell: link.getBoundingClientRect().right <= tr.children[2].getBoundingClientRect().right,
+        }
+      })
+      expect(read, `at ${width} px`).toEqual({ codeLines: 1, codeCut: false, nameLines: 1, nameInCell: true })
+    }
+  } finally {
+    await apiDelete(session, `/warehouse/product/${made._id || made.id}`).catch(() => null)
   }
 })
 

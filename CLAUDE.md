@@ -3095,6 +3095,16 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   finds an article by its supplier's own code.
 - ⚠ A Vuetify server table asks for its page when it mounts, so the engine keeps ONE request in flight per set of
   parameters and a closed dialog does not fetch (`active`); a spec counts the requests (FR-28.29).
+- ⚠ **A picker searched on the server REPLACES its list with each answer** (`ui-shared/composables/useContactSearch`:
+  what the server found, plus the chosen ones so their chips keep a name). The Supplier filter once merged every
+  answer into one growing list under `no-filter`, a field that filters nothing itself, so typing changed nothing on
+  screen (2026-11-11). Do not write another search for a contact picker: use that composable. The filter also has
+  `hide-selected`, so its menu is only what the typing matches.
+- **The list reads on one line** (owner, 2026-11-11): a code never wraps (`.sku-cell`, cut only past 220 px), and
+  the name column is never narrower than `NAME_MIN_WIDTH` (360 px: a 36-character name in capitals). ⚠ The price is
+  FR-22.23's old fit: at 1366 px the list scrolls sideways even with the price tiers hidden, the name and the row menu
+  pinned; `product-actions.spec` holds the pinning there, the fit at 1920 px, and the one line. Each supplier in the
+  Suppliers column is a badge (`v-chip`, as each warehouse is in Stock), cut inside itself, never across the cell.
 - **Selection and orders** (FR-28.13 to .21): `ListScaffold` `selectable` + `v-model:selected` hold ids across pages;
   "all that match" travels as the FILTER, never as ids, and the server resolves it with the list's own builder
   (`services/biz/product-list-query.ts#resolveProductListFilter`, one function for the list and the preview). The cap
