@@ -7,8 +7,13 @@
  * EXISTING supplier, and only to one:
  *
  *   - by EXACT normalized name: the same words, whatever their case and whatever runs of whitespace separate them
- *     (`normalizeName`). No fuzzy rung: a near name is a different company until a person says otherwise, and the
- *     answer decides who the article is "bought from";
+ *     (`normalizeName`);
+ *   - else by the same words whatever PUNCTUATION stands between them (`foldName`): PlusMinus prints a document's
+ *     partner from one list („КАМ - 04 ООД", „F.REYHER Nchfg. GmbH") and keeps its supplier ledger in another
+ *     („КАМ-04 ООД", „F.REYHER Nchfg.GMBH"), and LGR's suppliers were seeded from the ledger. In the two shops that
+ *     alone left a third of the named receipts without their supplier (2026-11-11);
+ *   - no fuzzy rung beyond that: a shorter, longer or differently spelled name is a different company until a
+ *     person says otherwise, and the answer decides who the article is "bought from";
  *   - among ACTIVE contacts of type supplier or both, as every order and recorded supplier is (FR-28.9, .17);
  *   - never creating a contact from free text. A name that matches none, or several, resolves to nothing, and the
  *     import REPORTS it with how many documents named it (`summarizePartners`), so a person can fix the contact.
@@ -22,6 +27,14 @@ import { stripPartnerPrefix } from './map-plusminus-invoice.js'
 /** Whitespace runs collapsed, trimmed, lower-cased the way the `*Lower` mirrors are (`bg` locale). */
 export function normalizeName(s: string | undefined | null): string {
   return String(s ?? '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg')
+}
+
+/**
+ * The name's words alone: every run of anything that is not a letter or a digit becomes one space. „КАМ - 04 ООД"
+ * and „КАМ-04 ООД" are the same words; „КАМ 04" and „КАМ04" are not, and neither are a name and its short form.
+ */
+export function foldName(s: string | undefined | null): string {
+  return normalizeName(s).replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
 }
 
 export type PartnerKind =
@@ -66,7 +79,8 @@ export function unmatchedPartnerOf(warning: unknown): string | undefined {
 }
 
 export type SupplierNameMatch =
-  | { status: 'matched'; contactId: string; name: string }
+  /** `by`: present when the names are equal only once their punctuation is not counted. */
+  | { status: 'matched'; contactId: string; name: string; by?: 'punctuation' }
   | { status: 'none' }
   /** `count`: how many active suppliers carry that exact name. */
   | { status: 'ambiguous'; count: number }
@@ -85,18 +99,27 @@ const isSupplierType = (t: string | undefined) => t === 'supplier' || t === 'bot
  * The one active supplier whose name is exactly this one, from candidates the caller found any way it likes (the
  * database, the API's contact search). Candidates that do not qualify are ignored, so a loose search may pass more
  * than the rule keeps: a customer of the same name, a deactivated contact, a longer name that contains the words.
+ *
+ * The exact name decides whenever any supplier has it (one: matched; several: ambiguous). Only when none has, the
+ * same words with other punctuation are asked, by the same rule.
  */
 export function pickSupplierByName(name: string, candidates: readonly SupplierCandidate[]): SupplierNameMatch {
   const key = normalizeName(name)
   if (!key) return { status: 'none' }
-  const same = candidates.filter((c) => isSupplierType(c.type ?? 'supplier') && c.isActive !== false && normalizeName(c.companyName) === key)
+  const suppliers = candidates.filter((c) => isSupplierType(c.type ?? 'supplier') && c.isActive !== false)
+  const same = suppliers.filter((c) => normalizeName(c.companyName) === key)
   if (same.length === 1) return { status: 'matched', contactId: same[0].id, name: String(same[0].companyName ?? '').trim() }
-  return same.length ? { status: 'ambiguous', count: same.length } : { status: 'none' }
+  if (same.length) return { status: 'ambiguous', count: same.length }
+  const words = foldName(name)
+  if (!words) return { status: 'none' }
+  const alike = suppliers.filter((c) => foldName(c.companyName) === words)
+  if (alike.length === 1) return { status: 'matched', contactId: alike[0].id, name: String(alike[0].companyName ?? '').trim(), by: 'punctuation' }
+  return alike.length ? { status: 'ambiguous', count: alike.length } : { status: 'none' }
 }
 
 /** One line for a run's log: what this partner name resolved to. */
 export function describeMatch(name: string, match: SupplierNameMatch): string {
-  if (match.status === 'matched') return `supplier: ${match.name} (${match.contactId})`
+  if (match.status === 'matched') return `supplier: ${match.name} (${match.contactId})${match.by ? ', the same name but for its punctuation' : ''}`
   if (match.status === 'ambiguous') return `⚠ supplier: ${match.count} active suppliers are named "${name}", so the receipt names none`
   return `⚠ supplier: no active supplier is named "${name}", so the receipt names none`
 }

@@ -3070,6 +3070,11 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   whitespace folded, the `ПАРТНЬОРИ:` prefix stripped, no homoglyph folding, an ACTIVE supplier or both contact, never
   a natural person) and post its `contactId`. They create no contact and do not use the matching ladder's fuzzy
   rungs (a miss is reported, not guessed); the run ends with the partners it could not resolve and their documents.
+  ⚠ **The same words with other punctuation are the same name** (`foldName`, the second rule of
+  `pickSupplierByName`, since 2026-11-11): PlusMinus prints a document's partner from its partner list („КАМ - 04
+  ООД") and keeps the supplier ledger LGR was seeded from in another spelling („КАМ-04 ООД"), which alone left a
+  third of the shops' named receipts without their supplier. A shorter, longer or respelled name („REYHER" for
+  „F.REYHER Nchfg.GMBH", a missing ООД) is still nobody: that needs a person, not a rule.
   ⚠ An importer never changes a booked receipt (a movement is editable only as a draft): add the supplier BEFORE
   the next run, or name the receipt afterwards with the backfill below.
 - **A receipt booked without a supplier: `scripts/backfill-receipt-suppliers.ts --org <slug>`**
@@ -3085,6 +3090,16 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   alone: a receipt that says it is no delivery (`noteSaysNoDelivery`), a rolled-back or record-only one, one a
   document holds, one whose partner is written nowhere. ⚠ An org with no supplier contacts resolves nothing: its
   suppliers come first. Idempotent: run it again after adding a supplier.
+  - **A receipt that keeps no partner at all** (everything booked before 2026-09-08, when the import first recorded
+    one): `--partners <file>` gives the partner PlusMinus holds per document number, and the receipt says which
+    document it is in its marker (`stokrazp:<n>`). Make the file with `--collect-partners <dir> --out <file>` from a
+    pull of the period (`pull-api.ts --families stokrazp --no-snapshot --dest <dir>`); it holds partner names, keep it
+    out of the repo.
+  - **One more rule lives only here**, because it needs every contact: a partner whose name is exactly a CUSTOMER's
+    is the supplier that carries that customer's tax number, when exactly one does (the same company, kept twice).
+  - ⚠ A stock note prints „Доставчик:" on the line above its items table. Until 2026-11-11 the parser read past the
+    end of a blank one and stored the table's HEADER row as the partner's name (`parse-table.ts#statedSupplier`
+    now stays on the line; `isItemsTableHeader` is how the backfill knows such a stored name is nobody).
 - ⚠ **"Below minimum" and "To order" need minimums, and nothing imports one.** They read `Product.minStockLevel`
   and `maxStockLevel`; an org that has set none sees both empty (the stock range filter does not need them).
 

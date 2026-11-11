@@ -27,7 +27,7 @@ import { buildSearchFilter } from '../search.utils.js'
 import { clean, digits } from './detect.js'
 import type { MatchedBy, Party } from './types.js'
 import { ocrMatchLines } from './ocr-client.js'
-import { normalizeName, pickSupplierByName, type SupplierNameMatch } from './supplier-name.js'
+import { foldName, normalizeName, pickSupplierByName, type SupplierNameMatch } from './supplier-name.js'
 
 export interface ProductMatch {
   productId: string
@@ -186,8 +186,9 @@ export async function matchContact(
  * FR-28.12: the EXISTING supplier a free-text partner names (a PlusMinus goods receipt's `ПАРТНЬОРИ:…`), by EXACT
  * normalized name: the same words, any case, any run of whitespace between them (`supplier-name.ts#normalizeName`).
  * Active contacts of type supplier or both only. A name that matches none, or several, resolves to nothing (the
- * caller says so in its report); this never creates a contact from free text, and has no looser rung: the answer
- * decides who an article is "bought from", and a near name is another company until a person says otherwise.
+ * caller says so in its report); this never creates a contact from free text. When no supplier has the exact name,
+ * the same words with other punctuation are asked (`foldName`), and nothing looser: the answer decides who an article
+ * is "bought from", and a near name is another company until a person says otherwise.
  * ⚠ The pattern is built at runtime from a string: a Cyrillic regex LITERAL would be transpiled by Bun to \uXXXX
  * escapes and rejected by Mongo (PCRE2 51091), as the product ladder's whitespace rung is.
  */
@@ -199,7 +200,16 @@ export async function matchSupplierByName(orgId: string, partner: string): Promi
     { orgId, type: { $in: ['supplier', 'both'] }, isActive: { $ne: false }, companyNameLower: { $regex: pattern } } as any,
     { companyName: 1, type: 1, isActive: 1 },
   ).lean()
-  return pickSupplierByName(key, rows.map(c => ({ id: String(c._id), companyName: c.companyName, type: c.type, isActive: c.isActive })))
+  const pick = (found: any[]) => pickSupplierByName(key, found.map(c => ({ id: String(c._id), companyName: c.companyName, type: c.type, isActive: c.isActive })))
+  const exact = pick(rows)
+  const words = foldName(partner)
+  if (exact.status !== 'none' || !words) return exact
+  // The suppliers whose name holds every one of the words, whatever stands between them: the rule chooses.
+  const alike: any[] = await Contact.find(
+    { orgId, type: { $in: ['supplier', 'both'] }, isActive: { $ne: false }, $and: words.split(' ').map(w => ({ companyNameLower: { $regex: escapeRe(w) } })) } as any,
+    { companyName: 1, type: 1, isActive: 1 },
+  ).limit(200).lean()
+  return pick(alike)
 }
 
 /**

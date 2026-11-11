@@ -1,13 +1,17 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { mongoose } from 'db/connection'
 import { AuditLog, DocFile, StockMovement } from 'db/models'
 import { deliveryNote, movementMarker, reconcileNote, removalReversalNote } from 'config/movement-notes'
 import { getSupplierFacts } from 'services/biz/product-suppliers.service'
 import { unmatchedPartnerWarning } from 'services/biz/doc-import/supplier-name'
+import { matchSupplierByName } from 'services/biz/doc-import/matching'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestContact, createTestOrg, createTestProduct, createTestStockMovement, createTestUser, createTestWarehouse } from '../helpers/factories'
 import {
-  applyReceiptSupplier, countUndoable, planReceiptSupplierBackfill, undoReceiptSupplier,
+  applyReceiptSupplier, collectPartners, countUndoable, planReceiptSupplierBackfill, receiptDocumentNumber, undoReceiptSupplier,
 } from '../../../../scripts/lib/receipt-supplier-backfill'
 
 /**
@@ -269,5 +273,226 @@ describe('the way back', () => {
   it('a receipt it gave back is one the next run names again', async () => {
     const { plans } = await planReceiptSupplierBackfill(String(org._id))
     expect(plans.map(p => p.movementNumber).sort()).toEqual([r.prefixed.movementNumber, r.bareOtherCase.movementNumber].sort())
+  })
+})
+
+/**
+ * A receipt booked before the importers recorded a partner keeps none: not in its notes, not in its document. The
+ * source still has it, by the number of the document, and the receipt says which document it is.
+ */
+describe('receipts that keep no partner of their own', () => {
+  let third: any, alfa: any
+  const q: Record<string, any> = {}
+  const HEADER = 'N                       Име                      М     Ко     Це    Про    Це'
+  const partners = {
+    '3000000101': 'ПАРТНЬОРИ:АЛФА ТЕСТ ЕООД',
+    '3000000102': 'ПАРТНЬОРИ:Алфа  Тест ЕООД',
+    '103': 'ПАРТНЬОРИ:АЛФА ТЕСТ ЕООД',
+    '3000000104': '',
+    '3000000106': 'ПАРТНЬОРИ:НИКОЙ ООД',
+    '3000000107': 'ПАРТНЬОРИ:2000 КОРЕКЦИЯ',
+    '3000000109': 'ПАРТНЬОРИ:АЛФА ТЕСТ ЕООД',
+    '3000000110': 'ПАРТНЬОРИ:НИКОЙ ООД',
+  }
+
+  beforeAll(async () => {
+    third = await createTestOrg({ name: 'Трети', slug: 'receipt-supplier-backfill-given' } as any)
+    alfa = await createTestContact(third._id, { type: 'supplier', companyName: 'АЛФА ТЕСТ ЕООД' } as any)
+    const article = await createTestProduct(third._id)
+    let day = 0
+    const make = async (key: string, extra: Record<string, unknown>) => {
+      q[key] = await createTestStockMovement(third._id, {
+        movementNumber: `SM-G-${key}`, type: 'receipt', status: 'completed', date: new Date(Date.UTC(2026, 6, ++day)),
+        toWarehouseId: warehouse._id, createdBy: owner._id,
+        lines: [{ productId: article._id, quantity: 1, unitCost: 1, totalCost: 1 }], totalAmount: 1, ...extra,
+      } as any)
+    }
+    const plain = (number: string) => deliveryNote('2026-07-01', movementMarker('goods_receipt', number))
+    await make('byMarker', { notes: plain('3000000101') })
+    await make('byReference', { notes: 'получено на ръка', reference: 'stokrazp_3000000102' })
+    await make('padded', { notes: plain('0000000103') })
+    await make('sourceNamesNobody', { notes: plain('3000000104') })
+    await make('notAsked', { notes: plain('3000000105') })
+    await make('unknownGiven', { notes: plain('3000000106') })
+    await make('correctionGiven', { notes: plain('3000000107') })
+    await make('headerAsName', { notes: plain('3000000108') })
+    await docFor(q.headerAsName, [unmatchedPartnerWarning(HEADER)], third._id)
+    await make('headerButGiven', { notes: plain('3000000109') })
+    await docFor(q.headerButGiven, [unmatchedPartnerWarning(HEADER)], third._id)
+    await make('notesWin', { notes: deliveryNote('2026-07-01', movementMarker('goods_receipt', '3000000110'), 'ПАРТНЬОРИ:АЛФА ТЕСТ ЕООД') })
+  })
+
+  it('reads which document a receipt is from its marker, else from its reference', () => {
+    expect(receiptDocumentNumber({ notes: deliveryNote('2026-07-01', 'stokrazp:3000000101', 'ПАРТНЬОРИ:X') })).toBe('3000000101')
+    expect(receiptDocumentNumber({ notes: 'Доставки — 2026-07-01 (stokrazp:0000000103)' })).toBe('103')
+    expect(receiptDocumentNumber({ notes: 'получено', reference: ' stokrazp_3000000102 ' })).toBe('3000000102')
+    // A correction, a transfer and a day of deliveries are other documents.
+    for (const notes of ['Корекция — 2026-07-01 (corr:1)', 'Прехвърляне — 2026-07-01 (sklrazp:12)', 'Доставки — 2026-07-01 (storeOperations:2026-07-01)', '', undefined]) {
+      expect(receiptDocumentNumber({ notes })).toBeUndefined()
+    }
+    expect(receiptDocumentNumber({ notes: 'x', reference: 'sklrazp_0000000012' })).toBeUndefined()
+  })
+
+  it('without the source they name nobody, and a table header stored as a name is nobody too', async () => {
+    const { counts, plans, unresolved } = await planReceiptSupplierBackfill(String(third._id))
+    expect(plans.map(p => [p.movementNumber, p.source])).toEqual([['SM-G-notesWin', 'notes']])
+    expect(unresolved).toEqual([])
+    expect(counts).toMatchObject({ receipts: 10, noPartnerKnown: 9, unresolved: 0, resolved: 1, notADelivery: 0 })
+  })
+
+  it('with the partner the source holds for each document, they name their supplier', async () => {
+    const { counts, plans, unresolved } = await planReceiptSupplierBackfill(String(third._id), { partners })
+    expect(plans.map(p => [p.movementNumber, p.source])).toEqual([
+      ['SM-G-byMarker', 'given'], ['SM-G-byReference', 'given'], ['SM-G-padded', 'given'], ['SM-G-headerButGiven', 'given'],
+      // Its own notes name its supplier: what the source says of that document is not asked.
+      ['SM-G-notesWin', 'notes'],
+    ])
+    expect(plans.every(p => p.contactId === String(alfa._id))).toBe(true)
+    expect(unresolved).toEqual([{ name: 'НИКОЙ ООД', reason: 'none', receipts: ['SM-G-unknownGiven'] }])
+    expect(counts).toEqual({
+      receipts: 10, notCounted: 0, heldByADocument: 0,
+      notADelivery: 1, // the source says it is a КОРЕКЦИЯ
+      noPartnerKnown: 3, // the source names nobody; the source was not asked about it; a header and no source
+      unresolved: 1, resolved: 5,
+    })
+  })
+
+  it('writes them like any other, and the next run has nothing left of them', async () => {
+    const { plans } = await planReceiptSupplierBackfill(String(third._id), { partners })
+    for (const p of plans) expect(await applyReceiptSupplier(String(third._id), p, owner._id, REASON)).toBe(true)
+    for (const key of ['byMarker', 'byReference', 'padded', 'headerButGiven', 'notesWin']) {
+      expect(String((await StockMovement.findById(q[key]._id).lean().exec() as any).contactId)).toBe(String(alfa._id))
+    }
+    for (const key of ['sourceNamesNobody', 'notAsked', 'unknownGiven', 'correctionGiven', 'headerAsName']) {
+      expect((await StockMovement.findById(q[key]._id).lean().exec() as any).contactId).toBeUndefined()
+    }
+    const again = await planReceiptSupplierBackfill(String(third._id), { partners })
+    expect(again.plans).toEqual([])
+    expect(again.counts.receipts).toBe(5)
+  })
+
+  it('collects the partner of each pulled document by its number, and says when a document names nobody', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lgr-partners-'))
+    try {
+      mkdirSync(join(dir, 'api'))
+      writeFileSync(join(dir, 'stokrazp_3000000101.json'), JSON.stringify({ num: '3000000101', header: { docNumber: '3000000101', partner: 'ПАРТНЬОРИ:АЛФА ТЕСТ ЕООД' }, lines: [] }))
+      writeFileSync(join(dir, 'api', 'stokrazp_3000000104.json'), JSON.stringify({ header: { docNumber: '3000000104' }, lines: [] }))
+      writeFileSync(join(dir, 'api', 'stokrazp_0000000103.json'), '\uFEFF' + JSON.stringify({ num: '0000000103', header: { partner: '  ПАРТНЬОРИ:X  ' } }))
+      writeFileSync(join(dir, 'invoicem_3000000999.json'), JSON.stringify({ header: { docNumber: '3000000999', partner: 'ПАРТНЬОРИ:КЛИЕНТ' } }))
+      writeFileSync(join(dir, 'manifest.sha256'), 'not json')
+      expect(collectPartners(dir)).toEqual({ '3000000101': 'ПАРТНЬОРИ:АЛФА ТЕСТ ЕООД', '3000000104': '', '103': 'ПАРТНЬОРИ:X' })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+/**
+ * The documents print a partner as PlusMinus's partner list spells it; the suppliers were seeded from its ledger,
+ * which spells many of them with other punctuation, and keeps some companies a second time as customers.
+ */
+describe('the same company under another spelling', () => {
+  let fourth: any
+  const c: Record<string, any> = {}
+  const m: Record<string, any> = {}
+
+  beforeAll(async () => {
+    fourth = await createTestOrg({ name: 'Четвърти', slug: 'receipt-supplier-backfill-spelling' } as any)
+    const contact = async (key: string, type: string, companyName: string, extra: Record<string, unknown> = {}) => {
+      c[key] = await createTestContact(fourth._id, { type, companyName, ...extra } as any)
+    }
+    await contact('hyphen', 'supplier', 'ТЕСТ-04 ООД')
+    await contact('dots', 'supplier', 'F.TEST Nchfg.GMBH')
+    await contact('alikeA', 'supplier', 'ДВЕ-ТОЧКИ ООД')
+    await contact('alikeB', 'supplier', 'ДВЕ ТОЧКИ ООД')
+    await contact('exactA', 'supplier', 'ЕДНО-ИМЕ ООД')
+    await contact('exactB', 'supplier', 'ЕДНО - ИМЕ ООД')
+    await contact('longer', 'supplier', 'КРАТКО ТРЕЙД ЕООД')
+    // The same company twice: a customer under the name the documents print, a supplier under its ledger name.
+    await contact('twinCustomer', 'customer', 'ДВОЕН ООД', { taxId: '111222333' })
+    await contact('twinSupplier', 'supplier', 'СД ДВОЕН И СИЕ', { taxId: '111222333', vatNumber: 'BG111222333' })
+    await contact('vatCustomer', 'customer', 'ВАТ КЛИЕНТ ЕООД', { vatNumber: 'BG 444555666' })
+    await contact('vatSupplier', 'supplier', 'ВАТ ДОСТАВЧИК - ЕООД', { taxId: '444555666' })
+    await contact('sharedCustomer', 'customer', 'ОБЩ ООД', { taxId: '777888999' })
+    await contact('sharedSupplierA', 'supplier', 'ОБЩ ДОСТАВЧИК А', { taxId: '777888999' })
+    await contact('sharedSupplierB', 'supplier', 'ОБЩ ДОСТАВЧИК Б', { taxId: '777888999' })
+    await contact('shortCustomer', 'customer', 'КЪС ООД', { taxId: '123' })
+    await contact('shortSupplier', 'supplier', 'КЪС ДОСТАВЧИК', { taxId: '123' })
+    await contact('goneCustomer', 'customer', 'СПРЯН ООД', { taxId: '555666777' })
+    await contact('goneSupplier', 'supplier', 'СПРЯН ДОСТАВЧИК', { taxId: '555666777', isActive: false })
+
+    const article = await createTestProduct(fourth._id)
+    let day = 0
+    const make = async (key: string, partner: string) => {
+      m[key] = await createTestStockMovement(fourth._id, {
+        movementNumber: `SM-S-${key}`, type: 'receipt', status: 'completed', date: new Date(Date.UTC(2026, 8, ++day)),
+        toWarehouseId: warehouse._id, createdBy: owner._id,
+        lines: [{ productId: article._id, quantity: 1, unitCost: 1, totalCost: 1 }], totalAmount: 1,
+        notes: deliveryNote('2026-09-01', movementMarker('goods_receipt', String(3000001000 + day)), `ПАРТНЬОРИ:${partner}`),
+      } as any)
+    }
+    await make('hyphen', 'ТЕСТ - 04 ООД')
+    await make('dots', 'F.TEST Nchfg. GmbH')
+    await make('alike', 'ДВЕ - ТОЧКИ ООД')
+    await make('exact', 'ЕДНО - ИМЕ ООД')
+    await make('shorter', 'КРАТКО ТРЕЙД')
+    await make('twin', 'ДВОЕН ООД')
+    await make('twinByVat', 'ВАТ КЛИЕНТ ЕООД')
+    await make('shared', 'ОБЩ ООД')
+    await make('shortNumber', 'КЪС ООД')
+    await make('goneSupplier', 'СПРЯН ООД')
+  })
+
+  it('finds the supplier by the same words, and by the tax number of the customer that has the name', async () => {
+    const { plans, counts } = await planReceiptSupplierBackfill(String(fourth._id))
+    expect(plans.map(p => [p.movementNumber, p.rule, p.contactId])).toEqual([
+      ['SM-S-hyphen', 'punctuation', String(c.hyphen._id)],
+      ['SM-S-dots', 'punctuation', String(c.dots._id)],
+      // Its exact name is one supplier, whatever else is alike.
+      ['SM-S-exact', 'name', String(c.exactB._id)],
+      ['SM-S-twin', 'taxNumber', String(c.twinSupplier._id)],
+      // A Bulgarian VAT number is the ЕИК with BG before it.
+      ['SM-S-twinByVat', 'taxNumber', String(c.vatSupplier._id)],
+    ])
+    expect(plans.find(p => p.movementNumber === 'SM-S-twin')!.supplierName).toBe('СД ДВОЕН И СИЕ')
+    expect(counts).toMatchObject({ receipts: 10, resolved: 5, unresolved: 5 })
+  })
+
+  it('and reports what is still nobody, with why', async () => {
+    const { unresolved } = await planReceiptSupplierBackfill(String(fourth._id))
+    const by = new Map(unresolved.map(u => [u.name, u]))
+    expect([...by.keys()].sort()).toEqual(['ДВЕ - ТОЧКИ ООД', 'КРАТКО ТРЕЙД', 'КЪС ООД', 'ОБЩ ООД', 'СПРЯН ООД'])
+    // Two suppliers alike but for their punctuation.
+    expect(by.get('ДВЕ - ТОЧКИ ООД')).toMatchObject({ reason: 'ambiguous', candidates: 2 })
+    // A shorter name is another company.
+    expect(by.get('КРАТКО ТРЕЙД')).toMatchObject({ reason: 'none' })
+    // Two suppliers carry that customer's tax number: neither is chosen.
+    expect(by.get('ОБЩ ООД')).toMatchObject({ reason: 'none', heldBy: 'customer' })
+    // Three digits are no tax number.
+    expect(by.get('КЪС ООД')).toMatchObject({ reason: 'none', heldBy: 'customer' })
+    // The only supplier with that number is deactivated.
+    expect(by.get('СПРЯН ООД')).toMatchObject({ reason: 'none', heldBy: 'customer' })
+  })
+
+  it('the importers\' matcher over the database follows the same rule', async () => {
+    const id = String(fourth._id)
+    expect(await matchSupplierByName(id, 'тест-04  оод')).toEqual({ status: 'matched', contactId: String(c.hyphen._id), name: 'ТЕСТ-04 ООД' })
+    expect(await matchSupplierByName(id, 'ПАРТНЬОРИ ТЕСТ - 04 ООД'.replace('ПАРТНЬОРИ ', ''))).toEqual({ status: 'matched', contactId: String(c.hyphen._id), name: 'ТЕСТ-04 ООД', by: 'punctuation' })
+    expect(await matchSupplierByName(id, 'F.TEST Nchfg. GmbH')).toMatchObject({ status: 'matched', contactId: String(c.dots._id), by: 'punctuation' })
+    expect(await matchSupplierByName(id, 'ЕДНО - ИМЕ ООД')).toEqual({ status: 'matched', contactId: String(c.exactB._id), name: 'ЕДНО - ИМЕ ООД' })
+    expect(await matchSupplierByName(id, 'ДВЕ - ТОЧКИ ООД')).toEqual({ status: 'ambiguous', count: 2 })
+    expect(await matchSupplierByName(id, 'КРАТКО ТРЕЙД')).toEqual({ status: 'none' })
+    // A customer of that name is nobody to this rule, and another organization's supplier is never read.
+    expect(await matchSupplierByName(id, 'ДВОЕН ООД')).toEqual({ status: 'none' })
+    expect(await matchSupplierByName(String(other._id), 'ТЕСТ - 04 ООД')).toEqual({ status: 'none' })
+  })
+
+  it('writes them, each to the supplier the rule found', async () => {
+    const { plans } = await planReceiptSupplierBackfill(String(fourth._id))
+    for (const p of plans) expect(await applyReceiptSupplier(String(fourth._id), p, owner._id, REASON)).toBe(true)
+    expect(String((await StockMovement.findById(m.twin._id).lean().exec() as any).contactId)).toBe(String(c.twinSupplier._id))
+    expect(String((await StockMovement.findById(m.hyphen._id).lean().exec() as any).contactId)).toBe(String(c.hyphen._id))
+    expect((await StockMovement.findById(m.shared._id).lean().exec() as any).contactId).toBeUndefined()
+    expect((await planReceiptSupplierBackfill(String(fourth._id))).plans).toEqual([])
   })
 })

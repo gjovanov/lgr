@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { parseTable, draftFromLayoutText } from 'services/biz/doc-import/parse-table'
+import { parseTable, draftFromLayoutText, isItemsTableHeader } from 'services/biz/doc-import/parse-table'
 
 /**
  * The fixtures are built column-by-column rather than written as literals so the alignment the
@@ -121,6 +121,33 @@ describe('parse-table — PlusMinus layout reader', () => {
     expect(draft!.extraction.warehouse_to).toBe('ТЕСТ СКЛАД')
     expect(draft!.engine).toBe('deterministic')              // never reached the sidecar
     expect(draft!.validation.status).toBe('valid')
+  })
+
+  it('a blank Доставчик names nobody: the table header on the next line is not its value', () => {
+    const body = [
+      row([0, '1'], [5, 'ТЕСТ БОЛТ'], [47, 'Б'], [52, '100'], [59, '0.5'], [87, '50.0']),
+      row([47, 'Р'], [59, '000'], [89, '0']),
+    ]
+    // The label stands alone at the end of its line, and the next thing on the page is „N   Име   М   Кол …".
+    const blank = draftFromLayoutText(stockNote(body, 50.00, ''), 'goods_receipt')
+    expect(blank).not.toBeNull()
+    expect(blank!.extraction.supplier?.name ?? null).toBeNull()
+    expect(blank!.validation.status).toBe('valid')
+    // A name on the label's own line is still read, whatever it is.
+    expect(draftFromLayoutText(stockNote(body, 50.00, 'ТЕСТ СЕНТЕР ЕООД'), 'goods_receipt')!.extraction.supplier?.name).toBe('ТЕСТ СЕНТЕР ЕООД')
+    expect(draftFromLayoutText(stockNote(body, 50.00, 'склад'), 'goods_receipt')!.extraction.supplier?.name).toBe('склад')
+  })
+
+  it('knows the items table header from a name', () => {
+    // What a blank label's reader took for the partner, as four real layouts print the header.
+    for (const header of [
+      'No                   Име                   Мяр        Кол          Цена    Прод.    Цена       Цена     Цена',
+      'No                  Име                  Мя         Кол        Цена       Прод.     Цена       Цена      Цена',
+      'N                       Име                      М     Ко     Це    Про    Це    Це       Це      Це    Це    Сто    За',
+      'N Име М Ко Це Пр Це Це Це Це Це Це Сто',
+      row([0, 'N'], [23, 'Име'], [47, 'М'], [52, 'Кол'], [59, 'Цен'], [69, 'Цен'], [79, 'Цен'], [87, 'Стой'], [96, 'Забележка']),
+    ]) expect(isItemsTableHeader(header), header.slice(0, 30)).toBe(true)
+    for (const name of ['ТЕСТ СЕНТЕР ЕООД', 'склад', 'N.O.V. Име ООД', 'Име Кол ООД', '2000 КОРЕКЦИЯ', 'No Name Ltd', '']) expect(isItemsTableHeader(name), name).toBe(false)
   })
 
   it('parses a multi-page export whose header repeats with different geometry', () => {
