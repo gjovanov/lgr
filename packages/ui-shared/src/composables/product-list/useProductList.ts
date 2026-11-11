@@ -3,6 +3,7 @@ import { hasNoReorderLevels, reorderPosition, toOrderQuantity } from 'config/reo
 import { accessGrant, useAccess } from '../../access/useAccess'
 import { liveAccessVersion } from '../../access/live-grant'
 import { httpClient } from '../useHttpClient'
+import { contactTitle, useContactSearch } from '../useContactSearch'
 import { useListQueryState } from '../useListQueryState'
 import { useSearchDebounce } from '../useSearchDebounce'
 import { formatUnitPrice } from '../product-price-columns'
@@ -350,8 +351,15 @@ export function useProductList(opts: UseProductListOptions) {
   const categoryOptions = ref<string[]>([])
   const warehouseOptions = ref<any[]>([])
   const supplierSearch = ref('')
-  const supplierOptions = ref<Array<{ _id: string; name: string }>>([])
-  const loadingSuppliers = ref(false)
+  // The supplier filter's choices are what the SERVER found for the text typed (a thousand suppliers are never
+  // loaded, and a tax number finds its supplier), by name, with the chosen suppliers kept so their chips have a
+  // name. `useContactSearch` replaces the list on every answer. This engine used to merge each answer into one
+  // growing list instead, and the field does no filtering of its own: typing changed nothing on screen.
+  const supplierContacts = useContactSearch({
+    orgUrl: opts.orgUrl, type: () => 'supplier', selected: () => supplierFilter.value, sortBy: 'companyName', sortOrder: 'asc',
+  })
+  const supplierOptions = computed(() => supplierContacts.contacts.value.map((c) => ({ _id: c._id, name: contactTitle(c) || c._id })))
+  const loadingSuppliers = supplierContacts.loading
 
   async function fetchCategories() {
     try {
@@ -366,47 +374,16 @@ export function useProductList(opts: UseProductListOptions) {
     } catch { /* */ }
   }
 
-  // The supplier filter's choices: the first suppliers, then whatever is typed (server-side, so a thousand suppliers
-  // are never loaded). The ids a pasted URL carries are named one by one, since the search may not return them.
-  const contactName = (c: any): string => c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || c._id
-  function addSupplierOptions(rows: any[]) {
-    const known = new Map(supplierOptions.value.map((o) => [o._id, o]))
-    for (const c of rows) if (c?._id) known.set(c._id, { _id: c._id, name: contactName(c) })
-    supplierOptions.value = [...known.values()]
-  }
-  let supplierSearchRequest = 0
-  let supplierSearchTimer: ReturnType<typeof setTimeout> | null = null
-  async function searchSuppliers(q: string) {
-    const mine = ++supplierSearchRequest
-    loadingSuppliers.value = true
-    try {
-      const { data } = await httpClient.get(`${opts.orgUrl()}/invoicing/contact`, {
-        params: { type: 'supplier', size: 20, sortBy: 'companyName', sortOrder: 'asc', ...(q ? { search: q } : {}) },
-      })
-      if (mine === supplierSearchRequest) addSupplierOptions(data.contacts || [])
-    } catch { /* the filter keeps what it has */ } finally {
-      if (mine === supplierSearchRequest) loadingSuppliers.value = false
-    }
-  }
-  watch(supplierSearch, (q) => {
-    if (supplierSearchTimer) clearTimeout(supplierSearchTimer)
-    supplierSearchTimer = setTimeout(() => searchSuppliers(q || ''), 300)
-  })
-  async function nameChosenSuppliers() {
-    const missing = supplierFilter.value.filter((id) => !supplierOptions.value.some((o) => o._id === id))
-    await Promise.all(missing.map(async (id) => {
-      try {
-        const { data } = await httpClient.get(`${opts.orgUrl()}/invoicing/contact/${id}`)
-        addSupplierOptions([data.contact])
-      } catch { /* an id that is no contact keeps its id as its name */ }
-    }))
-  }
   let suppliersLoaded_ = false
+  // What is typed goes to the server, debounced, once the filter has its first choices (a dialog that nobody has
+  // typed in asks nothing). The ids a pasted URL carries are named one by one (`ensureSelected`), since a search may
+  // not return them; an id that is no contact keeps its id as its name.
+  watch(supplierSearch, (q) => { if (suppliersLoaded_) supplierContacts.onSearch(q) })
   /** The supplier filter's first choices, once. The page asks at once; the dialog asks when the filter is first used. */
   async function ensureSupplierOptions() {
     if (!seesSuppliers || suppliersLoaded_) return
     suppliersLoaded_ = true
-    await Promise.all([searchSuppliers(''), nameChosenSuppliers()])
+    await Promise.all([supplierContacts.search(supplierSearch.value), supplierContacts.ensureSelected()])
   }
   let optionsLoaded = false
   /** The categories and warehouses the filters offer, once per list. */

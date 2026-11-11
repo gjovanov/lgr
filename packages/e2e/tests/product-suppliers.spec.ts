@@ -104,12 +104,58 @@ test('the Suppliers column names the two most recent suppliers, "+1" for the res
   await expect(a).toContainText(`E2E Supplier B ${stamp}`)
   await expect(a).toContainText('+1')
   await expect(a).not.toContainText(`E2E Supplier A ${stamp}`)
+  // Each supplier is a badge, as each warehouse is in the Stock column: the most recent first, then "+1".
+  const badges = a.locator('.v-chip')
+  await expect(badges).toHaveText([`E2E Supplier C ${stamp}`, `E2E Supplier B ${stamp}`, '+1'])
+  // A badge carries its whole name for the pointer: a long one is cut inside the badge, never across the cell.
+  await expect(badges.nth(0)).toHaveAttribute('title', `E2E Supplier C ${stamp}`)
+  expect(await badges.evaluateAll((chips, box) => chips.every((c) => c.getBoundingClientRect().right <= box.getBoundingClientRect().right + 1), await a.elementHandle()), 'no badge is wider than its cell').toBe(true)
   await expect(rowOf(table, 'b').getByTestId('product-suppliers')).toHaveText('—')
   await expect(rowOf(table, 'c').getByTestId('product-suppliers')).toHaveText('—')
+  await expect(rowOf(table, 'b').getByTestId('product-suppliers').locator('.v-chip')).toHaveCount(0)
 
   // The tooltip names every supplier with its last purchase, the third included.
   await a.hover()
   await expect(page.getByRole('tooltip')).toContainText(`E2E Supplier A ${stamp}`)
+})
+
+/**
+ * The Supplier filter asks the server for what is typed and lists THAT. It used to add every answer to the choices
+ * it already had, in a field that filters nothing itself, so typing changed nothing on screen (owner, 2026-11-11).
+ */
+test('typing in the Supplier filter lists only what the typing matches, and a chosen supplier is not offered again', async ({ page }) => {
+  await loginForApp(page)
+  const table = await openList(page)
+  await expect(table.locator('tbody tr')).toHaveCount(3)
+  const field = page.getByTestId('filter-supplier')
+  const options = page.getByRole('option')
+
+  // Opened, it offers the first suppliers by name: this spec's three among the seed's.
+  await field.locator('.v-field__input').click()
+  await expect(options.first()).toBeVisible({ timeout: 15000 })
+  expect(await options.count(), 'the first choices are more than one supplier').toBeGreaterThan(3)
+
+  // A name: the one supplier that has it, and nothing else.
+  await field.locator('input').fill(`E2E Supplier B ${stamp}`)
+  await expect(options).toHaveText([`E2E Supplier B ${stamp}`])
+  await options.first().click()
+  await expect(page).toHaveURL(new RegExp(`supplier=${ids.suppliers.B}`))
+  await expect(table.locator('tbody tr')).toHaveCount(1)
+  await expect(rowOf(table, 'a')).toHaveCount(1)
+  // Chosen, it is a chip in the field.
+  await expect(field.locator('.v-chip')).toHaveText([`E2E Supplier B ${stamp}`])
+
+  // Part of a name that the three share: the two not chosen yet. B is a chip, and is not listed again.
+  await field.locator('input').fill(stamp)
+  await expect(options).toHaveText([`E2E Supplier A ${stamp}`, `E2E Supplier C ${stamp}`])
+  await options.filter({ hasText: `E2E Supplier C ${stamp}` }).click()
+  await expect(page).toHaveURL(new RegExp(`supplier=${ids.suppliers.B}(,|%2C)${ids.suppliers.C}`))
+  await expect(field.locator('.v-chip')).toHaveText([`E2E Supplier B ${stamp}`, `E2E Supplier C ${stamp}`])
+
+  // Text that is nobody's name lists no supplier (the list then says it has nothing).
+  await field.locator('input').fill(`no such supplier ${stamp}`)
+  await expect(options.filter({ hasText: 'E2E Supplier' })).toHaveCount(0)
+  await expect(options.filter({ hasText: stamp })).toHaveCount(0)
 })
 
 test('the cog offers Last purchase, Last cost, Minimum and To order, off until chosen', async ({ page }) => {

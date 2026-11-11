@@ -57,6 +57,9 @@
            incoming-document data (FR-28.6): a role that may not read bills is not offered them. -->
       <v-row class="mt-1 align-center" data-testid="stock-filters">
         <v-col v-if="list.seesSuppliers" cols="12" md="3">
+          <!-- The list is what the server found for the text typed (`no-filter`: the search also reads tax numbers,
+               which a name filter would hide). A chosen supplier is a chip and is not offered again
+               (`hide-selected`), so what is listed is only what the typing matches. -->
           <v-autocomplete
             v-model="list.supplierFilter"
             v-model:search="list.supplierSearch"
@@ -70,6 +73,7 @@
             closable-chips
             clearable
             no-filter
+            hide-selected
             hide-details
             density="compact"
             :loading="list.loadingSuppliers"

@@ -1,8 +1,9 @@
 <template>
   <!-- FR-28.22 — one cell of the product list, for the Products page and the product dialog alike. The name and
-       the row menu are the page's own; everything else is drawn here, once. A code with no break in it
-       (E2E-CSP-1793022750769) must not widen the list past 1366 px. -->
-  <span v-if="column === 'sku'" style="overflow-wrap: anywhere">{{ item.sku }}</span>
+       the row menu are the page's own; everything else is drawn here, once. A code is read whole, on one line
+       (owner, 2026-11-11: it used to break anywhere to keep the list narrow, and a 13-character code stood on two
+       lines); only a code longer than the box is cut, with the whole of it in the tooltip. -->
+  <span v-if="column === 'sku'" class="sku-cell" :title="item.sku" data-testid="product-sku">{{ item.sku }}</span>
 
   <template v-else-if="column === 'type'">{{ productTypeLabel(item.type) }}</template>
 
@@ -63,9 +64,20 @@
     <v-icon v-if="list.supplierFailed" size="small" color="warning" :title="$t('warehouse.supplierFacts.loadFailed')" data-testid="product-suppliers-failed">mdi-alert-circle-outline</v-icon>
     <div v-else-if="!list.suppliersLoaded(item._id)" class="text-disabled" data-testid="product-suppliers-loading">…</div>
     <div v-else-if="!list.factsOf(item._id).length" class="suppliers-cell text-disabled" data-testid="product-suppliers">—</div>
-    <div v-else data-testid="product-suppliers" class="suppliers-cell">
-      <!-- One line per name, cut with an ellipsis: the tooltip has them whole. -->
-      <div v-for="f in list.factsOf(item._id).slice(0, 2)" :key="f.supplierId" class="text-truncate">{{ f.supplierName || '—' }}</div>
+    <div v-else data-testid="product-suppliers" class="suppliers-cell d-flex flex-wrap ga-1 py-1">
+      <!-- A badge per supplier, as the Stock column has one per warehouse (owner, 2026-11-11). A name longer than
+           the box is cut inside its badge: its own title and the cell's tooltip have it whole. -->
+      <v-chip
+        v-for="f in list.factsOf(item._id).slice(0, 2)"
+        :key="f.supplierId"
+        size="x-small"
+        color="primary"
+        variant="tonal"
+        class="supplier-chip"
+        :title="f.supplierName"
+      >
+        <span class="text-truncate">{{ f.supplierName || '—' }}</span>
+      </v-chip>
       <v-chip v-if="list.moreSuppliers(item._id) > 0" size="x-small" variant="tonal">+{{ list.moreSuppliers(item._id) }}</v-chip>
       <v-tooltip activator="parent" location="top" max-width="420">
         <div v-for="f in list.factsOf(item._id)" :key="f.supplierId">
@@ -144,10 +156,18 @@ const stockTab = computed(() => ({ name: 'inventory.products.stock', params: { i
 </script>
 
 <style scoped>
+/* One line, whatever the room: the column is as wide as its codes. A code past 220 px (about 24 characters) is cut. */
+.sku-cell {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
 /*
- * A supplier's name can be as long as a company's: it is cut here (the tooltip has it whole) instead of widening the
- * list or making the row tall. On a laptop the column never grows past its own header, which is what keeps the list
- * inside 1366 px with the tiers hidden (FR-22.23); a wide screen has room for more of the name.
+ * A supplier's name can be as long as a company's: it is cut inside its badge (the tooltip has it whole) instead of
+ * widening the list. On a laptop the column stays narrow; a wide screen has room for more of the name.
  */
 .suppliers-cell {
   max-width: 100px;
@@ -156,5 +176,12 @@ const stockTab = computed(() => ({ name: 'inventory.products.stock', params: { i
   .suppliers-cell {
     max-width: 220px;
   }
+}
+/* A badge never wider than its box, its name cut with an ellipsis (a chip's own content does not shrink). */
+.supplier-chip {
+  max-width: 100%;
+}
+.supplier-chip :deep(.v-chip__content) {
+  min-width: 0;
 }
 </style>

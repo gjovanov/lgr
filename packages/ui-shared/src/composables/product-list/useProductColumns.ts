@@ -22,6 +22,14 @@ export const PRODUCT_CELL_KEYS: readonly string[] = [
   'stockAvailable',
 ]
 
+/**
+ * The name column is never narrower than this (owner, 2026-11-11): at 180 px a name of 30 to 40 characters, which is
+ * most of a real catalogue, stood on two lines whenever the other columns took the room. This fits a 36-character
+ * name in capitals („4294 АРОМАТИЗАТОР - СПАРКО - ВАНИЛИЯ") on one line; a longer one still wraps. The price is that
+ * the list no longer fits 1366 px even with the price tiers hidden: it scrolls sideways there, with the name and the
+ * row menu pinned (`product-actions.spec`).
+ */
+export const NAME_MIN_WIDTH = '360px'
 /** The price columns take FR-22.23's 8 px gutters, which is what lets the whole list fit 1920 px in Bulgarian. */
 const PRICE_CELL = { headerProps: { class: 'px-2' }, cellProps: { class: 'px-2' } }
 
@@ -58,7 +66,7 @@ export function productColumnHeaders(t: Translate, opts: ProductColumnsOptions):
   if (opts.source === 'till') {
     return [
       { title: t('warehouse.sku'), key: 'sku', sortable: true },
-      { title: t('common.name'), key: 'name', sortable: true, minWidth: '180px' },
+      { title: t('common.name'), key: 'name', sortable: true, minWidth: NAME_MIN_WIDTH },
       { title: t('warehouse.category'), key: 'category', sortable: true },
       { title: t('common.type'), key: 'type', sortable: true },
       { title: t('warehouse.unit'), key: 'unit', sortable: false },
@@ -69,7 +77,7 @@ export function productColumnHeaders(t: Translate, opts: ProductColumnsOptions):
 
   return [
     { title: t('warehouse.sku'), key: 'sku', sortable: true },
-    { title: t('common.name'), key: 'name', sortable: true, fixed: 'start' as const, minWidth: '180px' },
+    { title: t('common.name'), key: 'name', sortable: true, fixed: 'start' as const, minWidth: NAME_MIN_WIDTH },
     { title: t('warehouse.category'), key: 'category', sortable: true },
     { title: t('common.type'), key: 'type' },
     { title: t('warehouse.stock'), key: 'stock' },
