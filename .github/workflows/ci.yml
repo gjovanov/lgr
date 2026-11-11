@@ -186,8 +186,18 @@ jobs:
 
       # Read by the `test` job where there are several shards, and by whoever asks which files a
       # run's time went to (one of them took 12 of a 14-minute run on 2026-11-10).
+      # ⚠ An upload is never this job's verdict. By the time one runs, the work above has passed,
+      # and what it uploads is a saving for a later run: the timings split the next run's shards,
+      # and the marker at the end lets master skip a tree that passed. When the artifact service
+      # does not answer, the action retries for ten minutes and then fails. In GitHub's Actions
+      # outage of 2026-11-11 that turned both lanes of run 43094157696 red after every test and
+      # every build had passed, and kept both runners busy with the retries meanwhile. So every
+      # upload in the two Linux jobs may fail, and gives up after two minutes
+      # (unit/ci-same-tree.test.ts).
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: steps.same.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 2
         with:
           name: test-timings-${{ matrix.shard }}
           path: .test-timings/shard.json
@@ -212,8 +222,12 @@ jobs:
 
       # LAST, so it exists only when everything above passed: what a later run of the same tree
       # finds (.github/actions/same-tree). `overwrite` for a re-run of this run.
+      # It may fail (see the timings upload above): no marker only means master's run of this
+      # tree does the work itself.
       - name: Leave a marker that this tree passed the suite
         if: steps.same.outputs.skip != 'true' && strategy.job-total == 1
+        continue-on-error: true
+        timeout-minutes: 2
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.same.outputs.marker }}
@@ -478,8 +492,12 @@ jobs:
           PDF_CHROME_NO_SANDBOX: '1'
 
       # LAST, so it exists only when everything above passed (.github/actions/same-tree).
+      # It may fail (see the timings upload in `test-shard`): no marker only means master's run of
+      # this tree does the work itself.
       - name: Leave a marker that this tree passed the builds
         if: steps.same.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 2
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ steps.same.outputs.marker }}

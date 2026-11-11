@@ -58,6 +58,19 @@ describe('a job whose tree already passed does nothing, and says so', () => {
       expect(last.lines.some(l => l.includes('actions/upload-artifact@'))).toBe(true)
       expect(last.lines.some(l => l.trim() === 'name: ${{ steps.same.outputs.marker }}')).toBe(true)
     })
+
+    // What an upload leaves is a saving for a later run (the marker, the timings). The work it
+    // follows has passed. Without these two keys a lane whose every test had passed went red at
+    // its upload when the artifact service did not answer, after ten minutes of the action's own
+    // retries on one of two runners (run 43094157696, GitHub's Actions outage of 2026-11-11).
+    it(`${job}: an upload is never the lane's verdict: it may fail, and it gives up within minutes`, () => {
+      const uploads = steps.filter(s => s.lines.some(l => l.includes('actions/upload-artifact@')))
+      expect(uploads.length).toBeGreaterThan(0)
+      const fatal = uploads.filter(s => !s.lines.includes('        continue-on-error: true')).map(s => s.title)
+      expect({ job, fatal }).toEqual({ job, fatal: [] })
+      const unbounded = uploads.filter(s => !s.lines.some(l => /^        timeout-minutes: [1-3]$/.test(l))).map(s => s.title)
+      expect({ job, unbounded }).toEqual({ job, unbounded: [] })
+    })
   }
 
   it('the two lanes have markers of their own', () => {
