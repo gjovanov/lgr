@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup.js'
 import { createTestOrg, createTestUser, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories.js'
-import { AuditLog, FiscalDevice, Org, Role, User } from 'db/models'
+import { AuditLog, FiscalDevice, Identity, Org, Role, User } from 'db/models'
+import { forgetIdentity } from 'services/biz/identity/session.service'
 import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
 import { getPrinter, isDeviceConnected } from 'fiscal/fiscal-device.service'
@@ -474,6 +475,26 @@ describe('fiscal bridge — housekeeping unchanged', () => {
     expect(ws.has('pong')).toBe(true)
 
     await handleClose(ws)
+  })
+})
+
+describe('fiscal bridge — a revoked session registers nothing', () => {
+  it("a token whose person changed their password since (`tv` behind) is refused, as by every auth plugin", async () => {
+    const { org, device, user } = await seed({ permissions: ['pos.write'] })
+    const identity: any = await Identity.create({ email: `bridge-${Math.random()}@revoked.test`, firstName: 'Re', lastName: 'Voked', passwordSetBy: 'self', tokenVersion: 1 } as any)
+    await User.updateOne({ _id: user._id }, { $set: { identityId: identity._id } }).exec()
+    const claims = { id: String(user._id), orgId: String(org._id), role: user.role, permissions: ['pos.write'], iid: String(identity._id) }
+    forgetIdentity(identity._id)
+
+    const stale = fakeWs()
+    await handleMessage(stale, registerMsg({ deviceNumber: device.deviceNumber, orgId: String(org._id), token: await signToken({ ...claims, tv: 0 }) }))
+    expect(stale.last('fiscal:bridge:error')?.code).toBe('unauthenticated')
+    expect(isDeviceConnected(String(device._id))).toBe(false)
+
+    const live = fakeWs()
+    await handleMessage(live, registerMsg({ deviceNumber: device.deviceNumber, orgId: String(org._id), token: await signToken({ ...claims, tv: 1 }) }))
+    expect(live.has('fiscal:bridge:registered')).toBe(true)
+    await handleClose(live)
   })
 })
 

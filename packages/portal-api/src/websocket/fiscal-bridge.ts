@@ -55,6 +55,7 @@ import { logger } from 'services/logger'
 import { randomUUID } from 'crypto'
 import { verifyToken } from '../auth/verify-token.js'
 import { attachAccess } from 'services/biz/access/live'
+import { liveSessionUser } from 'services/biz/identity/session.service'
 import { can } from 'services/biz/access/evaluate'
 import {
   DesktopError,
@@ -293,7 +294,10 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
   const desktopClaims = verifyDesktopToken(msg.token)
   if (desktopClaims) return authenticateDesktopBridge(ws, desktopClaims)
 
-  const payload = await verifyToken(msg.token)
+  // A token naming a person (`iid`) is revoked by a password change or reset, here as in every auth plugin
+  // (`liveSessionUser`): a signature alone is not a live session.
+  const verified = await verifyToken(msg.token)
+  const payload = verified ? await liveSessionUser(verified) : null
   if (!payload) {
     refuse(ws, 'A signed-in session is required to bridge a fiscal device.', 'unauthenticated')
     closeSocket(ws, 'unauthenticated')
