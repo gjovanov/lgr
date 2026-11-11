@@ -55,6 +55,10 @@
           </template>
           <template #item.status="{ item }">
             <v-chip size="small" label :color="deviceStatusColor(item.status)">{{ stateLabel(item.status) }}</v-chip>
+            <!-- #450: the clock the scheduled sync left for a person; the device page sets it. -->
+            <v-chip v-if="item.clockHeld" size="small" label color="warning" class="ml-1" data-testid="clock-held-chip">
+              {{ t('pos.device.clock.chip', { step: formatClockStep(item.clockHeld.stepMs) }) }}
+            </v-chip>
           </template>
           <template #item.lastCommunication="{ item }">
             {{ item.lastCommunication ? formatDateTime(item.lastCommunication) : '-' }}
@@ -111,6 +115,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { runsDevices } from 'ui-shared/nav/page-registry'
 import EntityLink from 'ui-shared/components/EntityLink'
+import { formatClockStep } from 'config/fiscal-clock'
 
 const { t, te } = useI18n()
 const appStore = useAppStore()

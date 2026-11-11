@@ -2,7 +2,7 @@ import { FiscalRoute, deviceFromParams } from 'fiscal/fiscal-route'
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
 import { getRepos } from 'services/context'
-import { POSSession, User } from 'db/models'
+import { FiscalDevice, POSSession, User } from 'db/models'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import {
   connectDevice,
@@ -383,6 +383,8 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
       // #450: the time is the one this person was shown and confirmed (or there was nothing to doubt), so a clock that
       // is ahead goes back. The device's own refusal of a time before its last fiscal record still answers.
       await printer.syncDateTime(now, { stepBack: true })
+      // #450: whatever the scheduled sync left for a person is settled.
+      await FiscalDevice.updateOne({ _id: id, orgId }, { $unset: { clockHeld: 1 } }).exec()
       createAuditEntry({
         orgId, userId: user.id, action: 'update', module: 'fiscal', entityType: 'fiscal_device', entityId: id,
         entityName: device.name,

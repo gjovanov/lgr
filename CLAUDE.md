@@ -1241,6 +1241,11 @@ LGR implements СУПТО (Софтуер за Управление на Про�
     move by ≤ 2 min. Anything else is held, with the reason.
   - A person confirms with `POST /fiscal/device/:id/sync-time`. It answers 409
     `clock_unconfirmed` with both times, and sets the clock on `{ confirm: true }` (audit-logged).
+  - **A clock the sync holds is noted on the device** (#450): `FiscalDevice.clockHeld` (node-owned: the
+    holding node read it), cleared by the next set. The device page shows it ("Set the clock" there opens
+    the confirm), as do the device list and POS Sessions. An hour off reads as the summer-time change the
+    device missed (`config/fiscal-clock`). ⚠ No rule of LGR's own on a fiscalized unit: the device
+    refuses a time before its last fiscal record by itself, and that refusal is what the person sees.
   - Until 2026-10-25 the check asked worldtimeapi.org over plain HTTP, and reported 0 on failure.
     That host now resets every connection, so every check "passed", and the sync set every device
     regardless.
