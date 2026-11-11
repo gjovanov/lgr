@@ -193,10 +193,25 @@ test('the typed text goes into the dialog: with F4, and with "Show all N results
   await waitForRows(page, COUNT)
 })
 
+/**
+ * The new invoice, with the form's own loads (its contacts and warehouses) answered. `networkidle`
+ * alone can come in the gap between the sign-in redirect and the form's mount, and the requests
+ * counted next then include the form's, not only the dialog's: on 2026-11-10 that failed the
+ * request budget below three times out of three, and the Seller's once.
+ */
+async function openNewInvoice(page: any) {
+  const formLoaded = Promise.all([
+    page.waitForResponse((r: any) => r.url().includes('/warehouse/warehouse?')),
+    page.waitForResponse((r: any) => r.url().includes('/invoicing/contact?')),
+  ])
+  await page.goto('/invoicing/invoices/new')
+  await formLoaded
+  await page.waitForLoadState('networkidle')
+}
+
 test('opening the dialog asks for one page and what its cells need, and nothing sized by the catalogue (FR-28.29)', async ({ page }) => {
   await loginForApp(page)
-  await page.goto('/invoicing/invoices/new')
-  await page.waitForLoadState('networkidle')
+  await openNewInvoice(page)
 
   const calls: string[] = []
   page.on('request', (r: any) => {
@@ -302,8 +317,7 @@ test('a Seller, who may not read bills, gets the dialog without the supplier fil
   }))
   try {
     await loginForApp(page, 'acme-corp', name, password)
-    await page.goto('/invoicing/invoices/new')
-    await page.waitForLoadState('networkidle')
+    await openNewInvoice(page)
     const calls: string[] = []
     page.on('request', (r: any) => {
       const u = new URL(r.url())
