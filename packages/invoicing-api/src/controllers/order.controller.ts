@@ -780,7 +780,8 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
             quantity,
             unit: line?.unit || 'pcs',
             taxRate: line?.taxRate ?? undefined,
-            fallbackPrice: line?.expectedUnitPrice || 0,
+            // FR-27.11.C.2: never a price derived from a cost figure for a role without them (the product gone).
+            fallbackPrice: seesCosts(grantOf(user)) ? line?.expectedUnitPrice || 0 : 0,
             warehouseId: String(res.warehouseId),
             orderRef: {
               orderId: id,
@@ -821,8 +822,11 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!canExport(user)) return status(403, { message: 'Forbidden' })
 
-    const order: any = await Order.findOne({ _id: id, orgId } as any).lean().exec()
-    if (!order) return status(404, { message: 'Order not found' })
+    const stored: any = await Order.findOne({ _id: id, orgId } as any).lean().exec()
+    if (!stored) return status(404, { message: 'Order not found' })
+    // FR-27.11.C.1 (#529): a sheet is a serializer like any other, so a role without the cost figures gets no expected
+    // (purchase) price in it. The controller's after-handle redacts JSON only, and this answer is a file.
+    const order: any = seesCosts(grantOf(user)) ? stored : withoutExpectedPrices(stored)
     const group = (order.supplierGroups || []).find((g: any) => String(g._id) === String(query.groupId))
     if (!group) return status(404, { message: 'Supplier group not found' })
 
