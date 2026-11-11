@@ -799,9 +799,13 @@ test.describe('a movement\'s warehouses fit its type (#168)', () => {
     if (prefilled) await expect.poll(async () => Number(await field.inputValue())).toBeGreaterThan(0)
     await field.fill(String(quantity))
   }
+  /**
+   * A warehouse, chosen in the select named `label`. The option is found inside that select's own list: the list of
+   * the select chosen just before is still in the page while it closes, and it names the same warehouses.
+   */
   const choose = async (page: Page, label: RegExp, name: string) => {
     await openSelect(page, label)
-    await page.getByRole('option', { name, exact: true }).click()
+    await page.getByRole('listbox', { name: label }).getByRole('option', { name, exact: true }).click()
   }
   const otherWarehouse = async (w: World) => (await w.api.get('/warehouse/warehouse?size=100')).warehouses.find((x: any) => x._id !== w.warehouse._id)
   const stockIn = async (w: World, warehouseId: string) => {
