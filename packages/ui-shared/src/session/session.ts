@@ -315,6 +315,12 @@ function browserChannel(): SessionChannel | null {
 }
 
 let browser: SessionApi | null = null
+/**
+ * Whether `browser` was built in a window. One built before there was a window (server code, or a test file
+ * run first in a shared process) has no storage and keeps nothing, so it is built again once a window exists.
+ * In a browser there is always a window, so this never rebuilds one there.
+ */
+let builtInWindow = false
 // `nav/navigate` replaces this with the portal's sign-in page as seen from this origin.
 let signedOutHandler: () => void = () => {
   window.location.href = '/auth/login'
@@ -326,10 +332,12 @@ let signedOutHandler: () => void = () => {
  * out too. Doing it here rather than in each app's `main.ts` means no app can forget it.
  */
 function session(): SessionApi {
-  if (browser) return browser
+  const inWindow = typeof window !== 'undefined'
+  if (browser && (builtInWindow || !inWindow)) return browser
   const channel = browserChannel()
   browser = createSession({ tab: browserStore('session'), shared: browserStore('local'), channel })
-  if (typeof window !== 'undefined') {
+  builtInWindow = inWindow
+  if (inWindow) {
     const api = browser
     window.addEventListener('focus', () => api.publish())
     document.addEventListener('visibilitychange', () => {
