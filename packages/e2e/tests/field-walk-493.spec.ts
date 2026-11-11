@@ -83,11 +83,19 @@ test.beforeAll(async () => {
 })
 
 test('items 1-5 for each user, as the deployed build answers them', async ({ browser }) => {
+  // Four users over a deployed build, each signed in and walked page by page: minutes, not Playwright's 30 s.
+  test.setTimeout(15 * 60_000)
   for (const w of walkers) {
     const session = await apiLogin(ORG, w.username, PASSWORD)
     const claims = claimsOf(session.token)
     const summary = await api(session, 'GET', '/invoices/summary?direction=outgoing&type=invoice')
-    const deviceWrite = await api(session, 'POST', '/fiscal/device', {})
+    // A body the route's schema takes, so the answer is the controller's permission check (`devices.edit`): an empty
+    // one is refused by the schema first (422), whoever asks. Its TCP target, 0.0.0.0, is refused under every policy
+    // after that check (400), so even a session the check let through would create nothing.
+    const deviceWrite = await api(session, 'POST', '/fiscal/device', {
+      deviceNumber: 'WALK4930', name: 'walk #493 probe', manufacturer: 'eltrade', connectionType: 'tcp',
+      connectionParams: { ip: '0.0.0.0', tcpPort: 9100 }, warehouseId: '000000000000000000000000',
+    })
 
     const context = await browser.newContext()
     const page = await context.newPage()
@@ -104,6 +112,8 @@ test('items 1-5 for each user, as the deployed build answers them', async ({ bro
     await page.getByTestId('org-switcher').click()
     const menu = page.locator('.v-overlay--active')
     await expect(menu).toBeVisible()
+    // The switcher loads the session's orgs when it opens: count once they are there.
+    await menu.getByTestId('org-switcher-org').first().waitFor({ state: 'visible', timeout: 10_000 }).catch(() => undefined)
     const orgRows = await menu.getByTestId('org-switcher-org').count()
     const newOrg = await menu.getByText('New organization', { exact: true }).count()
     const allOrgs = await menu.getByText('All organizations', { exact: true }).count()
@@ -111,7 +121,8 @@ test('items 1-5 for each user, as the deployed build answers them', async ({ bro
 
     await page.goto('/invoicing/configuration/devices')
     await page.waitForLoadState('networkidle')
-    const newDevice = await page.locator('button:has(.mdi-plus)').count()
+    // The page's own New device (a link to the new-device form), not the top bar's „+ Нов", which has the same icon.
+    const newDevice = await page.locator('a[href*="/configuration/devices/new"]').count()
     await context.close()
 
     rows.push({
