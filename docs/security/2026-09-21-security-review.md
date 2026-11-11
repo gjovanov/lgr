@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-35** are fixed. The rest are open, ordered by
+**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-36** are fixed. The rest are open, ordered by
 severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
@@ -25,7 +25,8 @@ out of the same month: S-29 while designing FR-20's till PINs, S-30 during FR-22
 and fiscal-device screens, and S-31 while fixing #168. S-32 came a few days later, while writing
 FR-27 (#529), and S-33 while handling it. S-34 turned up while closing S-33, when the rest of the
 Files routes were read against the same rule. S-35 came out of re-checking the Known Issue about the
-controllers that take any field.
+controllers that take any field, and S-36 is the rest of that Known Issue: what a save could set
+inside the caller's own org.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -64,6 +65,7 @@ controllers that take any field.
 | S-33 | Medium | Booking, undoing or reconciling a document in the Files app asked for `admin.settings` alone: a holder could issue invoices and move stock without the write permission of what the document books | **Fixed** (#536) |
 | S-34 | Low | Analysing a document in the Files app, and the diff of a stock snapshot, asked for `admin.settings` alone: a holder could read the catalog, contacts, costs and stock they are matched against without the permission that guards them | **Fixed** (#541) |
 | S-35 | Medium | A body could name another org's record by id, and the views that resolve stored ids showed it | **Fixed 2026-11-11** (#641) |
+| S-36 | Low | On the twelve routes that store the body as the document, a save could set the fields the server sets: a count's `completed` without its stock adjustment, an order's number or author, a backdated `createdAt` | **Fixed 2026-11-11** (#674) |
 
 ---
 
@@ -1763,3 +1765,78 @@ invoice's own page the whole contact (address, tax numbers).
   list named its contact, and it was deleted. The six lists answered 200. The throwaway rows were
   removed (beta-inc is back to no contacts, warehouses or stock levels); the audit trail keeps its
   entries for what the test did.
+
+## S-36 — A save could set the fields the server sets, on twelve routes (Low, **fixed 2026-11-11**)
+
+> The rest of the Known Issue about the controllers that take any field, listed in `CLAUDE.md` since
+> 2026-03-10. S-25 and S-35 had closed its cross-org side. Fixed in #674 and written up here once
+> the fix had been verified on production.
+
+**Where:** `POST /` and `PUT /:id` of the twelve controllers that store the request body as the
+document: bank accounts, exchange rates, fiscal periods, fiscal years, fixed assets,
+reconciliations, cash orders, payment orders, payslips, timesheets, inventory counts and price
+lists.
+
+**What was wrong:** `POST /` created `{ ...body, orgId }` and `PUT /:id` set every field the body
+named. Nothing told the fields a person fills in from the fields the server sets, so a save could
+set the second kind:
+
+- an inventory count's `status: 'completed'`, with an `adjustmentMovementId` of the caller's
+  choosing, without the stock adjustment that `POST /:id/complete` books. A completed count is then
+  closed to edits and deletes;
+- a payment order's `executed`, without its action;
+- a cash order's, payment order's or count's number and `createdBy`, on a save (a create already
+  set them itself);
+- `createdAt` on a create, so a document could be born backdated;
+- a payslip's `sealed` and `engine`, which only a payroll run writes;
+- who approved a timesheet, who completed a reconciliation, a ledger entry linked to an order or a
+  fiscal year.
+
+A dotted key did the same one level down. `updateInOrg` puts the body in a `$set`, so
+`{ "lines.0.varianceCost": 999 }` wrote inside a field the handler had just priced.
+
+- **Who:** a member holding the write permission of that module, in their own org.
+- **Impact:** the org's own documents, in a module the caller may already write. No other org, no
+  other module, nothing read.
+- **Why Low:** no permission was crossed. What a save got past was the server's own steps and
+  stamps, and the audit log recorded each such save with its real author and the fields it changed.
+- **Exposure on the day:** none. A read-only count on production (87 orgs; the twelve collections
+  hold 420 documents) found no document whose server-set fields differ from what the server's own
+  paths write: no completed count without its stamps or its adjustment movement, no adjustment link
+  that names a missing movement or another count's, no executed payment order without its time, no
+  number outside the allocator's form, none of the stamps that nothing set, no `createdAt` away from
+  the id's own time.
+
+### Fix
+
+- `services/biz/server-owned.ts` lists, per model, the fields only the server sets: a number it
+  allocates, who did something, a step that has its own route, a seal, a ledger link. `_id`,
+  `orgId` and the timestamps are the server's on every model.
+- `clientCreate` and `clientUpdate` hand back the body's own fields. A body may restate a
+  server-set field (what a new document starts with, or what the stored one holds), so a document
+  sent back as it was loaded still saves. A body that chooses one is refused with 422
+  `{ code: 'server_owned_field', path }`. Refused, not dropped: a caller that asked for
+  `status: 'completed'` and got 200 would believe it.
+- Update syntax in a body (`$set`, a dotted key) is refused.
+- A status the screens change with a plain save stays the body's: a fiscal year's lock, a
+  timesheet's approval, a fixed asset's disposal. The stamp beside it is set by the server as the
+  status changes: a timesheet's `approvedBy`, a reconciliation's `reconciledBy` and `reconciledAt`,
+  a price list's `deactivatedAt`. Nothing set these before.
+- Tests: `integration/server-owned-fields.flow.test.ts` (195: for each of the twelve routes, what
+  its screen sends as the control, then every server-set field on POST and on PUT, another org named
+  in a create, and update syntax; the count's and the payment order's actions; the three stamps) and
+  `unit/server-owned.test.ts` (52: the rule; every listed field is a path of its schema; a new
+  `…By` or `…At` field on these models must be listed or waived; a controller that hands a body to
+  the store must be one reviewed for a declared body schema, or go through the guard). With the two
+  functions returning the body as it came, 181 of the 195 and 45 of the 52 fail.
+- Deployed as `v20261111-890f5d877505`. Verified on production on 2026-11-11 in the demo org. A
+  throwaway cash order, payment order and inventory count (no variance, never completed) were made
+  with what the screens send. On each, a save that chose a server-set field was refused with 422
+  `server_owned_field`, as were `$set` and a dotted key; the payment order was executed by its own
+  action, and a stale save could not take it back to a draft; the stock level counted was unchanged.
+  The inventory count form, which no browser spec covers, created a count and saved an edit in a
+  real browser. The throwaway documents were deleted and the totals are at their baseline; the audit
+  trail keeps its entries for what the checks did.
+- Left open, inside the caller's own module: a PUT's values are cast, not validated (Mongoose runs
+  no validators on an update, so an enum field takes any word), and a POST's schema rejection
+  answers 500, not 422 (#675).
