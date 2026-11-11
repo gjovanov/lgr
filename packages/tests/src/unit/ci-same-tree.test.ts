@@ -82,11 +82,33 @@ describe('with one shard, the shard is the check a release gate reads', () => {
     expect(text).toContain("name: ${{ strategy.job-total == 1 && 'test (ubuntu)' || format('test (ubuntu, shard {0}/{1})', matrix.shard, strategy.job-total) }}")
   })
 
-  it('the aggregate job runs only for several shards, and never under that name when skipped', () => {
+  it('the aggregate job runs only for several shards, under a plain name of its own', () => {
     const several = "(github.event.pull_request.head.repo.fork || !contains(vars.LGR_LINUX_RUNNER, 'self-hosted'))"
-    expect(text).toContain(`name: \${{ ${several} && 'test (ubuntu)' || 'test shards together (not needed with one shard)' }}`)
+    // Plain: GitHub shows a SKIPPED job's `name:` unevaluated, so an expression there is what
+    // every pull request lists. Its own: a second, skipped `test (ubuntu)` would fail the gate.
+    const aggregate = text.split(/\r?\n/).slice(text.split(/\r?\n/).indexOf('  test:'))
+    expect(aggregate[1]).toBe('    name: test (ubuntu, all shards)')
     expect(text).toContain(`if: \${{ !cancelled() && ${several} }}`)
     // The same predicate as the matrix: one shard exactly where the aggregate does not run.
     expect(text).toContain("shard: ${{ fromJSON(!github.event.pull_request.head.repo.fork && contains(vars.LGR_LINUX_RUNNER, 'self-hosted') && '[1]' || '[1, 2, 3]') }}")
+  })
+
+  it('the release gate reads the suite under either name, the one-shard name first', () => {
+    const promote = readFileSync(join(ROOT, '.github/workflows/desktop-promote.yml'), 'utf8')
+    expect(promote).toContain("'test (ubuntu)|test (ubuntu, all shards)|test + build (ubuntu)'")
+  })
+
+  it('no job that an `if:` can skip is named by an expression', () => {
+    // A job's own `if:` is what skips it; `test-shard` has none, so its expression is always evaluated.
+    const lines = text.split(/\r?\n/)
+    const raw: string[] = []
+    lines.forEach((l, i) => {
+      if (!/^  [a-z][a-z0-9-]*:\s*$/.test(l)) return
+      const body = lines.slice(i + 1, lines.findIndex((x, j) => j > i && /^  [a-z][a-z0-9-]*:\s*$/.test(x)) >>> 0)
+      const name = body.find(x => /^    name: /.test(x)) ?? ''
+      const skippable = body.some(x => /^    if: /.test(x))
+      if (skippable && name.includes('${{')) raw.push(`${l.trim()} ${name.trim()}`)
+    })
+    expect(raw).toEqual([])
   })
 })
