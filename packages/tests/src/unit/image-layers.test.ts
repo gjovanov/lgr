@@ -88,6 +88,17 @@ describe('the image is layered by how often a layer changes', () => {
     // What else `bun install` reads, if it ever appears, has to be copied with them.
     for (const also of ['bunfig.toml', '.npmrc', 'patches']) expect({ also, exists: existsSync(join(ROOT, also)) }).toEqual({ also, exists: false })
   }, WALK_TIMEOUT)
+
+  it('the install is keyed on each manifest as it reads it: the copies are cut before anything uses them', () => {
+    // Right after the copy, in the same RUN, on /manifests and nowhere else. The `deps` stage then
+    // copies /manifests, so a change to a key the install never opens is not a new 1.15 GB layer
+    // (scripts/install-manifests.ts; unit/install-manifests.test.ts holds what it may cut).
+    const cut = stage('src').lines.find(l => l.startsWith('RUN')) ?? ''
+    expect(cut).toMatch(/cp --parents package\.json bun\.lock packages\/\*\/package\.json \/manifests\/\s+&& bun scripts\/install-manifests\.ts \/manifests\s+&& /)
+    expect(existsSync(join(ROOT, 'scripts/install-manifests.ts'))).toBe(true)
+    // Nothing between the cut and the install may put a whole manifest back.
+    expect(stage('deps').lines).toEqual(['WORKDIR /app', 'COPY --from=src /manifests/ /app/', 'RUN bun install --frozen-lockfile'])
+  })
 })
 
 /** Files under `dir`, skipping what never reaches the build context. */
@@ -163,4 +174,41 @@ describe('the build context', () => {
     const tracked = Bun.spawnSync(['git', 'ls-files'], { cwd: ROOT, stdout: 'pipe' }).stdout.toString().split(/\r?\n/)
     expect(tracked.filter(f => !f.includes('/') && f.endsWith('.ts'))).toEqual([])
   })
+
+  // The `src` stage runs these from the copy of the context it is given. One of them left out, and
+  // the image does not build: a deploy that fails on the build host, the worst place to learn it.
+  it('keeps the scripts the image\'s build runs', () => {
+    const patterns = readFileSync(join(ROOT, '.dockerignore'), 'utf8').split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'))
+    const cut = stage('src').lines.find(l => l.startsWith('RUN')) ?? ''
+    const run = [...new Set([...cut.matchAll(/\bscripts\/[\w.-]+\.ts\b/g)].map(m => m[0]))].sort()
+    expect(run).toEqual(['scripts/check-web-bundle.ts', 'scripts/install-manifests.ts'])
+    for (const script of run) expect({ script, leftOut: leftOut(patterns, script) }).toEqual({ script, leftOut: false })
+    // The reading of the patterns itself, on paths whose answer is known.
+    expect(leftOut(patterns, 'backup-diag.ts')).toBe(true)
+    expect(leftOut(patterns, 'packages/web/dist/index.html')).toBe(true)
+    expect(leftOut(patterns, 'packages/portal-api/.env')).toBe(true)
+    expect(leftOut(patterns, '.env.example')).toBe(false)
+    expect(leftOut(patterns, 'packages/portal-api/src/unified.ts')).toBe(false)
+  })
 })
+
+/**
+ * Whether a `.dockerignore` leaves a path out of the build context. Its rules, as far as that file
+ * uses them: a pattern is matched from the root of the context; `*` stays inside one name and `**`
+ * crosses directories; a directory that is left out takes its files with it; a later `!pattern`
+ * puts a path back.
+ */
+function leftOut(patterns: string[], path: string): boolean {
+  const name = (s: string) => s.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]')
+  const regex = (pattern: string) => new RegExp(`^${pattern.replace(/\/+$/, '').split('**/').map(part => part.split('**').map(name).join('.*')).join('(?:.*/)?')}$`)
+  const names = path.split('/')
+  // The path itself and every directory above it.
+  const reaches = names.map((_, i) => names.slice(0, i + 1).join('/'))
+  let out = false
+  for (const raw of patterns) {
+    const back = raw.startsWith('!')
+    const re = regex(back ? raw.slice(1) : raw)
+    if (reaches.some(p => re.test(p))) out = !back
+  }
+  return out
+}
