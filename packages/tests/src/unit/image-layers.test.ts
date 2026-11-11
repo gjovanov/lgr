@@ -152,3 +152,15 @@ describe('the SPA is built from the packages the `web` stage is given', () => {
     expect(outside).toEqual([])
   }, WALK_TIMEOUT)
 })
+
+describe('the build context', () => {
+  // `.dockerignore` leaves out every TypeScript file at the root: a script someone left in the build host's
+  // checkout (`backup-diag.ts`, 2026-11-11) was copied into every image. That holds only while the repository
+  // keeps none there itself, or the image would silently lose it.
+  it('leaves out TypeScript at the root, and the repository keeps none there', () => {
+    const ignore = readFileSync(join(ROOT, '.dockerignore'), 'utf8').split(/\r?\n/).map(l => l.trim())
+    expect(ignore).toContain('*.ts')
+    const tracked = Bun.spawnSync(['git', 'ls-files'], { cwd: ROOT, stdout: 'pipe' }).stdout.toString().split(/\r?\n/)
+    expect(tracked.filter(f => !f.includes('/') && f.endsWith('.ts'))).toEqual([])
+  })
+})
