@@ -112,8 +112,12 @@ test.describe('An untouched order form is not „unsaved changes" (FR-22.13)', (
     await page.getByRole('button', { name: /^save$/i }).first().click()
     await expect(page.getByText(/saved successfully/i).first()).toBeVisible()
     // The toast comes first; the order is then reloaded and its clean baseline taken. An edit typed in that gap would be
-    // part of the baseline, not an edit (it flaked 1 run in 15 without this wait): the Save button is busy until it is done.
+    // part of the baseline, not an edit: the Save button is busy until it is done.
     await expect(page.getByRole('button', { name: /^save$/i }).first()).not.toHaveClass(/v-btn--loading/)
+    // The form takes one more baseline by itself, on a timer 500 ms after it mounts (`usePendingChanges`). This test gets
+    // here in about that time, and an edit the timer finds counts as loaded, so the form then leaves unasked (a person
+    // cannot edit and leave that soon after a form opens). A timer set in the page now runs after that one.
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)))
 
     // The form stays on the order. An edit from here must not slip away unasked.
     await notes.fill('saved note, then changed')
