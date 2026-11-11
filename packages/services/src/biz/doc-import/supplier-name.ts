@@ -46,6 +46,25 @@ export function partnerOf(raw: unknown): PartnerName {
   return { kind: 'supplier', name }
 }
 
+// ── A document booked without its partner ────────────────────────────────────────────────────────────
+
+const UNMATCHED_PARTNER = /^the document names „(.+)" as partner and no contact matches/
+
+/**
+ * What an analysis says of a document whose partner no contact matched. The words are stored with the document
+ * (`DocFile.analysis.diagnostics.warnings`) and are the only place a receipt booked that way keeps the partner's
+ * name, so they are built here, next to `unmatchedPartnerOf`, which reads them back. Changing the opening
+ * breaks that reader for every analysis already stored: `unit/supplier-name.test.ts` pins it.
+ */
+export function unmatchedPartnerWarning(name: string): string {
+  return `the document names „${name}" as partner and no contact matches — booked without one. That is expected when the partner is another of the org's OWN stores rather than a counterparty (goods handed to a sister store, a second warehouse LGR does not track yet); only add a contact if it really is one.`
+}
+
+/** The partner's name such a warning carries, or undefined for any other text. */
+export function unmatchedPartnerOf(warning: unknown): string | undefined {
+  return UNMATCHED_PARTNER.exec(String(warning ?? ''))?.[1].trim() || undefined
+}
+
 export type SupplierNameMatch =
   | { status: 'matched'; contactId: string; name: string }
   | { status: 'none' }

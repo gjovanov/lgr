@@ -28,6 +28,7 @@ import { normalizeUomBg } from '../uom.utils.js'
 import { clean, num } from './detect.js'
 import { matchContact, matchProductsExact } from './matching.js'
 import { bgDateToIso, storeLeaf } from './parse-text.js'
+import { unmatchedPartnerWarning } from './supplier-name.js'
 import { round2, type StoreOperationsResult } from './xlsx.js'
 import type {
   DocKind,
@@ -386,7 +387,7 @@ export async function mapMovementExtraction(
   if (partnerRefused) {
     warnings.push(`partner: ${partnerRefused}. Booked without one, so the invoice this note may later be converted into will not be recognised as its conversion.`)
   } else if (clean(party?.name) && !partner) {
-    warnings.push(`the document names „${clean(party?.name)}" as partner and no contact matches — booked without one. That is expected when the partner is another of the org's OWN stores rather than a counterparty (goods handed to a sister store, a second warehouse LGR does not track yet); only add a contact if it really is one.`)
+    warnings.push(unmatchedPartnerWarning(clean(party?.name)))
   }
 
   const movements: MappedMovement[] = []
