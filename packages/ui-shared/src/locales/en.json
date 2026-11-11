@@ -484,6 +484,23 @@
       "manual": "Manual",
       "api": "Automatic (API)"
     },
+    "reconciliationUi": {
+      "importStatement": "Import statement",
+      "addLine": "Add a line",
+      "importHint": "Bank lines come from a statement file (CSV with a date, a description and an amount, or debit and credit, column), or are added by hand where there is no file.",
+      "imported": "{added} lines imported, {skipped} already there, {unrecognized} rows not read",
+      "noBankLines": "No bank lines yet: import the statement, or add its lines by hand.",
+      "removeLine": "Remove the line",
+      "matched": "Matched",
+      "unmatch": "Unmatch",
+      "bookBalance": "Book balance",
+      "completed": "The reconciliation is complete",
+      "lineDate": "Date",
+      "lineDescription": "Description",
+      "lineAmount": "Amount",
+      "lineAmountHint": "Money in is positive, money out negative",
+      "lineReference": "Bank reference"
+    },
     "accounts": "Chart of Accounts",
     "journalEntries": "Journal Entries",
     "generalLedger": "General Ledger",
@@ -1841,6 +1858,21 @@
       "vatGroup": "VAT group {group}"
     },
     "device": {
+      "clock": {
+        "setButton": "Set the clock",
+        "set": "The device's clock is set",
+        "failed": "The clock could not be set",
+        "keptSummerTime": "The device's clock is an hour ahead: it has not switched to winter time.",
+        "keptWinterTime": "The device's clock is an hour behind: it has not switched to summer time.",
+        "off": "The device's clock is {step} off the verified time.",
+        "chip": "Clock {step}",
+        "confirmTitle": "Set the device's clock?",
+        "confirmHint": "A fiscalized device refuses a time earlier than its last fiscal record, and says so.",
+        "deviceTime": "Device's clock",
+        "serverTime": "Verified time",
+        "confirm": "Set it",
+        "sessionsBanner": "A fiscal device's clock needs setting:"
+      },
       "why": {
         "protocol": {
           "readOperator": "{brand} devices cannot report their operators — program them from here",

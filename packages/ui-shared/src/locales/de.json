@@ -484,6 +484,23 @@
       "manual": "Manuell",
       "api": "Automatisch (API)"
     },
+    "reconciliationUi": {
+      "importStatement": "Kontoauszug importieren",
+      "addLine": "Zeile hinzufügen",
+      "importHint": "Bankzeilen stammen aus einer Auszugsdatei (CSV mit Spalten für Datum, Beschreibung und Betrag oder Soll und Haben) oder werden von Hand erfasst, wenn es keine Datei gibt.",
+      "imported": "{added} Zeilen importiert, {skipped} bereits vorhanden, {unrecognized} Zeilen nicht gelesen",
+      "noBankLines": "Noch keine Bankzeilen: importieren Sie den Auszug oder erfassen Sie seine Zeilen von Hand.",
+      "removeLine": "Zeile entfernen",
+      "matched": "Abgeglichen",
+      "unmatch": "Abgleich aufheben",
+      "bookBalance": "Buchsaldo",
+      "completed": "Der Abgleich ist abgeschlossen",
+      "lineDate": "Datum",
+      "lineDescription": "Beschreibung",
+      "lineAmount": "Betrag",
+      "lineAmountHint": "Eingänge positiv, Ausgänge negativ",
+      "lineReference": "Bankreferenz"
+    },
     "accounts": "Kontenplan",
     "journalEntries": "Buchungen",
     "generalLedger": "Hauptbuch",
@@ -1031,6 +1048,21 @@
       "vatGroup": "MwSt-Gruppe {group}"
     },
     "device": {
+      "clock": {
+        "setButton": "Uhr stellen",
+        "set": "Die Uhr des Geräts ist gestellt",
+        "failed": "Die Uhr konnte nicht gestellt werden",
+        "keptSummerTime": "Die Uhr des Geräts geht eine Stunde vor: Sie hat nicht auf Winterzeit umgestellt.",
+        "keptWinterTime": "Die Uhr des Geräts geht eine Stunde nach: Sie hat nicht auf Sommerzeit umgestellt.",
+        "off": "Die Uhr des Geräts weicht um {step} von der geprüften Zeit ab.",
+        "chip": "Uhr {step}",
+        "confirmTitle": "Die Uhr des Geräts stellen?",
+        "confirmHint": "Ein fiskalisiertes Gerät lehnt eine Zeit vor seinem letzten Fiskaleintrag ab und meldet das.",
+        "deviceTime": "Uhr des Geräts",
+        "serverTime": "Geprüfte Zeit",
+        "confirm": "Stellen",
+        "sessionsBanner": "Die Uhr eines Fiskalgeräts muss gestellt werden:"
+      },
       "why": {
         "protocol": {
           "readOperator": "{brand}-Geräte können ihre Bediener nicht auslesen — programmieren Sie sie hier",
