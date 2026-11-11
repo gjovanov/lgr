@@ -470,6 +470,23 @@
     "ppProtocol": "Acceptance & Handover Protocol"
   },
   "accounting": {
+    "reconciliationUi": {
+      "importStatement": "Import statement",
+      "addLine": "Add a line",
+      "importHint": "Bank lines come from a statement file (CSV with a date, a description and an amount, or debit and credit, column), or are added by hand where there is no file.",
+      "imported": "{added} lines imported, {skipped} already there, {unrecognized} rows not read",
+      "noBankLines": "No bank lines yet: import the statement, or add its lines by hand.",
+      "removeLine": "Remove the line",
+      "matched": "Matched",
+      "unmatch": "Unmatch",
+      "bookBalance": "Book balance",
+      "completed": "The reconciliation is complete",
+      "lineDate": "Date",
+      "lineDescription": "Description",
+      "lineAmount": "Amount",
+      "lineAmountHint": "Money in is positive, money out negative",
+      "lineReference": "Bank reference"
+    },
     "accounts": "Chart of Accounts",
     "journalEntries": "Journal Entries",
     "generalLedger": "General Ledger",
