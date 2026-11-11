@@ -103,7 +103,10 @@
 
 <script setup lang="ts">
 import { goTo } from 'ui-shared/nav/navigate'
-import { ref, computed, onMounted } from 'vue'
+import { accessSettled, settleAccess } from 'ui-shared/access/live-grant'
+import { PORTAL_PAGES, canOpenPage, startPage } from 'ui-shared/nav/page-registry'
+import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import StatCard from 'ui-shared/components/StatCard.vue'
 import ChartView from 'ui-shared/components/ChartView.vue'
@@ -192,5 +195,21 @@ async function load() {
   }
 }
 
-onMounted(load)
+/**
+ * FR-27.7 / acceptance 4: a role that does not open the Dashboard (its summary answers it 403: a payroll-only role, a
+ * till-only one) goes to its start page instead, which is never the Dashboard for it (`startPage`). Decided once the
+ * session's grant is known: in an org on `roles`, after `/auth/me` (the claims may say less than the role).
+ */
+const DASHBOARD = PORTAL_PAGES.find(p => p.id === '/dashboard')
+let decided = false
+onMounted(() => {
+  settleAccess()
+  watch(accessSettled, (settled) => {
+    if (!settled || decided) return
+    decided = true
+    const who = sessionViewer()
+    if (DASHBOARD && who && !canOpenPage(DASHBOARD, who)) goTo(startPage(who), { replace: true })
+    else load()
+  }, { immediate: true })
+})
 </script>

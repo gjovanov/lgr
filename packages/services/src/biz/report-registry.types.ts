@@ -13,7 +13,7 @@
  * `GET /org/:orgId/reports/catalog`, which returns `ReportMeta[]` — this file's shape,
  * mirrored (deliberately, not imported) in `reports-ui/src/types/report.ts`.
  */
-import { compileLegacy, seesCosts, type Grant } from 'config/access'
+import { can as grantCan, compileLegacy, seesCosts, type Grant } from 'config/access'
 
 export const REPORT_CATEGORIES = ['sales', 'purchase', 'receivables', 'inventory', 'accounting', 'fiscal'] as const
 export type ReportCategory = (typeof REPORT_CATEGORIES)[number]
@@ -347,8 +347,9 @@ function callerGrant(user: ReportCaller): Grant {
  */
 export function canExportReport(entry: ReportEntry, user: ReportCaller | null | undefined): boolean {
   if (!canAccessReport(entry, user)) return false
-  if (user!.role === 'admin') return true
-  return (user!.permissions || []).includes('reports.export')
+  // FR-27: the capability, on the caller's grant. On the legacy model it is exactly the old rule (the admin role, or
+  // the `reports.export` permission); in an org on `roles` the role's, not its projection's.
+  return grantCan(callerGrant(user!), 'reports.export')
 }
 
 /** The serialisable projection — `permission`/`roles`/`handler` never cross the wire. */

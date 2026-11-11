@@ -76,6 +76,7 @@ import AppShell from 'ui-shell/components/AppShell'
 import PendingChangesPanel from 'ui-shell/components/PendingChangesPanel'
 import NotAvailable from 'ui-shell/components/NotAvailable'
 import { usePageAccess, useRoleLanding } from 'ui-shared/access/page-access'
+import { accessGrant } from 'ui-shared/access/useAccess'
 import { useAppStore } from '../store/app.store'
 import { useNotificationStore } from '../store/notification.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -138,10 +139,16 @@ onMounted(async () => {
     // FR-13.27 — ask the server whether this caller is on the backup allow-list. The probe
     // answers 200 with `false` rather than 403, so the nav can ask without the question
     // itself being an error, and a failure to answer simply hides the entry.
-    try {
-      const { data } = await httpClient.get(`/org/${appStore.currentOrg.id}/backup/access`)
-      canAdminBackups.value = !!data?.sysAdmin
-    } catch {
+    // FR-27 acceptance 4: only an Administrator is ever answered (its guard asks the admin role), so nobody else
+    // asks: a page never loads with a 403.
+    if (accessGrant().all) {
+      try {
+        const { data } = await httpClient.get(`/org/${appStore.currentOrg.id}/backup/access`)
+        canAdminBackups.value = !!data?.sysAdmin
+      } catch {
+        canAdminBackups.value = false
+      }
+    } else {
       canAdminBackups.value = false
     }
     try {

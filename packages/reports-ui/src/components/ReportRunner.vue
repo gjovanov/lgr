@@ -126,6 +126,7 @@
           <v-spacer />
           <v-btn
             v-if="exportFormats.length"
+            v-cap="'reports.export'"
             color="primary"
             variant="flat"
             prepend-icon="mdi-download"

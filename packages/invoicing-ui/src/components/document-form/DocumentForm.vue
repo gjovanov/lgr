@@ -586,6 +586,7 @@ import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
+import { useAccess } from 'ui-shared/access/useAccess'
 import AttachToCashSaleDialog from '../AttachToCashSaleDialog.vue'
 import ReceiptOverlapDialog from '../ReceiptOverlapDialog.vue'
 import RecordPaymentDialog from '../RecordPaymentDialog.vue'
@@ -827,9 +828,15 @@ const importFieldLabels = computed(() => ({ notes: props.config.notesFieldLabelK
 /** FR-22.33: the bottom bar offers what the top bar does — „Запази и получи" on a bill not yet received. */
 const canSaveAndReceive = computed(() => !!props.config.saveAndReceive && (!isEdit.value || invoiceStatus.value === 'draft'))
 
-/** Import is offered wherever Save is — mirrors the `formActions` gate exactly. */
+/**
+ * Import is offered wherever Save is — mirrors the `formActions` gate exactly — and only where the import itself is
+ * the role's: what `doc-import/target-access` asks of the target (#493 item 5, FR-27 acceptance 4). A sales document
+ * or a cash sale is `sales-docs.import`, a bill `bills.create`.
+ */
+const IMPORT_NEEDS = { sales_invoice: 'sales-docs.import', cash_sale: 'sales-docs.import', bill: 'bills.create' } as const
+const access = useAccess()
 const canImport = computed(() =>
-  !cashSaleRef.value && (!isEdit.value || props.config.editSaveGate !== 'draft-only' || invoiceStatus.value === 'draft'),
+  access.can(IMPORT_NEEDS[importTarget.value]) && !cashSaleRef.value && (!isEdit.value || props.config.editSaveGate !== 'draft-only' || invoiceStatus.value === 'draft'),
 )
 
 // Let wrappers (CashSale) drive the create after a suspended onBeforeCreate.

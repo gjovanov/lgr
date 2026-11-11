@@ -12,6 +12,11 @@ import { can, type Grant } from './grant'
  */
 export interface PageAccess {
   readonly anyOf: readonly CapabilityId[]
+  /**
+   * And one of these too: what the page's own data needs where the app's capability does not give it (FR-27
+   * acceptance 4: no page loads with a 403). The two invoicing pages that moved into Reports read invoices.
+   */
+  readonly alsoAnyOf?: readonly CapabilityId[]
   readonly till?: true
 }
 
@@ -83,6 +88,10 @@ export const PAGE_ACCESS: Readonly<Record<string, PageAccess>> = {
   '/payroll/timesheets': p('payroll-people.view'),
   // ── Reports ──
   ...Object.fromEntries(REPORT_PAGES.map(r => [`/reports/${r}`, p('reports.view')])),
+  // FR-06 moved these two out of Invoicing: the aging reads `invoicing/reports/aging` (sales documents), the export
+  // lists the invoices and exports them (`canExport`). Reports alone opened them, and their data answered 403.
+  '/reports/aging': { anyOf: ['reports.view'], alsoAnyOf: ['sales-docs.view'] },
+  '/reports/export': { anyOf: ['reports.view'], alsoAnyOf: ['sales-docs.export'] },
   // ── The portal's own pages ──
   '/dashboard': p('dashboard.view'),
   '/settings/organization': p('org-settings.view'),
@@ -106,5 +115,5 @@ export function canOpen(pageId: string, grant: Grant | null | undefined, amr?: r
   const page = PAGE_ACCESS[pageId]
   if (!page) return false
   if (amr?.includes('pin') && !page.till) return false
-  return can(grant, page.anyOf)
+  return can(grant, page.anyOf) && (!page.alsoAnyOf || can(grant, page.alsoAnyOf))
 }

@@ -3305,6 +3305,19 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
   gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`
   again, once (`followAccessVersion`, from `useHttpClient`). The grant belongs to one membership (`id@orgId`).
+- **A page whose data needs more than its app** names it: `PAGE_ACCESS[id].alsoAnyOf`, and the same in the legacy
+  oracle (`PageDef.alsoNeed`, permissions), which the differential test holds equal. `/reports/aging` and
+  `/reports/export` read invoices: Reports alone opened them, and their data answered 403. `startPage` picks the
+  Dashboard only for a role that opens it; the Dashboard sends anyone else to their start page once the grant is known.
+- **The walks (FR-27 acceptance 3, 4)**, opt-in Playwright (`--project=field-walk`, `WALK_ORG` an org on `roles`), each
+  writing `test-results/*.md` before it asserts:
+  - `field-walk-roles`: every built-in role over every page it opens: no 403 while it loads, no "Not available", no
+    `data-cap` control the role lacks, no unmarked New / Save / Delete / Import / Export without the feature's action,
+    no page error; a sample of the pages it does not open shows "Not available" or sends it away.
+  - `field-walk-blank-roles`: Seller and Sales Consultant rebuilt from a blank role in the editor equal the built-ins,
+    and pass FR-26 §2.1 and #493 items 1 to 5, beside a built-in user as the control.
+  - Locally: an in-memory replica set, `bun run seed`, `bun run migrate`, `scripts/access-model.ts --org acme-corp --set
+    roles`, a server from `packages/portal-api` on its own port, `BASE_URL` at it.
 
 ## Test copies of real orgs, and the PROD / DEV badge (2026-11-09)
 

@@ -15,7 +15,8 @@
     <template #actions="{ filters }">
       <template v-if="!tillOnly">
         <v-btn variant="outlined" prepend-icon="mdi-download" :loading="exportLoading" @click="openExport(filters)">{{ $t('common.export') }}</v-btn>
-        <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
+        <!-- FR-27 acceptance 4, #493 item 5: importing a cash sale is `sales-docs.import` (`doc-import/target-access`). -->
+        <v-btn v-cap="'sales-docs.import'" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
       </template>
       <!-- A new sale is rung up on the till, and not everyone who reads this journal sells. -->
       <responsive-btn v-if="canSell" color="primary" icon="mdi-plus" :to="{ name: 'invoicing.cash-sales.new' }">

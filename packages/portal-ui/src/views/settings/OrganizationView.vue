@@ -556,6 +556,11 @@ async function loadDigestUsers() {
 }
 
 async function loadLastRun() {
+  // FR-27 acceptance 4: the digest's last run is `digest.manage`'s; nobody else asks (no 403 on load).
+  if (!can(grantOfViewer(sessionViewer()), 'digest.manage')) {
+    lastRun.value = null
+    return
+  }
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/digest/last-run`)
     lastRun.value = data.run

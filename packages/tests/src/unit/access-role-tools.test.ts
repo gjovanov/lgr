@@ -50,7 +50,10 @@ describe('Compare', () => {
     expect(compareGrants(templateGrant('member'), templateGrant('member')).filter(r => r.differs)).toEqual([])
     const vsAdmin = compareGrants(templateGrant('member'), { all: true })
     expect(vsAdmin.every(r => r.onlyA.length === 0)).toBe(true)
-    expect(vsAdmin.find(r => r.feature === 'roles')!.b).toBe('full')
+    // The largest level the editor offers: Full where it grants more than Work (contacts delete), Work where Work is
+    // already everything (roles: view and edit), the radio a person can tick (`offersLevel`).
+    expect(vsAdmin.find(r => r.feature === 'contacts')!.b).toBe('full')
+    expect(vsAdmin.find(r => r.feature === 'roles')!.b).toBe('work')
   })
 })
 
