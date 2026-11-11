@@ -2,11 +2,17 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
+import { clientCreate, clientUpdate } from 'services/biz/server-owned'
 import { buildSearchFilter } from 'services/biz/search.utils'
 
-// A PUT may carry any field of the document except `orgId`: a document never moves between
-// orgs (FR-20.7). `updateInOrg` drops it too; this answers 422 instead of ignoring it.
+// A PUT never carries `orgId`: a document does not move between orgs (FR-20.7). `updateInOrg`
+// drops it too; this answers 422 instead of ignoring it. What else a body may not choose (the
+// fields the server sets) is refused in the handlers: `services/biz/server-owned.ts`.
 const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
+
+/** When a price list was switched off: the server says, as `isActive` changes; never the body. */
+const deactivation = (isActive: unknown, was: boolean) =>
+  typeof isActive !== 'boolean' || isActive === was ? {} : { deactivatedAt: isActive ? null : new Date() }
 
 export const priceListController = new Elysia({ prefix: '/org/:orgId/warehouse/price-list' })
   .use(AppAuthService)
@@ -34,7 +40,8 @@ export const priceListController = new Elysia({ prefix: '/org/:orgId/warehouse/p
   }, { isSignIn: true })
   .post('/', async ({ params, body, user }) => {
     const r = getRepos()
-    const item = await r.priceLists.create({ ...body, orgId: params.orgId } as any)
+    const data = clientCreate('PriceList', body, { orgId: params.orgId })
+    const item = await r.priceLists.create({ ...data, ...deactivation(data.isActive, true), orgId: params.orgId } as any)
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'price_list', entityId: item.id, entityName: (item as any).name })
 
@@ -44,7 +51,8 @@ export const priceListController = new Elysia({ prefix: '/org/:orgId/warehouse/p
     const r = getRepos()
     const existing = await r.priceLists.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
-    const item = await r.priceLists.updateInOrg(params.id, params.orgId, body as any)
+    const data = clientUpdate('PriceList', body, existing)
+    const item = await r.priceLists.updateInOrg(params.id, params.orgId, { ...data, ...deactivation(data.isActive, (existing as any).isActive !== false) } as any)
     if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'price_list', entityId: params.id, entityName: (item as any).name, changes: existing ? diffChanges(existing as any, item as any) : undefined })

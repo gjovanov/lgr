@@ -158,6 +158,11 @@ export function spaErrorHandler(given?: OneSpaShell | Record<string, never> | nu
       set.status = 422
       return { code: 'foreign_reference', message: err.message, path: err.path }
     }
+    // A body that chose a field the server sets (`services/biz/server-owned.ts`).
+    if (err?.name === 'ServerOwnedFieldError') {
+      set.status = 422
+      return { code: 'server_owned_field', message: err.message, path: err.path }
+    }
     // FR-20.81 (P3-6d): a legal number asked for while the series wait for the site's last numbers.
     if (err?.name === 'SeriesFrozenError') {
       set.status = 409

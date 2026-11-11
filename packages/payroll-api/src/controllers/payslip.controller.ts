@@ -2,14 +2,16 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges, recordAuditEntry } from 'services/biz/audit-log.service'
+import { clientCreate, clientUpdate } from 'services/biz/server-owned'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { forOrg } from 'services/biz/personal-data/personal-data.service'
 import { openPayslip } from 'services/biz/payroll/bg/run.service'
 import { payslipView } from 'services/biz/payroll/bg/views'
 import { lockedAnswer, RECORD_REFUSAL, REVEAL_REASON } from './answers.js'
 
-// A PUT may carry any field of the document except `orgId`: a document never moves between
-// orgs (FR-20.7). `updateInOrg` drops it too; this answers 422 instead of ignoring it.
+// A PUT never carries `orgId`: a document does not move between orgs (FR-20.7). `updateInOrg`
+// drops it too; this answers 422 instead of ignoring it. What else a body may not choose (the
+// fields the server sets) is refused in the handlers: `services/biz/server-owned.ts`.
 const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/payslip' })
@@ -64,7 +66,7 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
   )
   .post('/', async ({ params, body, user }) => {
     const r = getRepos()
-    const item = await r.payslips.create({ ...body, orgId: params.orgId } as any)
+    const item = await r.payslips.create({ ...clientCreate('Payslip', body, { orgId: params.orgId }), orgId: params.orgId } as any)
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'payroll', entityType: 'payslip', entityId: item.id, entityName: (item as any).payslipNumber })
 
@@ -76,7 +78,7 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
     if (!existing) return status(404, { message: 'Not found' })
     // A sealed slip is what a run generated. It changes with the run, never field by field.
     if ((existing as any).sealed) return status(409, { message: 'A sealed payslip cannot be edited', code: 'payslip_sealed' })
-    const item = await r.payslips.updateInOrg(params.id, params.orgId, body as any)
+    const item = await r.payslips.updateInOrg(params.id, params.orgId, clientUpdate('Payslip', body, existing) as any)
     if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'payroll', entityType: 'payslip', entityId: params.id, entityName: (item as any).payslipNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
