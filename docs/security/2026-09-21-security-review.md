@@ -43,7 +43,7 @@ Files routes were read against the same rule.
 | S-13 | Low | Live credentials in a OneDrive-synced working copy | Open |
 | S-14 | Low | `User.password` has no `select: false` | **Fixed 2026-11-09** (by a sweep of every route) |
 | S-15 | Low | Body validation runs before the auth guard (schema disclosure) | **Fixed 2026-11-09** |
-| S-16 | Info | Dependency audit: 2 transitive advisories, neither reachable | Open |
+| S-16 | Info | Dependency audit: 2 transitive advisories, neither reachable (re-checked 2026-11-10: vue-i18n and follow-redirects upgraded) | Open |
 | **S-17** | **Critical** | **OAuth self-enrolment — anyone could join any org they could name** | **Fixed** |
 | **S-18** | **High** | **`/ws/fiscal-bridge` authenticated nothing; a registration evicted the till's bridge** | **Fixed 2026-09-29** |
 | **S-19** | **High** | **OAuth sign-up put its credential in a URL, and honoured a planted one** | **Fixed 2026-10-01** |
@@ -673,6 +673,23 @@ plugins got the same hook.
 Neither is reachable from untrusted input in this codebase: no user-supplied YAML reaches
 `md-to-pdf`, and `exceljs`'s uuid use is internal. No action needed beyond refreshing the
 Known Issues entry.
+
+**Re-checked 2026-11-10.** `bun audit` reported 8, none reachable. `js-yaml` had left the tree.
+
+- **Upgraded.** `vue-i18n` 9.14.5 → 11.4.18 (GHSA-83rm-6c8r-g728, high; GHSA-8rc2-428q-7ww3, low).
+  Both need `escapeParameter`, which LGR never enables, and LGR renders no message as HTML: there
+  is no `v-html` or `innerHTML` in any UI. 9.x has reached end of life and gets no fix. Every
+  message of the catalogs (the web's and the desktop shell's, four languages, with Vuetify's own)
+  was rendered through both versions as each is served, plain, with named and list arguments and
+  with plural counts: the same text in all 74,236 renderings. `follow-redirects` 1.16.1 → 1.16.2
+  (GHSA-mrwp-f3q8-3g9p, high), reached only through axios's Node adapter, which the browser bundle
+  does not use, and the test server's binary download.
+- **Left, unreachable.** `zod` 3.25.76 (GHSA-mrhx-c7xc-m3w5, high: memory exhaustion validating an
+  oversized array) through `chromium-bidi`, puppeteer's WebDriver BiDi transport (the PDF renderer
+  drives Chrome over CDP), and `@scalar/types`, which validates the API reference's own
+  configuration. LGR validates requests with TypeBox. `uuid` 8.3.2 (GHSA-w5hq-g745-h8pq, moderate)
+  through `exceljs`, which calls only `v4()`; the flaw is in `v3`/`v5`/`v6` given a buffer. Both
+  fixes are a major the parents do not accept yet.
 
 ---
 
