@@ -28,6 +28,8 @@ export interface PageDef {
   roles?: readonly string[]
   /** A page of the till, inside the invoicing app: all a PIN session reaches (`canOpenPage`). */
   till?: boolean
+  /** And one of these permissions too: what the page's own data needs beyond its app (`PAGE_ACCESS.alsoAnyOf`). */
+  alsoNeed?: readonly string[]
   /**
    * FR-26: the area the page belongs to (`config/constants#AREAS`). A session whose `areas` claim
    * lacks it does not open the page, as the server refuses its routes (`route-permission.ts#AREA_PREFIXES`).
@@ -158,8 +160,9 @@ export const PAGE_REGISTRY: PageDef[] = [
   // FR-6.5: one row per registry report, so every report is ★-favouritable and shows up in
   // the global page search. The labels are the registry's own label keys — a row here and an
   // entry there must name the same thing.
-  page('reports', '/export', 'nav.export', 'mdi-download'),
-  page('reports', '/aging', 'nav.agingReport', 'mdi-clock-alert-outline'),
+  // What they read beyond Reports: the invoices (`invoicing/export` asks `canExport`; the aging, the invoicing read rule).
+  { ...page('reports', '/export', 'nav.export', 'mdi-download'), alsoNeed: ['invoicing.read', 'invoicing.write'] },
+  { ...page('reports', '/aging', 'nav.agingReport', 'mdi-clock-alert-outline'), alsoNeed: APP_NAV_META.invoicing.reads },
   page('reports', '/sales-documents', 'reports.salesDocuments.label', 'mdi-file-document-outline'),
   page('reports', '/purchase-documents', 'reports.purchaseDocuments.label', 'mdi-file-import-outline'),
   page('reports', '/cash-register', 'reports.cashRegister.label', 'mdi-cash-register'),
@@ -302,6 +305,7 @@ export function legacyCanOpenPage(page: PageDef, who: PageViewer | null | undefi
   if (who.amr?.includes('pin') && !page.till) return false
   if (who.role === 'admin') return true
   if (page.area && !holdsArea(who, page.area)) return false
+  if (page.alsoNeed && !page.alsoNeed.some(p => (who.permissions ?? []).includes(p))) return false
   if (who.role && page.roles?.includes(who.role)) return true
   const need = page.need ?? APP_NAV_META[page.appId]?.reads ?? [APP_NAV_META[page.appId]?.permission]
   const held = who.permissions ?? []
@@ -477,7 +481,10 @@ function ownLanding(who: PageViewer | null | undefined): string | null {
 export function startPage(who: PageViewer | null | undefined): string {
   const own = ownLanding(who)
   if (own) return own
-  return who && holdsArea(who, 'portal') ? '/dashboard' : landingWithoutPortal(who)
+  // FR-27.7: "else the first page it may open": the Dashboard only for a role that opens it (its summary answers
+  // anyone else 403). FR-26's portal area still sends a session without it out of the portal (`portalGuard`).
+  const dashboard = PORTAL_PAGES.find(p => p.id === '/dashboard')
+  return who && holdsArea(who, 'portal') && dashboard && canOpenPage(dashboard, who) ? '/dashboard' : landingWithoutPortal(who)
 }
 
 /**
