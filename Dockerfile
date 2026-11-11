@@ -2,7 +2,7 @@
 # pushes and pulls only what its commit touched:
 #
 #   base     the pinned Bun image + the OS libraries Chrome needs     the base digest, the list, or the month
-#   deps     node_modules + puppeteer's Chrome (1.15 GB)              a package.json or bun.lock
+#   deps     node_modules + puppeteer's Chrome (1.15 GB)              a dependency in a package.json, or bun.lock
 #   web      the built SPA (8 MB)                                     a UI package or `config`
 #   runtime  the repository (25 MB), last                             every commit
 #
@@ -42,8 +42,14 @@ RUN echo "OS packages as of ${OS_REFRESH}" \
   && rm -rf /var/lib/apt/lists/*
 
 # ── The repository, cut into the two parts the cached stages read ──
-# This stage runs on every commit and is cheap (a copy and two `cp`). Nothing ships from it.
-#   /manifests  every package.json and the lockfile: all `bun install` reads
+# This stage runs on every commit and is cheap (a copy, two `cp` and one short script). Nothing
+# ships from it.
+#   /manifests  every package.json and the lockfile: all `bun install` reads. Each package.json
+#               goes in without its `exports` (scripts/install-manifests.ts). The install never
+#               opens that key, and a new module is a new line in it: copied whole, such a line
+#               made the 1.15 GB `deps` layer again, 15 times in the 24 merges that changed a
+#               manifest between 2026-10-28 and 2026-11-11. The image's own package.json files
+#               are the repository's, whole: `COPY . /app` in the last stage puts them back.
 #   /ui         what the SPA is built from. The module graph of `packages/web` is `web`, `config`,
 #               `ui-shared`, `ui-shell` and the `*-ui` packages (measured 2026-11-10: 665 modules,
 #               none anywhere else), and unit/image-layers.test.ts fails when a UI file starts
@@ -54,6 +60,7 @@ COPY . /src
 RUN cd /src \
   && mkdir -p /manifests /ui/scripts \
   && cp --parents package.json bun.lock packages/*/package.json /manifests/ \
+  && bun scripts/install-manifests.ts /manifests \
   && cp -a --parents packages/web packages/config packages/ui-* packages/*-ui /ui/ \
   && cp -a scripts/check-web-bundle.ts /ui/scripts/
 
