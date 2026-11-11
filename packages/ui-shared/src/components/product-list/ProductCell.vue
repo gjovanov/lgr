@@ -84,7 +84,7 @@
   </template>
 
   <template v-else-if="column === 'lastCost'">
-    <span v-if="list.factsOf(item._id)[0]?.lastUnitPrice !== undefined" class="text-no-wrap">{{ list.fmtPrice(list.factsOf(item._id)[0].lastUnitPrice!, list.factsOf(item._id)[0].currency) }}</span>
+    <span v-if="list.factsOf(item._id)[0]?.lastUnitPrice !== undefined" class="text-no-wrap" data-cap="products.costs">{{ list.fmtPrice(list.factsOf(item._id)[0].lastUnitPrice!, list.factsOf(item._id)[0].currency) }}</span>
     <span v-else class="text-disabled">—</span>
   </template>
 
@@ -100,7 +100,8 @@
     <span v-else class="text-disabled">—</span>
   </template>
 
-  <template v-else-if="column === 'purchasePrice'">{{ list.fmtPrice(item.purchasePrice) }}</template>
+  <!-- FR-27.11.D: a gated figure carries what gates it; the column is offered only to a role that holds it. -->
+  <template v-else-if="column === 'purchasePrice'"><span data-cap="products.costs">{{ list.fmtPrice(item.purchasePrice) }}</span></template>
   <template v-else-if="column === 'sellingPrice'">{{ list.fmtPrice(item.sellingPrice) }}</template>
 
   <!-- The price tiers, a column per slot (product-price-columns.ts). An article with no price at a tier's level

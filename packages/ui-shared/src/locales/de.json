@@ -2539,11 +2539,13 @@
       "sell": "Verkaufen",
       "reserve": "Reservieren",
       "inactive": "Der Artikel ist deaktiviert – aktivieren Sie ihn, um ihn zu verkaufen oder zu reservieren."
-    }
+    },
+    "valuationNeedsCosts": "Die Lagerbewertung besteht aus Kostenzahlen, die nicht zu Ihrer Rolle gehören."
   },
   "pricing": {
     "explainPrice": "Preis erklären",
-    "priceBreakdown": "Preisaufschlüsselung"
+    "priceBreakdown": "Preisaufschlüsselung",
+    "customerPrice": "Kundenpreis"
   },
   "defaultCategories": {
     "electronics": "Elektronik",

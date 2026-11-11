@@ -39,6 +39,8 @@ concurrency:
 
 permissions:
   contents: read
+  # .github/actions/same-tree lists the markers green runs left (artifacts, by name).
+  actions: read
 
 env:
   # Bun's version is `.bun-version`, read by every setup-bun step: the same file the Dockerfile's
@@ -52,10 +54,19 @@ jobs:
   # ⚠ The suite in shards side by side, and everything that builds in a job of its own beside them.
   # Until 2026-10-30 the builds (UIs, the server package, its boot and the two-node lane) ran after
   # the suite in one job, `test + build (ubuntu)`, and the suite ran file after file (19m56s of a
-  # 21m49s job, run 40967014117). The check names a release gate reads are `test (ubuntu)` (the
-  # aggregate below) and `build + clippy (ubuntu)`; desktop-promote.yml accepts the old names too.
+  # 21m49s job, run 40967014117). The check names a release gate reads are `test (ubuntu)` and
+  # `build + clippy (ubuntu)`; desktop-promote.yml accepts the old names too.
+  #
+  # ⚠ Every job here queues for one of TWO runners, so a job is a wait as well as a duration
+  # (2026-11-07..10, 60 green runs: 45 % of their wall clock was queueing, the worst run 76 min for
+  # 14 min of work). Two things follow, both below:
+  # - With one shard, the shard IS `test (ubuntu)`. A separate job that only read the shard's
+  #   result took 9 s and waited up to 41 min for a runner to do it on (16 min at the 90th
+  #   percentile). The aggregate job runs only where there are several shards.
+  # - A job whose exact tree already passed does not do its work again (.github/actions/same-tree):
+  #   master's run after a merge onto an unmoved master is the pull request's run, file for file.
   test-shard:
-    name: test (ubuntu, shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    name: ${{ strategy.job-total == 1 && 'test (ubuntu)' || format('test (ubuntu, shard {0}/{1})', matrix.shard, strategy.job-total) }}
     # The routing the header describes; this expression is repeated on every Linux job.
     runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-24.04"' || vars.LGR_LINUX_RUNNER || '"ubuntu-24.04"') }}
     # A shard takes a few minutes. A hang should not hold a runner for half an hour.
@@ -88,7 +99,18 @@ jobs:
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # ⚠ Every step below carries `steps.same.outputs.skip != 'true'`. A step added without it
+      # still works, and runs for nothing on a commit whose tree already passed.
+      # One shard only: with several, a marker would have to say which files it speaks for.
+      - name: Has this exact tree already passed the suite?
+        id: same
+        uses: ./.github/actions/same-tree
+        with:
+          lane: test
+          switch: ${{ strategy.job-total != 1 && 'off' || vars.LGR_CI_SAME_TREE }}
+
       - name: Install Bun
+        if: steps.same.outputs.skip != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
@@ -96,7 +118,7 @@ jobs:
       # ⚠ Hosted only. The self-hosted runner keeps its home between runs, so ~/.bun/install/cache
       # is already there, and restoring it re-downloaded and re-extracted 118 MB (16 s) every run.
       - name: Cache Bun install
-        if: runner.environment != 'self-hosted'
+        if: steps.same.outputs.skip != 'true' && runner.environment != 'self-hosted'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.bun/install/cache
@@ -110,22 +132,25 @@ jobs:
       # being saved", every run until 2026-10-24). On the self-hosted runner, which keeps its home
       # between runs, the pin also makes the download a one-off, and the cache is not needed there.
       - name: Pin mongodb-memory-server's download directory
+        if: steps.same.outputs.skip != 'true'
         run: echo "MONGOMS_DOWNLOAD_DIR=$HOME/.cache/mongodb-binaries" >> "$GITHUB_ENV"
 
       - name: Cache mongodb-memory-server binaries
-        if: runner.environment != 'self-hosted'
+        if: steps.same.outputs.skip != 'true' && runner.environment != 'self-hosted'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/mongodb-binaries
           key: mongodb-binaries-${{ runner.os }}
 
       - name: Install dependencies
+        if: steps.same.outputs.skip != 'true'
         run: bun install --frozen-lockfile
 
       # What each test file took the last time master ran it, which Bun's --shard splits the files
       # by (equal TIMES, not equal counts) and --parallel starts slowest first. Only ever
       # a split and an order: a stale or missing file changes how even the shards are, nothing else.
       - name: The last measured time of each test file
+        if: steps.same.outputs.skip != 'true'
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .test-timings/last.json
@@ -140,8 +165,10 @@ jobs:
       #   from file to file and empties it in between (packages/tests/src/setup.ts).
       # ⚠ The CPUs come from the cgroup quota where there is one, not `nproc`: a mars runner container
       # is capped at 8 of the host's 16 cores and `nproc` says 16, as does Bun's default worker count.
-      # --update-timings writes what THIS shard's files took to shard.json, for the `test` job below.
+      # --update-timings writes what THIS shard's files took to shard.json, for the steps below
+      # (one shard) or the `test` job (several).
       - name: Test
+        if: steps.same.outputs.skip != 'true'
         run: |
           cpus=$(awk '$1 != "max" { print int($1 / $2) }' /sys/fs/cgroup/cpu.max 2>/dev/null || true)
           [ "${cpus:-0}" -ge 1 ] || cpus=$(nproc)
@@ -157,19 +184,52 @@ jobs:
           # runs as uid 1000 too, in a pod that allows it.
           PDF_CHROME_NO_SANDBOX: '1'
 
+      # Read by the `test` job where there are several shards, and by whoever asks which files a
+      # run's time went to (one of them took 12 of a 14-minute run on 2026-11-10).
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.same.outputs.skip != 'true'
         with:
           name: test-timings-${{ matrix.shard }}
           path: .test-timings/shard.json
           if-no-files-found: ignore
           retention-days: 1
 
-  # The check a release gate reads: green only when every shard is. It also merges the shards'
-  # timings and, on master, keeps them for the next run's split.
+      # One shard is the whole suite, so its timings are the next run's as they are. Master only:
+      # a pull request's save would be scoped to that pull request, and master's is the one every
+      # run starts from. A new key per run, because a cache entry cannot be overwritten.
+      - name: One shard's timings are the suite's
+        if: steps.same.outputs.skip != 'true' && strategy.job-total == 1 && github.ref == 'refs/heads/master'
+        run: |
+          if [ -f .test-timings/shard.json ]; then cp .test-timings/shard.json .test-timings/last.json; fi
+          echo "timings for $(jq '.files | length' .test-timings/last.json 2>/dev/null || echo 0) files"
+
+      - name: Keep them for the next run
+        if: steps.same.outputs.skip != 'true' && strategy.job-total == 1 && github.ref == 'refs/heads/master'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .test-timings/last.json
+          key: test-timings-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # LAST, so it exists only when everything above passed: what a later run of the same tree
+      # finds (.github/actions/same-tree). `overwrite` for a re-run of this run.
+      - name: Leave a marker that this tree passed the suite
+        if: steps.same.outputs.skip != 'true' && strategy.job-total == 1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.same.outputs.marker }}
+          path: ${{ steps.same.outputs.file }}
+          retention-days: 5
+          overwrite: true
+
+  # Several shards only (a fork's pull request, or hosted runners): the check a release gate reads,
+  # green only when every shard is. It also merges the shards' timings and, on master, keeps them
+  # for the next run's split. With one shard the shard job carries the name and does both, and this
+  # job is skipped under a name of its own: two checks called `test (ubuntu)`, one of them
+  # `skipped`, is what desktop-promote.yml would read as not green.
   test:
-    name: test (ubuntu)
+    name: ${{ (github.event.pull_request.head.repo.fork || !contains(vars.LGR_LINUX_RUNNER, 'self-hosted')) && 'test (ubuntu)' || 'test shards together (not needed with one shard)' }}
     needs: test-shard
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (github.event.pull_request.head.repo.fork || !contains(vars.LGR_LINUX_RUNNER, 'self-hosted')) }}
     runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-24.04"' || vars.LGR_LINUX_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 5
     steps:
@@ -226,6 +286,14 @@ jobs:
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # ⚠ Every step below carries `steps.same.outputs.skip != 'true'` (see `test-shard`).
+      - name: Has this exact tree already passed the builds?
+        id: same
+        uses: ./.github/actions/same-tree
+        with:
+          lane: build
+          switch: ${{ vars.LGR_CI_SAME_TREE }}
+
       # ⚠ The frontend must be BUILT before cargo runs, in every job that invokes cargo.
       # `tauri::generate_context!()` resolves `frontendDist` ("../../desktop-ui/dist") at COMPILE
       # time and panics inside the proc macro if the directory is missing:
@@ -238,13 +306,14 @@ jobs:
       # That reads like a Rust error and is really a missing build step. Do not "fix" it by
       # creating an empty `dist/` — that would let clippy pass while the UI itself is broken.
       - name: Install Bun
+        if: steps.same.outputs.skip != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
 
       # Hosted only: the self-hosted runner keeps ~/.bun (see `test-shard`).
       - name: Cache Bun install
-        if: runner.environment != 'self-hosted'
+        if: steps.same.outputs.skip != 'true' && runner.environment != 'self-hosted'
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.bun/install/cache
@@ -252,16 +321,18 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
 
       - name: Install dependencies
+        if: steps.same.outputs.skip != 'true'
         run: bun install --frozen-lockfile
 
       # The mongod mongodb-memory-server downloads, where `test-shard` keeps it: the supervisor's bootstrap
       # test (P1-2), the package's boot and the two-node lane all run a real one. Restored only;
       # `test-shard` saves it. (Hosted only: the self-hosted runner keeps it in its home.)
       - name: Pin mongodb-memory-server's download directory
+        if: steps.same.outputs.skip != 'true'
         run: echo "MONGOMS_DOWNLOAD_DIR=$HOME/.cache/mongodb-binaries" >> "$GITHUB_ENV"
 
       - name: Restore mongodb-memory-server binaries
-        if: runner.environment != 'self-hosted'
+        if: steps.same.outputs.skip != 'true' && runner.environment != 'self-hosted'
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/mongodb-binaries
@@ -270,13 +341,16 @@ jobs:
       # Includes `desktop-ui` (FR-14.8), which cargo needs (above) — that package was NOT built by
       # anything until FR-14.34, and bit-rotted unnoticed for four days in August because of it.
       - name: Build all UIs
+        if: steps.same.outputs.skip != 'true'
         run: bun run build
 
       # FR-24.15: first-load JS within budget, no module view in the entry, one fiscal bridge.
       - name: The one SPA's bundle budget
+        if: steps.same.outputs.skip != 'true'
         run: bun run check:web
 
       - name: Install Rust
+        if: steps.same.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -290,7 +364,7 @@ jobs:
       # from `.fingerprint/`, so an output deleted under a surviving fingerprint is never rebuilt
       # (roomler-ai docs/build-caches.md, rc.422-424). One cold build is the price of a correct one.
       - name: Keep cargo's target on the runner
-        if: runner.environment == 'self-hosted'
+        if: steps.same.outputs.skip != 'true' && runner.environment == 'self-hosted'
         run: |
           t="$HOME/.cache/lgr-cargo-target"
           mb=$(du -sm "$t" 2>/dev/null | cut -f1)
@@ -308,7 +382,7 @@ jobs:
       # restore master's cache but must not save their own: a PR save is scoped to that PR, and one
       # PR's saves once took 3.2 GB of the 10 GB pool.
       - name: Rust cache
-        if: runner.environment != 'self-hosted'
+        if: steps.same.outputs.skip != 'true' && runner.environment != 'self-hosted'
         uses: swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
           workspaces: |
@@ -319,6 +393,7 @@ jobs:
       # ⚠ Installed explicitly rather than trusted to the runner image. Tauri 2's Linux build
       # needs all of these, and the image's contents are not a contract.
       - name: Install Linux system dependencies
+        if: steps.same.outputs.skip != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -335,12 +410,14 @@ jobs:
             patchelf
 
       - name: Clippy
+        if: steps.same.outputs.skip != 'true'
         working-directory: packages/desktop/src-tauri
         run: cargo clippy --all-targets -- -D warnings
 
       # FR-20 plan steps P1-1 and P1-2: the supervisor a master runs. Its tests start and kill real
       # child processes, talk over a real unix socket, and bootstrap a real mongod when one is here.
       - name: Supervisor (lgr-server) clippy and tests
+        if: steps.same.outputs.skip != 'true'
         working-directory: packages/server
         run: |
           cargo clippy --all-targets -- -D warnings
@@ -354,18 +431,22 @@ jobs:
       # checked (AC 21, 66, 67), booted against a real database, and rebuilt to show that the same
       # commit gives the same bytes.
       - name: Build the server package
+        if: steps.same.outputs.skip != 'true'
         run: bun run build:server
 
       - name: Check the server package
+        if: steps.same.outputs.skip != 'true'
         run: bun run check:package
 
       # FR-20.25: the Chrome a master ships (`chrome-headless-shell`, pinned tree by tree in
       # packages/server/pdf-browser.lock.json), so the invoice the boot prints is printed by it,
       # not by puppeteer's own download.
       - name: Fetch the master's PDF browser
+        if: steps.same.outputs.skip != 'true'
         run: bun scripts/fetch-pdf-browser.ts --platform linux --out dist/lgr-home
 
       - name: Boot the server package
+        if: steps.same.outputs.skip != 'true'
         run: bun test packages/tests/src/integration/server-package.flow.test.ts --env-file=.env.test --timeout 300000
         env:
           LGR_SERVER_PACKAGE: dist/lgr-server
@@ -374,6 +455,7 @@ jobs:
           PUPPETEER_EXECUTABLE_PATH: ${{ github.workspace }}/dist/lgr-home/chrome/chrome-headless-shell
 
       - name: The server package is reproducible
+        if: steps.same.outputs.skip != 'true'
         run: |
           bun run build:server --out dist/lgr-server-again
           if ! cmp dist/lgr-server/server-manifest.json dist/lgr-server-again/server-manifest.json; then
@@ -385,11 +467,22 @@ jobs:
       # FR-20 plan step T-1: a global and a master, each the package just built on its own replica
       # set, with the chaos proxy and the TLS front between them.
       - name: Two nodes
+        if: steps.same.outputs.skip != 'true'
         run: bun test packages/tests/src/two-node --env-file=.env.test --timeout 300000
         env:
           LGR_TWO_NODE: '1'
           LGR_SERVER_PACKAGE: dist/lgr-server
           PDF_CHROME_NO_SANDBOX: '1'
+
+      # LAST, so it exists only when everything above passed (.github/actions/same-tree).
+      - name: Leave a marker that this tree passed the builds
+        if: steps.same.outputs.skip != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.same.outputs.marker }}
+          path: ${{ steps.same.outputs.file }}
+          retention-days: 5
+          overwrite: true
 
   macos-check:
     name: cargo check (macos)

@@ -453,7 +453,8 @@ const invoiceSchema = new Schema<IInvoice>(
         warehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },
         priceExplanation: [
           {
-            type: { type: String, enum: ['base', 'category', 'tag', 'contact', 'tier', 'override'] },
+            // FR-27.11.C.6: `customer`, a hidden level's winning price as the role that priced the line was told it.
+            type: { type: String, enum: ['base', 'category', 'tag', 'contact', 'tier', 'override', 'customer'] },
             label: String,
             price: Number,
           },

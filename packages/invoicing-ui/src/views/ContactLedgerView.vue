@@ -91,11 +91,11 @@
         <v-divider class="my-2" />
         <v-row dense>
           <!-- FR-27.11.C.2: the profitability is a cost figure; the server sends none to a role without the costs. -->
-          <v-col v-if="summary.profitabilityNet !== undefined" cols="6" sm="3" class="text-center">
+          <v-col v-if="summary.profitabilityNet !== undefined" cols="6" sm="3" class="text-center" data-cap="products.costs">
             <div class="text-caption text-medium-emphasis">{{ $t('invoicing.profitabilityNet') }}</div>
             <div class="text-subtitle-1 font-weight-bold" :class="(summary.profitabilityNet || 0) >= 0 ? 'text-success' : 'text-error'">{{ fmtCurrency(summary.profitabilityNet) }}</div>
           </v-col>
-          <v-col v-if="summary.profitabilityGross !== undefined" cols="6" sm="3" class="text-center">
+          <v-col v-if="summary.profitabilityGross !== undefined" cols="6" sm="3" class="text-center" data-cap="products.costs">
             <div class="text-caption text-medium-emphasis">{{ $t('invoicing.profitabilityGross') }}</div>
             <div class="text-subtitle-1 font-weight-bold" :class="(summary.profitabilityGross || 0) >= 0 ? 'text-success' : 'text-error'">{{ fmtCurrency(summary.profitabilityGross) }}</div>
           </v-col>

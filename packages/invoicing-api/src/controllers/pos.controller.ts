@@ -21,7 +21,7 @@ import { buildSessionReport, formatSessionReport, type SessionReport } from 'ser
 import { permissionRefusal } from 'services/biz/route-permission'
 import type { ZReportResult } from 'fiscal/types'
 import { fiscalCapabilities } from 'fiscal/capabilities'
-import { can } from 'services/biz/access/evaluate'
+import { can, grantOf } from 'services/biz/access/evaluate'
 import { DEVICE_REPORT_KINDS, printDeviceReport } from 'fiscal/device-command'
 import { fiscalFailure } from 'fiscal/errors'
 import { interruptedDocuments, unfinishedReceipts, unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
@@ -31,6 +31,7 @@ import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
+import { withVisibleTrails } from 'services/biz/access/price-trails'
 import {
   assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, finishDeadSales, finishInterruptedDocuments, floatInItsOwnTurn, getFiscalContext, owesDeviceFloat, saleResponse, stornoDoor, tillContext, tillSettings, zReportOwingFloat,
 } from '../lib/cash-register-till.js'
@@ -289,7 +290,8 @@ const SALE_BODY = t.Object({
     lineTotal: t.Number(),
     type: t.Optional(t.String()),
     priceExplanation: t.Optional(t.Array(t.Object({
-      type: t.Union([t.Literal('base'), t.Literal('tag'), t.Literal('contact'), t.Literal('override')]),
+      // FR-27.11.C.6: `customer`, a hidden level's winning price as the role was told it.
+      type: t.Union([t.Literal('base'), t.Literal('tag'), t.Literal('contact'), t.Literal('override'), t.Literal('customer')]),
       label: t.String(),
       price: t.Number(),
     }))),
@@ -426,6 +428,8 @@ function pageOf(rows: any[], query: Record<string, any>) {
 
 export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
   .use(AppAuthService)
+  // FR-27.11.C.6: a transaction's stored price trail names no level the role does not see.
+  .onAfterHandle(({ response, user }: any) => withVisibleTrails(grantOf(user), response))
   // FR-24.50: the routes that reach a fiscal device say which; one held on another pod runs there.
   .use(FiscalRoute)
   // FR-21.28: the till is refused, with the reason, until its history may be read from documents only.

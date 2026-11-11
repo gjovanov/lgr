@@ -23,7 +23,8 @@
             <th class="text-end">{{ $t('warehouse.recordedSuppliers.leadTime') }}</th>
             <th>{{ $t('warehouse.recordedSuppliers.note') }}</th>
             <th class="facts-start">{{ $t('warehouse.supplierFacts.lastPurchase') }}</th>
-            <th v-if="hasPrices" class="text-end">{{ $t('warehouse.supplierFacts.lastCost') }}</th>
+            <!-- FR-27.11.C.1: a supplier's price is a cost figure; the server sends it only with `products.costs`. -->
+            <th v-if="hasPrices" class="text-end" data-cap="products.costs">{{ $t('warehouse.supplierFacts.lastCost') }}</th>
             <th class="text-end">{{ $t('warehouse.supplierFacts.quantityBought') }}</th>
             <th class="text-end">{{ $t('warehouse.supplierFacts.documents') }}</th>
             <th>{{ $t('warehouse.supplierFacts.lastDocument') }}</th>
@@ -97,7 +98,7 @@
             </template>
 
             <td class="text-no-wrap facts-start">{{ row.fact ? fmtDate(row.fact.lastPurchasedAt) : '—' }}</td>
-            <td v-if="hasPrices" class="text-end text-no-wrap">{{ !row.fact || row.fact.lastUnitPrice === undefined ? '—' : fmtPrice(row.fact.lastUnitPrice, row.fact.currency) }}</td>
+            <td v-if="hasPrices" class="text-end text-no-wrap" data-cap="products.costs">{{ !row.fact || row.fact.lastUnitPrice === undefined ? '—' : fmtPrice(row.fact.lastUnitPrice, row.fact.currency) }}</td>
             <td class="text-end">{{ row.fact ? fmtQty(row.fact.quantity) : '—' }}</td>
             <td class="text-end">{{ row.fact ? row.fact.documents : '—' }}</td>
             <td class="text-no-wrap">
@@ -177,7 +178,7 @@
             </td>
             <td><entity-link :label="d.supplierName || '—'" :href="contactHref(d.supplierId)" /></td>
             <td class="text-end">{{ fmtQty(d.quantity) }}</td>
-            <td v-if="hasPrices" class="text-end text-no-wrap">{{ d.unitPrice === undefined ? '—' : fmtPrice(d.unitPrice, d.currency) }}</td>
+            <td v-if="hasPrices" class="text-end text-no-wrap" data-cap="products.costs">{{ d.unitPrice === undefined ? '—' : fmtPrice(d.unitPrice, d.currency) }}</td>
           </tr>
         </tbody>
       </v-table>

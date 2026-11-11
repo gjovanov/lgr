@@ -129,12 +129,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, toRef } from 'vue'
+import { computed, ref, onMounted, toRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { holdsArea } from 'config/constants'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
-import { writesInventory } from 'ui-shared/nav/page-registry'
+import { viewerHoldsArea, writesInventory } from 'ui-shared/nav/page-registry'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -203,7 +202,8 @@ const { headers } = useProductColumns({ seesSuppliers: list.seesSuppliers, activ
 const { actionsFor } = useProductDocActions()
 // FR-26.8.7: without `inventory.write` (a Seller) the page reads, and offers no New, Save or Delete.
 const writes = writesInventory(sessionViewer())
-const exportsCatalog = holdsArea(sessionViewer(), 'catalogExport')
+// FR-26.8.7 / FR-27.5: `products.export` on a role, live; the token's `catalogExport` area otherwise.
+const exportsCatalog = computed(() => viewerHoldsArea(sessionViewer(), 'catalogExport'))
 
 function stockTab(item: ProductRow) { return { name: 'inventory.products.stock', params: { id: item._id, tab: 'stock' } } }
 

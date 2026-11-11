@@ -1,5 +1,5 @@
 import { FISCAL_ADMIN_ROLES, PERMISSIONS, holdsArea, type Area } from 'config/constants'
-import { PAGE_ACCESS, can, canOpen, compileLegacy, type CapabilityId, type Grant } from 'config/access'
+import { PAGE_ACCESS, can, canOpen, compileLegacy, grantHoldsArea, type CapabilityId, type Grant } from 'config/access'
 
 /**
  * Cross-app registry of the favouritable PAGES/functions surfaced by the global top-bar ★ menu.
@@ -279,6 +279,17 @@ export function grantOfViewer(who: PageViewer | null | undefined): Grant {
 }
 
 /**
+ * FR-26's area-wide gates (the portal: the App Hub, the Dashboard, Settings; the catalog's export), asked where the
+ * live role decides (FR-27.5): of its grant, so an edit reaches them with no sign-out, and a role whose projection
+ * carries no `areas` list (all of them, for an older release) holds only the areas it holds something of. Else
+ * (the token's claims decide) the token's `areas`, exactly as before.
+ */
+export function viewerHoldsArea(who: PageViewer | null | undefined, area: Area): boolean {
+  if (!who) return false
+  return who.grant ? grantHoldsArea(who.grant, area) : holdsArea(who, area)
+}
+
+/**
  * May this person open the page? ★ and „+ Нов" list only what this answers yes to (FR-22 §5.8).
  *
  * FR-27.2: one line on the grant (`config/access/pages.ts`), a PIN session the till only.
@@ -482,9 +493,9 @@ export function startPage(who: PageViewer | null | undefined): string {
   const own = ownLanding(who)
   if (own) return own
   // FR-27.7: "else the first page it may open": the Dashboard only for a role that opens it (its summary answers
-  // anyone else 403). FR-26's portal area still sends a session without it out of the portal (`portalGuard`).
+  // anyone else 403). FR-26's portal area, the live role's (FR-27.5), still sends a session without it out of the portal.
   const dashboard = PORTAL_PAGES.find(p => p.id === '/dashboard')
-  return who && holdsArea(who, 'portal') && dashboard && canOpenPage(dashboard, who) ? '/dashboard' : landingWithoutPortal(who)
+  return viewerHoldsArea(who, 'portal') && dashboard && canOpenPage(dashboard, who!) ? '/dashboard' : landingWithoutPortal(who)
 }
 
 /**

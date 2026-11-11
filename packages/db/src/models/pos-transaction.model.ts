@@ -104,7 +104,8 @@ const posTransactionLineSchema = new Schema<IPOSTransactionLine>(
     lineTotal: { type: Number, required: true },
     priceExplanation: [
       {
-        type: { type: String, enum: ['base', 'tag', 'contact', 'override'] },
+        // FR-27.11.C.6: `customer`, a hidden level's winning price as the till was told it.
+        type: { type: String, enum: ['base', 'tag', 'contact', 'override', 'customer'] },
         label: String,
         price: Number,
       },
