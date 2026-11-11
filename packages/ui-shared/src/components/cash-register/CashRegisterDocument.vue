@@ -216,7 +216,8 @@ import { useCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
 import { canStornoJournalRow } from '../../cash-register/storno'
-import { can, compileLegacy } from 'config/access'
+import { can } from 'config/access'
+import { accessGrant } from '../../access/useAccess'
 import { givesBack, kindColor } from '../../cash-register/journal-kind'
 import { receiptRefusalMessage } from '../../cash-register/receipt-refusal'
 
@@ -261,7 +262,8 @@ watch(() => [props.orgUrl, props.id], () => { if (props.id) void load() }, { imm
 
 // FR-23: a payment's receipt has no form of its own: it names the invoice it paid, on this page. A refund's storno, the credit note.
 const documentLink = computed(() => (doc.value && props.documentRoute && doc.value.row.kind !== 'payment' && doc.value.row.kind !== 'refund' ? props.documentRoute(doc.value.row) : null))
-const canStorno = computed(() => canStornoJournalRow(doc.value?.row, props.role))
+// FR-27.5: the session's grant (the role, live, in an org on `roles`), as the server's storno and settle doors decide.
+const canStorno = computed(() => canStornoJournalRow(doc.value?.row, accessGrant()))
 
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[props.locale || 'en'] || 'en-US')
 function fmtCurrency(amount: number, currency?: string, digits?: number) {
@@ -289,7 +291,7 @@ const settleWords = computed(() => (({
 } as Record<string, { inDoubt: string; confirm: string; done: string }>)[doc.value?.row.kind] ?? { inDoubt: 'inDoubt', confirm: 'settleConfirm', done: 'settled' }))
 const settleNumber = ref('')
 // FR-27: the settle door's right, `cash-sales.settle` (a storno's roles).
-const canSettle = computed(() => !!props.role && can(compileLegacy({ role: props.role }), 'cash-sales.settle'))
+const canSettle = computed(() => can(accessGrant(), 'cash-sales.settle'))
 const settling = ref<'printed' | 'notPrinted' | 'correct' | null>(null)
 /**
  * A storno cites the number: a sale must bring it, and a fiscal receipt may (R2's refund cites it). A fiscal
