@@ -69,10 +69,12 @@ describe('ratchet: the client offers by the grant, never by a role name or the t
     expect(files.length).toBeGreaterThan(200)
   })
 
-  it('no grant compiled from a role name alone, and no permission read off the session', () => {
+  it('no grant compiled from a role name alone, no role-name list, and no permission read off the session', () => {
     const offenders = files.filter(f => !ALLOWED.has(f.file) && (
       /compileLegacy\(\{\s*role\b[^}]*\}\)/.test(f.text) ||
-      /\bpermissions\??\.includes\(/.test(f.text)
+      /\bpermissions\??\.includes\(/.test(f.text) ||
+      // A list of role names asked of the session's role (`['admin', 'manager'].includes(user.role)`).
+      /\]\.includes\([\w.?]*\brole\b/.test(f.text)
     )).map(f => f.file)
     expect(offenders).toEqual([])
   })

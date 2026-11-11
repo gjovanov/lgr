@@ -215,6 +215,7 @@ import { paymentMethodKey } from 'ui-shared/composables/usePaymentMethods'
 import { registerSwitchGuard, registerUnsavedCheck } from 'ui-shared/session/switch-guards'
 import { getOrg } from 'ui-shared/session/session'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
+import { useAccess } from 'ui-shared/access/useAccess'
 import RegisterTerminal from 'ui-shared/components/cash-register/RegisterTerminal.vue'
 import { fetchPriceOptions, priceOptionLabel, type PriceOption } from 'ui-shared/composables/usePriceOptions'
 import CloseSessionDialog from '../components/CloseSessionDialog.vue'
@@ -256,7 +257,10 @@ const closeSessionDialog = ref(false)
 const openingBalance = ref(0)
 // FR-9.6: bypassing a configured fiscal device is a privileged decision. The server
 // enforces it too; this only decides whether to offer the checkbox.
-const canSkipFiscal = computed(() => ['admin', 'manager'].includes(appStore.user?.role || ''))
+// The server's own rule for closing without the Z (`pos.controller`, `till.manage-sessions`), on the session's grant:
+// in an org on `roles` the role's, live, as POS Sessions asks it.
+const access = useAccess()
+const canSkipFiscal = computed(() => access.can('till.manage-sessions'))
 const warehouses = ref<Warehouse[]>([])
 const sessionWarehouseId = ref('')
 const sessions = ref<Session[]>([])
