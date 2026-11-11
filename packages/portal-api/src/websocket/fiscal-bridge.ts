@@ -54,6 +54,9 @@ import { requestVia } from '../front/front-guard.js'
 import { logger } from 'services/logger'
 import { randomUUID } from 'crypto'
 import { verifyToken } from '../auth/verify-token.js'
+import { attachAccess } from 'services/biz/access/live'
+import { liveSessionUser } from 'services/biz/identity/session.service'
+import { can } from 'services/biz/access/evaluate'
 import {
   DesktopError,
   loadActiveDesktop,
@@ -291,7 +294,10 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
   const desktopClaims = verifyDesktopToken(msg.token)
   if (desktopClaims) return authenticateDesktopBridge(ws, desktopClaims)
 
-  const payload = await verifyToken(msg.token)
+  // A token naming a person (`iid`) is revoked by a password change or reset, here as in every auth plugin
+  // (`liveSessionUser`): a signature alone is not a live session.
+  const verified = await verifyToken(msg.token)
+  const payload = verified ? await liveSessionUser(verified) : null
   if (!payload) {
     refuse(ws, 'A signed-in session is required to bridge a fiscal device.', 'unauthenticated')
     closeSocket(ws, 'unauthenticated')
@@ -309,14 +315,28 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
   }
 
   const orgId = payload.orgId ? String(payload.orgId) : ''
-  const permissions: string[] = Array.isArray(payload.permissions) ? payload.permissions : []
   if (!orgId || !payload.id) {
     refuse(ws, 'A signed-in session is required to bridge a fiscal device.', 'unauthenticated')
     closeSocket(ws, 'unauthenticated')
     return null
   }
 
-  if (!permissions.includes(BRIDGE_PERMISSION)) {
+  // FR-27.5 (#529): in an org on `roles` the person's role decides, read live as the auth plugins read it
+  // (`attachAccess`): its grant, and its legacy projection as the claims. A role that sells at the till bridges its
+  // printer (`till.sell`, what a sale asks), whether or not its projection holds all of `pos.write`. Elsewhere the
+  // token's claims, exactly as before.
+  const session: any = {
+    id: String(payload.id),
+    orgId,
+    role: payload.role,
+    permissions: Array.isArray(payload.permissions) ? [...payload.permissions] : [],
+    ...(Array.isArray(payload.areas) ? { areas: payload.areas } : {}),
+  }
+  await attachAccess(session)
+  const permissions: string[] = session.permissions ?? []
+  const mayBridge = session.access ? can(session, 'till.sell') : permissions.includes(BRIDGE_PERMISSION)
+
+  if (!mayBridge) {
     refuse(ws, 'You do not have permission to connect a fiscal device.', 'forbidden')
     closeSocket(ws, 'forbidden')
     return null
@@ -405,6 +425,10 @@ function accept(ws: any, principal: BridgePrincipal): BridgePrincipal {
  * that reconnects must not be able to shoulder another till off the port, and the two cannot
  * legitimately contend for one anyway — a `desktop` device is pinned to its desktop by the
  * assignment, and by `bridgeDesktopId` when an admin sets one.
+ *
+ * FR-27.5 (#529): in an org on `roles` a principal's `permissions` are its role's legacy projection, read live at
+ * registration, so the rule is the legacy claim's exactly, and follows an edit. Which capability should take a device
+ * over is the owner's to name; until then nothing changes but where the answer is read.
  */
 function canTakeOver(principal: BridgePrincipal, msg: any): boolean {
   if (principal.kind !== 'user') return false
