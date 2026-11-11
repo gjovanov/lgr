@@ -46,6 +46,7 @@ interface IContact extends Document {
   discount?: number
   notes?: string
   tags?: string[]
+  aliases?: string[]        // other names it is written under on documents ("Also known as", FR-28.12)
   accountReceivableId?: Types.ObjectId  // ref: Account
   accountPayableId?: Types.ObjectId     // ref: Account
   isActive: boolean         // default: true
@@ -78,6 +79,7 @@ interface IContact extends Document {
 | discount | Number | REAL | No | - | |
 | notes | String | TEXT | No | - | |
 | tags | [String] | TEXT (JSON) | No | `[]` | JSON array in SQLite |
+| aliases | [String] | - | No | absent | "Also known as": other names the company is written under on documents. Stored cleaned (`config/contact-aliases`), at most 50, each up to 200 characters. Mirrored lowered in `aliasesLower` for the contact search. An import that looks a contact up by name takes one of these for this contact when nobody is named so |
 | accountReceivableId / account_receivable_id | ObjectId | TEXT | No | - | Ref: Account |
 | accountPayableId / account_payable_id | ObjectId | TEXT | No | - | Ref: Account |
 | isActive / is_active | Boolean | INTEGER | Yes | true / 1 | |

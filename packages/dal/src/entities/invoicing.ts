@@ -45,6 +45,8 @@ export interface IContact extends TenantEntity {
   discount?: number
   notes?: string
   tags?: string[]
+  /** Other names the company is written under on documents („Also known as", FR-28.12). */
+  aliases?: string[]
   accountReceivableId?: string
   accountPayableId?: string
   isActive: boolean

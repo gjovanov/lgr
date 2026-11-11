@@ -87,6 +87,9 @@ const NAME_CANDIDATES = 20
  * another company, so the document landed on another company's account.
  *
  * - An exact name wins; the same name entered twice gives the older contact.
+ * - Then the contact a person gave exactly this name as one of its other names („Also known as",
+ *   `Contact.aliases`): that is a person's word, so it comes before any guess, and after every contact that is
+ *   really named so. Two contacts keeping the same other name are refused, not picked from.
  * - Otherwise one candidate is a match, and several are refused (`ambiguous`), never picked from.
  */
 async function matchContactByName(
@@ -99,6 +102,12 @@ async function matchContactByName(
   const exact = (await Contact.find({ orgId, ...typeIn, companyNameLower: name.toLocaleLowerCase('bg') } as any)
     .sort({ _id: 1 }).lean()).filter(sameCompany)
   if (exact.length) return { contact: exact[0] }
+
+  // Other names are stored cleaned (one space between words), so the document's is compared the same way.
+  const known = (await Contact.find({ orgId, ...typeIn, aliasesLower: normalizeName(name) } as any)
+    .sort({ _id: 1 }).limit(NAME_CANDIDATES + 1).lean()).filter(sameCompany)
+  if (known.length === 1) return { contact: known[0] }
+  if (known.length) return { ambiguous: known.length }
 
   const f = buildSearchFilter(name, ['companyName'], { lowered: { companyName: 'companyNameLower' } })
   const loose = (await Contact.find({ orgId, ...typeIn, ...f } as any)
@@ -188,28 +197,41 @@ export async function matchContact(
  * Active contacts of type supplier or both only. A name that matches none, or several, resolves to nothing (the
  * caller says so in its report); this never creates a contact from free text. When no supplier has the exact name,
  * the same words with other punctuation are asked (`foldName`), and nothing looser: the answer decides who an article
- * is "bought from", and a near name is another company until a person says otherwise.
+ * is "bought from", and a near name is another company until a person says otherwise. A person says so on the
+ * contact („Also known as"): when no supplier is named that, the one that keeps it among its other names is.
  * ⚠ The pattern is built at runtime from a string: a Cyrillic regex LITERAL would be transpiled by Bun to \uXXXX
  * escapes and rejected by Mongo (PCRE2 51091), as the product ladder's whitespace rung is.
  */
 export async function matchSupplierByName(orgId: string, partner: string): Promise<SupplierNameMatch> {
   const key = normalizeName(partner)
   if (!key) return { status: 'none' }
+  const suppliers = { orgId, type: { $in: ['supplier', 'both'] }, isActive: { $ne: false } }
   const pattern = '^\\s*' + key.split(' ').map(escapeRe).join('\\s+') + '\\s*$'
   const rows: any[] = await Contact.find(
-    { orgId, type: { $in: ['supplier', 'both'] }, isActive: { $ne: false }, companyNameLower: { $regex: pattern } } as any,
+    { ...suppliers, companyNameLower: { $regex: pattern } } as any,
     { companyName: 1, type: 1, isActive: 1 },
   ).lean()
-  const pick = (found: any[]) => pickSupplierByName(key, found.map(c => ({ id: String(c._id), companyName: c.companyName, type: c.type, isActive: c.isActive })))
+  // The first two answers are read WITHOUT the other names: each query finds every supplier of its own question
+  // only, and an other name among a partial set could decide before a name outside it was asked.
+  const pick = (found: any[]) => pickSupplierByName(key, found.map(c => ({ id: String(c._id), companyName: c.companyName, type: c.type, isActive: c.isActive, aliases: c.aliases })))
   const exact = pick(rows)
   const words = foldName(partner)
-  if (exact.status !== 'none' || !words) return exact
-  // The suppliers whose name holds every one of the words, whatever stands between them: the rule chooses.
-  const alike: any[] = await Contact.find(
-    { orgId, type: { $in: ['supplier', 'both'] }, isActive: { $ne: false }, $and: words.split(' ').map(w => ({ companyNameLower: { $regex: escapeRe(w) } })) } as any,
-    { companyName: 1, type: 1, isActive: 1 },
-  ).limit(200).lean()
-  return pick(alike)
+  if (exact.status !== 'none') return exact
+  if (words) {
+    // The suppliers whose name holds every one of the words, whatever stands between them: the rule chooses.
+    const alike: any[] = await Contact.find(
+      { ...suppliers, $and: words.split(' ').map(w => ({ companyNameLower: { $regex: escapeRe(w) } })) } as any,
+      { companyName: 1, type: 1, isActive: 1 },
+    ).limit(200).lean()
+    const sameWords = pick(alike)
+    if (sameWords.status !== 'none') return sameWords
+  }
+  // Nobody is named that. Every supplier that keeps other names, and the rule chooses among those names.
+  const known: any[] = await Contact.find(
+    { ...suppliers, 'aliases.0': { $exists: true } } as any,
+    { companyName: 1, type: 1, isActive: 1, aliases: 1 },
+  ).lean()
+  return pick(known)
 }
 
 /**

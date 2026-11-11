@@ -3079,9 +3079,34 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   `pickSupplierByName`, since 2026-11-11): PlusMinus prints a document's partner from its partner list („КАМ - 04
   ООД") and keeps the supplier ledger LGR was seeded from in another spelling („КАМ-04 ООД"), which alone left a
   third of the shops' named receipts without their supplier. A shorter, longer or respelled name („REYHER" for
-  „F.REYHER Nchfg.GMBH", a missing ООД) is still nobody: that needs a person, not a rule.
+  „F.REYHER Nchfg.GMBH", a missing ООД) is still nobody to a rule: that needs a person, who says it once on the
+  contact (next bullet).
   ⚠ An importer never changes a booked receipt (a movement is editable only as a draft): add the supplier BEFORE
   the next run, or name the receipt afterwards with the backfill below.
+- **A contact's other names: „Also known as" (`Contact.aliases`, 2026-11-11).** The names a company is written
+  under on documents besides its own, typed on the contact form (chips; a name typed and not confirmed with Enter
+  is kept by the save). Stored cleaned by ONE function, `config/contact-aliases#cleanContactAliases`, in the form's
+  payload and again in the route: trimmed, single-spaced, each once whatever its case, never the contact's own
+  name; at most 50, each up to 200 characters (422 beyond). A contact with none keeps neither `aliases` nor its
+  mirror `aliasesLower` (`loweredFieldsPlugin` mirrors a list entry by entry now), so nothing changes for the
+  contacts that existed before. Who reads them:
+  - `pickSupplierByName` asks four questions in order, and the first that any active supplier answers decides
+    (one: matched; several: ambiguous): named exactly so; named by the same words; keeps exactly this as an other
+    name; keeps the same words as one. ⚠ **A supplier's own name always comes first, so an other name only fills
+    a gap**: it can never take a receipt from the supplier that is named so, and no match that worked before it
+    changes. ⚠ Each question is answered from the candidates given: a caller holding a PARTIAL set (a search's
+    answer) asks the own names over everything it can fetch before it reads any other name. That is why
+    `scripts/lib/supplier-partner.ts` and `matching.ts#matchSupplierByName` pass candidates without their other
+    names first, and only then with them.
+  - `matching.ts#matchContactByName` (the Files import's contact ladder, either side): after a contact NAMED
+    exactly so and before the every-word guess, the one contact that keeps exactly this as an other name; two
+    are refused, never picked from; the document's tax number still rules a contact out.
+  - The contact search (`GET /invoicing/contact?search=`), so the list and every picker find a contact by an
+    other name. ⚠ The receipt scripts' resolver finds its candidates through that search: dropping `aliases` from
+    the searched fields silently turns every other name off for the daily import.
+  - The backfill below (`rule: 'alias'` in its plan and manifest).
+  ⚠ `describeMatch`'s two ⚠ lines („no active supplier is named …", „N active suppliers are named …") are a format
+  the daily import's log checks read by their opening words: do not reword them.
 - **A receipt booked without a supplier: `scripts/backfill-receipt-suppliers.ts --org <slug>`**
   (`scripts/lib/receipt-supplier-backfill.ts`). The partner's NAME is still in LGR: in the notes the API importers
   wrote (`deliveryNote`, read back by `config/movement-notes#deliveryNotePartner`), or in the analysis of the Files

@@ -16,6 +16,7 @@
     "./reorder-quantity": "./src/reorder-quantity.ts",
     "./movement-warehouses": "./src/movement-warehouses.ts",
     "./movement-notes": "./src/movement-notes.ts",
+    "./contact-aliases": "./src/contact-aliases.ts",
     "./supto": "./src/supto.ts",
     "./licence-keys": "./src/licence-keys.json",
     "./idp-keys": "./src/idp-keys.json",

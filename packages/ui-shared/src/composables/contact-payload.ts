@@ -14,6 +14,7 @@
  *  - pressing "Add address" / "Add bank account" and leaving the row blank: the model refuses
  *    an address with no street and a bank account with no name or number.
  */
+import { cleanContactAliases } from 'config/contact-aliases'
 
 export interface ContactFormAddress {
   _id?: string
@@ -54,6 +55,8 @@ export interface ContactFormState {
   paymentTermsDays?: number | string | null
   isActive?: boolean
   tags?: string[]
+  /** The contact's other names („Also known as"). A form that has no such field leaves the key out. */
+  aliases?: string[]
   addresses?: ContactFormAddress[]
   bankDetails?: ContactFormBankDetail[]
 }
@@ -148,6 +151,12 @@ export function buildContactPayload(form: ContactFormState, mode: 'create' | 'up
   if (days !== undefined) out.paymentTermsDays = days
   if (typeof form.isActive === 'boolean') out.isActive = form.isActive
   if (Array.isArray(form.tags)) out.tags = form.tags
+  // The other names as the API will store them. `create` leaves an empty list out, like every empty field;
+  // `update` sends it, so that removing the last one clears what is stored.
+  if (Array.isArray(form.aliases)) {
+    const aliases = cleanContactAliases(form.aliases, form.companyName)
+    if (aliases.length || mode === 'update') out.aliases = aliases
+  }
   if (Array.isArray(form.addresses)) out.addresses = cleanAddresses(form.addresses)
   if (Array.isArray(form.bankDetails)) out.bankDetails = cleanBankDetails(form.bankDetails)
   return out
