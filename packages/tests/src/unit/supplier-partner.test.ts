@@ -7,11 +7,11 @@ import { createSupplierResolver } from '../../../../scripts/lib/supplier-partner
  * resolver adds: the search it asks, the pages it reads, and the answers it keeps.
  */
 
-type Contact = { _id: string; companyName?: string; type: string; isActive?: boolean }
+type Contact = { _id: string; companyName?: string; type: string; isActive?: boolean; aliases?: string[] }
 
 /**
  * A stand-in for `GET /invoicing/contact?type=supplier&search=…&page=&size=`: like the real one (`buildSearchFilter`)
- * it splits the words and wants every one inside the name, in any case, then pages the hits.
+ * it splits the words and wants every one inside the name or one of the other names, in any case, then pages the hits.
  */
 function fakeApi(contacts: Contact[], opts: { failTimes?: number } = {}) {
   const calls: string[] = []
@@ -23,7 +23,7 @@ function fakeApi(contacts: Contact[], opts: { failTimes?: number } = {}) {
     const words = (q.get('search') || '').toLowerCase().split(/\s+/).filter(Boolean)
     const page = Number(q.get('page') || 0)
     const size = Number(q.get('size') || 50)
-    const hits = contacts.filter((c) => words.every((w) => (c.companyName || '').toLowerCase().includes(w)))
+    const hits = contacts.filter((c) => words.every((w) => [c.companyName || '', ...(c.aliases ?? [])].some((n) => n.toLowerCase().includes(w))))
     return { contacts: hits.slice(page * size, (page + 1) * size), total: hits.length }
   }
   return { get, calls }
@@ -81,6 +81,43 @@ describe('createSupplierResolver', () => {
     // Once per name, like any other.
     await resolver.resolve('ИВ - ТЕСТ ЕООД')
     expect(api.calls).toHaveLength(3)
+  })
+
+  it('a supplier is found by one of its other names, which the search reads too', async () => {
+    const api = fakeApi([
+      { _id: 'short', companyName: 'F.TESTER Nchfg.GMBH', type: 'supplier', aliases: ['TESTER'] },
+      { _id: 'initials', companyName: 'TESTER+PARTNER GMBH', type: 'supplier', aliases: ['T+P'] },
+      { _id: 'spaced', companyName: 'СД ТЕСТ-7 ИВАНОВ И С-ИЕ', type: 'supplier', aliases: ['ТЕСТ 7 СД'] },
+    ])
+    const resolver = createSupplierResolver(api.get)
+    expect(await resolver.resolve('Tester')).toEqual({ status: 'matched', contactId: 'short', name: 'F.TESTER Nchfg.GMBH', by: 'alias' })
+    expect(await resolver.resolve('T+P')).toEqual({ status: 'matched', contactId: 'initials', name: 'TESTER+PARTNER GMBH', by: 'alias' })
+    // „Tester" has no punctuation to set aside and is asked once. „T+P" is asked again by its words, because nobody
+    // in the first answer is NAMED so; the other name then decides among both answers.
+    expect(api.calls).toHaveLength(3)
+    expect(decodeURIComponent(api.calls[2].split('search=')[1].split('&')[0])).toBe('t p')
+    // The other name is kept without the hyphens the document prints: the words alone find it.
+    expect(await resolver.resolve('ТЕСТ - 7 СД')).toEqual({ status: 'matched', contactId: 'spaced', name: 'СД ТЕСТ-7 ИВАНОВ И С-ИЕ', by: 'alias' })
+  })
+
+  it('a supplier NAMED by the words comes before another supplier\'s other name, though only the second search finds it', async () => {
+    const api = fakeApi([
+      // The first search (every typed word, the hyphen among them) finds only this one, by its other name.
+      { _id: 'known', companyName: 'ДРУГ ДОСТАВЧИК ООД', type: 'supplier', aliases: ['ИВ - ТЕСТ ЕООД'] },
+      // The words alone find this one, by its own name.
+      { _id: 'named', companyName: 'ИВ ТЕСТ ЕООД', type: 'supplier' },
+    ])
+    expect(await createSupplierResolver(api.get).resolve('ИВ - ТЕСТ ЕООД')).toEqual({ status: 'matched', contactId: 'named', name: 'ИВ ТЕСТ ЕООД', by: 'punctuation' })
+    expect(api.calls).toHaveLength(2)
+  })
+
+  it('two suppliers that keep the same other name are ambiguous, and nothing is picked', async () => {
+    const api = fakeApi([
+      { _id: 'a', companyName: 'ПЪРВИ ООД', type: 'supplier', aliases: ['ТЕСТ'] },
+      { _id: 'b', companyName: 'ВТОРИ ООД', type: 'both', aliases: ['тест'] },
+      { _id: 'c', companyName: 'ТРЕТИ ООД', type: 'customer', aliases: ['ТЕСТ'] },
+    ])
+    expect(await createSupplierResolver(api.get).resolve('Тест')).toEqual({ status: 'ambiguous', count: 2 })
   })
 
   it('a name with no punctuation to set aside is asked once, found or not', async () => {

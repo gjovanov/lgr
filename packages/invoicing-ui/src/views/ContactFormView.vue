@@ -15,6 +15,7 @@
             VTextField: { density: 'compact', variant: 'outlined' },
             VSelect: { density: 'compact', variant: 'outlined' },
             VAutocomplete: { density: 'compact', variant: 'outlined' },
+            VCombobox: { density: 'compact', variant: 'outlined' },
             VTextarea: { density: 'compact', variant: 'outlined' },
             VSwitch: { density: 'compact' },
           }">
@@ -34,6 +35,25 @@
                     { title: $t('invoicing.both'), value: 'both' },
                   ]"
                   :rules="[rules.required]"
+                />
+              </v-col>
+            </v-row>
+            <!-- FR-28.12: the names this company is written under on documents besides its own. Free text, one
+                 chip each; there is nothing to choose from, so no menu. -->
+            <v-row dense>
+              <v-col cols="12">
+                <v-combobox
+                  v-model="form.aliases"
+                  v-model:search="aliasText"
+                  :label="$t('invoicing.alsoKnownAs')"
+                  :hint="$t('invoicing.alsoKnownAsHint')"
+                  :rules="[rules.aliases]"
+                  :items="[]"
+                  menu-icon=""
+                  multiple
+                  chips
+                  closable-chips
+                  data-testid="contact-aliases"
                 />
               </v-col>
             </v-row>
@@ -130,6 +150,7 @@ import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityForm
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { buildContactPayload, isValidOptionalEmail } from 'ui-shared/composables/contact-payload'
+import { cleanContactAliases, contactAliasesFit, MAX_CONTACT_ALIASES, MAX_CONTACT_ALIAS_LENGTH } from 'config/contact-aliases'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -181,7 +202,22 @@ const form = reactive({
   addresses: [] as Array<{ type: string; street: string; city: string; postalCode: string; country: string; isDefault: boolean }>,
   bankDetails: [] as Array<{ bankName: string; accountNumber: string; iban: string; swift: string; currency: string; isDefault: boolean }>,
   tags: [] as string[],
+  aliases: [] as string[],
 })
+
+/** What is typed in „Also known as" and is not a chip yet. */
+const aliasText = ref('')
+
+/**
+ * A name typed and not confirmed with Enter is still a name the person meant: it joins the list before a save,
+ * instead of being dropped without a word.
+ */
+function keepTypedAlias() {
+  const typed = aliasText.value?.trim()
+  if (!typed) return
+  form.aliases = cleanContactAliases([...form.aliases, typed])
+  aliasText.value = ''
+}
 
 const { markSaved, tryRestore } = usePendingChanges({
   appId: 'invoicing',
@@ -203,6 +239,8 @@ const rules = {
   required: (v: string) => !!v || t('validation.required'),
   // Optional — but if one is typed it must be an address the API will accept.
   email: (v: string) => isValidOptionalEmail(v) || t('validation.invalidEmail'),
+  // The API's own bounds, said here instead of as a schema error after the save.
+  aliases: (v: string[]) => contactAliasesFit(cleanContactAliases(v)) || t('invoicing.alsoKnownAsLimit', { count: MAX_CONTACT_ALIASES, length: MAX_CONTACT_ALIAS_LENGTH }),
 }
 
 const contactName = computed(() => {
@@ -305,6 +343,7 @@ function orgUrl() {
 }
 
 async function handleSubmit() {
+  keepTypedAlias()
   const { valid } = await formRef.value.validate()
   if (!valid) return
 
@@ -351,6 +390,7 @@ onMounted(async () => {
         addresses: contact.addresses || [],
         bankDetails: contact.bankDetails || [],
         tags: contact.tags || [],
+        aliases: contact.aliases || [],
       })
     } catch (err) {
       console.error('Failed to load contact:', err)

@@ -9,6 +9,7 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
 import { pickerContacts } from 'services/biz/contact-picker.service'
 import { Invoice, StockMovement } from 'db/models'
+import { cleanContactAliases, MAX_CONTACT_ALIASES, MAX_CONTACT_ALIAS_LENGTH } from 'config/contact-aliases'
 
 /**
  * Email is optional, and an empty box is how a form says "none". `format: 'email'` alone
@@ -23,6 +24,15 @@ const optionalEmail = t.Optional(t.Union(
   { error: 'Expected a valid email address (or leave it empty)' },
 ))
 
+/**
+ * A contact's other names („Also known as", FR-28.12). The bounds only keep a careless client from storing a
+ * document's worth of text; what is stored is `cleanContactAliases` of what came.
+ */
+const otherNames = t.Optional(t.Array(
+  t.String({ maxLength: MAX_CONTACT_ALIAS_LENGTH }),
+  { maxItems: MAX_CONTACT_ALIASES, error: `Expected at most ${MAX_CONTACT_ALIASES} other names, each up to ${MAX_CONTACT_ALIAS_LENGTH} characters` },
+))
+
 export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/contact' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
@@ -31,9 +41,11 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
 
     const filter: Record<string, any> = { orgId }
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['companyName', 'firstName', 'lastName', 'email', 'phone', 'taxId', 'vatNumber'], {
+      // `aliases`: a contact is found by its other names too („Also known as"), in the list and in every picker.
+      const searchFilter = buildSearchFilter(query.search as string, ['companyName', 'aliases', 'firstName', 'lastName', 'email', 'phone', 'taxId', 'vatNumber'], {
         lowered: {
           companyName: 'companyNameLower',
+          aliases: 'aliasesLower',
           firstName: 'firstNameLower',
           lastName: 'lastNameLower',
           email: 'emailLower',
@@ -77,9 +89,10 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
 
-      // An empty email means none: store nothing rather than ''.
-      const { email, ...rest } = body
-      const contact = await r.contacts.create({ ...rest, ...(email ? { email } : {}), orgId } as any)
+      // An empty email means none: store nothing rather than ''. The same for other names: none, no field.
+      const { email, aliases, ...rest } = body
+      const names = cleanContactAliases(aliases, rest.companyName)
+      const contact = await r.contacts.create({ ...rest, ...(email ? { email } : {}), ...(names.length ? { aliases: names } : {}), orgId } as any)
       await upsertTags(orgId, 'contact', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'contact', entityId: contact.id, entityName: (contact as any).companyName || (contact as any).firstName })
@@ -111,6 +124,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         discount: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
         tags: t.Optional(t.Array(t.String())),
+        aliases: otherNames,
         isActive: t.Optional(t.Boolean()),
         addresses: t.Optional(t.Array(t.Object({
           type: t.Optional(t.String()),
@@ -191,7 +205,10 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       const existing = await r.contacts.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Contact not found' })
 
-      const contact = await r.contacts.updateInOrg(id, orgId, body as any)
+      // Other names are stored cleaned, against the name the contact will have after this save. A body that does
+      // not carry them leaves them as they are; an empty list clears them.
+      const names = body.aliases === undefined ? undefined : cleanContactAliases(body.aliases, body.companyName ?? (existing as any).companyName)
+      const contact = await r.contacts.updateInOrg(id, orgId, { ...body, ...(names ? { aliases: names } : {}) } as any)
       await upsertTags(orgId, 'contact', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'contact', entityId: id, entityName: (contact as any).companyName || (contact as any).firstName, changes: diffChanges(existing as any, contact as any) })
@@ -223,6 +240,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         discount: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
         tags: t.Optional(t.Array(t.String())),
+        aliases: otherNames,
         isActive: t.Optional(t.Boolean()),
         addresses: t.Optional(t.Array(t.Object({
           type: t.Optional(t.String()),
