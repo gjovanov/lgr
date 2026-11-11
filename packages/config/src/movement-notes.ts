@@ -26,6 +26,16 @@ export function deliveryNote(date: string, marker: string, partner?: string): st
   return `Доставки — ${date}${partner ? ` — ${partner}` : ''} (${marker})`
 }
 
+/**
+ * The partner a delivery's note names, as `deliveryNote` was given it (PlusMinus's `ПАРТНЬОРИ:` prefix
+ * included, if it had one), or undefined when the note names nobody or is no delivery's note. A receipt
+ * booked without a supplier still says here who it came from (FR-28.12's backfill reads it).
+ */
+export function deliveryNotePartner(notes: unknown): string | undefined {
+  const m = /^Доставки — \S* — (.+) \([^()]+\)$/.exec(String(notes ?? '').trim())
+  return m?.[1].trim() || undefined
+}
+
 /** The partner a КОРЕКЦИЯ is printed with, in a supplier's place. It is nobody's name. */
 export const CORRECTION_PARTNER = /2000\s+КОРЕКЦИЯ/i
 

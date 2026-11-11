@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import {
   describeMatch, formatPartnerReport, normalizeName, partnerOf, pickSupplierByName, summarizePartners,
+  unmatchedPartnerOf, unmatchedPartnerWarning,
   type PartnerResult, type SupplierCandidate,
 } from 'services/biz/doc-import/supplier-name'
 
@@ -150,5 +151,28 @@ describe('the import\'s report', () => {
     expect(lines[2]).toBe('   "Ghost Ltd" — no active supplier of that name — 2 document(s): D2, D3')
     expect(lines[3]).toBe('   "Twin" — 2 suppliers share that name — 1 document(s): D4')
     expect(lines).toHaveLength(4)
+  })
+})
+
+describe('a document booked without its partner still says who it was', () => {
+  it('the warning names the partner, and the reader gives the name back', () => {
+    for (const name of ['ТЕСТ СЕНТЕР ЕООД', 'Test Centre Ltd', '„АЛФА" ООД', '"АЛФА" ЕООД', 'склад']) {
+      expect(unmatchedPartnerOf(unmatchedPartnerWarning(name))).toBe(name)
+    }
+  })
+
+  it('the opening words are the ones every stored analysis carries', () => {
+    // `DocFile.analysis.diagnostics.warnings` holds this text for documents analysed since 2026-09: a reader that
+    // stops recognising it loses the partner of every receipt booked that way. Change the words only with a reader
+    // that still takes these.
+    const stored = 'the document names „ТЕСТ СЕНТЕР ЕООД" as partner and no contact matches — booked without one. That is expected when the partner is another of the org\x27s OWN stores rather than a counterparty (goods handed to a sister store, a second warehouse LGR does not track yet); only add a contact if it really is one.'
+    expect(unmatchedPartnerWarning('ТЕСТ СЕНТЕР ЕООД')).toBe(stored)
+    expect(unmatchedPartnerOf(stored)).toBe('ТЕСТ СЕНТЕР ЕООД')
+  })
+
+  it('any other warning names nobody', () => {
+    expect(unmatchedPartnerOf('partner: the name matches two contacts. Booked without one, so the invoice this note may later be converted into will not be recognised as its conversion.')).toBeUndefined()
+    expect(unmatchedPartnerOf('line 3: no product matches')).toBeUndefined()
+    for (const v of ['', undefined, null, 7]) expect(unmatchedPartnerOf(v)).toBeUndefined()
   })
 })

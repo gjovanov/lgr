@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { preselectedReceipts } from '../../../invoicing-ui/src/composables/receipt-overlap'
-import { deliveryNote, isRemovalReversalNote, movementMarker, noteSaysNoDelivery, reconcileNote, removalReversalNote } from 'config/movement-notes'
+import { deliveryNote, deliveryNotePartner, isRemovalReversalNote, movementMarker, noteSaysNoDelivery, reconcileNote, removalReversalNote } from 'config/movement-notes'
 
 /** #168: what the two dialogs tick for the person, and what a receipt's notes say about it. */
 
@@ -40,6 +40,24 @@ describe('what a receipt\'s notes say', () => {
     expect(noteSaysNoDelivery(undefined)).toBe(false)
   })
 
+  it('a delivery\x27s note gives back the partner its writer was given, and only that', () => {
+    const marker = movementMarker('goods_receipt', '3000619317')
+    expect(deliveryNotePartner(deliveryNote('2026-10-20', marker, 'ПАРТНЬОРИ:ТЕСТ СЕНТЕР ЕООД'))).toBe('ПАРТНЬОРИ:ТЕСТ СЕНТЕР ЕООД')
+    expect(deliveryNotePartner(deliveryNote('2026-10-20', marker, 'Test Centre Ltd'))).toBe('Test Centre Ltd')
+    // A name may hold brackets and a dash of its own: the marker is the LAST bracket.
+    expect(deliveryNotePartner(deliveryNote('2026-10-20', marker, 'ТЕСТ (БЪЛГАРИЯ) — КЛОН ЕООД'))).toBe('ТЕСТ (БЪЛГАРИЯ) — КЛОН ЕООД')
+    expect(deliveryNotePartner(`  ${deliveryNote('2026-10-20', marker, 'склад')}  `)).toBe('склад')
+  })
+
+  it('a note that names nobody, or is no delivery\x27s note, gives no partner', () => {
+    expect(deliveryNotePartner(deliveryNote('2026-10-20', movementMarker('goods_receipt', '1')))).toBeUndefined()
+    expect(deliveryNotePartner(deliveryNote('2026-10-20', movementMarker('store_operations', '2026-10-20')))).toBeUndefined()
+    expect(deliveryNotePartner(`Корекция от стокова разписка — 2026-10-20 (${movementMarker('correction', '1')})`)).toBeUndefined()
+    expect(deliveryNotePartner(reconcileNote('stokrazp_1.pdf', 2, 'reconcile:1-v2'))).toBeUndefined()
+    expect(deliveryNotePartner(removalReversalNote('SM-2026-00001', '0000000777'))).toBeUndefined()
+    expect(deliveryNotePartner('Доставки — 2026-10-20 — без маркер')).toBeUndefined()
+    for (const v of ['', undefined, null, 42]) expect(deliveryNotePartner(v)).toBeUndefined()
+  })
   it('the mirror of a removed document reads as what the writer wrote', () => {
     expect(isRemovalReversalNote(removalReversalNote('SM-2026-00001', '0000000777'))).toBe(true)
     expect(isRemovalReversalNote(deliveryNote('2026-10-20', 'stokrazp:1'))).toBe(false)
