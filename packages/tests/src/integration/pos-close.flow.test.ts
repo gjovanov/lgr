@@ -262,7 +262,10 @@ describe('a close that dies in its Z (the third read of FR-23, finding 6)', () =
     expect(outer.json.code).toBe('close_interrupted')
     expect(w.sim!.reports).toHaveLength(0)
     expect((await session(w)).status).toBe('open')
-    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })).toBe(1)
+    // `createAuditEntry` is not awaited: wait for the row, as the test above does, then hold it to one.
+    const interrupted = () => AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })
+    await until(async () => (await interrupted()) >= 1, 'the audit entry')
+    expect(await interrupted()).toBe(1)
   })
 
   it('only who may close it can put it back', async () => {
