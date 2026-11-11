@@ -72,8 +72,51 @@ describe('a job whose tree already passed does nothing, and says so', () => {
   it('only master\'s first run of a commit can skip, and a fork\'s marker is not one', () => {
     const action = readFileSync(join(ROOT, '.github/actions/same-tree/action.yml'), 'utf8')
     expect(action).toContain("MAY_SKIP: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.run_attempt == 1 }}")
-    expect(action).toContain('.workflow_run.head_repository_id == (env.REPO_ID | tonumber)')
+    expect(action).toContain('.workflow_run.head_repository_id == $repo')
+    expect(action).toContain('--argjson repo "$REPO_ID"')
     expect(action).toContain('.expired == false')
+  })
+})
+
+/**
+ * The self-hosted runner image has git, curl and jq, and no `gh` (infra/ci-runner/Dockerfile). The
+ * hosted image has all four, so a step written with `gh` passes every check that runs on a hosted
+ * runner or on a developer's machine, and fails only where ci.yml's Linux jobs really run. The
+ * same-tree lookup did exactly that: `gh: command not found`, and since it fails safe, nothing
+ * went red: it simply never skipped (master run 42947738395, 2026-11-11).
+ */
+describe('nothing in the self-hosted jobs needs a tool the runner image does not have', () => {
+  /** `gh <subcommand>` as a command, not inside a comment. */
+  const callsGh = (line: string) => !/^\s*#/.test(line) && /(^|[\s"'$(|;&])gh\s+(api|run|pr|issue|release|workflow|attestation|auth)\b/.test(line)
+  const image = readFileSync(join(ROOT, 'infra/ci-runner/Dockerfile'), 'utf8')
+
+  it('the runner image is the one this is about: curl and jq, no gh', () => {
+    expect(image).toMatch(/apt-get install[^\n]*\\\r?\n\s+ca-certificates curl git gnupg jq /)
+    // If gh is ever installed there, this guard has nothing left to guard: delete it then.
+    expect(/\bgh\b/.test(image.split(/\r?\n/).filter(l => !/^\s*#/.test(l)).join('\n'))).toBe(false)
+  })
+
+  it('no step of ci.yml\'s Linux jobs calls gh, itself or through a local action', () => {
+    const offenders: string[] = []
+    for (const job of ['test-shard', 'test', 'build']) {
+      for (const step of stepsOf(job)) {
+        for (const line of step.lines) {
+          if (callsGh(line)) offenders.push(`${job}: ${step.title}: ${line.trim().slice(0, 80)}`)
+          const local = /uses: \.\/\.github\/actions\/([a-z0-9-]+)/.exec(line)?.[1]
+          if (!local) continue
+          const action = readFileSync(join(ROOT, '.github/actions', local, 'action.yml'), 'utf8')
+          for (const l of action.split(/\r?\n/)) if (callsGh(l)) offenders.push(`${job}: ${step.title}: action ${local}: ${l.trim().slice(0, 80)}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('the lookup asks the API with curl and reads the answer with jq', () => {
+    const action = readFileSync(join(ROOT, '.github/actions/same-tree/action.yml'), 'utf8')
+    expect(action).toContain('"$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts?name=$marker&per_page=30"')
+    expect(action).toContain('curl -fsS')
+    expect(action).toContain('jq -r --argjson repo "$REPO_ID"')
   })
 })
 
