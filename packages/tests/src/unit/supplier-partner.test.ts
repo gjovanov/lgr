@@ -64,6 +64,33 @@ describe('createSupplierResolver', () => {
     expect(api.calls.length).toBe(3)
   })
 
+  it('a supplier spelled with other punctuation is found, by asking again for the words alone when the first search misses it', async () => {
+    const api = fakeApi([
+      { _id: 'hyphen', companyName: 'ТЕСТ-04 ООД', type: 'supplier' },
+      { _id: 'plain', companyName: 'ИВ ТЕСТ ЕООД', type: 'supplier' },
+      { _id: 'other', companyName: 'ИВ ТЕСТ ТРЕЙД ЕООД', type: 'supplier' },
+    ])
+    const resolver = createSupplierResolver(api.get)
+    // Every typed word, the hyphen among them, is inside „ТЕСТ-04 ООД": the first search has it.
+    expect(await resolver.resolve('ТЕСТ - 04 ООД')).toEqual({ status: 'matched', contactId: 'hyphen', name: 'ТЕСТ-04 ООД', by: 'punctuation' })
+    expect(api.calls).toHaveLength(1)
+    // „ИВ ТЕСТ ЕООД" holds no hyphen, so the first search finds nobody; the words alone find it, and only it.
+    expect(await resolver.resolve('ИВ - ТЕСТ ЕООД')).toEqual({ status: 'matched', contactId: 'plain', name: 'ИВ ТЕСТ ЕООД', by: 'punctuation' })
+    expect(api.calls).toHaveLength(3)
+    expect(decodeURIComponent(api.calls[2].split('search=')[1].split('&')[0])).toBe('ив тест еоод')
+    // Once per name, like any other.
+    await resolver.resolve('ИВ - ТЕСТ ЕООД')
+    expect(api.calls).toHaveLength(3)
+  })
+
+  it('a name with no punctuation to set aside is asked once, found or not', async () => {
+    const api = fakeApi([{ _id: 'a', companyName: 'Acme Ltd', type: 'supplier' }])
+    const resolver = createSupplierResolver(api.get)
+    expect(await resolver.resolve('Acme')).toEqual({ status: 'none' })
+    expect(await resolver.resolve('ТЕСТ ТРЕЙД')).toEqual({ status: 'none' })
+    expect(api.calls).toHaveLength(2)
+  })
+
   it('asks once per name: a day\'s receipts repeat their suppliers', async () => {
     const api = fakeApi([{ _id: 'a', companyName: 'Acme', type: 'supplier' }])
     const resolver = createSupplierResolver(api.get)

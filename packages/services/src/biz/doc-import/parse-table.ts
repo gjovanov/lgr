@@ -805,6 +805,26 @@ const after = (text: string, re: RegExp): string | undefined => {
   return m?.[1]?.trim() || undefined
 }
 
+/**
+ * Is this text the items table's header row („No   Име   Мяр   Кол   Цена …", however the export abbreviates it)?
+ * A stock note prints „Доставчик:" on the line right above the table. When the document names nobody, a reader
+ * that looks past the end of that line finds this row, and it was stored as the partner's name on every such
+ * document until 2026-11-11 (`DocFile.analysis` still holds those: the receipt backfill asks this before it
+ * believes a stored name).
+ */
+export function isItemsTableHeader(text: string): boolean {
+  return /^\s*(?:N[oо]?|№)\s+Име\s+М\S*\s+Ко/.test(text)
+}
+
+/**
+ * „Доставчик: <name>" of a stock note: the name on the label's OWN line. A label with nothing after it names
+ * nobody (`\s*` would run on to the next line, which is the table header), and a table header is never a name.
+ */
+const statedSupplier = (text: string): string | undefined => {
+  const name = after(text, /Доставчик[ \t]*:?[ \t]*([^\s:].*)/)
+  return name && !isItemsTableHeader(name) ? name : undefined
+}
+
 /** Both parties of a фактура, which prints ПОЛУЧАТЕЛ and ДОСТАВЧИК as two side-by-side columns. */
 function parseInvoiceParties(text: string) {
   const lines = text.split('\n')
@@ -950,7 +970,7 @@ export function draftFromLayoutText(text: string, kind: DocKind): DraftResult | 
     issue_date: rawDate ? bgDateToIso(rawDate) ?? null : null,
     currency: /€/.test(text) ? 'EUR' : null,
     supplier: isStock && !parties.supplier.name
-      ? { name: after(text, /Доставчик\s*:?\s*(.+)/) ?? null }
+      ? { name: statedSupplier(text) ?? null }
       : parties.supplier,
     customer: parties.customer,
     line_items,

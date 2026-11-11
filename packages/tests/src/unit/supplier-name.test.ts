@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import {
-  describeMatch, formatPartnerReport, normalizeName, partnerOf, pickSupplierByName, summarizePartners,
+  describeMatch, foldName, formatPartnerReport, normalizeName, partnerOf, pickSupplierByName, summarizePartners,
   unmatchedPartnerOf, unmatchedPartnerWarning,
   type PartnerResult, type SupplierCandidate,
 } from 'services/biz/doc-import/supplier-name'
@@ -174,5 +174,57 @@ describe('a document booked without its partner still says who it was', () => {
     expect(unmatchedPartnerOf('partner: the name matches two contacts. Booked without one, so the invoice this note may later be converted into will not be recognised as its conversion.')).toBeUndefined()
     expect(unmatchedPartnerOf('line 3: no product matches')).toBeUndefined()
     for (const v of ['', undefined, null, 7]) expect(unmatchedPartnerOf(v)).toBeUndefined()
+  })
+})
+
+describe('the same words with other punctuation are the same name', () => {
+  const s = (id: string, companyName: string, extra: Partial<SupplierCandidate> = {}): SupplierCandidate => ({ id, companyName, type: 'supplier', isActive: true, ...extra })
+
+  it('folds a name to its words', () => {
+    expect(foldName('ТЕСТ - 04 ООД')).toBe('тест 04 оод')
+    expect(foldName('ТЕСТ-04   ООД')).toBe('тест 04 оод')
+    expect(foldName(' F.TEST Nchfg. GmbH ')).toBe('f test nchfg gmbh')
+    expect(foldName('F.TEST Nchfg.GMBH')).toBe('f test nchfg gmbh')
+    expect(foldName('„ТЕСТ" & СИЕ - ЕООД.')).toBe('тест сие еоод')
+    for (const v of ['', ' - ', undefined, null]) expect(foldName(v)).toBe('')
+  })
+
+  it('a document that prints the name with other hyphens, dots or spacing finds its supplier', () => {
+    expect(pickSupplierByName('ТЕСТ - 04 ООД', [s('1', 'ТЕСТ-04 ООД')])).toEqual({ status: 'matched', contactId: '1', name: 'ТЕСТ-04 ООД', by: 'punctuation' })
+    expect(pickSupplierByName('F.TEST Nchfg. GmbH', [s('1', 'F.TEST Nchfg.GMBH')])).toMatchObject({ status: 'matched', contactId: '1', by: 'punctuation' })
+    expect(pickSupplierByName('ТЕСТ ГРАД ООД', [s('1', 'ТЕСТ ООД'), s('2', 'ТЕСТ ГРАД - ООД'), s('3', 'ТЕСТ СЕЛО - ООД')])).toMatchObject({ status: 'matched', contactId: '2', by: 'punctuation' })
+    expect(pickSupplierByName('TEST-MARE S.R.L.', [s('1', 'TEST-MARE S.R.L')])).toMatchObject({ status: 'matched', contactId: '1' })
+  })
+
+  it('the exact name decides first: a twin that differs only in punctuation does not make it ambiguous', () => {
+    expect(pickSupplierByName('ТЕСТ - 04 ООД', [s('1', 'ТЕСТ-04 ООД'), s('2', 'тест  -  04 ООД')])).toEqual({ status: 'matched', contactId: '2', name: 'тест  -  04 ООД' })
+    // Two suppliers of exactly that name stay ambiguous, whatever else is alike.
+    expect(pickSupplierByName('ТЕСТ', [s('1', 'ТЕСТ'), s('2', 'тест'), s('3', 'ТЕСТ.')])).toEqual({ status: 'ambiguous', count: 2 })
+  })
+
+  it('several suppliers alike but for their punctuation are nobody', () => {
+    expect(pickSupplierByName('ТЕСТ - 04 ООД', [s('1', 'ТЕСТ-04 ООД'), s('2', 'ТЕСТ 04 ООД')])).toEqual({ status: 'ambiguous', count: 2 })
+  })
+
+  it('a shorter, longer or differently spelled name is still another company', () => {
+    expect(pickSupplierByName('ТЕСТ ТРЕЙД', [s('1', 'ТЕСТ ТРЕЙД ЕООД')])).toEqual({ status: 'none' })
+    expect(pickSupplierByName('ТЕСТ ТРЕЙД ЕООД', [s('1', 'ТЕСТ ТРЕЙД')])).toEqual({ status: 'none' })
+    expect(pickSupplierByName('Testmare', [s('1', 'TEST-MARE S.R.L')])).toEqual({ status: 'none' })
+    expect(pickSupplierByName('ТЕСТ04 ООД', [s('1', 'ТЕСТ-04 ООД')])).toEqual({ status: 'none' })
+    expect(pickSupplierByName('ТЕСТ ООД', [s('1', 'ТЕСТ ООС')])).toEqual({ status: 'none' })
+    expect(pickSupplierByName('ТЕСТ ЕООД &КО КД', [s('1', 'ТЕСТ ЕООД И КО КД')])).toEqual({ status: 'none' })
+  })
+
+  it('and only an active supplier counts, as for the exact name', () => {
+    expect(pickSupplierByName('ТЕСТ - 04 ООД', [s('1', 'ТЕСТ-04 ООД', { type: 'customer' })])).toEqual({ status: 'none' })
+    expect(pickSupplierByName('ТЕСТ - 04 ООД', [s('1', 'ТЕСТ-04 ООД', { isActive: false })])).toEqual({ status: 'none' })
+    expect(pickSupplierByName('ТЕСТ - 04 ООД', [s('1', 'ТЕСТ-04 ООД', { type: 'both' })])).toMatchObject({ status: 'matched', contactId: '1' })
+    // Punctuation alone is no name: nothing is left to compare.
+    expect(pickSupplierByName(' . ', [s('1', '-')])).toEqual({ status: 'none' })
+  })
+
+  it('the log says how it was found', () => {
+    expect(describeMatch('ТЕСТ - 04 ООД', { status: 'matched', contactId: '1', name: 'ТЕСТ-04 ООД', by: 'punctuation' })).toBe('supplier: ТЕСТ-04 ООД (1), the same name but for its punctuation')
+    expect(describeMatch('ТЕСТ', { status: 'matched', contactId: '1', name: 'ТЕСТ' })).toBe('supplier: ТЕСТ (1)')
   })
 })
