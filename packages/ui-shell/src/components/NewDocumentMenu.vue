@@ -48,6 +48,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useHoverMenus } from 'ui-shared/composables/useHoverMenus'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
@@ -62,7 +63,8 @@ const { hoverEnabled, openDelay, closeDelay } = useHoverMenus()
 
 // The session cannot change under a mounted page (a switch or a sign-in reloads it), so the
 // entries are worked out once. Nothing to offer, no button: a read-only role sees none.
-const groups = newDocumentMenu(sessionViewer())
+// FR-27.5: a computed, so a role edited live re-evaluates it.
+const groups = computed(() => newDocumentMenu(sessionViewer()))
 
 function hrefOf(page: PageDef): string {
   return appHref(page.appId, page.path)

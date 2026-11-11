@@ -340,6 +340,8 @@ import { useAccess } from 'ui-shared/access/useAccess'
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
+// FR-27.11.D: cost figures only for a role that holds them (the server sends none otherwise).
+const seesCosts = computed(() => useAccess().can('products.costs'))
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
@@ -371,8 +373,11 @@ const stockLevelHeaders = computed(() => [
   { title: t('warehouse.supply.available'), key: 'available', align: 'end' as const },
   { title: t('warehouse.supply.incoming'), key: 'incoming', align: 'end' as const },
   { title: t('warehouse.supply.reservedIncoming'), key: 'reservedIncoming', align: 'end' as const },
-  { title: t('warehouse.unitCost'), key: 'avgCost', align: 'end' as const },
-  { title: t('warehouse.value'), key: 'value', align: 'end' as const },
+  // FR-27.11.D: cost figures only for a role that holds them.
+  ...(seesCosts.value ? [
+    { title: t('warehouse.unitCost'), key: 'avgCost', align: 'end' as const },
+    { title: t('warehouse.value'), key: 'value', align: 'end' as const },
+  ] : []),
 ])
 
 /**
@@ -475,9 +480,11 @@ const ledgerHeaders = computed(() => [
   { title: t('warehouse.startQty'), key: 'startQty', align: 'end' as const },
   { title: t('warehouse.qtyChange'), key: 'quantityChange', align: 'end' as const },
   { title: t('warehouse.endQty'), key: 'endQty', align: 'end' as const },
-  { title: t('warehouse.unitCost'), key: 'unitCost', align: 'end' as const },
-  { title: t('common.total'), key: 'lineTotalCost', align: 'end' as const },
-  { title: t('warehouse.runningValue'), key: 'runningValue', align: 'end' as const },
+  ...(seesCosts.value ? [
+    { title: t('warehouse.unitCost'), key: 'unitCost', align: 'end' as const },
+    { title: t('common.total'), key: 'lineTotalCost', align: 'end' as const },
+    { title: t('warehouse.runningValue'), key: 'runningValue', align: 'end' as const },
+  ] : []),
   { title: t('invoicing.invoice'), key: 'invoiceNumber' },
   { title: t('warehouse.reference'), key: 'reference' },
 ])

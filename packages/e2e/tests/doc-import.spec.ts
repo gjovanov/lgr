@@ -3,6 +3,7 @@ import ExcelJS from 'exceljs'
 import { loginForApp } from './helpers/login'
 import { apiLogin } from './helpers/api'
 import { openImportDialog, uploadAndExtract, cleanupImportedDoc } from './helpers/doc-import'
+import { tillCatalog } from './helpers/cash-register'
 
 /**
  * Document import — the Import button on a list page, and single-document import onto an
@@ -67,7 +68,7 @@ test.describe('Document import — batch', () => {
     const { warehouses } = await get('/warehouse/warehouse?size=1000')
     const wh = warehouses.find((w: any) => w.isDefault) || warehouses[0]
     const whId = String(wh._id || wh.id)
-    const { products } = await get(`/trade/pos/catalog?warehouseId=${whId}&type=goods&size=100`)
+    const products = await tillCatalog(admin, whId)
     const product = products.find((p: any) => (p.stockAvailable ?? 0) >= 1 && p.unitPrice > 0)
     expect(product, 'no article with stock in the default warehouse — is the DB seeded?').toBeTruthy()
 

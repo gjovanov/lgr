@@ -41,23 +41,6 @@ async function call(session: ApiSession, method: string, path: string, body?: un
   return json
 }
 
-/**
- * Every good of the till's catalog at `warehouseId`, all pages. The specs look for the seed's goods
- * with stock, and the catalog is sorted by name: by the time the till specs run, the run has made
- * over a hundred "E2E …" goods with no stock (the order specs make two or three per test), and the
- * first page of 100 held none of the seed's "Product N …". A spec that pages cannot be starved by
- * how many goods the specs before it made.
- */
-export async function tillCatalog(session: ApiSession, warehouseId: string): Promise<any[]> {
-  const all: any[] = []
-  for (let page = 0; page < 50; page++) {
-    const r = await call(session, 'GET', `/trade/pos/catalog?warehouseId=${warehouseId}&type=goods&size=200&page=${page}`)
-    all.push(...(r.products || []))
-    if (page + 1 >= (r.totalPages || 1)) break
-  }
-  return all
-}
-
 function userIdOf(token: string): string {
   return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8')).id
 }
@@ -77,6 +60,27 @@ export async function openTillSession(session: ApiSession): Promise<{ id: string
     warehouseId: store.id || store._id, openingBalance: 0, currency: 'EUR',
   })
   return { id: opened.id || opened._id, warehouseId: String(opened.warehouseId) }
+}
+
+/**
+ * Every active article of a type that the till's catalog lists, in the catalog's own order (by name),
+ * each with its stock at `warehouseId`.
+ *
+ * ⚠ Never ONE page of it. Every spec that makes an article of its own names it "E2E …", which sorts
+ * ahead of the seed's "Product N …", and the suite runs in one database. By the time the till specs
+ * run there are more of those than a page holds, so the first hundred goods include no seeded
+ * article and a fixture that looks there for "a product with stock" finds none. Twelve specs failed
+ * on exactly that, with "is the DB seeded?", the night FR-28's specs joined the suite.
+ */
+export async function tillCatalog(session: ApiSession, warehouseId: string, type = 'goods'): Promise<any[]> {
+  const byId = new Map<string, any>()
+  for (let page = 0; ; page++) {
+    const { products, totalPages } = await call(session, 'GET', `/trade/pos/catalog?warehouseId=${warehouseId}&type=${type}&size=200&page=${page}`)
+    // By id: two articles of one name have no order between them, so a page boundary can repeat one.
+    for (const p of products || []) if (!byId.has(String(p.productId))) byId.set(String(p.productId), p)
+    if (!products?.length || page + 1 >= (totalPages ?? 1)) break
+  }
+  return [...byId.values()]
 }
 
 /**
@@ -195,7 +199,8 @@ export async function createBackOfficeCashSale(session?: ApiSession): Promise<{ 
   const { warehouses } = await call(admin, 'GET', '/warehouse/warehouse?size=50')
   const main = warehouses.find((w: any) => w.code === 'WH-01') || warehouses[0]
   const warehouseId = main.id || main._id
-  const products = await tillCatalog(admin, warehouseId)
+  // From the end of the catalog, as before: the seed's "Product N …" sort after the specs' "E2E …".
+  const products = (await tillCatalog(admin, warehouseId)).reverse()
   const product = products.find((p: any) => (p.stockAvailable ?? 0) >= 1 && p.unitPrice > 0)
   if (!product) throw new Error('no product with stock in the main warehouse — is the DB seeded?')
 

@@ -43,7 +43,10 @@ export const CATALOGUE = [
   { id: 'sequences', group: 'invoicing', actions: ['view', 'edit'] },
 
   // ── Inventory ── `view` opens the page (`inventory.read`); `lookup` is what the other inventory permissions read.
-  { id: 'products', group: 'inventory', actions: ['view', 'lookup', ...WORK, 'export'] },
+  // `costs`: the cost figures, a field group (FR-27.6, D-5): `purchasePrice`, the buying-price slot, margins (`fields.ts`).
+  // FR-27.11: the price levels a role may see, one per `PRICE_TIERS` slot but „Доставна цена" (a cost figure), the
+  // selling price and the others (`fields.ts#PRICE_LEVELS`; `access-fields.test.ts` holds them to `PRICE_TIERS`).
+  { id: 'products', group: 'inventory', actions: ['view', 'lookup', ...WORK, 'export', 'costs', 'price:selling', 'price:wholesale', 'price:0', 'price:1', 'price:2', 'price:3', 'price:4', 'price:5', 'price:6', 'price:7', 'price:8', 'price:9', 'price:10', 'price:other'] },
   { id: 'categories', group: 'inventory', actions: ['view', 'lookup', ...WORK] },
   { id: 'warehouses', group: 'inventory', actions: ['view', 'lookup', ...WORK] },
   { id: 'movements', group: 'inventory', actions: ['view', 'lookup', ...WORK, 'create:transfer'] },

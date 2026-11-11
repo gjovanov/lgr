@@ -146,7 +146,7 @@ const { markSaved, tryRestore } = usePendingChanges({
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
 const formActions = computed<FormAction[]>(() => [
-  { label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, loading: saving.value },
+  { label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, cap: isEdit.value ? ['price-lists.create', 'price-lists.edit'] : 'price-lists.create', loading: saving.value },
 ])
 
 async function fetchItem() {

@@ -4680,5 +4680,215 @@
       "loadFailed": "The articles could not be loaded.",
       "empty": "None of the selected articles can be ordered."
     }
+  },
+  "access": {
+    "feature": {
+      "sales-docs": "Sales documents",
+      "proforma": "Proforma",
+      "bills": "Purchase documents",
+      "orders": "Orders and reservations",
+      "payments": "Payment and cash orders",
+      "contacts": "Contacts",
+      "cash-sales": "Cash sales",
+      "till": "Till: terminal and sessions",
+      "devices": "Fiscal devices",
+      "sequences": "Document numbering",
+      "products": "Products",
+      "categories": "Categories",
+      "warehouses": "Warehouses",
+      "movements": "Stock movements",
+      "stock-levels": "Stock levels",
+      "inventory-counts": "Inventory counts",
+      "valuation": "Inventory valuation",
+      "opening-stock": "Opening stock import",
+      "price-lists": "Price lists",
+      "bulk-pricing": "Bulk pricing",
+      "accounts": "Chart of accounts",
+      "bank-accounts": "Bank accounts",
+      "journal": "Journal entries",
+      "ledgers": "Ledgers and statements",
+      "vat": "VAT and tax returns",
+      "accounting-setup": "Fiscal years, periods and terms",
+      "exchange-rates": "Exchange rates",
+      "reconciliation": "Reconciliation",
+      "fixed-assets": "Fixed assets",
+      "books-import": "Import of books",
+      "payroll-runs": "Payroll runs",
+      "payroll-people": "Employees and their records",
+      "payroll-import": "Import of payroll",
+      "reports": "Reports",
+      "supto": "SUPTO tables",
+      "files": "Files",
+      "dashboard": "Dashboard",
+      "org-settings": "Organization",
+      "users": "Users",
+      "invites": "Invitations",
+      "roles": "Roles and access",
+      "apps": "Apps",
+      "digest": "Daily digest",
+      "integrations": "Integrations",
+      "billing": "Billing",
+      "desktops": "Desktops",
+      "servers": "Servers and moves",
+      "numbering": "Last numbers",
+      "audit-log": "Audit log",
+      "org": "Your organizations",
+      "pricing": "Prices",
+      "stock-availability": "Stock availability",
+      "doc-import": "Document import",
+      "tags": "Tags"
+    },
+    "action": {
+      "view": "View",
+      "browse": "Open from other apps",
+      "lookup": "Search from forms",
+      "read": "Read",
+      "check": "Check",
+      "create": "Create",
+      "edit": "Edit",
+      "delete": "Delete",
+      "export": "Export",
+      "totals": "Totals strip",
+      "costs": "Cost figures",
+      "import": "Import",
+      "storno": "Storno",
+      "settle": "Settle a receipt in doubt",
+      "sell": "Sell",
+      "manage_sessions": "Other cashiers' sessions",
+      "report": "Device reports",
+      "z_report": "Z-report",
+      "sync_time": "Set the clock",
+      "name_payments": "Name payment types",
+      "post": "Post and void",
+      "file": "File returns",
+      "run": "Run",
+      "approve": "Approve",
+      "reveal": "Reveal personal data",
+      "manage": "Manage",
+      "archives": "Archives",
+      "switch": "Change organization",
+      "create_transfer": "Transfers",
+      "transfer": "Create transfers",
+      "extract": "Read a document",
+      "price_selling": "Selling price",
+      "price_wholesale": "Цена на едро",
+      "price_0": "Цена 0",
+      "price_1": "Цена 1",
+      "price_2": "Цена 2",
+      "price_3": "Цена 3",
+      "price_4": "Цена 4",
+      "price_5": "Цена 5",
+      "price_6": "Цена 6",
+      "price_7": "Цена 7",
+      "price_8": "Цена 8",
+      "price_9": "Цена 9",
+      "price_10": "Цена 10",
+      "price_other": "Other prices (own names, tag and customer prices)"
+    },
+    "group": {
+      "invoicing": "Invoicing",
+      "inventory": "Inventory",
+      "accounting": "Accounting",
+      "payroll": "Payroll",
+      "reports": "Reports",
+      "files": "Files",
+      "settings": "Settings and people",
+      "helpers": "Helpers"
+    },
+    "level": {
+      "none": "None",
+      "view": "View",
+      "work": "Work",
+      "full": "Full"
+    },
+    "roles": {
+      "admin": {
+        "description": "Everything, including people, roles and the organization."
+      },
+      "manager": {
+        "description": "Runs the business: every app but administration, and the till's manager actions."
+      },
+      "accountant": {
+        "description": "Books and invoices: accounting, sales and purchase documents, and reports."
+      },
+      "hr_manager": {
+        "description": "Payroll and the people it pays, with reports."
+      },
+      "warehouse_manager": {
+        "description": "Runs the warehouses: products, stock, movements, counts and the fiscal devices."
+      },
+      "sales": {
+        "description": "Sells and invoices at the counter and on paper, and reads stock."
+      },
+      "seller": {
+        "description": "Sells at the counter and on paper and moves stock between warehouses; nothing else."
+      },
+      "sales_consultant": {
+        "description": "What a Seller does, and orders and reservations."
+      },
+      "member": {
+        "description": "Reads the organization's documents and reports; changes nothing."
+      },
+      "nra_auditor": {
+        "description": "The tax inspector: reads everything and exports the SUPTO tables."
+      }
+    },
+    "ui": {
+      "title": "Roles and access",
+      "newRole": "New role",
+      "blank": "Blank",
+      "fromTemplate": "From a template",
+      "copyOf": "Copy of a role",
+      "name": "Name",
+      "description": "Description",
+      "people": "People",
+      "builtin": "Built-in",
+      "edited": "Edited",
+      "needsRelease": "Not all of it on older servers",
+      "needsReleaseHint": "A server on an older release, or the legacy model, gives this role's people less than it says, never more.",
+      "administratorFixed": "The Administrator holds everything, including what a later release adds, and is not edited.",
+      "unknownCaps": "Options this release no longer knows (not granted)",
+      "extras": "Extras",
+      "alwaysIncluded": "Always included: the person's account, notifications, language, favourites, the organization's name and its people.",
+      "canCreate": "Can create",
+      "readOnly": "Read-only",
+      "notVisible": "Not visible",
+      "defaultRole": "Default role for invitations",
+      "defaultRoleNone": "The invitation's own role",
+      "role": "Role",
+      "deleteRole": "Delete role",
+      "noRoles": "This organization has no roles yet: the roles migration has not run here.",
+      "saved": "Role saved",
+      "feature": "Feature",
+      "level": "Level",
+      "grants": "Grants",
+      "landing": "Start page",
+      "landingHint": "Where the role's people land after signing in, and from a page their role does not open.",
+      "landingDefault": "The Dashboard",
+      "pricesNote": "Prices it may see: hidden only once the organization's access model is \"roles\". A customer's price still applies at a level the role does not see, and a role that edits contacts can read a hidden level by tagging a contact with its name; take \"Contacts: edit\" away to close that.",
+      "pricesHidden": "Prices not visible"
+    },
+    "notAvailable": {
+      "title": "Not available for your role",
+      "text": "“{page}” is not part of your role. Ask an administrator if you need it.",
+      "textAny": "This page is not part of your role. Ask an administrator if you need it.",
+      "home": "Go to my start page"
+    },
+    "tools": {
+      "whoCan": "Who can…",
+      "whoCanHint": "The roles that hold it, and how many people have them.",
+      "capability": "Can do",
+      "nobody": "No role holds it.",
+      "peopleTotal": "People with it: {n}",
+      "compare": "Compare",
+      "roleA": "Role",
+      "roleB": "With role",
+      "showAll": "Show every feature either role has",
+      "identical": "The two roles grant exactly the same.",
+      "preview": "What this role opens",
+      "previewHint": "The pages its people are offered, as the role stands here (before Save).",
+      "previewNone": "No page: the person sees their account only.",
+      "portal": "Portal"
+    }
   }
 }

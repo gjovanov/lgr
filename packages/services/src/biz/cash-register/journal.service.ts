@@ -297,9 +297,9 @@ function fromDocument(doc: any, moved: Set<string>): JournalRow {
 async function hydrate(orgId: string, rows: JournalRow[]): Promise<void> {
   const ids = (k: keyof JournalRow) => [...new Set(rows.map(r => r[k]).filter(Boolean).map(String))].filter(isOid).map(oid)
   const [contacts, users, warehouses, sessions] = await Promise.all([
-    Contact.find({ _id: { $in: ids('contactId') } }, { companyName: 1, firstName: 1, lastName: 1, email: 1 }).lean().exec(),
-    User.find({ _id: { $in: ids('cashierId') } }, { firstName: 1, lastName: 1, username: 1 }).lean().exec(),
-    Warehouse.find({ _id: { $in: ids('warehouseId') } }, { name: 1 }).lean().exec(),
+    Contact.find({ _id: { $in: ids('contactId') }, orgId: oid(orgId) }, { companyName: 1, firstName: 1, lastName: 1, email: 1 }).lean().exec(),
+    User.find({ _id: { $in: ids('cashierId') }, orgId: oid(orgId) }, { firstName: 1, lastName: 1, username: 1 }).lean().exec(),
+    Warehouse.find({ _id: { $in: ids('warehouseId') }, orgId: oid(orgId) }, { name: 1 }).lean().exec(),
     POSSession.find({ _id: { $in: ids('sessionId') }, orgId: oid(orgId) }, { sessionNumber: 1 }).lean().exec(),
   ])
   const name = (list: any[], f: (x: any) => string) => new Map(list.map((x: any) => [String(x._id), f(x)]))

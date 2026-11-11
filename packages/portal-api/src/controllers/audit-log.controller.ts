@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
+import { grantOf } from 'services/biz/access/evaluate'
 import { createAuditEntry, queryAuditLogs, queryDistinctFilters, searchEntitiesByType, searchUsers, queryByCorrelationId } from 'services/biz/audit-log.service'
 import { auditReadScope } from 'services/biz/route-permission'
 
@@ -26,7 +27,8 @@ export const auditLogController = new Elysia({ prefix: '/org/:orgId/audit-logs' 
   .get('/correlation/:correlationId', async ({ params: { orgId, correlationId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (auditReadScope(user) !== 'all') return status(403, WHOLE_TRAIL)
-    const entries = await queryByCorrelationId(orgId, correlationId)
+    // FR-27.11.C.5: no change of a figure the caller's role does not see.
+    const entries = await queryByCorrelationId(orgId, correlationId, grantOf(user as any))
     return { entries }
   }, { isSignIn: true })
   .get('/search-users', async ({ params: { orgId }, query, user, status }) => {
@@ -38,7 +40,8 @@ export const auditLogController = new Elysia({ prefix: '/org/:orgId/audit-logs' 
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    const options: Record<string, any> = {}
+    // FR-27.11.C.5: no change of a figure the caller's role does not see.
+    const options: Record<string, any> = { viewer: grantOf(user as any) }
     if (query.module) options.module = query.module
     if (query.modules) options.modules = (query.modules as string).split(',').filter(Boolean)
     if (query.entityType) options.entityType = query.entityType

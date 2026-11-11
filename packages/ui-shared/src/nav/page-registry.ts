@@ -264,11 +264,15 @@ export interface PageViewer {
   amr?: readonly string[]
   /** FR-26: the only areas the session opens; absent = every area. */
   areas?: readonly string[]
+  /** FR-27.5: the session's live grant from its role (an org on `roles`); it decides over the claims. */
+  grant?: Grant
+  /** FR-27.4: the page id its role starts it on. */
+  landing?: string
 }
 
-/** FR-27 (#529): the grant a page viewer's claims compile to, as the server compiles them. */
+/** FR-27 (#529): the viewer's grant: its role's, live, else its claims compiled as the server compiles them. */
 export function grantOfViewer(who: PageViewer | null | undefined): Grant {
-  return compileLegacy(who)
+  return who?.grant ?? compileLegacy(who)
 }
 
 /**
@@ -323,6 +327,8 @@ export const PORTAL_PAGES: PageDef[] = [
   portalPage('/settings/users', BACK_OFFICE),
   // Writing a set is assigning access, which is the server's admin role (`permission-set.controller`).
   portalPage('/settings/permission-sets', []),
+  // FR-27.4: Roles & access, the permission sets' successor; an admin's as theirs.
+  portalPage('/settings/roles', []),
   portalPage('/settings/invites', []),
   portalPage('/settings/desktops', ['admin.settings']),
   portalPage('/settings/servers', ['admin.settings']),
@@ -443,6 +449,9 @@ export function isPortalAreaPath(path: string): boolean {
  * `APP_NAV_META` (Invoicing first), else its own account page.
  */
 export function landingWithoutPortal(who: PageViewer | null | undefined): string {
+  // FR-27.4: the role's own landing first, unless it is one of the portal's pages this session is sent out of.
+  const own = ownLanding(who)
+  if (own && !isPortalAreaPath(own)) return own
   const products = pageById('/inventory/products')
   if (products && canOpenPage(products, who)) return products.path
   if (!who) return '/account'
@@ -451,4 +460,43 @@ export function landingWithoutPortal(who: PageViewer | null | undefined): string
     if (APP_OPENED_BY[appId] && can(grant, APP_OPENED_BY[appId])) return `${meta.base}/`
   }
   return '/account'
+}
+
+/** FR-27.4: the role's landing page, where this session opens it, else null. */
+function ownLanding(who: PageViewer | null | undefined): string | null {
+  const id = who?.landing
+  if (!id) return null
+  const page = pageById(id) ?? PORTAL_PAGES.find(p => p.id === id) ?? null
+  return page && canOpenPage(page, who) ? page.path : null
+}
+
+/**
+ * FR-27.4: where a session starts, after signing in or entering the org, and where "Not available for your role"
+ * sends it: its role's landing, else the Dashboard, else (no portal) `landingWithoutPortal`.
+ */
+export function startPage(who: PageViewer | null | undefined): string {
+  const own = ownLanding(who)
+  if (own) return own
+  return who && holdsArea(who, 'portal') ? '/dashboard' : landingWithoutPortal(who)
+}
+
+/**
+ * FR-27.7: the page a route shows, for "Not available for your role": a registry page at its own path (a list, a
+ * new-document form), or one of the portal's under Settings or Admin, with what lies under it. Null: the route
+ * shows, and the server decides.
+ *
+ * ⚠ A module's RECORD route (`/inventory/products/:id/edit`) is never one: other apps link to records (an invoice's
+ * product, a bill's receipt) for people whose role opens no list there, and the server serves them through the
+ * feature's `lookup`. Never the Dashboard either, where everyone lands (`portalGuard` sends a session without it on).
+ */
+export function pageAt(pathname: string, search = ''): PageDef | null {
+  const path = pathname.replace(/\/+$/, '')
+  const hit = matchPage(pathname, search)
+  if (hit) return hit.path.split('?')[0] === path ? hit : null
+  let best: PageDef | null = null
+  for (const page of PORTAL_PAGES) {
+    if (page.path === '/dashboard') continue
+    if ((path === page.path || path.startsWith(page.path + '/')) && (!best || page.path.length > best.path.length)) best = page
+  }
+  return best
 }

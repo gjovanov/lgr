@@ -7,6 +7,7 @@ import { createPinia } from 'pinia'
 import type { createVuetify } from 'vuetify'
 import { matchPage } from '../nav/page-registry'
 import { installInAppLinks } from '../nav/navigate'
+import { vCap } from '../access/v-cap'
 import { usePageFavorites } from '../composables/usePageFavorites'
 
 type LocaleMessages = Record<string, Record<string, unknown>>
@@ -75,6 +76,8 @@ export function registerPlugins(app: App, options?: RegisterPluginsOptions) {
   app.use(i18n)
   app.use(vuetify)
   app.use(createPinia())
+  // FR-27.7: `v-cap="'feature.action'"` shows a control only to a role that holds it.
+  app.directive('cap', vCap)
 
   if (options?.router) {
     app.use(options.router)

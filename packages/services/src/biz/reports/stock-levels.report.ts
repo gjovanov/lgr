@@ -50,8 +50,8 @@ const COLUMNS: ReportColumn[] = [
   { key: 'available',     labelKey: 'reports.columns.available', type: 'quantity', align: 'end' },
   { key: 'minStockLevel', labelKey: 'reports.columns.minStock',  type: 'quantity', align: 'end' },
   { key: 'shortfall',     labelKey: 'reports.columns.shortfall', type: 'quantity', align: 'end' },
-  { key: 'avgCost',       labelKey: 'reports.columns.avgCost',   type: 'money',    align: 'end' },
-  { key: 'totalValue',    labelKey: 'reports.columns.totalValue', type: 'money',   align: 'end' },
+  { key: 'avgCost',       labelKey: 'reports.columns.avgCost',   type: 'money',    align: 'end', fieldGroup: 'costs' },
+  { key: 'totalValue',    labelKey: 'reports.columns.totalValue', type: 'money',   align: 'end', fieldGroup: 'costs' },
 ]
 
 export async function runStockLevels(ctx: ReportHandlerContext): Promise<ReportResult> {

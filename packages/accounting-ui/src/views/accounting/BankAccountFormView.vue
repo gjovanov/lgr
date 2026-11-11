@@ -150,7 +150,7 @@ const rules = {
 }
 
 const formActions = computed<FormAction[]>(() => [
-  { label: t('common.save'), color: 'primary', handler: handleSubmit, loading: loading.value },
+  { label: t('common.save'), color: 'primary', handler: handleSubmit, cap: isEdit.value ? ['bank-accounts.create', 'bank-accounts.edit'] : 'bank-accounts.create', loading: loading.value },
 ])
 
 function orgUrl() {

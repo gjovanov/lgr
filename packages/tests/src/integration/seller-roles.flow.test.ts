@@ -276,6 +276,21 @@ describe('the invoices totals (#493 item 2, FR-27 D-8)', () => {
   })
 })
 
+describe('importing sales documents (#493 item 5, FR-27 Phase 2)', () => {
+  it('the API refuses it to both roles, as the Import button is hidden, and takes it from every other role', async () => {
+    for (const target of ['sales_invoice', 'cash_sale']) {
+      for (const role of ['seller', 'sales_consultant']) {
+        const r = await request('POST', '/doc-import/convert', tokens[role], { target, ids: [] })
+        expect({ role, target, status: r.status, code: r.json?.code, caps: r.json?.capabilities }).toEqual({ role, target, status: 403, code: 'capability_required', caps: ['sales-docs.import'] })
+      }
+      for (const role of ['admin', 'sales']) {
+        const r = await request('POST', '/doc-import/convert', tokens[role], { target, ids: [] })
+        expect({ role, target, status: r.status }).toEqual({ role, target, status: 200 })
+      }
+    }
+  })
+})
+
 describe('reports need reports.read (FR-26.6)', () => {
   it('the catalog, a run and an export', async () => {
     expect((await request('GET', '/reports/catalog', tokens.seller)).status).toBe(403)

@@ -1,5 +1,5 @@
 import { Elysia } from 'elysia'
-import { can } from 'services/biz/access/evaluate'
+import { can, grantOf } from 'services/biz/access/evaluate'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { mongoose } from 'db/connection'
 import {
@@ -47,6 +47,20 @@ function gate(user: any, status: any) {
 }
 
 /**
+ * FR-27.7 (#529): what changes the documents (upload, OCR, book, undo, reconcile, delete, pack and unpack an archive)
+ * also takes `files.manage`; reading, analysing and the snapshot diff take `files.view`. The legacy model grants the
+ * two together (`admin.settings`), so only a role tells them apart.
+ */
+function writeGate(user: any, status: any) {
+  const denied = gate(user, status)
+  if (denied) return denied
+  if (!can(user, 'files.manage')) {
+    return status(403, { code: 'capability_required', capabilities: ['files.manage'], message: 'Changing documents is not part of your role.' })
+  }
+  return null
+}
+
+/**
  * FR-13.42 (#24) — the same gate, plus `nra_auditor`, for READING the archive index.
  *
  * ⚠ Приложение 29 т. 19 names the auditor profile explicitly and т. 16 requires archived data
@@ -82,7 +96,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
   .post(
     '/upload',
     async ({ params: { orgId }, body, request, user, status }) => {
-      const denied = gate(user, status); if (denied) return denied
+      const denied = writeGate(user, status); if (denied) return denied
       const files = await readUploadedFiles(body, request)
       if (!files.length) return status(400, { message: 'No files provided' })
       if (files.length > MAX_BATCH) return status(400, { message: `At most ${MAX_BATCH} files per batch (got ${files.length})` })
@@ -136,7 +150,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
   .post(
     '/ocr-batch',
     async ({ params: { orgId }, body, user, status }) => {
-      const denied = gate(user, status); if (denied) return denied
+      const denied = writeGate(user, status); if (denied) return denied
       const b: any = body || {}
       const ids: string[] = Array.isArray(b.docFileIds) ? b.docFileIds : []
       if (!ids.length) return status(400, { message: 'docFileIds required' })
@@ -204,7 +218,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
   .post(
     '/commit-batch',
     async ({ params: { orgId }, body, user, status }) => {
-      const denied = gate(user, status); if (denied) return denied
+      const denied = writeGate(user, status); if (denied) return denied
       const b: any = body || {}
       const ids: string[] = Array.isArray(b.docFileIds) ? b.docFileIds : []
       if (!ids.length) return status(400, { message: 'docFileIds required' })
@@ -248,7 +262,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
   .post(
     '/delete-batch',
     async ({ params: { orgId }, body, user, status }) => {
-      const denied = gate(user, status); if (denied) return denied
+      const denied = writeGate(user, status); if (denied) return denied
       const b: any = body || {}
       const ids: string[] = Array.isArray(b.docFileIds) ? b.docFileIds : []
       if (!ids.length) return status(400, { message: 'docFileIds required' })
@@ -315,7 +329,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
   .post(
     '/:id/ocr',
     async ({ params: { orgId, id }, user, status }) => {
-      const denied = gate(user, status); if (denied) return denied
+      const denied = writeGate(user, status); if (denied) return denied
       try {
         const r = await ocrDocument(orgId, user!.id, id)
         return { skipped: r.skipped, method: r.method, chars: r.chars, docKind: (r as any).docKind, docType: r.docFile.docType, docDate: r.docFile.docDate, status: r.docFile.status }
@@ -382,7 +396,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
   .post(
     '/:id/commit',
     async ({ params: { orgId, id }, body, user, status }) => {
-      const denied = gate(user, status); if (denied) return denied
+      const denied = writeGate(user, status); if (denied) return denied
       const b: any = body || {}
       const refused = await booksRefusal(orgId, user!, [id], { kind: 'commit' }); if (refused) return status(403, refused)
       const task = await startJob(orgId, user!.id, 'files-commit', { docFileId: id })
@@ -402,7 +416,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
   .post(
     '/:id/reconcile',
     async ({ params: { orgId, id }, query, user, status }) => {
-      const denied = gate(user, status); if (denied) return denied
+      const denied = writeGate(user, status); if (denied) return denied
       const execute = query.execute === 'true'
       // Overrides the unmatched-line guard. Only for an operator who has read the paper document and
       // knows those lines really are gone — never a default, and never set by the UI's own button.
@@ -440,6 +454,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
     async ({ params: { orgId }, query, user, status }) => {
       const denied = gate(user, status); if (denied) return denied
       return queryAuditLogs(orgId, {
+        viewer: grantOf(user as any),
         module: 'files', action: query.action, entityType: query.entityType,
         dateFrom: query.dateFrom, dateTo: query.dateTo,
         page: query.page ? Number(query.page) : 0, size: query.size ? Number(query.size) : 50,
@@ -491,7 +506,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
   .post(
     '/archives/:id',
     async ({ params: { orgId, id: fiscalYearId }, user, status }) => {
-      const denied = gate(user, status); if (denied) return denied
+      const denied = writeGate(user, status); if (denied) return denied
 
       const task = await startJob(orgId, user!.id, 'archive-pack', { fiscalYearId })
       void (async () => {
@@ -517,7 +532,7 @@ export const filesController = new Elysia({ prefix: '/org/:orgId/files' })
   .post(
     '/archives/:id/unarchive',
     async ({ params: { orgId, id: unitId }, user, status }) => {
-      const denied = gate(user, status); if (denied) return denied
+      const denied = writeGate(user, status); if (denied) return denied
       const { unarchiveUnit } = await import('services/biz/archive/archive.service')
       try {
         return await unarchiveUnit(orgId, unitId)

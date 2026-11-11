@@ -59,7 +59,7 @@
     <template #item.actions="{ item }">
       <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.internalOrders.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
       <v-btn v-if="item.status === 'draft'" icon="mdi-check" size="small" variant="text" color="primary" :title="$t('invoicing.confirmOrder')" :aria-label="$t('invoicing.confirmOrder')" @click="confirmOrder(item)" />
-      <v-btn v-if="item.status === 'draft'" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
+      <v-btn v-cap="'orders.delete'" v-if="item.status === 'draft'" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
     </template>
 
     <v-dialog v-model="deleteDialog" max-width="400">

@@ -9,6 +9,7 @@ export interface CreateInviteParams {
   maxUses?: number
   assignRole?: string
   expiresInHours?: number
+  assignRoleId?: string
 }
 
 class InviteDaoClass extends BaseDao<IInvite> {
@@ -25,6 +26,7 @@ class InviteDaoClass extends BaseDao<IInvite> {
       status: 'active',
       useCount: 0,
       assignRole: params.assignRole || 'member',
+      ...(params.assignRoleId ? { assignRoleId: params.assignRoleId as any } : {}),
     }
 
     if (params.targetEmail) {

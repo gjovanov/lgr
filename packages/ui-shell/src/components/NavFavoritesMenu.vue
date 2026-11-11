@@ -91,11 +91,10 @@ const currentIsFav = computed(() => !!currentPage.value && isFavorite(currentPag
 
 // What this person may open (FR-22 §5.8): a pin to a page their role no longer reaches is kept,
 // just not offered.
-const viewer = sessionViewer()
-const openable = PAGE_REGISTRY.filter((p) => canOpenPage(p, viewer))
-
+// FR-27.5: read inside the computed, so a role edited live re-evaluates it.
 const sections = computed(() => {
-  const g = groupItems(openable)
+  const viewer = sessionViewer()
+  const g = groupItems(PAGE_REGISTRY.filter((p) => canOpenPage(p, viewer)))
   const out: { key: string; labelKey: string; pages: PageDef[] }[] = []
   if (g.favorites.length) out.push({ key: 'fav', labelKey: 'nav.favorites', pages: g.favorites })
   if (g.frequent.length) out.push({ key: 'freq', labelKey: 'nav.frequent', pages: g.frequent })

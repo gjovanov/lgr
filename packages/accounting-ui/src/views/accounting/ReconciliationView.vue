@@ -120,6 +120,7 @@
         </div>
         <div>
           <v-btn
+            v-cap="['reconciliation.create', 'reconciliation.edit']"
             color="primary"
             class="mr-2"
             :disabled="!hasSelection"
@@ -128,6 +129,7 @@
             {{ $t('accounting.match') }}
           </v-btn>
           <v-btn
+            v-cap="['reconciliation.create', 'reconciliation.edit']"
             color="success"
             :disabled="difference !== 0"
             @click="completeReconciliation"

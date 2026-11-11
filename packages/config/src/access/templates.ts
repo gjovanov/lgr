@@ -49,8 +49,30 @@ export function templateOf(key: string | null | undefined): RoleTemplate | undef
   return ROLE_TEMPLATES.find(t => t.key === key)
 }
 
+/**
+ * FR-27.11.B (D-5 revised, D-11, D-12; owner, 2026-11-10): what a template ships without, though its legacy role had
+ * it. The Seller and the Sales Consultant start without the cost figures, Цена на едро and Цена 0; an organization's
+ * administrator ticks them back per role. Every other template keeps every level.
+ *
+ * ⚠ Only where a role is MADE from the template: a new organization's built-in roles (`seedBuiltinRoles`) and "New role
+ * → from a template". `templateGrant` stays the legacy role's access, which an unedited built-in, migration 0015 and
+ * every "is this the same access" check read: nobody's access changes.
+ */
+export const TEMPLATE_WITHHOLDS: Readonly<Partial<Record<Role, readonly string[]>>> = {
+  seller: ['products.costs', 'products.price:wholesale', 'products.price:0'],
+  sales_consultant: ['products.costs', 'products.price:wholesale', 'products.price:0'],
+}
+
 /** A template's grant, today's access of its legacy role. */
 export function templateGrant(key: string): Grant {
   const t = templateOf(key)
   return t ? compileLegacy(t.legacy) : { caps: new Set() }
+}
+
+/** What a role made from the template starts with: its grant, less what it withholds (FR-27.11.B, D-11, D-12). */
+export function templateDefaults(key: string): Grant {
+  const grant = templateGrant(key)
+  const withheld = TEMPLATE_WITHHOLDS[key as Role]
+  if (grant.all || !withheld?.length) return grant
+  return { caps: new Set([...grant.caps].filter(c => !withheld.includes(c))) }
 }

@@ -79,10 +79,12 @@ export const useSettingsStore = defineStore('settings', () => {
    * sent `{ email }`, which Elysia dropped, so every invite was created unaddressed and with
    * no role. The dialog's role picker had nowhere to go.
    */
-  async function inviteUser(email: string, assignRole?: string) {
+  /** FR-27.4: an invitation names a role (`assignRoleId`) in an org that has roles, else a legacy role. */
+  async function inviteUser(email: string, assignRole?: string, assignRoleId?: string) {
     const { data } = await httpClient.post(`${appStore.orgUrl()}/invite`, {
       targetEmail: email,
       ...(assignRole ? { assignRole } : {}),
+      ...(assignRoleId ? { assignRoleId } : {}),
     })
     return data
   }

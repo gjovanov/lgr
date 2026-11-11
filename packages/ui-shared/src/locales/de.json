@@ -4680,5 +4680,215 @@
       "loadFailed": "Die Artikel konnten nicht geladen werden.",
       "empty": "Keiner der gewählten Artikel kann bestellt werden."
     }
+  },
+  "access": {
+    "feature": {
+      "sales-docs": "Verkaufsbelege",
+      "proforma": "Proforma",
+      "bills": "Einkaufsbelege",
+      "orders": "Bestellungen und Reservierungen",
+      "payments": "Zahlungs- und Kassenanweisungen",
+      "contacts": "Kontakte",
+      "cash-sales": "Barverkäufe",
+      "till": "Kasse: Terminal und Sitzungen",
+      "devices": "Fiskalgeräte",
+      "sequences": "Belegnummerierung",
+      "products": "Produkte",
+      "categories": "Kategorien",
+      "warehouses": "Lager",
+      "movements": "Lagerbewegungen",
+      "stock-levels": "Lagerbestände",
+      "inventory-counts": "Inventuren",
+      "valuation": "Bestandsbewertung",
+      "opening-stock": "Anfangsbestand importieren",
+      "price-lists": "Preislisten",
+      "bulk-pricing": "Massenpreisänderung",
+      "accounts": "Kontenplan",
+      "bank-accounts": "Bankkonten",
+      "journal": "Buchungssätze",
+      "ledgers": "Hauptbuch und Abschlüsse",
+      "vat": "USt und Steuererklärungen",
+      "accounting-setup": "Geschäftsjahre, Perioden und Bedingungen",
+      "exchange-rates": "Wechselkurse",
+      "reconciliation": "Abstimmung",
+      "fixed-assets": "Anlagevermögen",
+      "books-import": "Buchhaltungsimport",
+      "payroll-runs": "Lohnläufe",
+      "payroll-people": "Mitarbeiter und ihre Daten",
+      "payroll-import": "Lohnimport",
+      "reports": "Berichte",
+      "supto": "SUPTO-Tabellen",
+      "files": "Dateien",
+      "dashboard": "Dashboard",
+      "org-settings": "Organisation",
+      "users": "Benutzer",
+      "invites": "Einladungen",
+      "roles": "Rollen und Zugriff",
+      "apps": "Apps",
+      "digest": "Tageszusammenfassung",
+      "integrations": "Integrationen",
+      "billing": "Abrechnung",
+      "desktops": "Desktop-Apps",
+      "servers": "Server und Umzüge",
+      "numbering": "Letzte Nummern",
+      "audit-log": "Prüfprotokoll",
+      "org": "Ihre Organisationen",
+      "pricing": "Preise",
+      "stock-availability": "Verfügbarkeit",
+      "doc-import": "Belegimport",
+      "tags": "Tags"
+    },
+    "action": {
+      "view": "Ansehen",
+      "browse": "Aus anderen Apps öffnen",
+      "lookup": "Suche aus Formularen",
+      "read": "Lesen",
+      "check": "Prüfen",
+      "create": "Anlegen",
+      "edit": "Bearbeiten",
+      "delete": "Löschen",
+      "export": "Export",
+      "totals": "Summenleiste",
+      "costs": "Einkaufspreise",
+      "import": "Import",
+      "storno": "Storno",
+      "settle": "Unklaren Beleg klären",
+      "sell": "Verkaufen",
+      "manage_sessions": "Sitzungen anderer Kassierer",
+      "report": "Geräteberichte",
+      "z_report": "Z-Bericht",
+      "sync_time": "Uhr stellen",
+      "name_payments": "Zahlungsarten benennen",
+      "post": "Buchen und stornieren",
+      "file": "Erklärungen abgeben",
+      "run": "Ausführen",
+      "approve": "Freigeben",
+      "reveal": "Persönliche Daten anzeigen",
+      "manage": "Verwalten",
+      "archives": "Archive",
+      "switch": "Organisation wechseln",
+      "create_transfer": "Umlagerungen",
+      "transfer": "Umlagerungen anlegen",
+      "extract": "Beleg auslesen",
+      "price_selling": "Verkaufspreis",
+      "price_wholesale": "Цена на едро",
+      "price_0": "Цена 0",
+      "price_1": "Цена 1",
+      "price_2": "Цена 2",
+      "price_3": "Цена 3",
+      "price_4": "Цена 4",
+      "price_5": "Цена 5",
+      "price_6": "Цена 6",
+      "price_7": "Цена 7",
+      "price_8": "Цена 8",
+      "price_9": "Цена 9",
+      "price_10": "Цена 10",
+      "price_other": "Andere Preise (eigene Namen, Etiketten- und Kundenpreise)"
+    },
+    "group": {
+      "invoicing": "Fakturierung",
+      "inventory": "Lager",
+      "accounting": "Buchhaltung",
+      "payroll": "Lohn",
+      "reports": "Berichte",
+      "files": "Dateien",
+      "settings": "Einstellungen und Personen",
+      "helpers": "Hilfen"
+    },
+    "level": {
+      "none": "Kein Zugriff",
+      "view": "Ansehen",
+      "work": "Arbeiten",
+      "full": "Voller Zugriff"
+    },
+    "roles": {
+      "admin": {
+        "description": "Alles, einschließlich Personen, Rollen und der Organisation."
+      },
+      "manager": {
+        "description": "Führt das Geschäft: alle Apps außer der Verwaltung, und die Managerfunktionen der Kasse."
+      },
+      "accountant": {
+        "description": "Bücher und Rechnungen: Buchhaltung, Verkaufs- und Einkaufsbelege und Berichte."
+      },
+      "hr_manager": {
+        "description": "Lohn und die Personen, die er bezahlt, mit Berichten."
+      },
+      "warehouse_manager": {
+        "description": "Führt die Lager: Produkte, Bestände, Bewegungen, Inventuren und die Fiskalgeräte."
+      },
+      "sales": {
+        "description": "Verkauft und fakturiert an der Kasse und auf Papier und sieht die Bestände."
+      },
+      "seller": {
+        "description": "Verkauft an der Kasse und auf Papier und lagert zwischen Lagern um; sonst nichts."
+      },
+      "sales_consultant": {
+        "description": "Was ein Verkäufer tut, und dazu Bestellungen und Reservierungen."
+      },
+      "member": {
+        "description": "Liest die Belege und Berichte der Organisation; ändert nichts."
+      },
+      "nra_auditor": {
+        "description": "Der Steuerprüfer: liest alles und exportiert die SUPTO-Tabellen."
+      }
+    },
+    "ui": {
+      "title": "Rollen und Zugriff",
+      "newRole": "Neue Rolle",
+      "blank": "Leer",
+      "fromTemplate": "Aus einer Vorlage",
+      "copyOf": "Kopie einer Rolle",
+      "name": "Name",
+      "description": "Beschreibung",
+      "people": "Personen",
+      "builtin": "Integriert",
+      "edited": "Bearbeitet",
+      "needsRelease": "Nicht vollständig auf älteren Servern",
+      "needsReleaseHint": "Ein Server mit älterer Version oder das alte Modell gibt den Personen dieser Rolle weniger als angegeben, nie mehr.",
+      "administratorFixed": "Der Administrator hat alles, auch was spätere Versionen hinzufügen, und wird nicht bearbeitet.",
+      "unknownCaps": "Optionen, die diese Version nicht mehr kennt (nicht gewährt)",
+      "extras": "Extras",
+      "alwaysIncluded": "Immer enthalten: das eigene Konto, Benachrichtigungen, Sprache, Favoriten, der Name der Organisation und ihre Personen.",
+      "canCreate": "Kann anlegen",
+      "readOnly": "Nur lesen",
+      "notVisible": "Nicht sichtbar",
+      "defaultRole": "Standardrolle für Einladungen",
+      "defaultRoleNone": "Die Rolle der Einladung",
+      "role": "Rolle",
+      "deleteRole": "Rolle löschen",
+      "noRoles": "Diese Organisation hat noch keine Rollen: die Rollenmigration ist hier nicht gelaufen.",
+      "saved": "Rolle gespeichert",
+      "feature": "Funktion",
+      "level": "Stufe",
+      "grants": "Gewährt",
+      "landing": "Startseite",
+      "landingHint": "Wo die Personen dieser Rolle nach der Anmeldung landen, und von einer Seite aus, die ihre Rolle nicht öffnet.",
+      "landingDefault": "Das Dashboard",
+      "pricesNote": "Sichtbare Preise: erst ausgeblendet, wenn das Zugriffsmodell der Organisation „Rollen“ ist. Der Preis eines Kunden gilt auch auf einer Stufe, die die Rolle nicht sieht, und eine Rolle, die Kontakte bearbeitet, kann eine ausgeblendete Stufe lesen, indem sie einen Kontakt mit ihrem Namen markiert; entziehen Sie „Kontakte: bearbeiten“, um das zu schließen.",
+      "pricesHidden": "Nicht sichtbare Preise"
+    },
+    "notAvailable": {
+      "title": "Für Ihre Rolle nicht verfügbar",
+      "text": "„{page}“ gehört nicht zu Ihrer Rolle. Wenden Sie sich an einen Administrator, wenn Sie es brauchen.",
+      "textAny": "Diese Seite gehört nicht zu Ihrer Rolle. Wenden Sie sich an einen Administrator, wenn Sie sie brauchen.",
+      "home": "Zu meiner Startseite"
+    },
+    "tools": {
+      "whoCan": "Wer darf…",
+      "whoCanHint": "Die Rollen, die es gewähren, und wie viele Personen sie haben.",
+      "capability": "Darf",
+      "nobody": "Keine Rolle gewährt es.",
+      "peopleTotal": "Personen damit: {n}",
+      "compare": "Vergleichen",
+      "roleA": "Rolle",
+      "roleB": "Mit Rolle",
+      "showAll": "Alles zeigen, was eine der beiden Rollen hat",
+      "identical": "Beide Rollen gewähren genau dasselbe.",
+      "preview": "Was diese Rolle öffnet",
+      "previewHint": "Die Seiten, die ihren Personen angeboten werden, so wie die Rolle hier steht (vor dem Speichern).",
+      "previewNone": "Keine Seite: die Person sieht nur ihr Konto.",
+      "portal": "Portal"
+    }
   }
 }

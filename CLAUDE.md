@@ -139,6 +139,8 @@ All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is 
 **No answer carries a secret** (S-14). `no-secrets-in-responses.flow.test.ts` puts a marker in every secret-looking field of every model (a password, a verifier, a token or its hash, an OAuth link's provider tokens) and calls every route as an admin: a route that answers with one fails it. A user leaves the server through `USER_PUBLIC_PROJECTION` / `publicUser` (`services/dao/user.dao.ts`). ⚠ `User.password` is deliberately NOT `select: false`: backups, org moves and FR-20's replication read `User` through Mongoose and must carry the hash. **An anonymous caller gets 401 before validation** (S-15): all four auth plugins refuse in their transform hook, so a route's schema is never described to someone without a credential; a new auth plugin needs the same. **A password a person sets has at least 12 characters** (S-09): a body field named like a password either sets one with `minLength: 12` or is listed in `password-minimum.flow.test.ts` as only proving one.
 
 **So does a read** (S-29). Every GET under an org resolves to a rule in `PREFIX_READ_RULES`, the same three kinds, enforced by the same hook (`permissionRefusal`).
+
+**A document names records of its own org only.** `db/plugins/reference-guard.ts`, installed by `tenantPlugin` beside the home guard, reads the reference fields from the schemas (`ref:`) and refuses a write made inside a request whose NEW references name a record of another org: 422 `{ code: 'foreign_reference', path }`. It sees create/save, insertMany, the update queries (`$set` on dotted paths, `$setOnInsert`, `$push`, `$addToSet`, plain fields) and bulkWrite, and a saved document only in the paths the save changes. ⚠ An id that names NO record passes: old documents keep references to deleted records (many on production), and a transaction may name what it created a moment ago. ⚠ It is off outside a request (scripts, migrations and the test-org copy job write as trusted code), and raw driver writes pass, as with the home guard. The views that resolve a stored id (a list's contact names, an invoice's contact) filter by the org too: `foreign-references.flow.test.ts` tests each side alone, and fails on a controller `findMany({ id: { $in } })` that names no org.
 - A module's reads accept any permission of that module (`payroll.read`, `.write` or `.approve`), since a role that writes it reads it.
 - Reference data that another app reads also accepts that app's module, and its comment names the app. For example, the invoicing app's cash and payment orders read `accounting/account` and `accounting/bank-account`, and the inventory app's supplier picker reads `invoicing/contact`.
 - ⚠ A new GET route fails `read-permission.flow.test.ts` until it has a rule. When an app starts reading another module's route, widen the rule and add the read to the test's `APP_READS`, the test that holds each default role to what its apps read.
@@ -3147,7 +3149,8 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
 - **Client.** `ui-shared/access/useAccess` gives `can()` and `canOpen()` on the same grant, compiled from the tab's token as `sessionViewer` reads it.
 - **#493 items 2–5 ride on it (FR-27 D-8): capabilities, not areas.** A session whose claim carries an `areas` list, the Seller and the Sales Consultant, does not get these (`legacy.ts#NOT_WITH_AN_AREAS_LIST`):
   - `sales-docs.totals` and `bills.totals`: the strip, and `GET invoices/summary`, which answers 403 `capability_required`;
-  - `sales-docs.import`: the invoices list's Import button only; the API still takes the import;
+  - `sales-docs.import`: the invoices list's Import button, and (Phase 2) the import itself: `doc-import`'s
+    `targetRefusal` answers 403 `capability_required` for a sales invoice or a cash sale without it;
   - `org.switch`: `OrgSwitcher` shows the org read-only, and `/orgs` redirects inside an org.
   - Such a session lands on Products where it can open them (`landingWithoutPortal`).
 - **Partitions (FR-27.6, Phase 2): sales documents, proforma and bills share `/invoices`** (`config/access/partition.ts`).
@@ -3194,6 +3197,103 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - A person given a role is put on that set with the projection's role key. A set, not their own `permissions`: without a set, `tokenize()` adds the role's defaults.
   - On the legacy model, an assignment or a role edit ends the affected people's sessions; on `roles` it is live.
   - `scripts/restore-administrator.ts --org --user [--execute]` gives a locked-out org its Administrator back, audited.
+- **A person's first role** (`startingRoleOf` / `giveStartingRole`): a new org's founder (`provisionNewOrg` seeds the
+  ten built-ins, `seedBuiltinRoles`), an invite accepted, a member an admin creates.
+  - Chosen: a role named (`assignRoleId` on the invite, `roleId` on the create), or, when neither a role nor a legacy
+    role is named, the org's default (`Org.settings.access.defaultRoleId`, `PUT /roles/default`; an invite resolves it
+    when it is made). Written onto both models, as an assignment.
+  - Read off the legacy role (the built-in of that key): recorded only when it grants exactly what the person's
+    legacy fields do, and those are left alone. ⚠ So an org whose system set was edited changes nobody's access: that
+    person gets no role yet, and their claims decide.
+- **A page the role does not open (FR-27.7, Phase 2) shows "Not available for your role"** (`ui-shell/NotAvailable.vue`):
+  both layouts (`ModuleLayout`, the portal's `DefaultLayout`) ask `ui-shared/access/page-access#usePageAccess`, and its
+  view never mounts. The page is `pageAt(path, query)`: a registry page at its own path (a list, a new-document form)
+  or a portal page under Settings or Admin, never the Dashboard; any other route shows. The rule is `canOpenPage`, the
+  menus' own, so an offered page always opens.
+  - ⚠ A module's record route is never blocked: other apps link to records (an invoice's product, a bill's receipt)
+    that their people read through the feature's `lookup`, so the server decides those.
+  - ⚠ An org on `roles` (`rid` in the claims) whose `/auth/me` has not answered yet: a page the claims (the role's
+    projection, never more than the role) do not open WAITS (`accessSettled` / `settleAccess`, one `/auth/me`), then
+    decides. A failed `/auth/me` ends the wait, and the claims decide. Legacy orgs decide at once and ask nothing.
+- **Generic read-only (FR-27.7)**: a role that reads a feature and does not work on it is offered no New, Save or
+  Delete. `v-cap="'contacts.delete'"` (or a list: any one) hides a control (`ui-shared/access/v-cap.ts`, registered
+  by `registerPlugins`; `data-cap`, and `data-cap-hidden` while hidden; it follows the live grant). A form's action
+  and a row action take `cap` (`EntityFormShell`, `RowActionsMenu`): a hidden Save takes Ctrl+S with it.
+  `CreateButton` shows itself only for a form the role opens (`opensTarget`), or for a dialog its `cap`.
+  - ⚠ The ratchet, `unit/access-read-only.test.ts`: a view that shows Save, Delete or an edit pencil, or sends a
+    write, must consult access (`useAccess`, `v-cap`, a `cap`, a page rule), or be on `NOT_YET`, which only shrinks.
+    Every capability id a view names must be in the catalogue (an unknown one hides the control).
+  - Keep a record's pencil when it is the only way to READ the record (a dialog): gate the dialog's Save instead.
+  - The Files app reads with `files.view` and changes documents with `files.manage` (`file.controller#writeGate`:
+    upload, OCR, book, undo, reconcile, delete, pack and unpack); analyses and the snapshot diff are reads. Legacy
+    grants both with `admin.settings`.
+- **Role tools (FR-27.9)**, import-pure in `config/access/compare.ts`, on the roles screens: "Who can…" (`whoCan` over
+  `ASKABLE_CAPABILITIES`, with the people count), "Compare" (`compareGrants`: each feature's level per role and the
+  capabilities one holds the other does not) and the editor's preview (`pagesOpenedBy`: the pages the role as it
+  stands opens, by app). All from the grants and page rules the server and the menus decide by; nothing is stored.
+- **A role's start page (FR-27.4)**: `Role.landing`, a page id the role opens (`role.service#cleanLanding`: 422
+  `landing_unknown` / `landing_not_open`; capabilities that stop opening it drop it). A change bumps the role's
+  version, and `/auth/me` answers it as `access.landing`. `startPage(who)`: the landing, else the Dashboard, else
+  (no portal) `landingWithoutPortal`, which prefers a landing outside the portal. The first Dashboard of a
+  membership in a tab goes there (`useRoleLanding`, once, `sessionStorage` `lgr_landed`), and "Not available" offers it.
+- **Screens** (`portal-ui` Settings → Roles & access, `RolesView` / `RoleEditorView`; `/settings/roles`, page rule
+  `roles.edit`). The editor is a level per feature, None / View / Work / Full, plus the extras beyond it
+  (`config/access/levels.ts`). A level is never stored: Save sends capabilities, and the server adds the helpers their
+  forms read (`withImplied`). `summarize(grant)` gives the three lines under a role, in the editor and the Users
+  dialog. Users and Invites show one Role select once the org has roles, the legacy controls until then.
+  - ⚠ Permission sets stay reachable (the empty Roles page links there) while an org has no roles, and hold the roles'
+    projections. Phase 3 removes them.
+- **Field groups (FR-27.6, Phase 2): `products.costs`** (`config/access/fields.ts`, "Cost figures" in the editor).
+  `purchasePrice`, `standardCost`, the „Доставна цена" slot, every slot's `percent` (a margin gives the cost back)
+  and a stock level's `avgCost` are ABSENT from the JSON for a role without it: the product list (`products` and
+  `items`), by id, create, quick create, update, `/pricing/options`, `/warehouse/stock-level`; `/warehouse/cost-layer`
+  answers 403 `capability_required`. A write by such a role keeps the stored costs (`keepStoredCosts`: the cost slot
+  goes back first, margins by name, duplicates dropped).
+  - ⚠ The legacy compiler grants it with any product read (`PRODUCT_READERS`), so nobody's answer changes. The
+    legacy model cannot withhold it (`LEGACY_CANNOT_WITHHOLD`): a role without it projects as `needsRelease`.
+  - ⚠ A new serializer that sends a product or a stock level's cost goes through `redactProduct` /
+    `redactStockCost` (a cost on a line: `redactMovementLine`).
+  - **Reports**: a column with `fieldGroup: 'costs'` (`ReportColumn`) is dropped by the runner, its cells and total
+    with it, on screen and in the file (`withoutFieldGroups`, `meta.withheld` names the keys): valuation, stock levels,
+    product ledger, stock movements, and warehouse operations' cost and profit (on the purchases side its prices too,
+    which are what the goods cost). ⚠ A new report column that carries a cost says so.
+    A report that is nothing but costs (`inventory-valuation`) carries `fieldGroup: 'costs'` itself: not listed, and
+    404 to run, for a role without them (`canAccessReport`).
+- **Price levels (FR-27.11, owner 2026-11-10; D-5 revised, D-11 to D-13)**: a role carries the prices it may see.
+  `products.price:selling`, a level per `PRICE_TIERS` slot but „Доставна цена" (`products.price:wholesale`,
+  `products.price:0` … `:10`, found by name, spaces ignored: `capOfTier`), and `products.price:other` (an org's own tier
+  names, the legacy tag and contact prices); „Доставна цена", `percent` and every cost stay `products.costs`.
+  `config/access/fields.ts` is the one rule; levels are "Prices it may see" extras on the editor's Products row.
+  - ⚠ Legacy grants every level with any product read (`PRICE_LEVEL_CAPS`, `LEGACY_CANNOT_WITHHOLD`): enforced only
+    on `roles`, and a role hiding one is `needsRelease`. What sells implies the selling price; what writes prices
+    (price lists, bulk pricing, opening stock, `movements.create`) implies them all; `products.edit` none.
+  - **Templates (D-11, D-12)**: `TEMPLATE_WITHHOLDS` (Seller, Sales Consultant: the costs, Цена на едро, Цена 0) applies
+    only where a role is MADE (`templateDefaults`: a new org's `seedBuiltinRoles`, stored as edited; "New role → from
+    a template"). ⚠ `templateGrant` stays the legacy role's access: unedited built-ins, migration 0015 and every
+    "same access" check read it, so nobody's access changes.
+  - **C.1 reads**: `redactProduct` (list, by id, the pickers, create and quick replies), `redactPriceOptions` /
+    `redactResolution` (`/pricing/options`, `/pricing/resolve`: the final price stays, whoever looks; a hidden winning
+    level is "Customer price", a hidden losing one is not named, D-13), `redactMovementLine` (a movement's lines by id,
+    the product ledger), a count's `varianceCost`, an outgoing order's `expectedUnitPrice` (the order controller's
+    `onAfterHandle`), `canSeeSupplierPrices` = `bills.view` and `products.costs`.
+  - **C.2 derived**: the contact ledger's row `purchasePrice` and its profitability, the dashboard's `stock.totalValue`
+    (its tile is not drawn without it).
+  - **C.3 sort**: both auth plugins refuse `?sortBy=` naming a level the role lacks (`sortAccessRefusal`, 403
+    `capability_required`), on every route: `tier_<slot>`, a cost by any name or path, `priceTiers.*`. The list
+    composables drop such a key from an old URL (`sortKeyFromUrl`).
+  - **C.4 writes**: `keepStoredPrices` (product create and update) merges `priceTiers` by slot, a hidden slot staying
+    byte-identical where it stood; the server prices an inventory count itself (`inventory-count-pricing.ts`: variance
+    × the stock level's `avgCost`, on save and on complete; the body's `varianceCost` is ignored); an order's save
+    keeps each line's stored `expectedUnitPrice`.
+  - **C.5 history**: `audit-log.service#visibleChanges` drops a change of a hidden field in both readers
+    (`queryAuditLogs` `viewer`, `queryByCorrelationId`): the record history, the correlation lookup, the dashboard's
+    recent activity, the Files audit.
+  - **C.7 / D views**: the Products grid offers only the levels held (`useProductColumns`), the product form edits
+    only those, and an open product list re-reads its rows when `x-access-version` changes.
+- **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
+  null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
+  gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`
+  again, once (`followAccessVersion`, from `useHttpClient`). The grant belongs to one membership (`id@orgId`).
 
 ## Test copies of real orgs, and the PROD / DEV badge (2026-11-09)
 
@@ -3243,7 +3343,7 @@ the rules); daily job: CronJob `lgr-org-sync` in lgr-deploy (04:30 Europe/Sofia)
 - [MEDIUM] [2026-07-19] Bun 1.3.12 on Windows: `expect(p).rejects` deadlocks when the rejection follows MongoDB driver I/O — the pending op hangs ~45s, mongod gets reaped ("killed N dangling processes") → cascading ECONNREFUSED + segfault. Workaround: try/catch capture (see `bill-with-update.flow.test.ts` `captureRejection`); ~60 `.rejects` usages across 23 test files can hang on Windows — run those files on Linux/mars, or convert as touched. **2026-07-26**: `.resolves` is affected too (proven by minimal probe: same promise via plain await = instant, via `.resolves` matcher = deadlock + hook-timeout cascade that poisons every later test in the process); which files trip it is module-graph/timing sensitive. `invoice-stock-validation.flow.test.ts` converted (all `.rejects`→captureRejection, `.resolves`→plain await) → 15/15 in 4s. Convert BOTH matcher kinds as touched. — **Status: RESOLVED 2026-09-15.** "As touched" was the mistake: the matchers were hit one at a time for two months while `bun run test` was, on Windows, not slow but COMPLETELY BLOCKED. `accounting.flow.test.ts` is the first file the runner reaches and line 124 used `.rejects`, so the shared mongod was reaped before any other file ran and all ~125 that followed cascaded into ECONNREFUSED — the suite never reported at all. All 58 remaining call sites across 19 files are now converted to the shared `helpers/capture-rejection.ts` (`captureRejection` + `expectRejection`), which replaces the three private copies that had grown in different files. `bun run test` completes: **1505 tests / 126 files in ~5m, 1493 pass / 7 skip / 5 fail** (the 5 are real pre-existing failures in `app-hub.flow`, `compare-snapshot` and `org-logo` that the hang had been hiding). ⚠ **Never reintroduce `.rejects`/`.resolves` in this suite** — one is enough to block everything again. ⚠ When sweeping, scan RECURSIVELY: `dal/repos/` (named `dal/parity/` until 2026-09-29) and `unit/biz/` are two levels down and a `unit/*.test.ts` glob silently misses 23 sites.
 - [HIGH] [2026-10-26] **Voiding a DRAFT outgoing invoice books a receipt for goods that never left.** `POST /invoices/:id/void` accepts `draft`, and `reverseInvoiceStockMovement` reverses the lines whether or not a dispatch ever happened: a 4-piece draft voided took stock 10 → 14 (one `receipt` movement). The sales list offered „Анулирай" on drafts ONLY. Found during FR-22 slice 2; the row menu of slice 2b offers Delete on drafts instead, but the route itself needs its own decision (reverse only what the document's movements dispatched, or refuse a draft void). — **Status: RESOLVED 2026-10-26**: `reverseInvoiceStockMovement` reverses nothing for a draft that carries no completed movement. That covers the void route and the Files rollback alike, and leaves issued documents exactly as they were. On prod, one draft void had done it: `regal` DRF-INV-2026-00002, +1,257 units, not corrected. regal-pz and regal-sf had none. Regression test in `invoice-stock-validation.flow`. **Widened 2026-10-27 (#322):** a document of ANY status reverses only a booking it carries (a completed movement with its `invoiceId`). A cash sale imported with `skipStockMovement` keeps no trace of the flag, and 41 invoices of the July 2026 migration never moved stock: on prod 44 issued documents would have put back goods that never left (or, for a bill, taken out goods that never came in).
 - [MEDIUM] [2026-11-03] **A test file run on its own got Bun's 5 s per-test limit** (#490): `bun run test` passes `--timeout 120000`, a bare `bun test <file>` did not. `cash-invoice-receipts.flow` waits out the 30 s idempotency window (`WAIT_MS`) in one test; cut off mid-request, its `afterEach` hung on the request still holding the device, mongodb-memory-server reaped the mongod ("killed 2 dangling processes"), and every later test read as a broken database. — **Status: RESOLVED 2026-11-03**: `setup.ts` calls `setDefaultTimeout(120_000)` (⚠ `bunfig.toml`'s `[test] timeout` is not read by Bun), and that test opens its device gate in a `finally`.
-- [HIGH] [2026-03-10] 18 compact DAO controllers missing Elysia body validation schemas (arbitrary field injection risk) — Status: OPEN
+- [MEDIUM] [2026-03-10, re-checked 2026-11-10] 12 compact DAO controllers take any field: `POST /` stores `{ ...body, orgId }` and `PUT /:id` any field but `orgId` (bank-account, exchange-rate, fiscal-period, fiscal-year, fixed-asset, reconciliation, cash-order, payment-order, payslip, timesheet, inventory-count, price-list). Across orgs it is closed: a body cannot move a document (S-25) or point it at another org's record (the reference guard, under Multi-Tenancy). What is left stays inside the org: a member holding the module's write permission can set a field the server owns (a status, an approver, a computed figure) directly. 72 of the 272 write routes declare no body schema; most of the others are actions that read no body. — Status: OPEN
 - [HIGH] [2026-03-10] BaseDao read methods missing .lean() (Mongoose document overhead on all DAO reads) — Status: OPEN
 - [RESOLVED] [2026-03-10] "N+1 in findBelowMinStock()" — the entry was stale on two counts, verified 2026-08-26 while implementing FR-11: there is no `findBelowMinStock`, the method is `findLowStock` in `services/src/dao/warehouse/product.dao.ts`, and it has been a single batched `$in` query (not a per-product loop) since before this entry was written. Nothing to fix.
 - [RESOLVED] [2026-03-10] N+1 in approvePayroll() — payslips go in one `createMany` since FR-25 R0, and a failed write puts the run back as it was

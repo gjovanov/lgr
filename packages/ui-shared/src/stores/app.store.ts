@@ -22,6 +22,7 @@ import { getI18n, getVuetify } from '../plugins'
 import { loadLocale } from '../plugins/i18n'
 import { portalHref } from '../nav/navigate'
 import { currentAppId } from '../session/useOrgSession'
+import { setAccessRefetch, setLiveAccess } from '../access/live-grant'
 
 export interface User {
   _id: string
@@ -299,7 +300,16 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  // FR-27.5: a response's new access version asks `/auth/me` again through here.
+  setAccessRefetch(async () => {
+    const { data } = await httpClient.get('/auth/me')
+    applyProfile(data)
+    return data.access ?? null
+  })
+
   function applyProfile(data: any) {
+    // FR-27.5: the session's grant from its role, in an org on `roles` (null: its claims decide).
+    setLiveAccess(data.access ?? null)
     user.value = data.user
     currentOrg.value = data.org
     person.value = data.identity ?? null

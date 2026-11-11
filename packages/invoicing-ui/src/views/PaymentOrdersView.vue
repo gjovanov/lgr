@@ -13,7 +13,7 @@
   >
     <template #actions>
       <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" />
-      <CreateButton :label="$t('invoicing.newPaymentOrder')" @click="openCreate" />
+      <CreateButton cap="payments.create" :label="$t('invoicing.newPaymentOrder')" @click="openCreate" />
     </template>
 
     <template #filters>
@@ -25,7 +25,7 @@
     </template>
 
     <template #empty-actions>
-      <CreateButton :label="$t('invoicing.newPaymentOrder')" @click="openCreate" />
+      <CreateButton cap="payments.create" :label="$t('invoicing.newPaymentOrder')" @click="openCreate" />
     </template>
 
     <!-- Cell renderers -->
@@ -47,6 +47,7 @@
       <v-btn icon="mdi-pencil" size="small" variant="text" :title="$t('common.edit')" :aria-label="$t('common.edit')" @click="openEdit(item)" />
       <v-btn
         v-if="item.status === 'draft'"
+        v-cap="['payments.create', 'payments.edit']"
         icon="mdi-send"
         size="small"
         variant="text"
@@ -133,7 +134,7 @@
         <v-card-actions>
           <v-spacer />
           <v-btn @click="dialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" :loading="loading" @click="save">{{ $t('common.save') }}</v-btn>
+          <v-btn v-cap="editing ? ['payments.create', 'payments.edit'] : 'payments.create'" color="primary" :loading="loading" @click="save">{{ $t('common.save') }}</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

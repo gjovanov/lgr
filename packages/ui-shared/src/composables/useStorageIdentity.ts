@@ -1,5 +1,6 @@
 import { claims, getOrg } from '../session/session'
 import type { PageViewer } from '../nav/page-registry'
+import { liveGrant, liveLanding } from '../access/live-grant'
 
 /**
  * Per-user / per-org identity derived from this tab's session, with no Pinia/app-store
@@ -37,6 +38,8 @@ export function orgIdFromStorage(): string {
  */
 export function sessionViewer(): PageViewer | null {
   const c = claims()
+  const live = liveGrant()
+  const landing = liveLanding()
   if (!c) return null
   return {
     role: c.role,
@@ -44,5 +47,9 @@ export function sessionViewer(): PageViewer | null {
     amr: Array.isArray(c.amr) ? (c.amr as string[]) : undefined,
     // FR-26: ⚠ absent stays absent (unrestricted); only a list the token carries restricts.
     ...(Array.isArray(c.areas) ? { areas: c.areas as string[] } : {}),
+    // FR-27.5: in an org on `roles`, the role's grant as `/auth/me` last said (reactive: menus follow an edit).
+    ...(live ? { grant: live } : {}),
+    // FR-27.4: the role's landing page.
+    ...(landing ? { landing } : {}),
   }
 }

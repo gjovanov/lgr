@@ -1,5 +1,5 @@
 import { expect } from '@playwright/test'
-import { apiLogin, apiGet, apiPost } from './api'
+import { activeContact, apiLogin, apiPost } from './api'
 
 /**
  * A draft document of the kind a document form edits, made through the API: a one-line service
@@ -22,12 +22,12 @@ export async function draftDocument(
 ): Promise<DraftDocument> {
   const session = await apiLogin()
   const side = direction === 'incoming' ? 'supplier' : 'customer'
-  const { contacts } = await apiGet(session, `/invoicing/contact?type=${side}&size=1`)
-  expect(contacts?.[0], `a seeded ${side}`).toBeTruthy()
+  const contact = await activeContact(session, side)
+  expect(contact, `a seeded, active ${side}`).toBeTruthy()
   const res = await apiPost(session, '/invoices', {
     type,
     direction,
-    contactId: contacts[0]._id,
+    contactId: contact._id,
     issueDate: new Date().toISOString().split('T')[0],
     currency: 'EUR',
     exchangeRate: 1,
@@ -40,5 +40,5 @@ export async function draftDocument(
   })
   expect(res.status, `setup ${direction} ${type}: ${res.status}`).toBeLessThan(300)
   const { invoice } = await res.json()
-  return { id: String(invoice.id || invoice._id), invoiceNumber: invoice.invoiceNumber, contact: contacts[0] }
+  return { id: String(invoice.id || invoice._id), invoiceNumber: invoice.invoiceNumber, contact }
 }

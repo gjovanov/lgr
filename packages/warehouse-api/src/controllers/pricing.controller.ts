@@ -2,6 +2,8 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { resolvePrice, listPriceOptions } from 'services/biz/pricing.service'
 import { lastPricesForContact } from 'services/biz/last-price.service'
+import { grantOf } from 'services/biz/access/evaluate'
+import { redactPriceOptions, redactResolution } from 'config/access'
 
 export const pricingController = new Elysia({ prefix: '/org/:orgId/pricing' })
   .use(AppAuthService)
@@ -21,7 +23,8 @@ export const pricingController = new Elysia({ prefix: '/org/:orgId/pricing' })
         query.quantity ? Number(query.quantity) : undefined,
       )
 
-      return result
+      // FR-27.11.C.6: the final price stays; a step of a level the role does not see goes, or is the "Customer price".
+      return redactResolution(grantOf(user as any), result as any)
     },
     { isSignIn: true },
   )
@@ -41,7 +44,9 @@ export const pricingController = new Elysia({ prefix: '/org/:orgId/pricing' })
         undefined,
         { all: query.all === 'true' || query.all === '1' },
       )
-      return result
+      // FR-27.6 / FR-27.11.C.6: no option of a level the role does not see (the buying-price slot is a cost figure);
+      // the customer's own price, if hidden, as "Customer price".
+      return redactPriceOptions(grantOf(user as any), result as any)
     },
     { isSignIn: true },
   )

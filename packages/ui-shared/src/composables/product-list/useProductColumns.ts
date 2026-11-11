@@ -1,6 +1,8 @@
 import { computed, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { capOfTier, type CapabilityId } from 'config/access'
 import { TIER_COLUMNS } from '../product-price-columns'
+import { useAccess } from '../../access/useAccess'
 import type { ActiveFilter } from './product-list-params'
 
 /**
@@ -37,6 +39,13 @@ export interface ProductColumnsOptions {
   shownByDefault?: readonly string[]
   /** The till's catalog has its own, shorter set of columns. */
   source?: 'products' | 'till'
+  /**
+   * FR-27.6 (`products.costs`): without it no cost figure is offered, the purchase price, the „Доставна цена" slot or
+   * the last purchase's cost. The server sends none of them either. Default: offered.
+   */
+  seesCosts?: boolean
+  /** FR-27.11.D: which price levels the role sees (the selling price, a slot). Default: every one. */
+  sees?: (cap: CapabilityId) => boolean
 }
 
 type Translate = (key: string) => string
@@ -75,16 +84,21 @@ export function productColumnHeaders(t: Translate, opts: ProductColumnsOptions):
       // default the list still fits 1366 px without the tiers (FR-22.23, product-actions.spec).
       { title: t('warehouse.supplierFacts.column'), key: 'suppliers', sortable: false, ...PRICE_CELL },
       { title: t('warehouse.supplierFacts.lastPurchase'), key: 'lastPurchase', sortable: false, ...hidden('lastPurchase') },
-      { title: t('warehouse.supplierFacts.lastCost'), key: 'lastCost', sortable: false, align: 'end' as const, ...hidden('lastCost'), ...PRICE_CELL },
+      ...(opts.seesCosts === false ? [] : [{ title: t('warehouse.supplierFacts.lastCost'), key: 'lastCost', sortable: false, align: 'end' as const, ...hidden('lastCost'), ...PRICE_CELL }]),
     ] : []),
     { title: t('warehouse.supplierFacts.minimum'), key: 'minStockLevel', align: 'end' as const, ...hidden('minStockLevel') },
     { title: t('warehouse.supplierFacts.toOrder'), key: 'toOrder', sortable: false, align: 'end' as const, ...hidden('toOrder') },
     { title: t('warehouse.unit'), key: 'unit' },
-    { title: t('warehouse.purchasePrice'), key: 'purchasePrice', align: 'end' as const, ...hidden('purchasePrice'), ...PRICE_CELL },
-    { title: t('warehouse.sellingPrice'), key: 'sellingPrice', align: 'end' as const, ...PRICE_CELL },
+    ...(opts.seesCosts === false ? [] : [{ title: t('warehouse.purchasePrice'), key: 'purchasePrice', align: 'end' as const, ...hidden('purchasePrice'), ...PRICE_CELL }]),
+    ...(opts.sees && !opts.sees('products.price:selling') ? [] : [{ title: t('warehouse.sellingPrice'), key: 'sellingPrice', align: 'end' as const, ...PRICE_CELL }]),
     // A column per price tier, headed by the tier's name and sorted by its price (the server reads
     // the tier out of `tier_<slot>`); the slots regal prices by are shown, the rest wait on the cog.
-    ...TIER_COLUMNS.map((c) => ({ title: c.name, key: c.key, align: 'end' as const, ...hidden(c.key, c.defaultHidden), ...PRICE_CELL })),
+    // FR-27.11.D: only the slots the role sees (the buying-price one is a cost figure).
+    ...TIER_COLUMNS.filter((c) => {
+      const cap = capOfTier(c.name)
+      return cap === 'products.costs' ? opts.seesCosts !== false : !opts.sees || opts.sees(cap)
+    })
+      .map((c) => ({ title: c.name, key: c.key, align: 'end' as const, ...hidden(c.key, c.defaultHidden), ...PRICE_CELL })),
     // FR-22.48: only when the list can hold deactivated articles. Among active ones it says "yes"
     // on every row, and its width is what keeps the row actions inside 1366 px. It takes the price columns' 8 px
     // gutters too: the tick column of FR-28.13 is 48 px of that width, and "all statuses" has to fit as it did.
@@ -100,7 +114,10 @@ export interface UseProductColumnsOptions extends Omit<ProductColumnsOptions, 'a
 
 export function useProductColumns(opts: UseProductColumnsOptions) {
   const { t } = useI18n()
+  const access = useAccess()
   const headers = computed(() => productColumnHeaders((k) => t(k), {
+    seesCosts: access.can('products.costs'),
+    sees: (cap) => access.can(cap),
     seesSuppliers: opts.seesSuppliers,
     activeFilter: opts.activeFilter.value,
     withActions: opts.withActions,

@@ -75,20 +75,41 @@ describe('FR-27.4: the roles of an org', () => {
   })
 
   it('a role is created from a template, as its access, with a projection the legacy model serves exactly', async () => {
-    const r = await call('POST', '/roles', tokens.admin1, { name: 'Counter', from: { templateKey: 'seller' } })
+    // `sales` withholds nothing (FR-27.11.B): its access is exactly the legacy role's.
+    const r = await call('POST', '/roles', tokens.admin1, { name: 'Counter', from: { templateKey: 'sales' } })
     expect(r.status).toBe(200)
     expect(r.json.role).toMatchObject({ name: 'Counter', isBuiltin: false, needsRelease: false })
     const role: any = await Role.findById(r.json.role.id).lean().exec()
-    expect(sameGrant(grantOfRole(role), templateGrant('seller'))).toBe(true)
+    expect(sameGrant(grantOfRole(role), templateGrant('sales'))).toBe(true)
     expect(await PermissionSet.exists({ _id: role.legacy.setId, orgId: org._id, name: 'Role · Counter' })).toBeTruthy()
-    const audit: any = await AuditLog.findOne({ entityType: 'role', action: 'create', entityId: role._id }).lean().exec()
+    // The create does not wait for its audit row: `createAuditEntry` never makes the operation it records
+    // wait for, or fail on, its own trail. A read at once is a race, so read the row when it is there
+    // (the idiom of audit-via.flow.test.ts).
+    const end = Date.now() + 5000
+    let audit: any = null
+    while (!audit && Date.now() < end) {
+      audit = await AuditLog.findOne({ entityType: 'role', action: 'create', entityId: role._id }).lean().exec()
+      if (!audit) await Bun.sleep(20)
+    }
     expect(audit?.changes?.[0]?.field).toBe('caps')
+  })
+
+  it('FR-27.11.B (D-11, D-12): from the Seller template, without the cost figures, Цена на едро and Цена 0, which a release that reads no roles cannot withhold', async () => {
+    const r = await call('POST', '/roles', tokens.admin1, { name: 'Counter (Seller)', from: { templateKey: 'seller' } })
+    expect(r.status).toBe(200)
+    expect(r.json.role.needsRelease).toBe(true)
+    expect(r.json.role.caps).not.toContain('products.costs')
+    expect(r.json.role.caps).not.toContain('products.price:wholesale')
+    expect(r.json.role.caps).not.toContain('products.price:0')
+    expect(r.json.role.caps).toContain('products.price:1')
+    await call('DELETE', `/roles/${r.json.role.id}`, tokens.admin1)
   })
 
   it('a name is unique; an unknown capability is no grant', async () => {
     expect((await call('POST', '/roles', tokens.admin1, { name: 'Counter' })).status).toBe(409)
     const r = await call('POST', '/roles', tokens.admin1, { name: 'Lookers', caps: ['products.view', 'products.teleport'] })
-    expect(r.json.role.caps).toEqual(['products.view'])
+    // The unknown id is dropped; the helpers the Products form reads come with View (FR-27.4 `withImplied`).
+    expect(r.json.role.caps).toEqual(['doc-import.read', 'pricing.read', 'products.view', 'stock-availability.check', 'stock-levels.lookup'])
   })
 })
 

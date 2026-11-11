@@ -5,7 +5,7 @@
       <v-spacer />
       <div class="d-flex ga-2">
         <export-menu @export="onExport" />
-        <responsive-btn color="primary" icon="mdi-plus" :to="{ name: 'inventory.inventory-counts.new' }">{{ $t('common.create') }}</responsive-btn>
+        <responsive-btn v-cap="'inventory-counts.create'" color="primary" icon="mdi-plus" :to="{ name: 'inventory.inventory-counts.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
 
@@ -46,7 +46,7 @@
           </template>
           <template #item.actions="{ item }">
             <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.inventory-counts.edit', params: { id: item._id } }" />
-            <v-btn v-if="item.status === 'in_progress'" icon="mdi-check-all" size="small" variant="text" color="success" :title="$t('warehouse.completeCount')" @click="complete(item)" />
+            <v-btn v-if="item.status === 'in_progress'" v-cap="['inventory-counts.create', 'inventory-counts.edit']" icon="mdi-check-all" size="small" variant="text" color="success" :title="$t('warehouse.completeCount')" @click="complete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>

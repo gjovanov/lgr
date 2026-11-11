@@ -87,6 +87,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
+import { useAccess } from '../access/useAccess'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from '../composables/useHttpClient'
 import { useCurrency } from '../composables/useCurrency'
@@ -101,6 +102,8 @@ const props = defineProps<{
 }>()
 
 const { t } = useI18n()
+// FR-27.11.D: cost figures only for a role that holds them (the server sends none otherwise).
+const seesCosts = computed(() => useAccess().can('products.costs'))
 const { formatCurrency } = useCurrency()
 
 const loading = ref(false)
@@ -121,9 +124,12 @@ const headers = computed(() => [
   { title: t('warehouse.startQty'), key: 'startQty', align: 'end' as const },
   { title: t('warehouse.qtyChange'), key: 'quantityChange', align: 'end' as const },
   { title: t('warehouse.endQty'), key: 'endQty', align: 'end' as const },
-  { title: t('warehouse.unitCost'), key: 'unitCost', align: 'end' as const },
-  { title: t('common.total'), key: 'lineTotalCost', align: 'end' as const },
-  { title: t('warehouse.runningValue'), key: 'runningValue', align: 'end' as const },
+  // FR-27.11.D: cost figures only for a role that holds them.
+  ...(seesCosts.value ? [
+    { title: t('warehouse.unitCost'), key: 'unitCost', align: 'end' as const },
+    { title: t('common.total'), key: 'lineTotalCost', align: 'end' as const },
+    { title: t('warehouse.runningValue'), key: 'runningValue', align: 'end' as const },
+  ] : []),
   { title: t('invoicing.invoice'), key: 'invoiceNumber' },
 ])
 

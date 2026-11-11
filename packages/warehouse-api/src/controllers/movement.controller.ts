@@ -1,7 +1,8 @@
 import { Elysia, t } from 'elysia'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
-import { can } from 'services/biz/access/evaluate'
+import { can, grantOf } from 'services/biz/access/evaluate'
 import { seesBills } from 'services/biz/access/partition'
+import { redactMovementLine } from 'config/access'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement, MovementClaimedError, MovementNotDraftError, unclaimedMovement } from 'services/biz/warehouse.service'
@@ -179,8 +180,8 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     const allWhIds = new Set([...fromWhIds, ...toWhIds])
     const [warehouses, contacts] = await Promise.all([
-      allWhIds.size > 0 ? r.warehouses.findMany({ id: { $in: [...allWhIds] } } as any) : [],
-      contactIds.size > 0 ? r.contacts.findMany({ id: { $in: [...contactIds] } } as any) : [],
+      allWhIds.size > 0 ? r.warehouses.findMany({ orgId, id: { $in: [...allWhIds] } } as any) : [],
+      contactIds.size > 0 ? r.contacts.findMany({ orgId, id: { $in: [...contactIds] } } as any) : [],
     ])
 
     const warehouseMap = new Map(warehouses.map(w => [w.id, w]))
@@ -367,11 +368,13 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       if (l.productId) productIds.add(l.productId)
     }
     const products = productIds.size > 0
-      ? await r.products.findMany({ id: { $in: [...productIds] } } as any)
+      ? await r.products.findMany({ orgId, id: { $in: [...productIds] } } as any)
       : []
     const productMap = new Map(products.map(p => [p.id, p]))
 
-    const lines = movement.lines.map(l => ({
+    // FR-27.11.C.1: no line's cost, and a receipt line's product update by the product's rule, for a role without them.
+    const grant = grantOf(user as any)
+    const lines = movement.lines.map(l => redactMovementLine(grant, {
       ...l,
       productName: productMap.get(l.productId)?.name || '',
       productSku: productMap.get(l.productId)?.sku || '',

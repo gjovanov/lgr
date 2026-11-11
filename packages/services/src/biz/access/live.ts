@@ -28,6 +28,8 @@ interface LiveRole {
   templateKey?: string
   caps?: string[]
   version?: number
+  /** FR-27.4: the page the role's people start on. */
+  landing?: string
   legacy?: { role: string; permissions: string[]; areas?: string[] }
 }
 
@@ -101,12 +103,15 @@ export async function attachAccess(user: LiveSession | null | undefined): Promis
   const role = await liveRoleOf(user)
   if (!role) return null
   const grant: Grant = grantOfRole(role)
+  const version = `${String(role._id)}:${role.version ?? 1}`
   Object.defineProperty(user, 'access', { value: grant, enumerable: false, configurable: true })
+  // For `/auth/me`: what the SPA follows (FR-27.5). Never serialised with the session either.
+  Object.defineProperty(user, 'accessRole', { value: { id: String(role._id), name: (role as any).name, version, landing: role.landing ?? null }, enumerable: false, configurable: true })
   if (role.legacy) {
     user.role = role.legacy.role
     user.permissions = [...role.legacy.permissions]
     if (Array.isArray(role.legacy.areas)) user.areas = [...role.legacy.areas]
     else delete user.areas
   }
-  return `${String(role._id)}:${role.version ?? 1}`
+  return version
 }

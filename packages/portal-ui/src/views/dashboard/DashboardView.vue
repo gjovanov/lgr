@@ -29,7 +29,8 @@
           @click="go('/invoicing/')"
         />
       </v-col>
-      <v-col cols="12" sm="6" lg="3">
+      <!-- FR-27.11.C.2: the stock value is a cost figure; the server sends none to a role without the costs. -->
+      <v-col v-if="!data || data.stock?.totalValue !== undefined" cols="12" sm="6" lg="3">
         <StatCard
           :label="$t('dashboard.stockValue')"
           :value="money(data?.stock.totalValue)"

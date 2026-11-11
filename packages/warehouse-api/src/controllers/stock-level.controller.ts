@@ -3,11 +3,13 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { getProductsSupplyTotals } from 'services/biz/product-supply.service'
+import { grantOf } from 'services/biz/access/evaluate'
+import { redactStockCost } from 'config/access'
 import { productIdsPassingStockFilter } from 'services/biz/product-stock-filter'
 
 export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/stock-level' })
   .use(AppAuthService)
-  .get('/', async ({ params: { orgId }, query }) => {
+  .get('/', async ({ params: { orgId }, query, user }) => {
     const r = getRepos()
 
     const filter: Record<string, any> = { orgId }
@@ -59,18 +61,20 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
     }
 
     const [products, warehouses] = await Promise.all([
-      productIds.size > 0 ? r.products.findMany({ id: { $in: [...productIds] } } as any) : [],
-      warehouseIds.size > 0 ? r.warehouses.findMany({ id: { $in: [...warehouseIds] } } as any) : [],
+      productIds.size > 0 ? r.products.findMany({ orgId, id: { $in: [...productIds] } } as any) : [],
+      warehouseIds.size > 0 ? r.warehouses.findMany({ orgId, id: { $in: [...warehouseIds] } } as any) : [],
     ])
 
     const productMap = new Map(products.map(p => [p.id, p]))
     const warehouseMap = new Map(warehouses.map(w => [w.id, w]))
 
+    // FR-27.6: a stock level's average cost is a cost figure.
+    const grant = grantOf(user as any)
     const stockLevels = result.items.map(sl => {
       const product = productMap.get(sl.productId)
       const warehouse = warehouseMap.get(sl.warehouseId)
       return {
-        ...sl,
+        ...redactStockCost(grant, sl as any),
         productSku: product?.sku || '',
         productName: product?.name || '',
         warehouseName: warehouse?.name || '',
@@ -100,7 +104,7 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
       getProductsSupplyTotals(orgId, ids, { warehouseId: warehouseId || undefined }),
     ])
     const whIds = [...new Set(rows.map((s: any) => s.warehouseId).filter(Boolean))]
-    const warehouses = whIds.length ? await r.warehouses.findMany({ id: { $in: whIds } } as any) : []
+    const warehouses = whIds.length ? await r.warehouses.findMany({ orgId, id: { $in: whIds } } as any) : []
     const whMap = new Map(warehouses.map((w: any) => [w.id, w.name]))
 
     const stock: Record<string, any[]> = {}
