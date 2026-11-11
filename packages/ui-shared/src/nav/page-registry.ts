@@ -1,5 +1,5 @@
 import { FISCAL_ADMIN_ROLES, PERMISSIONS, holdsArea, type Area } from 'config/constants'
-import { PAGE_ACCESS, can, canOpen, compileLegacy, type CapabilityId, type Grant } from 'config/access'
+import { PAGE_ACCESS, can, canOpen, compileLegacy, grantHoldsArea, type CapabilityId, type Grant } from 'config/access'
 
 /**
  * Cross-app registry of the favouritable PAGES/functions surfaced by the global top-bar ★ menu.
@@ -276,6 +276,17 @@ export function grantOfViewer(who: PageViewer | null | undefined): Grant {
 }
 
 /**
+ * FR-26's area-wide gates (the portal: the App Hub, the Dashboard, Settings; the catalog's export), asked where the
+ * live role decides (FR-27.5): of its grant, so an edit reaches them with no sign-out, and a role whose projection
+ * carries no `areas` list (all of them, for an older release) holds only the areas it holds something of. Else
+ * (the token's claims decide) the token's `areas`, exactly as before.
+ */
+export function viewerHoldsArea(who: PageViewer | null | undefined, area: Area): boolean {
+  if (!who) return false
+  return who.grant ? grantHoldsArea(who.grant, area) : holdsArea(who, area)
+}
+
+/**
  * May this person open the page? ★ and „+ Нов" list only what this answers yes to (FR-22 §5.8).
  *
  * FR-27.2: one line on the grant (`config/access/pages.ts`), a PIN session the till only.
@@ -477,7 +488,7 @@ function ownLanding(who: PageViewer | null | undefined): string | null {
 export function startPage(who: PageViewer | null | undefined): string {
   const own = ownLanding(who)
   if (own) return own
-  return who && holdsArea(who, 'portal') ? '/dashboard' : landingWithoutPortal(who)
+  return viewerHoldsArea(who, 'portal') ? '/dashboard' : landingWithoutPortal(who)
 }
 
 /**

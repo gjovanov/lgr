@@ -93,10 +93,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useHoverMenus } from 'ui-shared/composables/useHoverMenus'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
-import { holdsArea } from 'config/constants'
+import { viewerHoldsArea } from 'ui-shared/nav/page-registry'
 import type { AppInfo } from './types'
 
 defineProps<{
@@ -110,8 +110,8 @@ const emit = defineEmits<{
 }>()
 
 const sheet = ref(false)
-// FR-26.8.4: no Portal tile for a session without the portal area (a Seller).
-const showPortal = holdsArea(sessionViewer(), 'portal')
+// FR-26.8.4: no Portal tile for a session without the portal area (a Seller). FR-27.5: the live role's, reactive.
+const showPortal = computed(() => viewerHoldsArea(sessionViewer(), 'portal'))
 const { hoverEnabled, openDelay, closeDelay } = useHoverMenus()
 
 function navigateToPortal() {

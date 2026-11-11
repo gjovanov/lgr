@@ -2,9 +2,8 @@ import type { NavigationGuardNext, RouteLocationNormalized, RouteRecordRaw } fro
 import { servedByMaster } from 'ui-shared/nav/node-role'
 import { getToken, hasOrgSession } from 'ui-shared/session/session'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
-import { isPortalAreaPath, landingWithoutPortal } from 'ui-shared/nav/page-registry'
+import { isPortalAreaPath, landingWithoutPortal, viewerHoldsArea } from 'ui-shared/nav/page-registry'
 import { useAccess } from 'ui-shared/access/useAccess'
-import { holdsArea } from 'config/constants'
 
 /**
  * Where a visitor nobody signed in goes first (gjovanov/lgr#384). On lgrai.app, the landing page.
@@ -128,7 +127,7 @@ export function portalGuard(to: RouteLocationNormalized, next: NavigationGuardNe
     // #493 item 4 (FR-27): inside an org, a session that changes no org (a Seller) has no All organizations either.
     // Before an org is entered, the screen after sign-in, it is the way in, as ever (the branch above).
     next({ path: landingWithoutPortal(sessionViewer()), replace: true })
-  } else if (signedIn && hasOrgSession() && isPortalAreaPath(to.path) && !holdsArea(sessionViewer(), 'portal')) {
+  } else if (signedIn && hasOrgSession() && isPortalAreaPath(to.path) && !viewerHoldsArea(sessionViewer(), 'portal')) {
     // FR-26.8.4: a session without the portal (a Seller) lands in its first app instead. Presentation:
     // the server refuses what it must on its own (`route-permission.ts#AREA_PREFIXES`).
     next({ path: landingWithoutPortal(sessionViewer()), replace: true })

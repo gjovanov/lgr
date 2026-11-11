@@ -136,6 +136,18 @@ export function areaOfCap(cap: string): Area | undefined {
 }
 
 /**
+ * FR-27.5 (#529) — does a role's grant hold anything of an FR-26 area: `holdsArea` asked of a role instead of a
+ * token. The areas a role's projection lists (`projectGrant`), and what the client's few area-wide gates (the
+ * portal, the catalog's export) ask in an org on `roles`, so they follow the live role, not the token's claims.
+ */
+export function grantHoldsArea(grant: Grant | null | undefined, area: Area): boolean {
+  if (!grant) return false
+  if (grant.all) return true
+  for (const c of grant.caps) if (areaOfCap(c) === area) return true
+  return false
+}
+
+/**
  * #493 items 2, 4, 5 (FR-27 D-8: catalogue entries on the Phase 0 evaluator, not areas). What a session whose
  * claim carries an `areas` list does not get: the invoices' totals strip and `GET invoices/summary`, the Import
  * button on the invoices list, and changing organization. Item 2's own rule: sessions without a list keep the
