@@ -1,7 +1,7 @@
 import { AREAS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, ROLES, type Area, type Permission } from '../constants'
 import type { CapabilityId } from './catalogue'
 import type { Grant } from './grant'
-import { LEGACY_BRIDGE, LEGACY_CANNOT_WITHHOLD, LEGACY_ROLE_CAPS, NOT_WITH_AN_AREAS_LIST, areaOfCap, compileLegacy } from './legacy'
+import { LEGACY_BRIDGE, LEGACY_CANNOT_WITHHOLD, LEGACY_ROLE_CAPS, NOT_WITH_AN_AREAS_LIST, areaOfCap, compileLegacy, grantHoldsArea } from './legacy'
 import { sameGrant } from './roles'
 
 /**
@@ -54,7 +54,7 @@ export function projectGrant(grant: Grant): Projection {
   // Then with the list of the areas the role holds anything of; kept where it says more of the role. ⚠ A plain
   // projection gives every session without a list what such a list takes away (`org.switch`…): where the role lacks
   // it, only the list stays within the role.
-  const kept = AREAS.filter(a => [...grant.caps].some(c => areaOfCap(c) === a))
+  const kept = AREAS.filter(a => grantHoldsArea(grant, a))
   const listed = { role, permissions: permissionsWith(kept), areas: [...kept] }
   const listedGrant = compileLegacy(listed)
   // What the legacy model cannot withhold (the cost figures) is never what makes a projection exceed the role.
