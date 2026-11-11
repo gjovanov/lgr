@@ -3063,8 +3063,23 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   whitespace folded, the `ПАРТНЬОРИ:` prefix stripped, no homoglyph folding, an ACTIVE supplier or both contact, never
   a natural person) and post its `contactId`. They create no contact and do not use the matching ladder's fuzzy
   rungs (a miss is reported, not guessed); the run ends with the partners it could not resolve and their documents.
-  ⚠ A booked receipt is never changed (a movement is editable only as a draft): add the supplier BEFORE the next
-  run. Historic receipts stay supplier-less (no backfill).
+  ⚠ An importer never changes a booked receipt (a movement is editable only as a draft): add the supplier BEFORE
+  the next run, or name the receipt afterwards with the backfill below.
+- **A receipt booked without a supplier: `scripts/backfill-receipt-suppliers.ts --org <slug>`**
+  (`scripts/lib/receipt-supplier-backfill.ts`). The partner's NAME is still in LGR: in the notes the API importers
+  wrote (`deliveryNote`, read back by `config/movement-notes#deliveryNotePartner`), or in the analysis of the Files
+  document that booked it, as the warning for a partner no contact matched (`supplier-name.ts#unmatchedPartnerOf`).
+  ⚠ That warning's opening words are stored with every analysed document: they are built by
+  `unmatchedPartnerWarning` and pinned by a unit test, so do not reword them without a reader that still takes the
+  old ones. Same rule as the importers, and it writes `contactId` and nothing else, as a bill made from a receipt
+  does (`claimReceipts`), with an audit entry. Dry run by default, counts only (`--names` lists the partner names
+  that matched no single active supplier: an org's partners, keep that output private); `--execute --expect <n>`
+  writes a manifest first; `--undo <manifest>` takes a run back unless a document claimed the receipt since. Left
+  alone: a receipt that says it is no delivery (`noteSaysNoDelivery`), a rolled-back or record-only one, one a
+  document holds, one whose partner is written nowhere. ⚠ An org with no supplier contacts resolves nothing: its
+  suppliers come first. Idempotent: run it again after adding a supplier.
+- ⚠ **"Below minimum" and "To order" need minimums, and nothing imports one.** They read `Product.minStockLevel`
+  and `maxStockLevel`; an org that has set none sees both empty (the stock range filter does not need them).
 
 ## One product search, and orders from the Products list (FR-28, #622, slices 3 and 4)
 

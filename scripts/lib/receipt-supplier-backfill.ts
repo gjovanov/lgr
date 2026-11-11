@@ -114,8 +114,9 @@ export async function planReceiptSupplierBackfill(orgId: string): Promise<Receip
     if (m.reversedBy || m.recordOnly === true) { counts.notCounted++; continue }
     if (isRemovalReversalNote(m.notes) || noteSaysNoDelivery(m.notes)) { counts.notADelivery++; continue }
     if (m.invoiceId) { counts.heldByADocument++; continue }
-    const inNotes = deliveryNotePartner(m.notes)
-    const partner = partnerOf(inNotes ?? fromDocument.get(String(m._id)))
+    // The notes first: they are the receipt's own. The document only when they name nobody.
+    const inNotes = partnerOf(deliveryNotePartner(m.notes))
+    const partner = inNotes.kind === 'nobody' ? partnerOf(fromDocument.get(String(m._id))) : inNotes
     if (partner.kind === 'correction') { counts.notADelivery++; continue }
     if (partner.kind === 'nobody') { counts.noPartnerKnown++; continue }
     const key = normalizeName(partner.name)
@@ -125,7 +126,7 @@ export async function planReceiptSupplierBackfill(orgId: string): Promise<Receip
       counts.resolved++
       plans.push({
         movementId: String(m._id), movementNumber: String(m.movementNumber || ''), contactId: match.contactId,
-        supplierName: match.name, source: inNotes ? 'notes' : 'document',
+        supplierName: match.name, source: inNotes.kind === 'nobody' ? 'document' : 'notes',
       })
       continue
     }
