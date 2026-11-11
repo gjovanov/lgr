@@ -40,7 +40,10 @@ Resolve each `ACT` before booking that family. The ones a dry run raises:
   convert (section 3).
 
 Notes to carry into the report: products a receipt creates, a sale price held as a typo on the PlusMinus item card,
-partners that are no active supplier.
+partners that are no active supplier. Such a receipt is booked without a supplier and no later import changes it. When
+the partner is a supplier that exists under another spelling (a short form, a missing legal form), the fix is one
+name on that contact, under *Also known as*, which only a person may say; `scripts/backfill-receipt-suppliers.ts`
+then names the receipts already booked. A partner that is one of the organization's own stores stays without one.
 
 ## 2. Book, in this order
 

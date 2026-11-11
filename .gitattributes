@@ -1,5 +1,10 @@
 packages/services/src/biz/desktop/fingerprint-words.txt text eol=lf
 # FR-20.10 (P1-7): shell scripts and units that end up on a Linux master, whatever checked them out.
 packages/server/packaging/** text eol=lf
+# A skill's shell scripts, and what it copies to the Linux build host (`remote/`), whatever checked them out: with
+# CRLF, bash there refuses the first line of a copied script (`set -euo pipefail`). The scripts that copy them also
+# strip carriage returns on the way, for a checkout made before this line.
+.claude/skills/**/*.sh text eol=lf
+.claude/skills/**/remote/** text eol=lf
 # FR-25 R2: the golden VAT files are compared byte for byte, CP1251 with CRLF after every record.
 packages/tests/src/fixtures/vat-files/** binary
