@@ -73,7 +73,9 @@ runs:
             if [ -n "$proof" ] && [ "$proof" != "$GITHUB_RUN_ID" ]; then
               skip=true
               url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$proof"
-              echo "::notice title=Same tree, already tested::tree $tree passed the $LANE lane in run $proof ($url). Nothing was run again."
+              # No comma in the title: in a workflow command a comma ends a property, and
+              # "Same tree, already tested" was shown as "Same tree" (master run 42949554922).
+              echo "::notice title=Same tree already tested::tree $tree passed the $LANE lane in run $proof ($url). Nothing was run again."
               echo "### \`$LANE\`: not run again" >> "$GITHUB_STEP_SUMMARY"
               echo "This commit's tree (\`$tree\`) is the one [run $proof]($url) tested and passed. Re-run this job to run it anyway." >> "$GITHUB_STEP_SUMMARY"
             else
