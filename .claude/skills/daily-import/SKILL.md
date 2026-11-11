@@ -28,7 +28,7 @@ residual** (a document edited or deleted in PlusMinus, a back-dated one, one tha
 
 | # | Skill | Phases | Done when |
 |---|---|---|---|
-| 1 | `daily-import-preflight` | `plan`, `grant` | the day has the owner's word, it is past 17:15 UTC, the stores answer, the checkout is at the deployed commit, the temp admin's session reads everything |
+| 1 | `daily-import-preflight` | `plan`, `checkout`, `grant` | the day has the owner's word, it is past 17:15 UTC, the stores answer, the checkout carries the importers production was built with, the temp admin's session reads everything |
 | 2 | `daily-import-pull` | `pull`, `history`, `scan` | the day is pulled; everything edited, deleted, back-dated or stock-less is named |
 | 3 | `daily-import-predict` | `predict` | the prediction says 0, or every residual is named |
 | 4 | `daily-import-book` | `dry`, `book` | every family of the day is booked, each without `ACT` |
@@ -57,9 +57,9 @@ identity signed in twice at once has answered 401.
 
 ## Where things are
 
-- **The import checkout:** a worktree of this repository at the commit production runs, outside any temp directory
-  (a cleaner that removes empty files also removes every `node_modules` link). Step 1 moves it; every command of a
-  run starts there.
+- **The import checkout:** a worktree of this repository outside any temp directory (a cleaner that removes empty
+  files also removes every `node_modules` link). Step 1 moves it and proves its importers are the ones production
+  was built with; every command of a run starts there.
 - **The stores' identifiers:** `.secrets/plusminus-stores.env`, read by name (`pull-plusminus-api`, "Store
   identifiers"). `<PREFIX>_DOCS_ROOT` is a store's private document root.
 - **A day folder:** `<docs root>/<day>/api/`, or `<from>_<day>/api/` when the range starts earlier.

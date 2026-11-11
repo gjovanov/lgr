@@ -1,6 +1,6 @@
 ---
 name: daily-import-preflight
-description: Step 1 of the daily import - the go/no-go before anything is pulled or written. The day's word from the owner, the start time, whether each store's PC and PlusMinus answer, the import checkout moved to the commit production runs (with the change since the last run read), and a throwaway admin whose session is proven to read everything. Use at the start of a daily import run.
+description: Step 1 of the daily import - the go/no-go before anything is pulled or written. The day's word from the owner, the start time, whether each store's PC and PlusMinus answer, the import checkout proven to carry the importers production was built with (and the server's change since the last run read), and a throwaway admin whose session is proven to read everything. Use at the start of a daily import run.
 allowed-tools: Bash(bun:*), Bash(bash:*), Bash(roomler:*), Bash(git:*), Bash(ssh:*), Bash(curl:*)
 ---
 
@@ -33,24 +33,31 @@ regal-pz's PlusMinus server runs on its store PC: that PC offline means no pull,
 to time out. regal-sf's server is behind its store PC and is reached through a forward that step 2 opens. A store
 that is off is skipped (`daily-import`, last section).
 
-## 3. The checkout at the deployed commit
+## 3. The checkout against the deployed commit
 
-The importers call production's API, so they run from the commit production runs.
+The importers call production's API, so the importers that run are the ones production was built with.
 
 1. The deployed commit: on the build host, the deploy repository's newest `bump lgr to <tag> (<sha>)` subject names
    it (`deploy-prod` skill).
-2. In the import checkout, fetch, then read what changed since the previous run's commit (its report names it):
+2. In the import checkout: fetch, `git checkout --detach origin/master`, `bun install --frozen-lockfile`, then
 
    ```bash
-   git diff --stat <previous sha> <deployed sha> -- 'scripts/*-api.ts' scripts/receive-new-products.ts scripts/lib/ \
-     .claude/skills/pull-plusminus-api/ .claude/skills/daily-import/ packages/services/src/biz/doc-import/
+   bun .claude/skills/daily-import/daily.ts checkout --deployed <deployed sha>
+   ```
+
+   It follows the imports of every importer and the puller, and compares those files with the deployed commit's.
+   `ok`: they are identical, and the checkout keeps master's tools. `STOP` lists the files that differ: read the
+   difference, then take the checkout to the deployed commit (`git checkout --detach <deployed sha>`, install, run
+   it again). Production is deployed first only on the owner's word.
+3. Read what changed on the server since the previous run's commit (its report names it):
+
+   ```bash
    git diff --stat <previous sha> <deployed sha> -- 'packages/*-api/src' packages/services/src packages/db packages/config packages/migrations
    ```
 
-   Read every change that touches an importer or a route the importers call: `/invoices`, `/doc-import/*`,
-   `/warehouse/movement`, `/warehouse/product`, `/warehouse/stock-level`, `/invoicing/contact`, sign-in. A change
-   in what a role may read or write is the one that matters most (section 4 is its live check).
-3. `git checkout --detach <deployed sha>`, and `bun install --frozen-lockfile` when `bun.lock` changed.
+   Read every change that touches a route the importers call: `/invoices`, `/doc-import/*`, `/warehouse/movement`,
+   `/warehouse/product`, `/warehouse/stock-level`, `/invoicing/contact`, sign-in. A change in what a role may read
+   or write is the one that matters most (section 4 is its live check).
 
 Production can be deployed again while the run is going. Look at the deploy repository's head once more after
 booking (`daily-import-verify`), and read any new change the same way.
@@ -68,5 +75,5 @@ selling price, each tier's margin, the cost tier and the average cost. A `STOP` 
 shown less (a role without cost figures or some price levels) would compare, snapshot and write wrong figures while
 every call succeeds.
 
-**Done when** `plan` shows no `STOP`, each store is either reachable or declared skipped, the checkout is at the
-deployed commit with its change read, and `grant` is `ok` for every org of the run.
+**Done when** `plan` shows no `STOP`, each store is either reachable or declared skipped, `checkout` is `ok` with
+the server's change read, and `grant` is `ok` for every org of the run.

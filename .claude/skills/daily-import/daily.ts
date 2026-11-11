@@ -12,7 +12,8 @@
 //   bun .claude/skills/daily-import/daily.ts <phase> --org <slug> [options]
 //
 //   plan                     the day, the previous run, the folders, the last numbers (no --org: every org)
-//   grant                    does the LGR session read everything: costs, every price level (needs LGR)
+//   checkout --deployed <sha>  are the files the importers load identical to the commit production runs (no --org)
+//   grant                   does the LGR session read everything: costs, every price level (needs LGR)
 //   pull                     the day's documents and the stock snapshot from PlusMinus
 //   history                  re-pull the whole history, diff it against the previous run's, find back-dated documents
 //   scan                     which documents of the day moved no stock; till returns; items outside the goods group
@@ -33,7 +34,7 @@
 //
 // The org's identifiers (document root, PlusMinus server) come from .secrets/plusminus-stores.env by name
 // (../pull-plusminus-api/stores-env.ts); nothing of them is in this file. The checks are scripts/lib/daily-import.ts.
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { getOrg } from '../pull-plusminus-api/orgs'
 import { loadStoresEnv } from '../pull-plusminus-api/stores-env'
@@ -206,6 +207,59 @@ function plan(): Finding[] {
     if (existsSync(c.ev) && readdirSync(c.ev).length) out.push(finding('note', `${org}: ${c.ev} already holds files: a second run today takes --suffix late`))
     if (c.tunnelled) out.push(finding('note', `${org}: reached through a tunnel, pass --base-url to pull, history and after`))
   }
+  return out
+}
+
+/** The scripts a day's import runs: the importers call production's API, so they must be the ones it was built with. */
+const IMPORTER_ENTRIES = [
+  '.claude/skills/pull-plusminus-api/pull-api.ts',
+  'scripts/receive-stock-api.ts', 'scripts/receive-new-products.ts', 'scripts/transfer-stock-api.ts', 'scripts/transfer-stock.ts',
+  'scripts/adjust-stock-api.ts', 'scripts/adjust-stock.ts', 'scripts/import-cash-register-sales-api.ts',
+  'scripts/import-sales-invoices-api.ts', 'scripts/compare-stock-api.ts', 'scripts/audit-coverage-api.ts', 'scripts/true-up-stock-api.ts',
+]
+
+/** Every file of this repository the entries load, followed through their imports. */
+function importClosure(entries: string[]): string[] {
+  // One transpiler per kind of file: a generic arrow function in a .ts file does not parse as TSX.
+  const transpilers = { ts: new Bun.Transpiler({ loader: 'ts' }), tsx: new Bun.Transpiler({ loader: 'tsx' }), js: new Bun.Transpiler({ loader: 'js' }) }
+  // The scanner does not take a `#!` line.
+  const importsOf = (file: string) => transpilers[file.endsWith('.ts') ? 'ts' : file.endsWith('.tsx') ? 'tsx' : 'js'].scanImports(readFileSync(file, 'utf8').replace(/^#!.*/, ''))
+  const norm = (p: string) => realpathSync(p).replaceAll('\\', '/')
+  const base = norm(root)
+  const seen = new Set<string>()
+  const queue = entries.map(e => norm(join(root, e)))
+  while (queue.length) {
+    const file = queue.pop()!
+    if (seen.has(file)) continue
+    seen.add(file)
+    if (!/\.(ts|tsx|js|mjs|cjs)$/.test(file)) continue
+    for (const { path } of importsOf(file)) {
+      if (path.startsWith('node:') || path.startsWith('bun:') || path === 'bun') continue
+      let target: string
+      try { target = norm(Bun.resolveSync(path, dirname(file))) } catch { continue } // a package this checkout does not have installed
+      if (target.startsWith(`${base}/`) && !target.includes('/node_modules/')) queue.push(target)
+    }
+  }
+  return [...seen].map(f => f.slice(base.length + 1)).sort()
+}
+
+/**
+ * Is this checkout fit to book into production? It may sit at a newer commit than the deployed one, for its tools, as
+ * long as every file the importers load is byte-identical to the deployed commit's.
+ */
+function checkout(): Finding[] {
+  const deployed = opt('deployed') ?? die('checkout needs --deployed <the commit production runs> (the deploy repository names it)')
+  const git = (...args: string[]) => { const r = Bun.spawnSync(['git', ...args], { cwd: root, stdout: 'pipe', stderr: 'pipe' }); return { code: r.exitCode, text: r.stdout.toString().trim() } }
+  if (git('cat-file', '-e', `${deployed}^{commit}`).code !== 0) return [finding('stop', `commit ${deployed} is not in this checkout: fetch first`)]
+  const head = git('rev-parse', '--short', 'HEAD').text
+  if (!existsSync(join(root, 'node_modules'))) return [finding('stop', 'no node_modules here: run bun install --frozen-lockfile (without it the importers do not load, and their imports cannot be followed)')]
+  const files = importClosure(IMPORTER_ENTRIES)
+  const changed = git('diff', '--name-only', deployed, 'HEAD', '--', ...files).text.split('\n').filter(Boolean)
+  const dirty = git('status', '--porcelain', '--', ...files).text.split('\n').filter(Boolean)
+  const out: Finding[] = []
+  if (dirty.length) out.push(finding('stop', `${dirty.length} file(s) the importers load are modified in this checkout`, dirty))
+  if (changed.length) out.push(finding('stop', `${changed.length} file(s) the importers load differ between this checkout (${head}) and the deployed commit ${deployed}. Read the difference; then either production is deployed first, or this checkout goes to ${deployed}.`, changed))
+  if (!dirty.length && !changed.length) out.push(finding('ok', `the ${files.length} files the importers load are identical to the deployed commit ${deployed} (checkout at ${head})`))
   return out
 }
 
@@ -469,11 +523,12 @@ function facts(c: Ctx): Finding[] {
 const PHASES: Record<string, (c: Ctx) => Finding[] | Promise<Finding[]>> = {
   grant, pull, history, scan, predict, dry: c => dry(c, false), book, after, prices, rerun: c => dry(c, true), audit: auditAfter, facts,
 }
-if (!phase || has('help')) { console.log(readFileSync(import.meta.path, 'utf8').split('\n').slice(1, 35).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(phase ? 0 : 2) }
+if (!phase || has('help')) { console.log(readFileSync(import.meta.path, 'utf8').split('\n').slice(1, 36).map(l => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(phase ? 0 : 2) }
 let findings: Finding[]
 if (phase === 'plan') findings = plan()
+else if (phase === 'checkout') findings = checkout()
 else if (PHASES[phase]) findings = await PHASES[phase](context(opt('org') ?? die(`${phase} needs --org <slug>`)))
-else die(`unknown phase "${phase}". Phases: plan, ${Object.keys(PHASES).join(', ')}`)
+else die(`unknown phase "${phase}". Phases: plan, checkout, ${Object.keys(PHASES).join(', ')}`)
 
 const LABEL = { ok: 'ok   ', note: 'note ', act: 'ACT  ', stop: 'STOP ' }
 console.log(`\n── ${phase}${opt('org') ? ` ${opt('org')}` : ''} ──`)
