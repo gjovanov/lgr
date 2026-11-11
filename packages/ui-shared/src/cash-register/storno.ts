@@ -5,7 +5,7 @@
  * Import-pure: the POS and invoicing journals, and a unit test, read it.
  */
 
-import { can, compileLegacy } from 'config/access'
+import { can, compileLegacy, type Grant } from 'config/access'
 
 /**
  * The roles the storno route accepts ("H4: Storno requires manager or admin role"). Since FR-27 (#529) both sides
@@ -16,16 +16,23 @@ import { can, compileLegacy } from 'config/access'
  */
 export const STORNO_ROLES = ['admin', 'manager'] as const
 
-/** FR-27: whether a session of this role may reverse a sale (`cash-sales.storno`). */
-function mayStorno(role: string): boolean {
-  return can(compileLegacy({ role }), 'cash-sales.storno')
+/**
+ * Who asks: the session's grant (FR-27.5: in an org on `roles`, the role's, live, as the server's
+ * `can(user, 'cash-sales.storno')` decides), or a legacy role key, read as that role's own capabilities.
+ */
+export type StornoActor = string | Grant | null | undefined
+
+/** FR-27: whether this session may reverse a sale (`cash-sales.storno`). */
+function mayStorno(who: StornoActor): boolean {
+  if (!who) return false
+  return can(typeof who === 'string' ? compileLegacy({ role: who }) : who, 'cash-sales.storno')
 }
 
 /**
  * A completed SALE (a POS row), by someone allowed to reverse it. A storno is not itself
  * reversible, and a cancelled sale is already reversed (or being reversed).
  */
-export function canStornoTransaction(txn: { type?: string; status?: string; isFiscal?: boolean; fiscal?: { state?: string } } | null | undefined, role: string | undefined): boolean {
+export function canStornoTransaction(txn: { type?: string; status?: string; isFiscal?: boolean; fiscal?: { state?: string } } | null | undefined, role: StornoActor): boolean {
   if (!txn || !role) return false
   // FR-23: nothing can prove its fiscal receipt printed, so a person settles it first.
   if (txn.isFiscal && (txn.fiscal?.state === 'unknown' || txn.fiscal?.state === 'pending')) return false
@@ -61,7 +68,7 @@ export interface StornoableRow {
  * invoice was issued for it, and the credit note to that invoice is its correction (a quantity is
  * corrected once, D-14).
  */
-export function canStornoJournalRow(row: StornoableRow | null | undefined, role: string | undefined): boolean {
+export function canStornoJournalRow(row: StornoableRow | null | undefined, role: StornoActor): boolean {
   if (!row || !role) return false
   // `inDoubt` is a status of its own: a person settles it first, and the server refuses until then.
   return row.kind === 'sale'
