@@ -1,0 +1,78 @@
+name: Has this exact tree already passed this lane?
+description: >
+  A pull request's run tests the merge of the branch into master. When master has not moved by the
+  time the branch is merged, the commit that lands has that very tree, and master's run would repeat
+  the pull request's, file for file: 81 of 150 merges on 2026-11-07..10. This looks for the marker a
+  green lane leaves for its tree (an artifact named `ci-passed-<lane>-<tree>`) and tells the job
+  whether to skip its work. The job still runs and still concludes under its own name, so a check
+  that is read by name (desktop-promote.yml) is there, and green, for the commit.
+
+  It only ever skips master's push run, on its first attempt: a re-run is someone asking for the
+  work to be done, and gets it. A marker from another repository (a fork's run) is not one. When
+  the lookup fails, nothing is skipped. Repository variable LGR_CI_SAME_TREE=off turns it off.
+
+inputs:
+  lane:
+    description: The lane a marker speaks for, one per job that can be skipped (`test`, `build`)
+    required: true
+  switch:
+    description: vars.LGR_CI_SAME_TREE (a composite action cannot read `vars` itself)
+    default: ''
+
+outputs:
+  skip:
+    description: "'true' when this tree already passed this lane and the job should do nothing more"
+    value: ${{ steps.look.outputs.skip }}
+  marker:
+    description: The artifact name a green run of this lane uploads for this tree
+    value: ${{ steps.look.outputs.marker }}
+  file:
+    description: A small file to upload under that name
+    value: ${{ steps.look.outputs.file }}
+
+runs:
+  using: composite
+  steps:
+    - id: look
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        LANE: ${{ inputs.lane }}
+        SWITCH: ${{ inputs.switch }}
+        REPO_ID: ${{ github.repository_id }}
+        MAY_SKIP: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.run_attempt == 1 }}
+      run: |
+        set -euo pipefail
+        tree="$(git rev-parse 'HEAD^{tree}')"
+        marker="ci-passed-$LANE-$tree"
+        file="$RUNNER_TEMP/$marker.txt"
+        echo "tree $tree passed the $LANE lane in run $GITHUB_RUN_ID ($GITHUB_EVENT_NAME, $GITHUB_REF)" > "$file"
+        {
+          echo "marker=$marker"
+          echo "file=$file"
+        } >> "$GITHUB_OUTPUT"
+
+        skip=false
+        if [ "$SWITCH" = off ]; then
+          echo "LGR_CI_SAME_TREE is off: the lane runs"
+        elif [ "$MAY_SKIP" != true ]; then
+          echo "not master's first run of this commit: the lane runs (tree $tree)"
+        else
+          # The newest live marker of this name that a run of THIS repository uploaded.
+          proof="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$marker&per_page=30" \
+            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_repository_id == (env.REPO_ID | tonumber) and .workflow_run.id != null)]
+                  | sort_by(.created_at) | last | .workflow_run.id // empty')" || {
+            echo "::warning title=Same-tree lookup failed::could not list $marker, so the $LANE lane runs"
+            proof=""
+          }
+          if [ -n "$proof" ] && [ "$proof" != "$GITHUB_RUN_ID" ]; then
+            skip=true
+            url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$proof"
+            echo "::notice title=Same tree, already tested::tree $tree passed the $LANE lane in run $proof ($url). Nothing was run again."
+            echo "### \`$LANE\`: not run again" >> "$GITHUB_STEP_SUMMARY"
+            echo "This commit's tree (\`$tree\`) is the one [run $proof]($url) tested and passed. Re-run this job to run it anyway." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "no run has passed the $LANE lane on tree $tree yet: the lane runs"
+          fi
+        fi
+        echo "skip=$skip" >> "$GITHUB_OUTPUT"

@@ -100,13 +100,26 @@ export async function allowSalesWithoutPrinter(orgId: Types.ObjectId | string): 
   await Org.updateOne({ _id: orgId }, { $set: { 'settings.cashRegister.requireConnectedDevice': false } }).exec()
 }
 
+/**
+ * The hash of every factory user's password ('test123'), made ONCE per test process.
+ *
+ * ⚠ It used to be hashed per user. argon2id is slow on purpose: 232 ms on the CI runner while a
+ * suite runs (62 ms on a developer's machine), and `tillWorld` makes two users for every test, so
+ * a till test spent ~0.46 s of its ~2.3 s proving twice that a password hashes (measured
+ * 2026-11-10: `cash-invoice-refunds.flow` alone, 308 tests, 12 of the suite's 14 minutes).
+ * Two factory users now carry the same hash, which no test or code compares. A test about the
+ * hash itself passes its own (`password: await Bun.password.hash(...)`), as they all did already.
+ */
+let testPasswordHash: Promise<string> | undefined
+const defaultPasswordHash = () => (testPasswordHash ??= Bun.password.hash('test123'))
+
 export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<IUser> = {}): Promise<IUser> {
   const ts = uniqueTs()
   const role = overrides.role || 'admin'
   const defaults = {
     email: `user-${ts}@test.com`,
     username: `user-${ts}`,
-    password: await Bun.password.hash('test123'),
+    password: await defaultPasswordHash(),
     firstName: 'Test',
     lastName: 'User',
     role,

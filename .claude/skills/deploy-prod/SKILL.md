@@ -62,9 +62,20 @@ in. Run `bun run build` locally first.
 targeted kustomization bump → commit/push → ArgoCD nudge → rollout wait → smoke check.
 It prints `DEPLOY_DONE <sha> <tag>` or `DEPLOY_FAILED <sha>`.
 
-A cold build is **15–30 min** (over the Bash tool's 10-min cap), so background it and poll a
+A deploy takes **about a minute** when the commit changes no dependency (~30 s more when it
+changes the UI), and **~5 min** when everything is rebuilt: the first deploy of a month, a
+`bun.lock` / `package.json` change, a new base image. Background it either way and poll a
 per-run log file — never the tmux scrollback, where a stale marker from an earlier build
 reads as a false success.
+
+The log's last lines say where the time went and what was reused:
+
+    DEPLOY_TIMING total=62s prepare=3s build-lgr=6s push-lgr=4s bump=6s rollout=42s smoke=1s | layers: os=reused deps=reused web=reused
+    DEPLOY_DONE <sha> <tag>
+
+⚠ `deps=rebuilt` or `os=rebuilt` with no lockfile change and no new month means the build
+cache was lost (someone ran `docker builder prune -af`, or the disk was cleaned). Nothing
+fails, every deploy is just five minutes again: say so rather than letting it stand.
 
 ```bash
 # 0. push the code first — the host deploys what's on origin/master
@@ -107,7 +118,7 @@ ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 mars
 cd ~/lgr && git pull --ff-only origin master
 
 ./scripts/prune-docker-tags.sh --apply                     # BEFORE building (disk safety)
-docker build -t registry.roomler.ai/lgr:build-tmp .
+DOCKER_BUILDKIT=1 docker build --build-arg "OS_REFRESH=$(date +%Y-%m)" -t registry.roomler.ai/lgr:build-tmp .
 TAG="v$(date +%Y%m%d)-$(docker images -q registry.roomler.ai/lgr:build-tmp | head -c 12)"
 docker tag registry.roomler.ai/lgr:build-tmp registry.roomler.ai/lgr:$TAG
 docker tag registry.roomler.ai/lgr:build-tmp registry.roomler.ai/lgr:latest
@@ -179,13 +190,17 @@ First request after a pod restart pays ~6s cold start (Bun JIT + Mongoose compil
 - **The argocd CLI token on the host is expired** (`invalid session: Token is expired`), so
   `argocd app sync lgr` fails. Use the `kubectl -n argocd patch application` form, or re-login.
   Auto-sync reconciles within 60s anyway — the patch only skips the wait.
-- **Prune before building, always.** The image is ~7.5 GB; builds once filled the disk mid-push
+- **Prune before building, always.** The image is ~1.7 GB; builds once filled the disk mid-push
   and left a partial image in the registry. `prune-docker-tags.sh --apply` keeps the 2 newest
-  local tags and clears the builder cache — which also means most builds are effectively cold.
-  As of 2026-08-05 the host has **no local lgr images at all** (65% of 437 G used), so the next
-  build has zero cache.
-- **Uncommitted tracked changes in `~/lgr` abort the script** (untracked files are ignored) —
-  the host checkout picks up leftovers like `invoice-lines-backup-*.json` harmlessly.
+  local tags and TRIMS the builder cache to a budget (20 GB). ⚠ Until 2026-11 it emptied the
+  cache instead, so every build was cold, here and for every other project on the host: never
+  run `docker builder prune -af` there without `--keep-storage`.
+- **Uncommitted tracked changes in `~/lgr` abort the script** (untracked files are ignored).
+  ⚠ Untracked is not harmless: the build context is the working copy, so whatever lies in
+  `~/lgr` and `.dockerignore` does not name is copied into the image and pushed. Two
+  `invoice-lines-backup-*.json` files and a diagnostic script left there by one-off scripts
+  were in every image until 2026-11-10. Keep that checkout clean, and never write a script's
+  output into it.
 - **CLAUDE.md's "Sync policy is Manual" is outdated** — the live app is `automated` with
   `prune` + `selfHeal` on branch `master`, path `k8s/overlays/prod`.
 - Cluster DNS is intermittently flaky (see Known Issues) → an ArgoCD sync can fail with
