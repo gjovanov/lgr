@@ -1498,6 +1498,14 @@ Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/CN/DN/BILL); cash sales skip
 
 - **Per-user grid columns** (visibility + reorder) on EVERY `ListScaffold` grid: `ui-shared/composables/useGridColumns.ts` (localStorage `lgr:grid-cols:<userId>:<orgId>:<gridId>`, gridId = route name) + `GridColumnPickerDialog.vue`; a cog in the results header opens it. userId read from the JWT in localStorage (no app-store coupling). Grids NOT on ListScaffold (e.g. `StockLevelsView`) don't get it yet. ⚠ A saved order exists only after a MOVE and then wins, so a new default order reaches only users who never reordered; a column the saved order has never seen goes right after its catalog predecessor (`orderColumnKeys`, FR-22.46).
 - **Price-select icon** (`ui-shared/PriceSelectButton.vue`) left of every invoice-line Unit Price: lists selling + all named tiers via `GET /pricing/options?...&all=true` (new `all` mode in `listPriceOptions` offers filterless Цена slots too); `onLinePriceSelected` sets price + base→chosen explanation.
+  The same icon stands before every line's price on the **customer order** (`InternalOrderFormView`, new and saved;
+  none on a closed order), for the order's client and the line's quantity: a pick is the line's `expectedUnitPrice`
+  and nothing else is kept (an order line has no price explanation). ⚠ `/convert` does NOT charge that price: the
+  invoice is priced by `resolvePrice` for the client, and `expectedUnitPrice` is only its fallback when the article
+  is gone (`lib/reservation-convert.ts`). ⚠ There it is `density="comfortable"` (20 px,
+  the till's and the invoice's is 32 px) inside `.order-tree__num-group`, and the price column is 108 px to hold it:
+  the tree's number columns are budgeted to the pixel, and `customer-order-tree.spec` measures the field, the button
+  and the sideways scroll at 1366 px and 1920 px.
 - **Amount-in-words (Словом)**: `ui-shared/composables/useAmountInWords.ts` (`amountInWords` / `upsertAmountInWords`) — deterministic en/bg/de/mk converter, client-side, written into notes on save of every OUTGOING doc (gated `config.direction === 'outgoing'` in `useDocumentForm.buildPayload`) + orders, in the user's UI language, de-duped on re-save. Legacy format: `Словом : … евро и NN цента, Данъчна основа X.XX €`. Unit-tested (`amount-in-words.test.ts`).
 - **Bottom Save/Print bar** on all doc forms (`DocumentForm.vue`) + order form.
 - **billingAddress fully optional** (model `addressSchema` + all POST/PUT body schemas) — saving without postal code no longer 500s.

@@ -7,6 +7,7 @@
         size="x-small"
         variant="text"
         tabindex="-1"
+        :density="density"
         :color="productId ? 'primary' : undefined"
         :title="$t('invoicing.selectPrice')"
         :aria-label="$t('invoicing.selectPrice')"
@@ -50,6 +51,8 @@ const props = withDefaults(defineProps<{
   quantity?: number
   orgUrl: string
   currency?: string
+  /** `compact` where the column has no room to give: the order trees, whose price column holds the button and a figure. */
+  density?: 'default' | 'comfortable' | 'compact'
 }>(), { currency: 'EUR', quantity: 1 })
 
 const emit = defineEmits<{ 'select': [option: PriceOption] }>()
