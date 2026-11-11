@@ -59,20 +59,30 @@ runs:
           echo "not master's first run of this commit: the lane runs (tree $tree)"
         else
           # The newest live marker of this name that a run of THIS repository uploaded.
-          proof="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=$marker&per_page=30" \
-            --jq '[.artifacts[] | select(.expired == false and .workflow_run.head_repository_id == (env.REPO_ID | tonumber) and .workflow_run.id != null)]
-                  | sort_by(.created_at) | last | .workflow_run.id // empty')" || {
-            echo "::warning title=Same-tree lookup failed::could not list $marker, so the $LANE lane runs"
-            proof=""
-          }
-          if [ -n "$proof" ] && [ "$proof" != "$GITHUB_RUN_ID" ]; then
-            skip=true
-            url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$proof"
-            echo "::notice title=Same tree, already tested::tree $tree passed the $LANE lane in run $proof ($url). Nothing was run again."
-            echo "### \`$LANE\`: not run again" >> "$GITHUB_STEP_SUMMARY"
-            echo "This commit's tree (\`$tree\`) is the one [run $proof]($url) tested and passed. Re-run this job to run it anyway." >> "$GITHUB_STEP_SUMMARY"
+          # ⚠ curl and jq, never the gh CLI. The self-hosted runner image has curl, jq and git and
+          # no gh (infra/ci-runner/Dockerfile), so the first version of this lookup could not run
+          # where it is used: `gh: command not found`, the warning below, and the lane ran. Nothing
+          # was skipped until someone read that warning (master run 42947738395, 2026-11-11). The
+          # stubbed test of it had replaced gh, the one thing that was missing.
+          if listing="$(curl -fsS --max-time 30 --retry 2 \
+                -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
+                "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/artifacts?name=$marker&per_page=30")" \
+             && proof="$(jq -r --argjson repo "$REPO_ID" \
+                '[.artifacts[] | select(.expired == false and .workflow_run.head_repository_id == $repo and .workflow_run.id != null)]
+                 | sort_by(.created_at) | last | .workflow_run.id // empty' <<< "$listing")"; then
+            if [ -n "$proof" ] && [ "$proof" != "$GITHUB_RUN_ID" ]; then
+              skip=true
+              url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$proof"
+              # No comma in the title: in a workflow command a comma ends a property, and
+              # "Same tree, already tested" was shown as "Same tree" (master run 42949554922).
+              echo "::notice title=Same tree already tested::tree $tree passed the $LANE lane in run $proof ($url). Nothing was run again."
+              echo "### \`$LANE\`: not run again" >> "$GITHUB_STEP_SUMMARY"
+              echo "This commit's tree (\`$tree\`) is the one [run $proof]($url) tested and passed. Re-run this job to run it anyway." >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "no run has passed the $LANE lane on tree $tree yet: the lane runs"
+            fi
           else
-            echo "no run has passed the $LANE lane on tree $tree yet: the lane runs"
+            echo "::warning title=Same-tree lookup failed::could not list $marker, so the $LANE lane runs"
           fi
         fi
         echo "skip=$skip" >> "$GITHUB_OUTPUT"

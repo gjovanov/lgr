@@ -64,13 +64,38 @@ export interface TwoNodes {
 const random = () => Buffer.from(crypto.getRandomValues(new Uint8Array(48))).toString('base64')
 const freePort = () => { const s = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {} } }); const p = s.port; s.stop(true); return p }
 
+/**
+ * A replica set of one, started again when mongod found its port taken.
+ *
+ * mongodb-memory-server chooses a port by binding one and letting it go; mongod binds it a moment
+ * later. Whatever takes the port in between leaves `Port "N" already in use`, and the suite's
+ * `beforeAll` fails with no test of its own at fault: master run 42937803400 (2026-11-11), where
+ * `startTwoNodes` starts two of these at once. The library's guard against handing one port to two
+ * instances does not cover a port it chose itself: its cache keeps the port that was asked for (0),
+ * never the one that was found (10.4.3, and upstream on 2026-11-11). Another try gets another port.
+ */
+export async function startReplSet(
+  create: () => Promise<MongoMemoryReplSet> = () => MongoMemoryReplSet.create({ replSet: { count: 1 } }),
+  tries = 3,
+): Promise<MongoMemoryReplSet> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await create()
+    } catch (err) {
+      const taken = /already in use/i.test(err instanceof Error ? err.message : String(err))
+      if (!taken || attempt >= tries) throw err
+      console.warn(`[two-node] mongod found its port taken: starting another replica set (try ${attempt + 1} of ${tries})`)
+    }
+  }
+}
+
 function packageDir(): string | undefined {
   const p = process.env.LGR_SERVER_PACKAGE
   return p ? (resolve(REPO, p)) : undefined
 }
 
 export async function startNode(role: 'global' | 'master', scratch: string, opts: NodeOptions = {}): Promise<Node> {
-  const mongo = opts.mongoUri ? null : await MongoMemoryReplSet.create({ replSet: { count: 1 } })
+  const mongo = opts.mongoUri ? null : await startReplSet()
   const mongoUri = opts.mongoUri ?? mongo!.getUri('lgr')
   const port = freePort()
   const url = `http://127.0.0.1:${port}`
@@ -192,7 +217,7 @@ export interface TwoPods {
 
 export async function startTwoPods(opts: { front?: boolean } = {}): Promise<TwoPods> {
   const scratch = mkdtempSync(join(tmpdir(), 'lgr-two-pods-'))
-  const mongo = await MongoMemoryReplSet.create({ replSet: { count: 1 } })
+  const mongo = await startReplSet()
   const mongoUri = mongo.getUri('lgr')
   const shared = { JWT_SECRET: random(), DESKTOP_TOKEN_SECRET: random(), NODE_TOKEN_SECRET: random(), UPLOAD_DIR: join(scratch, 'uploads') }
   const secret = opts.front ? random() : ''

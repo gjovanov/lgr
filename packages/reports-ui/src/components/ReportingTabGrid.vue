@@ -34,7 +34,8 @@
       <div class="d-flex align-center mt-3 mb-2">
         <span class="text-body-2 text-medium-emphasis">{{ pagination.total }} {{ $t('common.results') }}</span>
         <v-spacer />
-        <v-btn color="primary" variant="flat" prepend-icon="mdi-download" :loading="exportLoading" @click="showExportDialog = true">
+        <!-- `invoicing/export` asks `canExport` (`sales-docs.export`), not the Reports export. -->
+        <v-btn v-cap="'sales-docs.export'" color="primary" variant="flat" prepend-icon="mdi-download" :loading="exportLoading" @click="showExportDialog = true">
           {{ $t('common.export') }}
         </v-btn>
       </div>

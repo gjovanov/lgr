@@ -253,6 +253,7 @@ import ProductDocActions from '../components/ProductDocActions.vue'
 import type { ProductForActions } from '../composables/product-doc-actions'
 import { PRICE_TIER_NAMES } from 'config/constants'
 import { capOfTier } from 'config/access'
+import { tierSlotsToAdd } from 'ui-shared/composables/product-price-columns'
 import { useAccess } from 'ui-shared/access/useAccess'
 
 const { t } = useI18n()
@@ -381,12 +382,12 @@ function makeDefaultTier(i: number, sellingPrice: number): PriceTier {
  * ⚠ FR-27.11.D: the server sends only the slots the role sees, so the form trims nothing. It used to cut the list to
  * the grant's count, and in an org on `roles` the grant is the token's claims until `/auth/me` answers: a role whose
  * legacy projection holds no price level lost every slot it was sent, and its Save then dropped them on the server.
+ *
+ * ⚠ Only into a free place (`tierSlotsToAdd`): an article holds `MAX_PRICE_TIERS` slots at most and the update route
+ * stores what it is sent, so one whose slots carry other names („Price 1..10") must not get a second set here.
  */
 function ensureTierSlots() {
-  const squash = (n: string) => String(n || '').replace(/\s+/g, '').toLowerCase()
-  const have = new Set(priceTiers.value.map(t => squash(t.name)))
-  for (const name of tierNames()) {
-    if (have.has(squash(name))) continue
+  for (const name of tierSlotsToAdd(priceTiers.value.map(t => t.name), tierNames())) {
     priceTiers.value.push({ ...makeDefaultTier(0, form.sellingPrice), name })
   }
 }

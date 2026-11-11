@@ -1,3 +1,4 @@
+import type { CapabilityId } from 'config/access'
 import { can } from '../access/evaluate'
 import type { ImportTarget } from './types.js'
 
@@ -13,6 +14,18 @@ export const PERMISSION_BY_TARGET: Record<ImportTarget, string> = {
   bill: 'invoicing.write',
   cash_sale: 'invoicing.write',
   movement: 'inventory.write',
+}
+
+/**
+ * FR-27.5: the same, as capabilities, for an org on `roles`. On the legacy model each is exactly its permission's
+ * (`invoicing.write` gives the sales documents' and the bills' create, `inventory.write` the movements'), so the
+ * legacy branch below is left as it was.
+ */
+export const CAPABILITY_BY_TARGET: Record<ImportTarget, readonly CapabilityId[]> = {
+  sales_invoice: ['sales-docs.create', 'sales-docs.import'],
+  bill: ['bills.create'],
+  cash_sale: ['sales-docs.create', 'sales-docs.import'],
+  movement: ['movements.create'],
 }
 
 /** What the rule reads of a session: the claims of its token. */
@@ -33,6 +46,12 @@ export interface ImportActor {
  * invoices does, as before.
  */
 export function targetRefusal(user: ImportActor, target: ImportTarget) {
+  // FR-27.5: a role decides by its capabilities. Its token's permissions are its legacy projection, which may say
+  // less than the role (a role with bills but not sales documents has no `invoicing.write`).
+  if (user.access) {
+    const missing = (CAPABILITY_BY_TARGET[target] ?? []).filter(c => !can(user as any, c))
+    return missing.length ? { code: 'capability_required', capabilities: missing, message: 'Importing into this is not part of your role.' } : null
+  }
   const permission = PERMISSION_BY_TARGET[target]
   if (permission && !user.permissions?.includes(permission)) return { message: `Permission required: ${permission}` }
   if ((target === 'sales_invoice' || target === 'cash_sale') && !can(user as any, 'sales-docs.import')) {

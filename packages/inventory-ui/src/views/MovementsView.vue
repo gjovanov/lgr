@@ -6,8 +6,8 @@
       <div class="d-flex align-center ga-2">
         <ViewSwitcher v-model="displayMode" :views="['list', 'kanban']" class="mr-2" />
         <export-menu @export="onExport" />
-        <!-- FR-26: an import writes receipts (`inventory.write`); a transfer-only session imports nothing. -->
-        <v-btn v-if="!transferOnly" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
+        <!-- FR-26: an import writes receipts (`movements.create`); a transfer-only or read-only session imports nothing. -->
+        <v-btn v-cap="'movements.create'" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
         <!-- FR-22.50: says what it creates — the form opens as a goods receipt. -->
         <CreateButton :label="$t('nav.newDocPage.stockMovement')" :to="{ name: 'inventory.movements.new' }" />
       </div>

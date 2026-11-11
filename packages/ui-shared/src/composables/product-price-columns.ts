@@ -1,4 +1,4 @@
-import { PRICE_TIERS, PRICE_TIER_COLUMN_PREFIX } from 'config/constants'
+import { MAX_PRICE_TIERS, PRICE_TIERS, PRICE_TIER_COLUMN_PREFIX } from 'config/constants'
 
 /**
  * The Products list's price-tier columns: one per canonical slot (`PRICE_TIERS`: Доставна цена,
@@ -50,6 +50,29 @@ export function tierPrice(tiers: readonly TierLike[] | null | undefined, name: s
   const tier = (Array.isArray(tiers) ? tiers : []).find((t) => squash(t?.name) === want)
   const price = Number(tier?.finalPrice)
   return Number.isFinite(price) && price > 0 ? price : null
+}
+
+/** As the server finds a slot (`config/access/fields.ts`): spaces and case ignored. */
+const slotKey = (name: unknown) => String(name ?? '').replace(/\s+/g, '').toLowerCase()
+
+/**
+ * The slots the product form adds to an article it has loaded: one for each level the role sees that the article has
+ * no slot for, found by name, and no more than the article has free places for.
+ *
+ * ⚠ An article holds `MAX_PRICE_TIERS` slots at most, and the form is what keeps it so: the product update route
+ * stores the list it is sent (an update runs no model validator). By name alone, an article whose slots carry OTHER
+ * names got a second, whole set: acme's ten „Price 1..10" (`scripts/backfill-price-tiers.ts`) became 23 on load and
+ * were saved as 23, and a full article with one slot renamed became 14. A goods receipt that restates such an
+ * article's prices is then refused (`product-update.service.ts`: "would exceed the maximum").
+ *
+ * So a slot goes only into a free place. With fewer free places than missing levels the LAST of the missing ones are
+ * added: the levels of the places that are free, which is what the form added when it padded by position.
+ */
+export function tierSlotsToAdd(have: readonly unknown[], visible: readonly string[], cap: number = MAX_PRICE_TIERS): string[] {
+  const taken = new Set(have.map(slotKey))
+  const missing = visible.filter((name) => !taken.has(slotKey(name)))
+  const free = Math.max(0, cap - have.length)
+  return missing.slice(Math.max(0, missing.length - free))
 }
 
 /**

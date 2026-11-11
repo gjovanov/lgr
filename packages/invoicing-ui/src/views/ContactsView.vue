@@ -11,7 +11,7 @@
     @update:options="onUpdateOptions"
   >
     <template #actions>
-      <CreateButton :label="$t('invoicing.newContact')" :to="{ name: 'invoicing.contacts.new' }" />
+      <CreateButton :label="$t('invoicing.newContact')" :to="{ name: 'invoicing.contacts.new' }" cap="contacts.create" />
     </template>
 
     <template #filters>
@@ -31,7 +31,7 @@
     </template>
 
     <template #empty-actions>
-      <CreateButton :label="$t('invoicing.newContact')" :to="{ name: 'invoicing.contacts.new' }" />
+      <CreateButton :label="$t('invoicing.newContact')" :to="{ name: 'invoicing.contacts.new' }" cap="contacts.create" />
     </template>
 
     <!-- Cell renderers -->

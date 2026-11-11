@@ -536,6 +536,9 @@ function roleColor(role: string) {
 }
 
 onMounted(() => {
+  // FR-27 acceptance 4: the org's roles and sets are `roles.view`'s (their routes refuse anyone else). Without it
+  // the page lists the people and asks for neither: no 403 on load.
+  if (!can(grantOfViewer(sessionViewer()), 'roles.view')) return
   fetchPermissionSets()
   fetchRoles()
 })

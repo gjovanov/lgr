@@ -66,15 +66,29 @@ export function levelsOf(feature: Feature): FeatureLevels {
   return { view: view.map(a => cap(feature, a)), work: work.map(a => cap(feature, a)), full: full.map(a => cap(feature, a)), extras: extras.map(a => cap(feature, a)) }
 }
 
-/** The largest level whose every capability the grant holds (an empty level never counts). */
+/**
+ * Whether the editor offers this level for the feature: a level that grants nothing beyond the one below it is not a
+ * choice of its own (cash sales: Work is already everything; the ledgers: View is). None always is.
+ */
+export function offersLevel(feature: Feature, level: Level): boolean {
+  if (level === 'none') return true
+  const l = levelsOf(feature)
+  if (level === 'view') return l.view.length > 0
+  if (level === 'work') return l.work.length > l.view.length
+  return l.full.length > l.work.length || (l.full.length > 0 && l.work.length === l.view.length && l.full.length > l.view.length)
+}
+
+const DOWN: readonly Level[] = ['full', 'work', 'view']
+
+/**
+ * The largest level the editor offers whose every capability the grant holds (an empty level never counts): the
+ * radio the editor ticks, and one a person can tick to get the same. An Administrator: the largest offered.
+ */
 export function levelOf(feature: Feature, grant: Grant): Level {
-  if (grant.all) return 'full'
+  if (grant.all) return DOWN.find(level => offersLevel(feature, level)) ?? 'none'
   const l = levelsOf(feature)
   const holds = (caps: CapabilityId[]) => caps.length > 0 && caps.every(c => grant.caps.has(c))
-  if (holds(l.full)) return 'full'
-  if (holds(l.work) && l.work.length > l.view.length) return 'work'
-  if (holds(l.view)) return 'view'
-  return 'none'
+  return DOWN.find(level => offersLevel(feature, level) && holds(l[level])) ?? 'none'
 }
 
 /** The capabilities of a feature a role holds beyond its level: shown as ticked extras. */

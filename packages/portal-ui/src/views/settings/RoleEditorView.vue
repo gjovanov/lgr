@@ -143,7 +143,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  EDITOR_FEATURES, FEATURE_GROUPS, LEVELS, beyondLevel, levelOf, levelsOf, summarize,
+  EDITOR_FEATURES, FEATURE_GROUPS, LEVELS, beyondLevel, levelOf, levelsOf, offersLevel, summarize,
   type CapabilityId, type Grant, type Level,
 } from 'config/access'
 import { useAppStore } from '../../store/app.store'
@@ -199,13 +199,8 @@ const actionLabel = (c: string) => t(`access.action.${c.slice(c.indexOf('.') + 1
 const names = (ids: string[]) => ids.map(id => t(`access.feature.${id}`)).join(', ') || '—'
 
 /** A level is offered when it says more than the one below it. */
-function offers(f: Feature, level: Level): boolean {
-  if (level === 'none') return true
-  const l = levelsOf(f)
-  if (level === 'view') return l.view.length > 0
-  if (level === 'work') return l.work.length > l.view.length
-  return l.full.length > l.work.length || (l.full.length > 0 && l.work.length === l.view.length && l.full.length > l.view.length)
-}
+/** The editor's levels for a feature: `config/access#offersLevel`, the rule `levelOf` ticks by. */
+const offers = (f: Feature, level: Level): boolean => offersLevel(f, level)
 
 /** What a level grants, for its hover (FR-27 §2.2). */
 function grants(f: Feature, level: Level): string {

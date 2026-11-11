@@ -156,6 +156,7 @@ import { useCurrency } from '../../composables/useCurrency'
 import { useSnackbar } from '../../composables/useSnackbar'
 import { paymentMethodKey } from '../../composables/usePaymentMethods'
 import { canStornoJournalRow } from '../../cash-register/storno'
+import { accessGrant } from '../../access/useAccess'
 import { givesBack, kindColor } from '../../cash-register/journal-kind'
 
 const props = defineProps<{
@@ -302,8 +303,9 @@ function statusColor(s: string) {
 const stornoOpen = ref(false)
 const stornoTarget = ref<any | null>(null)
 
+// FR-27.5: the session's grant (the role, live, in an org on `roles`), as the server's storno door decides.
 function canStorno(row: any) {
-  return canStornoJournalRow(row, props.role)
+  return canStornoJournalRow(row, accessGrant())
 }
 
 function openStorno(row: any) {

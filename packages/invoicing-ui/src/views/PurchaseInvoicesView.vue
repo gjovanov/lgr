@@ -17,7 +17,8 @@
     <template #actions>
       <ViewSwitcher v-model="viewMode" :views="['list', 'kanban']" />
       <v-btn variant="outlined" prepend-icon="mdi-download" :loading="exportLoading" @click="showExportDialog = true">{{ $t('common.export') }}</v-btn>
-      <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
+      <!-- FR-27 acceptance 4: what an import into bills needs (`doc-import/target-access`). -->
+      <v-btn v-cap="'bills.create'" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
       <!-- FR-22.50: says what it creates; the supplier's notes beside it. -->
       <CreateButton :label="create.label" :to="create.to" :more="create.more" :more-label="$t('invoicing.createOther')" />
     </template>

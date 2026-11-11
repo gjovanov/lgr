@@ -1155,6 +1155,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     color: 'secondary',
     variant: 'outlined',
     icon: 'mdi-file-upload-outline',
+    // What `doc-import/target-access` asks of this form's target (#493 item 5, FR-27 acceptance 4): a bill is
+    // `bills.create`, a sales document or a cash sale `sales-docs.import`.
+    cap: config.direction === 'incoming' && config.apiType !== 'cash_sale' ? 'bills.create' : 'sales-docs.import',
     handler: () => { importDialogOpen.value = true },
   }
 
