@@ -221,13 +221,16 @@ jobs:
           retention-days: 5
           overwrite: true
 
-  # Several shards only (a fork's pull request, or hosted runners): the check a release gate reads,
-  # green only when every shard is. It also merges the shards' timings and, on master, keeps them
-  # for the next run's split. With one shard the shard job carries the name and does both, and this
-  # job is skipped under a name of its own: two checks called `test (ubuntu)`, one of them
-  # `skipped`, is what desktop-promote.yml would read as not green.
+  # Several shards only (a fork's pull request, or hosted runners): the check a release gate reads
+  # there, green only when every shard is. It also merges the shards' timings and, on master, keeps
+  # them for the next run's split. With one shard the shard job is `test (ubuntu)` and does both.
+  # ⚠ A name of its own, and a plain one. Its own, because this job is skipped where there is one
+  # shard, and two checks called `test (ubuntu)`, one of them `skipped`, is what
+  # desktop-promote.yml would read as not green (it accepts either name). Plain, because GitHub
+  # does not evaluate the name of a job it skips: an expression here was shown raw, 150 characters
+  # of it, in every pull request's list of checks (run 42920915994).
   test:
-    name: ${{ (github.event.pull_request.head.repo.fork || !contains(vars.LGR_LINUX_RUNNER, 'self-hosted')) && 'test (ubuntu)' || 'test shards together (not needed with one shard)' }}
+    name: test (ubuntu, all shards)
     needs: test-shard
     if: ${{ !cancelled() && (github.event.pull_request.head.repo.fork || !contains(vars.LGR_LINUX_RUNNER, 'self-hosted')) }}
     runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-24.04"' || vars.LGR_LINUX_RUNNER || '"ubuntu-24.04"') }}

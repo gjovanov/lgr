@@ -17,6 +17,12 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
  */
 
 const ROOT = resolve(import.meta.dir, '../../../..')
+/**
+ * For the two tests that read the tree. `bun run test` passes its own limit; a file run alone gets
+ * Bun's 5 s, and a fresh checkout on Windows (cold cache, a virus scanner on every new file) took
+ * longer than that to walk once.
+ */
+const WALK_TIMEOUT = 60_000
 const dockerfile = readFileSync(join(ROOT, 'Dockerfile'), 'utf8')
 
 interface Stage { name: string; from: string; lines: string[] }
@@ -81,7 +87,7 @@ describe('the image is layered by how often a layer changes', () => {
     expect(manifests.filter(m => m !== 'package.json' && !/^packages\/[^/]+\/package\.json$/.test(m))).toEqual([])
     // What else `bun install` reads, if it ever appears, has to be copied with them.
     for (const also of ['bunfig.toml', '.npmrc', 'patches']) expect({ also, exists: existsSync(join(ROOT, also)) }).toEqual({ also, exists: false })
-  })
+  }, WALK_TIMEOUT)
 })
 
 /** Files under `dir`, skipping what never reaches the build context. */
@@ -144,5 +150,5 @@ describe('the SPA is built from the packages the `web` stage is given', () => {
     // Fix it by importing from a package on the Dockerfile's list (or `import type`), or by adding
     // the package to that list. The second costs: every commit to that package then rebuilds the SPA.
     expect(outside).toEqual([])
-  })
+  }, WALK_TIMEOUT)
 })
