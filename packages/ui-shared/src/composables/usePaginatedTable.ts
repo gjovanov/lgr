@@ -1,7 +1,7 @@
 import { ref, isRef, watch, computed, type Ref } from 'vue'
 import { httpClient } from './useHttpClient'
 import { useListQueryState, ALLOWED_PAGE_SIZES } from './useListQueryState'
-import { sortRefusal } from 'config/access'
+import { capsOfSortKey, sortRefusal } from 'config/access'
 import { accessGrant } from '../access/useAccess'
 
 /**
@@ -107,6 +107,15 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
       items.value = data[entityKey] || data.items || []
       pagination.value.total = data.total ?? 0
       pagination.value.totalPages = data.totalPages ?? 0
+    } catch (e: any) {
+      // FR-27.11.C.3 / D: a sort on a price the role does not see, refused by the server: the default sort instead.
+      const sortBy = pagination.value.sortBy
+      if (e?.response?.status === 403 && e.response.data?.code === 'capability_required' && sortBy !== defaultSortBy && capsOfSortKey(sortBy).length > 0) {
+        pagination.value.sortBy = defaultSortBy
+        queueMicrotask(() => void fetchItems())
+        return
+      }
+      throw e
     } finally {
       loading.value = false
     }

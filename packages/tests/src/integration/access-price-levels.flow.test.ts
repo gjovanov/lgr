@@ -8,7 +8,7 @@ import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { PRICE_TIERS } from 'config/constants'
 import { compileLegacy } from 'config/access'
-import { InventoryCount, Org, Product, Role, StockLevel, StockMovement, User } from 'db/models'
+import { InventoryCount, Invoice, Org, Product, Role, StockLevel, StockMovement, User } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
 import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
@@ -283,5 +283,88 @@ describe('C.1 / C.2 what else carries a cost', () => {
     for (const e of mine.json.entries) expect('purchasePrice' in e).toBe(false)
     const theirs = await call('GET', `/invoicing/contact-ledger/${contactId}`, tokens.admin)
     expect(typeof theirs.json.summary.profitabilityNet).toBe('number')
+  })
+})
+
+describe("C.6 a document's stored price trail", () => {
+  it('names no level the reader does not see; a hidden winning level reads "Customer price", and the line price stays', async () => {
+    const org: any = await Org.findById(orgId).lean().exec()
+    const caps = [...(compileLegacy({ role: 'member', permissions: ['invoicing.read'] }) as any).caps].filter((c: string) => c !== 'products.price:3')
+    const role: any = await Role.create({ orgId: org._id, name: 'Invoices without Цена 3', isBuiltin: false, edited: true, version: 1, legacy: { role: 'member', permissions: ['invoicing.read'] }, caps } as any)
+    const person = await createTestUser(org._id, { role: 'member', username: 'no-tier-3', email: 'no-tier-3@price-levels.test' } as any)
+    await User.updateOne({ _id: person._id }, { $set: { roleId: role._id } }).exec()
+    forgetMember(person._id)
+    forgetRole(role._id)
+    const token = await sign(person._id)
+    const trail = [{ type: 'base', label: 'Selling price', price: 20 }, { type: 'tier', label: 'Цена 3', price: 15 }]
+    const inv: any = await createTestInvoice(org._id, contactId as any, {
+      invoiceNumber: 'INV-PL-TRAIL', status: 'sent',
+      lines: [{ productId, description: 'Bolt', quantity: 1, unit: 'pcs', unitPrice: 15, taxRate: 20, taxAmount: 3, lineTotal: 15, priceExplanation: trail }],
+    } as any)
+
+    const mine = await call('GET', `/invoices/${inv._id}`, token)
+    expect(mine.status).toBe(200)
+    const line = mine.json.invoice.lines[0]
+    expect(line.unitPrice).toBe(15)
+    expect(line.priceExplanation).toEqual([trail[0], { type: 'customer', label: 'Customer price', price: 15 }])
+    expect(JSON.stringify(mine.json)).not.toContain('Цена 3')
+    expect((await call('GET', `/invoices/${inv._id}`, tokens.admin)).json.invoice.lines[0].priceExplanation).toEqual(trail)
+  })
+})
+
+describe('C.4 / C.6 the trail is not overwritten, and every answer is redacted', () => {
+  let writer: string
+  let invId: string
+  const trail = [{ type: 'base', label: 'Selling price', price: 20 }, { type: 'tier', label: 'Цена 3', price: 15 }]
+  beforeAll(async () => {
+    const org: any = await Org.findById(orgId).lean().exec()
+    // Writes invoices, does not see Цена 3.
+    const caps = [...(compileLegacy({ role: 'member', permissions: ['invoicing.read', 'invoicing.write'] }) as any).caps].filter((c: string) => c !== 'products.price:3')
+    const role: any = await Role.create({ orgId: org._id, name: 'Clerk without Цена 3', isBuiltin: false, edited: true, version: 1, legacy: { role: 'member', permissions: ['invoicing.read', 'invoicing.write'] }, caps } as any)
+    const person = await createTestUser(org._id, { role: 'member', username: 'clerk-no-3', email: 'clerk-no-3@price-levels.test' } as any)
+    await User.updateOne({ _id: person._id }, { $set: { roleId: role._id } }).exec()
+    forgetMember(person._id)
+    forgetRole(role._id)
+    writer = await sign(person._id)
+    invId = String((await createTestInvoice(org._id, contactId as any, {
+      invoiceNumber: 'INV-PL-SAVE', status: 'draft',
+      lines: [{ productId, description: 'Bolt', quantity: 1, unit: 'pcs', unitPrice: 15, taxRate: 20, taxAmount: 3, lineTotal: 15, priceExplanation: trail }],
+    } as any))._id)
+  })
+
+  it('a save of the form it read keeps the stored trail: the Administrator still reads Цена 3', async () => {
+    const read = await call('GET', `/invoices/${invId}`, writer)
+    const line = read.json.invoice.lines[0]
+    expect(line.priceExplanation.at(-1).type).toBe('customer')
+    const { productId: pid, description, quantity, unit, unitPrice, taxRate, taxAmount, lineTotal, priceExplanation } = line
+    const put = await call('PUT', `/invoices/${invId}`, writer, { notes: 'edited by a clerk', lines: [{ productId: pid, description, quantity, unit, unitPrice, taxRate, taxAmount, lineTotal, priceExplanation }] })
+    expect(put.status).toBe(200)
+    expect(JSON.stringify(put.json)).not.toContain('Цена 3')
+    const stored: any = await Invoice.findById(invId).lean().exec()
+    expect(stored.lines[0].priceExplanation.map((s: any) => s.label)).toEqual(['Selling price', 'Цена 3'])
+    expect((await call('GET', `/invoices/${invId}`, tokens.admin)).json.invoice.lines[0].priceExplanation.at(-1).label).toBe('Цена 3')
+  })
+
+  it('a line it repriced keeps its new trail', async () => {
+    const read = await call('GET', `/invoices/${invId}`, writer)
+    const { productId: pid, description, quantity, unit, taxRate } = read.json.invoice.lines[0]
+    const fresh = [{ type: 'base', label: 'Selling price', price: 20 }]
+    expect((await call('PUT', `/invoices/${invId}`, writer, { lines: [{ productId: pid, description, quantity, unit, unitPrice: 20, taxRate, taxAmount: 4, lineTotal: 20, priceExplanation: fresh }] })).status).toBe(200)
+    const stored: any = await Invoice.findById(invId).lean().exec()
+    expect(stored.lines[0].priceExplanation.map((s: any) => s.label)).toEqual(['Selling price'])
+  })
+
+  it('a line priced at a hidden level is saved: the "Customer price" step is a step the API takes', async () => {
+    const made = await call('POST', '/invoices', writer, {
+      type: 'invoice', direction: 'outgoing', contactId, issueDate: new Date().toISOString(), currency: 'EUR', subtotal: 15, taxTotal: 3, total: 18,
+      lines: [{ productId, description: 'Bolt', quantity: 1, unit: 'pcs', unitPrice: 15, taxRate: 20, taxAmount: 3, lineTotal: 15, priceExplanation: [{ type: 'base', label: 'Selling price', price: 20 }, { type: 'customer', label: 'Customer price', price: 15 }] }],
+    })
+    expect(made.status, JSON.stringify(made.json)).toBe(200)
+  })
+
+  it('the list and the other answers name no hidden level either', async () => {
+    const list = await call('GET', '/invoices?size=50', writer)
+    expect(list.status).toBe(200)
+    expect(JSON.stringify(list.json)).not.toContain('Цена 3')
   })
 })

@@ -2539,11 +2539,13 @@
       "sell": "Sell",
       "reserve": "Reserve",
       "inactive": "The product is deactivated — activate it to sell or reserve it."
-    }
+    },
+    "valuationNeedsCosts": "The inventory valuation is cost figures, which are not part of your role."
   },
   "pricing": {
     "explainPrice": "Explain price",
-    "priceBreakdown": "Price Breakdown"
+    "priceBreakdown": "Price Breakdown",
+    "customerPrice": "Customer price"
   },
   "defaultCategories": {
     "electronics": "Electronics",

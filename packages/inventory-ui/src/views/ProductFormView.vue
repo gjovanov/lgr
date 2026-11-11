@@ -375,12 +375,20 @@ function makeDefaultTier(i: number, sellingPrice: number): PriceTier {
   return { name: tierNames()[i] || `Цена ${i}`, percent: 0, finalPrice: sellingPrice || 0, manualOverride: false, contactIds: [], tags: [], minQuantity: null, validFrom: '', validTo: '' }
 }
 
+/**
+ * A slot for every level the role sees, added by name where the article has none; never one taken away.
+ *
+ * ⚠ FR-27.11.D: the server sends only the slots the role sees, so the form trims nothing. It used to cut the list to
+ * the grant's count, and in an org on `roles` the grant is the token's claims until `/auth/me` answers: a role whose
+ * legacy projection holds no price level lost every slot it was sent, and its Save then dropped them on the server.
+ */
 function ensureTierSlots() {
-  const target = tierNames().length
-  while (priceTiers.value.length < target) {
-    priceTiers.value.push(makeDefaultTier(priceTiers.value.length, form.sellingPrice))
+  const squash = (n: string) => String(n || '').replace(/\s+/g, '').toLowerCase()
+  const have = new Set(priceTiers.value.map(t => squash(t.name)))
+  for (const name of tierNames()) {
+    if (have.has(squash(name))) continue
+    priceTiers.value.push({ ...makeDefaultTier(0, form.sellingPrice), name })
   }
-  if (priceTiers.value.length > target) priceTiers.value.length = target
 }
 
 function recomputeTiersFromPurchase() {
@@ -679,7 +687,9 @@ async function handleSubmit() {
 }
 
 onMounted(async () => {
-  await Promise.all([tierContacts.search(), fetchCategories()])
+  // Helpers the form offers, never a condition of reading the article: a role without contacts or categories (a role
+  // made for products alone, FR-27.4) still opens it. `Promise.all` left the form empty on the first refusal.
+  await Promise.allSettled([tierContacts.search(), fetchCategories()])
   if (tryRestore()) {
     // The form holds the restored edits; the header's actions still read the article as stored.
     if (isEdit.value) {

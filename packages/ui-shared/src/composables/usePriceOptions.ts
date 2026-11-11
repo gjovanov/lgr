@@ -4,7 +4,8 @@ export interface PriceOption {
   key: string
   name: string
   price: number
-  type: 'base' | 'tag' | 'contact' | 'category' | 'tier'
+  /** `customer`: FR-27.11.C.6, the customer's own price at a level the role does not see. */
+  type: 'base' | 'tag' | 'contact' | 'category' | 'tier' | 'customer'
 }
 
 export interface PriceOptionsResult {
@@ -36,7 +37,10 @@ export async function fetchPriceOptions(
  * whatever the UI language; tier, tag and custom prices carry the names users gave them.
  */
 export function priceOptionLabel(option: Pick<PriceOption, 'name' | 'type'>, t: (key: string) => string): string {
-  return option.type === 'base' ? t('warehouse.sellingPrice') : option.name
+  if (option.type === 'base') return t('warehouse.sellingPrice')
+  // FR-27.11.C.6: never the level's name; the server sends none.
+  if (option.type === 'customer') return t('pricing.customerPrice')
+  return option.name
 }
 
 export function formatPriceItem(option: PriceOption, currency?: string): string {
