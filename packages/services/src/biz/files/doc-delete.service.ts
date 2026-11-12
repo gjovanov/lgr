@@ -9,7 +9,7 @@ import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from '../cas
 import { freezeRefusal } from '../cash-register/payment-receipt.service.js'
 import { removalReversalNote } from 'config/movement-notes'
 import { confirmMovement } from '../warehouse.service.js'
-import { stockMovementDao } from '../../dao/warehouse/stock-movement.dao.js'
+import { withMovementNumber } from '../movement-number.js'
 import { trashDocumentFile } from './doc-store.service.js'
 import { toStored } from './stored-path.js'
 
@@ -226,12 +226,11 @@ async function reverseMovement(orgId: string, userId: string, mvId: string, docN
     mv.toWarehouseId && mv.fromWarehouseId ? { type: 'transfer', fromWarehouseId: mv.toWarehouseId, toWarehouseId: mv.fromWarehouseId }
     : mv.toWarehouseId ? { type: 'adjustment', fromWarehouseId: mv.toWarehouseId }
     : { type: 'receipt', toWarehouseId: mv.fromWarehouseId }
-  const num = await stockMovementDao.getNextMovementNumber(orgId)
-  const rev: any = await StockMovement.create({
-    orgId, movementNumber: num, status: 'draft', date: new Date(), ...mirror,
+  const rev: any = await withMovementNumber(orgId, movementNumber => StockMovement.create({
+    orgId, movementNumber, status: 'draft', date: new Date(), ...mirror,
     totalAmount: mv.totalAmount, lines, createdBy: userId,
     notes: removalReversalNote(mv.movementNumber, docNumber),
-  })
+  }))
   await confirmMovement(String(rev._id))
   // After the mirror is booked: a mirror that could not be booked leaves the original as it was.
   await StockMovement.updateOne({ orgId, _id: mv._id } as any, { $set: { reversedBy: rev._id, reversedAt: new Date() } })

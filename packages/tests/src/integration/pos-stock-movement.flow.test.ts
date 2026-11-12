@@ -165,25 +165,28 @@ describe('POS stock movements', () => {
 
   it('retries with a fresh number when another booking takes it first', async () => {
     const w = await world()
-    // The first read is stale — as if a second till or an import booked 00003 in between —
-    // so the first create collides with the unique index.
+    // As if a second till or an import booked the next number between this sale's read of the latest
+    // and its write: the first create collides with the unique index. Staged at the write, so it
+    // holds however the latest is read.
     const repo = getRepos().stockMovements as any
-    let staleReads = 1
-    repo.findAll = async function (filter: any, page: any) {
-      const result = await Object.getPrototypeOf(repo).findAll.call(repo, filter, page)
-      if (filter?.movementNumber && staleReads-- > 0) return { ...result, items: [{ movementNumber: sm(2) }] }
-      return result
+    const tried: string[] = []
+    repo.create = async function (data: any) {
+      tried.push(data.movementNumber)
+      if (tried.length === 1) {
+        await createTestStockMovement(w.org._id, { movementNumber: data.movementNumber, status: 'completed', toWarehouseId: w.warehouse._id } as any)
+      }
+      return Object.getPrototypeOf(repo).create.call(repo, data)
     }
     try {
       const { json } = await post(`${w.base}/transaction`, w.token, saleBody(String(w.product._id)))
 
       expect(json.stockError).toBeUndefined()
-      expect(staleReads).toBeLessThan(0) // the stale read did happen, and a fresh one after it
+      expect(tried).toEqual([sm(4), sm(5)]) // 00004 was taken under it, and a fresh number read after it
       const movement = await StockMovement.findById((await savedTransaction(json)).movementId).lean().exec() as any
-      expect(movement.movementNumber).toBe(sm(4))
+      expect(movement.movementNumber).toBe(sm(5))
       expect(await stockOf(w)).toBe(8)
     } finally {
-      delete repo.findAll
+      delete repo.create
     }
   })
 

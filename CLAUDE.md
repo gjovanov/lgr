@@ -1320,6 +1320,16 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   every other movement path — never from a `getNextNumber('SM')` counter, which nothing else advances. Until
   2026-09-26 that counter pointed at taken numbers in any org with prior movements: the unique index refused
   every POS movement, the error was only logged, and sales never left stock. A failure now returns `stockError`
+  - ⚠ "Latest + 1" is read and then written, so every creator writes through **`services/biz/movement-number.ts`**
+    (`withMovementNumber`, `createNumberedMovement`), which tries again under the next number when another
+    movement took it at the same moment. Until 2026-11-12 only a sale's dispatch did: the movement form, a goods
+    receipt, an import, a transfer and a count each read the latest themselves, and two made at once answered
+    one of them a 500. `unit/movement-number-source.test.ts` fails when another source builds the number.
+    What runs inside the write runs again, so it is the insert alone or one transaction around it.
+  - ⚠ That collision was also all that kept two completions of ONE inventory count at the same moment from both
+    booking its adjustment. `POST /warehouse/inventory-count/:id/complete` now holds its count while it books
+    (`leaseUntil`, the lease of `services/biz/hot-path-key`, renewed while a large count runs); a second request
+    answers 409 `count_busy`, and the list's Complete button takes one click (`integration/count-completion.flow`).
 - **The two-hour rule (Прил. 29 т. 8, FR-20.49, `fiscal/device-reach.ts`):** in SUPTO production mode a NEW fiscal
   sale answers 409 `fiscal_device_unreached` when none of the warehouse's active devices was reached within 2 h
   AND none answers a status read now. A keyed retry is a sale that already opened and is never refused. The same

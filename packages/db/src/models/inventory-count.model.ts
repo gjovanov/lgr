@@ -25,6 +25,11 @@ export interface IInventoryCount extends Document {
   adjustmentMovementId?: Types.ObjectId
   completedBy?: Types.ObjectId
   completedAt?: Date
+  /**
+   * Held by the completion under way (`POST /:id/complete`), so that a second one cannot book the adjustment
+   * again; renewed while it runs, gone when it ends. A lapsed one is a completion that died.
+   */
+  leaseUntil?: Date
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -51,6 +56,7 @@ const inventoryCountSchema = new Schema<IInventoryCount>(
     adjustmentMovementId: { type: Schema.Types.ObjectId, ref: 'StockMovement' },
     completedBy: { type: Schema.Types.ObjectId, ref: 'User' },
     completedAt: Date,
+    leaseUntil: Date,
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true },
