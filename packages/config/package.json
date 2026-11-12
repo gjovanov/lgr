@@ -13,6 +13,7 @@
     "./line-amounts": "./src/line-amounts.ts",
     "./amount-in-words": "./src/amount-in-words.ts",
     "./order-coverage": "./src/order-coverage.ts",
+    "./order-line-price": "./src/order-line-price.ts",
     "./reorder-quantity": "./src/reorder-quantity.ts",
     "./movement-warehouses": "./src/movement-warehouses.ts",
     "./movement-notes": "./src/movement-notes.ts",

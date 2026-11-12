@@ -26,7 +26,7 @@ import { ReservationOpsError } from 'services/biz/reservation-ops.service'
 import {
   OrdersFromProductsError, checkOrderReferences, createSupplierOrderFromProducts, previewOrderFromProducts, supplierOrderRefs,
 } from 'services/biz/orders-from-products.service'
-import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
+import { buildConversionInvoice, planConversion, pinnedOrderPrices, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
 import { canExport } from '../lib/export-access.js'
 import { generateOrderSheetXLSX } from 'reporting/excel/order-sheet.excel'
 import { generateOrderSheetPDF } from 'reporting/pdf/order-sheet.pdf'
@@ -773,8 +773,11 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
         if (plan.ready.some((p) => !p.res.productId)) {
           return status(422, { message: 'Reserved lines without a linked product cannot be invoiced' })
         }
+        // A reservation here may cover a line of a customer order: a price chosen on that line is the invoice's.
+        const pins = await pinnedOrderPrices(orgId, plan.ready.map((p) => p.res))
         const items: ConversionItem[] = plan.ready.map(({ res, quantity }) => {
           const line = lineById.get(String(res.lineId))
+          const pin = res.internalOrderLineId ? pins.get(String(res.internalOrderLineId)) : undefined
           return {
             productId: String(res.productId),
             description: line?.description || String(res.productId),
@@ -783,6 +786,8 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
             taxRate: line?.taxRate ?? undefined,
             // FR-27.11.C.2: never a price derived from a cost figure for a role without them (the product gone).
             fallbackPrice: seesCosts(grantOf(user)) ? line?.expectedUnitPrice || 0 : 0,
+            pinnedPrice: pin?.price,
+            pinnedBy: pin?.orderNumber,
             warehouseId: String(res.warehouseId),
             orderRef: {
               orderId: id,

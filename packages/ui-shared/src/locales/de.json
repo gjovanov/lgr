@@ -1688,6 +1688,8 @@
     "searchContact": "Kontakt suchen",
     "selectPrice": "Preis wählen",
     "noPrices": "Keine Preise konfiguriert",
+    "orderPriceChosen": "Für diesen Auftrag gewählter Preis: die Rechnung übernimmt ihn",
+    "orderPriceAuto": "Kundenpreis bei Rechnungsstellung",
     "newOrder": "Neue Lieferantenbestellung",
     "editOrder": "Lieferantenbestellung bearbeiten",
     "orderNumber": "Bestellung Nr.",

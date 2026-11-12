@@ -462,18 +462,192 @@ test.describe('A line\'s price is picked from the article\'s prices, as on an in
 
     const row = lineRow(page, ordi.lines[0]._id)
     await expect(priceOf(row)).toHaveValue('10')
+    // As the API wrote it, with no choice made: the figure is an indication, and the button says nothing more.
+    await expect(pickerOf(row)).not.toHaveAttribute('data-pinned', 'true')
     await pickerOf(row).click()
     await expect(options(page).filter({ hasText: 'Цена 1' })).toBeVisible()
     await expect(options(page).filter({ hasText: 'Цена 2' })).toBeVisible()
     // The selling price is among them too: the list is every price the article has, not only the others.
     await expect(options(page).filter({ hasText: '10.00' })).toBeVisible()
+    // Nothing was chosen yet, so there is no choice to give back.
+    await expect(page.getByTestId('price-release')).toHaveCount(0)
     await options(page).filter({ hasText: 'Цена 2' }).click()
     await expect(priceOf(row)).toHaveValue('8')
+    // The pick is the order's own price: the line says so.
+    await expect(pickerOf(row)).toHaveAttribute('data-pinned', 'true')
+    await expect(pickerOf(row)).toHaveAttribute('title', /its invoice charges it/i)
 
     await page.getByRole('button', { name: /^save$/i }).first().click()
     await expect(page.getByText(/saved successfully/i).first()).toBeVisible()
     const saved = (await api.call('GET', `/invoicing/internal-orders/${ordi._id}`)).internalOrder
     expect(saved.lines[0].expectedUnitPrice).toBe(8)
+    expect(saved.lines[0].pricePinned).toBe(true)
+  })
+
+  test('a typed price is chosen too; the line still says so after a reload, and the choice can be given back', async ({ page }) => {
+    const api = await session()
+    const w = await world(api, 0)
+    const priced = await pricedArticle(api, w.ts)
+    const { internalOrder } = await api.call('POST', '/invoicing/internal-orders', {
+      contactId: idOf(w.client), issueDate: new Date().toISOString().slice(0, 10), requestedDeliveryDate: '2026-11-20',
+      lines: [{ productId: idOf(priced), description: priced.name, quantity: 2, unit: 'pcs', expectedUnitPrice: 10 }],
+    })
+    const ordi = (await api.call('POST', `/invoicing/internal-orders/${internalOrder._id}/confirm`)).internalOrder
+    await open(page, ordi)
+    const row = lineRow(page, ordi.lines[0]._id)
+    /** Save, and the line as the server then holds it. The save's own request is waited for, not its snackbar. */
+    const save = async () => {
+      const put = page.waitForResponse((r: any) => r.request().method() === 'PUT' && r.url().includes(`/internal-orders/${ordi._id}`))
+      await page.getByRole('button', { name: /^save$/i }).first().click()
+      expect((await put).status()).toBe(200)
+      return (await api.call('GET', `/invoicing/internal-orders/${ordi._id}`)).internalOrder.lines[0]
+    }
+
+    await expect(pickerOf(row)).not.toHaveAttribute('data-pinned', 'true')
+    await priceOf(row).fill('9.5')
+    await expect(pickerOf(row)).toHaveAttribute('data-pinned', 'true')
+    // An emptied field is no choice.
+    await priceOf(row).fill('')
+    await expect(pickerOf(row)).not.toHaveAttribute('data-pinned', 'true')
+    await priceOf(row).fill('9.5')
+    await expect(pickerOf(row)).toHaveAttribute('data-pinned', 'true')
+    expect(await save()).toMatchObject({ expectedUnitPrice: 9.5, pricePinned: true })
+
+    // (The form reads the order again after a save: nothing is typed into it until a reload has it settled.)
+    await page.reload()
+    await expect(row).toBeVisible({ timeout: 15000 })
+    await expect(priceOf(row)).toHaveValue('9.5')
+    await expect(pickerOf(row)).toHaveAttribute('data-pinned', 'true')
+
+    // Given back: the menu's first entry, with what the client resolves to today. This client is in no price group,
+    // so that is the selling price; the line shows it, as an indication again.
+    await pickerOf(row).click()
+    await expect(page.getByTestId('price-release')).toContainText('10.00')
+    await page.getByTestId('price-release').click()
+    await expect(priceOf(row)).toHaveValue('10')
+    await expect(pickerOf(row)).not.toHaveAttribute('data-pinned', 'true')
+    const back = await save()
+    expect(back.expectedUnitPrice).toBe(10)
+    expect(back.pricePinned).toBeUndefined()
+  })
+
+  test('another article on a line whose price was chosen starts from its own price', async ({ page }) => {
+    const api = await session()
+    const w = await world(api, 0)
+    const priced = await pricedArticle(api, w.ts)
+    await loginForApp(page)
+    await page.goto('/invoicing/internal-orders/new')
+    const row = page.locator('tr[data-kind="line"]').first()
+    await expect(row).toBeVisible({ timeout: 15000 })
+    const choose = async (sku: string) => {
+      const search = row.getByPlaceholder(/search products/i)
+      await search.click()
+      await search.fill('')
+      await page.keyboard.type(sku, { delay: 20 })
+      await page.locator('.pld-overlay .pld-item').filter({ hasText: sku }).first().click()
+    }
+
+    await choose(priced.sku)
+    await expect(priceOf(row)).toHaveValue('10')
+    // The selling price the form filled in is an indication: nobody chose it.
+    await expect(pickerOf(row)).not.toHaveAttribute('data-pinned', 'true')
+    await pickerOf(row).click()
+    await options(page).filter({ hasText: 'Цена 1' }).click()
+    await expect(priceOf(row)).toHaveValue('9')
+    await expect(pickerOf(row)).toHaveAttribute('data-pinned', 'true')
+
+    // The 9.00 was chosen for the first article. The second (sold at 3.00) does not inherit it.
+    await choose(w.p1.sku)
+    await expect(priceOf(row)).toHaveValue('3')
+    await expect(pickerOf(row)).not.toHaveAttribute('data-pinned', 'true')
+  })
+
+  test('a price picked and converted at once: the form saves the pick first, the invoice is at that price, and the invoice form keeps it', async ({ page }) => {
+    const api = await session()
+    const w = await world(api, 0)
+    const priced = await pricedArticle(api, w.ts)
+    const { stockMovement } = await api.call('POST', '/warehouse/movement', {
+      type: 'receipt', date: new Date().toISOString(), toWarehouseId: w.main._id,
+      lines: [{ productId: idOf(priced), quantity: 5, unitCost: 4, totalCost: 20 }], totalAmount: 20,
+    })
+    await api.call('POST', `/warehouse/movement/${idOf(stockMovement)}/confirm`, {})
+    const { internalOrder } = await api.call('POST', '/invoicing/internal-orders', {
+      contactId: idOf(w.client), issueDate: new Date().toISOString().slice(0, 10), requestedDeliveryDate: '2026-11-20',
+      warehouseId: w.main._id,
+      // At the selling price, as the form fills it in: an indication. The client is in no price group.
+      lines: [{ productId: idOf(priced), description: priced.name, quantity: 2, unit: 'pcs', expectedUnitPrice: 10 }],
+    })
+    const ordi = (await api.call('POST', `/invoicing/internal-orders/${internalOrder._id}/confirm`)).internalOrder
+    await api.call('POST', `/invoicing/internal-orders/${ordi._id}/reserve-available`, {})
+    await open(page, ordi)
+    // The form takes one more clean baseline by itself, on a timer 500 ms after it mounts (`usePendingChanges`), and
+    // a pick that timer finds counts as loaded: the form would then have nothing to save before it converts. A person
+    // cannot pick that soon after a form opens; this test can. A timer set in the page now runs after that one.
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)))
+
+    const row = lineRow(page, ordi.lines[0]._id)
+    await pickerOf(row).click()
+    await options(page).filter({ hasText: 'Цена 2' }).click()
+    await expect(priceOf(row)).toHaveValue('8')
+    await expect(pickerOf(row)).toHaveAttribute('data-pinned', 'true')
+
+    // Convert, with the pick not saved: what the form shows is what is invoiced.
+    const converted = page.waitForResponse((r: any) => r.request().method() === 'POST' && r.url().includes(`/internal-orders/${ordi._id}/convert`))
+    const pricesLoaded = page.waitForResponse((r: any) => r.url().includes('/pricing/options') && r.url().includes(idOf(priced)))
+    await page.locator('.form-actions-bar').getByRole('button', { name: 'Convert to Invoice' }).click()
+    const { invoice } = await (await converted).json()
+    expect(invoice.lines.map((l: any) => [l.quantity, l.unitPrice])).toEqual([[2, 8]])
+    expect(invoice.lines[0].priceExplanation.at(-1)).toMatchObject({ type: 'override', label: ordi.orderNumber, price: 8 })
+    const stored = (await api.call('GET', `/invoicing/internal-orders/${ordi._id}`)).internalOrder.lines[0]
+    expect(stored).toMatchObject({ expectedUnitPrice: 8, pricePinned: true })
+
+    // The user lands on the draft. Its form loads the article's prices for this client and must leave the line's alone.
+    await page.waitForURL(new RegExp(`/invoicing/invoices/${idOf(invoice)}/edit$`))
+    const line = page.locator('tr').filter({ has: page.getByTestId('price-combobox') }).first()
+    await expect(line.getByTestId('price-combobox')).toContainText('8.00000', { timeout: 15000 })
+    await pricesLoaded
+    await expect(line.getByTestId('price-combobox')).toContainText('8.00000')
+
+    // A quantity edited on it reads the prices again, and still leaves the line's alone; so does the save.
+    const again = page.waitForResponse((r: any) => r.url().includes('/pricing/options') && r.url().includes(idOf(priced)))
+    await line.locator('input[type="number"]').first().fill('1')
+    await again
+    await expect(line.getByTestId('price-combobox')).toContainText('8.00000')
+    const put = page.waitForResponse((r: any) => r.request().method() === 'PUT' && r.url().includes(`/invoices/${idOf(invoice)}`))
+    await page.getByRole('button', { name: /^save$/i }).first().click()
+    expect((await put).status()).toBe(200)
+    const saved = (await api.call('GET', `/invoices/${idOf(invoice)}`)).invoice
+    expect(saved.lines.map((l: any) => [l.quantity, l.unitPrice])).toEqual([[1, 8]])
+    expect(saved.lines[0].priceExplanation.at(-1)).toMatchObject({ type: 'override', price: 8 })
+  })
+
+  test('an edit not saved yet is saved by Confirm too, not dropped by the reload after it', async ({ page }) => {
+    const api = await session()
+    const w = await world(api, 0)
+    const priced = await pricedArticle(api, w.ts)
+    const { internalOrder } = await api.call('POST', '/invoicing/internal-orders', {
+      contactId: idOf(w.client), issueDate: new Date().toISOString().slice(0, 10), requestedDeliveryDate: '2026-11-20',
+      lines: [{ productId: idOf(priced), description: priced.name, quantity: 2, unit: 'pcs', expectedUnitPrice: 10 }],
+    })
+    await loginForApp(page)
+    await page.goto(`/invoicing/internal-orders/${internalOrder._id}/edit`)
+    const row = lineRow(page, internalOrder.lines[0]._id)
+    await expect(priceOf(row)).toHaveValue('10', { timeout: 15000 })
+    // After the form's own baseline timer (see the test above).
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)))
+    await pickerOf(row).click()
+    await options(page).filter({ hasText: 'Цена 1' }).click()
+    await expect(pickerOf(row)).toHaveAttribute('data-pinned', 'true')
+
+    const confirmed = page.waitForResponse((r: any) => r.request().method() === 'POST' && r.url().includes(`/internal-orders/${internalOrder._id}/confirm`))
+    await page.locator('.form-actions-bar').getByRole('button', { name: 'Confirm', exact: true }).click()
+    expect((await confirmed).status()).toBe(200)
+    const stored = (await api.call('GET', `/invoicing/internal-orders/${internalOrder._id}`)).internalOrder
+    expect(stored.status).toBe('confirmed')
+    expect(stored.lines[0]).toMatchObject({ expectedUnitPrice: 9, pricePinned: true })
+    // And the form, read again after the confirmation, still shows it.
+    await expect(priceOf(row)).toHaveValue('9')
+    await expect(pickerOf(row)).toHaveAttribute('data-pinned', 'true')
   })
 
   test('on a new order: a line with no article has nothing to pick from; once it has one, a pick replaces the selling price', async ({ page }) => {

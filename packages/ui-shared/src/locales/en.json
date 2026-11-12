@@ -1118,6 +1118,8 @@
     "searchContact": "Search Contact",
     "selectPrice": "Select price",
     "noPrices": "No prices configured",
+    "orderPriceChosen": "Price chosen for this order: its invoice charges it",
+    "orderPriceAuto": "Customer price when invoiced",
     "newOrder": "New Supplier Order",
     "editOrder": "Edit Supplier Order",
     "orderNumber": "Order #",

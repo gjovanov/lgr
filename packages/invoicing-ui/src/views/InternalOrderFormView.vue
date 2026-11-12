@@ -90,9 +90,9 @@
                       style="min-width: 0"
                       :stock-warehouse-id="form.warehouseId || undefined"
                       @update:description="lineOf(node).description = $event"
-                      @update:product-id="lineOf(node).productId = $event"
+                      @update:product-id="setLineArticle(lineOf(node), $event)"
                       @product-selected="onProductSelected(lineOf(node), $event)"
-                      @product-cleared="lineOf(node).productId = undefined"
+                      @product-cleared="setLineArticle(lineOf(node), undefined)"
                       @details="openProductPicker(node.source.lineIndex!, $event)"
                     />
                     <ProductDetailsButton @click="openProductPicker(node.source.lineIndex!)" />
@@ -164,17 +164,25 @@
                     </td>
                     <td data-col="price">
                       <!-- The article's prices for this client, as on an invoice line („Select price"): the selling
-                           price and every named one. What is picked is the line's price; nothing else is kept. -->
+                           price and every named one. A price that is picked, or typed, is the order's own: the line
+                           is pinned (`config/order-line-price`), the button says so, and the order's invoice charges
+                           it. Until then the figure is an indication and the invoice is priced for the client. -->
                       <div v-if="node.kind === 'line'" class="order-tree__num-group">
+                        <!-- Only while the order can still be saved, and by this person: a price that cannot be stored
+                             must not look chosen. -->
                         <PriceSelectButton
-                          v-if="!readonly"
+                          v-if="canSaveOrder()"
                           density="comfortable"
                           :product-id="lineOf(node).productId"
                           :contact-id="form.contactId || undefined"
                           :quantity="Number(lineOf(node).quantity) || 1"
                           :org-url="orgUrl()"
                           :currency="form.currency || baseCurrency"
-                          @select="lineOf(node).expectedUnitPrice = $event.price"
+                          :pinned="!!lineOf(node).pricePinned"
+                          :pinned-title="$t('invoicing.orderPriceChosen')"
+                          :release-label="$t('invoicing.orderPriceAuto')"
+                          @select="pickLinePrice(lineOf(node), $event.price)"
+                          @release="releaseLinePrice(lineOf(node), $event)"
                         />
                         <v-text-field
                           v-model.number="lineOf(node).expectedUnitPrice"
@@ -187,6 +195,7 @@
                           variant="underlined"
                           :aria-label="$t('invoicing.expectedPrice')"
                           :readonly="readonly"
+                          @update:model-value="typeLinePrice(lineOf(node), $event)"
                         />
                       </div>
                     </td>
@@ -571,6 +580,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useAccess } from 'ui-shared/access/useAccess'
 import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
@@ -585,6 +595,7 @@ import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue
 import EntityLink from 'ui-shared/components/EntityLink'
 import { reservationErrorMessage } from '../composables/reservation-errors'
 import { orderCoverage } from 'config/order-coverage'
+import { pickLinePrice, releaseLinePrice, setLineArticle, typeLinePrice } from 'config/order-line-price'
 import { asDraftOrder, defaultDraftFor, pickDraftsFor, type DraftOrder } from '../composables/order-generate'
 import { cascadeSummary } from '../composables/order-cascade'
 import OrderCascadeDialog from '../components/OrderCascadeDialog.vue'
@@ -607,6 +618,8 @@ interface LineRow {
   quantity: number
   unit: string
   expectedUnitPrice?: number
+  /** The price was chosen for this order (a pick or a typed figure): its invoice charges it. `true` or absent. */
+  pricePinned?: boolean
   taxRate?: number
 }
 
@@ -821,7 +834,7 @@ function onProductsPicked(ps: any[]) {
     }
     const line = form.lines[li]
     if (!line) return
-    line.productId = p._id
+    setLineArticle(line, p._id)
     line.description = p.name
     onProductSelected(line, p)
   })
@@ -1062,7 +1075,7 @@ const formActions = computed<FormAction[]>(() => [
 ])
 
 // ── pending changes ──
-const { markSaved, markClean, tryRestore, snapshot: snapshotPending } = usePendingChanges({
+const { markSaved, markClean, tryRestore, isDirty, snapshot: snapshotPending } = usePendingChanges({
   appId: 'invoicing',
   entityType: 'internal_order',
   icon: 'mdi-account-clock-outline',
@@ -1099,30 +1112,35 @@ function buildPayload() {
         quantity: Number(l.quantity) || 0,
         unit: l.unit || 'pcs',
         expectedUnitPrice: l.expectedUnitPrice !== undefined && l.expectedUnitPrice !== null ? Number(l.expectedUnitPrice) : undefined,
+        // Always said, either way: a save that does not say keeps the stored pin (the rule for callers older than it).
+        pricePinned: l.pricePinned === true,
         taxRate: l.taxRate,
       })),
   }
 }
 
-async function onSave() {
+function onSave() { return save() }
+
+/** True when the order is stored as the form shows it. `quiet`: no toast of its own (an action follows and says its own). */
+async function save(quiet = false): Promise<boolean> {
   const { valid } = (await formRef.value?.validate()) || { valid: true }
-  if (!valid) return
+  if (!valid) return false
   if (!form.lines.some((l) => l.productId && (Number(l.quantity) || 0) > 0)) {
     showError(t('invoicing.linesRequired'))
-    return
+    return false
   }
   saving.value = true
   try {
     if (isEdit.value) {
       await httpClient.put(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`, buildPayload())
-      showSuccess(t('common.savedSuccessfully'))
+      if (!quiet) showSuccess(t('common.savedSuccessfully'))
       markSaved()
       await loadOrder()
       // It stays open on what it saved: an edit from here is unsaved again (FR-22.16, as the documents do).
       markClean()
     } else {
       const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders`, buildPayload())
-      showSuccess(t('common.savedSuccessfully'))
+      if (!quiet) showSuccess(t('common.savedSuccessfully'))
       markSaved()
       router.replace({ name: 'invoicing.internalOrders.edit', params: { id: data.internalOrder._id } })
       orderNumber.value = data.internalOrder.orderNumber
@@ -1130,11 +1148,31 @@ async function onSave() {
       await loadOrder(data.internalOrder._id)
       markClean()
     }
+    return true
   } catch (e: any) {
     showError(reservationErrorMessage(e, t))
+    return false
   } finally {
     saving.value = false
   }
+}
+
+const access = useAccess()
+/** The order can still be saved, and by this person: the rule of the Save button (its status, and its capability). */
+function canSaveOrder(): boolean {
+  return canAddLines.value && access.can(isEdit.value ? ['orders.create', 'orders.edit'] : 'orders.create')
+}
+
+/**
+ * What the form shows is what Confirm and Convert act on: an edit not saved yet (a price just chosen, a quantity) is
+ * saved first, as Issue does on a document. Before, both acted on the stored order and the reload after them dropped
+ * the edit without a word, so a price picked and converted at once was not the invoice's. False when the save was
+ * refused: the action then does not run. An order that can no longer be edited, or that this person may not edit,
+ * has nothing to save: the action runs on the stored order, as it always did.
+ */
+async function saveIfNeeded(): Promise<boolean> {
+  if (!canSaveOrder() || !isDirty()) return true
+  return save(true)
 }
 
 /** True when it went through; a refusal goes to `onError` (the cascade dialog) or the snackbar. */
@@ -1154,7 +1192,9 @@ async function doAction(path: string, successKey: string, opts: { onError?: (mes
     loading.value = false
   }
 }
-function confirmOrder() { doAction('confirm', 'invoicing.orderConfirmed') }
+async function confirmOrder() {
+  if (await saveIfNeeded()) await doAction('confirm', 'invoicing.orderConfirmed')
+}
 
 // ── FR-22.41: Complete and Cancel say what they release before they do it ──
 const cascade = reactive({ open: false, action: 'cancel' as 'cancel' | 'complete', error: '', busy: false })
@@ -1181,6 +1221,7 @@ async function confirmCascade() {
 }
 
 async function convertOrder() {
+  if (!(await saveIfNeeded())) return
   loading.value = true
   try {
     const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/convert`)
@@ -1439,6 +1480,8 @@ async function loadOrder(id?: string) {
       quantity: l.quantity || 0,
       unit: l.unit || 'pcs',
       expectedUnitPrice: l.expectedUnitPrice,
+      // `true` or absent, never `false`: the unsaved-changes check compares the lines as JSON.
+      pricePinned: l.pricePinned === true ? true : undefined,
       taxRate: l.taxRate,
     }))
     // FR-22.43: a blank line waits for the next article while lines can still be added.

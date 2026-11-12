@@ -22,6 +22,7 @@ import {
   OrdersFromProductsError, checkOrderReferences, createCustomerOrderFromProducts, customerOrderRefs,
 } from 'services/biz/orders-from-products.service'
 import { orderCoverage } from 'config/order-coverage'
+import { linePricePinned, pinnedPriceOf } from 'config/order-line-price'
 import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
 
 // ── numbering ─────────────────────────────────────────────────────────────────
@@ -125,6 +126,8 @@ const lineBody = t.Object({
   quantity: t.Number({ exclusiveMinimum: 0 }),
   unit: t.Optional(t.String()),
   expectedUnitPrice: t.Optional(t.Number()),
+  // The price was chosen for this order (a pick or a typed figure): its invoice charges it. `config/order-line-price`.
+  pricePinned: t.Optional(t.Boolean()),
   taxRate: t.Optional(t.Number()),
   notes: t.Optional(t.String()),
 })
@@ -143,7 +146,13 @@ const orderBody = t.Object({
   lines: t.Array(lineBody, { minItems: 1 }),
 })
 
-function sanitizeLines(lines: any[]): any[] {
+/**
+ * The lines as they are stored. `stored` is the order's lines before this save: a line that does not say whether its
+ * price is pinned (a tab opened before the field existed, a script) keeps the pin it had while its article and its
+ * price are unchanged (`linePricePinned`), so saving an order back never unpins a price somebody chose.
+ */
+function sanitizeLines(lines: any[], stored: any[] = []): any[] {
+  const storedById = new Map(stored.map((l: any) => [String(l._id), l]))
   return (lines || []).map((l) => ({
     ...(l._id ? { _id: l._id } : {}),
     productId: l.productId,
@@ -152,6 +161,7 @@ function sanitizeLines(lines: any[]): any[] {
     quantity: l.quantity,
     unit: l.unit || 'pcs',
     expectedUnitPrice: l.expectedUnitPrice,
+    pricePinned: linePricePinned(l, l._id ? storedById.get(String(l._id)) : undefined) || undefined,
     taxRate: l.taxRate,
     notes: l.notes || undefined,
   }))
@@ -371,7 +381,7 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
       existing.notes = body.notes
       existing.terms = body.terms
       existing.tags = body.tags || []
-      existing.lines = sanitizeLines(body.lines as any[])
+      existing.lines = sanitizeLines(body.lines as any[], before.lines)
       await existing.save()
 
       const synced = await syncInternalOrderDerivedState(orgId, id, user.id)
@@ -551,6 +561,9 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
           unit: line?.unit || 'pcs',
           taxRate: line?.taxRate ?? undefined,
           fallbackPrice: line?.expectedUnitPrice || 0,
+          // A price chosen on the order's line is what its invoice charges.
+          pinnedPrice: pinnedPriceOf(line),
+          pinnedBy: ordi.orderNumber,
           warehouseId: String(res.warehouseId),
           orderRef: {
             orderId: res.orderId ? String(res.orderId) : undefined,
