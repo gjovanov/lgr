@@ -2214,6 +2214,7 @@
     "category": "Категория",
     "unit": "Мярка",
     "barcode": "Баркод",
+    "tariffCode": "Тарифен код",
     "purchasePrice": "Покупна цена",
     "sellingPrice": "Продажна цена",
     "deleteProductConfirm": "Сигурни ли сте, че искате да изтриете този продукт?",

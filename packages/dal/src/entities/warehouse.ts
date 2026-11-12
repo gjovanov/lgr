@@ -74,6 +74,7 @@ export interface IProduct extends TenantEntity {
   sku: string
   barcode?: string
   name: string
+  tariffCode?: string
   description?: string
   category: string
   categoryId?: string

@@ -43,7 +43,8 @@ test.describe('Warehouse', () => {
 
     // Switch to pricing tab to fill price
     await page.getByRole('tab', { name: /pricing/i }).click()
-    await page.getByLabel(/selling price/i).fill('29.99')
+    // The selling price is on the tab twice by design: the field, and again at the head of the tiers.
+    await page.getByLabel(/selling price/i).first().fill('29.99')
 
     // Click Save button
     await page.getByRole('button', { name: /^save$/i }).first().click()

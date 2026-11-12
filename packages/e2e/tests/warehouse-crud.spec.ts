@@ -55,7 +55,8 @@ test.describe('Warehouse CRUD', () => {
     // Switch to pricing tab and fill a price
     await page.getByRole('tab', { name: /pricing/i }).click()
     await page.waitForTimeout(300)
-    const sellingPrice = page.getByLabel(/selling price/i)
+    // The selling price is on the tab twice by design: the field, and again at the head of the tiers.
+    const sellingPrice = page.getByLabel(/selling price/i).first()
     await expect(sellingPrice).toBeVisible()
     await sellingPrice.fill('49.99')
 

@@ -2214,6 +2214,7 @@
     "category": "Category",
     "unit": "Unit",
     "barcode": "Barcode",
+    "tariffCode": "Tariff Code",
     "purchasePrice": "Purchase Price",
     "sellingPrice": "Selling Price",
     "deleteProductConfirm": "Are you sure you want to delete this product?",
