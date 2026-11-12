@@ -29,6 +29,17 @@ function build(invoice: Record<string, unknown> = {}, org: Record<string, unknow
   ).html
 }
 
+describe('an offer prints on the proforma form, under its own title (#712)', () => {
+  for (const [locale, offer, proforma] of [['bg', 'ОФЕРТА', 'ПРОФОРМА ФАКТУРА'], ['en', 'OFFER', 'PROFORMA INVOICE'], ['de', 'ANGEBOT', 'PROFORMARECHNUNG'], ['mk', 'ПОНУДА', 'ПРОФОРМА ФАКТУРА']]) {
+    it(`in ${locale}: „${offer}", never the proforma's or the invoice's title`, () => {
+      const html = build({ type: 'offer', invoiceNumber: 'OFR-2026-00001' }, {}, { locale })
+      expect(html).toContain(`<h1 class="doc-title">${offer}</h1>`)
+      expect(html).not.toContain(`<h1 class="doc-title">${proforma}</h1>`)
+      expect(html).toContain('OFR-2026-00001')
+    })
+  }
+})
+
 describe('a note names the invoice it corrects', () => {
   const note = {
     type: 'credit_note',
@@ -206,7 +217,7 @@ describe('printed invoice form', () => {
   })
 
   it('leaves every other document type as a single original', () => {
-    for (const invoice of [{ type: 'proforma' }, { type: 'credit_note' }, { type: 'cash_sale' }, { direction: 'incoming' }]) {
+    for (const invoice of [{ type: 'proforma' }, { type: 'offer' }, { type: 'credit_note' }, { type: 'cash_sale' }, { direction: 'incoming' }]) {
       const html = build(invoice)
       expect(html).toContain('ОРИГИНАЛ')
       expect(html).not.toContain('КОПИЕ')
