@@ -225,21 +225,26 @@ export async function pinnedPriceRefusal(
 /**
  * Rule 2: an outgoing document's lines, each of an article carrying that article's unit, as the form puts it there
  * (`line.unit = product.unit`) and then locks it. A line the document already holds at its unit keeps it (a save of
- * a document from before the rule, or of a conversion's draft, rewrites nothing), and an article without a unit
- * leaves the line as it is. The importers send the article's unit already (`map-invoice`, the till day's mapper).
+ * a document from before the rule, or of a conversion's draft, rewrites nothing), and so does a note's line at the
+ * unit its invoice sold the article in (`relatedInvoiceId`: the note repeats the lines as they were sold). An article
+ * without a unit leaves the line as it is. The importers send the article's unit already (`map-invoice`, the till
+ * day's mapper).
  */
 export async function withArticleUnits<L extends Record<string, any>>(
   orgId: string,
   direction: string | null | undefined,
   lines: L[] | undefined,
   stored?: readonly any[] | null,
+  opts: { relatedInvoiceId?: unknown } = {},
 ): Promise<L[] | undefined> {
   if (direction !== 'outgoing' || !Array.isArray(lines) || !lines.length) return lines
   const ids = [...new Set(lines.map(articleOf).filter(id => id && isValidObjectId(id)))]
   if (!ids.length) return lines
   const products = await Product.find({ orgId, _id: { $in: ids } } as any, { unit: 1 }).lean().exec()
   const unitOf = new Map((products as any[]).map(p => [String(p._id), typeof p.unit === 'string' ? p.unit : '']))
-  const kept = new Set((stored ?? []).map((l: any) => `${articleOf(l)}|${l?.unit ?? ''}`))
+  const relatedId = idOf(opts.relatedInvoiceId)
+  const related: any = relatedId ? await Invoice.findOne({ _id: relatedId, orgId } as any, { 'lines.productId': 1, 'lines.unit': 1 }).lean().exec() : null
+  const kept = new Set([...(stored ?? []), ...(related?.lines ?? [])].map((l: any) => `${articleOf(l)}|${l?.unit ?? ''}`))
   return lines.map(l => {
     const key = articleOf(l)
     const unit = unitOf.get(key)

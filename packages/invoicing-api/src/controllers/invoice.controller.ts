@@ -860,9 +860,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       })
       if (relErr) return status(422, { message: relErr })
 
-      // #724: an outgoing article line's unit is its article's (the form locks it there). Before the amounts, which
-      // carry the lines into the document.
-      body.lines = (await withArticleUnits(orgId, body.direction, body.lines as any[])) as any
+      // #724: an outgoing article line's unit is its article's (the form locks it there); a note keeps the unit its
+      // invoice sold the article in. Before the amounts, which carry the lines into the document.
+      body.lines = (await withArticleUnits(orgId, body.direction, body.lines as any[], undefined, { relatedInvoiceId: body.relatedInvoiceId })) as any
 
       // Compute defaults for fields the form may not provide
       const { lines, taxTotal, totalBase } = documentAmounts(body as any)
@@ -1253,7 +1253,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           lines: (body as any).lines,
         }, { stored: (existing as any).lines, excludeId: id })
         if (typed) return status(403, typed)
-        ;(body as any).lines = await withArticleUnits(orgId, (existing as any).direction, (body as any).lines, (existing as any).lines)
+        ;(body as any).lines = await withArticleUnits(orgId, (existing as any).direction, (body as any).lines, (existing as any).lines, {
+          relatedInvoiceId: body.relatedInvoiceId !== undefined ? body.relatedInvoiceId : (existing as any).relatedInvoiceId,
+        })
       }
       // ⚠ What is due is derived, never taken (#454): from the total and what was paid, below, or
       // from the sale for an invoice for one. A client's figure was written as sent whenever the

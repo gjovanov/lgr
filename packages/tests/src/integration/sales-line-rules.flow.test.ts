@@ -163,14 +163,17 @@ describe('rule 1 on a sales document: the Seller saves a price the form could ha
     expect({ status: r.status, code: r.json?.code }).toEqual({ status: 403, code: 'price_not_offered' })
   })
 
-  it('a credit note takes its invoice\'s prices', async () => {
+  it('a credit note takes its invoice\'s prices, and the unit it sold the article in', async () => {
     const contactId = await customer(shop)
+    // Sold before the unit was locked, in another unit than the article's.
     const invoice = await createTestInvoice(shop._id, contactId as any, {
       invoiceNumber: 'INV-724-CN', status: 'sent',
-      lines: [{ productId: bolt, description: 'Bolt', quantity: 2, unit: 'pcs', unitPrice: 6.6, discount: 0, taxRate: 20, taxAmount: 2.64, lineTotal: 13.2 }],
+      lines: [{ productId: bolt, description: 'Bolt', quantity: 2, unit: 'box', unitPrice: 6.6, discount: 0, taxRate: 20, taxAmount: 2.64, lineTotal: 13.2 }],
     } as any)
-    const note = await call(shopId, 'POST', '/invoices', tokens.seller, invoiceBody(contactId, [{ productId: bolt, unitPrice: 6.6 }], { type: 'credit_note', relatedInvoiceId: String(invoice._id) }))
+    const note = await call(shopId, 'POST', '/invoices', tokens.seller, invoiceBody(contactId, [{ productId: bolt, unitPrice: 6.6, unit: 'box' }], { type: 'credit_note', relatedInvoiceId: String(invoice._id) }))
     expect(note.status).toBe(200)
+    const stored: any = await Invoice.findById(note.json.invoice._id ?? note.json.invoice.id).lean()
+    expect(stored.lines.map((l: any) => [l.unitPrice, l.unit])).toEqual([[6.6, 'box']])
   })
 
   it('a typed line (no article) is offered nothing: 0 goes through, a figure does not', async () => {

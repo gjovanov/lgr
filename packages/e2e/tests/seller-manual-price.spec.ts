@@ -10,7 +10,8 @@ import { lineDescription, lineUnitPrice } from './helpers/document-form'
  * list, the Select-price icon) and cannot type one; the Sales Consultant may type one, "12,5" included. Both users are
  * made through the API here and removed after.
  *
- * ⚠ A UI rule: the server does not refuse a typed price yet.
+ * The server holds it too (#724, `services/biz/sales-lines.ts`): the last test sends the Seller's typed price past the
+ * form, and a picked one beside it.
  */
 
 // The line's product search is a fixed overlay under the input: give it room (invoicing-product-autocomplete.spec.ts).
@@ -134,4 +135,24 @@ test('a Sales Consultant types a price, "12,5" read as 12.5', async ({ page }) =
   expect(invoice.lines[0].unitPrice).toBe(12.5)
   const steps = invoice.lines[0].priceExplanation || []
   expect(steps.at(-1)).toMatchObject({ type: 'override', price: 12.5 })
+})
+
+test('the server holds it too: the Seller\'s typed price is refused past the form, a picked one is not (#724)', async () => {
+  const seller = await apiLogin('acme-corp', users.seller.username, PASSWORD)
+  const { contacts } = await apiGet(admin, '/invoicing/contact?type=customer&size=50')
+  const contact = (contacts as any[]).find(c => c.isActive !== false)
+  expect(contact, 'an active customer in the demo org').toBeTruthy()
+  const body = (unitPrice: number) => ({
+    type: 'invoice', direction: 'outgoing', contactId: String(contact._id || contact.id), issueDate: new Date().toISOString().slice(0, 10), currency: 'EUR',
+    lines: [{ productId, description: `Manual price ${SKU}`, quantity: 1, unit: 'pcs', unitPrice, taxRate: 20 }],
+    subtotal: unitPrice, total: +(unitPrice * 1.2).toFixed(2),
+  })
+  const typed = await apiPost(seller, '/invoices', body(99.99))
+  const refused = await typed.json().catch(() => null)
+  expect(typed.status, JSON.stringify(refused)).toBe(403)
+  expect(refused).toMatchObject({ code: 'price_not_offered', lines: [{ line: 1, unitPrice: 99.99 }] })
+  // The tier the line resolves to: what the form gives a Seller without a click.
+  const { invoice } = await okJson(await apiPost(seller, '/invoices', body(8)))
+  invoices.push(String(invoice?._id || invoice?.id))
+  expect(invoice.lines[0].unitPrice).toBe(8)
 })
