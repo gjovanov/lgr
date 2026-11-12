@@ -1,5 +1,5 @@
 import { MAX_PRICE_TIERS } from 'config/constants'
-import { priceAtMargin } from './price-precision'
+import { followsPurchasePrice, priceAtMargin } from './price-precision'
 
 /**
  * „С актуализация на продукт" — a document line's staged edits to its product, and what of them
@@ -26,14 +26,6 @@ import { priceAtMargin } from './price-precision'
 export const GR_PRODUCT_FIELDS = ['type', 'categoryId', 'unit', 'purchasePrice', 'sellingPrice', 'taxRate'] as const
 
 const NUMERIC_FIELDS = new Set<string>(['purchasePrice', 'sellingPrice', 'taxRate'])
-
-/**
- * A tier that is not fixed by hand follows the purchase price when its price is the purchase price
- * plus its percent — to the cent. The product form rounded a recomputed tier to the cent until
- * 2026-11-12 and rounds it to four decimals since (`price-precision.ts`), so a tier it stored before
- * is still up to half a cent off, and one it stores now is well inside.
- */
-const DERIVED_TOLERANCE = 0.005
 
 export interface GRTier {
   name: string
@@ -187,8 +179,8 @@ export function cascadePurchasePrice(line: GRLine, purchase: unknown): void {
   for (const tier of line.priceTiers || []) {
     if (tier.manualOverride) continue
     const was = findTier(base.tiers, tier.name)
-    if (!was || was.manualOverride) continue
-    if (Math.abs(was.finalPrice - basePurchase * (1 + was.percent / 100)) > DERIVED_TOLERANCE) continue
+    // The one rule the product form's cascade reads too (`price-precision.ts`).
+    if (!was || !followsPurchasePrice(was, basePurchase)) continue
     // The product form's own rule, so both give the article the same price from the same figures.
     tier.finalPrice = unchanged ? was.finalPrice : priceAtMargin(p, tier.percent)
   }
