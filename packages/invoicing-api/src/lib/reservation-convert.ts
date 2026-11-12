@@ -1,7 +1,8 @@
 import { getRepos } from 'services/context'
 import { resolvePrice } from 'services/biz/pricing.service'
 import { loadAllocationSupply } from 'services/biz/reservation.service'
-import { Org } from 'db/models'
+import { InternalOrder, Org } from 'db/models'
+import { pinnedPriceOf } from 'config/order-line-price'
 import { getNextDraftInvoiceNumber } from '../controllers/invoice.controller.js'
 
 /**
@@ -10,7 +11,8 @@ import { getNextDraftInvoiceNumber } from '../controllers/invoice.controller.js'
  * Both convert endpoints (external order per-client, internal order) turn a set of open
  * reservations into ONE draft sales invoice: planConversion decides what can be invoiced
  * now, then one line per reservation, priced through the resolution chain (falling back to
- * the order's expected price when the product is gone), components-first rounding
+ * the order's expected price when the product is gone) unless a price was chosen for the
+ * line on its customer order, which the invoice then charges; components-first rounding
  * (Bulgarian fiscal style), draft numbering with a retry loop on ORDI/ORDO-independent
  * counter collisions.
  */
@@ -28,6 +30,13 @@ export interface ConversionItem {
   taxRate?: number
   /** Used when resolvePrice fails (product deleted since the order was written). */
   fallbackPrice?: number
+  /**
+   * The price chosen for this line on its customer order (`config/order-line-price#pinnedPriceOf`): what the invoice
+   * charges, whatever the client resolves to today. Absent: the line is priced for the client.
+   */
+  pinnedPrice?: number
+  /** The customer order that price was chosen on: its number names the step in the line's price trail. */
+  pinnedBy?: string
   warehouseId?: string
   orderRef: {
     orderId?: string
@@ -126,6 +135,29 @@ export async function planConversion(orgId: string, resDocs: any[], noneOpen: st
   return plan
 }
 
+/**
+ * The prices chosen on customer order lines that these reservations cover, by the line's id.
+ *
+ * For the supplier order's Convert: a client's reservation on it may cover a line of a customer order, and the price
+ * chosen on that line is the invoice's whichever of the two orders the invoice is made from. (The customer order's
+ * own Convert has the order in hand and reads its lines itself.)
+ */
+export async function pinnedOrderPrices(orgId: string, resDocs: any[]): Promise<Map<string, { price: number; orderNumber: string }>> {
+  const out = new Map<string, { price: number; orderNumber: string }>()
+  const orderIds = [...new Set(resDocs
+    .filter((r) => r.internalOrderId && r.internalOrderLineId)
+    .map((r) => String(r.internalOrderId)))]
+  if (!orderIds.length) return out
+  const orders: any[] = await InternalOrder.find({ orgId, _id: { $in: orderIds } } as any, { orderNumber: 1, lines: 1 }).lean().exec()
+  for (const order of orders) {
+    for (const line of order.lines || []) {
+      const price = pinnedPriceOf(line)
+      if (price !== undefined) out.set(String(line._id), { price, orderNumber: order.orderNumber })
+    }
+  }
+  return out
+}
+
 export async function buildConversionInvoice(
   orgId: string,
   userId: string,
@@ -150,6 +182,13 @@ export async function buildConversionInvoice(
       priceExplanation = resolution.steps
     } catch {
       /* product gone — keep the fallback price */
+    }
+    // A price chosen on the customer order's line is the order's own. The trail keeps what the client resolves to
+    // and says the order's price after it, as the override it is (an invoice form reads an override as a price that
+    // is not to be resolved again). The same figure as the client's needs no step.
+    if (item.pinnedPrice !== undefined && item.pinnedPrice !== unitPrice) {
+      unitPrice = item.pinnedPrice
+      priceExplanation = [...(priceExplanation || []), { type: 'override', label: item.pinnedBy || 'Order price', price: unitPrice }]
     }
     const taxRate = item.taxRate ?? defaultVat
     const net = item.quantity * unitPrice
