@@ -82,3 +82,50 @@ export function marginOver(purchase: unknown, price: unknown): number {
   const base = num(purchase)
   return base ? roundPercent(((num(price) - base) / base) * 100) : 0
 }
+
+/**
+ * How near "the purchase price plus its margin" a tier's price must be to count as derived from it: to the cent.
+ * The product form rounded a recomputed tier to the cent until 2026-11-12 and rounds it to four decimals since, so
+ * a tier it stored before is up to half a cent off, and one it stores now is well inside.
+ */
+export const DERIVED_TOLERANCE = 0.005
+
+/** A price tier as a change of the purchase price sees it. `followsPurchase` is the form's own note, never stored. */
+export interface CascadeTier {
+  percent: number
+  finalPrice: number
+  manualOverride?: boolean
+  followsPurchase?: boolean
+}
+
+/**
+ * Whether a tier follows the purchase price: not fixed by hand, and priced at `purchase` plus its margin.
+ *
+ * The slots the backfill filled do not (the selling price, with a margin of 0), nor does a price an import wrote
+ * beside a margin it did not compute. Moved along with the purchase price, such a tier took a price nobody chose:
+ * the purchase price itself. A new article's empty slots (0 at 0 %, no purchase price yet) do follow.
+ */
+export function followsPurchasePrice(tier: Pick<CascadeTier, 'percent' | 'finalPrice' | 'manualOverride'>, purchase: unknown): boolean {
+  if (tier.manualOverride) return false
+  return Math.abs(num(tier.finalPrice) - num(purchase) * (1 + num(tier.percent) / 100)) <= DERIVED_TOLERANCE
+}
+
+/** On load: note which tiers follow the purchase price the article was loaded with. */
+export function markFollowers(tiers: CascadeTier[], loadedPurchase: unknown): void {
+  for (const tier of tiers) tier.followsPurchase = followsPurchasePrice(tier, loadedPurchase)
+}
+
+/**
+ * The purchase price moved to `purchase`.
+ *   - A tier that follows it goes to the new price plus its margin.
+ *   - A tier fixed by hand keeps its price, so its margin is what moves.
+ *   - Any other keeps both as they are stored (`followsPurchasePrice`).
+ * Nothing moves while there is no purchase price.
+ */
+export function cascadeTiers(tiers: CascadeTier[], purchase: unknown): void {
+  if (!(num(purchase) > 0)) return
+  for (const tier of tiers) {
+    if (tier.manualOverride) tier.percent = marginOver(purchase, tier.finalPrice)
+    else if (tier.followsPurchase) tier.finalPrice = priceAtMargin(purchase, tier.percent)
+  }
+}

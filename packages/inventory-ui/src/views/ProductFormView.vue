@@ -49,6 +49,8 @@
                     :loading="loadingCategories"
                     :placeholder="unlinkedCategory || undefined"
                     :persistent-placeholder="!!unlinkedCategory"
+                    :rules="[categoryGiven]"
+                    data-testid="product-category"
                     clearable
                   />
                 </v-col>
@@ -135,7 +137,8 @@
 
               <!-- Price Tiers (13 slots: Доставна, Цена на едро, Цена 0..Цена 10) -->
               <div class="d-flex align-center mb-2">
-                <p class="text-subtitle-1 font-weight-bold">{{ $t('warehouse.priceTiers') }}</p>
+                <!-- The slots the table shows below: 13 since 2026-08-06, fewer for a role that sees fewer levels. -->
+                <p class="text-subtitle-1 font-weight-bold" data-testid="tier-title">{{ $t('warehouse.priceTiers', { count: priceTiers.length }) }}</p>
                 <v-spacer />
                 <div class="d-flex ga-1">
                   <v-chip
@@ -305,7 +308,8 @@
                   />
                 </v-col>
                 <v-col v-if="seesCosts && form.costingMethod === 'standard'" cols="12" md="4">
-                  <v-text-field v-model.number="form.standardCost" :label="$t('warehouse.standardCost')" type="number" min="0" step="0.01" />
+                  <!-- A price like the others: four decimals (`price-precision.ts`). -->
+                  <DecimalField v-model="form.standardCost" :decimals="PRICE_DECIMALS" :label="$t('warehouse.standardCost')" data-testid="standard-cost" />
                 </v-col>
               </v-row>
             </v-tabs-window-item>
@@ -338,7 +342,7 @@ import type { ProductForActions } from '../composables/product-doc-actions'
 import { PRICE_TIER_NAMES, PRODUCT_TARIFF_CODE_MAX } from 'config/constants'
 import { capOfTier } from 'config/access'
 import { tierSlotsToAdd } from 'ui-shared/composables/product-price-columns'
-import { PERCENT_DECIMALS, PRICE_DECIMALS, marginOver, priceAtMargin } from 'ui-shared/composables/price-precision'
+import { PERCENT_DECIMALS, PRICE_DECIMALS, cascadeTiers, marginOver, markFollowers, priceAtMargin } from 'ui-shared/composables/price-precision'
 import { useAccess } from 'ui-shared/access/useAccess'
 
 const { t } = useI18n()
@@ -376,6 +380,8 @@ interface PriceTier {
   minQuantity: number | null
   validFrom: string
   validTo: string
+  /** The form's own note, never sent: this tier moves with the purchase price (`markFollowers`, `cascadeTiers`). */
+  followsPurchase?: boolean
 }
 
 const FILTER_KEYS = ['contact', 'tags', 'minQty', 'validity'] as const
@@ -492,25 +498,58 @@ function ensureTierSlots() {
  * The purchase price moved: a tier that follows it goes to the new price plus its margin, and a tier fixed by hand
  * keeps its price, so its margin is what moves (it was left showing the margin over the OLD purchase price).
  * Prices to four decimals, margins to three: `price-precision.ts`.
+ *
+ * ⚠ A tier that is neither keeps both: a slot the backfill filled with the selling price at 0 %, a price an import
+ * wrote. Every tier not fixed by hand used to be moved, and such a slot then took the purchase price itself, which
+ * nobody chose. The goods receipt's cascade has always told them apart; this reads the same rule (`cascadeTiers`).
  */
 function recomputeTiersFromPurchase() {
-  if (!form.purchasePrice) return
-  for (const t of priceTiers.value) {
-    if (t.manualOverride) t.percent = marginOver(form.purchasePrice, t.finalPrice)
-    else t.finalPrice = priceAtMargin(form.purchasePrice, t.percent)
-  }
+  cascadeTiers(priceTiers.value, form.purchasePrice)
 }
 
 function onTierPercentChange(i: number) {
   const t = priceTiers.value[i]
   t.manualOverride = false
+  // A margin typed here is a margin over the purchase price: from now on the tier follows it.
+  t.followsPurchase = true
   if (form.purchasePrice) t.finalPrice = priceAtMargin(form.purchasePrice, t.percent)
 }
 
 function onTierFinalPriceChange(i: number) {
   const t = priceTiers.value[i]
   t.manualOverride = true
+  t.followsPurchase = false
   if (form.purchasePrice) t.percent = marginOver(form.purchasePrice, t.finalPrice)
+}
+
+/** The stored tiers as the table edits them. */
+function tiersOf(product: any): PriceTier[] {
+  return (product?.priceTiers || []).map((t: any) => ({
+    name: t.name || '',
+    percent: Number(t.percent) || 0,
+    finalPrice: Number(t.finalPrice) || 0,
+    manualOverride: !!t.manualOverride,
+    contactIds: (t.contactIds || []).map((id: any) => String(id)),
+    tags: t.tags || [],
+    minQuantity: t.minQuantity ?? null,
+    validFrom: t.validFrom ? String(t.validFrom).split('T')[0] : '',
+    validTo: t.validTo ? String(t.validTo).split('T')[0] : '',
+  }))
+}
+
+/** The article's tiers into the table: its own, a slot for every level it lacks, and which of them follow the purchase price. */
+function showTiers(product: any) {
+  priceTiers.value = tiersOf(product)
+  ensureTierSlots()
+  markFollowers(priceTiers.value, product?.purchasePrice)
+  void tierContacts.ensureSelected()
+  // Turn on filter columns if any tier has a value in that filter, for nicer reveal UX.
+  for (const t of priceTiers.value) {
+    if (t.contactIds.length) visibleFilters.contact = true
+    if (t.tags.length) visibleFilters.tags = true
+    if (t.minQuantity != null) visibleFilters.minQty = true
+    if (t.validFrom || t.validTo) visibleFilters.validity = true
+  }
 }
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
@@ -528,6 +567,15 @@ const margin = computed(() => (form.purchasePrice > 0 ? marginOver(form.purchase
  */
 const unlinkedCategory = computed(() => (form.categoryId ? '' : form.category))
 
+/**
+ * A NEW article has a category: the route that makes one refuses it without, and a new article saved with the
+ * field empty got that refusal back as the save's error, with nothing on the field to say what was missing.
+ * An article that exists may be saved with the field cleared: that drops its category, as it always did.
+ */
+const categoryGiven = (picked: string | null) => isEdit.value || !!picked || !!form.category || t('validation.required')
+/** Whether a field of the Edit tab that must be filled is not. */
+const editTabIncomplete = () => !form.sku || !form.name || !form.type || categoryGiven(form.categoryId) !== true
+
 function linkCategoryByName() {
   if (form.categoryId || !form.category) return
   const key = (s: string) => (s || '').trim().toLocaleLowerCase('bg')
@@ -544,19 +592,22 @@ watch(() => form.categoryId, (id, old) => {
   }
 })
 
-const { markSaved, tryRestore, snapshot } = usePendingChanges({
+const { markSaved, markClean, tryRestore, snapshot } = usePendingChanges({
   appId: 'inventory',
   entityType: 'product',
   icon: 'mdi-package-variant',
-  getFormData: () => ({ ...form, priceEntries: priceEntries.value }),
+  // The tiers are part of what the form holds: left out, an edit of a tier alone was no unsaved change (the form
+  // let it go without a word), and edits kept for later came back with an empty tier table.
+  getFormData: () => ({ ...form, priceEntries: priceEntries.value, priceTiers: priceTiers.value }),
   getPreviewFields: () => [
     { label: 'SKU', value: form.sku },
     { label: 'Name', value: form.name },
   ],
   setFormData: (data) => {
-    const { priceEntries: pe, ...rest } = data
+    const { priceEntries: pe, priceTiers: pt, ...rest } = data
     Object.assign(form, rest)
     if (pe) priceEntries.value = pe
+    if (Array.isArray(pt)) priceTiers.value = pt
   },
   isEdit: () => isEdit.value,
   entityId: () => route.params.id as string,
@@ -736,7 +787,12 @@ async function fetchCategories() {
 
 async function handleSubmit() {
   const { valid } = await formRef.value.validate()
-  if (!valid) return
+  if (!valid) {
+    // What must be filled is on the Edit tab. Asked from another tab, the save did nothing and said nothing: the
+    // field that stops it is shown instead.
+    if (urlTab.value !== 'edit' && editTabIncomplete()) router.replace({ params: { ...route.params, tab: 'edit' } })
+    return
+  }
   loading.value = true
   try {
     // Set category name from selected category for backward compat. No category selected leaves
@@ -775,11 +831,15 @@ async function handleSubmit() {
       const { data } = await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)
       markSaved()
       keepStored(data?.product)
+      // The form stays open on what it saved, on the current tab: an edit from here is unsaved again. `markSaved`
+      // alone let every later edit go without a word.
+      markClean()
       showSuccess(t('common.savedSuccessfully'))
-      // Stay on the current tab.
     } else {
       const { data } = await httpClient.post(`${orgUrl()}/warehouse/product`, payload)
       markSaved()
+      // The new article opens as itself in this same form: what is edited there is unsaved again.
+      markClean()
       showSuccess(t('common.savedSuccessfully'))
       const newId = data?.product?._id || data?._id
       if (newId) router.push({ name: 'inventory.products.edit', params: { id: newId, tab: urlTab.value } })
@@ -798,8 +858,18 @@ onMounted(async () => {
     // The form holds the restored edits; the header's actions still read the article as stored.
     if (isEdit.value) {
       httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
-        .then(({ data }) => keepStored(data?.product))
+        .then(({ data }) => {
+          keepStored(data?.product)
+          // Edits kept before the tiers were kept with them: the table shows the stored tiers, not nothing.
+          if (!priceTiers.value.length) {
+            showTiers(data?.product)
+            snapshot()
+          }
+        })
         .catch(() => { /* no actions until it can be read */ })
+    } else if (!priceTiers.value.length) {
+      ensureTierSlots()
+      markFollowers(priceTiers.value, 0)
     }
     return
   }
@@ -822,32 +892,15 @@ onMounted(async () => {
       linkCategoryByName()
       sellingPricePercent.value = calcPercent(form.sellingPrice)
       priceEntries.value = mergePriceEntries(p.customPrices || [], p.tagPrices || [])
-      // Load existing priceTiers; pad to 13 slots with base-price defaults if fewer exist.
-      priceTiers.value = (p.priceTiers || []).map((t: any) => ({
-        name: t.name || '',
-        percent: Number(t.percent) || 0,
-        finalPrice: Number(t.finalPrice) || 0,
-        manualOverride: !!t.manualOverride,
-        contactIds: (t.contactIds || []).map((id: any) => String(id)),
-        tags: t.tags || [],
-        minQuantity: t.minQuantity ?? null,
-        validFrom: t.validFrom ? String(t.validFrom).split('T')[0] : '',
-        validTo: t.validTo ? String(t.validTo).split('T')[0] : '',
-      }))
-      ensureTierSlots()
-      void tierContacts.ensureSelected()
-      // Turn on filter columns if any tier has a value in that filter, for nicer reveal UX.
-      for (const t of priceTiers.value) {
-        if (t.contactIds.length) visibleFilters.contact = true
-        if (t.tags.length) visibleFilters.tags = true
-        if (t.minQuantity != null) visibleFilters.minQty = true
-        if (t.validFrom || t.validTo) visibleFilters.validity = true
-      }
+      // The article's price tiers; a slot with base-price defaults for every level it lacks.
+      showTiers(p)
     } catch { /* handle */ }
   } else {
     // New product: seed the default slots client-side so the table is always full. (This called
     // `ensureTenTiers`, gone since the 10 → 13 rename, and threw on every new article — FR-22 B-2.)
     ensureTierSlots()
+    // Empty slots at no purchase price yet: they follow the one typed, as they always did.
+    markFollowers(priceTiers.value, 0)
     await applyOrgDefaultVat()
   }
   // The clean state is the loaded article, taken once the field watchers have run (FR-22.13).

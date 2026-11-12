@@ -128,7 +128,7 @@
     </template>
 
     <ContactLedgerDialog v-model="invoicesDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" :selectable="false" />
-    <ContactLedgerDialog v-model="balanceDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" :selectable="false" />
+    <ContactUnpaidDialog v-model="balanceDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" :base-currency="baseCurrency" />
     <ContactMovementsDialog v-model="movementsDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" />
   </EntityFormShell>
 </template>
@@ -146,6 +146,7 @@ import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ContactMovementsDialog from '../components/ContactMovementsDialog.vue'
+import ContactUnpaidDialog from '../components/ContactUnpaidDialog.vue'
 import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useCurrency } from 'ui-shared/composables/useCurrency'

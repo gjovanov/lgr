@@ -22,6 +22,7 @@ let ARTICLE = ''
 let NOTE = ''
 let contactId = ''
 let invoiceNumber = ''
+let invoiceId = ''
 /** The dispatch the invoice booked when it was issued. */
 let invoiceMovement = ''
 /** The dispatch to the contact that no invoice carries, booked from `NOTE`. */
@@ -86,6 +87,7 @@ test.beforeAll(async () => {
   })
   const sent = await call('POST', `/invoices/${idOf(invoice)}/send`, {})
   invoiceNumber = sent.invoice.invoiceNumber
+  invoiceId = idOf(invoice)
   const booked = (await call('GET', `/warehouse/movement?productId=${productId}&size=50`)).stockMovements
     .find((m: any) => String(m.invoiceId || '') === idOf(invoice))
   invoiceMovement = booked?.number || ''
@@ -185,16 +187,29 @@ test('the contact form: its three buttons open their lists, and Movements lists 
   const open = page.locator('.v-dialog.v-overlay--active')
   await expect(figure('Invoices')).toHaveText('1', { timeout: 15000 })
 
-  // Invoices and Open Balance open the contact's ledger: the invoice's line and the two movements no document
-  // carries, with nothing to tick (the form is the contact's own, not a document's).
-  for (const label of ['Invoices', 'Open Balance']) {
-    await button(label).click()
-    await expect(open).toContainText('Contact Ledger')
-    await expect(open.locator('.v-data-table tbody tr')).toHaveCount(3, { timeout: 15000 })
-    await expect(open.locator('.v-data-table').getByRole('checkbox')).toHaveCount(0)
-    await open.locator('.v-card-title .v-btn').click()
-    await expect(open).toHaveCount(0)
-  }
+  // Invoices opens the contact's ledger: the invoice's line and the two movements no document carries, with
+  // nothing to tick (the form is the contact's own, not a document's).
+  await button('Invoices').click()
+  await expect(open).toContainText('Contact Ledger')
+  await expect(open.locator('.v-data-table tbody tr')).toHaveCount(3, { timeout: 15000 })
+  await expect(open.locator('.v-data-table').getByRole('checkbox')).toHaveCount(0)
+  await open.locator('.v-card-title .v-btn').click()
+  await expect(open).toHaveCount(0)
+
+  // Open Balance opens the documents that still owe, and under them the button's own figure. (It opened the
+  // ledger too, whose "Balance" is sales less purchases: another figure.)
+  const owed = ((await figure('Open Balance').textContent()) || '').trim()
+  expect(owed).toContain('2.40')
+  await button('Open Balance').click()
+  await expect(open).not.toContainText('Contact Ledger')
+  const unpaid = page.getByTestId('contact-unpaid').locator('tbody tr')
+  await expect(unpaid).toHaveCount(1, { timeout: 15000 })
+  await expect(unpaid.first().getByRole('link', { name: invoiceNumber })).toHaveAttribute('href', `/invoicing/invoices/${invoiceId}/edit`)
+  await expect(unpaid.first()).toContainText('Invoice')
+  await expect(page.getByTestId('contact-unpaid-total')).toContainText(owed)
+  await expect(page.getByTestId('contact-unpaid-capped')).toHaveCount(0)
+  await open.locator('.v-card-title .v-btn').click()
+  await expect(open).toHaveCount(0)
 
   // Movements: the delivery, the invoice's dispatch and the dispatch with no invoice.
   await expect(figure('Movements')).toHaveText('3')
