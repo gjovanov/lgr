@@ -10,7 +10,7 @@ import {
   createTestUser,
 } from '../helpers/factories'
 import { config } from 'config'
-import { AuditLog, BackupRun, Invoice, Org } from 'db/models'
+import { AuditLog, BackupRun, Invoice, Org, Product } from 'db/models'
 import { generateBackupKeyPair, unsealBundle } from 'services/biz/backup/backup-crypto'
 import {
   buildBundle, verifyBundle, readBundleManifest, tenantCollections, bundleDir, pruneBundles,
@@ -237,6 +237,103 @@ describe('the bundle (FR-13.12)', () => {
     expect(verified.ok).toBe(false)
     expect(verified.problems.join(' ')).toContain('Invoice')
   })
+})
+
+/**
+ * Catalogue rows varied enough that level 19 has real work to do. The same row ten thousand
+ * times compresses in no time, and would prove nothing about the bundle of a real org.
+ */
+async function seedVariedRows(org: { _id: unknown }, targetBytes: number): Promise<number> {
+  let seed = 694
+  const rnd = () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  const pick = <T>(a: T[]) => a[Math.floor(rnd() * a.length)]
+  const hex = (n: number) => Array.from({ length: n }, () => Math.floor(rnd() * 16).toString(16)).join('')
+  const KINDS = ['БОЛТ', 'ГАЙКА', 'ШАЙБА', 'ВИНТ', 'ДЮБЕЛ', 'ШПИЛКА', 'АНКЕР', 'СВРЕДЛО']
+  const NORMS = ['DIN 933', 'DIN 931', 'DIN 934', 'DIN 125', 'DIN 912', 'ISO 4017', 'DIN 985', 'DIN 603']
+
+  let bytes = 0
+  let rows = 0
+  let batch: Record<string, unknown>[] = []
+  while (bytes < targetBytes) {
+    const cost = +(rnd() * 12).toFixed(4)
+    const name = `${pick(KINDS)} ${pick(NORMS)} М${3 + Math.floor(rnd() * 30)}Х${6 + Math.floor(rnd() * 200)}`
+    const row = {
+      orgId: org._id,
+      sku: `BULK-${String(rows).padStart(6, '0')}`,   // unique per org, as the index wants
+      name,
+      nameLower: name.toLowerCase(),
+      barcode: String(Math.floor(rnd() * 1e13)),
+      unit: 'бр',
+      purchasePrice: cost,
+      sellingPrice: +(cost * 1.6).toFixed(4),
+      priceTiers: Array.from({ length: 10 }, (_, i) => ({
+        name: `Цена ${i + 1}`, percent: i * 5, finalPrice: +(cost * (1.6 - i * 0.05)).toFixed(4),
+      })),
+      description: hex(64),
+      isActive: true,
+      createdAt: new Date(1.75e12 + rnd() * 3e10),
+      updatedAt: new Date(1.78e12 + rnd() * 1e9),
+    }
+    bytes += Buffer.byteLength(JSON.stringify(row))
+    batch.push(row)
+    rows++
+    // Straight into the collection: twelve megabytes through the model's validators and hooks
+    // would cost more than the build this test is about.
+    if (batch.length === 1000) { await Product.collection.insertMany(batch, { ordered: false }); batch = [] }
+  }
+  if (batch.length) await Product.collection.insertMany(batch, { ordered: false })
+  return rows
+}
+
+describe('the process keeps answering while a bundle is built (#694)', () => {
+  /**
+   * ⚠ Level 19 over a whole org is seconds of work. Done in one synchronous call it is seconds in
+   * which this process answers nothing: no request, no WebSocket frame, no readiness probe. A pod
+   * left the Service for as long as one org's nightly bundle took to compress, and an offline
+   * master is one process, so there every till waits.
+   *
+   * A timer is the smallest thing that needs the event loop, so its longest silence is the stall
+   * a request would have felt. Two bounds, because each alone can pass for the wrong reason: the
+   * absolute one is the promise, and the relative one still fails on a machine fast enough to
+   * compress these rows in under a second.
+   */
+  it('a timer keeps ticking through the compression of a bundle of some megabytes', async () => {
+    const { org, orgId } = await seedOrg()
+    const rows = await seedVariedRows(org, 12 * 1024 * 1024)
+
+    let last = performance.now()
+    let longest = 0
+    const timer = setInterval(() => {
+      const now = performance.now()
+      longest = Math.max(longest, now - last)
+      last = now
+    }, 10)
+    const started = performance.now()
+    let built: Awaited<ReturnType<typeof buildBundle>>
+    try {
+      built = await buildBundle(orgId, { date: DAY })
+    } finally {
+      clearInterval(timer)
+    }
+    const took = performance.now() - started
+    // A silence that lasted to the very end never reached the timer's own callback.
+    longest = Math.max(longest, performance.now() - last)
+
+    expect(built.manifest.collections.find(c => c.name === 'Product')!.count).toBe(rows + 2)
+    expect(longest).toBeLessThan(1000)
+    expect(longest).toBeLessThan(took / 4)
+
+    // What the asynchronous call returns was put together from many output chunks, which no
+    // small bundle's artifact is. It must still be the bundle, whole and readable.
+    const verified = await verifyBundle(built.absolutePath, built.sha256)
+    expect(verified.ok).toBe(true)
+    expect(verified.documentCount).toBe(built.manifest.documentCount)
+  }, 120_000)
 })
 
 describe('the claim (FR-13.11)', () => {
