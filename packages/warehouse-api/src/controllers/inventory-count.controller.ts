@@ -4,6 +4,7 @@ import { InventoryCount } from 'db/models'
 import { getRepos } from 'services/context'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import { createNumberedMovement } from 'services/biz/movement-number'
+import { nextCountNumber } from 'services/biz/count-number'
 import { keepLease, takeLease } from 'services/biz/hot-path-key'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { clientCreate, clientUpdate } from 'services/biz/server-owned'
@@ -15,18 +16,18 @@ import { seesCosts } from 'config/access'
 /** FR-27.11.C.1: a count's lines without their cost for a role that does not see the costs. */
 const withoutCost = (user: any, lines: any[]) => (seesCosts(grantOf(user)) ? lines : lines.map(({ varianceCost: _cost, ...l }) => l))
 
-async function getNextCountNumber(orgId: string): Promise<string> {
-  const r = getRepos()
-  const year = new Date().getFullYear()
-  const prefix = `IC-${year}-`
-  const counts = await r.inventoryCounts.findMany(
-    { orgId, countNumber: { $regex: `^${prefix}` } } as any,
-    { countNumber: -1 },
-  )
-  if (!counts.length) return `${prefix}00001`
-  const currentNum = parseInt(counts[0].countNumber.replace(prefix, ''), 10)
-  return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
-}
+/**
+ * What an edit or a delete asks of a count: not completed, and not held by a completion under way (`leaseUntil`,
+ * taken by `POST /:id/complete`). In the write's own filter, so one that the completion overtook finds nothing.
+ * An edit that landed while a completion booked was overwritten by it; a delete left the adjustment without its
+ * count (#713).
+ */
+const openCount = (now = new Date()) => ({
+  status: { $ne: 'completed' },
+  $or: [{ leaseUntil: { $exists: false } }, { leaseUntil: null }, { leaseUntil: { $lt: now } }],
+})
+const heldNow = (count: any) => !!count?.leaseUntil && new Date(count.leaseUntil).getTime() > Date.now()
+const countBusy = (count: any) => ({ code: 'count_busy', message: `${count?.countNumber || 'This count'} is being completed right now — try again in a moment` })
 
 // A PUT never carries `orgId`: a document does not move between orgs (FR-20.7). `updateInOrg`
 // drops it too; this answers 422 instead of ignoring it. What else a body may not choose (the
@@ -109,9 +110,10 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
   .post('/', async ({ params, body, user }) => {
     const r = getRepos()
     const data = clientCreate('InventoryCount', body, { orgId: params.orgId, createdBy: user.id, status: 'in_progress' })
-    const countNumber = await getNextCountNumber(params.orgId)
     // FR-27.11.C.4: priced here, from the stock level's average cost; the body's figure is ignored.
     const lines = await priceCountLines(params.orgId, data.warehouseId, data.lines)
+    // Last, so a body that is refused above takes no number.
+    const countNumber = await nextCountNumber(params.orgId)
     const item = await r.inventoryCounts.create({ ...data, lines, orgId: params.orgId, createdBy: user.id, countNumber } as any)
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'inventory_count', entityId: item.id, entityName: countNumber })
@@ -129,11 +131,19 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
         message: `Inventory count ${(existing as any).countNumber} is completed and linked to movement ${(existing as any).adjustmentMovementId || '—'}. Create a new count to correct it.`,
       })
     }
+    if (heldNow(existing)) return status(409, countBusy(existing))
     // FR-27.11.C.4: priced here, from the stock level's average cost; the body's figure is ignored.
     const update: any = clientUpdate('InventoryCount', body, existing)
     if (Array.isArray(update.lines)) update.lines = await priceCountLines(params.orgId, update.warehouseId ?? (existing as any).warehouseId, update.lines)
-    const item = await r.inventoryCounts.updateInOrg(params.id, params.orgId, update, {}, { validate: true })
-    if (!item) return status(404, { message: 'Not found' })
+    const item = await r.inventoryCounts.updateInOrg(params.id, params.orgId, update, openCount(), { validate: true })
+    if (!item) {
+      // A completion took the count between the read above and this write.
+      const now = await r.inventoryCounts.findByIdInOrg(params.id, params.orgId)
+      if (!now) return status(404, { message: 'Not found' })
+      return status(409, now.status === 'completed'
+        ? { message: `Inventory count ${(now as any).countNumber} is completed and linked to movement ${(now as any).adjustmentMovementId || '—'}. Create a new count to correct it.` }
+        : countBusy(now))
+    }
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'inventory_count', entityId: params.id, entityName: (existing as any)?.countNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
 
@@ -150,7 +160,15 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
         message: `Inventory count ${(existing as any).countNumber} is completed and linked to movement ${(existing as any).adjustmentMovementId || '—'} — it can no longer be deleted.`,
       })
     }
-    if (!(await r.inventoryCounts.deleteInOrg(params.id, params.orgId))) return status(404, { message: 'Not found' })
+    if (heldNow(existing)) return status(409, countBusy(existing))
+    if (!(await r.inventoryCounts.deleteInOrg(params.id, params.orgId, openCount()))) {
+      // A completion took the count between the read above and this delete.
+      const now = await r.inventoryCounts.findByIdInOrg(params.id, params.orgId)
+      if (!now) return status(404, { message: 'Not found' })
+      return status(409, now.status === 'completed'
+        ? { message: `Inventory count ${(now as any).countNumber} is completed and linked to movement ${(now as any).adjustmentMovementId || '—'} — it can no longer be deleted.` }
+        : countBusy(now))
+    }
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'inventory_count', entityId: params.id, entityName: (existing as any)?.countNumber })
 
@@ -172,7 +190,7 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
       const now = await r.inventoryCounts.findOne({ id, orgId } as any)
       if (!now) return status(404, { message: 'Inventory count not found' })
       if (now.status === 'completed') return status(400, { message: 'Already completed' })
-      return status(409, { code: 'count_busy', message: `${found.countNumber} is being completed right now — try again in a moment` })
+      return status(409, countBusy(found))
     }
     // Booking a large count takes longer than one lease: renewed for as long as this runs.
     const stopRenewing = keepLease(InventoryCount, id)

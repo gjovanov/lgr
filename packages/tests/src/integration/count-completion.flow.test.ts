@@ -4,7 +4,9 @@ import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestProduct, createTestStockLevel, createTestUser, createTestWarehouse } from '../helpers/factories'
 import { inventoryCountController } from 'warehouse-api/src/controllers/inventory-count.controller'
+import { movementController } from 'warehouse-api/src/controllers/movement.controller'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { nextCountNumber } from 'services/biz/count-number'
 import { getRepos } from 'services/context'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
@@ -24,7 +26,7 @@ let app: Elysia
 
 beforeAll(async () => {
   await setupTestDB()
-  app = new Elysia().onError(spaErrorHandler({}) as any).use(inventoryCountController)
+  app = new Elysia().onError(spaErrorHandler({}) as any).use(inventoryCountController).use(movementController)
 }, 60_000)
 afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { await clearCollections() }, 30_000)
@@ -147,10 +149,110 @@ describe('a count is completed once', () => {
       lines: [{ productId: String(w.bolt._id), systemQuantity: 100, countedQuantity: 99, variance: -1 }],
     })
     expect([born.status, born.json?.code]).toEqual([422, 'server_owned_field'])
-    // A save while a completion holds the count leaves the hold where it is.
-    await InventoryCount.updateOne({ _id: id }, { $set: { leaseUntil: new Date(until) } })
-    const saved = await w.call('PUT', `/warehouse/inventory-count/${id}`, { notes: 'counted twice' })
-    expect(saved.status).toBe(200)
-    expect(new Date((await w.stored(id)).leaseUntil).toISOString()).toBe(until)
+  }, 60_000)
+
+  it('while a completion holds the count, an edit and a delete wait: neither is overwritten by it, nor leaves its adjustment alone (#713)', async () => {
+    const w = await world()
+    const id = await w.count(97)
+    const until = new Date(Date.now() + 3_600_000)
+    await InventoryCount.updateOne({ _id: id }, { $set: { leaseUntil: until } })
+    const edit = await w.call('PUT', `/warehouse/inventory-count/${id}`, { notes: 'counted twice' })
+    expect([edit.status, edit.json?.code]).toEqual([409, 'count_busy'])
+    const remove = await w.call('DELETE', `/warehouse/inventory-count/${id}`)
+    expect([remove.status, remove.json?.code]).toEqual([409, 'count_busy'])
+    const held = await w.stored(id)
+    expect([held.notes ?? null, held.status, new Date(held.leaseUntil).getTime()]).toEqual([null, 'in_progress', until.getTime()])
+
+    // The completion took the count between the edit's read and its write: the write finds nothing.
+    const repo = getRepos().inventoryCounts as any
+    const real = Object.getPrototypeOf(repo).findByIdInOrg
+    await InventoryCount.updateOne({ _id: id }, { $unset: { leaseUntil: 1 } })
+    let reads = 0
+    repo.findByIdInOrg = async function (...args: any[]) {
+      const found = await real.apply(repo, args)
+      if (reads++ === 0) await InventoryCount.updateOne({ _id: id }, { $set: { leaseUntil: until } })
+      return found
+    }
+    try {
+      const late = await w.call('PUT', `/warehouse/inventory-count/${id}`, { notes: 'too late' })
+      expect([late.status, late.json?.code]).toEqual([409, 'count_busy'])
+      reads = 0
+      await InventoryCount.updateOne({ _id: id }, { $unset: { leaseUntil: 1 } })
+      const lateRemove = await w.call('DELETE', `/warehouse/inventory-count/${id}`)
+      expect([lateRemove.status, lateRemove.json?.code]).toEqual([409, 'count_busy'])
+    } finally {
+      delete repo.findByIdInOrg
+    }
+    expect([(await w.stored(id))?.notes ?? null, (await w.stored(id))?.status]).toEqual([null, 'in_progress'])
+
+    // A hold that lapsed holds nothing back; a completed count is refused as it always was.
+    await InventoryCount.updateOne({ _id: id }, { $set: { leaseUntil: new Date(Date.now() - 1_000) } })
+    const after = await w.call('PUT', `/warehouse/inventory-count/${id}`, { notes: 'counted twice' })
+    expect([after.status, after.json?.inventoryCount?.notes]).toEqual([200, 'counted twice'])
+    expect((await w.complete(id)).status).toBe(200)
+    const done = await w.call('PUT', `/warehouse/inventory-count/${id}`, { notes: 'after the fact' })
+    expect([done.status, done.json?.code ?? null, /is completed/.test(done.json?.message)]).toEqual([409, null, true])
+    expect((await w.call('DELETE', `/warehouse/inventory-count/${id}`)).status).toBe(409)
+    const second = await w.count(96)
+    expect((await w.call('DELETE', `/warehouse/inventory-count/${second}`)).status).toBe(200)
+    expect(await w.stored(second)).toBeNull()
+  }, 60_000)
+})
+
+describe('a count has a number of its own (#713)', () => {
+  const year = new Date().getFullYear()
+  const ic = (n: number) => `IC-${year}-${String(n).padStart(5, '0')}`
+  const numbers = async (orgId: string) => ((await InventoryCount.find({ orgId }, { countNumber: 1 }).lean().exec()) as any[]).map(c => c.countNumber).sort()
+
+  it('five counts made at the same moment: five numbers, none twice, none skipped', async () => {
+    const w = await world()
+    const made = await Promise.all(Array.from({ length: 5 }, () => w.call('POST', '/warehouse/inventory-count', {
+      warehouseId: String(w.warehouse._id), date: '2026-10-21', type: 'partial',
+      lines: [{ productId: String(w.bolt._id), systemQuantity: 100, countedQuantity: 99, variance: -1 }],
+    })))
+    expect(made.map(m => m.status)).toEqual(Array(5).fill(200))
+    expect(made.map(m => m.json.inventoryCount.countNumber).sort()).toEqual([1, 2, 3, 4, 5].map(ic))
+    expect(await numbers(w.orgId)).toEqual([1, 2, 3, 4, 5].map(ic))
+  }, 60_000)
+
+  it('the counter starts after the counts numbered before it, follows one put in beside it, and is the org\'s own', async () => {
+    const w = await world()
+    const old = (countNumber: string) => InventoryCount.create({
+      orgId: w.orgId, countNumber, warehouseId: w.warehouse._id, date: new Date(), type: 'partial', status: 'completed',
+      completedAt: new Date(), lines: [], createdBy: w.user._id,
+    } as any)
+    // Seven counts from before the counter, one of last year's, one named by hand.
+    await old(ic(7))
+    await old(ic(3))
+    await old(`IC-${year - 1}-00042`)
+    await old('IC-TEST-00001')
+    expect(await nextCountNumber(w.orgId)).toBe(ic(8))
+    expect(await nextCountNumber(w.orgId)).toBe(ic(9))
+    // A restored or an imported count above the counter: the next one goes past it.
+    await old(ic(20))
+    expect(await nextCountNumber(w.orgId)).toBe(ic(21))
+    const other = await world()
+    expect(await nextCountNumber(other.orgId)).toBe(ic(1))
+  }, 60_000)
+
+  it('the count a manual adjustment makes for itself: two confirmed at the same moment, two numbers', async () => {
+    const w = await world()
+    await w.count(99) // IC-…-00001, made the ordinary way
+    const adjustment = async (quantity: number) => {
+      const made = await w.call('POST', '/warehouse/movement', {
+        type: 'adjustment', date: '2026-10-21', toWarehouseId: String(w.warehouse._id),
+        lines: [{ productId: String(w.bolt._id), quantity, unitCost: 5, totalCost: quantity * 5 }], totalAmount: quantity * 5,
+      })
+      expect(made.status).toBe(200)
+      return String(made.json.stockMovement.id || made.json.stockMovement._id)
+    }
+    const [one, two] = [await adjustment(2), await adjustment(3)]
+    const confirmed = await Promise.all([one, two].map(id => w.call('POST', `/warehouse/movement/${id}/confirm`, { createCount: true })))
+    expect(confirmed.map(c => c.status)).toEqual([200, 200])
+    expect(await numbers(w.orgId)).toEqual([1, 2, 3].map(ic))
+    // Each adjustment names its own count.
+    const linked = await Promise.all([one, two].map(async id => String(((await StockMovement.findById(id).lean().exec()) as any).inventoryCountId)))
+    expect(new Set(linked).size).toBe(2)
+    expect(await w.stock()).toBe(105)
   }, 60_000)
 })
