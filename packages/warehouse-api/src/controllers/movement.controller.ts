@@ -41,6 +41,9 @@ const MOVEMENT_SORT_BY_REF: Record<string, Record<string, unknown>[]> = {
   }),
 }
 
+/** An id no contact has: what a `contactId` that is no id is read as, so it finds nothing. */
+const NO_CONTACT = '000000000000000000000000'
+
 async function getNextMovementNumber(orgId: string): Promise<string> {
   const r = getRepos()
   const year = new Date().getFullYear()
@@ -129,6 +132,9 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     }
     if (query.type) filter.type = query.type
     if (query.status) filter.status = query.status
+    // The movements that name one contact (the contact form's Movements button). What is no id finds nothing: the
+    // button counts by the same field, and a list of everybody's movements under one contact's name is the wrong answer.
+    if (query.contactId !== undefined) filter.contactId = /^[0-9a-f]{24}$/i.test(String(query.contactId)) ? String(query.contactId) : NO_CONTACT
     if (query.warehouseId) {
       filter.$or = [
         { fromWarehouseId: query.warehouseId },

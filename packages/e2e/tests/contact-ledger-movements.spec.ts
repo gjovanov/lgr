@@ -176,3 +176,36 @@ for (const [form, path] of [['invoice', '/invoicing/invoices/new'], ['bill', '/i
     await expect(invoiceRow).toHaveCount(0)
   })
 }
+
+test('the contact form: its three buttons open their lists, and Movements lists the movements that name the contact', async ({ page }) => {
+  await loginForApp(page)
+  await page.goto(`/invoicing/contacts/${contactId}/edit`)
+  const button = (label: string) => page.locator('.smart-button').filter({ hasText: label })
+  const figure = (label: string) => button(label).locator('.font-weight-bold')
+  const open = page.locator('.v-dialog.v-overlay--active')
+  await expect(figure('Invoices')).toHaveText('1', { timeout: 15000 })
+
+  // Invoices and Open Balance open the contact's ledger: the invoice's line and the two movements no document
+  // carries, with nothing to tick (the form is the contact's own, not a document's).
+  for (const label of ['Invoices', 'Open Balance']) {
+    await button(label).click()
+    await expect(open).toContainText('Contact Ledger')
+    await expect(open.locator('.v-data-table tbody tr')).toHaveCount(3, { timeout: 15000 })
+    await expect(open.locator('.v-data-table').getByRole('checkbox')).toHaveCount(0)
+    await open.locator('.v-card-title .v-btn').click()
+    await expect(open).toHaveCount(0)
+  }
+
+  // Movements: the delivery, the invoice's dispatch and the dispatch with no invoice.
+  await expect(figure('Movements')).toHaveText('3')
+  await button('Movements').click()
+
+  const rows = page.getByTestId('contact-movements').locator('tbody tr')
+  await expect(rows).toHaveCount(3)
+  const own = rows.filter({ hasText: ownMovement })
+  await expect(own).toContainText('Dispatch')
+  await expect(own).toContainText(NOTE)
+  await expect(own.getByRole('link', { name: ownMovement })).toHaveAttribute('href', `/inventory/movements/${ownMovementId}`)
+  await expect(rows.filter({ hasText: invoiceMovement })).toContainText('Dispatch')
+  await expect(rows.filter({ hasText: delivery })).toContainText('Receipt')
+})
