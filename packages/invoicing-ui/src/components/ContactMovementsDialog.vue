@@ -29,7 +29,7 @@
             <v-chip size="x-small" label :color="typeColor(item.type)">{{ $t(`warehouse.movementTypes.${item.type}`, item.type) }}</v-chip>
           </template>
           <template #item.warehouse="{ item }">{{ [item.fromWarehouseName, item.toWarehouseName].filter(Boolean).join(' → ') }}</template>
-          <template #item.total="{ item }">{{ item.total === undefined ? '' : formatCurrency(item.total || 0) }}</template>
+          <template #item.total="{ item }">{{ formatCurrency(item.total || 0) }}</template>
         </v-data-table-server>
       </v-card-text>
 
@@ -64,6 +64,8 @@ const emit = defineEmits<{ 'update:modelValue': [v: boolean] }>()
 const { t } = useI18n()
 const { formatCurrency } = useCurrency()
 const opens = computed(() => useAccess().can('movements.view'))
+// FR-27.11.C.2: a movement's total is its lines' costs summed; the server sends it only with `products.costs`.
+const seesCosts = computed(() => useAccess().can('products.costs'))
 
 const items = ref<any[]>([])
 const total = ref(0)
@@ -77,7 +79,7 @@ const headers = computed(() => [
   { title: t('common.type'), key: 'type', sortable: false },
   { title: t('warehouse.warehouse'), key: 'warehouse', sortable: false },
   { title: t('invoicing.reference'), key: 'reference', sortable: false },
-  { title: t('common.total'), key: 'total', sortable: false, align: 'end' as const },
+  ...(seesCosts.value ? [{ title: t('common.total'), key: 'total', sortable: false, align: 'end' as const }] : []),
 ])
 
 async function fetch() {

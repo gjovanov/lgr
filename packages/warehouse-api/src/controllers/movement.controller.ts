@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
 import { can, grantOf } from 'services/biz/access/evaluate'
 import { seesBills } from 'services/biz/access/partition'
-import { redactMovementLine } from 'config/access'
+import { redactMovementLine, redactMovementTotals, seesCosts, sortsByMovementTotal } from 'config/access'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { confirmMovement, MovementClaimedError, MovementNotDraftError, unclaimedMovement } from 'services/biz/warehouse.service'
@@ -166,8 +166,13 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = (query.sortBy as string) || 'date'
-    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+    // FR-27.11.C.2/C.3: a movement's total is its lines' costs summed. A role without the costs is sent none, and
+    // does not order the list by it: asked to, the list comes in its usual order.
+    const grant = grantOf(user as any)
+    const asked = (query.sortBy as string) || 'date'
+    const usual = !seesCosts(grant) && sortsByMovementTotal(asked)
+    const sortBy = usual ? 'date' : asked
+    const sortOrder = !usual && (query.sortOrder as string) === 'asc' ? 1 : -1
 
     const byRef = MOVEMENT_SORT_BY_REF[sortBy]
     const result = byRef
@@ -225,7 +230,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       // Strip lines from list response (not needed for table, reduces payload)
       const { lines, ...rest } = m as any
       const bill = billing.get(String(m.id))?.invoice
-      return withoutBill(hidden, {
+      return redactMovementTotals(grant, withoutBill(hidden, {
         ...rest,
         lineCount: lines?.length || 0,
         number: m.movementNumber,
@@ -235,7 +240,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         contactName,
         ...(productQuantity !== undefined ? { productQuantity } : {}),
         ...(bill && !['voided', 'cancelled'].includes(bill.status) ? { bill: { id: bill.id, number: bill.number } } : {}),
-      })
+      }))
     })
 
     return { stockMovements, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages }
@@ -379,6 +384,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const productMap = new Map(products.map(p => [p.id, p]))
 
     // FR-27.11.C.1: no line's cost, and a receipt line's product update by the product's rule, for a role without them.
+    // C.2: nor the movement's total, which is those costs summed.
     const grant = grantOf(user as any)
     const lines = movement.lines.map(l => redactMovementLine(grant, {
       ...l,
@@ -393,7 +399,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       : { billable: false }
 
     const hidden = await hiddenBills(user, orgId, [movement])
-    return { stockMovement: withoutBill(hidden, { ...movement, number: movement.movementNumber, lines, ...billing }) }
+    return { stockMovement: redactMovementTotals(grant, withoutBill(hidden, { ...movement, number: movement.movementNumber, lines, ...billing })) }
   }, { isSignIn: true })
   .put(
     '/:id',

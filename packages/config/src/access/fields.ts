@@ -255,3 +255,22 @@ export function redactMovementLine<T extends Record<string, any>>(grant: Grant |
   if (!seesCosts(grant)) for (const f of [...MOVEMENT_COST_FIELDS, 'lineTotalCost', 'runningValue']) delete out[f]
   return out as T
 }
+
+/**
+ * FR-27.11.C.2: a movement's own total is the sum of its lines' costs, so it goes where they go. With one line it
+ * IS that line's cost. `totalAmount` as stored, `total` as the list names it. Absent, never blank; the same object
+ * when the role sees the costs.
+ */
+export const MOVEMENT_TOTAL_FIELDS = ['totalAmount', 'total'] as const
+
+export function redactMovementTotals<T extends Record<string, any>>(grant: Grant | null | undefined, movement: T): T {
+  if (!movement || seesCosts(grant)) return movement
+  const out: Record<string, any> = { ...movement }
+  for (const f of MOVEMENT_TOTAL_FIELDS) delete out[f]
+  return out as T
+}
+
+/** FR-27.11.C.3: the keys that order a movement list by that total. */
+export function sortsByMovementTotal(sortBy: string | null | undefined): boolean {
+  return (MOVEMENT_TOTAL_FIELDS as readonly string[]).includes(String(sortBy ?? '').trim())
+}

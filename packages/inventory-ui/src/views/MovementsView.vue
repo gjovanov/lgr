@@ -149,7 +149,7 @@
           <v-chip size="x-small" label :color="typeColor(item.type)">{{ typeLabel(item.type) }}</v-chip>
           <span v-if="item.contactName" class="text-caption">{{ item.contactName }}</span>
           <span class="text-caption text-medium-emphasis">{{ item.date?.split('T')[0] }}</span>
-          <span class="text-body-2 font-weight-medium">{{ fmtCurrency(item.total || 0) }}</span>
+          <span v-if="seesCosts" class="text-body-2 font-weight-medium" data-cap="products.costs">{{ fmtCurrency(item.total || 0) }}</span>
         </div>
       </template>
     </KanbanBoard>
@@ -220,6 +220,7 @@ import { useProductTypes } from 'ui-shared/composables/useProductTypes'
 import { appHref } from 'ui-shared/nav/navigate'
 import { isTransferOnly } from 'ui-shared/nav/page-registry'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { useAccess } from 'ui-shared/access/useAccess'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string; bill?: { id: string; number: string } }
 interface Warehouse { _id: string; name: string }
@@ -364,6 +365,8 @@ function onImported(results: any[]) {
   fetchItems()
 }
 
+const seesCosts = computed(() => useAccess().can('products.costs'))
+
 const headers = computed(() => [
   { title: '#', key: 'number', sortable: true },
   { title: t('common.type'), key: 'type' },
@@ -372,7 +375,8 @@ const headers = computed(() => [
   { title: t('warehouse.toWarehouse'), key: 'toWarehouseName' },
   { title: t('invoicing.contact'), key: 'contactName' },
   { title: t('common.status'), key: 'status' },
-  { title: t('common.total'), key: 'total', align: 'end' as const },
+  // FR-27.11.C.2: a movement's total is its lines' costs summed; the server sends it only with `products.costs`.
+  ...(seesCosts.value ? [{ title: t('common.total'), key: 'total', align: 'end' as const }] : []),
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
