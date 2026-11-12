@@ -2262,7 +2262,7 @@
     "addCustomPrice": "Add Custom Price",
     "basePrices": "Base Prices",
     "customPricesHelp": "Define custom prices for specific contacts or contact tags. Tag-based prices apply to all contacts with matching tags.",
-    "priceTiers": "Price Tiers (10 slots)",
+    "priceTiers": "Price Tiers ({count} slots)",
     "priceTiersHelp": "Each slot defaults to the selling price with no filters. Enter Name and Price (or %) to use it. Toggle filters to make a tier apply only to certain contacts, tags, quantities, or date ranges.",
     "finalPrice": "Final Price",
     "withProductUpdate": "With product update",
