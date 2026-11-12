@@ -3373,6 +3373,10 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     level is "Customer price", a hidden losing one is not named, D-13), `redactMovementLine` (a movement's lines by id,
     the product ledger), a count's `varianceCost`, an outgoing order's `expectedUnitPrice` (the order controller's
     `onAfterHandle`), `canSeeSupplierPrices` = `bills.view` and `products.costs`.
+  - **C.6 a document's stored price trail** (`priceExplanation`): `access/price-trails#withVisibleTrails` on every
+    answer of the invoice and the till controllers (their `onAfterHandle`), and on the draft the two order
+    conversions answer with (`lib/reservation-convert#conversionAnswer`: `/internal-orders/:id/convert`,
+    `/orders/:id/convert`). ⚠ A new route that answers an invoice from any other controller says it the same way.
   - **C.2 derived**: the contact ledger's row `purchasePrice` and its profitability, the dashboard's `stock.totalValue`
     (its tile is not drawn without it).
   - **C.3 sort**: both auth plugins refuse `?sortBy=` naming a level the role lacks (`sortAccessRefusal`, 403

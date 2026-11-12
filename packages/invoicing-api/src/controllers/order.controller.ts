@@ -31,6 +31,7 @@ import { canExport } from '../lib/export-access.js'
 import { generateOrderSheetXLSX } from 'reporting/excel/order-sheet.excel'
 import { generateOrderSheetPDF } from 'reporting/pdf/order-sheet.pdf'
 import type { OrderSheetCtx } from 'reporting/order-sheet.i18n'
+import { conversionAnswer } from '../lib/reservation-convert.js'
 
 // ── numbering ─────────────────────────────────────────────────────────────────
 // External orders get their own counters: issued ORDO-YYYY-NNNNN (key ORDER), drafts
@@ -812,7 +813,7 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
       createAuditEntry({ orgId, userId: user.id, action: 'convert', module: 'invoicing', entityType: 'order', entityId: id, entityName: order.orderNumber, changes: { invoice: { to: invoice.invoiceNumber } } })
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id || String(invoice._id), entityName: invoice.invoiceNumber })
 
-      return { invoice, waiting: plan.waiting }
+      return conversionAnswer(grantOf(user as any), invoice, plan.waiting)
     },
     { isSignIn: true, body: t.Object({ contactId: t.String() }) },
   )
