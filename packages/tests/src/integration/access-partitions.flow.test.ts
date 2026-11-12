@@ -7,7 +7,7 @@ import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
-import { Org, Role, User, type IUser } from 'db/models'
+import { Invoice, Org, Role, User, type IUser } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { forgetAccessModel } from 'services/biz/access/shadow'
@@ -138,6 +138,15 @@ describe('converting a quote makes a document of another kind, which the role mu
     expect(intoProforma.status).toBe(200)
     expect(intoProforma.json.invoice.type).toBe('proforma')
     expect(String(intoProforma.json.invoice.offerId)).toBe(docs.offer)
+  })
+
+  it('S-40: nor a proforma into an invoice, which the route did before: refused before anything is written', async () => {
+    const invoicesBefore = await Invoice.countDocuments({ orgId: org._id, type: 'invoice' }).exec()
+    const conv = await call('POST', `/invoices/${docs.proforma}/convert`, tokens.quoter, {})
+    expect(conv.status).toBe(403)
+    expect(conv.json.capabilities).toEqual(['sales-docs.create'])
+    expect((await call('GET', `/invoices/${docs.proforma}`, tokens.quoter)).json.invoice.status).toBe('draft')
+    expect(await Invoice.countDocuments({ orgId: org._id, type: 'invoice' }).exec()).toBe(invoicesBefore)
   })
 
   it('the counter, who reads no quote, converts none: a proforma is 404 to it', async () => {
