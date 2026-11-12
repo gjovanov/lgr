@@ -2,7 +2,8 @@ import { describe, it, expect } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  PERCENT_DECIMALS, PRICE_DECIMALS, formatFixed, marginOver, parseTyped, priceAtMargin, roundPercent, roundPrice, roundTo,
+  PERCENT_DECIMALS, PRICE_DECIMALS, cascadeTiers, followsPurchasePrice, formatFixed, marginOver, markFollowers, parseTyped, priceAtMargin,
+  roundPercent, roundPrice, roundTo,
 } from 'ui-shared/composables/price-precision'
 import { cascadePurchasePrice, seedFromProduct } from 'ui-shared/composables/gr-product-update'
 
@@ -123,8 +124,70 @@ describe('the goods receipt gives the article the price the product form gives i
   })
 })
 
+describe('which tiers a change of the purchase price moves', () => {
+  const tier = (percent: number, finalPrice: number, manualOverride = false) => ({ percent, finalPrice, manualOverride })
+
+  it('a tier follows when it is the purchase price plus its margin, to the cent, and is not fixed by hand', () => {
+    expect(followsPurchasePrice(tier(25, 12.5), 10)).toBe(true)
+    // Stored by the form before 2026-11-12, rounded to the cent: 0.0472 at 25 % is 0.059, kept as 0.06.
+    expect(followsPurchasePrice(tier(25, 0.06), 0.0472)).toBe(true)
+    expect(followsPurchasePrice(tier(25, 12.51), 10)).toBe(false)
+    // Fixed by hand, even at exactly its margin.
+    expect(followsPurchasePrice(tier(25, 12.5, true), 10)).toBe(false)
+  })
+
+  it('a slot the backfill filled does not: the selling price at a margin of 0', () => {
+    expect(followsPurchasePrice(tier(0, 15), 10)).toBe(false)
+    // Nor one of an article that has no purchase price yet.
+    expect(followsPurchasePrice(tier(0, 15), 0)).toBe(false)
+    // A new article's empty slots do: nothing at no purchase price.
+    expect(followsPurchasePrice(tier(0, 0), 0)).toBe(true)
+    expect(followsPurchasePrice(tier(0, 0), undefined)).toBe(true)
+  })
+
+  it('the purchase price moves: a follower to its margin over the new one, a fixed tier\'s margin, any other nothing', () => {
+    const tiers = [
+      { name: 'follows', ...tier(25, 12.5) },
+      { name: 'fixed', ...tier(100, 20, true) },
+      { name: 'backfilled', ...tier(0, 15) },
+      { name: 'imported', ...tier(10, 14.2) },
+    ]
+    markFollowers(tiers, 10)
+    expect(tiers.map((t: any) => t.followsPurchase)).toEqual([true, false, false, false])
+    cascadeTiers(tiers, 8)
+    expect(tiers.map(t => [t.name, t.finalPrice, t.percent])).toEqual([
+      ['follows', 10, 25],
+      ['fixed', 20, 150],
+      ['backfilled', 15, 0],
+      ['imported', 14.2, 10],
+    ])
+    // Again, from the new price: what followed still follows, what did not still does not.
+    cascadeTiers(tiers, 0.0472)
+    expect(tiers.map(t => t.finalPrice)).toEqual([0.059, 20, 15, 14.2])
+    // No purchase price moves nothing.
+    cascadeTiers(tiers, 0)
+    cascadeTiers(tiers, undefined)
+    expect(tiers.map(t => t.finalPrice)).toEqual([0.059, 20, 15, 14.2])
+  })
+
+  it('a new article: its empty slots follow the purchase price typed first, as they always did', () => {
+    const tiers = [{ ...tier(0, 0) }, { ...tier(0, 0) }]
+    markFollowers(tiers, 0)
+    cascadeTiers(tiers, 6)
+    expect(tiers.map(t => t.finalPrice)).toEqual([6, 6])
+  })
+})
+
 describe('the product form computes with the one rule', () => {
   const form = readFileSync(join(import.meta.dir, '../../../inventory-ui/src/views/ProductFormView.vue'), 'utf8')
+
+  it('moves its tiers by the shared cascade, and notes on load which of them follow', () => {
+    expect(form).toMatch(/function recomputeTiersFromPurchase\(\) \{\s*cascadeTiers\(priceTiers\.value, form\.purchasePrice\)\s*\}/)
+    expect(form).toContain('markFollowers(priceTiers.value, product?.purchasePrice)')
+    // The tiers are part of what the form holds, so an edit of a tier alone is an unsaved change.
+    expect(form).toContain('priceTiers: priceTiers.value }),')
+  })
+
   const pricing = form.slice(form.indexOf('<v-tabs-window-item value="pricing">'), form.indexOf('<!-- Inventory Settings -->'))
 
   it('rounds nothing by itself', () => {

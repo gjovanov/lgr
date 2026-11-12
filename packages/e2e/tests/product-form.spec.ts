@@ -72,6 +72,8 @@ const input = (scope: Page | Locator, testId: string) => scope.getByTestId(testI
 function tierRow(page: Page, name: string): Locator {
   return page.locator(`[data-testid="tier-row"][data-tier="${name}"]`)
 }
+/** The dialog a form with unsaved edits asks with before it lets go. */
+const leaveDialog = (page: Page) => page.locator('.v-dialog').filter({ hasText: 'Unsaved changes' })
 const percentOf = (row: Locator) => row.locator('.tier-percent input')
 const priceOf = (row: Locator) => row.locator('.tier-price input')
 
@@ -260,6 +262,118 @@ test('the tiers begin with the purchase price and the selling price: the same fi
   expect([tier('Цена 2').finalPrice, tier('Цена 2').percent, tier('Цена 2').manualOverride]).toEqual([20, 300, true])
   // The base rows are no slots of the article.
   expect(after.priceTiers.map((t: any) => t.name).sort()).toEqual([...TIER_NAMES].sort())
+})
+
+test('a tier the purchase price never set keeps its price when the purchase price moves', async ({ page }) => {
+  const product = await makeProduct({
+    purchasePrice: 10, sellingPrice: 15,
+    priceTiers: [
+      // Follows: the purchase price plus its margin.
+      { name: 'Цена 1', percent: 25, finalPrice: 12.5, manualOverride: false },
+      // A slot the backfill filled: the selling price, at a margin of 0.
+      { name: 'Цена 3', percent: 0, finalPrice: 15, manualOverride: false },
+      // A price an import wrote beside a margin it did not compute.
+      { name: 'Цена 4', percent: 10, finalPrice: 14.2, manualOverride: false },
+    ],
+  })
+  await loginForApp(page)
+  await openPricing(page, product)
+  // The title counts the slots the table shows (it said 10 for 13).
+  await expect(page.getByTestId('tier-title')).toHaveText(`Price Tiers (${TIER_NAMES.length} slots)`)
+
+  const purchase = input(page, 'base-purchase-price')
+  await purchase.fill('8')
+  await expect(priceOf(tierRow(page, 'Цена 1'))).toHaveValue('10.0000')
+  // These took the purchase price itself, a price nobody chose.
+  await expect(priceOf(tierRow(page, 'Цена 3'))).toHaveValue('15.0000')
+  await expect(percentOf(tierRow(page, 'Цена 3'))).toHaveValue('0.000')
+  await expect(priceOf(tierRow(page, 'Цена 4'))).toHaveValue('14.2000')
+  // A slot the article did not hold, which the form shows at the selling price.
+  await expect(priceOf(tierRow(page, 'Цена 5'))).toHaveValue('15.0000')
+
+  // A margin typed on such a tier is a margin over the purchase price: from then on it follows.
+  await percentOf(tierRow(page, 'Цена 3')).fill('50')
+  await expect(priceOf(tierRow(page, 'Цена 3'))).toHaveValue('12.0000')
+  await purchase.fill('6')
+  await expect(priceOf(tierRow(page, 'Цена 3'))).toHaveValue('9.0000')
+  await expect(priceOf(tierRow(page, 'Цена 1'))).toHaveValue('7.5000')
+  await expect(priceOf(tierRow(page, 'Цена 4'))).toHaveValue('14.2000')
+
+  await save(page)
+  const after = await stored(product._id)
+  const tier = (name: string) => after.priceTiers.find((t: any) => t.name === name)
+  expect(after.purchasePrice).toBe(6)
+  expect([tier('Цена 1').finalPrice, tier('Цена 1').percent]).toEqual([7.5, 25])
+  expect([tier('Цена 3').finalPrice, tier('Цена 3').percent, tier('Цена 3').manualOverride]).toEqual([9, 50, false])
+  expect([tier('Цена 4').finalPrice, tier('Цена 4').percent, tier('Цена 4').manualOverride]).toEqual([14.2, 10, false])
+  expect(tier('Цена 5').finalPrice).toBe(15)
+})
+
+test('an edit of a tier alone is an unsaved change, and so is an edit made after a save', async ({ page }) => {
+  const product = await makeProduct({ purchasePrice: 10, sellingPrice: 15, priceTiers: [{ name: 'Цена 1', percent: 25, finalPrice: 12.5, manualOverride: false }] })
+  await loginForApp(page)
+  await openPricing(page, product)
+  // Untouched, the form lets go without a word.
+  await page.getByTestId('form-back').click()
+  await expect(page).toHaveURL(/\/inventory\/products(\?|$)/)
+  await expect(page.getByText('Unsaved changes', { exact: true })).toHaveCount(0)
+
+  await openPricing(page, product)
+  await priceOf(tierRow(page, 'Цена 1')).fill('13')
+  await page.getByTestId('form-back').click()
+  // It used to leave here too: the tiers were not among what the form compared.
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible()
+
+  // Stay and save. The form stays open on what it saved, and an edit from there is unsaved again: after its first
+  // save the form used to let every later edit go without a word.
+  await leaveDialog(page).getByRole('button', { name: /^cancel$/i }).click()
+  await expect(page.getByText('Unsaved changes', { exact: true })).toHaveCount(0)
+  await save(page)
+  expect((await stored(product._id)).priceTiers.find((t: any) => t.name === 'Цена 1').finalPrice).toBe(13)
+  await priceOf(tierRow(page, 'Цена 1')).fill('14')
+  await page.getByTestId('form-back').click()
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible()
+})
+
+test('a new article opens as itself once saved, and what is edited there is an unsaved change', async ({ page }) => {
+  const category = await ensureProductCategory()
+  const s = stamp()
+  await loginForApp(page)
+  await page.goto('/inventory/products/new/edit')
+  await page.getByRole('textbox', { name: /^sku$/i }).fill(`E2E-PF-AFTER-${s}`)
+  await page.getByRole('textbox', { name: /^name$/i }).fill(`E2E product form after save ${s}`)
+  await openSelect(page, /category/i)
+  await page.getByRole('combobox', { name: /category/i }).fill(category)
+  await page.getByRole('option', { name: category, exact: true }).first().click()
+  await save(page)
+  await page.waitForURL(/\/inventory\/products\/[0-9a-f]{24}\/edit$/)
+  made.push(page.url().split('/').at(-2)!)
+
+  await page.getByRole('textbox', { name: /^name$/i }).fill(`E2E product form after save ${s} B`)
+  await page.getByTestId('form-back').click()
+  await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible()
+})
+
+test('a new article with no category is told so on the field, and nothing is sent', async ({ page }) => {
+  const s = stamp()
+  await loginForApp(page)
+  const posts: string[] = []
+  page.on('request', (r) => { if (r.method() === 'POST' && /\/warehouse\/product$/.test(new URL(r.url()).pathname)) posts.push(r.url()) })
+  await page.goto('/inventory/products/new/edit')
+  await page.getByRole('textbox', { name: /^sku$/i }).fill(`E2E-PF-NOCAT-${s}`)
+  await page.getByRole('textbox', { name: /^name$/i }).fill(`E2E product form no category ${s}`)
+  await page.getByRole('button', { name: /^save$/i }).first().click()
+  // The route refuses an article without a category; the save used to go and come back as an error.
+  await expect(page.getByTestId('product-category').locator('.v-messages__message')).toBeVisible()
+  await expect(page).toHaveURL(/\/inventory\/products\/new\/edit$/)
+
+  // Asked from another tab, the save comes back to the field that stops it.
+  await page.getByRole('tab', { name: /pricing/i }).click()
+  await expect(page).toHaveURL(/\/inventory\/products\/new\/pricing$/)
+  await page.getByRole('button', { name: /^save$/i }).first().click()
+  await expect(page).toHaveURL(/\/inventory\/products\/new\/edit$/)
+  await expect(page.getByTestId('product-category').locator('.v-messages__message')).toBeVisible()
+  expect(posts).toEqual([])
 })
 
 test('a price keeps four decimals and a margin three, shown in full', async ({ page }) => {
