@@ -1326,10 +1326,16 @@ LGR implements СУПТО (Софтуер за Управление на Про�
     receipt, an import, a transfer and a count each read the latest themselves, and two made at once answered
     one of them a 500. `unit/movement-number-source.test.ts` fails when another source builds the number.
     What runs inside the write runs again, so it is the insert alone or one transaction around it.
+    The numbers are TEXT in the index (`…-99999` sorts after `…-100000`), so the latest is read per width, the
+    widest last (#714): read as one list it stopped at 99999 and nothing more was booked that year.
   - ⚠ That collision was also all that kept two completions of ONE inventory count at the same moment from both
     booking its adjustment. `POST /warehouse/inventory-count/:id/complete` now holds its count while it books
     (`leaseUntil`, the lease of `services/biz/hot-path-key`, renewed while a large count runs); a second request
-    answers 409 `count_busy`, and the list's Complete button takes one click (`integration/count-completion.flow`).
+    answers 409 `count_busy`, and so do an edit and a delete of a held count, in the write's own filter. The
+    list's Complete button takes one click (`integration/count-completion.flow`).
+  - A count's own number (`IC-<year>-NNNNN`) is the org's `IC` counter (`services/biz/count-number.ts`, #713),
+    pulled past the highest number a count already holds before each `$inc`. It was latest + 1 with no unique
+    index beside it: counts made at the same moment were saved under one number, silently.
 - **The two-hour rule (Прил. 29 т. 8, FR-20.49, `fiscal/device-reach.ts`):** in SUPTO production mode a NEW fiscal
   sale answers 409 `fiscal_device_unreached` when none of the warehouse's active devices was reached within 2 h
   AND none answers a status read now. A keyed retry is a sale that already opened and is never refused. The same

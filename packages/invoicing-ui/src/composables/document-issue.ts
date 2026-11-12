@@ -51,6 +51,15 @@ export function checksStockOnIssue(doc: { direction?: string; type?: string }): 
   return doc.direction === 'outgoing' && !isQuoteType(doc.type) && doc.type !== 'credit_note'
 }
 
+/**
+ * Whether issuing asks the person to confirm the payment method first (owner, 2026-11-12): an outgoing invoice, whose
+ * method decides what is booked and, at a till, what prints (FR-23: cash prints a fiscal receipt at the counter). The
+ * question is asked of the document AS STORED, after the form has saved it: the method it will be issued with.
+ */
+export function confirmsPaymentOnIssue(doc: { direction?: string; type?: string }): boolean {
+  return doc.direction === 'outgoing' && doc.type === 'invoice'
+}
+
 /** FR-22.14: the message names the document that was issued — a credit note is not „Фактурата". */
 export const ISSUED_KEY: Record<string, string> = {
   invoice: 'invoicing.invoiceSent',

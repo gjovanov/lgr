@@ -81,6 +81,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -199,7 +200,7 @@ function positionOverlay() {
   }
 }
 
-const fmtQty = (n: number) => new Intl.NumberFormat(localeCode.value, { maximumFractionDigits: 3 }).format(n || 0)
+const fmtQty = (n: number) => numberFormat(localeCode.value, { maximumFractionDigits: 3 }).format(n || 0)
 
 /** FR-28.24: the hit's second line — SKU · unit · stock · price. The stock fills in when its call has answered. */
 function hitLine(p: Product): string {

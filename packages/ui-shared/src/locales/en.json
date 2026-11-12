@@ -1625,7 +1625,12 @@
       "saveAndIssue": "Save and issue",
       "notIssued": "Not issued — the document is still a draft: {reason}",
       "notIssuedStock": "not enough stock, and the transfer was not confirmed",
-      "printOptions": "Print with options…"
+      "printOptions": "Print with options…",
+      "confirmPayment": {
+        "title": "Issue {number}?",
+        "text": "Are you sure you want to issue it with this payment method?",
+        "none": "No payment method"
+      }
     },
     "proformaIssued": "Proforma issued successfully",
     "offerIssued": "Offer issued successfully",
@@ -1654,7 +1659,8 @@
       "byPerson": "A cash sale or a note is corrected by a person",
       "preparedToast": "The credit note and the re-issue are prepared as drafts",
       "failed": "It could not be prepared."
-    }
+    },
+    "unitFromProduct": "The article's own unit"
   },
   "pos": {
     "cartEmpty": "Cart is empty",
