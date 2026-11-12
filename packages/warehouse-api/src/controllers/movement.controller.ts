@@ -8,6 +8,7 @@ import { getRepos } from 'services/context'
 import { confirmMovement, MovementClaimedError, MovementNotDraftError, unclaimedMovement } from 'services/biz/warehouse.service'
 import { DocFile, Invoice, StockMovement } from 'db/models'
 import { createMovementWithProductUpdates, updateMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
+import { createNumberedMovement, withMovementNumber } from 'services/biz/movement-number'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { buildProductListFilter, hasProductListFilter, productIdsMatching } from 'services/biz/product-list-filter'
@@ -44,21 +45,8 @@ const MOVEMENT_SORT_BY_REF: Record<string, Record<string, unknown>[]> = {
 /** An id no contact has: what a `contactId` that is no id is read as, so it finds nothing. */
 const NO_CONTACT = '000000000000000000000000'
 
-async function getNextMovementNumber(orgId: string): Promise<string> {
-  const r = getRepos()
-  const year = new Date().getFullYear()
-  const prefix = `SM-${year}-`
-  const movements = await r.stockMovements.findMany(
-    { orgId, movementNumber: { $regex: `^${prefix}` } } as any,
-    { movementNumber: -1 },
-  )
-  if (!movements.length) return `${prefix}00001`
-  const currentNum = parseInt(movements[0].movementNumber.replace(prefix, ''), 10)
-  return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
-}
-
-// Same max+1 scheme the inventory-count controller uses (deliberately duplicated, like
-// getNextMovementNumber itself — these counters predate the Sequence registry).
+// Same max+1 scheme the inventory-count controller uses (deliberately duplicated — this counter
+// predates the Sequence registry). A movement's own number is `services/biz/movement-number`.
 async function getNextCountNumber(orgId: string): Promise<string> {
   const r = getRepos()
   const year = new Date().getFullYear()
@@ -258,15 +246,13 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       const misfit = movementWarehouseRefusal(body)
       if (misfit) return status(422, misfit)
 
-      const movementNumber = body.movementNumber || await getNextMovementNumber(orgId)
-
-      const movement = await r.stockMovements.create({
-        ...body,
-        orgId,
-        movementNumber,
-        status: 'draft',
-        createdBy: user.id,
-      } as any)
+      // A number the caller chose is saved or refused as it is. Otherwise the org's next one, and when another
+      // movement took that at the same moment, the one after it (`createNumberedMovement`).
+      const draft = { ...body, status: 'draft', createdBy: user.id }
+      const movement = body.movementNumber
+        ? await r.stockMovements.create({ ...draft, orgId } as any)
+        : await createNumberedMovement(r, orgId, draft)
+      const movementNumber = movement.movementNumber
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'stock_movement', entityId: movement.id, entityName: movementNumber })
 
@@ -315,12 +301,19 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       if (transferOnly(user)) return status(403, TRANSFER_ONLY)
       const misfit = movementWarehouseRefusal(body)
       if (misfit) return status(422, misfit)
-      const movementNumber = body.movementNumber || await getNextMovementNumber(orgId)
-      try {
-        const { movementId, updatedProductIds } = await createMovementWithProductUpdates(
+      // The product updates and the movement are one transaction, so a number another movement took at the same
+      // moment undoes both, and both are written again under the next number.
+      const write = async (movementNumber: string) => ({
+        movementNumber,
+        ...await createMovementWithProductUpdates(
           { ...body, orgId, movementNumber, createdBy: user.id } as any,
           (body.productUpdates || []) as any,
-        )
+        ),
+      })
+      try {
+        const { movementId, movementNumber, updatedProductIds } = body.movementNumber
+          ? await write(body.movementNumber)
+          : await withMovementNumber(orgId, write)
         // Audit log: one entry per product update, all tied to the movement via correlationId.
         for (const pid of updatedProductIds) {
           createAuditEntry({

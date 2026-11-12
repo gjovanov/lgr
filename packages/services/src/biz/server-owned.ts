@@ -63,8 +63,8 @@ export const SERVER_OWNED = {
   Payslip: ['engine', 'sealed'],
   // Stamped by the controller when the status becomes `approved`.
   Timesheet: ['approvedBy'],
-  // Inventory. `completed` is `POST /:id/complete`, which books the adjustment it links.
-  InventoryCount: ['countNumber', 'createdBy', 'status', 'completedBy', 'completedAt', 'adjustmentMovementId'],
+  // Inventory. `completed` is `POST /:id/complete`, which books the adjustment it links, under a hold it takes.
+  InventoryCount: ['countNumber', 'createdBy', 'status', 'completedBy', 'completedAt', 'adjustmentMovementId', 'leaseUntil'],
   // Follows `isActive`: set by the controller.
   PriceList: ['deactivatedAt'],
 } as const satisfies Record<string, readonly string[]>

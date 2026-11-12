@@ -15,6 +15,7 @@
 import { Product, ProductCategory, StockMovement } from 'db/models'
 import { getRepos } from '../../context.js'
 import { confirmMovement } from '../warehouse.service.js'
+import { createNumberedMovement } from '../movement-number.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { buildTiers, repriceTiers, PROTECTED_TIERS } from './map-movement.js'
 import { findSeparatorTwins } from './matching.js'
@@ -144,20 +145,6 @@ export async function createMissingProducts(
   return out
 }
 
-/** `SM-<year>-NNNNN`, continuing the org's movement sequence. */
-async function nextMovementNumber(orgId: string): Promise<string> {
-  const r = getRepos()
-  const year = new Date().getFullYear()
-  const prefix = `SM-${year}-`
-  const movements = await r.stockMovements.findMany(
-    { orgId, movementNumber: { $regex: `^${prefix}` } } as any,
-    { movementNumber: -1 },
-  )
-  if (!movements.length) return `${prefix}00001`
-  const currentNum = parseInt(movements[0].movementNumber.replace(prefix, ''), 10)
-  return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
-}
-
 export interface PersistMovementResult {
   id: string
   movementNumber: string
@@ -257,10 +244,8 @@ export async function persistMovement(
     )
   }
 
-  const movementNumber = await nextMovementNumber(orgId)
-  const movement: any = await r.stockMovements.create({
-    orgId,
-    movementNumber,
+  // `SM-<year>-NNNNN`, continuing the org's movement sequence, whoever else books at this moment.
+  const movement: any = await createNumberedMovement(r, orgId, {
     type: mapped.type,
     status: 'draft',
     date: mapped.date ? new Date(mapped.date) : new Date(),
@@ -281,7 +266,8 @@ export async function persistMovement(
     })),
     totalAmount: +usable.reduce((s, l) => s + l.quantity * l.unitCost, 0).toFixed(2),
     createdBy: userId,
-  } as any)
+  })
+  const movementNumber: string = movement.movementNumber
 
   const id = String(movement.id || movement._id)
   let status = 'draft'

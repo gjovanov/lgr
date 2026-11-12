@@ -1,7 +1,10 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
+import { InventoryCount } from 'db/models'
 import { getRepos } from 'services/context'
 import { confirmMovement } from 'services/biz/warehouse.service'
+import { createNumberedMovement } from 'services/biz/movement-number'
+import { keepLease, takeLease } from 'services/biz/hot-path-key'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { clientCreate, clientUpdate } from 'services/biz/server-owned'
 import { buildSearchFilter } from 'services/biz/search.utils'
@@ -22,19 +25,6 @@ async function getNextCountNumber(orgId: string): Promise<string> {
   )
   if (!counts.length) return `${prefix}00001`
   const currentNum = parseInt(counts[0].countNumber.replace(prefix, ''), 10)
-  return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
-}
-
-async function getNextMovementNumber(orgId: string): Promise<string> {
-  const r = getRepos()
-  const year = new Date().getFullYear()
-  const prefix = `SM-${year}-`
-  const movements = await r.stockMovements.findMany(
-    { orgId, movementNumber: { $regex: `^${prefix}` } } as any,
-    { movementNumber: -1 },
-  )
-  if (!movements.length) return `${prefix}00001`
-  const currentNum = parseInt(movements[0].movementNumber.replace(prefix, ''), 10)
   return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
 }
 
@@ -170,68 +160,89 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
-    const doc = await r.inventoryCounts.findOne({ id, orgId } as any)
-    if (!doc) return status(404, { message: 'Inventory count not found' })
-    if (doc.status === 'completed') return status(400, { message: 'Already completed' })
+    const found = await r.inventoryCounts.findOne({ id, orgId } as any)
+    if (!found) return status(404, { message: 'Inventory count not found' })
+    if (found.status === 'completed') return status(400, { message: 'Already completed' })
 
-    // FR-27.11.C.4: priced again now, at the average cost the adjustment is booked against.
-    const priced = await priceCountLines(orgId, doc.warehouseId, doc.lines as any[])
-    ;(doc as any).lines = priced
-    // Build adjustment lines for products with non-zero variance
-    const varianceLines = priced.filter(line => line.variance !== 0)
+    // ⚠ One completion of a count at a time. It reads "not completed", books the adjustment and only then writes
+    // "completed": with nothing held between, a second request in that gap (the list's button clicked again while
+    // a large count was still being booked) booked the adjustment again, and the stock was corrected twice. Two
+    // at the very same moment used to be kept apart only by colliding on the adjustment's number.
+    if (!await takeLease(InventoryCount, orgId, id)) {
+      const now = await r.inventoryCounts.findOne({ id, orgId } as any)
+      if (!now) return status(404, { message: 'Inventory count not found' })
+      if (now.status === 'completed') return status(400, { message: 'Already completed' })
+      return status(409, { code: 'count_busy', message: `${found.countNumber} is being completed right now — try again in a moment` })
+    }
+    // Booking a large count takes longer than one lease: renewed for as long as this runs.
+    const stopRenewing = keepLease(InventoryCount, id)
+    try {
+      // The count as it stands under the hold.
+      const doc = await r.inventoryCounts.findOne({ id, orgId } as any)
+      if (!doc) return status(404, { message: 'Inventory count not found' })
 
-    let adjustmentMovementId: string | undefined
-    if (varianceLines.length > 0) {
-      const movementNumber = await getNextMovementNumber(orgId)
-      const totalAmount = varianceLines.reduce((s, l) => s + Math.abs(l.varianceCost), 0)
+      // FR-27.11.C.4: priced again now, at the average cost the adjustment is booked against.
+      const priced = await priceCountLines(orgId, doc.warehouseId, doc.lines as any[])
+      ;(doc as any).lines = priced
+      // Build adjustment lines for products with non-zero variance
+      const varianceLines = priced.filter(line => line.variance !== 0)
 
-      const movement = await r.stockMovements.create({
-        orgId,
-        movementNumber,
-        type: 'adjustment',
-        status: 'draft',
-        date: new Date(),
-        toWarehouseId: doc.warehouseId,
-        lines: varianceLines.map(l => {
-          const absCost = l.varianceCost !== 0 && l.variance !== 0
-            ? Math.abs(l.varianceCost / l.variance)
-            : 0
-          return {
-            productId: l.productId,
-            quantity: l.variance,
-            unitCost: absCost,
-            totalCost: Math.abs(l.varianceCost),
+      let adjustmentMovementId: string | undefined
+      if (varianceLines.length > 0) {
+        const totalAmount = varianceLines.reduce((s, l) => s + Math.abs(l.varianceCost), 0)
+
+        const movement = await createNumberedMovement(r, orgId, {
+          type: 'adjustment',
+          status: 'draft',
+          date: new Date(),
+          toWarehouseId: doc.warehouseId,
+          lines: varianceLines.map(l => {
+            const absCost = l.varianceCost !== 0 && l.variance !== 0
+              ? Math.abs(l.varianceCost / l.variance)
+              : 0
+            return {
+              productId: l.productId,
+              quantity: l.variance,
+              unitCost: absCost,
+              totalCost: Math.abs(l.varianceCost),
+            }
+          }),
+          totalAmount,
+          notes: `Inventory count adjustment for ${doc.countNumber}`,
+          // FR-04 (#11): back-link makes the pair bidirectional AND tells the movement
+          // confirm endpoint this adjustment already has its count (no auto-creation).
+          inventoryCountId: doc.id,
+          createdBy: user.id,
+        })
+
+        await confirmMovement(movement.id, r)
+        adjustmentMovementId = movement.id
+      } else {
+        // No variance — update lastCountDate on stock levels
+        for (const line of doc.lines) {
+          const sl = await r.stockLevels.findOne({ orgId, productId: line.productId, warehouseId: doc.warehouseId } as any)
+          if (sl) {
+            await r.stockLevels.update(sl.id, { lastCountDate: new Date() } as any)
           }
-        }),
-        totalAmount,
-        notes: `Inventory count adjustment for ${doc.countNumber}`,
-        // FR-04 (#11): back-link makes the pair bidirectional AND tells the movement
-        // confirm endpoint this adjustment already has its count (no auto-creation).
-        inventoryCountId: doc.id,
-        createdBy: user.id,
-      } as any)
-
-      await confirmMovement(movement.id, r)
-      adjustmentMovementId = movement.id
-    } else {
-      // No variance — update lastCountDate on stock levels
-      for (const line of doc.lines) {
-        const sl = await r.stockLevels.findOne({ orgId, productId: line.productId, warehouseId: doc.warehouseId } as any)
-        if (sl) {
-          await r.stockLevels.update(sl.id, { lastCountDate: new Date() } as any)
         }
       }
+
+      const completed = await r.inventoryCounts.updateInOrg(id, orgId, {
+        lines: priced,
+        status: 'completed',
+        completedAt: new Date(),
+        completedBy: user.id,
+        ...(adjustmentMovementId ? { adjustmentMovementId } : {}),
+      } as any)
+
+      createAuditEntry({ orgId, userId: user.id, action: 'complete', module: 'warehouse', entityType: 'inventory_count', entityId: id, entityName: doc.countNumber })
+
+      const { leaseUntil: _held, ...answer } = (completed ?? {}) as any
+      return { inventoryCount: completed && { ...answer, lines: withoutCost(user, answer.lines ?? []) } }
+    } finally {
+      // The hold goes when the completion ends. Completed, nothing takes one on this count again; failed, the
+      // count is given back at once and the completion can be asked for again without waiting the hold out.
+      stopRenewing()
+      await InventoryCount.updateOne({ _id: id, orgId }, { $unset: { leaseUntil: 1 } }).exec().catch(() => undefined)
     }
-
-    const completed = await r.inventoryCounts.updateInOrg(id, orgId, {
-      lines: priced,
-      status: 'completed',
-      completedAt: new Date(),
-      completedBy: user.id,
-      ...(adjustmentMovementId ? { adjustmentMovementId } : {}),
-    } as any)
-
-    createAuditEntry({ orgId, userId: user.id, action: 'complete', module: 'warehouse', entityType: 'inventory_count', entityId: id, entityName: doc.countNumber })
-
-    return { inventoryCount: completed && { ...(completed as any), lines: withoutCost(user, (completed as any).lines ?? []) } }
   }, { isSignIn: true })

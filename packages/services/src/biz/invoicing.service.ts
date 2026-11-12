@@ -5,6 +5,7 @@ import { getRepos } from '../context.js'
 import { confirmMovement } from './warehouse.service.js'
 import { loadAllocationSupply } from './reservation.service.js'
 import { restoreCostLayers } from './costing.service.js'
+import { createNumberedMovement } from './movement-number.js'
 import { logger } from '../logger/logger.js'
 
 export async function recordPayment(
@@ -104,40 +105,6 @@ export function calculateInvoiceTotals(
     discountTotal,
     taxTotal,
     total: subtotal - discountTotal + taxTotal,
-  }
-}
-
-export async function getNextMovementNumber(orgId: string, repos: RepositoryRegistry): Promise<string> {
-  const year = new Date().getFullYear()
-  const prefix = `SM-${year}-`
-  // The latest one only: listing every movement of the year to read the first was the cost of a
-  // number in an org with thousands of them.
-  const latest = await repos.stockMovements.findAll(
-    { orgId, movementNumber: { $regex: `^${prefix}` } } as any,
-    { page: 0, size: 1, sort: { movementNumber: -1 } },
-  )
-  const currentNum = parseInt(String(latest.items[0]?.movementNumber ?? '').slice(prefix.length), 10)
-  return `${prefix}${String((Number.isFinite(currentNum) ? currentNum : 0) + 1).padStart(5, '0')}`
-}
-
-/**
- * Create a stock movement under the org's next `SM-<year>-NNNNN`: the latest number + 1, as every
- * movement path numbers them.
- *
- * "Latest + 1" is read-then-write, so another till or an import booking at the same moment can
- * take the number first. A duplicate is retried under a fresh number rather than failing the
- * booking. (The till did this on its own until FR-21 moved it onto this path: two tills selling at
- * once would otherwise lose one sale's stock to the unique index.)
- */
-export async function createNumberedMovement(repos: RepositoryRegistry, orgId: string, data: Record<string, any>): Promise<any> {
-  for (let attempt = 1; ; attempt++) {
-    const movementNumber = await getNextMovementNumber(orgId, repos)
-    try {
-      return await repos.stockMovements.create({ ...data, orgId, movementNumber } as any)
-    } catch (e: any) {
-      if (e?.code !== 'DUPLICATE' || attempt >= 5) throw e
-      logger.warn({ orgId, movementNumber, attempt }, 'Stock movement number already taken, retrying')
-    }
   }
 }
 

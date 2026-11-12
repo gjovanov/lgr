@@ -1,5 +1,6 @@
 import { StockMovement, type IStockMovement } from 'db/models'
 import { BaseDao } from '../base.dao.js'
+import { nextMovementNumber } from '../../biz/movement-number.js'
 
 class StockMovementDaoClass extends BaseDao<IStockMovement> {
   constructor() {
@@ -21,18 +22,12 @@ class StockMovementDaoClass extends BaseDao<IStockMovement> {
       .exec()
   }
 
+  /**
+   * The org's next number: read, not reserved. Nothing in the app numbers a movement by this any more (it writes
+   * through `biz/movement-number`, which tries again when the number is taken); the tests' fixtures still do.
+   */
   async getNextMovementNumber(orgId: string): Promise<string> {
-    const year = new Date().getFullYear()
-    const prefix = `SM-${year}-`
-    const latest = await this.model
-      .findOne({ orgId, movementNumber: { $regex: `^${prefix}` } })
-      .sort({ movementNumber: -1 })
-      .exec()
-    if (!latest) {
-      return `${prefix}00001`
-    }
-    const currentNum = parseInt(latest.movementNumber.replace(prefix, ''), 10)
-    return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
+    return nextMovementNumber(orgId)
   }
 }
 

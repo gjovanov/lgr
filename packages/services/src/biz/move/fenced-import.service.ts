@@ -37,7 +37,8 @@ import { getRepos } from '../../context.js'
 import { logger } from '../../logger/logger.js'
 import { postInvoiceJournal, postPaymentJournal, postPosSessionJournal } from '../../events/handlers.js'
 import { createAuditEntry, recordAuditEntry } from '../audit-log.service.js'
-import { createInvoiceStockMovement, getNextMovementNumber } from '../invoicing.service.js'
+import { createInvoiceStockMovement } from '../invoicing.service.js'
+import { withMovementNumber } from '../movement-number.js'
 import { draftSequenceKeyFor, getNextDraftInvoiceNumber, sequenceKeyFor } from '../invoice-numbering.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
 import { ensureSequenceAtLeast } from '../sequence.service.js'
@@ -348,10 +349,14 @@ export async function importMovement(ctx: Ctx, doc: Doc, listed: ReadonlySet<str
     const taken = await StockMovement.collection.findOne({ orgId: ctx.org, movementNumber: doc.movementNumber, _id: { $ne: doc._id } } as any, { projection: { _id: 1 } })
     // A movement number is no legal number: one lgrai.app has since used is given the next.
     if (taken) {
-      kept.movementNumber = await getNextMovementNumber(ctx.orgId, getRepos())
       kept.importedFrom.number = doc.movementNumber
+      await withMovementNumber(ctx.orgId, async (movementNumber) => {
+        kept.movementNumber = movementNumber
+        await StockMovement.collection.insertOne(kept as any)
+      })
+    } else {
+      await StockMovement.collection.insertOne(kept as any)
     }
-    await StockMovement.collection.insertOne(kept as any)
   }
   if (confirm && (!there || there.status === 'draft')) {
     try {
