@@ -19,7 +19,7 @@ import { Invoice } from 'db/models'
 import { outstandingOf } from 'services/biz/invoice-payment'
 import { MONEY_DOCUMENT_TYPES } from 'services/biz/cash-register/pos-union'
 import {
-  PAYMENT_IN_PROGRESS, inDoubtRefusal, paymentReceiptDocument, printsAtCounter, receiptsOf, runReceiptSteps,
+  PAYMENT_IN_PROGRESS, inDoubtRefusal, paymentReceiptDocument, paymentRefusal, printsAtCounter, receiptsOf, runReceiptSteps,
   type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { receiptBody } from 'services/biz/cash-register/receipt-lines'
@@ -57,6 +57,17 @@ function receiptNotDone(receipts: any[]): RegisterRefusal | null {
   const doubt = receipts.find(r => r.register?.fiscal?.inDoubt)
   if (doubt) return new RegisterRefusal(409, inDoubtRefusal(doubt))
   return receipts.some(r => !r.completedAt) ? new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS }) : null
+}
+
+/**
+ * The same moment one step later: every receipt is done, the one that took the money among them. It finished
+ * while this request was on its way from the route's check to its read of the receipts, so the document it
+ * holds is older than the receipts it read. The document as it is NOW says what `paymentRefusal` says of it:
+ * more than is due, or closed. Null when it still takes the amount, and then it is the document's rates.
+ */
+async function documentNowRefuses(orgId: string, doc: any, amount: number): Promise<RegisterRefusal | null> {
+  const now = await Invoice.findOne({ _id: doc._id ?? doc.id, orgId }).lean().exec()
+  return paymentRefusal(orgId, now, amount)
 }
 
 /** Whether the document still carries the number of a draft, whatever a payment did to its status. */
@@ -105,7 +116,11 @@ export async function prepareReceipt(orgId: string, user: RegisterUser, doc: any
   }
   const whole = atIssue && !(Number(doc.amountPaid) > 0)
   if (!receiptBody({ doc, amount: tender.amount, whole, printsText: !!context.printer?.printsFiscalText, receipts, nameMax: context.printer?.lineNameMax })) {
-    throw receiptNotDone(receipts) ?? NOT_PRINTABLE('This document\'s money cannot be split per VAT rate: a rate with a negative total does not print.')
+    // A payment recorded later that lost a race is told so, whichever moment of the other one it met.
+    // The second look is for that door only: at issue the amount is not one a person typed.
+    throw receiptNotDone(receipts)
+      ?? (atIssue ? null : await documentNowRefuses(orgId, doc, tender.amount))
+      ?? NOT_PRINTABLE('This document\'s money cannot be split per VAT rate: a rate with a negative total does not print.')
   }
   return { context, tender, whole, receipts }
 }

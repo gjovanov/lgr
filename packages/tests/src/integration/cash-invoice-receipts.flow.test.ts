@@ -1837,6 +1837,50 @@ describe('a payment recorded later (§2.2)', () => {
     expect(after.json.code).toBe('overpayment')
   })
 
+  /**
+   * The same two payments, one step later: the first is done, payment booked and all, by the time the
+   * second reads the receipts. No receipt is printing any more, and the invoice the second read is older
+   * than the receipts it reads. It asks for more than is due now, and that is its answer.
+   */
+  it('a payment that reads the receipts after the first one has finished is told it is more than is due', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+
+    // The second request has read the invoice, nothing paid on it, and passed the route's check. Right
+    // before its read of the receipts, the first runs from start to finish.
+    const real = Invoice.find
+    let first: any
+    let fired = false
+    ;(Invoice as any).find = function (filter: any, ...rest: any[]) {
+      if (fired || !JSON.stringify(filter ?? {}).includes('register.paidInvoiceId')) return (real as any).call(Invoice, filter, ...rest)
+      fired = true
+      const chain: any = {
+        sort: () => chain,
+        lean: () => chain,
+        exec: async () => {
+          first = await pay(w, d.id, 20)
+          return (real as any).call(Invoice, filter, ...rest).sort({ _id: 1 }).lean().exec()
+        },
+      }
+      return chain
+    }
+    let second: any
+    try {
+      second = await pay(w, d.id, 20)
+    } finally {
+      (Invoice as any).find = real
+    }
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(422)
+    expect(second.json.code).toBe('overpayment')
+    expect(second.json.outstanding).toBe(4)
+    expect(w.sim!.receipts).toHaveLength(1)
+    expect((await raw(d.id)).amountPaid).toBe(20)
+    expect(await receiptsOf(d.id)).toHaveLength(1)
+  })
+
   it('a receipt nobody can vouch for is what stands in the way, when the money does not fit beside it', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'bank_transfer' })
