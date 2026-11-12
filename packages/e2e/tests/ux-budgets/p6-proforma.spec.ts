@@ -17,8 +17,11 @@ import { lineQuantity } from '../helpers/document-form'
  * itself could never be issued.
  */
 
-/** FR-22 §3: P6 ≤ 12 clicks · 5 typed (and no more dialogs than the 1 it had). */
-const BUDGET = { clicks: 12, typed: 5, dialogs: 1 }
+/**
+ * FR-22 §3: P6 ≤ 12 clicks · 5 typed (and no more dialogs than the 1 it had). Owner, 2026-11-12: the converted invoice
+ * confirms its payment method as it is issued, one more click (Yes).
+ */
+const BUDGET = { clicks: 13, typed: 5, dialogs: 1 }
 
 type Api = Awaited<ReturnType<typeof uxApi>>
 
@@ -158,6 +161,8 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
   // ── 4. Issue and print the invoice ──
   const invDownload = page.waitForEvent('download', { timeout: 60000 })
   await walk.click(page.getByRole('button', { name: 'Издай и печатай' }).first(), 'issue and print the invoice')
+  walk.dialog('confirm the payment method (owner, 2026-11-12)')
+  await walk.click(page.getByTestId('issue-payment-yes'), 'yes, issue with that payment method')
   const invFile = await invDownload
   await expect(page.locator('.v-snackbar').filter({ hasText: 'Експортът е генериран' })).toBeVisible()
   let issued: any

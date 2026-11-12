@@ -177,7 +177,19 @@
             <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
           </td>
           <td v-if="isColActive('unit')">
-            <v-autocomplete v-model="line.unit" :items="uomOptions" item-title="title" item-value="value" density="compact" hide-details variant="underlined">
+            <!-- Owner, 2026-11-12: on an outgoing document the unit is the article's once the line has one. -->
+            <v-autocomplete
+              v-model="line.unit"
+              :items="uomOptions"
+              item-title="title"
+              item-value="value"
+              density="compact"
+              hide-details
+              variant="underlined"
+              :readonly="unitLocked(line)"
+              :title="unitLocked(line) ? $t('invoicing.unitFromProduct') : undefined"
+              data-testid="line-unit"
+            >
               <!-- Closed: localized abbreviation only. Dropdown: abbrev + full name. -->
               <template #selection="{ item }">{{ item.raw.short }}</template>
               <template #item="{ item, props: ip }">
@@ -365,6 +377,15 @@ const {
 
 // Spreadsheet-like Tab/Enter navigation across the line-item cells.
 const { onGridKeydown } = useGridNavigation({ addLine, getLines: () => form.lines })
+
+/**
+ * Owner, 2026-11-12: an outgoing document (invoice, credit and debit note, proforma) sells the article in ITS unit, so
+ * once a line has a product the unit is read-only (the product's, set by `onProductSelected`). A line without one (a
+ * typed service) keeps its unit editable, and an incoming bill keeps the supplier's.
+ */
+function unitLocked(line: any): boolean {
+  return config.direction === 'outgoing' && !!line?.productId
+}
 
 // ── FR-22.30: „+ Нов продукт „…"" on a line ──
 const quickOpen = ref(false)

@@ -26,8 +26,11 @@ const LINES = [
   { sku: 'PRD-0023', qty: 4 },
 ]
 
-/** FR-22 §3: P5-invoice ≤ 14 clicks · 6 typed · ≤ 1 dialog, and paid with no extra step. */
-const BUDGET = { clicks: 14, typed: 6, dialogs: 1 }
+/**
+ * FR-22 §3: P5-invoice ≤ 14 clicks · 6 typed · ≤ 1 dialog, and paid with no extra step. Owner, 2026-11-12: issuing an
+ * outgoing invoice confirms its payment method first, one more click (Yes); the walk had no dialog, so it stays within one.
+ */
+const BUDGET = { clicks: 15, typed: 6, dialogs: 1 }
 
 /** Product records by SKU (uncounted setup). */
 async function productsBySku(api: Api, skus: string[]): Promise<Record<string, any>> {
@@ -160,6 +163,8 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   await expect(issueAndPrint).toBeVisible()
   const downloadPromise = page.waitForEvent('download', { timeout: 60000 })
   await walk.click(issueAndPrint, 'issue and print („Издай и печатай")')
+  walk.dialog('confirm the payment method (owner, 2026-11-12)')
+  await walk.click(page.getByTestId('issue-payment-yes'), 'yes, issue with that payment method')
   const download = await downloadPromise
   await expect(page.locator('.v-snackbar').filter({ hasText: 'Експортът е генериран' })).toBeVisible()
   // On the issued invoice: its own edit route, its number, paid.

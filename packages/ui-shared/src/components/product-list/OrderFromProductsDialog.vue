@@ -240,6 +240,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { numberFormat } from '../../composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from '../../composables/useHttpClient'
 import { contactTitle, useContactSearch } from '../../composables/useContactSearch'
@@ -310,7 +311,7 @@ const priorityOptions = computed(() => (['low', 'normal', 'high', 'urgent'] as c
 const clientSearch = useContactSearch({ orgUrl: () => props.orgUrl, type: () => 'customer', selected: () => [clientId.value] })
 const supplierSearch = useContactSearch({ orgUrl: () => props.orgUrl, type: () => 'supplier', selected: () => rows.value.map((r) => r.supplierId), size: 50 })
 
-const fmt = (n: number) => new Intl.NumberFormat(props.locale || 'en-US', { maximumFractionDigits: 3 }).format(n || 0)
+const fmt = (n: number) => numberFormat(props.locale || 'en-US', { maximumFractionDigits: 3 }).format(n || 0)
 const validQuantity = (q: string) => Number.isFinite(Number(q)) && Number(q) > 0 && String(q).trim() !== ''
 
 /** The supplier a row offers: the article's own suppliers first (default order), then every supplier contact found. */

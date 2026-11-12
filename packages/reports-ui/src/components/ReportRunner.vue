@@ -280,6 +280,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
+import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -324,7 +325,8 @@ const values = ref<Record<string, any>>({})
 
 const exportDialog = ref(false)
 const exportLoading = ref(false)
-const exportFormat = ref<'xlsx' | 'pdf'>('xlsx')
+// The report's own default (the sales register starts on PDF), else Excel; the watch below falls back to what it offers.
+const exportFormat = ref<'xlsx' | 'pdf'>(props.meta.defaultExport ?? 'xlsx')
 
 const columns = computed(() => result.value?.columns || [])
 const rows = computed(() => result.value?.rows || [])
@@ -423,7 +425,7 @@ const activeFilterMeta = computed(() => {
 function money(value: number, currency: string): string {
   const tag = NUMBER_LOCALE[appStore.locale] || 'en-US'
   try {
-    return new Intl.NumberFormat(tag, { style: 'currency', currency, maximumFractionDigits: 2 }).format(value || 0)
+    return numberFormat(tag, { style: 'currency', currency, maximumFractionDigits: 2 }).format(value || 0)
   } catch {
     return `${(value || 0).toFixed(2)} ${currency}`
   }
@@ -491,11 +493,11 @@ function formatCell(value: any, type: ColumnType | undefined): string {
   const tag = NUMBER_LOCALE[appStore.locale] || 'en-US'
   switch (type) {
     case 'money':
-      return new Intl.NumberFormat(tag, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value) || 0)
+      return numberFormat(tag, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value) || 0)
     case 'quantity':
-      return new Intl.NumberFormat(tag, { maximumFractionDigits: 3 }).format(Number(value) || 0)
+      return numberFormat(tag, { maximumFractionDigits: 3 }).format(Number(value) || 0)
     case 'percent':
-      return `${new Intl.NumberFormat(tag, { maximumFractionDigits: 2 }).format(Number(value) || 0)}%`
+      return `${numberFormat(tag, { maximumFractionDigits: 2 }).format(Number(value) || 0)}%`
     case 'int':
       return String(Math.round(Number(value) || 0))
     case 'date':

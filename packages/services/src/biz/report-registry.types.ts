@@ -119,6 +119,11 @@ export interface ReportMeta {
   view: 'runner' | 'custom'
   /** App-relative path inside reports-ui, e.g. "/export" or "/inventory-valuation". */
   route: string
+  /**
+   * The format the runner's Export dialog starts on, when `outputs` offers it; absent: Excel. A register that is
+   * printed and handed over (the sales documents) starts on PDF.
+   */
+  defaultExport?: 'xlsx' | 'pdf'
 }
 
 // ── Period presets (FR-6.11) ────────────────────────────────────────────────
@@ -372,8 +377,8 @@ export function canExportReport(entry: ReportEntry, user: ReportCaller | null | 
 
 /** The serialisable projection — `permission`/`roles`/`handler` never cross the wire. */
 export function toReportMeta(entry: ReportEntry): ReportMeta {
-  const { id, category, labelKey, descriptionKey, icon, outputs, params, view, route } = entry
-  return { id, category, labelKey, descriptionKey, icon, outputs, params, view, route }
+  const { id, category, labelKey, descriptionKey, icon, outputs, params, view, route, defaultExport } = entry
+  return { id, category, labelKey, descriptionKey, icon, outputs, params, view, route, ...(defaultExport ? { defaultExport } : {}) }
 }
 
 /**

@@ -46,6 +46,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { numberFormat } from 'ui-shared/composables/number-display'
 import { useAppStore } from '../../store/app.store'
 
 /** The wire shape of `SessionReport` (services/biz/cash-register/session-report.ts). */
@@ -71,7 +72,7 @@ const props = defineProps<{ report: SessionReportData }>()
 const appStore = useAppStore()
 const localeTag = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
 const money = (n: number) =>
-  new Intl.NumberFormat(localeTag.value, { style: 'currency', currency: props.report.currency || 'EUR' }).format(Number(n) || 0)
+  numberFormat(localeTag.value, { style: 'currency', currency: props.report.currency || 'EUR' }).format(Number(n) || 0)
 /** A kind of receipt: how many, and what they came to. */
 const kind = (k: 'fiscal' | 'text' | 'unprinted') => {
   const amount = props.report.amounts?.[k]

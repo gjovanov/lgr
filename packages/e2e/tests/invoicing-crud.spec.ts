@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test'
 import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
-import { lineUnitPrice } from './helpers/document-form'
+import { answerIssuePayment, lineUnitPrice } from './helpers/document-form'
+import { activeContact, apiGet, apiLogin, apiPost } from './helpers/api'
+import { draftDocument } from './helpers/draft-document'
 import {
   fillField,
   selectAutocomplete,
@@ -173,5 +175,78 @@ test.describe('Invoicing CRUD', () => {
 
     const info = await getPageInfo(page)
     expect(info).toBeTruthy()
+  })
+
+  // ── Owner, 2026-11-12 ──
+
+  test('issuing an outgoing invoice asks for its payment method first: No keeps the draft, Yes issues it', async ({ page }) => {
+    const draft = await draftDocument('invoice', 'outgoing')
+    const session = await apiLogin()
+    await loginForApp(page)
+    await page.goto(`/invoicing/invoices/${draft.id}/edit`)
+    const issue = page.getByRole('button', { name: 'Issue', exact: true }).first()
+    await expect(issue).toBeVisible({ timeout: 15000 })
+
+    await issue.click()
+    const ask = page.getByTestId('issue-payment-confirm')
+    await expect(ask).toBeVisible()
+    await expect(ask).toContainText(draft.invoiceNumber)
+    await expect(ask.getByTestId('issue-payment-method')).toHaveText('Bank Transfer')
+    await ask.getByTestId('issue-payment-no').click()
+    await expect(ask).toBeHidden()
+    expect((await apiGet(session, `/invoices/${draft.id}`)).invoice.status).toBe('draft')
+
+    await issue.click()
+    await answerIssuePayment(page)
+    await expect.poll(async () => (await apiGet(session, `/invoices/${draft.id}`)).invoice.status, { timeout: 15000 }).toBe('sent')
+  })
+
+  test('on an outgoing document the unit of a line with an article is read-only; a typed line and a bill keep theirs', async ({ page }) => {
+    const session = await apiLogin()
+    const { products } = await apiGet(session, '/warehouse/product?size=5&isActive=true')
+    const product = (products || []).find((p: any) => p.type !== 'service') || products[0]
+    expect(product, 'a seeded article').toBeTruthy()
+    const customer = await activeContact(session, 'customer')
+    const supplier = await activeContact(session, 'supplier')
+    const productLine = { productId: product._id, description: product.name, quantity: 1, unit: product.unit || 'pcs', unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 2, lineTotal: 12 }
+    const typedLine = { description: `E2E typed ${Date.now().toString(36)}`, quantity: 1, unit: 'pcs', unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 2, lineTotal: 12 }
+    const make = async (direction: 'outgoing' | 'incoming', contact: any, lines: any[]) => {
+      const res = await apiPost(session, '/invoices', {
+        type: 'invoice', direction, contactId: contact._id, issueDate: new Date().toISOString().split('T')[0], currency: 'EUR', exchangeRate: 1,
+        lines, subtotal: 10 * lines.length, discountTotal: 0, taxTotal: 2 * lines.length, total: 12 * lines.length,
+      })
+      expect(res.ok, `draft ${direction} → ${res.status}`).toBe(true)
+      const { invoice } = await res.json()
+      return invoice._id || invoice.id
+    }
+    const invoiceId = await make('outgoing', customer, [productLine, typedLine])
+    const billId = await make('incoming', supplier, [productLine])
+
+    await loginForApp(page)
+    await page.goto(`/invoicing/invoices/${invoiceId}/edit`)
+    const rows = page.locator('.line-table tbody tr')
+    await expect(rows.nth(1)).toBeVisible({ timeout: 15000 })
+    await expect(rows.nth(0).getByTestId('line-unit').locator('input')).toHaveAttribute('readonly', /.*/)
+    await expect(rows.nth(1).getByTestId('line-unit').locator('input')).not.toHaveAttribute('readonly', /.*/)
+
+    await page.goto(`/invoicing/bills/${billId}/edit`)
+    const billRow = page.locator('.line-table tbody tr').first()
+    await expect(billRow).toBeVisible({ timeout: 15000 })
+    await expect(billRow.getByTestId('line-unit').locator('input')).not.toHaveAttribute('readonly', /.*/)
+  })
+
+  test('a quantity typed with a comma counts as a decimal, and a Bulgarian screen shows the amounts with a point', async ({ page }) => {
+    const draft = await draftDocument('invoice', 'outgoing') // 1 × 100.00 at 20 %
+    await page.addInitScript(() => localStorage.setItem('lgr_locale', 'bg'))
+    await loginForApp(page)
+    await page.goto(`/invoicing/invoices/${draft.id}/edit`)
+    const totals = page.getByTestId('document-totals')
+    await expect(totals).toContainText('120.00', { timeout: 15000 })
+    await expect(totals).not.toContainText('120,00')
+
+    const quantity = page.locator('.line-table tbody tr').first().locator('input[type="number"]').first()
+    await quantity.fill('')
+    await quantity.pressSequentially('2,5')
+    await expect(totals).toContainText('300.00')
   })
 })

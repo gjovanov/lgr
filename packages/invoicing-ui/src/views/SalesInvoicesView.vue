@@ -177,6 +177,8 @@
       @confirm="confirmTransfers"
     />
 
+    <IssuePaymentConfirmDialog :ask="paymentConfirm" @answer="answerPayment" />
+
     <!-- FR-10 (#19): one dialog for the whole grid, driven by the row the user clicked. -->
     <SendEmailDialog
       v-model="emailDialog"
@@ -205,6 +207,7 @@ import RowActionsMenu, { type RowAction } from 'ui-shared/components/RowActionsM
 import TagInput from 'ui-shared/components/TagInput.vue'
 import DateField from 'ui-shared/components/DateField.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
+import IssuePaymentConfirmDialog from '../components/IssuePaymentConfirmDialog.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
@@ -495,6 +498,8 @@ const {
   },
   issue,
   confirmTransfers,
+  paymentConfirm,
+  answerPayment,
 } = useDocumentIssue({ loading, onIssued: refresh })
 
 function sendInvoice(item: Invoice) {
