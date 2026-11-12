@@ -210,6 +210,13 @@ export interface ReportHandlerContext {
   /** Which surface asked — decides the row cap. */
   output: ReportOutput
   locale?: string
+  /**
+   * What the caller reads beyond the report's own gate, for a handler that reads a source with partitions of its own:
+   * the purchases side (`bills`: incoming documents, and the bill behind a delivery, FR-26.6) and the cost figures
+   * (`costs`: `products.costs`, FR-27.11) that are no column of the report, which `withoutFieldGroups` cannot drop.
+   * A handler run with no caller (absent) reads everything.
+   */
+  sees?: { bills: boolean; costs: boolean }
 }
 
 export interface ReportEntry extends ReportMeta {

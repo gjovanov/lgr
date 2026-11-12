@@ -2,6 +2,7 @@ import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getProductLedger } from 'services/biz/product-ledger.service'
 import { grantOf } from 'services/biz/access/evaluate'
+import { seesBills } from 'services/biz/access/partition'
 import { redactMovementLine, seesCosts } from 'config/access'
 
 export const productLedgerController = new Elysia({ prefix: '/org/:orgId/warehouse/product-ledger' })
@@ -21,6 +22,8 @@ export const productLedgerController = new Elysia({ prefix: '/org/:orgId/warehou
       eventTypes,
       sortBy: (query.sortBy as string | undefined) || undefined,
       sortOrder: query.sortOrder === 'desc' ? 'desc' : 'asc',
+      // #493: a session without `purchases` is told of no bill, as on the movement's own routes.
+      withoutBills: !seesBills(user as any),
       page: query.page ? parseInt(query.page as string, 10) : undefined,
       size: query.size ? parseInt(query.size as string, 10) : undefined,
     })
