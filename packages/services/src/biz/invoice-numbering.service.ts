@@ -21,7 +21,7 @@ import {
 // Prefix rendered on the invoice number, derived from the sequences registry so the
 // configuration page (/invoicing/configuration/sequences) stays the single source of truth.
 export const TYPE_PREFIX: Record<string, string> = Object.fromEntries(
-  (['cash_sale', 'proforma', 'credit_note', 'debit_note'] as const)
+  (['cash_sale', 'proforma', 'offer', 'credit_note', 'debit_note'] as const)
     .map(t => [t, sequenceDefFor(sequenceGroupFor(t), 'issued')?.defaultDisplay || 'INV']),
 )
 

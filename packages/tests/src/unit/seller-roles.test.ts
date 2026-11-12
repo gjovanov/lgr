@@ -59,7 +59,8 @@ describe('the claim: absent and [] are opposites', () => {
 
 describe('the invoicing menu (§2.1)', () => {
   it('the Seller: sales documents, the till, contacts and devices', () => {
-    expect(entries(invoicing.menu!, seller)).toEqual(['/invoices', '/proforma', '/cash-sales/new', '/cash-sales', '/cash-register/sessions', '/contacts', '/configuration/devices'])
+    // The offers ride on the proforma's capabilities: whoever quotes with a proforma quotes with an offer too.
+    expect(entries(invoicing.menu!, seller)).toEqual(['/invoices', '/proforma', '/offer', '/cash-sales/new', '/cash-sales', '/cash-register/sessions', '/contacts', '/configuration/devices'])
   })
 
   it('the Sales Consultant: the same, and the Orders group', () => {
@@ -76,7 +77,7 @@ describe('what both roles view in Invoicing (§2.1)', () => {
   // Outgoing documents and their forms, the till, Contacts and Devices.
   const PAGES = [
     '/invoicing/invoices', '/invoicing/invoices/new', '/invoicing/invoices/new?type=credit_note', '/invoicing/invoices/new?type=debit_note',
-    '/invoicing/proforma', '/invoicing/proforma/new',
+    '/invoicing/proforma', '/invoicing/proforma/new', '/invoicing/offer', '/invoicing/offer/new',
     '/invoicing/cash-sales/new', '/invoicing/cash-sales', '/invoicing/cash-register/sessions',
     '/invoicing/contacts', '/invoicing/configuration/devices',
   ]
@@ -122,7 +123,7 @@ describe('„+ Нов" (FR-26.8.6)', () => {
 
   it('the Seller makes no bill and no order; the Sales Consultant makes orders', () => {
     expect(menu(seller).map(l => l.split(' ')[0])).toEqual([
-      '/invoicing/invoices/new', '/invoicing/invoices/new?type=credit_note', '/invoicing/proforma/new', '/invoicing/cash-sales/new', '/inventory/movements/new',
+      '/invoicing/invoices/new', '/invoicing/invoices/new?type=credit_note', '/invoicing/proforma/new', '/invoicing/offer/new', '/invoicing/cash-sales/new', '/inventory/movements/new',
     ])
     expect(menu(consultant).map(l => l.split(' ')[0])).toEqual(expect.arrayContaining(['/invoicing/internal-orders/new', '/invoicing/orders/new', '/invoicing/reservations/new']))
     expect(menu(consultant).map(l => l.split(' ')[0])).not.toContain('/invoicing/bills/new')

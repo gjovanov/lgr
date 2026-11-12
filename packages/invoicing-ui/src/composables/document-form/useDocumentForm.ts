@@ -13,6 +13,7 @@ import { fetchPriceOptions, type PriceOption } from 'ui-shared/composables/usePr
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useInvoiceLineColumns } from 'ui-shared/composables/useInvoiceLineColumns'
 import { upsertAmountInWords } from 'config/amount-in-words'
+import { QUOTE_CONVERTS_TO, isQuoteType, type QuoteType } from 'config/constants'
 import { useGRColumns } from 'ui-shared/composables/useGRColumns'
 import { cascadePurchasePrice, needsSeed, productsForSeed, seedFromProduct, setProductField, setTierPrice } from 'ui-shared/composables/gr-product-update'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
@@ -810,7 +811,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   // and say so. The line prices and their explanation ("Last price (INV-…, date)") are what is
   // saved. FR-22.26: a proforma offers it too, and the choice is remembered per user and document
   // type — a counter that always quotes a customer's last price no longer ticks it every time.
-  const lastPriceEnabled = config.docType === 'invoice' || config.docType === 'proforma'
+  const lastPriceEnabled = config.docType === 'invoice' || config.docType === 'proforma' || config.docType === 'offer'
   const lastPriceMemory = rememberedFlag(`last-price:${config.docType}`)
   const useLastPrice = ref(lastPriceEnabled && lastPriceMemory.read() === true)
   const lastPriceLoading = ref(false)
@@ -1193,8 +1194,12 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     isEdit.value && config.direction === 'outgoing' && (config.docType === 'invoice' || config.docType === 'debit_note' || config.docType === 'credit_note')
     && !cashSaleRef.value && canRecordPayment({ type: config.apiType, status: invoiceStatus.value, direction: config.direction }),
   )
-  /** FR-22.22: a proforma becomes an invoice once — and not after it was voided. */
-  const convertible = computed(() => config.docType === 'proforma' && !['converted', 'voided', 'cancelled'].includes(invoiceStatus.value))
+  /**
+   * FR-22.22: a quote becomes the next document once — and not after it was voided. A proforma becomes an
+   * invoice; an offer a proforma or an invoice (`QUOTE_CONVERTS_TO`), each its own button.
+   */
+  const convertible = computed(() => isQuoteType(config.apiType) && !['converted', 'voided', 'cancelled'].includes(invoiceStatus.value))
+  const convertTargets = computed(() => (convertible.value ? QUOTE_CONVERTS_TO[config.apiType as QuoteType] : []))
 
   const formActions = computed<FormAction[]>(() => {
     const save: FormAction = { label: t('common.save'), color: 'primary', handler: onSave, loading: loading.value, save: true }
@@ -1214,9 +1219,17 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       }
       return [receive, outlinedSave, importAction]
     }
-    const convert: FormAction | null = convertible.value
-      ? { label: t('invoicing.convertToInvoice'), icon: 'mdi-swap-horizontal', variant: 'outlined', handler: onConvert, loading: converting.value }
-      : null
+    // One button per document the quote may become, each for the role that makes that document (FR-27.7).
+    // The invoice is the first target: on an issued quote it is the action that finishes the job.
+    const converts: FormAction[] = convertTargets.value.map((target) => ({
+      label: t(target === 'proforma' ? 'invoicing.convertToProforma' : 'invoicing.convertToInvoice'),
+      icon: target === 'proforma' ? 'mdi-file-document-arrow-right-outline' : 'mdi-swap-horizontal',
+      variant: 'outlined' as const,
+      handler: () => onConvert(target),
+      loading: convertingTo.value === target,
+      disabled: !!convertingTo.value && convertingTo.value !== target,
+      cap: target === 'proforma' ? 'proforma.create' : 'sales-docs.create',
+    }))
     // FR-22.17/.18: a document not issued yet is issued from its own form. „Издай и печатай"
     // finishes the job, so it is the primary action and comes first. „Издай" saves first when the
     // form holds anything unsaved, and says so.
@@ -1226,14 +1239,14 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         { label: t('invoicing.issueFlow.issueAndPrint'), color: 'primary', icon: 'mdi-printer-check', handler: () => issueFromForm(true), loading: busy && issuingWithPrint.value, disabled: busy && !issuingWithPrint.value, primary: true },
         { label: t(isDirtyNow.value ? 'invoicing.issueFlow.saveAndIssue' : 'invoicing.issueFlow.issue'), color: 'primary', variant: 'outlined', icon: 'mdi-send-check', handler: () => issueFromForm(false), loading: busy && !issuingWithPrint.value, disabled: busy && issuingWithPrint.value },
         outlinedSave,
-        ...(convert ? [convert] : []),
+        ...converts,
         importAction,
       ]
     }
     if (!isEdit.value) return [save, importAction]
     // Issued: what it can still change, and what follows from it.
     const issued: FormAction[] = []
-    if (convert) issued.push({ ...convert, color: 'primary', variant: 'flat', primary: true })
+    converts.forEach((c, i) => issued.push(i === 0 ? { ...c, color: 'primary', variant: 'flat', primary: true } : c))
     if (config.editSaveGate !== 'draft-only') issued.push(issued.length ? outlinedSave : save)
     // FR-23: an issued invoice or debit note is paid from its own form too. It is how a payment
     // whose receipt failed is taken again.
@@ -1643,25 +1656,28 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   /**
-   * FR-22.22 — „Преобразувай във фактура" on the proforma: the invoice it becomes opens at once,
-   * ready to be issued. The list used to stay where it was, the new invoice only a link in its row.
-   * A proforma that is new or edited is saved first.
+   * FR-22.22 — „Преобразувай във фактура" on a quote, and „Преобразувай в проформа" on an offer: what it
+   * becomes opens at once, ready to be issued. The list used to stay where it was, the new invoice only a
+   * link in its row. A quote that is new or edited is saved first.
    */
   const converting = ref(false)
-  async function onConvert() {
+  const convertingTo = ref<'' | 'invoice' | 'proforma'>('')
+  async function onConvert(target: 'invoice' | 'proforma' = 'invoice') {
     if (converting.value) return
     converting.value = true
+    convertingTo.value = target
     try {
       const id = await saveIfNeeded()
       if (!id) return
-      const { data } = await httpClient.post(`${orgUrl()}/invoices/${id}/convert`)
-      showSuccess(t('invoicing.convertedToInvoice'))
-      const invoiceId = data?.invoice?.id || data?.invoice?._id
-      if (invoiceId) await router.push({ name: 'invoicing.sales.edit', params: { id: String(invoiceId) } })
+      const { data } = await httpClient.post(`${orgUrl()}/invoices/${id}/convert`, { target })
+      showSuccess(t(target === 'proforma' ? 'invoicing.convertedToProforma' : 'invoicing.convertedToInvoice'))
+      const createdId = data?.invoice?.id || data?.invoice?._id
+      if (createdId) await router.push({ name: target === 'proforma' ? 'invoicing.proforma.edit' : 'invoicing.sales.edit', params: { id: String(createdId) } })
     } catch (e: any) {
       showError(e?.response?.data?.message || t('common.operationFailed'))
     } finally {
       converting.value = false
+      convertingTo.value = ''
     }
   }
 
@@ -2087,8 +2103,10 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     correctable,
     openNote,
     convertible,
+    convertTargets,
     onConvert,
     converting,
+    convertingTo,
     // misc
     orgUrl,
     appStore,

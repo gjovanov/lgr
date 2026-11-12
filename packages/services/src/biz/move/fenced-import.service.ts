@@ -30,6 +30,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { mongo } from 'mongoose'
+import { isQuoteType } from 'config/constants'
 import { mongoose } from 'db/connection'
 import { FencedExport, FencedImportItem, Invoice, StockMovement } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
@@ -125,7 +126,8 @@ function sourceText(ctx: Ctx): string {
 
 /** How lgrai.app books a sale once it is in: as `/send`, `/receive` or the till would have. */
 export function bookingOf(doc: Doc): 'none' | 'sale' | 'bill' | 'register' {
-  if (doc.status === 'draft' || DEAD.has(String(doc.status)) || doc.type === 'proforma') return 'none'
+  // A quote (a proforma, an offer) books nothing, issued or not: it is no sale (FR-22.22).
+  if (doc.status === 'draft' || DEAD.has(String(doc.status)) || isQuoteType(doc.type)) return 'none'
   // FR-23: a payment's receipt books nothing. Its invoice comes in with the stock, the entry and the
   // payment row; `createInvoiceStockMovement` below would dispatch its lines a second time. A refund's
   // storno the same: its credit note comes in with the return and the payment row.

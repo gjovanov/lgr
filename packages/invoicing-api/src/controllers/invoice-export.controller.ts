@@ -611,6 +611,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         docType: t.Union([
           t.Literal('invoice'),
           t.Literal('proforma'),
+          t.Literal('offer'),
           t.Literal('credit_note'),
           t.Literal('debit_note'),
           t.Literal('cash_sale'),

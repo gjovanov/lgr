@@ -148,6 +148,7 @@ const {
 const docTypeRouteMap: Record<string, string> = {
   invoice: 'invoicing.sales.edit',
   proforma: 'invoicing.proforma.edit',
+  offer: 'invoicing.offer.edit',
   credit_note: 'invoicing.sales.edit',
   debit_note: 'invoicing.sales.edit',
   cash_sale: 'invoicing.cash-sales.edit',

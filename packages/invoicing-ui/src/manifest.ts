@@ -27,6 +27,8 @@ export const manifest: ModuleManifest = {
       // FR-01: invoices + credit/debit notes live in one merged grid.
       { labelKey: 'nav.salesDocs', icon: 'mdi-receipt-text-outline', to: '/invoices' },
       { labelKey: 'nav.proforma', icon: 'mdi-file-document-outline', to: '/proforma' },
+      // Offers: quotes in a series of their own, converted into a proforma or an invoice.
+      { labelKey: 'nav.offers', icon: 'mdi-file-sign', to: '/offer' },
       // FR-03: cash sales are outgoing documents too — the Cash Register group is gone, and the till
       // lives here since POS stopped being an app of its own.
       { labelKey: '', divider: true },
@@ -116,6 +118,11 @@ export const manifest: ModuleManifest = {
       { path: 'proforma', name: 'invoicing.proforma', component: () => import('./views/ProformaInvoicesView.vue'), meta: { breadcrumb: [{ title: 'Proforma' }] } },
       { path: 'proforma/new', name: 'invoicing.proforma.new', component: () => import('./views/ProformaInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Proforma', to: '/proforma' }, { title: 'New' }] } },
       { path: 'proforma/:id/edit', name: 'invoicing.proforma.edit', component: () => import('./views/ProformaInvoiceFormView.vue'), meta: { breadcrumb: [{ title: 'Proforma', to: '/proforma' }, { title: 'Edit' }] } },
+
+      // ── Offers („оферти") — a quote before the proforma, in a series of its own ──
+      { path: 'offer', name: 'invoicing.offer', component: () => import('./views/OffersView.vue'), meta: { breadcrumb: [{ title: 'Offers' }] } },
+      { path: 'offer/new', name: 'invoicing.offer.new', component: () => import('./views/OfferFormView.vue'), meta: { breadcrumb: [{ title: 'Offers', to: '/offer' }, { title: 'New' }] } },
+      { path: 'offer/:id/edit', name: 'invoicing.offer.edit', component: () => import('./views/OfferFormView.vue'), meta: { breadcrumb: [{ title: 'Offers', to: '/offer' }, { title: 'Edit' }] } },
 
       // ── Credit / Debit Notes (FR-01: merged into the sales grid + form) ──
       // Named redirects: old links, ★ favorites and router.push({ name }) callers keep working.

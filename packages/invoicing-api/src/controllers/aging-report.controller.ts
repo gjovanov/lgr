@@ -1,4 +1,5 @@
 import { Elysia } from 'elysia'
+import { QUOTE_TYPES } from 'config/constants'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Invoice } from 'db/models'
 
@@ -33,6 +34,8 @@ export const agingReportController = new Elysia({ prefix: '/org/:orgId/invoicing
           // `received` is the open state of an issued bill/incoming note — without it the
           // payables aging showed nothing until a partial payment landed.
           status: { $in: ['sent', 'received', 'partially_paid', 'overdue'] },
+          // An issued quote (a proforma, an offer) is `sent` and owes nothing (FR-22.22).
+          type: { $nin: [...QUOTE_TYPES] },
         },
       },
       {

@@ -643,7 +643,7 @@ describe('the invoicing menu, as each person sees it', () => {
 
   it('the groups are where the owner put them', () => {
     const outgoing = invoicing.menu!.find(g => g.labelKey === 'nav.outgoingDocs')!
-    expect(outgoing.children!.map(c => (c.divider ? '|' : c.to))).toEqual(['/invoices', '/proforma', '|', '/cash-sales/new', '/cash-sales', '/cash-register/sessions', '/pin'])
+    expect(outgoing.children!.map(c => (c.divider ? '|' : c.to))).toEqual(['/invoices', '/proforma', '/offer', '|', '/cash-sales/new', '/cash-sales', '/cash-register/sessions', '/pin'])
     expect(invoicing.menu!.find(g => g.labelKey === 'nav.configuration')!.children!.map(c => c.to)).toEqual(['/contacts', '/configuration/sequences', '/configuration/devices'])
   })
 

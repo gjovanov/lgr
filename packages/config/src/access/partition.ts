@@ -1,11 +1,16 @@
 import type { CapabilityId } from './catalogue'
 import { can, type Grant } from './grant'
+import { QUOTE_TYPES, isQuoteType } from '../constants'
 
 /**
  * FR-27.6 (#529) — partitions: one collection, several features. `Invoice` holds sales documents, proforma and
  * bills (incoming documents), told apart by `direction` and `type`. A role reads the kinds whose `view` it holds and
  * writes those whose work actions it holds; a document of another kind is 404 by id and absent from every list,
  * export, ledger and summary (FR-26.6's `purchases` table, written once, as data).
+ *
+ * The `proforma` kind is the quotes: the proforma and the offer (`config/constants#QUOTE_TYPES`). An offer is
+ * read, made and changed by the proforma capabilities, so every role that works proformas works offers, with no
+ * role to migrate; converting a quote into an invoice needs `sales-docs.create` on top.
  *
  * On the legacy model `sales-docs`, `proforma` and `bills` come together from the invoicing permissions, and an
  * `areas` list without `purchases` takes `bills` away: exactly today's answers (`access-differential`).
@@ -18,10 +23,10 @@ export const DOC_KINDS: readonly DocKind[] = ['sales', 'proforma', 'bills']
 const FEATURE: Record<DocKind, string> = { sales: 'sales-docs', proforma: 'proforma', bills: 'bills' }
 const cap = (k: DocKind, action: string) => `${FEATURE[k]}.${action}` as CapabilityId
 
-/** A document's kind: incoming is a bill, an outgoing proforma is proforma, the rest are sales documents. */
+/** A document's kind: incoming is a bill, an outgoing quote (a proforma, an offer) is proforma, the rest are sales documents. */
 export function kindOfDocument(doc: { direction?: string | null; type?: string | null } | null | undefined): DocKind {
   if (doc?.direction === 'incoming') return 'bills'
-  if (doc?.type === 'proforma') return 'proforma'
+  if (isQuoteType(doc?.type)) return 'proforma'
   return 'sales'
 }
 
@@ -41,8 +46,8 @@ export function readableKinds(grant: Grant | null | undefined): DocKind[] {
 }
 
 const CONDITION: Record<DocKind, Record<string, unknown>> = {
-  sales: { direction: 'outgoing', type: { $ne: 'proforma' } },
-  proforma: { direction: 'outgoing', type: 'proforma' },
+  sales: { direction: 'outgoing', type: { $nin: [...QUOTE_TYPES] } },
+  proforma: { direction: 'outgoing', type: { $in: [...QUOTE_TYPES] } },
   bills: { direction: 'incoming' },
 }
 

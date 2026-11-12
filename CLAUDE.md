@@ -1509,7 +1509,7 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
 
 ## Draft+Issued Invoice Numbering (2026-04-28)
 
-Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/CN/DN/BILL); cash sales skip drafts (CS direct). On `/send` or `/receive`, the controller allocates a new issued number from the canonical SALES_DOC/PROFORMA/BILL counter, sets `draftNumber = previousInvoiceNumber`, replaces `invoiceNumber`, and appends to `numberHistory[]`. Display prefix override (per-org-global) lives on the Sequence year=0 sentinel doc; future allocations only. **Documents are editable in EVERY status** — PUT applies no status or posting check. The edit-sent guard (409 when a posted JournalEntry referenced the invoice, with credit-note remediation) was **removed**; ⚠ an edit to a posted document does NOT re-post, so the JournalEntry keeps its pre-edit amounts and trial balance / P&L / balance sheet report the stale figures with nothing marking them so — repost is manual. DELETE keeps its draft-only guard. Configuration page at `/invoicing/configuration/sequences` (admin/manager only).
+Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales skip drafts (CS direct). On `/send` or `/receive`, the controller allocates a new issued number from the canonical SALES_DOC/PROFORMA/OFFER/BILL counter, sets `draftNumber = previousInvoiceNumber`, replaces `invoiceNumber`, and appends to `numberHistory[]`. Display prefix override (per-org-global) lives on the Sequence year=0 sentinel doc; future allocations only. **Documents are editable in EVERY status** — PUT applies no status or posting check. The edit-sent guard (409 when a posted JournalEntry referenced the invoice, with credit-note remediation) was **removed**; ⚠ an edit to a posted document does NOT re-post, so the JournalEntry keeps its pre-edit amounts and trial balance / P&L / balance sheet report the stale figures with nothing marking them so — repost is manual. DELETE keeps its draft-only guard. Configuration page at `/invoicing/configuration/sequences` (admin/manager only).
 
 ## Generic grid column picker + price-select + Словом + perf (2026-07-26)
 
@@ -1722,6 +1722,34 @@ Top menu reorganized into 5 workflow-based groups:
 - **Contacts**: Contacts, Invoice Aging
 
 Debit Notes moved from Vendors group (outgoing-direction) to Outgoing Documents. i18n keys `nav.outgoingDocs`, `nav.incomingDocs`, `nav.cashRegister` added across en/bg/de/mk.
+
+## Offers („оферта") — a quote before the proforma (2026-11-12)
+
+Invoice `type: 'offer'`, at `/invoicing/offer` (list, `/new`, `/:id/edit`): the proforma's form and list
+(`DOCUMENT_CONFIGS.offer`, `OffersView.vue`), in a series of its own — `DRAFT_OFR`/`DRF-OFR` while a draft,
+`OFFER`/`OFR` once issued (`sequence-registry.ts`; renamable on the sequences page). Not a legal series.
+
+- **Converted once** — `POST /invoices/:id/convert { target }`: an offer into a `proforma` or an `invoice`
+  (default), a proforma into an `invoice` only (`config/constants#QUOTE_CONVERTS_TO`). The new document is a
+  DRAFT of the target's draft series; it carries the deal over and names its source (`proformaId`,
+  `offerId`; a proforma made from an offer passes `offerId` on to its invoice). The quote becomes
+  `converted` with `convertedInvoiceId`; the list returns `convertedInvoiceType`, `offerNumber`.
+  ⚠ Once by a compare-and-set AFTER the draft exists: two presses at once (two tabs, „→ Проформа" and
+  „→ Фактура") make one document, the loser deletes its draft and answers 409. A voided quote converts
+  into nothing (400 `quote_withdrawn`; the API took a voided proforma until this). The target's kind must
+  be the role's to create (403 `capability_required`, `sales-docs.create` for an invoice).
+- ⚠ **A quote is no money** — `QUOTE_TYPES = ['proforma', 'offer']`, `isQuoteType()` in `config/constants`.
+  Issued it is `sent` with `amountDue = total`, which is exactly what a receivable reader counts. Every
+  reader of money or stock leaves the quotes out: stock booking (`movesNoStock`), the journal handler,
+  the fenced import, `/payments` (422 `quote_takes_no_payment`), `getInvoiceSummary` (when no type is
+  named), both agings, the contact form's balance, `/stats/contact`, `checkOverdueInvoices`, and the
+  contact ledger's TOTALS (its rows list them). Until this, every issued proforma never converted counted
+  as owed on the dashboard and in the aging. A new reader of outgoing `sent` documents must do the same.
+- **Access** rides on the `proforma` feature (`config/access/partition.ts`): the quotes are one kind, so
+  every role that works proformas works offers, and no stored role needed migrating. The role editor
+  labels it „Проформи и оферти".
+- ⚠ An older on-prem master (FR-20) does not know the type: an org moved to one carries offers its code
+  treats as sales documents (the move copies raw). Say so in the next server release's notes.
 
 ## Document Import (2026-08-21)
 

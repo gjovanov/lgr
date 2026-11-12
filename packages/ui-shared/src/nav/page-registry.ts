@@ -98,6 +98,7 @@ export const PAGE_REGISTRY: PageDef[] = [
   inArea(page('invoicing', '/internal-orders', 'nav.internalOrders', 'mdi-account-clock-outline'), 'orders'),
   inArea(page('invoicing', '/reservations', 'nav.reservations', 'mdi-lock-clock'), 'orders'),
   page('invoicing', '/proforma', 'nav.proforma', 'mdi-file-document-outline'),
+  page('invoicing', '/offer', 'nav.offers', 'mdi-file-sign'),
   inArea(page('invoicing', '/bills', 'nav.purchaseDocs', 'mdi-receipt-text'), 'purchases'),
   tillPage('/cash-sales', 'nav.crSales', 'mdi-cash-register', READ_JOURNAL),
   inArea(page('invoicing', '/payment-orders', 'nav.paymentOrders', 'mdi-bank-transfer'), 'payments'),
@@ -127,6 +128,7 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('invoicing', '/invoices/new?type=credit_note', 'nav.newDocPage.creditNote', 'mdi-receipt-text-minus-outline', WRITE_INVOICING),
   page('invoicing', '/invoices/new?type=debit_note', 'nav.newDocPage.debitNote', 'mdi-receipt-text-arrow-right-outline', WRITE_INVOICING),
   page('invoicing', '/proforma/new', 'nav.newDocPage.proforma', 'mdi-file-document-plus-outline', WRITE_INVOICING),
+  page('invoicing', '/offer/new', 'nav.newDocPage.offer', 'mdi-file-sign', WRITE_INVOICING),
   // The till's terminal: a cash sale is rung up there.
   tillPage('/cash-sales/new', 'nav.csTerminal', 'mdi-point-of-sale', WRITE_TILL),
   inArea(page('invoicing', '/bills/new', 'nav.newDocPage.bill', 'mdi-receipt-text-arrow-left-outline', WRITE_INVOICING), 'purchases'),
@@ -419,6 +421,7 @@ export const NEW_DOCUMENT_MENU: ReadonlyArray<ReadonlyArray<{ pageId: string; la
     { pageId: '/invoicing/invoices/new', labelKey: 'nav.newDoc.salesInvoice' },
     { pageId: '/invoicing/invoices/new?type=credit_note', labelKey: 'nav.newDoc.creditNote' },
     { pageId: '/invoicing/proforma/new', labelKey: 'nav.newDoc.proforma' },
+    { pageId: '/invoicing/offer/new', labelKey: 'nav.newDoc.offer' },
   ],
   [{ pageId: '/invoicing/cash-sales/new', labelKey: 'nav.newDoc.cashSale' }],
   [

@@ -55,12 +55,14 @@ beforeAll(async () => {
   org = await createTestOrg({ slug: 'access-partitions' } as any)
   orgId = String(org._id)
   await seedDefaultPermissionSets(orgId)
-  for (const key of ['admin', 'billsClerk', 'counter']) {
+  for (const key of ['admin', 'billsClerk', 'counter', 'quoter']) {
     people[key] = await createTestUser(org._id, { role: key === 'admin' ? 'admin' : 'member', username: key, email: `${key}@partitions.test` } as any)
   }
   const contact = await createTestContact(org._id)
   docs.sale = String((await createTestInvoice(org._id, contact._id as any, { invoiceNumber: 'INV-P-1' } as any))._id)
   docs.proforma = String((await createTestInvoice(org._id, contact._id as any, { invoiceNumber: 'PRF-P-1', type: 'proforma' } as any))._id)
+  // An offer is a quote, of the proforma kind: the proforma capabilities read and write it.
+  docs.offer = String((await createTestInvoice(org._id, contact._id as any, { invoiceNumber: 'OFR-P-1', type: 'offer', status: 'sent' } as any))._id)
   docs.bill = String((await createTestInvoice(org._id, contact._id as any, { invoiceNumber: 'BILL-P-1', direction: 'incoming' } as any))._id)
   await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: {} })
   await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
@@ -69,6 +71,8 @@ beforeAll(async () => {
   await giveRole('billsClerk', 'Bills clerk', ['bills.view', 'bills.create', 'bills.edit', 'contacts.lookup'] as CapabilityId[])
   // Sales documents to work on; bills to read, never to change.
   await giveRole('counter', 'Counter', ['sales-docs.view', 'sales-docs.create', 'sales-docs.edit', 'bills.view'] as CapabilityId[])
+  // Quotes (proformas, offers) to work on, and no sales document of its own.
+  await giveRole('quoter', 'Quoter', ['proforma.view', 'proforma.create', 'proforma.edit', 'contacts.lookup'] as CapabilityId[])
   for (const key of Object.keys(people)) tokens[key] = await (signer as any).decorator.jwt.sign(await tokenize((await User.findById(people[key]._id).exec())!))
 }, 60_000)
 
@@ -80,7 +84,13 @@ describe('the rule (config/access/partition.ts)', () => {
   it('kinds, and the filter a list adds', () => {
     expect(kindOfDocument({ direction: 'incoming', type: 'invoice' })).toBe('bills')
     expect(kindOfDocument({ direction: 'outgoing', type: 'proforma' })).toBe('proforma')
+    expect(kindOfDocument({ direction: 'outgoing', type: 'offer' })).toBe('proforma')
     expect(kindOfDocument({ direction: 'outgoing', type: 'credit_note' })).toBe('sales')
+    // The quotes are one kind, and the sales kind leaves both out.
+    expect(partitionFilter({ caps: new Set<CapabilityId>(['proforma.view']) })).toEqual({ $or: [{ direction: 'outgoing', type: { $in: ['proforma', 'offer'] } }] })
+    expect(partitionFilter({ caps: new Set<CapabilityId>(['sales-docs.view', 'bills.view']) })).toEqual({
+      $or: [{ direction: 'outgoing', type: { $nin: ['proforma', 'offer'] } }, { direction: 'incoming' }],
+    })
     expect(partitionFilter({ all: true })).toBeNull()
     expect(partitionFilter({ caps: new Set<CapabilityId>(['sales-docs.view', 'proforma.view']) })).toEqual({ direction: 'outgoing' })
     expect(partitionFilter({ caps: new Set<CapabilityId>(['bills.view']) })).toEqual({ direction: 'incoming' })
@@ -98,14 +108,40 @@ describe('FR-27.6: a role reads the kinds it holds', () => {
     expect((await call('GET', `/invoices/${docs.proforma}`, tokens.billsClerk)).status).toBe(404)
   })
 
-  it('the counter lists sales documents and bills, not proforma', async () => {
+  it('the counter lists sales documents and bills, not proforma, nor an offer', async () => {
     const list = await call('GET', '/invoices?size=50', tokens.counter)
     expect(numbers(list)).toEqual(['BILL-P-1', 'INV-P-1'])
     expect((await call('GET', `/invoices/${docs.proforma}`, tokens.counter)).status).toBe(404)
+    expect((await call('GET', `/invoices/${docs.offer}`, tokens.counter)).status).toBe(404)
+  })
+
+  it('a role of the quotes lists the proforma and the offer, and nothing else', async () => {
+    expect(numbers(await call('GET', '/invoices?size=50', tokens.quoter))).toEqual(['OFR-P-1', 'PRF-P-1'])
+    expect((await call('GET', `/invoices/${docs.offer}`, tokens.quoter)).status).toBe(200)
+    expect((await call('GET', `/invoices/${docs.sale}`, tokens.quoter)).status).toBe(404)
   })
 
   it('the Administrator reads every kind', async () => {
-    expect(numbers(await call('GET', '/invoices?size=50', tokens.admin))).toEqual(['BILL-P-1', 'INV-P-1', 'PRF-P-1'])
+    expect(numbers(await call('GET', '/invoices?size=50', tokens.admin))).toEqual(['BILL-P-1', 'INV-P-1', 'OFR-P-1', 'PRF-P-1'])
+  })
+})
+
+describe('converting a quote makes a document of another kind, which the role must make', () => {
+  it('a role of the quotes turns an offer into a proforma, never into an invoice', async () => {
+    const intoInvoice = await call('POST', `/invoices/${docs.offer}/convert`, tokens.quoter, { target: 'invoice' })
+    expect(intoInvoice.status).toBe(403)
+    expect(intoInvoice.json.capabilities).toEqual(['sales-docs.create'])
+    // Refused before anything was written: the offer is still open.
+    expect((await call('GET', `/invoices/${docs.offer}`, tokens.quoter)).json.invoice.status).toBe('sent')
+
+    const intoProforma = await call('POST', `/invoices/${docs.offer}/convert`, tokens.quoter, { target: 'proforma' })
+    expect(intoProforma.status).toBe(200)
+    expect(intoProforma.json.invoice.type).toBe('proforma')
+    expect(String(intoProforma.json.invoice.offerId)).toBe(docs.offer)
+  })
+
+  it('the counter, who reads no quote, converts none: a proforma is 404 to it', async () => {
+    expect((await call('POST', `/invoices/${docs.proforma}/convert`, tokens.counter, {})).status).toBe(404)
   })
 })
 

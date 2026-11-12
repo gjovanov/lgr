@@ -587,6 +587,7 @@ import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
 import { useAccess } from 'ui-shared/access/useAccess'
+import { capShows } from 'ui-shared/access/v-cap'
 import AttachToCashSaleDialog from '../AttachToCashSaleDialog.vue'
 import ReceiptOverlapDialog from '../ReceiptOverlapDialog.vue'
 import RecordPaymentDialog from '../RecordPaymentDialog.vue'
@@ -725,6 +726,9 @@ const {
  */
 const bottomActions = computed<FormAction[]>(() =>
   formActions.value
+    // As the top bar shows them (`EntityFormShell#visibleActions`): an action a role does not hold is not
+    // offered at the foot of the form either (FR-27.7) — a quote's „→ Фактура" needs `sales-docs.create`.
+    .filter((a) => a.show !== false && capShows(a.cap))
     .filter((a) => !a.save && a.label !== t('docImport.importFile') && a.label !== t('invoicing.saveAndReceive'))
     .reverse(),
 )

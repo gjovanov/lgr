@@ -8,6 +8,7 @@
  * drive the very same functions against the real routes. For every document the list issues it is
  * the list's code moved, not rewritten (FR-22 §5.1).
  */
+import { isQuoteType } from 'config/constants'
 
 /** What these functions need of an HTTP client: axios's `get` and `post`. */
 export interface IssueClient {
@@ -41,13 +42,13 @@ export function stockCheckLines(lines: any[] | undefined): StockCheckLine[] {
 
 /**
  * Whether issuing the document is checked for stock first: when issuing it DISPATCHES, i.e. an
- * outgoing invoice or debit note. A proforma is an offer and moves no stock (FR-22.22). An
+ * outgoing invoice or debit note. A quote (a proforma, an offer) moves no stock (FR-22.22). An
  * outgoing credit note is a return that brings the goods back in, and the server checks only
  * dispatches. Checking a credit note here could hold back a return of an article that has sold
  * out, which is when returns come.
  */
 export function checksStockOnIssue(doc: { direction?: string; type?: string }): boolean {
-  return doc.direction === 'outgoing' && doc.type !== 'proforma' && doc.type !== 'credit_note'
+  return doc.direction === 'outgoing' && !isQuoteType(doc.type) && doc.type !== 'credit_note'
 }
 
 /** FR-22.14: the message names the document that was issued — a credit note is not „Фактурата". */
@@ -56,6 +57,7 @@ export const ISSUED_KEY: Record<string, string> = {
   credit_note: 'invoicing.creditNoteIssued',
   debit_note: 'invoicing.debitNoteIssued',
   proforma: 'invoicing.proformaIssued',
+  offer: 'invoicing.offerIssued',
 }
 
 /**

@@ -17,6 +17,7 @@ import { getDisplayPrefix, getNextNumber } from './sequence.service.js'
 export type SequenceGroup =
   | 'invoice'
   | 'proforma'
+  | 'offer'
   | 'bill'
   | 'cash_sale'
   | 'order'
@@ -64,6 +65,7 @@ export const INVOICING_SEQUENCE_KEYS: SequenceKeyDef[] = [
   // Drafts (per-group counters)
   { prefix: 'DRAFT_INV',  defaultDisplay: 'DRF-INV',  group: 'invoice',        variant: 'draft' },
   { prefix: 'DRAFT_PRF',  defaultDisplay: 'DRF-PRF',  group: 'proforma',       variant: 'draft' },
+  { prefix: 'DRAFT_OFR',  defaultDisplay: 'DRF-OFR',  group: 'offer',          variant: 'draft' },
   { prefix: 'DRAFT_BILL', defaultDisplay: 'DRF-BILL', group: 'bill',           variant: 'draft' },
   { prefix: 'DRAFT_CS',   defaultDisplay: 'DRF-CS',   group: 'cash_sale',      variant: 'draft', unused: true },
   { prefix: 'DRAFT_ORD',  defaultDisplay: 'DRF-ORDO', group: 'order',          variant: 'draft' },
@@ -71,6 +73,8 @@ export const INVOICING_SEQUENCE_KEYS: SequenceKeyDef[] = [
   // Issued (SALES_DOC covers sales invoices + outgoing credit/debit notes)
   { prefix: 'SALES_DOC',  defaultDisplay: 'INV',      group: 'invoice',        variant: 'issued' },
   { prefix: 'PROFORMA',   defaultDisplay: 'PRF',      group: 'proforma',       variant: 'issued' },
+  // An offer („оферта"): a quote in a series of its own, never the proforma's or the invoices'.
+  { prefix: 'OFFER',      defaultDisplay: 'OFR',      group: 'offer',          variant: 'issued' },
   { prefix: 'BILL',       defaultDisplay: 'BILL',     group: 'bill',           variant: 'issued' },
   { prefix: 'CASH_SALE',  defaultDisplay: 'CS',       group: 'cash_sale',      variant: 'issued' },
   { prefix: 'ORDER',      defaultDisplay: 'ORDO',     group: 'order',          variant: 'issued' },
@@ -98,6 +102,7 @@ export const LEGACY_DISPLAY_ALIASES: Record<string, string[]> = {
 /** Map an invoicing document (type + direction) onto its sequence group. */
 export function sequenceGroupFor(type: string, direction?: string): SequenceGroup {
   if (type === 'proforma') return 'proforma'
+  if (type === 'offer') return 'offer'
   // FR-21 (D-5): a storno is numbered in the series of the sales it reverses. FR-23: so is the
   // receipt of a payment on an invoice, and the storno of a refund, documents of the same register.
   if (type === 'cash_sale' || type === 'cash_storno' || type === 'payment_receipt' || type === 'payment_storno') return 'cash_sale'

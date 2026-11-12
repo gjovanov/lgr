@@ -144,7 +144,27 @@ export const ACCOUNT_SUB_TYPES = [
   'operating_expense', 'cost_of_goods_sold', 'other_expense',
 ] as const
 
-export const INVOICE_TYPES = ['invoice', 'proforma', 'credit_note', 'debit_note'] as const
+export const INVOICE_TYPES = ['invoice', 'proforma', 'offer', 'credit_note', 'debit_note'] as const
+
+/**
+ * The documents that quote a customer and are no sale (FR-22.22): a proforma, and an offer („оферта"), which
+ * comes before it. Issued, a quote moves no stock, posts no journal entry, takes no payment and owes
+ * nothing: it is no receivable and no revenue. Every reader of money or stock leaves the quotes out (the
+ * aging, the dashboard and contact balances, the ledger's totals); the lists and the ledger's rows show them.
+ * A quote ends `converted` into the next document: an offer into a proforma or an invoice, a proforma into an
+ * invoice, each once.
+ */
+export const QUOTE_TYPES = ['proforma', 'offer'] as const
+export type QuoteType = (typeof QUOTE_TYPES)[number]
+export function isQuoteType(type: string | null | undefined): type is QuoteType {
+  return (QUOTE_TYPES as readonly string[]).includes(String(type))
+}
+/** What each quote converts into (`POST /invoices/:id/convert`), the default first. */
+export const QUOTE_CONVERTS_TO: Readonly<Record<QuoteType, readonly ('invoice' | 'proforma')[]>> = {
+  proforma: ['invoice'],
+  offer: ['invoice', 'proforma'],
+}
+
 export const INVOICE_DIRECTIONS = ['outgoing', 'incoming'] as const
 export const INVOICE_STATUSES = ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'voided', 'cancelled'] as const
 

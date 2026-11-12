@@ -77,7 +77,7 @@ interface SequenceRow {
   prefix: string
   defaultDisplay: string
   displayPrefix: string
-  group: 'invoice' | 'proforma' | 'bill' | 'cash_sale' | 'order'
+  group: 'invoice' | 'proforma' | 'offer' | 'bill' | 'cash_sale' | 'order'
     | 'internal_order' | 'reservation' | 'certificate' | 'pp_protocol' | 'pos_session'
   variant: 'draft' | 'issued'
   year: number
@@ -110,6 +110,7 @@ function groupLabel(group: string): string {
     // FR-01: the invoice/bill series now also carry credit + debit notes.
     invoice: t('nav.salesDocs'),
     proforma: t('nav.proforma'),
+    offer: t('nav.offers'),
     bill: t('nav.purchaseDocs'),
     cash_sale: t('invoicing.cashSales'),
     order: t('nav.externalOrders'),
