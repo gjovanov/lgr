@@ -347,15 +347,17 @@ export async function importMovement(ctx: Ctx, doc: Doc, listed: ReadonlySet<str
     const kept: Doc = { ...doc, status: confirm ? 'draft' : doc.status, importedFrom: { ...ctx.source, at: ctx.at, by: oid(ctx.by) } }
     delete kept.journalEntryId
     const taken = await StockMovement.collection.findOne({ orgId: ctx.org, movementNumber: doc.movementNumber, _id: { $ne: doc._id } } as any, { projection: { _id: 1 } })
-    // A movement number is no legal number: one lgrai.app has since used is given the next.
+    // A movement number is no legal number: one lgrai.app has since used is given the next, and the one after
+    // that when another movement takes it at the same moment.
+    const insert = () => StockMovement.collection.insertOne(kept as any)
     if (taken) {
       kept.importedFrom.number = doc.movementNumber
-      await withMovementNumber(ctx.orgId, async (movementNumber) => {
+      await withMovementNumber(ctx.orgId, (movementNumber) => {
         kept.movementNumber = movementNumber
-        await StockMovement.collection.insertOne(kept as any)
+        return insert()
       })
     } else {
-      await StockMovement.collection.insertOne(kept as any)
+      await insert()
     }
   }
   if (confirm && (!there || there.status === 'draft')) {
