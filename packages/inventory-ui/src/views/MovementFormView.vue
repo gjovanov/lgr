@@ -44,21 +44,40 @@
         </v-col>
       </v-row>
       <!-- FR-22.6 (B-8): searched on the server, so every supplier can be reached; on a receipt
-           it lists suppliers only and is called „Доставчик". -->
-      <v-defaults-provider :defaults="{ VAutocomplete: { density: 'compact' } }">
-        <ContactAutocompleteWithCreate
-          v-model="form.contactId"
-          :contacts="partners.contacts.value"
-          :loading="partners.loading.value"
-          :label="partnerLabel"
-          :org-url="appStore.orgUrl()"
-          :new-contact-type="isReceipt ? 'supplier' : undefined"
+           it lists suppliers only and is called „Доставчик". An adjustment names a client or a
+           supplier: the toggle says which, and the field lists, labels and creates that side. -->
+      <div class="d-flex align-start ga-3">
+        <v-btn-toggle
+          v-if="isAdjustment"
+          v-model="adjustmentSide"
+          mandatory
+          density="compact"
+          variant="outlined"
+          divided
+          color="primary"
+          class="flex-shrink-0 mt-1"
           :disabled="readonly"
-          data-testid="movement-partner"
-          @update:search="partners.onSearch"
-          @contact-created="partners.add"
-        />
-      </v-defaults-provider>
+          data-testid="adjustment-partner-side"
+        >
+          <v-btn value="customer" size="small">{{ $t('invoicing.client') }}</v-btn>
+          <v-btn value="supplier" size="small">{{ $t('invoicing.supplier') }}</v-btn>
+        </v-btn-toggle>
+        <v-defaults-provider :defaults="{ VAutocomplete: { density: 'compact' } }">
+          <ContactAutocompleteWithCreate
+            v-model="form.contactId"
+            class="flex-grow-1"
+            :contacts="partners.contacts.value"
+            :loading="partners.loading.value"
+            :label="partnerLabel"
+            :org-url="appStore.orgUrl()"
+            :new-contact-type="partnerSide ?? undefined"
+            :disabled="readonly"
+            data-testid="movement-partner"
+            @update:search="partners.onSearch"
+            @contact-created="partners.add"
+          />
+        </v-defaults-provider>
+      </div>
 
       <div class="d-flex align-center mt-4 mb-2">
         <span class="text-subtitle-2">{{ $t('invoicing.lineItems') }}</span>
@@ -451,15 +470,37 @@ function onTypeChange(type: string) {
  * asks for suppliers (and `both`) only.
  */
 const isReceipt = computed(() => form.value.type === 'receipt')
-const partnerLabel = computed(() => t(isReceipt.value ? 'invoicing.supplier' : 'invoicing.contact'))
+/**
+ * An adjustment names a client or a supplier (owner, 2026-11-12). Every type was already searched, but the list opens on
+ * the newest contacts, which in a shop that imported its suppliers are suppliers only, so a client read as not allowed.
+ * The toggle makes the side explicit: the list, the label and a contact created from the field follow it.
+ */
+const isAdjustment = computed(() => form.value.type === 'adjustment')
+const adjustmentSide = ref<'customer' | 'supplier'>('customer')
+/** The side the partner field lists and creates: suppliers on a receipt, the toggle's on an adjustment, any otherwise. */
+const partnerSide = computed<'customer' | 'supplier' | null>(() =>
+  isReceipt.value ? 'supplier' : isAdjustment.value ? adjustmentSide.value : null)
+const partnerLabel = computed(() => t(
+  partnerSide.value === 'supplier' ? 'invoicing.supplier' : partnerSide.value === 'customer' ? 'invoicing.client' : 'invoicing.contact'))
 const partners = useContactSearch({
   orgUrl: () => appStore.orgUrl(),
-  type: () => (isReceipt.value ? 'supplier' : undefined),
+  type: () => partnerSide.value,
   selected: () => [form.value.contactId],
 })
-watch(() => form.value.type, () => { void partners.search() })
+watch(partnerSide, () => { void partners.search() })
 // A loaded, restored or imported movement names its contact by id: fetch it so it shows by name.
 watch(() => form.value.contactId, () => { void partners.ensureSelected() })
+/** The chosen partner, once the list holds it (a loaded movement's after `ensureSelected`). */
+const chosenPartner = computed(() => partners.contacts.value.find(c => c._id === form.value.contactId) ?? null)
+// The toggle shows the side of the partner an adjustment names: a loaded supplier reads Supplier. `both` keeps the side.
+watch(chosenPartner, (c) => {
+  if (isAdjustment.value && (c?.type === 'customer' || c?.type === 'supplier')) adjustmentSide.value = c.type
+})
+// Switching sides drops a partner of the other side; a `both` contact stays.
+watch(adjustmentSide, (side) => {
+  const c = chosenPartner.value
+  if (isAdjustment.value && !readonly.value && c && c.type !== side && c.type !== 'both') form.value.contactId = undefined
+})
 
 // ── neither warehouse set ──
 /**

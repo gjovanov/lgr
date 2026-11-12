@@ -186,6 +186,22 @@ test.describe('Reports app — P2 catalog', () => {
     await expect(page.getByText(/fiscal \/ nra/i)).toBeVisible()
   })
 
+  // Owner, 2026-11-12: the sales register is printed and handed over, so its Export starts on PDF; another report keeps
+  // Excel. Export needs rows: the seed's issued invoices are older than this month, so the register asks for every year.
+  test('the sales register exports to PDF by default; another report keeps Excel', async ({ page }) => {
+    await loginForApp(page)
+    for (const [path, format] of [['sales-documents?periodPreset=custom&periodFrom=2000-01-01&periodTo=2099-12-31', 'PDF'], ['inventory-valuation', 'Excel']] as const) {
+      await page.goto(`/reports/${path}`)
+      await expect(page.locator('.v-data-table').first()).toBeVisible({ timeout: 20000 })
+      await page.getByRole('button', { name: /^export$/i }).click()
+      const chosen = page.locator('.v-overlay--active [role="radio"][aria-checked="true"]')
+      await expect(chosen).toHaveCount(1)
+      await expect(chosen).toContainText(format)
+      await page.keyboard.press('Escape')
+      await expect(page.locator('.v-overlay--active [role="radiogroup"]')).toHaveCount(0)
+    }
+  })
+
   test('a P2 registry report runs and drills down', async ({ page }) => {
     await loginForApp(page)
     await page.goto('/reports/stock-levels')

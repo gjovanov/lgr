@@ -19,6 +19,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { parseTyped } from '../composables/price-precision'
 
 const props = withDefaults(defineProps<{
   modelValue: number
@@ -53,7 +54,7 @@ const currencySymbol = computed(() => {
 const displayValue = computed(() => props.modelValue)
 
 function onInput(val: string | number) {
-  const num = typeof val === 'string' ? parseFloat(val) : val
-  emit('update:modelValue', isNaN(num) ? 0 : num)
+  // A comma is a decimal point (owner, 2026-11-12): parseFloat("12,5") was 12.
+  emit('update:modelValue', parseTyped(val) ?? 0)
 }
 </script>

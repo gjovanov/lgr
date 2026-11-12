@@ -288,6 +288,8 @@ test('P7 chain: client order → reserve → external order → send → invoice
   const issueBtn = page.locator('.form-actions-bar').getByRole('button', { name: 'Издай', exact: true })
   await expect(issueBtn).toBeVisible()
   await walk.click(issueBtn, 'issue („Издай" on the invoice form)')
+  walk.dialog('confirm the payment method (owner, 2026-11-12)')
+  await walk.click(page.getByTestId('issue-payment-yes'), 'yes, issue with that payment method')
   await expect(snackbar(walk, 'Фактурата е изпратена успешно')).toBeVisible()
   await settledShot(walk, 'issued')
 
@@ -318,6 +320,7 @@ test('P7 chain: client order → reserve → external order → send → invoice
   // twice) and leaves the cursor in its quantity (three clicks); the customer field a new order
   // starts in (FR-22.52) saves one the walk had not taken. FR-22.35 lands on the new external order
   // (no click on its number) and on the new invoice, which issues on its own form (one click where
-  // the sales list took a menu and a row action). FR-22's target is ≤ 22.
-  expect(result.clicks).toBeLessThanOrEqual(18)
+  // the sales list took a menu and a row action). FR-22's target is ≤ 22. Owner, 2026-11-12: issuing it confirms its
+  // payment method first, one more click (Yes).
+  expect(result.clicks).toBeLessThanOrEqual(19)
 })

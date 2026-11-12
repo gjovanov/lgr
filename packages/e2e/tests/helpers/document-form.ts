@@ -10,6 +10,17 @@ import type { Locator, Page } from '@playwright/test'
  * column picker, so both shapes are legitimate — what the specs care about is that the form
  * offers a warehouse at all.
  */
+/**
+ * Owner, 2026-11-12: issuing an outgoing invoice (the form's Issue, the list's row action) first asks to confirm the
+ * payment method it carries. Answer it: Yes issues, No leaves the draft.
+ */
+export async function answerIssuePayment(page: Page, yes = true): Promise<void> {
+  const dialog = page.getByTestId('issue-payment-confirm')
+  await expect(dialog).toBeVisible({ timeout: 15000 })
+  await dialog.getByTestId(yes ? 'issue-payment-yes' : 'issue-payment-no').click()
+  await expect(dialog).toBeHidden()
+}
+
 export async function expectWarehouseSelector(page: Page): Promise<void> {
   const docLevel = page.getByRole('combobox', { name: /warehouse/i })
   const columnHeader = page.locator('.v-table th').filter({ hasText: /warehouse/i })

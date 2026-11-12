@@ -204,6 +204,7 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { computePosTotals, tillLineAmounts, tillTotals } from 'config/pos-totals'
@@ -295,7 +296,7 @@ const paymentMethods = [
 ]
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
-function fmt(n: number, decimals = 2) { return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.value, minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n) }
+function fmt(n: number, decimals = 2) { return numberFormat(undefined, { style: 'currency', currency: currency.value, minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n) }
 
 const activeSession = computed<Session | null>(() => sessions.value.find(s => s.status === 'open') || null)
 

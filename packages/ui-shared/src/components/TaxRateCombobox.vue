@@ -34,6 +34,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
 import { httpClient } from '../composables/useHttpClient'
+import { parseTyped } from '../composables/price-precision'
 
 interface VatRate {
   name: string
@@ -124,7 +125,8 @@ function onValueChange(val: any) {
   } else if (typeof val === 'string') {
     // Accept "18" or "18 %" or "Standard — 18%" → extract number.
     const numStr = val.includes('—') ? val.split('—')[1] : val
-    rate = Number(numStr.replace(/[%\s]/g, ''))
+    // "9,5" is 9.5: a comma is a decimal point (owner, 2026-11-12).
+    rate = parseTyped(numStr.replace(/[%\s]/g, '')) ?? Number.NaN
   } else {
     rate = Number(val)
   }

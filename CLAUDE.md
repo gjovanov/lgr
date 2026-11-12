@@ -790,6 +790,12 @@ so the tenant guard and every permission check are unchanged. Plan:
   `User.password` copy.
 - `iid`/`tv` on a session tie it to the person: a password change bumps `tokenVersion` and every
   session they hold stops working (`liveSessionUser`, cached a minute per process).
+  - The same check reads the MEMBERSHIP (`membershipSwitchedOff`): a session whose membership says
+    `isActive: false` is refused, whoever switched it off (the two user routes end the person's sessions
+    themselves; a script, a restore or an import used to leave the session good for up to a day, and so did a
+    membership with no person linked). ⚠ Only a row that is there and switched off refuses: one that is missing
+    or cannot be read decides nothing, because this runs on every request of every org. "Active" is cached a
+    minute; "switched off" never, so a member switched on again is not kept out.
 - An org admin never sets the password, email or name of someone active in another org
   (`identity_shared`), and never creates a user at an address that is already someone's
   (`identity_exists`: they invite instead).
@@ -3489,6 +3495,8 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     recent activity, the Files audit.
   - **C.7 / D views**: the Products grid offers only the levels held (`useProductColumns`), the product form edits
     only those, and an open product list re-reads its rows when `x-access-version` changes.
+- **A typed line price (2026-11-12) is `sales-docs.manual-price`**: `invoicing.write` grants it, the role NAME `seller` withholds
+  it (`LEGACY_ROLE_WITHHOLDS`); forms only (`PriceCombobox :typed`), ⚠ no route refuses a typed price yet.
 - **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
   null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
   gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`
