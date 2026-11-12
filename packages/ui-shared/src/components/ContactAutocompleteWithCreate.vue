@@ -15,8 +15,11 @@
       :disabled="disabled"
     >
       <template #append-item>
-        <v-divider />
-        <v-list-item prepend-icon="mdi-plus" :title="$t('invoicing.createContact')" @click="openCreateDialog" />
+        <!-- Only for a session that may create one: the save would be refused otherwise. -->
+        <div v-cap="'contacts.create'">
+          <v-divider />
+          <v-list-item prepend-icon="mdi-plus" :title="$t('invoicing.createContact')" data-testid="create-contact-option" @click="openCreateDialog" />
+        </div>
       </template>
     </v-autocomplete>
 
@@ -116,8 +119,10 @@
 
 <script setup lang="ts">
 /**
- * A party picker that can also create the party: the invoice forms' „Клиент", the cash sale's
- * customer and the goods receipt's „Доставчик".
+ * A party picker that can also create the party: every document form's customer or supplier (an
+ * offer's, a proforma's and a bill's too), the cash sale's customer and the goods receipt's
+ * „Доставчик". Creating needs `contacts.create`: without it the entry at the foot of the list is
+ * hidden (`v-cap`), and the picker only picks.
  *
  * Promoted from invoicing-ui (FR-22.6) so the receipt form in inventory-ui could use it. It only
  * SHOWS `contacts`: the caller owns the list and answers `update:search` with a server query —
