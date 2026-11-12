@@ -259,6 +259,8 @@ export interface PullSummary {
   families: { prefix: string; count: number; first: string | null; last: string | null; gaps: string | null }[]
   snapshot: { products: number; zero: number } | null
   pos: { kind: string; count: number; days: number }[]
+  /** The partner directory (`--families partners`): how many entries, and per group. null: that pull said nothing about it. */
+  partners: { entries: number; groups: string } | null
   secondary: number
 }
 
@@ -269,7 +271,8 @@ export function parsePull(text: string): PullSummary {
   const snap = /^snapshot\s+(\d+) products, (\d+) at zero quantity/m.exec(text)
   const pos = all(text, /^(posReceipts|posLayaways|posReversals)\s+(\d+) \w+ on (\d+) day\(s\)/gm).map(m => ({ kind: m[1], count: Number(m[2]), days: Number(m[3]) }))
   const secondary = all(text, /\+ (\d+) secondary-type doc/g).reduce((s, m) => s + Number(m[1]), 0)
-  return { families, snapshot: snap ? { products: Number(snap[1]), zero: Number(snap[2]) } : null, pos, secondary }
+  const partners = /^partners\s+(\d+) entries: (.*)$/m.exec(text)
+  return { families, snapshot: snap ? { products: Number(snap[1]), zero: Number(snap[2]) } : null, pos, partners: partners ? { entries: Number(partners[1]), groups: partners[2].trim() } : null, secondary }
 }
 
 export interface CompareSummary {
@@ -412,6 +415,39 @@ export function parseMovesLog(text: string): MovesLog {
     booked: int(m?.[2]), skipped: int(m?.[3]), unmatched: int(m?.[4]), executed: m?.[1] === 'Booked',
     movements: all(text, /✓ (SM-[\w-]+) confirmed/g).map(x => x[1]),
     errors: all(text, /^\s*(✗.*)$/gm).map(x => x[1].trim()),
+  }
+}
+
+export interface ContactsLog {
+  /** The `Planned:` line. null: not found. */
+  planned: { create: number; update: number; aliases: number; roles: number; fills: number; same: number; ambiguous: number; conflict: number; inactive: number; skip: number; merged: number } | null
+  /** The `Done:` line of a run that wrote. null: this run only planned (or the line is missing). */
+  done: { created: number; updated: number; failed: number } | null
+  /** `--max-create` refused the run. */
+  overLimit: boolean
+  /** Names of the contacts to create (or created). */
+  created: string[]
+  /** Partners the import cannot place: ambiguous, a different ЕИК under the same name, only a deactivated contact fits. */
+  held: string[]
+  /** Partners PlusMinus holds nothing about: left to the document import. */
+  noData: string[]
+  failures: string[]
+  directory: number | null
+}
+
+/** import-contacts-api.ts: the plan, and what a writing run did. */
+export function parseContactsLog(text: string): ContactsLog {
+  const p = /^Planned: (\d+) to create, (\d+) to update \((\d+) other name\(s\), (\d+) role\(s\), (\d+) field\(s\) to fill\), (\d+) unchanged, (\d+) ambiguous, (\d+) conflict\(s\), (\d+) inactive, (\d+) skipped, (\d+) merged/m.exec(text)
+  const d = /^Done: created (\d+) \| updated (\d+) \| failed (\d+)/m.exec(text)
+  return {
+    planned: p ? { create: Number(p[1]), update: Number(p[2]), aliases: Number(p[3]), roles: Number(p[4]), fills: Number(p[5]), same: Number(p[6]), ambiguous: Number(p[7]), conflict: Number(p[8]), inactive: Number(p[9]), skip: Number(p[10]), merged: Number(p[11]) } : null,
+    done: d ? { created: Number(d[1]), updated: Number(d[2]), failed: Number(d[3]) } : null,
+    overLimit: /is more than --max-create/.test(text),
+    created: all(text, /^\s+\+ CREATE (?:customer|supplier|both) „(.*?)" \(/gm).map(m => m[1]),
+    held: all(text, /^\s+[?!] (?:AMBIGUOUS|CONFLICT|INACTIVE) (.*)$/gm).map(m => m[1].trim()),
+    noData: all(text, /^\s+- skip „(.*?)": PlusMinus holds nothing/gm).map(m => m[1]),
+    failures: all(text, /^\s*(✗.*)$/gm).map(m => m[1].trim()),
+    directory: int(/^Directory: (\d+) entries/m.exec(text)?.[1]),
   }
 }
 
@@ -566,7 +602,12 @@ export const unread = (what: string): Finding => finding('stop', `could not read
 
 // ── The gates: what each phase of a day's import must say before the next one starts ────────────────────────────────
 
-export const FAMILIES = ['receipts', 'transfers', 'writeoffs', 'till', 'invoices'] as const
+/**
+ * In booking order. `contacts` is first on purpose: a receipt links its supplier and an invoice its customer by name, and
+ * both can only find a contact that exists. The others are as before: a receipt creates the products an invoice sells, and
+ * the till day must exist before an invoice of a till sale attaches to it.
+ */
+export const FAMILIES = ['contacts', 'receipts', 'transfers', 'writeoffs', 'till', 'invoices'] as const
 export type Family = (typeof FAMILIES)[number]
 
 /** The history of a store since the previous run, against the day about to be booked. */
@@ -646,8 +687,22 @@ export function gatePredict(text: string): Finding[] {
 /** What a dry run of one family says. `rerun`: the day is booked, so nothing may be left to book. */
 export function gateDry(family: Family, text: string, code: number, rerun: boolean): Finding[] {
   const nothingMapped = family === 'writeoffs' && /Nothing mapped/.test(text)
-  if (code !== 0 && !nothingMapped) return [finding('stop', `the ${family} dry run failed (exit ${code})`)]
+  // The contacts importer exits 1 when --max-create refuses the run; that is a finding below, not a failed tool.
+  if (code !== 0 && !nothingMapped && !(family === 'contacts' && parseContactsLog(text).overLimit)) return [finding('stop', `the ${family} dry run failed (exit ${code})`)]
   const out: Finding[] = []
+  if (family === 'contacts') {
+    const c = parseContactsLog(text)
+    if (!c.planned) return [unread('the contacts plan')]
+    const p = c.planned
+    if (c.overLimit) out.push(finding('act', `${p.create} contact(s) to create is more than --max-create allows: read the list, and raise it only if the list is right`))
+    if (c.held.length) out.push(finding('act', `${c.held.length} partner(s) the import cannot place (several contacts fit, a contact of that name holds a different ЕИК, or only a deactivated contact fits): a person decides, and nothing is written for them`, c.held))
+    if (rerun && (p.create || p.update)) out.push(finding('act', `contacts are NOT settled: ${p.create} to create, ${p.update} to update`))
+    if (!rerun && p.create) out.push(finding('note', `${p.create} contact(s) are created with what PlusMinus knows (a customer or supplier nobody holds)`, c.created))
+    if (!rerun && p.update) out.push(finding('note', `${p.update} contact(s) are filled where empty, given the documents' name as another name, or widened to both (${p.aliases} other name(s), ${p.roles} role(s), ${p.fills} field(s))`))
+    if (c.noData.length) out.push(finding('note', `${c.noData.length} partner(s) PlusMinus holds nothing about: left to the document import (a customer is still created by name when an invoice needs it)`, c.noData))
+    out.push(finding('ok', `contacts: ${p.create} to create, ${p.update} to update, ${p.same} unchanged, ${p.skip} skipped${p.merged ? `, ${p.merged} merged into a planned contact` : ''}`))
+    return out
+  }
   if (family === 'receipts') {
     const r = parseReceiptsLog(text)
     if (!r.processed) return [unread('the receipts dry run')]
@@ -711,6 +766,13 @@ export function gateDry(family: Family, text: string, code: number, rerun: boole
 export function gateBooked(family: Family, text: string, code: number): Finding[] {
   const out: Finding[] = []
   if (code !== 0) out.push(finding('stop', `the ${family} importer exited ${code}: read its log before anything else, part of it may be booked`))
+  if (family === 'contacts') {
+    const c = parseContactsLog(text)
+    if (!c.done) return [...out, unread('the contacts run')]
+    if (c.done.failed || c.failures.length) out.push(finding('stop', `${c.done.failed} contact(s) failed to write`, c.failures))
+    out.push(finding('ok', `contacts booked: ${c.done.created} created, ${c.done.updated} updated`))
+    return out
+  }
   if (family === 'receipts') {
     const r = parseReceiptsLog(text)
     if (!r.processed) return [...out, unread('the receipts run')]

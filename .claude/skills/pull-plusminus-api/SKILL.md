@@ -200,3 +200,23 @@ only be another run of the tools; the 22:00–06:00 Sofia window matters only fo
 2026-11-02 the owner said the store PC was free during the day and an idle admin GUI session (open since the morning, no GUI log entry, zero
 CPU) was ended with the admin console's `disconnectClient` by the one-off `tools/evict-then-probe.ts`; that is deliberately NOT a feature of
 this puller. Tools, runbook and the capture: `_docs/regal-pz/_till-capture/tools/README.md`.
+
+## The partner directory: `--families partners` (opt-in; verified live 2026-11-12)
+
+The customers and suppliers PlusMinus knows, with what it keeps on each. Not a `documents()` family: the vendor's own client
+loads every partner group with ONE call, `pm.apProperties("ДОСТАВЧИЦИ:; КЛИЕНТИ:; ПАРТНЬОРИ:; КОНТРАГЕНТИ:")` (its `loadPartners`), which
+answers `{ "КЛИЕНТИ:Name": { БУЛСТАТ, ИНДДС, АДРЕС, ГРАД, МОЛ, ТЕЛЕФОН … } }`:
+
+```bash
+bun .claude/skills/pull-plusminus-api/pull-api.ts --org regal-pz --from 2026-11-12 --families partners --no-snapshot
+```
+
+It writes `partners.json` into the day folder (keys sorted, so an unchanged directory is the same bytes). About 1 MB a shop. Read only.
+
+- A shop's server has `КЛИЕНТИ` (its customer ledger, roughly a thousand names) and `ПАРТНЬОРИ` (every name any document was ever
+  written to or from, suppliers included, several thousand); it has no `ДОСТАВЧИЦИ`, which lives only in the accountant's books.
+  A sales invoice names its customer in either group.
+- Properties differ by group: `КЛИЕНТИ` carries `ТЕЛЕФОН`, `ПАРТНЬОРИ` carries `ТЕЛ.`, `ФАКС`, `ДАН.№`, `БАНКА`, `Б.СМЕТКА` and `ЕГН`.
+  ⚠ **`ЕГН` is a person's civil number: nothing here reads or keeps it.**
+- A name is the analytic's own spelling, double spaces included; a document's `header.partner` is the same string.
+- The importer that reads it is `scripts/import-contacts-api.ts` (`daily-import-book`).

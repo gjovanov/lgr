@@ -3176,6 +3176,38 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   - The backfill below (`rule: 'alias'` in its plan and manifest).
   ⚠ `describeMatch`'s two ⚠ lines („no active supplier is named …", „N active suppliers are named …") are a format
   the daily import's log checks read by their opening words: do not reword them.
+- **The daily import settles the day's contacts FIRST, from PlusMinus's own partner directory
+  (`scripts/import-contacts-api.ts`, family `contacts` of `daily.ts`, 2026-11-12).** The receipts and invoices
+  look a supplier or customer up by name, so a partner no contact carries used to arrive as a receipt with no
+  supplier, or as a customer created by name alone. `pull-api.ts --families partners` writes `partners.json` into
+  the day folder (ONE `apProperties("ДОСТАВЧИЦИ:; КЛИЕНТИ:; ПАРТНЬОРИ:; КОНТРАГЕНТИ:")` call, the vendor client's own
+  `loadPartners`): `КЛИЕНТИ` is a shop's customer ledger, `ПАРТНЬОРИ` every name a document ever used (suppliers
+  included), each with БУЛСТАТ, ИНДДС, АДРЕС, ГРАД, МОЛ, ТЕЛ./ТЕЛЕФОН. The rules are `doc-import/map-plusminus-partner.ts`
+  (pure, tested) and are deliberately narrow:
+  - **Which partners**: the ones the day's documents name, a sales invoice's customer and the supplier of a receipt
+    that brings stock IN (a price-only restatement, a pure outgoing correction, the КОРЕКЦИЯ placeholder and the org's
+    own stores buy nothing), plus, only with `--all-clients`, every `КЛИЕНТИ` entry PlusMinus identifies. Never the
+    whole `ПАРТНЬОРИ` list: thousands of names never traded in the period LGR holds.
+  - **Who it is in LGR**, in order: the same ЕИК/VAT number (a branch's 13 digits find its head office's 9; a
+    placeholder like 999999999 finds nobody), the same name or one of the contact's other names, the same words with
+    other punctuation. A contact of that name holding a DIFFERENT ЕИК is another company: a `conflict` for a person.
+    Several contacts sharing a number do not stop the run (the named one, else the oldest, as the invoice import takes
+    it); two that merely share another name, or only the words, are `ambiguous`; only a deactivated contact fits:
+    `inactive`. Each of those is an `ACT` of `daily.ts dry`, and nothing is written for it.
+  - **What is written**: a contact nobody holds is created with what PlusMinus knows; a contact somebody holds is
+    FILLED WHERE EMPTY (ЕИК in `taxId` and `taxNumber`, VAT, phone, address, МОЛ in the notes), given the documents'
+    name as one of its other names when the match was made by number or by the words, and widened to `both` when the
+    documents use it in the other role. **Nothing a person typed is overwritten, nothing is deleted or deactivated.**
+    A SUPPLIER of a receipt that PlusMinus knows by name alone is created by name (a receipt can only name a supplier
+    that exists), with a note saying so and the contacts that start with the same word listed for a person to merge;
+    a customer PlusMinus says nothing about is left to the invoice import.
+  - ⚠ **The civil number (`ЕГН`) is never read**; a sole trader's БУЛСТАТ can be their ЕГН and the seeded contacts
+    already carry it, but this neither copies the field nor widens that.
+  - `--max-create` (default 80) refuses a run that would create more; the one-off catch-up of a shop's whole
+    `КЛИЕНТИ` ledger is `daily.ts book --family contacts --all-clients --execute` after reading its dry run.
+  The log lines `Planned: …` and `Done: …` are a format `scripts/lib/daily-import.ts#parseContactsLog` reads.
+  A price on a receipt line that is no number ("1.741.5700", "1,74") is reported with a proposed meaning and NOT
+  written (`map-plusminus-stokrazp.ts#parsePrice`): the stores correct their cards, LGR follows for the flagged products.
 - **A receipt booked without a supplier: `scripts/backfill-receipt-suppliers.ts --org <slug>`**
   (`scripts/lib/receipt-supplier-backfill.ts`). The partner's NAME is still in LGR: in the notes the API importers
   wrote (`deliveryNote`, read back by `config/movement-notes#deliveryNotePartner`), or in the analysis of the Files

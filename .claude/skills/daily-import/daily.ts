@@ -19,7 +19,8 @@
 //   scan                     which documents of the day moved no stock; till returns; items outside the goods group
 //   predict                  audit, compare, the prediction, the price snapshot (needs LGR)
 //   dry                      dry runs of every importer the day needs (needs LGR)
-//   book --family <f>        receipts | transfers | writeoffs | till | invoices: dry, check, then --execute writes
+//   book --family <f>        contacts | receipts | transfers | writeoffs | till | invoices: dry, check, then --execute writes
+//                            (contacts first: the receipts and invoices look their suppliers and customers up by name)
 //   after                    pull again, prove PlusMinus stood still, compare
 //   prices                   price snapshot after, and every change named by a receipt line
 //   rerun                    dry reruns: nothing may be left to book
@@ -42,7 +43,7 @@ import { getOrg } from '../pull-plusminus-api/orgs'
 import { loadStoresEnv } from '../pull-plusminus-api/stores-env'
 import {
   diffPulls, docFiles, finding, gateAuditAfter, gateAuditBefore, gateBooked, gateCompare, gateDry, gateHistory, gatePredict,
-  gatePrices, gateSameDay, gateScan, newOutsideDay, numberGaps, parseAudit, parseCompare, parseInvoicesLog, parseMovesLog, parsePredict,
+  gatePrices, gateSameDay, gateScan, newOutsideDay, numberGaps, parseAudit, parseCompare, parseContactsLog, parseInvoicesLog, parseMovesLog, parsePredict,
   parsePriceDiff, parsePull, parseReceiptsLog, parseTillLog, sameDay, scanDay, unread, DOC_FILE, FAMILIES, type Family, type Finding,
 } from '../../../scripts/lib/daily-import'
 
@@ -54,6 +55,7 @@ const IMPORT: Record<string, { historyFrom: string; baseline: string }> = {
 }
 /** The files of a day folder that make a family present. */
 const FAMILY_FILES: Record<Family, RegExp> = {
+  contacts: /^partners\.json$/,
   receipts: /^stokrazp_\d+\.json$/, transfers: /^sklrazp_\d+\.json$/, writeoffs: /^sklisk_\d+\.json$/,
   till: /^(storeOperations_\d+|posReceipts_\d{8})\.json$/, invoices: /^invoicem_\d+\.json$/,
 }
@@ -227,6 +229,7 @@ const IMPORTER_ENTRIES = [
   'scripts/receive-stock-api.ts', 'scripts/receive-new-products.ts', 'scripts/transfer-stock-api.ts', 'scripts/transfer-stock.ts',
   'scripts/adjust-stock-api.ts', 'scripts/adjust-stock.ts', 'scripts/import-cash-register-sales-api.ts',
   'scripts/import-sales-invoices-api.ts', 'scripts/compare-stock-api.ts', 'scripts/audit-coverage-api.ts', 'scripts/true-up-stock-api.ts',
+  'scripts/import-contacts-api.ts',
 ]
 
 /** Every file of this repository the entries load, followed through their imports. */
@@ -344,6 +347,14 @@ function pull(c: Ctx): Finding[] {
     if (pos.code !== 0) out.push(finding('stop', `the POS pull failed (exit ${pos.code})`))
     else for (const k of parsePull(pos.text).pos) out.push(finding('ok', `${k.kind}: ${k.count} on ${k.days} day(s)`))
   }
+  // The partner directory: customers and suppliers with their ЕИК, address and phone, for the contacts family.
+  const partners = run('pull (partners)', [pullScript, '--org', c.org, '--from', from, '--to', day, '--families', 'partners', '--no-snapshot', ...serverArgs(c)], join(c.out, 'pull-partners.txt'))
+  if (partners.code === 3) out.push(finding('stop', 'the PlusMinus account is in use (exit 3) for the partner pull. Never evict it.'))
+  else if (partners.code !== 0) out.push(finding('stop', `the partner pull failed (exit ${partners.code}): read ${join(c.out, 'pull-partners.txt')}`))
+  else {
+    const d = parsePull(partners.text).partners
+    out.push(d ? finding('ok', `partners: ${d.entries} entries (${d.groups})`) : unread('the partner directory line'))
+  }
   return out
 }
 
@@ -430,6 +441,9 @@ const onlyArgs = (): string[] => (opt('only') ? ['--only', opt('only')!] : [])
 
 function importerArgs(c: Ctx, family: Family, write: boolean): string[] {
   switch (family) {
+    // The partners the day's documents name, settled BEFORE the receipts and invoices look for them. --all-clients is the
+    // one-off catch-up of every КЛИЕНТИ entry (it needs the room --max-create gives).
+    case 'contacts': return ['run', 'scripts/import-contacts-api.ts', '--dir', c.dayDir, '--org', c.org, ...(has('all-clients') ? ['--all-clients', '--max-create', opt('max-create') ?? '2000'] : []), ...(write ? ['--execute'] : [])]
     case 'receipts': return ['run', 'scripts/receive-stock-api.ts', '--dir', c.dayDir, '--org', c.org, ...onlyArgs(), ...(write ? ['--execute'] : [])]
     case 'transfers': return ['run', 'scripts/transfer-stock-api.ts', '--dir', c.dayDir, '--org', c.org, ...onlyArgs(), ...(write ? ['--execute'] : [])]
     case 'writeoffs': return ['run', 'scripts/adjust-stock-api.ts', '--dir', c.dayDir, '--org', c.org, ...onlyArgs(), ...(write ? ['--execute'] : [])]
@@ -519,7 +533,8 @@ function facts(c: Ctx): Finding[] {
   const pr = t('predict.txt'); if (pr) { const p = parsePredict(pr); lines.push(`- prediction: ${p.documents} documents, ${p.now} now, ${p.after} after`) }
   for (const f of existsSync(c.out) ? readdirSync(c.out).filter(n => /^run-.*\.txt$/.test(n)).sort() : []) {
     const text = t(f)!
-    if (f.startsWith('run-receipts')) { const r = parseReceiptsLog(text); lines.push(`- ${f}: ${r.docs.length} document(s), movements ${r.docs.flatMap(d => d.movements).join(' ') || '-'}, created ${[...text.matchAll(/\+ created (\S+)/g)].map(m => m[1]).join(' ') || '-'}`) }
+    if (f.startsWith('run-contacts')) { const k = parseContactsLog(text); lines.push(`- ${f}: created ${k.done?.created ?? '-'}, updated ${k.done?.updated ?? '-'}, failed ${k.done?.failed ?? '-'}${k.created.length ? ` (${k.created.length} new)` : ''}`) }
+    else if (f.startsWith('run-receipts')) { const r = parseReceiptsLog(text); lines.push(`- ${f}: ${r.docs.length} document(s), movements ${r.docs.flatMap(d => d.movements).join(' ') || '-'}, created ${[...text.matchAll(/\+ created (\S+)/g)].map(m => m[1]).join(' ') || '-'}`) }
     else if (f.startsWith('run-transfers') || f.startsWith('run-writeoffs')) { const m = parseMovesLog(text); lines.push(`- ${f}: booked ${m.booked}, movements ${m.movements.join(' ') || '-'}`) }
     else if (f.startsWith('run-till')) for (const d of parseTillLog(text)) lines.push(`- ${f}: ${d.date} ${d.document ?? '-'}, ${d.items ?? '-'} lines, ${d.total ?? '-'} EUR booked, ${d.grossPaid ?? '-'} EUR taken`)
     else if (f.startsWith('run-invoices')) { const i = parseInvoicesLog(text); lines.push(`- ${f}: issued ${i.converted?.[0]} of ${i.converted?.[1]}, ${i.dispatches} dispatch(es), ${i.attached.length} attached to a till day (${i.attached.join(', ') || '-'}), ${i.newCustomers} new customer(s)`) }
