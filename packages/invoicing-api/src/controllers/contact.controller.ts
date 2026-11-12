@@ -10,6 +10,7 @@ import { upsertTags } from 'services/biz/tag.service'
 import { pickerContacts } from 'services/biz/contact-picker.service'
 import { Invoice, StockMovement } from 'db/models'
 import { cleanContactAliases, MAX_CONTACT_ALIASES, MAX_CONTACT_ALIAS_LENGTH } from 'config/contact-aliases'
+import { QUOTE_TYPES } from 'config/constants'
 
 /**
  * Email is optional, and an empty box is how a form says "none". `format: 'email'` alone
@@ -171,6 +172,8 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         contactId: id,
         ...side,
         status: { $in: ['sent', 'partially_paid', 'overdue', 'received'] },
+        // An issued quote (a proforma, an offer) is `sent` and owes nothing (FR-22.22).
+        type: { $nin: [...QUOTE_TYPES] },
       } as any).select('type amountDue total amountPaid currency').lean(),
       StockMovement.countDocuments({ orgId, contactId: id } as any),
     ])

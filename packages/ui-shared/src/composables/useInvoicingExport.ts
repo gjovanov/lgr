@@ -3,7 +3,7 @@ import { httpClient } from './useHttpClient'
 
 export type ExportFormat = 'xlsx' | 'pdf'
 export type ExportMode = 'compact' | 'detailed'
-export type DocType = 'invoice' | 'proforma' | 'credit_note' | 'debit_note' | 'cash_sale' | 'bill'
+export type DocType = 'invoice' | 'proforma' | 'offer' | 'credit_note' | 'debit_note' | 'cash_sale' | 'bill'
 /** Extra documents printable alongside an outgoing document, each rendered as its own file. */
 export type CompanionDoc = 'certificate' | 'ppprotocol'
 /** What `exportOne` can render instead of the document itself: a companion, or a bill's „Стокова разписка". */

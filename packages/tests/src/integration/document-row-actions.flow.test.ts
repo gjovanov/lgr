@@ -81,7 +81,7 @@ const ok = (status: number) => status === 200
 describe('a row offers exactly what the API allows (FR-22.23)', () => {
   it('void: issued documents only — never a draft (that one is deleted)', async () => {
     const w = await world()
-    for (const [type, direction, statuses] of [['invoice', 'outgoing', SALES], ['invoice', 'incoming', BILLS], ['proforma', 'outgoing', PROFORMAS]] as const) {
+    for (const [type, direction, statuses] of [['invoice', 'outgoing', SALES], ['invoice', 'incoming', BILLS], ['proforma', 'outgoing', PROFORMAS], ['offer', 'outgoing', PROFORMAS]] as const) {
       for (const status of statuses) {
         const d = await w.doc(type, direction, status)
         const api = ok((await w.call('POST', `/${d.id}/void`, {})).status)
@@ -140,14 +140,33 @@ describe('a row offers exactly what the API allows (FR-22.23)', () => {
     expect(canCorrect(prf.row)).toBe(false)
   })
 
-  it('convert: a proforma not converted yet', async () => {
+  it('convert: a quote not converted yet, and not voided — the API agrees on every status', async () => {
     const w = await world()
-    for (const status of ['draft', 'sent', 'converted']) {
+    for (const status of PROFORMAS) {
       const d = await w.doc('proforma', 'outgoing', status)
       expect({ status, offered: canConvert(d.row) }).toEqual({ status, offered: ok((await w.call('POST', `/${d.id}/convert`, {})).status) })
     }
-    // The API would convert a voided proforma; an offer withdrawn is not offered for conversion.
-    expect(canConvert({ type: 'proforma', status: 'voided' })).toBe(false)
+    // An offer becomes a proforma or an invoice: each target, on every status, as the API takes it.
+    for (const target of ['invoice', 'proforma'] as const) {
+      for (const status of PROFORMAS) {
+        const d = await w.doc('offer', 'outgoing', status)
+        const api = ok((await w.call('POST', `/${d.id}/convert`, { target })).status)
+        expect({ target, status, offered: canConvert(d.row, target) }).toEqual({ target, status, offered: api })
+      }
+    }
+    // A proforma becomes an invoice only.
+    const prf = await w.doc('proforma', 'outgoing', 'sent')
+    expect({ offered: canConvert(prf.row, 'proforma'), api: (await w.call('POST', `/${prf.id}/convert`, { target: 'proforma' })).status })
+      .toEqual({ offered: false, api: 400 })
+  })
+
+  it('a quote takes no payment: neither offered nor taken', async () => {
+    const w = await world()
+    for (const type of ['proforma', 'offer']) {
+      const d = await w.doc(type, 'outgoing', 'sent')
+      const res = await w.call('POST', `/${d.id}/payments`, { date: '2026-10-26', amount: 1, method: 'bank_transfer' })
+      expect({ type, offered: canRecordPayment(d.row), status: res.status, code: res.json?.code }).toEqual({ type, offered: false, status: 422, code: 'quote_takes_no_payment' })
+    }
   })
 
   it('email: an issued outgoing document, as the email gate decides', () => {

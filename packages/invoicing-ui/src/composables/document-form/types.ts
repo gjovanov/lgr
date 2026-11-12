@@ -19,6 +19,7 @@ export type DocType =
   | 'invoice'
   | 'purchase_invoice'
   | 'proforma'
+  | 'offer'
   | 'credit_note'
   | 'debit_note'
   | 'purchase_credit_note'
@@ -69,7 +70,7 @@ export interface PayloadConfig {
   emitDueDate: boolean
   /** Fall back `dueDate` → `issueDate` when empty (sales invoice only). */
   dueDateFallbackToIssue: boolean
-  /** Emit the validity date `validUntil` (proforma only) — as `dueDate`, where the model keeps it. */
+  /** Emit the validity date `validUntil` (the quotes: proforma, offer) — as `dueDate`, where the model keeps it. */
   emitValidUntil: boolean
   /** Emit `supplierInvoiceNumber` (purchase only). */
   emitSupplierInvoiceNumber: boolean

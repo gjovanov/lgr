@@ -1,5 +1,6 @@
 import type { RepositoryRegistry } from 'dal'
 import type { IInvoice } from 'dal/entities'
+import { QUOTE_TYPES, isQuoteType } from 'config/constants'
 import { Reservation, Product } from 'db/models'
 import { getRepos } from '../context.js'
 import { confirmMovement } from './warehouse.service.js'
@@ -25,6 +26,8 @@ export async function recordPayment(
   if (['paid', 'voided', 'cancelled'].includes(invoice.status)) {
     throw new Error(`Cannot record payment on ${invoice.status} invoice`)
   }
+  // A quote owes nothing (FR-22.22): the invoice it is converted into takes the money.
+  if (isQuoteType(invoice.type)) throw new Error(`Cannot record payment on a ${invoice.type}: convert it into an invoice`)
 
   if (payment.amount > invoice.amountDue) {
     throw new Error('Payment amount exceeds amount due')
@@ -76,6 +79,8 @@ export async function checkOverdueInvoices(orgId: string, repos?: RepositoryRegi
     {
       orgId,
       status: { $in: ['sent', 'partially_paid'] },
+      // A quote's dueDate is its validity: past it, the offer lapsed, nobody owes it.
+      type: { $nin: [...QUOTE_TYPES] },
       dueDate: { $lt: new Date() },
     } as any,
     { status: 'overdue' } as any,
@@ -287,7 +292,7 @@ export async function assertDispatchAvailable(
 
 /**
  * An invoice converted from a складова разписка moves no stock, in either direction — and
- * neither does a proforma, which is an offer.
+ * neither does a quote: a proforma or an offer.
  *
  * The goods left on the разписка; the invoice is the paperwork that follows it. Booking its
  * dispatch takes them out twice, and reversing it on a void puts back goods that never left on
@@ -295,9 +300,9 @@ export async function assertDispatchAvailable(
  * the Issue button and the Void button alike — see `doc-import/conversion.ts`.
  */
 function movesNoStock(invoice: IInvoice, direction: 'book' | 'reverse'): boolean {
-  // A proforma is an offer, not a sale (FR-22.22): issuing, voiding or converting one moves no
-  // stock. The invoice it is converted into dispatches when that invoice is issued.
-  if (invoice.type === 'proforma') return true
+  // A quote — a proforma or an offer — is not a sale (FR-22.22): issuing, voiding or converting one
+  // moves no stock. The invoice it is converted into dispatches when that invoice is issued.
+  if (isQuoteType(invoice.type)) return true
   const src = (invoice as any).stockSource
   if (!src?.marker) return false
   logger.info({ invoiceId: invoice.id, marker: src.marker, direction }, 'Invoice carries a stock source — no stock movement')

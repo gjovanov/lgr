@@ -39,6 +39,8 @@ export const PAGE_ACCESS: Readonly<Record<string, PageAccess>> = {
   '/invoicing/internal-orders': p('orders.view'),
   '/invoicing/reservations': p('orders.view'),
   '/invoicing/proforma': p('proforma.view'),
+  // An offer is a quote, of the proforma kind (`partition.ts`): the proforma capabilities open it.
+  '/invoicing/offer': p('proforma.view'),
   '/invoicing/bills': p('bills.view'),
   '/invoicing/cash-sales': till('cash-sales.view'),
   '/invoicing/payment-orders': p('payments.view'),
@@ -61,6 +63,7 @@ export const PAGE_ACCESS: Readonly<Record<string, PageAccess>> = {
   '/invoicing/invoices/new?type=credit_note': p('sales-docs.create'),
   '/invoicing/invoices/new?type=debit_note': p('sales-docs.create'),
   '/invoicing/proforma/new': p('proforma.create'),
+  '/invoicing/offer/new': p('proforma.create'),
   '/invoicing/cash-sales/new': till('till.sell'),
   '/invoicing/bills/new': p('bills.create'),
   '/inventory/movements/new': p('movements.create', 'movements.create:transfer'),

@@ -154,6 +154,8 @@ export interface IInvoice extends TenantEntity {
   relatedInvoiceId?: string
   convertedInvoiceId?: string
   proformaId?: string
+  /** The offer a proforma or an invoice was converted from. */
+  offerId?: string
   cashSaleRef?: IInvoiceCashSaleRef
   taxEventDate?: Date
   journalEntryId?: string

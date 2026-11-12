@@ -24,6 +24,7 @@ export interface CompanionDocI18n {
   sourceDoc: {
     invoice: string
     proforma: string
+    offer: string
     credit_note: string
     debit_note: string
     cash_sale: string
@@ -78,6 +79,7 @@ const bg: CompanionDocI18n = {
   sourceDoc: {
     invoice: 'Фактура',
     proforma: 'Проформа',
+    offer: 'Оферта',
     credit_note: 'Кредитно известие',
     debit_note: 'Дебитно известие',
     cash_sale: 'Касова продажба',
@@ -128,6 +130,7 @@ const en: CompanionDocI18n = {
   sourceDoc: {
     invoice: 'Invoice',
     proforma: 'Proforma',
+    offer: 'Offer',
     credit_note: 'Credit Note',
     debit_note: 'Debit Note',
     cash_sale: 'Cash Sale',
@@ -178,6 +181,7 @@ const de: CompanionDocI18n = {
   sourceDoc: {
     invoice: 'Rechnung',
     proforma: 'Proformarechnung',
+    offer: 'Angebot',
     credit_note: 'Gutschrift',
     debit_note: 'Lastschrift',
     cash_sale: 'Barverkauf',
@@ -228,6 +232,7 @@ const mk: CompanionDocI18n = {
   sourceDoc: {
     invoice: 'Фактура',
     proforma: 'Проформа',
+    offer: 'Понуда',
     credit_note: 'Кредитна белешка',
     debit_note: 'Дебитна белешка',
     cash_sale: 'Касова продажба',

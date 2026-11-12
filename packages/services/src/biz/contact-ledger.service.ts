@@ -1,4 +1,4 @@
-import { MOVEMENT_TYPES } from 'config/constants'
+import { MOVEMENT_TYPES, QUOTE_TYPES, isQuoteType } from 'config/constants'
 import { Invoice, Product, StockMovement } from 'db/models'
 import { isDateOnly, localDayEnd, localDayStart } from './local-day.js'
 import { NOT_PAYMENT_RECEIPT, NOT_UNPROVED_STORNO, saleScopeFilter } from './sale-counting.js'
@@ -481,6 +481,9 @@ export async function getContactLedger(
   let totalPurchases = 0
 
   for (const r of summaryResult) {
+    // A quote (a proforma, an offer) is listed, and is no sale (FR-22.22): an offer converted into a proforma and
+    // that into an invoice counted the same deal three times.
+    if (isQuoteType(r._id.type)) continue
     if (r._id.direction === 'outgoing') {
       if (r._id.type === 'credit_note') {
         totalCreditNotes += r.total
@@ -513,7 +516,7 @@ export async function getContactLedger(
       $match: {
         ...matchStage,
         direction: 'outgoing',
-        $and: [...(matchStage.$and ?? []), { type: { $nin: ['credit_note', 'payment_receipt', 'payment_storno'] } }],
+        $and: [...(matchStage.$and ?? []), { type: { $nin: ['credit_note', 'payment_receipt', 'payment_storno', ...QUOTE_TYPES] } }],
       },
     },
     { $unwind: '$lines' },

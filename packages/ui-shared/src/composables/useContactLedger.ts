@@ -62,7 +62,8 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
   const summary = ref({ totalSales: 0, totalPurchases: 0, balance: 0 })
 
   // The documents, and the stock movements no document carries (a row each, when asked for or when nothing is).
-  const DOC_TYPES = ['invoice', 'cash_sale', 'proforma', 'credit_note', 'debit_note', STOCK_MOVEMENT_TYPE] as const
+  // A quote (a proforma, an offer) is listed, and counts in no total (`contact-ledger.service.ts`).
+  const DOC_TYPES = ['invoice', 'cash_sale', 'proforma', 'offer', 'credit_note', 'debit_note', STOCK_MOVEMENT_TYPE] as const
   const docTypeOptions = DOC_TYPES.map((v) => ({ title: t(`invoicing.docType.${v}`), value: v }))
 
   // A date and a number are read whole: where the table is narrow (the dialog), the product's name wraps, not they.
@@ -81,7 +82,7 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
   ]
 
   function docTypeColor(type: string) {
-    return ({ invoice: 'primary', cash_sale: 'success', proforma: 'info', credit_note: 'warning', debit_note: 'error' }[type] || 'grey')
+    return ({ invoice: 'primary', cash_sale: 'success', proforma: 'info', offer: 'secondary', credit_note: 'warning', debit_note: 'error' }[type] || 'grey')
   }
 
   function docTypeLabel(type: string) {

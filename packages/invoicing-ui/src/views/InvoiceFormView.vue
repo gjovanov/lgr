@@ -71,6 +71,13 @@ async function resolveType() {
         return
       }
       const t = data.invoice?.type as string
+      // A quote has a form of its own: the contact-ledger report drills every document in here
+      // by its id, and the invoice form mounted on a proforma or an offer would issue it as one.
+      const quoteForm = ({ proforma: 'invoicing.proforma.edit', offer: 'invoicing.offer.edit' } as Record<string, string>)[t]
+      if (quoteForm) {
+        router.replace({ name: quoteForm, params: { id: route.params.id as string } })
+        return
+      }
       docTypeKey.value = (TYPES as string[]).includes(t) ? (t as SalesDocType) : 'invoice'
     } catch {
       docTypeKey.value = 'invoice'

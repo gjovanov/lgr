@@ -4,6 +4,7 @@ import { BaseDao } from '../base.dao.js'
 const TYPE_PREFIX_MAP: Record<string, string> = {
   invoice: 'INV',
   proforma: 'PRF',
+  offer: 'OFR',
   credit_note: 'CRN',
   debit_note: 'DBN',
 }

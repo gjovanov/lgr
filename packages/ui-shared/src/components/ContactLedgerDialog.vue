@@ -132,6 +132,7 @@ const {
 const docTypePathMap: Record<string, string> = {
   invoice: 'invoices',
   proforma: 'proforma',
+  offer: 'offer',
   credit_note: 'invoices',
   debit_note: 'invoices',
   cash_sale: 'cash-sales',

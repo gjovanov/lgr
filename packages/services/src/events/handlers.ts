@@ -2,6 +2,7 @@
  * Cross-module event handlers.
  * Register these at startup after service context is initialized.
  */
+import { isQuoteType } from 'config/constants'
 import { Invoice } from 'db/models'
 import { eventBus } from './event-bus.js'
 import { getRepos } from '../context.js'
@@ -31,9 +32,9 @@ export async function postInvoiceJournal(payload: { orgId: string; invoiceId: st
   if (!invoice) return
   // #171: an invoice for a cash sale documents revenue its cash sale already carries.
   if (invoice.cashSaleRef?.cashSaleId) return
-  // An issued proforma is an offer, not a receivable (FR-22.22): `/send` announces none, and
-  // one announced anyway posts nothing.
-  if (invoice.type === 'proforma') return
+  // An issued quote — a proforma or an offer — is not a receivable (FR-22.22): `/send` announces
+  // none, and one announced anyway posts nothing.
+  if (isQuoteType(invoice.type)) return
 
   const isOutgoing = invoice.direction === 'outgoing'
   const journalId = isOutgoing

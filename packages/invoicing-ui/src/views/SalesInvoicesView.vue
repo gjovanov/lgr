@@ -70,8 +70,9 @@
         {{ $t(`invoicing.docType.${item.type}`) }}
       </v-chip>
     </template>
-    <!-- FR-22.23: the invoice a note corrects, or the proforma an invoice came from — one column
-         where there were two, each empty on most rows. -->
+    <!-- FR-22.23: the invoice a note corrects, or the quote an invoice came from — one column
+         where there were two, each empty on most rows. An invoice made from a proforma names the
+         proforma, one made straight from an offer the offer. -->
     <template #item.relatedDocument="{ item }">
       <entity-link
         v-if="item.relatedInvoiceId"
@@ -80,6 +81,7 @@
       />
       <entity-link v-if="item.proformaId" :label="item.proformaNumber || ''" :to="{ name: 'invoicing.proforma.edit', params: { id: item.proformaId } }" />
       <span v-else-if="item.proformaNumber">{{ item.proformaNumber }}</span>
+      <entity-link v-else-if="item.offerId" :label="item.offerNumber || ''" :to="{ name: 'invoicing.offer.edit', params: { id: item.offerId } }" />
     </template>
     <template #item.contactName="{ item }">
       <!-- FR-22.23: a long name is cut short on the row, whole on hover. -->

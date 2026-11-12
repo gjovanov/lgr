@@ -19,6 +19,7 @@ export interface ExportI18n {
   docTitle: {
     invoice: string
     proforma: string
+    offer: string
     credit_note: string
     debit_note: string
     cash_sale: string
@@ -30,6 +31,7 @@ export interface ExportI18n {
   docType: {
     invoice: string
     proforma: string
+    offer: string
     credit_note: string
     debit_note: string
     cash_sale: string
@@ -107,6 +109,7 @@ const en: ExportI18n = {
   docTitle: {
     invoice: 'Invoices',
     proforma: 'Proforma Invoices',
+    offer: 'Offers',
     credit_note: 'Credit Notes',
     debit_note: 'Debit Notes',
     cash_sale: 'Cash Sales',
@@ -117,6 +120,7 @@ const en: ExportI18n = {
   docType: {
     invoice: 'Invoice',
     proforma: 'Proforma',
+    offer: 'Offer',
     credit_note: 'Credit Note',
     debit_note: 'Debit Note',
     cash_sale: 'Cash Sale',
@@ -193,6 +197,7 @@ const bg: ExportI18n = {
   docTitle: {
     invoice: 'Фактури',
     proforma: 'Проформи',
+    offer: 'Оферти',
     credit_note: 'Кредитни известия',
     debit_note: 'Дебитни известия',
     cash_sale: 'Касови продажби',
@@ -203,6 +208,7 @@ const bg: ExportI18n = {
   docType: {
     invoice: 'Фактура',
     proforma: 'Проформа',
+    offer: 'Оферта',
     credit_note: 'Кредитно известие',
     debit_note: 'Дебитно известие',
     cash_sale: 'Касова продажба',
@@ -280,6 +286,7 @@ const de: ExportI18n = {
   docTitle: {
     invoice: 'Rechnungen',
     proforma: 'Proformarechnungen',
+    offer: 'Angebote',
     credit_note: 'Gutschriften',
     debit_note: 'Lastschriften',
     cash_sale: 'Barverkäufe',
@@ -290,6 +297,7 @@ const de: ExportI18n = {
   docType: {
     invoice: 'Rechnung',
     proforma: 'Proforma',
+    offer: 'Angebot',
     credit_note: 'Gutschrift',
     debit_note: 'Lastschrift',
     cash_sale: 'Barverkauf',
@@ -366,6 +374,7 @@ const mk: ExportI18n = {
   docTitle: {
     invoice: 'Фактури',
     proforma: 'Проформи',
+    offer: 'Понуди',
     credit_note: 'Кредитни белешки',
     debit_note: 'Дебитни белешки',
     cash_sale: 'Касови продажби',
@@ -376,6 +385,7 @@ const mk: ExportI18n = {
   docType: {
     invoice: 'Фактура',
     proforma: 'Профактура',
+    offer: 'Понуда',
     credit_note: 'Кредитна нота',
     debit_note: 'Дебитна нота',
     cash_sale: 'Готовинска продажба',

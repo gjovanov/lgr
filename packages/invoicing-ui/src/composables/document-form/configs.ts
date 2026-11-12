@@ -239,6 +239,80 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
   },
 
   // ──────────────────────────────────────────────────────────────────────────────
+  // An offer („оферта"): a quote like the proforma, laid out the same, in a series of its own
+  // (DRF-OFR / OFR). Converted into a proforma or an invoice (`config/constants#QUOTE_CONVERTS_TO`).
+  offer: {
+    docType: 'offer',
+    apiType: 'offer',
+    direction: 'outgoing',
+
+    titleNewKey: 'invoicing.newOffer',
+    titleEditKey: 'invoicing.editOffer',
+    backTo: '/offer',
+    backLabelKey: 'nav.offers',
+    listRouteName: 'invoicing.offer',
+    notesEntityType: 'offer',
+    pendingEntityType: 'offer',
+    pendingIcon: 'mdi-file-sign',
+    successKey: 'common.savedSuccessfully',
+
+    partyRole: 'customer',
+    partyPicker: 'plain',
+    partyRequired: true,
+    partyLabelKey: 'invoicing.client',
+    captureBillingAddress: false,
+    reResolveOnChange: true,
+
+    showSupplierInvoiceNumber: false,
+    showRelatedInvoice: false,
+    relatedInvoiceAutofill: false,
+
+    secondaryDate: 'validUntil',
+    // Stored as the document's dueDate, as the proforma's: the list's „Валидна до" column reads it.
+    secondaryDateLabelKey: 'invoicing.validUntil',
+    validUntilDefaultDays: 30,
+
+    paymentMethodMode: 'clearable',
+    paymentMethodDefault: '',
+
+    priceField: 'sellingPrice',
+    priceEditor: 'combobox',
+    resetDiscountOnProductSelect: true,
+
+    notesFieldLabelKey: 'invoicing.notes',
+    notesFieldModel: 'notes',
+    showTermsField: true,
+    showSignatureFooter: true,
+
+    peekParams: { type: 'offer', direction: 'outgoing', status: 'draft' },
+
+    status: [S.draft, S.sent, S.converted],
+
+    editSaveGate: 'always',
+    showSmartButtons: false,
+
+    stockTransferFlow: false,
+
+    totals: { showDiscountRow: true, emitDiscountTotal: false, emitTaxTotal: false, emitTotalBase: false },
+    line: { hasDiscount: true, hasAccountId: false, unitFallback: true },
+    payload: {
+      emitDateField: false,
+      emitIssueDate: true,
+      emitDueDate: false,
+      dueDateFallbackToIssue: false,
+      emitValidUntil: true,
+      emitSupplierInvoiceNumber: false,
+      emitRelatedInvoiceId: false,
+      emitBillingAddress: false,
+      emitPaymentMethod: true,
+      contactIdOmitEmpty: false,
+      exchangeRateFallback: false,
+      textFields: ['notes', 'terms'],
+      omitEmptyText: false,
+    },
+  },
+
+  // ──────────────────────────────────────────────────────────────────────────────
   credit_note: {
     docType: 'credit_note',
     apiType: 'credit_note',
