@@ -61,7 +61,8 @@ D rerun --org <org>        # every importer, dry: receipts and outgoing halves "
 D audit --org <org>        # nothing dated after the baseline may be left out, except a held document
 ```
 
-An `ACT` in `rerun` is a document that is not in LGR: back to step 4 for it. The audit's notes on invoices that
+An `ACT` in `rerun` is a document that is not in LGR: back to step 4 for it. For the contacts family it reads "contacts are
+NOT settled": something is still to be created or filled, so read `out/rerun-contacts.txt`. The audit's notes on invoices that
 differ beyond rounding are standing when the previous report lists the same ones.
 
 ## 5. Production, once more

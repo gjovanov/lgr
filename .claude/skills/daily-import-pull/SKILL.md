@@ -17,8 +17,9 @@ roomler forward --agent "$SF_ROOMLER_AGENT" --local 17041 --remote "$SF_PM_REMOT
 D pull --org regal-sf --base-url https://127.0.0.1:17041
 ```
 
-The pull writes one JSON file per document into the day folder, the stock snapshot, and for regal-pz the POS
-receipts. What its findings mean:
+The pull writes one JSON file per document into the day folder, the stock snapshot, for regal-pz the POS
+receipts, and the partner directory (`partners.json`: every customer and supplier PlusMinus keeps, with their ЕИК,
+address and phone; the contacts family of step 4 reads it). What its findings mean:
 
 - **`GAPS`**: a number missing inside the day's own range. The history phase says whether it was deleted.
 - **"the day starts at N, the previous history ended at M"**: the numbers between were deleted or carry another

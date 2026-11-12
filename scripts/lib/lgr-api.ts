@@ -8,6 +8,9 @@ export interface LgrSession {
   orgId: string
   get: (path: string) => Promise<any>
   post: (path: string, body: unknown) => Promise<any>
+  put: (path: string, body: unknown) => Promise<any>
+  /** `GET /api/auth/me`: the signed-in person and their org (its own ЕИК, name, settings). */
+  me: () => Promise<any>
 }
 
 export class LgrApiError extends Error {
@@ -48,5 +51,7 @@ export async function signIn(api: string, orgSlug: string): Promise<LgrSession> 
     orgId,
     get: path => http('GET', `/api/org/${orgId}${path}`),
     post: (path, body) => http('POST', `/api/org/${orgId}${path}`, body),
+    put: (path, body) => http('PUT', `/api/org/${orgId}${path}`, body),
+    me: () => http('GET', '/api/auth/me'),
   }
 }

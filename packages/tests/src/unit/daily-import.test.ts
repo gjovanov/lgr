@@ -8,8 +8,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   diffPulls, gateAuditAfter, gateAuditBefore, gateBooked, gateCompare, gateDry, gateHistory, gatePredict, gatePrices,
-  gateSameDay, gateScan, newOutsideDay, numberGaps, parseInvoicesLog, parsePull, parseReceiptsLog, sameDay, scanDay,
-  type Finding,
+  gateSameDay, gateScan, newOutsideDay, numberGaps, parseContactsLog, parseInvoicesLog, parsePull, parseReceiptsLog, sameDay, scanDay,
+  FAMILIES, type Finding,
 } from '../../../../scripts/lib/daily-import'
 
 const scratch = mkdtempSync(join(tmpdir(), 'daily-import-test-'))
@@ -299,5 +299,68 @@ describe('prices', () => {
     expect(levels(gatePrices('  PROTECTED changed SKU-00002 БОЛТ ТЕСТ М8 purchase 1→2\nprice-diff: changed 1 | unexplained 0 | protected 1 | created 0 | meta 0', 0))).toEqual(['stop', 'ok'])
     expect(levels(gatePrices('  UNEXPLAINED SKU-00003 ГАЙКА ТЕСТ selling 1→2\nprice-diff: changed 1 | unexplained 1 | protected 0 | created 0 | meta 0', 0))).toEqual(['act', 'ok'])
     expect(levels(gatePrices('no summary line', 0))).toEqual(['stop'])
+  })
+})
+
+describe('the contacts family', () => {
+  const planned = (c: number, u: number, held = 0, extra = '') => [
+    'Contacts from PlusMinus (direct API) | dir: x',
+    'Directory: 1224 entries (КЛИЕНТИ 1000, ПАРТНЬОРИ 224)',
+    ...Array.from({ length: c }, (_, i) => `  + CREATE customer „ТЕСТ НОВ ${i}" (ЕИК 100200300, BG100200300, ул. Тест 1, СОФИЯ)   ← invoicem 7001`),
+    ...Array.from({ length: u }, (_, i) => `  ~ UPDATE „ТЕСТ СТАР ${i}" ← „ТЕСТ СТАР ${i} АД" by eik: fill vatNumber, alias „ТЕСТ СТАР ${i} АД"`),
+    ...Array.from({ length: held }, (_, i) => `  ! CONFLICT „ТЕСТ СПОР ${i}": a contact with this name holds a different ЕИК/VAT number („ТЕСТ СПОР ${i}")`),
+    '  - skip „Без Данни": PlusMinus holds nothing that identifies it (left to the document import)',
+    `Planned: ${c} to create, ${u} to update (${u} other name(s), 0 role(s), ${u} field(s) to fill), 5 unchanged, 0 ambiguous, ${held} conflict(s), 0 inactive, 1 skipped, 0 merged`,
+    extra,
+  ].join('\n')
+
+  it('is booked first, before the receipts and invoices that look its contacts up', () => {
+    expect(FAMILIES[0]).toBe('contacts')
+    expect(FAMILIES.indexOf('contacts')).toBeLessThan(FAMILIES.indexOf('receipts'))
+    expect(FAMILIES.indexOf('contacts')).toBeLessThan(FAMILIES.indexOf('invoices'))
+  })
+
+  it('reads the plan, the names it creates and the partners it holds back', () => {
+    const c = parseContactsLog(planned(2, 1, 1))
+    expect(c.planned).toEqual({ create: 2, update: 1, aliases: 1, roles: 0, fills: 1, same: 5, ambiguous: 0, conflict: 1, inactive: 0, skip: 1, merged: 0 })
+    expect(c.created).toEqual(['ТЕСТ НОВ 0', 'ТЕСТ НОВ 1'])
+    expect(c.held).toHaveLength(1)
+    expect(c.noData).toEqual(['Без Данни'])
+    expect(c.directory).toBe(1224)
+    expect(c.done).toBeNull()
+  })
+
+  it('a dry run with creates and fills is notes; a partner it cannot place is an ACT; an unread plan is a STOP', () => {
+    expect(levels(gateDry('contacts', planned(2, 1), 0, false))).toEqual(['note', 'note', 'note', 'ok'])
+    const held = gateDry('contacts', planned(0, 0, 2), 0, false)
+    expect(levels(held)).toContain('act')
+    expect(texts(held, 'act')).toContain('2 partner(s) the import cannot place')
+    expect(levels(gateDry('contacts', 'no plan line here', 0, false))).toEqual(['stop'])
+    expect(levels(gateDry('contacts', planned(0, 0), 1, false))).toEqual(['stop'])
+  })
+
+  it('a rerun must find nothing left to create or fill', () => {
+    expect(levels(gateDry('contacts', planned(0, 0), 0, true))).toEqual(['note', 'ok'])
+    expect(texts(gateDry('contacts', planned(1, 0), 0, true), 'act')).toContain('contacts are NOT settled: 1 to create, 0 to update')
+  })
+
+  it('a run refused by --max-create is an ACT, not a failed tool', () => {
+    const refused = `${planned(90, 0)}\n⚠ 90 contacts to create is more than --max-create 80: nothing is written.`
+    const gate = gateDry('contacts', refused, 1, false)
+    expect(levels(gate)).not.toContain('stop')
+    expect(texts(gate, 'act')).toContain('more than --max-create')
+  })
+
+  it('after a write: ok with the counts, STOP when one failed or the Done line is missing', () => {
+    const done = (f: number) => `${planned(2, 1)}\n  ✓ created customer „ТЕСТ НОВ 0" → abc\n${f ? '  ✗ create „ТЕСТ НОВ 1": 422 body\n' : ''}\nDone: created 2 | updated 1 | failed ${f}`
+    expect(gateBooked('contacts', done(0), 0).map(f => f.text)).toEqual(['contacts booked: 2 created, 1 updated'])
+    expect(levels(gateBooked('contacts', done(1), 1))).toEqual(['stop', 'stop', 'ok'])
+    expect(levels(gateBooked('contacts', planned(2, 1), 0))).toEqual(['stop'])
+  })
+
+  it('the pull summary carries the partner directory line', () => {
+    const p = parsePull('partners      7012 entries: КЛИЕНТИ 1224, ПАРТНЬОРИ 5788\n')
+    expect(p.partners).toEqual({ entries: 7012, groups: 'КЛИЕНТИ 1224, ПАРТНЬОРИ 5788' })
+    expect(parsePull('invoicem  14  3000101867..3000101880\n').partners).toBeNull()
   })
 })

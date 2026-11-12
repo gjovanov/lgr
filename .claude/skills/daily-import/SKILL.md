@@ -31,7 +31,7 @@ residual** (a document edited or deleted in PlusMinus, a back-dated one, one tha
 | 1 | `daily-import-preflight` | `plan`, `checkout`, `grant` | the day has the owner's word, it is past 17:15 UTC, the stores answer, the checkout carries the importers production was built with, the temp admin's session reads everything |
 | 2 | `daily-import-pull` | `pull`, `history`, `scan` | the day is pulled; everything edited, deleted, back-dated or stock-less is named |
 | 3 | `daily-import-predict` | `predict` | the prediction says 0, or every residual is named |
-| 4 | `daily-import-book` | `dry`, `book` | every family of the day is booked, each without `ACT` |
+| 4 | `daily-import-book` | `dry`, `book` | every family of the day is booked (contacts first), each without `ACT` |
 | 5 | `daily-import-verify` | `after`, `prices`, `rerun`, `audit` | PlusMinus stood still, stock differences are 0, reruns book nothing |
 | 6 | `daily-import-books` | (the books' own tools) | the books are current, and what is new on the books PC is listed |
 | 7 | `daily-import-close` | `facts` | the temp admin is dropped and proven gone, the report is written |

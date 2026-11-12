@@ -45,11 +45,35 @@ the partner is a supplier that exists under another spelling (a short form, a mi
 name on that contact, under *Also known as*, which only a person may say; `scripts/backfill-receipt-suppliers.ts`
 then names the receipts already booked. A partner that is one of the organization's own stores stays without one.
 
+## 1b. The contacts family (first)
+
+`D dry` lists the contacts the day's documents need before anything else (`out/dry-contacts.txt`): the customers of the
+invoices and the suppliers of the receipts that bring stock in, found in LGR by the same ЕИК/VAT number, else the same
+name or one of the contact's other names, else the same words with other punctuation. It plans, never forces:
+
+- **create**: a contact nobody holds, with what PlusMinus knows (a `note`: read the names against the catalogue, an existing
+  company under another spelling would be doubled). A supplier PlusMinus knows by name alone is created by name, with a
+  note on the contact and the contacts that start with the same word listed beside it (`similar on file`): merge them by
+  hand on the contact form (**Also known as**) when it is a short form of one of them.
+- **update**: only what is EMPTY is filled (ЕИК, VAT, phone, address, МОЛ), the documents' name becomes one of the
+  contact's other names when it differs, and a contact the documents use in the other role is widened to `both`.
+- **`ACT`, nothing written for it**: `ambiguous` (several contacts fit and none exactly), `conflict` (a contact of that
+  name holds a DIFFERENT ЕИК: another company, or a typo on one side), `inactive` (only a deactivated contact fits). A
+  person decides, on the contact; the next dry run no longer raises it.
+- **skipped**: the org's own stores, the КОРЕКЦИЯ placeholder, a partner the directory does not list, and a customer
+  PlusMinus holds nothing about (the invoice import creates it by name when it must).
+
+Book it before the receipts (`D book --org <org> --family contacts --execute`): the receipts then find their suppliers
+and the invoices their customers by name. `--max-create` (default 80) refuses a run that would create more. The one-off
+catch-up of a shop's whole `КЛИЕНТИ` ledger is `D book … --family contacts --all-clients --execute`, after reading its
+dry run: a shop whose customers were never seeded has hundreds to create.
+
 ## 2. Book, in this order
 
 One org, one family, one command at a time:
 
 ```bash
+D book --org <org> --family contacts  --execute
 D book --org <org> --family receipts  --execute
 D book --org <org> --family transfers --execute
 D book --org <org> --family writeoffs --execute
@@ -59,8 +83,8 @@ D book --org <org> --family invoices  --execute
 
 A family the day folder does not hold answers "no … file" and is skipped. `book` first repeats the dry run of
 exactly its selection and writes only when that came back without `ACT` or `STOP`; then it checks what the importer
-said after writing. The order is the point: a receipt creates the products an invoice sells, and the till day must
-exist before an invoice of a till sale can attach to it.
+said after writing. The order is the point: the contacts exist before the receipts and invoices look them up by name,
+a receipt creates the products an invoice sells, and the till day must exist before an invoice of a till sale can attach to it.
 
 Receipts are booked in number order, because each one also restates its articles' prices and the later document
 must win. That shapes the special cases:
