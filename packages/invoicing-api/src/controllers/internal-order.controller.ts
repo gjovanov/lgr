@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { grantOf } from 'services/biz/access/evaluate'
+import { pinnedPriceRefusal } from 'services/biz/sales-lines'
 import { conversionAnswer } from '../lib/reservation-convert.js'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
@@ -255,6 +256,10 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
         if (e instanceof OrdersFromProductsError) return status(e.statusCode, { message: e.message, ...e.details })
         throw e
       }
+      // #724: a price chosen on a line is what the order's invoice charges (#695), so typing one is the role's to give
+      // (FR-27 `sales-docs.manual-price`), as on the invoice. Before a number is drawn.
+      const typed = await pinnedPriceRefusal(orgId, user as any, { contactId: body.contactId, lines: body.lines as any[] })
+      if (typed) return status(403, typed)
 
       let ordi: any
       let lastErr: any
@@ -345,6 +350,9 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
         if (e instanceof OrdersFromProductsError) return status(e.statusCode, { message: e.message, ...e.details })
         throw e
       }
+      // #724: the price chosen on a line, as on POST; one the order already carries is not this save's.
+      const typed = await pinnedPriceRefusal(orgId, user as any, { contactId: body.contactId, lines: body.lines as any[] }, existing.lines)
+      if (typed) return status(403, typed)
 
       // Lines carrying reservations or deliveries must survive with enough quantity.
       const liveRes = await Reservation.find(

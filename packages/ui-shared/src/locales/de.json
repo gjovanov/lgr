@@ -1634,6 +1634,7 @@
     "unit": "Einheit",
     "unitPrice": "Einzelpreis",
     "pricePickOnly": "Wählen Sie einen der angebotenen Preise: einen Preis von Hand einzugeben gehört nicht zu Ihrer Rolle",
+    "priceNotOffered": "Zeile {lines}: dieser Preis ist keiner der für den Artikel angebotenen. Wählen Sie einen der angebotenen Preise: einen Preis von Hand einzugeben gehört nicht zu Ihrer Rolle",
     "discount": "Rabatt",
     "taxRate": "Steuersatz",
     "subtotal": "Zwischensumme",
