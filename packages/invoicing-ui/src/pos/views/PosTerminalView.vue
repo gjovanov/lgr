@@ -13,14 +13,15 @@
 
     <!-- Active POS Terminal -->
     <template v-if="activeSession">
-      <div class="d-flex align-center justify-space-between mb-4">
+      <!-- Wraps on a phone, where the printer and session controls do not fit beside the title. -->
+      <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-4">
         <div>
           <h1 class="text-h5">{{ $t('nav.csTerminal') }}</h1>
           <span class="text-caption text-medium-emphasis">
             {{ $t('pos.session') }}: {{ activeSession.sessionNumber }} | {{ activeSession.openedAt?.split('T')[0] }}
           </span>
         </div>
-        <div class="d-flex align-center ga-3">
+        <div class="d-flex align-center flex-wrap ga-3">
           <!-- The device decides, and what it says must be seen: every receipt here is text. -->
           <v-chip v-if="printsText" color="warning" size="small" prepend-icon="mdi-receipt-text-outline" data-testid="terminal-prints-text">
             {{ $t('pos.bridge.printsText') }}
