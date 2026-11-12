@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-37** are fixed. The rest are open, ordered by
+**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-38** are fixed. The rest are open, ordered by
 severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
@@ -27,7 +27,8 @@ FR-27 (#529), and S-33 while handling it. S-34 turned up while closing S-33, whe
 Files routes were read against the same rule. S-35 came out of re-checking the Known Issue about the
 controllers that take any field, and S-36 is the rest of that Known Issue: what a save could set
 inside the caller's own org. S-37 was found a day later, while building on the order conversion: the
-draft invoice it answers with.
+draft invoice it answers with. S-38 came the same day, while adding the stock movements to the
+contact ledger: the reports that read a ledger.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -68,6 +69,7 @@ draft invoice it answers with.
 | S-35 | Medium | A body could name another org's record by id, and the views that resolve stored ids showed it | **Fixed 2026-11-11** (#641) |
 | S-36 | Low | On the twelve routes that store the body as the document, a save could set the fields the server sets: a count's `completed` without its stock adjustment, an order's number or author, a backdated `createdAt` | **Fixed 2026-11-11** (#674) |
 | S-37 | Low | The draft invoice an order conversion answers with carried its stored price trail, so it named a price level to a role that does not see it | **Fixed 2026-11-12** (#696) |
+| S-38 | Low | The reports that read a ledger did not hold what the ledger's own page holds: a session without the purchases side or the cost figures was shown incoming documents, the bill behind a delivery and cost-derived totals | **Fixed 2026-11-12** (#704) |
 
 ---
 
@@ -1886,3 +1888,67 @@ of the level the customer resolves to, and the names and figures of the steps th
 - `CLAUDE.md` now says where the rule is held, and that a new route which answers an invoice from
   any other controller says it the same way.
 
+## S-38 — The reports that read a ledger did not answer as the ledger's own page does (Low, **fixed 2026-11-12**)
+
+> Found on 2026-11-12 while adding the stock movements to the contact ledger. Fixed in #704 and
+> written up here once the fix was on production.
+
+**Where:** `POST /org/:orgId/reports/{contact-ledger,product-ledger,warehouse-operations}/{run,export}`
+and `GET /org/:orgId/warehouse/product-ledger/:productId`.
+
+**What was wrong:** a ledger has a route of its own and a report in the Reports app that reads the
+same service. The routes answer by what the caller holds. The reports ran the service with no
+caller, and three rules went unheld:
+
+- **The purchases side.** A session without it (FR-26.6: no `purchases` area; `bills.view` on the
+  roles model) is shown no incoming document: not in a list, by id, in an export or in the contact
+  ledger. The contact-ledger report listed a contact's incoming documents all the same, line by
+  line, and counted them in the summary it carries.
+- **A movement names no bill** to such a session, on the movement's own routes (#493). The product
+  ledger named it, by number and by id, on its route and in its report, and the warehouse-operations
+  report listed a delivery under its bill's number.
+- **The cost figures.** A role without them (FR-27.11) is sent none. The two ledger reports carry
+  the service's whole summary beside their rows, where no column holds it: the contact ledger's
+  includes the profitability (the sales less their cost), the product ledger's the current value,
+  and the product-ledger report's rows carried each row's running value.
+
+- **Who:** for the reports, a member who holds the Reports app and whose session lacks the purchases
+  side or the cost figures. For the product ledger's route, any session without the purchases side
+  that reads products or sales documents.
+- **Impact:** read-only, in the caller's own org. Through one report, a counterparty's purchase
+  documents by line (number, article, quantity, price). The number and the id of the bill behind a
+  delivery. Cost-derived totals for one contact or one article. The bill itself still answered 404,
+  and nothing stored was touched.
+- **Why Low:** an insider, in their own org. The two roles the purchases area was made for (Seller,
+  Sales Consultant) do not hold the Reports app, so the document lines were out of their reach; what
+  they could read was a bill's number beside a delivery.
+- **Exposure on the day:** none. A read-only count on production, each active person read as their
+  session is: of 87 orgs one is on the roles model. Of 70 active people 13 are not administrators.
+  Five hold no purchases side: none of them could run the contact-ledger or the warehouse-operations
+  report, and the four who could read a product's ledger are in two test copies of a shop, where no
+  receipt names a live bill. Three hold no cost figures, and none of them could run a ledger report.
+
+### Fix
+
+- A report handler is told what its caller reads beyond the report's own gate
+  (`ReportHandlerContext.sees: { bills, costs }`, filled by the reports controller for a run and for
+  an export). A handler run with no caller reads everything, as the tests that call one directly do.
+- The contact-ledger report reads the service as the route does: outgoing documents only without the
+  purchases side, and `withoutLedgerCosts` (the route's rule, moved to the service so both share one
+  definition) without the cost figures.
+- The product ledger takes `withoutBills`: the row stays, without the incoming document's number and
+  id, and a sales document it names stays. It is decided before the rows are sorted, so a sort by
+  the invoice column orders nothing by a number that is not shown. Its report passes it, and drops
+  the running value and the current value without the cost figures.
+- The warehouse-operations report lists a delivery a bill holds under its own number for such a
+  caller, as a delivery with no invoice. That is decided where the row's type and number are, so a
+  filter by document type reads what the caller is shown.
+- Tests: `integration/seller-roles.flow.test.ts` (the product ledger as a Seller; the three reports
+  as a session with the Reports app and no purchases area) and
+  `integration/access-price-levels.flow.test.ts` (the two ledger reports as a role without the cost
+  figures). Each of the five new cases failed before the change.
+- Deployed as `v20261112-4299d824ee75`. On production the deploy was checked: the image, both pods,
+  the health route. In the demo organization the three reports still answer an administrator with
+  their values, and a Seller is still refused the Reports app. The behaviour for a session without
+  the purchases side or the cost figures is the flow tests': the demo organization has no delivery
+  that a live bill holds, and its Seller holds no Reports app.
