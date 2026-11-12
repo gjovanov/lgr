@@ -3,19 +3,45 @@ import { useI18n } from 'vue-i18n'
 import { httpClient } from './useHttpClient'
 import { useSearchDebounce } from './useSearchDebounce'
 
+/** A stock movement as a ledger row names it. */
+export interface ContactLedgerMovement {
+  id: string
+  number: string
+  /** receipt, dispatch, transfer, adjustment, return… */
+  type: string
+  /** The source document it was booked from, when it names one. */
+  reference?: string
+}
+
 export interface ContactLedgerEntry {
   date: string
+  /** Empty on a stock movement's own row: it has no document. */
   documentNumber: string
+  /** The document's id; on a stock movement's own row, the movement's. */
   documentId: string
+  /** A document's type, or `stock_movement`: a movement of the contact's that no document carries. */
   documentType: string
+  /** On a `stock_movement` row: what the movement is. */
+  movementType?: string
+  /** The stock movements behind the row: those that moved a document line's goods, or the movement itself. */
+  movements?: ContactLedgerMovement[]
   productId?: string
   productName?: string
   quantity: number
-  unitPrice: number
-  taxRate: number
+  /** On a `stock_movement` row: its unit cost, which a role without the cost figures is not sent. */
+  unitPrice?: number
+  taxRate?: number
   warehouseId?: string
   warehouseName?: string
-  lineTotal: number
+  lineTotal?: number
+}
+
+/** The type the ledger lists a stock movement no document carries under (the server's `STOCK_MOVEMENT_TYPE`). */
+export const STOCK_MOVEMENT_TYPE = 'stock_movement'
+
+/** A row that is a stock movement itself, not a document's line. */
+export function isMovementRow(entry: Pick<ContactLedgerEntry, 'documentType'> | null | undefined): boolean {
+  return entry?.documentType === STOCK_MOVEMENT_TYPE
 }
 
 export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
@@ -35,13 +61,17 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
   const { search: documentNumber, debouncedSearch: numberQuery } = useSearchDebounce()
   const summary = ref({ totalSales: 0, totalPurchases: 0, balance: 0 })
 
-  const DOC_TYPES = ['invoice', 'cash_sale', 'proforma', 'credit_note', 'debit_note'] as const
+  // The documents, and the stock movements no document carries (a row each, when asked for or when nothing is).
+  const DOC_TYPES = ['invoice', 'cash_sale', 'proforma', 'credit_note', 'debit_note', STOCK_MOVEMENT_TYPE] as const
   const docTypeOptions = DOC_TYPES.map((v) => ({ title: t(`invoicing.docType.${v}`), value: v }))
 
+  // A date and a number are read whole: where the table is narrow (the dialog), the product's name wraps, not they.
+  const WHOLE = { cellProps: { class: 'text-no-wrap' } }
   const headers = [
-    { title: t('common.date'), key: 'date', sortable: false },
-    { title: t('invoicing.invoiceNumber'), key: 'documentNumber', sortable: false },
+    { title: t('common.date'), key: 'date', sortable: false, ...WHOLE },
+    { title: t('invoicing.invoiceNumber'), key: 'documentNumber', sortable: false, ...WHOLE },
     { title: t('common.type'), key: 'documentType', sortable: false },
+    { title: t('invoicing.stockMovement'), key: 'movements', sortable: false },
     { title: t('warehouse.product'), key: 'productName', sortable: false },
     { title: t('invoicing.qty'), key: 'quantity', sortable: false, align: 'end' as const },
     { title: t('invoicing.unitPrice'), key: 'unitPrice', sortable: false, align: 'end' as const },
@@ -56,6 +86,25 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
 
   function docTypeLabel(type: string) {
     return (DOC_TYPES as readonly string[]).includes(type) ? t(`invoicing.docType.${type}`) : type
+  }
+
+  /** A movement's kind in the user's words, as the Stock Movement Documents list says it; an unknown one as it came. */
+  function movementTypeLabel(type: string | undefined) {
+    return type ? t(`warehouse.movementTypes.${type}`, type) : ''
+  }
+
+  /** The colours of the Stock Movement Documents list. */
+  function movementTypeColor(type: string | undefined) {
+    return ({ receipt: 'success', dispatch: 'error', transfer: 'info', adjustment: 'warning' }[type || ''] || 'grey')
+  }
+
+  /** A row's Type chip: the document's type, or, on a stock movement's own row, what the movement is. */
+  function typeLabel(entry: ContactLedgerEntry) {
+    return isMovementRow(entry) ? movementTypeLabel(entry.movementType) || docTypeLabel(entry.documentType) : docTypeLabel(entry.documentType)
+  }
+
+  function typeColor(entry: ContactLedgerEntry) {
+    return isMovementRow(entry) ? movementTypeColor(entry.movementType) : docTypeColor(entry.documentType)
   }
 
   async function fetchLedger() {
@@ -99,7 +148,7 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
   return {
     loading, entries, total, page, pageSize, dateFrom, dateTo, docTypes, summary,
     productSearch, productQuery, documentNumber, numberQuery,
-    docTypeOptions, headers, docTypeColor, docTypeLabel,
+    docTypeOptions, headers, docTypeColor, docTypeLabel, movementTypeLabel, typeLabel, typeColor,
     fetchLedger, onUpdateOptions, resetFilters,
   }
 }

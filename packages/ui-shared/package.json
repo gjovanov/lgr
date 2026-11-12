@@ -50,6 +50,8 @@
     "./composables/useSearchDebounce": "./src/composables/useSearchDebounce.ts",
     "./components/ContactLedgerDialog": "./src/components/ContactLedgerDialog.vue",
     "./components/ContactLedgerDialog.vue": "./src/components/ContactLedgerDialog.vue",
+    "./components/LedgerMovementLinks": "./src/components/LedgerMovementLinks.vue",
+    "./components/LedgerMovementLinks.vue": "./src/components/LedgerMovementLinks.vue",
     "./components/StockTransferDialog": "./src/components/StockTransferDialog.vue",
     "./components/StockTransferDialog.vue": "./src/components/StockTransferDialog.vue",
     "./components/EntityLink": "./src/components/EntityLink.vue",

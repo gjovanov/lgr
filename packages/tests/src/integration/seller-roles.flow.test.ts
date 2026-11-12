@@ -353,6 +353,24 @@ describe("a receipt's bill (purchases, #493)", () => {
     const theirs = await request('GET', `/warehouse/product-ledger/${product._id}`, tokens.admin)
     expect(theirs.json.entries.map((e: any) => [e.invoiceNumber, e.invoiceId])).toEqual([['BILL-1', billId], ['INV-1', saleId]])
   })
+
+  it("a contact's ledger lists no delivery and no return to the supplier without the area; what went out to them stays", async () => {
+    const product = await createTestProduct(org._id, { name: 'Ledger bolt' } as any)
+    const lines = [{ productId: product._id, quantity: 5, unitCost: 2, totalCost: 10 }]
+    await createTestStockMovement(org._id, { movementNumber: 'SM-LEDGER-IN', type: 'receipt', status: 'completed', toWarehouseId: warehouseA, contactId, lines } as any)
+    await createTestStockMovement(org._id, { movementNumber: 'SM-LEDGER-BACK', type: 'return', status: 'completed', fromWarehouseId: warehouseA, contactId, lines } as any)
+    await createTestStockMovement(org._id, { movementNumber: 'SM-LEDGER-OUT', type: 'dispatch', status: 'completed', fromWarehouseId: warehouseA, contactId, lines } as any)
+    const listed = (r: any) => r.json.entries.filter((e: any) => e.documentType === 'stock_movement').flatMap((e: any) => e.movements.map((m: any) => m.number)).sort()
+
+    const mine = await request('GET', `/invoicing/contact-ledger/${contactId}?size=100`, tokens.seller)
+    expect(mine.status).toBe(200)
+    expect(listed(mine)).toEqual(['SM-LEDGER-OUT'])
+    expect(listed(await request('GET', `/invoicing/contact-ledger/${contactId}?size=100`, tokens.admin))).toEqual(['SM-LEDGER-BACK', 'SM-LEDGER-IN', 'SM-LEDGER-OUT'])
+    // Asked for by number, or as the only type: the same answer.
+    expect((await request('GET', `/invoicing/contact-ledger/${contactId}?documentNumber=SM-LEDGER-IN`, tokens.seller)).json.total).toBe(0)
+    expect((await request('GET', `/invoicing/contact-ledger/${contactId}?documentNumber=SM-LEDGER-IN`, tokens.admin)).json.total).toBe(1)
+    expect(listed(await request('GET', `/invoicing/contact-ledger/${contactId}?documentTypes=stock_movement`, tokens.seller))).toEqual(['SM-LEDGER-OUT'])
+  })
 })
 
 /**

@@ -4924,3 +4924,58 @@ key of their own, so `outgoingOnly` (FR-26.6) still decides what a session sees.
 - Tests: `integration/contact-ledger.flow.test.ts` (the `#526` block), the Seller case in
   `seller-roles.flow.test.ts`, `e2e/tests/contact-ledger-search.spec.ts`. ⚠ A new e2e spec runs
   nowhere until a project in `playwright.config.ts` lists it by name.
+
+## The contact ledger shows the stock movements (2026-11-12)
+
+The owner's ask: the Contact Ledger — its page and the dialog the invoice, bill and proforma forms open
+from their contact field — shows the stock movements: in the row of the document that carries one, and
+a movement with no document as a row of its own, with "Stock Movement Document" in the Type filter.
+
+A movement is in the ledger one of two ways, never both (`services/biz/contact-ledger.service.ts`):
+- **With its document.** Each document line's row carries `movements[]` (`{ id, number, type,
+  reference? }`): the movements the document booked (`invoiceId`) and the ones it stands for
+  (`stockSource.movementIds`: the receipts a bill was made from, the stock note or the till sale an
+  invoice was issued for), those that carry the line's article, and of those the ones of the line's
+  own warehouse when any is (a document selling from two warehouses books a movement for each). Read
+  for the page's rows alone, after the page is cut.
+- **On a row of its own** (`documentType: 'stock_movement'`, `movementType`, `documentNumber: ''`,
+  `documentId` = the movement's): a movement that names the contact and no document (`invoiceId`
+  unset), booked (`confirmed` / `completed`), not `recordOnly`, not `reversedBy`. One row per line, at
+  the movement's `date`, joined to the documents' lines by `$unionWith` before the sort and the page.
+  ⚠ A receipt a bill still in DRAFT holds is such a row too: a draft is no row of the ledger, and the
+  delivery it will pay for happened (`heldByDrafts`). Without that, making a bill from a receipt took
+  the receipt off the supplier's ledger until the bill was received.
+- ⚠ **A movement's own row is valued at COST** (`unitPrice` = the line's `unitCost`, `lineTotal` = its
+  `totalCost`; a `return` negative, as a credit note's line). Both are absent for a role without
+  `products.costs`: `withoutLedgerCosts`, one definition for the route and the report. It has no
+  `taxRate`.
+- **The summary counts documents**, with the movements listed or not: a movement owes nobody anything.
+- **Type** (`documentTypes`): `stock_movement` beside the document types. None chosen: everything.
+- **FR-26.6**: without the purchases side there is no bill, and of the movements' own rows no goods
+  receipt and no return to the supplier (`type: 'return'` out of a warehouse).
+- **Invoice #** (`documentNumber`) also finds a movement by its number or by the document it was
+  booked from (`reference`, „sklrazp_0000615713"), and brings the document that carries it. Looked for
+  among the contact's own movements and the ones its documents stand for, in two indexed reads.
+- ⚠ **A period's last day is whole.** A calendar date bounds a day in the shop's time
+  (`local-day.ts`); `new Date('2026-11-12')` as the END of a period is that day's first instant, which
+  dropped every till document and every movement made during it. The documents' filter had this from
+  the start; both go through `periodOf` now.
+- **UI**: `ui-shared` `useContactLedger` (headers, `typeLabel` / `typeColor`, `isMovementRow`),
+  `LedgerMovementLinks.vue` (the numbers, links for a role that opens Stock Movement Documents; a
+  movement's own row prints its `reference` under the number), `ContactLedgerDialog.vue` (every
+  document form, the cash-sale terminal, the contact form) and `invoicing-ui` `ContactLedgerView.vue`.
+- ⚠ **In the dialog a movement's row has no checkbox.** A document made from its lines would move its
+  goods a second time: nothing links a hand-made invoice to the stock note it is for (only the
+  import's `findStockNoteConversion` does), and a bill has „Свържи с доставка" for exactly this.
+- **Reports** `contact-ledger`: a `movementNumbers` column, the `stock_movement` type option, and a
+  movement's row drills down to `/inventory/movements/:id`.
+- ⚠ **A report that reads a ledger is told its caller** (`ReportHandlerContext.sees: { bills, costs }`,
+  filled by the reports controller, #704). The contact-ledger and product-ledger reports ran their
+  services with no caller, so they listed incoming documents and carried cost figures the ledgers' own
+  routes withhold; the product ledger (route and report) and the warehouse operations report now name
+  no bill to a session without the purchases side, as the movement routes do (#493). A handler run with
+  no caller reads everything.
+- Tests: `integration/contact-ledger-movements.flow.test.ts` (the fixture's table is its header),
+  `seller-roles.flow`, `access-price-levels.flow`, `reports-p2.flow`,
+  `e2e/tests/contact-ledger-movements.spec.ts` (the page, and the dialog of a new invoice, bill and
+  proforma).

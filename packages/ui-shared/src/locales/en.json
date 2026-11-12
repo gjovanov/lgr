@@ -974,7 +974,8 @@
       "proforma": "Proforma",
       "credit_note": "Credit Note",
       "debit_note": "Debit Note",
-      "cash_sale": "Cash Sale"
+      "cash_sale": "Cash Sale",
+      "stock_movement": "Stock Movement Document"
     },
     "companyName": "Company Name",
     "email": "Email",
@@ -1262,6 +1263,7 @@
     "creditNoteVoided": "Credit note voided successfully",
     "creditNoteReceived": "Credit note received",
     "contactLedger": "Contact Ledger",
+    "stockMovement": "Stock movement",
     "addLineItems": "Add Line Items",
     "selectItemsToAdd": "Select items to add to invoice",
     "insufficientStock": "Insufficient Stock",
@@ -3607,6 +3609,7 @@
       "date": "Date",
       "document": "Document",
       "docType": "Doc. type",
+      "stockMovement": "Stock movement",
       "contact": "Counterparty",
       "warehouse": "Warehouse",
       "batch": "Batch",
@@ -3671,7 +3674,8 @@
       "debit_note": "Debit note",
       "receipt_note": "Goods receipt (no invoice)",
       "dispatch_note": "Dispatch note (no invoice)",
-      "proforma": "Proforma"
+      "proforma": "Proforma",
+      "stock_movement": "Stock Movement Document"
     },
     "summary": {
       "operations": "Operations",

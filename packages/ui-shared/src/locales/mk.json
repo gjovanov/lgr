@@ -1544,7 +1544,8 @@
       "proforma": "Профактура",
       "credit_note": "Кредитна нота",
       "debit_note": "Дебитна нота",
-      "cash_sale": "Готовинска продажба"
+      "cash_sale": "Готовинска продажба",
+      "stock_movement": "Документ за движење на залихи"
     },
     "companyName": "Име на Фирма",
     "email": "Е-пошта",
@@ -1832,6 +1833,7 @@
     "creditNoteVoided": "Кредитната нота е успешно поништена",
     "creditNoteReceived": "Кредитната нота е примена",
     "contactLedger": "Картотека на Контакт",
+    "stockMovement": "Движење на стока",
     "addLineItems": "Додади Ставки",
     "selectItemsToAdd": "Изберете ставки за додавање во фактура",
     "insufficientStock": "Недоволно Залиха",
@@ -3607,6 +3609,7 @@
       "date": "Датум",
       "document": "Документ",
       "docType": "Тип док.",
+      "stockMovement": "Движење на стока",
       "contact": "Партнер",
       "warehouse": "Магацин",
       "batch": "Серија",
@@ -3671,7 +3674,8 @@
       "debit_note": "Задолжување",
       "receipt_note": "Приемница (без фактура)",
       "dispatch_note": "Испратница (без фактура)",
-      "proforma": "Профактура"
+      "proforma": "Профактура",
+      "stock_movement": "Документ за движење на залихи"
     },
     "summary": {
       "operations": "Операции",
