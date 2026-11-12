@@ -1633,6 +1633,7 @@
     "qty": "Menge",
     "unit": "Einheit",
     "unitPrice": "Einzelpreis",
+    "pricePickOnly": "Wählen Sie einen der angebotenen Preise: einen Preis von Hand einzugeben gehört nicht zu Ihrer Rolle",
     "discount": "Rabatt",
     "taxRate": "Steuersatz",
     "subtotal": "Zwischensumme",
@@ -2194,7 +2195,12 @@
       "saveAndIssue": "Speichern und ausstellen",
       "notIssued": "Nicht ausgestellt — das Dokument bleibt ein Entwurf: {reason}",
       "notIssuedStock": "der Bestand reicht nicht, und die Umlagerung wurde nicht bestätigt",
-      "printOptions": "Drucken mit Optionen…"
+      "printOptions": "Drucken mit Optionen…",
+      "confirmPayment": {
+        "title": "{number} ausstellen?",
+        "text": "Möchten Sie sie wirklich mit dieser Zahlungsmethode ausstellen?",
+        "none": "Keine Zahlungsmethode"
+      }
     },
     "proformaIssued": "Proforma erfolgreich ausgestellt",
     "offerIssued": "Angebot erfolgreich ausgestellt",
@@ -2223,7 +2229,8 @@
       "byPerson": "Ein Barverkauf oder eine Notiz wird von einem Menschen korrigiert",
       "preparedToast": "Gutschrift und Neuausstellung sind als Entwürfe vorbereitet",
       "failed": "Es konnte nicht vorbereitet werden."
-    }
+    },
+    "unitFromProduct": "Die Einheit des Artikels"
   },
   "warehouse": {
     "sku": "Artikelnr.",
@@ -4837,6 +4844,7 @@
       "totals": "Summenleiste",
       "costs": "Einkaufspreise",
       "import": "Import",
+      "manual_price": "Preis von Hand eingeben",
       "storno": "Storno",
       "settle": "Unklaren Beleg klären",
       "sell": "Verkaufen",

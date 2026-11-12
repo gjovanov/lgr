@@ -179,6 +179,44 @@ describe('the one place a movement is numbered', () => {
     expect(await stockMovementDao.getNextMovementNumber(w.orgId)).toBe(numbered(8))
   }, 60_000)
 
+  it('past 99 999 in a year the numbers go on: a wider number is later than any of five digits (#714)', async () => {
+    const w = await world(1)
+    const sm = (n: number) => `SM-${year}-${String(n).padStart(5, '0')}`
+    const put = (n: number) => StockMovement.create(draft(w, { movementNumber: sm(n) }) as any)
+    await put(99_998)
+    expect(await nextMovementNumber(w.orgId)).toBe(`SM-${year}-99999`)
+    await put(99_999)
+    expect(await nextMovementNumber(w.orgId)).toBe(`SM-${year}-100000`)
+    // The one that used to be offered for ever: in text order `…-99999` is still the last.
+    await put(100_000)
+    expect(await nextMovementNumber(w.orgId)).toBe(`SM-${year}-100001`)
+    await put(100_001)
+    await put(250_000)
+    expect(await nextMovementNumber(w.orgId)).toBe(`SM-${year}-250001`)
+    // And through the door every creator uses: two at once, past the edge.
+    const made = await Promise.allSettled([1, 2].map(() =>
+      withMovementNumber(w.orgId, movementNumber => StockMovement.create(draft(w, { movementNumber }) as any))))
+    expect(made.map(m => m.status)).toEqual(['fulfilled', 'fulfilled'])
+    expect((await w.numbers()).map(n => Number(n.split('-').pop())).filter(n => n >= 250_000).sort((a, b) => a - b)).toEqual([250_000, 250_001, 250_002])
+    // The same again at the next edge.
+    await put(999_999)
+    expect(await nextMovementNumber(w.orgId)).toBe(`SM-${year}-1000000`)
+    await put(1_000_000)
+    expect(await nextMovementNumber(w.orgId)).toBe(`SM-${year}-1000001`)
+  }, 60_000)
+
+  it('a number freed below the edge is given again before the wider ones go on', async () => {
+    const w = await world(1)
+    const put = (n: number) => StockMovement.create(draft(w, { movementNumber: `SM-${year}-${n}` }) as any)
+    // 99999 was a draft, deleted since: the latest of five digits is 99998 again, and wider numbers exist.
+    await put(99_998)
+    await put(100_000)
+    await put(100_001)
+    expect(await nextMovementNumber(w.orgId)).toBe(`SM-${year}-99999`)
+    await put(99_999)
+    expect(await nextMovementNumber(w.orgId)).toBe(`SM-${year}-100002`)
+  }, 60_000)
+
   it('a write by the model (the driver\'s own refusal) is tried again the same way: eight at once, eight numbers', async () => {
     const w = await world(1)
     const made = await Promise.allSettled(Array.from({ length: 8 }, () =>

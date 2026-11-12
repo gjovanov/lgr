@@ -264,6 +264,8 @@
       @confirm="confirmTransfers"
     />
 
+    <IssuePaymentConfirmDialog :ask="paymentConfirm" @answer="answerPayment" />
+
     <v-form ref="formRef" @submit.prevent="onSave">
       <v-defaults-provider :defaults="{
         VTextField: { density: 'compact', variant: 'outlined' },
@@ -592,6 +594,7 @@ import AttachToCashSaleDialog from '../AttachToCashSaleDialog.vue'
 import ReceiptOverlapDialog from '../ReceiptOverlapDialog.vue'
 import RecordPaymentDialog from '../RecordPaymentDialog.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
+import IssuePaymentConfirmDialog from '../IssuePaymentConfirmDialog.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
@@ -705,6 +708,8 @@ const {
   onPaymentRecorded,
   isDraftDoc,
   confirmTransfers,
+  paymentConfirm,
+  answerPayment,
   stockReceipts,
   stockReceiptLoading,
   onPrintStockReceipt,

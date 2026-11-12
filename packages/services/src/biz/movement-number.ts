@@ -23,18 +23,37 @@ export const MOVEMENT_NUMBER_ATTEMPTS = 12
 
 const pause = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
 
-/** The org's next number. Read, not reserved: write under it through `withMovementNumber`. */
-export async function nextMovementNumber(orgId: string): Promise<string> {
-  const prefix = `SM-${new Date().getFullYear()}-`
-  // The latest one only, from the index: listing a year's movements to read the first was the cost of a number
-  // in an org with thousands of them.
-  const latest: any = await StockMovement
-    .findOne({ orgId, movementNumber: { $regex: `^${prefix}` } } as any, { movementNumber: 1, _id: 0 })
+/** The digits a number is padded to. Within one width the index's text order is the numbers' own order. */
+const WIDTH = 5
+
+/**
+ * The latest number of exactly `digits` digits, or null. The latest one only, from the index: listing a year's
+ * movements to read the first was the cost of a number in an org with thousands of them.
+ */
+async function latestOfWidth(orgId: string, prefix: string, digits: number): Promise<number | null> {
+  const row: any = await StockMovement
+    .findOne({ orgId, movementNumber: { $regex: `^${prefix}[0-9]{${digits}}$` } } as any, { movementNumber: 1, _id: 0 })
     .sort({ movementNumber: -1 })
     .lean()
     .exec()
-  const current = parseInt(String(latest?.movementNumber ?? '').slice(prefix.length), 10)
-  return `${prefix}${String((Number.isFinite(current) ? current : 0) + 1).padStart(5, '0')}`
+  return row ? parseInt(String(row.movementNumber).slice(prefix.length), 10) : null
+}
+
+/** The org's next number. Read, not reserved: write under it through `withMovementNumber`. */
+export async function nextMovementNumber(orgId: string): Promise<string> {
+  const prefix = `SM-${new Date().getFullYear()}-`
+  // ⚠ The numbers are text in the index, so `…-99999` sorts after `…-100000`. Read as one list, the latest
+  // stopped at 99999, and from the 100 001st movement of a year on every creator was offered a taken number
+  // (#714). A number of more digits is later than any of fewer, so the latest of each width is asked for, and a
+  // wider one only when the width before it is used up: below 99 999 that is the one read it always was.
+  let latest = 0
+  for (let digits = WIDTH; ; digits++) {
+    const found = await latestOfWidth(orgId, prefix, digits)
+    if (found === null) break
+    latest = found
+    if (found < 10 ** digits - 1) break
+  }
+  return `${prefix}${String(latest + 1).padStart(WIDTH, '0')}`
 }
 
 /**

@@ -27,7 +27,8 @@ const reads = (action: string) => READING_EXTRAS.includes(action) || action.star
 const FULL_ONLY = ['delete', 'manage', 'run']
 
 const EXTRAS: Partial<Record<FeatureId, readonly string[]>> = {
-  'sales-docs': ['totals', 'import', 'export'],
+  // `manual-price`: work, not reading (a typed price is a figure the role decides), so the summary counts it as such.
+  'sales-docs': ['totals', 'import', 'export', 'manual-price'],
   bills: ['totals'],
   // FR-27.11: "Prices it may see": the cost figures and one tick per price level.
   products: ['export', 'costs', 'price:selling', 'price:wholesale', 'price:0', 'price:1', 'price:2', 'price:3', 'price:4', 'price:5', 'price:6', 'price:7', 'price:8', 'price:9', 'price:10', 'price:other'],

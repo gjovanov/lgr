@@ -3,7 +3,7 @@
        (`/invoicing/cash-sales/new`) and the back-office form a saved sale opens on
        (`/invoicing/cash-sales/:id/edit`). Each keeps what is its own (the till: session, fiscal
        bridge, last sale, payment; the form: the document header) and hands it in through the slots. -->
-  <v-row dense class="register-terminal">
+  <v-row ref="terminalRoot" dense class="register-terminal">
     <!-- ── Left: the catalog ── -->
     <v-col v-if="!readonly" cols="12" md="7">
       <v-card variant="outlined" class="pa-3 register-catalog">
@@ -60,27 +60,39 @@
         <div v-if="catalogLoading && !products.length" class="d-flex justify-center py-8">
           <v-progress-circular indeterminate color="primary" />
         </div>
-        <v-row v-else dense>
-          <v-col v-for="p in products" :key="p.productId" cols="6" sm="4" lg="3">
-            <v-card
-              class="pa-2 register-card text-center"
-              variant="tonal"
-              :color="p.stockAvailable !== null && p.stockAvailable <= 0 ? 'error' : undefined"
-              data-testid="register-card"
-              @click="emit('add', p)"
-            >
-              <div class="text-body-2 font-weight-medium register-card-name">{{ p.productName }}</div>
-              <div v-if="p.sku" class="text-caption text-medium-emphasis text-truncate">{{ p.sku }}</div>
-              <div class="text-body-2 font-weight-bold mt-1">{{ fmt(p.unitPrice || 0, 4) }}</div>
-              <div v-if="p.stockAvailable !== null" class="text-caption text-medium-emphasis">
+        <!-- One article a row, the full width: its name on the first line; its code, its price and its stock
+             on the second, the price and the stock lined up down the right edge. The stock's colour is the
+             out-of-stock signal (the box itself is no longer tinted: a page of red rows reads as an error).
+             Beside the cart the list scrolls in its own box (see the style). -->
+        <div v-else ref="listEl" class="register-list" data-testid="register-list">
+          <v-card
+            v-for="p in products"
+            :key="p.productId"
+            class="register-card px-3"
+            variant="tonal"
+            data-testid="register-card"
+            @click="pick([p])"
+          >
+            <div class="register-card-name text-body-1 font-weight-medium text-truncate" :title="p.productName" data-testid="register-card-name">{{ p.productName }}</div>
+            <div class="register-card-meta">
+              <span class="register-card-sku text-caption text-medium-emphasis text-truncate" data-testid="register-card-sku">{{ p.sku }}</span>
+              <span class="register-card-price font-weight-bold" data-testid="register-card-price">{{ fmt(p.unitPrice || 0, 4) }}</span>
+              <v-chip
+                v-if="p.stockAvailable != null"
+                :color="p.stockAvailable > 0 ? 'success' : 'error'"
+                variant="flat"
+                density="compact"
+                class="register-card-stock"
+                data-testid="register-card-stock"
+              >
                 {{ $t('pos.stock') }}: {{ p.stockAvailable }}
-              </div>
-            </v-card>
-          </v-col>
-          <v-col v-if="!products.length && !catalogLoading" cols="12" class="text-center text-disabled pa-8">
+              </v-chip>
+            </div>
+          </v-card>
+          <div v-if="!products.length && !catalogLoading" class="text-center text-disabled pa-8">
             {{ $t('common.noData') }}
-          </v-col>
-        </v-row>
+          </div>
+        </div>
         <div v-if="totalPages > 1" class="d-flex justify-center mt-4">
           <v-pagination v-model="page" :length="totalPages" :total-visible="5" density="compact" @update:model-value="(p: number) => fetchCatalog(p - 1)" />
         </div>
@@ -116,8 +128,10 @@
               <template v-if="!readonly" #prepend>
                 <div class="d-flex align-center mr-2">
                   <v-btn icon="mdi-minus" size="x-small" variant="text" :aria-label="$t('pos.decreaseQty')" @click="setQuantity(idx, Number(line.quantity || 0) - 1)" />
-                  <!-- #145: a large quantity is typed, not clicked. -->
+                  <!-- #145: a large quantity is typed, not clicked. A pick leaves the cursor here (`pick`);
+                       Enter hands it back to the search, and the move away commits what was typed. -->
                   <v-text-field
+                    :key="qtyResets[idx] || 0"
                     :model-value="line.quantity"
                     type="number"
                     inputmode="decimal"
@@ -128,8 +142,9 @@
                     class="register-qty mx-1"
                     :aria-label="$t('pos.quantity')"
                     data-testid="cart-qty"
-                    @change="(e: Event) => setQuantity(idx, (e.target as HTMLInputElement).value)"
+                    @change="(e: Event) => onQuantityTyped(idx, (e.target as HTMLInputElement).value)"
                     @focus="($event.target as HTMLInputElement)?.select()"
+                    @keydown.enter.prevent="focusSearch(true)"
                   />
                   <v-btn icon="mdi-plus" size="x-small" variant="text" :aria-label="$t('pos.increaseQty')" @click="setQuantity(idx, Number(line.quantity || 0) + 1)" />
                 </div>
@@ -168,15 +183,17 @@
       :locale="localeTag"
       :stock-warehouse-id="warehouseId"
       :initial-search="detailsText"
-      @select="(p: any) => emit('add', p)"
-      @select-many="addMany"
+      @select="(p: any) => pick([p])"
+      @select-many="pick"
     />
   </v-row>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, toRaw, watch, type ComponentPublicInstance } from 'vue'
+import { numberFormat } from '../../composables/number-display'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import { httpClient } from '../../composables/useHttpClient'
 import TagInput from '../TagInput.vue'
 import PriceSelectButton from '../PriceSelectButton.vue'
@@ -255,12 +272,85 @@ function openDetails() {
   detailsText.value = search.value || ''
   detailsOpen.value = true
 }
-function addMany(ps: any[]) {
+
+// ── A pick leaves the cursor in its line's quantity (goran, 2026-11-12) ──
+//
+// A click on an article, or a pick in Details, adds it (the door's `add`: a new line, or one more on
+// the line that holds it) and puts the cursor in THAT line's quantity with its figure selected, so
+// the clerk types how many at once. Several picked at once: the last one's line.
+//
+// Not the scanner's Enter in the search (`addTypedCode`): the next scan must land in the search
+// again (FR-22.55). And not while the cart sits under the catalog (a phone): the cursor would pull
+// the page down to the cart, away from the article just tapped, on every tap.
+const terminalRoot = ref<ComponentPublicInstance | null>(null)
+const { mdAndUp: cartBesideCatalog } = useDisplay()
+
+async function pick(ps: RegisterCatalogProduct[]) {
+  const last = ps[ps.length - 1]
+  if (!last) return
+  const before = new Map<RegisterLine, number>(props.lines.map((l) => [toRaw(l), Number(l.quantity)]))
   for (const p of ps) emit('add', p)
+  if (!cartBesideCatalog.value) return
+  // Both doors place the article before `add` returns; its line is on screen after this tick.
+  await nextTick()
+  // The line the door put it on: one that was not in the cart before, else the one whose quantity
+  // grew. Neither (a door that refused it: a sale on its way) leaves the cursor where it was.
+  const lines = props.lines
+  let idx = lines.findIndex((l) => l.productId === last.productId && !before.has(toRaw(l)))
+  if (idx < 0) idx = lines.findIndex((l) => l.productId === last.productId && Number(l.quantity) > (before.get(toRaw(l)) ?? Infinity))
+  if (idx >= 0) focusQuantity(idx)
+}
+
+function focusQuantity(idx: number) {
+  const root = terminalRoot.value?.$el as HTMLElement | undefined
+  const input = root?.querySelectorAll<HTMLInputElement>('.register-qty input')[idx]
+  if (!input) return
+  input.focus()
+  // Already focused (no focus event to select it): the figure is selected all the same.
+  input.select()
+}
+
+/** The cursor back in the search; `select` so the next text typed or scanned replaces the last one. */
+function focusSearch(select = false) {
+  searchField.value?.focus()
+  if (select) searchField.value?.select?.()
+}
+
+/**
+ * Per line, bumped to put its quantity field back to the line's figure (the field is mounted anew).
+ * A field shows what was typed in it until its line's quantity changes, so an entry that did NOT
+ * change the quantity would otherwise stay on screen as if it had.
+ */
+const qtyResets = ref<Record<number, number>>({})
+function resetQuantityField(idx: number) {
+  qtyResets.value[idx] = (qtyResets.value[idx] || 0) + 1
+}
+
+/**
+ * A whole number this long is a barcode, not a quantity. With the cursor left in a quantity after a
+ * click, the next scan types its code there and ends with Enter, which as a quantity would sell
+ * billions of units. It goes where a scan goes: to the search's lookup, which adds the article.
+ */
+const SCANNED_CODE = /^\d{8,}$/
+
+function onQuantityTyped(idx: number, typed: string) {
+  const line = props.lines[idx]
+  if (!line) return
+  const before = line.quantity
+  const code = typed.trim()
+  if (SCANNED_CODE.test(code)) {
+    resetQuantityField(idx)
+    search.value = code
+    onSearchEnter()
+    return
+  }
+  setQuantity(idx, typed)
+  // The door kept the quantity it had (an unusable entry, or a sale on its way): show it, not the typing.
+  if (props.lines[idx] === line && line.quantity === before && String(before) !== typed) resetQuantityField(idx)
 }
 
 function fmt(n: number, decimals = 2) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: props.currency || 'EUR', minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n || 0)
+  return numberFormat(undefined, { style: 'currency', currency: props.currency || 'EUR', minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n || 0)
 }
 
 /**
@@ -269,6 +359,9 @@ function fmt(n: number, decimals = 2) {
  * than leaving a line the server would refuse.
  */
 function setQuantity(idx: number, value: unknown) {
+  // A number field reports a cleared entry, and one it cannot read, as '': `Number('')` is 0, which
+  // removed the line. With the cursor left in the quantity after every pick, a stray Backspace did.
+  if (typeof value === 'string' && !value.trim()) value = 1
   const q = Number(value)
   if (q === 0 || (typeof value === 'number' && value <= 0)) { emit('remove', idx); return }
   emit('quantity', idx, Number.isFinite(q) && q > 0 ? Math.round(q * 1000) / 1000 : 1)
@@ -276,7 +369,7 @@ function setQuantity(idx: number, value: unknown) {
 
 // ── The catalog ─────────────────────────────────────────────────────────────
 const search = ref('')
-const searchField = ref<{ focus: () => void } | null>(null)
+const searchField = ref<{ focus: () => void; select?: () => void } | null>(null)
 const categoryFilter = ref<string | null>(null)
 const typeFilter = ref<string | null>(null)
 const tagFilter = ref<string[]>([])
@@ -286,6 +379,7 @@ const typeOptions = [
   { title: t('warehouse.service'), value: 'service' },
 ]
 const products = ref<RegisterCatalogProduct[]>([])
+const listEl = ref<HTMLElement | null>(null)
 const page = ref(1)
 const totalPages = ref(1)
 const catalogLoading = ref(false)
@@ -331,6 +425,8 @@ async function fetchCatalog(p = 0) {
     products.value = data.products || []
     totalPages.value = data.totalPages || 1
     page.value = (data.page || 0) + 1
+    // A new search or page starts at its first article, not where the last list was scrolled to.
+    if (listEl.value) listEl.value.scrollTop = 0
   } catch {
     if (seq >= catalogShown) { catalogShown = seq; products.value = [] }
   } finally {
@@ -398,21 +494,64 @@ defineExpose({ refresh: () => fetchCatalog(page.value - 1), reset, focusSearch: 
 </script>
 
 <style scoped>
+.register-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* A row keeps its height when the list is capped (below): a flex item would shrink to fit instead. */
+.register-list > * {
+  flex-shrink: 0;
+}
+/* Beside the cart (md and up, as the columns) the list scrolls in its own box: the page, and the cart
+   with it, stay where they are while the clerk looks down the list, so the cursor a pick puts in the
+   cart (`pick`) does not pull the page back up to it, and the pager stays in view. 358px is what the
+   till has above and below the list at 1366x768: the app bar, its title, the filters and the pager. */
+@media (min-width: 960px) {
+  .register-list {
+    max-height: max(300px, calc(100vh - 358px));
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+}
+/* Two lines in under 50px: a laptop's list shows seven rows and more. */
 .register-card {
   cursor: pointer;
   user-select: none;
   transition: transform 0.05s ease;
+  padding-top: 3px;
+  padding-bottom: 3px;
 }
 .register-card:active {
-  transform: scale(0.97);
+  transform: scale(0.995);
 }
 .register-card-name {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  min-height: 2.6em;
-  line-height: 1.3em;
+  line-height: 1.3;
+}
+/* The code takes what the price and the stock leave, and gives way first. */
+.register-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.register-card-sku {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.register-card-price {
+  flex: none;
+  white-space: nowrap;
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+}
+/* One width for every badge, so the prices beside them line up down the list. */
+.register-card .register-card-stock {
+  flex: none;
+  height: 22px;
+  min-width: 8.5rem;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
 }
 .register-line-name {
   white-space: normal;

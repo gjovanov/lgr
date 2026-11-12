@@ -51,6 +51,9 @@ beforeAll(async () => {
   await setupTestDB()
   app = new Elysia().onError(spaErrorHandler({}) as any).use(createApiApp()) as any
   const r = await register({ orgName: 'App Hub', orgSlug: 'access-app-hub', email: 'founder@app-hub.test', username: 'founder', password: 'secure-pass-123', firstName: 'Fo', lastName: 'Under' })
+  // What the activation link does. A session is a live membership's, and a founder still waiting for the link
+  // holds none (`liveSessionUser`): the token signed below stood for one the product never gives.
+  await User.updateOne({ _id: r.user._id }, { $set: { isActive: true } })
   orgId = String(r.org._id)
   adminToken = await sign(r.user._id)
   member = await createTestUser(r.org._id, { role: 'member', username: 'clerk', email: 'clerk@app-hub.test', permissions: ['inventory.read'] } as any)

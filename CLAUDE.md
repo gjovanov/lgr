@@ -790,6 +790,12 @@ so the tenant guard and every permission check are unchanged. Plan:
   `User.password` copy.
 - `iid`/`tv` on a session tie it to the person: a password change bumps `tokenVersion` and every
   session they hold stops working (`liveSessionUser`, cached a minute per process).
+  - The same check reads the MEMBERSHIP (`membershipSwitchedOff`): a session whose membership says
+    `isActive: false` is refused, whoever switched it off (the two user routes end the person's sessions
+    themselves; a script, a restore or an import used to leave the session good for up to a day, and so did a
+    membership with no person linked). ⚠ Only a row that is there and switched off refuses: one that is missing
+    or cannot be read decides nothing, because this runs on every request of every org. "Active" is cached a
+    minute; "switched off" never, so a member switched on again is not kept out.
 - An org admin never sets the password, email or name of someone active in another org
   (`identity_shared`), and never creates a user at an address that is already someone's
   (`identity_exists`: they invite instead).
@@ -1326,10 +1332,16 @@ LGR implements СУПТО (Софтуер за Управление на Про�
     receipt, an import, a transfer and a count each read the latest themselves, and two made at once answered
     one of them a 500. `unit/movement-number-source.test.ts` fails when another source builds the number.
     What runs inside the write runs again, so it is the insert alone or one transaction around it.
+    The numbers are TEXT in the index (`…-99999` sorts after `…-100000`), so the latest is read per width, the
+    widest last (#714): read as one list it stopped at 99999 and nothing more was booked that year.
   - ⚠ That collision was also all that kept two completions of ONE inventory count at the same moment from both
     booking its adjustment. `POST /warehouse/inventory-count/:id/complete` now holds its count while it books
     (`leaseUntil`, the lease of `services/biz/hot-path-key`, renewed while a large count runs); a second request
-    answers 409 `count_busy`, and the list's Complete button takes one click (`integration/count-completion.flow`).
+    answers 409 `count_busy`, and so do an edit and a delete of a held count, in the write's own filter. The
+    list's Complete button takes one click (`integration/count-completion.flow`).
+  - A count's own number (`IC-<year>-NNNNN`) is the org's `IC` counter (`services/biz/count-number.ts`, #713),
+    pulled past the highest number a count already holds before each `$inc`. It was latest + 1 with no unique
+    index beside it: counts made at the same moment were saved under one number, silently.
 - **The two-hour rule (Прил. 29 т. 8, FR-20.49, `fiscal/device-reach.ts`):** in SUPTO production mode a NEW fiscal
   sale answers 409 `fiscal_device_unreached` when none of the warehouse's active devices was reached within 2 h
   AND none answers a status read now. A keyed retry is a sale that already opened and is never refused. The same
@@ -3483,6 +3495,8 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     recent activity, the Files audit.
   - **C.7 / D views**: the Products grid offers only the levels held (`useProductColumns`), the product form edits
     only those, and an open product list re-reads its rows when `x-access-version` changes.
+- **A typed line price (2026-11-12) is `sales-docs.manual-price`**: `invoicing.write` grants it, the role NAME `seller` withholds
+  it (`LEGACY_ROLE_WITHHOLDS`); forms only (`PriceCombobox :typed`), ⚠ no route refuses a typed price yet.
 - **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
   null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
   gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`

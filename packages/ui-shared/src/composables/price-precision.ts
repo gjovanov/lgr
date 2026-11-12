@@ -62,6 +62,16 @@ export function parseTyped(text: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
+/**
+ * A price typed into a line's price field (`PriceCombobox`): `parseTyped`, so "12,5" is 12.5, of text that may still
+ * carry an offered price's name after a dash ("10.00 — Selling price"). Null for nothing, for text that is no number,
+ * and for a figure under zero.
+ */
+export function parseTypedPrice(text: unknown): number | null {
+  const n = parseTyped(typeof text === 'string' && text.includes('—') ? text.split('—')[0] : text)
+  return n === null || n < 0 ? null : n
+}
+
 /** The price that stands `percent` over `purchase`, to the decimals a price keeps. */
 export function priceAtMargin(purchase: unknown, percent: unknown): number {
   return roundPrice(num(purchase) * (1 + num(percent) / 100))

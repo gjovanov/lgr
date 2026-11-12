@@ -10,6 +10,8 @@ import {
   uniqueName,
 } from './helpers/crud'
 import { expectPaginatedTable, getPageInfo, goToNextPage, waitForTableLoaded } from './helpers/pagination'
+import { apiGet, apiLogin, apiPost } from './helpers/api'
+import { openSelect } from './helpers/vuetify'
 
 test.describe('Warehouse CRUD', () => {
   test('should create a product and verify minStockLevel/maxStockLevel on inventory tab', async ({ page }) => {
@@ -198,5 +200,60 @@ test.describe('Warehouse CRUD', () => {
       const infoAfter = await getPageInfo(page)
       expect(infoAfter).not.toBe(infoBefore)
     }
+  })
+})
+
+// Owner, 2026-11-12: "for Adjustment, allow setting a Client as well as Supplier". The toggle says which side the partner
+// field lists, labels and creates; a saved adjustment opens on its partner's side.
+test.describe('Adjustment partner', () => {
+  test('an adjustment names a client or a supplier', async ({ page }) => {
+    const session = await apiLogin()
+    const only = async (type: 'customer' | 'supplier') => {
+      const { contacts } = await apiGet(session, `/invoicing/contact?type=${type}&size=100`)
+      const c = (contacts || []).find((x: any) => x.type === type && x.isActive !== false && x.companyName)
+      expect(c, `an active ${type}`).toBeTruthy()
+      return c
+    }
+    const customer = await only('customer')
+    const supplier = await only('supplier')
+    const partner = page.getByTestId('movement-partner')
+    const side = page.getByTestId('adjustment-partner-side')
+    const pick = async (name: string) => {
+      await partner.locator('input').pressSequentially(name.slice(0, 12), { delay: 10 })
+      await page.locator('.v-overlay--active .v-list-item').filter({ hasText: name }).first().click()
+      await expect(partner.locator('input')).toHaveValue(name)
+    }
+
+    await loginForApp(page)
+    await page.goto('/inventory/movements/new', { waitUntil: 'networkidle' })
+    await expect(side).toHaveCount(0) // a receipt names its supplier: no choice
+    await openSelect(page, /^Type \*/)
+    await page.getByRole('option', { name: 'Adjustment', exact: true }).click()
+
+    await expect(side).toBeVisible()
+    await expect(side.getByRole('button', { name: 'Client' })).toHaveClass(/v-btn--active/)
+    await expect(partner).toContainText('Client')
+    await pick(customer.companyName)
+
+    // The other side drops a partner it does not list.
+    await side.getByRole('button', { name: 'Supplier' }).click()
+    await expect(partner).toContainText('Supplier')
+    await expect(partner.locator('input')).toHaveValue('')
+    await pick(supplier.companyName)
+
+    // A saved adjustment opens on its partner's side.
+    const { warehouses } = await apiGet(session, '/warehouse/warehouse?size=1')
+    const { products } = await apiGet(session, '/warehouse/product?size=1&isActive=true')
+    const res = await apiPost(session, '/warehouse/movement', {
+      type: 'adjustment', date: new Date().toISOString().split('T')[0], fromWarehouseId: warehouses[0]._id, contactId: supplier._id,
+      lines: [{ productId: products[0]._id, quantity: 1, unitCost: 0, totalCost: 0 }], totalAmount: 0,
+    })
+    expect(res.ok, `draft adjustment → ${res.status}`).toBe(true)
+    const body = await res.json()
+    const id = body.stockMovement._id || body.stockMovement.id
+    await page.goto(`/inventory/movements/${id}`, { waitUntil: 'networkidle' })
+    await expect(side.getByRole('button', { name: 'Supplier' })).toHaveClass(/v-btn--active/, { timeout: 15000 })
+    // A loaded choice renders as the field's selection, not as typed text in its input.
+    await expect(partner).toContainText(supplier.companyName)
   })
 })

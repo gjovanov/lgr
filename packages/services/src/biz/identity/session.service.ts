@@ -174,12 +174,54 @@ export function forgetIdentity(iid: unknown): void {
 }
 
 /**
+ * A session is one membership's (`id`), and it is live only while that membership is not switched off.
+ *
+ * The two routes that switch a member off end the person's sessions themselves (`endSessionsOf`). This is for
+ * every other way a membership stops being active — a script, a restore, an import — which left its session good
+ * until the token expired, up to a day. It also covers a membership no person is linked to (a token without
+ * `iid`), which nothing checked.
+ *
+ * ⚠ Refused only on a membership that IS there and says `isActive: false`. One that cannot be read, or is not
+ * there, decides nothing here: this runs on every request of every org, and a lookup that fails must not sign
+ * people out (a deleted person's sessions end by `identityStillValid`).
+ *
+ * "Active" is cached a minute per process, like the person's state. "Switched off" is never cached, so a member
+ * switched on again is not kept out by a stale answer.
+ */
+const activeMembers = new Map<string, number>()
+
+export async function membershipSwitchedOff(userId: string): Promise<boolean> {
+  const seen = activeMembers.get(userId)
+  if (seen !== undefined && Date.now() - seen <= REVOCATION_TTL_MS) return false
+  // No database to ask (a unit test, a server still starting): a read would wait out the driver's buffer.
+  if (User.db.readyState !== 1) return false
+  const doc: any = await User.findById(userId, { isActive: 1 }).lean().exec().catch(() => undefined)
+  if (doc && doc.isActive === false) {
+    activeMembers.delete(userId)
+    return true
+  }
+  // Only what was read as active is remembered: a missing row or a failed read is asked again next time.
+  if (doc) {
+    if (activeMembers.size >= MAX_CACHED) activeMembers.clear()
+    activeMembers.set(userId, Date.now())
+  }
+  return false
+}
+
+/** Drop the cached state of a membership that was just switched off or on in this process. */
+export function forgetMembership(userId: unknown): void {
+  activeMembers.delete(String(userId))
+}
+
+/**
  * The session a verified token stands for, if it is still live: a token naming a person must
- * match their current state (`identityStillValid`). Called by all eight auth plugins right after
- * `asSessionUser`, so the rule cannot drift between them.
+ * match their current state (`identityStillValid`), and its membership must not be switched off
+ * (`membershipSwitchedOff`). Called by all eight auth plugins right after `asSessionUser`, so the
+ * rule cannot drift between them.
  */
 export async function liveSessionUser<T extends object>(user: T | null): Promise<T | null> {
-  const claims = user as { iid?: unknown; tv?: unknown } | null
+  const claims = user as { iid?: unknown; tv?: unknown; id?: unknown } | null
   if (claims && typeof claims.iid === 'string' && !(await identityStillValid(claims.iid, claims.tv))) return null
+  if (claims && typeof claims.id === 'string' && claims.id && (await membershipSwitchedOff(claims.id))) return null
   return user
 }

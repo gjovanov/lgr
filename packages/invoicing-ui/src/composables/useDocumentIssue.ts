@@ -7,6 +7,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAppStore } from '../store/app.store'
 import {
   checkStock,
+  confirmsPaymentOnIssue,
   createTransfers as createTransferMovements,
   ISSUED_KEY,
   issuedReceiptNotice,
@@ -16,7 +17,7 @@ import {
   type StockCheckLine,
 } from './document-issue'
 
-export { stockCheckLines, checksStockOnIssue, ISSUED_KEY } from './document-issue'
+export { stockCheckLines, checksStockOnIssue, confirmsPaymentOnIssue, ISSUED_KEY } from './document-issue'
 
 /**
  * Issuing a document, and the stock check in front of it (FR-22.17): the list's „Изпрати" and the
@@ -57,7 +58,14 @@ export function useStockTransfer() {
   return { open, shortfalls, proposals, allResolvable, confirming, show, check, createTransfers }
 }
 
-export type IssueOutcome = 'issued' | 'transfer' | 'failed'
+/** 'cancelled': the person said No to the payment method; the document stays a draft, with nothing to report. */
+export type IssueOutcome = 'issued' | 'transfer' | 'failed' | 'cancelled'
+
+/** The question in front of issuing an outgoing invoice (`IssuePaymentConfirmDialog`): its number and stored method. */
+export interface PaymentConfirmAsk {
+  number: string
+  method: string | null
+}
 
 export interface UseDocumentIssueOptions {
   /** A spinner to run while the document is read, checked and issued (the list's table). */
@@ -88,6 +96,24 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
 
   /** The document waiting on the transfer dialog, and what its caller does once it is issued. */
   let pending: { id: string; type: string; then?: (invoice: any) => Promise<void> | void } | null = null
+
+  /** The payment-method question that is open, and how it is answered (`answerPayment`). */
+  const paymentConfirm = ref<PaymentConfirmAsk | null>(null)
+  let paymentAnswer: ((yes: boolean) => void) | null = null
+
+  function askPayment(invoice: any): Promise<boolean> {
+    paymentAnswer?.(false) // a question still open is a No: one question at a time
+    paymentConfirm.value = { number: String(invoice?.invoiceNumber || ''), method: invoice?.paymentMethod || null }
+    return new Promise(resolve => { paymentAnswer = resolve })
+  }
+
+  /** Yes issues the document as it is stored; No leaves it a draft. */
+  function answerPayment(yes: boolean) {
+    const answer = paymentAnswer
+    paymentAnswer = null
+    paymentConfirm.value = null
+    answer?.(yes)
+  }
 
   // The dialog was closed without confirming: the document stays a draft, and says why.
   watch(transfer.open, (open) => {
@@ -122,6 +148,12 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
     try {
       const { invoice, check } = await prepareIssue(httpClient, appStore.orgUrl(), doc._id)
       const type = doc.type || invoice.type
+      // Owner, 2026-11-12: an outgoing invoice is issued only once the person confirms the method it carries.
+      if (confirmsPaymentOnIssue(invoice)) {
+        if (loading) loading.value = false
+        if (!(await askPayment(invoice))) return 'cancelled'
+        if (loading) loading.value = true
+      }
       if (check) {
         // Show transfer dialog
         transfer.show(check)
@@ -165,5 +197,5 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
     }
   }
 
-  return { transfer, issue, confirmTransfers, lastError, lastReceiptError, lastReceiptTakesPayment }
+  return { transfer, issue, confirmTransfers, lastError, lastReceiptError, lastReceiptTakesPayment, paymentConfirm, answerPayment }
 }
