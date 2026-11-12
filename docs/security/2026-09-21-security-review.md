@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-36** are fixed. The rest are open, ordered by
+**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-37** are fixed. The rest are open, ordered by
 severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
@@ -26,7 +26,8 @@ and fiscal-device screens, and S-31 while fixing #168. S-32 came a few days late
 FR-27 (#529), and S-33 while handling it. S-34 turned up while closing S-33, when the rest of the
 Files routes were read against the same rule. S-35 came out of re-checking the Known Issue about the
 controllers that take any field, and S-36 is the rest of that Known Issue: what a save could set
-inside the caller's own org.
+inside the caller's own org. S-37 was found a day later, while building on the order conversion: the
+draft invoice it answers with.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -66,6 +67,7 @@ inside the caller's own org.
 | S-34 | Low | Analysing a document in the Files app, and the diff of a stock snapshot, asked for `admin.settings` alone: a holder could read the catalog, contacts, costs and stock they are matched against without the permission that guards them | **Fixed** (#541) |
 | S-35 | Medium | A body could name another org's record by id, and the views that resolve stored ids showed it | **Fixed 2026-11-11** (#641) |
 | S-36 | Low | On the twelve routes that store the body as the document, a save could set the fields the server sets: a count's `completed` without its stock adjustment, an order's number or author, a backdated `createdAt` | **Fixed 2026-11-11** (#674) |
+| S-37 | Low | The draft invoice an order conversion answers with carried its stored price trail, so it named a price level to a role that does not see it | **Fixed 2026-11-12** (#696) |
 
 ---
 
@@ -1840,3 +1842,47 @@ A dotted key did the same one level down. `updateInOrg` puts the body in a `$set
 - Left open, inside the caller's own module: a PUT's values are cast, not validated (Mongoose runs
   no validators on an update, so an enum field takes any word), and a POST's schema rejection
   answers 500, not 422 (#675).
+
+## S-37 — A conversion's answer named a price level its reader's role does not see (Low, **fixed 2026-11-12**)
+
+> Found on 2026-11-12 while building on the order conversion. Fixed in #696 and written up here once
+> the fix was on production.
+
+**Where:** `POST /org/:orgId/invoicing/internal-orders/:id/convert` and
+`POST /org/:orgId/invoicing/orders/:id/convert`.
+
+**What was wrong:** a document's stored price trail (`priceExplanation`) names no price level the
+reader's role does not see: a hidden level that won reads "Customer price", a hidden one that lost
+is not named (FR-27.11.C.6). The invoice and the till controllers hold that for every answer of
+theirs, in one `onAfterHandle`. A conversion makes a draft invoice and answers with it, from the
+order controllers, which had no such step. So that one answer carried the trail as stored: the name
+of the level the customer resolves to, and the names and figures of the steps that lost to it.
+
+- **Who:** a member whose role does not see every price level, in an org on the roles model, who
+  may convert an order.
+- **Impact:** for the lines of that one draft, which price level the customer is on and the figures
+  of the levels that lost. The line's price itself is the invoice's, which the same person reads
+  and issues. Nothing stored was touched, and no screen showed it: the order form reads the
+  draft's id and number from the answer and opens the invoice, whose own routes answer by the rule.
+- **Why Low:** an insider, in their own org, who may already invoice that customer at that price.
+  What was crossed is a level's name and the losing figures, in one API answer.
+- **Exposure on the day:** none. A read-only count on production: of 87 orgs one is on the roles
+  model, a test copy. Its 3 roles that do not see every level have 3 people, none of them active,
+  and of the 5 conversions ever recorded none was made by such a person.
+
+### Fix
+
+- Both routes answer through `lib/reservation-convert#conversionAnswer`, which reads the draft's
+  trail by the invoice routes' own rule (`access/price-trails#withVisibleTrails`). What is stored
+  is whole, and a role that sees every level is answered exactly as before.
+- Tests: `integration/access-price-levels.flow.test.ts`, 2 more: a clerk whose role does not see
+  one level converts a customer order, and then a supplier order, of a customer priced at that
+  level. The answer names no hidden level, its last step reads "Customer price" with the line's
+  price, and the stored trail still names the level. With the two routes answering as before, both
+  fail.
+- Deployed as `v20261112-2aa489cd1ca2`. On production the deploy was checked: the image, both pods,
+  the new code in a pod, the health route. The behaviour is the flow test's. A conversion needs a
+  reservation, and one made in the demo org could not be removed again.
+- `CLAUDE.md` now says where the rule is held, and that a new route which answers an invoice from
+  any other controller says it the same way.
+
