@@ -26,7 +26,9 @@ const made: string[] = []
 
 test.beforeAll(async () => { session = await apiLogin() })
 
-// A deactivated article is off every list (FR-22.48): nothing of this file is left for the specs after it.
+// A deactivated article is off the Products screen, the pickers and the till (FR-22.48), so the specs after this
+// file do not meet its articles there. ⚠ The bare `GET /warehouse/product` still lists it: `isActive=true` is the
+// screen's filter, not the route's default.
 test.afterAll(async () => {
   for (const id of made) await apiDelete(session, `/warehouse/product/${id}`)
 })
