@@ -1064,6 +1064,7 @@
     "unit": "Unit",
     "unitPrice": "Unit Price",
     "pricePickOnly": "Choose one of the offered prices: typing a price by hand is not part of your role",
+    "priceNotOffered": "Line {lines}: this price is not one of those offered for the article. Choose one of the offered prices: typing a price by hand is not part of your role",
     "discount": "Discount",
     "taxRate": "Tax Rate",
     "subtotal": "Subtotal",

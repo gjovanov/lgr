@@ -508,6 +508,10 @@ describe('the refusal, in words', () => {
     expect(receiptRefusalKey({ code: 'no_receipt_to_storno', reason: 'other_kind' })).toBe('cashRegister.receipt.noReceiptOfKind')
     expect(receiptRefusalKey({ code: 'fiscally_paid', document: 'CN-1' })).toBe('cashRegister.receipt.fiscallyPaidUnderNote')
     expect(receiptRefusalParams({ code: 'fiscally_paid', document: 'CN-1' } as any).number).toBe('CN-1')
+    // #724: the lines a price refusal names, as the form numbers them.
+    expect(receiptRefusalParams({ lines: [{ line: 2 }, { line: 4 }] }).lines).toBe('2, 4')
+    expect(receiptRefusalParams({}).lines).toBe('')
+    expect(receiptRefusalKey({ code: 'price_not_offered' })).toBe('invoicing.priceNotOffered')
     expect(receiptRefusalKey({ code: 'refund_exceeds_paid', atIssue: true })).toBe('cashRegister.receipt.refundExceedsPaidAtIssue')
   })
 
@@ -518,6 +522,8 @@ describe('the refusal, in words', () => {
       'receipt_number_required', 'receipt_number_taken', 'receipt_number_off_device', 'receipt_number_cited', 'delivery_receipt_owed', 'receipts_unfinished', 'close_interrupted',
       'refund_exceeds_paid',
       'storno_exceeds_left', 'storno_exceeds_budget', 'storno_refund_mismatch', 'storno_line_unknown', 'storno_quantity_invalid', 'storno_not_splittable', 'storno_refund_not_positive',
+      // #724: a line price the role may not type, refused by the document routes and the till.
+      'price_not_offered',
     ]
     const locales = { en, bg, de, mk } as Record<string, any>
     for (const code of codes) {

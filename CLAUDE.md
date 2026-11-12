@@ -3496,7 +3496,17 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - **C.7 / D views**: the Products grid offers only the levels held (`useProductColumns`), the product form edits
     only those, and an open product list re-reads its rows when `x-access-version` changes.
 - **A typed line price (2026-11-12) is `sales-docs.manual-price`**: `invoicing.write` grants it, the role NAME `seller` withholds
-  it (`LEGACY_ROLE_WITHHOLDS`); forms only (`PriceCombobox :typed`), ⚠ no route refuses a typed price yet.
+  it (`LEGACY_ROLE_WITHHOLDS`). The forms lock the field (`PriceCombobox :typed`), and since #724 the routes hold it too
+  (`services/biz/sales-lines.ts#typedPriceRefusal`: `/invoices` POST/PUT of an outgoing document, the till's sale, a
+  customer order's PINNED price): without it a line price must be one the form could have given, i.e. the selling price,
+  a `listPriceOptions(all)` price or the resolved one, a price the document or its related invoice already carries, one
+  the client was already charged for the article, or the customer order line it converts. Else **403
+  `price_not_offered`** naming the lines (translated by `receiptRefusalKey`). ⚠ Widen that list, never narrow it, when
+  a form gains a new way to put a price on a line: a price the form offers and the route refuses blocks the Seller's
+  sale.
+- **An outgoing article line's unit is its article's** (#724, `withArticleUnits`): the routes write the article's unit
+  over any other, except where the stored document already holds the article at that unit. Nothing is refused; the
+  importers send the article's unit already. The form locks the field (`DocumentLineTable#unitLocked`).
 - **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
   null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
   gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`

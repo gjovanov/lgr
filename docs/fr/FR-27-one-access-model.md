@@ -161,7 +161,9 @@ The two roles hold the same permissions, so on the legacy model the role NAME de
 `seller` withholds it (`LEGACY_ROLE_WITHHOLDS`), whatever the sets say. Nobody else's access changes, and the
 templates follow by construction. A projection may choose the `seller` key for what it withholds, which never serves
 more than the role. The forms enforce it (a list of prices instead of a typed figure, the customer order's price read
-only); the server does not refuse a typed price yet.
+only), and so do the routes that save a sales line (#724): without the capability, a line's price must be one the form
+could have given (an offered price, the resolved one, or a price already on the document or already charged to the
+client), else 403 `price_not_offered`.
 
 ### 2.5 One catalogue, everything else generated
 
@@ -387,7 +389,7 @@ Labels: en / bg. Abbreviations in the routes column:
 
 | id | Label | View | Work adds | Full adds | Extras | Routes (today's rule) | Pages | Area today |
 |---|---|---|---|---|---|---|---|---|
-| `sales-docs` | Sales documents / Документи за продажба | view | create, edit, issue, pay, email | delete, void | `totals` (P0.5), `export`, `import` (P0.5), `manual-price` (a typed line price, 2026-11-12; a form gate) | R `invoices`, `invoices/peek-next`, `stats/invoice`, `invoicing/reports`, `invoicing/number-clashes` (INVC). W `invoices`, `invoicing/number-clashes` (`invoicing.write`). `invoicing/export` (self: `canExport`). `invoices/summary` → `totals` | `/invoicing/invoices`, `…/invoices/new` (+ credit and debit note) | |
+| `sales-docs` | Sales documents / Документи за продажба | view | create, edit, issue, pay, email | delete, void | `totals` (P0.5), `export`, `import` (P0.5), `manual-price` (a typed line price, 2026-11-12; the forms and the routes that save a sales line, #724) | R `invoices`, `invoices/peek-next`, `stats/invoice`, `invoicing/reports`, `invoicing/number-clashes` (INVC). W `invoices`, `invoicing/number-clashes` (`invoicing.write`). `invoicing/export` (self: `canExport`). `invoices/summary` → `totals` | `/invoicing/invoices`, `…/invoices/new` (+ credit and debit note) | |
 | `proforma` | Proforma and offers / Проформи и оферти | view | create, edit, issue | delete | | the `invoices` routes, the quotes: type `proforma` or `offer` (one partition, Phase 2; offers since 2026-11-12) | `/invoicing/proforma`, `…/proforma/new`, `/invoicing/offer`, `…/offer/new` | |
 | `bills` | Purchase documents / Документи за покупка | view | create, edit, issue, pay | delete, void | `totals`, `import` | R `invoicing/bills` (INVC). W `invoicing/bills`, `bills/import` (`invoicing.write`). The `invoices` routes, direction `incoming` (the controller's `holdsArea('purchases')` today) | `/invoicing/bills`, `…/bills/new` | `purchases` |
 | `orders` | Orders and reservations / Поръчки и резервации | view | create, edit | delete | | R/W `invoicing/orders` (R also INV: a delivery books against an ORDO), `invoicing/internal-orders`, `invoicing/reservations`. Order links on an invoice (`orderLinkRefusal`) | orders, internal-orders, reservations (+ their `/new`) | `orders` |

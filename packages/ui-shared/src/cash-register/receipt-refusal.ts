@@ -57,6 +57,8 @@ export function receiptRefusalKey(data: { code?: string; noSession?: boolean; de
     case 'storno_line_unknown': return 'cashRegister.receipt.stornoLineUnknown'
     case 'storno_quantity_invalid': return 'cashRegister.receipt.stornoQuantityInvalid'
     case 'storno_not_splittable': return 'cashRegister.receipt.stornoNotSplittable'
+    // #724: a line price the role may not type (FR-27 `sales-docs.manual-price`), on a document or at the till.
+    case 'price_not_offered': return 'invoicing.priceNotOffered'
     default: return null
   }
 }
@@ -66,10 +68,11 @@ export function isFailedPrint(data: { code?: string } | null | undefined): boole
   return data?.code === 'fiscal_error'
 }
 
-/** The receipts a refusal names: the one in doubt, or the ones a session cannot close over. */
-export function receiptRefusalParams(data: { receipt?: { number?: string }; document?: string; receipts?: Array<{ id?: string; number?: string | null; invoice?: string }>; left?: number; deviceNumbers?: string[]; last?: number } | null | undefined): { number: string; numbers: string; left: string; devices: string; last: string } {
+/** The receipts a refusal names: the one in doubt, or the ones a session cannot close over; the lines a price refusal names. */
+export function receiptRefusalParams(data: { receipt?: { number?: string }; document?: string; receipts?: Array<{ id?: string; number?: string | null; invoice?: string }>; left?: number; deviceNumbers?: string[]; last?: number; lines?: Array<{ line?: number }> } | null | undefined): { number: string; numbers: string; left: string; devices: string; last: string; lines: string } {
   const numbers = (data?.receipts ?? []).map(r => r.number ?? r.invoice ?? r.id ?? '').filter(Boolean).join(', ')
-  return { number: data?.receipt?.number ?? data?.document ?? '', numbers, left: (Number(data?.left) || 0).toFixed(2), devices: (data?.deviceNumbers ?? []).join(', '), last: data?.last === undefined ? '' : String(data.last) }
+  const lines = (Array.isArray(data?.lines) ? data!.lines : []).map(l => l?.line).filter(n => n !== undefined && n !== null).join(', ')
+  return { number: data?.receipt?.number ?? data?.document ?? '', numbers, left: (Number(data?.left) || 0).toFixed(2), devices: (data?.deviceNumbers ?? []).join(', '), last: data?.last === undefined ? '' : String(data.last), lines }
 }
 
 /** The message for a refused request: the receipt's own, the server's, or `fallback`. */

@@ -28,7 +28,8 @@ export const CATALOGUE = [
   // ── Invoicing ──
   // `totals`: the list's strip and `GET invoices/summary`; `import`: the list's Import button (#493 items 2, 5).
   // `manual-price`: a line's price TYPED rather than picked from the prices the engine offers (owner, 2026-11-12: not
-  // the Seller's, the Sales Consultant's). A form gate only: no route reads it (yet).
+  // the Seller's, the Sales Consultant's). The forms lock the field, and the routes that save a sales line refuse a
+  // figure that is neither offered nor already charged (#724, `services/biz/sales-lines.ts`). No route RULE reads it.
   { id: 'sales-docs', group: 'invoicing', actions: ['view', ...WORK, 'export', 'totals', 'import', 'manual-price'] },
   { id: 'proforma', group: 'invoicing', actions: ['view', ...WORK] },
   { id: 'bills', group: 'invoicing', actions: ['view', ...WORK, 'totals'] },

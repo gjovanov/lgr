@@ -3,6 +3,7 @@ import { can, grantOf } from 'services/biz/access/evaluate'
 import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, writesKind } from 'config/access'
 import { QUOTE_CONVERTS_TO, isQuoteType } from 'config/constants'
 import { keepStoredTrails, withVisibleTrails } from 'services/biz/access/price-trails'
+import { typedPriceRefusal, withArticleUnits } from 'services/biz/sales-lines'
 import { Elysia, t } from 'elysia'
 import { seesOrders } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
@@ -859,6 +860,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       })
       if (relErr) return status(422, { message: relErr })
 
+      // #724: an outgoing article line's unit is its article's (the form locks it there); a note keeps the unit its
+      // invoice sold the article in. Before the amounts, which carry the lines into the document.
+      body.lines = (await withArticleUnits(orgId, body.direction, body.lines as any[], undefined, { relatedInvoiceId: body.relatedInvoiceId })) as any
+
       // Compute defaults for fields the form may not provide
       const { lines, taxTotal, totalBase } = documentAmounts(body as any)
       const exchangeRate = body.exchangeRate || 1
@@ -882,6 +887,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
        * re-sent with the same body (`ui-shared/composables/idempotency#isOutcomeUnknown`).
        */
       const discardRequested = () => discardPendingTransfers(orgId, pendingTransferIds, { createdBy: user.id })
+      // #724 (FR-27 `sales-docs.manual-price`): a line price this session's role may not type is refused, before
+      // anything is written or numbered. A definitive answer, so the transfers drawn up for it go (#454).
+      const typed = await typedPriceRefusal(orgId, user as any, { direction: body.direction, contactId: body.contactId, relatedInvoiceId: body.relatedInvoiceId, lines: body.lines })
+      if (typed) {
+        await discardRequested()
+        return status(403, typed)
+      }
       if (pendingTransferIds?.length) {
         // Checked before the insert, so a refused list draws no CS number.
         try {
@@ -1231,6 +1243,20 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // FR-26.6: the order links it has are kept; without `orders` none is added or changed.
       const unlinked = orderLinkRefusal(user, body, existing)
       if (unlinked) return status(403, unlinked)
+      // #724: a line price this session's role may not type is refused (FR-27 `sales-docs.manual-price`; the
+      // document's own lines are not this save's figures), and an outgoing article line's unit is its article's.
+      if (Array.isArray((body as any).lines)) {
+        const typed = await typedPriceRefusal(orgId, user as any, {
+          direction: (existing as any).direction,
+          contactId: body.contactId !== undefined ? body.contactId : (existing as any).contactId,
+          relatedInvoiceId: body.relatedInvoiceId !== undefined ? body.relatedInvoiceId : (existing as any).relatedInvoiceId,
+          lines: (body as any).lines,
+        }, { stored: (existing as any).lines, excludeId: id })
+        if (typed) return status(403, typed)
+        ;(body as any).lines = await withArticleUnits(orgId, (existing as any).direction, (body as any).lines, (existing as any).lines, {
+          relatedInvoiceId: body.relatedInvoiceId !== undefined ? body.relatedInvoiceId : (existing as any).relatedInvoiceId,
+        })
+      }
       // ⚠ What is due is derived, never taken (#454): from the total and what was paid, below, or
       // from the sale for an invoice for one. A client's figure was written as sent whenever the
       // total stayed put. Dropped HERE, before anything below derives its own. Still accepted by
