@@ -495,6 +495,54 @@ describe('contact-ledger handler', () => {
     expect(err).toBeTruthy()
     expect(String(err.message)).toContain('contact')
   })
+
+  it('lists the stock movements as the ledger does: with the document that carries them, or on a row of their own', async () => {
+    const org = await createTestOrg()
+    const orgId = org._id as Types.ObjectId
+    const contact = await createTestContact(orgId, { companyName: 'Buyer Ltd' })
+    const wh = await createTestWarehouse(orgId)
+    const product = await createTestProduct(orgId, { name: 'Bolt' })
+
+    const invoice = await createTestInvoice(orgId, contact._id as Types.ObjectId, {
+      invoiceNumber: 'INV-L2', status: 'sent', issueDate: yesterday,
+      lines: [{ productId: product._id, description: 'Bolt', quantity: 3, unit: 'pcs', unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 6, lineTotal: 36, warehouseId: wh._id }] as any,
+    })
+    await createTestStockMovement(orgId, {
+      movementNumber: 'SM-L2', type: 'dispatch', status: 'completed', date: yesterday, fromWarehouseId: wh._id, contactId: contact._id, invoiceId: invoice._id,
+      lines: [{ productId: product._id, quantity: 3, unitCost: 10, totalCost: 30 }] as any,
+    } as any)
+    const handedOver = await createTestStockMovement(orgId, {
+      movementNumber: 'SM-L3', type: 'transfer', status: 'completed', date: lastWeek, fromWarehouseId: wh._id, contactId: contact._id,
+      lines: [{ productId: product._id, quantity: 2, unitCost: 4, totalCost: 8 }] as any,
+    } as any)
+
+    const entry = reportById('contact-ledger')!
+    const run = (params: Record<string, any> = {}, sees?: { bills: boolean; costs: boolean }) => entry.handler!({
+      orgId: String(orgId), params: { contactId: String(contact._id), period: period(new Date(today.getTime() - 30 * DAY), today), ...params }, output: 'table', sees,
+    })
+    const res = await run()
+    expect(res.columns.map(c => c.key).slice(0, 4)).toEqual(['date', 'documentNumber', 'documentType', 'movementNumbers'])
+    expect(res.rows.map(r => [r.documentNumber, r.documentType, r.movementNumbers, r.quantity, r.unitPrice, r.lineTotal])).toEqual([
+      ['INV-L2', 'invoice', 'SM-L2', 3, 10, 36],
+      ['', 'stock_movement', 'SM-L3', 2, 4, 8],
+    ])
+    // The cells are flat: the list a row carries on the ledger's page is no column of a sheet.
+    expect(res.rows.every(r => !('movements' in r))).toBe(true)
+    expect(res.totals).toEqual({ quantity: 5, lineTotal: 44 })
+    // A row opens what it is: the document, or the movement.
+    expect(res.rows.map(r => entry.drilldown!(r))).toEqual([`/invoicing/invoices/${invoice._id}/edit`, `/inventory/movements/${handedOver._id}`])
+
+    // The type filter offers them, alone or with the documents.
+    const only = validateParams(entry, { contactId: String(contact._id), docTypes: ['stock_movement'] })
+    expect(only.docTypes).toEqual(['stock_movement'])
+    expect((await run({ docTypes: ['stock_movement'] })).rows.map(r => r.movementNumbers)).toEqual(['SM-L3'])
+    expect((await run({ docTypes: ['invoice'] })).rows.map(r => r.documentNumber)).toEqual(['INV-L2'])
+
+    // Without the cost figures the movement's row has no value, and it is absent, not 0.00.
+    const noCosts = await run({}, { bills: true, costs: false })
+    expect(noCosts.rows.map(r => [r.movementNumbers, 'unitPrice' in r, 'lineTotal' in r])).toEqual([['SM-L2', true, true], ['SM-L3', false, false]])
+    expect(noCosts.totals).toEqual({ quantity: 5, lineTotal: 36 })
+  })
 })
 
 describe('product-ledger handler', () => {

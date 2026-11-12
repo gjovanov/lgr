@@ -287,6 +287,34 @@ describe('C.1 / C.2 what else carries a cost', () => {
     expect(typeof theirs.json.summary.profitabilityNet).toBe('number')
   })
 
+  it("the contact ledger: a stock movement's own row carries no unit cost and no value; the report that reads it, the same", async () => {
+    const org: any = await Org.findById(orgId).lean().exec()
+    const wh: any = await createTestWarehouse(org._id)
+    await createTestStockMovement(org._id, {
+      movementNumber: 'SM-PL-OUT', type: 'transfer', status: 'completed', fromWarehouseId: wh._id, contactId,
+      lines: [{ productId, quantity: 4, unitCost: 9, totalCost: 36 }],
+    } as any)
+    const movement = (r: any) => (r.json.entries ?? r.json.rows).find((e: any) => e.documentType === 'stock_movement')
+
+    const mine = await call('GET', `/invoicing/contact-ledger/${contactId}`, reader)
+    expect(mine.status).toBe(200)
+    expect(movement(mine).movements.map((m: any) => m.number)).toEqual(['SM-PL-OUT'])
+    expect(movement(mine).quantity).toBe(4)
+    expect(['unitPrice', 'lineTotal'].filter(k => k in movement(mine))).toEqual([])
+    // A document's row keeps its price: what the customer was charged is no cost figure.
+    expect(mine.json.entries.find((e: any) => e.documentNumber === 'INV-PL-1').unitPrice).toBe(20)
+    const theirs = await call('GET', `/invoicing/contact-ledger/${contactId}`, tokens.admin)
+    expect([movement(theirs).unitPrice, movement(theirs).lineTotal]).toEqual([9, 36])
+
+    const report = await call('POST', '/reports/contact-ledger/run', reader, { params: { contactId } })
+    expect(report.status).toBe(200)
+    expect(movement(report).movementNumbers).toBe('SM-PL-OUT')
+    expect(['unitPrice', 'lineTotal'].filter(k => k in movement(report))).toEqual([])
+    expect(movement(report)._href).toBe(`/inventory/movements/${movement(report).documentId}`)
+    const admins = await call('POST', '/reports/contact-ledger/run', tokens.admin, { params: { contactId } })
+    expect([movement(admins).unitPrice, movement(admins).lineTotal]).toEqual([9, 36])
+  })
+
   it('the reports that read the two ledgers carry what the ledgers carry: no profitability, no unit, line, running or current value', async () => {
     const org: any = await Org.findById(orgId).lean().exec()
     const wh: any = await createTestWarehouse(org._id)

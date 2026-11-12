@@ -30,6 +30,7 @@ const SAYS_SO: Record<string, string> = {
   'services/src/biz/contact-ledger.service.ts aggregate pipeline': 'the same',
   'services/src/biz/contact-ledger.service.ts aggregate summaryPipeline': 'the same',
   'services/src/biz/contact-ledger.service.ts aggregate costPipeline': 'the same',
+  'services/src/biz/contact-ledger.service.ts distinct \'stockSource.movementIds\'': 'its second argument is that $match, or names the type (a bill in draft)',
   'services/src/biz/digest/daily-digest.service.ts find // An invoice issued for a cash sale is the same money as that cash sale (#171)': 'its filter says NOT_PAYMENT_RECEIPT, under this comment',
   'services/src/biz/move/fenced-export.service.ts find { orgId, invoiceNumber: { $in: numbers } }': 'a number taken is taken, whoever took it',
   'services/src/biz/number-clash.service.ts find { orgId: org, \'numberClash.withId\': { $exists: true } }': 'flagged documents, listed for a person',

@@ -1,5 +1,5 @@
 <template>
-  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="1200" scrollable>
+  <v-dialog :model-value="modelValue" @update:model-value="$emit('update:modelValue', $event)" max-width="1400" scrollable>
     <v-card>
       <v-card-title class="d-flex align-center">
         <v-icon class="mr-2">mdi-book-open-variant</v-icon>
@@ -42,16 +42,20 @@
           density="compact"
           hover
         >
+          <!-- A stock movement's own row is listed, not offered: a document made from it would move its goods again. -->
           <template v-if="selectable" #item.select="{ item }">
-            <v-checkbox-btn v-model="selectedIds" :value="item.documentId + '|' + item.productId" density="compact" hide-details />
+            <v-checkbox-btn v-if="!isMovementRow(item)" v-model="selectedIds" :value="item.documentId + '|' + item.productId" density="compact" hide-details />
           </template>
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.documentNumber="{ item }">
-            <entity-link v-if="item.documentId" :label="item.documentNumber || ''" :href="documentHref(item)" />
+            <entity-link v-if="item.documentId && !isMovementRow(item)" :label="item.documentNumber || ''" :href="documentHref(item)" />
             <span v-else>{{ item.documentNumber }}</span>
           </template>
           <template #item.documentType="{ item }">
-            <v-chip size="x-small" label :color="docTypeColor(item.documentType)">{{ docTypeLabel(item.documentType) }}</v-chip>
+            <v-chip size="x-small" label :color="typeColor(item)">{{ typeLabel(item) }}</v-chip>
+          </template>
+          <template #item.movements="{ item }">
+            <ledger-movement-links :movements="item.movements || []" :with-reference="isMovementRow(item)" />
           </template>
           <template #item.productName="{ item }">
             <entity-link v-if="item.productId" :label="item.productName || ''" :href="`/inventory/products/${item.productId}/edit`" />
@@ -97,8 +101,9 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { useContactLedger, type ContactLedgerEntry } from '../composables/useContactLedger'
+import { isMovementRow, useContactLedger, type ContactLedgerEntry } from '../composables/useContactLedger'
 import EntityLink from './EntityLink.vue'
+import LedgerMovementLinks from './LedgerMovementLinks.vue'
 
 const props = defineProps<{
   modelValue: boolean
@@ -118,7 +123,7 @@ const orgUrlRef = computed(() => props.orgUrl)
 const {
   loading, entries, total, page, pageSize, dateFrom, dateTo, docTypes, summary,
   productSearch, productQuery, documentNumber, numberQuery,
-  docTypeOptions, headers, docTypeColor, docTypeLabel,
+  docTypeOptions, headers, typeColor, typeLabel,
   fetchLedger, onUpdateOptions,
 } = useContactLedger(contactIdRef, orgUrlRef)
 

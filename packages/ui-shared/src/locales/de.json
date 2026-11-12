@@ -1544,7 +1544,8 @@
       "proforma": "Proforma",
       "credit_note": "Gutschrift",
       "debit_note": "Lastschrift",
-      "cash_sale": "Barverkauf"
+      "cash_sale": "Barverkauf",
+      "stock_movement": "Lagerbewegungsbeleg"
     },
     "companyName": "Firmenname",
     "email": "E-Mail",
@@ -1832,6 +1833,7 @@
     "creditNoteVoided": "Gutschrift erfolgreich storniert",
     "creditNoteReceived": "Gutschrift empfangen",
     "contactLedger": "Kontakt-Kontoauszug",
+    "stockMovement": "Lagerbewegung",
     "addLineItems": "Positionen hinzufügen",
     "selectItemsToAdd": "Positionen zum Hinzufügen zur Rechnung auswählen",
     "insufficientStock": "Unzureichender Bestand",
@@ -3607,6 +3609,7 @@
       "date": "Datum",
       "document": "Beleg",
       "docType": "Belegart",
+      "stockMovement": "Lagerbewegung",
       "contact": "Geschäftspartner",
       "warehouse": "Lager",
       "batch": "Charge",
@@ -3671,7 +3674,8 @@
       "debit_note": "Lastschrift",
       "receipt_note": "Wareneingang (ohne Rechnung)",
       "dispatch_note": "Lieferschein (ohne Rechnung)",
-      "proforma": "Proforma"
+      "proforma": "Proforma",
+      "stock_movement": "Lagerbewegungsbeleg"
     },
     "summary": {
       "operations": "Vorgänge",

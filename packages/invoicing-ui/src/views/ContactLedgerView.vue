@@ -44,11 +44,14 @@
         >
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.documentNumber="{ item }">
-            <entity-link v-if="item.documentId" :label="item.documentNumber || ''" :to="documentRoute(item)" />
+            <entity-link v-if="item.documentId && !isMovementRow(item)" :label="item.documentNumber || ''" :to="documentRoute(item)" />
             <span v-else>{{ item.documentNumber }}</span>
           </template>
           <template #item.documentType="{ item }">
-            <v-chip size="x-small" label :color="docTypeColor(item.documentType)">{{ docTypeLabel(item.documentType) }}</v-chip>
+            <v-chip size="x-small" label :color="typeColor(item)">{{ typeLabel(item) }}</v-chip>
+          </template>
+          <template #item.movements="{ item }">
+            <ledger-movement-links :movements="item.movements || []" :with-reference="isMovementRow(item)" />
           </template>
           <template #item.productName="{ item }">
             <entity-link v-if="item.productId" :label="item.productName || ''" :href="`/inventory/products/${item.productId}/edit`" />
@@ -114,9 +117,10 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { useContactLedger, type ContactLedgerEntry } from 'ui-shared/composables/useContactLedger'
+import { isMovementRow, useContactLedger, type ContactLedgerEntry } from 'ui-shared/composables/useContactLedger'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import EntityLink from 'ui-shared/components/EntityLink'
+import LedgerMovementLinks from 'ui-shared/components/LedgerMovementLinks.vue'
 import DateField from 'ui-shared/components/DateField.vue'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
 
@@ -135,7 +139,7 @@ const contactName = ref('')
 const {
   loading, entries, total, page, pageSize, dateFrom, dateTo, docTypes, summary,
   productSearch, productQuery, documentNumber, numberQuery,
-  docTypeOptions, headers, docTypeColor, docTypeLabel,
+  docTypeOptions, headers, typeColor, typeLabel,
   fetchLedger, onUpdateOptions,
 } = useContactLedger(contactId, orgUrl)
 

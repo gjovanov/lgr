@@ -974,7 +974,8 @@
       "proforma": "Проформа",
       "credit_note": "Кредитно известие",
       "debit_note": "Дебитно известие",
-      "cash_sale": "Касова продажба"
+      "cash_sale": "Касова продажба",
+      "stock_movement": "Документ за движение на стоки"
     },
     "companyName": "Име на фирмата",
     "email": "Имейл",
@@ -1262,6 +1263,7 @@
     "creditNoteVoided": "Кредитното известие е анулирано успешно",
     "creditNoteReceived": "Кредитното известие е получено",
     "contactLedger": "История на контакт",
+    "stockMovement": "Стоково движение",
     "addLineItems": "Добави Редове",
     "selectItemsToAdd": "Изберете редове за добавяне към фактурата",
     "insufficientStock": "Недостатъчна Наличност",
@@ -3607,6 +3609,7 @@
       "date": "Дата",
       "document": "Документ",
       "docType": "Тип док.",
+      "stockMovement": "Стоково движение",
       "contact": "Партньор",
       "warehouse": "Склад",
       "batch": "Партида",
@@ -3671,7 +3674,8 @@
       "debit_note": "Дебитно известие",
       "receipt_note": "Стокова разписка (без фактура)",
       "dispatch_note": "Експедиционна бележка (без фактура)",
-      "proforma": "Проформа"
+      "proforma": "Проформа",
+      "stock_movement": "Документ за движение на стоки"
     },
     "summary": {
       "operations": "Операции",

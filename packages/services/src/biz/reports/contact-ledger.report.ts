@@ -23,6 +23,8 @@ const COLUMNS: ReportColumn[] = [
   { key: 'date',           labelKey: 'reports.columns.date',      type: 'date' },
   { key: 'documentNumber', labelKey: 'reports.columns.document' },
   { key: 'documentType',   labelKey: 'reports.columns.docType' },
+  // The movements behind the row: a document's own and those it stands for, or the movement no document carries.
+  { key: 'movementNumbers', labelKey: 'reports.columns.stockMovement' },
   { key: 'productName',    labelKey: 'reports.columns.product' },
   { key: 'warehouseName',  labelKey: 'reports.columns.warehouse' },
   { key: 'quantity',       labelKey: 'reports.columns.quantity',  type: 'quantity', align: 'end' },
@@ -55,13 +57,16 @@ export async function runContactLedger(ctx: ReportHandlerContext): Promise<Repor
   const truncated = result.entries.length > cap
   const entries = truncated ? result.entries.slice(0, cap) : result.entries
 
-  const rows = entries.map(e => ({
+  const rows = entries.map(({ movements, ...e }) => ({
     ...e,
     // `documentType` is a raw enum value; the UI translates it through the same
     // `reports.docTypes.*` keys the warehouse-operations report uses.
+    movementNumbers: movements.map(m => m.number).join(', '),
     quantity: +(e.quantity || 0).toFixed(3),
-    unitPrice: +(e.unitPrice || 0).toFixed(4),
-    lineTotal: +(e.lineTotal || 0).toFixed(2),
+    // A stock movement's own row is valued at cost: a figure its row does not carry for a role without the costs,
+    // and that stays absent here, never a 0.00.
+    ...(e.unitPrice === undefined ? {} : { unitPrice: +e.unitPrice.toFixed(4) }),
+    ...(e.lineTotal === undefined ? {} : { lineTotal: +e.lineTotal.toFixed(2) }),
   }))
 
   return {
