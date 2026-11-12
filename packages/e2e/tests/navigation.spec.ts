@@ -159,13 +159,28 @@ test.describe('Quick create, favourites and form keys (FR-22.49–.52)', () => {
 
     await page.getByTestId('new-document-menu').click()
     const items = page.getByTestId('new-document-list').locator('.v-list-item')
-    await expect(items).toHaveCount(9)
+    await expect(items).toHaveCount(10)
 
     // In the same app it is a router move: no page load.
     await page.evaluate(() => { (window as any).__samePage = true })
     await items.filter({ hasText: 'Proforma' }).click()
     await page.waitForURL(/\/invoicing\/proforma\/new$/)
     await expect(page.getByRole('heading', { name: /new proforma/i })).toBeVisible()
+    expect(await page.evaluate(() => (window as any).__samePage)).toBe(true)
+  })
+
+  test('„New" offers an offer, beside the proforma, and opens a blank one', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/invoicing/invoices', { waitUntil: 'networkidle' })
+
+    await page.getByTestId('new-document-menu').click()
+    const items = page.getByTestId('new-document-list').locator('.v-list-item')
+    await expect(items.nth(3)).toHaveText(/^\s*Offer\s*$/)
+    await page.evaluate(() => { (window as any).__samePage = true })
+    await items.nth(3).click()
+
+    await page.waitForURL(/\/invoicing\/offer\/new$/)
+    await expect(page.getByRole('heading', { name: /new offer/i })).toBeVisible()
     expect(await page.evaluate(() => (window as any).__samePage)).toBe(true)
   })
 
