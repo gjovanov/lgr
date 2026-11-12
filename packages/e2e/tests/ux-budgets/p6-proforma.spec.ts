@@ -158,6 +158,8 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
   // ── 4. Issue and print the invoice ──
   const invDownload = page.waitForEvent('download', { timeout: 60000 })
   await walk.click(page.getByRole('button', { name: 'Издай и печатай' }).first(), 'issue and print the invoice')
+  walk.dialog('confirm the payment method (owner, 2026-11-12)')
+  await walk.click(page.getByTestId('issue-payment-yes'), 'yes, issue with that payment method')
   const invFile = await invDownload
   await expect(page.locator('.v-snackbar').filter({ hasText: 'Експортът е генериран' })).toBeVisible()
   let issued: any

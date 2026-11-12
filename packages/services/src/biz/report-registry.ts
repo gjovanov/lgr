@@ -347,6 +347,8 @@ export const REPORT_REGISTRY: ReportEntry[] = [
         { key: 'currency', type: 'text', labelKey: 'common.currency' },
       ],
       outputs: ['table', 'xlsx', 'pdf'],
+      // The sales register is printed and handed over: its Export starts on PDF (owner, 2026-11-12).
+      ...(kind === 'outgoing' ? { defaultExport: 'pdf' as const } : {}),
       view: 'runner',
       route: `/${spec.id}`,
       handler: makeDocumentsReport(kind),

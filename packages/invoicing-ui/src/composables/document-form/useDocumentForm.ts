@@ -2097,6 +2097,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     onPaymentRecorded,
     transfer: issuer.transfer,
     confirmTransfers: issuer.confirmTransfers,
+    // Owner, 2026-11-12: the payment method an outgoing invoice is issued with, confirmed first.
+    paymentConfirm: issuer.paymentConfirm,
+    answerPayment: issuer.answerPayment,
     // FR-22.27: place of deal
     showPlaceOfDeal,
     // FR-22.21 / FR-22.22

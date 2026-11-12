@@ -288,6 +288,8 @@ test('P7 chain: client order → reserve → external order → send → invoice
   const issueBtn = page.locator('.form-actions-bar').getByRole('button', { name: 'Издай', exact: true })
   await expect(issueBtn).toBeVisible()
   await walk.click(issueBtn, 'issue („Издай" on the invoice form)')
+  walk.dialog('confirm the payment method (owner, 2026-11-12)')
+  await walk.click(page.getByTestId('issue-payment-yes'), 'yes, issue with that payment method')
   await expect(snackbar(walk, 'Фактурата е изпратена успешно')).toBeVisible()
   await settledShot(walk, 'issued')
 

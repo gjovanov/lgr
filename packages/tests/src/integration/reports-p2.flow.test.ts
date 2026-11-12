@@ -99,6 +99,13 @@ describe('document registers (sales-documents / purchase-documents / cash-regist
 
   const params = () => ({ period: period(lastWeek, today) })
 
+  it("the sales register's Export starts on PDF; the other two registers keep Excel (owner, 2026-11-12)", () => {
+    expect(reportById('sales-documents')!.defaultExport).toBe('pdf')
+    expect(reportById('sales-documents')!.outputs).toContain('pdf')
+    expect(reportById('purchase-documents')!.defaultExport).toBeUndefined()
+    expect(reportById('cash-register')!.defaultExport).toBeUndefined()
+  })
+
   it('sales-documents returns invoices and notes, never bills, cash sales or proformas', async () => {
     const { orgId } = await seed()
     const res = await reportById('sales-documents')!.handler!({ orgId, params: params(), output: 'table' })

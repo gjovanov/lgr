@@ -176,6 +176,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { numberFormat } from '../../composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from '../../composables/useHttpClient'
 import TagInput from '../TagInput.vue'
@@ -260,7 +261,7 @@ function addMany(ps: any[]) {
 }
 
 function fmt(n: number, decimals = 2) {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: props.currency || 'EUR', minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n || 0)
+  return numberFormat(undefined, { style: 'currency', currency: props.currency || 'EUR', minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n || 0)
 }
 
 /**

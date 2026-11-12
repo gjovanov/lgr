@@ -188,6 +188,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -295,7 +296,7 @@ const rows = computed<Row[]>(() => {
 })
 
 const fmtDate = (iso: string) => (iso ? new Date(iso).toLocaleDateString(localeCode.value) : '')
-const fmtQty = (n: number) => new Intl.NumberFormat(localeCode.value, { maximumFractionDigits: 3 }).format(n || 0)
+const fmtQty = (n: number) => numberFormat(localeCode.value, { maximumFractionDigits: 3 }).format(n || 0)
 const fmtPrice = (amount: number, currency?: string) => formatUnitPrice(amount, currency || baseCurrency.value, localeCode.value)
 const kindLabel = (kind: 'bill' | 'receipt') => t(kind === 'bill' ? 'warehouse.supplierFacts.kindBill' : 'warehouse.supplierFacts.kindReceipt')
 const contactHref = (id: string) => appHref('invoicing', `/invoicing/contacts/${id}/edit`)

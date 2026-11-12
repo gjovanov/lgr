@@ -160,6 +160,8 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   await expect(issueAndPrint).toBeVisible()
   const downloadPromise = page.waitForEvent('download', { timeout: 60000 })
   await walk.click(issueAndPrint, 'issue and print („Издай и печатай")')
+  walk.dialog('confirm the payment method (owner, 2026-11-12)')
+  await walk.click(page.getByTestId('issue-payment-yes'), 'yes, issue with that payment method')
   const download = await downloadPromise
   await expect(page.locator('.v-snackbar').filter({ hasText: 'Експортът е генериран' })).toBeVisible()
   // On the issued invoice: its own edit route, its number, paid.
