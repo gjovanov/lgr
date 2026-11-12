@@ -1,0 +1,53 @@
+#!/usr/sbin/nft -f
+# The CI runner guest reaches the public internet and nothing else.
+#
+# A table of its own, like ssh_guard: no other tool on this host writes to it, and a refusal here
+# is final whatever the host's other tables accept (every base chain on a hook is consulted, this
+# one first). Matching is by interface NAME, so the rules hold before the bridge exists.
+#
+# Loaded by lgr-ci-guard.service before libvirtd starts. Check it with:
+#   nft list table inet lgr_ci_guard          (the counters say what was refused)
+table inet lgr_ci_guard
+delete table inet lgr_ci_guard
+
+table inet lgr_ci_guard {
+	# Every private range: the cluster's nodes, the mesh between the hosts, overlays, link-local.
+	set private_v4 {
+		type ipv4_addr
+		flags interval
+		elements = { 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16 }
+	}
+
+	# The fleet hosts' own public addresses. A guest's traffic leaves with this host's address,
+	# and another host must not take it for this host. What they serve to everybody, the web,
+	# stays open: the pages under test load a script from one of them.
+	set fleet_v4 {
+		type ipv4_addr
+		elements = { @@FLEET_V4@@ }
+	}
+
+	chain forward {
+		type filter hook forward priority filter - 20; policy accept;
+		iifname "virbr-ci" ip daddr @private_v4 counter jump refuse
+		iifname "virbr-ci" ip daddr @fleet_v4 tcp dport { 80, 443 } counter accept
+		iifname "virbr-ci" ip daddr @fleet_v4 counter jump refuse
+		iifname "virbr-ci" meta nfproto ipv6 counter jump refuse
+		# Nothing opens a connection INTO the guest's network through this host.
+		oifname "virbr-ci" ct state new counter drop
+	}
+
+	chain input {
+		type filter hook input priority filter - 20; policy accept;
+		# Answers to what this host itself started (its ssh into the guest), nothing else.
+		iifname "virbr-ci" ct state established,related accept
+		iifname "virbr-ci" counter jump refuse
+	}
+
+	# Refused at once, never left to time out. A page that names a closed address must fail to
+	# load that one thing, not wait for it: a silent drop held every Playwright test for its whole
+	# timeout on 2026-11-12.
+	chain refuse {
+		meta l4proto tcp reject with tcp reset
+		reject with icmpx type admin-prohibited
+	}
+}

@@ -1,0 +1,14 @@
+[Unit]
+Description=LGR CI runner guest (guard checked first, then the guest)
+Documentation=https://github.com/gjovanov/lgr/tree/master/infra/ci-runner
+After=libvirtd.service lgr-ci-guard.service netfilter-persistent.service network-online.target
+Requires=lgr-ci-guard.service
+Wants=libvirtd.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/lgr-ci-runner-up
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

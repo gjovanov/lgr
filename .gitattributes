@@ -8,3 +8,6 @@ packages/server/packaging/** text eol=lf
 .claude/skills/**/remote/** text eol=lf
 # FR-25 R2: the golden VAT files are compared byte for byte, CP1251 with CRLF after every record.
 packages/tests/src/fixtures/vat-files/** binary
+
+# The CI runner recipe: an image entrypoint, and scripts and units that are copied to Linux hosts.
+infra/ci-runner/** text eol=lf
