@@ -19,7 +19,7 @@ import { Invoice } from 'db/models'
 import { outstandingOf } from 'services/biz/invoice-payment'
 import { MONEY_DOCUMENT_TYPES } from 'services/biz/cash-register/pos-union'
 import {
-  paymentReceiptDocument, printsAtCounter, receiptsOf, runReceiptSteps,
+  PAYMENT_IN_PROGRESS, inDoubtRefusal, paymentReceiptDocument, printsAtCounter, receiptsOf, runReceiptSteps,
   type ReceiptTender,
 } from 'services/biz/cash-register/payment-receipt.service'
 import { receiptBody } from 'services/biz/cash-register/receipt-lines'
@@ -39,6 +39,25 @@ export interface PreparedReceipt {
 }
 
 const NOT_PRINTABLE = (message: string) => new RegisterRefusal(422, { code: 'receipt_not_printable', message })
+
+/**
+ * Why a document's money does not fit beside its receipts, when one of them is not done: the refusal of a
+ * receipt a person has to settle, or of one that is printing right now. Null when every receipt is done,
+ * and then the document really cannot print.
+ *
+ * ⚠ The request read the document before it read these receipts, and passed `paymentRefusal` on what
+ * the document showed then. A payment that began in between is among the receipts all the same: written,
+ * and its hold on the document the next thing it does. Of two payments at once that fit only one by one,
+ * the second met that receipt here and was told its receipt "cannot be split per VAT rate" (gjovanov/lgr#699).
+ * It is money a receipt is taking, the one condition `paymentRefusal` names, and this door answers it as
+ * the route's check, its atomic update and a receipt's hold do. The same test as the refund door's
+ * (`refundBacking`): a live receipt without `completedAt` is printing.
+ */
+function receiptNotDone(receipts: any[]): RegisterRefusal | null {
+  const doubt = receipts.find(r => r.register?.fiscal?.inDoubt)
+  if (doubt) return new RegisterRefusal(409, inDoubtRefusal(doubt))
+  return receipts.some(r => !r.completedAt) ? new RegisterRefusal(409, { ...PAYMENT_IN_PROGRESS }) : null
+}
 
 /** Whether the document still carries the number of a draft, whatever a payment did to its status. */
 const underDraftNumber = (doc: any) => doc.status === 'draft' || doc.numberHistory?.at(-1)?.status === 'draft'
@@ -86,7 +105,7 @@ export async function prepareReceipt(orgId: string, user: RegisterUser, doc: any
   }
   const whole = atIssue && !(Number(doc.amountPaid) > 0)
   if (!receiptBody({ doc, amount: tender.amount, whole, printsText: !!context.printer?.printsFiscalText, receipts, nameMax: context.printer?.lineNameMax })) {
-    throw NOT_PRINTABLE('This document\'s money cannot be split per VAT rate: a rate with a negative total does not print.')
+    throw receiptNotDone(receipts) ?? NOT_PRINTABLE('This document\'s money cannot be split per VAT rate: a rate with a negative total does not print.')
   }
   return { context, tender, whole, receipts }
 }

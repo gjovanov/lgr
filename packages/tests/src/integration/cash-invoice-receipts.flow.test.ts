@@ -1802,6 +1802,64 @@ describe('a payment recorded later (§2.2)', () => {
     expect(counter.lastNumber).toBe(1)
   })
 
+  /**
+   * The one moment the test above meets by chance (gjovanov/lgr#699): the first payment has written its
+   * receipt and has not held its money on the invoice yet. The second passed the route's check on an
+   * invoice that showed nothing, and then read the receipts, the first one's among them. It was told its
+   * receipt "cannot be split per VAT rate", about one run of the suite in five on a machine twice as fast.
+   */
+  it('a payment that arrives between the first one\'s receipt and its hold is told a payment is printing, not that it cannot print', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+
+    let second: any
+    const undo = during(u => !!u?.$push?.receiptHolds, async () => { second = await pay(w, d.id, 20) })
+    let first: any
+    try {
+      first = await pay(w, d.id, 20)
+    } finally {
+      undo()
+    }
+
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(409)
+    expect(second.json.code).toBe('payment_in_progress')
+    // The second left nothing: one receipt on the device and in the books, one number drawn.
+    expect(w.sim!.receipts).toHaveLength(1)
+    expect((await raw(d.id)).amountPaid).toBe(20)
+    expect(await receiptsOf(d.id)).toHaveLength(1)
+    const counter: any = await Sequence.findOne({ orgId: w.oid, prefix: 'CASH_SALE', year: new Date().getFullYear() }).lean().exec()
+    expect(counter.lastNumber).toBe(1)
+    // And the same amount is refused for what it is once the first is done: more than is due.
+    const after = await pay(w, d.id, 20)
+    expect(after.status).toBe(422)
+    expect(after.json.code).toBe('overpayment')
+  })
+
+  it('a receipt nobody can vouch for is what stands in the way, when the money does not fit beside it', async () => {
+    const w = await tillWorld(app)
+    const d = await draftOf(w, { method: 'bank_transfer' })
+    await send(w, d.id)
+    // A receipt of this invoice as a request that died mid-print leaves it, read before the hold the
+    // route's own check goes by: in doubt, and not done.
+    let second: any
+    const undo = during(u => !!u?.$push?.receiptHolds, async () => {
+      await Invoice.updateOne({ type: 'payment_receipt', 'register.paidInvoiceId': d.id }, { $set: { 'register.fiscal.inDoubt': true } })
+      second = await pay(w, d.id, 20)
+      await Invoice.updateOne({ type: 'payment_receipt', 'register.paidInvoiceId': d.id }, { $unset: { 'register.fiscal.inDoubt': 1 } })
+    })
+    try {
+      await pay(w, d.id, 20)
+    } finally {
+      undo()
+    }
+
+    expect(second.status).toBe(409)
+    expect(second.json.code).toBe('receipt_in_doubt')
+    expect(second.json.receipt.id).toBe(String((await receiptsOf(d.id))[0]._id))
+  })
+
   it('money a receipt is printing for cannot be taken by a payment recorded meanwhile', async () => {
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'bank_transfer' })
