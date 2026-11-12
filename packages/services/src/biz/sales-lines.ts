@@ -3,6 +3,7 @@ import { Invoice, InternalOrder, Product } from 'db/models'
 import { chargeablePrice, linePricePinned } from 'config/order-line-price'
 import { can, type AccessCaller } from './access/evaluate'
 import { listPriceOptions, resolvePrice } from './pricing.service'
+import { NOT_PAYMENT_RECEIPT } from './sale-counting'
 
 /**
  * #724 — two rules the sales documents' forms hold, held by the routes too (owner, 2026-11-12).
@@ -109,12 +110,16 @@ async function addOffered(orgId: string, accepted: Accepted, pending: Priced[], 
   }
 }
 
-/** What the client was charged before, on documents of theirs (this one left out). */
+/**
+ * What the client was charged before, on documents of theirs (this one left out). A payment receipt repeats its
+ * invoice's lines, so it says nothing the invoice does not (`NOT_PAYMENT_RECEIPT`).
+ */
 async function addHistory(orgId: string, accepted: Accepted, contactId: string, excludeId?: string): Promise<void> {
-  const filter: Record<string, unknown> = { orgId, contactId, direction: 'outgoing', status: { $nin: ['voided', 'cancelled'] } }
-  if (excludeId && isValidObjectId(excludeId)) filter._id = { $ne: excludeId }
-  const earlier = await Invoice.find(filter as any, { 'lines.productId': 1, 'lines.unitPrice': 1 })
-    .sort({ issueDate: -1 }).limit(HISTORY_DOCUMENTS).lean().exec()
+  const notThis = excludeId && isValidObjectId(excludeId) ? { _id: { $ne: excludeId } } : {}
+  const earlier = await Invoice.find(
+    { orgId, contactId, direction: 'outgoing', status: { $nin: ['voided', 'cancelled'] }, ...NOT_PAYMENT_RECEIPT, ...notThis } as any,
+    { 'lines.productId': 1, 'lines.unitPrice': 1 },
+  ).sort({ issueDate: -1 }).limit(HISTORY_DOCUMENTS).lean().exec()
   for (const doc of earlier as any[]) accepted.addLines(doc.lines)
 }
 
