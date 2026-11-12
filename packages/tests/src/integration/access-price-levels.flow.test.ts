@@ -271,6 +271,35 @@ describe('C.1 / C.2 what else carries a cost', () => {
     expect((await call('GET', `/warehouse/movement/${m._id}`, tokens.admin)).json.stockMovement.lines[0].unitCost).toBe(9)
   })
 
+  it("a movement's own total is those costs summed: absent by id and in the list, which is not ordered by it", async () => {
+    const org: any = await Org.findById(orgId).lean().exec()
+    // Two receipts of one line each, so each total IS its line's cost. Dated apart from every other movement here.
+    const dear: any = await createTestStockMovement(org._id, { type: 'receipt', movementNumber: 'SM-PL-DEAR', date: new Date('2026-01-02'), totalAmount: 500, lines: [{ productId, quantity: 1, unitCost: 500, totalCost: 500 }] } as any)
+    await createTestStockMovement(org._id, { type: 'receipt', movementNumber: 'SM-PL-CHEAP', date: new Date('2026-01-03'), totalAmount: 5, lines: [{ productId, quantity: 1, unitCost: 5, totalCost: 5 }] } as any)
+    const totals = ['totalAmount', 'total']
+
+    const mine = (await call('GET', `/warehouse/movement/${dear._id}`, reader)).json.stockMovement
+    expect(mine.movementNumber).toBe('SM-PL-DEAR')
+    expect(totals.filter(k => k in mine)).toEqual([])
+    expect((await call('GET', `/warehouse/movement/${dear._id}`, tokens.admin)).json.stockMovement.totalAmount).toBe(500)
+
+    const listed = async (token: string, sort = '') =>
+      (await call('GET', `/warehouse/movement?dateFrom=2026-01-01&dateTo=2026-01-04&size=50${sort}`, token)).json.stockMovements as any[]
+    const numbers = (rows: any[]) => rows.map(r => r.number)
+    const rows = await listed(reader)
+    expect(numbers(rows)).toEqual(['SM-PL-CHEAP', 'SM-PL-DEAR']) // newest first, as the list comes unasked
+    expect(rows.flatMap(r => totals.filter(k => k in r))).toEqual([])
+    expect((await listed(tokens.admin)).map(r => r.total)).toEqual([5, 500])
+
+    // Ordered by the total, the Administrator's list is. The reader's comes as it does unasked: an order by a figure
+    // it is not sent would say which receipt cost more.
+    expect(numbers(await listed(tokens.admin, '&sortBy=total&sortOrder=desc'))).toEqual(['SM-PL-DEAR', 'SM-PL-CHEAP'])
+    for (const key of ['total', 'totalAmount']) {
+      expect(numbers(await listed(reader, `&sortBy=${key}&sortOrder=desc`))).toEqual(['SM-PL-CHEAP', 'SM-PL-DEAR'])
+      expect(numbers(await listed(reader, `&sortBy=${key}&sortOrder=asc`))).toEqual(['SM-PL-CHEAP', 'SM-PL-DEAR'])
+    }
+  })
+
   it("the product ledger: no unit cost, line value, running value or current value", async () => {
     const mine = await call('GET', `/warehouse/product-ledger/${productId}`, reader)
     expect(mine.status).toBe(200)
