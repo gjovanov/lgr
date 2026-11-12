@@ -151,6 +151,12 @@ export const INVOICE_STATUSES = ['draft', 'sent', 'partially_paid', 'paid', 'ove
 export const PRODUCT_TYPES = ['goods', 'service', 'raw_material', 'finished_product'] as const
 
 /**
+ * The longest customs tariff number an article keeps (`Product.tariffCode`). A CN code is 8 digits and a TARIC one
+ * 10, 22 with its additional codes; the rest is room for how an org writes it. One number for the routes and the form.
+ */
+export const PRODUCT_TARIFF_CODE_MAX = 50
+
+/**
  * The canonical price-tier slots, in order: what the product form pads an article to, and the
  * Products list's price columns. The imports and the seed name theirs the same
  * (`doc-import/map-movement.ts#TIER_NAMES`, `scripts/seed-products.ts`).

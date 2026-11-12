@@ -1,4 +1,5 @@
 import { MAX_PRICE_TIERS } from 'config/constants'
+import { priceAtMargin } from './price-precision'
 
 /**
  * „С актуализация на продукт" — a document line's staged edits to its product, and what of them
@@ -28,7 +29,9 @@ const NUMERIC_FIELDS = new Set<string>(['purchasePrice', 'sellingPrice', 'taxRat
 
 /**
  * A tier that is not fixed by hand follows the purchase price when its price is the purchase price
- * plus its percent — to the cent the product form rounds a recomputed tier to.
+ * plus its percent — to the cent. The product form rounded a recomputed tier to the cent until
+ * 2026-11-12 and rounds it to four decimals since (`price-precision.ts`), so a tier it stored before
+ * is still up to half a cent off, and one it stores now is well inside.
  */
 const DERIVED_TOLERANCE = 0.005
 
@@ -61,10 +64,6 @@ export interface GRLine {
 function num(v: unknown): number {
   const n = Number(v)
   return Number.isFinite(n) ? n : 0
-}
-
-function round4(v: number): number {
-  return +v.toFixed(4)
 }
 
 /**
@@ -190,7 +189,8 @@ export function cascadePurchasePrice(line: GRLine, purchase: unknown): void {
     const was = findTier(base.tiers, tier.name)
     if (!was || was.manualOverride) continue
     if (Math.abs(was.finalPrice - basePurchase * (1 + was.percent / 100)) > DERIVED_TOLERANCE) continue
-    tier.finalPrice = unchanged ? was.finalPrice : round4(p * (1 + num(tier.percent) / 100))
+    // The product form's own rule, so both give the article the same price from the same figures.
+    tier.finalPrice = unchanged ? was.finalPrice : priceAtMargin(p, tier.percent)
   }
 }
 

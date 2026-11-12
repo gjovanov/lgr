@@ -2214,6 +2214,7 @@
     "category": "Категорија",
     "unit": "Единица",
     "barcode": "Баркод",
+    "tariffCode": "Тарифен Код",
     "purchasePrice": "Набавна Цена",
     "sellingPrice": "Продажна Цена",
     "deleteProductConfirm": "Дали сте сигурни дека сакате да го избришете овој производ?",

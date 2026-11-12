@@ -61,6 +61,8 @@ export interface IProduct extends Document {
   sku: string
   barcode?: string
   name: string
+  /** The customs tariff number of the goods (HS / CN / TARIC), as the org writes it. Free text; empty when not kept. */
+  tariffCode?: string
   description?: string
   category: string
   categoryId?: Types.ObjectId
@@ -103,6 +105,7 @@ const productSchema = new Schema<IProduct>(
     sku: { type: String, required: true },
     barcode: String,
     name: { type: String, required: true },
+    tariffCode: { type: String, trim: true },
     description: String,
     category: { type: String, required: true },
     categoryId: { type: Schema.Types.ObjectId, ref: 'ProductCategory' },

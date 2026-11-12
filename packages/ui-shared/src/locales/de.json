@@ -2214,6 +2214,7 @@
     "category": "Kategorie",
     "unit": "Einheit",
     "barcode": "Barcode",
+    "tariffCode": "Zolltarifnummer",
     "purchasePrice": "Einkaufspreis",
     "sellingPrice": "Verkaufspreis",
     "deleteProductConfirm": "Sind Sie sicher, dass Sie dieses Produkt löschen möchten?",
