@@ -2,13 +2,20 @@
 
 ## Why
 
-> **Since 2026-11-12 there are three runners, and the third is not on mars.** Two runners were a
+> **Since 2026-11-12 there is a third runner, and it is not on mars.** Two runners were a
 > queue: over the first 25 green pull-request runs after #654 a run's own work took 7 minutes, and
 > its wall clock 10.7 at the median and 22.8 at the 90th percentile, all of the difference waiting
 > for a runner (#653). The same runs replayed on three runners gave 7.5 and 13. Mars has no room
 > for a third (two runners of 8 CPUs are all 16 of its cores), so the third runs on jupiter, in a
 > guest of its own: "The runner on jupiter", below. There the suite takes 3 min 10 s where mars
 > takes 6 min 37 s, for the same 8,142 tests (2026-11-12).
+>
+> ⚠ **It is built and proven, and out of service until #699 is settled.** Twice as fast, it loses
+> a race in the product that the mars runners win: one test (`cash-invoice-receipts.flow`, "two
+> payments at once") failed in 2 of its 9 whole suite runs, and in none of about 300 on mars, while
+> every other test passed every time. The variable below was `lgr-linux` from 07:15 to 08:53Z on
+> 2026-11-12 and is `lgr-mars` again; the one real job the new runner took in between is one of
+> the two that lost. A runner that is faster is also a runner whose timing nothing was tuned on.
 
 > **Since 2026-10-30 the reason is the QUEUE, not money.** lgr went public, so GitHub-hosted
 > minutes cost it nothing, but hosted runners are shared with roomler-ai's CI under one account,
@@ -32,8 +39,8 @@ The Linux jobs (all but a fork's) read their runner from the repository variable
 
 | Value | Where the Linux jobs run |
 |---|---|
-| `["self-hosted","lgr-linux"]` | all three runners, two on mars and one on jupiter (the default since 2026-11-12): the suite in one job on 8 CPUs |
-| `["self-hosted","lgr-mars"]` | the two mars runners only (the default from 2026-10-30 to 2026-11-12). It takes the jupiter runner out of service without touching it |
+| `["self-hosted","lgr-mars"]` | the two mars runners only: the suite in one job on 8 CPUs. The default since 2026-10-30. It keeps the jupiter runner out of service without touching it |
+| `["self-hosted","lgr-linux"]` | all three runners, two on mars and one on jupiter. The value to set once #699 is settled |
 | `"ubuntu-24.04"`, or unset | GitHub-hosted: the suite in three shards of 4 CPUs |
 
 ```bash
