@@ -470,5 +470,25 @@ describe('C.4 / C.6 the trail is not overwritten, and every answer is redacted',
 
       await expectRedacted(await call('POST', `/invoicing/orders/${order._id}/convert`, writer, { contactId }))
     })
+
+    it('a line whose price was chosen on the order: the order\'s step stays, the level the customer resolves to is not named', async () => {
+      const { internalOrder } = await ok('POST', '/invoicing/internal-orders', {
+        contactId, issueDate: today, requestedDeliveryDate: today, warehouseId,
+        lines: [{ productId, description: 'Bolt', quantity: 2, unit: 'pcs', expectedUnitPrice: 14, pricePinned: true }],
+      })
+      const { internalOrder: confirmed } = await ok('POST', `/invoicing/internal-orders/${internalOrder._id}/confirm`)
+      await ok('POST', `/invoicing/internal-orders/${internalOrder._id}/reserve-available`, {})
+
+      const conv = await call('POST', `/invoicing/internal-orders/${internalOrder._id}/convert`, writer)
+      expect(conv.status, JSON.stringify(conv.json)).toBe(200)
+      expect(JSON.stringify(conv.json)).not.toContain('Цена 3')
+      const line = conv.json.invoice.lines[0]
+      expect(line.unitPrice).toBe(14)
+      // The hidden level lost to the order's price: a losing step is not named at all. The override is the person's own.
+      expect(line.priceExplanation).toEqual([trail[0], { type: 'override', label: confirmed.orderNumber, price: 14 }])
+      const stored: any = await Invoice.findById(conv.json.invoice._id ?? conv.json.invoice.id).lean().exec()
+      expect(stored.lines[0].priceExplanation.map((s: any) => [s.type, s.label, s.price]))
+        .toEqual([['base', 'Selling price', 20], ['tier', 'Цена 3', 15], ['override', confirmed.orderNumber, 14]])
+    })
   })
 })
