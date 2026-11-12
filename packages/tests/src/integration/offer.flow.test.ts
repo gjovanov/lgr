@@ -3,7 +3,9 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { allowSalesWithoutPrinter, createTestOrg, createTestUser, createTestContact, createTestProduct, createTestWarehouse, createTestStockLevel } from '../helpers/factories'
+import ExcelJS from 'exceljs'
 import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
+import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller'
 import { agingReportController } from 'invoicing-api/src/controllers/aging-report.controller'
 import { contactController } from 'invoicing-api/src/controllers/contact.controller'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
@@ -37,7 +39,7 @@ let unsubscribe: () => void = () => {}
 
 beforeAll(async () => {
   await setupTestDB()
-  app = new Elysia().onError(spaErrorHandler({}) as any).use(invoiceController).use(agingReportController).use(contactController)
+  app = new Elysia().onError(spaErrorHandler({}) as any).use(invoiceController).use(invoiceExportController).use(agingReportController).use(contactController)
   unsubscribe = eventBus.on('invoice.posted', (p: any) => { posted.push(p) })
 }, 60_000)
 
@@ -83,6 +85,12 @@ async function world() {
     return { status: res.status, json: await res.json().catch(() => null) as any }
   }
   const call = (method: string, path: string, body?: any) => request(method, `/invoices${path}`, body)
+  /** The list export, as the list's Export dialog asks for it: the file itself. */
+  const exportList = (body: Record<string, any>) => app.handle(new Request(`http://localhost/org/${orgId}/invoicing/export/list`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ format: 'xlsx', mode: 'compact', ...body }),
+  }))
 
   const line = (quantity = 5) => ({
     productId: String(product._id), description: product.name, quantity, unit: 'pcs',
@@ -112,7 +120,20 @@ async function world() {
   const stock = async () => Number((await StockLevel.findOne({ orgId, productId: product._id, warehouseId: warehouse._id }).lean().exec() as any)?.quantity)
   const movements = async (invoiceId: string) => StockMovement.countDocuments({ orgId, invoiceId }).exec()
   const load = async (id: string) => (await Invoice.findById(id).lean().exec()) as any
-  return { orgId, contactId, request, call, make, offer, issued, stock, movements, load }
+  return { orgId, contactId, request, call, exportList, make, offer, issued, stock, movements, load }
+}
+
+/** A workbook's sheet names (the export names its sheet by its title) and every cell's text. */
+async function workbookText(res: Response): Promise<{ sheets: string[]; cells: string[] }> {
+  const wb = new ExcelJS.Workbook()
+  await wb.xlsx.load(await res.arrayBuffer())
+  const sheets: string[] = []
+  const cells: string[] = []
+  wb.eachSheet((ws) => {
+    sheets.push(ws.name)
+    ws.eachRow((row) => row.eachCell((c) => { cells.push(String(c.text ?? '')) }))
+  })
+  return { sheets, cells }
 }
 
 describe('an offer has a series of its own: DRF-OFR, then OFR', () => {
@@ -172,6 +193,28 @@ describe('an offer has a series of its own: DRF-OFR, then OFR', () => {
 
     expect((await w.call('GET', '/peek-next?type=offer&direction=outgoing&status=draft')).json.next).toBe(`DRF-OFR-${YEAR}-00002`)
     expect((await w.call('GET', '/peek-next?type=offer&direction=outgoing')).json.next).toBe(`OFR-${YEAR}-00001`)
+  })
+
+  it("its list's Export gives the offers alone, under the offers' title", async () => {
+    const w = await world()
+    const issued = await w.issued(await w.offer())
+    const draft = await w.load(await w.offer())
+    const proforma = await w.issued(await w.make('proforma'))
+
+    const res = await w.exportList({ docType: 'offer', locale: 'bg' })
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-disposition')).toContain('offer-compact-')
+    const { sheets, cells } = await workbookText(res)
+    expect(sheets).toEqual(['Оферти'])
+    expect(cells).toContain(issued.invoiceNumber)
+    expect(cells).toContain(draft.invoiceNumber)
+    expect(cells).not.toContain(proforma.invoiceNumber)
+    // And the proforma list's export holds no offer.
+    const prf = await workbookText(await w.exportList({ docType: 'proforma', locale: 'bg' }))
+    expect(prf.sheets).toEqual(['Проформи'])
+    expect(prf.cells).toContain(proforma.invoiceNumber)
+    expect(prf.cells).not.toContain(issued.invoiceNumber)
   })
 
   it('its list holds the offers alone, and the proforma list none of them', async () => {
