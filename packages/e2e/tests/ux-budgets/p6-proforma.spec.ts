@@ -17,8 +17,11 @@ import { lineQuantity } from '../helpers/document-form'
  * itself could never be issued.
  */
 
-/** FR-22 §3: P6 ≤ 12 clicks · 5 typed (and no more dialogs than the 1 it had). */
-const BUDGET = { clicks: 12, typed: 5, dialogs: 1 }
+/**
+ * FR-22 §3: P6 ≤ 12 clicks · 5 typed (and no more dialogs than the 1 it had). Owner, 2026-11-12: the converted invoice
+ * confirms its payment method as it is issued, one more click (Yes).
+ */
+const BUDGET = { clicks: 13, typed: 5, dialogs: 1 }
 
 type Api = Awaited<ReturnType<typeof uxApi>>
 

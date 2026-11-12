@@ -227,7 +227,7 @@ test.describe('Adjustment partner', () => {
     await loginForApp(page)
     await page.goto('/inventory/movements/new', { waitUntil: 'networkidle' })
     await expect(side).toHaveCount(0) // a receipt names its supplier: no choice
-    await openSelect(page, /^Type/)
+    await openSelect(page, /^Type \*/)
     await page.getByRole('option', { name: 'Adjustment', exact: true }).click()
 
     await expect(side).toBeVisible()
@@ -253,6 +253,7 @@ test.describe('Adjustment partner', () => {
     const id = body.stockMovement._id || body.stockMovement.id
     await page.goto(`/inventory/movements/${id}`, { waitUntil: 'networkidle' })
     await expect(side.getByRole('button', { name: 'Supplier' })).toHaveClass(/v-btn--active/, { timeout: 15000 })
-    await expect(partner.locator('input')).toHaveValue(supplier.companyName)
+    // A loaded choice renders as the field's selection, not as typed text in its input.
+    await expect(partner).toContainText(supplier.companyName)
   })
 })

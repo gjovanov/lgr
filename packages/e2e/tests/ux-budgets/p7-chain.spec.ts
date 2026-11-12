@@ -320,6 +320,7 @@ test('P7 chain: client order → reserve → external order → send → invoice
   // twice) and leaves the cursor in its quantity (three clicks); the customer field a new order
   // starts in (FR-22.52) saves one the walk had not taken. FR-22.35 lands on the new external order
   // (no click on its number) and on the new invoice, which issues on its own form (one click where
-  // the sales list took a menu and a row action). FR-22's target is ≤ 22.
-  expect(result.clicks).toBeLessThanOrEqual(18)
+  // the sales list took a menu and a row action). FR-22's target is ≤ 22. Owner, 2026-11-12: issuing it confirms its
+  // payment method first, one more click (Yes).
+  expect(result.clicks).toBeLessThanOrEqual(19)
 })

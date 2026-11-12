@@ -26,8 +26,11 @@ const LINES = [
   { sku: 'PRD-0023', qty: 4 },
 ]
 
-/** FR-22 §3: P5-invoice ≤ 14 clicks · 6 typed · ≤ 1 dialog, and paid with no extra step. */
-const BUDGET = { clicks: 14, typed: 6, dialogs: 1 }
+/**
+ * FR-22 §3: P5-invoice ≤ 14 clicks · 6 typed · ≤ 1 dialog, and paid with no extra step. Owner, 2026-11-12: issuing an
+ * outgoing invoice confirms its payment method first, one more click (Yes); the walk had no dialog, so it stays within one.
+ */
+const BUDGET = { clicks: 15, typed: 6, dialogs: 1 }
 
 /** Product records by SKU (uncounted setup). */
 async function productsBySku(api: Api, skus: string[]): Promise<Record<string, any>> {
