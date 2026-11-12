@@ -19,6 +19,7 @@ import {
   emailInUse,
   normalizeEmail,
 } from 'services/biz/identity/identity.service'
+import { forgetMembership } from 'services/biz/identity/session.service'
 
 /** An identity refusal as the HTTP answer: its status, and a code the UI can act on. */
 const refused = (err: unknown) =>
@@ -289,6 +290,8 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       if (body.isActive === true && existing.isActive === false) await adminActivated(existing, orgId)
       // What the person may do changed, or they may do nothing here any more: the sessions they hold end.
       if (grantChanged || switchedOff) await endSessionsOf(existing.identityId)
+      // And this membership's own session, person or none: read afresh on its next request here.
+      if (body.isActive !== undefined) forgetMembership(userId)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'admin', entityType: 'user', entityId: userId, entityName: `${updated.firstName} ${updated.lastName}` })
 
@@ -330,6 +333,8 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
     await userDao.updateInOrg(userId, orgId, { isActive: false, deactivatedAt: new Date() })
     // The sessions the person holds end with it, as on a change of what they may do (FR-26.9.4).
     if (existing.isActive !== false) await endSessionsOf(existing.identityId)
+    // And this membership's own session, person or none: read afresh on its next request here.
+    forgetMembership(userId)
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'admin', entityType: 'user', entityId: userId, entityName: `${existing.firstName} ${existing.lastName}` })
 
