@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-38** are fixed. The rest are open, ordered by
+**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-39** are fixed. The rest are open, ordered by
 severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
@@ -28,7 +28,8 @@ Files routes were read against the same rule. S-35 came out of re-checking the K
 controllers that take any field, and S-36 is the rest of that Known Issue: what a save could set
 inside the caller's own org. S-37 was found a day later, while building on the order conversion: the
 draft invoice it answers with. S-38 came the same day, while adding the stock movements to the
-contact ledger: the reports that read a ledger.
+contact ledger: the reports that read a ledger. S-39 followed from the same work: a stock movement's
+total.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -70,6 +71,7 @@ contact ledger: the reports that read a ledger.
 | S-36 | Low | On the twelve routes that store the body as the document, a save could set the fields the server sets: a count's `completed` without its stock adjustment, an order's number or author, a backdated `createdAt` | **Fixed 2026-11-11** (#674) |
 | S-37 | Low | The draft invoice an order conversion answers with carried its stored price trail, so it named a price level to a role that does not see it | **Fixed 2026-11-12** (#696) |
 | S-38 | Low | The reports that read a ledger did not hold what the ledger's own page holds: a session without the purchases side or the cost figures was shown incoming documents, the bill behind a delivery and cost-derived totals | **Fixed 2026-11-12** (#704) |
+| S-39 | Low | A stock movement's total, which is its lines' costs summed, was sent to a role without the cost figures, by id and on every row of the list | **Fixed 2026-11-12** (#708) |
 
 ---
 
@@ -1952,3 +1954,45 @@ caller, and three rules went unheld:
   their values, and a Seller is still refused the Reports app. The behaviour for a session without
   the purchases side or the cost figures is the flow tests': the demo organization has no delivery
   that a live bill holds, and its Seller holds no Reports app.
+
+## S-39 — A stock movement's total reached a role without the cost figures (Low, **fixed 2026-11-12**)
+
+> Found on 2026-11-12 while adding the Movements list to the contact form (#707). Fixed in #708 and
+> written up here once the fix was on production.
+
+**Where:** `GET /org/:orgId/warehouse/movement` and `GET /org/:orgId/warehouse/movement/:id`.
+
+**What was wrong:** a role without the cost figures (`products.costs`) is sent no cost of a movement's
+line: a movement read by id carries its lines without them (FR-27.11.C.1). The movement's own total
+is those costs summed, and it was sent all the same: `totalAmount` by id, and `total` on every row of
+the list, which also took an order by it. A movement of one line gave that line's cost, and with
+its quantity the unit cost. The Stock Movement Documents list drew the column for everybody; the
+movement's own form already hid its total from such a role.
+
+- **Who:** a member whose role reads stock movements without the cost figures.
+- **Impact:** read-only, in the caller's own org: what a delivery, a write-off or a transfer was
+  worth at cost, per movement, and which of two cost more. Nothing stored was touched.
+- **Why Low:** an insider, in their own org. A role that writes movements always sees the costs
+  (`movements.create` implies every price), so only a reader could be in that position.
+- **Exposure on the day:** none. A read-only count on production, each active person read as their
+  session is: of 87 orgs one is on the roles model. Of 70 active people 13 are not administrators.
+  Three hold no cost figures, and none of them may read stock movements.
+
+### Fix
+
+- The list and the by-id answer carry no `total` / `totalAmount` without the cost figures
+  (`config/access/fields#redactMovementTotals`). Absent, never blank. A role that sees the costs is
+  answered exactly as before.
+- Asked to order the list by the total, such a role gets the list in its usual order. An order by a
+  figure it is not sent would say which receipt cost more.
+- The Stock Movement Documents list (table and cards) and the contact form's Movements list draw the
+  Total column only for a role that is sent it.
+- Tests: `integration/access-price-levels.flow.test.ts`, 1 more: a reader without the costs gets no
+  total by id or in the list, and the list in its usual order when it asks for the total's, by either
+  name and in either direction, while the Administrator's answers and order are unchanged. It fails
+  on the code before the change.
+- Deployed as `v20261112-44c234c411d9`. On production the deploy was checked: the image, both pods,
+  the new code in a pod, the health route. In the demo organization the Administrator's list, order
+  and by-id answer are unchanged, and both lists draw their Total column. The withheld side is the
+  flow test's: it needs a role that reads movements without the cost figures, and the demo
+  organization has none.
