@@ -3495,6 +3495,8 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     recent activity, the Files audit.
   - **C.7 / D views**: the Products grid offers only the levels held (`useProductColumns`), the product form edits
     only those, and an open product list re-reads its rows when `x-access-version` changes.
+- **A typed line price (2026-11-12) is `sales-docs.manual-price`**: `invoicing.write` grants it, the role NAME `seller` withholds
+  it (`LEGACY_ROLE_WITHHOLDS`); forms only (`PriceCombobox :typed`), ⚠ no route refuses a typed price yet.
 - **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
   null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
   gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`

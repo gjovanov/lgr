@@ -1,5 +1,8 @@
 <template>
-  <v-combobox
+  <!-- FR-27 `sales-docs.manual-price`: a role that may type a price gets the combobox, whose free text is a price; one
+       that may not gets a select of the same prices, which takes no text at all (`typed`). -->
+  <component
+    :is="typed ? VCombobox : VSelect"
     :model-value="currentDisplay"
     :items="comboItems"
     item-title="title"
@@ -12,8 +15,12 @@
     style="min-width: 130px"
     :placeholder="$t('invoicing.unitPrice')"
     data-testid="price-combobox"
+    :data-typed="typed ? 'true' : 'false'"
     @update:model-value="onValueChange"
   >
+    <template v-if="!typed" #prepend-inner>
+      <v-icon size="x-small" icon="mdi-lock-outline" :title="$t('invoicing.pricePickOnly')" :aria-label="$t('invoicing.pricePickOnly')" data-testid="price-pick-only" />
+    </template>
     <!-- Closed control shows ONLY the number (≤5 decimals, no name); the "— {tag name}"
          appears only in the open dropdown items (#item below). min-width fits 5 decimals + arrow. -->
     <template #selection>
@@ -28,13 +35,15 @@
         </template>
       </v-list-item>
     </template>
-  </v-combobox>
+  </component>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { VCombobox, VSelect } from 'vuetify/components'
 import { fetchPriceOptions, formatPriceItem, priceOptionLabel, type PriceOption } from '../composables/usePriceOptions'
+import { parseTypedPrice } from '../composables/price-precision'
 
 const props = withDefaults(defineProps<{
   modelValue: number
@@ -51,11 +60,17 @@ const props = withDefaults(defineProps<{
   /** List EVERY named price, the filterless „Цена N" slots included (`/pricing/options?all=true`,
    *  what PriceSelectButton shows). Off: only the prices that apply to this contact/quantity. */
   all?: boolean
+  /**
+   * FR-27 (`sales-docs.manual-price`): may the person TYPE a price? Off: only the prices offered here (and the line's
+   * Select-price icon beside it) can be chosen; a price already on the line still shows as it is.
+   */
+  typed?: boolean
 }>(), {
   currency: 'EUR',
   quantity: 1,
   autoApplyResolved: true,
   all: false,
+  typed: true,
 })
 
 const emit = defineEmits<{
@@ -190,22 +205,21 @@ function autoSelectResolved() {
 function onValueChange(val: any) {
   // With return-object, dropdown selection emits the full item object
   // Free-text entry emits a raw string
-  let price: number
+  let price: number | null
   let selectedOption: PriceOption | null = null
 
   if (val && typeof val === 'object' && 'value' in val) {
     // Dropdown selection — item object with { title, value, raw }
     price = Number(val.value)
     selectedOption = val.raw || null
-  } else if (typeof val === 'string') {
-    // Free-text entry — might be "10.00 — Selling price" or just "42.50"
-    const numStr = val.includes('—') ? val.split('—')[0].trim() : val.trim()
-    price = Number(numStr)
   } else {
-    price = Number(val)
+    // Free text is a price only for a role that may type one (FR-27 `sales-docs.manual-price`).
+    if (!props.typed) return
+    // Free-text entry — might be "10.00 — Selling price" or just "42.50". A comma is a decimal point: "12,5" is 12.5.
+    price = parseTypedPrice(val)
   }
 
-  if (isNaN(price) || price < 0) return
+  if (price === null || Number.isNaN(price) || price < 0) return
 
   emit('chosen')
   emit('update:modelValue', price)

@@ -184,6 +184,8 @@
                           @select="pickLinePrice(lineOf(node), $event.price)"
                           @release="releaseLinePrice(lineOf(node), $event)"
                         />
+                        <!-- A price typed here is the invoice's (#695), so it is the role's to give (FR-27
+                             `sales-docs.manual-price`); without it the line takes a price picked with Select price. -->
                         <v-text-field
                           v-model.number="lineOf(node).expectedUnitPrice"
                           type="number"
@@ -194,7 +196,9 @@
                           hide-details
                           variant="underlined"
                           :aria-label="$t('invoicing.expectedPrice')"
-                          :readonly="readonly"
+                          :readonly="readonly || !typesPrice"
+                          :title="typesPrice ? undefined : $t('invoicing.pricePickOnly')"
+                          data-testid="order-line-price"
                           @update:model-value="typeLinePrice(lineOf(node), $event)"
                         />
                       </div>
@@ -1158,6 +1162,8 @@ async function save(quiet = false): Promise<boolean> {
 }
 
 const access = useAccess()
+/** FR-27 `sales-docs.manual-price`: may this person TYPE a line's price (the invoice charges it, #695), or only pick one? */
+const typesPrice = computed(() => access.can('sales-docs.manual-price'))
 /** The order can still be saved, and by this person: the rule of the Save button (its status, and its capability). */
 function canSaveOrder(): boolean {
   return canAddLines.value && access.can(isEdit.value ? ['orders.create', 'orders.edit'] : 'orders.create')

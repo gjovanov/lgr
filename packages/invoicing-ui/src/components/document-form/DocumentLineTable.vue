@@ -220,11 +220,14 @@
                 :resolved-price="line.resolvedPrice"
                 :price-explanation="line.priceExplanation"
                 :auto-apply-resolved="!line.loaded && !line.pricePinned"
+                :typed="typesPrice"
                 class="flex-grow-1"
                 @update:model-value="onLinePriceChange(idx, $event)"
                 @update:price-explanation="line.priceExplanation = $event"
                 @chosen="line.pricePinned = true"
               />
+              <!-- A credit note (outgoing) and the bills take a typed figure here; on a SALES document only a role
+                   that may type a price does (FR-27 `sales-docs.manual-price`): the others pick with the icon. -->
               <v-text-field
                 v-else
                 v-model.number="line.unitPrice"
@@ -234,6 +237,9 @@
                 hide-details
                 variant="underlined"
                 class="flex-grow-1"
+                :readonly="!typesPrice"
+                :title="typesPrice ? undefined : $t('invoicing.pricePickOnly')"
+                data-testid="price-plain"
                 @change="onLinePriceManualChange(idx)"
               />
             </div>
@@ -301,8 +307,9 @@ import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.
 import GRProductUpdateCell from 'ui-shared/components/GRProductUpdateCell.vue'
 import GRColumnPickerDialog from 'ui-shared/components/GRColumnPickerDialog.vue'
 import QuickProductDialog from 'ui-shared/components/QuickProductDialog.vue'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
+import { useAccess } from 'ui-shared/access/useAccess'
 
 const props = defineProps<{
   doc: any
@@ -374,6 +381,13 @@ const {
   setGRField,
   setGRTierPrice,
 } = props.doc
+
+/**
+ * FR-27 `sales-docs.manual-price` (owner, 2026-11-12): on a SALES document a price the person TYPES is their role's to
+ * give (the Seller picks, the Sales Consultant may type). The bills are not sales documents: their price is the
+ * supplier's, typed as ever.
+ */
+const typesPrice = computed(() => config.direction !== 'outgoing' || useAccess().can('sales-docs.manual-price'))
 
 // Spreadsheet-like Tab/Enter navigation across the line-item cells.
 const { onGridKeydown } = useGridNavigation({ addLine, getLines: () => form.lines })

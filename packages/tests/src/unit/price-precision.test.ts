@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  PERCENT_DECIMALS, PRICE_DECIMALS, formatFixed, marginOver, parseTyped, priceAtMargin, roundPercent, roundPrice, roundTo,
+  PERCENT_DECIMALS, PRICE_DECIMALS, formatFixed, marginOver, parseTyped, parseTypedPrice, priceAtMargin, roundPercent, roundPrice, roundTo,
 } from 'ui-shared/composables/price-precision'
 import { cascadePurchasePrice, seedFromProduct } from 'ui-shared/composables/gr-product-update'
 
@@ -83,6 +83,26 @@ describe('parseTyped: what was typed', () => {
 
   it('nothing, or no number, is null', () => {
     expect([parseTyped(''), parseTyped(null), parseTyped(undefined), parseTyped('abc'), parseTyped(Number.NaN)]).toEqual([null, null, null, null, null])
+  })
+})
+
+// The price a person types on a sales document line (PriceCombobox). Until 2026-11-12 it read the text with `Number`,
+// so "12,5" was NaN and the typed price was dropped without a word.
+describe('parseTypedPrice: a price typed on a line', () => {
+  it('a comma is a decimal point: "12,5" is 12.5, as "12.5" is', () => {
+    expect([parseTypedPrice('12,5'), parseTypedPrice('12.5'), parseTypedPrice(' 0,0472 '), parseTypedPrice('7')]).toEqual([12.5, 12.5, 0.0472, 7])
+  })
+
+  it("an offered price's name after the dash is not part of the figure", () => {
+    expect([parseTypedPrice('10.00 — Selling price'), parseTypedPrice('9,90 — Цена 3')]).toEqual([10, 9.9])
+  })
+
+  it('nothing, no number, or a figure under zero is no price', () => {
+    expect([parseTypedPrice(''), parseTypedPrice(null), parseTypedPrice('abc'), parseTypedPrice('-1'), parseTypedPrice('— Selling price')]).toEqual([null, null, null, null, null])
+  })
+
+  it('zero is a price (a line given away), and a number is taken as it is', () => {
+    expect([parseTypedPrice('0'), parseTypedPrice(0), parseTypedPrice(12.5)]).toEqual([0, 0, 12.5])
   })
 })
 
