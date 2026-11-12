@@ -545,7 +545,9 @@ image tag. The manifest **MUST** be reproducible from the bundle so a restore ca
 completeness rather than assume it.
 
 **FR-13.13** Compression **MUST** be `zstd` level 19 for full bundles and level 3 for deltas,
-via the natively available `zlib.zstdCompressSync` (§1.3). Where brotli is preferred it
+via the natively available `node:zlib` zstd (§1.3), and through the asynchronous
+`zlib.zstdCompress`, never the `Sync` call: a whole org at level 19 is seconds of work, and
+done on the event loop it stops the process answering for that long (#694). Where brotli is preferred it
 **MUST** pin quality **5** explicitly (§3.2) — the library default of 11 takes 45 minutes on
 this data and will read as a hung job.
 
