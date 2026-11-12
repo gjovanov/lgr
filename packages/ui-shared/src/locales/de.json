@@ -1919,6 +1919,7 @@
     "debitNoteReceived": "Lastschrift empfangen",
     "invoices": "Rechnungen",
     "openBalance": "Offener Saldo",
+    "unpaidListCapped": "Die ersten {shown} von {total} Belegen sind aufgelistet. Die Summe zählt alle.",
     "movements": "Bewegungen",
     "aging": {
       "title": "Fälligkeitsbericht",

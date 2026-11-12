@@ -1919,6 +1919,7 @@
     "debitNoteReceived": "Дебитната нота е примена",
     "invoices": "Фактури",
     "openBalance": "Отворено салдо",
+    "unpaidListCapped": "Прикажани се првите {shown} од {total} документи. Збирот е за сите.",
     "movements": "Движења",
     "aging": {
       "title": "Извештај за застареност",
