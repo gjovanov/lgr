@@ -143,6 +143,7 @@ The Seller and Sales Consultant of FR-26 §2.1, and the five open items on #493,
 | Contacts | Work | Work |
 | Devices | **View** (item 1) | **View** |
 | Sales documents → Totals strip | off (item 2) | off |
+| Sales documents → Type a price by hand | **off** (owner, 2026-11-12) | on |
 | Products, Categories, Warehouses | View, Export off | View, Export off |
 | Products → Cost figures | on, the owner's call (D-5) | on |
 | Stock movements | View, create and edit `transfer` only | the same |
@@ -152,6 +153,15 @@ The Seller and Sales Consultant of FR-26 §2.1, and the five open items on #493,
 | Landing page | Products (item 3) | Products |
 | Change organization | off (item 4) | off |
 | Import on the movements and invoices lists | not granted, so no button (item 5) | not granted |
+
+**A typed price (owner, 2026-11-12: "Manual price, unavailable for Seller, but available for Sales Consultant").**
+`sales-docs.manual-price` is a price TYPED on a sales document line instead of picked from what the price engine offers.
+The picks stay everyone's: the line's list of prices, the Select-price icon, the document-wide price and Last price.
+The two roles hold the same permissions, so on the legacy model the role NAME decides: `invoicing.write` grants it and
+`seller` withholds it (`LEGACY_ROLE_WITHHOLDS`), whatever the sets say. Nobody else's access changes, and the
+templates follow by construction. A projection may choose the `seller` key for what it withholds, which never serves
+more than the role. The forms enforce it (a list of prices instead of a typed figure, the customer order's price read
+only); the server does not refuse a typed price yet.
 
 ### 2.5 One catalogue, everything else generated
 
@@ -377,7 +387,7 @@ Labels: en / bg. Abbreviations in the routes column:
 
 | id | Label | View | Work adds | Full adds | Extras | Routes (today's rule) | Pages | Area today |
 |---|---|---|---|---|---|---|---|---|
-| `sales-docs` | Sales documents / Документи за продажба | view | create, edit, issue, pay, email | delete, void | `totals` (P0.5), `export`, `import` (P0.5) | R `invoices`, `invoices/peek-next`, `stats/invoice`, `invoicing/reports`, `invoicing/number-clashes` (INVC). W `invoices`, `invoicing/number-clashes` (`invoicing.write`). `invoicing/export` (self: `canExport`). `invoices/summary` → `totals` | `/invoicing/invoices`, `…/invoices/new` (+ credit and debit note) | |
+| `sales-docs` | Sales documents / Документи за продажба | view | create, edit, issue, pay, email | delete, void | `totals` (P0.5), `export`, `import` (P0.5), `manual-price` (a typed line price, 2026-11-12; a form gate) | R `invoices`, `invoices/peek-next`, `stats/invoice`, `invoicing/reports`, `invoicing/number-clashes` (INVC). W `invoices`, `invoicing/number-clashes` (`invoicing.write`). `invoicing/export` (self: `canExport`). `invoices/summary` → `totals` | `/invoicing/invoices`, `…/invoices/new` (+ credit and debit note) | |
 | `proforma` | Proforma and offers / Проформи и оферти | view | create, edit, issue | delete | | the `invoices` routes, the quotes: type `proforma` or `offer` (one partition, Phase 2; offers since 2026-11-12) | `/invoicing/proforma`, `…/proforma/new`, `/invoicing/offer`, `…/offer/new` | |
 | `bills` | Purchase documents / Документи за покупка | view | create, edit, issue, pay | delete, void | `totals`, `import` | R `invoicing/bills` (INVC). W `invoicing/bills`, `bills/import` (`invoicing.write`). The `invoices` routes, direction `incoming` (the controller's `holdsArea('purchases')` today) | `/invoicing/bills`, `…/bills/new` | `purchases` |
 | `orders` | Orders and reservations / Поръчки и резервации | view | create, edit | delete | | R/W `invoicing/orders` (R also INV: a delivery books against an ORDO), `invoicing/internal-orders`, `invoicing/reservations`. Order links on an invoice (`orderLinkRefusal`) | orders, internal-orders, reservations (+ their `/new`) | `orders` |
@@ -473,7 +483,7 @@ Labels: en / bg. Abbreviations in the routes column:
 | Permission | Capabilities |
 |---|---|
 | `invoicing.read` | `.view` of `sales-docs`, `proforma`, `bills`, `orders`, `payments`, `contacts`, `cash-sales`; `sales-docs.export`, `sales-docs.totals`, `reports.invoicing`; lookups: `products`, `categories`, `warehouses`, `movements`, `accounts`, `bank-accounts`, `till` (catalog); helpers `pricing`, `stock-availability.check`, `doc-import` |
-| `invoicing.write` | the same reads, plus Work and Full of `sales-docs`, `proforma`, `bills`, `orders`, `payments`, `contacts` (`sales-docs.export` included, as `canExport`); `import` of `sales-docs` and `bills`; `stock-availability.transfer`; `tags.edit` |
+| `invoicing.write` | the same reads, plus Work and Full of `sales-docs`, `proforma`, `bills`, `orders`, `payments`, `contacts` (`sales-docs.export` included, as `canExport`); `import` of `sales-docs` and `bills`; `sales-docs.manual-price`; `stock-availability.transfer`; `tags.edit` |
 | `invoicing.send` | the reads of `invoicing.read`, but not `export`. **It opens no write anywhere today** (A.4) |
 | `inventory.read` | `.view` of every inventory feature; `products.costs`; `reports.inventory`; lookups `contacts`, `orders`; helpers `pricing`, `stock-availability.check`, `doc-import` |
 | `inventory.write` | the inventory reads (as lookups, not `.view` pages), plus Work and Full of every inventory feature; `movements.import`; `tags.edit` |
@@ -507,6 +517,7 @@ Labels: en / bg. Abbreviations in the routes column:
 | `admin`, `nra_auditor` | `supto.view`, `supto.export` |
 | `nra_auditor` | `files.archives` |
 | `admin` | `org-settings.edit`, `users.edit`, `invites.manage`, `roles.edit`, `apps.manage`, `digest.manage`, `integrations.manage`, `billing.manage` |
+| `seller` | **withholds** `sales-docs.manual-price` (`LEGACY_ROLE_WITHHOLDS`, applied after the rows above; 2026-11-12) |
 
 **Areas.** When the claim is a list, each area that is missing removes:
 

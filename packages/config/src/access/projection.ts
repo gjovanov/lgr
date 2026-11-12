@@ -1,7 +1,7 @@
 import { AREAS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, ROLES, type Area, type Permission } from '../constants'
 import type { CapabilityId } from './catalogue'
 import type { Grant } from './grant'
-import { LEGACY_BRIDGE, LEGACY_CANNOT_WITHHOLD, LEGACY_ROLE_CAPS, NOT_WITH_AN_AREAS_LIST, areaOfCap, compileLegacy, grantHoldsArea } from './legacy'
+import { LEGACY_BRIDGE, LEGACY_CANNOT_WITHHOLD, LEGACY_ROLE_CAPS, LEGACY_ROLE_WITHHOLDS, NOT_WITH_AN_AREAS_LIST, areaOfCap, compileLegacy, grantHoldsArea } from './legacy'
 import { sameGrant } from './roles'
 
 /**
@@ -38,9 +38,31 @@ export function projectGrant(grant: Grant): Projection {
     }
   }
 
+  // A key whose name only TAKES AWAY (`LEGACY_ROLE_WITHHOLDS`: the Seller's typed price), and only what the role lacks,
+  // lets in a permission that would otherwise give it: the Seller writes documents without typing a price. It gives
+  // nothing by name, so it never serves more than the role; it is taken only where it serves more of it, so every
+  // other role keeps the key above.
+  let found = projectAs(grant, role)
+  for (const key of ROLES) {
+    const withheld = LEGACY_ROLE_WITHHOLDS[key] ?? []
+    if (!withheld.length || (LEGACY_ROLE_CAPS[key] ?? []).length || withheld.some(has)) continue
+    const candidate = projectAs(grant, key)
+    if (size(candidate.served) > size(found.served)) found = candidate
+  }
+  return { legacy: found.legacy, exact: found.exact }
+}
+
+const size = (g: Grant) => (g.all ? Infinity : g.caps.size)
+
+/** The projection under one role key, and what it serves. */
+function projectAs(grant: Grant, role: string): Projection & { served: Grant } {
+  const has = (c: string) => !grant.all && grant.caps.has(c as Cap)
+  // What the key's name takes away is never what keeps a permission out (it is taken away again).
+  const withheld: readonly string[] = LEGACY_ROLE_WITHHOLDS[role] ?? []
+
   // The permissions whose every capability the role holds, once `areas` (when a list) has taken its own away.
   const permissionsWith = (areas: readonly Area[] | undefined) => PERMISSIONS.filter(p => LEGACY_BRIDGE[p as Permission].every(c => {
-    if (has(c)) return true
+    if (has(c) || withheld.includes(c)) return true
     if (!areas) return false
     const a = areaOfCap(c)
     return (!!a && !areas.includes(a)) || (NOT_WITH_AN_AREAS_LIST as readonly string[]).includes(c)
@@ -49,7 +71,7 @@ export function projectGrant(grant: Grant): Projection {
   // First with no areas list: what most roles are, and a list also takes #493's items away.
   const plain = { role, permissions: permissionsWith(undefined) }
   const plainGrant = compileLegacy(plain)
-  if (sameGrant(plainGrant, grant)) return { legacy: plain, exact: true }
+  if (sameGrant(plainGrant, grant)) return { legacy: plain, exact: true, served: plainGrant }
 
   // Then with the list of the areas the role holds anything of; kept where it says more of the role. ⚠ A plain
   // projection gives every session without a list what such a list takes away (`org.switch`…): where the role lacks
@@ -58,8 +80,8 @@ export function projectGrant(grant: Grant): Projection {
   const listed = { role, permissions: permissionsWith(kept), areas: [...kept] }
   const listedGrant = compileLegacy(listed)
   // What the legacy model cannot withhold (the cost figures) is never what makes a projection exceed the role.
-  const within = (g: Grant) => !g.all && [...g.caps].every(c => grant.caps.has(c) || LEGACY_CANNOT_WITHHOLD.includes(c))
-  const size = (g: Grant) => (g.all ? Infinity : g.caps.size)
+  const within = (g: Grant) => !g.all && [...g.caps].every(c => has(c) || LEGACY_CANNOT_WITHHOLD.includes(c))
   const legacy = !within(plainGrant) || size(listedGrant) > size(plainGrant) ? listed : plain
-  return { legacy, exact: sameGrant(legacy === listed ? listedGrant : plainGrant, grant) }
+  const served = legacy === listed ? listedGrant : plainGrant
+  return { legacy, exact: sameGrant(served, grant), served }
 }

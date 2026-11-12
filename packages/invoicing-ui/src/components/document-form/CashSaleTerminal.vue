@@ -171,7 +171,8 @@
             <span class="text-caption">×</span>
             <!-- The same price dropdown as an invoice line, but listing EVERY named price (`all`),
                  the „Цена N" slots included: at the till the cashier picks the price from the list
-                 rather than typing it. A typed value still works. -->
+                 rather than typing it. A typed value works for a role that may type a price
+                 (FR-27 `sales-docs.manual-price`). -->
             <PriceCombobox
               :model-value="line.unitPrice"
               :product-id="line.productId"
@@ -182,6 +183,7 @@
               :resolved-price="line.resolvedPrice"
               :price-explanation="line.priceExplanation"
               :auto-apply-resolved="!line.loaded && !line.pricePinned"
+              :typed="typesPrice"
               all
               style="max-width: 160px"
               @update:model-value="onLinePriceChange(cartLines[i].idx, $event)"
@@ -298,6 +300,7 @@ import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import RegisterTerminal, { type RegisterCatalogProduct } from 'ui-shared/components/cash-register/RegisterTerminal.vue'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
+import { useAccess } from 'ui-shared/access/useAccess'
 import { computePosTotals } from 'config/pos-totals'
 import { useI18n } from 'vue-i18n'
 import BankInfoRow from '../BankInfoRow.vue'
@@ -346,6 +349,9 @@ const {
 
 /** Cash sales are issued (paid) the moment they are saved — existing ones are read-only. */
 const readonly = computed(() => isEdit.value)
+
+/** FR-27 `sales-docs.manual-price`: a price TYPED on a line is the role's to give; the others pick one. */
+const typesPrice = computed(() => useAccess().can('sales-docs.manual-price'))
 
 // ── #171: „Издай фактура" — an invoice for this cash sale ──
 const router = useRouter()
