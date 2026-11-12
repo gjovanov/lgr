@@ -1,0 +1,14 @@
+# Static, so the guest asks the host for nothing: no DHCP, and public resolvers.
+network:
+  version: 2
+  ethernets:
+    nic0:
+      match:
+        macaddress: "52:54:00:0a:82:0a"
+      addresses:
+        - 10.10.130.10/24
+      routes:
+        - to: default
+          via: 10.10.130.1
+      nameservers:
+        addresses: [1.1.1.1, 8.8.8.8]

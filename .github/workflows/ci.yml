@@ -8,18 +8,20 @@ name: CI
 # push to master, on Linux only, and finishes in minutes. The per-platform desktop builds and the
 # Windows smoke live in `desktop-ci.yml` (FR-14.35), and the Playwright suite in `e2e-nightly.yml`.
 #
-# ⚠ Where the Linux jobs run (2026-10-30):
+# ⚠ Where the Linux jobs run (2026-10-30; a third runner is built since 2026-11-12):
 # - A pull request from a FORK runs on GitHub-hosted `ubuntu-24.04`, whatever else is set: code from
-#   outside never runs on mars. (Fork pull requests from any outside contributor also need approval
-#   before they run at all: the repository's `all_external_contributors` rule.)
+#   outside never runs on our hosts. (Fork pull requests from any outside contributor also need
+#   approval before they run at all: the repository's `all_external_contributors` rule.)
 # - Everything else runs where the repository variable LGR_LINUX_RUNNER says:
-#   `["self-hosted","lgr-mars"]`, the two mars runners (infra/ci-runner/), or unset / `"ubuntu-24.04"`,
-#   GitHub-hosted. Mars is the default because hosted runners are shared with roomler-ai's CI under
-#   one account, 20 jobs at a time: on 2026-10-30 a run waited 37 of its 47 minutes behind 153 of
-#   roomler-ai's jobs. Minutes cost nothing (the repository is public); the queue is the cost. Moving
-#   lgr to an organization of its own would give it its own 20, and then the variable can say hosted.
+#   `["self-hosted","lgr-mars"]`, the two mars runners (the value today), `["self-hosted","lgr-linux"]`,
+#   those and the one in a guest of its own on jupiter (infra/ci-runner/; in service once #699 is
+#   settled), or unset / `"ubuntu-24.04"`, GitHub-hosted. Self-hosted is the default because hosted
+#   runners are shared with roomler-ai's CI under one account, 20 jobs at a time: on 2026-10-30 a
+#   run waited 37 of its 47 minutes behind 153 of roomler-ai's jobs. Minutes cost nothing (the
+#   repository is public); the queue is the cost. Moving lgr to an organization of its own would
+#   give it its own 20, and then the variable can say hosted.
 # - Pinned `ubuntu-24.04`, not `ubuntu-latest`: that label began moving to Ubuntu 26 on 2026-10-19,
-#   and an image's contents are not a contract. The mars runner image is Ubuntu 24.04 too.
+#   and an image's contents are not a contract. The self-hosted runner image is Ubuntu 24.04 too.
 
 on:
   pull_request:
@@ -57,9 +59,9 @@ jobs:
   # 21m49s job, run 40967014117). The check names a release gate reads are `test (ubuntu)` and
   # `build + clippy (ubuntu)`; desktop-promote.yml accepts the old names too.
   #
-  # ⚠ Every job here queues for one of TWO runners, so a job is a wait as well as a duration
-  # (2026-11-07..10, 60 green runs: 45 % of their wall clock was queueing, the worst run 76 min for
-  # 14 min of work). Two things follow, both below:
+  # ⚠ Every job here queues for one of a FEW runners (two; a third is built, infra/ci-runner/), so
+  # a job is a wait as well as a duration (2026-11-07..10, 60 green runs on two runners: 45 % of
+  # their wall clock was queueing, the worst run 76 min for 14 min of work). Two things follow:
   # - With one shard, the shard IS `test (ubuntu)`. A separate job that only read the shard's
   #   result took 9 s and waited up to 41 min for a runner to do it on (16 min at the 90th
   #   percentile). The aggregate job runs only where there are several shards.
