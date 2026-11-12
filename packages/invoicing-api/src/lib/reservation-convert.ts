@@ -1,3 +1,5 @@
+import type { Grant } from 'config/access'
+import { withVisibleTrails } from 'services/biz/access/price-trails'
 import { getRepos } from 'services/context'
 import { resolvePrice } from 'services/biz/pricing.service'
 import { loadAllocationSupply } from 'services/biz/reservation.service'
@@ -261,4 +263,14 @@ export async function buildConversionInvoice(
     throw new ConversionError(409, `Could not allocate invoice number: ${lastErr?.message || 'duplicate'}`)
   }
   return invoice
+}
+
+/**
+ * What a conversion answers: the draft it made and what stays reserved for later, with the draft's price trail as
+ * this role may read it (FR-27.11.C.6). The invoice controller says so for every answer of its own; this draft
+ * leaves by the order controllers, so they say it here. What is stored is whole, whoever converts.
+ */
+export function conversionAnswer(grant: Grant | null | undefined, invoice: any, waiting: ConversionPlan['waiting']) {
+  const answer = { invoice, waiting }
+  return (withVisibleTrails(grant, answer) as typeof answer | undefined) ?? answer
 }

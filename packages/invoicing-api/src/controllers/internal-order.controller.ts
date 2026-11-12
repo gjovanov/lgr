@@ -1,5 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
+import { grantOf } from 'services/biz/access/evaluate'
+import { conversionAnswer } from '../lib/reservation-convert.js'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
@@ -591,5 +593,5 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
 
     createAuditEntry({ orgId, userId: user.id, action: 'convert', module: 'invoicing', entityType: 'internal_order', entityId: id, entityName: ordi.orderNumber, changes: { invoice: { to: invoice.invoiceNumber } } })
     createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id || String(invoice._id), entityName: invoice.invoiceNumber })
-    return { invoice, waiting: plan.waiting }
+    return conversionAnswer(grantOf(user as any), invoice, plan.waiting)
   }, { isSignIn: true })
