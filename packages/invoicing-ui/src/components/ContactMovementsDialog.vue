@@ -18,14 +18,18 @@
           :items-per-page="pageSize"
           density="compact"
           hover
+          data-testid="contact-movements"
           @update:options="onUpdateOptions"
         >
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
-          <template #item.type="{ item }">
-            <v-chip size="x-small" label :color="typeColor(item.type)">{{ item.type }}</v-chip>
+          <template #item.number="{ item }">
+            <entity-link :label="item.number || ''" :href="opens ? `/inventory/movements/${item._id || item.id}` : undefined" />
           </template>
-          <template #item.warehouseName="{ item }">{{ item.warehouseName || item.warehouseId }}</template>
-          <template #item.totalValue="{ item }">{{ formatCurrency(item.totalValue || 0) }}</template>
+          <template #item.type="{ item }">
+            <v-chip size="x-small" label :color="typeColor(item.type)">{{ $t(`warehouse.movementTypes.${item.type}`, item.type) }}</v-chip>
+          </template>
+          <template #item.warehouse="{ item }">{{ [item.fromWarehouseName, item.toWarehouseName].filter(Boolean).join(' → ') }}</template>
+          <template #item.total="{ item }">{{ item.total === undefined ? '' : formatCurrency(item.total || 0) }}</template>
         </v-data-table-server>
       </v-card-text>
 
@@ -42,7 +46,14 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
+import { useAccess } from 'ui-shared/access/useAccess'
+import EntityLink from 'ui-shared/components/EntityLink'
 
+/**
+ * The stock movements that name one contact (the contact form's Movements button counts the same ones): the list
+ * `GET /warehouse/movement` answers under `contactId`, newest first, a page at a time. A number opens its movement
+ * for a role that opens Stock Movement Documents.
+ */
 const props = defineProps<{
   modelValue: boolean
   contactId: string
@@ -52,6 +63,7 @@ const emit = defineEmits<{ 'update:modelValue': [v: boolean] }>()
 
 const { t } = useI18n()
 const { formatCurrency } = useCurrency()
+const opens = computed(() => useAccess().can('movements.view'))
 
 const items = ref<any[]>([])
 const total = ref(0)
@@ -60,11 +72,12 @@ const pageSize = ref(25)
 const loading = ref(false)
 
 const headers = computed(() => [
-  { title: t('common.date'),       key: 'date',          sortable: true },
-  { title: t('common.type'),       key: 'type',          sortable: true },
-  { title: t('warehouse.warehouse'), key: 'warehouseName', sortable: false },
-  { title: t('invoicing.reference'), key: 'reference',   sortable: true },
-  { title: t('common.total'),      key: 'totalValue',    sortable: false, align: 'end' as const },
+  { title: t('common.date'), key: 'date', sortable: false },
+  { title: t('invoicing.stockMovement'), key: 'number', sortable: false },
+  { title: t('common.type'), key: 'type', sortable: false },
+  { title: t('warehouse.warehouse'), key: 'warehouse', sortable: false },
+  { title: t('invoicing.reference'), key: 'reference', sortable: false },
+  { title: t('common.total'), key: 'total', sortable: false, align: 'end' as const },
 ])
 
 async function fetch() {
@@ -77,8 +90,8 @@ async function fetch() {
       size: String(pageSize.value),
     })
     const { data } = await httpClient.get(`${props.orgUrl}/warehouse/movement?${params.toString()}`)
-    items.value = data.movements || data.items || []
-    total.value = data.total || items.value.length
+    items.value = data.stockMovements || []
+    total.value = data.total || 0
   } catch {
     items.value = []
     total.value = 0
@@ -93,11 +106,9 @@ function onUpdateOptions(opts: { page: number; itemsPerPage: number }) {
   fetch()
 }
 
+/** The colours of the Stock Movement Documents list. */
 function typeColor(type: string): string {
-  if (type === 'receipt' || type === 'in') return 'success'
-  if (type === 'dispatch' || type === 'out') return 'warning'
-  if (type === 'transfer') return 'info'
-  return 'default'
+  return ({ receipt: 'success', dispatch: 'error', transfer: 'info', adjustment: 'warning' }[type] || 'grey')
 }
 
 watch(() => props.modelValue, (open) => {

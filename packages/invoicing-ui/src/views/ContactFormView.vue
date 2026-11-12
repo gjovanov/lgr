@@ -281,24 +281,26 @@ const balanceLabel = computed(() => {
   return formatCurrency(summary.value.openBalance ?? 0, summary.value.currency || baseCurrency.value)
 })
 
+// ⚠ A button's action is `click` (`SmartButtonDef`). These three said `handler`, which the shell never calls and
+// nothing type-checks: from the day they were added they opened nothing.
 const smartButtons = computed<SmartButtonDef[]>(() => [
   {
     label: t('invoicing.invoices'),
     value: summary.value.invoiceCount,
     icon: 'mdi-receipt-text',
-    handler: () => { invoicesDialog.value = true },
+    click: () => { invoicesDialog.value = true },
   },
   {
     label: t('invoicing.openBalance'),
     value: balanceLabel.value,
     icon: 'mdi-cash',
-    handler: () => { balanceDialog.value = true },
+    click: () => { balanceDialog.value = true },
   },
   {
     label: t('invoicing.movements'),
     value: summary.value.movementCount,
     icon: 'mdi-swap-horizontal',
-    handler: () => { movementsDialog.value = true },
+    click: () => { movementsDialog.value = true },
   },
 ])
 

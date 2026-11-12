@@ -88,7 +88,7 @@
 
       <!-- Selection footer -->
       <v-card-actions v-if="selectable">
-        <span class="text-body-2 text-medium-emphasis ml-2">{{ selectedIds.length }} selected</span>
+        <span class="text-body-2 text-medium-emphasis ml-2">{{ $t('common.itemsSelected', { n: selectedIds.length }) }}</span>
         <v-spacer />
         <v-btn variant="text" @click="$emit('update:modelValue', false)">{{ $t('common.cancel') }}</v-btn>
         <v-btn color="primary" :disabled="selectedIds.length === 0" @click="addSelectedLines">

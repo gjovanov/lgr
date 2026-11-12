@@ -23,6 +23,7 @@ let token: string
 let orgId: string
 const P: Record<string, string> = {}
 const W: Record<string, string> = {}
+const C: Record<string, string> = {}
 
 const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
 
@@ -66,6 +67,8 @@ beforeAll(async () => {
   W.a = String((await createTestWarehouse(org._id, { name: 'Склад А' }))._id)
   const company = await createTestContact(org._id, { companyName: 'Бета ООД' })
   const person = await createTestContact(org._id, { companyName: undefined, firstName: 'Иван', lastName: 'Петров' } as any)
+  C.company = String(company._id)
+  C.person = String(person._id)
 
   const book = (n: number, type: string, date: string, total: number, lines: string[], extra: Record<string, any>) =>
     StockMovement.create({
@@ -106,6 +109,24 @@ describe('GET /warehouse/movement — the Products list\'s search and filters', 
     expect(await movements(`productId=${P.nut}&productCategory=${q('Гайки')}`)).toEqual(M(3, 2))
     expect(await movements(`productId=${P.nut}&productCategory=${q('Болтове')}`)).toEqual([])
     expect(await movements(`productSearch=${q('няма такъв')}`)).toEqual([])
+  })
+})
+
+describe('GET /warehouse/movement — the movements that name one contact', () => {
+  it("lists that contact's, with the other filters, and counts them", async () => {
+    expect(await movements(`contactId=${C.company}`)).toEqual(M(1))
+    expect(await movements(`contactId=${C.person}`)).toEqual(M(2))
+    expect(await movements(`contactId=${C.company}&type=dispatch`)).toEqual([])
+    expect(await movements(`contactId=${C.company}&productId=${P.bolt}`)).toEqual(M(1))
+    expect((await get(`/warehouse/movement?size=50&contactId=${C.company}`)).json.total).toBe(1)
+  })
+
+  it("what is no contact finds nothing: never everybody's movements under one name", async () => {
+    expect(await movements('contactId=6a00000000000000000000aa')).toEqual([])
+    expect(await movements('contactId=undefined')).toEqual([])
+    expect(await movements('contactId=')).toEqual([])
+    // Without the filter, the list is everybody's, as before.
+    expect(await movements('')).toEqual(M(5, 4, 3, 2, 1))
   })
 })
 
