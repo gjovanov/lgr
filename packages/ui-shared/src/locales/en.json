@@ -1349,6 +1349,7 @@
     "debitNoteReceived": "Debit note received",
     "invoices": "Invoices",
     "openBalance": "Open Balance",
+    "unpaidListCapped": "The first {shown} of {total} documents are listed. The total counts them all.",
     "movements": "Movements",
     "aging": {
       "title": "Aging Report",

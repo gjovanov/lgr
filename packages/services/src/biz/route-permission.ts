@@ -233,6 +233,8 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
 export const EXACT_READ_RULES: ReadonlyMap<string, WriteRule> = new Map<string, WriteRule>([
   // A contact's amounts due and paid: the invoicing app's, not the pickers'.
   ['invoicing/contact/:id/summary', { need: INVOICING }],
+  // And the documents that sum is made of.
+  ['invoicing/contact/:id/unpaid', { need: INVOICING }],
   // What the POS Sessions menu offers: the roles of the route it posts to.
   ['trade/pos/session/:id/device-report', { self: 'FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager' }],
   // A filing's files name a person: DEKLAR its filer, VIES its declarant's ЕГН. They go to who files

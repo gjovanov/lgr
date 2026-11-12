@@ -154,6 +154,8 @@ export const READ_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
 export const EXACT_READS: ReadonlyMap<string, AccessRule> = new Map([
   // A contact's amounts due and paid: the invoicing app's, not the pickers'.
   ['invoicing/contact/:id/summary', any('contacts.view')],
+  // And the documents that sum is made of.
+  ['invoicing/contact/:id/unpaid', any('contacts.view')],
   ['trade/pos/session/:id/device-report', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager')],
   // A filing's files name a person: they go to who files them and who audits them (FR-25 D10).
   ['accounting/vat/:period/file/:name', any('vat.file', 'audit-log.lookup')],

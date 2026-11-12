@@ -1349,6 +1349,7 @@
     "debitNoteReceived": "Дебитното известие е получено",
     "invoices": "Фактури",
     "openBalance": "Открит баланс",
+    "unpaidListCapped": "Показани са първите {shown} от {total} документа. Сумата е за всички.",
     "movements": "Движения",
     "aging": {
       "title": "Справка за просрочия",
