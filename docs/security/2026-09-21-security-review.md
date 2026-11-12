@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-39** are fixed. The rest are open, ordered by
+**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-41** are fixed. The rest are open, ordered by
 severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
@@ -29,7 +29,10 @@ controllers that take any field, and S-36 is the rest of that Known Issue: what 
 inside the caller's own org. S-37 was found a day later, while building on the order conversion: the
 draft invoice it answers with. S-38 came the same day, while adding the stock movements to the
 contact ledger: the reports that read a ledger. S-39 followed from the same work: a stock movement's
-total.
+total. S-40 was found that evening, while adding the offer: the right a conversion asks for. S-41 came
+out of the field test of the ledger work: the test's own deactivated member still read with the session
+it held. It was filed as a private advisory, fixed and deployed the same minute, and published the same
+day.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -72,6 +75,8 @@ total.
 | S-37 | Low | The draft invoice an order conversion answers with carried its stored price trail, so it named a price level to a role that does not see it | **Fixed 2026-11-12** (#696) |
 | S-38 | Low | The reports that read a ledger did not hold what the ledger's own page holds: a session without the purchases side or the cost figures was shown incoming documents, the bill behind a delivery and cost-derived totals | **Fixed 2026-11-12** (#704) |
 | S-39 | Low | A stock movement's total, which is its lines' costs summed, was sent to a role without the cost figures, by id and on every row of the list | **Fixed 2026-11-12** (#708) |
+| S-40 | Low | Converting a proforma made a draft sales invoice without asking for the right to make sales documents | **Fixed 2026-11-12** (#712) |
+| **S-41** | **High** | **A member an administrator switched off kept the session they held for up to a day, and one switched off through the Users form could bring themselves back with a password reset** ([GHSA-24p6-3j68-4v2c](https://github.com/gjovanov/lgr/security/advisories/GHSA-24p6-3j68-4v2c)) | **Fixed 2026-11-12** |
 
 ---
 
@@ -2037,3 +2042,65 @@ and the form offered the action only to a role that does; the route did not hold
   the new strings in the bundle, ArgoCD synced. In the demo organization an administrator converts an
   offer into a proforma and into an invoice. The refused side is the flow test's: the demo organization
   is on the legacy model, where no role works proformas without making sales documents.
+
+## S-41 — A member an administrator switched off kept their access (High, **fixed 2026-11-12**)
+
+> Found on 2026-11-12, in the field test of the contact ledger's stock movements: the test's own member,
+> deactivated at the end, still read with the session it held. Reported and fixed privately
+> ([GHSA-24p6-3j68-4v2c](https://github.com/gjovanov/lgr/security/advisories/GHSA-24p6-3j68-4v2c)): fixed in
+> `379b757e`, on production 37 seconds after the push, and published the same day.
+
+**Where:** `PUT /org/:orgId/user/:userId` (the Users form's Active switch) and
+`DELETE /org/:orgId/user/:userId` (the list's remove).
+
+**What was wrong:** an administrator who switches a member off expects that person to be out. Two things kept them
+in.
+
+- **The session they hold.** A session is the person's and lasts a day. A change of role ends it (FR-26.9.4); neither
+  way of switching a member off did. Only a new sign-in was refused. Until the token expired the person read and
+  wrote in the org with the role they had.
+- **The account itself, through the form's switch.** The remove records when the member was deactivated
+  (`deactivatedAt`). The switch did not. Inactive with no deactivation date is the state of a registration still
+  waiting for its first activation, and that state is the person's own to finish: a password reset activates the
+  person and every membership of theirs that is waiting, and so does the activation mail. So a member switched off
+  through the form asked for a reset link, used it, and was an active member again with the same role. The Users
+  list showed them as active.
+
+- **Who:** a person whose membership an administrator switched off. For the second part they need nothing but their
+  own mailbox and the public reset endpoint.
+- **Impact:** for up to a day, everything their role could read and write in that org. Through the form's switch,
+  the same again for as long as nobody looked.
+- **Why High:** an organization removes a person so that they no longer see or change its invoices, bank details,
+  payroll and stock. The control it used did not do that.
+- **Exposure on the day:** none. Read-only counts on production: 143 memberships, none switched off while the person
+  behind it is active (the 40 inactive with no date are first registrations still waiting, in test organizations).
+  No reset link had ever been asked for. 33 memberships were deactivated with a date, in a test copy of a shop and a
+  field-test organization, and the audit trail holds no act of any of them after their deactivation.
+
+### Fix
+
+- The form's switch deactivates as the remove does: it records when. An administrator who switches the member on
+  again clears the date, so the next switching off is told from this one.
+- Both ways end the sessions the person holds (`endSessionsOf`, the person's `tokenVersion`, as a change of role
+  does): at once on the pod that took the request, within the cache minute on the others. The counter is the
+  person's, so they are signed out of their other orgs too and sign in again there (D-10).
+- A membership still waiting for its first activation is unchanged: saving it with the switch off is no
+  deactivation, and the person still finishes their activation.
+- A sign-in to the org now answers a switched-off member "Account is disabled". It used to tell them to look for an
+  activation link.
+- Tests: `integration/identity-account.flow.test.ts`, 5 cases (by the switch and by the remove: deactivated, the
+  held session refused, a used reset link and an activation mail give nothing back; switched on again; one of two
+  orgs; still waiting). Four fail on the code before the fix. The whole suite on the commit: 8195 pass, 0 fail.
+- Deployed as `v20261112-aff22c59d77f`. Field check on production's demo organization with one throwaway member,
+  19 of 19: switched off by the form (inactive and dated; a new sign-in refused as disabled; the held session
+  refused at once and on all six reads from 63 s on; a write refused), switched on again (active, no date, signs in;
+  the old session stays refused), removed from the list (the same again; the held session answered once more from
+  the other pod inside its cache minute, and was refused three seconds later and from then on). The member and its
+  person were deleted again by exact id.
+- An on-prem server gets it with the first server release cut after `379b757e`. Until then the first part holds
+  there: a session outlives the deactivation by up to a day. The second needs a mailed reset link, which a server
+  with no mail key never sends.
+- Left by this fix and closed in #718: a membership switched off by any other way than those two routes (a script,
+  a restore, an import) kept its session until the token expired, and a membership no person is linked to had no
+  person whose sessions could be ended. The session check now reads the membership too. Neither case was live:
+  every membership on production is linked to a person that is there.
