@@ -335,6 +335,14 @@ export async function getContactLedger(
     // The line's place in its document breaks the sort's ties, so a page ends on the same line every time.
     { $unwind: { path: '$lines', includeArrayIndex: '_line' } },
     ...lineMatch,
+    // Only what a row is made of goes on to the sort: a contact's whole history is sorted for one page of it, and
+    // an unwound line carried its whole document along (a movement's line its staged prices too).
+    {
+      $project: {
+        issueDate: 1, invoiceNumber: 1, type: 1, _line: 1, 'stockSource.movementIds': 1,
+        'lines.productId': 1, 'lines.quantity': 1, 'lines.unitPrice': 1, 'lines.taxRate': 1, 'lines.lineTotal': 1, 'lines.warehouseId': 1,
+      },
+    },
     // The movements no document carries join the documents' lines, each line a row, at the day it was booked.
     ...(listsMovements ? [{
       $unionWith: {
@@ -343,7 +351,13 @@ export async function getContactLedger(
           { $match: movementMatch },
           { $unwind: { path: '$lines', includeArrayIndex: '_line' } },
           ...lineMatch,
-          { $addFields: { issueDate: '$date', _movement: true } },
+          {
+            $project: {
+              issueDate: '$date', _movement: { $literal: true }, type: 1, _line: 1, movementNumber: 1, reference: 1,
+              fromWarehouseId: 1, toWarehouseId: 1,
+              'lines.productId': 1, 'lines.quantity': 1, 'lines.unitCost': 1, 'lines.totalCost': 1,
+            },
+          },
         ],
       },
     }] : []),
