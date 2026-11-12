@@ -400,4 +400,75 @@ describe('C.4 / C.6 the trail is not overwritten, and every answer is redacted',
     expect(list.status).toBe(200)
     expect(JSON.stringify(list.json)).not.toContain('Цена 3')
   })
+
+  // A conversion answers with the draft invoice it made, from another controller than the invoices': the same rule.
+  describe('the draft a conversion answers with', () => {
+    const today = new Date().toISOString().slice(0, 10)
+    let warehouseId: string
+    const ok = async (method: string, path: string, body?: unknown) => {
+      const res = await call(method, path, tokens.admin, body)
+      expect(res.status, `${method} ${path}: ${JSON.stringify(res.json)}`).toBe(200)
+      return res.json
+    }
+    /** What the clerk was answered names no hidden level; what is stored is whole. */
+    const expectRedacted = async (conv: { status: number; json: any }) => {
+      expect(conv.status, JSON.stringify(conv.json)).toBe(200)
+      expect(JSON.stringify(conv.json)).not.toContain('Цена 3')
+      const line = conv.json.invoice.lines[0]
+      expect(line.unitPrice).toBe(15)
+      expect(line.priceExplanation).toEqual([trail[0], { type: 'customer', label: 'Customer price', price: 15 }])
+      const stored: any = await Invoice.findById(conv.json.invoice._id ?? conv.json.invoice.id).lean().exec()
+      expect(stored.lines[0].priceExplanation.map((s: any) => [s.type, s.label, s.price])).toEqual([['base', 'Selling price', 20], ['tier', 'Цена 3', 15]])
+    }
+
+    beforeAll(async () => {
+      const org: any = await Org.findById(orgId).lean().exec()
+      const wh = await createTestWarehouse(org._id, { name: 'Conversion WH', code: 'CVW' } as any)
+      warehouseId = String(wh._id)
+    })
+
+    it('a customer order converted by the clerk', async () => {
+      await StockLevel.create({ orgId, productId, warehouseId, quantity: 5, availableQuantity: 5, avgCost: 9 } as any)
+      const { internalOrder } = await ok('POST', '/invoicing/internal-orders', {
+        contactId, issueDate: today, requestedDeliveryDate: today, warehouseId,
+        lines: [{ productId, description: 'Bolt', quantity: 2, unit: 'pcs', expectedUnitPrice: 20 }],
+      })
+      await ok('POST', `/invoicing/internal-orders/${internalOrder._id}/confirm`)
+      await ok('POST', `/invoicing/internal-orders/${internalOrder._id}/reserve-available`, {})
+
+      await expectRedacted(await call('POST', `/invoicing/internal-orders/${internalOrder._id}/convert`, writer))
+    })
+
+    it('a supplier order converted by the clerk for that client', async () => {
+      const supplier: any = await createTestContact(orgId as any, { type: 'supplier', companyName: 'Conversion supplier' } as any)
+      const { order: made } = await ok('POST', '/invoicing/orders', {
+        issueDate: today,
+        supplierGroups: [{
+          supplierId: String(supplier._id),
+          lines: [{ productId, description: 'Bolt', quantity: 3, unit: 'pcs', expectedUnitPrice: 9, allocations: [{ warehouseId, quantity: 3 }] }],
+        }],
+      })
+      const { order } = await ok('POST', `/invoicing/orders/${made._id}/send`)
+      const g = order.supplierGroups[0]
+      const l = g.lines[0]
+      const a = l.allocations[0]
+      await ok('POST', '/invoicing/reservations', {
+        source: 'order', productId, quantity: 3, contactId,
+        orderId: String(order._id), groupId: String(g._id), lineId: String(l._id), allocationId: String(a._id),
+      })
+      // The goods arrive: a bill against the allocation, received.
+      const { invoice: bill } = await ok('POST', '/invoices', {
+        type: 'invoice', direction: 'incoming', contactId: String(supplier._id), issueDate: today, currency: 'EUR',
+        orderId: String(order._id), orderGroupId: String(g._id),
+        lines: [{
+          productId, description: 'Bolt', quantity: 3, unit: 'pcs', unitPrice: 9, taxRate: 20, warehouseId,
+          orderRef: { orderId: String(order._id), groupId: String(g._id), lineId: String(l._id), allocationId: String(a._id) },
+        }],
+        subtotal: 27, total: 32.4,
+      })
+      await ok('POST', `/invoices/${bill._id ?? bill.id}/receive`)
+
+      await expectRedacted(await call('POST', `/invoicing/orders/${order._id}/convert`, writer, { contactId }))
+    })
+  })
 })
