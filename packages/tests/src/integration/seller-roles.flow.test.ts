@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
-import { createTestContact, createTestInvite, createTestInvoice, createTestOrg, createTestStockMovement, createTestUser, createTestWarehouse } from '../helpers/factories'
+import { createTestContact, createTestInvite, createTestInvoice, createTestOrg, createTestProduct, createTestStockMovement, createTestUser, createTestWarehouse } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
@@ -330,6 +330,88 @@ describe("a receipt's bill (purchases, #493)", () => {
 
     // An admin still sees the link.
     expect(String((await request('GET', `/warehouse/movement/${billed._id}`, tokens.admin)).json.stockMovement.invoiceId)).toBe(billId)
+  })
+
+  it("an article's ledger names none either, by number or by id, and keeps a sales document", async () => {
+    const product = await createTestProduct(org._id, { name: 'Billed bolt' } as any)
+    const line = { productId: product._id, quantity: 5, unitCost: 2, totalCost: 10 }
+    await createTestStockMovement(org._id, { type: 'receipt', status: 'completed', date: new Date(Date.now() - 60_000), toWarehouseId: warehouseA, invoiceId: billId, lines: [line] } as any)
+    await createTestStockMovement(org._id, { type: 'dispatch', status: 'completed', fromWarehouseId: warehouseA, invoiceId: saleId, lines: [{ ...line, quantity: 1 }] } as any)
+
+    const mine = await request('GET', `/warehouse/product-ledger/${product._id}`, tokens.seller)
+    expect(mine.status).toBe(200)
+    expect(mine.json.entries.map((e: any) => [e.eventType, e.invoiceNumber ?? null, e.invoiceId ?? null])).toEqual([
+      ['received', null, null],
+      ['dispatched', 'INV-1', saleId],
+    ])
+    expect(JSON.stringify(mine.json)).not.toContain('BILL-1')
+    expect(JSON.stringify(mine.json)).not.toContain(billId)
+    // Sorted by the invoice column, the row whose bill is not named goes last, as a row without one does.
+    const sorted = await request('GET', `/warehouse/product-ledger/${product._id}?sortBy=invoiceNumber`, tokens.seller)
+    expect(sorted.json.entries.map((e: any) => e.eventType)).toEqual(['dispatched', 'received'])
+
+    const theirs = await request('GET', `/warehouse/product-ledger/${product._id}`, tokens.admin)
+    expect(theirs.json.entries.map((e: any) => [e.invoiceNumber, e.invoiceId])).toEqual([['BILL-1', billId], ['INV-1', saleId]])
+  })
+})
+
+/**
+ * A report that reads a ledger reads it as the ledger's own page does: a session that holds the Reports app and not
+ * the purchases area is shown no incoming document by either, and no bill behind a delivery.
+ */
+describe('the reports that read a ledger (purchases)', () => {
+  let reportsOnly: string
+  let productId: string
+
+  beforeAll(async () => {
+    await createPermissionSet(orgId, { name: 'Reports, no purchases', permissions: ['invoicing.read', 'inventory.read', 'reports.read'], areas: [] })
+    reportsOnly = (await member('member', 'Reports, no purchases')).token
+    const product = await createTestProduct(org._id, { name: 'Reported bolt' } as any)
+    productId = String(product._id)
+    await createTestStockMovement(org._id, {
+      movementNumber: 'SM-BILLED', type: 'receipt', status: 'completed', toWarehouseId: warehouseA, contactId, invoiceId: billId,
+      lines: [{ productId: product._id, quantity: 5, unitCost: 2, totalCost: 10 }],
+    } as any)
+  })
+
+  it('the session is what it says: the Reports app, and no bill', async () => {
+    expect((await request('GET', '/reports/catalog', reportsOnly)).status).toBe(200)
+    expect((await request('GET', `/invoices/${billId}`, reportsOnly)).status).toBe(404)
+  })
+
+  it("a contact's ledger report leaves the incoming documents out", async () => {
+    const mine = await request('POST', '/reports/contact-ledger/run', reportsOnly, { params: { contactId } })
+    expect(mine.status).toBe(200)
+    expect(mine.json.rows.map((r: any) => r.documentNumber)).toContain('INV-1')
+    expect(JSON.stringify(mine.json)).not.toContain('BILL-1')
+    expect(mine.json.meta.ledgerSummary.totalPurchases).toBe(0)
+    const theirs = await request('POST', '/reports/contact-ledger/run', tokens.admin, { params: { contactId } })
+    expect(theirs.json.rows.map((r: any) => r.documentNumber)).toEqual(expect.arrayContaining(['INV-1', 'BILL-1']))
+    expect(theirs.json.meta.ledgerSummary.totalPurchases).toBeGreaterThan(0)
+  })
+
+  it("an article's ledger report names no bill behind a delivery", async () => {
+    const mine = await request('POST', '/reports/product-ledger/run', reportsOnly, { params: { productId } })
+    expect(mine.status).toBe(200)
+    expect(mine.json.rows.map((r: any) => r.documentRef)).toEqual(['SM-BILLED'])
+    expect(JSON.stringify(mine.json)).not.toContain('BILL-1')
+    expect(JSON.stringify(mine.json)).not.toContain(billId)
+    const theirs = await request('POST', '/reports/product-ledger/run', tokens.admin, { params: { productId } })
+    expect(theirs.json.rows[0].invoiceNumber).toBe('BILL-1')
+  })
+
+  it('the deliveries of the warehouse operations report are listed under their own number', async () => {
+    const run = (token: string) => request('POST', '/reports/warehouse-operations/run', token, { params: { operation: 'purchases', groupBy: 'document', productId } })
+    const mine = await run(reportsOnly)
+    expect(mine.status).toBe(200)
+    expect(mine.json.rows.map((r: any) => [r.documentNumber, r.docType, r.invoiceId])).toEqual([['SM-BILLED', 'receipt_note', null]])
+    expect(JSON.stringify(mine.json)).not.toContain('BILL-1')
+    expect(JSON.stringify(mine.json)).not.toContain(billId)
+    // Asked for the deliveries an invoice came with, it is shown none: to this session none has one.
+    const invoiced = await request('POST', '/reports/warehouse-operations/run', reportsOnly, { params: { operation: 'purchases', groupBy: 'document', productId, docTypes: ['invoice'] } })
+    expect(invoiced.json.rows).toEqual([])
+    const theirs = await run(tokens.admin)
+    expect(theirs.json.rows.map((r: any) => [r.documentNumber, r.docType, r.invoiceId])).toEqual([['BILL-1', 'invoice', billId]])
   })
 })
 

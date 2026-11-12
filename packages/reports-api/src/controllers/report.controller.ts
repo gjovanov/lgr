@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { can, grantOf } from 'services/biz/access/evaluate'
+import { seesBills } from 'services/biz/access/partition'
 import { seesCosts } from 'config/access'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Org } from 'db/models'
@@ -38,6 +39,12 @@ import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
 
 /** FR-27.6: the field groups a caller sees: `costs` is `products.costs`, as on every product route. */
 const seesGroup = (user: any) => (group: 'costs') => (group === 'costs' ? seesCosts(grantOf(user)) : true)
+
+/**
+ * What a handler is told of its caller (`ReportHandlerContext.sees`): a report that reads a ledger answers as the
+ * ledger's own route does, for the purchases side and for the cost figures that are no column of it.
+ */
+const sightOf = (user: any) => ({ bills: seesBills(user), costs: seesCosts(grantOf(user)) })
 
 /** Column headers arrive translated from the UI — see reporting/excel/report.excel.ts. */
 const MAX_LABEL_LEN = 120
@@ -209,6 +216,7 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
       params: resolved.params,
       output: 'table',
       locale: (body as any)?.locale,
+      sees: sightOf(user),
     }), seesGroup(user))
 
     // FR-6.10: the drill-down is the registry's rule, resolved here per row, so the runner keeps
@@ -262,6 +270,7 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
       params: resolved.params,
       output: format,
       locale: b.locale,
+      sees: sightOf(user),
     }), seesGroup(user))
 
     const org = await Org.findById(orgId).lean()

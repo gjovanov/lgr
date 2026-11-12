@@ -40,6 +40,16 @@ export interface ContactLedgerResult {
   summary: ContactLedgerSummary
 }
 
+/**
+ * FR-27.11.C.2: the ledger for a role without the cost figures. The profitability is the sales less the total cost,
+ * which gives the cost back, and a row's purchase price is one: both absent, never blank. One definition, for the
+ * ledger's route and the report that reads it.
+ */
+export function withoutLedgerCosts<T extends { entries: any[]; summary: any }>(result: T): T {
+  const { profitabilityNet: _net, profitabilityGross: _gross, ...summary } = result.summary
+  return { ...result, entries: result.entries.map(({ purchasePrice: _cost, ...e }: any) => e), summary }
+}
+
 export interface ContactLedgerOptions {
   dateFrom?: string
   dateTo?: string

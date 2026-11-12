@@ -10,7 +10,7 @@
  * register, which is what `sales-documents` / `purchase-documents` are for.
  */
 
-import { getContactLedger } from '../contact-ledger.service.js'
+import { getContactLedger, withoutLedgerCosts } from '../contact-ledger.service.js'
 import {
   rowCapFor,
   ReportParamError,
@@ -40,13 +40,17 @@ export async function runContactLedger(ctx: ReportHandlerContext): Promise<Repor
 
   // The service pages; the report wants one capped page. `size: cap + 1` is the same
   // "ask for one more than the cap" trick the aggregation handlers use to detect truncation.
-  const result = await getContactLedger(ctx.orgId, contactId, {
+  const read = await getContactLedger(ctx.orgId, contactId, {
     dateFrom: period.from,
     dateTo: period.to,
     documentTypes: ctx.params.docTypes as string[] | undefined,
+    // As the ledger's own route reads it: no incoming document without the purchases side (FR-26.6)…
+    outgoingOnly: ctx.sees ? !ctx.sees.bills : false,
     page: 0,
     size: cap + 1,
   })
+  // …and no cost figure without them (FR-27.11.C.2): the summary goes out whole in `meta`, where no column holds it.
+  const result = ctx.sees && !ctx.sees.costs ? withoutLedgerCosts(read) : read
 
   const truncated = result.entries.length > cap
   const entries = truncated ? result.entries.slice(0, cap) : result.entries

@@ -55,8 +55,28 @@ export interface ProductLedgerOptions {
   /** One of `LEDGER_SORT_KEYS`; unset or unknown: the booking order, oldest first. */
   sortBy?: string
   sortOrder?: 'asc' | 'desc'
+  /**
+   * FR-26.6 `purchases` (#493): for a session without the area a movement names no bill, here as on the movement's own
+   * routes. The row stays, without the incoming document's id and number; a sales document it names stays. Set before
+   * the rows are sorted, so a sort by the invoice column orders nothing by a number that is not shown.
+   */
+  withoutBills?: boolean
   page?: number
   size?: number
+}
+
+/**
+ * FR-27.11.C.1: the ledger for a role without the cost figures: no row's unit cost, line value or running value, and
+ * no current value. For the report that reads the ledger, where these are no column a field group could drop. The
+ * ledger's own route redacts per row (`redactMovementLine`), which also holds each price level.
+ */
+export function withoutLedgerCosts<T extends { entries: any[]; summary: any }>(result: T): T {
+  const { currentValue: _value, ...summary } = result.summary
+  return {
+    ...result,
+    entries: result.entries.map(({ unitCost: _unit, lineTotalCost: _line, runningValue: _running, ...e }: any) => e),
+    summary,
+  }
 }
 
 const TEXT_SORT_KEYS = ['documentRef', 'contactName', 'eventType', 'warehouseName', 'invoiceNumber', 'reference']
@@ -180,6 +200,7 @@ export async function getProductLedger(
         fromWarehouseName: { $arrayElemAt: ['$_fromWh.name', 0] },
         toWarehouseName: { $arrayElemAt: ['$_toWh.name', 0] },
         invoiceNumber: { $arrayElemAt: ['$_invoice.invoiceNumber', 0] },
+        invoiceDirection: { $arrayElemAt: ['$_invoice.direction', 0] },
         contactCompanyName: { $arrayElemAt: ['$_contact.companyName', 0] },
         contactFirstName: { $arrayElemAt: ['$_contact.firstName', 0] },
         contactLastName: { $arrayElemAt: ['$_contact.lastName', 0] },
@@ -194,14 +215,17 @@ export async function getProductLedger(
     },
   ])
 
+  /** A bill does not exist for a session without `purchases`, so the movement names none. */
+  const namesInvoice = (m: any): boolean => !(options.withoutBills && m.invoiceDirection === 'incoming')
+
   function buildContactName(m: any): { contactId?: string; contactName?: string } {
     // Direct contact on movement
     if (m.contactId) {
       const name = m.contactCompanyName || [m.contactFirstName, m.contactLastName].filter(Boolean).join(' ') || ''
       return { contactId: String(m.contactId), contactName: name }
     }
-    // Fallback: contact from linked invoice
-    if (m.invoiceContactId) {
+    // Fallback: contact from linked invoice (never from a bill the caller is not told of)
+    if (m.invoiceContactId && namesInvoice(m)) {
       const name = m.invoiceContactCompanyName || [m.invoiceContactFirstName, m.invoiceContactLastName].filter(Boolean).join(' ') || ''
       return { contactId: String(m.invoiceContactId), contactName: name }
     }
@@ -215,14 +239,15 @@ export async function getProductLedger(
     const docRef = m.movementNumber
     const docId = String(m._id)
     const contact = buildContactName(m)
+    const named = namesInvoice(m)
     const base = {
       date: m.date.toISOString(),
       documentRef: docRef,
       documentId: docId,
       documentType: 'movement' as const,
       unitCost: m.unitCost,
-      invoiceId: m.invoiceId ? String(m.invoiceId) : undefined,
-      invoiceNumber: m.invoiceNumber || undefined,
+      invoiceId: named && m.invoiceId ? String(m.invoiceId) : undefined,
+      invoiceNumber: (named && m.invoiceNumber) || undefined,
       reference: m.reference || undefined,
       movementType: m.type,
       ...contact,

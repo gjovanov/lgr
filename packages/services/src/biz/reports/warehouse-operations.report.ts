@@ -178,6 +178,15 @@ export async function runWarehouseOperations(ctx: ReportHandlerContext): Promise
     ? ctx.params.docTypes
     : undefined
 
+  /**
+   * FR-26.6 `purchases` (#493): for a caller without the area a movement names no bill, here as on the movement's own
+   * routes. A delivery a bill holds is listed as one with no invoice: under its own number, with no link. Its date
+   * stays the business date below. Decided where the row's type and number are, so a filter by document type reads
+   * what the caller is shown.
+   */
+  const billHidden: any = ctx.sees && !ctx.sees.bills ? { $eq: ['$invoice.direction', 'incoming'] } : false
+  const unlessBillHidden = (shown: any, hidden: any) => (billHidden ? { $cond: [billHidden, hidden, shown] } : shown)
+
   const pipeline: any[] = [
     { $match: match },
     // Document enrichment first — the effective date depends on it.
@@ -194,10 +203,10 @@ export async function runWarehouseOperations(ctx: ReportHandlerContext): Promise
     {
       $addFields: {
         effectiveDate: EFFECTIVE_DATE,
-        docType: { $ifNull: ['$invoice.type', NO_INVOICE_DOC_TYPES[operation]] },
-        documentNumber: { $ifNull: ['$invoice.invoiceNumber', '$movementNumber'] },
+        docType: unlessBillHidden({ $ifNull: ['$invoice.type', NO_INVOICE_DOC_TYPES[operation]] }, NO_INVOICE_DOC_TYPES[operation]),
+        documentNumber: unlessBillHidden({ $ifNull: ['$invoice.invoiceNumber', '$movementNumber'] }, '$movementNumber'),
         effectiveContactId: { $ifNull: ['$contactId', '$invoice.contactId'] },
-        currency: { $ifNull: ['$invoice.currency', null] },
+        currency: unlessBillHidden({ $ifNull: ['$invoice.currency', null] }, null),
         // Returns negate their family.
         sign: { $cond: [{ $eq: ['$type', 'return'] }, -1, 1] },
       },
@@ -290,7 +299,7 @@ export async function runWarehouseOperations(ctx: ReportHandlerContext): Promise
           _id: 0,
           movementId: { $toString: '$_id' },
           productId: { $toString: '$lines.productId' },
-          invoiceId: { $cond: [{ $ifNull: ['$invoice._id', false] }, { $toString: '$invoice._id' }, null] },
+          invoiceId: unlessBillHidden({ $cond: [{ $ifNull: ['$invoice._id', false] }, { $toString: '$invoice._id' }, null] }, null),
           date: '$effectiveDate',
           documentNumber: 1,
           docType: 1,

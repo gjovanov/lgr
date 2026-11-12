@@ -249,9 +249,10 @@ describe('C.1 / C.2 what else carries a cost', () => {
   let reader: string
   beforeAll(async () => {
     const org: any = await Org.findById(orgId).lean().exec()
-    // What `invoicing.read` + `inventory.read` give, less the cost figures.
-    const caps = [...(compileLegacy({ role: 'member', permissions: ['invoicing.read', 'inventory.read'] }) as any).caps].filter((c: string) => c !== 'products.costs')
-    const role: any = await Role.create({ orgId: org._id, name: 'Reader (no costs)', isBuiltin: false, edited: true, version: 1, legacy: { role: 'member', permissions: ['invoicing.read', 'inventory.read'] }, caps } as any)
+    // What `invoicing.read` + `inventory.read` give, and the Reports app, less the cost figures.
+    const permissions = ['invoicing.read', 'inventory.read', 'reports.read']
+    const caps = [...(compileLegacy({ role: 'member', permissions }) as any).caps].filter((c: string) => c !== 'products.costs')
+    const role: any = await Role.create({ orgId: org._id, name: 'Reader (no costs)', isBuiltin: false, edited: true, version: 1, legacy: { role: 'member', permissions }, caps } as any)
     const person = await createTestUser(org._id, { role: 'member', username: 'reader', email: 'reader@price-levels.test' } as any)
     await User.updateOne({ _id: person._id }, { $set: { roleId: role._id } }).exec()
     forgetMember(person._id)
@@ -284,6 +285,34 @@ describe('C.1 / C.2 what else carries a cost', () => {
     for (const e of mine.json.entries) expect('purchasePrice' in e).toBe(false)
     const theirs = await call('GET', `/invoicing/contact-ledger/${contactId}`, tokens.admin)
     expect(typeof theirs.json.summary.profitabilityNet).toBe('number')
+  })
+
+  it('the reports that read the two ledgers carry what the ledgers carry: no profitability, no unit, line, running or current value', async () => {
+    const org: any = await Org.findById(orgId).lean().exec()
+    const wh: any = await createTestWarehouse(org._id)
+    // An article of its own: the count above booked an adjustment of the bolt.
+    const nut: any = await Product.create({ orgId: org._id, sku: 'N-1', name: 'Nut', category: 'Общи', type: 'goods', unit: 'pcs', purchasePrice: 9, sellingPrice: 20 } as any)
+    await createTestStockMovement(org._id, { type: 'receipt', status: 'completed', toWarehouseId: wh._id, lines: [{ productId: nut._id, quantity: 3, unitCost: 9, totalCost: 27 }] } as any)
+
+    const contact = await call('POST', '/reports/contact-ledger/run', reader, { params: { contactId } })
+    expect(contact.status).toBe(200)
+    expect(contact.json.rows.length).toBeGreaterThan(0)
+    expect(typeof contact.json.meta.ledgerSummary.totalSalesNet).toBe('number')
+    expect('profitabilityNet' in contact.json.meta.ledgerSummary || 'profitabilityGross' in contact.json.meta.ledgerSummary).toBe(false)
+
+    const article = await call('POST', '/reports/product-ledger/run', reader, { params: { productId: String(nut._id) } })
+    expect(article.status).toBe(200)
+    expect(article.json.rows).toHaveLength(1)
+    expect(article.json.meta.ledgerSummary.totalIn).toBe(3)
+    expect('currentValue' in article.json.meta.ledgerSummary).toBe(false)
+    for (const r of article.json.rows) expect(['unitCost', 'lineTotalCost', 'runningValue'].filter(k => k in r)).toEqual([])
+    expect(article.json.columns.map((c: any) => c.key)).not.toContain('unitCost')
+
+    // The Administrator's carry them.
+    const theirs = await call('POST', '/reports/product-ledger/run', tokens.admin, { params: { productId: String(nut._id) } })
+    expect(theirs.json.meta.ledgerSummary.currentValue).toBe(27)
+    expect(theirs.json.rows.map((r: any) => [r.unitCost, r.lineTotalCost, r.runningValue])).toEqual([[9, 27, 27]])
+    expect(typeof (await call('POST', '/reports/contact-ledger/run', tokens.admin, { params: { contactId } })).json.meta.ledgerSummary.profitabilityNet).toBe('number')
   })
 
   it("an outgoing order's sheet (XLSX), like its JSON: no expected purchase price; the Administrator's has it", async () => {
