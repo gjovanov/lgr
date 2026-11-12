@@ -176,6 +176,47 @@ describe('FR-27.6: and writes the kinds it works on', () => {
   })
 })
 
+describe("a contact's unpaid documents are theirs who read the documents (`GET /invoicing/contact/:id/unpaid`)", () => {
+  it('a role that reads sales documents is given them, the bills only when it reads bills; any other role is refused', async () => {
+    const contact = await createTestContact(org._id)
+    await createTestInvoice(org._id, contact._id as any, { invoiceNumber: 'INV-U-1', status: 'sent' } as any)
+    await createTestInvoice(org._id, contact._id as any, { invoiceNumber: 'BILL-U-1', direction: 'incoming', status: 'received' } as any)
+    const join = async (key: string, name: string, caps: CapabilityId[]) => {
+      people[key] = await createTestUser(org._id, { role: 'member', username: key, email: `${key}@partitions.test` } as any)
+      await giveRole(key, name, caps)
+      tokens[key] = await (signer as any).decorator.jwt.sign(await tokenize((await User.findById(people[key]._id).exec())!))
+    }
+    const unpaid = (key: string) => call('GET', `/invoicing/contact/${contact._id}/unpaid`, tokens[key])
+    const balance = async (key: string) => (await call('GET', `/invoicing/contact/${contact._id}/summary`, tokens[key])).json.openBalance
+
+    // Sales documents and bills: both, and they add up to the figure of the contact's page.
+    const counter = await unpaid('counter')
+    expect(counter.status).toBe(200)
+    expect(counter.json.documents.map((d: any) => d.invoiceNumber).sort()).toEqual(['BILL-U-1', 'INV-U-1'])
+    expect(counter.json.openBalance).toBe(2360)
+
+    // Sales documents alone: no bill, in the list or in the figure.
+    await join('salesReader', 'Sales reader', ['sales-docs.view', 'contacts.view'] as CapabilityId[])
+    const sales = await unpaid('salesReader')
+    expect(sales.status).toBe(200)
+    expect(sales.json.documents.map((d: any) => d.invoiceNumber)).toEqual(['INV-U-1'])
+    expect([sales.json.openBalance, await balance('salesReader')]).toEqual([1180, 1180])
+    expect(JSON.stringify(sales.json)).not.toContain('BILL-U-1')
+
+    // The contact's page without the documents: its figure, and no list of the documents behind it.
+    await join('contactsClerk', 'Contacts clerk', ['contacts.view'] as CapabilityId[])
+    expect(await balance('contactsClerk')).toBe(1180)
+    const refused = await unpaid('contactsClerk')
+    expect(refused.status).toBe(403)
+    expect(JSON.stringify(refused.json)).not.toContain('INV-U-1')
+
+    // Bills alone, and quotes alone: refused, as the ledger behind the Invoices button is.
+    expect((await unpaid('billsClerk')).status).toBe(403)
+    expect((await unpaid('quoter')).status).toBe(403)
+    expect((await call('GET', `/invoicing/contact-ledger/${contact._id}`, tokens.billsClerk)).status).toBe(403)
+  })
+})
+
 describe('FR-27.6 on the legacy model: the areas, for every session (`seesBills`)', () => {
   it("a warehouse manager, who holds no invoicing permission, is still told of the bill that holds a receipt; a Seller is not", async () => {
     const legacy: any = await createTestOrg({ slug: 'access-partitions-legacy' } as any)

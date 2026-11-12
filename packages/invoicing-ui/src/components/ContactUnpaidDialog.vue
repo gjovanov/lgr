@@ -33,7 +33,7 @@
         </v-data-table>
 
         <!-- The figure on the button: these rows added up, a credit note's taken off. -->
-        <div class="d-flex justify-end align-center mt-3 text-subtitle-1" data-testid="contact-unpaid-total">
+        <div v-if="!refused" class="d-flex justify-end align-center mt-3 text-subtitle-1" data-testid="contact-unpaid-total">
           <span class="mr-3">{{ $t('invoicing.openBalance') }}</span>
           <strong>{{ balanceLabel }}</strong>
         </div>
@@ -96,6 +96,8 @@ const count = ref(0)
 const openBalance = ref<number | null>(0)
 const currency = ref<string | null>(null)
 const loading = ref(false)
+/** The list could not be read (the documents are not part of the role): then no figure of its own either. */
+const refused = ref(false)
 
 const WHOLE = { cellProps: { class: 'text-no-wrap' } }
 const headers = computed(() => [
@@ -145,11 +147,13 @@ async function fetch() {
     count.value = data.count || 0
     openBalance.value = data.mixedCurrency ? null : (data.openBalance ?? 0)
     currency.value = data.currency || null
+    refused.value = false
   } catch {
     documents.value = []
     count.value = 0
     openBalance.value = 0
     currency.value = null
+    refused.value = true
   } finally {
     loading.value = false
   }

@@ -7,7 +7,7 @@ import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { UNPAID_LIST_MAX } from '../../../invoicing-api/src/controllers/contact.controller.js'
 import { config } from 'config'
-import { EXACT_READS } from 'config/access'
+import { EXACT_READS, accessRuleFor } from 'config/access'
 import { Identity, PermissionSet, type IUser } from 'db/models'
 import { sessionFor } from 'services/biz/auth.service'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
@@ -160,10 +160,11 @@ describe("the documents behind a contact's Open Balance", () => {
     expect(refused.status).toBe(403)
     expect(JSON.stringify(refused.json)).not.toContain('INV-')
     expect((await request(`/invoicing/contact/${contactId}/unpaid`)).status).toBe(401)
-    // Both tables name it beside the summary: left to the contact routes' prefix, the pickers' roles would read it.
-    for (const table of [EXACT_READS, EXACT_READ_RULES]) {
-      expect(JSON.stringify(table.get('invoicing/contact/:id/unpaid'))).toBe(JSON.stringify(table.get('invoicing/contact/:id/summary')))
-      expect(table.get('invoicing/contact/:id/unpaid')).toBeDefined()
-    }
+    // Both tables name it: left to the contact routes' prefix, the pickers' roles would read it. By permissions it
+    // is the summary's rule; by capabilities the documents' own, as the ledger behind the Invoices button asks.
+    expect(EXACT_READ_RULES.get('invoicing/contact/:id/unpaid')).toBeDefined()
+    expect(JSON.stringify(EXACT_READ_RULES.get('invoicing/contact/:id/unpaid'))).toBe(JSON.stringify(EXACT_READ_RULES.get('invoicing/contact/:id/summary')))
+    expect(EXACT_READS.get('invoicing/contact/:id/unpaid')).toEqual({ anyOf: ['sales-docs.view'] })
+    expect(accessRuleFor('GET', 'invoicing/contact-ledger/:contactId')).toEqual({ anyOf: ['sales-docs.view'] })
   })
 })
