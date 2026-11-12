@@ -9,6 +9,7 @@ import { confirmMovement, MovementClaimedError, MovementNotDraftError, unclaimed
 import { DocFile, Invoice, StockMovement } from 'db/models'
 import { createMovementWithProductUpdates, updateMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
 import { createNumberedMovement, withMovementNumber } from 'services/biz/movement-number'
+import { nextCountNumber } from 'services/biz/count-number'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { buildProductListFilter, hasProductListFilter, productIdsMatching } from 'services/biz/product-list-filter'
@@ -44,21 +45,6 @@ const MOVEMENT_SORT_BY_REF: Record<string, Record<string, unknown>[]> = {
 
 /** An id no contact has: what a `contactId` that is no id is read as, so it finds nothing. */
 const NO_CONTACT = '000000000000000000000000'
-
-// Same max+1 scheme the inventory-count controller uses (deliberately duplicated — this counter
-// predates the Sequence registry). A movement's own number is `services/biz/movement-number`.
-async function getNextCountNumber(orgId: string): Promise<string> {
-  const r = getRepos()
-  const year = new Date().getFullYear()
-  const prefix = `IC-${year}-`
-  const counts = await r.inventoryCounts.findMany(
-    { orgId, countNumber: { $regex: `^${prefix}` } } as any,
-    { countNumber: -1 },
-  )
-  if (!counts.length) return `${prefix}00001`
-  const currentNum = parseInt(counts[0].countNumber.replace(prefix, ''), 10)
-  return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
-}
 
 /**
  * FR-26.7: a session that writes movements through `inventory.transfer` alone (a Seller) writes
@@ -542,7 +528,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
           }
         })
       if (lines.length) {
-        const countNumber = await getNextCountNumber(orgId)
+        const countNumber = await nextCountNumber(orgId)
         const count = await r.inventoryCounts.create({
           orgId,
           countNumber,
