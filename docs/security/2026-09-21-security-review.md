@@ -1996,3 +1996,44 @@ movement's own form already hid its total from such a role.
   and by-id answer are unchanged, and both lists draw their Total column. The withheld side is the
   flow test's: it needs a role that reads movements without the cost figures, and the demo
   organization has none.
+
+## S-40 — Converting a proforma made a sales invoice without the right to make one (Low, **fixed 2026-11-12**)
+
+> Found on 2026-11-12 while adding the offer, a second quote that converts (#712). Fixed in #712 and
+> written up here once the fix was on production.
+
+**Where:** `POST /org/:orgId/invoices/:id/convert`.
+
+**What was wrong:** converting a proforma makes a draft sales invoice. The route asked only what every
+write to a proforma by id asks, a work right on the proforma (FR-27.6: `proforma.create` or
+`proforma.edit`), and never whether the caller makes sales documents (`sales-docs.create`). The list
+and the form offered the action only to a role that does; the route did not hold the same rule.
+
+- **Who:** a member whose role works proformas and makes no sales documents. Only the roles model can
+  hold such a role: on the legacy model `invoicing.write` grants both.
+- **Impact:** a draft sales invoice with the proforma's lines, in the caller's own org. Issuing it,
+  editing it or deleting it still needed the sales documents' rights, and a role that does not read
+  sales documents did not see it in any list.
+- **Why Low:** an insider, in their own org, and only a draft came of it.
+- **Exposure on the day:** none. A read-only count on production: of 87 orgs one is on the roles model,
+  and it has no role that works proformas without making sales documents. One invoice has ever been
+  converted from a proforma, by an account allowed to make it.
+
+### Fix
+
+- `/convert` asks for the create right of the kind it makes: `sales-docs.create` for an invoice and,
+  since the offer (#712), `proforma.create` for a proforma made from an offer. It refuses with 403
+  `capability_required` before anything is written.
+- In the same change, and not part of this finding (no right was crossed by them): `/payments` refuses
+  a quote, where a payment on a proforma recorded a payment row and its journal entry (production holds
+  none); `/convert` refuses a voided quote; and a quote converts once, even for two requests at once.
+- The document form's bottom action bar hides an action the role does not hold, as its top bar already
+  did (FR-27.7).
+- Tests: `integration/access-partitions.flow.test.ts`: a role of the quotes is refused converting a
+  proforma into an invoice (403, `sales-docs.create`), with the proforma still a draft and no invoice
+  made; it fails with the route's new check taken out. And it converts an offer into a proforma but
+  not into an invoice.
+- Deployed as `v20261112-8438302454fb`. On production the deploy was checked: the image, both pods,
+  the new strings in the bundle, ArgoCD synced. In the demo organization an administrator converts an
+  offer into a proforma and into an invoice. The refused side is the flow test's: the demo organization
+  is on the legacy model, where no role works proformas without making sales documents.
