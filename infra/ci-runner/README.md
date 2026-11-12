@@ -10,12 +10,17 @@
 > guest of its own: "The runner on jupiter", below. There the suite takes 3 min 10 s where mars
 > takes 6 min 37 s, for the same 8,142 tests (2026-11-12).
 >
-> ⚠ **It is built and proven, and out of service until #699 is settled.** Twice as fast, it loses
-> a race in the product that the mars runners win: one test (`cash-invoice-receipts.flow`, "two
-> payments at once") failed in 2 of its 9 whole suite runs, and in none of about 300 on mars, while
-> every other test passed every time. The variable below was `lgr-linux` from 07:15 to 08:53Z on
-> 2026-11-12 and is `lgr-mars` again; the one real job the new runner took in between is one of
-> the two that lost. A runner that is faster is also a runner whose timing nothing was tuned on.
+> **It is in service since 2026-11-12T10:54Z, at its second try.** It first ran for 98 minutes that
+> morning and was taken out again. Twice as fast, it lost a race in the product that the mars
+> runners win: one test (`cash-invoice-receipts.flow`, "two payments at once") failed in 2 of its 9
+> whole suite runs and in none of about 300 on mars, while every other test passed every time. The
+> race was the product's (#699: of two payments at once, the one refused was told its receipt
+> cannot be printed). #700 fixed it, fourteen whole suite runs on this runner were green with the
+> fix, and the variable below went back to `lgr-linux`.
+>
+> ⚠ A runner that is faster is a runner whose timing nothing was tuned on. A test that goes red
+> here and stays green on mars is a race to find, not a flake to rerun, and `lgr-mars` takes the
+> runner out of service for as long as the finding takes.
 
 > **Since 2026-10-30 the reason is the QUEUE, not money.** lgr went public, so GitHub-hosted
 > minutes cost it nothing, but hosted runners are shared with roomler-ai's CI under one account,
@@ -39,8 +44,8 @@ The Linux jobs (all but a fork's) read their runner from the repository variable
 
 | Value | Where the Linux jobs run |
 |---|---|
-| `["self-hosted","lgr-mars"]` | the two mars runners only: the suite in one job on 8 CPUs. The default since 2026-10-30. It keeps the jupiter runner out of service without touching it |
-| `["self-hosted","lgr-linux"]` | all three runners, two on mars and one on jupiter. The value to set once #699 is settled |
+| `["self-hosted","lgr-linux"]` | all three runners, two on mars and one on jupiter (the default since 2026-11-12): the suite in one job on 8 CPUs |
+| `["self-hosted","lgr-mars"]` | the two mars runners only (the default from 2026-10-30 to 2026-11-12). It takes the jupiter runner out of service without touching it |
 | `"ubuntu-24.04"`, or unset | GitHub-hosted: the suite in three shards of 4 CPUs |
 
 ```bash
@@ -336,6 +341,15 @@ not load a single page (above). The branch and its runs are deleted afterwards.
   `LGR_CI_FWD` back and does not restart a running guest. The guard table is not iptables' and is
   not touched by a rewrite of those rules; `sudo nft list table inet lgr_ci_guard` says whether it
   is there.
+- **A test that is red here and green on mars:** take the runner out (`lgr-mars`), then measure on
+  it alone. A scratch branch whose `runs-on` lines name `["self-hosted","lgr-jupiter"]` and whose
+  `Test` step runs the suite in a loop (with the job's `timeout-minutes` raised), started with
+  `gh workflow run ci.yml --ref <branch>`, gives the rate: 2 of 9 for #699, then 14 of 14 with the
+  fix. ⚠ Whole suite runs, one after another. Copies of one test file side by side collide with
+  each other and measure nothing. ⚠ A cancelled job leaves its processes running in the runner's
+  container: one such job held a mars runner at its memory cap for 45 minutes on 2026-11-12. Look
+  with `docker exec <runner> ps -eo pid,ppid,etimes,args` and end the tree under the orphaned
+  `_temp/*.sh` shell, parents first.
 - **Remove it all:**
   ```bash
   sudo systemctl disable lgr-ci-runner.service
