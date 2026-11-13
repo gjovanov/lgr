@@ -10,12 +10,15 @@ import { join, resolve } from 'node:path'
  * the guest. No build and no test run reads any of them, so a rename in one would pass every check
  * and close nothing: the guard matches the bridge by NAME, and a rule about a bridge that nobody
  * uses is simply never hit.
+ *
+ * The two runners on mars stand behind the same guard (the last block here).
  */
 
 const ROOT = resolve(import.meta.dir, '../../../..')
 const DIR = join(ROOT, 'infra/ci-runner')
 const VM = join(DIR, 'vm')
-const text = (path: string) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
+const MARS = join(DIR, 'mars')
+const text =(path: string) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
 const vm = (name: string) => text(join(VM, name))
 /** Without comment lines: a rule quoted in a comment is not a rule. */
 const code = (s: string) => s.split('\n').filter(l => !/^\s*#/.test(l)).join('\n')
@@ -65,7 +68,7 @@ describe('one network, one bridge, one subnet, in every file', () => {
 
   it('every rule of the guard names the bridge that network makes', () => {
     const named = [...guard.matchAll(/\b[io]ifname "([^"]+)"/g)].map(m => m[1])
-    expect(named.length).toBe(7)
+    expect(named.length).toBe(9)
     expect([...new Set(named)]).toEqual([bridge])
   })
 
@@ -102,6 +105,12 @@ describe('what is closed is closed in every layer', () => {
     expect(guard).toContain(`iifname "${bridge}" ip daddr @private_v4 counter jump refuse`)
     expect(guard).toContain(`iifname "${bridge}" meta nfproto ipv6 counter jump refuse`)
     expect(guard).toContain(`oifname "${bridge}" ct state new counter drop`)
+    // The host's own addresses, before the host rewrites any of them: refused after a rewrite, the
+    // refusal carries the rewritten address, and the caller waits for its timeout instead.
+    const pre = guard.slice(guard.indexOf('chain prerouting'), guard.indexOf('chain forward'))
+    expect(pre).toContain('type filter hook prerouting priority dstnat - 10; policy accept;')
+    expect(pre.indexOf(`iifname "${bridge}" ct state established,related accept`)).toBeGreaterThan(0)
+    expect(pre.indexOf(`iifname "${bridge}" fib daddr type local counter jump refuse`)).toBeGreaterThan(pre.indexOf('established,related accept'))
     // From the guest to the host: answers to what the host started, and nothing else.
     const input = guard.slice(guard.indexOf('chain input'), guard.indexOf('chain refuse'))
     expect(input.indexOf(`iifname "${bridge}" ct state established,related accept`)).toBeGreaterThan(0)
@@ -115,8 +124,8 @@ describe('what is closed is closed in every layer', () => {
     const rest = guard.indexOf(`iifname "${bridge}" ip daddr @fleet_v4 counter jump refuse`)
     expect(web).toBeGreaterThan(0)
     expect(rest).toBeGreaterThan(web)
-    // Two chain policies, the answers to the host's own connections, and that one rule.
-    expect([...guard.matchAll(/\baccept\b/g)].length).toBe(4)
+    // Three chain policies, the answers to the host's own connections in two chains, and that one rule.
+    expect([...guard.matchAll(/\baccept\b/g)].length).toBe(6)
   })
 
   it('what is closed is refused at once, never left to time out', () => {
@@ -183,7 +192,7 @@ describe('what is closed is closed in every layer', () => {
   it('no public address of ours is written down here: only private ones, and the public resolvers', () => {
     const resolvers = ['1.1.1.1', '8.8.8.8']
     const strays: string[] = []
-    for (const name of [...readdirSync(VM).map(f => join(VM, f)), join(DIR, 'README.md')]) {
+    for (const name of [...readdirSync(VM).map(f => join(VM, f)), ...readdirSync(MARS).map(f => join(MARS, f)), join(DIR, 'README.md')]) {
       for (const [ip] of text(name).matchAll(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g)) {
         if (isPrivate(ip) || resolvers.includes(ip) || ip.startsWith('255.')) continue
         strays.push(`${name.slice(ROOT.length + 1).replace(/\\/g, '/')}: ${ip}`)
@@ -248,5 +257,70 @@ describe('the runner in the guest is the runner on mars', () => {
   it('the registration token arrives on stdin, never on a command line', () => {
     expect(register).toContain('cat > /s/registration-token')
     expect(/--token|\$1\b|\$\{?T\b/.test(register)).toBe(false)
+  })
+})
+
+/**
+ * The two runners on mars are containers on the host itself, so there is no hypervisor between a
+ * job and the host's other guests and containers: what stands there is the same guard, for a
+ * bridge Docker makes (README, "What the mars runners can reach"). The same hazard as above, in
+ * three files instead of eight: the guard names the bridge, the README's `docker network create`
+ * makes it, and the README's `docker run` puts the containers on it.
+ */
+describe('the runners on mars stand behind the same guard', () => {
+  const marsGuard = code(text(join(MARS, 'lgr-ci-guard.nft')))
+  const marsUnit = text(join(MARS, 'lgr-ci-guard.service'))
+  /** The setup's `docker network create`, with its continuation lines. */
+  const create = /docker network create [^\n]*\\\n(?:[^\n]*\\\n)*[^\n]*/.exec(readme)?.[0] ?? ''
+  const marsBridge = /com\.docker\.network\.bridge\.name=(\S+)/.exec(create)?.[1] ?? ''
+  const marsSubnet = /--subnet (\S+)/.exec(create)?.[1] ?? ''
+  const wayOut = marsGuard.slice(marsGuard.indexOf('chain way_out'), marsGuard.indexOf('chain refuse'))
+
+  it('the network Docker is told to make has the bridge every rule names', () => {
+    expect(marsBridge).toBe('br-lgr-ci')
+    expect(create.trimEnd().endsWith(' lgr-ci')).toBe(true)
+    const named = [...marsGuard.matchAll(/\b[io]ifname (?:!= )?"([^"]+)"/g)].map(m => m[1])
+    expect(named.length).toBe(11)
+    expect([...new Set(named)]).toEqual([marsBridge])
+  })
+
+  it('it is the jupiter guard rule for rule, and one chain more', () => {
+    expect(wayOut.startsWith('chain way_out {')).toBe(true)
+    const neutral = (s: string, name: string) => s.split(name).join('BRIDGE')
+    expect(neutral(marsGuard.replace(wayOut, ''), marsBridge)).toBe(neutral(guard, bridge))
+  })
+
+  it('that chain is the runners\' only way out: Docker is told to make none', () => {
+    // No table, no way out: a runner on a host without the guard cannot reach GitHub and takes no job.
+    expect(wayOut).toContain('type nat hook postrouting priority srcnat; policy accept;')
+    expect(wayOut).toContain(`iifname "${marsBridge}" oifname != "${marsBridge}" counter masquerade`)
+    expect([...marsGuard.matchAll(/\bmasquerade\b/g)].length).toBe(1)
+    expect(create).toContain('-o com.docker.network.bridge.enable_ip_masquerade=false')
+  })
+
+  it('the network is a private /24 of its own, and one runner cannot reach the other', () => {
+    expect(/^\d+\.\d+\.\d+\.0\/24$/.test(marsSubnet)).toBe(true)
+    expect(isPrivate(marsSubnet)).toBe(true)
+    expect(marsSubnet).not.toBe(subnet)
+    expect(create).toContain('-o com.docker.network.bridge.enable_icc=false')
+  })
+
+  it('both containers are started on that network, after the guard and the network exist', () => {
+    const setup = readme.slice(readme.indexOf('## Setup (on mars)'), readme.indexOf('## Operations'))
+    const loaded = setup.indexOf('sudo systemctl daemon-reload && sudo systemctl enable --now lgr-ci-guard.service')
+    const made = setup.indexOf('docker network create ')
+    const run = setup.indexOf('docker run -d --name gh-runner-lgr-$i --restart unless-stopped --network lgr-ci ')
+    expect(setup).toContain('sed "s/@@FLEET_V4@@/$fleet/" mars/lgr-ci-guard.nft > lgr-ci-guard.nft')
+    expect(loaded).toBeGreaterThan(0)
+    expect(made).toBeGreaterThan(loaded)
+    expect(run).toBeGreaterThan(made)
+    // No other `docker run` of a runner on mars, on some other network.
+    expect([...setup.matchAll(/docker run -d /g)].length).toBe(1)
+  })
+
+  it('the guard is loaded before Docker can start a container', () => {
+    expect(marsUnit).toContain('Before=docker.service')
+    expect(marsUnit).toContain('ExecStart=/usr/sbin/nft -f /etc/lgr-ci-guard.nft')
+    expect(marsUnit).toContain('WantedBy=multi-user.target')
   })
 })

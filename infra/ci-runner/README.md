@@ -89,14 +89,77 @@ If CI sits at "Waiting for a runner", check the containers below, or flip the va
   suite takes 231 s on 8 instead of 352 s on 4. Both busy at once can use all 16 of mars's cores,
   so a CI run overlapping an image build (deploy-prod builds on mars) is slower for both; mars's
   load is ~1 otherwise. Back to 4: `docker update --cpus 4 gh-runner-lgr-1 gh-runner-lgr-2`.
+- The two containers sit on a Docker network of their own, behind the guard the jupiter guest has:
+  "What the mars runners can reach", below.
 
-## Setup (on mars, as a `docker`-group user)
+## What the mars runners can reach: the public internet, and nothing else
+
+Mars carries cluster guests and other projects' containers. The two runner containers sit on a
+Docker network of their own, `lgr-ci` (bridge `br-lgr-ci`, 172.31.130.0/24), never on Docker's
+default bridge, which every container without a network of its own shares. In front of that
+network stands the guard the jupiter guest has (`vm/lgr-ci-guard.nft`, "The runner on jupiter"
+below), for a bridge of Docker's instead of libvirt's.
+
+| File (`mars/`) | Goes to | What it is |
+|---|---|---|
+| `lgr-ci-guard.nft` | `/etc/lgr-ci-guard.nft` | table `inet lgr_ci_guard`: the rules of the jupiter guard for this bridge, and the runners' way out. `@@FLEET_V4@@` as on jupiter |
+| `lgr-ci-guard.service` | `/etc/systemd/system/` | loads it, before `docker.service` |
+
+- **From the runners' bridge, refused at once:** every private range (the cluster's nodes, the mesh
+  between the hosts, overlays, every other container network), the fleet hosts' own public
+  addresses but for their public web, all IPv6, and every address of mars itself. **Into the
+  runners' network:** no new connection. One runner cannot reach the other (`enable_icc=false`, and
+  the guard refuses the network's own range like any private one).
+- **The guard is also the way out.** The network is made without Docker's own masquerade, and the
+  table's `way_out` chain is the one thing that gives the runners' traffic an address the internet
+  can answer. A host on which the table is not loaded (a unit that failed, a ruleset somebody
+  flushed) is a host whose runners cannot reach GitHub and take no job. It is never a host whose
+  runners run without the guard. The jupiter guest has the same fail-safe by other means: its way
+  out is a chain its start script makes only behind the guard.
+- **mars's own addresses are refused before the host rewrites them** (chain `prerouting`). A port
+  that a container publishes, and port 443 of the host's second address, are rewritten on arrival
+  to a private destination. Refused after that rewrite, the refusal goes back carrying the
+  rewritten address, the caller does not recognise it, and each connect waits out its timeout: 4 s
+  where every other closed address answers in 5 ms (2026-11-13). The jupiter guard got the same
+  chain that day.
+- **mars's public web is closed to its own runners**, where the other fleet hosts' is open. A
+  connection to it never leaves the host, so it would reach the host's web server from a private
+  address. The analytics tag the pages under test carry is served from there: on these two runners
+  that script is refused at once, and the page loads without it.
+- **No lookup passes the guard.** On a network of its own a container asks Docker's resolver, and
+  Docker asks the host's own from the host's side (2026-11-13: names resolved, and not one packet
+  for port 53 crossed the bridge).
+- A job cannot change any of it: the table is the host's, and a job's `sudo` is the container's.
+
+## Setup (on mars)
+
+In the directory that holds this one's files. The guard needs `sudo`, the rest a `docker`-group
+user.
 
 ```bash
-cd /home/gjovanov/gh-runner-lgr        # holds this Dockerfile + entrypoint.sh
+cd /home/gjovanov/gh-runner-lgr        # holds this Dockerfile, entrypoint.sh and mars/
+
+# 1. The guard, before the network it names exists.
+fleet='<every public address of every fleet host, separated by ", ">'
+sed "s/@@FLEET_V4@@/$fleet/" mars/lgr-ci-guard.nft > lgr-ci-guard.nft
+sudo nft -c -f lgr-ci-guard.nft                       # a dry run: syntax only
+sudo install -m 0644 lgr-ci-guard.nft /etc/lgr-ci-guard.nft
+sudo install -m 0644 mars/lgr-ci-guard.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now lgr-ci-guard.service
+sudo nft list table inet lgr_ci_guard
+
+# 2. The runners' network: a bridge with the name the guard matches, no traffic between its
+#    containers, and no masquerade of Docker's (the guard's way_out is the only one).
+docker network create --driver bridge --subnet 172.31.130.0/24 \
+  -o com.docker.network.bridge.name=br-lgr-ci \
+  -o com.docker.network.bridge.enable_icc=false \
+  -o com.docker.network.bridge.enable_ip_masquerade=false \
+  lgr-ci
+
+# 3. The image.
 docker build -t gh-runner-lgr:2.338.0 .
 
-# The runner's identity (its credentials) lives in a NAMED volume, under the root-only
+# 4. The runner's identity (its credentials) lives in a NAMED volume, under the root-only
 # /var/lib/docker, never in a bind-mounted host directory. `runner` is UID 10001 in the image,
 # chosen because no account on mars has it. The image's first draft used useradd's default 1001,
 # which on mars is a person's login, and that handed them the state dir.
@@ -113,12 +176,13 @@ done
 unset T
 # The entrypoint uses the token once and deletes it.
 
+# 5. The containers, on that network.
 # --tmpfs /tmp: mongodb-memory-server puts every test file's mongod data dir in /tmp, and on the
 # container's overlay filesystem (mars: RAID1) each one took ~10 s to start, so per-file setup
 # alone ran the test job into its 30-minute timeout (2026-10-10; the tests themselves took 257 s).
 # In RAM it starts the way it does on a hosted runner. It counts against --memory.
 for i in 1 2; do
-  docker run -d --name gh-runner-lgr-$i --restart unless-stopped \
+  docker run -d --name gh-runner-lgr-$i --restart unless-stopped --network lgr-ci \
     --cpus 8 --memory 8g --pids-limit 8192 \
     --tmpfs /tmp:rw,exec,nosuid,size=3g \
     -e REPO_URL=https://github.com/gjovanov/lgr \
@@ -132,6 +196,31 @@ done
 Check: `gh api repos/gjovanov/lgr/actions/runners --jq '.runners[] | "\(.name) \(.status) \([.labels[].name] | join(","))"'`
 shows `mars-lgr-1`, `mars-lgr-2` and `jupiter-lgr-1` as `online`, each with `lgr-linux`.
 
+Then what a runner can reach, from inside it (`vm/guard-check.sh`, sent on stdin):
+
+```bash
+docker exec -i gh-runner-lgr-1 bash -s -- open github.com:443 open 1.1.1.1:53 \
+  open <another fleet host's public address>:443 \
+  closed 172.31.130.1:22 closed 172.31.130.1:<a port another container publishes> \
+  closed <mars's public address>:443 closed <mars's second address>:443 \
+  closed <a cluster node>:6443 closed <another host over WireGuard>:443 \
+  closed <a container on the default bridge>:<its port> closed <the other runner's address>:22 \
+  closed <a fleet host's public address>:22 closed 169.254.169.254:80 < vm/guard-check.sh
+
+sudo nft list table inet lgr_ci_guard          # what it refused, and what left by way_out
+```
+
+On 2026-11-13, 36 of 36 probes came out as expected from each of the two runners, and every closed
+address answered within 6 ms, the other runner's among them.
+
+Then the runner itself, as on jupiter, before any real job reaches it: out of rotation by its
+labels ("Operations"), and a scratch branch whose `runs-on` lines name the label it was given,
+started with `gh workflow run`. ⚠ Run both workflows there too. That day a whole CI run and a whole
+Playwright night passed on a runner behind the guard (791 tests and the master project's 12, none
+failed, none retried). Neither asked for one private address: the guard's counters after both
+showed its probes, and 688 refusals of mars's own address, every one of them the analytics script
+of a page under test.
+
 ## Operations
 
 - **Logs:** `docker logs -f gh-runner-lgr-1`
@@ -143,6 +232,34 @@ shows `mars-lgr-1`, `mars-lgr-2` and `jupiter-lgr-1` as `online`, each with `lgr
   and rebuild.
 - **Remove:** `docker rm -f gh-runner-lgr-1 && docker volume rm gh-runner-lgr-1-state`, then delete the runner in
   *Settings → Actions → Runners* (or `gh api -X DELETE repos/gjovanov/lgr/actions/runners/<id>`).
+- **Out of rotation without stopping it.** A runner's labels are GitHub's, not the container's:
+  `gh api -X PUT repos/gjovanov/lgr/actions/runners/<id>/labels -f 'labels[]=lgr-proof'` replaces
+  its own labels in one call (`self-hosted`, `Linux` and `X64` stay). No real job reaches it any
+  more, and a scratch branch whose `runs-on` lines name `["self-hosted","lgr-proof"]` does. Back
+  into rotation: the same call with `-f 'labels[]=lgr-linux' -f 'labels[]=lgr-mars'`.
+- **Make a container again** (another network, a new image): take it out of rotation first, wait
+  until it runs no job, then
+  ```bash
+  docker update --restart no gh-runner-lgr-1
+  docker exec gh-runner-lgr-1 sh -c 'kill -INT $(pgrep -x Runner.Listener)'   # it ends its session with GitHub
+  docker wait gh-runner-lgr-1 && docker rm gh-runner-lgr-1
+  ```
+  and the `docker run` of "Setup". The identity comes back from the volume. The caches do not
+  (cargo's target, the toolchains, Playwright's browsers): its first jobs run cold.
+  ⚠ `docker stop` is not that: the listener does not take the signal, is killed after the 30 s, and
+  its session stays behind. The new container then waits on "A session for this runner already
+  exists" until GitHub lets the old one go (two minutes on 2026-11-13).
+- **Both mars runners offline at once, or after a change to the host's firewall:** look at the
+  guard first, `sudo nft list table inet lgr_ci_guard`. It is not iptables' and a rewrite of those
+  rules does not touch it, but without it the runners have no way out.
+  `sudo systemctl restart lgr-ci-guard` loads it again in one transaction.
+- **Take the guard and the network off again:** the two containers first (they are on that
+  network), then
+  ```bash
+  docker network rm lgr-ci
+  sudo systemctl disable --now lgr-ci-guard.service; sudo nft delete table inet lgr_ci_guard
+  sudo rm /etc/lgr-ci-guard.nft /etc/systemd/system/lgr-ci-guard.service
+  ```
 - **`/tmp` fills up when runs are interrupted.** A cancelled or killed job never stops its test
   `mongod`, so its data dir (up to ~300 MB of preallocated journal) stays in the 3 GB tmpfs. Once it
   is full, every job fails with `ENOSPC` somewhere unrelated, a rustup download or a temp file in a
@@ -223,7 +340,7 @@ Two layers, each enough without the other.
 | File | Goes to | What it is |
 |---|---|---|
 | `ci-net.xml` | libvirt on jupiter | the guest's network: NAT, `virbr-ci`, 10.10.130.0/24 |
-| `lgr-ci-guard.nft` | `/etc/lgr-ci-guard.nft` | the host's layer. `@@FLEET_V4@@` is the fleet hosts' public addresses, which are not in this repository |
+| `lgr-ci-guard.nft` | `/etc/lgr-ci-guard.nft` | the host's layer. `@@FLEET_V4@@` is every public address of every fleet host (a host can carry more than one), which are not in this repository |
 | `lgr-ci-guard.service` | `/etc/systemd/system/` | loads it, before `libvirtd.service` |
 | `lgr-ci-runner-up` | `/usr/local/sbin/` | checks the guard, opens the way out, starts the network and the guest, marks the guest for the OOM killer. Running it again changes nothing |
 | `lgr-ci-runner.service` | `/etc/systemd/system/` | runs it at boot; `Requires=lgr-ci-guard.service` |
@@ -242,7 +359,7 @@ In a directory that holds `vm/`. A file that came from a Windows checkout made b
 
 ```bash
 # 1. The guard, before anything else exists.
-fleet='<the fleet hosts' public addresses, separated by ", ">'
+fleet='<every public address of every fleet host, separated by ", ">'
 sed "s/@@FLEET_V4@@/$fleet/" vm/lgr-ci-guard.nft > lgr-ci-guard.nft
 sudo nft -c -f lgr-ci-guard.nft                       # a dry run: syntax only
 sudo install -m 0644 lgr-ci-guard.nft /etc/lgr-ci-guard.nft
@@ -313,9 +430,17 @@ sudo iptables -nvL LGR_CI_GUARD; sudo iptables -nvL LGR_CI_GUARD_IN    # in the 
 
 On 2026-11-12, 43 of 43 probes came out as expected (21 from the guest, 22 from a container). Every
 closed one answered in 2 to 3 ms, each refusal was counted by the layer it belongs to, and the same
-cluster ports answered from jupiter itself. ⚠ jupiter's own public address on port 443 is
-rewritten to a cluster guest before the guard sees it, and is refused there as a private
-destination: the guard sits after that rewrite. The other hosts' port 443 is open.
+cluster ports answered from jupiter itself. On 2026-11-13, 49 of 49 (24 and 25).
+
+⚠ **The fleet set needs every public address of every fleet host.** A host can carry more than one,
+and the set of 2026-11-12 was read from the list of tunnel peers, which names one address a host.
+An address that is missing from the set is an ordinary internet address to the guard: every port
+of it stays open to the guest, and the guest arrives there as jupiter. Both layers were given
+the missing address on 2026-11-13 (the six probes more).
+
+jupiter's own public address is refused before the host rewrites its port 443 to a cluster guest
+(chain `prerouting`, since 2026-11-13; until then it was refused after that rewrite, as a private
+destination). The other hosts' port 443 is open.
 
 Then the runner itself, before any real job can reach it: a scratch branch whose three `runs-on`
 lines in `ci.yml`, and the one in `e2e-nightly.yml`, name `["self-hosted","lgr-jupiter"]`, started
