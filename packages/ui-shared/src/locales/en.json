@@ -1317,6 +1317,7 @@
     "convertedInto": "Converted into",
     "taxNumber": "Tax Number (EIK)",
     "vatNumber": "VAT Number",
+    "representative": "Representative (МОЛ)",
     "lookupCompany": "Lookup Company",
     "alsoKnownAs": "Also known as",
     "alsoKnownAsHint": "Other names this company is written under on documents: a short name, another spelling. Type a name and press Enter. An import that finds one of them takes the document for this contact.",

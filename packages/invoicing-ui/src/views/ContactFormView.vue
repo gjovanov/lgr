@@ -94,6 +94,11 @@
                   </template>
                 </v-text-field>
               </v-col>
+              <!-- FR-25a: the МОЛ, the person legally responsible for the company. The importers write it here
+                   since #746 (before, a notes line `МОЛ: <name>`). -->
+              <v-col cols="12" md="4">
+                <v-text-field v-model="form.representative" :label="$t('invoicing.representative')" data-testid="contact-representative" />
+              </v-col>
               <v-col cols="12" md="4">
                 <v-text-field
                   v-model.number="form.paymentTermsDays"
@@ -200,6 +205,7 @@ const form = reactive({
   website: '',
   isActive: true,
   notes: '',
+  representative: '',
   addresses: [] as Array<{ type: string; street: string; city: string; postalCode: string; country: string; isDefault: boolean }>,
   bankDetails: [] as Array<{ bankName: string; accountNumber: string; iban: string; swift: string; currency: string; isDefault: boolean }>,
   tags: [] as string[],
@@ -390,6 +396,7 @@ onMounted(async () => {
         website: contact.website || '',
         isActive: contact.isActive ?? true,
         notes: contact.notes || '',
+        representative: contact.representative || '',
         addresses: contact.addresses || [],
         bankDetails: contact.bankDetails || [],
         tags: contact.tags || [],

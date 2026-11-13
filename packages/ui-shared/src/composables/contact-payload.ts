@@ -52,6 +52,11 @@ export interface ContactFormState {
   vatNumber?: string
   registrationNumber?: string
   notes?: string
+  /**
+   * The МОЛ, the person legally responsible for the company (FR-25a). A form that has no such field leaves
+   * the key out, so an update from it never clears what an import stored.
+   */
+  representative?: string
   paymentTermsDays?: number | string | null
   isActive?: boolean
   tags?: string[]
@@ -63,7 +68,7 @@ export interface ContactFormState {
 
 const TEXT_FIELDS = [
   'companyName', 'firstName', 'lastName', 'email', 'phone', 'mobile', 'website',
-  'taxId', 'taxNumber', 'vatNumber', 'registrationNumber', 'notes',
+  'taxId', 'taxNumber', 'vatNumber', 'registrationNumber', 'notes', 'representative',
 ] as const
 
 /**
