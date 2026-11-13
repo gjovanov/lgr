@@ -34,6 +34,13 @@ export interface IFixedAsset extends Document {
   depreciationSchedule: IDepreciationEntry[]
   location?: string
   assignedTo?: Types.ObjectId
+  // FR-25a: the tax side (ЗКПО), and what the accountant's file lists for the asset
+  taxCategory?: string        // '1'..'7' for categories I–VII
+  inServiceDate?: Date
+  taxDepreciationRate?: number
+  taxValue?: number
+  taxUsefulLifeMonths?: number
+  params?: { key: string; value: string }[]
   createdAt: Date
   updatedAt: Date
 }
@@ -65,6 +72,12 @@ export interface IFixedAsset extends Document {
 | depreciationSchedule | IDepreciationEntry[] | No | `[]` | Computed depreciation schedule (see below) |
 | location | string | No | - | Physical location of the asset |
 | assignedTo | ObjectId | No | - | Employee the asset is assigned to |
+| taxCategory | string | No | - | FR-25a. The tax depreciation category (ЗКПО), `1`–`7` for I–VII, as the accountant's file keys it |
+| inServiceDate | Date | No | - | FR-25a. When the asset was put into service, where both depreciations start |
+| taxDepreciationRate | number | No | - | FR-25a. The yearly tax depreciation rate, in percent |
+| taxValue | number | No | - | FR-25a. The value the tax depreciation is taken from |
+| taxUsefulLifeMonths | number | No | - | FR-25a. The tax useful life in months. The source states it in years, often fractional (100 / the rate) |
+| params | { key, value }[] | No | - | FR-25a. The asset's own properties as the accountant's file lists them, in file order. A list of pairs, not a map: some names carry dots. Nothing writes it yet: the fixed-asset import is deferred (FR-25a §4.2) |
 | orgId | ObjectId | Yes | - | Tenant organization ID (auto-injected by tenantPlugin) |
 | createdAt | Date | Auto | - | Timestamp of creation |
 | updatedAt | Date | Auto | - | Timestamp of last update |

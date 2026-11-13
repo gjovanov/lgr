@@ -10,7 +10,8 @@
  * taxId + taxNumber ← БУЛСТАТ (falling back to the digits of ИНДДС — the form's
  * "Tax Number (EIK)" field reads taxNumber), vatNumber ← ИНДДС, phone ← ТЕЛЕФОН,
  * addresses[0] ← { street: АДРЕС, city: ГРАД (minus the "гр." label), country: BG },
- * notes ← МОЛ only (address no longer dumped into notes).
+ * representative ← МОЛ (FR-25a; earlier versions wrote it into notes as `МОЛ: <name>`, which
+ * `scripts/backfill-contact-representative.ts` moves; notes are no longer written at all).
  *
  * Upsert key (idempotent): (orgId, type, taxId) when БУЛСТАТ present, else
  * (orgId, type, vatNumber) when ИНДДС present, else (orgId, type, companyName).
@@ -94,9 +95,9 @@ function mapContact(item: any) {
   const addresses = (street || city)
     ? [{ type: 'billing', street: street || city, city: city || undefined, country: 'BG', isDefault: true }]
     : undefined
-  const notes = clean(p['МОЛ']) ? `МОЛ: ${clean(p['МОЛ'])}` : undefined
+  const representative = clean(p['МОЛ']) || undefined
   return {
-    companyName, taxId: eik, taxNumber: eik, vatNumber, phone, addresses, notes,
+    companyName, taxId: eik, taxNumber: eik, vatNumber, phone, addresses, representative,
     companyNameLower: lowerBg(companyName), taxIdLower: lowerBg(eik), vatNumberLower: lowerBg(vatNumber),
     // Upsert key must match docs created by earlier seeder versions, which set taxId
     // only from БУЛСТАТ (never derived from ИНДДС) — key on the source field.

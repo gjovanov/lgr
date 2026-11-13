@@ -50,6 +50,10 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
         email: t.Optional(t.String()),
         phone: t.Optional(t.String()),
         website: t.Optional(t.String()),
+        // FR-25a: the rest of what a document prints of its issuer. ⚠ Named, or `t.Object` drops it with a 200.
+        representative: t.Optional(t.String()),
+        placeOfIssue: t.Optional(t.String()),
+        activityCode: t.Optional(t.String()),
         addresses: t.Optional(t.Array(t.Object({
           type: t.String(),
           street: t.String(),

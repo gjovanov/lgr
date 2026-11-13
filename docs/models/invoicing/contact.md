@@ -45,6 +45,7 @@ interface IContact extends Document {
   creditLimit?: number
   discount?: number
   notes?: string
+  representative?: string   // the МОЛ, the person legally responsible (FR-25a); was a notes line `МОЛ: <name>`
   tags?: string[]
   aliases?: string[]        // other names it is written under on documents ("Also known as", FR-28.12)
   accountReceivableId?: Types.ObjectId  // ref: Account
@@ -78,6 +79,7 @@ interface IContact extends Document {
 | creditLimit / credit_limit | Number | REAL | No | - | |
 | discount | Number | REAL | No | - | |
 | notes | String | TEXT | No | - | |
+| representative | String | - | No | absent | FR-25a. The МОЛ: the person legally responsible for the company, printed on a Bulgarian invoice. The importers (books, partner directory, `seed-contacts`) write it here; before FR-25a they wrote a notes line `МОЛ: <name>`, which still counts as one when an import fills blanks (`config/contact-representative`), and which `scripts/backfill-contact-representative.ts` moves |
 | tags | [String] | TEXT (JSON) | No | `[]` | JSON array in SQLite |
 | aliases | [String] | - | No | absent | "Also known as": other names the company is written under on documents. Stored cleaned (`config/contact-aliases`), at most 50, each up to 200 characters. Mirrored lowered in `aliasesLower` for the contact search. An import that looks a contact up by name takes one of these for this contact when nobody is named so |
 | accountReceivableId / account_receivable_id | ObjectId | TEXT | No | - | Ref: Account |

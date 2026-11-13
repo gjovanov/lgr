@@ -19,7 +19,7 @@ import {
   rootOfPath,
   settlesOf,
 } from './registry.js'
-import type { ImportDocument, ImportOperation } from './import.types.js'
+import type { ImportDocument, ImportDocumentProps, ImportOperation } from './import.types.js'
 
 export interface BranchSeries {
   orgId: string
@@ -82,10 +82,35 @@ function describe(doc: ImportDocument): string {
 
 /** The document's content, in a fixed order: what `changed` means. */
 function contentOf(doc: ImportDocument): string {
-  return JSON.stringify([
+  const parts: unknown[] = [
     doc.date, doc.docType, doc.docNumber, doc.vatKind, doc.total, doc.comment,
     doc.ops.map(op => [op.d, op.k, op.ad, op.ak, op.qty, op.amount, op.cur, op.rate, op.fx, op.comment, op.journal, op.tax]),
-  ])
+  ]
+  // ⚠ Appended only when the document has any: a client from before FR-25a sends none, and every document it sends
+  // must hash exactly as it always did, or its next run would call the whole year changed.
+  const props = headerContentOf(doc.props)
+  if (props) parts.push(props)
+  return JSON.stringify(parts)
+}
+
+const PROP_SCALARS = [
+  'paymentCode', 'paidAmount', 'paidCash', 'taxEventDate', 'vatRate', 'vatRule', 'vatExemptionReason', 'registerDocType',
+  'protocolType', 'reasonRef', 'customsRef', 'bankOperation', 'reportingMonth', 'partnerPath',
+] as const
+
+/**
+ * FR-25a's header, in a fixed order whatever order its keys arrived in (a client's JSON decides that): the scalars by
+ * the list above, the links in the file's order, the switches by name. Null when it says nothing.
+ */
+export function headerContentOf(p: ImportDocumentProps | undefined): unknown[] | null {
+  if (!p) return null
+  const scalars = PROP_SCALARS.map(key => p[key] ?? null)
+  const links = (p.links ?? []).map(l => [l.docType, l.docNumber, l.date ?? null, l.amount ?? null, l.amountFx ?? null])
+  const options = Object.keys(p.docOptions ?? {}).sort().map(key => [key, p.docOptions![key]])
+  const s = p.source ?? {}
+  const source = [s.createdBy ?? null, s.createdAt ?? null, s.modifiedBy ?? null, s.modifiedAt ?? null, s.version ?? null]
+  const empty = scalars.every(v => v === null) && !links.length && !options.length && source.every(v => v === null)
+  return empty ? null : [...scalars, links, options, source]
 }
 
 export const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')

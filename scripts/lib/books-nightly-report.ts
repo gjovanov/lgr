@@ -7,7 +7,7 @@
  */
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { documentsByMonth } from '../../packages/services/src/biz/accounting-books/plusminus-exports.js'
-import { planMonth, sha256 } from '../../packages/services/src/biz/accounting-books/journal-plan.js'
+import { headerContentOf, planMonth, sha256 } from '../../packages/services/src/biz/accounting-books/journal-plan.js'
 import type { ImportDocument, ImportOperation } from '../../packages/services/src/biz/accounting-books/import.types.js'
 
 export interface ParsedImport {
@@ -141,6 +141,9 @@ function partsOf(doc: ImportDocument): string {
     // Appended rather than put in place of the amounts, so that a file kept before them still compares part by part.
     h(doc.ops.map(op => (takesFromStock(op) ? op.amount : null))),
     h(doc.ops.map(op => [takesFromStock(op) ? null : op.amount, op.qty, op.cur, op.rate, op.fx])),
+    // FR-25a: the rest of the header (what was paid, the links, …), a part only a document that has one gets: every
+    // other document's parts read as before. An invoice paid later changes here alone.
+    ...(headerContentOf(doc.props) ? [h(headerContentOf(doc.props))] : []),
   ].join('.')
 }
 
@@ -190,6 +193,9 @@ function whatDiffers(before: string, after: string, moved: boolean): string {
     }
     out.push(name)
   })
+  // FR-25a: the header's part, which a document without one does not have.
+  const header = PARTS.length + 2
+  if ((p0[header] ?? '') !== (p1[header] ?? '')) out.push('header (paid, links, …)')
   return out.join(', ')
 }
 

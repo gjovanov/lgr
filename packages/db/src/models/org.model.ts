@@ -73,6 +73,13 @@ export interface IOrg extends Document {
   email?: string
   phone?: string
   website?: string
+  // FR-25a: what a Bulgarian document prints of its issuer beside the numbers above.
+  /** The person legally responsible for the company (МОЛ / управител). */
+  representative?: string
+  /** Where the company's documents are issued (`Място на сделката`): a town. */
+  placeOfIssue?: string
+  /** The company's economic activity code (КИД/НКИД). */
+  activityCode?: string
   addresses?: IOrgAddress[]
   bankDetails?: IOrgBankDetail[]
   settings: {
@@ -257,6 +264,10 @@ const orgSchema = new Schema<IOrg>(
     email: String,
     phone: String,
     website: String,
+    // FR-25a. No defaults, so no org needs a backfill.
+    representative: String,
+    placeOfIssue: String,
+    activityCode: String,
     addresses: [
       {
         type: { type: String, required: true, enum: ['billing', 'shipping', 'office'] },
@@ -427,7 +438,7 @@ replicate(orgSchema, {
   // The org is the document itself: no `orgId`, its `_id` is the org (applied by `{_id}`).
   orgPath: '_id',
   // The company's own data and its settings are the home's (FR-20.63).
-  home: ['name', 'description', 'logo', 'ownerId', 'taxNumber', 'vatNumber', 'email', 'phone', 'website', 'addresses', 'bankDetails', 'settings', 'createdAt', 'updatedAt'],
+  home: ['name', 'description', 'logo', 'ownerId', 'taxNumber', 'vatNumber', 'email', 'phone', 'website', 'representative', 'placeOfIssue', 'activityCode', 'addresses', 'bankDetails', 'settings', 'createdAt', 'updatedAt'],
   // ⚠ Global's: the address label, the billing, the cloud integrations' tokens, the masters' enrolment
   // switch, the link to a legal entity's books (a sys-admin's, on global: FR-25 §3.1), and the second
   // home record. A page never overwrites them (acceptance 33).

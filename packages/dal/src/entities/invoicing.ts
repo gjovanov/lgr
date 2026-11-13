@@ -44,6 +44,8 @@ export interface IContact extends TenantEntity {
   creditLimit?: number
   discount?: number
   notes?: string
+  /** The person legally responsible for the company (МОЛ), FR-25a. */
+  representative?: string
   tags?: string[]
   /** Other names the company is written under on documents („Also known as", FR-28.12). */
   aliases?: string[]

@@ -123,7 +123,8 @@ describe('planPartnerContacts', () => {
     expect(created.map((i) => i.kind === 'create' && i.body)).toEqual([
       {
         type: 'customer', companyName: 'Нов Клиент - ООД', taxId: '300400500', taxNumber: '300400500', vatNumber: 'BG300400500',
-        addresses: [{ type: 'billing', street: 'ул. Нова 5', city: 'СОФИЯ', country: 'BG', isDefault: true }], notes: 'МОЛ: Петър Тестов', isActive: true,
+        // FR-25a: the МОЛ in a field of its own, no longer a notes line
+        addresses: [{ type: 'billing', street: 'ул. Нова 5', city: 'СОФИЯ', country: 'BG', isDefault: true }], representative: 'Петър Тестов', isActive: true,
       },
       {
         type: 'supplier', companyName: 'Нов Доставчик ЕООД', taxId: '400500600', taxNumber: '400500600', vatNumber: 'BG400500600', phone: '032 111 222',
@@ -218,7 +219,21 @@ describe('planPartnerContacts', () => {
     if (u.kind !== 'update') throw new Error('expected an update')
     expect(u.by).toBe('name')
     expect(u.body.aliases).toBeUndefined()
-    expect(u.changes).toEqual(['fill taxId', 'fill taxNumber', 'fill vatNumber', 'fill address', 'fill notes'])
+    expect(u.changes).toEqual(['fill taxId', 'fill taxNumber', 'fill vatNumber', 'fill address', 'fill representative'])
+    expect(u.body.representative).toBe('Петър Тестов')
+    expect(u.body.notes).toBeUndefined()
+  })
+
+  it('gives no second МОЛ to a contact that keeps one, in its field or still as the old notes line (FR-25a)', () => {
+    const fields = mapPartner('КЛИЕНТИ:Нов Клиент - ООД', DIR['КЛИЕНТИ:Нов Клиент - ООД'])
+    const full = { companyName: 'Нов Клиент - ООД', taxId: '300400500', taxNumber: '300400500', vatNumber: 'BG300400500', addresses: [{ street: 'ул. Нова 5' }] }
+    for (const held of [{ representative: 'Друг Човек' }, { notes: 'МОЛ: Петър Тестов' }, { notes: 'МОЛ: Друг Човек · бележка' }]) {
+      const { body, changes } = fillsFor(contact('c1', { ...full, ...held }), 'Нов Клиент - ООД', 'name', ['customer'], fields)
+      expect(body).toEqual({})
+      expect(changes).toEqual([])
+    }
+    // notes about something else are no МОЛ
+    expect(fillsFor(contact('c1', { ...full, notes: 'моя бележка' }), 'Нов Клиент - ООД', 'name', ['customer'], fields).body).toEqual({ representative: 'Петър Тестов' })
   })
 
   it('takes the same words with other punctuation as the same company when no number contradicts it', () => {

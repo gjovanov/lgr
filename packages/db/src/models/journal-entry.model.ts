@@ -53,6 +53,30 @@ export const POSTED_BOOKS = { status: 'posted', ledger: { $ne: 'shadow' } } as c
 export const BOOKS_IMPORT = 'plusminus'
 
 /**
+ * FR-25a: a document the entry's document points at, as the accountant's file links them: an invoice to the bank
+ * statement that paid it and back, a credit notice to the invoice it corrects. A document number is unique only per
+ * partner (§11), so it is found again with the entry's own partner, which the link shares.
+ */
+export interface IJournalEntryLink {
+  docType: string
+  docNumber: string
+  date?: Date
+  /** What the link settles of the document (the file's `paid`), and the same in the document's currency. */
+  amount?: number
+  amountFx?: number
+}
+
+/** FR-25a: who keyed the document in the accountant's program, and when. Its clock, not ours: kept as stated. */
+export interface IJournalEntrySource {
+  createdBy?: string
+  createdAt?: Date
+  modifiedBy?: string
+  modifiedAt?: Date
+  /** The program's version stamp on the document (a date, YYYYMMDD), as written. */
+  version?: string
+}
+
+/**
  * A year's imported opening. It RESTATES what the year before ended with, so a reading that adds up
  * lines starts at the last one, and it is no turnover. Only an imported one does: an `opening` entry
  * typed by hand in any other org adds to what is there, as it always did.
@@ -97,6 +121,45 @@ export interface IJournalEntry extends Document {
   /** Whose document this is: the store, or the books org while the source does not say (FR-25 D1). */
   branchOrgId?: Types.ObjectId
   sourceOrgId?: Types.ObjectId
+  // FR-25a: what the accountant's document header says beyond its type, number, total and comment. Each is set only
+  // when the file states it, and none is read by a report yet.
+  /** How the document is paid, as booked (`services/biz/accounting-books/registry.ts#PAYMENT_CODES`). */
+  paymentCode?: string
+  /** What the document has been paid by so far: in cash on itself, or by the bank documents linked to it. */
+  paidAmount?: number
+  /** The cash part of `paidAmount`. */
+  paidCash?: number
+  /** The tax event's date, where the document states one of its own (a VAT protocol). */
+  taxEventDate?: Date
+  /** The VAT rate the document is charged at, in percent. */
+  vatRate?: number
+  /** The VAT treatment in words (`ВОП`, a reverse-charge rule). `vatKind` is its code. */
+  vatRule?: string
+  /** Why no VAT is charged: the legal ground an invoice without VAT must print. */
+  vatExemptionReason?: string
+  /**
+   * The NRA register's document-type code, as booked: `1` invoice, `2` debit notice, `3` credit notice, `07` customs,
+   * `09` protocol, `81` till report. The one thing that tells a credit notice from an invoice of the same `docType`.
+   * `Invoice.vatDocTypeCode` and `VatRegisterEntry.docTypeCode` hold the same code with two digits.
+   */
+  registerDocType?: string
+  /** The kind of VAT protocol (`p117`, `pLN`). */
+  protocolType?: string
+  /** What a credit or debit notice corrects: the invoice's reference, as booked. */
+  reasonRef?: string
+  /** The customs declaration's reference (MRN). */
+  customsRef?: string
+  /** A bank document's operation, by the program's name for it. */
+  bankOperation?: string
+  /**
+   * The month the document is reported in when it is not its own, `YYYYMM` as booked: for a VAT document the return it
+   * is declared in (`Invoice.vatPeriod`, `VatRegisterEntry.period`), for a payroll posting the payroll month.
+   */
+  reportingMonth?: string
+  links?: IJournalEntryLink[]
+  /** The document's switches as the file sets them: only those that are set, and not to `false`. */
+  docOptions?: Record<string, string>
+  source?: IJournalEntrySource
   /** The import that last wrote it. */
   importBatchId?: Types.ObjectId
   /** What a re-import of its month matches it by, and whether it changed (FR-25 §5.5). */
@@ -180,6 +243,36 @@ const journalEntrySchema = new Schema<IJournalEntry>(
     partnerAnalyticId: { type: Schema.Types.ObjectId, ref: 'AccountingAnalytic' },
     branchOrgId: { type: Schema.Types.ObjectId, ref: 'Org' },
     sourceOrgId: { type: Schema.Types.ObjectId, ref: 'Org' },
+    // FR-25a. No defaults: an entry the file says nothing more about keeps none of them.
+    paymentCode: String,
+    paidAmount: Number,
+    paidCash: Number,
+    taxEventDate: Date,
+    vatRate: Number,
+    vatRule: String,
+    vatExemptionReason: String,
+    registerDocType: String,
+    protocolType: String,
+    reasonRef: String,
+    customsRef: String,
+    bankOperation: String,
+    reportingMonth: String,
+    links: {
+      type: [new Schema({
+        docType: { type: String, required: true },
+        docNumber: { type: String, required: true },
+        date: Date,
+        amount: Number,
+        amountFx: Number,
+      }, { _id: false })],
+      default: undefined,
+    },
+    // Keys are the program's own identifiers (`exportInvoice`, `mixedDeal`), checked by the import.
+    docOptions: { type: Schema.Types.Mixed, default: undefined },
+    source: {
+      type: new Schema({ createdBy: String, createdAt: Date, modifiedBy: String, modifiedAt: Date, version: String }, { _id: false }),
+      default: undefined,
+    },
     importBatchId: Schema.Types.ObjectId,
     importKey: String,
     importHash: String,

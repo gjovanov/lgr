@@ -18,8 +18,9 @@
  */
 import { createGunzip } from 'node:zlib'
 import { parseAnalyticsFile, type AnalyticItem, type ParsedChartRow, type ParsedJournal } from './plusminus-exports.js'
-import type { ImportDocument, ImportOperation, LedgerCurrency, OpeningAnalyticLine } from './import.types.js'
+import type { ImportDocument, ImportDocumentProps, ImportLink, ImportOperation, ImportSource, LedgerCurrency, OpeningAnalyticLine } from './import.types.js'
 import { EUR_CHANGEOVER } from './registry.js'
+import { localInstant } from '../local-day.js'
 
 // ── the dump ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -182,6 +183,153 @@ export function archiveNumber(v: FieldValue | undefined): number | undefined {
 const asText = (v: FieldValue | undefined) => (v === undefined ? '' : String(v).trim())
 const iso = (d: string) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
 
+// ── a document's header, beyond what the export shows (FR-25a) ──────────────────────────────────
+
+/** A number where one is optional: a value that is none is left out, never a reason to refuse the document. */
+function optionalNumber(v: unknown): number | undefined {
+  if (typeof v !== 'string' && typeof v !== 'number') return undefined
+  try {
+    return archiveNumber(v)
+  } catch {
+    return undefined
+  }
+}
+
+/** A real calendar day, as YYYY-MM-DD; anything else is none. */
+function calendarDay(year: string, month: string, day: string): string | undefined {
+  const d = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+  return d.getUTCFullYear() === Number(year) && d.getUTCMonth() === Number(month) - 1 && d.getUTCDate() === Number(day) ? `${year}-${month}-${day}` : undefined
+}
+
+/** `DD.MM.YYYY` (how `taxEventDate` is written) as YYYY-MM-DD. */
+function dottedDay(v: unknown): string | undefined {
+  const m = /^(\d\d)\.(\d\d)\.(\d{4})$/.exec(String(v ?? '').trim())
+  return m ? calendarDay(m[3], m[2], m[1]) : undefined
+}
+
+/** `YYYYMMDD` (how a link's `date` is written) as YYYY-MM-DD. */
+function compactDay(v: unknown): string | undefined {
+  const m = /^(\d{4})(\d\d)(\d\d)$/.exec(String(v ?? '').trim())
+  return m ? calendarDay(m[1], m[2], m[3]) : undefined
+}
+
+/**
+ * A PlusMinus stamp (`createdOn`, `modifiedOn`) as the instant it names, in ISO 8601. It is the accountant's wall clock
+ * in Bulgaria: `YYYYMMDD:HHMMSS`, newer records followed by nine more digits of the second. Read off the whole journal:
+ * every stamp has one of the two shapes, and the six digits after the colon are always a time of day (they are no
+ * epoch, whatever the length suggests).
+ */
+function stampInstant(v: unknown): string | undefined {
+  const m = /^(\d{4})(\d\d)(\d\d):(\d\d)(\d\d)(\d\d)(\d{0,9})$/.exec(String(v ?? '').trim())
+  if (!m) return undefined
+  const day = calendarDay(m[1], m[2], m[3])
+  if (!day || Number(m[4]) > 23 || Number(m[5]) > 59 || Number(m[6]) > 59) return undefined
+  return localInstant(day, Number(m[4]), Number(m[5]), Number(m[6]), m[7] ? Number(m[7].padEnd(3, '0').slice(0, 3)) : 0).toISOString()
+}
+
+/** A key the program names a switch by. Anything else (a dot, a `$`) is no key of a stored map. */
+const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+/**
+ * `links`: a JSON array of the documents this one is tied to, each `{ doc, docNumber, date?, partner, type, param,
+ * value }`. `doc` is the other document's type; `param` names what `value` holds, `paid` (and `paid|paidCurrency`,
+ * two values the same way): what the payment settles of the document. `partner` is this document's own partner, so
+ * it is not kept. Unreadable: no links.
+ */
+function linksOf(v: FieldValue | undefined): ImportLink[] | undefined {
+  let raw: unknown
+  try {
+    raw = JSON.parse(asText(v))
+  } catch {
+    return undefined
+  }
+  if (!Array.isArray(raw)) return undefined
+  const out: ImportLink[] = []
+  for (const l of raw) {
+    if (!l || typeof l !== 'object') continue
+    const docType = String((l as any).doc ?? '').trim()
+    const docNumber = String((l as any).docNumber ?? '').trim()
+    if (!docType || !docNumber) continue
+    const link: ImportLink = { docType, docNumber }
+    const date = compactDay((l as any).date)
+    if (date) link.date = date
+    const names = String((l as any).param ?? '').split('|')
+    const values = String((l as any).value ?? '').split('|')
+    names.forEach((name, i) => {
+      const n = optionalNumber(values[i])
+      if (n === undefined) return
+      if (name === 'paid') link.amount = n
+      else if (name === 'paidCurrency') link.amountFx = n
+    })
+    out.push(link)
+  }
+  return out.length ? out : undefined
+}
+
+/** `options`: a JSON map of ~35 switches. Kept: those set, and not to `false`, under a key that is an identifier. */
+function optionsOf(v: FieldValue | undefined): Record<string, string> | undefined {
+  let raw: unknown
+  try {
+    raw = JSON.parse(asText(v))
+  } catch {
+    return undefined
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    if (!IDENTIFIER.test(key) || value === null || typeof value === 'object') continue
+    const s = String(value).trim()
+    if (s && s !== 'false') out[key] = s
+  }
+  return Object.keys(out).length ? out : undefined
+}
+
+/**
+ * What a document's header record says beyond its type, number, total and comment: `ImportDocumentProps`, field by
+ * field. What the file states about the same thing twice is read once (`ВИДПЛА` is `ПЛАЩАНЕ`, `VATPER` is `vatRate`,
+ * `АВТОР` is `createdBy`); what restates the entry's own date or VAT (`docDate`, `ДАТА1` on an invoice, `ДДС`) is not
+ * read; nor is what FR-25a defers (`docData`, `documentList`, the goods lines of `СКЛОПЕР`, …).
+ */
+export function propsOf(f: Record<string, FieldValue>): ImportDocumentProps | undefined {
+  const p: ImportDocumentProps = {}
+  const text = (key: string) => asText(f[key])
+  const paymentCode = text('ПЛАЩАНЕ') || text('ВИДПЛА')
+  if (paymentCode) p.paymentCode = paymentCode
+  const paidAmount = optionalNumber(f['ПЛАТЕНО'])
+  if (paidAmount !== undefined) p.paidAmount = paidAmount
+  const paidCash = optionalNumber(f.paidCash)
+  if (paidCash !== undefined) p.paidCash = paidCash
+  const taxEventDate = dottedDay(f.taxEventDate)
+  if (taxEventDate) p.taxEventDate = taxEventDate
+  const vatRate = optionalNumber(f.vatRate ?? f.VATPER)
+  if (vatRate !== undefined) p.vatRate = vatRate
+  for (const [prop, key] of [
+    ['vatRule', 'vatRules'], ['vatExemptionReason', 'ОНС'], ['registerDocType', 'ВИДДОК'], ['protocolType', 'protocolType'],
+    ['reasonRef', 'ОСНИЗВ'], ['customsRef', 'НОММД'], ['bankOperation', 'operation'],
+  ] as const) {
+    if (text(key)) p[prop] = text(key)
+  }
+  // As booked, `YYYYMM`: the format of `Invoice.vatPeriod` and `VatRegisterEntry.period`, which it is for a VAT document.
+  if (/^\d{4}(0[1-9]|1[0-2])$/.test(text('МЕСЕЦ'))) p.reportingMonth = text('МЕСЕЦ')
+  // As booked, spaces and all, like an operation's analytic: it is looked up among the paths.
+  const partner = f['ПАРТНЬОР'] === undefined ? '' : String(f['ПАРТНЬОР'])
+  if (partner.trim()) p.partnerPath = partner
+  const links = linksOf(f.links)
+  if (links) p.links = links
+  const options = optionsOf(f.options)
+  if (options) p.docOptions = options
+  const source: ImportSource = {}
+  if (text('createdBy')) source.createdBy = text('createdBy')
+  const createdAt = stampInstant(f.createdOn)
+  if (createdAt) source.createdAt = createdAt
+  if (text('modifiedBy')) source.modifiedBy = text('modifiedBy')
+  const modifiedAt = stampInstant(f.modifiedOn)
+  if (modifiedAt) source.modifiedAt = modifiedAt
+  if (text('version')) source.version = text('version')
+  if (Object.keys(source).length) p.source = source
+  return Object.keys(p).length ? p : undefined
+}
+
 // ── the journal ──────────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -202,8 +350,8 @@ export function journalFromRecords(records: RawRecord[]): { documents: ImportDoc
     if (!d && !k) {
       if (!docType && !docNumber) continue // nothing to book: the export has no row for it either
       docs++
-      const total = archiveNumber(f['СУМА']), kind = asText(f['ТИП']), comment = asText(f['ТЕКСТ'])
-      current = { date, docType, docNumber, ...(kind ? { vatKind: kind } : {}), ...(total !== undefined ? { total } : {}), ...(comment ? { comment } : {}), ops: [] }
+      const total = archiveNumber(f['СУМА']), kind = asText(f['ТИП']), comment = asText(f['ТЕКСТ']), props = propsOf(f)
+      current = { date, docType, docNumber, ...(kind ? { vatKind: kind } : {}), ...(total !== undefined ? { total } : {}), ...(comment ? { comment } : {}), ops: [], ...(props ? { props } : {}) }
       documents.push(current)
       continue
     }
@@ -303,7 +451,11 @@ export function analyticNodes(tree: TreeNode): { root: string; nodes: ArchiveAna
         if (ANALYTIC_PROPS.has(c.name)) continue
         const p = `${path}:${c.name}`
         const params: Record<string, string> = {}
-        for (const pk of kid(c, 'ПАРАМЕТРИ')?.kids ?? []) params[pk.name] = asText(valueOf(pk))
+        // A number as the export prints it (10 decimals), not with the float noise the database keeps: FR-25a stores these.
+        for (const pk of kid(c, 'ПАРАМЕТРИ')?.kids ?? []) {
+          const v = valueOf(pk)
+          params[pk.name] = typeof v === 'number' ? (Number.isFinite(v) ? String(archiveNumber(v)) : '') : asText(v)
+        }
         const openings: ArchiveAnalyticNode['openings'] = {}
         for (const y of kid(kid(c, 'САЛДА И ОБОРОТИ'), 'НАЧАЛНИ')?.kids ?? []) {
           const bal = kid(y, 'НАЧАЛНО САЛДО'), q = archiveNumber(valueOf(kid(y, 'КОЛИЧЕСТВО')))

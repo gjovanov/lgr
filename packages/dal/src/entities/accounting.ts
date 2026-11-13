@@ -148,6 +148,23 @@ export interface IJournalEntry extends TenantEntity {
   partnerAnalyticId?: string
   branchOrgId?: string
   sourceOrgId?: string
+  // FR-25a: the accountant's document header, as the model has it.
+  paymentCode?: string
+  paidAmount?: number
+  paidCash?: number
+  taxEventDate?: Date
+  vatRate?: number
+  vatRule?: string
+  vatExemptionReason?: string
+  registerDocType?: string
+  protocolType?: string
+  reasonRef?: string
+  customsRef?: string
+  bankOperation?: string
+  reportingMonth?: string
+  links?: { docType: string; docNumber: string; date?: Date; amount?: number; amountFx?: number }[]
+  docOptions?: Record<string, string>
+  source?: { createdBy?: string; createdAt?: Date; modifiedBy?: string; modifiedAt?: Date; version?: string }
   importBatchId?: string
   importKey?: string
   importHash?: string
@@ -185,6 +202,13 @@ export interface IFixedAsset extends TenantEntity {
   depreciationSchedule: IDepreciationEntry[]
   location?: string
   assignedTo?: string
+  // FR-25a: the tax side (ЗКПО).
+  taxCategory?: string
+  inServiceDate?: Date
+  taxDepreciationRate?: number
+  taxValue?: number
+  taxUsefulLifeMonths?: number
+  params?: { key: string; value: string }[]
 }
 
 // ── BankAccount ──

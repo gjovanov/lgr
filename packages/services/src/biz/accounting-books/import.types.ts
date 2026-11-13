@@ -27,6 +27,67 @@ export interface ImportOperation {
   tax?: string
 }
 
+/** A document's link to another, as the file has it (FR-25a): an invoice and the bank document that paid it. */
+export interface ImportLink {
+  docType: string
+  docNumber: string
+  /** YYYY-MM-DD */
+  date?: string
+  /** What the link settles of the document (the file's `paid`), and the same in the document's currency. */
+  amount?: number
+  amountFx?: number
+}
+
+/** Who keyed the document in the accountant's program, and when (FR-25a). Instants are ISO 8601, in UTC. */
+export interface ImportSource {
+  createdBy?: string
+  createdAt?: string
+  modifiedBy?: string
+  modifiedAt?: string
+  /** The program's version stamp on the document, as written. */
+  version?: string
+}
+
+/**
+ * FR-25a: what a document's header says beyond its type, number, total and comment. Each field is set only when the
+ * file states it, and a document the file says nothing more about has no `props` at all: an older client sends none,
+ * and its documents hash exactly as they always did (`journal-plan.ts#contentOf`). The GUI journal export has none
+ * of these columns; only the archive (`plusminus-archive.ts#journalFromRecords`) fills them.
+ */
+export interface ImportDocumentProps {
+  /** `ПЛАЩАНЕ`, as booked: `registry.ts#PAYMENT_CODES`. */
+  paymentCode?: string
+  /** `ПЛАТЕНО`: what the document has been paid by so far. */
+  paidAmount?: number
+  /** `paidCash`: the cash part of it. */
+  paidCash?: number
+  /** `taxEventDate`, as YYYY-MM-DD. */
+  taxEventDate?: string
+  /** `vatRate`, in percent. */
+  vatRate?: number
+  /** `vatRules`: the VAT treatment in words. */
+  vatRule?: string
+  /** `ОНС`: why no VAT is charged. */
+  vatExemptionReason?: string
+  /** `ВИДДОК`: the NRA register's document-type code. */
+  registerDocType?: string
+  protocolType?: string
+  /** `ОСНИЗВ`: what a credit or debit notice corrects. */
+  reasonRef?: string
+  /** `НОММД`: the customs declaration's reference. */
+  customsRef?: string
+  /** `operation`: a bank document's operation. */
+  bankOperation?: string
+  /** `МЕСЕЦ`, `YYYYMM` as booked: the month the document is reported in, when it is not its own. */
+  reportingMonth?: string
+  /** `ПАРТНЬОР`: the header's partner, an analytic path exactly as booked. */
+  partnerPath?: string
+  links?: ImportLink[]
+  /** `options`: only the switches that are set, and not to `false`. Keys are identifiers. */
+  docOptions?: Record<string, string>
+  source?: ImportSource
+}
+
 /** A document with its operations, or one operation with no document. */
 export interface ImportDocument {
   /** YYYY-MM-DD */
@@ -38,6 +99,8 @@ export interface ImportDocument {
   total?: number
   comment?: string
   ops: ImportOperation[]
+  /** FR-25a: the rest of the header. Absent when it says nothing more. */
+  props?: ImportDocumentProps
 }
 
 interface SourceFile {

@@ -23,6 +23,7 @@
  * ЕГН and the seeded contacts already carry it as `taxId`; this module neither widens that nor copies the `ЕГН` field.
  */
 import { cleanContactAliases, MAX_CONTACT_ALIASES, MAX_CONTACT_ALIAS_LENGTH } from 'config/contact-aliases'
+import { hasRepresentative } from 'config/contact-representative'
 import { foldName, normalizeName, partnerOf } from './supplier-name.js'
 
 export type PartnerRole = 'customer' | 'supplier'
@@ -87,7 +88,7 @@ export interface PartnerFields {
   vat?: string
   phone?: string
   address?: { street: string; city?: string }
-  /** The МОЛ, kept as the seeded contacts keep it: in the notes. */
+  /** The МОЛ: a contact's `representative` (FR-25a). Before it, a notes line `МОЛ: <name>`, which still counts as one. */
   contactPerson?: string
 }
 
@@ -181,6 +182,7 @@ export interface LgrContact {
   vatNumber?: string
   phone?: string
   notes?: string
+  representative?: string
   addresses?: { street?: string; city?: string }[]
 }
 
@@ -193,6 +195,7 @@ export interface ContactBody {
   vatNumber?: string
   phone?: string
   notes?: string
+  representative?: string
   aliases?: string[]
   addresses?: { type: string; street: string; city?: string; country: string; isDefault: boolean }[]
   isActive?: boolean
@@ -406,7 +409,6 @@ export function planPartnerContacts(input: PlanInput): ContactPlan {
     //    same word are listed beside it, for a person to merge if it is a short form of one of them.
     const nameOnly = !hasIdentity(fields)
     if (nameOnly && !w.roles.has('supplier')) { items.push({ kind: 'skip', key, name, why: 'no-data', docs }); continue }
-    const notes = [fields.contactPerson ? `МОЛ: ${fields.contactPerson}` : '', nameOnly ? NAME_ONLY_NOTE : ''].filter(Boolean).join(' · ')
     const body: ContactBody = {
       type: typeFor(roles.length ? roles : ['customer']),
       companyName: name,
@@ -414,7 +416,8 @@ export function planPartnerContacts(input: PlanInput): ContactPlan {
       ...(fields.vat ? { vatNumber: fields.vat } : {}),
       ...(fields.phone ? { phone: fields.phone } : {}),
       ...(fields.address ? { addresses: [{ type: 'billing', street: fields.address.street, ...(fields.address.city ? { city: fields.address.city } : {}), country: 'BG', isDefault: true }] } : {}),
-      ...(notes ? { notes } : {}),
+      ...(fields.contactPerson ? { representative: fields.contactPerson } : {}),
+      ...(nameOnly ? { notes: NAME_ONLY_NOTE } : {}),
       isActive: true,
     }
     const similar = nameOnly ? index.similar(name) : []
@@ -440,6 +443,7 @@ function applyBody(c: LgrContact, b: ContactBody) {
   if (b.vatNumber) c.vatNumber = b.vatNumber
   if (b.phone) c.phone = b.phone
   if (b.notes) c.notes = b.notes
+  if (b.representative) c.representative = b.representative
   if (b.aliases) c.aliases = b.aliases
   if (b.addresses) c.addresses = b.addresses.map((a) => ({ street: a.street, city: a.city }))
 }
@@ -473,7 +477,8 @@ export function fillsFor(c: LgrContact, name: string, by: MatchedBy, roles: read
     body.addresses = [{ type: 'billing', street: f.address.street, ...(f.address.city ? { city: f.address.city } : {}), country: 'BG', isDefault: true }]
     changes.push('fill address')
   }
-  if (f.contactPerson && blank(c.notes)) { body.notes = `МОЛ: ${f.contactPerson}`; changes.push('fill notes') }
+  // A contact from before FR-25a keeps its МОЛ in its notes: it has one already (`hasRepresentative`).
+  if (f.contactPerson && !hasRepresentative(c)) { body.representative = f.contactPerson; changes.push('fill representative') }
   if (by === 'eik' || by === 'punctuation') {
     const key = normalizeName(name)
     const known = key === normalizeName(c.companyName) || (c.aliases ?? []).some((a) => normalizeName(a) === key)
