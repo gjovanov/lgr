@@ -4,7 +4,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { livePresence } from 'services/biz/fiscal-presence.service'
 import { getRepos } from 'services/context'
 import { buildProductSearchFilter } from 'services/biz/search.utils'
-import { createAuditEntry, generateCorrelationId } from 'services/biz/audit-log.service'
+import { createAuditEntry, generateCorrelationId, recordAuditEntry } from 'services/biz/audit-log.service'
 import { eventBus } from 'services/events/event-bus'
 import { nextRegistryNumber } from 'services/biz/sequence-registry'
 import { assertDispatchAvailable } from 'services/biz/invoicing.service'
@@ -84,6 +84,10 @@ function closeIsDead(session: any, now = Date.now()): boolean {
 /**
  * A close that died in its Z goes back to `open`. Conditional on it still being that dead close, so two presses
  * reopen it once and audit it once. Whoever pressed is told either way (`CLOSE_INTERRUPTED`).
+ *
+ * The entry is written before the answer (`recordAuditEntry`, which never throws), so the trail of a Z that may
+ * have printed is there by the time the cashier is told to check the device. Written in the background, it could
+ * land after the answer.
  */
 async function reopenDeadClose(orgId: string, session: any, user: { id: string; operatorCode?: string }): Promise<void> {
   const id = String(session._id ?? session.id)
@@ -96,7 +100,7 @@ async function reopenDeadClose(orgId: string, session: any, user: { id: string; 
     },
   ).exec()
   if (reopened) {
-    createAuditEntry({
+    await recordAuditEntry({
       orgId, userId: user.id, operatorCode: user.operatorCode, action: 'close_interrupted',
       module: 'pos', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber,
     })
