@@ -451,7 +451,11 @@ export function analyticNodes(tree: TreeNode): { root: string; nodes: ArchiveAna
         if (ANALYTIC_PROPS.has(c.name)) continue
         const p = `${path}:${c.name}`
         const params: Record<string, string> = {}
-        for (const pk of kid(c, 'ПАРАМЕТРИ')?.kids ?? []) params[pk.name] = asText(valueOf(pk))
+        // A number as the export prints it (10 decimals), not with the float noise the database keeps: FR-25a stores these.
+        for (const pk of kid(c, 'ПАРАМЕТРИ')?.kids ?? []) {
+          const v = valueOf(pk)
+          params[pk.name] = typeof v === 'number' ? (Number.isFinite(v) ? String(archiveNumber(v)) : '') : asText(v)
+        }
         const openings: ArchiveAnalyticNode['openings'] = {}
         for (const y of kid(kid(c, 'САЛДА И ОБОРОТИ'), 'НАЧАЛНИ')?.kids ?? []) {
           const bal = kid(y, 'НАЧАЛНО САЛДО'), q = archiveNumber(valueOf(kid(y, 'КОЛИЧЕСТВО')))

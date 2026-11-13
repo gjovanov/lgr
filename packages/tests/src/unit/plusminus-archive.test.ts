@@ -215,6 +215,12 @@ describe('the books', () => {
       { path: 'ДОСТАВЧИЦИ:ДОСТАВЧИК ЕООД', taxId: '123456789', vatNumber: 'BG123456789', params: [{ key: 'БУЛСТАТ', value: '123456789' }, { key: 'ИНДДС', value: 'BG123456789' }] },
       { path: 'СТОКИ:ВИНТОВЕ:ВИНТ', unit: 'БР', params: [{ key: 'МЯРКА', value: 'БР' }] },
     ])
+    // A property stored as a number reads as the export prints it, without the database's float noise (FR-25a keeps them).
+    const value = (v: number) => ({ name: '', value: v, kids: [] })
+    const floats = analyticNodes({ name: 'АНАЛИТИЧНИ ПРИЗНАЦИ', kids: [{ name: 'СТОКИ', kids: [{ name: 'БОЛТ', kids: [
+      { name: 'ПАРАМЕТРИ', kids: [{ name: 'СР.ЦЕНА', kids: [value(837.5699999999999)] }, { name: 'ЦЕНА', kids: [value(NaN)] }, { name: 'МЯРКА', kids: [{ name: 'БР', kids: [] }] }] },
+    ] }] }] })
+    expect(floats[0].nodes[0].params).toEqual({ 'СР.ЦЕНА': '837.57', 'ЦЕНА': '', 'МЯРКА': 'БР' })
     expect(analyticOpenings(roots[2].nodes, 2026, '304')).toEqual([{ code: '304', path: 'СТОКИ:ВИНТОВЕ:ВИНТ', debit: 12.5, credit: 0, quantity: 5 }])
     expect(analyticOpenings(roots[1].nodes, 2026, '401')).toEqual([{ code: '401', path: 'ДОСТАВЧИЦИ:ДОСТАВЧИК ЕООД', debit: 0, credit: 50 }])
     expect(analyticOpenings(roots[1].nodes, 2025, '401')).toEqual([])
