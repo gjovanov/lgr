@@ -187,6 +187,8 @@ export interface DocumentTypeConfig {
   saveAndReceive?: boolean
   /** The goods receipts the bill pays for: links, price differences, „Свържи с доставка" (FR-22.31/.32). */
   linkDelivery?: boolean
+  /** The stock notes a sales invoice was made from: links, „Свържи с експедиция" (FR-22.61/.62). */
+  linkStockNote?: boolean
   /** „+ Нов продукт „…"" in a line's article search (FR-22.30). */
   allowCreateProduct?: boolean
 

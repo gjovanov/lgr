@@ -47,8 +47,62 @@ export function stockCheckLines(lines: any[] | undefined): StockCheckLine[] {
  * dispatches. Checking a credit note here could hold back a return of an article that has sold
  * out, which is when returns come.
  */
-export function checksStockOnIssue(doc: { direction?: string; type?: string }): boolean {
+export function checksStockOnIssue(doc: { direction?: string; type?: string; stockSource?: { marker?: string } | null }): boolean {
+  // A document that takes its goods from another (a stock note, a cash sale: `stockSource`) dispatches none, so
+  // there is nothing to check, and no transfer to offer for goods that have already left.
+  if (doc.stockSource?.marker) return false
   return doc.direction === 'outgoing' && !isQuoteType(doc.type) && doc.type !== 'credit_note'
+}
+
+/** A stock note an invoice may be for (FR-22.61b), as the question and the link picker list it. */
+export interface OverlappingDispatch {
+  id: string
+  number: string
+  date: string
+  lineCount: number
+  /** Units over its lines. No value: a note's amounts are costs. */
+  quantity: number
+  /** It names no customer, and takes the invoice's. */
+  noCustomer?: boolean
+  /** Its notes, when it names no customer: all there is to tell whose goods they were. */
+  notes?: string
+}
+
+/**
+ * FR-22.61b: the server's question before a sales invoice dispatches goods a stock note already delivered.
+ * `POST /invoices/:id/send` answers 409 `dispatch_overlap`; the refusal is on the server so that no door skips it.
+ * A form asks first (`GET /invoicing/sales/:id/dispatch-overlap`): an invoice about to be linked takes no stock, so
+ * nothing about its stock should be asked, or a transfer offered, before this is answered.
+ */
+export interface DispatchOverlap {
+  invoiceId: string
+  /** The invoice's lines that say something. */
+  typedLines: number
+  notes: OverlappingDispatch[]
+  /** The invoice names no customer, and neither do these notes: a link has to be told who. */
+  needsCustomer?: boolean
+}
+
+/** Whether issuing this document can meet the question: a draft sales invoice whose goods no document has moved. */
+export function asksAboutDispatches(doc: { direction?: string; type?: string; status?: string; stockSource?: { marker?: string } | null }): boolean {
+  return doc.direction === 'outgoing' && doc.type === 'invoice' && (doc.status ?? 'draft') === 'draft' && !doc.stockSource?.marker
+}
+
+/** The question in this refusal of `/send`, or null when `e` is any other failure. */
+export function dispatchOverlapOf(e: any, invoiceId: string): DispatchOverlap | null {
+  const body = e?.response?.data
+  if (e?.response?.status !== 409 || body?.code !== 'dispatch_overlap') return null
+  return { invoiceId, typedLines: Number(body.typedLines) || 0, notes: body.notes || [], needsCustomer: !!body.needsCustomer }
+}
+
+/**
+ * What is ticked for the person: the one note that names the invoice's customer, among however many name nobody.
+ * One that names nobody is theirs to choose, even alone: it may be anybody's goods, and an invoice linked to it
+ * moves no stock, so a wrong tick loses the real dispatch (the receipts' rule, `preselectedReceipts`).
+ */
+export function preselectedDispatches(rows: Array<{ id: string; noCustomer?: boolean }>): string[] {
+  const named = rows.filter(r => !r.noCustomer)
+  return named.length === 1 ? [named[0].id] : []
 }
 
 /**
@@ -114,15 +168,67 @@ export async function checkStock(client: IssueClient, orgUrl: string, lines: Sto
  * What issuing document `id` starts from: the document as stored, and — when issuing it takes
  * stock and a warehouse is short — the availability answer to offer transfers from. `check` is
  * null when nothing needed asking or everything is there.
+ *
+ * `overlap` (FR-22.61b) comes before either: the stock notes this invoice may be for. With one, nothing about the
+ * stock is asked yet, because the answer decides whether the invoice takes any. `acknowledgeOverlap` says the
+ * person has answered „other goods", so the question is not put again.
  */
-export async function prepareIssue(client: IssueClient, orgUrl: string, id: string): Promise<{ invoice: any; check: StockCheck | null }> {
+export async function prepareIssue(
+  client: IssueClient,
+  orgUrl: string,
+  id: string,
+  opts: { acknowledgeOverlap?: boolean } = {},
+): Promise<{ invoice: any; check: StockCheck | null; overlap: DispatchOverlap | null }> {
   // First fetch full invoice to get lines with warehouseId
   const { data } = await client.get(`${orgUrl}/invoices/${id}`)
   const invoice = data.invoice
+  if (!opts.acknowledgeOverlap && asksAboutDispatches(invoice)) {
+    try {
+      const { data: asked } = await client.get(`${orgUrl}/invoicing/sales/${id}/dispatch-overlap`)
+      if (asked?.overlap?.notes?.length) return { invoice, check: null, overlap: { invoiceId: id, ...asked.overlap } }
+    } catch {
+      // Not answered here: `/send` asks the same question, and its refusal opens the same dialog.
+    }
+  }
   const lines = stockCheckLines(invoice.lines)
-  if (!lines.length || !checksStockOnIssue(invoice)) return { invoice, check: null }
+  if (!lines.length || !checksStockOnIssue(invoice)) return { invoice, check: null, overlap: null }
   const check = await checkStock(client, orgUrl, lines)
-  return { invoice, check: check.sufficient ? null : check }
+  return { invoice, check: check.sufficient ? null : check, overlap: null }
+}
+
+/** An article whose quantity on an invoice is not what its stock notes delivered (FR-22.62). */
+export interface QuantityDifference {
+  productId: string
+  name: string
+  dispatched: number
+  invoiced: number
+}
+
+export type LinkDispatchesResult =
+  /** Linked. `linesWritten`: the notes' lines took the place of what was typed, so the person reads them before issuing. */
+  | { linked: true; linesWritten: boolean }
+  /** Not linked: the invoice says something other than the notes delivered. `replaceLines` is the person's consent. */
+  | { linked: false; differs: QuantityDifference[] }
+
+/**
+ * FR-22.62: link draft invoice `id` to stock notes. An invoice whose stock lines already say what the notes
+ * delivered keeps every line; one that differs is not linked until `replaceLines` says the notes' lines may take
+ * their place. Any other refusal is thrown, as the server answered it.
+ */
+export async function linkDispatches(
+  client: IssueClient,
+  orgUrl: string,
+  id: string,
+  body: { movementIds: string[]; replaceLines?: boolean; contactId?: string },
+): Promise<LinkDispatchesResult> {
+  try {
+    const { data } = await client.post(`${orgUrl}/invoicing/sales/${id}/link-dispatches`, body)
+    return { linked: true, linesWritten: !!data?.linesWritten }
+  } catch (e: any) {
+    const refusal = e?.response?.data
+    if (e?.response?.status === 422 && refusal?.code === 'invoice_lines_differ') return { linked: false, differs: refusal.lines || [] }
+    throw e
+  }
 }
 
 /** The transfer movements a confirmed transfer dialog asks for; the document confirms them as it is issued. */
@@ -136,7 +242,7 @@ export async function sendIssue(
   client: IssueClient,
   orgUrl: string,
   id: string,
-  body: { pendingTransferIds?: string[] } = {},
+  body: { pendingTransferIds?: string[]; acknowledgeOverlap?: boolean } = {},
   headers: Record<string, string> = {},
 ): Promise<any> {
   const { data } = await client.post(`${orgUrl}/invoices/${id}/send`, body, { headers })

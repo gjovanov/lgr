@@ -1,5 +1,6 @@
 /**
- * Why the API refused a movement, a bill made from receipts or a bill's receiving, in the user's language (#168).
+ * Why the API refused a movement, a bill made from receipts or a bill's receiving, in the user's language (#168),
+ * and an invoice made from stock notes (FR-22.61, #725).
  *
  * The services answer in English with a `code`, and whatever the refusal names beside it
  * (`movementNumber`). The screens that show one of these codes show this sentence; any other refusal
@@ -26,6 +27,19 @@ export const STOCK_REFUSAL_CODES = [
   'nothing_to_bill',
   'stock_line_without_product',
   'stock_line_without_warehouse',
+  'dispatch_without_customer',
+  'dispatch_not_a_delivery',
+  'dispatch_rolled_back',
+  'customer_not_found',
+  'customer_mismatch',
+  'mixed_customers',
+  'dispatch_already_invoiced',
+  'invoice_on_order',
+  'invoice_foreign_currency',
+  'invoice_not_draft',
+  'invoice_already_linked',
+  'nothing_to_invoice',
+  'dispatch_quantity_mismatch',
 ] as const
 
 type Translate = (key: string, params?: Record<string, unknown>) => string

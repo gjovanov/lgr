@@ -266,6 +266,10 @@
 
     <IssuePaymentConfirmDialog :ask="paymentConfirm" @answer="answerPayment" />
 
+    <!-- FR-22.61b: „Издай" on goods a stock note may already have delivered. Asked before the stock is checked:
+         an invoice linked to the note takes none. -->
+    <DispatchOverlapDialog v-model:overlap="dispatchOverlap" :org-url="orgUrl()" @linked="overlapLinked" @issue-anyway="issueDespiteOverlap" />
+
     <v-form ref="formRef" @submit.prevent="onSave">
       <v-defaults-provider :defaults="{
         VTextField: { density: 'compact', variant: 'outlined' },
@@ -332,6 +336,31 @@
             {{ $t('invoicing.linkDelivery.hint') }}
             <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-link-variant" data-testid="link-delivery-btn" @click="billReceipts.openLinkDelivery">
               {{ $t('invoicing.linkDelivery.action') }}
+            </v-btn>
+          </div>
+          <!-- FR-22.61: an invoice made from stock notes. They delivered the goods, so it moves none. -->
+          <v-alert
+            v-if="invoiceDispatches.linkedDispatches.value.length"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+            icon="mdi-truck-delivery-outline"
+            data-testid="invoice-dispatches"
+          >
+            {{ $t('invoicing.linkNote.banner') }}
+            <template v-for="(d, i) in invoiceDispatches.linkedDispatches.value" :key="d.id">
+              <span v-if="i">, </span>
+              <a :href="invoiceDispatches.dispatchHref(d.id)" class="font-weight-medium" data-testid="invoice-dispatch-link">{{ d.number }}</a>
+            </template>
+            <div class="text-caption mt-1">{{ $t('invoicing.linkNote.noStock') }}</div>
+          </v-alert>
+          <!-- FR-22.62: goods already handed over? Invoice that stock note instead of dispatching them again. -->
+          <div v-else-if="invoiceDispatches.canLink.value" class="d-flex align-center ga-2 mb-1 text-body-2 text-medium-emphasis">
+            <v-icon size="small">mdi-truck-delivery-outline</v-icon>
+            {{ $t('invoicing.linkNote.hint') }}
+            <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-link-variant" data-testid="link-note-btn" @click="invoiceDispatches.openLink">
+              {{ $t('invoicing.linkNote.action') }}
             </v-btn>
           </div>
           <DocumentLineTable :doc="doc" :receipt-cost-of="billReceipts.enabled ? billReceipts.receiptCostOf : undefined" />
@@ -478,7 +507,15 @@
       <EntityNotesPanel :org-url="orgUrl()" :entity-type="config.notesEntityType" :entity-id="isEdit ? (route.params.id as string) : undefined" />
     </template>
 
-    <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId || ''" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
+    <ContactLedgerDialog
+      v-model="ledgerDialog"
+      :contact-id="form.contactId || ''"
+      :org-url="orgUrl()"
+      :selectable="true"
+      :link-notes="invoiceDispatches.canLink.value"
+      @add-lines="onAddLedgerLines"
+      @link-notes="invoiceDispatches.linkNotes"
+    />
     <ProductPickerDialog
       v-model="productPickerOpen"
       :org-url="orgUrl()"
@@ -532,6 +569,53 @@
             @click="billReceipts.linkDelivery"
           >
             {{ $t(billReceipts.filledLines.value ? 'invoicing.linkDelivery.replaceConfirm' : 'invoicing.linkDelivery.confirm') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- FR-22.62: the customer's stock notes this invoice can take. An invoice whose lines already say what they
+         delivered keeps them; one that differs is told how, and replaces them only on a second press. -->
+    <v-dialog v-model="invoiceDispatches.dialogOpen.value" max-width="640" scrollable>
+      <v-card data-testid="link-note-dialog">
+        <v-card-title>{{ $t('invoicing.linkNote.action') }}</v-card-title>
+        <v-card-text>
+          <div class="text-body-2 text-medium-emphasis mb-2">{{ $t('invoicing.linkNote.dialogHint') }}</div>
+          <v-progress-linear v-if="invoiceDispatches.loading.value" indeterminate />
+          <div v-else-if="!invoiceDispatches.invoiceable.value.length" class="text-body-2" data-testid="link-note-none">{{ $t('invoicing.linkNote.none') }}</div>
+          <v-list v-else density="compact">
+            <v-list-item v-for="n in invoiceDispatches.invoiceable.value" :key="n.id" data-testid="link-note-row">
+              <template #prepend>
+                <v-checkbox-btn :model-value="invoiceDispatches.selected.value" :value="n.id" @update:model-value="invoiceDispatches.onSelect" />
+              </template>
+              <v-list-item-title>
+                {{ n.number }} · {{ String(n.date || '').slice(0, 10) }}
+                <v-chip v-if="n.noCustomer" size="x-small" label class="ml-1" data-testid="dispatch-no-customer">{{ $t('invoicing.linkNote.noCustomer') }}</v-chip>
+              </v-list-item-title>
+              <v-list-item-subtitle>{{ $t('invoicing.linkNote.noteLines', { n: n.lineCount, quantity: n.quantity }, n.lineCount) }}</v-list-item-subtitle>
+              <div v-if="n.notes" class="text-caption text-medium-emphasis" data-testid="dispatch-notes">{{ n.notes }}</div>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+        <v-alert v-if="invoiceDispatches.differs.value.length" type="warning" variant="tonal" density="compact" class="mx-4 mt-2 flex-grow-0" data-testid="dispatch-differs">
+          <div>{{ $t('invoicing.linkNote.differs') }}</div>
+          <ul class="pl-4">
+            <li v-for="d in invoiceDispatches.differs.value" :key="d.productId" data-testid="dispatch-differs-line">{{ $t('invoicing.linkNote.differsLine', d) }}</li>
+          </ul>
+          <div class="mt-1">{{ $t('invoicing.linkNote.replaceWarning') }}</div>
+        </v-alert>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="invoiceDispatches.dialogOpen.value = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :disabled="!invoiceDispatches.selected.value.length"
+            :loading="invoiceDispatches.linking.value"
+            data-testid="link-note-confirm"
+            @click="invoiceDispatches.link"
+          >
+            {{ $t(invoiceDispatches.differs.value.length ? 'invoicing.linkNote.replaceConfirm' : 'invoicing.linkNote.confirm') }}
           </v-btn>
         </v-card-actions>
       </v-card>
@@ -592,6 +676,7 @@ import { useAccess } from 'ui-shared/access/useAccess'
 import { capShows } from 'ui-shared/access/v-cap'
 import AttachToCashSaleDialog from '../AttachToCashSaleDialog.vue'
 import ReceiptOverlapDialog from '../ReceiptOverlapDialog.vue'
+import DispatchOverlapDialog from '../DispatchOverlapDialog.vue'
 import RecordPaymentDialog from '../RecordPaymentDialog.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import IssuePaymentConfirmDialog from '../IssuePaymentConfirmDialog.vue'
@@ -606,6 +691,7 @@ import DocumentLineTable from './DocumentLineTable.vue'
 import DocumentTotalsCard from './DocumentTotalsCard.vue'
 import { useDocumentForm, type UseDocumentFormOptions } from '../../composables/document-form/useDocumentForm'
 import { useBillReceipts } from '../../composables/document-form/useBillReceipts'
+import { useInvoiceDispatches } from '../../composables/document-form/useInvoiceDispatches'
 import type { DocumentTypeConfig } from '../../composables/document-form/types'
 
 const props = defineProps<{
@@ -622,6 +708,8 @@ const emit = defineEmits<{
 const doc = useDocumentForm(props.config, { onBeforeCreate: props.onBeforeCreate, onCreated: (id) => emit('created', id) })
 // FR-22.31/.32: a supplier bill and the goods receipts it pays for.
 const billReceipts = useBillReceipts(doc)
+// FR-22.61/.62: a sales invoice and the stock notes that delivered its goods.
+const invoiceDispatches = useInvoiceDispatches(doc)
 
 const contactCreateRef = ref<InstanceType<typeof ContactAutocompleteWithCreate> | null>(null)
 
@@ -710,6 +798,9 @@ const {
   confirmTransfers,
   paymentConfirm,
   answerPayment,
+  dispatchOverlap,
+  issueDespiteOverlap,
+  overlapLinked,
   stockReceipts,
   stockReceiptLoading,
   onPrintStockReceipt,

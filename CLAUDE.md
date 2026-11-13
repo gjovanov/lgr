@@ -2437,6 +2437,38 @@ billable-receipts,:id/link-receipts}`.
   `e2e/receipt-to-bill.spec`; walks P2 (17 clicks · 12 typed · 0 hops) and P3 (3 · 1 · 1, stock
   unchanged).
 
+## The goods first, then their invoice (2026-11-13, FR-22.61–.62, #725)
+
+The sales twin of the section above. Goods leave on a dispatch that names the customer (a stock
+note); an invoice typed for them later dispatched them a second time. `services/biz/dispatch-invoice.service.ts`
+is the one place that knows the rules; `invoicing-api/…/dispatch-invoice.controller.ts` its routes
+(`/invoicing/sales/{from-dispatch, invoiceable-dispatches, :id/link-dispatches, :id/dispatch-overlap}`).
+
+- An invoice made from notes carries `stockSource { marker: 'dispatch:<ids>', movementIds, detectedBy:
+  'manual' }` and claims each note by a compare-and-set on its `invoiceId`. ⚠ The marker is NOT
+  `movement:`: `isReceiptLinked` must stay false for an invoice, or the bill's paths run on it (its
+  form is sent the receipts' costs, its edit is refused in a bill's words). The paths that read
+  `stockSource.movementIds` (the ledgers, the org move, `movesNoStock`, a rollback's guard) serve both.
+- ⚠ **A note carries costs, an invoice charges prices.** Lines take `resolvePrice` for that customer,
+  with the trail; a note's `unitCost` never reaches an invoice, and the picker sends no amount at all.
+- ⚠ **A typed invoice keeps its lines when it is linked**, where its stock-held quantities already
+  equal the notes' (the bill side always replaces). Only a difference is replaced, and only with
+  `replaceLines`, after 422 `invoice_lines_differ` named it. The link is a compare-and-set on
+  `updatedAt`: the lines were judged from that read.
+- The question (FR-22.61b) is asked by `/send`, 409 `dispatch_overlap`, answered by a link or
+  `acknowledgeOverlap`. ⚠ The UI asks FIRST (`prepareIssue`, `GET …/dispatch-overlap`), before the
+  payment method and the stock check: an invoice about to be linked takes no stock, and a stock check
+  run first offered a transfer to cover goods that had already left. `checksStockOnIssue` is false
+  for any document with a `stockSource`.
+- ⚠ The notes are found by `invoiceId: null` IN THE QUERY (`freeOf`), never by reading the newest
+  few hundred dispatches and filtering: nearly every dispatch of a customer is one an invoice booked
+  for itself.
+- ⚠ A dispatch held by a purchase document (a voided bill's mirror) is a reversal, and the bill is
+  not named: a session that makes sales invoices need not read the purchases.
+- Seen, not changed: FR-07 and the digest value a stock note's lines at the note's own unit cost,
+  as before it was invoiced. The invoice's prices are in FR-08, which reads documents.
+- Tests: `integration/dispatch-invoice.flow` (32, with 17 mutations caught), `e2e/stock-note-to-invoice.spec` (9).
+
 ## Issue, print and get paid on the document (2026-10-26, FR-22 slice 2a: FR-22.16–.22)
 
 A sales document is finished on its own form: „Издай и печатай" saves it, issues it, settles a card

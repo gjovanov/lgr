@@ -26,6 +26,17 @@
       {{ notBillableText }}
     </v-alert>
 
+    <!-- FR-22.61: the sales invoice that holds this dispatch (the one made from it, or the one that booked it): a
+         link into invoicing. -->
+    <v-alert v-if="movement.sale && !transferOnly" type="success" variant="tonal" density="compact" class="mb-3" icon="mdi-receipt-text-check-outline" data-testid="dispatch-sale">
+      {{ $t('warehouse.invoicedBy') }}
+      <a :href="saleHref(movement.sale.id)" class="font-weight-medium" data-testid="dispatch-sale-link">{{ movement.sale.number }}</a>
+    </v-alert>
+    <!-- A dispatch that no invoice can be made from says why, rather than just not offering one. -->
+    <v-alert v-else-if="notInvoiceableText && !transferOnly" type="info" variant="tonal" density="compact" class="mb-3" data-testid="dispatch-not-invoiceable">
+      {{ notInvoiceableText }}
+    </v-alert>
+
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <v-row>
         <v-col cols="12" md="3">
@@ -305,6 +316,36 @@
       </v-card>
     </v-dialog>
 
+    <!-- FR-22.61a: a dispatch that names no customer is invoiced once someone says whose goods they were. -->
+    <v-dialog v-model="invoiceCustomerDialog" max-width="520">
+      <v-card data-testid="invoice-customer-dialog">
+        <v-card-title>{{ $t('warehouse.invoiceCustomer.title') }}</v-card-title>
+        <v-card-text>
+          <div class="text-body-2 text-medium-emphasis mb-3">{{ $t('warehouse.invoiceCustomer.hint') }}</div>
+          <v-defaults-provider :defaults="{ VAutocomplete: { density: 'compact' } }">
+            <ContactAutocompleteWithCreate
+              v-model="invoiceCustomerId"
+              :contacts="invoiceCustomers.contacts.value"
+              :loading="invoiceCustomers.loading.value"
+              :label="$t('invoicing.customer')"
+              :org-url="appStore.orgUrl()"
+              new-contact-type="customer"
+              data-testid="invoice-customer"
+              @update:search="invoiceCustomers.onSearch"
+              @contact-created="invoiceCustomers.add"
+            />
+          </v-defaults-provider>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="invoiceCustomerDialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="primary" variant="flat" :disabled="!invoiceCustomerId" :loading="invoicing" data-testid="invoice-customer-confirm" @click="createInvoice(invoiceCustomerId)">
+            {{ $t('warehouse.invoiceCustomer.confirm') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Single-document import: OCR one разписка and merge it into THIS movement.
          Nothing is booked — the user still has to save and confirm. -->
     <DocImportDialog
@@ -367,6 +408,14 @@ interface MovementState {
   notBillable?: { code: string; number?: string }
   /** FR-22.31: the live bill that holds it. */
   bill?: { id: string; number: string }
+  /** FR-22.61: a sales invoice may be made from it (a completed dispatch no document holds). */
+  invoiceable?: boolean
+  /** FR-22.61a: it may, once the user says who the customer is: the dispatch names none. */
+  needsCustomer?: boolean
+  /** FR-22.61: why no invoice can be made from it. */
+  notInvoiceable?: { code: string; number?: string }
+  /** FR-22.61: the live sales invoice that holds it. */
+  sale?: { id: string; number: string }
 }
 
 const route = useRoute()
@@ -380,6 +429,7 @@ const isEdit = computed(() => !!route.params.id)
 const loading = ref(false)
 const saving = ref(false)
 const billing = ref(false)
+const invoicing = ref(false)
 const formRef = ref()
 const warehouses = ref<Warehouse[]>([])
 const movement = ref<MovementState>({ status: 'draft' })
@@ -583,6 +633,15 @@ const notBillableText = computed(() => {
   return t(`warehouse.notBillable.${why.code}`, { number: why.number || '' })
 })
 
+/** FR-22.61: why no invoice can be made from this dispatch, in the words of the page. */
+const notInvoiceableText = computed(() => {
+  const why = movement.value.notInvoiceable
+  if (!why) return ''
+  // A voided document names itself; one that is gone has nothing to name.
+  if (why.code === 'dispatch_not_invoiceable' && !why.number) return t('warehouse.notInvoiceable.orphan')
+  return t(`warehouse.notInvoiceable.${why.code}`, { number: why.number || '' })
+})
+
 /**
  * FR-22.29: an editable movement's primary action books it — „Запази и потвърди" saves and
  * confirms in one go (it was Save, then a separate „Потвърди" on the draft it left). Plain Save
@@ -606,6 +665,9 @@ const formActions = computed<FormAction[]>(() => {
     })
   } else if (movement.value.billable && !transferOnly) {
     actions.push({ label: t('warehouse.incomingInvoice'), color: 'primary', icon: 'mdi-receipt-text-plus-outline', handler: onIncomingInvoice, loading: billing.value })
+  } else if (movement.value.invoiceable && !transferOnly) {
+    // FR-22.61: a completed dispatch no document holds offers its customer's invoice, made from it.
+    actions.push({ label: t('warehouse.salesInvoice'), color: 'primary', icon: 'mdi-receipt-text-plus-outline', handler: onSalesInvoice, loading: invoicing.value })
   }
   return actions
 })
@@ -676,6 +738,10 @@ async function fetchItem() {
       needsSupplier: !!detail.needsSupplier,
       notBillable: detail.notBillable || undefined,
       bill: detail.bill || undefined,
+      invoiceable: !!detail.invoiceable,
+      needsCustomer: !!detail.needsCustomer,
+      notInvoiceable: detail.notInvoiceable || undefined,
+      sale: detail.sale || undefined,
     }
     form.value = {
       type: detail.type, fromWarehouseId: detail.fromWarehouseId || null, toWarehouseId: detail.toWarehouseId || null, toGuessed: false,
@@ -847,6 +913,62 @@ function onIncomingInvoice() {
 
 function billHref(id: string) {
   return appHref('invoicing', `/invoicing/bills/${id}/edit`)
+}
+
+/**
+ * FR-22.61 (#725): the customer's invoice for this dispatch. The server makes it, a draft, linked, so it will move
+ * no stock, with each line at that customer's price; the user reads the prices there and issues it. `contactId` is
+ * the customer of a dispatch that names none.
+ */
+async function createInvoice(contactId?: string) {
+  invoicing.value = true
+  try {
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/sales/from-dispatch`, {
+      movementIds: [route.params.id],
+      // „Словом" is written in the language the person works in, as the invoice form writes it.
+      locale: appStore.locale,
+      ...(contactId ? { contactId } : {}),
+    })
+    goTo(saleHref(data.invoice.id || data.invoice._id))
+  } catch (e: any) {
+    const res = e?.response?.data
+    // Invoiced meanwhile (a second click, another tab): go to that invoice rather than refuse.
+    if (res?.code === 'dispatch_already_invoiced' && res.invoiceId) {
+      goTo(saleHref(res.invoiceId))
+      return
+    }
+    invoicing.value = false
+    // Its invoice was voided in another tab, and took its customer with it.
+    if (res?.code === 'dispatch_without_customer') {
+      askInvoiceCustomer()
+      return
+    }
+    showError(stockRefusalMessage(e, t))
+  }
+}
+
+// ── FR-22.61a: the customer of a dispatch that names none ──
+const invoiceCustomerDialog = ref(false)
+const invoiceCustomerId = ref<string | undefined>(undefined)
+const invoiceCustomers = useContactSearch({
+  orgUrl: () => appStore.orgUrl(),
+  type: () => 'customer',
+  selected: () => [invoiceCustomerId.value],
+})
+
+function askInvoiceCustomer() {
+  invoiceCustomerId.value = undefined
+  invoiceCustomerDialog.value = true
+  void invoiceCustomers.search()
+}
+
+function onSalesInvoice() {
+  if (movement.value.needsCustomer) askInvoiceCustomer()
+  else void createInvoice()
+}
+
+function saleHref(id: string) {
+  return appHref('invoicing', `/invoicing/invoices/${id}/edit`)
 }
 
 function addLine() { form.value.lines.push(emptyLine()) }

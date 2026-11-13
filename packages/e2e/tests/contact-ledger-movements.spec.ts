@@ -6,8 +6,9 @@ import { openSelect } from './helpers/vuetify'
  * A contact's ledger shows the stock movements too. A document's line names the movement that moved
  * its goods, and a movement of the contact's that no document carries is a row of its own: a
  * "Stock Movement Document", which the Type filter offers. The same table is the dialog a document
- * form opens from its contact field, where a movement's row is listed and not offered for the
- * document.
+ * form opens from its contact field, where a movement's row is listed and never offered as lines for
+ * the document. An invoice can take a customer's dispatch as its stock instead (FR-22.62,
+ * `stock-note-to-invoice.spec.ts`), so on its form that row carries the note's own tick.
  *
  * Data, all this spec's own: a contact, an article they delivered ten of (a receipt with no bill), an
  * issued invoice selling them one (its dispatch is the invoice's movement) and a dispatch of two to
@@ -148,7 +149,7 @@ test('the ledger page: an invoice row names its movement, and a movement without
 })
 
 for (const [form, path] of [['invoice', '/invoicing/invoices/new'], ['bill', '/invoicing/bills/new'], ['proforma', '/invoicing/proforma/new']] as const) {
-  test(`a new ${form}: the ledger its contact field opens lists the movements, and offers the document lines only`, async ({ page }) => {
+  test(`a new ${form}: the ledger its contact field opens lists the movements, and offers no movement as lines`, async ({ page }) => {
     await loginForApp(page)
     await page.goto(path)
     const party = page.locator('.v-autocomplete').first()
@@ -165,10 +166,15 @@ for (const [form, path] of [['invoice', '/invoicing/invoices/new'], ['bill', '/i
     await expect(invoiceRow.getByTestId('ledger-movement')).toHaveText(invoiceMovement)
     await expect(invoiceRow.getByRole('checkbox')).toHaveCount(1)
 
-    // A movement's own row is listed, with no box to tick.
+    // A movement's own row is listed, and never offered as lines. An invoice may take a stock note as its stock
+    // (FR-22.62), so on its form the customer's dispatch has the note's own tick, and a button of its own beside
+    // „Add Line Items"; a bill and a quote are offered neither.
     const movementRow = rows.filter({ hasText: ownMovement })
     await expect(movementRow).toContainText('Dispatch')
-    await expect(movementRow.getByRole('checkbox')).toHaveCount(0)
+    const linkable = form === 'invoice' ? 1 : 0
+    await expect(movementRow.getByRole('checkbox')).toHaveCount(linkable)
+    await expect(movementRow.getByTestId('ledger-note-tick')).toHaveCount(linkable)
+    await expect(dialog.getByTestId('ledger-link-notes')).toHaveCount(linkable)
     await expect(rows.filter({ hasText: delivery }).getByRole('checkbox')).toHaveCount(0)
 
     await openSelect(dialog, /^type$/i)

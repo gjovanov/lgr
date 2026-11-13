@@ -2232,7 +2232,34 @@
       "preparedToast": "Gutschrift und Neuausstellung sind als Entwürfe vorbereitet",
       "failed": "Es konnte nicht vorbereitet werden."
     },
-    "unitFromProduct": "Die Einheit des Artikels"
+    "unitFromProduct": "Die Einheit des Artikels",
+    "linkNote": {
+      "action": "Mit Warenausgang verknüpfen",
+      "hint": "Ware schon übergeben?",
+      "dialogHint": "Warenausgänge dieses Kunden, die noch keine Rechnung abdeckt, und Warenausgänge ohne Kunde. Die Rechnung bewegt dann keinen Bestand: Das hat der Warenausgang schon getan.",
+      "none": "Es gibt keinen offenen Warenausgang für diesen Kunden oder ohne Kunde.",
+      "noCustomer": "ohne Kunde",
+      "noteLines": "{n} Zeile, insgesamt {quantity} | {n} Zeilen, insgesamt {quantity}",
+      "confirm": "Verknüpfen",
+      "differs": "Die Zeilen der Rechnung weichen vom Gelieferten ab:",
+      "differsLine": "{name}: geliefert {dispatched}, fakturiert {invoiced}",
+      "replaceWarning": "Das Verknüpfen ersetzt die Lagerzeilen der Rechnung durch die des Warenausgangs, zu den Preisen dieses Kunden. Zeilen ohne Bestand, Nummer, Daten und Zahlungsart bleiben.",
+      "replaceConfirm": "Zeilen ersetzen und verknüpfen",
+      "linked": "Die Rechnung ist mit dem Warenausgang verknüpft",
+      "linkedCheck": "Die Rechnung ist mit dem Warenausgang verknüpft. Prüfen Sie Zeilen und Preise und stellen Sie sie dann aus.",
+      "banner": "Rechnung zum Warenausgang",
+      "noStock": "Die Ware wurde mit dem Warenausgang ausgebucht: diese Rechnung bewegt keinen Bestand.",
+      "made": "Rechnungsentwurf aus dem Warenausgang erstellt. Prüfen Sie die Preise und stellen Sie ihn dann aus.",
+      "select": "Diesen Warenausgang mit der Rechnung verknüpfen"
+    },
+    "dispatchOverlap": {
+      "title": "Diese Ware ist vielleicht schon ausgebucht",
+      "text": "Für dieselbe Ware gibt es Warenausgänge ohne Rechnung. Wird diese Rechnung so ausgestellt, wird die Ware ein zweites Mal ausgebucht.",
+      "chooseCustomer": "Diese Rechnung nennt keinen Kunden. Wählen Sie ihn, und das Verknüpfen trägt ihn auf der Rechnung und dem Warenausgang ein.",
+      "link": "Mit dem Warenausgang verknüpfen",
+      "issueAnyway": "Andere Ware: trotzdem ausstellen",
+      "notIssued": "sie betrifft vielleicht Ware, die ein Warenausgang schon geliefert hat, und die Frage blieb unbeantwortet"
+    }
   },
   "warehouse": {
     "sku": "Artikelnr.",
@@ -2542,7 +2569,20 @@
       "bill_already_linked": "Die Rechnung ist bereits mit einer Lieferung verknüpft.",
       "nothing_to_bill": "Die Wareneingänge enthalten keine abzurechnenden Mengen.",
       "stock_line_without_warehouse": "Die Bestandszeilen dieser Rechnung nennen kein Lager, die Ware käme nicht in den Bestand. Wählen Sie das Lager auf der Rechnung und empfangen Sie sie dann.",
-      "stock_line_without_product": "Eine Zeile dieser Rechnung hat eine Menge, aber kein Produkt: Sie würde bezahlt, und die Ware käme nie in den Bestand. Wählen Sie das Produkt in der Zeile und empfangen Sie die Rechnung dann."
+      "stock_line_without_product": "Eine Zeile dieser Rechnung hat eine Menge, aber kein Produkt: Sie würde bezahlt, und die Ware käme nie in den Bestand. Wählen Sie das Produkt in der Zeile und empfangen Sie die Rechnung dann.",
+      "dispatch_without_customer": "Warenausgang {movementNumber} nennt keinen Kunden: Wählen Sie ihn.",
+      "dispatch_not_a_delivery": "Warenausgang {movementNumber} ist eine Korrektur oder der Vermerk einer anderen Bewegung, keine Lieferung an einen Kunden, und wird nicht fakturiert.",
+      "dispatch_rolled_back": "Warenausgang {movementNumber} wurde mit seinem Dokument zurückgenommen: Die Ware ist wieder im Bestand, und er wird nicht fakturiert.",
+      "customer_not_found": "Wählen Sie einen Kunden dieser Organisation.",
+      "customer_mismatch": "Die Warenausgänge gehören einem anderen Kunden.",
+      "mixed_customers": "Eine Rechnung deckt die Warenausgänge eines Kunden ab, diese gehören verschiedenen Kunden.",
+      "dispatch_already_invoiced": "Warenausgang {movementNumber} ist bereits fakturiert.",
+      "invoice_on_order": "Die Rechnung gehört zu einem Auftrag: Ihre Zeilen lösen beim Abgang dessen Reservierungen auf, sie kann nicht mit einem Warenausgang verknüpft werden.",
+      "invoice_foreign_currency": "Diese Rechnung lautet auf {currency}, die Preise der Organisation auf {baseCurrency}: Ihre Zeilen werden nicht aus einem Warenausgang übernommen.",
+      "invoice_not_draft": "Die Rechnung ist kein Entwurf mehr.",
+      "invoice_already_linked": "Die Rechnung ist bereits mit dem Dokument verknüpft, das ihre Ware bewegt hat, oder wurde inzwischen geändert: Laden Sie sie neu.",
+      "nothing_to_invoice": "Die Warenausgänge enthalten keine zu fakturierenden Mengen.",
+      "dispatch_quantity_mismatch": "„{name}“: geliefert {dispatched}, fakturiert {invoiced}. Eine Rechnung zu einem Warenausgang fakturiert das Gelieferte: Eine Differenz mit dem Kunden wird per Gutschrift oder Lastschrift ausgeglichen."
     },
     "supply": {
       "reserved": "Reserviert",
@@ -2630,7 +2670,23 @@
       "reserve": "Reservieren",
       "inactive": "Der Artikel ist deaktiviert – aktivieren Sie ihn, um ihn zu verkaufen oder zu reservieren."
     },
-    "valuationNeedsCosts": "Die Lagerbewertung besteht aus Kostenzahlen, die nicht zu Ihrer Rolle gehören."
+    "valuationNeedsCosts": "Die Lagerbewertung besteht aus Kostenzahlen, die nicht zu Ihrer Rolle gehören.",
+    "invoiced": "Fakturiert",
+    "invoicedBy": "Fakturiert mit der Ausgangsrechnung",
+    "salesInvoice": "Ausgangsrechnung",
+    "invoiceCustomer": {
+      "title": "Wer hat diese Ware erhalten?",
+      "hint": "Dieser Warenausgang nennt keinen Kunden. Die Rechnung lautet auf den gewählten Kunden, und der Warenausgang behält ihn.",
+      "confirm": "Rechnung erstellen"
+    },
+    "notInvoiceable": {
+      "dispatch_rolled_back": "Dieser Warenausgang wurde mit seinem Dokument zurückgenommen: Die Ware ist wieder im Bestand, und er wird nicht fakturiert.",
+      "dispatch_not_a_delivery": "Dieser Warenausgang ist eine Korrektur oder der Vermerk einer anderen Bewegung, keine Lieferung an einen Kunden, und wird nicht fakturiert.",
+      "dispatch_not_completed": "Eine Ausgangsrechnung entsteht aus einem abgeschlossenen Warenausgang.",
+      "dispatch_not_invoiceable": "Dieser Warenausgang wurde von {number} gebucht, das storniert ist. Er ist keine Lieferung und wird nicht fakturiert.",
+      "orphan": "Dieser Warenausgang gehört zu einem Dokument, das es nicht mehr gibt. Er ist keine Lieferung und wird nicht fakturiert.",
+      "dispatch_is_reversal": "Dieser Warenausgang bucht die Ware eines entfernten Dokuments aus. Er ist keine Lieferung und wird nicht fakturiert."
+    }
   },
   "pricing": {
     "explainPrice": "Preis erklären",

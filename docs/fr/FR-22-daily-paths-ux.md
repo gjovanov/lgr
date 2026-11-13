@@ -341,6 +341,66 @@ them into PRs.
 - **FR-22.33 (MUST)** The bill form offers „Запази и получи". Payment method starts empty, then
   per FR-22.26.
 
+### 2.3a Hand the goods over, then invoice them (#725)
+
+The sales twin of FR-22.31 and FR-22.32. Goods leave on a dispatch that names the customer (a stock note), and the
+invoice comes after. An invoice dispatches its own goods when it is issued, so one typed by hand for goods a note
+already delivered took them out of stock a second time, and nothing said so until someone counted.
+
+- **FR-22.61 (MUST)** On a completed dispatch, „Изходяща фактура" opens a new sales invoice.
+  - The invoice is a draft, pre-filled with the customer, the warehouse, the lines and the quantities. Each line
+    takes the price the engine resolves for that customer (`resolvePrice`, the one the form proposes), with its
+    trail. The note's unit cost never reaches an invoice.
+  - It is linked by `stockSource {marker: 'dispatch:<id>[,<id>…]', docNumber, movementIds, detectedBy:
+    'manual'}`, so issuing it moves no stock. The marker is its own: nothing written for a bill made from receipts
+    (`movement:`) runs on an invoice.
+  - The dispatch links to its invoice and the invoice to its dispatch. The movements list marks a dispatch a sales
+    invoice holds („Фактурирана"), so one without the mark is a note nobody has invoiced.
+  - A note is invoiced once and whole: a second link answers 409 `dispatch_already_invoiced`. Several notes of one
+    customer make one invoice; notes of two do not (422 `mixed_customers`).
+  - Voiding or deleting the invoice gives the note back, and moves nothing. A void that died before its release is
+    finished by the next touch of the note.
+  - An edit keeps the stock-held quantities the notes' (422 `dispatch_quantity_mismatch`) and the customer the
+    same (422 `customer_mismatch`). Prices, discounts, text and lines that hold no stock stay free.
+  - No invoice is made from, and no question is asked about: a draft; a dispatch another document booked for
+    itself (an invoice, a cash sale); the mirror of a voided bill or of a removed document; one rolled back with
+    its document; a record of another movement (`recordOnly`); a dispatch naming nobody whose notes mark a
+    correction (`config/movement-notes`). The dispatch's page says which.
+  - A session that reads no sales documents is told of no invoice, and one that may not create them is offered
+    none (FR-27.6). A purchase document that holds a dispatch is never named to it.
+  - **FR-22.61a (MUST)** A dispatch that names no customer can be invoiced too. „Изходяща фактура" asks for the
+    customer first. `POST /invoicing/sales/from-dispatch` takes an optional `contactId`: required then (422
+    `dispatch_without_customer`), an active customer-or-both contact (422 `customer_not_found`), never one that
+    contradicts a note (422 `customer_mismatch`). The customer is written onto the note in the claim's own
+    compare-and-set, and taken off again when the claim is released (`stockSource.customerGivenTo`).
+  - **FR-22.61b (MUST)** Issuing an unlinked invoice asks before it dispatches twice.
+    - `POST /invoices/:id/send` answers 409 `dispatch_overlap`, naming the notes, when an unclaimed completed
+      dispatch lies within 60 days either way of the invoice's issue date and shares a line with it: naming the
+      invoice's customer, any stock-held article; naming no customer, the same article at the same quantity on one
+      line; naming another customer, never. Only a draft sales invoice that will dispatch is asked: not a quote, a
+      note, a cash sale, or an invoice something already moved the goods of.
+    - `{ acknowledgeOverlap: true }` issues anyway, and is audit-logged (`issue_overlap_acknowledged`).
+    - The form and the sales list ask first (`GET /invoicing/sales/:id/dispatch-overlap`), before the payment
+      method and before any stock is checked: an invoice about to be linked takes no stock, so no transfer is
+      offered for goods that have already left. A refusal by `/send` itself opens the same question, and the
+      transfers that request drew up are discarded.
+    - Linking from the question issues the invoice at once where it kept its lines. Where the note's lines took
+      their place it stays a draft, for the person to read first.
+    - The import paths are not asked: a batch cannot answer a question, and `doc-import/conversion.ts` has its
+      own check.
+- **FR-22.62 (SHOULD)** The invoice form has „Свържи с експедиция": the customer's uninvoiced dispatches, then
+  the ones that name nobody. The contact ledger offers the same link on a dispatch's row, as a tick of the note,
+  never as lines.
+  - An invoice whose stock-held lines already say what the notes delivered keeps every line as typed: its
+    prices and discounts are the person's own work, and a note has none to replace them with.
+  - One that differs is refused with the differences by name (422 `invoice_lines_differ`). With `replaceLines:
+    true` the notes' lines take the place of its stock-held ones, at the customer's prices, and the lines that
+    hold no stock stay. The audit entry keeps what was typed. „Словом" follows the new total.
+  - The link is a compare-and-set on the draft as it was read: one edited meanwhile is not linked.
+  - An invoice written against an order or a reservation is not linked (422 `invoice_on_order`): its lines
+    release that order's holds as they dispatch. One in another currency takes no lines from a note (422
+    `invoice_foreign_currency`).
+
 ### 2.4 Orders and reservations (slice 4: P7)
 
 - **FR-22.34 (MUST)** Order names per D-1, in all four languages (#203.4).
@@ -606,6 +666,7 @@ the owner asks. Everything merged is on production.
 | 2b | FR-22.23–.27, .50 (one row menu at 1366 px, partner picker by recent use, remembered method and last price, place of deal, labelled Create) | merged: #266 |
 | 3: receipt → bill (#168) | FR-22.28–.33 | merged: #261. P2 17 clicks (was a dead end, target ≤ 20); P3 3 clicks with stock unchanged (was 14 and stock booked twice) |
 | 3a: its dead ends (#168) | FR-22.31a–c, .32a | a receipt with no supplier, a typed bill taking a delivery, the question before a bill books goods twice, a movement's warehouses fitting its type. P2 and P3 unchanged |
+| 3b: the sales twin (#725, 2026-11-13) | FR-22.61, .61a, .61b, .62 | a dispatch makes its invoice at the customer's prices, linked, moving no stock; a typed invoice is asked before it dispatches goods a note already delivered, and keeps its lines when it is linked; the form and the contact ledger offer the link |
 | 4: orders and reservations | FR-22.34 (names), .35–.36 (links, linked invoices), .37 (repeat, quantity edit only), .39–.40 (list links, who reserved what) | merged: #252 (owned by another session). P7-chain 27 → 26, P7-repeat 4 → 3, P7-who → 1 |
 | 4 | D-1 subtitles | merged: #260 |
 | 4a | FR-22.37 rest (create on the list, `/reservations/:id`, partial release, cancel-dialog wording); the reservation in „+ Нов"; RES numbers link to their page | merged: #265. P7-new: 4 clicks |
