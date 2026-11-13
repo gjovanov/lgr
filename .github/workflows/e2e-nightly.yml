@@ -129,11 +129,11 @@ jobs:
         run: bun packages/e2e/scripts/night-findings.ts "$NIGHT_FINDINGS_FILE"
 
       # A night that passed on a retry keeps its report as well: the first attempt's screenshot and
-      # the retry's trace are what say why it needed one.
-      # ⚠ `success() &&` on purpose. Without a status check on that side the step would also run in
-      # a cancelled job, where the count is empty and so "not 0".
+      # the retry's trace are what say why it needed one. A job that ran out of time uploads
+      # nothing, whatever this says: a cancelled job runs only the steps that ask for `always()` or
+      # `cancelled()`.
       - name: Upload the report
-        if: ${{ failure() || (success() && steps.findings.outputs.retried != '0') }}
+        if: ${{ failure() || steps.findings.outputs.retried != '0' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-report

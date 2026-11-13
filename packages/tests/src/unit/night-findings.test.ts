@@ -167,9 +167,11 @@ describe('e2e-nightly.yml hands them to the job that files the issue', () => {
     for (const name of ['failed', 'retried', 'findings']) expect(job).toContain(`${name}: \${{ steps.findings.outputs.${name} }}`)
   })
 
-  it('a night that passed on a retry keeps its report, and a cancelled job uploads nothing', () => {
-    const condition = conditionOf(e2e[at('Upload the report')])
-    expect(condition).toBe("${{ failure() || (success() && steps.findings.outputs.retried != '0') }}")
+  it('a red night keeps its report, and so does one that passed on a retry', () => {
+    const upload = at('Upload the report')
+    expect(conditionOf(e2e[upload])).toBe("${{ failure() || steps.findings.outputs.retried != '0' }}")
+    // The count it reads has to exist by then.
+    expect(upload).toBeGreaterThan(e2e.findIndex(s => s.lines.some(l => l.trim() === 'id: findings')))
   })
 
   it('the issue job runs for a night that did not pass or needed a retry, and not for a clean one', () => {
