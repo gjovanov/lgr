@@ -125,4 +125,4 @@ export const OUTWARD_SWITCHES_OFF = {
 } as const
 
 /** The company's identity: copied onto a test org from the real one, so a printed document reads as the company's. */
-export const IDENTITY_FIELDS = ['description', 'taxNumber', 'vatNumber', 'email', 'phone', 'website', 'addresses', 'bankDetails'] as const
+export const IDENTITY_FIELDS = ['description', 'taxNumber', 'vatNumber', 'email', 'phone', 'website', 'representative', 'placeOfIssue', 'activityCode', 'addresses', 'bankDetails'] as const

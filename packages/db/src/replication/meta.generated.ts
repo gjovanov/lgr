@@ -67,7 +67,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   OnpremCredential: { collection: 'onprem_credentials', class: 'N', orgPath: 'orgId' },
   OperationType: { collection: 'operationtypes', class: 'R', orgPath: 'orgId' },
   Order: { collection: 'orders', class: 'R', orgPath: 'orgId' },
-  Org: { collection: 'orgs', class: 'S', orgPath: '_id', home: ['addresses','bankDetails','createdAt','description','email','logo','name','ownerId','phone','settings','taxNumber','updatedAt','vatNumber','website'], global: ['homeEpochHighWater','settings.accounting.books','settings.integrations','settings.node','slug','subscription'], node: [] },
+  Org: { collection: 'orgs', class: 'S', orgPath: '_id', home: ['activityCode','addresses','bankDetails','createdAt','description','email','logo','name','ownerId','phone','placeOfIssue','representative','settings','taxNumber','updatedAt','vatNumber','website'], global: ['homeEpochHighWater','settings.accounting.books','settings.integrations','settings.node','slug','subscription'], node: [] },
   OrgAddress: { collection: 'org_addresses', class: 'N', orgPath: 'orgId' },
   OrgApp: { collection: 'orgapps', class: 'R', orgPath: 'orgId' },
   OrgHome: { collection: 'org_homes', class: 'N', orgPath: 'orgId' },

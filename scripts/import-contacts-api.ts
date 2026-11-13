@@ -117,7 +117,7 @@ async function main() {
   const listed = await s.get('/invoicing/contact?size=0&sortBy=createdAt&sortOrder=asc')
   const contacts: LgrContact[] = (listed.contacts ?? listed.items ?? []).map((c: any) => ({
     id: String(c._id ?? c.id), type: c.type, companyName: c.companyName, aliases: c.aliases, isActive: c.isActive,
-    taxId: c.taxId, taxNumber: c.taxNumber, vatNumber: c.vatNumber, phone: c.phone, notes: c.notes,
+    taxId: c.taxId, taxNumber: c.taxNumber, vatNumber: c.vatNumber, phone: c.phone, notes: c.notes, representative: c.representative,
     addresses: (c.addresses ?? []).map((a: any) => ({ street: a.street, city: a.city })),
   }))
   console.log(`LGR holds ${contacts.length} contact(s)`)

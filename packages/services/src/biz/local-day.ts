@@ -41,6 +41,20 @@ export function localDayStart(date: string, timeZone: string = BULGARIAN_TIME_ZO
 }
 
 /**
+ * The instant `timeZone`'s clock shows `date` (`YYYY-MM-DD`) at `hh:mm:ss.ms`: a wall-clock time written down by a
+ * program in Bulgaria, such as the accountant's PlusMinus stamps, read back as the moment it was. The same two
+ * correction passes as `localDayStart`; the one ambiguous autumn hour reads as its first occurrence.
+ */
+export function localInstant(date: string, hour: number, minute: number, second: number, ms = 0, timeZone: string = BULGARIAN_TIME_ZONE): Date {
+  const m = DATE_ONLY.exec(date)
+  if (!m) throw new Error(`Not a calendar date: ${date}`)
+  const target = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), hour, minute, second)
+  let t = target
+  for (let pass = 0; pass < 2; pass++) t += target - wallClock(t, timeZone)
+  return new Date(t + ms)
+}
+
+/**
  * The calendar day (`YYYY-MM-DD`) an instant falls on in `timeZone`. Right for both ways a document
  * keeps its date: a date-only value stored as 00:00 UTC is 02:00/03:00 of the same day in Sofia, and
  * a till sale's moment of sale is the day the shop rang it — which, from 00:00 to 02:00/03:00 Sofia

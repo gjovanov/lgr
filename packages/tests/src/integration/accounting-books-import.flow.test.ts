@@ -454,6 +454,112 @@ describe('a re-import replaces the month', () => {
   })
 })
 
+/** FR-25a: everything a document header can say beyond its type, number, total and comment. Made up. */
+const FULL_HEADER: NonNullable<ImportDocument['props']> = {
+  paymentCode: '2', paidAmount: 120, paidCash: 0, taxEventDate: '2025-03-03', vatRate: 20, vatRule: 'ВОП', vatExemptionReason: 'чл. 0 от закона',
+  registerDocType: '1', protocolType: 'p117', reasonRef: '-ФЕ 0000100100/01.03.2025', customsRef: '00XX0000000000000', bankOperation: 'Плащане',
+  reportingMonth: '202504', partnerPath: CUSTOMER,
+  links: [{ docType: '+ББ', docNumber: '901', date: '2025-03-12', amount: 120, amountFx: 61.35 }],
+  docOptions: { exportInvoice: 'true', paidType: '2' },
+  source: { createdBy: 'Оператор', createdAt: '2025-03-04T08:15:30.123Z', modifiedBy: 'Оператор', modifiedAt: '2025-03-05T07:15:00.000Z', version: '20240101' },
+}
+
+/** The header as the entry stores it. */
+const STORED_HEADER = {
+  paymentCode: '2', paidAmount: 120, paidCash: 0, taxEventDate: new Date('2025-03-03T00:00:00.000Z'), vatRate: 20, vatRule: 'ВОП',
+  vatExemptionReason: 'чл. 0 от закона', registerDocType: '1', protocolType: 'p117', reasonRef: '-ФЕ 0000100100/01.03.2025',
+  customsRef: '00XX0000000000000', bankOperation: 'Плащане', reportingMonth: '202504',
+  links: [{ docType: '+ББ', docNumber: '901', date: new Date('2025-03-12T00:00:00.000Z'), amount: 120, amountFx: 61.35 }],
+  docOptions: { exportInvoice: 'true', paidType: '2' },
+  source: { createdBy: 'Оператор', createdAt: new Date('2025-03-04T08:15:30.123Z'), modifiedBy: 'Оператор', modifiedAt: new Date('2025-03-05T07:15:00.000Z'), version: '20240101' },
+}
+
+describe('the rest of a document header (FR-25a)', () => {
+  const ACQUIRED = 'ДОСТАВЧИЦИ:Доставчик ЕС'
+  const sale: ImportDocument = {
+    date: '2025-03-03', docType: '-ФЕ', docNumber: '0000100101', vatKind: '1', total: 120, props: FULL_HEADER,
+    ops: [{ d: '411', k: '702', ad: CUSTOMER, amount: 100 }, { d: '411', k: '4532', ad: CUSTOMER, amount: 20 }],
+  }
+  // A protocol's operations name no partner: its header does.
+  const protocol: ImportDocument = {
+    date: '2025-03-06', docType: '-П', docNumber: '55', vatKind: '17', total: 20, ops: [{ d: '4531', k: '4532', amount: 20 }],
+    props: { registerDocType: '09', protocolType: 'p117', vatRule: 'ВОП', taxEventDate: '2025-03-06', partnerPath: ACQUIRED },
+  }
+  // Its operations name one supplier: that one stays, whatever the header says.
+  const notice: ImportDocument = {
+    date: '2025-03-10', docType: '+ФЕ', docNumber: '78', vatKind: '1', total: -12,
+    ops: [{ d: '304', k: '401', ad: GOODS, ak: SUPPLIER, amount: -10 }, { d: '4531', k: '401', ak: SUPPLIER, amount: -2 }],
+    props: { registerDocType: '3', reasonRef: '+ФЕ 77/04.03.2025', reportingMonth: '202504', partnerPath: 'ДОСТАВЧИЦИ:Друг' },
+  }
+  // A bank fee: its header names the bank account, which is no partner.
+  const fee: ImportDocument = {
+    date: '2025-03-13', docType: 'ББ', docNumber: '903', ops: [{ d: '629', k: '503', ad: 'РАЗХОДИ:БАНКОВИ ТАКСИ', ak: BANK, amount: 3.5 }],
+    props: { bankOperation: 'Такса', partnerPath: BANK },
+  }
+  const MONTH = [sale, protocol, notice, fee]
+
+  beforeEach(async () => {
+    await chartIn()
+  })
+
+  it('writes each field the file states onto the entry, typed, and none it does not', async () => {
+    expect(await importJournal('2025-03', MONTH)).toMatchObject({ new: 4, balanced: 4 })
+    expect(await entryOf('-ФЕ', '0000100101')).toMatchObject(STORED_HEADER)
+    const p = await entryOf('-П', '55')
+    expect(p).toMatchObject({ registerDocType: '09', protocolType: 'p117', vatRule: 'ВОП', taxEventDate: new Date('2025-03-06T00:00:00.000Z') })
+    for (const key of ['paymentCode', 'paidAmount', 'links', 'docOptions', 'source', 'reasonRef']) expect(p).not.toHaveProperty(key)
+    expect(await entryOf('+ФЕ', '78')).toMatchObject({ registerDocType: '3', reasonRef: '+ФЕ 77/04.03.2025', reportingMonth: '202504' })
+    expect((await entryOf('ББ', '903')).bankOperation).toBe('Такса')
+  })
+
+  it('takes the partner from the header where the operations name none, and only a customer, supplier or partner', async () => {
+    await importJournal('2025-03', MONTH)
+    const acquired: any = await AccountingAnalytic.findOne({ orgId: world.orgId, path: ACQUIRED }).lean()
+    expect(acquired).toMatchObject({ kind: 'supplier' })
+    expect(acquired.contactId).toBeTruthy()
+    expect(String((await entryOf('-П', '55')).partnerAnalyticId)).toBe(String(acquired._id))
+    // the operations name one: theirs stays, and the header's other one is not even made
+    const supplier: any = await AccountingAnalytic.findOne({ orgId: world.orgId, path: SUPPLIER }).lean()
+    expect(String((await entryOf('+ФЕ', '78')).partnerAnalyticId)).toBe(String(supplier._id))
+    expect(await AccountingAnalytic.countDocuments({ orgId: world.orgId, path: 'ДОСТАВЧИЦИ:Друг' })).toBe(0)
+    expect((await entryOf('ББ', '903')).partnerAnalyticId).toBeUndefined()
+  })
+
+  it('a dry rerun of the same file is unchanged; a changed payment is `changed`, and what the file no longer says is cleared', async () => {
+    await importJournal('2025-03', MONTH)
+    expect(await importJournal('2025-03', MONTH, { dryRun: true })).toMatchObject({ unchanged: 4, changed: 0, new: 0, gone: 0 })
+    const before = await entryOf('-ФЕ', '0000100101')
+    const { links: _links, ...rest } = FULL_HEADER
+    const paidInCash = { ...sale, props: { ...rest, paymentCode: '1', paidCash: 120 } }
+    const answer = await importJournal('2025-03', [paidInCash, protocol, notice, fee])
+    expect(answer).toMatchObject({ changed: 1, unchanged: 3, new: 0, gone: 0 })
+    expect(answer.byDocType['-ФЕ']).toEqual({ new: 0, changed: 1, gone: 0, unchanged: 0 })
+    const after = await entryOf('-ФЕ', '0000100101')
+    expect(after).toMatchObject({ paymentCode: '1', paidCash: 120 })
+    expect(after).not.toHaveProperty('links')
+    expect(String(after._id)).toBe(String(before._id))
+    expect(after.entryNumber).toBe(before.entryNumber)
+    expect(await importJournal('2025-03', [paidInCash, protocol, notice, fee], { dryRun: true })).toMatchObject({ unchanged: 4 })
+  })
+
+  it('a client from before it sends no header and is judged as before; the first run with one writes it onto the same entry', async () => {
+    const old = MONTH.map(({ props: _props, ...doc }) => doc)
+    await importJournal('2025-03', old)
+    expect(await importJournal('2025-03', old, { dryRun: true })).toMatchObject({ unchanged: 4 })
+    const before = await entryOf('-ФЕ', '0000100101')
+    for (const key of Object.keys(STORED_HEADER)) expect(before).not.toHaveProperty(key)
+    expect(await importJournal('2025-03', MONTH)).toMatchObject({ changed: 4, new: 0, gone: 0 })
+    const after = await entryOf('-ФЕ', '0000100101')
+    expect(String(after._id)).toBe(String(before._id))
+    expect(after).toMatchObject(STORED_HEADER)
+  })
+
+  it('stores a switch only under a key a map may hold', async () => {
+    await importJournal('2025-03', [{ ...sale, props: { docOptions: { exportInvoice: 'true', 'a.b': 'x', $set: 'x', off: 'false', empty: '' } } }])
+    expect((await entryOf('-ФЕ', '0000100101')).docOptions).toEqual({ exportInvoice: 'true' })
+  })
+})
+
 describe('what an import refuses', () => {
   const doc: ImportDocument = { date: '2025-03-03', docType: '+ФЕ', docNumber: '1', ops: [{ d: '602', k: '401', amount: 1 }] }
 
@@ -559,7 +665,9 @@ describe('the analytics', () => {
     await chartIn()
     await importAnalytics(world.orgId, { ...execute, items }, world.by)
     const contact: any = await Contact.findOne({ orgId: world.orgId, taxId: '000000000' }).lean()
-    expect(contact).toMatchObject({ type: 'customer', companyName: 'Клиент А', taxNumber: '000000000', vatNumber: 'BG000000000', phone: '000', notes: 'МОЛ: Лице' })
+    // FR-25a: the МОЛ in a field of its own, not a notes line
+    expect(contact).toMatchObject({ type: 'customer', companyName: 'Клиент А', taxNumber: '000000000', vatNumber: 'BG000000000', phone: '000', representative: 'Лице' })
+    expect(contact.notes).toBeUndefined()
     expect(contact.addresses[0]).toMatchObject({ street: 'ул. Първа 1', city: 'Пример', country: 'BG' })
     const analytic: any = await AccountingAnalytic.findOne({ orgId: world.orgId, path: CUSTOMER }).lean()
     expect(String(analytic.contactId)).toBe(String(contact._id))
@@ -607,6 +715,45 @@ describe('the analytics', () => {
     await Contact.updateOne({ _id: bare._id }, { $set: { phone: 'keyed by hand' } })
     await importAnalytics(world.orgId, { ...execute, items: [{ ...items[1], phone: '111' }] }, world.by)
     expect((await Contact.findById(bare._id).lean() as any).phone).toBe('keyed by hand')
+  })
+
+  it('fills the МОЛ only where a contact has none: one kept as the old notes line counts (FR-25a)', async () => {
+    await chartIn()
+    await importJournal('2025-03', [{ date: '2025-03-03', docType: '-ФЕ', docNumber: '1', ops: [
+      { d: '411', k: '702', ad: CUSTOMER, amount: 1 }, { d: '411', k: '702', ad: PREPAID, amount: 1 },
+    ] }])
+    const legacy: any = await Contact.findOne({ orgId: world.orgId, companyName: 'Клиент Б' }).lean()
+    await Contact.updateOne({ _id: legacy._id }, { $set: { notes: 'МОЛ: Старо Лице' } })
+    await importAnalytics(world.orgId, { ...execute, items: [items[1], { path: PREPAID, contactPerson: 'Ново Лице' }] }, world.by)
+    expect((await Contact.findOne({ orgId: world.orgId, companyName: 'Клиент А' }).lean() as any).representative).toBe('Лице')
+    const kept: any = await Contact.findById(legacy._id).lean()
+    expect(kept).toMatchObject({ notes: 'МОЛ: Старо Лице' })
+    expect(kept.representative).toBeUndefined()
+  })
+
+  it('keeps the file\'s own properties on each analytic; a later file updates them, an older client\'s leaves them (FR-25a)', async () => {
+    const params = [{ key: 'БУЛСТАТ', value: '000000000' }, { key: 'МОЛ', value: '' }, { key: 'НАЧ.АМ.', value: '1.5' }]
+    const item = { path: CUSTOMER, taxId: '000000000', params }
+    await importAnalytics(world.orgId, { ...execute, items: [item] }, world.by)
+    const stored = async () => (await AccountingAnalytic.findOne({ orgId: world.orgId, path: CUSTOMER }).lean() as any).params
+    expect(await stored()).toEqual(params)
+    // the root above it is no item of the file: it has none
+    expect((await AccountingAnalytic.findOne({ orgId: world.orgId, path: 'КЛИЕНТИ' }).lean() as any).params).toBeUndefined()
+
+    expect(await importAnalytics(world.orgId, { ...execute, items: [item] }, world.by)).toMatchObject({ created: 0, updated: 0, unchanged: 1 })
+    const more = [...params, { key: 'ГРАД', value: 'Пример' }]
+    expect(await importAnalytics(world.orgId, { ...execute, items: [{ ...item, params: more }] }, world.by)).toMatchObject({ updated: 1 })
+    expect(await stored()).toEqual(more)
+    expect(await importAnalytics(world.orgId, { ...execute, items: [{ path: CUSTOMER, taxId: '000000000' }] }, world.by)).toMatchObject({ updated: 0, unchanged: 1 })
+    expect(await stored()).toEqual(more)
+  })
+
+  it('a path the journal met first gets the file\'s properties when the file comes (FR-25a)', async () => {
+    await chartIn()
+    await importJournal('2025-03', [{ date: '2025-03-03', docType: '+ФЕ', docNumber: '1', ops: [{ d: '204', k: '401', ad: 'ДА:Машина', ak: SUPPLIER, amount: 1 }] }])
+    const answer = await importAnalytics(world.orgId, { ...execute, items: [{ path: 'ДА:Машина', params: [{ key: 'КАТ', value: '2' }, { key: 'ДАННОРМА', value: '30' }] }] }, world.by)
+    expect(answer).toMatchObject({ created: 0, updated: 1 })
+    expect((await AccountingAnalytic.findOne({ orgId: world.orgId, path: 'ДА:Машина' }).lean() as any).params).toEqual([{ key: 'КАТ', value: '2' }, { key: 'ДАННОРМА', value: '30' }])
   })
 
   it('links a bank account by IBAN, on 503 or on 504 for currency', async () => {
@@ -1245,6 +1392,23 @@ describe('over HTTP', () => {
     expect((await read('main-book', 'from=2025-03-01&to=2025-03-31')).status).toBe(200)
   })
 
+  it('a document\'s header and an analytic\'s properties travel through the routes whole: every field is named (FR-25a)', async () => {
+    const token = await tokenFor(world.orgId, 'admin')
+    const post = (step: string, body: unknown) => call('POST', `/api/org/${world.orgId}/accounting/import/${step}`, token, body)
+    expect((await post('chart', { ...execute, accounts: CHART })).status).toBe(200)
+    const params = [{ key: 'БУЛСТАТ', value: '000000000' }, { key: 'НАЧ.АМ.', value: '1.5' }]
+    expect((await post('analytics', { ...execute, items: [{ path: CUSTOMER, params }] })).status).toBe(200)
+    expect((await AccountingAnalytic.findOne({ orgId: world.orgId, path: CUSTOMER }).lean() as any).params).toEqual(params)
+
+    const doc = { date: '2025-03-03', docType: '-ФЕ', docNumber: '0000100101', total: 120, ops: [{ d: '411', k: '702', ad: CUSTOMER, amount: 120 }], props: FULL_HEADER }
+    const body = { ...execute, month: '2025-03', coverage: COVERAGE, documents: [doc] }
+    expect((await post('journal', body)).body).toMatchObject({ new: 1 })
+    expect(await entryOf('-ФЕ', '0000100101')).toMatchObject(STORED_HEADER)
+    // the same document through the route again, its header's keys in another order: the same document
+    const reversed = Object.fromEntries(Object.entries(FULL_HEADER).reverse())
+    expect((await post('journal', { ...body, dryRun: true, documents: [{ ...doc, props: reversed }] })).body).toMatchObject({ unchanged: 1, changed: 0 })
+  })
+
   it('an org admin cannot write the link: it is a sys-admin\'s', async () => {
     const res = await call('PUT', `/api/org/${world.storeId}`, await tokenFor(world.storeId, 'admin'), {
       name: 'Renamed', settings: { accounting: { books: { mode: 'books' } }, timezone: 'Europe/Sofia' },
@@ -1253,6 +1417,15 @@ describe('over HTTP', () => {
     const store: any = await Org.findById(world.storeId).lean()
     expect(store).toMatchObject({ name: 'Renamed', settings: { timezone: 'Europe/Sofia' } })
     expect(store.settings.accounting.books).toMatchObject({ mode: 'branch', branchCode: 'PZ' })
+  })
+
+  it('an org admin keeps the company\'s representative, place of issue and activity code, and every page reads them (FR-25a)', async () => {
+    const token = await tokenFor(world.storeId, 'admin')
+    const identity = { representative: 'Лице Тестово', placeOfIssue: 'гр. Пример', activityCode: '0000' }
+    expect((await call('PUT', `/api/org/${world.storeId}`, token, identity)).status).toBe(200)
+    expect(await Org.findById(world.storeId).lean()).toMatchObject(identity)
+    expect((await call('GET', `/api/org/${world.storeId}`, token)).body.org).toMatchObject(identity)
+    expect((await call('GET', '/api/auth/me', token)).body.org).toMatchObject(identity)
   })
 
   it('a store\'s user is refused on the books org: the link reads nothing across', async () => {

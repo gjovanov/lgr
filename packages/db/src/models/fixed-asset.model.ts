@@ -33,6 +33,19 @@ export interface IFixedAsset extends Document {
   depreciationSchedule: IDepreciationEntry[]
   location?: string
   assignedTo?: Types.ObjectId
+  // FR-25a: the tax side of an asset (ЗКПО), which runs beside the book depreciation above on its own schedule.
+  /** The tax depreciation category, as the accountant's file keys it (`1`–`7` for categories I–VII). */
+  taxCategory?: string
+  /** When the asset was put into service: where both depreciations start from. */
+  inServiceDate?: Date
+  /** The yearly tax depreciation rate, in percent. */
+  taxDepreciationRate?: number
+  /** The value the tax depreciation is taken from. */
+  taxValue?: number
+  /** The tax useful life in months. The accountant's file states it in years, often fractional (100 / the rate). */
+  taxUsefulLifeMonths?: number
+  /** The asset's own properties as the accountant's file lists them (ПАРАМЕТРИ of its ДА analytic), in file order. A list of pairs, not a map: some names carry dots. */
+  params?: { key: string; value: string }[]
   createdAt: Date
   updatedAt: Date
 }
@@ -79,6 +92,13 @@ const fixedAssetSchema = new Schema<IFixedAsset>(
     depreciationSchedule: [depreciationEntrySchema],
     location: String,
     assignedTo: { type: Schema.Types.ObjectId, ref: 'Employee' },
+    // FR-25a. No defaults: an asset kept by hand has no tax side until someone gives it one.
+    taxCategory: String,
+    inServiceDate: Date,
+    taxDepreciationRate: Number,
+    taxValue: Number,
+    taxUsefulLifeMonths: Number,
+    params: { type: [new Schema({ key: { type: String, required: true }, value: { type: String, default: '' } }, { _id: false })], default: undefined },
   },
   { timestamps: true },
 )

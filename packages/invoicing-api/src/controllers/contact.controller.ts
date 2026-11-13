@@ -169,6 +169,8 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         creditLimit: t.Optional(t.Number()),
         discount: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
+        // FR-25a: the МОЛ. ⚠ Named here, or `t.Object` drops it and answers 200.
+        representative: t.Optional(t.String()),
         tags: t.Optional(t.Array(t.String())),
         aliases: otherNames,
         isActive: t.Optional(t.Boolean()),
@@ -291,6 +293,8 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         creditLimit: t.Optional(t.Number()),
         discount: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
+        // FR-25a: the МОЛ. ⚠ Named here, or `t.Object` drops it and answers 200.
+        representative: t.Optional(t.String()),
         tags: t.Optional(t.Array(t.String())),
         aliases: otherNames,
         isActive: t.Optional(t.Boolean()),

@@ -45,6 +45,11 @@ export interface IContact extends Document {
   creditLimit?: number
   discount?: number
   notes?: string
+  /**
+   * The person legally responsible for the company (МОЛ), printed on a Bulgarian invoice beside its name. Until
+   * FR-25a it was kept as a notes line, `МОЛ: <name>`: `scripts/backfill-contact-representative.ts` moves those.
+   */
+  representative?: string
   tags?: string[]
   /**
    * Other names this company is written under on documents („Also known as", FR-28.12): a short form, another
@@ -112,6 +117,7 @@ const contactSchema = new Schema<IContact>(
     creditLimit: Number,
     discount: Number,
     notes: String,
+    representative: String,
     tags: [String],
     // No default: a contact with no other name keeps neither field, as every contact before this did.
     aliases: { type: [String], default: undefined },

@@ -571,6 +571,8 @@ export interface AnalyticItem {
   bankName?: string
   /** A foreign-currency bank account. */
   foreignCurrency?: boolean
+  /** The analytic's own properties as the accountant's file lists them (ПАРАМЕТРИ), in file order. A list of pairs, not a map: some names carry dots. Never for ПЕРСОНАЛ. */
+  params?: { key: string; value: string }[]
 }
 
 const clean = (v: unknown) => String(v ?? '').trim()
@@ -615,6 +617,9 @@ export function parseAnalyticsFile(bytes: Uint8Array): AnalyticItem[] {
     if (clean(p['МОЛ'])) item.contactPerson = clean(p['МОЛ'])
     if (clean(p['БАНКА'])) item.bankName = clean(p['БАНКА'])
     if (row.currency === 'true' || row.currency === true) item.foreignCurrency = true
+    // FR-25a: every property as the file spells it, the ones mapped above included, empty ones too.
+    const params = Object.entries(row.params ?? {}).filter(([key]) => key.trim()).map(([key, value]) => ({ key, value: clean(value) }))
+    if (params.length) item.params = params
     items.push(item)
   }
   return items

@@ -16,6 +16,7 @@
  *   has paid in advance, and the sheet still balances.
  */
 import { mongoose } from 'db/connection'
+import { hasRepresentative } from 'config/contact-representative'
 import {
   Account,
   AccountingAnalytic,
@@ -208,7 +209,8 @@ function newContact(orgId: string, type: string, item: AnalyticItem) {
     ...(item.taxId ? { taxId: item.taxId, taxNumber: item.taxId } : {}),
     ...(item.vatNumber ? { vatNumber: item.vatNumber } : {}),
     ...(item.phone ? { phone: item.phone } : {}),
-    ...(item.contactPerson ? { notes: `МОЛ: ${item.contactPerson}` } : {}),
+    // FR-25a: the МОЛ has a field of its own; it was a notes line, `МОЛ: <name>`, before.
+    ...(item.contactPerson ? { representative: item.contactPerson } : {}),
     ...(street ? { addresses: [{ type: 'billing', street, ...(item.city ? { city: item.city } : {}), country: 'BG', isDefault: true }] } : {}),
   }
 }
@@ -287,6 +289,8 @@ async function ensureAnalytics(orgId: string, items: ReadonlyMap<string, Analyti
       kind: kindOfPath(path),
       ...(item?.unit ? { unit: item.unit } : {}),
       ...(contactId ? { contactId } : {}),
+      // FR-25a: the file's own properties. Never an employee's: that file is refused before here.
+      ...(paramsOf(item) && kindOfPath(path) !== 'personnel' ? { params: paramsOf(item) } : {}),
       isActive: true,
     }
   })
@@ -309,12 +313,14 @@ async function fillContacts(orgId: string, items: readonly AnalyticItem[], known
   const linked = items.filter(item => !!CONTACT_TYPE[kindOfPath(item.path)] && known.get(item.path)?.contactId)
   if (!linked.length) return
   const ids = linked.map(item => known.get(item.path)!.contactId)
-  const rows = new Map((await Contact.find({ orgId, _id: { $in: ids } }, { taxId: 1, taxNumber: 1, vatNumber: 1, phone: 1, notes: 1, addresses: 1 }).lean()).map((c: any) => [String(c._id), c]))
+  const rows = new Map((await Contact.find({ orgId, _id: { $in: ids } }, { taxId: 1, taxNumber: 1, vatNumber: 1, phone: 1, notes: 1, representative: 1, addresses: 1 }).lean()).map((c: any) => [String(c._id), c]))
   for (const item of linked) {
     const contact = rows.get(known.get(item.path)!.contactId!)
     if (!contact) continue
     const { orgId: _org, type: _type, companyName: _name, ...fields } = newContact(orgId, '', item) as Record<string, any>
-    const blanks = Object.entries(fields).filter(([key]) => !(Array.isArray(contact[key]) ? contact[key].length : contact[key]))
+    // A contact from before FR-25a keeps its МОЛ in its notes: it has one, and the file does not give it a second.
+    const held = (key: string) => (key === 'representative' ? hasRepresentative(contact) : Array.isArray(contact[key]) ? contact[key].length : contact[key])
+    const blanks = Object.entries(fields).filter(([key]) => !held(key))
     if (blanks.length) await Contact.updateOne({ _id: contact._id, orgId }, { $set: Object.fromEntries(blanks) })
   }
 }
@@ -337,7 +343,7 @@ export async function importAnalytics(orgId: string, body: AnalyticsBody, by: Im
   const banks = await linkBankAccounts(org.id, body.items, dryRun)
   const assets = new Map((await FixedAsset.find({ orgId: org.id }, { name: 1 }).lean()).map((a: any) => [a.name as string, a._id]))
   const fixedAssets = { linked: 0, unlinked: 0 }
-  const stored: any[] = await AccountingAnalytic.find({ orgId: org.id, path: { $in: body.items.map(i => i.path) } }, { path: 1, unit: 1, bankAccountId: 1, fixedAssetId: 1 }).lean()
+  const stored: any[] = await AccountingAnalytic.find({ orgId: org.id, path: { $in: body.items.map(i => i.path) } }, { path: 1, unit: 1, bankAccountId: 1, fixedAssetId: 1, params: 1 }).lean()
   const storedByPath = new Map(stored.map(a => [a.path, a]))
 
   const ops: any[] = []
@@ -355,6 +361,9 @@ export async function importAnalytics(orgId: string, body: AnalyticsBody, by: Im
     const bankId = banks.ids.get(item.path)
     if (bankId && String(row.bankAccountId ?? '') !== String(bankId)) set.bankAccountId = bankId
     if (assetId && String(row.fixedAssetId ?? '') !== String(assetId)) set.fixedAssetId = assetId
+    // FR-25a: a file that lists the properties replaces them; one that lists none (an older client) leaves them.
+    const params = paramsOf(item)
+    if (params && !sameParams(row.params, params)) set.params = params
     if (Object.keys(set).length) {
       updated++
       ops.push({ updateOne: { filter: { _id: row._id, orgId: oid(org.id) }, update: { $set: set } } })
@@ -368,6 +377,18 @@ export async function importAnalytics(orgId: string, body: AnalyticsBody, by: Im
 
   return { dryRun, created, updated, unchanged, byRoot, contacts, bankAccounts: banks.answer, fixedAssets }
 }
+
+type Params = { key: string; value: string }[]
+
+/** An item's properties as an analytic keeps them: each with a name, in the file's order. Unset when there are none. */
+function paramsOf(item: AnalyticItem | undefined): Params | undefined {
+  const params = (item?.params ?? []).filter(p => typeof p?.key === 'string' && p.key.trim()).map(p => ({ key: p.key, value: String(p.value ?? '') }))
+  return params.length ? params : undefined
+}
+
+/** The same properties, in the same order. */
+const sameParams = (a: Params | undefined, b: Params) =>
+  JSON.stringify((a ?? []).map(p => [p.key, p.value ?? ''])) === JSON.stringify(b.map(p => [p.key, p.value ?? '']))
 
 /** `БАНКОВИ СМЕТКИ:<iban>`: a BankAccount, booked on 503 or, for a currency account, 504. */
 async function linkBankAccounts(orgId: string, items: readonly AnalyticItem[], dryRun: boolean) {
@@ -668,6 +689,61 @@ async function noteAccountRoots(orgId: string, plans: readonly PlannedEntry[], a
 }
 
 /**
+ * FR-25a: the document's partner when its operations name none, or several: the header's own (`ПАРТНЬОР`), when it is
+ * a customer, a supplier or a partner (a bank statement's header names its bank account instead). Where the operations
+ * name exactly one, that one stays, as before: it is also what the entry is found again by (`importKey`).
+ */
+function headerPartnerOf(plan: PlannedEntry): string | undefined {
+  if (plan.partnerPath) return undefined
+  const path = plan.doc.props?.partnerPath
+  return path && path.includes(':') && analyticRootDef(rootOfPath(path))?.partner ? path : undefined
+}
+
+/** A switch's key: what a stored map may hold (no dot, no `$`). */
+const SWITCH_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/
+const isDay = (s: string | undefined): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s)
+const instantOf = (s: string | undefined) => {
+  const d = s ? new Date(s) : undefined
+  return d && !Number.isNaN(d.getTime()) ? d : undefined
+}
+
+/**
+ * FR-25a: the rest of the document's header, as the entry stores it. Every key is there, undefined where the file says
+ * nothing, so a re-import clears what the file no longer says (`replacing`), as it does for the fields before them.
+ */
+function headerFieldsOf(doc: ImportDocument) {
+  const p = doc.props ?? {}
+  const links = (p.links ?? []).filter(l => l.docType && l.docNumber).map(l => ({
+    docType: l.docType,
+    docNumber: l.docNumber,
+    ...(isDay(l.date) ? { date: dayOf(l.date) } : {}),
+    ...(l.amount !== undefined ? { amount: l.amount } : {}),
+    ...(l.amountFx !== undefined ? { amountFx: l.amountFx } : {}),
+  }))
+  const options = Object.entries(p.docOptions ?? {}).filter(([key, value]) => SWITCH_KEY.test(key) && typeof value === 'string' && value !== '' && value !== 'false')
+  const s = p.source ?? {}
+  const source = present({ createdBy: s.createdBy || undefined, createdAt: instantOf(s.createdAt), modifiedBy: s.modifiedBy || undefined, modifiedAt: instantOf(s.modifiedAt), version: s.version || undefined })
+  return {
+    paymentCode: p.paymentCode || undefined,
+    paidAmount: p.paidAmount,
+    paidCash: p.paidCash,
+    taxEventDate: isDay(p.taxEventDate) ? dayOf(p.taxEventDate) : undefined,
+    vatRate: p.vatRate,
+    vatRule: p.vatRule || undefined,
+    vatExemptionReason: p.vatExemptionReason || undefined,
+    registerDocType: p.registerDocType || undefined,
+    protocolType: p.protocolType || undefined,
+    reasonRef: p.reasonRef || undefined,
+    customsRef: p.customsRef || undefined,
+    bankOperation: p.bankOperation || undefined,
+    reportingMonth: p.reportingMonth && /^\d{4}(0[1-9]|1[0-2])$/.test(p.reportingMonth) ? p.reportingMonth : undefined,
+    links: links.length ? links : undefined,
+    docOptions: options.length ? Object.fromEntries(options) : undefined,
+    source: Object.keys(source).length ? source : undefined,
+  }
+}
+
+/**
  * One month, whole: a re-import replaces what the month holds, and answers with the difference.
  *
  * ⚠ Prove a re-import with a dry rerun, never a live one (FR-25 §5.5): `unchanged` equal to `entries`
@@ -687,6 +763,7 @@ export async function importJournalMonth(orgId: string, body: JournalBody, by: I
   const analytics = await storedAnalytics(org.id)
   const seen = new Map<string, AnalyticItem | undefined>()
   for (const { doc } of plans) for (const op of doc.ops) for (const path of pathsOf(op)) seen.set(path, undefined)
+  for (const plan of plans) { const path = headerPartnerOf(plan); if (path) seen.set(path, undefined) } // FR-25a
   const { created: analyticsToCreate } = await ensureAnalytics(org.id, seen, analytics, dryRun)
 
   const { from, to } = coveredDays(body)
@@ -739,6 +816,7 @@ export async function importJournalMonth(orgId: string, body: JournalBody, by: I
     if (what === 'unchanged') continue
 
     const date = dayOf(doc.date)
+    const partnerPath = plan.partnerPath ?? headerPartnerOf(plan)
     const fields = {
       date,
       docDate: date,
@@ -753,8 +831,9 @@ export async function importJournalMonth(orgId: string, body: JournalBody, by: I
       docTotal: doc.total,
       docVat: plan.docVat,
       docCurrency: currency,
-      partnerAnalyticId: plan.partnerPath ? analytics.get(plan.partnerPath)?.id : undefined,
+      partnerAnalyticId: partnerPath ? analytics.get(partnerPath)?.id : undefined,
       branchOrgId,
+      ...headerFieldsOf(doc),
       importBatchId: batchId,
       importHash,
     }

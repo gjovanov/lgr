@@ -21,6 +21,7 @@ export interface IAccountingAnalytic extends Document {
   contactId?: Types.ObjectId
   bankAccountId?: Types.ObjectId
   fixedAssetId?: Types.ObjectId
+  params?: { key: string; value: string }[]   // FR-25a
   isActive: boolean
   deactivatedAt?: Date
   createdAt: Date
@@ -42,6 +43,7 @@ export interface IAccountingAnalytic extends Document {
 | contactId | ObjectId | No | - | The partner's Contact. It goes on each line too, and the balance sheet splits an account by it |
 | bankAccountId | ObjectId | No | - | The BankAccount of `БАНКОВИ СМЕТКИ:<iban>` |
 | fixedAssetId | ObjectId | No | - | The FixedAsset of `ДА:<name>` |
+| params | { key, value }[] | No | - | FR-25a. The analytic's own properties as the accountant's file lists them (`ПАРАМЕТРИ`), in file order and spelling, empty values included: a list of pairs, not a map, because some names carry dots. Set when the analytics file brings them; a file (or an older client) that lists none leaves them as they are. Never for `ПЕРСОНАЛ` |
 | isActive | boolean | No | `true` | Soft delete |
 | deactivatedAt | Date | No | - | When it was deactivated |
 | orgId | ObjectId | Yes | - | Tenant organization ID (auto-injected by tenantPlugin) |
@@ -61,4 +63,6 @@ export interface IAccountingAnalytic extends Document {
 
 ## API Endpoints
 
-None of its own. Written by `POST /api/org/:orgId/accounting/import/analytics`, and by the journal for each path it meets.
+None of its own. Written by `POST /api/org/:orgId/accounting/import/analytics`, and by the journal for each path it meets
+(an operation's, and since FR-25a a document header's partner where the operations name none). The views planned for it are
+in [FR-25a §3.2](../../fr/FR-25a-books-schema-reconciliation.md).

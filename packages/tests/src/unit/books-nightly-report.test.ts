@@ -138,6 +138,15 @@ describe('books nightly: which documents an import changed', () => {
     expect(changes([sale(), payment], [sale(), payment])).toEqual([])
   })
 
+  it('an invoice paid later changes in its header alone, and says so (FR-25a)', () => {
+    const issued = sale({ props: { paymentCode: '2' } })
+    const paid = sale({ props: { paymentCode: '2', paidAmount: 120, links: [{ docType: '+ББ', docNumber: '901', amount: 120 }] } })
+    expect(changes([issued], [paid])).toEqual([{ month: '2026-01', kind: 'changed', label: '2026-01-08 -ФЕ 2000000001', what: 'header (paid, links, …)' }])
+    // the first run that sends a header at all says the same of every document, and a document without one reads as before
+    expect(changes([sale()], [issued])[0].what).toBe('header (paid, links, …)')
+    expect(importedDocuments([sale()]).values().next().value!.parts.split('.')).toHaveLength(9)
+  })
+
   it('a document with another operation, or other amounts, is changed, and says what', () => {
     const paid = sale({ ops: [...sale().ops, { d: '501', k: '411', ak: customer, amount: 120 }] })
     expect(changes([sale()], [paid])).toEqual([{ month: '2026-01', kind: 'changed', label: '2026-01-08 -ФЕ 2000000001', what: '3 → 4 operations' }])

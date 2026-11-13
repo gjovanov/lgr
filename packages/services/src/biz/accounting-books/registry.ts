@@ -130,6 +130,15 @@ export const lowerBg = (s: string) => s.toLocaleLowerCase('bg')
 /** The series an imported entry's number is drawn from. */
 export const ENTRY_NUMBER_PREFIX = 'PM'
 
+/**
+ * FR-25a: how a document is paid (`ПЛАЩАНЕ`, which the file writes a second time as `ВИДПЛА`), by its code as booked.
+ * Read off the accountant's whole journal, not guessed: a document coded `1` settles in cash on its own operations
+ * (they touch the cash account, and its `paidCash` is what was paid); one coded `2` touches neither cash nor a bank
+ * account itself, and its paid amount is what the bank documents linked to it paid. Bank and VAT documents carry
+ * no code. A code not listed here is still stored as booked.
+ */
+export const PAYMENT_CODES: Readonly<Record<string, 'cash' | 'bank'>> = { '1': 'cash', '2': 'bank' }
+
 /** The VAT accounts: what makes an operation the VAT of its document. */
 export const VAT_INPUT_ACCOUNT = '4531'
 export const VAT_OUTPUT_ACCOUNT = '4532'

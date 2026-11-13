@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import {
+  PAYMENT_CODES,
   accountShapeOf,
   analyticRootDef,
   ancestorsOfPath,
@@ -161,6 +162,10 @@ describe('the registry', () => {
   it('walks the months of a period, across a year', () => {
     expect(monthsBetween('2025-11-15', '2026-02-01')).toEqual(['2025-11', '2025-12', '2026-01', '2026-02'])
     expect(monthsBetween('2026-03-01', '2026-03-31')).toEqual(['2026-03'])
+  })
+
+  it('names the two payment codes the journal uses, cash and bank (FR-25a)', () => {
+    expect(PAYMENT_CODES).toEqual({ '1': 'cash', '2': 'bank' })
   })
 })
 
@@ -385,14 +390,30 @@ describe('the other exports', () => {
         { ap: 'КЛИЕНТИ', params: {}, group: 'true' },
         { ap: 'КЛИЕНТИ:Клиент А', params: { БУЛСТАТ: '000000000', ИНДДС: 'BG000000000', АДРЕС: 'ул. Първа 1', ГРАД: 'гр. Пример', ТЕЛЕФОН: '000', МОЛ: 'Лице' } },
       ]))
-      expect(items).toEqual([{ path: 'КЛИЕНТИ:Клиент А', taxId: '000000000', vatNumber: 'BG000000000', address: 'ул. Първа 1', city: 'Пример', phone: '000', contactPerson: 'Лице' }])
+      expect(items).toEqual([{
+        path: 'КЛИЕНТИ:Клиент А', taxId: '000000000', vatNumber: 'BG000000000', address: 'ул. Първа 1', city: 'Пример', phone: '000', contactPerson: 'Лице',
+        // FR-25a: and every property as the file spells it, in its order.
+        params: [
+          { key: 'БУЛСТАТ', value: '000000000' }, { key: 'ИНДДС', value: 'BG000000000' }, { key: 'АДРЕС', value: 'ул. Първа 1' },
+          { key: 'ГРАД', value: 'гр. Пример' }, { key: 'ТЕЛЕФОН', value: '000' }, { key: 'МОЛ', value: 'Лице' },
+        ],
+      }])
+    })
+
+    it('keeps every property the file lists, in its order and spelling: names with dots, empty values, unmapped ones (FR-25a)', () => {
+      const [item] = parseAnalyticsFile(json([{ ap: 'ДА:Машина', params: { 'НАЧ.АМ.': '12.5', КАТ: '2', МОЛ: '', 'ДО ДАТА': '31.12.2025', '': 'без име' } }]))
+      expect(item.params).toEqual([
+        { key: 'НАЧ.АМ.', value: '12.5' }, { key: 'КАТ', value: '2' }, { key: 'МОЛ', value: '' }, { key: 'ДО ДАТА', value: '31.12.2025' },
+      ])
+      expect(item.contactPerson).toBeUndefined()
+      expect(parseAnalyticsFile(json([{ ap: 'СТОКИ:БОЛТОВЕ', params: {} }]))[0]).toEqual({ path: 'СТОКИ:БОЛТОВЕ' })
     })
 
     it('takes the ЕИК from a VAT number when it has only that, a unit, and a currency account', () => {
       expect(parseAnalyticsFile(json([{ ap: 'КЛИЕНТИ:Б', params: { 'ИН ПО ДДС': 'BG000000000' } }]))[0].taxId).toBe('000000000')
       expect(parseAnalyticsFile(json([{ ap: 'СТОКИ:БОЛТОВЕ', params: { МЯРКА: 'БР' } }]))[0].unit).toBe('БР')
       expect(parseAnalyticsFile(json([{ ap: 'СТОКИ:БОЛТОВЕ', params: { Мярка: 'бр' } }]))[0].unit).toBe('бр')
-      expect(parseAnalyticsFile(json([{ ap: 'БАНКОВИ СМЕТКИ:X', params: { Банка: 'Банка' }, currency: 'true' }]))[0]).toEqual({ path: 'БАНКОВИ СМЕТКИ:X', bankName: 'Банка', foreignCurrency: true })
+      expect(parseAnalyticsFile(json([{ ap: 'БАНКОВИ СМЕТКИ:X', params: { Банка: 'Банка' }, currency: 'true' }]))[0]).toEqual({ path: 'БАНКОВИ СМЕТКИ:X', bankName: 'Банка', foreignCurrency: true, params: [{ key: 'Банка', value: 'Банка' }] })
     })
 
     it('reads the install\'s own encoding, CP1251', () => {
@@ -478,6 +499,51 @@ describe('a month, planned', () => {
     expect(importHashOf(entry, { branchOrgId: 'books', contactIds: [undefined, undefined] })).toBe(before)
     expect(importHashOf(entry, { branchOrgId: 'books', contactIds: ['c1', undefined] })).not.toBe(before)
     expect(importHashOf(entry, { branchOrgId: 'pz', contactIds: [undefined, undefined] })).not.toBe(before)
+  })
+
+  it('a document from a client before FR-25a hashes exactly as it always did', () => {
+    // ⚠ Golden values, computed by `contentOf` as it was before FR-25a. A change here makes the pinned nightly's next
+    // run call every document of the year `changed`, and rewrite them all.
+    const doc: ImportDocument = {
+      date: '2025-03-03', docType: '-ФЕ', docNumber: '0000000101', vatKind: '1', total: 120, comment: 'Стоки',
+      ops: [
+        { d: '702', k: '304', ak: 'СТОКИ:БОЛТОВЕ', qty: 10, amount: 60.1234 },
+        { d: '411', k: '702', ad: 'КЛИЕНТИ:Клиент А', amount: 100, comment: 'ред', journal: 'ДДС' },
+        { d: '411', k: '4532', ad: 'КЛИЕНТИ:Клиент А', amount: 20, tax: '100331' },
+        { d: '504', k: '411', ak: 'КЛИЕНТИ:Клиент А', amount: 39.12, cur: 'EUR', rate: 1.95583, fx: 20 },
+      ],
+    }
+    const bare: ImportDocument = { date: '2025-03-31', ops: [{ d: '603', k: '2414', ak: 'ДА:Машина', amount: 12.5 }] }
+    const [a, b] = planMonth([doc, bare], [])
+    expect(a.contentHash).toBe('42032b183c41c3c67fd651e241ba98d09e54c24e41e96f0a084b1b09f3269293')
+    expect(b.contentHash).toBe('241707f9e4555d54f4291a8b79710bccb9bedcbff6bf9f2ba2f0cc5e44656637')
+    // A header that says nothing more is no header: an empty `props` hashes as none.
+    expect(planMonth([{ ...doc, props: {} }], [])[0].contentHash).toBe(a.contentHash)
+    expect(planMonth([{ ...doc, props: { links: [], docOptions: {}, source: {} } }], [])[0].contentHash).toBe(a.contentHash)
+  })
+
+  it('the rest of a header is part of what a document is, in whatever order a client sends it (FR-25a)', () => {
+    const props = {
+      paymentCode: '2', paidAmount: 120, registerDocType: '1',
+      links: [{ docType: '+ББ', docNumber: '901', date: '2025-03-12', amount: 120 }],
+      docOptions: { exportInvoice: 'true', mixedDeal: 'true' },
+      source: { createdBy: 'Оператор', createdAt: '2025-03-04T08:15:30.123Z' },
+    }
+    const [plain] = planMonth([sale()], [])
+    const [withProps] = planMonth([sale({ props })], [])
+    expect(withProps.importKey).toBe(plain.importKey)
+    expect(withProps.contentHash).not.toBe(plain.contentHash)
+    const reordered = {
+      source: { createdAt: '2025-03-04T08:15:30.123Z', createdBy: 'Оператор' }, docOptions: { mixedDeal: 'true', exportInvoice: 'true' },
+      links: [{ amount: 120, date: '2025-03-12', docNumber: '901', docType: '+ББ' }], registerDocType: '1', paidAmount: 120, paymentCode: '2',
+    }
+    expect(planMonth([sale({ props: reordered })], [])[0].contentHash).toBe(withProps.contentHash)
+    expect(planMonth([sale({ props: { ...props, paymentCode: '1' } })], [])[0].contentHash).not.toBe(withProps.contentHash)
+    expect(planMonth([sale({ props: { ...props, links: [] } })], [])[0].contentHash).not.toBe(withProps.contentHash)
+    // The header's partner is no part of the key: an entry is found again by what its operations say.
+    const header = planMonth([sale({ props: { partnerPath: 'КЛИЕНТИ:Друг' } })], [])[0]
+    expect(header.importKey).toBe(plain.importKey)
+    expect(header.partnerPath).toBe('КЛИЕНТИ:Клиент А')
   })
 
   it('what a bank line pays is on the line that takes it off the partner', () => {
