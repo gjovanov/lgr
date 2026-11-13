@@ -128,6 +128,7 @@
     "./components/DecimalField.vue": "./src/components/DecimalField.vue",
     "./composables/price-precision": "./src/composables/price-precision.ts",
     "./composables/number-display": "./src/composables/number-display.ts",
+    "./composables/decimal-comma": "./src/composables/decimal-comma.ts",
     "./components/CollapsiblePanel": "./src/components/CollapsiblePanel.vue",
     "./components/CollapsiblePanel.vue": "./src/components/CollapsiblePanel.vue",
     "./composables/panel-state": "./src/composables/panel-state.ts",

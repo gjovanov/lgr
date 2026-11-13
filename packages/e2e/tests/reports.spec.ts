@@ -197,7 +197,9 @@ test.describe('Reports app — P2 catalog', () => {
       const chosen = page.locator('.v-overlay--active [role="radio"][aria-checked="true"]')
       await expect(chosen).toHaveCount(1)
       await expect(chosen).toContainText(format)
-      await page.keyboard.press('Escape')
+      // Cancel, not Escape: a dialog takes Escape only once Vuetify has made it the top overlay, on a timer that a busy
+      // runner can run after the key (the 2026-11-13 nightly's first attempt, which left the dialog open).
+      await page.locator('.v-overlay--active').getByRole('button', { name: /^cancel$/i }).click()
       await expect(page.locator('.v-overlay--active [role="radiogroup"]')).toHaveCount(0)
     }
   })
