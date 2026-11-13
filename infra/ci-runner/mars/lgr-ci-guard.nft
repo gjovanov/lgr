@@ -1,0 +1,77 @@
+#!/usr/sbin/nft -f
+# The CI runner containers on this host reach the public internet and nothing else.
+#
+# The guard of ../vm/lgr-ci-guard.nft, for a Docker network instead of a guest's. A table of its
+# own, like ssh_guard: no other tool on this host writes to it, and a refusal here is final
+# whatever the host's other tables accept (every base chain on a hook is consulted, this one
+# first). Matching is by interface NAME, so the rules hold before Docker makes the bridge.
+#
+# It is also the runners' only way out. Their network is made without Docker's own masquerade
+# (README, "Setup"), so the rule in `way_out` is what gives their traffic an address the internet
+# can answer. No table, no way out, and a runner that cannot reach GitHub takes no job.
+#
+# Loaded by lgr-ci-guard.service before Docker starts. Check it with:
+#   nft list table inet lgr_ci_guard          (the counters say what was refused, and what left)
+table inet lgr_ci_guard
+delete table inet lgr_ci_guard
+
+table inet lgr_ci_guard {
+	# Every private range: the cluster's nodes, the mesh between the hosts, overlays, link-local,
+	# and every other container network on this host.
+	set private_v4 {
+		type ipv4_addr
+		flags interval
+		elements = { 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16 }
+	}
+
+	# The fleet hosts' own public addresses. A runner's traffic leaves with this host's address,
+	# and another host must not take it for this host. What they serve to everybody, the web,
+	# stays open: the pages under test load a script from one of them.
+	set fleet_v4 {
+		type ipv4_addr
+		elements = { @@FLEET_V4@@ }
+	}
+
+	# This host's own addresses, before the host rewrites any of them to a guest or to another
+	# container (a published port, the second address's 443). Refused after such a rewrite, the
+	# refusal carries the rewritten address: the caller never asked that one, and waits for its
+	# timeout instead (4 s per connect, measured 2026-11-13).
+	chain prerouting {
+		type filter hook prerouting priority dstnat - 10; policy accept;
+		iifname "br-lgr-ci" ct state established,related accept
+		iifname "br-lgr-ci" fib daddr type local counter jump refuse
+	}
+
+	chain forward {
+		type filter hook forward priority filter - 20; policy accept;
+		iifname "br-lgr-ci" ip daddr @private_v4 counter jump refuse
+		iifname "br-lgr-ci" ip daddr @fleet_v4 tcp dport { 80, 443 } counter accept
+		iifname "br-lgr-ci" ip daddr @fleet_v4 counter jump refuse
+		iifname "br-lgr-ci" meta nfproto ipv6 counter jump refuse
+		# Nothing opens a connection INTO the runners' network through this host.
+		oifname "br-lgr-ci" ct state new counter drop
+	}
+
+	chain input {
+		type filter hook input priority filter - 20; policy accept;
+		# Answers to what this host itself started, nothing else: what `prerouting` refuses, a
+		# second time. This host's own public address ends here too, its web included, because a
+		# connection to it never leaves the host.
+		iifname "br-lgr-ci" ct state established,related accept
+		iifname "br-lgr-ci" counter jump refuse
+	}
+
+	# The way out, and the only one: Docker makes no masquerade rule for this network.
+	chain way_out {
+		type nat hook postrouting priority srcnat; policy accept;
+		iifname "br-lgr-ci" oifname != "br-lgr-ci" counter masquerade
+	}
+
+	# Refused at once, never left to time out. A page that names a closed address must fail to
+	# load that one thing, not wait for it: a silent drop held every Playwright test for its whole
+	# timeout on 2026-11-12.
+	chain refuse {
+		meta l4proto tcp reject with tcp reset
+		reject with icmpx type admin-prohibited
+	}
+}

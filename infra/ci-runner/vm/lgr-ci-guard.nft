@@ -26,6 +26,16 @@ table inet lgr_ci_guard {
 		elements = { @@FLEET_V4@@ }
 	}
 
+	# This host's own addresses, before the host rewrites any of them to a guest (port 443 of its
+	# public address goes to a cluster guest). On mars a refusal issued after such a rewrite went
+	# back carrying the rewritten address, and the caller waited for its timeout instead. Here it
+	# came back at once either way (2 ms, 2026-11-13); the chain keeps the two guards one.
+	chain prerouting {
+		type filter hook prerouting priority dstnat - 10; policy accept;
+		iifname "virbr-ci" ct state established,related accept
+		iifname "virbr-ci" fib daddr type local counter jump refuse
+	}
+
 	chain forward {
 		type filter hook forward priority filter - 20; policy accept;
 		iifname "virbr-ci" ip daddr @private_v4 counter jump refuse
@@ -38,7 +48,8 @@ table inet lgr_ci_guard {
 
 	chain input {
 		type filter hook input priority filter - 20; policy accept;
-		# Answers to what this host itself started (its ssh into the guest), nothing else.
+		# Answers to what this host itself started (its ssh into the guest), nothing else: what
+		# `prerouting` refuses, a second time.
 		iifname "virbr-ci" ct state established,related accept
 		iifname "virbr-ci" counter jump refuse
 	}
