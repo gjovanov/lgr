@@ -204,9 +204,12 @@ describe.skipIf(!enabled)('a device whose holder moves between pods (FR-23, FR-2
     const reporting = api(holder, 'POST', `/fiscal/device/${deviceId}/x-report`).catch(() => null)
     await until('the report to reach the device', () => reached)
 
+    // One body for the attempt and its retry, as a client sends them. Built again a minute later, its date can
+    // be the next day (UTC), and the same key with another body is another request: 422, not what the key did.
+    const pay = toPay()
     // Asked of the other pod: on the holder it waits for the report, past the 30 s the server allows.
     const started = Date.now()
-    const first = await api(spare, 'POST', `/invoices/${id}/payments`, toPay(), 'idle-limit-00001').catch(() => null)
+    const first = await api(spare, 'POST', `/invoices/${id}/payments`, pay, 'idle-limit-00001').catch(() => null)
     const waited = Date.now() - started
     expect(waited).toBeGreaterThan(25_000)
     // Not an answer about the money: refused as unreachable, or cut. Nothing is known, so the key stays.
@@ -218,7 +221,7 @@ describe.skipIf(!enabled)('a device whose holder moves between pods (FR-23, FR-2
     await reporting
     await until('the waiting print to print', () => closedOnDevice().length === before + 1)
 
-    const retry = await api(spare, 'POST', `/invoices/${id}/payments`, toPay(), 'idle-limit-00001')
+    const retry = await api(spare, 'POST', `/invoices/${id}/payments`, pay, 'idle-limit-00001')
 
     expect(retry.status).toBe(200)
     expect((await raw(id))).toMatchObject({ status: 'paid', amountPaid: 12 })
@@ -281,7 +284,8 @@ describe.skipIf(!enabled)('a device whose holder moves between pods (FR-23, FR-2
       throw new Error('the bridge is gone')
     }
     const paid = sim.executed.filter(c => c.cmd === PAYMENT).length
-    const printing = api(holder, 'POST', `/invoices/${id}/payments`, toPay(), 'crash-print-0001').catch(() => null)
+    const pay = toPay() // one body for the key's attempt and its retry, as above
+    const printing = api(holder, 'POST', `/invoices/${id}/payments`, pay, 'crash-print-0001').catch(() => null)
     await until('the print to reach its payment', () => sim.executed.filter(c => c.cmd === PAYMENT).length > paid)
     await until('its counter to be noted', async () => !!(await receiptOf(id))?.register?.fiscal?.attemptedAt)
 
@@ -314,7 +318,7 @@ describe.skipIf(!enabled)('a device whose holder moves between pods (FR-23, FR-2
     // The lease lapses (120 s, here by hand). Nothing proves it: a receipt stands open on the device.
     const receipt: any = await receiptOf(id)
     await Invoice.updateOne({ _id: receipt._id }, { $set: { leaseUntil: new Date(Date.now() - 1000) } })
-    const retry = await api(holder, 'POST', `/invoices/${id}/payments`, toPay(), 'crash-print-0001')
+    const retry = await api(holder, 'POST', `/invoices/${id}/payments`, pay, 'crash-print-0001')
 
     expect(retry.status).toBe(409)
     expect(retry.json.code).toBe('receipt_in_doubt')
