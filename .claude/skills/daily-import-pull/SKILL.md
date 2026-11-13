@@ -36,6 +36,8 @@ D history --org regal-pz
 D history --org regal-sf --base-url https://127.0.0.1:17041      # several minutes: run it in the background
 ```
 
+A history may run in the background, but its org's `predict` (step 3) waits for it to end: the audit reads the chunks.
+
 PlusMinus lets staff edit a booked document in place, delete one, and enter a new one under an earlier date. A day
 pull sees none of that, so the whole history is pulled again (monthly chunks, into the evidence folder) and compared
 by file with the previous run's. `out/doc-edits.txt` holds every changed line. Each `ACT`:
