@@ -307,12 +307,20 @@ enum Outcome {
 ///
 /// ⚠ **The default is `NotConfigured`, not `Refused`.** Everything `mint_token` can fail with
 /// before it has an HTTP response is local; only a code the server itself returned means refused.
+///
+/// ⚠ **An answer with no code is not the server's refusal (#735).** The API names a code on every
+/// refusal of a token. `token_failed` is an error that carried none, and `bad_response` a success
+/// that was not a token: both are something answering in the API's place. A master's ingress says
+/// `502` in plain text while its API starts, and a reverse proxy or a middlebox may answer for a
+/// server the same way. Read as a refusal, each restart of the server left the till on the
+/// once-a-minute retry meant for a credential that was turned down, with "Signed out" on its
+/// Overview for that minute. The bridge has read these as worth retrying since #567.
 fn classify_mint_error(msg: &str) -> Outcome {
     match msg {
-        // Reached the server, and it answered.
-        "desktop_revoked" | "desktop_outdated" | "token_failed" | "bad_response" => Outcome::Refused,
-        // Never left the machine.
-        "server_unreachable" | "server_timeout" => Outcome::Unreachable,
+        // Reached the server, and it answered with its reason.
+        "desktop_revoked" | "desktop_outdated" => Outcome::Refused,
+        // Never left the machine, or never reached the API: tried again on the backoff.
+        "server_unreachable" | "server_timeout" | "token_failed" | "bad_response" => Outcome::Unreachable,
         "not_registered" | "no_secure_storage" | "no_key" | "bad_key" | "client_build_failed" => {
             Outcome::NotConfigured
         }
@@ -500,9 +508,26 @@ mod tests {
                 "{code} happens before any request, so it can never mean the server refused us",
             );
         }
-        for code in ["desktop_revoked", "desktop_outdated", "token_failed", "bad_response", "whatever_the_hub_sent"] {
+        for code in ["desktop_revoked", "desktop_outdated", "whatever_the_hub_sent"] {
             assert_eq!(classify_mint_error(code), Outcome::Refused, "{code}");
         }
+    }
+
+    #[test]
+    fn an_answer_without_a_code_is_a_server_that_is_not_there_yet() {
+        // #735. A master's ingress answers `502` in plain text while its API starts, which mints as
+        // `token_failed`. Taken for a refusal, every restart of the server put presence on the
+        // once-a-minute retry and the Overview on "Signed out". A 2 h soak that updated its master
+        // saw both tills' presence back 65 s after the stop, and their bridges after 8 s.
+        for code in ["token_failed", "bad_response"] {
+            assert_eq!(
+                classify_mint_error(code),
+                Outcome::Unreachable,
+                "{code} carries no reason from the API, so it is tried again on the backoff",
+            );
+        }
+        // What that buys: the next tries come seconds apart, not a minute.
+        assert!(backoff_secs(1) + backoff_secs(2) < backoff_secs(6));
     }
 
     #[test]
