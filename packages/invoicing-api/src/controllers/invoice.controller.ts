@@ -58,6 +58,10 @@ import {
   ReceiptBillError, applyLinkedBillPrices, checkLinkedBillEdit, isReceiptLinked, linkedReceiptsOf, receiptsOverlapping, releaseReceiptLinks,
   type ReceiptOverlap,
 } from 'services/biz/receipt-bill.service'
+import {
+  DispatchInvoiceError, checkLinkedInvoiceEdit, dispatchesOverlapping, isDispatchLinked, linkedDispatchesOf, releaseDispatchLinks,
+  type DispatchOverlap,
+} from 'services/biz/dispatch-invoice.service'
 import { PAYMENT_STORNO, REGISTER_TYPES } from 'services/biz/cash-register/pos-union'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { billStockReceipts, isSupplierBill } from 'services/biz/bill-stock-receipt.service'
@@ -518,6 +522,27 @@ function auditOverlapAcknowledged(orgId: string, userId: string, id: string, num
   createAuditEntry({
     orgId, userId, action: 'receive_overlap_acknowledged', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: number,
     changes: [{ field: 'receipts', oldValue: null, newValue: overlap.receipts.map(r => r.number).join(', ') }],
+  })
+}
+
+/**
+ * FR-22.61b: the stock notes an unlinked sales invoice may be for. The answer to it is `{ acknowledgeOverlap:
+ * true }`, or linking the invoice to one of them; the UI offers both (`DispatchOverlapDialog.vue`).
+ */
+function dispatchOverlapRefusal(invoice: any, overlap: DispatchOverlap) {
+  const numbers = overlap.notes.map(n => n.number).join(', ')
+  return {
+    code: 'dispatch_overlap',
+    message: `${invoice.invoiceNumber} may be for goods that already left stock (${numbers}): link it to the stock note, or issue it anyway`,
+    ...overlap,
+  }
+}
+
+/** Someone was shown these stock notes and dispatched the goods again anyway: that stays on the record. */
+function auditDispatchOverlapAcknowledged(orgId: string, userId: string, id: string, number: string, overlap: DispatchOverlap) {
+  createAuditEntry({
+    orgId, userId, action: 'issue_overlap_acknowledged', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: number,
+    changes: [{ field: 'stockNotes', oldValue: null, newValue: overlap.notes.map(n => n.number).join(', ') }],
   })
 }
 
@@ -1217,6 +1242,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // FR-22.31: a bill made from goods receipts links them, and its form compares its prices
         // with what they were received at.
         ...(isReceiptLinked(invoice) ? { receipts: await linkedReceiptsOf(orgId, invoice) } : {}),
+        // FR-22.61: an invoice made from stock notes links them, and its form holds its quantities to theirs.
+        ...(isDispatchLinked(invoice) ? { dispatches: await linkedDispatchesOf(orgId, invoice) } : {}),
         // The goods receipts a supplier bill booked — what its „Стокова разписка" prints; the
         // form offers the print only when there are some.
         ...(isSupplierBill(invoice) ? { stockMovements: await billStockReceipts(orgId, invoice) } : {}),
@@ -1346,6 +1373,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           await checkLinkedBillEdit(orgId, existing, body as any)
         } catch (e: any) {
           if (e instanceof ReceiptBillError) return status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
+          throw e
+        }
+      }
+      // FR-22.61: an invoice made from stock notes invoices what they delivered, whole.
+      if (isDispatchLinked(existing)) {
+        try {
+          await checkLinkedInvoiceEdit(orgId, existing, body as any)
+        } catch (e: any) {
+          if (e instanceof DispatchInvoiceError) return status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
           throw e
         }
       }
@@ -1544,6 +1580,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!claimed) return draftTaken(status, orgId, id)
     try {
       await releaseReceiptLinks(orgId, existing, user.id)
+      // FR-22.61: a draft invoice made from stock notes gives them back the same way, and for the same reason.
+      await releaseDispatchLinks(orgId, existing, user.id)
     } catch (e) {
       await Invoice.updateOne({ _id: id, orgId }, { $set: { voidingUntil: null } }).exec()
       throw e
@@ -1678,7 +1716,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
      * The dialog draws up the transfers before it issues, and each retry from it draws new ones, so what a
      * request that will not issue leaves in draft stays in the movements list, and moves goods if somebody
      * confirms it. ⚠ Only on a refusal that means this request will not issue. Never on `issue_in_progress`,
-     * where the holder may confirm those same ids, nor on the overlap question, whose answer sends them again,
+     * where the holder may confirm those same ids, nor on a bill's overlap question, whose answer sends them again,
      * nor any id the document already carries: that one was confirmed for it.
      */
     const discardAsked = () => {
@@ -1704,6 +1742,16 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const overlap = await receiptsOverlapping(orgId, invoice)
     // `/send` has no schema, so this reads the answer itself: only the answer counts as one.
     if (overlap && (body as any)?.acknowledgeOverlap !== true) return status(409, receiptOverlapRefusal(invoice, overlap))
+    // FR-22.61b: the mirror question, of a sales invoice typed for goods a stock note already delivered. Asked here,
+    // before the tender, the claim and the dispatch: a refusal leaves the draft as it was.
+    const noteOverlap = await dispatchesOverlapping(orgId, invoice)
+    if (noteOverlap && (body as any)?.acknowledgeOverlap !== true) {
+      // ⚠ Unlike the bill's question, this one is answered by starting the issue again: an invoice linked to the
+      // note takes no stock at all, and one issued anyway is checked for stock afresh. So the transfers this request
+      // drew up are not sent again, and would stay in draft for somebody to confirm.
+      await discardAsked()
+      return status(409, dispatchOverlapRefusal(invoice, noteOverlap))
+    }
 
     // FR-23 §2.3: a document paid at the counter prints, in the open session of whoever issues it.
     // No session, no device: refused here, with no number drawn, no stock moved, no claim taken. R2: a
@@ -1813,6 +1861,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { draftNumber: { from: draftNumber, to: null }, invoiceNumber: { from: draftNumber, to: issuedNumber } } })
     if (overlap) auditOverlapAcknowledged(orgId, user.id, id, issuedNumber, overlap)
+    if (noteOverlap) auditDispatchOverlapAcknowledged(orgId, user.id, id, issuedNumber, noteOverlap)
 
     // The sale's revenue belongs to its cash sale: an invoice for one posts no second entry.
     if (forCashSale) return { invoice: updated }
@@ -2173,6 +2222,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // FR-22 §5.3: a voided bill made from goods receipts gives them back — they can be billed
     // again. Nothing moved above (its `stockSource` stops the reversal) and nothing moves here.
     await releaseReceiptLinks(orgId, invoice, user.id)
+    // FR-22.61: so does a voided invoice made from stock notes. Its notes can be invoiced again.
+    await releaseDispatchLinks(orgId, invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 

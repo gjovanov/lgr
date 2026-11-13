@@ -179,6 +179,9 @@
 
     <IssuePaymentConfirmDialog :ask="paymentConfirm" @answer="answerPayment" />
 
+    <!-- FR-22.61b: „Изпрати" on goods a stock note may already have delivered: the same question as the form's. -->
+    <DispatchOverlapDialog v-model:overlap="dispatchOverlap" :org-url="appStore.orgUrl()" @linked="overlapLinked" @issue-anyway="issueDespiteOverlap" />
+
     <!-- FR-10 (#19): one dialog for the whole grid, driven by the row the user clicked. -->
     <SendEmailDialog
       v-model="emailDialog"
@@ -208,6 +211,7 @@ import TagInput from 'ui-shared/components/TagInput.vue'
 import DateField from 'ui-shared/components/DateField.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import IssuePaymentConfirmDialog from '../components/IssuePaymentConfirmDialog.vue'
+import DispatchOverlapDialog from '../components/DispatchOverlapDialog.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
@@ -500,7 +504,10 @@ const {
   confirmTransfers,
   paymentConfirm,
   answerPayment,
-} = useDocumentIssue({ loading, onIssued: refresh })
+  dispatchOverlap,
+  issueDespiteOverlap,
+  overlapLinked,
+} = useDocumentIssue({ loading, onIssued: refresh, onLinked: refresh })
 
 function sendInvoice(item: Invoice) {
   return issue(item)

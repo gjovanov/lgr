@@ -364,6 +364,8 @@ export interface IInvoice extends Document {
     movementIds: Types.ObjectId[]
     /** The receipts that named no supplier and took this bill's: releasing the link takes it off. */
     supplierGivenTo?: Types.ObjectId[]
+    /** The stock notes that named no customer and took this invoice's (FR-22.61a): released the same way. */
+    customerGivenTo?: Types.ObjectId[]
     /** How the link was established — `lines` (detected) or `manual`. */
     detectedBy: string
     linkedAt: Date
@@ -615,6 +617,7 @@ const invoiceSchema = new Schema<IInvoice>(
       movementIds: [{ type: Schema.Types.ObjectId, ref: 'StockMovement' }],
       // No default: `movementIds` is materialised on every invoice, and this has no business there.
       supplierGivenTo: { type: [{ type: Schema.Types.ObjectId, ref: 'StockMovement' }], default: undefined },
+      customerGivenTo: { type: [{ type: Schema.Types.ObjectId, ref: 'StockMovement' }], default: undefined },
       detectedBy: String,
       linkedAt: Date,
     },

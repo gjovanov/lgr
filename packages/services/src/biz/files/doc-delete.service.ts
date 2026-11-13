@@ -4,6 +4,7 @@ import { createAuditEntry } from '../audit-log.service.js'
 import { reverseInvoiceStockMovement } from '../invoicing.service.js'
 import { liveInvoiceNumbersFor } from '../cash-sale-invoice.service.js'
 import { releaseReceiptLinks } from '../receipt-bill.service.js'
+import { releaseDispatchLinks } from '../dispatch-invoice.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
 import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from '../cash-register/immutability.js'
 import { freezeRefusal } from '../cash-register/payment-receipt.service.js'
@@ -248,6 +249,8 @@ async function voidInvoice(orgId: string, userId: string, invId: string): Promis
   try { await syncOrderForInvoice(orgId, updated || inv, userId) } catch { /* no order linkage on migration invoices */ }
   // A bill linked to goods receipts gives them back, and a supplier it gave them, as the void route does.
   await releaseReceiptLinks(orgId, inv, userId)
+  // And an invoice linked to stock notes gives those back (FR-22.61).
+  await releaseDispatchLinks(orgId, inv, userId)
 }
 
 /** Plan only — reads nothing but the manifest. */

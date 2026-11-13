@@ -15,6 +15,13 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 import { buildProductListFilter, hasProductListFilter, productIdsMatching } from 'services/biz/product-list-filter'
 import { findPageSortedBy } from 'services/biz/sorted-page'
 import { billingByMovement, receiptBillingFor } from 'services/biz/receipt-bill.service'
+import { dispatchInvoicingFor, invoicingByMovement } from 'services/biz/dispatch-invoice.service'
+
+/** FR-22.61: the live sales invoice that holds a dispatch, as a list row and the movement page name it. */
+function saleOf(holder: { id: string; number: string; status: string; type: string; direction: string } | undefined): { id: string; number: string } | undefined {
+  if (!holder || holder.type !== 'invoice' || holder.direction !== 'outgoing' || ['voided', 'cancelled'].includes(holder.status)) return undefined
+  return { id: holder.id, number: holder.number }
+}
 
 /**
  * What the Movements list's columns sort by. Two print a field under another name; three print
@@ -175,6 +182,9 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     // #493: none for a session without `purchases`, and the bills it would name are hidden (`withoutBill`).
     const receipts = seesBills(user as any) ? result.items.filter((m: any) => m.type === 'receipt' && m.invoiceId) : []
     const billing = receipts.length ? await billingByMovement(orgId, receipts) : new Map()
+    // FR-22.61: a dispatch names the live sales invoice that holds it, for a session that reads sales documents.
+    const dispatches = can(user, 'sales-docs.view') ? result.items.filter((m: any) => m.type === 'dispatch' && m.invoiceId) : []
+    const invoicing = dispatches.length ? await invoicingByMovement(orgId, dispatches) : new Map()
     const hidden = await hiddenBills(user, orgId, result.items)
 
     const stockMovements = result.items.map(m => {
@@ -204,6 +214,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       // Strip lines from list response (not needed for table, reduces payload)
       const { lines, ...rest } = m as any
       const bill = billing.get(String(m.id))?.invoice
+      const sale = saleOf(invoicing.get(String(m.id))?.invoice)
       return redactMovementTotals(grant, withoutBill(hidden, {
         ...rest,
         lineCount: lines?.length || 0,
@@ -214,6 +225,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         contactName,
         ...(productQuantity !== undefined ? { productQuantity } : {}),
         ...(bill && !['voided', 'cancelled'].includes(bill.status) ? { bill: { id: bill.id, number: bill.number } } : {}),
+        ...(sale ? { sale } : {}),
       }))
     })
 
@@ -377,8 +389,21 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       ? await receiptBillingFor(orgId, { ...movement, _id: movement.id }, user.id)
       : { billable: false }
 
+    // FR-22.61: the sales invoice that holds this dispatch, or whether one may be made from it. A session that reads
+    // no sales documents is told of none, and one that may not create them is offered none.
+    const noted = movement.type === 'dispatch' && can(user, 'sales-docs.view')
+      ? await dispatchInvoicingFor(orgId, { ...movement, _id: movement.id }, user.id)
+      : null
+    const invoicing = noted
+      ? (({ sale, invoiceable, ...rest }) => ({
+          ...rest,
+          invoiceable: invoiceable && can(user, 'sales-docs.create'),
+          ...(saleOf(sale) ? { sale: saleOf(sale) } : {}),
+        }))(noted)
+      : {}
+
     const hidden = await hiddenBills(user, orgId, [movement])
-    return { stockMovement: redactMovementTotals(grant, withoutBill(hidden, { ...movement, number: movement.movementNumber, lines, ...billing })) }
+    return { stockMovement: redactMovementTotals(grant, withoutBill(hidden, { ...movement, number: movement.movementNumber, lines, ...billing, ...invoicing })) }
   }, { isSignIn: true })
   .put(
     '/:id',

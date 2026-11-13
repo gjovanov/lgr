@@ -168,8 +168,8 @@ export function billingStateOf(movement: any, invoices: Map<string, any>): Recei
   return { billable: false, reason: 'receipt_not_billable', invoice: ref }
 }
 
-/** The invoices a set of movements point at, by id. */
-async function invoicesOf(orgId: string, movements: any[]): Promise<Map<string, any>> {
+/** The invoices a set of movements point at, by id. Shared with the sales side (`dispatch-invoice.service.ts`). */
+export async function invoicesOf(orgId: string, movements: any[]): Promise<Map<string, any>> {
   const ids = [...new Set(movements.map(m => idOf(m.invoiceId)).filter(Boolean))]
   if (!ids.length) return new Map()
   const rows: any[] = await Invoice.find(
@@ -316,9 +316,9 @@ async function settleSupplier(orgId: string, movements: any[], chosen: string | 
 
 // ── The bill's lines ────────────────────────────────────────────────────────────────────────
 
-interface ProductInfo { name: string; unit?: string; taxRate?: number; trackInventory?: boolean }
+export interface ProductInfo { name: string; unit?: string; taxRate?: number; trackInventory?: boolean }
 
-async function productsOf(orgId: string, ids: string[]): Promise<Map<string, ProductInfo>> {
+export async function productsOf(orgId: string, ids: string[]): Promise<Map<string, ProductInfo>> {
   if (!ids.length) return new Map()
   const rows: any[] = await Product.find(
     { orgId, _id: { $in: [...new Set(ids)] } } as any,
@@ -392,7 +392,7 @@ function statusEntry(status: string, fromStatus: string | undefined, userId: str
  * Give claims back: only the ones `billId` still holds, never another bill's. `givenTo` are the
  * receipts that bill named: they go back to naming nobody, as they were before it.
  */
-async function releaseClaims(orgId: string, billId: unknown, ids: unknown[], givenTo: unknown[]): Promise<number> {
+export async function releaseClaims(orgId: string, billId: unknown, ids: unknown[], givenTo: unknown[]): Promise<number> {
   const given = new Set(givenTo.map(idOf))
   const named = ids.filter(id => given.has(idOf(id)))
   const others = ids.filter(id => !given.has(idOf(id)))
@@ -483,7 +483,7 @@ export interface BillFromReceiptsInput {
 
 interface Actor { id: string }
 
-async function orgDefaults(orgId: string): Promise<{ currency: string; vat: number }> {
+export async function orgDefaults(orgId: string): Promise<{ currency: string; vat: number }> {
   const org: any = await Org.findById(orgId, { settings: 1, baseCurrency: 1 }).lean().exec()
   return {
     currency: org?.settings?.baseCurrency || org?.baseCurrency || 'EUR',

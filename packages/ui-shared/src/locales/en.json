@@ -1662,7 +1662,34 @@
       "preparedToast": "The credit note and the re-issue are prepared as drafts",
       "failed": "It could not be prepared."
     },
-    "unitFromProduct": "The article's own unit"
+    "unitFromProduct": "The article's own unit",
+    "linkNote": {
+      "action": "Link to a dispatch",
+      "hint": "Goods already handed over?",
+      "dialogHint": "This customer's dispatches that no invoice covers yet, and dispatches that name no customer. The invoice then moves no stock: the dispatch already did.",
+      "none": "No dispatch left to invoice, for this customer or for none.",
+      "noCustomer": "no customer",
+      "noteLines": "{n} line, {quantity} in all | {n} lines, {quantity} in all",
+      "confirm": "Link",
+      "differs": "The invoice's lines say something other than the dispatch delivered:",
+      "differsLine": "{name}: dispatched {dispatched}, invoiced {invoiced}",
+      "replaceWarning": "Linking replaces the invoice's stock lines with the dispatch's, at this customer's prices. Lines that hold no stock, the number, the dates and the payment method stay.",
+      "replaceConfirm": "Replace the lines and link",
+      "linked": "The invoice is linked to the dispatch",
+      "linkedCheck": "The invoice is linked to the dispatch. Check the lines and prices, then issue it.",
+      "banner": "Invoice for the dispatch",
+      "noStock": "The goods left stock on the dispatch: this invoice moves no stock.",
+      "made": "Draft invoice made from the dispatch. Check the prices, then issue it.",
+      "select": "Link this dispatch to the invoice"
+    },
+    "dispatchOverlap": {
+      "title": "These goods may have already left stock",
+      "text": "Dispatches for the same goods have no invoice yet. Issued as it is, this invoice takes the goods out of stock a second time.",
+      "chooseCustomer": "This invoice names no customer. Choose one, and linking writes it on the invoice and on the dispatch.",
+      "link": "Link to the dispatch",
+      "issueAnyway": "Other goods: issue anyway",
+      "notIssued": "it may be for goods a dispatch already delivered, and the question was not answered"
+    }
   },
   "pos": {
     "cartEmpty": "Cart is empty",
@@ -2542,7 +2569,20 @@
       "bill_already_linked": "The bill is already linked to a delivery.",
       "nothing_to_bill": "The receipts carry no quantities to bill.",
       "stock_line_without_warehouse": "The stock lines of this bill name no warehouse, so nothing would reach stock. Choose the warehouse on the bill, then receive it.",
-      "stock_line_without_product": "A line of this bill has a quantity but no product: it would be paid for and never reach stock. Choose the product on the line, then receive it."
+      "stock_line_without_product": "A line of this bill has a quantity but no product: it would be paid for and never reach stock. Choose the product on the line, then receive it.",
+      "dispatch_without_customer": "Dispatch {movementNumber} names no customer: choose one.",
+      "dispatch_not_a_delivery": "Dispatch {movementNumber} is a correction or a record of another movement, not a delivery to a customer, so no invoice is made from it.",
+      "dispatch_rolled_back": "Dispatch {movementNumber} was rolled back with its document: the goods are back in stock, and no invoice is made from it.",
+      "customer_not_found": "Choose a customer of this organization.",
+      "customer_mismatch": "The dispatches are another customer's.",
+      "mixed_customers": "One invoice covers the dispatches of one customer, and these are different customers'.",
+      "dispatch_already_invoiced": "Dispatch {movementNumber} is already invoiced.",
+      "invoice_on_order": "The invoice is written against an order: its lines release that order's reservations as they dispatch, so it cannot be linked to a dispatch.",
+      "invoice_foreign_currency": "This invoice is in {currency}, and the organization's prices are in {baseCurrency}: its lines are not written from a dispatch.",
+      "invoice_not_draft": "The invoice is no longer a draft.",
+      "invoice_already_linked": "The invoice is already linked to the document that moved its goods, or it changed meanwhile: reload it.",
+      "nothing_to_invoice": "The dispatches carry no quantities to invoice.",
+      "dispatch_quantity_mismatch": "„{name}“ was dispatched {dispatched} and is invoiced {invoiced}. An invoice made from a dispatch invoices what was delivered: a difference with the customer is settled by a credit or debit note."
     },
     "supply": {
       "reserved": "Reserved",
@@ -2630,7 +2670,23 @@
       "reserve": "Reserve",
       "inactive": "The product is deactivated — activate it to sell or reserve it."
     },
-    "valuationNeedsCosts": "The inventory valuation is cost figures, which are not part of your role."
+    "valuationNeedsCosts": "The inventory valuation is cost figures, which are not part of your role.",
+    "invoiced": "Invoiced",
+    "invoicedBy": "Invoiced by the sales invoice",
+    "salesInvoice": "Sales invoice",
+    "invoiceCustomer": {
+      "title": "Who received these goods?",
+      "hint": "This dispatch names no customer. The invoice is made out to the one you choose, and the dispatch keeps it.",
+      "confirm": "Make the invoice"
+    },
+    "notInvoiceable": {
+      "dispatch_rolled_back": "This dispatch was rolled back with its document: the goods are back in stock, and no invoice is made from it.",
+      "dispatch_not_a_delivery": "This dispatch is a correction or a record of another movement, not a delivery to a customer, so no invoice is made from it.",
+      "dispatch_not_completed": "A sales invoice is made from a completed dispatch.",
+      "dispatch_not_invoiceable": "This dispatch was booked by {number}, which is voided. It is no delivery, and no invoice is made from it.",
+      "orphan": "This dispatch belongs to a document that no longer exists. It is no delivery, and no invoice is made from it.",
+      "dispatch_is_reversal": "This dispatch takes out the goods of a removed document. It is no delivery, and no invoice is made from it."
+    }
   },
   "pricing": {
     "explainPrice": "Explain price",

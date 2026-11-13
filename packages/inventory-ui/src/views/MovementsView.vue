@@ -124,6 +124,21 @@
             >
               {{ $t('warehouse.billed') }}
             </v-chip>
+            <!-- FR-22.61: a dispatch a sales invoice holds (made from it, or booked by it): the invoice, one click
+                 away. A dispatch without the mark is a stock note nobody has invoiced yet. -->
+            <v-chip
+              v-if="item.sale"
+              :href="appHref('invoicing', `/invoicing/invoices/${item.sale.id}/edit`)"
+              size="x-small"
+              color="primary"
+              variant="tonal"
+              class="ml-1"
+              prepend-icon="mdi-receipt-text-check-outline"
+              :title="item.sale.number"
+              data-testid="movement-invoiced"
+            >
+              {{ $t('warehouse.invoiced') }}
+            </v-chip>
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total || 0) }}</template>
           <template #item.actions="{ item }">
@@ -222,7 +237,7 @@ import { isTransferOnly } from 'ui-shared/nav/page-registry'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { useAccess } from 'ui-shared/access/useAccess'
 
-interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string; bill?: { id: string; number: string } }
+interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string; bill?: { id: string; number: string }; sale?: { id: string; number: string } }
 interface Warehouse { _id: string; name: string }
 interface Contact { _id: string; name: string; companyName?: string; firstName?: string; lastName?: string }
 const { t } = useI18n()

@@ -25,7 +25,7 @@ import { canOpenPage, pageById } from 'ui-shared/nav/page-registry'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import type { DocumentTypeConfig } from './types'
 import { useDocumentIssue } from '../useDocumentIssue'
-import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
+import { receiptRefusalKey, receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { canRecordPayment } from '../document-row-actions'
 import { receiptOverlapOf, type ReceiptOverlap } from '../receipt-overlap'
 import {
@@ -1490,7 +1490,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       await loadDocument()
       return id
     } catch (e: any) {
-      showError(receiptRefusalMessage(t, e, t('common.operationFailed')))
+      // A receipt's refusal in its own words (FR-23); a stock refusal in the user's language (#168, FR-22.61: an
+      // invoice made from a stock note keeps its quantities); any other as the server said it.
+      showError(receiptRefusalKey(e?.response?.data) ? receiptRefusalMessage(t, e, t('common.operationFailed')) : stockRefusalMessage(e, t))
       return null
     } finally {
       loading.value = false
@@ -1570,7 +1572,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   // ── issue (FR-22.17 / .18) ──
-  const issuer = useDocumentIssue()
+  // FR-22.61b: an invoice the question linked to its stock note is another document than the form holds: read again.
+  const issuer = useDocumentIssue({ onLinked: () => loadDocument() })
   const issuing = ref(false)
   const issuingWithPrint = ref(false)
   /** Why the document is still a draft after it was asked to be issued (FR-22 §5.2). */
@@ -2100,6 +2103,10 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     // Owner, 2026-11-12: the payment method an outgoing invoice is issued with, confirmed first.
     paymentConfirm: issuer.paymentConfirm,
     answerPayment: issuer.answerPayment,
+    // FR-22.61b: the question before an invoice dispatches goods a stock note already delivered, and its answers.
+    dispatchOverlap: issuer.dispatchOverlap,
+    issueDespiteOverlap: issuer.issueDespiteOverlap,
+    overlapLinked: issuer.overlapLinked,
     // FR-22.27: place of deal
     showPlaceOfDeal,
     // FR-22.21 / FR-22.22

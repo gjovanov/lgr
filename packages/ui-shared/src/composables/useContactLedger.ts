@@ -34,6 +34,8 @@ export interface ContactLedgerEntry {
   warehouseId?: string
   warehouseName?: string
   lineTotal?: number
+  /** On a `stock_movement` row: a stock note no document holds, which an invoice can be linked to (FR-22.62). */
+  invoiceable?: boolean
 }
 
 /** The type the ledger lists a stock movement no document carries under (the server's `STOCK_MOVEMENT_TYPE`). */

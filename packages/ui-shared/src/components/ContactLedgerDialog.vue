@@ -42,9 +42,21 @@
           density="compact"
           hover
         >
-          <!-- A stock movement's own row is listed, not offered: a document made from it would move its goods again. -->
+          <!-- A stock movement's own row is never offered as LINES: a document made from them would move its goods
+               again. A stock note no document holds is offered as a LINK (FR-22.62): the invoice then takes its
+               goods from the note, whole, and moves none. Its tick is the note's, on every row of it. -->
           <template v-if="selectable" #item.select="{ item }">
             <v-checkbox-btn v-if="!isMovementRow(item)" v-model="selectedIds" :value="item.documentId + '|' + item.productId" density="compact" hide-details />
+            <v-checkbox-btn
+              v-else-if="linkNotes && item.invoiceable"
+              v-model="selectedNotes"
+              :value="item.documentId"
+              :title="$t('invoicing.linkNote.select')"
+              color="primary"
+              density="compact"
+              hide-details
+              data-testid="ledger-note-tick"
+            />
           </template>
           <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
           <template #item.documentNumber="{ item }">
@@ -91,6 +103,9 @@
         <span class="text-body-2 text-medium-emphasis ml-2">{{ $t('common.itemsSelected', { n: selectedIds.length }) }}</span>
         <v-spacer />
         <v-btn variant="text" @click="$emit('update:modelValue', false)">{{ $t('common.cancel') }}</v-btn>
+        <v-btn v-if="linkNotes" color="primary" variant="tonal" prepend-icon="mdi-link-variant" :disabled="selectedNotes.length === 0" data-testid="ledger-link-notes" @click="linkSelectedNotes">
+          {{ $t('invoicing.linkNote.action') }}
+        </v-btn>
         <v-btn color="primary" :disabled="selectedIds.length === 0" @click="addSelectedLines">
           {{ $t('invoicing.addLineItems') }}
         </v-btn>
@@ -110,11 +125,15 @@ const props = defineProps<{
   contactId: string
   orgUrl: string
   selectable?: boolean
+  /** FR-22.62: the document this dialog serves can take a stock note as its stock: offer the notes no document holds. */
+  linkNotes?: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
   'add-lines': [entries: ContactLedgerEntry[]]
+  /** The stock notes ticked, by movement id: the document links them, and takes no lines from here. */
+  'link-notes': [movementIds: string[]]
 }>()
 
 const contactIdRef = computed(() => props.contactId)
@@ -147,6 +166,8 @@ function documentHref(item: ContactLedgerEntry) {
 }
 
 const selectedIds = ref<string[]>([])
+/** FR-22.62: the stock notes ticked, by movement id. A note is linked whole, so its rows share one tick. */
+const selectedNotes = ref<string[]>([])
 
 const allHeaders = computed(() => {
   if (props.selectable) {
@@ -164,9 +185,17 @@ function addSelectedLines() {
   emit('update:modelValue', false)
 }
 
+function linkSelectedNotes() {
+  emit('link-notes', [...selectedNotes.value])
+  selectedNotes.value = []
+  selectedIds.value = []
+  emit('update:modelValue', false)
+}
+
 watch(() => props.modelValue, (open) => {
   if (open) {
     selectedIds.value = []
+    selectedNotes.value = []
     fetchLedger()
   }
 })

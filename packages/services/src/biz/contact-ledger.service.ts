@@ -58,6 +58,11 @@ export interface ContactLedgerEntry {
   warehouseName?: string
   /** On a `stock_movement` row: the line's value at cost. A cost figure, absent for a role without them. */
   lineTotal?: number
+  /**
+   * On a `stock_movement` row: a completed dispatch no document holds, which an invoice can be made from or linked to
+   * (FR-22.62). A hint for the row's tick box: the link itself is decided by `dispatch-invoice.service.ts`.
+   */
+  invoiceable?: boolean
 }
 
 export interface ContactLedgerSummary {
@@ -284,10 +289,16 @@ export async function getContactLedger(
   if (period) matchStage.issueDate = period
 
   // The movements no document carries. One claimed by a bill still in draft is among them: a draft is no row of the
-  // ledger, and the delivery it will pay for happened.
+  // ledger, and the delivery it will pay for happened. So is a stock note claimed by a draft invoice (FR-22.61).
+  // ⚠ Only a claim (`movement:`, `dispatch:`): a draft invoice for a cash sale lists that sale's own dispatch, which
+  // the sale's row carries.
   const listsMovements = !types || types.includes(STOCK_MOVEMENT_TYPE)
-  const heldByDrafts = listsMovements && !options.outgoingOnly
-    ? await Invoice.distinct('stockSource.movementIds', { orgId: orgOid, contactId: contactOid, type: 'invoice', direction: 'incoming', status: 'draft' } as any).exec()
+  const heldByDrafts = listsMovements
+    ? await Invoice.distinct('stockSource.movementIds', {
+        orgId: orgOid, contactId: contactOid, type: 'invoice', status: 'draft',
+        'stockSource.marker': { $regex: '^(movement|dispatch):' },
+        ...(options.outgoingOnly ? { direction: 'outgoing' } : {}),
+      } as any).exec()
     : []
   const movementMatch: Record<string, any> = {
     orgId: orgOid,
@@ -354,7 +365,7 @@ export async function getContactLedger(
           {
             $project: {
               issueDate: '$date', _movement: { $literal: true }, type: 1, _line: 1, movementNumber: 1, reference: 1,
-              fromWarehouseId: 1, toWarehouseId: 1,
+              fromWarehouseId: 1, toWarehouseId: 1, status: 1, invoiceId: 1,
               'lines.productId': 1, 'lines.quantity': 1, 'lines.unitCost': 1, 'lines.totalCost': 1,
             },
           },
@@ -394,6 +405,10 @@ export async function getContactLedger(
         _movement: 1,
         movementNumber: 1,
         reference: 1,
+        // Of a movement's row: whether it is a stock note an invoice can still take (`invoiceable`).
+        _held: { $cond: ['$_movement', { $ifNull: ['$invoiceId', null] }, '$$REMOVE'] },
+        _completed: { $cond: ['$_movement', { $eq: ['$status', 'completed'] }, '$$REMOVE'] },
+        _from: { $cond: ['$_movement', { $ifNull: ['$fromWarehouseId', null] }, '$$REMOVE'] },
         'stockSource.movementIds': 1,
         productId: '$lines.productId',
         productName: { $arrayElemAt: ['$_product.name', 0] },
@@ -441,6 +456,7 @@ export async function getContactLedger(
         unitPrice: sign * (d.unitCost || 0) || 0,
         ...warehouse,
         lineTotal: sign * (d.totalCost || 0) || 0,
+        ...(d.type === 'dispatch' && d._completed && d._from && !d._held ? { invoiceable: true } : {}),
       }
     }
     // Credit notes and cash-sale stornos (FR-21.9) give money back: negative sign
