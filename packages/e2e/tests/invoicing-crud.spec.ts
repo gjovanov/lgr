@@ -244,9 +244,22 @@ test.describe('Invoicing CRUD', () => {
     await expect(totals).toContainText('120.00', { timeout: 15000 })
     await expect(totals).not.toContainText('120,00')
 
+    // A number field reads in the MACHINE's number format: Chromium on Linux dropped the comma and the line sold 25 (the
+    // 2026-11-13 nightly), a Windows with a comma format reads it already. `ui-shared/composables/decimal-comma` asks the
+    // browser once and turns the comma into a point only where it is dropped.
+    expect(await page.evaluate(() => (window as any).__LGR_DECIMAL_COMMA__)).toMatch(/^(native|converted)$/)
     const quantity = page.locator('.line-table tbody tr').first().locator('input[type="number"]').first()
     await quantity.fill('')
     await quantity.pressSequentially('2,5')
     await expect(totals).toContainText('300.00')
+    // Text that arrives without a key (a phone's keyboard, a paste) takes the same path: 1,5 is 1.5.
+    await quantity.fill('')
+    await page.keyboard.insertText('1,5')
+    await expect(totals).toContainText('180.00')
+    // A trailing comma keeps the quantity: where a comma already counts, a point would have left the field empty.
+    await quantity.fill('')
+    await quantity.pressSequentially('2,')
+    await expect(quantity).toHaveValue('2')
+    await expect(totals).toContainText('240.00')
   })
 })
