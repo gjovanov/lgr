@@ -43,6 +43,16 @@ export interface IOrgBooksExternalBranch {
   docSeries: string[]
 }
 
+/**
+ * FR-25 R7: one legal entity's books spread over its store orgs, each holding its own share. Every
+ * org of the group carries it, with the same `branches` (the group, itself included) and the same
+ * home. A sales document in a store's series is that store's; everything else is the home's, which
+ * also holds the opening and the VAT files.
+ */
+export interface IOrgBooksSplit {
+  homeOrgId: Types.ObjectId
+}
+
 export interface IOrgBooks {
   mode: 'own' | 'books' | 'branch'
   /** On a branch. */
@@ -53,6 +63,8 @@ export interface IOrgBooks {
   branches?: IOrgBooksBranch[]
   /** On the books org. */
   externalBranches?: IOrgBooksExternalBranch[]
+  /** On every org of a split (FR-25 R7). Unset: one books org holds the whole of the books. */
+  split?: IOrgBooksSplit
 }
 
 export interface IOrg extends Document {
@@ -363,6 +375,10 @@ const orgSchema = new Schema<IOrg>(
               docSeries: { type: [String], required: true },
             }, { _id: false })],
             default: undefined,
+          },
+          // FR-25 R7. A nested path with no default: unset stays absent, so no org needs a backfill.
+          split: {
+            homeOrgId: { type: Schema.Types.ObjectId, ref: 'Org' },
           },
         },
       },

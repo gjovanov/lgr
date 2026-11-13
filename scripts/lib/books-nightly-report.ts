@@ -8,7 +8,8 @@
 import { gunzipSync, gzipSync } from 'node:zlib'
 import { documentsByMonth } from '../../packages/services/src/biz/accounting-books/plusminus-exports.js'
 import { headerContentOf, planMonth, sha256 } from '../../packages/services/src/biz/accounting-books/journal-plan.js'
-import type { ImportDocument, ImportOperation } from '../../packages/services/src/biz/accounting-books/import.types.js'
+import { exchangeRateOf, ledgerCurrencyOn } from '../../packages/services/src/biz/accounting-books/registry.js'
+import type { ImportDocument, ImportOperation, OpeningLine } from '../../packages/services/src/biz/accounting-books/import.types.js'
 
 export interface ParsedImport {
   steps: Record<string, any>
@@ -58,6 +59,117 @@ export function summarize(year: number, r: ParsedImport): YearResult {
     + ` · opening ${o.outcome ?? '?'} · chart ${(c.created ?? 0) + (c.updated ?? 0)} · analytics ${(a.created ?? 0) + (a.updated ?? 0)}`
     + `, contacts ${a.contacts?.created ?? 0} · finish ${f.changed ?? 0} accounts`
   return { year, changes, text }
+}
+
+// ── Several orgs: books split over a group (FR-25 R7) ───────────────────────────────────────────────
+
+/**
+ * The orgs a run imports: `BOOKS_NIGHTLY_ORGS` (comma-separated, every org of a split), else the one
+ * `BOOKS_NIGHTLY_ORG`. One org is the run as it always was.
+ */
+export function orgsOf(list: string | undefined, single: string): string[] {
+  const named = [...new Set(String(list ?? '').split(',').map(s => s.trim()).filter(Boolean))]
+  return named.length ? named : [single]
+}
+
+/** One org's import of a year, as the run read it. */
+export interface OrgImport {
+  org: string
+  parsed: ParsedImport
+}
+
+/** Counts add up, an outcome is the one that is not `unchanged`, a flag holds if it holds everywhere. */
+function addUp(values: unknown[]): unknown {
+  const present = values.filter(v => v !== undefined && v !== null)
+  if (!present.length) return values.includes(null) ? null : undefined
+  if (present.every(v => typeof v === 'number')) return (present as number[]).reduce((a, b) => a + b, 0)
+  if (present.every(v => typeof v === 'boolean')) return present.every(Boolean)
+  if (present.every(v => typeof v === 'string')) return present.find(v => v !== 'unchanged') ?? present[0]
+  if (present.every(Array.isArray)) return (present as unknown[][]).flat()
+  if (present.every(v => typeof v === 'object')) {
+    const keys = [...new Set(present.flatMap(v => Object.keys(v as object)))]
+    return Object.fromEntries(keys.map(k => [k, addUp(present.map(v => (v as Record<string, unknown>)[k]))]))
+  }
+  return present[0]
+}
+
+/** The orgs' imports of one year as one: each step's counts added up, the months side by side. */
+export function sumImports(parts: readonly ParsedImport[]): ParsedImport {
+  const names = [...new Set(parts.flatMap(p => Object.keys(p.steps)))]
+  return {
+    steps: Object.fromEntries(names.map(name => [name, addUp(parts.map(p => p.steps[name]))])),
+    months: parts.flatMap(p => p.months),
+  }
+}
+
+/**
+ * A year over the orgs it was imported into. One org reads exactly as it always has; several read as
+ * their sum, then a line each. The documents behind the counts are the archive's, listed once.
+ */
+export function summarizeOrgs(year: number, imports: readonly OrgImport[]): YearResult {
+  if (imports.length === 1) return summarize(year, imports[0].parsed)
+  const each = imports.map(i => ({ org: i.org, result: summarize(year, i.parsed) }))
+  const whole = summarize(year, sumImports(imports.map(i => i.parsed)))
+  return {
+    year,
+    changes: each.reduce((n, e) => n + e.result.changes, 0),
+    text: [whole.text, ...each.map(e => `  ${e.org}: ${e.result.text.slice(`${year}: `.length)}`)].join('\n'),
+  }
+}
+
+/** Whether an import was into an org of a split: its journal says how many entries the whole file makes. */
+export const isSplitImport = (r: ParsedImport) => typeof r.steps['journal total']?.fileEntries === 'number'
+
+/**
+ * What a split must hold as a group, which no one org can see (FR-25 R7): every org was sent the same
+ * file, and the shares add up to it, no entry held twice and none by nobody. A group configured with
+ * different stores in different orgs, or one org of it left out of the run, fails here.
+ */
+export function splitProblems(year: number, imports: readonly OrgImport[]): string[] {
+  const split = imports.filter(i => isSplitImport(i.parsed))
+  if (!split.length) return []
+  const out: string[] = []
+  if (split.length !== imports.length) out.push(`${year}: ${imports.length - split.length} of the orgs keep books of their own, beside a split`)
+  const files = [...new Set(split.map(i => i.parsed.steps['journal total'].fileEntries as number))]
+  if (files.length > 1) out.push(`${year}: the orgs were sent files of different sizes (${files.join(', ')} entries)`)
+  const held = split.reduce((n, i) => n + (i.parsed.steps['journal total'].entries ?? 0), 0)
+  if (files.length === 1 && held !== files[0]) out.push(`${year}: the orgs hold ${held} entries of the file's ${files[0]}: every org of the split must be in BOOKS_NIGHTLY_ORGS, with the same stores`)
+  const homes = split.filter(i => i.parsed.steps.opening?.split?.role === 'home').length
+  if (homes !== 1) out.push(`${year}: ${homes} orgs answered as the split's home, not one`)
+  return out
+}
+
+/** A year's openings per account, signed: debit positive. */
+const netOf = (lines: readonly OpeningLine[]) => {
+  const out = new Map<string, number>()
+  for (const l of lines) out.set(l.code, (out.get(l.code) ?? 0) + l.debit - l.credit)
+  return out
+}
+
+/**
+ * §5.3's continuity for a split, from the archive alone: the year before's opening plus its journal is its
+ * closing, which at the rate where the currency changed must be this year's opening, per account. The
+ * server checks the same against what it imported, but only a books org of its own can: a share's closing
+ * is not the company's. The import is proven equal to the file by its dry rerun, so the file stands in.
+ * Account numbers only.
+ */
+export function continuityOfFiles(year: number, before: { opening: readonly OpeningLine[]; documents: readonly ImportDocument[] }, opening: readonly OpeningLine[]) {
+  const closing = netOf(before.opening)
+  for (const doc of before.documents) {
+    for (const op of doc.ops) {
+      closing.set(op.d, (closing.get(op.d) ?? 0) + op.amount)
+      closing.set(op.k, (closing.get(op.k) ?? 0) - op.amount)
+    }
+  }
+  const rate = ledgerCurrencyOn(`${year - 1}-12-31`) === ledgerCurrencyOn(`${year}-01-01`) ? 1 : exchangeRateOf('BGN')
+  const next = netOf(opening)
+  const differing: string[] = []
+  let equal = 0
+  for (const code of new Set([...closing.keys(), ...next.keys()])) {
+    if (Math.abs((closing.get(code) ?? 0) * rate - (next.get(code) ?? 0)) < 0.011) equal++
+    else differing.push(code)
+  }
+  return { checked: equal + differing.length, equal, differing: differing.sort() }
 }
 
 /**

@@ -74,6 +74,22 @@ describe('ensureFiscalPeriod', () => {
     expect(matchingPeriod!.number).toBe(11)
   })
 
+  it('should use a year typed in by hand that holds the date, though its timestamps differ from the computed ones', async () => {
+    const org = await createTestOrg({ slug: 'fp-auto-typed', settings: { fiscalYearStart: 1 } as any })
+    const orgId = String(org._id)
+    // A form in another timezone: the same year, two hours off the computed midnights, and no periods.
+    const typed = await FiscalYear.create({ orgId, name: 'FY 2027', startDate: new Date('2027-01-01T02:00:00.000Z'), endDate: new Date('2027-12-31T02:00:00.000Z'), status: 'open' })
+
+    const periodId = await ensureFiscalPeriod(orgId, new Date('2027-06-15'))
+
+    // Not a second FY 2027 beside it.
+    expect(await FiscalYear.countDocuments({ orgId })).toBe(1)
+    const period = await FiscalPeriod.findById(periodId).exec()
+    expect(String(period!.fiscalYearId)).toBe(String(typed._id))
+    expect(period!.name).toBe('June')
+    expect(await FiscalPeriod.countDocuments({ orgId, fiscalYearId: typed._id })).toBe(12)
+  })
+
   it('should return existing period without creating duplicates', async () => {
     const org = await createTestOrg({ slug: 'fp-auto-idempotent', settings: { fiscalYearStart: 1 } as any })
     const orgId = String(org._id)

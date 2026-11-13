@@ -13,8 +13,12 @@
 //
 // Settings, NAME=value lines in BOOKS_NIGHTLY_ENV (default: the main checkout's .secrets/lgr-books-sync.env):
 //   LGR_USERNAME, LGR_PASSWORD   the books org's service account, whose only right is accounting.import (seed-user --permissions).
-//                                Read from the file only: a person's own LGR_* in the environment is never used.
+//                                Read from the file only: a person's own LGR_* in the environment is never used. For a split, the
+//                                same person with a membership in every org of it, each holding only accounting.import
 //   BOOKS_NIGHTLY_MAIL_TO        who hears about a change or a failure (comma-separated)
+//   BOOKS_NIGHTLY_ORGS           FR-25 R7, books split over a group: EVERY org of it, comma-separated. Each is sent the same files and
+//                                keeps its share; the run checks that the shares add up to the file and that each year opens where the
+//                                one before closed (from the archive: no single org can say). Unset: BOOKS_NIGHTLY_ORG alone, as before
 //   BOOKS_NIGHTLY_ORG            default regal-acc
 //   BOOKS_NIGHTLY_YEARS          default 2025,2026. A later year in the archive is reported, never imported unattended: its first
 //                                import opens the year, and a person looks at that
@@ -32,19 +36,25 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { need, optional } from '../pull-plusminus-api/stores-env'
 import {
+  continuityOfFiles,
   docsRootDown,
   documentChanges,
   documentChangesText,
   importedDocuments,
+  isSplitImport,
   listsWithin,
+  orgsOf,
   parseImport,
   parseImported,
   problems,
   serializeImported,
+  splitProblems,
   summarize,
+  summarizeOrgs,
   type DocsRootDown,
   type ImportedDocuments,
   type ImportedDocumentsFile,
+  type OrgImport,
   type YearResult,
 } from '../../../scripts/lib/books-nightly-report'
 
@@ -75,7 +85,9 @@ function envFile(path: string): Record<string, string> {
 const settingsFile = process.env.BOOKS_NIGHTLY_ENV ?? join(mainCheckout(), '.secrets', 'lgr-books-sync.env')
 const file = envFile(settingsFile)
 const setting = (name: string, fallback = '') => process.env[name] || file[name] || fallback
-const org = setting('BOOKS_NIGHTLY_ORG', 'regal-acc')
+const orgs = orgsOf(setting('BOOKS_NIGHTLY_ORGS'), setting('BOOKS_NIGHTLY_ORG', 'regal-acc'))
+/** What the mails and the log call the run: the one org, or every org of a split. */
+const org = orgs.join('+')
 const years = setting('BOOKS_NIGHTLY_YEARS', '2025,2026').split(',').map(y => Number(y.trim())).sort((a, b) => a - b)
 const rootAccounts = setting('BOOKS_NIGHTLY_ROOT_ACCOUNTS', 'СТОКИ=304,КЛИЕНТИ=411,ДОСТАВЧИЦИ=401').split(',').map(s => s.trim()).filter(Boolean)
 const staleHours = Number(setting('BOOKS_NIGHTLY_STALE_HOURS', '72'))
@@ -154,6 +166,17 @@ async function holdDocsRoot(): Promise<{ readable: boolean; release: () => void 
   return { readable, release: () => holder?.kill() }
 }
 
+/**
+ * §5.3 for a split (FR-25 R7), from the books folder: the year before's stored openings and journal against this year's
+ * stored openings. The importer's own check reads what the books org imported, and a share is not the company's.
+ */
+function splitContinuity(dir: string, year: number) {
+  const read = (name: string) => JSON.parse(readFileSync(join(dir, name), 'utf8'))
+  const openingOf = (chart: any) => (chart.rows ?? []).map((r: any) => ({ code: r.code, debit: r.openingDebit ?? 0, credit: r.openingCredit ?? 0 }))
+  const before = { opening: openingOf(read(`chart-${year - 1}.json`)), documents: read(`journal-${year - 1}.json`).documents ?? [] }
+  return continuityOfFiles(year, before, openingOf(read(`chart-${year}.json`)))
+}
+
 /** Every configured year's journal in a books folder, as the importer keys its documents. */
 function journalsIn(dir: string): ImportedDocuments {
   const all: ImportedDocuments = new Map()
@@ -223,21 +246,48 @@ async function nightly(state: State): Promise<Outcome> {
   }
 
   const results: YearResult[] = []
+  // A failure stops that org's later years, never another org's: each is sent the whole archive, and what one wrote
+  // is reported beside what stopped the other (FR-25 R7). With one org this is the run it always was.
+  const failures: { org: string; step: string; detail: string }[] = []
+  const stopped = new Set<string>()
+  const fail = (o: string, step: string, detail: string) => { failures.push({ org: o, step, detail }); stopped.add(o) }
   for (const year of years) {
-    const base = [process.execPath, join(repo, 'scripts', 'import-accounting-books.ts'), '--org', org, '--books', dir, '--year', String(year),
-      ...rootAccounts.flatMap(r => ['--root-account', r]), '--finish']
-    const first = await run(dry ? base : [...base, '--execute'], creds)
-    if (first.code !== 0) return failed(`import ${year}`, tail(`${first.out}\n${first.err}`))
-    const did = parseImport(first.out)
-    const bad = problems(did)
-    if (bad.length) return failed(`import ${year}`, bad.join('\n'))
-    if (!dry) {
-      const again = await run(base, creds)
-      if (again.code !== 0) return failed(`dry rerun ${year}`, tail(`${again.out}\n${again.err}`))
-      const rerun = summarize(year, parseImport(again.out))
-      if (rerun.changes) return failed(`dry rerun ${year}`, `after the import, a dry rerun still reports changes: ${rerun.text}`)
+    const done: OrgImport[] = []
+    for (const o of orgs) {
+      if (stopped.has(o)) continue
+      const base = [process.execPath, join(repo, 'scripts', 'import-accounting-books.ts'), '--org', o, '--books', dir, '--year', String(year),
+        ...rootAccounts.flatMap(r => ['--root-account', r]), '--finish']
+      const first = await run(dry ? base : [...base, '--execute'], creds)
+      if (first.code !== 0) { fail(o, `import ${year}`, tail(`${first.out}\n${first.err}`)); continue }
+      const did = parseImport(first.out)
+      const bad = problems(did)
+      if (bad.length) { fail(o, `import ${year}`, bad.join('\n')); continue }
+      if (!dry) {
+        const again = await run(base, creds)
+        if (again.code !== 0) { fail(o, `dry rerun ${year}`, tail(`${again.out}\n${again.err}`)); continue }
+        const rerun = summarize(year, parseImport(again.out))
+        if (rerun.changes) { fail(o, `dry rerun ${year}`, `after the import, a dry rerun still reports changes: ${rerun.text}`); continue }
+      }
+      done.push({ org: o, parsed: did })
     }
-    results.push(summarize(year, did))
+    if (!done.length) continue
+    results.push(summarizeOrgs(year, done))
+    // The group as a whole, which no one org of a split can see: shares that add up, and the year opening where the last closed.
+    if (done.length === orgs.length && done.some(d => isSplitImport(d.parsed))) {
+      const group = splitProblems(year, done)
+      const continuity = years.includes(year - 1) ? splitContinuity(dir, year) : null
+      if (continuity?.differing.length) group.push(`opening ${year}: continuity differs on ${continuity.differing.length} accounts (${continuity.differing.join(', ')})`)
+      if (group.length) fail(org, `the split ${year}`, group.join('\n'))
+    }
+  }
+
+  if (failures.length) {
+    // One org: exactly the failure it always mailed. Several: each named, and what the others did beside it.
+    if (orgs.length === 1) return failed(failures[0].step, failures[0].detail)
+    return failed(
+      failures.map(f => `${f.step} (${f.org})`).join('; '),
+      [...failures.map(f => `${f.org}, ${f.step}:\n${f.detail}`), '', 'The rest of the run, counts only:', ...results.map(r => r.text)].join('\n'),
+    )
   }
 
   if (!dry) state.imported = { archive, sha12, at: now() }

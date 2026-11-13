@@ -41,6 +41,40 @@ export const NEVER_CLONED: Readonly<Record<string, string>> = {
 }
 
 /**
+ * FR-25 R7: what an org that keeps a legal entity's books (`settings.accounting.books.mode: 'books'`)
+ * never lets into a test copy, on top of `NEVER_CLONED`. Its accounting IS the company's ledger: the
+ * entries, the chart and the analytic tree (which names every customer and supplier the accountant
+ * keeps), the VAT files, and what the ledger's records point at. A store org that keeps a share of
+ * split books is such an org, so the testers' copy of a shop keeps its shop and never its books.
+ *
+ * Applied by the SOURCE's mode, read fresh on every run. An org that keeps its own books the ordinary
+ * way (a demo org with entries LGR posted) is copied exactly as before. What a copy already holds is
+ * never deleted by a sync, so the policy must be deployed before the first books reach a store org.
+ * Contacts stay carried: a store's customers and suppliers are the shop's, whoever made the card. So
+ * do fiscal years and periods: they are the calendar, not the ledger, and a store's own years, typed
+ * in before it kept books, were copied long ago. Counted as books, they would read as a leak.
+ */
+export const BOOKS_NEVER_CLONED: Readonly<Record<string, string>> = {
+  Account: "the company's books: the chart",
+  AccountingAnalytic: "the company's books: the analytic tree names every customer and supplier",
+  BankAccount: "the company's books: its bank accounts and their balances",
+  BankReconciliation: "the company's books: reconciliations of its bank accounts",
+  FixedAsset: "the company's books: its fixed assets",
+  Journal: "the company's books: its journals",
+  JournalEntry: "the company's books: the ledger",
+  TaxReturn: "the company's books: its VAT returns",
+  VatRegisterEntry: "the company's books: its VAT registers",
+}
+
+/** Whether an org keeps a legal entity's books, its own or a share of a split (FR-25 §3.1, R7). */
+export const keepsBooks = (org: { settings?: any } | null | undefined): boolean => org?.settings?.accounting?.books?.mode === 'books'
+
+/** What a copy of `source` never holds, and why: `NEVER_CLONED`, and the books when it keeps them. */
+export function neverClonedFor(source: { settings?: any } | null | undefined): Readonly<Record<string, string>> {
+  return keepsBooks(source) ? { ...NEVER_CLONED, ...BOOKS_NEVER_CLONED } : NEVER_CLONED
+}
+
+/**
  * Seeded when missing, never overwritten and never wiped by a sync. A membership is access, and who
  * may enter the test org is decided there, not by a sync from the real one; a permission set or a
  * role (FR-27) is matched by its name, so a person's role in the test org stays the test org's. The
@@ -81,9 +115,13 @@ export function clonePlain<T>(v: T): T {
   return v
 }
 
-/** The models a copy carries, given every model with an `orgId` that a backup would bundle. */
-export function clonedModels(tenantModels: readonly string[]): string[] {
-  return tenantModels.filter(m => !(m in NEVER_CLONED)).sort()
+/**
+ * The models a copy carries, given every model with an `orgId` that a backup would bundle, and, when
+ * given, the source org: one that keeps a legal entity's books carries none of them (`neverClonedFor`).
+ */
+export function clonedModels(tenantModels: readonly string[], source?: { settings?: any } | null): string[] {
+  const never = neverClonedFor(source)
+  return tenantModels.filter(m => !(m in never)).sort()
 }
 
 /** The order a copy writes in: the models others point at come first; the rest alphabetically. */

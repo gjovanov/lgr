@@ -49,12 +49,15 @@ interface Amounts {
  * its lines can be in anything, so its reports are in base, as every statement of it is (FR-25 D2).
  */
 async function amountsFor(orgId: ObjectId, period: BooksPeriod): Promise<Amounts> {
-  const org: any = await Org.findById(orgId, { 'settings.baseCurrency': 1, 'settings.accounting.books.mode': 1 }).lean()
-  if (org?.settings?.accounting?.books?.mode !== 'books') return { asBooked: false, currency: org?.settings?.baseCurrency ?? 'EUR' }
+  const org: any = await Org.findById(orgId, { 'settings.baseCurrency': 1, 'settings.accounting.books.mode': 1, 'settings.accounting.books.split.homeOrgId': 1 }).lean()
+  const books = org?.settings?.accounting?.books
+  if (books?.mode !== 'books') return { asBooked: false, currency: org?.settings?.baseCurrency ?? 'EUR' }
 
-  // What the opening column adds up starts here, not at the period.
+  // What the opening column adds up starts here, not at the period. In a split the home's opening is
+  // the group's (FR-25 R7), so each share reads the same amounts and the shares add up.
   const from = startOf(period.from)
-  const opening: any = await JournalEntry.findOne({ orgId, ...POSTED_BOOKS, ...IMPORTED_OPENING, date: { $lte: from } }, { date: 1 }).sort({ date: -1 }).lean()
+  const openingOrg = books.split?.homeOrgId ? oid(books.split.homeOrgId) : orgId
+  const opening: any = await JournalEntry.findOne({ orgId: openingOrg, ...POSTED_BOOKS, ...IMPORTED_OPENING, date: { $lte: from } }, { date: 1 }).sort({ date: -1 }).lean()
   const first: any = opening ?? await JournalEntry.findOne({ orgId, ...POSTED_BOOKS }, { date: 1 }).sort({ date: 1 }).lean()
 
   const currency = ledgerCurrencyOn(period.to)
