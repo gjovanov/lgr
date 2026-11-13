@@ -90,6 +90,15 @@ describe('sameDay: did PlusMinus move while the day was booked', () => {
     expect(s.snapshot?.moved).toHaveLength(1)
     expect(levels(gateSameDay(s))).toEqual(['stop'])
   })
+
+  it('leaves the partner directory out: the day pull writes it and the after-pull never fetches it', () => {
+    const day = folder('first-partners', { 'invoicem_7002.json': doc('20260106', []), 'partners.json': [{ name: 'ТЕСТ' }], 'storeAvailability_20260106.json': snapshot(5) })
+    const after = folder('after-partners', { 'invoicem_7002.json': doc('20260106', []), 'storeAvailability_20260106.json': snapshot(5) })
+    const s = sameDay(day, after)
+    expect(s.onlyFirst).toEqual([])
+    expect(s.first).toBe(1)
+    expect(levels(gateSameDay(s))).toEqual(['ok'])
+  })
 })
 
 describe('scanDay: documents that moved no stock', () => {

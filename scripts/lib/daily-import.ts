@@ -148,9 +148,16 @@ export interface SameDay {
   snapshot: { rowsFirst: number; rowsAfter: number; moved: { name: string; from: number | null; to: number | null }[] } | null
 }
 
-/** Did PlusMinus move between the first pull of a day and the pull made after booking? Every file, byte for byte. */
+/**
+ * What the day pull writes beside the documents and the after-pull never fetches: the partner directory, which the
+ * contacts family reads before anything is booked. It is a reference, not a document PlusMinus could have moved
+ * since, and counting it made every `after` end on a "PlusMinus MOVED … 1 gone" the day it was first pulled.
+ */
+const PULL_REFERENCE_FILES: ReadonlySet<string> = new Set(['partners.json'])
+
+/** Did PlusMinus move between the first pull of a day and the pull made after booking? Every document, byte for byte. */
 export function sameDay(firstDir: string, afterDir: string): SameDay {
-  const files = (d: string) => (existsSync(d) ? readdirSync(d).filter(f => f.endsWith('.json') && !f.startsWith('storeAvailability_')).sort() : [])
+  const files = (d: string) => (existsSync(d) ? readdirSync(d).filter(f => f.endsWith('.json') && !f.startsWith('storeAvailability_') && !PULL_REFERENCE_FILES.has(f)).sort() : [])
   const a = files(firstDir)
   const b = files(afterDir)
   const inB = new Set(b)
