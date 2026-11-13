@@ -260,11 +260,15 @@ test('a new invoice takes a stock note from its form: the picker lists the custo
 
   await page.getByTestId('link-note-btn').click()
   const picker = page.getByTestId('link-note-dialog')
-  const rows = picker.getByTestId('link-note-row')
-  await expect(rows).toHaveCount(1, { timeout: 15000 })
-  await expect(rows).toContainText(w.noteNumber)
-  await expect(rows).toContainText('1 line, 3 in all')
-  await expect(rows.getByRole('checkbox')).toBeChecked()
+  // ⚠ Never the picker's whole list: after this customer's notes it lists every dispatch that names nobody, and in
+  // the suite's one database other specs leave some (the first night counted 4 rows where this expected 1).
+  const mine = picker.getByTestId('link-note-row').filter({ hasText: w.noteNumber })
+  await expect(mine).toHaveCount(1, { timeout: 15000 })
+  await expect(mine).toContainText('1 line, 3 in all')
+  await expect(mine.getByTestId('dispatch-no-customer')).toHaveCount(0)
+  // The one note that names this customer is ticked for the person, however many name nobody; none of those is.
+  await expect(mine.getByRole('checkbox')).toBeChecked()
+  await expect(picker.getByTestId('link-note-row').getByRole('checkbox', { checked: true })).toHaveCount(1)
   await picker.getByTestId('link-note-confirm').click()
 
   await expect(page).toHaveURL(/\/invoicing\/invoices\/[0-9a-f]{24}\/edit/, { timeout: 20000 })
@@ -274,8 +278,9 @@ test('a new invoice takes a stock note from its form: the picker lists the custo
   const invoice = await invoiceOf(w, id)
   expect([invoice.status, invoice.stockSource.marker, String(invoice.contactId?._id || invoice.contactId)]).toEqual(['draft', `dispatch:${w.noteId}`, w.contactId])
 
-  // Nothing is left to pick for this customer.
-  expect((await apiGet(w.session, `/invoicing/sales/invoiceable-dispatches?contactId=${w.contactId}`)).dispatches).toEqual([])
+  // No note of this customer's is left to pick: what the picker still lists names nobody.
+  const left = (await apiGet(w.session, `/invoicing/sales/invoiceable-dispatches?contactId=${w.contactId}`)).dispatches as any[]
+  expect(left.filter(d => !d.noCustomer)).toEqual([])
 })
 
 test('a draft with other quantities is linked from its form only after the difference is shown', async ({ page }) => {
@@ -286,7 +291,10 @@ test('a draft with other quantities is linked from its form only after the diffe
 
   await page.getByTestId('link-note-btn').click()
   const picker = page.getByTestId('link-note-dialog')
-  await expect(picker.getByTestId('link-note-row')).toHaveCount(1, { timeout: 15000 })
+  // This customer's note, among whatever other specs left that names nobody.
+  const mine = picker.getByTestId('link-note-row').filter({ hasText: w.noteNumber })
+  await expect(mine).toHaveCount(1, { timeout: 15000 })
+  await expect(mine.getByRole('checkbox')).toBeChecked()
   await expect(picker.getByTestId('link-note-confirm')).toHaveText('Link')
   await picker.getByTestId('link-note-confirm').click()
 
