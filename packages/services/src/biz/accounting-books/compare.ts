@@ -108,6 +108,88 @@ export function compareMainBook(file: readonly ParsedMainBookAccount[], books: r
   return tally.verdict
 }
 
+// ── A split's books, added up (FR-25 R7) ───────────────────────────────────────────────────────────
+
+/**
+ * The legal entity's columns from its orgs' shares. Turnovers add per side, as booked. A balance is a
+ * net on the side of its sign, so it is the NETS that add: a share owed 100 and a share that owes 30
+ * are a company owed 70, not a row with 100 on one side and 30 on the other, which is how the
+ * accountant's print, one company, shows it.
+ */
+function sumColumns(rows: readonly Partial<BalanceColumns>[]): BalanceColumns {
+  let opening = 0
+  let turnoverDebit = 0
+  let turnoverCredit = 0
+  let closing = 0
+  for (const r of rows) {
+    opening += (r.openingDebit ?? 0) - (r.openingCredit ?? 0)
+    turnoverDebit += r.turnoverDebit ?? 0
+    turnoverCredit += r.turnoverCredit ?? 0
+    closing += (r.closingDebit ?? 0) - (r.closingCredit ?? 0)
+  }
+  const tidy = (n: number) => Math.round(n * 1e8) / 1e8 || 0
+  return {
+    openingDebit: tidy(Math.max(opening, 0)),
+    openingCredit: tidy(Math.max(-opening, 0)),
+    turnoverDebit: tidy(turnoverDebit),
+    turnoverCredit: tidy(turnoverCredit),
+    closingDebit: tidy(Math.max(closing, 0)),
+    closingCredit: tidy(Math.max(-closing, 0)),
+  }
+}
+
+function groupBy<T>(parts: readonly (readonly T[])[], key: (row: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>()
+  for (const rows of parts) {
+    for (const row of rows) {
+      const k = key(row)
+      const held = out.get(k)
+      if (held) held.push(row)
+      else out.set(k, [row])
+    }
+  }
+  return out
+}
+
+/** Оборотна ведомост of the group: each account's shares added, by code. */
+export function sumTrialBalances(parts: readonly (readonly TrialBalanceRow[])[]): TrialBalanceRow[] {
+  return [...groupBy(parts, r => r.code)].map(([code, rows]) => ({ accountId: rows[0].accountId, code, name: rows[0].name, ...sumColumns(rows) }))
+    .sort((a, b) => a.code.localeCompare(b.code))
+}
+
+/** The analytic one: each path's shares added, quantities too. A path is the same analytic in every org of a split. */
+export function sumAnalyticTrialBalances(parts: readonly (readonly AnalyticBalanceRow[])[]): AnalyticBalanceRow[] {
+  const tidy = (n: number) => Math.round(n * 1e8) / 1e8 || 0
+  return [...groupBy(parts, r => r.path)].map(([path, rows]) => {
+    const unit = rows.find(r => r.unit)?.unit
+    const sum = (key: 'openingQuantity' | 'turnoverDebitQuantity' | 'turnoverCreditQuantity' | 'closingQuantity') => tidy(rows.reduce((n, r) => n + (r[key] ?? 0), 0))
+    return {
+      analyticId: rows[0].analyticId,
+      path,
+      ...(unit ? { unit } : {}),
+      ...sumColumns(rows),
+      openingQuantity: sum('openingQuantity'),
+      turnoverDebitQuantity: sum('turnoverDebitQuantity'),
+      turnoverCreditQuantity: sum('turnoverCreditQuantity'),
+      closingQuantity: sum('closingQuantity'),
+    }
+  }).sort((a, b) => a.path.localeCompare(b.path, 'bg'))
+}
+
+/** Главна книга of the group: each account's shares, and each correspondent's turnovers, added. */
+export function sumMainBooks(parts: readonly (readonly MainBookAccount[])[]): MainBookAccount[] {
+  const tidy = (n: number) => Math.round(n * 1e8) / 1e8 || 0
+  return [...groupBy(parts, a => a.code)].map(([code, accounts]) => {
+    const counters = [...groupBy(accounts.map(a => a.counters), c => c.code)].map(([counter, rows]) => ({
+      code: counter,
+      name: rows[0].name,
+      debit: tidy(rows.reduce((n, c) => n + c.debit, 0)),
+      credit: tidy(rows.reduce((n, c) => n + c.credit, 0)),
+    })).sort((a, b) => a.code.localeCompare(b.code))
+    return { accountId: accounts[0].accountId, code, name: accounts[0].name, ...sumColumns(accounts), counters }
+  }).sort((a, b) => a.code.localeCompare(b.code))
+}
+
 /** The turnovers a journal file adds up to: what a period with no trial balance is proven against. */
 export function turnoversOfJournal(journal: Pick<ParsedJournal, 'documents'>) {
   const accounts = new Map<string, { debit: number; credit: number }>()

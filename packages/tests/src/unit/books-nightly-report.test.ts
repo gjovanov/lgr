@@ -4,17 +4,23 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ImportDocument } from 'services/biz/accounting-books/import.types'
 import {
+  continuityOfFiles,
   docsRootDown,
   documentChanges,
   documentChangesText,
   importedDocuments,
+  isSplitImport,
   labelOf,
   listsWithin,
+  orgsOf,
   parseImport,
   parseImported,
   problems,
   serializeImported,
+  splitProblems,
+  sumImports,
   summarize,
+  summarizeOrgs,
 } from '../../../../scripts/lib/books-nightly-report'
 
 /**
@@ -234,5 +240,84 @@ describe('books nightly: which documents an import changed', () => {
     expect(parseImported(serializeImported(kept))).toEqual(kept)
     expect(parseImported(new Uint8Array([1, 2, 3]))).toBeUndefined()
     expect(parseImported(gzipSync(JSON.stringify({ v: 2, documents: [] })))).toBeUndefined()
+  })
+})
+
+/**
+ * FR-25 R7: one archive into every org of a split. Fictional counts. Each org prints the importer's lines for its share;
+ * the run reads them per org and as the group.
+ */
+describe('books nightly: a split, imported into each org of it', () => {
+  /** One org's printed import of 2026: its share, and the file's whole count beside it. */
+  const share = (role: 'home' | 'member', o: { entries: number; file?: number; new?: number; opening?: string; contacts?: number; finish?: number }) => [
+    'chart: {"created":0,"updated":0,"unchanged":10}',
+    `analytics: {"created":0,"updated":0,"unchanged":20,"byRoot":{},"contacts":{"created":${o.contacts ?? 0},"linked":0,"withoutIdentifier":0,"deferred":5},"bankAccounts":{"created":0,"linked":1,"noLedgerAccount":0},"fixedAssets":{"linked":0,"unlinked":0}}`,
+    `opening 2026: ${JSON.stringify({ year: 2026, currency: 'EUR', outcome: o.opening ?? 'unchanged', lines: role === 'home' ? 12 : 0, balanced: true, accountsWithRemainder: [], unknownAccounts: [], analyticsToCreate: 0, continuity: null, split: { role } })}`,
+    `journal total: ${JSON.stringify({ entries: o.entries, operations: o.entries * 3, balanced: o.entries, new: o.new ?? 0, changed: 0, gone: 0, unchanged: o.entries - (o.new ?? 0), settles: 0, fileEntries: o.file ?? 100 })}`,
+    `finish: {"accounts":10,"changed":${o.finish ?? 0}}`,
+  ].join('\n')
+
+  const home = (o: Parameters<typeof share>[1]) => ({ org: 'store-a', parsed: parseImport(share('home', o)) })
+  const store = (o: Parameters<typeof share>[1]) => ({ org: 'store-b', parsed: parseImport(share('member', o)) })
+
+  it('takes every org of BOOKS_NIGHTLY_ORGS, else the one BOOKS_NIGHTLY_ORG, as before', () => {
+    expect(orgsOf(' store-a, store-b ,store-a,', 'books')).toEqual(['store-a', 'store-b'])
+    expect(orgsOf('', 'books')).toEqual(['books'])
+    expect(orgsOf(undefined, 'books')).toEqual(['books'])
+  })
+
+  it('one org reads exactly as the run always read it', () => {
+    const one = { org: 'books', parsed: parseImport(rerun) }
+    expect(summarizeOrgs(2026, [one])).toEqual(summarize(2026, one.parsed))
+    expect(isSplitImport(one.parsed)).toBe(false)
+    expect(splitProblems(2026, [one])).toEqual([])
+  })
+
+  it('a split reads as the group, then a line an org, counts only', () => {
+    const parts = [home({ entries: 70, new: 3, opening: 'changed', finish: 2 }), store({ entries: 30, new: 1, contacts: 1 })]
+    expect(parts.every(p => isSplitImport(p.parsed))).toBe(true)
+    expect(problems(parts[0].parsed)).toEqual([])
+    expect(problems(parts[1].parsed)).toEqual([])
+    const year = summarizeOrgs(2026, parts)
+    expect(year.changes).toBe(3 + 1 + 2 + 1 + 1)
+    expect(year.text.split('\n')).toEqual([
+      '2026: journal 4 new, 0 changed, 0 gone (100 entries) · opening changed · chart 0 · analytics 0, contacts 1 · finish 2 accounts',
+      '  store-a: journal 3 new, 0 changed, 0 gone (70 entries) · opening changed · chart 0 · analytics 0, contacts 0 · finish 2 accounts',
+      '  store-b: journal 1 new, 0 changed, 0 gone (30 entries) · opening unchanged · chart 0 · analytics 0, contacts 1 · finish 0 accounts',
+    ])
+  })
+
+  it('adds the steps of several imports up: counts, the one outcome that moved, flags that hold everywhere', () => {
+    const sum = sumImports([home({ entries: 70, opening: 'new' }), store({ entries: 30 })].map(p => p.parsed))
+    expect(sum.steps['journal total']).toMatchObject({ entries: 100, balanced: 100, operations: 300 })
+    expect(sum.steps.opening).toMatchObject({ outcome: 'new', balanced: true, lines: 12, continuity: null })
+    expect(sum.steps.analytics.contacts).toMatchObject({ created: 0, deferred: 10 })
+  })
+
+  it('the shares add up to the file, with one home: else the run stops and says why', () => {
+    expect(splitProblems(2026, [home({ entries: 70 }), store({ entries: 30 })])).toEqual([])
+    // A store left out of the run, or listed with other stores in one org than in the other: an entry held by nobody or twice.
+    expect(splitProblems(2026, [home({ entries: 70 })])).toEqual([
+      "2026: the orgs hold 70 entries of the file's 100: every org of the split must be in BOOKS_NIGHTLY_ORGS, with the same stores",
+    ])
+    expect(splitProblems(2026, [home({ entries: 75 }), store({ entries: 30 })])[0]).toContain('hold 105 entries')
+    expect(splitProblems(2026, [home({ entries: 70 }), store({ entries: 30, file: 99 })])).toEqual(['2026: the orgs were sent files of different sizes (100, 99 entries)'])
+    expect(splitProblems(2026, [store({ entries: 70 }), store({ entries: 30 })])).toEqual(['2026: 0 orgs answered as the split\'s home, not one'])
+    expect(splitProblems(2026, [home({ entries: 100 }), { org: 'books', parsed: parseImport(rerun) }])[0]).toBe('2026: 1 of the orgs keep books of their own, beside a split')
+  })
+
+  it('the year opens where the one before closed, per account, at the rate where the currency changed', () => {
+    const before = {
+      opening: [{ code: '101', debit: 0, credit: 1955.83 }, { code: '501', debit: 1955.83, credit: 0 }],
+      documents: [
+        { date: '2025-03-03', docType: '-ФЕ', docNumber: '1', ops: [{ d: '501', k: '702', amount: 195.583 }] },
+        { date: '2025-12-31', ops: [{ d: '702', k: '123', amount: 195.583 }] },
+      ] as ImportDocument[],
+    }
+    const opening = [{ code: '101', debit: 0, credit: 1000 }, { code: '501', debit: 1100, credit: 0 }, { code: '123', debit: 0, credit: 100 }]
+    expect(continuityOfFiles(2026, before, opening)).toEqual({ checked: 4, equal: 4, differing: [] })
+    expect(continuityOfFiles(2026, before, opening.map(l => (l.code === '501' ? { ...l, debit: 1099 } : l)))).toEqual({ checked: 4, equal: 3, differing: ['501'] })
+    // Inside one currency there is no rate.
+    expect(continuityOfFiles(2025, { opening: [{ code: '501', debit: 10, credit: 0 }], documents: [] }, [{ code: '501', debit: 10, credit: 0 }]).differing).toEqual([])
   })
 })

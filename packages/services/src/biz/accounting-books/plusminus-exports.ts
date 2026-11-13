@@ -558,6 +558,12 @@ function decodeCp1251(bytes: Uint8Array): string {
   return s
 }
 
+/** One property of an analytic, as its file names it (`ПАРАМЕТРИ`). */
+export interface AnalyticParam {
+  key: string
+  value: string
+}
+
 export interface AnalyticItem {
   path: string
   unit?: string
@@ -576,6 +582,38 @@ export interface AnalyticItem {
 }
 
 const clean = (v: unknown) => String(v ?? '').trim()
+
+/**
+ * An analytic's `ПАРАМЕТРИ` as a list of pairs, in file order: some names carry dots, so not a map. Every
+ * property the file spells, empty values too; a property with no name is no property.
+ */
+export function paramsOfRow(raw: unknown): AnalyticParam[] {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return []
+  return Object.entries(raw as Record<string, unknown>).filter(([key]) => key.trim()).map(([key, value]) => ({ key, value: clean(value) }))
+}
+
+/**
+ * What the books read out of an analytic's properties: the file's own names, read the one way, so a
+ * row rebuilt from what an analytic keeps (FR-25 R7: a store's Contact, made when its entries first
+ * name the partner) says what the file said.
+ *
+ * ⚠ Each root's file spells its own columns: `МЯРКА` in one, `Банка` in another.
+ */
+export function itemOfRow(path: string, params: readonly AnalyticParam[]): AnalyticItem {
+  const p = Object.fromEntries(params.map(({ key, value }) => [key.toLocaleUpperCase('bg'), value]))
+  const item: AnalyticItem = { path }
+  if (clean(p['МЯРКА'])) item.unit = clean(p['МЯРКА'])
+  const vat = clean(p['ИНДДС'] || p['ИН ПО ДДС'])
+  const eik = clean(p['БУЛСТАТ']) || vat.replace(/\D/g, '')
+  if (eik) item.taxId = eik
+  if (vat) item.vatNumber = vat
+  if (clean(p['АДРЕС'])) item.address = clean(p['АДРЕС'])
+  if (clean(p['ГРАД'])) item.city = clean(p['ГРАД']).replace(/^гр\.?\s*/i, '')
+  if (clean(p['ТЕЛЕФОН'])) item.phone = clean(p['ТЕЛЕФОН'])
+  if (clean(p['МОЛ'])) item.contactPerson = clean(p['МОЛ'])
+  if (clean(p['БАНКА'])) item.bankName = clean(p['БАНКА'])
+  return item
+}
 
 /**
  * An `ap_*.json`, CP1251 or UTF-8. Group rows (`group: "true"`) are skipped: a group exists as soon
@@ -603,22 +641,10 @@ export function parseAnalyticsFile(bytes: Uint8Array): AnalyticItem[] {
       throw new ExportRefused('personal_data', 'ap_ПЕРСОНАЛ holds employees: the books do not need it, and it is not read.')
     }
     if (row.group) continue
-    // ⚠ Each root's file spells its own columns: `МЯРКА` in one, `Банка` in another.
-    const p = Object.fromEntries(Object.entries(row.params ?? {}).map(([key, value]) => [key.toLocaleUpperCase('bg'), value]))
-    const item: AnalyticItem = { path }
-    if (clean(p['МЯРКА'])) item.unit = clean(p['МЯРКА'])
-    const vat = clean(p['ИНДДС'] || p['ИН ПО ДДС'])
-    const eik = clean(p['БУЛСТАТ']) || vat.replace(/\D/g, '')
-    if (eik) item.taxId = eik
-    if (vat) item.vatNumber = vat
-    if (clean(p['АДРЕС'])) item.address = clean(p['АДРЕС'])
-    if (clean(p['ГРАД'])) item.city = clean(p['ГРАД']).replace(/^гр\.?\s*/i, '')
-    if (clean(p['ТЕЛЕФОН'])) item.phone = clean(p['ТЕЛЕФОН'])
-    if (clean(p['МОЛ'])) item.contactPerson = clean(p['МОЛ'])
-    if (clean(p['БАНКА'])) item.bankName = clean(p['БАНКА'])
+    // FR-25a: every property as the file spells it, the ones `itemOfRow` reads included, empty ones too.
+    const params = paramsOfRow(row.params)
+    const item = itemOfRow(path, params)
     if (row.currency === 'true' || row.currency === true) item.foreignCurrency = true
-    // FR-25a: every property as the file spells it, the ones mapped above included, empty ones too.
-    const params = Object.entries(row.params ?? {}).filter(([key]) => key.trim()).map(([key, value]) => ({ key, value: clean(value) }))
     if (params.length) item.params = params
     items.push(item)
   }

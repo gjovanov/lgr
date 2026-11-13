@@ -71,6 +71,11 @@ bun run scripts/import-vat-files.ts --org regal-acc --dir "$ACC_FILINGS_DIR/nap/
 ```
 
 - `--books` replaces `--chart/--analytics/--opening/--opening-analytics/--journal`, and mixing them is refused.
+- **Books split over the stores (FR-25 R7):** import the same day folder into EVERY org of the split, one `--org` at a
+  time, each with `--finish`. Each keeps its share: a store its own series' sales, the home everything else and the
+  opening. A store answers the opening with `outcome: unchanged, lines: 0`. Per year, the orgs' `journal total`
+  entries add up to its `fileEntries`; anything else means an org was left out or the orgs list different stores.
+  VAT files go into the home only. The rollout is `docs/guides/books-split-rollout.md`.
 - `--root-account ROOT=ACCT` is the archive's counterpart of `--opening-analytics <trial balance>=<account>`: the archive stores
   an analytic's opening per item, not per account.
 - Archive sheet rows carry the ЕГН, so `import-payroll.ts` joins them to the declarations by ЕГН. A GUI sheet has none, so it
@@ -142,6 +147,16 @@ bun .claude/skills/pull-plusminus-books/nightly.ts --check-mail  # SendGrid sand
   were. Without that file, or the last import's own day folder, the mail says the documents are not listed.
 - It imports each archive once: `nightly-state.json` beside the day folders remembers the last one by SHA, and `nightly.log`
   has a line a run. After each year's import, a dry rerun must report everything unchanged, or the run fails.
+- **Several orgs (FR-25 R7).** `BOOKS_NIGHTLY_ORGS=<home>,<store>` imports the archive into every org of a split; unset,
+  `BOOKS_NIGHTLY_ORG` alone runs exactly as before. Per year and per org: import, the same stop rules, a dry rerun. A failure
+  in one org stops that org's later years only, and the run still fails (exit 1) with the org named in the subject and the
+  others' counts in the mail. For a split it then checks what no org can see alone: the shares add up to the file with one
+  home (`splitProblems`), and each year opens where the year before closed, computed from the archive (`continuityOfFiles`):
+  a share's closing is not the company's, so the server answers `continuity: null` there. The mail's counts are the group's,
+  then a line per org; its document list is the archive's, once. List EVERY org of the split: one left out fails the shares.
+- The account for a split is the same `books-sync` person with a membership in each org of it, each holding only
+  `accounting.import` (`seed-user --org <slug> --email <its address> … --permissions accounting.import`: an existing person
+  is linked, and their password is untouched).
 - 2025 and 2026 only (`BOOKS_NIGHTLY_YEARS`). A later year in the archive is reported, never imported unattended: its first
   import opens the year. Import it by hand once, then add it.
 - The day folders it writes hold no payroll (`--no-payroll`). Before a payroll run, run `pull-books.ts` for that day without it.
@@ -218,7 +233,8 @@ The archive holds every employee's ЕГН, address and pay. Rules:
     `scripts/lib/payroll-archive.ts` `SHEET_LABELS`. Incapacity days (`Дни във временна неработоспособност`) are not mapped:
     no code fits every month, and nothing reads them.
 - Not exported, because they are derived: trial balances, main book. LGR computes them from what is imported, and
-  `compare-accounting-books.ts` remains the gate against the accountant's own.
+  `compare-accounting-books.ts` remains the gate against the accountant's own. For books split over a group, name every
+  org of it (`--org <home> --org <store>`): the company's books are their sum, added up from each org's own reads.
 
 ## Why not a local pmserver (investigated 2026-11-05, so nobody repeats it)
 

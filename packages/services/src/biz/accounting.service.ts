@@ -59,8 +59,14 @@ export async function ensureFiscalPeriod(orgId: string, date: Date, repos?: Repo
   // 3. Compute fiscal year boundaries
   const { startDate, endDate, name } = computeFiscalYearRange(date, fiscalYearStart)
 
-  // 4. Find or create fiscal year
+  // 4. Find or create fiscal year. A year typed in by hand may not carry these exact timestamps (its
+  // form sends UTC midnights, this computes the server's): one that holds the date and has no periods
+  // yet is the one. A second year over the same dates is refused by the unique start, or overlaps it.
   let fiscalYear = await r.fiscalYears.findOne({ orgId, startDate, endDate } as any)
+  if (!fiscalYear) {
+    const typed = await r.fiscalYears.findOne({ orgId, ...fiscalRangeFilter(date) } as any)
+    if (typed && !(await r.fiscalPeriods.findOne({ orgId, fiscalYearId: typed.id } as any))) fiscalYear = typed
+  }
   if (!fiscalYear) {
     fiscalYear = await r.fiscalYears.create({ orgId, name, startDate, endDate, status: 'open' } as any)
   }

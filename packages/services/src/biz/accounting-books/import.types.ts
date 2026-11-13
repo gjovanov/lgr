@@ -133,7 +133,11 @@ export interface AnalyticsAnswer {
   updated: number
   unchanged: number
   byRoot: Record<string, number>
-  contacts: { created: number; linked: number; withoutIdentifier: number }
+  /**
+   * `deferred`, in a store keeping a share of the books (FR-25 R7) only: partners the store holds no
+   * Contact for. Their Contact is made when one of the store's own entries names them.
+   */
+  contacts: { created: number; linked: number; withoutIdentifier: number; deferred?: number }
   bankAccounts: { created: number; linked: number; noLedgerAccount: number }
   fixedAssets: { linked: number; unlinked: number }
 }
@@ -172,10 +176,16 @@ export interface OpeningAnswer {
   analyticsToCreate: number
   /**
    * The previous year's closing, at the rate where the currency changed, against this opening, per
-   * account. Null when no previous year is imported.
+   * account. Null when no previous year is imported, and in an org of a split: a share's closing is not
+   * the company's (the group's continuity is the gate's and the nightly's, FR-25 R7).
    */
   continuity: { checked: number; equal: number; differing: string[] } | null
+  /** Only in an org of a split (FR-25 R7): the home writes the opening; a member answers this and writes nothing. */
+  split?: { role: SplitRole }
 }
+
+/** FR-25 R7: the org that holds the opening and everything no store's series names, or a store keeping its own sales. */
+export type SplitRole = 'home' | 'member'
 
 export interface JournalBody extends SourceFile {
   dryRun?: boolean
@@ -211,6 +221,12 @@ export interface JournalAnswer extends MonthDiff {
   unknownDocTypes: { docType: string; count: number }[]
   /** On a dry run: accounts the chart does not hold yet. A real run refuses them. */
   unknownAccounts: string[]
+  /**
+   * Only in an org of a split (FR-25 R7), where every count above is this org's share. `fileEntries` is
+   * the whole month's: the shares of the group add up to it. `contacts` are the ones made (or that a dry
+   * run would make) for partners this org's own entries name, and the ones found.
+   */
+  split?: { role: SplitRole; fileEntries: number; contacts: { created: number; linked: number } }
 }
 
 export interface FinishAnswer {

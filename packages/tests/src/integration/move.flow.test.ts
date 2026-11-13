@@ -230,6 +230,11 @@ describe('preflight (FR-20.79 step 1)', () => {
     // FR-25 §3.11: a company's books and payroll stay on lgrai.app. A branch moves like any org.
     await Org.collection.updateOne({ _id: s.orgId }, { $set: { 'settings.accounting.books': { mode: 'books' } } })
     expect((await check()).failed).toEqual(['not_books'])
+    // FR-25 R7: a store keeping its share of split books keeps them there too, home of the split or not.
+    for (const homeOrgId of [s.orgId, new mongoose.Types.ObjectId()]) {
+      await Org.collection.updateOne({ _id: s.orgId }, { $set: { 'settings.accounting.books': { mode: 'books', split: { homeOrgId } } } })
+      expect((await check()).failed).toEqual(['not_books'])
+    }
     await Org.collection.updateOne({ _id: s.orgId }, { $set: { 'settings.accounting.books': { mode: 'branch' } } })
     expect((await check()).failed).toEqual([])
     await Org.collection.updateOne({ _id: s.orgId }, { $unset: { 'settings.accounting.books': 1 } })
