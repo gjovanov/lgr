@@ -1918,6 +1918,13 @@ type `shipment` → `dispatch` (the backend enum) and `completed` added to the s
    rendering, and the run stays green. Use `tests/helpers/vuetify.ts#appears`. A green run says
    what it skipped and what only passed on a retry in its job summary
    (`e2e/scripts/night-summary.ts`): read it. #408 tracks the 94 conditional sites left.
+8. **"Passed on its second try" is not "flaky" until it is counted.** A retry starts a fresh
+   worker, which is slower, so a test that one runner loses every time still passes there. On
+   2026-11-13 the night's one retried test failed 20 of 20 on the faster runner and passed 20 of
+   20 on the other, at the same commit (`--repeat-each=20 --retries=0` on a runner of each host).
+   A scheduled night with a retried test therefore opens the issue "Nightly e2e needed a retry"
+   and names the test, and a red night's issue names its tests too (`e2e-nightly.yml`'s `report`
+   job, fed by `e2e/scripts/night-findings.ts`).
 
 ## DIN/ISO Fastener Catalog + Product Tagging (2026-08-03)
 

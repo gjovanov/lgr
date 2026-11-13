@@ -11,6 +11,12 @@ name: e2e (nightly)
 #
 # The stubs, the seed and the server are `packages/e2e/scripts/nightly.ts`, which runs the same way
 # on a developer's machine.
+#
+# A scheduled night that failed, or did not finish, opens or adds to the issue "Nightly e2e is
+# failing". One that passed with a test that needed a retry opens "Nightly e2e needed a retry". Both
+# name the tests (`night-summary.ts` collects them, `night-findings.ts` hands them to the `report`
+# job). A run started by hand files nothing: its `report` job prints what a night with that result
+# would have filed, which is how a change to this part is proven before a night needs it.
 
 on:
   schedule:
@@ -23,6 +29,7 @@ on:
       - '.github/workflows/e2e-nightly.yml'
       - 'packages/e2e/scripts/nightly.ts'
       - 'packages/e2e/scripts/night-summary.ts'
+      - 'packages/e2e/scripts/night-findings.ts'
       - 'packages/e2e/scripts/master-stack.ts'
       - 'packages/e2e/tests/master-*.spec.ts'
 
@@ -41,6 +48,11 @@ jobs:
     # Same routing as `ci.yml`: a pull request from a fork never runs on mars.
     runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-24.04"' || vars.LGR_LINUX_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 60
+    # For the `report` job. Empty when this job ended before its `findings` step.
+    outputs:
+      failed: ${{ steps.findings.outputs.failed }}
+      retried: ${{ steps.findings.outputs.retried }}
+      findings: ${{ steps.findings.outputs.findings }}
     steps:
       # The same step as `ci.yml`'s, for the same reason: the runners' /tmp is a 3 GB tmpfs. The
       # test database lives there too and fits. Playwright's traces and report do not go there:
@@ -75,6 +87,13 @@ jobs:
       - name: Pin mongodb-memory-server's download directory
         run: echo "MONGOMS_DOWNLOAD_DIR=$HOME/.cache/mongodb-binaries" >> "$GITHUB_ENV"
 
+      # `night-summary.ts` adds each failed and each retried test to this file, in both Playwright
+      # runs below. Started empty: a self-hosted runner keeps its folders between jobs.
+      - name: Name the file the night's findings go to
+        run: |
+          : > "$RUNNER_TEMP/night-findings.tsv"
+          echo "NIGHT_FINDINGS_FILE=$RUNNER_TEMP/night-findings.tsv" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -103,8 +122,18 @@ jobs:
           PLAYWRIGHT_HTML_REPORT: playwright-report-master
           PDF_CHROME_NO_SANDBOX: '1'
 
+      # Whatever the two runs said, short of a cancelled job: a red night's issue names its tests too.
+      - name: Count what failed and what needed a retry
+        id: findings
+        if: ${{ !cancelled() }}
+        run: bun packages/e2e/scripts/night-findings.ts "$NIGHT_FINDINGS_FILE"
+
+      # A night that passed on a retry keeps its report as well: the first attempt's screenshot and
+      # the retry's trace are what say why it needed one.
+      # ⚠ `success() &&` on purpose. Without a status check on that side the step would also run in
+      # a cancelled job, where the count is empty and so "not 0".
       - name: Upload the report
-        if: failure()
+        if: ${{ failure() || (success() && steps.findings.outputs.retried != '0') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-report
@@ -117,29 +146,51 @@ jobs:
           if-no-files-found: ignore
 
   report:
-    name: open an issue if the night was red
+    name: open an issue if the night failed or needed a retry
     needs: e2e
-    if: failure() && github.event_name == 'schedule'
+    # A night that did not pass, whatever stopped it, or one that passed with a retried test. A
+    # pull request's own run is left out: its result is on the pull request.
+    # ⚠ `!cancelled()` is this condition's status check. With none a job runs only when what it
+    # needs succeeded, and this one would be skipped on the very nights it is for.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && (needs.e2e.result != 'success' || needs.e2e.outputs.retried != '0') }}
     runs-on: ubuntu-latest
     permissions:
       issues: write
     steps:
       # Nobody watches the Actions tab at 4 in the morning, and no pull request carries the result.
+      # ⚠ What the tests are called reaches the script through `env`, never inside the script's
+      # own text: a test's title is not shell.
       - name: File or update an issue
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT: ${{ needs.e2e.result }}
+          RETRIED: ${{ needs.e2e.outputs.retried }}
+          FINDINGS: ${{ needs.e2e.outputs.findings }}
         run: |
           TITLE="Nightly e2e is failing"
+          EVIDENCE="The report and traces are the run's \`playwright-report\` artifact, kept 7 days."
+          if [ "$RESULT" = success ]; then
+            TITLE="Nightly e2e needed a retry"
+            LEAD="The nightly Playwright run passed, but $RETRIED of its tests passed only on a retry. A retry starts a fresh worker, so such a test can be one that a faster or a busier runner loses every time: read why it needed one before closing this."
+            EVIDENCE="The report, with the first attempt's screenshot and the retry's trace, is the run's \`playwright-report\` artifact, kept 7 days."
+          elif [ "$RESULT" = failure ]; then
+            LEAD="The nightly Playwright run failed."
+          else
+            LEAD="The nightly Playwright run did not finish (the job's result: $RESULT)."
+          fi
+          if [ -z "$FINDINGS" ]; then
+            FINDINGS="No test reported a result: the job ended before the suite did, or outside it."
+            EVIDENCE="There is no report then: the run's log says where it stopped."
+          fi
+          BODY=$(printf '%s\n' "$LEAD" "" "$FINDINGS" "" "Run: $RUN_URL" "Commit: $GITHUB_SHA" "" "$EVIDENCE")
+          if [ "$GITHUB_EVENT_NAME" != schedule ]; then
+            echo "Not a scheduled night, so nothing is filed. A night with this result would file:"
+            printf '\n%s\n\n%s\n' "$TITLE" "$BODY"
+            exit 0
+          fi
           EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
             --search "\"$TITLE\" in:title" --json number --jq '.[0].number')
-          BODY=$(printf '%s\n' \
-            "The nightly Playwright run failed." \
-            "" \
-            "Run: $RUN_URL" \
-            "Commit: $GITHUB_SHA" \
-            "" \
-            "The report and traces are the run's \`playwright-report\` artifact, kept 7 days.")
           if [ -n "$EXISTING" ]; then
             gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
           else
