@@ -176,8 +176,8 @@ describe('a close that dies in its Z (the third read of FR-23, finding 6)', () =
     expect(s.fiscalError).toContain('may have printed')
     expect(s.closeClientKey).toBeUndefined()
     expect(s.closeLeaseUntil).toBeUndefined()
-    // Written in the background (`createAuditEntry`), so it may land just after the answer.
-    await until(async () => (await AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })) === 1, 'the audit entry')
+    // Written before the answer (`recordAuditEntry`): read at once, never waited for.
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })).toBe(1)
 
     const again = await close(w, { counted: { cash: 100 } })
     expect(again.status).toBe(200)
@@ -186,6 +186,27 @@ describe('a close that dies in its Z (the third read of FR-23, finding 6)', () =
     const closed = await session(w)
     expect(closed.status).toBe('closed')
     expect(closed.fiscalError).toBeUndefined()
+  })
+
+  // The race a busy CI runner found twice (here, and in dead-sale.flow): the entry was written in the background,
+  // and a read straight after the answer found none. A slow write proves the answer waits for it.
+  it('the trail is written before the answer: a slow audit write is waited for, not raced', async () => {
+    const w = await tillWorld(app)
+    await died(w)
+    const realCreate = AuditLog.create
+    ;(AuditLog as any).create = async (...args: any[]) => {
+      await new Promise(res => setTimeout(res, 300))
+      return (realCreate as any).apply(AuditLog, args)
+    }
+    let r: any
+    try {
+      r = await close(w, { counted: { cash: 100 } })
+    } finally {
+      ;(AuditLog as any).create = realCreate
+    }
+
+    expect(r.json.code).toBe('close_interrupted')
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })).toBe(1)
   })
 
   it('its Z did print: a manager closes without a fiscal report, and a cashier cannot', async () => {
@@ -262,10 +283,8 @@ describe('a close that dies in its Z (the third read of FR-23, finding 6)', () =
     expect(outer.json.code).toBe('close_interrupted')
     expect(w.sim!.reports).toHaveLength(0)
     expect((await session(w)).status).toBe('open')
-    // `createAuditEntry` is not awaited: wait for the row, as the test above does, then hold it to one.
-    const interrupted = () => AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })
-    await until(async () => (await interrupted()) >= 1, 'the audit entry')
-    expect(await interrupted()).toBe(1)
+    // One entry, by whichever press won the write, and written before its answer: read at once.
+    expect(await AuditLog.countDocuments({ orgId: w.oid, action: 'close_interrupted' })).toBe(1)
   })
 
   it('only who may close it can put it back', async () => {
