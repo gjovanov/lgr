@@ -200,12 +200,16 @@ Shared rules for every entity below:
 
 ### 3.5 Contacts — `Contact.representative`
 
+Built: the form's field, beside the tax and VAT numbers, trimmed on save (`contact-payload.ts`), and the grid's optional
+column, hidden by default. Still planned: the invoice print, "move to the field", the search, the 200 bound.
+
 - Route / view: `/invoicing/contacts/:id/edit` (`ContactFormView.vue`, exists); list `ContactsView.vue` (exists).
 - Form: a `representative` text field ("МОЛ / Representative") beside the company name, max 200, trimmed; shown on the
   invoice print where Bulgarian invoices print the recipient's МОЛ. Until the backfill (§5) runs, a contact may still keep
   it as a notes line `МОЛ: <name>`: the form offers "move to the field" on such a contact.
 - Grid: an optional `representative` column, hidden by default; included in search.
-- i18n: `invoicing.contact.representative`, `invoicing.contact.moveRepresentative`.
+- i18n: `invoicing.representative` (built), `invoicing.moveRepresentative`. Not under `invoicing.contact.*`: that key is
+  a string ("Contact"), and a key cannot be a string and a block at once.
 - e2e later: typing a representative saves and reprints on the invoice; the move action empties the notes line.
 
 ### 3.6 Journal entries — the document header
@@ -307,5 +311,5 @@ holds it today. None is needed by a report or a form yet.
   not import into the same org: each would rewrite what the other wrote.
 - **Contacts' МОЛ.** The importers write `representative`. `scripts/backfill-contact-representative.ts` moves the notes lines
   that are exactly `МОЛ: <name>` into it, dry run first (counts only), `--execute --expect <n>`, a private manifest, `--undo`.
-  Until the contact form shows the field (§3.5), a moved МОЛ is no longer in the form's notes.
+  The contact form shows the field (§3.5), so a moved МОЛ leaves the notes and stays in sight.
 - **Test copies.** `org-clone` copies the three new company fields with the rest of the company's identity.

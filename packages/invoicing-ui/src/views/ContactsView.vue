@@ -145,6 +145,8 @@ const headers = computed(() => [
   { title: t('invoicing.phone'), key: 'phone' },
   { title: t('invoicing.taxNumber'), key: 'taxNumber' },
   { title: t('invoicing.vatNumber'), key: 'vatNumber' },
+  // FR-25a: the МОЛ, offered on the cog rather than shown.
+  { title: t('invoicing.representative'), key: 'representative', defaultHidden: true },
   { title: t('invoicing.paymentTerms'), key: 'paymentTermsDays' },
   { title: t('common.active'), key: 'isActive', align: 'center' as const },
   { title: t('common.actions'), key: 'actions', sortable: false },

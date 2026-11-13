@@ -1887,6 +1887,7 @@
     "convertedInto": "Umgewandelt in",
     "taxNumber": "Steuernummer (EIK)",
     "vatNumber": "USt-IdNr.",
+    "representative": "Vertreter (МОЛ)",
     "lookupCompany": "Unternehmen suchen",
     "alsoKnownAs": "Auch bekannt als",
     "alsoKnownAsHint": "Andere Namen, unter denen dieses Unternehmen auf Belegen steht: ein Kurzname, eine andere Schreibweise. Namen eingeben und Enter drücken. Ein Import, der einen davon findet, ordnet den Beleg diesem Kontakt zu.",
