@@ -243,7 +243,9 @@ and `…?ch=bulk` (`portal-api/src/websocket/uplink.ts`, mounted on global only)
   waits for the internet. From that and the mirror, lgrai.app raises: the mirror over an hour behind
   while the uplink is up, a backup older than 26 hours (or none, a day into serving its orgs), disk
   under 10 % free, an oplog under seven days, a fenced server, a clock over two minutes off. A
-  frame older than ten minutes raises nothing. The Servers page shows a server's alarms (a lag only
+  frame older than ten minutes raises nothing. "No backup at all" is read only from a frame in
+  which the server's API answered (`api.ok`): a frame built while the API starts, stops or is busy
+  carries no account of it and says nothing about backups (#710). The Servers page shows a server's alarms (a lag only
   its own org's), and the Nodes page every master's, with its link and last backup.
 - **The master's own status page (P3-8b, FR-20.98).** On the server, for the org's admins, and
   offline above all: Settings → This server. The supervisor writes its status to
