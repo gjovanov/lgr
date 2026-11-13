@@ -690,8 +690,8 @@ async function noteAccountRoots(orgId: string, plans: readonly PlannedEntry[], a
 
 /**
  * FR-25a: the document's partner when its operations name none, or several: the header's own (`ПАРТНЬОР`), when it is
- * a customer, a supplier or a partner (a bank statement's header names its bank account instead). Where the operations
- * name exactly one, that one stays, as before: it is also what the entry is found again by (`importKey`).
+ * a customer, a supplier or a partner (a bank statement's header can name its bank account, which is no partner). Where
+ * the operations name exactly one, that one stays, as before: it is also what the entry is found again by (`importKey`).
  */
 function headerPartnerOf(plan: PlannedEntry): string | undefined {
   if (plan.partnerPath) return undefined
