@@ -2465,9 +2465,12 @@ is the one place that knows the rules; `invoicing-api/…/dispatch-invoice.contr
   for itself.
 - ⚠ A dispatch held by a purchase document (a voided bill's mirror) is a reversal, and the bill is
   not named: a session that makes sales invoices need not read the purchases.
-- Seen, not changed: FR-07 and the digest value a stock note's lines at the note's own unit cost,
-  as before it was invoiced. The invoice's prices are in FR-08, which reads documents.
-- Tests: `integration/dispatch-invoice.flow` (32, with 17 mutations caught), `e2e/stock-note-to-invoice.spec` (9).
+- ⚠ FR-07 and the digest read MOVEMENTS, and a hand-booked note carries what the goods cost. A note an
+  ISSUED invoice claims is valued at that invoice's price per article (`CLAIMED_SALE_UNIT_PRICE`,
+  weighted over the invoice's lines of it), on the note's own day; read at its own figures, a sale
+  through a note had no sale value and no profit. A note nobody has invoiced, or one a draft holds,
+  keeps its own figures. FR-08 reads documents and needed nothing.
+- Tests: `integration/dispatch-invoice.flow` (34, with 23 mutations caught), `e2e/stock-note-to-invoice.spec` (9).
 
 ## Issue, print and get paid on the document (2026-10-26, FR-22 slice 2a: FR-22.16–.22)
 

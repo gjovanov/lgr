@@ -38,7 +38,7 @@ import {
 } from '../backup/backup-status.service.js'
 import { effectiveMethods, bucketFor } from '../reports/sales-history.report.js'
 import { moneySign, signedAmount } from '../money-sign.js'
-import { EFFECTIVE_DATE } from '../reports/warehouse-operations.report.js'
+import { CLAIMED_SALE_LINES, CLAIMED_SALE_UNIT_PRICE, EFFECTIVE_DATE, LINE_DOCUMENT_VALUE } from '../reports/warehouse-operations.report.js'
 import { INVOICING_SEQUENCE_KEYS, closedSeriesOf, resolveDefPrefix } from '../sequence-registry.js'
 import { NOT_INVOICE_FOR_CASH_SALE, NOT_PAYMENT_RECEIPT, NOT_UNPROVED_STORNO, printsHere } from '../sale-counting.js'
 import { UNPROVED_STORNO_STATES } from '../cash-register/counting.js'
@@ -360,7 +360,7 @@ async function buildMaterials(orgId: string, date: string): Promise<DigestMateri
     {
       $lookup: {
         from: 'invoices', localField: 'invoiceId', foreignField: '_id', as: 'invoice',
-        pipeline: [{ $project: { issueDate: 1, 'stockSource.detectedBy': 1 } }],
+        pipeline: [{ $project: { issueDate: 1, 'stockSource.detectedBy': 1, claimedLines: CLAIMED_SALE_LINES } }],
       },
     },
     { $unwind: { path: '$invoice', preserveNullAndEmptyArrays: true } },
@@ -370,6 +370,8 @@ async function buildMaterials(orgId: string, date: string): Promise<DigestMateri
     { $addFields: { effectiveDate: EFFECTIVE_DATE } },
     { $match: { effectiveDate: { $gte: from, $lte: to } } },
     { $unwind: '$lines' },
+    // FR-22.61, as FR-07 reads it: a stock note an issued invoice claims is sold at that invoice's prices.
+    { $addFields: { _soldAt: CLAIMED_SALE_UNIT_PRICE } },
     {
       $addFields: {
         family: {
@@ -395,8 +397,9 @@ async function buildMaterials(orgId: string, date: string): Promise<DigestMateri
         _id: { family: '$family', productId: '$lines.productId' },
         quantity: { $sum: { $multiply: ['$lines.quantity', '$sign'] } },
         // On invoice-born dispatches `lines[].unitCost` IS the sale price — which is exactly
-        // the value basis this section wants, unlike FR-07's cost columns.
-        value: { $sum: { $multiply: [{ $ifNull: ['$lines.totalCost', 0] }, '$sign'] } },
+        // the value basis this section wants, unlike FR-07's cost columns. A stock note an invoice
+        // claims carries what the goods cost, and takes the invoice's price (`LINE_DOCUMENT_VALUE`).
+        value: { $sum: { $multiply: [LINE_DOCUMENT_VALUE, '$sign'] } },
       },
     },
     {

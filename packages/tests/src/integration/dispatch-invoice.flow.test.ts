@@ -10,6 +10,8 @@ import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { getProductLedger } from 'services/biz/product-ledger.service'
 import { getContactLedger } from 'services/biz/contact-ledger.service'
 import { DISPATCH_OVERLAP_WINDOW_DAYS, dispatchesOverlapping } from 'services/biz/dispatch-invoice.service'
+import { reportById, validateParams } from 'services/biz/report-registry'
+import { buildDailyDigest } from 'services/biz/digest/daily-digest.service'
 import { AuditLog, Invoice, Product, StockLevel, StockMovement } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
@@ -773,6 +775,77 @@ describe('linking a typed invoice to its stock note (FR-22.62)', () => {
     // No cost reaches the picker: a note's amounts are what the goods cost.
     expect(Object.keys(res.json.dispatches[0]).sort()).toEqual(['date', 'id', 'lineCount', 'number', 'quantity', 'warehouseId'])
     expect((await w.call('GET', '/invoicing/sales/invoiceable-dispatches')).status).toBe(422)
+  }, 60_000)
+})
+
+describe('what a stock note was sold at, where the reports read movements (FR-07, the digest)', () => {
+  it('is its invoice\'s price once the invoice is issued, on the day the goods left; until then what the note says', async () => {
+    const w = await world()
+    const n = await w.note([[w.bolt, 10], [w.nut, 4]], { date: '2026-05-10' })
+    const entry = reportById('warehouse-operations')!
+    const sales = async (day: string, groupBy?: string) => (await entry.handler!({
+      orgId: w.orgId, output: 'table',
+      params: validateParams(entry, { operation: 'sales', period: { preset: 'custom', from: day, to: day }, ...(groupBy ? { groupBy } : {}) }),
+    })).rows as any[]
+    const figures = (rows: any[]) => Object.fromEntries(rows.map(r => [r.name, [r.quantity, r.value, r.avgPrice, r.profit]]))
+    const soldThatDay = async () => ((await buildDailyDigest(w.orgId, '2026-05-10')).materials as any).sold.totalValue
+
+    // Nobody has invoiced it: the note's own figures, which are what the goods cost (5 and 2). No sale price, no profit.
+    const asNoted = { 'Болт М8': [10, 50, 5, 0], 'Гайка М8': [4, 8, 2, 0] }
+    expect(figures(await sales('2026-05-10'))).toEqual(asNoted)
+    expect(await soldThatDay()).toBe(58)
+
+    // A draft sells nothing yet.
+    const made = await w.fromDispatch([n._id], { issueDate: '2026-05-15' })
+    const id = made.json.invoice.id
+    expect(figures(await sales('2026-05-10'))).toEqual(asNoted)
+
+    // The bolts on two lines at two prices (6 at 9.00, 4 at 10.00: 94.00, 9.40 a unit), the nuts at 4.00.
+    const stored = (await w.load(id)).lines
+    const line = (l: any, quantity: number, unitPrice: number) => ({
+      productId: String(l.productId), warehouseId: String(l.warehouseId), description: l.description, quantity, unit: l.unit, unitPrice, taxRate: 20, discount: 0,
+    })
+    expect((await w.call('PUT', `/invoices/${id}`, { lines: [line(stored[0], 6, 9), line(stored[0], 4, 10), line(stored[1], 4, 4)] })).status).toBe(200)
+    expect(figures(await sales('2026-05-10'))).toEqual(asNoted)
+    expect((await w.send({ id })).status).toBe(200)
+    const invoice = await w.load(id)
+
+    expect(figures(await sales('2026-05-10'))).toEqual({ 'Болт М8': [10, 94, 9.4, 44], 'Гайка М8': [4, 16, 4, 8] })
+    // Sold on the day the goods left, never a second time on the invoice's.
+    expect(await sales('2026-05-15')).toEqual([])
+    // By document: under the invoice's number, each line at the invoice's price.
+    expect((await sales('2026-05-10', 'document')).map(r => [r.documentNumber, r.docType, r.name, r.quantity, r.price, r.value])).toEqual([
+      [invoice.invoiceNumber, 'invoice', 'Болт М8', 10, 9.4, 94],
+      [invoice.invoiceNumber, 'invoice', 'Гайка М8', 4, 4, 16],
+    ])
+    // The digest of that day reads the same value.
+    expect(await soldThatDay()).toBe(110)
+
+    // Voided, the invoice gives the note back, and the note is at its own figures again.
+    expect((await w.call('POST', `/invoices/${id}/void`, {})).status).toBe(200)
+    expect(figures(await sales('2026-05-10'))).toEqual(asNoted)
+    expect(await soldThatDay()).toBe(58)
+  }, 60_000)
+
+  it('leaves a dispatch an invoice booked for itself, and an article its invoice does not carry, as they were', async () => {
+    const w = await world()
+    // An invoice typed and issued today: its own dispatch already holds its prices.
+    const today = new Date().toISOString().slice(0, 10)
+    const sold = await w.typed([[w.bolt, 2, 9.5]], { issueDate: today, dueDate: today })
+    expect((await w.send(sold)).status).toBe(200)
+    // And a note of two articles whose invoice came to carry only one of them (a state no route makes: a guard for
+    // the reader, which must not divide by nothing).
+    const n = await w.note([[w.bolt, 3], [w.nut, 1]], { date: today })
+    const made = await w.fromDispatch([n._id], { issueDate: today })
+    expect((await w.send(made.json.invoice)).status).toBe(200)
+    await Invoice.updateOne({ _id: made.json.invoice.id }, { $pull: { lines: { productId: w.nut._id } } }).exec()
+
+    const entry = reportById('warehouse-operations')!
+    const rows = (await entry.handler!({
+      orgId: w.orgId, output: 'table', params: validateParams(entry, { operation: 'sales', period: { preset: 'custom', from: today, to: today } }),
+    })).rows as any[]
+    // Bolts: 2 at 9.50 on the invoice's own dispatch, 3 at the note's invoice price (10.00). Nuts: the note's own figure.
+    expect(rows.map(r => [r.name, r.quantity, r.value])).toEqual([['Болт М8', 5, 49], ['Гайка М8', 1, 2]])
   }, 60_000)
 })
 

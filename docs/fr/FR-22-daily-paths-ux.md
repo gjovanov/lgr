@@ -368,6 +368,10 @@ already delivered took them out of stock a second time, and nothing said so unti
     correction (`config/movement-notes`). The dispatch's page says which.
   - A session that reads no sales documents is told of no invoice, and one that may not create them is offered
     none (FR-27.6). A purchase document that holds a dispatch is never named to it.
+  - Where a report reads movements (FR-07, the daily digest), a note an issued invoice claims is sold at that
+    invoice's price per article, on the day the goods left. A hand-booked note carries what the goods cost, so
+    read at its own figures such a sale had no sale value and no profit. A note nobody has invoiced, or one a
+    draft holds, keeps its own figures.
   - **FR-22.61a (MUST)** A dispatch that names no customer can be invoiced too. „Изходяща фактура" asks for the
     customer first. `POST /invoicing/sales/from-dispatch` takes an optional `contactId`: required then (422
     `dispatch_without_customer`), an active customer-or-both contact (422 `customer_not_found`), never one that

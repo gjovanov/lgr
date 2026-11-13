@@ -25,6 +25,11 @@
  *    what the report's Цена/Стойност columns want — but it means `unitCost` must NEVER be
  *    used as the cost basis for profit. Cost comes from `costAllocations[]` /
  *    `resolvedUnitCost` instead (FR-7.6).
+ *    ⚠ Except a stock note an invoice was MADE FROM (FR-22.61, marker `dispatch:`): the note was
+ *    booked by hand with what the goods cost, and the sale is the invoice's. Read at its own
+ *    figures, a sale through a note was valued at cost, and its profit came out as nothing. Its
+ *    line is sold at the invoice's price for that article (`CLAIMED_SALE_UNIT_PRICE`), once the
+ *    invoice is issued; until then, and for a note nobody has invoiced, the note's own stand.
  */
 
 import { StockMovement, ProductCategory } from 'db/models'
@@ -50,6 +55,57 @@ export const EFFECTIVE_DATE = {
     '$date',
     { $ifNull: ['$invoice.issueDate', '$date'] },
   ],
+}
+
+/**
+ * Inside the `$lookup` of a movement's invoice: that invoice's lines (article, quantity, price), when it is an
+ * ISSUED sales invoice made from stock notes (FR-22.61). No other invoice carries its lines along: a movement an
+ * invoice booked for itself already holds that invoice's prices (trap 2). Shared with the digest.
+ */
+export const CLAIMED_SALE_LINES = {
+  $cond: [
+    {
+      $and: [
+        { $eq: ['$direction', 'outgoing'] },
+        { $regexMatch: { input: { $ifNull: ['$stockSource.marker', ''] }, regex: '^dispatch:' } },
+        { $not: [{ $in: ['$status', ['draft', 'voided', 'cancelled']] }] },
+      ],
+    },
+    { $map: { input: { $ifNull: ['$lines', []] }, as: 'l', in: { productId: '$$l.productId', quantity: '$$l.quantity', unitPrice: '$$l.unitPrice' } } },
+    '$$REMOVE',
+  ],
+}
+
+/**
+ * After `$unwind: '$lines'`: what a claimed stock note's line was sold at per unit, or null for every other line.
+ * The invoice's price for that article, weighted over its lines of it (one article may stand on two lines at two
+ * prices). An article the invoice does not carry keeps the note's own figure: null.
+ */
+export const CLAIMED_SALE_UNIT_PRICE = {
+  $let: {
+    vars: {
+      sold: {
+        $filter: { input: { $ifNull: ['$invoice.claimedLines', []] }, as: 'l', cond: { $eq: ['$$l.productId', '$lines.productId'] } },
+      },
+    },
+    in: {
+      $let: {
+        vars: {
+          quantity: { $sum: '$$sold.quantity' },
+          net: { $sum: { $map: { input: '$$sold', as: 'l', in: { $multiply: [{ $ifNull: ['$$l.quantity', 0] }, { $ifNull: ['$$l.unitPrice', 0] }] } } } },
+        },
+        in: { $cond: [{ $and: [{ $eq: ['$type', 'dispatch'] }, { $gt: ['$$quantity', 0] }] }, { $divide: ['$$net', '$$quantity'] }, null] },
+      },
+    },
+  },
+}
+
+/**
+ * A line's value as its document prices it, given `_soldAt` (`CLAIMED_SALE_UNIT_PRICE`): the movement's own
+ * `totalCost`, or for a claimed stock note's line its quantity at the invoice's price.
+ */
+export const LINE_DOCUMENT_VALUE = {
+  $cond: [{ $ne: [{ $ifNull: ['$_soldAt', null] }, null] }, { $multiply: ['$_soldAt', '$lines.quantity'] }, { $ifNull: ['$lines.totalCost', 0] }],
 }
 
 /**
@@ -196,7 +252,7 @@ export async function runWarehouseOperations(ctx: ReportHandlerContext): Promise
         localField: 'invoiceId',
         foreignField: '_id',
         as: 'invoice',
-        pipeline: [{ $project: { invoiceNumber: 1, type: 1, direction: 1, issueDate: 1, contactId: 1, currency: 1, 'stockSource.detectedBy': 1 } }],
+        pipeline: [{ $project: { invoiceNumber: 1, type: 1, direction: 1, issueDate: 1, contactId: 1, currency: 1, 'stockSource.detectedBy': 1, claimedLines: CLAIMED_SALE_LINES } }],
       },
     },
     { $unwind: { path: '$invoice', preserveNullAndEmptyArrays: true } },
@@ -245,10 +301,12 @@ export async function runWarehouseOperations(ctx: ReportHandlerContext): Promise
    * sale price (trap 2). Preference: actual layer allocations → the resolved WAC/FIFO cost
    * → the product's current average cost (an approximation, flagged in meta).
    */
+  // FR-22.61: a stock note an issued invoice claims is sold at that invoice's prices, not at what it cost.
+  pipeline.push({ $addFields: { _soldAt: CLAIMED_SALE_UNIT_PRICE } })
   pipeline.push({
     $addFields: {
       signedQty: { $multiply: ['$lines.quantity', '$sign'] },
-      signedValue: { $multiply: [{ $ifNull: ['$lines.totalCost', 0] }, '$sign'] },
+      signedValue: { $multiply: [LINE_DOCUMENT_VALUE, '$sign'] },
       allocCost: { $sum: { $ifNull: ['$lines.costAllocations.totalCost', []] } },
     },
   })
@@ -315,7 +373,7 @@ export async function runWarehouseOperations(ctx: ReportHandlerContext): Promise
           unit: { $ifNull: ['$product.unit', ''] },
           batchNumber: { $ifNull: ['$lines.batchNumber', ''] },
           quantity: { $round: ['$signedQty', 3] },
-          price: { $round: [{ $ifNull: ['$lines.unitCost', 0] }, 4] },
+          price: { $round: [{ $ifNull: ['$_soldAt', { $ifNull: ['$lines.unitCost', 0] }] }, 4] },
           value: { $round: ['$signedValue', 2] },
           currency: 1,
         },
