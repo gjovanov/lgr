@@ -187,10 +187,11 @@ export async function namedOutsideBooks(orgId: string, ids: readonly string[], s
 /** Which entries carry which of `byDuplicate`'s contacts on a line, and on which lines. Fills each pair's `entries`. */
 async function linesOf(orgId: string, byDuplicate: Map<string, RelinkPair>): Promise<void> {
   if (!byDuplicate.size) return
+  // No sort here: one by `_id` can take the planner off the org's indexes and over every org's entries.
   const cursor = JournalEntry.find(
     { orgId: oid(orgId), 'lines.contactId': { $in: [...byDuplicate.keys()].map(oid) } },
     { 'lines.contactId': 1, 'lines.analyticId': 1 },
-  ).sort({ _id: 1 }).lean().cursor()
+  ).lean().cursor()
   for await (const e of cursor as AsyncIterable<any>) {
     const found = new Map<string, RelinkLine[]>()
     ;(e.lines ?? []).forEach((l: any, i: number) => {
@@ -200,6 +201,7 @@ async function linesOf(orgId: string, byDuplicate: Map<string, RelinkPair>): Pro
     })
     for (const [id, lines] of found) byDuplicate.get(id)!.entries.push({ entryId: String(e._id), lines })
   }
+  for (const p of byDuplicate.values()) p.entries.sort((a, b) => (a.entryId < b.entryId ? -1 : a.entryId > b.entryId ? 1 : 0))
 }
 
 /** The pairs, and the counts the dry run prints. Reads only. */
