@@ -19,6 +19,7 @@
     "./movement-notes": "./src/movement-notes.ts",
     "./contact-aliases": "./src/contact-aliases.ts",
     "./contact-representative": "./src/contact-representative.ts",
+    "./journal-header": "./src/journal-header.ts",
     "./supto": "./src/supto.ts",
     "./licence-keys": "./src/licence-keys.json",
     "./idp-keys": "./src/idp-keys.json",
