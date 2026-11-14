@@ -1,7 +1,7 @@
 import { Identity, Org, type IIdentity, type IUser } from 'db/models'
 import { sessionFor, type SessionUser } from 'services/biz/auth.service'
 import { membershipsOf, type Membership } from 'services/biz/identity/session.service'
-import { createAuditEntry } from 'services/biz/audit-log.service'
+import { recordAuditEntry } from 'services/biz/audit-log.service'
 import { setSessionCookie, SESSION_TTL_SECONDS } from './session-cookie.js'
 
 /**
@@ -57,9 +57,15 @@ export const callerOf = (user: unknown, person: unknown) => (user ?? person) as 
 
 export type SignInMethod = 'password' | 'switch' | 'oauth' | 'join' | 'new_org' | 'pin' | 'lgr'
 
-/** Every way into an org is a sign-in to it (Н-18, Appendix 29), with how it happened. */
-export function auditSignIn(user: SessionUser, method: SignInMethod) {
-  createAuditEntry({
+/**
+ * Every way into an org is a sign-in to it (Н-18, Appendix 29), with how it happened.
+ *
+ * Written before the answer (`recordAuditEntry`, which never throws): the trail of a sign-in is there by the
+ * time the person is. Written in the background, the answer could win the race and a read of the trail straight
+ * after it found none (a flake seen on a busy CI runner, #750).
+ */
+export async function auditSignIn(user: SessionUser, method: SignInMethod): Promise<void> {
+  await recordAuditEntry({
     orgId: user.orgId,
     userId: user.id,
     operatorCode: user.operatorCode,
@@ -95,7 +101,7 @@ export async function enterOrg(
   member.lastLoginAt = new Date()
   await member.save()
   await Identity.updateOne({ _id: identity._id }, { $set: { lastOrgId: member.orgId } }).exec()
-  auditSignIn(claims, method)
+  await auditSignIn(claims, method)
 
   return {
     user: claims,

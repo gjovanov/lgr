@@ -74,7 +74,7 @@ export const localAuthController = new Elysia({ prefix: '/auth/local' })
       const exp = Math.floor(Date.now() / 1000) + PIN_SESSION_TTL_SECONDS
       const token: string = await (jwt as any).sign({ ...session, exp })
       setSessionCookie(cookie as any, token, PIN_SESSION_TTL_SECONDS)
-      auditSignIn(session, 'pin')
+      await auditSignIn(session, 'pin')
       return {
         user: session,
         token,
