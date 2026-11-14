@@ -294,6 +294,13 @@ journalEntrySchema.index({ orgId: 1, docType: 1, docNumber: 1 })
 journalEntrySchema.index({ orgId: 1, type: 1, date: -1 })
 // One imported entry per key: of two imports of a month at once, the second fails instead of doubling it.
 journalEntrySchema.index({ orgId: 1, importKey: 1 }, { unique: true, partialFilterExpression: { importKey: { $type: 'string' } } })
+// FR-25a §3.6: the journal grid's filters (`services/biz/journal-header.service.ts#journalListFilter`), newest first. A
+// books org holds years of entries, so a filter that fetched them all to test one field would read every one, twice
+// (the page and its count). Partial: only an entry that carries the field is in them, so an org without the books' header
+// pays nothing. ⚠ A query uses one only when it states the same `$type`.
+journalEntrySchema.index({ orgId: 1, paymentCode: 1, date: -1 }, { partialFilterExpression: { paymentCode: { $type: 'string' } } })
+journalEntrySchema.index({ orgId: 1, registerDocType: 1, date: -1 }, { partialFilterExpression: { registerDocType: { $type: 'string' } } })
+journalEntrySchema.index({ orgId: 1, reportingMonth: 1, date: -1 }, { partialFilterExpression: { reportingMonth: { $type: 'string' } } })
 
 replicate(journalEntrySchema, { class: 'R' })
 

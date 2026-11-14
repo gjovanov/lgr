@@ -60,10 +60,15 @@
       </v-col>
     </v-row>
 
-    <v-tabs v-model="side" density="compact" class="mb-2">
-      <v-tab value="sales">{{ $t('accounting.vat.sales') }} ({{ counts.sales }})</v-tab>
-      <v-tab value="purchase">{{ $t('accounting.vat.purchases') }} ({{ counts.purchase }})</v-tab>
-    </v-tabs>
+    <div class="d-flex align-center flex-wrap ga-2 mb-2">
+      <v-tabs v-model="side" density="compact">
+        <v-tab value="sales">{{ $t('accounting.vat.sales') }} ({{ counts.sales }})</v-tab>
+        <v-tab value="purchase">{{ $t('accounting.vat.purchases') }} ({{ counts.purchase }})</v-tab>
+      </v-tabs>
+      <v-spacer />
+      <!-- FR-25a §3.8: a document declared in this return and dated in another month. -->
+      <v-checkbox v-model="otherMonth" :label="$t('accounting.vatRegister.otherMonth')" density="compact" hide-details data-testid="vat-other-month" />
+    </div>
     <v-data-table-server
       :headers="rowHeaders"
       :items="rows"
@@ -78,6 +83,15 @@
       <template #item.docDate="{ item }">{{ item.docDate?.split('T')[0] }}</template>
       <template #item.base="{ item }">{{ rowBase(item) }}</template>
       <template #item.vat="{ item }">{{ rowVat(item) }}</template>
+      <!-- Read only: the row stays as filed, and its entry is found, never stored on it. -->
+      <template #item.journalEntry="{ item }">
+        <entity-link
+          v-if="item.journalEntryId"
+          :label="item.journalEntryNumber || $t('accounting.vatRegister.entry')"
+          :to="{ name: 'accounting.journal-entry-edit', params: { id: item.journalEntryId } }"
+        />
+        <v-icon v-else size="small" color="grey" :title="$t('accounting.vatRegister.notInOrg')">mdi-link-off</v-icon>
+      </template>
     </v-data-table-server>
 
     <!-- What the registers cannot say. Asked once: the next return takes it from this one. -->
@@ -134,6 +148,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { downloadAsSession } from 'ui-shared/composables/useSessionDownload'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAccess } from 'ui-shared/access/useAccess'
+import EntityLink from 'ui-shared/components/EntityLink'
 import { VAT_CELLS, periodLabel, statusColor } from './vat-cells'
 
 interface VatReturn {
@@ -178,7 +193,8 @@ const filledCells = computed(() => VAT_CELLS
 
 // The register, a page at a time.
 const side = ref<'sales' | 'purchase'>('sales')
-const filters = computed(() => ({ side: side.value }))
+const otherMonth = ref(false)
+const filters = computed(() => ({ side: side.value, ...(otherMonth.value ? { otherMonth: 'true' } : {}) }))
 const rowsUrl = computed(() => `${base.value}/rows`)
 const { items: rows, loading: rowsLoading, pagination, fetchItems: fetchRows, onUpdateOptions } = usePaginatedTable({
   url: rowsUrl,
@@ -198,6 +214,7 @@ const rowHeaders = computed(() => [
   { title: t('accounting.vat.partnerName'), key: 'partnerName', sortable: false },
   { title: t('accounting.vat.base'), key: 'base', align: 'end' as const, sortable: false },
   { title: t('accounting.vat.vat'), key: 'vat', align: 'end' as const, sortable: false },
+  { title: t('accounting.vatRegister.entry'), key: 'journalEntry', sortable: false },
 ])
 
 // A blank cell stays blank, as in the file. 02-10 leaves out the bases that are not taxed here (02-17,

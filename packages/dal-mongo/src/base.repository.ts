@@ -126,7 +126,7 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     }
   }
 
-  async updateInOrg(id: string, orgId: string, data: Partial<T>, where: Record<string, unknown> = {}, opts: { validate?: boolean } = {}): Promise<T | null> {
+  async updateInOrg(id: string, orgId: string, data: Partial<T>, where: Record<string, unknown> = {}, opts: { validate?: boolean; unset?: string[] } = {}): Promise<T | null> {
     if (!orgId) return null
     // ⚠ The body is DATA, never an update document. Passed through as one, `{"$set": {"orgId": B}}`
     // re-parents the document past the `orgId` strip below (and `$unset` / `$rename` likewise),
@@ -139,7 +139,11 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     try {
       // Never re-parent: an `orgId` (or `_id`) in the body is dropped, whatever the route's schema.
       const { orgId: _o, _id: _i, ...rest } = (data ?? {}) as any
-      const mongoData = { $set: toDocument(rest) }
+      // A removed field is never set in the same write (Mongo refuses the conflict), and never a structural one.
+      const unset = (opts.unset ?? []).filter(k => k && !k.startsWith('$') && !['orgId', '_id', 'id'].includes(k))
+      for (const k of unset) delete rest[k]
+      const mongoData: Record<string, unknown> = { $set: toDocument(rest) }
+      if (unset.length) mongoData.$unset = Object.fromEntries(unset.map(k => [k, 1]))
       const doc = await this.model.findOneAndUpdate({ ...where, _id: id, orgId }, mongoData, { new: true, ...(opts.validate ? { runValidators: true } : {}) }).lean().exec()
       return doc ? toEntity<T>(doc) : null
     } catch (err: any) {
