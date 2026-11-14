@@ -151,6 +151,11 @@ Shared rules for every entity below:
 
 ### 3.1 Chart of accounts — `Account`
 
+Built: the form's read-only Books section and, in a books org, the whole form read-only; the grid's two columns on
+the cog and, in a books org only (they mean nothing elsewhere), the two filters (`hasAnalytics`, `quantitative` on
+`GET accounting/account`). The server says the same as the form: a books org's account is refused create, change
+and delete with 422 `books_as_booked`.
+
 - Route / view: `/accounting/accounts` (`AccountsView.vue`, exists), `/accounts/:id/edit` (`AccountFormView.vue`, exists).
 - Form: add a read-only "Books" section: `balanceSide` (chip: debit / credit / both), `analyticRoots` (chips), `quantitative`
   (switch, disabled). In a books org the whole form is read-only.
@@ -159,6 +164,13 @@ Shared rules for every entity below:
 - e2e later: a books org's account opens read-only; an LGR-native account saves.
 
 ### 3.2 Analytics — `AccountingAnalytic` (new views)
+
+Built, as below. The API is `accounting/analytics` (`analytic.controller.ts`, `accounting-books/analytics.service.ts`):
+the list (the tree's order: a node right before what is under it, whatever its siblings are called), `/roots` with
+counts, `/:id` with the properties and the ancestors, `PUT /:id` (links, properties, `isActive`) and `DELETE /:id`
+(deactivate) for an analytic of LGR's own, 422 `books_as_booked` for a books org's, `/export` (Excel). Reading needs
+the chart's capability (`accounts.view`/`lookup`), a change `accounts.edit`. Nothing creates an analytic: the
+import does.
 
 - Route / views: `/accounting/analytics` (`AnalyticsView.vue`, new: a tree grid by root), `/accounting/analytics/:id`
   (`AnalyticFormView.vue`, new).
@@ -174,6 +186,11 @@ Shared rules for every entity below:
   contact to an LGR-native analytic saves.
 
 ### 3.3 Bank accounts — `BankAccount`
+
+Built: the form's read-only analytic link and the grid's column on the cog
+(`GET accounting/analytics/bank-operations?month=YYYY-MM`, read only while the column is shown). The form's fields
+stay editable in a books org too: the import only makes a bank account, never rewrites one, and the store orgs'
+payment orders use them. ⚠ The key is `accounting.bankAccountBooks.*`: `accounting.bankAccount` is a string.
 
 - Route / views: `/accounting/bank-accounts` and `/bank-accounts/:id/edit` (exist).
 - Form: unchanged fields; add a read-only "Analytic" link (the `БАНКОВИ СМЕТКИ:<iban>` analytic that points here).
