@@ -85,6 +85,13 @@
       </v-row>
     </v-form>
 
+    <!-- FR-25a §3.3: the books' analytic that points here (`БАНКОВИ СМЕТКИ:<iban>`), read-only. None: nothing shows. -->
+    <div v-if="analytics.length" class="d-flex align-center flex-wrap ga-2 mt-2" data-testid="bank-account-analytic">
+      <v-icon size="small">mdi-lock-outline</v-icon>
+      <span class="text-body-2 text-medium-emphasis" :title="$t('accounting.bankAccountBooks.analyticHint')">{{ $t('accounting.bankAccountBooks.analytic') }}:</span>
+      <entity-link v-for="a in analytics" :key="a._id" :label="a.path" :to="{ name: 'accounting.analytic', params: { id: a._id } }" />
+    </div>
+
     <template #sidebar>
       <EntityNotesPanel :org-url="orgUrl()" entity-type="bankAccount" :entity-id="isEdit ? (route.params.id as string) : undefined" />
     </template>
@@ -102,6 +109,7 @@ import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
+import EntityLink from 'ui-shared/components/EntityLink.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 
 const { t } = useI18n()
@@ -114,6 +122,19 @@ const { showSuccess, showError } = useSnackbar()
 const formRef = ref()
 const loading = ref(false)
 const isEdit = computed(() => !!route.params.id)
+
+/** FR-25a §3.3: the analytics that point at this bank account (the import links one per account). */
+const analytics = ref<{ _id: string; path: string }[]>([])
+
+async function loadAnalytics() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/accounting/analytics`, { params: { bankAccountId: route.params.id, size: 5 } })
+    analytics.value = data.analytics ?? []
+  } catch {
+    // A role that reads bank accounts but not the chart's analytics sees the form as before.
+    analytics.value = []
+  }
+}
 
 const form = ref({
   name: '',
@@ -202,6 +223,7 @@ async function loadBankAccount() {
 }
 
 onMounted(async () => {
+  if (isEdit.value) void loadAnalytics()
   await store.fetchAccounts()
   if (tryRestore()) return
   if (isEdit.value) {

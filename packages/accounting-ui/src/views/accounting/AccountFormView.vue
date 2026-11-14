@@ -7,7 +7,12 @@
     back-to="/accounts"
     :back-label="$t('accounting.accounts')"
   >
-    <v-form ref="formRef" @submit.prevent="handleSubmit">
+    <!-- FR-25a §3.1: a books org's chart is as booked: the whole form is read-only, and the server refuses a save. -->
+    <v-alert v-if="asBooked" type="info" variant="tonal" density="compact" icon="mdi-lock-outline" class="mb-4" data-testid="account-as-booked">
+      {{ $t('accounting.accountBooks.readOnly') }}
+    </v-alert>
+
+    <v-form ref="formRef" :disabled="asBooked" @submit.prevent="handleSubmit">
       <v-row>
         <v-col cols="12" md="4">
           <v-text-field
@@ -80,6 +85,43 @@
       </v-row>
     </v-form>
 
+    <!-- FR-25a §3.1: what the books say of the account. Read-only everywhere; absent on an account they never described. -->
+    <template v-if="hasBooks">
+      <h2 class="text-subtitle-1 font-weight-bold mt-4 mb-2 d-flex align-center ga-1">
+        <v-icon size="small">mdi-lock-outline</v-icon>
+        {{ $t('accounting.accountBooks.title') }}
+      </h2>
+      <v-row dense align="center" data-testid="account-books">
+        <v-col cols="12" md="3">
+          <div class="text-caption text-medium-emphasis">{{ $t('accounting.accountBooks.balanceSide') }}</div>
+          <v-chip v-if="balanceSideKey(books.balanceSide)" size="small" label :color="balanceSideColor(books.balanceSide)" data-testid="account-balance-side">
+            {{ $t(balanceSideKey(books.balanceSide)!) }}
+          </v-chip>
+          <span v-else>—</span>
+        </v-col>
+        <v-col cols="12" md="6">
+          <div class="text-caption text-medium-emphasis">{{ $t('accounting.accountBooks.analyticRoots') }}</div>
+          <div v-if="books.analyticRoots.length" class="d-flex flex-wrap ga-1">
+            <!-- Each opens the analytics of its root. -->
+            <v-chip
+              v-for="r in books.analyticRoots"
+              :key="r"
+              size="small"
+              label
+              :to="{ name: 'accounting.analytics', query: { root: r } }"
+              data-testid="account-analytic-root"
+            >
+              {{ rootTitle(r) }}
+            </v-chip>
+          </div>
+          <span v-else class="text-body-2 text-medium-emphasis">{{ $t('accounting.accountBooks.noAnalyticRoots') }}</span>
+        </v-col>
+        <v-col cols="12" md="3">
+          <v-switch :model-value="books.quantitative" :label="$t('accounting.accountBooks.quantitative')" color="primary" density="compact" hide-details disabled />
+        </v-col>
+      </v-row>
+    </template>
+
     <template #sidebar>
       <EntityNotesPanel :org-url="orgUrl()" entity-type="account" :entity-id="isEdit ? (route.params.id as string) : undefined" />
     </template>
@@ -98,6 +140,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
+import { balanceSideColor, balanceSideKey, isBooksOrg, rootLabelKey, type AnalyticRootInfo, type BalanceSide } from './books-chart'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -109,6 +152,27 @@ const { showSuccess, showError } = useSnackbar()
 const formRef = ref()
 const loading = ref(false)
 const isEdit = computed(() => !!route.params.id)
+
+/** FR-25a §3.1: the org keeps the accountant's books, and its chart is as booked there. */
+const asBooked = computed(() => isBooksOrg(appStore.currentOrg as any))
+/** What the books say of the account: never sent on a save. */
+const books = ref<{ balanceSide?: BalanceSide; analyticRoots: string[]; quantitative: boolean }>({ analyticRoots: [], quantitative: false })
+const hasBooks = computed(() => !!books.value.balanceSide || books.value.analyticRoots.length > 0 || books.value.quantitative)
+const roots = ref<AnalyticRootInfo[]>([])
+
+function rootTitle(root: string): string {
+  const key = rootLabelKey(root, roots.value)
+  return key ? t(key) : root
+}
+
+async function loadRoots() {
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/accounting/analytics/roots`)
+    roots.value = data.roots ?? []
+  } catch {
+    // The chips show each root as booked.
+  }
+}
 
 const accountTypes = ['asset', 'liability', 'equity', 'revenue', 'expense']
 const subTypeOptions = [
@@ -152,7 +216,7 @@ const rules = {
 
 const formActions = computed<FormAction[]>(() => [
   // FR-27.7: a new account is `accounts.create` (the admin's and the accountant's), a change `accounts.edit`.
-  { label: t('common.save'), color: 'primary', handler: handleSubmit, cap: isEdit.value ? 'accounts.edit' : 'accounts.create', loading: loading.value },
+  { label: t('common.save'), color: 'primary', handler: handleSubmit, cap: isEdit.value ? 'accounts.edit' : 'accounts.create', loading: loading.value, show: !asBooked.value },
 ])
 
 function orgUrl() {
@@ -195,6 +259,12 @@ async function loadAccount() {
       description: account.description || '',
       isActive: account.isActive !== false,
     }
+    books.value = {
+      ...(account.balanceSide ? { balanceSide: account.balanceSide } : {}),
+      analyticRoots: Array.isArray(account.analyticRoots) ? account.analyticRoots : [],
+      quantitative: account.quantitative === true,
+    }
+    if (books.value.analyticRoots.length) void loadRoots()
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
