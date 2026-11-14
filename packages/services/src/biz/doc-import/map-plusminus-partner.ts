@@ -312,6 +312,19 @@ const cloneContact = (c: LgrContact): LgrContact => ({
 })
 const oldest = (list: Entry[]): Entry => [...list].sort((a, b) => a.c.id.localeCompare(b.c.id))[0]
 
+/**
+ * Of contacts that all fit a partner, the ones that already play the most of the roles its documents give it (usually: all
+ * of them). A company can be on file twice, a customer entered with a shop's clients and a supplier seeded from a suppliers'
+ * ledger, and a receipt's supplier is the one that IS a supplier: settling it on the older customer would widen that to
+ * `both`, two active suppliers would answer to one name, and the receipt could no longer name either (#762). When none of
+ * them plays any of the roles, all are returned and the usual choice (the one named so, else the oldest) is made among them.
+ */
+function playingMost(list: Entry[], roles: readonly PartnerRole[]): Entry[] {
+  const plays = (e: Entry) => roles.filter((r) => covers(e.c.type, r)).length
+  const best = Math.max(0, ...list.map(plays))
+  return list.filter((e) => plays(e) === best)
+}
+
 export function planPartnerContacts(input: PlanInput): ContactPlan {
   // The plan edits its own copies: a later partner must see a contact as the plan will leave it, the caller's list stays.
   const index = new ContactIndex(input.contacts.map(cloneContact))
@@ -352,22 +365,29 @@ export function planPartnerContacts(input: PlanInput): ContactPlan {
     const active = (list: Entry[]) => list.filter((e) => e.c.isActive !== false)
 
     // 1. The same number. Several contacts may hold one (a company entered twice, a branch beside its head office): the
-    //    invoice import takes the first it finds, so this takes the one named so, else the oldest, and does not stop.
+    //    invoice import takes the first it finds, so this takes the one that already plays the role the documents give the
+    //    partner, then the one named so, else the oldest, and does not stop.
+    const roleSet: PartnerRole[] = roles.length ? roles : ['customer']
     let found: Entry | undefined
     let by: MatchedBy | undefined
+    // The contacts the choice was made among: a role one of them plays is not another's to take on (`mustPlay` below).
+    let sharers: Entry[] = []
     const sameId = index.withIds(ids)
     const live = active(sameId)
     if (live.length) {
       const exactNumber = fields.eik ? live.filter((e) => e.ids.has(fields.eik!)) : []
       const pool = exactNumber.length ? exactNumber : live
-      const named = pool.filter((e) => e.own === nameKey || e.aliasNames.has(nameKey))
-      const worded = named.length ? named : pool.filter((e) => e.fold === foldKey || e.aliasFolds.has(foldKey))
-      found = oldest(worded.length ? worded : pool)
+      const fit = playingMost(pool, roleSet)
+      const named = fit.filter((e) => e.own === nameKey || e.aliasNames.has(nameKey))
+      const worded = named.length ? named : fit.filter((e) => e.fold === foldKey || e.aliasFolds.has(foldKey))
+      found = oldest(worded.length ? worded : fit)
       by = 'eik'
+      sharers = pool
     }
 
     // 2. The same name, a contact's other name, then the same words (`matching.ts#matchContactByName`'s three rungs).
-    //    Two contacts with one name: the older, as the import takes it. Two that merely share a other name or the words: a person.
+    //    Two contacts with one name: the one that plays the role, else the older, as the import takes it. Two that merely
+    //    share another name or the words: a person.
     if (!found) {
       const named = active(index.withName(name))
       const own = named.filter((e) => e.own === nameKey)
@@ -375,7 +395,7 @@ export function planPartnerContacts(input: PlanInput): ContactPlan {
       const words = own.length || other.length ? [] : active(index.withFold(name))
       const pool = own.length ? own : other.length ? other : words
       const usable = pool.filter((e) => !disjoint(e, ids))
-      if (usable.length && (own.length || usable.length === 1)) { found = oldest(usable); by = own.length ? 'name' : other.length ? 'alias' : 'punctuation' }
+      if (usable.length && (own.length || usable.length === 1)) { found = oldest(playingMost(usable, roleSet)); by = own.length ? 'name' : other.length ? 'alias' : 'punctuation'; sharers = usable }
       else if (usable.length > 1) { items.push({ kind: 'ambiguous', key, name, reason: `${usable.length} contacts fit the name and none exactly`, candidates: usable.map((e) => e.c.companyName ?? e.c.id), docs }); continue }
       else if (pool.length) { items.push({ kind: 'conflict', key, name, reason: 'a contact with this name holds a different ЕИК/VAT number', contactName: pool[0].c.companyName ?? pool[0].c.id, docs }); continue }
     }
@@ -388,9 +408,12 @@ export function planPartnerContacts(input: PlanInput): ContactPlan {
 
     if (found) {
       const planned = created.get(found.c.id)
-      const roleSet = roles.length ? roles : ['customer' as PartnerRole]
       if (planned) { mergeIntoCreate(planned.item, name, roleSet, docs, fields, counts); counts.merged++; continue }
-      const { body, changes } = fillsFor(found.c, name, by!, roleSet, fields)
+      // Widen the contact only for a role NO other contact of this number plays: otherwise two contacts of one number
+      // would answer to one name in that role, and a receipt or an invoice that names the company could not choose (#762).
+      const settled = found
+      const mustPlay = roleSet.filter((r) => covers(settled.c.type, r) || !sharers.some((e) => e !== settled && covers(e.c.type, r)))
+      const { body, changes } = fillsFor(found.c, name, by!, mustPlay, fields)
       if (!changes.length) { items.push({ kind: 'same', key, name, contactId: found.c.id, contactName: found.c.companyName ?? '', by: by!, docs }); counts.same++; continue }
       counts.update++
       counts.aliases += changes.some((c) => c.startsWith('alias')) ? 1 : 0

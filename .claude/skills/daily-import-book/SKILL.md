@@ -56,7 +56,10 @@ name or one of the contact's other names, else the same words with other punctua
   note on the contact and the contacts that start with the same word listed beside it (`similar on file`): merge them by
   hand on the contact form (**Also known as**) when it is a short form of one of them.
 - **update**: only what is EMPTY is filled (ЕИК, VAT, phone, address, МОЛ), the documents' name becomes one of the
-  contact's other names when it differs, and a contact the documents use in the other role is widened to `both`.
+  contact's other names when it differs, and a contact the documents use in the other role is widened to `both`, but
+  only when no other contact with that number plays that role. A company on file twice (a customer contact and a
+  supplier contact with one ЕИК) is settled on the twin that already plays the role, so a receipt's supplier never
+  turns the customer twin into a second supplier. Twins that already exist stay: merging them is a person's call.
 - **`ACT`, nothing written for it**: `ambiguous` (several contacts fit and none exactly), `conflict` (a contact of that
   name holds a DIFFERENT ЕИК: another company, or a typo on one side), `inactive` (only a deactivated contact fits). A
   person decides, on the contact; the next dry run no longer raises it.

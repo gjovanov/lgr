@@ -354,3 +354,82 @@ describe('planPartnerContacts', () => {
     expect(body.aliases).toBeUndefined()
   })
 })
+
+// A company on file twice: a customer contact and a supplier contact that share one ЕИК (a suppliers' ledger seeded next to a
+// shop's customers). The role the documents give the partner decides which of the two it is settled on: widening the older
+// customer to `both` leaves two active suppliers answering to one name, and a receipt can no longer name either (#762).
+describe('planPartnerContacts: one number, two contacts', () => {
+  const dir: PartnerDirectory = { 'ПАРТНЬОРИ:Двойка ООД': { БУЛСТАТ: '700800900', ИНДДС: 'BG700800900', АДРЕС: 'ул. Двойка 1', ГРАД: 'гр.СОФИЯ' } }
+  // Complete on purpose: the only things a plan could still change are a role or another name.
+  const held = { taxId: '700800900', taxNumber: '700800900', vatNumber: 'BG700800900', addresses: [{ street: 'ул. Двойка 1', city: 'СОФИЯ' }] }
+  const twin = (id: string, type: LgrContact['type'], o: Partial<LgrContact> = {}) => contact(id, { type, companyName: 'Двойка ООД', ...held, ...o })
+  const plan = (contacts: LgrContact[], ...roles: ('customer' | 'supplier')[]) =>
+    planPartnerContacts({ directory: dir, contacts, uses: uses(['ПАРТНЬОРИ:Двойка ООД', roles]) })
+
+  it('settles a receipt\'s supplier on the contact that IS a supplier, not on its older customer twin', () => {
+    const p = plan([twin('c1', 'customer'), twin('c2', 'supplier')], 'supplier')
+    expect(p.items).toHaveLength(1)
+    expect(p.items[0]).toMatchObject({ kind: 'same', contactId: 'c2' })
+    expect(p.counts).toMatchObject({ update: 0, roles: 0 })
+  })
+
+  it('settles an invoice\'s customer on the customer twin, whichever of the two is the older', () => {
+    const p = plan([twin('c1', 'supplier'), twin('c2', 'customer')], 'customer')
+    expect(p.items[0]).toMatchObject({ kind: 'same', contactId: 'c2' })
+    expect(p.counts.roles).toBe(0)
+  })
+
+  it('finds the contact that plays the role behind another spelling, and gives it the documents\' spelling as another name', () => {
+    const p = planPartnerContacts({
+      directory: { 'ПАРТНЬОРИ:Двойка 1 ООД': dir['ПАРТНЬОРИ:Двойка ООД'] },
+      contacts: [twin('c1', 'customer', { companyName: 'Двойка 1 ООД' }), twin('c2', 'supplier', { companyName: 'Двойка-1 ООД' })],
+      uses: uses(['ПАРТНЬОРИ:Двойка 1 ООД', ['supplier']]),
+    })
+    const u = p.items[0]
+    if (u.kind !== 'update') throw new Error('expected an update')
+    expect(u).toMatchObject({ contactId: 'c2', by: 'eik', changes: ['alias „Двойка 1 ООД"'] })
+    expect(u.body).toEqual({ aliases: ['Двойка 1 ООД'] })
+    expect(p.counts.roles).toBe(0)
+  })
+
+  it('needs no widening when two contacts split the roles of a partner that buys and sells', () => {
+    const p = plan([twin('c1', 'customer'), twin('c2', 'supplier')], 'customer', 'supplier')
+    expect(p.items).toHaveLength(1)
+    expect(p.items[0].kind).toBe('same')
+    expect(p.counts.roles).toBe(0)
+  })
+
+  it('prefers the contact that already plays every role of a partner that buys and sells', () => {
+    const p = plan([twin('c1', 'customer'), twin('c2', 'both')], 'customer', 'supplier')
+    expect(p.items[0]).toMatchObject({ kind: 'same', contactId: 'c2' })
+  })
+
+  it('still widens ONE contact when no other contact with the number plays the missing role', () => {
+    const p = plan([twin('c2', 'customer'), twin('c1', 'customer')], 'supplier')
+    expect(p.items).toHaveLength(1)
+    expect(p.items[0]).toMatchObject({ kind: 'update', contactId: 'c1', body: { type: 'both' }, changes: ['type customer→both'] })
+    expect(p.counts.roles).toBe(1)
+  })
+
+  it('does not count a deactivated twin as playing the role', () => {
+    const p = plan([twin('c1', 'customer'), twin('c2', 'supplier', { isActive: false })], 'supplier')
+    expect(p.items[0]).toMatchObject({ kind: 'update', contactId: 'c1', body: { type: 'both' } })
+  })
+
+  it('leaves a pair that is already twinned in the role as it is: the older of the two that play it', () => {
+    const p = plan([twin('c2', 'supplier'), twin('c1', 'both')], 'supplier')
+    expect(p.items[0]).toMatchObject({ kind: 'same', contactId: 'c1' })
+    expect(p.counts).toMatchObject({ update: 0, roles: 0 })
+  })
+
+  it('prefers the contact that plays the role when the match is by name and no number is on file', () => {
+    const noNumber = { addresses: [{ street: 'ул. Двойка 1' }] }
+    const p = planPartnerContacts({
+      directory: { 'ПАРТНЬОРИ:Безномер ООД': { ГРАД: 'гр.СОФИЯ', АДРЕС: 'ул. Двойка 1' } },
+      contacts: [contact('c1', { type: 'customer', companyName: 'Безномер ООД', ...noNumber }), contact('c2', { type: 'supplier', companyName: 'Безномер ООД', ...noNumber })],
+      uses: uses(['ПАРТНЬОРИ:Безномер ООД', ['supplier']]),
+    })
+    expect(p.items[0]).toMatchObject({ kind: 'same', contactId: 'c2', by: 'name' })
+    expect(p.counts.roles).toBe(0)
+  })
+})
