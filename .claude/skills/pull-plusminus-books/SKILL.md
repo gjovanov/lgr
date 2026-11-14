@@ -58,7 +58,7 @@ The day folder feeds the existing importers, which keep every guard they have fo
 
 ```bash
 # accounting, one year at a time (each year in the currency it was booked in)
-LGR_TOKEN=… bun run scripts/import-accounting-books.ts --org regal-acc --books <ACC_DOCS_ROOT>/books/<day> --year 2026 \
+LGR_TOKEN=… bun run scripts/import-accounting-books.ts --org <org> --books <ACC_DOCS_ROOT>/books/<day> --year 2026 \
   --root-account СТОКИ=304 --root-account КЛИЕНТИ=411 --root-account ДОСТАВЧИЦИ=401 --finish        # then --execute
 
 # payroll: declarations from the sealed filings, personnel and salary sheets from the archive
@@ -67,7 +67,7 @@ LGR_TOKEN=… bun scripts/import-payroll.ts --root "$ACC_FILINGS_SEALED_DIR" --i
   --version 202601=20260211_084833 --months <every FILED month, comma-separated>                      # then --execute / --verify
 
 # VAT files, as before
-bun run scripts/import-vat-files.ts --org regal-acc --dir "$ACC_FILINGS_DIR/nap/vat"
+bun run scripts/import-vat-files.ts --org <home org> --dir "$ACC_FILINGS_DIR/nap/vat"
 ```
 
 - `--books` replaces `--chart/--analytics/--opening/--opening-analytics/--journal`, and mixing them is refused.
@@ -86,6 +86,9 @@ bun run scripts/import-vat-files.ts --org regal-acc --dir "$ACC_FILINGS_DIR/nap/
   accountant writes them: 202610 was on disk from 11-03, and is due on 11-25. People and contracts still read every month on disk
   (on 11-05 that changed no contract: they were folded with and without 202610).
 - `import-payroll.ts` takes `LGR_TOKEN` only, not `LGR_USERNAME`/`LGR_PASSWORD`.
+- ⚠ **`<org>` is the stores since FR-25 R7 (2026-11-14).** The original books org, `regal-acc`, is RETIRED: every membership in
+  it is switched off, so none of these commands can sign in there. The ledger commands go to each org of the split, the VAT
+  files and the payroll to the home org only (see the bullet above and `docs/guides/books-split-rollout.md` §6).
 
 **regal-acc switched from the GUI exports to the archive on 2026-11-05, on the owner's word.** A re-import of the same day now
 reports everything `unchanged`. A later day reports only what was booked or corrected since.
@@ -172,12 +175,13 @@ bun .claude/skills/pull-plusminus-books/nightly.ts --check-mail  # SendGrid sand
   in `%LOCALAPPDATA%\lgr-books-nightly\docs-root.json`. After `BOOKS_NIGHTLY_DOWN_HOURS` (6) it is mailed, then once a day, and
   the first run that reads the root again says it is back (only when the outage was mailed).
 
-**The account.** `books-sync` in regal-acc, role member, with one permission set, „Service: books import": `accounting.import`
-and no area.
+**The account.** `books-sync`, role member, with one permission set, „Service: books import": `accounting.import`
+and no area. It was made in regal-acc and, since FR-25 R7, has the same membership in the home and the store org; its
+regal-acc membership is switched off with the rest of that retired org.
 - Every other route answers 403. Checked: contacts, accounts, journal, payroll employees and contracts, VAT.
 - Made with `scripts/seed-user.ts --role member --permissions accounting.import --set-name "Service: books import"`.
 - Its password is only in the main checkout's gitignored `.secrets/lgr-books-sync.env`, beside `BOOKS_NIGHTLY_MAIL_TO`.
-- To revoke it, deactivate the user in regal-acc's users, then remove the task.
+- To revoke it, deactivate the user in every org it has a membership in (the Users screen of each), then remove the task.
 
 **The schedule.** Task Scheduler's „LGR books nightly" runs every two hours from 07:00 to 23:00, as goran, only while signed in,
 with no window (`run-hidden.vbs`). It runs from a worktree pinned at a reviewed commit, `C:\dev\gjovanov\lgr-books-nightly`,
