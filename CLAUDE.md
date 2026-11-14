@@ -3245,13 +3245,18 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   - **Who it is in LGR**, in order: the same ЕИК/VAT number (a branch's 13 digits find its head office's 9; a
     placeholder like 999999999 finds nobody), the same name or one of the contact's other names, the same words with
     other punctuation. A contact of that name holding a DIFFERENT ЕИК is another company: a `conflict` for a person.
-    Several contacts sharing a number do not stop the run (the named one, else the oldest, as the invoice import takes
-    it); two that merely share another name, or only the words, are `ambiguous`; only a deactivated contact fits:
-    `inactive`. Each of those is an `ACT` of `daily.ts dry`, and nothing is written for it.
+    Several contacts sharing a number do not stop the run: the one that already plays the role the documents give the
+    partner (a receipt's supplier is the supplier, an invoice's customer the customer), then the named one, else the
+    oldest (#762: a company held twice, as a customer and as a supplier, used to be settled on the older of the two and
+    widened to `both`, which left two active suppliers answering to one name and the receipt with none; the same
+    preference applies to a match by name); two that merely share another name, or only the words, are `ambiguous`; only
+    a deactivated contact fits: `inactive`. Each of those is an `ACT` of `daily.ts dry`, and nothing is written for it.
   - **What is written**: a contact nobody holds is created with what PlusMinus knows; a contact somebody holds is
     FILLED WHERE EMPTY (ЕИК in `taxId` and `taxNumber`, VAT, phone, address, МОЛ in the notes), given the documents'
     name as one of its other names when the match was made by number or by the words, and widened to `both` when the
-    documents use it in the other role. **Nothing a person typed is overwritten, nothing is deleted or deactivated.**
+    documents use it in a role no other contact of that number plays. **Nothing a person typed is overwritten, nothing
+    is deleted or deactivated.** Twins that already exist are not merged either: that is a person's call on the contact
+    form, and `scripts/backfill-receipt-suppliers.ts` then names the receipts left without a supplier.
     A SUPPLIER of a receipt that PlusMinus knows by name alone is created by name (a receipt can only name a supplier
     that exists), with a note saying so and the contacts that start with the same word listed for a person to merge;
     a customer PlusMinus says nothing about is left to the invoice import.
