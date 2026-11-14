@@ -148,3 +148,88 @@ describe('a document that names no МОЛ and no place of issue prints exactly a
     })
   }
 })
+
+describe('…and so does one whose fields are there but say nothing', () => {
+  // A cleared field, whitespace, and the activity code, which no document prints.
+  const org = { ...ORG, representative: '  ', placeOfIssue: '', activityCode: '47.52' }
+  const contact = { ...CONTACT, representative: '' }
+
+  for (const name of Object.keys(INVOICES)) {
+    it(`the invoice form: ${name}`, () => {
+      expect(sha(invoiceHtml(name, org, contact))).toBe(BEFORE[`invoice: ${name}`])
+    })
+  }
+  for (const name of Object.keys(COMPANIONS)) {
+    const blank = { recipient: { representative: '' }, supplier: { representative: ' ' } }
+    it(`the companion form and its worksheet: ${name}`, async () => {
+      expect(sha(companionHtml(name, blank))).toBe(BEFORE[`companion: ${name}`])
+      expect(sha(await companionSheet(name, blank))).toBe(BEFORE[`sheet: ${name}`])
+    })
+  }
+})
+
+/** A party row of the parties table, as the form flattens it: the recipient's half, then the supplier's. */
+const partyRow = (key: string, left: string, right: string) =>
+  `<td class="k">${key}</td><td class="v">${left}</td>\n<td class="gap"></td>\n<td class="k">${key}</td><td class="v">${right}</td>`
+
+describe('the place of issue: the document\'s own place wins, the company\'s stands in for none', () => {
+  it('a document with no place prints the company\'s', () => {
+    const html = invoiceHtml('sales invoice, no place (en)', { ...ORG, placeOfIssue: '  Testville ' })
+    expect(html).toContain('<td>Place of transaction: Testville</td>')
+  })
+
+  it('a document with a place prints its own, never the company\'s', () => {
+    const html = invoiceHtml('sales invoice, with its place (bg)', { ...ORG, placeOfIssue: 'Другоград' })
+    expect(html).toContain('<td>Място на сделката: Тестоград</td>')
+    expect(html).not.toContain('Другоград')
+    expect(invoiceHtml('credit note (de)', { ...ORG, placeOfIssue: 'Anderswo' })).not.toContain('Anderswo')
+  })
+
+  it('a document whose place is blank takes the company\'s; neither prints nothing', () => {
+    expect(invoiceHtml('cash sale (bg)', { ...ORG, placeOfIssue: 'Тестоград' }, CONTACT, { placeOfTransaction: '   ' }))
+      .toContain('<td>Място на сделката: Тестоград</td>')
+    expect(invoiceHtml('cash sale (bg)')).not.toContain('Място на сделката')
+  })
+})
+
+describe('the МОЛ closes each party\'s block', () => {
+  const org = { ...ORG, representative: ' Лице Издател ' }
+  const contact = { ...CONTACT, representative: 'Лице Клиент' }
+
+  it('on a sales document the company is the supplier, on the right, and the customer on the left: in both copies', () => {
+    const html = invoiceHtml('sales invoice, with its place (bg)', org, contact)
+    const row = partyRow('МОЛ', 'Лице Клиент', 'Лице Издател')
+    expect(html.split(row).length - 1).toBe(2)
+    // after the VAT number, the last row of the block
+    expect(html.indexOf(row)).toBeGreaterThan(html.indexOf('<td class="k">ИН по ДДС</td>'))
+    expect(html.indexOf(row)).toBeLessThan(html.indexOf('<table class="lines">'))
+  })
+
+  it('on a bill the company is the recipient, on the left', () => {
+    expect(invoiceHtml('bill (bg)', org, contact)).toContain(partyRow('МОЛ', 'Лице Издател', 'Лице Клиент'))
+  })
+
+  it('a party with none leaves its half empty', () => {
+    expect(invoiceHtml('sales invoice, no place (en)', org)).toContain(partyRow('Representative', '', 'Лице Издател'))
+    expect(invoiceHtml('credit note (de)', ORG, contact)).toContain(partyRow('Vertreter', 'Лице Клиент', ''))
+    expect(invoiceHtml('draft proforma (mk)', org)).toContain(partyRow('Застапник', '', 'Лице Издател'))
+  })
+
+  it('is printed as text, never as markup', () => {
+    expect(invoiceHtml('bill (bg)', { ...ORG, representative: 'Лице <b>&</b>' })).toContain('Лице &lt;b&gt;&amp;&lt;/b&gt;')
+  })
+
+  it('on both companion forms and their worksheets', async () => {
+    const parties = { recipient: { representative: 'Лице Клиент' }, supplier: { representative: 'Лице Издател' } }
+    expect(companionHtml('certificate (bg)', parties)).toContain(partyRow('МОЛ', 'Лице Клиент', 'Лице Издател'))
+    expect(companionHtml('handover protocol (en)', { supplier: { representative: 'Лице Издател' } }))
+      .toContain(partyRow('Representative', '', 'Лице Издател'))
+    const sheet = await companionSheet('certificate (bg)', parties)
+    // right under the tax numbers, the parties' last row
+    expect(sheet).toContain([
+      '9: ["ЕИК","000000025",null,"ЕИК","000000017"]',
+      '10: ["МОЛ","Лице Клиент",null,"МОЛ","Лице Издател"]',
+      '11: []',
+    ].join('\n'))
+  })
+})

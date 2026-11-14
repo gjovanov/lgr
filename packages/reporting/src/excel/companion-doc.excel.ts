@@ -4,7 +4,7 @@ import {
 } from './base.excel.js'
 import { companionDocI18n } from '../companion-doc.i18n.js'
 import { unitLabel } from '../unit.i18n.js'
-import type { CompanionDocData } from '../pdf/companion-doc.pdf.js'
+import { companionRepresentatives, type CompanionDocData } from '../pdf/companion-doc.pdf.js'
 
 function fmtDate(d: Date | string): string {
   const date = d instanceof Date ? d : new Date(d)
@@ -110,6 +110,9 @@ export async function generateCompanionDocXLSX(data: CompanionDocData): Promise<
   partyRow(L.city, data.recipient.city, data.supplier.city)
   partyRow(L.address, data.recipient.address, data.supplier.address)
   partyRow(L.taxId, data.recipient.taxId, data.supplier.taxId)
+  // FR-25a: the МОЛ row, as on the page: only when a party names one.
+  const representatives = companionRepresentatives(data)
+  if (representatives) partyRow(L.representative, ...representatives)
   addRow().commit()
 
   // ── Line table ──

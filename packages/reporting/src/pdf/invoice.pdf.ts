@@ -1,4 +1,5 @@
 import type { IInvoice, IOrg, IContact } from 'db/models'
+import { placeOfIssueOf, representativeOf } from 'config/party-identity'
 import { markdownToPdf, escHtml as esc, fmtDate, currencyMark, flattenHtml } from './base.pdf.js'
 import { invoiceDocI18n, invoiceDocTitle, AMOUNT_IN_WORDS_RE } from '../invoice-doc.i18n.js'
 import { unitLabel } from '../unit.i18n.js'
@@ -305,6 +306,7 @@ export function buildInvoiceHtml(
     street: orgAddr.street,
     taxId: (org as any)?.taxNumber || '',
     vatId: (org as any)?.vatNumber || '',
+    representative: representativeOf(org),
   }
   const contactParty = {
     name: contactName(contact),
@@ -312,6 +314,7 @@ export function buildInvoiceHtml(
     street: contactAddr.street,
     taxId: (contact as any)?.taxId || '',
     vatId: (contact as any)?.vatNumber || '',
+    representative: representativeOf(contact),
   }
   const [recipient, supplier] = inv.direction === 'incoming'
     ? [orgParty, contactParty]
@@ -335,7 +338,10 @@ export function buildInvoiceHtml(
       ${partyRow(L.address, recipient.street, supplier.street)}
       ${partyRow(L.taxId, recipient.taxId, supplier.taxId)}
       ${partyRow(L.vatId, recipient.vatId, supplier.vatId)}
+      ${recipient.representative || supplier.representative ? partyRow(L.representative, recipient.representative, supplier.representative) : ''}
     </table>`
+  // FR-25a: the МОЛ closes each party's block, where a Bulgarian invoice prints it. A document whose parties name none
+  // prints no such row, so it reads byte for byte as before (`unit/print-party-identity.test.ts`).
 
   // ── Line table ──
   const wanted = new Set(columns?.length ? columns : DEFAULT_COLS)
@@ -388,11 +394,13 @@ export function buildInvoiceHtml(
 
   // ── Tax event / place / payment ──
   const payMethod = (i18n.paymentMethod as Record<string, string>)[inv.paymentMethod || ''] || ''
+  // FR-25a: the document's own place wins; the company's place of issue stands in for a document that has none.
+  const place = placeOfIssueOf(inv.placeOfTransaction, org)
   const metaRow = `
     <table class="meta-row">
       <tr>
         <td>${esc(L.taxEventDate)}: ${fmtDate(inv.taxEventDate || inv.issueDate)}</td>
-        <td>${inv.placeOfTransaction ? `${esc(L.placeOfTransaction)}: ${esc(inv.placeOfTransaction)}` : ''}</td>
+        <td>${place ? `${esc(L.placeOfTransaction)}: ${esc(place)}` : ''}</td>
         <td style="text-align:right">${payMethod ? `${esc(L.payment)}: ${esc(payMethod)}` : ''}</td>
       </tr>
     </table>`

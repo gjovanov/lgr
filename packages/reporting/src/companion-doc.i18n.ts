@@ -37,6 +37,8 @@ export interface CompanionDocI18n {
     city: string
     address: string
     taxId: string
+    /** The МОЛ, the person legally responsible for a party (FR-25a): printed only when a party has one. */
+    representative: string
     /**
      * Heading of the source-document reference block. Per kind: the protocol is "issued
      * against" its documents, while the declaration simply "refers to" them — the old shared
@@ -92,6 +94,7 @@ const bg: CompanionDocI18n = {
     city: 'Град',
     address: 'Адрес',
     taxId: 'ЕИК',
+    representative: 'МОЛ',
     docList: {
       certificate: 'Отнася се за документ:',
       ppprotocol: 'Списък с документи, по които е издаден протоколът:',
@@ -143,6 +146,7 @@ const en: CompanionDocI18n = {
     city: 'City',
     address: 'Address',
     taxId: 'Reg. No',
+    representative: 'Representative',
     docList: {
       certificate: 'Refers to document:',
       ppprotocol: 'Documents this protocol was issued against:',
@@ -194,6 +198,7 @@ const de: CompanionDocI18n = {
     city: 'Stadt',
     address: 'Adresse',
     taxId: 'Reg.-Nr.',
+    representative: 'Vertreter',
     docList: {
       certificate: 'Betrifft Dokument:',
       ppprotocol: 'Dokumente, zu denen dieses Protokoll ausgestellt wurde:',
@@ -245,6 +250,7 @@ const mk: CompanionDocI18n = {
     city: 'Град',
     address: 'Адреса',
     taxId: 'ЕДБ',
+    representative: 'Застапник',
     docList: {
       certificate: 'Се однесува на документ:',
       ppprotocol: 'Список на документи по кои е издаден протоколот:',
