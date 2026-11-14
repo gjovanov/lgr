@@ -216,9 +216,10 @@ function newContact(orgId: string, type: string, item: AnalyticItem) {
 
 /**
  * How a partner with no Contact is treated (FR-25 R7). A books org of its own makes one for every
- * partner it meets (`create`), and finds one only of the partner's own type. A store keeping a share
- * (`split`) also finds one typed `both`; at analytics time it only links (`create: false`), and makes
- * a partner's Contact when one of its own entries names it.
+ * partner it meets (`create`), and finds one only of the partner's own type, by its key as written. A
+ * store keeping a share (`split`) finds a partner with a number by any number a contact holds, of any
+ * type (`contact-match.ts`); at analytics time it only links (`create: false`), and makes a partner's
+ * Contact when one of its own entries names it.
  */
 interface ContactPolicy {
   create: boolean
@@ -263,8 +264,9 @@ async function ensureAnalytics(
   const contactIds = new Map<string, mongoose.Types.ObjectId>()
   if (partners.length) {
     const held = new ContactIndex<mongoose.Types.ObjectId>(policy.split)
-    const rows: any[] = await Contact.find({ orgId }, { type: 1, taxId: 1, vatNumber: 1, companyName: 1 }).lean()
-    for (const c of rows) held.add(c._id, c)
+    // A split finds a partner by any number a contact holds, the oldest first (`contact-match.ts`).
+    const rows: any[] = await Contact.find({ orgId }, { type: 1, taxId: 1, taxNumber: 1, vatNumber: 1, companyName: 1, createdAt: 1 }).lean()
+    for (const c of rows) held.add(c._id, { ...c, createdAt: c.createdAt ?? c._id.getTimestamp() })
     // A store's partner met by the journal is made from what its analytic keeps of the file (R7).
     const kept = policy.split ? await itemsKept(orgId, partners.filter(p => !p.item && known.has(p.path)).map(p => p.path)) : new Map<string, AnalyticItem>()
 

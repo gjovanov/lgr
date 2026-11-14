@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { ownerOf, ownsEntry, planMonth } from 'services/biz/accounting-books/journal-plan'
-import { ContactIndex, matchRank } from 'services/biz/accounting-books/contact-match'
+import { ContactIndex, matchRank, numberMatchRank, numberOf, numbersOf, type ContactIdentity } from 'services/biz/accounting-books/contact-match'
 import { itemOfRow, paramsOfRow, parseAnalyticsFile } from 'services/biz/accounting-books/plusminus-exports'
 import {
   compareTrialBalance,
@@ -67,7 +67,8 @@ describe('who holds an entry', () => {
 })
 
 describe('which contact a partner analytic finds', () => {
-  const index = (split: boolean, ...contacts: [string, string, { taxId?: string; vatNumber?: string; companyName?: string }][]) => {
+  type Held = [string, string, Omit<ContactIdentity, 'type'>]
+  const index = (split: boolean, ...contacts: Held[]) => {
     const i = new ContactIndex<string>(split)
     for (const [id, type, keys] of contacts) i.add(id, { type, ...keys })
     return i
@@ -80,33 +81,74 @@ describe('which contact a partner analytic finds', () => {
     expect(held.find({ type: 'both', taxId: '1' })).toBe('b1')
   })
 
-  it('in a split: a customer finds a customer first, else someone who both buys and sells', () => {
-    expect(index(true, ['b', 'both', { taxId: '1' }], ['c', 'customer', { taxId: '1' }]).find({ type: 'customer', taxId: '1' })).toBe('c')
-    expect(index(true, ['b', 'both', { taxId: '1' }]).find({ type: 'customer', taxId: '1' })).toBe('b')
-    expect(index(true, ['s', 'supplier', { taxId: '1' }]).find({ type: 'customer', taxId: '1' })).toBeUndefined()
+  it('in a books org of its own: one key, as written, unchanged by R7\'s numbers', () => {
+    const held = index(false,
+      ['spaced', 'customer', { taxId: '000 000 011' }],
+      ['vat', 'customer', { vatNumber: 'BG000000022', createdAt: '2020-01-01' }],
+      ['form', 'customer', { taxNumber: '000000033' }],
+      ['named', 'customer', { companyName: 'Фирма', taxId: '000000044' }],
+    )
+    expect(held.find({ type: 'customer', taxId: '000000011' })).toBeUndefined()
+    // The first identifier only: an ЕИК that finds no one is not followed by the VAT number.
+    expect(held.find({ type: 'customer', taxId: '000000022', vatNumber: 'BG000000022' })).toBeUndefined()
+    expect(held.find({ type: 'customer', vatNumber: 'BG000000022' })).toBe('vat')
+    expect(held.find({ type: 'customer', taxId: '000000033' })).toBeUndefined()
+    expect(held.find({ type: 'supplier', vatNumber: 'BG000000022' })).toBeUndefined()
+    // A short number is still a number here: looked up as written, and never followed by the name (a split takes the name).
+    const short = index(false, ['n', 'customer', { companyName: 'Фирма' }])
+    expect(short.find({ type: 'customer', taxId: '12', companyName: 'Фирма' })).toBeUndefined()
+    expect(index(true, ['n', 'customer', { companyName: 'Фирма' }]).find({ type: 'customer', taxId: '12', companyName: 'Фирма' })).toBe('n')
+    expect(held.find({ type: 'customer', companyName: 'Фирма' })).toBe('named')
   })
 
-  it('in a split: a supplier finds a supplier or a `both`, never a customer', () => {
-    expect(index(true, ['b', 'both', { taxId: '1' }]).find({ type: 'supplier', taxId: '1' })).toBe('b')
-    expect(index(true, ['c', 'customer', { taxId: '1' }]).find({ type: 'supplier', taxId: '1' })).toBeUndefined()
-  })
+  // A split (R7). [what, the contacts the store holds, the partner, who it finds]
+  const ID = '000000011'
+  const SPLIT: [string, Held[], ContactIdentity, string | undefined][] = [
+    ['a spaced ЕИК', [['h', 'customer', { taxId: '000 000 011' }]], { type: 'customer', taxId: ID }, 'h'],
+    ['a `BG` VAT number, against the partner\'s ЕИК', [['h', 'customer', { vatNumber: 'BG 000000011' }]], { type: 'customer', taxId: ID }, 'h'],
+    ['dashes and dots', [['h', 'customer', { taxId: '000-000.011' }]], { type: 'customer', vatNumber: 'BG000000011' }, 'h'],
+    ['the ЕИК kept only in `taxNumber` (the form\'s field)', [['h', 'customer', { taxNumber: ID }]], { type: 'customer', taxId: ID }, 'h'],
+    ['the partner\'s VAT number when its ЕИК finds no one', [['h', 'customer', { taxId: '000000099' }]], { type: 'customer', taxId: ID, vatNumber: 'BG000000099' }, 'h'],
+    ['its ЕИК before its VAT number', [['v', 'customer', { taxId: '000000099' }], ['e', 'supplier', { taxId: ID }]], { type: 'customer', taxId: ID, vatNumber: 'BG000000099' }, 'e'],
+    ['a supplier, for a customer: the same company', [['s', 'supplier', { taxId: ID }]], { type: 'customer', taxId: ID }, 's'],
+    ['a customer, for a supplier', [['c', 'customer', { taxId: ID }]], { type: 'supplier', taxId: ID }, 'c'],
+    ['its own type first', [['s', 'supplier', { taxId: ID }], ['b', 'both', { taxId: ID }], ['c', 'customer', { taxId: ID }]], { type: 'customer', taxId: ID }, 'c'],
+    ['a `both` before the other type', [['s', 'supplier', { taxId: ID }], ['b', 'both', { taxId: ID }]], { type: 'customer', taxId: ID }, 'b'],
+    ['a partner: a `both` first', [['c', 'customer', { taxId: ID }], ['b', 'both', { taxId: ID }], ['s', 'supplier', { taxId: ID }]], { type: 'both', taxId: ID }, 'b'],
+    ['a partner: else anyone, the oldest', [['s', 'supplier', { taxId: ID, createdAt: '2025-02-01' }], ['c', 'customer', { taxId: ID, createdAt: '2025-01-01' }]], { type: 'both', taxId: ID }, 'c'],
+    ['of two of a type, the oldest, wherever it is held', [['new', 'customer', { taxId: ID, createdAt: '2026-02-01' }], ['old', 'customer', { vatNumber: 'BG000000011', createdAt: '2025-01-01' }]], { type: 'customer', taxId: ID }, 'old'],
+    ['of two made at once, the lowest id', [['b2', 'customer', { taxId: ID, createdAt: '2025-01-01' }], ['b1', 'customer', { taxId: ID, createdAt: '2025-01-01' }]], { type: 'customer', taxId: ID }, 'b1'],
+    ['one this run made (no date) after any held', [['run', 'customer', { taxId: ID }], ['held', 'customer', { taxId: ID, createdAt: '2025-01-01' }]], { type: 'customer', taxId: ID }, 'held'],
+    ['the same name with another number: no one', [['n', 'customer', { companyName: 'Фирма', taxId: '000000022' }]], { type: 'customer', taxId: ID, companyName: 'Фирма' }, undefined],
+    ['the same name and no number held: still no one, a number is never matched by name', [['n', 'customer', { companyName: 'Фирма' }]], { type: 'customer', taxId: ID, companyName: 'Фирма' }, undefined],
+    ['a partner with no number: by its name', [['n', 'customer', { companyName: 'Фирма', taxId: '000000022' }]], { type: 'customer', companyName: 'Фирма' }, 'n'],
+    ['by name: its own type, else a `both`', [['b', 'both', { companyName: 'Фирма' }]], { type: 'supplier', companyName: 'Фирма' }, 'b'],
+    ['by name: never the other type, as before', [['s', 'supplier', { companyName: 'Фирма' }]], { type: 'customer', companyName: 'Фирма' }, undefined],
+    ['by name: the last one held of equals, as before', [['n1', 'customer', { companyName: 'Фирма', createdAt: '2025-01-01' }], ['n2', 'customer', { companyName: 'Фирма', createdAt: '2026-01-01' }]], { type: 'customer', companyName: 'Фирма' }, 'n2'],
+    ['fewer than 5 digits is no number: by its name', [['n', 'customer', { companyName: 'Фирма' }], ['d', 'customer', { taxId: '1234' }]], { type: 'customer', taxId: '1234', companyName: 'Фирма' }, 'n'],
+    ['a placeholder is no number: by its name', [['z', 'customer', { taxId: '000000000' }], ['n', 'customer', { companyName: 'Фирма' }]], { type: 'customer', taxId: '000 000 000', companyName: 'Фирма' }, 'n'],
+    ['neither a number nor a name: no one', [['n', 'customer', { companyName: 'Фирма' }]], { type: 'customer' }, undefined],
+  ]
 
-  it('in a split: a partner finds anyone, a `both` first', () => {
-    expect(index(true, ['c', 'customer', { taxId: '1' }]).find({ type: 'both', taxId: '1' })).toBe('c')
-    expect(index(true, ['c', 'customer', { taxId: '1' }], ['b', 'both', { taxId: '1' }], ['s', 'supplier', { taxId: '1' }]).find({ type: 'both', taxId: '1' })).toBe('b')
-  })
+  for (const [what, held, wanted, found] of SPLIT) {
+    it(`in a split, ${what}`, () => {
+      expect(index(true, ...held).find(wanted)).toBe(found as string)
+    })
+  }
 
-  it('looks up by the partner\'s first identifier only: never its name when it has a number', () => {
-    const held = index(true, ['n', 'customer', { companyName: 'Едно' }], ['v', 'customer', { vatNumber: 'BG2' }])
-    expect(held.find({ type: 'customer', taxId: '9', companyName: 'Едно' })).toBeUndefined()
-    expect(held.find({ type: 'customer', companyName: 'Едно' })).toBe('n')
-    expect(held.find({ type: 'customer', vatNumber: 'BG2', companyName: 'Друго' })).toBe('v')
-    expect(held.find({ type: 'customer' })).toBeUndefined()
+  it('a number is its digits, of at least five, and never a placeholder', () => {
+    expect(numberOf('BG 000-000.011')).toBe('000000011')
+    expect(numberOf(' 000000011 ')).toBe('000000011')
+    expect([numberOf('1234'), numberOf(''), numberOf(undefined), numberOf('BG')]).toEqual([undefined, undefined, undefined, undefined])
+    expect(['000000000', '99999', '123456789', '0123456789', '1234567890'].map(numberOf)).toEqual([undefined, undefined, undefined, undefined, undefined])
+    expect(numbersOf({ taxId: ID, taxNumber: '000 000 011', vatNumber: 'BG000000011' })).toEqual([ID])
+    expect(numbersOf({ vatNumber: 'BG000000022', taxId: ID })).toEqual([ID, '000000022'])
   })
 
   it('ranks a stand-in after the type itself, and never in a books org of its own', () => {
     expect([matchRank('customer', 'customer', true), matchRank('customer', 'both', true), matchRank('customer', 'supplier', true)]).toEqual([0, 1, undefined])
     expect(matchRank('customer', 'both', false)).toBeUndefined()
+    expect([numberMatchRank('customer', 'customer'), numberMatchRank('customer', 'both'), numberMatchRank('customer', 'supplier'), numberMatchRank('both', 'supplier')]).toEqual([0, 1, 2, 2])
   })
 })
 

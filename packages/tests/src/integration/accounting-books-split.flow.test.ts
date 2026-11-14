@@ -303,11 +303,29 @@ describe('a store\'s contacts', () => {
     expect(String(line.contactId)).toBe(String(both._id))
   })
 
-  it('a supplier of the store is no stand-in for a customer: one is made instead', async () => {
-    await Contact.create({ orgId: group.store, type: 'supplier', companyName: 'Клиент Б', taxId: '000000022' })
-    await chartAndAnalytics([group.store])
-    await journal(group.store, '2025-03', MARCH)
-    expect((await Contact.find({ orgId: group.store }).lean()).map((c: any) => c.type).sort()).toEqual(['customer', 'supplier'])
+  it('a supplier of the store is the company a customer of the books names: found by its number however it is written, and keeps its type', async () => {
+    // The shop buys from this company and typed its number with spaces; the books sell to it.
+    const supplier = await Contact.create({ orgId: group.store, type: 'supplier', companyName: 'Клиент Б ООД', taxId: '000 000 022' })
+    await importChart(group.store, { ...execute, accounts: CHART }, group.by)
+    expect((await importAnalytics(group.store, { ...execute, items: ITEMS }, group.by)).contacts).toMatchObject({ created: 0, linked: 1, deferred: 5 })
+    expect((await journal(group.store, '2025-03', MARCH)).split!.contacts).toEqual({ created: 0, linked: 0 })
+
+    expect(await Contact.countDocuments({ orgId: group.store })).toBe(1)
+    expect(await Contact.findById(supplier._id).lean()).toMatchObject({ type: 'supplier', taxId: '000 000 022' })
+    const line = (await entries(group.store))[0].lines.find((l: any) => l.contactId)
+    expect(String(line.contactId)).toBe(String(supplier._id))
+  })
+
+  it('a number held only as a VAT number, or only in the form\'s ЕИК field, is found; a placeholder is not', async () => {
+    const vat = await Contact.create({ orgId: group.store, type: 'customer', companyName: 'Клиент Б', vatNumber: 'BG 000000022' })
+    const form = await Contact.create({ orgId: group.store, type: 'both', companyName: 'Клиент В', taxNumber: '000-000-033' })
+    await Contact.create({ orgId: group.store, type: 'customer', companyName: 'Някой', taxId: '000000000' })
+    await importAnalytics(group.store, { ...execute, items: [...ITEMS, { path: 'КЛИЕНТИ:Без номер', taxId: '000 000 000' }] }, group.by)
+    const linked = async (path: string) => (await AccountingAnalytic.findOne({ orgId: group.store, path }).lean() as any).contactId
+    expect(String(await linked(CUST_B))).toBe(String(vat._id))
+    expect(String(await linked(CUST_C))).toBe(String(form._id))
+    // A placeholder names no company: the partner is looked up by its name, which no contact has.
+    expect(await linked('КЛИЕНТИ:Без номер')).toBeUndefined()
   })
 
   it('a store\'s own contacts are never filled in by the books', async () => {

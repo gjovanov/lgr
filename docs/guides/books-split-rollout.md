@@ -30,7 +30,7 @@ ids itself.
 | Every other entry: bank, purchases, VAT protocols, operations with no document, stock documents, payroll postings, the till's monthly rows, the sales of a store outside LGR | `<home>` |
 | The opening of each year | `<home>`, one entry. `<store>` answers `unchanged, lines: 0` and writes nothing |
 | The chart, the analytic tree | both, whole |
-| Contacts | linked to what each org already has; made only for partners the org's own entries or opening name |
+| Contacts | linked to what each org already has, by number and of any type; made only for partners the org's own entries or opening name (step 6, "Contacts") |
 | VAT returns and registers | `<home>` |
 | Payroll (personal data) | stays in `<books>` |
 
@@ -163,6 +163,53 @@ What each line should say:
 
 `continuity` is `null` in a split: a share's closing is not the company's. The nightly checks it for
 the group, from the archive (step 9); the gate's opening columns prove it too (step 7).
+
+#### Contacts
+
+A partner analytic (`КЛИЕНТИ`, `ДОСТАВЧИЦИ`, `ПАРТНЬОРИ`) stands for a Contact of the org. Each org
+finds its own, by the rule in `contact-match.ts`:
+
+- **A partner with a number** is linked to the contact that holds the number, whatever the contact's
+  type and however the number was typed. Only the digits count (`BG`, spaces, dashes and dots do not),
+  and the ЕИК, the form's ЕИК field and the VAT number are all looked at. Fewer than 5 digits, or a
+  number typed to fill the box (`000000000`), is no number. Of several contacts, the partner's own type
+  comes first, then one that both buys and sells, then the other type; of equals, the oldest. Being found
+  never changes a contact's type: a supplier of the shop that the books sell to stays a supplier.
+- **A partner with no number** is linked by its name, to a contact of its own type or one that both buys
+  and sells. A partner with a number is never linked by name: two companies can share one.
+- **Nobody found:** the analytics step only links (`contacts.deferred` counts the rest). A journal month
+  or the opening makes a Contact for a partner its own entries name, with the numbers, address and МОЛ
+  its analytic keeps (`split.contacts.created`). A sister store's customers and the supplier list never
+  become a store's contacts.
+
+The first import into the store orgs ran before this rule. It compared numbers as written and looked
+only at contacts of the partner's own type, so it made a second contact for some companies a store
+already had. Once the release with the rule is deployed, repair each org of the split, while nothing
+imports into it (not while the nightly or a daily document import runs):
+
+```bash
+bun scripts/relink-books-contacts.ts --org <org>                                   # dry run: counts only
+bun scripts/relink-books-contacts.ts --org <org> --execute --expect <pairs> [--out <dir>]
+```
+
+It runs on the build host against the cluster's Mongo, like `link-books`. A **pair** is a contact the
+import made and an older contact that holds one of its numbers. "Made by the import" means made since
+the books import began in that org and named by nothing but the books: no document, file, e-mail,
+notification or document-import analysis names it, and nobody edited it in the app. For each pair, the
+analytics and every journal line of the org point at the older contact, and the made one is deleted once
+nothing names it any more. It leaves alone, and only counts:
+
+- made contacts with no number, or with numbers no older contact holds;
+- those something besides the books names;
+- those that only share a name with an older contact that has no number.
+
+Before its first write it writes a manifest outside the checkout. The manifest holds whole contacts, so
+keep it private. `--undo <manifest>` (a dry run, then `--execute`) makes the deleted contacts again,
+exactly as they were, and points the books back. A second run finds no pair.
+
+⚠ The contact on a line is part of an imported entry's stored hash. So the next import of each month
+(the nightly's) reports the re-pointed entries as `changed`, once, and writes them as they already are.
+Take step 7's "unchanged" proof after that import, not between the repair and it.
 
 ### Step 7: the proofs
 
