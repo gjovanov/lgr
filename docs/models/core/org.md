@@ -76,9 +76,9 @@ interface IOrg extends Document {
 | logo | string | No | - | URL or path to organization logo |
 | ownerId | string (ObjectId) | Yes | - | References the User who owns this org |
 | taxNumber, vatNumber, email, phone, website | string | No | - | The company's identity, as its documents print it. Settings → Organization → Company Identity |
-| representative | string | No | - | FR-25a. The person legally responsible for the company (МОЛ / управител). `PUT /org/:orgId`, returned by `GET /org/:orgId` and `/auth/me` |
-| placeOfIssue | string | No | - | FR-25a. Where the company's documents are issued (`Място на сделката`), a town. One value for every document the accountant's books hold, so it is the company's, not a document's (an invoice keeps its own in `placeOfTransaction`) |
-| activityCode | string | No | - | FR-25a. The economic activity code (КИД/НКИД) |
+| representative | string | No | - | FR-25a. The person legally responsible for the company (МОЛ / управител). `PUT /org/:orgId` (at most 200 characters, stored trimmed, `''` unsets it), returned by `GET /org/:orgId` and `/auth/me`. Settings → Organization, Company Identity. Printed in the company's block on the invoice and companion forms when set |
+| placeOfIssue | string | No | - | FR-25a. Where the company's documents are issued (`Място на сделката`), a town. One value for every document the accountant's books hold, so it is the company's, not a document's (an invoice keeps its own in `placeOfTransaction`). At most 100 characters, stored trimmed, `''` unsets it. The invoice form prints it as the place of transaction of a document that has none of its own (`config/party-identity#placeOfIssueOf`) |
+| activityCode | string | No | - | FR-25a. The economic activity code (КИД/НКИД): digits joined by dots (`47.52`), at most 20 characters, `''` unsets it. No document prints it |
 | addresses, bankDetails | array | No | `[]` | The company's addresses and bank accounts |
 | settings | JSON (IOrgSettings) | Yes | `{}` | Organization settings (see interface above) |
 | settings.baseCurrency | string | Yes | `'EUR'` | ISO currency code |
