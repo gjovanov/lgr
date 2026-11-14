@@ -394,8 +394,9 @@ export function buildInvoiceHtml(
 
   // ── Tax event / place / payment ──
   const payMethod = (i18n.paymentMethod as Record<string, string>)[inv.paymentMethod || ''] || ''
-  // FR-25a: the document's own place wins; the company's place of issue stands in for a document that has none.
-  const place = placeOfIssueOf(inv.placeOfTransaction, org)
+  // FR-25a: the document's own place wins; the company's place of issue stands in for a document that has none — on a
+  // document the company issued. A bill is its supplier's: where the supplier issued it is not ours to fill in.
+  const place = placeOfIssueOf(inv.placeOfTransaction, inv.direction === 'incoming' ? null : org)
   const metaRow = `
     <table class="meta-row">
       <tr>

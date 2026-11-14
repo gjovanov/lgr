@@ -185,6 +185,12 @@ describe('the place of issue: the document\'s own place wins, the company\'s sta
     expect(invoiceHtml('credit note (de)', { ...ORG, placeOfIssue: 'Anderswo' })).not.toContain('Anderswo')
   })
 
+  it('a bill is its supplier\'s document: the company\'s place never stands in for where the supplier issued it', () => {
+    expect(invoiceHtml('bill (bg)', { ...ORG, placeOfIssue: 'Тестоград' })).not.toContain('Място на сделката')
+    expect(invoiceHtml('bill (bg)', { ...ORG, placeOfIssue: 'Тестоград' }, CONTACT, { placeOfTransaction: 'Пробоград' }))
+      .toContain('<td>Място на сделката: Пробоград</td>')
+  })
+
   it('a document whose place is blank takes the company\'s; neither prints nothing', () => {
     expect(invoiceHtml('cash sale (bg)', { ...ORG, placeOfIssue: 'Тестоград' }, CONTACT, { placeOfTransaction: '   ' }))
       .toContain('<td>Място на сделката: Тестоград</td>')
