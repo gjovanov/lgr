@@ -209,7 +209,10 @@ export const useAccountingStore = defineStore('accounting', () => {
   async function fetchAccounts() {
     loading.value = true
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/accounting/account`)
+      // Every account, not the API's first page of 10: the pickers of the journal entry, the fixed assets, the bank
+      // accounts and the ledger all look an account up here, and an account missing from this list shows as its raw id.
+      // A books org holds a few hundred (the demo orgs never held more than a handful, which hid it).
+      const { data } = await httpClient.get(`${orgUrl()}/accounting/account`, { params: { size: 0 } })
       accounts.value = data.accounts || []
     } finally {
       loading.value = false
