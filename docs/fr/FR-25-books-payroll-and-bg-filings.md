@@ -1025,7 +1025,7 @@ What a later release should know:
 | Every other entry: bank, purchases, VAT protocols, operations with no document, stock documents, payroll postings (`ЗАП`, totals, no person), the till's monthly rows, the sales of a store outside LGR | the home |
 | The opening of a year | the home, one entry. A store's share starts from nothing and reads its balances from the home's opening on, so a year is never added twice |
 | The chart and the analytic tree | every org, whole |
-| A partner's Contact | linked to a contact the org already has (a customer finds a customer or a contact typed `both`); made only for a partner the org's own entries or opening name, from what its analytic keeps of the file |
+| A partner's Contact | linked to a contact the org already has: a partner with a number by the digits of any number a contact holds, whatever its type (its own type first, then `both`, then the other type; the oldest of equals), one without a number by its name (`contact-match.ts`); made only for a partner the org's own entries or opening name, from what its analytic keeps of the file. What the first import made twice: `scripts/relink-books-contacts.ts` |
 | VAT returns and registers (`TaxReturn`, `VatRegisterEntry`) | the home |
 | Payroll's personal data (employees, contracts, runs, the sealed key) | **stays in `regal-acc`** |
 
