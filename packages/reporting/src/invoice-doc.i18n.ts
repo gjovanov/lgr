@@ -51,6 +51,8 @@ export interface InvoiceDocI18n {
     address: string
     taxId: string
     vatId: string
+    /** The МОЛ, the person legally responsible for a party (FR-25a): printed only when a party has one. */
+    representative: string
     subtotal: string
     taxTotal: string
     total: string
@@ -121,6 +123,7 @@ const bg: InvoiceDocI18n = {
     address: 'Адрес',
     taxId: 'ЕИК',
     vatId: 'ИН по ДДС',
+    representative: 'МОЛ',
     subtotal: 'Междинна сума',
     taxTotal: 'Общо ДДС',
     total: 'Общо',
@@ -196,6 +199,7 @@ const en: InvoiceDocI18n = {
     address: 'Address',
     taxId: 'Reg. No',
     vatId: 'VAT No',
+    representative: 'Representative',
     subtotal: 'Subtotal',
     taxTotal: 'Tax Total',
     total: 'Total',
@@ -270,6 +274,7 @@ const de: InvoiceDocI18n = {
     address: 'Adresse',
     taxId: 'Reg.-Nr.',
     vatId: 'USt-IdNr.',
+    representative: 'Vertreter',
     subtotal: 'Zwischensumme',
     taxTotal: 'Steuer gesamt',
     total: 'Gesamt',
@@ -344,6 +349,7 @@ const mk: InvoiceDocI18n = {
     address: 'Адреса',
     taxId: 'ЕМБС',
     vatId: 'ЕДБ',
+    representative: 'Застапник',
     subtotal: 'Меѓузбир',
     taxTotal: 'Вкупен ДДВ',
     total: 'Вкупно',

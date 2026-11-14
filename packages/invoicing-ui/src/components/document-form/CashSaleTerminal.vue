@@ -270,6 +270,7 @@
           v-if="config.showSignatureFooter"
           :prepared-by="form.preparedBy || userFullName"
           :place="form.placeOfTransaction"
+          :org-place="appStore.currentOrg?.placeOfIssue"
         />
       </v-defaults-provider>
     </v-form>

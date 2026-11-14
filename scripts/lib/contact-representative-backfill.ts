@@ -10,7 +10,8 @@
  *   - `conflict`: the representative names someone else. Both stay, for a person to look at.
  *
  * Each write is conditional on what the plan read (the same notes, the same representative), so a contact edited
- * between the dry run and the run is skipped, never overwritten. Nothing else on the contact changes.
+ * between the dry run and the run is skipped, never overwritten. Nothing else on the contact changes, but the МОЛ's
+ * search mirror (`representativeLower`), which the model's plugin keeps and a bulk write bypasses.
  */
 import { mongoose } from '../../packages/db/src/connection.js'
 import { legacyRepresentativeOf } from '../../packages/config/src/contact-representative.js'
@@ -52,6 +53,8 @@ export function planRepresentativeMoves(rows: readonly ContactNotesRow[]): Repre
 }
 
 const oid = (id: string) => new mongoose.Types.ObjectId(id)
+/** The search mirror, as `loweredFieldsPlugin` (locale `bg`) writes it. */
+const lowered = (name: string) => name.toLocaleLowerCase('bg')
 const NO_REPRESENTATIVE = [{ representative: { $exists: false } }, { representative: null }, { representative: '' }]
 
 /** The writes of a plan, each conditional on the contact still being as the plan read it. */
@@ -59,7 +62,7 @@ export function representativeWrites(orgId: string, moves: readonly Representati
   const ops: any[] = []
   for (const m of moves) {
     if (m.kind === 'move') {
-      ops.push({ updateOne: { filter: { _id: oid(m.id), orgId: oid(orgId), notes: m.notes, $or: NO_REPRESENTATIVE }, update: { $set: { representative: m.name }, $unset: { notes: 1 } } } })
+      ops.push({ updateOne: { filter: { _id: oid(m.id), orgId: oid(orgId), notes: m.notes, $or: NO_REPRESENTATIVE }, update: { $set: { representative: m.name, representativeLower: lowered(m.name) }, $unset: { notes: 1 } } } })
     } else if (m.kind === 'clear') {
       ops.push({ updateOne: { filter: { _id: oid(m.id), orgId: oid(orgId), notes: m.notes, representative: m.name }, update: { $unset: { notes: 1 } } } })
     }
@@ -73,7 +76,7 @@ export function undoWrites(orgId: string, moves: readonly RepresentativeMove[]):
   for (const m of moves) {
     if (m.kind === 'conflict') continue
     const filter = { _id: oid(m.id), orgId: oid(orgId), representative: m.name, notes: { $exists: false } }
-    ops.push({ updateOne: { filter, update: m.kind === 'move' ? { $set: { notes: m.notes }, $unset: { representative: 1 } } : { $set: { notes: m.notes } } } })
+    ops.push({ updateOne: { filter, update: m.kind === 'move' ? { $set: { notes: m.notes }, $unset: { representative: 1, representativeLower: 1 } } : { $set: { notes: m.notes } } } })
   }
   return ops
 }

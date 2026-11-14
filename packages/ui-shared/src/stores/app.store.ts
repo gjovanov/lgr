@@ -68,6 +68,12 @@ export interface Organization {
   email?: string
   phone?: string
   website?: string
+  /** FR-25a: the company's МОЛ, printed under its name on every document it issues. */
+  representative?: string
+  /** FR-25a: where its documents are issued: printed where a document names no place of its own. */
+  placeOfIssue?: string
+  /** FR-25a: its economic activity code. No document prints it. */
+  activityCode?: string
   addresses?: OrgAddress[]
   bankDetails?: OrgBankDetail[]
 }

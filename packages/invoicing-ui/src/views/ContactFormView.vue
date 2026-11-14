@@ -97,7 +97,7 @@
               <!-- FR-25a: the МОЛ, the person legally responsible for the company. The importers write it here
                    since #746 (before, a notes line `МОЛ: <name>`). -->
               <v-col cols="12" md="4">
-                <v-text-field v-model="form.representative" :label="$t('invoicing.representative')" data-testid="contact-representative" />
+                <v-text-field v-model="form.representative" :label="$t('invoicing.representative')" :rules="[rules.representative]" data-testid="contact-representative" />
               </v-col>
               <v-col cols="12" md="4">
                 <v-text-field
@@ -115,6 +115,38 @@
               </v-col>
             </v-row>
             <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" />
+            <!-- FR-25a §3.5: a МОЛ still kept as a notes line, `МОЛ: <name>`, moves into its field on a click. Exactly that
+                 line leaves the notes; nothing is stored until the contact is saved, and until then it can be undone. -->
+            <v-alert
+              v-if="representativeMove"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="representative-in-notes"
+            >
+              {{ $t('invoicing.moveRepresentativeHint', { name: representativeMove.name }) }}
+              <template #append>
+                <v-btn size="small" variant="text" color="primary" data-testid="move-representative" @click="moveRepresentative">
+                  {{ $t('invoicing.moveRepresentative') }}
+                </v-btn>
+              </template>
+            </v-alert>
+            <v-alert
+              v-else-if="movedRepresentative"
+              type="success"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="representative-moved"
+            >
+              {{ $t('invoicing.representativeMoved') }}
+              <template #append>
+                <v-btn size="small" variant="text" data-testid="undo-move-representative" @click="undoMoveRepresentative">
+                  {{ $t('invoicing.undoMoveRepresentative') }}
+                </v-btn>
+              </template>
+            </v-alert>
 
             <v-divider class="my-4" />
 
@@ -139,7 +171,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
@@ -157,6 +189,8 @@ import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { buildContactPayload, isValidOptionalEmail } from 'ui-shared/composables/contact-payload'
 import { cleanContactAliases, contactAliasesFit, MAX_CONTACT_ALIASES, MAX_CONTACT_ALIAS_LENGTH } from 'config/contact-aliases'
+import { representativeMoveOf } from 'config/contact-representative'
+import { MAX_REPRESENTATIVE_LENGTH } from 'config/party-identity'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -248,7 +282,37 @@ const rules = {
   email: (v: string) => isValidOptionalEmail(v) || t('validation.invalidEmail'),
   // The API's own bounds, said here instead of as a schema error after the save.
   aliases: (v: string[]) => contactAliasesFit(cleanContactAliases(v)) || t('invoicing.alsoKnownAsLimit', { count: MAX_CONTACT_ALIASES, length: MAX_CONTACT_ALIAS_LENGTH }),
+  representative: (v: string) => (v || '').trim().length <= MAX_REPRESENTATIVE_LENGTH || t('validation.maxLength', { max: MAX_REPRESENTATIVE_LENGTH }),
 }
+
+// ── FR-25a §3.5: "move to the field" ──
+/** What the move would do, while the notes still keep the МОЛ as a line (`config/contact-representative`). */
+const representativeMove = computed(() => representativeMoveOf(form.notes, form.representative))
+/** The two fields before the move, and as the move left them: the undo, offered until the contact is saved. */
+const movedRepresentative = ref<{ before: { notes: string; representative: string }; after: { notes: string; representative: string } } | null>(null)
+
+function moveRepresentative() {
+  const move = representativeMove.value
+  if (!move) return
+  const before = { notes: form.notes, representative: form.representative }
+  form.notes = move.notes
+  form.representative = move.name
+  movedRepresentative.value = { before, after: { notes: form.notes, representative: form.representative } }
+}
+
+function undoMoveRepresentative() {
+  const moved = movedRepresentative.value
+  if (!moved) return
+  form.notes = moved.before.notes
+  form.representative = moved.before.representative
+  movedRepresentative.value = null
+}
+
+// A person's own edit to either field after the move is theirs: an undo would overwrite it, so it is no longer offered.
+watch(() => [form.notes, form.representative], () => {
+  const moved = movedRepresentative.value
+  if (moved && (form.notes !== moved.after.notes || form.representative !== moved.after.representative)) movedRepresentative.value = null
+})
 
 const contactName = computed(() => {
   const parts = [form.companyName, form.firstName, form.lastName].filter(Boolean)

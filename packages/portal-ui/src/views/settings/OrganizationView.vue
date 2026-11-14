@@ -2,7 +2,7 @@
   <v-container fluid>
     <h1 class="text-h4 mb-6">{{ $t('settings.organization') }}</h1>
 
-    <v-form @submit.prevent="save">
+    <v-form ref="formRef" @submit.prevent="save">
       <!-- General Settings -->
       <v-card class="mb-4">
         <v-card-title>{{ $t('settings.generalInfo') }}</v-card-title>
@@ -30,6 +30,41 @@
           <v-row dense>
             <v-col cols="12" md="6"><v-text-field v-model="form.taxNumber" :label="$t('invoicing.taxNumber')" density="compact" /></v-col>
             <v-col cols="12" md="6"><v-text-field v-model="form.vatNumber" :label="$t('invoicing.vatNumber')" density="compact" /></v-col>
+          </v-row>
+          <!-- FR-25a §3.7: the company's МОЛ (printed in its block on every document it issues), the town its documents
+               are issued in (printed where a document has no place of its own), and its activity code (no document
+               prints it: statistics and the annual filings). -->
+          <v-row dense>
+            <v-col cols="12" md="4">
+              <v-text-field
+                v-model="form.representative"
+                :label="$t('settings.representative')"
+                :hint="$t('settings.representativeHint')"
+                :rules="[rules.representative]"
+                density="compact"
+                data-testid="org-representative"
+              />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field
+                v-model="form.placeOfIssue"
+                :label="$t('settings.placeOfIssue')"
+                :hint="$t('settings.placeOfIssueHint')"
+                :rules="[rules.placeOfIssue]"
+                density="compact"
+                data-testid="org-place-of-issue"
+              />
+            </v-col>
+            <v-col cols="12" md="4">
+              <v-text-field
+                v-model="form.activityCode"
+                :label="$t('settings.activityCode')"
+                :hint="$t('settings.activityCodeHint')"
+                :rules="[rules.activityCode]"
+                density="compact"
+                data-testid="org-activity-code"
+              />
+            </v-col>
           </v-row>
           <v-row dense>
             <v-col cols="12" md="4"><v-text-field v-model="form.email" :label="$t('invoicing.email')" type="email" density="compact" /></v-col>
@@ -378,12 +413,24 @@ import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { grantOfViewer } from 'ui-shared/nav/page-registry'
 import { can } from 'config/access'
 import { resizeImage, ImageResizeError } from 'ui-shared/composables/useImageResize'
+import {
+  isValidActivityCode, MAX_ACTIVITY_CODE_LENGTH, MAX_PLACE_OF_ISSUE_LENGTH, MAX_REPRESENTATIVE_LENGTH,
+} from 'config/party-identity'
 
 const { t } = useI18n()
 const store = useSettingsStore()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const saving = ref(false)
+const formRef = ref<any>(null)
+
+/** FR-25a: the API's own bounds (`config/party-identity`), said here instead of as a refusal after the save. */
+const fits = (v: unknown, max: number) => String(v ?? '').trim().length <= max || t('validation.maxLength', { max })
+const rules = {
+  representative: (v: string) => fits(v, MAX_REPRESENTATIVE_LENGTH),
+  placeOfIssue: (v: string) => fits(v, MAX_PLACE_OF_ISSUE_LENGTH),
+  activityCode: (v: string) => isValidActivityCode(v) || t('settings.activityCodeInvalid', { max: MAX_ACTIVITY_CODE_LENGTH }),
+}
 
 // ── Logo ──
 // The endpoint is bearer-authenticated, so the image cannot be an <img src="/api/..."> —
@@ -481,6 +528,10 @@ const form = reactive({
   email: '',
   phone: '',
   website: '',
+  // FR-25a: sent on every save, trimmed, so that clearing one clears it.
+  representative: '',
+  placeOfIssue: '',
+  activityCode: '',
   addresses: [] as Array<{ type: string; street: string; city: string; state?: string; postalCode: string; country: string; isDefault?: boolean }>,
   bankDetails: [] as Array<{ bankName: string; accountNumber?: string; iban?: string; swift?: string; currency?: string; isDefault?: boolean }>,
   baseCurrency: 'EUR',
@@ -586,6 +637,8 @@ async function sendTestDigest() {
 async function save() {
   // FR-27.7: Enter in a field submits the form; a role that only reads the settings has no Save to send.
   if (!isAdmin.value) return
+  const { valid } = (await formRef.value?.validate()) ?? { valid: true }
+  if (!valid) return
   saving.value = true
   try {
     const enabledModules = Object.entries(form.modules)
@@ -600,6 +653,10 @@ async function save() {
       email: form.email || undefined,
       phone: form.phone || undefined,
       website: form.website || undefined,
+      // FR-25a: `''` clears one (the server unsets it); `|| undefined` would keep a cleared value stored.
+      representative: form.representative.trim(),
+      placeOfIssue: form.placeOfIssue.trim(),
+      activityCode: form.activityCode.trim(),
       addresses: form.addresses.length ? form.addresses : undefined,
       bankDetails: form.bankDetails.length ? form.bankDetails : undefined,
       settings: {
@@ -655,6 +712,9 @@ onMounted(async () => {
     form.email = org.email || ''
     form.phone = org.phone || ''
     form.website = org.website || ''
+    form.representative = org.representative || ''
+    form.placeOfIssue = org.placeOfIssue || ''
+    form.activityCode = org.activityCode || ''
     form.addresses = (org.addresses || []).map((a: any) => ({ ...a }))
     form.bankDetails = (org.bankDetails || []).map((b: any) => ({ ...b }))
     form.baseCurrency = org.settings?.baseCurrency || 'EUR'

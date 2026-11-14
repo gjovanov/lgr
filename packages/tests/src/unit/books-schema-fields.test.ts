@@ -156,12 +156,13 @@ describe('the МОЛ that was a notes line (FR-25a)', () => {
     // each write is conditional on what the plan read: an edit made since is skipped, never overwritten
     expect(move.updateOne.filter).toMatchObject({ notes: 'МОЛ: Лице Едно' })
     expect(move.updateOne.filter.$or).toBeTruthy()
-    expect(move.updateOne.update).toEqual({ $set: { representative: 'Лице Едно' }, $unset: { notes: 1 } })
+    // with the search mirror, which the model's plugin would keep and a bulk write bypasses
+    expect(move.updateOne.update).toEqual({ $set: { representative: 'Лице Едно', representativeLower: 'лице едно' }, $unset: { notes: 1 } })
     expect(clear.updateOne.filter).toMatchObject({ notes: 'МОЛ: Лице Две', representative: 'Лице Две' })
     expect(clear.updateOne.update).toEqual({ $unset: { notes: 1 } })
 
     const [undoMove, undoClear] = undoWrites(orgId, moves)
-    expect(undoMove.updateOne.update).toEqual({ $set: { notes: 'МОЛ: Лице Едно' }, $unset: { representative: 1 } })
+    expect(undoMove.updateOne.update).toEqual({ $set: { notes: 'МОЛ: Лице Едно' }, $unset: { representative: 1, representativeLower: 1 } })
     expect(undoClear.updateOne.update).toEqual({ $set: { notes: 'МОЛ: Лице Две' } })
     expect(undoMove.updateOne.filter).toMatchObject({ representative: 'Лице Едно', notes: { $exists: false } })
   })

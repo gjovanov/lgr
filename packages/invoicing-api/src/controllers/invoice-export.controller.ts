@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { grantOf } from 'services/biz/access/evaluate'
 import { kindOfDocument, readsKind } from 'config/access'
+import { representativeOf } from 'config/party-identity'
 import { assertHomeIsHere, HomeElsewhereError } from 'db/home/home'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Invoice, Contact, Org, Product } from 'db/models'
@@ -436,6 +437,8 @@ function partyFromContact(contact: any, invoice: any) {
     city: addr?.city || '',
     address: [addr?.street, addr?.street2].filter(Boolean).join(' '),
     taxId: contact?.taxId || contact?.vatNumber || '',
+    // FR-25a: the form prints a МОЛ row only when a party has one.
+    representative: representativeOf(contact),
   }
 }
 
@@ -446,6 +449,7 @@ function partyFromOrg(org: any) {
     city: addr?.city || '',
     address: addr?.street || '',
     taxId: org?.taxNumber || org?.vatNumber || '',
+    representative: representativeOf(org),
   }
 }
 

@@ -11,6 +11,7 @@ import { pickerContacts } from 'services/biz/contact-picker.service'
 import { Invoice, StockMovement } from 'db/models'
 import { cleanContactAliases, MAX_CONTACT_ALIASES, MAX_CONTACT_ALIAS_LENGTH } from 'config/contact-aliases'
 import { QUOTE_TYPES } from 'config/constants'
+import { MAX_REPRESENTATIVE_LENGTH } from 'config/party-identity'
 
 /**
  * Email is optional, and an empty box is how a form says "none". `format: 'email'` alone
@@ -33,6 +34,15 @@ const otherNames = t.Optional(t.Array(
   t.String({ maxLength: MAX_CONTACT_ALIAS_LENGTH }),
   { maxItems: MAX_CONTACT_ALIASES, error: `Expected at most ${MAX_CONTACT_ALIASES} other names, each up to ${MAX_CONTACT_ALIAS_LENGTH} characters` },
 ))
+
+/**
+ * The МОЛ (FR-25a), a person's name: bounded so a careless client cannot store a document's worth of text, and stored
+ * trimmed (`trimmedRepresentative`). ⚠ Named in each body, or `t.Object` drops it and answers 200.
+ */
+const representativeField = t.Optional(t.String({ maxLength: MAX_REPRESENTATIVE_LENGTH }))
+
+/** The МОЛ as it is stored: trimmed; undefined when the body does not carry it. */
+const trimmedRepresentative = (v: string | undefined) => (typeof v === 'string' ? v.trim() : undefined)
 
 /** The statuses in which a document still owes. */
 const OWING_STATUSES = ['sent', 'partially_paid', 'overdue', 'received'] as const
@@ -88,10 +98,12 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     const filter: Record<string, any> = { orgId }
     if (query.search) {
       // `aliases`: a contact is found by its other names too („Also known as"), in the list and in every picker.
-      const searchFilter = buildSearchFilter(query.search as string, ['companyName', 'aliases', 'firstName', 'lastName', 'email', 'phone', 'taxId', 'vatNumber'], {
+      // `representative`: and by its МОЛ (FR-25a), through its mirror (`scripts/backfill-contact-representative-lower.ts`).
+      const searchFilter = buildSearchFilter(query.search as string, ['companyName', 'aliases', 'firstName', 'lastName', 'email', 'phone', 'taxId', 'vatNumber', 'representative'], {
         lowered: {
           companyName: 'companyNameLower',
           aliases: 'aliasesLower',
+          representative: 'representativeLower',
           firstName: 'firstNameLower',
           lastName: 'lastNameLower',
           email: 'emailLower',
@@ -135,10 +147,11 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
 
-      // An empty email means none: store nothing rather than ''. The same for other names: none, no field.
-      const { email, aliases, ...rest } = body
+      // An empty email means none: store nothing rather than ''. The same for other names and the МОЛ: none, no field.
+      const { email, aliases, representative, ...rest } = body
       const names = cleanContactAliases(aliases, rest.companyName)
-      const contact = await r.contacts.create({ ...rest, ...(email ? { email } : {}), ...(names.length ? { aliases: names } : {}), orgId } as any)
+      const mol = trimmedRepresentative(representative)
+      const contact = await r.contacts.create({ ...rest, ...(email ? { email } : {}), ...(names.length ? { aliases: names } : {}), ...(mol ? { representative: mol } : {}), orgId } as any)
       await upsertTags(orgId, 'contact', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'contact', entityId: contact.id, entityName: (contact as any).companyName || (contact as any).firstName })
@@ -170,7 +183,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         discount: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
         // FR-25a: the МОЛ. ⚠ Named here, or `t.Object` drops it and answers 200.
-        representative: t.Optional(t.String()),
+        representative: representativeField,
         tags: t.Optional(t.Array(t.String())),
         aliases: otherNames,
         isActive: t.Optional(t.Boolean()),
@@ -262,7 +275,9 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       // Other names are stored cleaned, against the name the contact will have after this save. A body that does
       // not carry them leaves them as they are; an empty list clears them.
       const names = body.aliases === undefined ? undefined : cleanContactAliases(body.aliases, body.companyName ?? (existing as any).companyName)
-      const contact = await r.contacts.updateInOrg(id, orgId, { ...body, ...(names ? { aliases: names } : {}) } as any)
+      // The МОЛ is stored trimmed; `''` clears it, as it does every text field of the form.
+      const mol = trimmedRepresentative(body.representative)
+      const contact = await r.contacts.updateInOrg(id, orgId, { ...body, ...(names ? { aliases: names } : {}), ...(mol !== undefined ? { representative: mol } : {}) } as any)
       await upsertTags(orgId, 'contact', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'contact', entityId: id, entityName: (contact as any).companyName || (contact as any).firstName, changes: diffChanges(existing as any, contact as any) })
@@ -294,7 +309,7 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         discount: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
         // FR-25a: the МОЛ. ⚠ Named here, or `t.Object` drops it and answers 200.
-        representative: t.Optional(t.String()),
+        representative: representativeField,
         tags: t.Optional(t.Array(t.String())),
         aliases: otherNames,
         isActive: t.Optional(t.Boolean()),

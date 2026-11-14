@@ -222,7 +222,11 @@ payment orders use them. ⚠ The key is `accounting.bankAccountBooks.*`: `accoun
 ### 3.5 Contacts — `Contact.representative`
 
 Built: the form's field, beside the tax and VAT numbers, trimmed on save (`contact-payload.ts`), and the grid's optional
-column, hidden by default. Still planned: the invoice print, "move to the field", the search, the 200 bound.
+column, hidden by default (#748). Then (slice D): the invoice and companion print (the МОЛ row closes each party's block,
+only when a party has one), "move to the field" (`config/contact-representative#representativeMoveOf`: one `МОЛ: <name>`
+line, even among other notes, with nothing joined to it and no other name in the field; undoable until saved), the
+search (through `representativeLower`; `scripts/backfill-contact-representative-lower.ts` once after the deploy), the 200
+bound and the trim on the server (`config/party-identity`).
 
 - Route / view: `/invoicing/contacts/:id/edit` (`ContactFormView.vue`, exists); list `ContactsView.vue` (exists).
 - Form: a `representative` text field ("МОЛ / Representative") beside the company name, max 200, trimmed; shown on the
@@ -260,6 +264,12 @@ column, hidden by default. Still planned: the invoice print, "move to the field"
   opens its document.
 
 ### 3.7 The company — `Org`
+
+Built (slice D): the three fields under the tax and VAT numbers, validated as the API is (`config/party-identity`); the API
+stores them trimmed and unsets one sent empty. The invoice form and both companions print the company's МОЛ in its block
+(the server's PDF and worksheet, and the document form's party block alike), and the invoice form prints its place of
+issue where a document names no place of its own (the companions print no place). A company that sets none prints byte
+for byte as before (`unit/print-party-identity.test.ts` pins the hashes).
 
 - Route / view: Settings → Organization (`portal-ui/src/views/settings/OrganizationView.vue`, exists), "Company Identity" card.
 - Form: add `representative` (text), `placeOfIssue` (text, a town), `activityCode` (text, digits and dots) next to the tax
@@ -373,7 +383,12 @@ holds it today. None is needed by a report or a form yet.
   not import into the same org: each would rewrite what the other wrote.
 - **Contacts' МОЛ.** The importers write `representative`. `scripts/backfill-contact-representative.ts` moves the notes lines
   that are exactly `МОЛ: <name>` into it, dry run first (counts only), `--execute --expect <n>`, a private manifest, `--undo`.
-  The contact form shows the field (§3.5), so a moved МОЛ leaves the notes and stays in sight.
+  The contact form shows the field (§3.5), so a moved МОЛ leaves the notes and stays in sight. It writes the search mirror
+  (`representativeLower`) with each МОЛ it moves.
+- **The МОЛ's search mirror.** Once after the deploy that makes the contact search read the МОЛ:
+  `bun scripts/backfill-contact-representative-lower.ts` (dry run, counts per org), then `--execute`. It writes only the
+  mirror, leaves `updatedAt` alone, is idempotent, and walks the orgs homed on the node it runs on. Until it runs, a МОЛ
+  stored before the release is not found by the search; nothing else depends on it.
 - **Test copies.** `org-clone` copies the three new company fields with the rest of the company's identity.
 - **The fixed-asset register (§4.2).** No backfill and no migration: the import makes it. The first analytics step after
   the deploy, in the home of a split (or a books org of its own), makes an asset of each `ДА` analytic its properties
