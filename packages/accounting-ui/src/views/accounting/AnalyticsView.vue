@@ -38,16 +38,19 @@
     <!-- The tree: each row indented by its depth, a root in bold with a button that opens it alone. -->
     <template #item.path="{ item }">
       <span class="d-inline-flex align-center" :style="{ paddingLeft: analyticIndent(item.path) + 'px' }" :title="item.path">
-        <v-btn
-          v-if="item.depth === 0 && root !== item.root"
-          icon="mdi-folder-open-outline"
-          size="x-small"
-          variant="text"
-          :title="$t('accounting.analytics.openRoot')"
-          :aria-label="$t('accounting.analytics.openRoot')"
-          data-testid="analytics-open-root"
-          @click="openRoot(item.root)"
-        />
+        <!-- Every row keeps the button's room, so a child is indented past its root's name, not its button. -->
+        <span class="tree-slot">
+          <v-btn
+            v-if="item.depth === 0 && root !== item.root"
+            icon="mdi-folder-open-outline"
+            size="x-small"
+            variant="text"
+            :title="$t('accounting.analytics.openRoot')"
+            :aria-label="$t('accounting.analytics.openRoot')"
+            data-testid="analytics-open-root"
+            @click="openRoot(item.root)"
+          />
+        </span>
         <entity-link
           :class="{ 'font-weight-bold': item.depth === 0 }"
           :label="item.name"
@@ -229,3 +232,12 @@ onMounted(() => {
   fetchItems()
 })
 </script>
+
+<style scoped>
+.tree-slot {
+  display: inline-flex;
+  justify-content: center;
+  flex: 0 0 28px;
+  width: 28px;
+}
+</style>
