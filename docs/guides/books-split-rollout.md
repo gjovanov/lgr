@@ -265,7 +265,8 @@ stores, so it reads both stores' documents.
 ## 4. The way back
 
 - **The nightly:** remove `BOOKS_NIGHTLY_ORGS`. The next run imports `<books>` alone, as before.
-  `<books>` was never changed, so nothing else is needed for the books to be read where they were.
+  `<books>` was never changed, so nothing else is needed for the books to be read where they were. ⚠ Once `<books>` is
+  retired (§6), switch its memberships on again first: until then that run fails at sign-in and mails it.
 - **The link:** a store org that keeps a share is refused as a branch of a books org
   (`branch_is_books`). To make the stores branches of `<books>` again, set each one's
   `settings.accounting.books` back to `{ mode: 'branch', booksOrgId: <books' id>, branchCode: <its code> }`
@@ -300,3 +301,20 @@ stores, so it reads both stores' documents.
 - Never move the nightly's pin before the deploy: a client ahead of its server fails.
 - Never delete `<books>`: it holds payroll's personal data, and it is the way back. That is the
   owner's to decide.
+
+---
+
+## 6. After the rollout: the original books org is retired
+
+On the owner's word the original books org (`<books>`) was retired the day after the rollout: every membership in it is
+switched off, so nobody can sign in there, and the nightly's service account is refused in it with `disabled` while it
+signs in to the home and the store as before. A verified full backup bundle of the org was written on the build host
+first. Nothing in `<books>` was deleted: the frozen copy of the ledger and the payroll data are still there, unreachable.
+
+- **Why the bundle:** `<books>` had no backup configured, so the bundle is the only copy besides the accountant's archives.
+- **To open it again:** set each membership's `isActive` back to true and unset `deactivatedAt` (a script on the build
+  host, or `scripts/seed-user.ts` linking the person again). The group proofs (`compare` over the org list) also need a
+  temporary membership in it.
+- **Payroll** (FR-25 §3.11) has no live home while `<books>` is retired. Whoever brings it back chooses between reactivating
+  `<books>`, rebuilding it in another org (the clone policy must then keep it out of the test copies), and deleting it,
+  which is the owner's word and is done with the bundle in hand.
