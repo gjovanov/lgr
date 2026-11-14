@@ -52,7 +52,9 @@ export const SERVER_OWNED = {
   FiscalPeriod: [],
   // The year-end closing entry is posted by the server.
   FiscalYear: ['closingEntryId'],
-  FixedAsset: [],
+  // What marks an asset the books import made (FR-25a §4.2): a body that could set them could hand a hand-kept asset to
+  // the next import to overwrite, or point an asset at an analytic that is not its own.
+  FixedAsset: ['sourceModule', 'importKey', 'analyticId'],
   // Who completed it and when: stamped by the controller when the status becomes `completed`.
   BankReconciliation: ['reconciledBy', 'reconciledAt'],
   // Invoicing.

@@ -44,6 +44,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { readSheet } from './lib/plusminus-sheet.js'
 import { LgrApiError, signIn, type LgrSession } from './lib/lgr-api.js'
+import { stepLines } from './lib/books-import-print.js'
 import {
   ExportRefused,
   assertWholeJournal,
@@ -140,9 +141,7 @@ function noteEik(file: string, found: string | undefined): string {
 const eikOfAnalyticsFile = (file: string) => /_(\d{9,13})\.json$/.exec(basename(file))?.[1]
 
 function show(step: string, answer: any): void {
-  const { dryRun: _dry, byDocType: _types, junk, ...rest } = answer
-  console.log(`${step}: ${JSON.stringify(rest)}`)
-  if (junk?.length) console.log(`  dropped from the chart: ${junk.map((j: any) => `${j.code} (${j.reason})`).join(', ')}`)
+  for (const line of stepLines(step, answer)) console.log(line)
 }
 
 /** The chart, from its GUI export or from the books folder's `chart-<year>.json`. */

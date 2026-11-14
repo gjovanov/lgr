@@ -80,6 +80,23 @@ describe('AccountingAnalytic and FixedAsset: the file\'s own properties (FR-25a)
     const plain: any = new FixedAsset(base).toObject()
     for (const key of ['taxCategory', 'inServiceDate', 'taxDepreciationRate', 'taxValue', 'taxUsefulLifeMonths', 'params']) expect(plain).not.toHaveProperty(key)
   })
+
+  it('an asset the books import made carries its marker and its analytic; one kept by hand has none (FR-25a §4.2)', () => {
+    const base = {
+      orgId: id(), code: 'ДА:Машина', name: 'Машина', category: '204', accountId: id(), depreciationAccountId: id(), accumulatedDepAccountId: id(),
+      purchaseDate: new Date('2024-01-01'), purchasePrice: 100, usefulLifeMonths: 40, depreciationMethod: 'straight_line', currentValue: 100,
+    }
+    const analyticId = id()
+    const made = new FixedAsset({ ...base, sourceModule: 'plusminus', importKey: 'analytic|ДА:Машина', analyticId, status: 'not_depreciated' })
+    expect(made.validateSync()).toBeUndefined()
+    expect(made.toObject()).toMatchObject({ sourceModule: 'plusminus', importKey: 'analytic|ДА:Машина', analyticId, status: 'not_depreciated' })
+    const plain: any = new FixedAsset(base).toObject()
+    for (const key of ['sourceModule', 'importKey', 'analyticId']) expect(plain).not.toHaveProperty(key)
+    expect(plain.status).toBe('active')
+    expect(Object.keys(new FixedAsset({ ...base, status: 'sold' }).validateSync()?.errors ?? {})).toEqual(['status'])
+    // one per analytic, and the index holds no asset kept by hand
+    expect(FixedAsset.schema.indexes()).toContainEqual([{ orgId: 1, importKey: 1 }, expect.objectContaining({ unique: true, partialFilterExpression: { importKey: { $type: 'string' } } })])
+  })
 })
 
 describe('Contact and Org: the person responsible, and where documents are issued (FR-25a)', () => {
