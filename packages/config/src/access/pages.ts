@@ -72,6 +72,8 @@ export const PAGE_ACCESS: Readonly<Record<string, PageAccess>> = {
   '/invoicing/reservations/new': p('orders.create'),
   // ── Accounting ──
   '/accounting/accounts': p('accounts.view'),
+  // FR-25a §3.2: the analytic tree reads with the chart (`accounting/analytics` in routes.ts).
+  '/accounting/analytics': p('accounts.view'),
   '/accounting/journal-entries': p('journal.view'),
   '/accounting/general-ledger': p('ledgers.view'),
   '/accounting/financial-statements': p('ledgers.view'),

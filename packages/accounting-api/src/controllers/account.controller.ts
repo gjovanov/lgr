@@ -4,6 +4,17 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { AS_BOOKED, accountBooksFilter } from 'services/biz/accounting-books/analytics-query'
+import { orgKeepsBooks } from 'services/biz/accounting-books/analytics.service'
+
+/**
+ * FR-25a §3.1: a books org's chart is the accountant's, as booked. The import writes it every night, and a book the
+ * accountant filed must not differ from ours, so no account of it is created, changed or deleted here.
+ */
+const AS_BOOKED_CHART = {
+  code: AS_BOOKED,
+  message: "This organisation keeps the accountant's books: its chart of accounts is as booked there, and is not changed here.",
+}
 
 export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/account' })
   .use(AppAuthService)
@@ -37,6 +48,8 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
       const searchFilter = buildSearchFilter(query.search as string, ['name', 'code', 'description'], { hasTextIndex: true })
       Object.assign(filter, searchFilter)
     }
+    // FR-25a §3.1: what the books say of an account. Neither is set on an account of LGR's own, so both read "no" there.
+    Object.assign(filter, accountBooksFilter(query as Record<string, unknown>))
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
@@ -52,6 +65,7 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!can(user, 'accounts.create'))
         return status(403, { message: 'Accountant or admin only' })
+      if (await orgKeepsBooks(orgId)) return status(422, AS_BOOKED_CHART)
       const r = getRepos()
 
       const { parentId, ...rest } = body
@@ -95,6 +109,7 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      if (await orgKeepsBooks(orgId)) return status(422, AS_BOOKED_CHART)
       const r = getRepos()
 
       const { parentId, ...rest } = body
@@ -129,6 +144,7 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
+    if (await orgKeepsBooks(orgId)) return status(422, AS_BOOKED_CHART)
     const r = getRepos()
 
     const account = await r.accounts.findOne({ id, orgId } as any)

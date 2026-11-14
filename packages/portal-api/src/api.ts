@@ -35,6 +35,7 @@ import { fiscalYearController } from 'accounting-api/src/controllers/fiscal-year
 import { fiscalPeriodController } from 'accounting-api/src/controllers/fiscal-period.controller.js'
 import { fixedAssetController } from 'accounting-api/src/controllers/fixed-asset.controller.js'
 import { bankAccountController } from 'accounting-api/src/controllers/bank-account.controller.js'
+import { analyticController } from 'accounting-api/src/controllers/analytic.controller.js'
 import { reconciliationController } from 'accounting-api/src/controllers/reconciliation.controller.js'
 import { taxReturnController } from 'accounting-api/src/controllers/tax-return.controller.js'
 import { vatController } from 'accounting-api/src/controllers/vat.controller.js'
@@ -235,6 +236,8 @@ export function createApiApp() {
         .use(fiscalPeriodController)
         .use(fixedAssetController)
         .use(bankAccountController)
+        // FR-25a §3.2: the books' analytic tree.
+        .use(analyticController)
         .use(reconciliationController)
         .use(taxReturnController)
         .use(vatController)

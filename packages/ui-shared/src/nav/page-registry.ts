@@ -140,6 +140,7 @@ export const PAGE_REGISTRY: PageDef[] = [
   inArea(page('invoicing', '/reservations/new', 'nav.newDocPage.reservation', 'mdi-lock-plus-outline', WRITE_INVOICING), 'orders'),
   // ── Accounting ──
   page('accounting', '/accounts', 'nav.accounts', 'mdi-chart-bar'),
+  page('accounting', '/analytics', 'nav.analytics', 'mdi-file-tree-outline'),
   page('accounting', '/journal-entries', 'nav.journalEntries', 'mdi-book-open-variant'),
   page('accounting', '/general-ledger', 'nav.generalLedger', 'mdi-book-multiple'),
   page('accounting', '/financial-statements', 'nav.financialStatements', 'mdi-file-chart'),

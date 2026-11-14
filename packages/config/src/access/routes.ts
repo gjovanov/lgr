@@ -48,6 +48,8 @@ export const READ_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   // The invoicing app picks an account and a bank account for cash and payment orders.
   ['accounting/account', reads('accounts', 'sales-docs.view')],
   ['accounting/bank-account', reads('bank-accounts', 'sales-docs.view')],
+  // FR-25a §3.2: the books' analytic tree belongs with the chart it hangs off.
+  ['accounting/analytics', reads('accounts')],
   ['accounting/books', reads('ledgers')],
   ['accounting/report', reads('ledgers')],
   ['accounting/reports', reads('ledgers')],
@@ -166,6 +168,8 @@ export const WRITE_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   // A new account is the admin's or the accountant's: the controller asks for `accounts.create` on top.
   ['accounting/account', any('accounts.edit', 'accounts.delete')],
   ['accounting/bank-account', writes('bank-accounts')],
+  // FR-25a §3.2: an analytic of LGR's own, its links and properties; the controller refuses one of the books (422).
+  ['accounting/analytics', any('accounts.edit')],
   ['accounting/exchange-rate', writes('exchange-rates')],
   ['accounting/fiscal-year', writes('accounting-setup')],
   ['accounting/fiscal-period', writes('accounting-setup')],
