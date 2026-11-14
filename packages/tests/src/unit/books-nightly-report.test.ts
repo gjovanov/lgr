@@ -22,6 +22,7 @@ import {
   summarize,
   summarizeOrgs,
 } from '../../../../scripts/lib/books-nightly-report'
+import { stepLines } from '../../../../scripts/lib/books-import-print'
 
 /**
  * What the unattended books run reads out of `import-accounting-books.ts`. The lines are the importer's own,
@@ -79,6 +80,37 @@ describe('books nightly: reading the importer', () => {
       '2026-02: 1 unknown accounts',
       'opening: continuity differs on 1 accounts',
     ])
+  })
+
+  it('the fixed-asset register (FR-25a §4.2) prints as counts, names no asset, and changes nothing the run counts or stops on', () => {
+    const answer = {
+      dryRun: false, created: 0, updated: 0, unchanged: 10340, byRoot: {},
+      contacts: { created: 0, linked: 0, withoutIdentifier: 0 }, bankAccounts: { created: 0, linked: 8, noLedgerAccount: 0 },
+      fixedAssets: {
+        linked: 0, unlinked: 2, created: 120, updated: 0, unchanged: 0,
+        problems: [
+          { path: 'ДА:Машина А', key: 'ДАТАЕКСП', reason: 'unreadable' },
+          { path: 'ДА:Машина Б', key: 'СМЕТКА', reason: 'unknown_account', code: '209' },
+          { path: 'ДА:Машина В', key: 'ДАТАЕКСП', reason: 'unreadable' },
+          { path: 'ДА:Машина Г', reason: 'vanished' },
+        ],
+      },
+    }
+    const lines = stepLines('analytics', answer)
+    expect(lines).toEqual([
+      'analytics: {"created":0,"updated":0,"unchanged":10340,"byRoot":{},"contacts":{"created":0,"linked":0,"withoutIdentifier":0},'
+        + '"bankAccounts":{"created":0,"linked":8,"noLedgerAccount":0},"fixedAssets":{"linked":0,"unlinked":2,"created":120,"updated":0,"unchanged":0,"problems":4}}',
+      '  fixed assets: ДАТАЕКСП unreadable ×2, СМЕТКА unknown_account 209 ×1, vanished ×1',
+    ])
+    expect(lines.join('\n')).not.toContain('Машина')
+    // what the importer printed before the register is printed exactly as before
+    expect(stepLines('analytics', { dryRun: true, ...parseImport(rerun).steps.analytics })).toEqual([rerun.split('\n')[3]])
+
+    const r = parseImport(rerun.replace(/^analytics: .*$/m, lines.join('\n')))
+    expect(problems(r)).toEqual([])
+    expect(summarize(2026, r)).toEqual(summarize(2026, parseImport(rerun)))
+    // two orgs of a split, one with the register and one without: the counts add up
+    expect(sumImports([r, parseImport(rerun)]).steps.analytics.fixedAssets).toEqual({ linked: 0, unlinked: 124, created: 120, updated: 0, unchanged: 0, problems: 4 })
   })
 })
 

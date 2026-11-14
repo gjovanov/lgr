@@ -364,6 +364,17 @@ export function mapFixedAssetParams<Id>(params: readonly { key: string; value: s
   return { fields, problems }
 }
 
+/**
+ * What an asset is not made without: the model requires each, and none has a value of its own to fall back on. (Its book
+ * value starts at its price where `НАЧ.АМ.` cannot be read, and its status at active, as LGR's own assets do.)
+ */
+export const FIXED_ASSET_REQUIRED: readonly FixedAssetField[] = [
+  'accountId', 'depreciationAccountId', 'accumulatedDepAccountId', 'category', 'depreciationMethod', 'purchaseDate', 'purchasePrice', 'usefulLifeMonths',
+]
+
+/** Whether an import would make an asset of these fields. */
+export const canMakeAsset = (fields: Partial<FixedAssetFields<unknown>>) => FIXED_ASSET_REQUIRED.every(f => fields[f] !== undefined)
+
 /** A rate in percent: 0–100, a `%` after it allowed. */
 function percentOf(raw: string | undefined): Read<number> {
   const n = readNumber(raw, { percent: true })

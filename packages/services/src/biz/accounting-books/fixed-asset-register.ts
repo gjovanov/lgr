@@ -18,7 +18,7 @@
  */
 import { mongoose } from 'db/connection'
 import { Account, AccountingAnalytic, BOOKS_IMPORT, FixedAsset } from 'db/models'
-import { mapFixedAssetParams, type FixedAssetField, type FixedAssetFields, type FixedAssetProblem } from './fixed-asset-params.js'
+import { canMakeAsset, mapFixedAssetParams, type FixedAssetField, type FixedAssetFields, type FixedAssetProblem } from './fixed-asset-params.js'
 import { nameOfPath } from './registry.js'
 import type { FixedAssetRegisterCounts, FixedAssetRegisterProblem } from './import.types.js'
 
@@ -63,11 +63,6 @@ const KEPT = new Set<FixedAssetField>([
   'accountId', 'depreciationAccountId', 'accumulatedDepAccountId', 'category', 'depreciationMethod', 'purchaseDate', 'purchasePrice',
   'currency', 'usefulLifeMonths', 'currentValue', 'status',
 ])
-
-/** What a new asset is not made without. Its value and status have a default of their own (`newAsset`). */
-const REQUIRED: readonly FixedAssetField[] = [
-  'accountId', 'depreciationAccountId', 'accumulatedDepAccountId', 'category', 'depreciationMethod', 'purchaseDate', 'purchasePrice', 'usefulLifeMonths',
-]
 
 const PROJECTION = Object.fromEntries(['code', 'name', 'sourceModule', 'importKey', 'analyticId', ...MANAGED].map(f => [f, 1]))
 
@@ -181,7 +176,7 @@ export async function syncFixedAssetRegister(orgId: string, given: readonly Regi
     }
 
     for (const p of problems) report(item.path, p)
-    if (REQUIRED.some(f => fields[f] === undefined)) {
+    if (!canMakeAsset(fields)) {
       answer.unlinked++
       continue
     }
