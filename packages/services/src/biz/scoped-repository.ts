@@ -77,10 +77,11 @@ export class ScopedRepository<T extends BaseEntity> implements IBatchRepository<
     return this.inner.updateInOrg(id, orgId, data, where, opts)
   }
 
-  async deleteInOrg(id: string, orgId: string): Promise<boolean> {
+  async deleteInOrg(id: string, orgId: string, where?: Record<string, unknown>): Promise<boolean> {
     const check = await this.findByIdInOrg(id, orgId)
     if (!check) return false
-    return this.inner.deleteInOrg(id, orgId)
+    // A caller's guard (`where`) is forwarded, as `updateInOrg`'s is (#675): the fixed-asset route names one (FR-25a §3.4).
+    return this.inner.deleteInOrg(id, orgId, where)
   }
 
   // Batch operations — delegate with scope
