@@ -1,6 +1,8 @@
 <template>
   <div class="contact-party-block">
     <div class="text-h6 font-weight-bold mb-1">{{ contact?.companyName || displayName || '—' }}</div>
+    <!-- FR-25a: the contact's МОЛ, under its name, as the printed form carries it in its block. -->
+    <div v-if="representative" class="text-body-2" data-testid="contact-party-representative">{{ $t('invoicing.partyRepresentative') }}: {{ representative }}</div>
     <div v-if="taxLabel" class="text-body-2 text-medium-emphasis">{{ taxLabel }}</div>
     <div v-if="address" class="mt-2">
       <div class="text-caption text-medium-emphasis">{{ $t('invoicing.address') }}</div>
@@ -17,6 +19,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { representativeOf } from 'config/party-identity'
 
 interface Address {
   street?: string
@@ -33,6 +36,7 @@ interface Contact {
   taxNumber?: string
   vatNumber?: string
   taxId?: string
+  representative?: string
   addresses?: Array<{ type?: string; street: string; city: string; state?: string; postalCode: string; country: string; isDefault?: boolean }>
 }
 
@@ -65,6 +69,8 @@ const address = computed<Address | null>(() => {
   }
   return null
 })
+
+const representative = computed(() => representativeOf(props.contact))
 
 const { t } = useI18n()
 

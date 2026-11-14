@@ -417,6 +417,7 @@
           v-if="config.showSignatureFooter"
           :prepared-by="form.preparedBy || userFullName"
           :place="form.placeOfTransaction"
+          :org-place="appStore.currentOrg?.placeOfIssue"
         />
 
         <!-- Bottom action bar: same Save (+ Print on edit) as the top, so users don't
