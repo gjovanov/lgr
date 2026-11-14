@@ -99,6 +99,7 @@ function mapContact(item: any) {
   return {
     companyName, taxId: eik, taxNumber: eik, vatNumber, phone, addresses, representative,
     companyNameLower: lowerBg(companyName), taxIdLower: lowerBg(eik), vatNumberLower: lowerBg(vatNumber),
+    representativeLower: lowerBg(representative),
     // Upsert key must match docs created by earlier seeder versions, which set taxId
     // only from БУЛСТАТ (never derived from ИНДДС) — key on the source field.
     srcEik: clean(p['БУЛСТАТ']) || undefined,

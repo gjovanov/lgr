@@ -70,6 +70,8 @@ export interface IContact extends Document {
   taxIdLower?: string
   vatNumberLower?: string
   aliasesLower?: string[]
+  /** The МОЛ lowered, for the contact search (FR-25a). Absent until the contact's МОЛ is written, or backfilled. */
+  representativeLower?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -132,6 +134,8 @@ const contactSchema = new Schema<IContact>(
     taxIdLower: { type: String, index: true },
     vatNumberLower: { type: String, index: true },
     aliasesLower: { type: [String], default: undefined },
+    // No index, like `aliasesLower`: the search reads it with an unanchored pattern, which an index does not serve.
+    representativeLower: String,
   },
   { timestamps: true },
 )
@@ -146,6 +150,7 @@ contactSchema.plugin(loweredFieldsPlugin, {
     taxId: 'taxIdLower',
     vatNumber: 'vatNumberLower',
     aliases: 'aliasesLower',
+    representative: 'representativeLower',
   },
 })
 contactSchema.index({ orgId: 1, type: 1 })
