@@ -360,4 +360,28 @@ describe('the chart\'s filters from the books (FR-25a §3.1)', () => {
     expect(await codes('quantitative=true')).toEqual(['304'])
     expect(await codes('quantitative=false')).toEqual(['411', '501'])
   })
+
+  it('is as booked in a books org: no account is created, changed or deleted there', async () => {
+    const account = await createTestAccount(world.books, { code: '411', name: 'Клиенти', balanceSide: 'both', analyticRoots: ['КЛИЕНТИ'] } as any)
+    const url = `/org/${world.books}/accounting/account`
+    const put = await call('PUT', `${url}/${account._id}`, world.booksAdmin, { name: 'Changed' })
+    expect(put.status).toBe(422)
+    expect(put.body.code).toBe('books_as_booked')
+    expect((await call('DELETE', `${url}/${account._id}`, world.booksAdmin)).body.code).toBe('books_as_booked')
+    expect((await call('POST', url, world.booksAdmin, { code: '9999', name: 'New', type: 'asset' })).body.code).toBe('books_as_booked')
+    const stored: any = await Account.findById(account._id).lean()
+    expect(stored.name).toBe('Клиенти')
+    expect(await Account.countDocuments({ orgId: world.books, code: '9999' })).toBe(0)
+    // It is read as before.
+    expect((await call('GET', `${url}/${account._id}`, world.booksAdmin)).body.account).toMatchObject({ balanceSide: 'both', analyticRoots: ['КЛИЕНТИ'] })
+  })
+
+  it('saves as before in an org of its own', async () => {
+    const account = await createTestAccount(world.native, { code: '702', name: 'Приходи' } as any)
+    const put = await call('PUT', `/org/${world.native}/accounting/account/${account._id}`, world.admin, { name: 'Приходи от стоки' })
+    expect(put.status).toBe(200)
+    expect(put.body.account.name).toBe('Приходи от стоки')
+    // The route writes its audit entry after it answers: wait for it, so the teardown does not cut it off.
+    for (let i = 0; i < 40 && !(await AuditLog.exists({ orgId: world.native, entityType: 'account', entityId: account._id })); i++) await Bun.sleep(25)
+  })
 })
