@@ -4,6 +4,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { accountBooksFilter } from 'services/biz/accounting-books/analytics-query'
 
 export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/account' })
   .use(AppAuthService)
@@ -37,6 +38,8 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
       const searchFilter = buildSearchFilter(query.search as string, ['name', 'code', 'description'], { hasTextIndex: true })
       Object.assign(filter, searchFilter)
     }
+    // FR-25a §3.1: what the books say of an account. Neither is set on an account of LGR's own, so both read "no" there.
+    Object.assign(filter, accountBooksFilter(query as Record<string, unknown>))
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
