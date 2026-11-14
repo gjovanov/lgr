@@ -266,9 +266,10 @@ bound and the trim on the server (`config/party-identity`).
 ### 3.7 The company — `Org`
 
 Built (slice D): the three fields under the tax and VAT numbers, validated as the API is (`config/party-identity`); the API
-stores them trimmed and unsets one sent empty. The invoice and companion forms, the server's PDF and the in-app party
-blocks alike, print the company's МОЛ in its block and its place of issue where a document names no place of its own. A
-company that sets none prints byte for byte as before (`unit/print-party-identity.test.ts` pins the hashes).
+stores them trimmed and unsets one sent empty. The invoice form and both companions print the company's МОЛ in its block
+(the server's PDF and worksheet, and the document form's party block alike), and the invoice form prints its place of
+issue where a document names no place of its own (the companions print no place). A company that sets none prints byte
+for byte as before (`unit/print-party-identity.test.ts` pins the hashes).
 
 - Route / view: Settings → Organization (`portal-ui/src/views/settings/OrganizationView.vue`, exists), "Company Identity" card.
 - Form: add `representative` (text), `placeOfIssue` (text, a town), `activityCode` (text, digits and dots) next to the tax
