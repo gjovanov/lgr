@@ -46,6 +46,14 @@ export interface IFixedAsset extends Document {
   taxUsefulLifeMonths?: number
   /** The asset's own properties as the accountant's file lists them (ПАРАМЕТРИ of its ДА analytic), in file order. A list of pairs, not a map: some names carry dots. */
   params?: { key: string; value: string }[]
+  // FR-25a §4.2: an asset the books import made from a `ДА` analytic. Set only by that import (server-owned), and only
+  // on what it made: an asset kept in LGR has none of them, and the import never writes one that has none.
+  /** `plusminus` (`BOOKS_IMPORT`), as on an imported journal entry. */
+  sourceModule?: string
+  /** What the import finds the asset by again: `analytic|<the ДА analytic's path, as booked>`. Unique per org. */
+  importKey?: string
+  /** The `ДА` analytic the asset was made from. The analytic points back with its `fixedAssetId`. */
+  analyticId?: Types.ObjectId
   createdAt: Date
   updatedAt: Date
 }
@@ -85,7 +93,8 @@ const fixedAssetSchema = new Schema<IFixedAsset>(
       type: String,
       required: true,
       default: 'active',
-      enum: ['active', 'disposed', 'fully_depreciated'],
+      // `not_depreciated` (FR-25a §4.2): the books say the asset is not depreciated (`НАЧИСЛ` = `НЕ`), land for one.
+      enum: ['active', 'disposed', 'fully_depreciated', 'not_depreciated'],
     },
     disposalDate: Date,
     disposalPrice: Number,
@@ -99,6 +108,10 @@ const fixedAssetSchema = new Schema<IFixedAsset>(
     taxValue: Number,
     taxUsefulLifeMonths: Number,
     params: { type: [new Schema({ key: { type: String, required: true }, value: { type: String, default: '' } }, { _id: false })], default: undefined },
+    // FR-25a §4.2. No defaults: an asset kept by hand never has them.
+    sourceModule: String,
+    importKey: String,
+    analyticId: { type: Schema.Types.ObjectId, ref: 'AccountingAnalytic' },
   },
   { timestamps: true },
 )
@@ -106,6 +119,9 @@ const fixedAssetSchema = new Schema<IFixedAsset>(
 fixedAssetSchema.plugin(tenantPlugin)
 fixedAssetSchema.index({ orgId: 1, code: 1 }, { unique: true })
 fixedAssetSchema.index({ orgId: 1, category: 1 })
+// One imported asset per analytic and org. Partial: an asset kept by hand has no key, so the index holds none of them,
+// and building it on a collection from before this needs nothing cleaned first.
+fixedAssetSchema.index({ orgId: 1, importKey: 1 }, { unique: true, partialFilterExpression: { importKey: { $type: 'string' } } })
 
 replicate(fixedAssetSchema, { class: 'R' })
 

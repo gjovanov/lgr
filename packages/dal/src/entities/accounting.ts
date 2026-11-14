@@ -209,6 +209,10 @@ export interface IFixedAsset extends TenantEntity {
   taxValue?: number
   taxUsefulLifeMonths?: number
   params?: { key: string; value: string }[]
+  // FR-25a §4.2: set by the books import on an asset it made from a ДА analytic, and only there.
+  sourceModule?: string
+  importKey?: string
+  analyticId?: string
 }
 
 // ── BankAccount ──

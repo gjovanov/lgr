@@ -139,7 +139,40 @@ export interface AnalyticsAnswer {
    */
   contacts: { created: number; linked: number; withoutIdentifier: number; deferred?: number }
   bankAccounts: { created: number; linked: number; noLedgerAccount: number }
-  fixedAssets: { linked: number; unlinked: number }
+  /**
+   * `linked`: `ДА` analytics linked to an asset kept in LGR; `unlinked`: the rest. The other four only where the org holds the
+   * register (the home of a split, or a books org of its own) and the file carries the assets' properties (FR-25a §4.2): then
+   * each `ДА` analytic is counted once, in `linked`, `unlinked`, `created`, `updated` or `unchanged`, and `problems` says why.
+   */
+  fixedAssets: { linked: number; unlinked: number } & Partial<FixedAssetRegisterCounts>
+}
+
+/** FR-25a §4.2: the fixed-asset register the books import keeps from the `ДА` analytics. */
+export interface FixedAssetRegisterCounts {
+  /** Assets the import made (a dry run: would make). */
+  created: number
+  /** Assets of the import's whose fields or link the books changed. */
+  updated: number
+  /** Assets of the import's as the books say. */
+  unchanged: number
+  /** What it could not take as booked, per analytic. Never a value of the file: a key, a reason, an account code. */
+  problems: FixedAssetRegisterProblem[]
+}
+
+export interface FixedAssetRegisterProblem {
+  /** The `ДА` analytic's path. */
+  path: string
+  /** The property, where one is the cause. */
+  key?: string
+  /**
+   * The mapping's own (`fixed-asset-params.ts#FixedAssetProblemReason`), or the register's: `native_asset` (linked to an
+   * asset kept in LGR, which the books never write), `native_namesake` (an asset kept in LGR has the name of one the
+   * import made: the register may hold it twice), `code_taken`, `invalid`, `conflict` (another import made it since this
+   * one read: the next finds it), `vanished` (the file no longer lists the analytic: the asset is left as it is).
+   */
+  reason: string
+  /** `unknown_account`: the code the file names. */
+  code?: string
 }
 
 export interface OpeningLine {

@@ -60,6 +60,7 @@ import {
 } from './registry.js'
 import { importHashOf, pathsOf, planMonth, settlesOfOperation, sha256, type PlannedEntry } from './journal-plan.js'
 import { ContactIndex } from './contact-match.js'
+import { isImportedAsset, syncFixedAssetRegister } from './fixed-asset-register.js'
 import type {
   AnalyticsAnswer,
   AnalyticsBody,
@@ -378,7 +379,13 @@ export async function importAnalytics(orgId: string, body: AnalyticsBody, by: Im
 
   // What already exists may have gained a unit, a bank account or an asset.
   const banks = await linkBankAccounts(org.id, body.items, dryRun)
-  const assets = new Map((await FixedAsset.find({ orgId: org.id }, { name: 1 }).lean()).map((a: any) => [a.name as string, a._id]))
+  // FR-25a §4.2: in the org that holds the register, a file that carries the assets' properties makes an asset of each `ДА`
+  // analytic, and links it (`fixed-asset-register.ts`): those are not linked by name here. What is, as before, is an asset
+  // kept in LGR, and only that: an analytic linked to an asset the import made is never moved off it.
+  const register = holdsRegister(org) && body.items.some(item => isRegisterItem(item.path) && !!paramsOf(item))
+  const held: any[] = await FixedAsset.find({ orgId: org.id }, { name: 1, sourceModule: 1, importKey: 1 }).lean()
+  const imported = new Set(held.filter(isImportedAsset).map(a => String(a._id)))
+  const assets = new Map(held.filter(a => !isImportedAsset(a)).map(a => [a.name as string, a._id]))
   const fixedAssets = { linked: 0, unlinked: 0 }
   const stored: any[] = await AccountingAnalytic.find({ orgId: org.id, path: { $in: body.items.map(i => i.path) } }, { path: 1, unit: 1, bankAccountId: 1, fixedAssetId: 1, params: 1 }).lean()
   const storedByPath = new Map(stored.map(a => [a.path, a]))
@@ -387,11 +394,13 @@ export async function importAnalytics(orgId: string, body: AnalyticsBody, by: Im
   let updated = 0
   let unchanged = 0
   for (const item of body.items) {
-    const isAsset = kindOfPath(item.path) === 'fixed_asset'
-    const assetId = isAsset ? assets.get(nameOfPath(item.path)) : undefined
-    if (isAsset) fixedAssets[assetId ? 'linked' : 'unlinked']++
-
     const row = storedByPath.get(item.path)
+    const isAsset = kindOfPath(item.path) === 'fixed_asset' && !(register && isRegisterItem(item.path))
+    // Linked to an asset the import made: the register's, which a name never moves (none exists where it never ran).
+    const registers = isAsset && imported.has(String(row?.fixedAssetId ?? ''))
+    const assetId = isAsset && !registers ? assets.get(nameOfPath(item.path)) : undefined
+    if (isAsset) fixedAssets[assetId || registers ? 'linked' : 'unlinked']++
+
     if (!row) continue
     const set: Record<string, unknown> = {}
     if (item.unit && row.unit !== item.unit) set.unit = item.unit
@@ -412,8 +421,34 @@ export async function importAnalytics(orgId: string, body: AnalyticsBody, by: Im
   if (!dryRun && ops.length) await AccountingAnalytic.bulkWrite(ops)
   if (!dryRun && (created || updated)) await audit(org.id, by, 'analytics', { created, updated })
 
-  return { dryRun, created, updated, unchanged, byRoot, contacts, bankAccounts: banks.answer, fixedAssets }
+  if (!register) return { dryRun, created, updated, unchanged, byRoot, contacts, bankAccounts: banks.answer, fixedAssets }
+
+  // FR-25a §4.2: from what each analytic holds once this import is through, the file's properties or the stored ones.
+  const assetItems = body.items.filter(item => isRegisterItem(item.path)).map(item => {
+    const row = storedByPath.get(item.path)
+    return {
+      path: item.path,
+      params: paramsOf(item) ?? row?.params ?? [],
+      ...(row ? { analyticId: row._id } : {}),
+      ...(row?.fixedAssetId ? { fixedAssetId: String(row.fixedAssetId) } : {}),
+    }
+  })
+  const assetRegister = await syncFixedAssetRegister(org.id, assetItems, dryRun)
+  if (!dryRun && (assetRegister.created || assetRegister.updated)) {
+    await audit(org.id, by, 'fixed assets', { created: assetRegister.created, updated: assetRegister.updated })
+    logger.info({ orgId: org.id, created: assetRegister.created, updated: assetRegister.updated, problems: assetRegister.problems.length }, 'Books import: the fixed-asset register written')
+  }
+  return { dryRun, created, updated, unchanged, byRoot, contacts, bankAccounts: banks.answer, fixedAssets: assetRegister }
 }
+
+/**
+ * FR-25a §4.2: the org that keeps the company's fixed-asset register. A books org of its own, or the home of a split: the
+ * register is the company's, like the opening and the VAT files, and a store keeping its share of the books makes none.
+ */
+const holdsRegister = (org: BooksOrg) => !org.split || org.split.role === 'home'
+
+/** A `ДА` analytic under the root: an asset. The root itself is none. */
+const isRegisterItem = (path: string) => path.includes(':') && kindOfPath(path) === 'fixed_asset'
 
 type Params = { key: string; value: string }[]
 
