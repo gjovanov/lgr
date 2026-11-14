@@ -32,6 +32,7 @@ ids itself.
 | The chart, the analytic tree | both, whole |
 | Contacts | linked to what each org already has, by number and of any type; made only for partners the org's own entries or opening name (step 6, "Contacts") |
 | VAT returns and registers | `<home>` |
+| The fixed-asset register: a `FixedAsset` per `ДА` analytic (FR-25a §4.2) | `<home>`. `<store>` keeps the `ДА` analytics and makes no asset |
 | Payroll (personal data) | stays in `<books>` |
 
 Each org is sent **the same files** and keeps its share. Each entry balances on its own, so each
@@ -155,7 +156,7 @@ What each line should say:
 | Step | `<home>` | `<store>` |
 |---|---|---|
 | chart | the whole chart | the whole chart |
-| analytics | the whole tree; `contacts.created: 0`, `deferred`: partners with no contact yet | the same |
+| analytics | the whole tree; `contacts.created: 0`, `deferred`: partners with no contact yet; `fixedAssets.created`: the register, an asset per `ДА` analytic (then `unchanged`) | the same, and `fixedAssets` only `linked` / `unlinked`: a store makes no asset |
 | opening | `new` (then `unchanged`), `split.role: home`, `continuity: null` | `unchanged`, `lines: 0`, `split.role: member` |
 | journal months | `split.contacts.created`: partners its own entries met first | the same, for its own customers only |
 | journal total | `entries`: its share; `fileEntries`: the whole file's | the same |

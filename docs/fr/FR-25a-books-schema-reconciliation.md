@@ -88,7 +88,7 @@ properties, below), **deferred** (§4), **not stored** (redundant, or no known m
 | `docData` | — | deferred | A customs declaration's details (duties, excise, statistical value) |
 | `ДП` | — | not stored | A tab-separated list of names whose purpose is not known |
 | header `ВАЛУТА`, `КУРС`, `СУМАВАЛ`, `ДАНЪК`, `НОМЕР` | — | mapped | The operations carry them (`ImportOperation.cur/rate/fx/tax/journal`) |
-| operation `ТИП` (`АМ`) | — | deferred | Marks depreciation operations: with the fixed-asset import (§4.2) |
+| operation `ТИП` (`АМ`) | — | deferred | Marks depreciation operations: what will link a schedule row to its entry (§4.2) |
 | `СКЛОПЕР` | — | deferred | The document's goods lines, millions of records (§4.1) |
 
 ### 2.2 Analytics → `AccountingAnalytic.params`, `Contact`, `FixedAsset`
@@ -103,7 +103,7 @@ whose file is refused before anything reads it. What LGR also maps to its own fi
 | `МОЛ` | `Contact.representative` (was a notes line `МОЛ: <name>`) | added | The person legally responsible, printed on a Bulgarian invoice |
 | Goods / materials / production: `МЯРКА`, `ЦЕНА`, `СР.ЦЕНА`, `КОЛИЧЕСТВО`, `ТАРКОД` | `unit` (as before) + params | params | The accountant's prices and quantities; the stores' own product prices stay LGR's |
 | Bank accounts: `БАНКА` | `BankAccount.bankName` (as before) + params | params | |
-| Fixed assets (about 35 parameters) | `FixedAsset.taxCategory`, `inServiceDate`, `taxDepreciationRate`, `taxValue`, `taxUsefulLifeMonths`, `params` | added (schema); the import is deferred (§4.2) | The tax depreciation schedule (ЗКПО) runs beside the book one |
+| Fixed assets (about 35 parameters) | `FixedAsset.taxCategory`, `inServiceDate`, `taxDepreciationRate`, `taxValue`, `taxUsefulLifeMonths`, `params` | added (schema); imported into the register (§4.2, built) | The tax depreciation schedule (ЗКПО) runs beside the book one |
 | An account's `НАСТРОЙКИ` | — | not stored | All off but a kind code; `balanceSide` stays derived from the code |
 | An account's `ВАЛУТИ` | — | deferred | Per-currency balances of foreign-currency accounts |
 
@@ -209,7 +209,11 @@ payment orders use them. ⚠ The key is `accounting.bankAccountBooks.*`: `accoun
     `taxValue` (money ≥ 0, default the purchase price), `inServiceDate` (date, not before the purchase date).
   - **Properties** (new, read-only): the imported asset's `params` table.
   - **Schedule** (exists as data): a grid of `depreciationSchedule` (date, amount, accumulated, book value, the posted
-    entry as a link), with a second, tax schedule computed client-side from the tax fields (not stored until §4.2).
+    entry as a link), with a second, tax schedule computed client-side from the tax fields (the import stores none, §4.2).
+- What the import gives these screens (§4.2, built): an imported asset carries `sourceModule: 'plusminus'`, `importKey`
+  and `analyticId` (all three server-owned: a body may restate them, never set them), so it is the shared rules' read-only
+  case, and its **Analytic** link is `analyticId`. Its status can be `not_depreciated` (`НАЧИСЛ` = `НЕ`), which the model
+  takes and the form's status select does not list yet. Its `depreciationSchedule` is empty until the `АМ` link (§4.2).
 - Grid: add `taxCategory`, `taxDepreciationRate`, `inServiceDate` (hidden by default); filter by tax category.
 - Validation: rate × years ≈ 100 hint when they disagree (the source always agrees).
 - i18n: `accounting.fixedAsset.tax.*`, `accounting.fixedAsset.properties`, `accounting.fixedAsset.schedule.*`.
@@ -287,7 +291,7 @@ aggregations. Its first use would be the per-article reconciliation of a store's
 
 ### 4.2 The fixed assets from the books
 
-The schema is in place (§2.2); the import is not. When it is built, each `ДА:<name>` analytic becomes (or links to) a
+The schema is in place (§2.2), and the import is built (below): each `ДА:<name>` analytic becomes (or links to) a
 `FixedAsset`, by this mapping, which the audit verified:
 
 | Parameter | Field | How |
@@ -312,6 +316,43 @@ The schema is in place (§2.2); the import is not. When it is built, each `ДА:
 
 The operations marked `АМ` (the monthly depreciation) then link each schedule row to its posted entry.
 
+**Built.** The analytics step keeps the register, server-side, from the `ДА` analytics it has just stored, so the
+importer needs no change (`import.service.ts#importAnalytics` → `fixed-asset-register.ts`):
+
+- **Where.** The org that holds the register: a books org of its own, or the home of a split. A store keeps the `ДА`
+  analytics, properties and all, and makes no asset. It runs only on a file that carries the assets' properties: an older
+  client's answer and writes are exactly as before.
+- **The mapping** is `fixed-asset-params.ts#mapFixedAssetParams(params, chartByCode) → { fields, problems }`: pure, no
+  database, so it can be run over the real file where it lives (`scripts/check-fixed-asset-params.ts`, counts only).
+  Every row of the table above is mapped, with these readings of what the table left open:
+  - the price is `ОБЩАСТОЙНОСТ` where it states one (a total of 0 is none), else `СТОЙНОСТ`; a total below the value is
+    kept and named (`total_below_value`);
+  - the terms are years: `round(years × 12)` months; with no `СРОК`, the months come from `ПРОЦЕНТ` (1200 / rate), and are
+    0 where nothing is depreciated (a rate of 0, or `НАЧИСЛ` = `НЕ`). Rate × term is checked on both sides, and a pair off
+    by more than 1 is kept and named (`rate_term_mismatch`): a term written in months would show there;
+  - `НАЧИСЛ` = `НЕ` is the status `not_depreciated` (a value the model gained for it); `ОТПДАТА` is `disposed`, and wins;
+  - `currentValue` is the price less `НАЧ.АМ.`: the value the books start from, not today's;
+  - `currency` is the ledger's on `ДАТА` (BGN before 2026-01-01, EUR from it), and nothing is converted. ⚠ Not proven by
+    the audit: an asset bought before the changeover should show its `СТОЙНОСТ` equal to its purchase's amount in BGN;
+  - the code is the analytic's path, the name its last segment, the category the code of `СМЕТКА`'s account.
+- **Reading** is tolerant (a dot or a comma as the decimal separator, spaces or the other separator between thousands,
+  `D.M.YYYY` as well as `DD.MM.YYYY`, a date of zeros as none). A value that cannot be read, or a code the chart does not
+  hold, is a problem that leaves its fields out, and an update keeps what the asset holds in them; an empty optional
+  value clears its field, as the books then say nothing. An asset is made only with every field the model requires.
+- **Its own, and only its own.** An asset is found again by `importKey` (`analytic|<path>`, unique per org, partial) and
+  marked `sourceModule: 'plusminus'`, both server-owned; it is linked both ways (`analyticId`, the analytic's
+  `fixedAssetId`). Every write's filter names the marker: an asset kept in LGR is never written, and one that already
+  stands for an analytic (linked to it, or of its name, as the name link always found them) is linked as before and no
+  second is made (`native_asset`). Nothing is deleted: an asset whose analytic the file no longer lists stays (`vanished`).
+- **The answer** adds `fixedAssets.created`, `updated`, `unchanged` and `problems[{ path, key?, reason, code? }]` (never a
+  value of the file); each `ДА` analytic is counted once, in those or in `linked` / `unlinked`. A rerun is `unchanged`;
+  its dry run counts the same and writes nothing. `import-accounting-books.ts` prints the problems counted by property
+  and reason, naming no asset.
+
+Not built: the `АМ` operations are not linked to schedule rows (`depreciationSchedule` stays empty), and nothing is
+posted; the tax schedule (`ОБЩДАНАМ`, `НАЧДАНАМ`, `ПЕРДАНАМ`) is not stored, nor `ОТПДАП`, nor `НАЧ.АМ.` as a schedule
+row: each stays in `params`.
+
 ### 4.3 The rest
 
 `ПЛАТЕНОВ`, `updatedOn`, `discountSum`, `compensationSum`, the advance fields, `documentList`, the per-rate bases, `ПОКУП` /
@@ -330,3 +371,13 @@ holds it today. None is needed by a report or a form yet.
   that are exactly `МОЛ: <name>` into it, dry run first (counts only), `--execute --expect <n>`, a private manifest, `--undo`.
   The contact form shows the field (§3.5), so a moved МОЛ leaves the notes and stays in sight.
 - **Test copies.** `org-clone` copies the three new company fields with the rest of the company's identity.
+- **The fixed-asset register (§4.2).** No backfill and no migration: the import makes it. The first analytics step after
+  the deploy, in the home of a split (or a books org of its own), makes an asset of each `ДА` analytic its properties
+  allow (`fixedAssets.created`, problems counted on the same line), and the dry rerun after it is `unchanged`; the store
+  answers `linked` / `unlinked` as before. The nightly needs no change: its client already sends the properties, and
+  its mail and its stops do not read `fixedAssets` (neither the first run's assets nor a problem stops it). To know what
+  it will do before it does it: `scripts/check-fixed-asset-params.ts --books <day> --year <YYYY>` where the books folder
+  is (counts only, no database), then the importer's dry run against the home. The deploy builds one index,
+  `{ orgId, importKey }` unique and partial: it holds no existing asset, so nothing needs cleaning first. A server from
+  before it (a rollback) leaves the assets as they are and links the analytics to them by name, as it links any asset;
+  only an asset whose status is `not_depreciated` would not save through its form.
