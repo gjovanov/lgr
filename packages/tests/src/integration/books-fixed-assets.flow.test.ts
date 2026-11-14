@@ -110,7 +110,7 @@ describe('the register, from the analytics', () => {
     const analytic = await analyticOf(MACHINE)
     expect(machine).toMatchObject({
       code: MACHINE, name: 'Машина А', category: '204', depreciationMethod: 'straight_line', purchaseDate: day(2024, 3, 15), purchasePrice: 1500,
-      currency: 'BGN', usefulLifeMonths: 80, currentValue: 1500, salvageValue: 0, status: 'active', taxCategory: '4', inServiceDate: day(2024, 4, 1),
+      currency: 'EUR', usefulLifeMonths: 80, currentValue: 1500, salvageValue: 0, status: 'active', taxCategory: '4', inServiceDate: day(2024, 4, 1),
       taxDepreciationRate: 30, taxUsefulLifeMonths: 40, taxValue: 1500, sourceModule: 'plusminus', importKey: `analytic|${MACHINE}`,
       depreciationSchedule: [],
     })
@@ -178,7 +178,7 @@ describe('the register, from the analytics', () => {
     expect(answer.fixedAssets!.problems).toContainEqual({ path: MACHINE, key: 'ДАННОРМА', reason: 'unreadable' })
     expect(answer.fixedAssets!.problems).toContainEqual({ path: MACHINE, key: 'ДАТА', reason: 'missing' })
     // the properties are the file's; what could not be read is what it was
-    expect(await assetOf(MACHINE)).toMatchObject({ taxDepreciationRate: 30, purchaseDate: day(2024, 3, 15), currency: 'BGN' })
+    expect(await assetOf(MACHINE)).toMatchObject({ taxDepreciationRate: 30, purchaseDate: day(2024, 3, 15), currency: 'EUR' })
     // a problem's answer carries no value of the file
     expect(JSON.stringify(answer.fixedAssets)).not.toContain('тридесет')
   })

@@ -58,7 +58,10 @@ export interface FixedAssetFields<Id> {
   purchaseDate: Date
   /** `ОБЩАСТОЙНОСТ` (the value with later additions) where it states one, else `СТОЙНОСТ`. */
   purchasePrice: number
-  /** The ledger's currency on the purchase date: the books kept BGN before the euro changeover. Nothing is converted. */
+  /**
+   * The currency the properties are stated in: EUR, but for an asset written off before the euro changeover, which PlusMinus
+   * left in lev. Not the purchase year's: the program converted its asset register at the changeover. Nothing is converted here.
+   */
   currency: 'BGN' | 'EUR'
   /** `СРОК` (years) × 12, rounded; from `ПРОЦЕНТ` (100 / the rate) where no term is stated; 0 when nothing is depreciated. */
   usefulLifeMonths: number
@@ -281,12 +284,10 @@ export function mapFixedAssetParams<Id>(params: readonly { key: string; value: s
   else if (LINEAR.test(method.trim().toLocaleLowerCase('bg'))) fields.depreciationMethod = 'straight_line'
   else problem(P.method, 'unknown_method', ['depreciationMethod'], method)
 
-  // The dates. The currency is the ledger's on the purchase date.
+  // The dates.
   const purchase = readDate(raw(P.date))
-  if (purchase.value) {
-    fields.purchaseDate = purchase.value
-    fields.currency = purchase.value.toISOString().slice(0, 10) < EUR_CHANGEOVER ? 'BGN' : 'EUR'
-  } else problem(P.date, purchase.bad ?? 'missing', ['purchaseDate', 'currency'], raw(P.date))
+  if (purchase.value) fields.purchaseDate = purchase.value
+  else problem(P.date, purchase.bad ?? 'missing', ['purchaseDate'], raw(P.date))
 
   const inService = readDate(raw(P.inService))
   if (inService.value) fields.inServiceDate = inService.value
@@ -294,7 +295,15 @@ export function mapFixedAssetParams<Id>(params: readonly { key: string; value: s
 
   const disposal = readDate(raw(P.disposal))
   if (disposal.value) fields.disposalDate = disposal.value
-  else if (disposal.bad) problem(P.disposal, disposal.bad, ['disposalDate', 'status'], raw(P.disposal))
+  else if (disposal.bad) problem(P.disposal, disposal.bad, ['disposalDate', 'status', 'currency'], raw(P.disposal))
+
+  // The currency the properties are stated in. PlusMinus converted its asset register to euro at the changeover: an asset
+  // still in it then (not written off before) is in EUR whatever the year it was bought in, one bought later was entered in
+  // EUR, and one written off before the changeover left the register unconverted and stays in lev. Read off the
+  // accountant's own file, by the shape of the stored values (whole-lev amounts only among the assets written off before
+  // the changeover; amounts that are round only once converted only among the others), not assumed from the purchase year.
+  // A write-off date that cannot be read leaves the currency unknown: an update keeps what the asset holds.
+  if (!disposal.bad) fields.currency = fields.disposalDate && fields.disposalDate.toISOString().slice(0, 10) < EUR_CHANGEOVER ? 'BGN' : 'EUR'
 
   // The price: the value with later additions where the file states one, else the value. A total of 0 is no total:
   // it is below any value, and nothing is added to an asset to make it worth nothing.

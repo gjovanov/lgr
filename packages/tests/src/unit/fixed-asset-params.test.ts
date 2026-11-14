@@ -66,7 +66,7 @@ describe('the whole asset', () => {
       category: '204',
       depreciationMethod: 'straight_line',
       purchaseDate: day(2024, 3, 15),
-      currency: 'BGN',
+      currency: 'EUR',
       purchasePrice: 1500,
       currentValue: 1399.5,
       usefulLifeMonths: 80,
@@ -97,13 +97,31 @@ describe('row by row', () => {
     expect(reasons(map({ 'МЕТОД': '' }))).toEqual(['МЕТОД missing'])
   })
 
-  it('ДАТА: DD.MM.YYYY at UTC midnight, in the currency the books kept that day, converted never', () => {
-    expect(map({ 'ДАТА': '31.12.2025' }).fields).toMatchObject({ purchaseDate: day(2025, 12, 31), currency: 'BGN' })
-    expect(map({ 'ДАТА': '01.01.2026' }).fields).toMatchObject({ purchaseDate: day(2026, 1, 1), currency: 'EUR', purchasePrice: 1500 })
+  it('ДАТА: DD.MM.YYYY at UTC midnight', () => {
+    expect(map({ 'ДАТА': '31.12.2025' }).fields).toMatchObject({ purchaseDate: day(2025, 12, 31) })
+    expect(map({ 'ДАТА': '01.01.2026' }).fields).toMatchObject({ purchaseDate: day(2026, 1, 1), purchasePrice: 1500 })
     const none = map({ 'ДАТА': '' })
     expect(none.fields.purchaseDate).toBeUndefined()
-    expect(none.fields.currency).toBeUndefined()
-    expect(none.problems).toEqual([{ key: 'ДАТА', reason: 'missing', fields: ['purchaseDate', 'currency'] }])
+    expect(none.problems).toEqual([{ key: 'ДАТА', reason: 'missing', fields: ['purchaseDate'] }])
+  })
+
+  it('the currency is the register\'s at the changeover, not the purchase year\'s: lev only for an asset written off before it', () => {
+    // Bought before the changeover and still in the register: PlusMinus converted it, so its properties are in EUR.
+    expect(map({ 'ДАТА': '31.12.2025' }).fields.currency).toBe('EUR')
+    expect(map({ 'ДАТА': '15.03.2019' }).fields.currency).toBe('EUR')
+    // Bought after it: entered in EUR.
+    expect(map({ 'ДАТА': '01.01.2026' }).fields.currency).toBe('EUR')
+    // Written off before it: left the register unconverted, in lev.
+    expect(map({ 'ОТПДАТА': '31.12.2025' }).fields.currency).toBe('BGN')
+    expect(map({ 'ДАТА': '15.03.2019', 'ОТПДАТА': '30.06.2022' }).fields.currency).toBe('BGN')
+    // Written off on or after it: it was in the register at the changeover.
+    expect(map({ 'ОТПДАТА': '01.01.2026' }).fields.currency).toBe('EUR')
+    // A purchase date that cannot be read does not decide it: the write-off does.
+    expect(map({ 'ДАТА': '' }).fields.currency).toBe('EUR')
+    // A write-off date that cannot be read leaves it unknown: an update keeps what the asset holds.
+    const garbled = map({ 'ОТПДАТА': '32.13.2025' })
+    expect(garbled.fields.currency).toBeUndefined()
+    expect(garbled.problems).toContainEqual({ key: 'ОТПДАТА', reason: 'unreadable', fields: ['disposalDate', 'status', 'currency'], value: '32.13.2025' })
   })
 
   it('СТОЙНОСТ / ОБЩАСТОЙНОСТ: the value with later additions where there is one, else the value', () => {
@@ -195,7 +213,7 @@ describe('row by row', () => {
     // unreadable: whether it was written off is unknown, so the status is too
     const garbled = map({ 'ОТПДАТА': '31.06.2025' })
     expect(garbled.fields).not.toHaveProperty('status')
-    expect(garbled.problems).toEqual([{ key: 'ОТПДАТА', reason: 'unreadable', fields: ['disposalDate', 'status'], value: '31.06.2025' }])
+    expect(garbled.problems).toEqual([{ key: 'ОТПДАТА', reason: 'unreadable', fields: ['disposalDate', 'status', 'currency'], value: '31.06.2025' }])
   })
 
   it('НАЧИСЛ: `НЕ` is an asset that is not depreciated', () => {
@@ -276,9 +294,9 @@ describe('what cannot be taken as booked', () => {
     expect(r.problems).toEqual([{ key: 'ДАТАЕКСП', reason: 'unreadable', fields: ['inServiceDate'], value: '31.02.2024' }])
   })
 
-  it('no properties: every required field is missing; only the status reads from what is absent (no write-off, depreciated)', () => {
+  it('no properties: every required field is missing; only the status and the currency read from what is absent (no write-off: depreciated, in the register at the changeover)', () => {
     const r = mapFixedAssetParams([], CHART)
-    expect(r.fields).toEqual({ status: 'active' })
+    expect(r.fields).toEqual({ status: 'active', currency: 'EUR' })
     expect(reasons(r)).toEqual(['СМЕТКА missing', 'ДЕБИТ missing', 'КРЕДИТ missing', 'МЕТОД missing', 'ДАТА missing', 'СТОЙНОСТ missing', 'СРОК missing'])
   })
 

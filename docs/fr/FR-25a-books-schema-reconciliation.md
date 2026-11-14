@@ -332,8 +332,12 @@ importer needs no change (`import.service.ts#importAnalytics` → `fixed-asset-r
     by more than 1 is kept and named (`rate_term_mismatch`): a term written in months would show there;
   - `НАЧИСЛ` = `НЕ` is the status `not_depreciated` (a value the model gained for it); `ОТПДАТА` is `disposed`, and wins;
   - `currentValue` is the price less `НАЧ.АМ.`: the value the books start from, not today's;
-  - `currency` is the ledger's on `ДАТА` (BGN before 2026-01-01, EUR from it), and nothing is converted. ⚠ Not proven by
-    the audit: an asset bought before the changeover should show its `СТОЙНОСТ` equal to its purchase's amount in BGN;
+  - `currency` is the register's at the euro changeover, and nothing is converted: EUR, except for an asset written off
+    before 2026-01-01 (`ОТПДАТА`), which is BGN. ⚠ NOT the purchase year's: PlusMinus converted its asset register to euro
+    at the changeover, so an asset bought years before and still in the register is stated in EUR, while one that had
+    left it stays in lev. Read off the accountant's own file by the shape of the stored values (whole-lev amounts occur
+    only among the assets written off before the changeover; amounts that are round only once converted occur only among
+    the others), and `scripts/check-fixed-asset-params.ts` prints the split;
   - the code is the analytic's path, the name its last segment, the category the code of `СМЕТКА`'s account.
 - **Reading** is tolerant (a dot or a comma as the decimal separator, spaces or the other separator between thousands,
   `D.M.YYYY` as well as `DD.MM.YYYY`, a date of zeros as none). A value that cannot be read, or a code the chart does not
