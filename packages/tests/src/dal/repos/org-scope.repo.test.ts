@@ -81,6 +81,19 @@ for (const [name, setup, cleanup] of backends) {
       expect(after.name).toBe('Cash 1000')
     })
 
+    test('updateInOrg removes the fields it is told to, in the same write, and never the org', async () => {
+      const a = await account(orgA, '1000')
+      await repos.accounts.updateInOrg(a.id, orgA, { description: 'to clear', currency: 'EUR' } as any)
+
+      // FR-25a: a cleared header field. Named in both, it is removed, not set.
+      const updated = await repos.accounts.updateInOrg(a.id, orgA, { name: 'renamed', description: 'kept?' } as any, {}, { unset: ['description', 'orgId', '$where'] })
+
+      expect((updated as any).name).toBe('renamed')
+      expect('description' in (updated as any)).toBe(false)
+      expect((updated as any).currency).toBe('EUR')
+      expect(String((updated as any).orgId)).toBe(orgA)
+    })
+
     test('deleteInOrg deletes only the org\'s own document', async () => {
       const a = await account(orgA, '1000')
       const b = await account(orgB, '1000')

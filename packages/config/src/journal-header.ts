@@ -243,16 +243,20 @@ export const JOURNAL_HEADER_FIELDS = [
 
 export type JournalHeaderField = (typeof JOURNAL_HEADER_FIELDS)[number]
 
-export type HeaderProblemCode =
-  | 'payment_code_unknown'
-  | 'paid_cash_exceeds_paid'
-  | 'vat_rate_unknown'
-  | 'exemption_reason_required'
-  | 'register_doc_type_unknown'
-  | 'reason_ref_required'
-  | 'reporting_month_invalid'
-  | 'date_invalid'
-  | 'link_incomplete'
+/** What `headerProblems` may say of a field; the entry form words each (`accounting.journalEntry.errors.<code>`). */
+export const HEADER_PROBLEM_CODES = [
+  'payment_code_unknown',
+  'paid_cash_exceeds_paid',
+  'vat_rate_unknown',
+  'exemption_reason_required',
+  'register_doc_type_unknown',
+  'reason_ref_required',
+  'reporting_month_invalid',
+  'date_invalid',
+  'link_incomplete',
+] as const
+
+export type HeaderProblemCode = (typeof HEADER_PROBLEM_CODES)[number]
 
 export interface HeaderProblem {
   field: JournalHeaderField

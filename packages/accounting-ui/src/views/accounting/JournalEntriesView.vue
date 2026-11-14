@@ -1,97 +1,94 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">{{ $t('accounting.journalEntries') }}</h1>
-      <v-spacer />
-      <div class="d-flex ga-2">
-        <export-menu module="accounting" />
-        <responsive-btn
-          v-cap="'journal.create'"
-          color="primary"
-          icon="mdi-plus"
-          @click="openDialog()"
-        >
-          {{ $t('common.add') }}
-        </responsive-btn>
-      </div>
-    </div>
+  <ListScaffold
+    :title="$t('accounting.journalEntries')"
+    :headers="headers"
+    :items="items"
+    :loading="loading"
+    :pagination="pagination"
+    :has-active-filters="hasActiveFilters"
+    :empty="{ icon: 'mdi-book-open-variant', title: $t('accounting.journalEntry.empty') }"
+    :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
+    @update:options="onUpdateOptions"
+  >
+    <template #actions>
+      <export-menu module="accounting" />
+      <responsive-btn
+        v-cap="'journal.create'"
+        color="primary"
+        icon="mdi-plus"
+        @click="openDialog()"
+      >
+        {{ $t('common.add') }}
+      </responsive-btn>
+    </template>
 
-    <!-- Filters -->
-    <v-card class="mb-4">
-      <v-card-text>
-        <v-row>
-          <v-col cols="12" md="3">
-            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-select
-              v-model="statusFilter"
-              :label="$t('common.status')"
-              :items="statusOptions"
-              clearable
-              hide-details
-            />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-text-field
-              v-model="dateFrom"
-              :label="$t('common.dateFrom')"
-              type="date"
-              hide-details
-            />
-          </v-col>
-          <v-col cols="12" md="3">
-            <v-text-field
-              v-model="dateTo"
-              :label="$t('common.dateTo')"
-              type="date"
-              hide-details
-            />
-          </v-col>
-          <v-col cols="12" md="3" class="d-flex align-center">
-            <v-btn color="primary" variant="outlined" @click="applyFilters">
-              {{ $t('common.filter') }}
-            </v-btn>
-          </v-col>
-        </v-row>
-      </v-card-text>
-    </v-card>
+    <template #filters>
+      <FilterBar v-model:search="search">
+        <v-col cols="12" sm="6" md="2">
+          <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" clearable />
+        </v-col>
+        <v-col cols="12" sm="6" md="2">
+          <v-text-field v-model="dateFrom" :label="$t('common.dateFrom')" type="date" />
+        </v-col>
+        <v-col cols="12" sm="6" md="2">
+          <v-text-field v-model="dateTo" :label="$t('common.dateTo')" type="date" />
+        </v-col>
+        <!-- FR-25a §3.6: what the document header says. -->
+        <v-col cols="12" sm="6" md="2">
+          <v-select v-model="paymentFilter" :label="$t('accounting.journalEntry.filters.payment')" :items="paymentOptions" clearable />
+        </v-col>
+        <v-col cols="12" md="auto" class="d-flex flex-wrap align-center ga-2">
+          <v-checkbox v-model="unpaidFilter" :label="$t('accounting.journalEntry.filters.unpaid')" density="compact" hide-details />
+          <v-checkbox v-model="noticesFilter" :label="$t('accounting.journalEntry.filters.notices')" density="compact" hide-details />
+          <v-checkbox v-model="otherMonthFilter" :label="$t('accounting.journalEntry.filters.otherMonth')" density="compact" hide-details />
+        </v-col>
+      </FilterBar>
+    </template>
 
-    <v-data-table-server
-      :headers="headers"
-      :items="items"
-      :items-length="pagination.total"
-      :loading="loading"
-      :page="pagination.page + 1"
-      :items-per-page="pagination.size"
-      @update:options="onUpdateOptions"
-      @click:row="(_e: any, row: any) => openDialog(row.item)"
-    >
-      <template #item.number="{ item }">
-        <entity-link :label="item.number" :to="{ name: 'accounting.journal-entry-edit', params: { id: item._id } }" />
-      </template>
-      <template #item.date="{ item }">
-        {{ item.date?.split('T')[0] }}
-      </template>
-      <template #item.status="{ item }">
-        <v-chip size="small" :color="statusColor(item.status)">
-          {{ item.status }}
-        </v-chip>
-      </template>
-      <template #item.totalDebit="{ item }">
-        {{ formatCurrency(calcTotalDebit(item), currency, localeCode) }}
-      </template>
-      <template #item.totalCredit="{ item }">
-        {{ formatCurrency(calcTotalCredit(item), currency, localeCode) }}
-      </template>
-      <template #item.actions="{ item }">
+    <template #item.entryNumber="{ item }">
+      <v-icon v-if="isAsBooked(item)" size="x-small" class="mr-1" :title="$t('accounting.journalEntry.document.asBooked')">mdi-lock</v-icon>
+      <entity-link :label="item.entryNumber" :to="{ name: 'accounting.journal-entry-edit', params: { id: item._id } }" />
+    </template>
+    <template #item.date="{ item }">
+      {{ item.date?.split('T')[0] }}
+    </template>
+    <template #item.status="{ item }">
+      <v-chip size="small" :color="statusColor(item.status)">
+        {{ item.status }}
+      </v-chip>
+    </template>
+    <template #item.totalDebit="{ item }">
+      {{ formatCurrency(item.totalDebit ?? 0, currency, localeCode) }}
+    </template>
+    <template #item.totalCredit="{ item }">
+      {{ formatCurrency(item.totalCredit ?? 0, currency, localeCode) }}
+    </template>
+    <template #item.paymentCode="{ item }">
+      {{ paymentLabel(item.paymentCode) }}
+    </template>
+    <template #item.paidAmount="{ item }">
+      {{ typeof item.paidAmount === 'number' ? formatCurrency(item.paidAmount, item.docCurrency || currency, localeCode) : '' }}
+    </template>
+    <template #item.openAmount="{ item }">
+      <span :class="{ 'text-warning font-weight-medium': isUnpaid(item) }">{{ openLabel(item) }}</span>
+    </template>
+    <template #item.registerDocType="{ item }">
+      {{ registerLabel(item.registerDocType) }}
+    </template>
+    <template #item.reportingMonth="{ item }">
+      <span :class="{ 'text-info': isDeclaredInAnotherMonth(item) }">{{ monthInputOf(item.reportingMonth) }}</span>
+    </template>
+    <template #item.actions="{ item }">
+      <template v-if="!isAsBooked(item)">
         <v-btn
           v-if="item.status === 'draft'"
           v-cap="['journal.create', 'journal.edit']"
           icon="mdi-pencil"
           size="small"
           variant="text"
-          @click.stop="openDialog(item)"
+          :title="$t('common.edit')"
+          :aria-label="$t('common.edit')"
+          :to="{ name: 'accounting.journal-entry-edit', params: { id: item._id } }"
         />
         <v-btn
           v-if="item.status === 'draft'"
@@ -114,13 +111,13 @@
           @click.stop="voidEntry(item)"
         />
       </template>
-    </v-data-table-server>
+    </template>
 
-    <!-- Create/Edit Dialog -->
+    <!-- Create Dialog -->
     <v-dialog v-model="dialog" max-width="900" scrollable>
       <v-card>
         <v-card-title>
-          {{ editing ? $t('common.edit') : $t('common.add') }}
+          {{ $t('common.add') }}
         </v-card-title>
         <v-card-text>
           <v-form ref="formRef">
@@ -277,7 +274,6 @@
             {{ $t('common.save') }}
           </v-btn>
           <v-btn
-            v-if="!editing"
             v-cap="'journal.post'"
             color="success"
             :loading="store.loading"
@@ -289,12 +285,16 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-  </v-container>
+  </ListScaffold>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import {
+  PAYMENT_WAYS, isAsBooked, isDeclaredInAnotherMonth, isUnpaid, monthInputOf, openAmountOf, paymentWayOf, registerDocTypeCode,
+  registerDocTypeKey,
+} from 'config/journal-header'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore, type JournalEntry } from '../../store/accounting.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
@@ -305,6 +305,8 @@ import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
+import ListScaffold from 'ui-shared/components/ListScaffold.vue'
+import FilterBar from 'ui-shared/components/FilterBar.vue'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
@@ -313,19 +315,26 @@ const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
-  const map: Record<string, string> = { en: 'en-US', mk: 'mk-MK', de: 'de-DE' }
+  const map: Record<string, string> = { en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' }
   return map[appStore.locale] || 'en-US'
 })
 
 const { search, debouncedSearch } = useSearchDebounce()
 const dialog = ref(false)
-const editing = ref(false)
 const formRef = ref()
-const selectedId = ref('')
 const statusFilter = ref<string | null>(null)
 const dateFrom = ref('')
 const dateTo = ref('')
 const statusOptions = ['draft', 'posted', 'voided']
+// FR-25a §3.6: the header's filters.
+const paymentFilter = ref<string | null>(null)
+const unpaidFilter = ref(false)
+const noticesFilter = ref(false)
+const otherMonthFilter = ref(false)
+const paymentOptions = computed(() => PAYMENT_WAYS.map(way => ({ title: t(`accounting.paymentCodes.${way}`), value: way })))
+
+const hasActiveFilters = computed(() => !!debouncedSearch.value || !!statusFilter.value || !!dateFrom.value || !!dateTo.value
+  || !!paymentFilter.value || unpaidFilter.value || noticesFilter.value || otherMonthFilter.value)
 
 const filters = computed(() => {
   const f: Record<string, any> = {}
@@ -333,6 +342,10 @@ const filters = computed(() => {
   if (statusFilter.value) f.status = statusFilter.value
   if (dateFrom.value) f.startDate = dateFrom.value
   if (dateTo.value) f.endDate = dateTo.value
+  if (paymentFilter.value) f.payment = paymentFilter.value
+  if (unpaidFilter.value) f.unpaid = 'true'
+  if (noticesFilter.value) f.notices = 'true'
+  if (otherMonthFilter.value) f.otherMonth = 'true'
   return f
 })
 
@@ -343,11 +356,17 @@ useListQueryState([
   { key: 'status', ref: statusFilter },
   { key: 'from', ref: dateFrom, codec: 'date' },
   { key: 'to', ref: dateTo, codec: 'date' },
+  { key: 'payment', ref: paymentFilter },
+  { key: 'unpaid', ref: unpaidFilter, codec: 'bool' },
+  { key: 'notices', ref: noticesFilter, codec: 'bool' },
+  { key: 'otherMonth', ref: otherMonthFilter, codec: 'bool' },
 ])
 
+// Newest first by date: `{orgId, date}` serves it, where `createdAt` made every page sort the org's whole journal.
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'journalEntries',
+  defaultSortBy: 'date',
   filters,
   urlSync: true,
 })
@@ -372,13 +391,20 @@ const emptyForm = () => ({
 
 const form = ref(emptyForm())
 
+// FR-25a: the header's columns are on the cog, hidden until a person shows them, and not sortable: no index serves a
+// sort on them over a books org's journal. The open amount is worked out, never stored.
 const headers = computed(() => [
-  { title: t('accounting.entryNumber'), key: 'number' },
+  { title: t('accounting.entryNumber'), key: 'entryNumber' },
   { title: t('common.date'), key: 'date' },
   { title: t('common.description'), key: 'description' },
   { title: t('common.status'), key: 'status' },
   { title: t('accounting.debit'), key: 'totalDebit', align: 'end' as const },
   { title: t('accounting.credit'), key: 'totalCredit', align: 'end' as const },
+  { title: t('accounting.journalEntry.columns.paymentCode'), key: 'paymentCode', sortable: false, defaultHidden: true },
+  { title: t('accounting.journalEntry.columns.paidAmount'), key: 'paidAmount', align: 'end' as const, sortable: false, defaultHidden: true },
+  { title: t('accounting.journalEntry.columns.openAmount'), key: 'openAmount', align: 'end' as const, sortable: false, defaultHidden: true },
+  { title: t('accounting.journalEntry.columns.registerDocType'), key: 'registerDocType', sortable: false, defaultHidden: true },
+  { title: t('accounting.journalEntry.columns.reportingMonth'), key: 'reportingMonth', sortable: false, defaultHidden: true },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
@@ -394,17 +420,25 @@ const rules = {
   required: (v: string) => !!v || 'Required',
 }
 
-function calcTotalDebit(entry: JournalEntry) {
-  return entry.lines.reduce((s, l) => s + l.debit, 0)
-}
-
-function calcTotalCredit(entry: JournalEntry) {
-  return entry.lines.reduce((s, l) => s + l.credit, 0)
-}
-
 function statusColor(status: string) {
   const colors: Record<string, string> = { draft: 'grey', posted: 'success', voided: 'error' }
   return colors[status] || 'grey'
+}
+
+/** A code as booked that no list names is shown as booked. */
+function paymentLabel(code?: string) {
+  const way = paymentWayOf(code)
+  return way ? t(`accounting.paymentCodes.${way}`) : code ?? ''
+}
+
+function registerLabel(value?: string) {
+  const key = registerDocTypeKey(value)
+  return key ? `${registerDocTypeCode(value)} · ${t(`accounting.journalEntry.document.registerDocTypes.${key}`)}` : value ?? ''
+}
+
+function openLabel(item: any) {
+  const open = openAmountOf(item)
+  return open === undefined ? '' : formatCurrency(open, item.docCurrency || currency.value, localeCode.value)
 }
 
 function addLine() {
@@ -415,48 +449,30 @@ function removeLine(idx: number) {
   form.value.lines.splice(idx, 1)
 }
 
-function openDialog(item?: JournalEntry | Record<string, unknown>) {
-  if (item && '_id' in item && item._id) {
-    const entry = item as JournalEntry
-    editing.value = true
-    selectedId.value = entry._id
-    form.value = {
-      date: entry.date?.split('T')[0] || '',
-      description: entry.description,
-      lines: entry.lines.map(l => ({
-        accountId: l.accountId,
-        description: l.description || '',
-        debit: l.debit,
-        credit: l.credit,
-        currency: '',
-        exchangeRate: 1,
-      })),
-    }
-  } else {
-    editing.value = false
-    form.value = emptyForm()
-  }
+/** A new entry. An existing one opens on its own page, which reads it whole: the list carries no lines. */
+function openDialog() {
+  form.value = emptyForm()
   dialog.value = true
 }
 
-function applyFilters() {
-  fetchItems()
+function payloadOf() {
+  return {
+    date: form.value.date,
+    description: form.value.description,
+    lines: form.value.lines.map(l => ({
+      accountId: l.accountId,
+      description: l.description,
+      debit: l.debit,
+      credit: l.credit,
+    })),
+  }
 }
 
 async function save() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
   try {
-    await store.createJournalEntry({
-      date: form.value.date,
-      description: form.value.description,
-      lines: form.value.lines.map(l => ({
-        accountId: l.accountId,
-        description: l.description,
-        debit: l.debit,
-        credit: l.credit,
-      })),
-    })
+    await store.createJournalEntry(payloadOf())
     showSuccess(t('common.savedSuccessfully'))
     await fetchItems()
     dialog.value = false
@@ -469,16 +485,7 @@ async function saveAndPost() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
   try {
-    const entry = await store.createJournalEntry({
-      date: form.value.date,
-      description: form.value.description,
-      lines: form.value.lines.map(l => ({
-        accountId: l.accountId,
-        description: l.description,
-        debit: l.debit,
-        credit: l.credit,
-      })),
-    })
+    const entry = await store.createJournalEntry(payloadOf())
     if (entry?._id) {
       await store.postJournalEntry(entry._id)
     }

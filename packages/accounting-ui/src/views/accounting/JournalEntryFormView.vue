@@ -36,6 +36,19 @@
         </v-col>
       </v-row>
 
+      <!-- FR-25a §3.6: the document the entry books, its payment and its VAT. -->
+      <JournalDocumentCard
+        v-if="loaded"
+        ref="docCard"
+        v-model="header"
+        :entry="entryData"
+        :editable="headerEditable"
+        :as-booked="asBooked"
+        :default-open="cardOpen"
+        :currency="currency"
+        :locale-code="localeCode"
+      />
+
       <div class="d-flex align-center mt-4 mb-2">
         <span class="text-subtitle-1 font-weight-medium">{{ $t('accounting.lines') }}</span>
         <v-spacer />
@@ -146,18 +159,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { isAsBooked } from 'config/journal-header'
 import { useAppStore } from '../../store/app.store'
-import { useAccountingStore } from '../../store/accounting.store'
+import { useAccountingStore, type JournalEntryDetail } from '../../store/accounting.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
+import JournalDocumentCard from '../../components/JournalDocumentCard.vue'
+import { emptyHeaderForm, hasHeader, headerFormOf, headerPayloadOf, type HeaderForm } from './journal-header-form'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
@@ -166,7 +182,7 @@ const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
-  const map: Record<string, string> = { en: 'en-US', mk: 'mk-MK', de: 'de-DE' }
+  const map: Record<string, string> = { en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' }
   return map[appStore.locale] || 'en-US'
 })
 
@@ -174,7 +190,16 @@ const formRef = ref()
 const isEdit = computed(() => !!route.params.id)
 const entryNumber = ref('')
 const entryStatus = ref<'draft' | 'posted' | 'voided'>('draft')
-const entryData = ref<any>(null)
+const entryData = ref<JournalEntryDetail | null>(null)
+
+// FR-25a §3.6: the document header. An entry the books import wrote is as booked: read-only for everyone.
+const header = ref<HeaderForm>(emptyHeaderForm())
+const asBooked = computed(() => isAsBooked(entryData.value))
+const headerEditable = computed(() => !asBooked.value && entryStatus.value === 'draft')
+/** The card is mounted once the entry is in, so it opens on what the entry says. */
+const loaded = ref(false)
+const cardOpen = computed(() => hasHeader(entryData.value))
+const docCard = ref<{ open: () => void; problemCount: number } | null>(null)
 
 const statusLabel = computed(() => {
   if (entryStatus.value === 'draft') return t('common.draft')
@@ -195,8 +220,8 @@ const formActions = computed<FormAction[]>(() => {
     // Editing draft: Save + Post
     actions.push({ label: t('common.save'), color: 'primary', handler: handleSubmit, cap: ['journal.create', 'journal.edit'], loading: store.loading, disabled: !isBalanced.value })
     actions.push({ label: t('accounting.post'), color: 'primary', variant: 'outlined', icon: 'mdi-check', handler: postEntry, cap: 'journal.post', loading: store.loading })
-  } else if (s === 'posted') {
-    // Posted: Void
+  } else if (s === 'posted' && !asBooked.value) {
+    // Posted: Void. Never an imported entry's: the books are the accountant's (FR-25a).
     actions.push({ label: t('accounting.void'), color: 'warning', icon: 'mdi-cancel', handler: voidEntry, cap: 'journal.post', loading: store.loading })
   }
 
@@ -233,12 +258,16 @@ const { markSaved, tryRestore } = usePendingChanges({
   appId: 'accounting',
   entityType: 'journalEntry',
   icon: 'mdi-book-open-page-variant',
-  getFormData: () => ({ ...form, lines: [...form.lines] }),
+  getFormData: () => ({ ...form, lines: [...form.lines], header: JSON.parse(JSON.stringify(header.value)) }),
   getPreviewFields: () => [
     { label: 'Date', value: form.date },
     { label: 'Ref', value: form.reference },
   ],
-  setFormData: (data) => Object.assign(form, data),
+  setFormData: (data) => {
+    const { header: savedHeader, ...rest } = data as any
+    Object.assign(form, rest)
+    if (savedHeader) header.value = { ...emptyHeaderForm(), ...savedHeader }
+  },
   isEdit: () => isEdit.value,
   entityId: () => route.params.id as string,
 })
@@ -294,12 +323,28 @@ function buildPayload() {
       debit: l.debit,
       credit: l.credit,
     })),
+    // FR-25a: the whole header, a cleared field as `null`, which the server removes.
+    ...headerPayloadOf(header.value),
   }
 }
 
-async function handleSubmit() {
+/** The form's own checks; a refused header field opens the card it is in. */
+async function validForm(): Promise<boolean> {
   const { valid } = await formRef.value.validate()
-  if (!valid) return
+  if (!valid && docCard.value?.problemCount) docCard.value.open()
+  return valid
+}
+
+/** The server's refusal in words: FR-25a's codes are translated, anything else is shown as sent. */
+function refusalOf(e: any): string {
+  const data = e?.response?.data
+  const code = data?.code === 'journal_header_invalid' ? data.problems?.[0]?.code : data?.code
+  const key = `accounting.journalEntry.errors.${code}`
+  return code && te(key) ? t(key) : data?.message || t('common.operationFailed')
+}
+
+async function handleSubmit() {
+  if (!(await validForm())) return
   if (!validateLines()) return
 
   try {
@@ -312,13 +357,12 @@ async function handleSubmit() {
     showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'accounting.journal-entries' })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(refusalOf(e))
   }
 }
 
 async function saveAndPost() {
-  const { valid } = await formRef.value.validate()
-  if (!valid) return
+  if (!(await validForm())) return
   if (!validateLines()) return
 
   try {
@@ -330,7 +374,7 @@ async function saveAndPost() {
     showSuccess(t('common.postedSuccessfully'))
     router.push({ name: 'accounting.journal-entries' })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(refusalOf(e))
   }
 }
 
@@ -350,32 +394,52 @@ async function voidEntry() {
     showSuccess(t('common.voidedSuccessfully'))
     router.push({ name: 'accounting.journal-entries' })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(refusalOf(e))
+  }
+}
+
+/**
+ * The entry, read from the server. It used to be looked up in the store's list, which the journal grid never fills, so an
+ * entry opened from the grid showed an empty form.
+ */
+async function loadEntry(id: string) {
+  loaded.value = false
+  try {
+    const existing = await store.fetchJournalEntry(id)
+    entryNumber.value = existing.entryNumber || ''
+    entryStatus.value = existing.status || 'draft'
+    entryData.value = existing
+    Object.assign(form, {
+      date: existing.date?.split('T')[0] || '',
+      reference: existing.reference || '',
+      description: existing.description || '',
+      lines: (existing.lines || []).map(l => ({
+        accountId: l.accountId || '',
+        description: l.description || '',
+        debit: l.debit || 0,
+        credit: l.credit || 0,
+      })),
+    })
+    header.value = headerFormOf(existing)
+  } catch (e: any) {
+    showError(refusalOf(e))
+  } finally {
+    loaded.value = true
   }
 }
 
 onMounted(async () => {
   await store.fetchAccounts()
-  if (tryRestore()) return
-  if (isEdit.value) {
-    const entries = store.journalEntries
-    const existing = entries.find(e => e._id === route.params.id)
-    if (existing) {
-      entryNumber.value = existing.number || ''
-      entryStatus.value = existing.status || 'draft'
-      entryData.value = existing
-      Object.assign(form, {
-        date: existing.date?.split('T')[0] || '',
-        reference: '',
-        description: existing.description || '',
-        lines: (existing.lines || []).map(l => ({
-          accountId: l.accountId || '',
-          description: l.description || '',
-          debit: l.debit || 0,
-          credit: l.credit || 0,
-        })),
-      })
-    }
+  if (tryRestore()) {
+    loaded.value = true
+    return
   }
+  if (isEdit.value) await loadEntry(route.params.id as string)
+  else loaded.value = true
+})
+
+// A link opens the entry it names on this same page: the route's id changes, the view stays.
+watch(() => route.params.id, (id, was) => {
+  if (id && id !== was) void loadEntry(String(id))
 })
 </script>

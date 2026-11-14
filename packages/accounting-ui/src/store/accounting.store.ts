@@ -24,6 +24,53 @@ export interface JournalEntry {
   createdAt: string
 }
 
+/** FR-25a: a link of an entry's document, with the entry it names where the server found exactly one. */
+export interface JournalEntryLink {
+  docType: string
+  docNumber: string
+  date?: string
+  amount?: number
+  amountFx?: number
+  entryId?: string
+}
+
+/** FR-25a §3.6: one entry as `GET /journal/:id` answers it, its document header included. */
+export interface JournalEntryDetail {
+  _id: string
+  entryNumber: string
+  date: string
+  description: string
+  reference?: string
+  status: 'draft' | 'posted' | 'voided'
+  sourceModule?: string
+  sourceId?: string
+  lines: (JournalLine & { account?: { code: string; name: string } })[]
+  docType?: string
+  docNumber?: string
+  docDate?: string
+  docTotal?: number
+  docVat?: number
+  docCurrency?: string
+  partnerName?: string
+  paymentCode?: string
+  paidAmount?: number
+  paidCash?: number
+  bankOperation?: string
+  vatKind?: string
+  vatRate?: number
+  vatRule?: string
+  vatExemptionReason?: string
+  registerDocType?: string
+  reasonRef?: string
+  taxEventDate?: string
+  reportingMonth?: string
+  protocolType?: string
+  customsRef?: string
+  links?: JournalEntryLink[]
+  docOptions?: Record<string, string>
+  source?: { createdBy?: string; createdAt?: string; modifiedBy?: string; modifiedAt?: string; version?: string }
+}
+
 export interface JournalLine {
   accountId: string
   accountName?: string
@@ -204,7 +251,18 @@ export const useAccountingStore = defineStore('accounting', () => {
     }
   }
 
-  async function createJournalEntry(payload: Partial<JournalEntry>) {
+  /** One entry, whole: its lines and its document header (FR-25a). Not kept in the list's state. */
+  async function fetchJournalEntry(id: string): Promise<JournalEntryDetail> {
+    loading.value = true
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/accounting/journal/${id}`)
+      return data.journalEntry
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function createJournalEntry(payload: Record<string, unknown>) {
     loading.value = true
     try {
       const { data } = await httpClient.post(`${orgUrl()}/accounting/journal`, payload)
@@ -215,7 +273,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     }
   }
 
-  async function updateJournalEntry(id: string, payload: Partial<JournalEntry>) {
+  async function updateJournalEntry(id: string, payload: Record<string, unknown>) {
     loading.value = true
     try {
       const { data } = await httpClient.put(`${orgUrl()}/accounting/journal/${id}`, payload)
@@ -628,6 +686,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     deleteAccount,
     // Actions - Journal Entries
     fetchJournalEntries,
+    fetchJournalEntry,
     createJournalEntry,
     updateJournalEntry,
     deleteJournalEntry,

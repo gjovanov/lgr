@@ -626,6 +626,102 @@
       "viesKindRepresentative": "Vertreter",
       "companyAddress": "Adresse des Unternehmens"
     },
+    "journalEntry": {
+      "empty": "Noch keine Buchungen",
+      "document": {
+        "title": "Beleg",
+        "needsAttention": "{n} zu prüfen",
+        "asBooked": "Wie im Programm des Buchhalters gebucht",
+        "asBookedHint": "Der Import der Buchhaltung hat diese Buchung geschrieben, daher ist sie hier schreibgeschützt: Der nächste Import würde eine Änderung überschreiben, und die Bücher müssen dem entsprechen, was der Buchhalter eingereicht hat.",
+        "docType": "Belegart",
+        "docNumber": "Belegnummer",
+        "docDate": "Belegdatum",
+        "registerDocType": "Registerart",
+        "reasonRef": "Korrigiert",
+        "reasonRefHint": "Die Rechnung, die diese Gutschrift oder Belastung korrigiert",
+        "partner": "Geschäftspartner",
+        "total": "Belegsumme",
+        "switches": "Schalter",
+        "source": "Erfasst von {by} am {at}",
+        "sourceChanged": "geändert von {by} am {at}",
+        "version": "Version {version}",
+        "registerDocTypes": {
+          "invoice": "Rechnung",
+          "debitNotice": "Belastungsanzeige",
+          "creditNotice": "Gutschrift",
+          "customs": "Zollanmeldung",
+          "protocol": "Protokoll",
+          "tillReport": "Kassenbericht"
+        }
+      },
+      "payment": {
+        "title": "Zahlung",
+        "code": "Bezahlt per",
+        "paidAmount": "Bezahlt",
+        "paidCash": "Bar bezahlt",
+        "open": "Offen",
+        "bankOperation": "Bankvorgang"
+      },
+      "vat": {
+        "title": "MwSt.",
+        "kind": "MwSt.-Art",
+        "rate": "MwSt.-Satz",
+        "rule": "MwSt.-Regel",
+        "exemptionReason": "Befreiungsgrund",
+        "taxEventDate": "Datum des Steuertatbestands",
+        "reportingMonth": "Erklärt im",
+        "protocolType": "Protokollart",
+        "customsRef": "Zollanmeldung (MRN)",
+        "docVat": "MwSt. des Belegs"
+      },
+      "links": {
+        "title": "Verknüpfte Belege",
+        "none": "Keine verknüpften Belege",
+        "docType": "Art",
+        "docNumber": "Nummer",
+        "date": "Datum",
+        "amount": "Betrag",
+        "amountFx": "In Währung",
+        "add": "Verknüpfung hinzufügen",
+        "remove": "Verknüpfung entfernen",
+        "open": "Verknüpfte Buchung öffnen",
+        "notFound": "Nicht im Journal dieser Organisation"
+      },
+      "filters": {
+        "payment": "Zahlung",
+        "unpaid": "Unbezahlt",
+        "notices": "Nur Gutschriften und Belastungen",
+        "otherMonth": "In anderem Monat erklärt"
+      },
+      "columns": {
+        "paymentCode": "Bezahlt per",
+        "paidAmount": "Bezahlt",
+        "openAmount": "Offen",
+        "registerDocType": "Registerart",
+        "reportingMonth": "Erklärt im"
+      },
+      "errors": {
+        "journal_entry_as_booked": "Diese Buchung ist wie im Programm des Buchhalters gebucht und kann hier nicht geändert werden.",
+        "payment_code_unknown": "Wählen Sie bar oder Bank.",
+        "paid_cash_exceeds_paid": "Bar bezahlt kann nicht mehr sein als bezahlt.",
+        "vat_rate_unknown": "Wählen Sie 20, 9 oder 0 %.",
+        "exemption_reason_required": "Eine Ausgangsrechnung mit 0 % nennt ihren Befreiungsgrund.",
+        "register_doc_type_unknown": "Wählen Sie eine Registerart aus der Liste.",
+        "reason_ref_required": "Eine Gutschrift oder Belastung nennt die Rechnung, die sie korrigiert.",
+        "reporting_month_invalid": "Geben Sie einen Monat ein.",
+        "date_invalid": "Geben Sie ein Datum ein.",
+        "link_incomplete": "Jede Verknüpfung braucht eine Art und eine Nummer."
+      }
+    },
+    "paymentCodes": {
+      "cash": "Bar",
+      "bank": "Bank"
+    },
+    "vatRegister": {
+      "entry": "Buchung",
+      "otherMonth": "In anderem Monat erklärt",
+      "notInOrg": "Nicht im Journal dieser Organisation"
+    },
     "fromCurrency": "Von Währung",
     "toCurrency": "Zu Währung",
     "rate": "Kurs",

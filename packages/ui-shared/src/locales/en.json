@@ -626,6 +626,102 @@
       "viesKindRepresentative": "Representative",
       "companyAddress": "The company's address"
     },
+    "journalEntry": {
+      "empty": "No journal entries yet",
+      "document": {
+        "title": "Document",
+        "needsAttention": "{n} to check",
+        "asBooked": "As booked in the accountant's program",
+        "asBookedHint": "The books import wrote this entry, so it is read-only here: the next import would overwrite a change, and the books must match what the accountant filed.",
+        "docType": "Document type",
+        "docNumber": "Document number",
+        "docDate": "Document date",
+        "registerDocType": "Register type",
+        "reasonRef": "Corrects",
+        "reasonRefHint": "The invoice this notice corrects",
+        "partner": "Partner",
+        "total": "Document total",
+        "switches": "Switches",
+        "source": "Keyed by {by} on {at}",
+        "sourceChanged": "changed by {by} on {at}",
+        "version": "version {version}",
+        "registerDocTypes": {
+          "invoice": "Invoice",
+          "debitNotice": "Debit notice",
+          "creditNotice": "Credit notice",
+          "customs": "Customs declaration",
+          "protocol": "Protocol",
+          "tillReport": "Till report"
+        }
+      },
+      "payment": {
+        "title": "Payment",
+        "code": "Paid by",
+        "paidAmount": "Paid",
+        "paidCash": "Paid in cash",
+        "open": "Open",
+        "bankOperation": "Bank operation"
+      },
+      "vat": {
+        "title": "VAT",
+        "kind": "VAT kind",
+        "rate": "VAT rate",
+        "rule": "VAT rule",
+        "exemptionReason": "Exemption ground",
+        "taxEventDate": "Tax event date",
+        "reportingMonth": "Declared in",
+        "protocolType": "Protocol type",
+        "customsRef": "Customs declaration (MRN)",
+        "docVat": "Document VAT"
+      },
+      "links": {
+        "title": "Linked documents",
+        "none": "No linked documents",
+        "docType": "Type",
+        "docNumber": "Number",
+        "date": "Date",
+        "amount": "Amount",
+        "amountFx": "In currency",
+        "add": "Add a link",
+        "remove": "Remove the link",
+        "open": "Open the linked entry",
+        "notFound": "Not in this organization's journal"
+      },
+      "filters": {
+        "payment": "Payment",
+        "unpaid": "Unpaid",
+        "notices": "Notices only",
+        "otherMonth": "Declared in another month"
+      },
+      "columns": {
+        "paymentCode": "Paid by",
+        "paidAmount": "Paid",
+        "openAmount": "Open",
+        "registerDocType": "Register type",
+        "reportingMonth": "Declared in"
+      },
+      "errors": {
+        "journal_entry_as_booked": "This entry is as booked in the accountant's program and cannot be changed here.",
+        "payment_code_unknown": "Choose cash or bank.",
+        "paid_cash_exceeds_paid": "Paid in cash cannot be more than paid.",
+        "vat_rate_unknown": "Choose 20, 9 or 0 %.",
+        "exemption_reason_required": "A sales invoice at 0 % states its exemption ground.",
+        "register_doc_type_unknown": "Choose a register type from the list.",
+        "reason_ref_required": "A notice states the invoice it corrects.",
+        "reporting_month_invalid": "Enter a month.",
+        "date_invalid": "Enter a date.",
+        "link_incomplete": "Each link needs a type and a number."
+      }
+    },
+    "paymentCodes": {
+      "cash": "Cash",
+      "bank": "Bank"
+    },
+    "vatRegister": {
+      "entry": "Journal entry",
+      "otherMonth": "Declared in another month",
+      "notInOrg": "Not in this organization's journal"
+    },
     "fromCurrency": "From Currency",
     "toCurrency": "To Currency",
     "rate": "Rate",

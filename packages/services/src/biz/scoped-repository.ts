@@ -70,7 +70,7 @@ export class ScopedRepository<T extends BaseEntity> implements IBatchRepository<
     return this.inner.findOne(this.mergeFilter({ id, orgId }) as any)
   }
 
-  async updateInOrg(id: string, orgId: string, data: any, where?: Record<string, unknown>, opts?: { validate?: boolean }): Promise<T | null> {
+  async updateInOrg(id: string, orgId: string, data: any, where?: Record<string, unknown>, opts?: { validate?: boolean; unset?: string[] }): Promise<T | null> {
     const check = await this.findByIdInOrg(id, orgId)
     if (!check) return null
     // Both forwarded (#675): a caller's guard (`where`) and the validators it asked for. The guard was dropped here.
