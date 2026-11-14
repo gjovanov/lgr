@@ -200,6 +200,19 @@ payment orders use them. ⚠ The key is `accounting.bankAccountBooks.*`: `accoun
 
 ### 3.4 Fixed assets — `FixedAsset` and its schedule
 
+Built. The server: an asset the books import made (`isImportedAsset`) is refused an edit and a delete with 422
+`books_as_booked`, and nothing changes; every write to an asset kept in LGR names a guard that it is one. Its tax side
+is saved by the route's body schema and by `config/fixed-asset-tax.ts`, which the form shares: a category `1`–`7`, a rate
+0–100, whole months 0 or more, a tax value 0 or more, an in-service date not before the purchase date (422
+`fixed_asset_tax_invalid` with the problems), and a cleared field (null or an empty text) is unset. The list
+(`fixed-asset.service.ts`) leaves out the properties and the schedule, sorts by the grid's columns only, says per row
+whether the import made the asset (`imported`), and takes `taxCategory` (`1`–`7` or `none`) and `imported`
+(`true`/`false`). The form and the grid are as below; the tax schedule starts with the month the asset was put into
+service (else bought), at the yearly rate, runs the term exactly where it agrees with the rate, and ends when the tax value
+is written off or with the month of the disposal. An imported asset's `currentValue` is labelled as the value the books
+start from, in its own currency. ⚠ The keys are `accounting.fixedAssetBooks.*`: `accounting.fixedAsset` is a string.
+Still planned: the `АМ` link that fills the book schedule (§4.2), and the e2e below.
+
 - Route / views: `/accounting/fixed-assets` (`FixedAssetsView.vue`), `/fixed-assets/:id/edit` (`FixedAssetFormView.vue`);
   both exist.
 - Form sections:

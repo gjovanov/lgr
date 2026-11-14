@@ -21,6 +21,7 @@
     "./contact-representative": "./src/contact-representative.ts",
     "./party-identity": "./src/party-identity.ts",
     "./journal-header": "./src/journal-header.ts",
+    "./fixed-asset-tax": "./src/fixed-asset-tax.ts",
     "./supto": "./src/supto.ts",
     "./licence-keys": "./src/licence-keys.json",
     "./idp-keys": "./src/idp-keys.json",

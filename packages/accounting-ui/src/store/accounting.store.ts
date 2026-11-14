@@ -96,17 +96,26 @@ export interface FiscalPeriod {
   status: 'open' | 'closed'
 }
 
+/** As the fixed-asset routes answer it: the model's fields (#675), and its origin (FR-25a §3.4). */
 export interface FixedAsset {
   _id: string
   name: string
   code: string
   category: string
-  acquisitionDate: string
-  acquisitionCost: number
+  purchaseDate: string
+  purchasePrice: number
+  currency?: string
   depreciationMethod: string
-  usefulLife: number
+  usefulLifeMonths: number
   currentValue: number
   status: string
+  taxCategory?: string
+  taxDepreciationRate?: number
+  taxUsefulLifeMonths?: number
+  taxValue?: number
+  inServiceDate?: string
+  /** The books import made it: as booked, read-only (FR-25a §3.4). */
+  imported?: boolean
 }
 
 export interface BankAccount {
