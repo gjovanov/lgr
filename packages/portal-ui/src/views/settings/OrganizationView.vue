@@ -61,7 +61,6 @@
                 :label="$t('settings.activityCode')"
                 :hint="$t('settings.activityCodeHint')"
                 :rules="[rules.activityCode]"
-                inputmode="decimal"
                 density="compact"
                 data-testid="org-activity-code"
               />
