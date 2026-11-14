@@ -328,11 +328,15 @@ function buildPayload() {
   }
 }
 
-/** The form's own checks; a refused header field opens the card it is in. */
+/**
+ * The form's own checks, and the header's: a link has no field rule of its own, so the card's count is asked too. A
+ * refused header field opens the card it is in.
+ */
 async function validForm(): Promise<boolean> {
   const { valid } = await formRef.value.validate()
-  if (!valid && docCard.value?.problemCount) docCard.value.open()
-  return valid
+  const headerValid = !docCard.value?.problemCount
+  if (!headerValid) docCard.value?.open()
+  return valid && headerValid
 }
 
 /** The server's refusal in words: FR-25a's codes are translated, anything else is shown as sent. */
