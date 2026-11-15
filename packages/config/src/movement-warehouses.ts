@@ -13,6 +13,10 @@
  * names whichever side it touches. A movement naming neither warehouse moves nothing and stays
  * allowed: the form asks, it does not refuse (`MovementFormView.vue`).
  *
+ * An external warehouse (`config/external-warehouse`) keeps no stock here, so only a transfer names
+ * one, as its other side: goods sent to another site, or arriving from it. The callers say which of
+ * the two warehouses is external (`fromExternal`, `toExternal`); left out, neither is.
+ *
  * Pure, so the form and the server cannot disagree. The server applies it at the doors a user comes
  * through (`movement.controller.ts`, `doc-import.controller.ts`), and ⚠ deliberately NOT inside
  * `confirmMovement`: see the note there.
@@ -31,15 +35,53 @@ export interface MovementWarehouses {
   type?: string | null
   fromWarehouseId?: unknown
   toWarehouseId?: unknown
+  /** The From warehouse is an external one. Absent: it is not. */
+  fromExternal?: boolean | null
+  /** The To warehouse is an external one. Absent: it is not. */
+  toExternal?: boolean | null
 }
 
 export interface MovementWarehouseRefusal {
-  code: 'dispatch_with_to_warehouse' | 'receipt_with_from_warehouse' | 'transfer_without_from_warehouse' | 'adjustment_with_both_warehouses'
+  code:
+    | 'dispatch_with_to_warehouse'
+    | 'receipt_with_from_warehouse'
+    | 'transfer_without_from_warehouse'
+    | 'adjustment_with_both_warehouses'
+    | 'external_warehouse_not_transfer'
+    | 'transfer_without_own_warehouse'
   message: string
+}
+
+/** Which sides of a movement name an external warehouse. A flag on a side that names none says nothing. */
+export function externalSides(m: MovementWarehouses): { from: boolean; to: boolean } {
+  return { from: !!(m.fromExternal && m.fromWarehouseId), to: !!(m.toExternal && m.toWarehouseId) }
+}
+
+/** Whether a movement of this type may name an external warehouse at all: only a transfer does. */
+export function namesExternalWarehouses(type: string | null | undefined): boolean {
+  return type === 'transfer'
 }
 
 /** Why these warehouses do not fit this type, or null when they do. */
 export function movementWarehouseRefusal(m: MovementWarehouses): MovementWarehouseRefusal | null {
+  // The external rules first: where an external warehouse is named, the answer speaks of it.
+  const external = externalSides(m)
+  if (external.from || external.to) {
+    if (!namesExternalWarehouses(m.type)) {
+      return {
+        code: 'external_warehouse_not_transfer',
+        message: 'An external warehouse keeps no stock here: it is named only on a transfer, as the other side.',
+      }
+    }
+    const ownFrom = !!m.fromWarehouseId && !external.from
+    const ownTo = !!m.toWarehouseId && !external.to
+    if (!ownFrom && !ownTo) {
+      return {
+        code: 'transfer_without_own_warehouse',
+        message: 'A transfer with an external warehouse moves the stock of your own warehouse: choose it as the other side.',
+      }
+    }
+  }
   const unused = unusedWarehouseSide(m.type)
   if (unused === 'to' && m.toWarehouseId) {
     return {

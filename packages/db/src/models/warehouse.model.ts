@@ -21,6 +21,11 @@ export interface IWarehouse extends Document {
   manager?: string
   managerId?: Types.ObjectId
   isDefault: boolean
+  /**
+   * Another site's warehouse, named here so a transfer can say where the goods went or came from
+   * (`config/external-warehouse`). It keeps no stock in this org: `confirmMovement` books nothing on it.
+   */
+  isExternal: boolean
   isActive: boolean
   deactivatedAt?: Date
   tags?: string[]
@@ -45,6 +50,7 @@ const warehouseSchema = new Schema<IWarehouse>(
     manager: String,
     managerId: { type: Schema.Types.ObjectId, ref: 'User' },
     isDefault: { type: Boolean, default: false },
+    isExternal: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
     deactivatedAt: Date,
     tags: [String],
