@@ -152,12 +152,15 @@
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total || 0) }}</template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
-            <!-- The movement as a document, for whoever may read it: it goes with the goods and carries no price. -->
-            <v-btn icon="mdi-printer" size="small" variant="text" :title="$t('common.print')" :loading="printing === item._id" data-testid="movement-print" @click="printMovement(item)" />
-            <v-btn v-if="writesMovement(item)" icon="mdi-check" size="small" variant="text" color="success" :title="$t('warehouse.confirm')" data-testid="movement-confirm" @click="confirmMovement(item)" />
-            <!-- #448: a draft saved by mistake can go. The API refuses one another document names. -->
-            <v-btn v-if="writesMovement(item)" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" data-testid="movement-delete" @click="askDelete(item)" />
+            <!-- One row of icons: with Print beside View, a row no longer fits them wrapped in the column's width. -->
+            <div class="d-flex flex-nowrap">
+              <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
+              <!-- The movement as a document, for whoever may read it: it goes with the goods and carries no price. -->
+              <v-btn icon="mdi-printer" size="small" variant="text" :title="$t('common.print')" :loading="printing === item._id" data-testid="movement-print" @click="printMovement(item)" />
+              <v-btn v-if="writesMovement(item)" icon="mdi-check" size="small" variant="text" color="success" :title="$t('warehouse.confirm')" data-testid="movement-confirm" @click="confirmMovement(item)" />
+              <!-- #448: a draft saved by mistake can go. The API refuses one another document names. -->
+              <v-btn v-if="writesMovement(item)" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" data-testid="movement-delete" @click="askDelete(item)" />
+            </div>
           </template>
         </v-data-table-server>
       </v-card-text>
