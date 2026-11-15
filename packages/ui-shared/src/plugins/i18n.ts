@@ -85,11 +85,34 @@ export async function loadLocale(i18n: I18n, locale: string): Promise<void> {
   }
   if (typeof global.locale === 'object') global.locale.value = locale
   else global.locale = locale
+  declareLanguage(locale)
 }
 
-/** The language this browser starts in: the saved one, else the browser's, else English. */
+/**
+ * The language this browser starts in: the saved one, else the browser's, else English.
+ *
+ * ⚠ The ONE place that decides it. The app store used to decide it again, as "the saved one, else
+ * English": a person who never chose a language read the screen in their browser's language while
+ * everything that asks the store (the language menu, every export and print, dates) said English.
+ * A Bulgarian screen printed an English form. `index.html` repeats the rule before the app loads,
+ * because it cannot import this, and `unit/page-language.test.ts` holds the two together.
+ */
 export function initialLocale(): string {
   return getInitialLocale()
+}
+
+/**
+ * Say which language the page is in (`<html lang>`).
+ *
+ * ⚠ It used to say `en` whatever the person read. A browser that believes a page is in a language
+ * its person does not read offers to translate it, or simply does, and a translator REPLACES the
+ * page's text nodes. The app still holds the ones it made, so the next change that has to go
+ * beside one of them fails (`insertBefore … is not a child of this node`), and the page can then
+ * not even be left: the Back button does nothing. `index.html` also tells translators to leave the
+ * page alone (`translate="no"`); this keeps the language right when the person changes it.
+ */
+export function declareLanguage(locale: string): void {
+  if (typeof document !== 'undefined') document.documentElement.lang = locale
 }
 
 // Default singleton for backward compatibility
