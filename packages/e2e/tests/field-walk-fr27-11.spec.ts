@@ -37,6 +37,21 @@ const PASSWORD = `Walk-2711-${STAMP}!`
 const TIERS = ['Доставна цена', 'Цена на едро', 'Цена 0', 'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4', 'Цена 5', 'Цена 6', 'Цена 7', 'Цена 8', 'Цена 9', 'Цена 10']
 const LEVEL = (name: string) => (name === 'Цена на едро' ? 'products.price:wholesale' : `products.price:${name.replace('Цена ', '')}`)
 
+/**
+ * The cost slot is STORED as „Доставна цена" and DRAWN by a label (`config/price-tiers`: „Цена с ТО",
+ * "Trade-discount price"), and the grid prints its headings in capitals. So a heading is read back as the slot it
+ * stands for: compared as written, a cost column shown to a Seller would pass for a column this walk does not know.
+ */
+const DELIVERY = 'Доставна цена'
+const DELIVERY_LABELS = ['Цена с ТО', 'Цена с търговска отстъпка (Цена с ТО)', 'Trade-discount price', 'Price with trade discount', 'Preis mit Handelsrabatt', 'Цена со ТП', 'Цена со трговски попуст']
+const fold = (s: string) => s.replace(/\s+/g, ' ').trim().toUpperCase()
+const SLOT_BY_HEADING = new Map<string, string>([
+  ...TIERS.map((n): [string, string] => [fold(n), n]),
+  ...DELIVERY_LABELS.map((l): [string, string] => [fold(l), DELIVERY]),
+])
+/** A labelled slot's name is text in the form, not a field: its row says which slot it is. */
+const LABELLED_ROWS = 'tr[data-tier]:has([data-testid="tier-label"])'
+
 test.describe.configure({ mode: 'serial' })
 test.skip(!ORG, 'set WALK_ORG (a demo org on `roles`) to run the FR-27.11 walk')
 
@@ -67,7 +82,7 @@ async function api(session: ApiSession, method: string, path: string, body?: unk
 }
 
 const tierNamesOf = (p: any): string[] => (p?.priceTiers ?? []).map((t: any) => t.name)
-const priceTierHeaders = (headers: string[]) => headers.filter(h => TIERS.includes(h))
+const priceTierHeaders = (headers: string[]) => headers.map(h => SLOT_BY_HEADING.get(fold(h))).filter((n): n is string => !!n)
 
 /** No figure gated on the cost figures is on the page (FR-27.7's `data-cap`, FR-27.11.D). */
 async function costFiguresShown(page: Page): Promise<number> {
@@ -169,7 +184,8 @@ test("each store's list, over the surfaces FR-27.11 names", async ({ browser }) 
     // The Pricing tab, where the slots are (`URL_TO_INTERNAL`: `/pricing`).
     await page.goto(`/inventory/products/${productId}/pricing`)
     await page.waitForLoadState('networkidle')
-    const formTiers = (await page.locator('table input').evaluateAll(els => els.map(e => (e as HTMLInputElement).value))).filter(v => TIERS.includes(v))
+    const formLabelled = await page.locator(LABELLED_ROWS).evaluateAll(els => els.map(e => e.getAttribute('data-tier') ?? ''))
+    const formTiers = [...formLabelled, ...(await page.locator('table input').evaluateAll(els => els.map(e => (e as HTMLInputElement).value)))].filter(v => TIERS.includes(v))
     const formCosts = await costFiguresShown(page)
 
     await page.goto(`/inventory/products/${productId}/stock`)
@@ -191,7 +207,25 @@ test("each store's list, over the surfaces FR-27.11 names", async ({ browser }) 
     })
   }
   const control = await api(admin, 'GET', `/warehouse/product/${productId}`)
-  rows.push({ user: 'admin (control)', list: 'every level', 'API by id: tiers / purchasePrice': `${tierNamesOf(control.json?.product).length} tiers / ${'purchasePrice' in (control.json?.product ?? {}) ? 'sent' : 'absent'}`, 'API sortBy=tier_3': String((await api(admin, 'GET', '/warehouse/product?sortBy=tier_3')).status) })
+  // The control in the browser too: the Administrator's grid and form DO show the cost slot, under its label. A walk
+  // that could not read a heading back as its slot would find no leak anywhere, and this is what says it can.
+  const adminContext = await browser.newContext()
+  const adminPage = await adminContext.newPage()
+  await loginForApp(adminPage, ORG, ADMIN, ADMIN_PASSWORD)
+  await adminPage.goto(`/inventory/products?q=${encodeURIComponent(sku)}`)
+  await adminPage.waitForLoadState('networkidle')
+  const adminGrid = priceTierHeaders((await adminPage.locator('thead th').allInnerTexts()).map(s => s.trim()))
+  await adminPage.goto(`/inventory/products/${productId}/pricing`)
+  await adminPage.waitForLoadState('networkidle')
+  const adminForm = await adminPage.locator(LABELLED_ROWS).evaluateAll(els => els.map(e => e.getAttribute('data-tier') ?? ''))
+  await adminContext.close()
+  rows.push({
+    user: 'admin (control)', list: 'every level',
+    'API by id: tiers / purchasePrice': `${tierNamesOf(control.json?.product).length} tiers / ${'purchasePrice' in (control.json?.product ?? {}) ? 'sent' : 'absent'}`,
+    'API sortBy=tier_3': String((await api(admin, 'GET', '/warehouse/product?sortBy=tier_3')).status),
+    'grid tier columns': adminGrid.join(', ') || '—',
+    'form tiers': adminForm.join(', ') || '—',
+  })
   writeEvidence()
 
   for (const w of walkers) {
@@ -207,6 +241,8 @@ test("each store's list, over the surfaces FR-27.11 names", async ({ browser }) 
   }
   expect(rows.at(-1)!['API by id: tiers / purchasePrice']).toBe(`${TIERS.length} tiers / sent`)
   expect(rows.at(-1)!['API sortBy=tier_3']).toBe('200')
+  expect(rows.at(-1)!['grid tier columns'].split(', '), 'the control reads the cost slot in the grid, under its label').toContain(DELIVERY)
+  expect(rows.at(-1)!['form tiers'].split(', '), 'the control reads the cost slot in the form, under its label').toContain(DELIVERY)
 })
 
 test.afterAll(async () => {

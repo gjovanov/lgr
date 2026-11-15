@@ -118,7 +118,7 @@
               <th v-if="seesCosts" class="text-end" style="width:96px">{{ $t('common.total') }}</th>
               <!-- A fixed width: the room they leave goes to the article's name, which is what a line is read by. -->
               <th v-for="col in (grWithUpdate ? activeColumns : [])" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''" style="width: 88px; min-width: 80px">
-                {{ col.label || $t(col.i18n || '') }}
+                {{ grColumnLabel(col, $t, $i18n.locale) }}
               </th>
               <th v-if="!readonly" style="width:32px"></th>
             </tr>
@@ -389,6 +389,7 @@ import { useProductTypes } from 'ui-shared/composables/useProductTypes'
 import type { FormAction, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import GRColumnPicker from '../components/GRColumnPicker.vue'
 import { useGRColumns } from '../composables/useGRColumns'
+import { grColumnLabel } from 'ui-shared/composables/useGRColumns'
 // What a line stages for its product, and what reaches it — shared with the supplier bill's form.
 import {
   buildProductUpdates, cascadePurchasePrice, needsSeed, productsForSeed, seedFromProduct, setProductField, setTierPrice, tierPriceOf,

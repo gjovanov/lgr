@@ -16,6 +16,11 @@
  *   1 Име · 2 Мярка · 3 Количество · 4 Доставна цена · 5 Продажна цена ·
  *   6 Цена на едро · 7-16 Цена0..Цена9  → + appended "Цена 10" headroom = 13 tier slots
  *
+ * The purchase price (owner, 2026-11-15) is NOT column 4. "Доставна цена" is the price with the trade
+ * discount: it fills the tier slot of that name (drawn as „Цена с ТО") and the stock's average cost. A NEW
+ * product's purchasePrice is "Цена 2" / 1.2 (column 4 only when the row has no Цена 2), and --no-clean never
+ * writes the purchasePrice of a product that exists: PlusMinus keeps no buying price to re-baseline it from.
+ *
  * Usage:
  *   bun run scripts/seed-products.ts --org <slug> --file <path.xlsx>            # dry-run, clean mode
  *   bun run scripts/seed-products.ts --org <slug> --file <f> --execute          # wipe + reimport
@@ -31,6 +36,7 @@
  *   --clean / --no-clean wipe-and-reimport (DEFAULT) vs. update-in-place by name
  *   --columns <csv>      fields to write/update (default: all)
  *                        one or more of: name,unit,quantity,purchase,selling,tiers  (or "all")
+ *                        "purchase" = the stock's average cost, and a NEW product's purchasePrice
  *   --clamp-negative     clamp negative quantities to 0 (default: preserve negatives)
  *   --execute            perform writes (default: dry-run)
  */
@@ -39,6 +45,7 @@ import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { Org, Warehouse, ProductCategory, Product, StockLevel } from '../packages/db/src/models/index.js'
 import { normalizeUomBg } from '../packages/services/src/biz/uom.utils.js'
+import { PURCHASE_BASIS_TIER_NAME, purchasePriceFromTier2 } from '../packages/config/src/price-tiers.js'
 import ExcelJS from 'exceljs'
 import path from 'path'
 
@@ -112,6 +119,11 @@ function cellNum(v: unknown): number {
 function normalizeUnit(raw: string): string {
   return normalizeUomBg(raw)
 }
+/** A row's purchase price: its "Цена 2" / 1.2, or its delivery price when it has no Цена 2 (`config/price-tiers`). */
+function purchaseOf(it: Item): number {
+  return purchasePriceFromTier2(it.tierPrices[TIER_NAMES.indexOf(PURCHASE_BASIS_TIER_NAME)]) ?? it.purchase
+}
+/** `purchase`: the product's purchase price, which each slot's margin is over (not the delivery price in slot 1). */
 function buildTiers(purchase: number, tierPrices: number[]) {
   return tierPrices.map((price, i) => ({
     name: TIER_NAMES[i],
@@ -208,8 +220,8 @@ async function main() {
   const dups = [...names.entries()].filter(([, c]) => c > 1)
   console.log(`Rows: ${items.length} | negative qty: ${neg} | duplicate names: ${dups.length}`)
   for (const it of items.slice(0, 2)) {
-    console.log(`  "${it.name}" unit=${it.unit} qty=${it.quantity} purchase=${it.purchase} selling=${it.selling}`)
-    if (columns.has('tiers')) console.log(`    tiers: ${buildTiers(it.purchase, it.tierPrices).map(t => `${t.name}=${t.finalPrice}`).join(' | ')}`)
+    console.log(`  "${it.name}" unit=${it.unit} qty=${it.quantity} delivery=${it.purchase} purchase(new product)=${purchaseOf(it)} selling=${it.selling}`)
+    if (columns.has('tiers')) console.log(`    tiers: ${buildTiers(purchaseOf(it), it.tierPrices).map(t => `${t.name}=${t.finalPrice}`).join(' | ')}`)
   }
   console.log()
 
@@ -252,12 +264,12 @@ async function runClean(org: any, warehouse: any, category: any, items: Item[]) 
     categoryId: category._id,
     type: 'goods' as const,
     unit: columns.has('unit') ? it.unit : 'БР',
-    purchasePrice: columns.has('purchase') ? it.purchase : 0,
+    purchasePrice: columns.has('purchase') ? purchaseOf(it) : 0,
     sellingPrice: columns.has('selling') ? it.selling : 0,
     currency: org.settings?.baseCurrency || 'BGN',
     taxRate: org.settings?.taxConfig?.defaultVatRate ?? 20,
     trackInventory: true,
-    priceTiers: columns.has('tiers') ? buildTiers(it.purchase, it.tierPrices) : [],
+    priceTiers: columns.has('tiers') ? buildTiers(columns.has('purchase') ? purchaseOf(it) : 0, it.tierPrices) : [],
     customPrices: [],
     isActive: true,
   }))
@@ -308,9 +320,10 @@ async function runUpdate(org: any, warehouse: any, items: Item[], names: Map<str
     matched++
     const set: any = {}
     if (columns.has('unit')) set.unit = it.unit
-    if (columns.has('purchase')) set.purchasePrice = it.purchase
+    // The purchase price of a product that exists is never written: the file's "Доставна цена" is not it, and the
+    // real one comes from the bills entered in LGR. Margins are over the purchase price the product holds.
     if (columns.has('selling')) set.sellingPrice = it.selling
-    if (columns.has('tiers')) set.priceTiers = buildTiers(it.purchase, it.tierPrices)
+    if (columns.has('tiers')) set.priceTiers = buildTiers(Number((p as any).purchasePrice) || 0, it.tierPrices)
     if (Object.keys(set).length) prodOps.push({ updateOne: { filter: { _id: p._id }, update: { $set: set } } })
 
     const stockSet: any = {}

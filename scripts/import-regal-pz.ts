@@ -7,7 +7,8 @@
  *   Col 1:  Име            (name)
  *   Col 2:  Мярка          (unit, e.g. "БР", "КГ", "М")
  *   Col 3:  Количество     (stock quantity — negatives preserved)
- *   Col 4:  Доставна цена  (purchase price, StockLevel.avgCost, tier slot 1)
+ *   Col 4:  Доставна цена  (StockLevel.avgCost, tier slot 1; drawn as „Цена с ТО". NOT the purchase price
+ *                          since 2026-11-15: that is "Цена 2" / 1.2, col 4 only where a row has no Цена 2)
  *   Col 5:  Продажна цена  (selling price)
  *   Col 6:  Цена на едро   (wholesale price, tier slot 2)
  *   Col 7-11:  Цена1..Цена5 (tier slots 3-7)
@@ -48,6 +49,7 @@ import {
   Warehouse, Product, StockLevel, Identity,
 } from '../packages/db/src/models/index.js'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS } from '../packages/config/src/constants.js'
+import { PURCHASE_BASIS_TIER_NAME, purchasePriceFromTier2 } from '../packages/config/src/price-tiers.js'
 import { seedDefaultPermissionSets } from '../packages/services/src/biz/permission-set.seed.js'
 import { allocateOperatorCode } from '../packages/services/src/biz/sequence.service.js'
 import { discardIdentity, identityForOperatorJoin } from '../packages/services/src/biz/identity/identity.service.js'
@@ -160,6 +162,12 @@ async function readExcel(filePath: string): Promise<ExcelItem[]> {
  * manual-edit behavior: explicit prices are pinned via manualOverride so future
  * purchase-price cascades don't overwrite the imported values.
  */
+/** A row's purchase price: its "Цена 2" / 1.2, or its delivery price when it has no Цена 2 (`config/price-tiers`). */
+function purchaseOf(item: ExcelItem): number {
+  return purchasePriceFromTier2(item.tierPrices[TIER_NAMES.indexOf(PURCHASE_BASIS_TIER_NAME)]) ?? item.purchase
+}
+
+/** `purchase`: the product's purchase price, which each slot's margin is over (not the delivery price in slot 1). */
 function buildTiers(purchase: number, tierPrices: number[]) {
   return tierPrices.map((price, i) => ({
     name: TIER_NAMES[i],
@@ -194,7 +202,7 @@ function printStats(items: ExcelItem[]) {
   console.log('Samples:')
   for (const item of items.slice(0, 3)) {
     console.log(`  "${item.name}" unit=${item.unit} qty=${item.quantity} purchase=${item.purchase} selling=${item.selling}`)
-    console.log(`    tiers: ${buildTiers(item.purchase, item.tierPrices).map(t => `${t.name}=${t.finalPrice}${t.manualOverride ? '' : ' (empty)'}`).join(' | ')}`)
+    console.log(`    tiers: ${buildTiers(purchaseOf(item), item.tierPrices).map(t => `${t.name}=${t.finalPrice}${t.manualOverride ? '' : ' (empty)'}`).join(' | ')}`)
   }
   console.log()
 }
@@ -366,12 +374,12 @@ async function main() {
     categoryId: category._id,
     type: 'goods' as const,
     unit: item.unit,
-    purchasePrice: item.purchase,
+    purchasePrice: purchaseOf(item),
     sellingPrice: item.selling,
     currency: 'BGN',
     taxRate: 20,
     trackInventory: true,
-    priceTiers: buildTiers(item.purchase, item.tierPrices),
+    priceTiers: buildTiers(purchaseOf(item), item.tierPrices),
     customPrices: [],
     isActive: true,
   }))

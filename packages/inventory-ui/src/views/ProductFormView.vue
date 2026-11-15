@@ -225,7 +225,27 @@
                   <tr v-for="(tier, i) in priceTiers" :key="i" data-testid="tier-row" :data-tier="tier.name">
                     <td class="text-medium-emphasis">{{ i + 1 }}</td>
                     <td>
-                      <v-text-field v-model="tier.name" density="compact" hide-details variant="plain" class="tier-name" :rules="[rules.required]" />
+                      <!-- A slot that reads differently from how it is stored („Доставна цена", the slot PlusMinus's
+                           column of that name feeds, reads „Цена с търговска отстъпка (Цена с ТО)") shows its LABEL
+                           and is not renamed here: the stored name is what the imports, the list's column and the
+                           access rules find it by (`config/price-tiers`). -->
+                      <span
+                        v-if="hasTierLabel(tier.name)"
+                        class="tier-base-name tier-label-name"
+                        :title="$t('warehouse.deliveryTierHint')"
+                        data-testid="tier-label"
+                      >{{ tierLabel(tier.name, $i18n.locale, 'long') }}</span>
+                      <!-- A label typed as a name goes back to the slot it stands for: a label is never stored. -->
+                      <v-text-field
+                        v-else
+                        :model-value="tier.name"
+                        density="compact"
+                        hide-details
+                        variant="plain"
+                        class="tier-name"
+                        :rules="[rules.required]"
+                        @update:model-value="tier.name = tierNameOfLabel($event) ?? $event"
+                      />
                     </td>
                     <td v-if="seesCosts">
                       <DecimalField
@@ -340,6 +360,7 @@ import ProductTabBar from '../components/ProductTabBar.vue'
 import ProductDocActions from '../components/ProductDocActions.vue'
 import type { ProductForActions } from '../composables/product-doc-actions'
 import { PRICE_TIER_NAMES, PRODUCT_TARIFF_CODE_MAX } from 'config/constants'
+import { hasTierLabel, tierLabel, tierNameOfLabel } from 'config/price-tiers'
 import { capOfTier } from 'config/access'
 import { tierSlotsToAdd } from 'ui-shared/composables/product-price-columns'
 import { PERCENT_DECIMALS, PRICE_DECIMALS, cascadeTiers, marginOver, markFollowers, priceAtMargin } from 'ui-shared/composables/price-precision'
@@ -959,6 +980,13 @@ async function applyOrgDefaultVat() {
 /* The two base prices at the head of the tiers: the article's own prices, not slots of it. */
 .tier-base-row {
   background: rgba(var(--v-theme-on-surface), 0.04);
+}
+/* A slot's label can be longer than the name column: it takes a second line there, never a cut. */
+.tier-label-name {
+  display: inline-block;
+  white-space: normal;
+  line-height: 1.25;
+  padding-block: 4px;
 }
 /* Reads as the tier names under it, which are fields: their size, 8px in from the cell, 3px under its middle. */
 .tier-base-name {

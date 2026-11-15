@@ -6,7 +6,7 @@
  *   Col 2: Мярка         (unit, e.g. "БР", "КГ", "М")
  *   Col 3: Количество    (stock quantity)
  *   Col 15: Цена1        (custom price 1)
- *   Col 16: Цена2        (custom price 2 = purchase price)
+ *   Col 16: Цена2        (custom price 2; purchase price = Цена2 / 1.2, `config/price-tiers`, owner 2026-11-15)
  *   selling price = Цена2 * 1.5
  *
  * Usage:
@@ -18,6 +18,7 @@ import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { Org, Product, Warehouse, StockLevel } from '../packages/db/src/models/index.js'
+import { purchasePriceFromTier2 } from '../packages/config/src/price-tiers.js'
 import ExcelJS from 'exceljs'
 import path from 'path'
 
@@ -74,7 +75,7 @@ async function main() {
   console.log(`Sample:`)
   for (const item of items.slice(0, 3)) {
     const sp = +(item.price2 * 1.5).toFixed(4)
-    console.log(`  "${item.name}" unit=${item.unit} qty=${item.quantity} purchasePrice=${item.price2} sellingPrice=${sp}`)
+    console.log(`  "${item.name}" unit=${item.unit} qty=${item.quantity} purchasePrice=${purchasePriceFromTier2(item.price2) ?? 0} sellingPrice=${sp}`)
   }
   console.log()
 
@@ -121,7 +122,7 @@ async function main() {
     category: 'General',
     type: 'goods' as const,
     unit: item.unit,
-    purchasePrice: item.price2,
+    purchasePrice: purchasePriceFromTier2(item.price2) ?? 0,
     sellingPrice: +(item.price2 * 1.5).toFixed(4),
     currency: 'BGN',
     taxRate: 20,

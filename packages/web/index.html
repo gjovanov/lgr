@@ -1,7 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" translate="no">
   <head>
     <meta charset="UTF-8" />
+    <!-- translate="no" above, and this: the app speaks four languages of its own. A translator replaces the page's
+         text nodes, and the app then cannot place anything beside them (ui-shared/composables/foreign-anchor says
+         what follows). -->
+    <meta name="google" content="notranslate" />
+    <script>
+      // The language the page is in, said before anything reads it. A browser that takes a Bulgarian page for an
+      // English one offers to translate it. The rule is ui-shared/plugins/i18n#initialLocale (the saved language,
+      // else the browser's, else English), repeated here because this runs before the app can;
+      // unit/page-language.test.ts holds the two together.
+      try {
+        var LGR_LANGS = ['en', 'mk', 'de', 'bg']
+        var lgrLang = localStorage.getItem('lgr_locale')
+        if (LGR_LANGS.indexOf(lgrLang) < 0) lgrLang = (navigator.language || '').split('-')[0]
+        if (LGR_LANGS.indexOf(lgrLang) >= 0) document.documentElement.lang = lgrLang
+      } catch (err) { /* storage can throw; the app says the language again once it has loaded */ }
+    </script>
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>LGR</title>

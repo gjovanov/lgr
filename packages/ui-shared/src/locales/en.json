@@ -2564,6 +2564,7 @@
     "priceTiers": "Price Tiers ({count} slots)",
     "priceTiersHelp": "Each slot defaults to the selling price with no filters. Enter Name and Price (or %) to use it. Toggle filters to make a tier apply only to certain contacts, tags, quantities, or date ranges.",
     "finalPrice": "Final Price",
+    "deliveryTierHint": "Price with trade discount: PlusMinus's „Доставна цена“, filled by the import. It is not the purchase price.",
     "withProductUpdate": "With product update",
     "foreignCurrencyNoUpdate": "In {currency}: this bill updates no products",
     "withoutProductUpdate": "Without product update",

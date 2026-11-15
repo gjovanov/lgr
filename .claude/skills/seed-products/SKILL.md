@@ -21,11 +21,17 @@ aborts on real drift.
 | 1 | Име | product name |
 | 2 | Мярка | unit (normalized: trim, strip leading `/`, uppercase-bg; empty/`0` → `БР`) |
 | 3 | Количество | stock quantity (negatives preserved by default) |
-| 4 | Доставна цена | purchasePrice + stock avgCost + tier slot 1 `Доставна цена` |
+| 4 | Доставна цена | stock avgCost + tier slot 1 `Доставна цена` (drawn as „Цена с ТО"). **Not** `purchasePrice` |
 | 5 | Продажна цена | sellingPrice |
 | 6 | Цена на едро | tier slot 2 `Цена на едро` |
 | 7–11 | Цена1..Цена5 | tier slots 3–7 `Цена 1..Цена 5` |
 | 12–14 | Цена7..Цена9 | tier slots 8–10 `Цена 7..Цена 9` (no Цена6 → exactly 10 slots) |
+
+**`purchasePrice` (owner, 2026-11-15)** is the row's „Цена 2" / 1.2
+(`config/price-tiers#purchasePriceFromTier2`), column 4 only for a row with no „Цена 2". `--clean`
+writes it for every product it inserts. `--no-clean` never writes the `purchasePrice` of a product
+that exists (`--columns purchase` sets the stock's avgCost there), and each tier's `percent` is over
+the purchase price the product holds.
 
 Non-zero tiers other than the cost tier `Доставна цена` carry `tags: [<tier name>]`
 (e.g. `Цена 4`) — a contact tagged with the same name resolves that tier's price

@@ -1,5 +1,6 @@
 import { ref, computed, watch, type Ref } from 'vue'
 import { PRICE_TIERS, PRICE_TIER_COLUMN_PREFIX } from 'config/constants'
+import { tierLabel } from 'config/price-tiers'
 
 /**
  * Goods-receipt-with-update column catalog + localStorage persistence.
@@ -54,6 +55,16 @@ export const GR_COLUMNS: GRColumn[] = [
     align: 'end',
   })),
 ]
+
+/**
+ * A column's heading as a person reads it: a tier column by its slot's LABEL in the app's language
+ * (`config/price-tiers`: „Доставна цена" reads „Цена с ТО"), any other by its locale key. `tierName` and `label`
+ * stay the stored name: they are what finds the tier on the product.
+ */
+export function grColumnLabel(col: Pick<GRColumn, 'i18n' | 'label' | 'tierName'>, t: (key: string) => string, locale?: string): string {
+  if (col.tierName) return tierLabel(col.tierName, locale)
+  return col.label || t(col.i18n || '')
+}
 
 const DEFAULT_SELECTION = GR_COLUMNS.filter(c => c.defaultOn).map(c => c.key)
 

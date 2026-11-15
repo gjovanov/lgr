@@ -23,7 +23,7 @@
             <v-col v-for="col in columnsBySection[section]" :key="col.key" cols="12" sm="6" md="4">
               <v-checkbox
                 :model-value="selected.includes(col.key)"
-                :label="col.label || $t(col.i18n || '')"
+                :label="grColumnLabel(col, $t, $i18n.locale)"
                 density="compact"
                 hide-details
                 @update:model-value="emit('toggle', col.key)"
@@ -42,7 +42,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { GR_COLUMNS, type GRColumnSection } from '../composables/useGRColumns'
+import { GR_COLUMNS, grColumnLabel, type GRColumnSection } from '../composables/useGRColumns'
 
 // Presentational picker driven by props/events (no own composable instance), so the
 // host view's column list updates live as the user toggles checkboxes.

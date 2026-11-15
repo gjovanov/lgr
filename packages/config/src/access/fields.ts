@@ -9,7 +9,8 @@ import { can, type Grant } from './grant'
  *
  * `products.costs` (D-5, "Cost figures" in the editor) is what a product cost:
  *   - `purchasePrice`, `standardCost`, and a stock level's `avgCost`;
- *   - the „Доставна цена" price slot (the buying price, `PRICE_TIERS[0]`);
+ *   - the „Доставна цена" price slot (`PRICE_TIERS[0]`): the price with the trade discount, drawn as „Цена с ТО"
+ *     (`config/price-tiers`). Not the buying price, which is `purchasePrice`, and still a cost figure;
  *   - every slot's `percent`, its margin over the cost: with the final price it gives the cost back.
  *
  * The legacy compiler grants `products.costs` to whoever reads products (`legacy.ts`), so nobody's answer changes

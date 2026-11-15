@@ -8,7 +8,9 @@
 //   UNEXPLAINED <sku> …        a price changed that no log names: something else wrote it, find out what
 //   NEW not in logs <sku> …    a product appeared that the run did not create
 //   PROTECTED changed <sku> …  a purchase price or a cost tier changed: an import never writes those for a product that
-//                              existed (the delivery price of a receipt is its unit cost, not the product's)
+//                              existed (the delivery price of a receipt is its unit cost, not the product's). The
+//                              tiers are named as STORED: „Доставна цена" is the slot the screens draw as „Цена с ТО".
+//                              A product the run CREATED takes its purchase price from its „Цена 2" / 1.2.
 //   META changed <sku> …       name, active flag, category or tags changed (the tags step runs after this by design)
 // and ends on one line the daily import reads: `price-diff: changed N | unexplained N | protected N | created N | meta N`.
 // `--list` writes the per-product changes (sku, name, each field old→new) for the report.

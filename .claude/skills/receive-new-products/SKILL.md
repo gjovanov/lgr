@@ -63,8 +63,10 @@ missing quantities as ONE completed receipt movement.
 
    ⚠ Until 2026-11-02 a line with no `Прод. цена` wrote `Цена` into `sellingPrice`, so
    the product sold at what we paid for it. A **new** product is the one exception:
-   it has no prices to protect, so `cost` opens its `purchasePrice` and avgCost, and
-   with no `selling` it opens at cost × 1.10.
+   it has no prices to protect, so `cost` opens its `Доставна цена` slot (drawn as „Цена с ТО")
+   and its avgCost, and with no `selling` it opens at cost × 1.10. Its `purchasePrice` is
+   **„Цена 2" / 1.2** when the line carries a `Цена 2` (owner, 2026-11-15:
+   `config/price-tiers#purchasePriceForNewProduct`), `cost` only when it carries none.
 4. **Dry-run, review, execute**:
 
    ```bash
@@ -112,7 +114,7 @@ Options: `--org <slug>` (default `regal-pz`) · `--api <url>` ·
 
 - Execute output: per-product `created <SKU>`, then `✓ SM-… | status completed`,
   movements `+1`, and a per-line stock check `qty=<received> avgCost=<cost>`.
-- UI: `/inventory/products` → the new SKUs, Pricing tab shows Доставна цена +
+- UI: `/inventory/products` → the new SKUs, Pricing tab shows „Цена с ТО" (the `Доставна цена` slot) +
   the Цена N tiers; Stock tab shows the receipt.
 
 ## Gotchas
