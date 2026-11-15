@@ -8,7 +8,9 @@
  * What a run changes on a product, and nothing else:
  *   - `purchasePrice`;
  *   - the `percent` of the slots whose margin a purchase price moves (`marginsAfterPurchaseChange`), so that the
- *     margin shown is the one over the new purchase price. No `finalPrice`, no `manualOverride`, no `sellingPrice`.
+ *     margin shown is the one over the new purchase price. No `finalPrice`, no `manualOverride`, no `sellingPrice`;
+ *   - `updatedAt`, as any save does (Mongoose stamps a `bulkWrite`'s updates), so whatever follows a product by its
+ *     stamp or by the change stream sees the correction. A restore stamps it again: the old stamp does not come back.
  * Never the stock's `avgCost`, a level, a movement or a document.
  *
  * `scripts/set-purchase-price-from-tier2.ts` is the command line; `integration/purchase-price-from-tier2.flow.test.ts`

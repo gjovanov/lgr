@@ -373,6 +373,18 @@ describe('a purchase price an import approximated („Цена 2" / 1.2) gives w
     // The tiers are prices, not costs: the bill moves none of them.
     expect(bolt.priceTiers.map((t: any) => [t.name, t.finalPrice])).toEqual([['Цена 2', 7.2]])
   }, 60_000)
+
+  it('stands when the bill only repeats what the receipt was booked at', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5]])
+    const bill = (await w.fromReceipt([r._id])).json.invoice
+    await Product.updateOne({ _id: w.bolt._id }, { $set: { purchasePrice: 6, priceTiers: [{ name: 'Цена 2', percent: 20, finalPrice: 7.2, manualOverride: true }] } }).exec()
+    // The bill as it was made from the receipt: its price is the receipt's cost (on an imported receipt, the
+    // delivery price). It states no price of its own, so the approximation is not replaced by it.
+    expect((await w.receive(bill, 'F-11')).status).toBe(200)
+    const bolt: any = await Product.findById(w.bolt._id).lean().exec()
+    expect(bolt.purchasePrice).toBe(6)
+  }, 60_000)
 })
 
 describe('„Свържи с доставка" (FR-22.32)', () => {

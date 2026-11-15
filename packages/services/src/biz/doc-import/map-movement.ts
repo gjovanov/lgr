@@ -208,7 +208,10 @@ export function repriceTiers(existing: any[] | undefined, tiers: Record<string, 
   return slots
 }
 
-/** Cost-side slots a разписка must leave alone — they mirror the buying price, not a sale tier. */
+/**
+ * Cost-side slots a разписка must leave alone on a product that exists: none is a sale tier. They are matched by
+ * their STORED names („Доставна цена" is the price with the trade discount, drawn as „Цена с ТО": `config/price-tiers`).
+ */
 export const PROTECTED_TIERS = new Set(['Доставна цена', 'Цена на едро', 'Цена 0', 'Прод. цена'])
 
 /** The sale-tier subset of a line's price columns (everything except the cost column). */

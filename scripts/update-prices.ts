@@ -58,7 +58,7 @@ async function main() {
   console.log(`Found ${items.length} products with prices in Excel`)
   console.log(`Sample:`)
   for (const item of items.slice(0, 3)) {
-    console.log(`  "${item.name}" purchasePrice=${item.price2} sellingPrice=${+(item.price2 * 1.5).toFixed(4)}`)
+    console.log(`  "${item.name}" purchasePrice=${purchasePriceFromTier2(item.price2) ?? 0} sellingPrice=${+(item.price2 * 1.5).toFixed(4)}`)
   }
   console.log()
 

@@ -231,7 +231,7 @@ interface CatalogProduct { productId: string; productName: string; unitPrice: nu
 interface Session { _id: string; sessionNumber: string; warehouseId: string; openedAt: string; status: string; totalSales: number }
 interface Warehouse { id: string; name: string }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError, showSnackbar } = useSnackbar()
 const fiscalBridge = useFiscalBridge()
@@ -359,7 +359,7 @@ async function loadDocPriceNames() {
     for (const line of cart.value) {
       for (const o of await optionsFor(line.productId)) {
         const v = optionValue(o)
-        if (!seen.has(v)) seen.set(v, priceOptionLabel(o, t))
+        if (!seen.has(v)) seen.set(v, priceOptionLabel(o, t, locale.value))
       }
     }
     docPriceItems.value = [...seen].map(([value, title]) => ({ value, title }))

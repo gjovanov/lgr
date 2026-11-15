@@ -75,7 +75,7 @@ async function main() {
   console.log(`Sample:`)
   for (const item of items.slice(0, 3)) {
     const sp = +(item.price2 * 1.5).toFixed(4)
-    console.log(`  "${item.name}" unit=${item.unit} qty=${item.quantity} purchasePrice=${item.price2} sellingPrice=${sp}`)
+    console.log(`  "${item.name}" unit=${item.unit} qty=${item.quantity} purchasePrice=${purchasePriceFromTier2(item.price2) ?? 0} sellingPrice=${sp}`)
   }
   console.log()
 

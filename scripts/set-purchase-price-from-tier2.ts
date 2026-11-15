@@ -8,8 +8,12 @@
  * For every product of the org whose „Цена 2" slot holds a price above zero (deactivated ones too: they can be
  * reactivated), the run sets `purchasePrice` to the rule and gives the slots a purchase price moves the margin
  * (`percent`) that stands over the new one. It changes NO price: no finalPrice, no sellingPrice, and no avgCost,
- * stock level, movement or document. A product without „Цена 2" is left untouched and counted. A second run
- * writes nothing.
+ * stock level, movement or document. A written product's updatedAt moves, as with any save. A product without
+ * „Цена 2" is left untouched and counted. A second run writes nothing.
+ *
+ * ⚠ ONCE per org. The run cannot tell a figure an old import wrote from a purchase price a bill or a person set
+ * afterwards: every purchase price that differs from the rule is corrected. Run again weeks later, it would put
+ * the approximation back over those. Read the dry run's count first: after the first run it should be near zero.
  *
  * Usage (one org per run; dry run unless --execute):
  *   bun run scripts/set-purchase-price-from-tier2.ts --org <slug>
@@ -69,7 +73,7 @@ try {
     console.log(`Restore | org ${orgSlug} | ${execute ? 'EXECUTE' : 'DRY RUN'} | from ${restorePath}`)
     const r = await restorePurchasePrices(orgId, restorePath, { execute, batchSize })
     console.log(`  backup lines            : ${r.lines}`)
-    console.log(`  ${execute ? 'restored' : 'would restore'}          : ${r.restored}`)
+    console.log(`  ${execute ? 'restored     ' : 'would restore'}           : ${r.restored}`)
     console.log(`  skipped (edited since)  : ${r.skipped}`)
   } else {
     console.log(`Purchase price = „Цена 2" / 1.2 | org ${orgSlug} | ${execute ? `EXECUTE, backup → ${backupPath}` : 'DRY RUN'}`)
@@ -78,7 +82,7 @@ try {
       onProgress: (seen, changed) => { if (seen % (batchSize * 10) === 0) console.log(`  … ${seen} products read, ${changed} to change`) },
     })
     console.log(`  products                : ${r.products}`)
-    console.log(`  ${execute ? 'changed' : 'to change'}               : ${r.changed}  (of them deactivated: ${r.inactiveChanged}; margins only: ${r.marginsOnly})`)
+    console.log(`  ${execute ? 'changed  ' : 'to change'}               : ${r.changed}  (of them deactivated: ${r.inactiveChanged}; margins only: ${r.marginsOnly})`)
     console.log(`  already right           : ${r.alreadyRight}`)
     console.log(`  no „Цена 2" (untouched) : ${r.noTier2}`)
     if (execute) console.log(`  written                 : ${r.written}${r.written === r.changed ? '' : '  ⚠ fewer than changed: a product was saved by someone else meanwhile, run again'}`)
