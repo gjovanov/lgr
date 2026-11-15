@@ -98,6 +98,7 @@
       :title="$t('common.print')"
       icon="mdi-printer"
       :companion-docs="companionDocs"
+      collapsible-columns
       @confirm="onExportSingle"
     />
 
