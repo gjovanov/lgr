@@ -103,12 +103,16 @@ test.describe('Document form: one list of actions, under the title and at the fo
     await expect(page.locator(NUMBER)).toHaveText(bill.number, { timeout: 15000 })
     await expectBars(page, ['save', 'credit-note', 'debit-note', 'print', 'stock-receipt', 'import'])
 
-    // The stock receipt is the same action at the foot: it prints the same document.
+    // The stock receipt is the same action at the foot: it asks which price to print, as the one
+    // under the title does, and prints the same document.
     await expect(page.getByTestId('print-stock-receipt')).toHaveCount(1)
     const foot = page.getByTestId('print-stock-receipt-bottom')
     await expect(foot).toHaveCount(1)
-    const [download] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), foot.click()])
+    await foot.click()
+    await expect(page.getByTestId('stock-receipt-dialog')).toBeVisible()
+    const [download] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), page.getByTestId('stock-receipt-confirm').click()])
     expect(download.suggestedFilename()).toBe(`${bill.number}-stock-receipt.pdf`)
+    await expect(page.getByTestId('stock-receipt-dialog')).toBeHidden()
   })
 
   test('where a bar is too narrow for every label, the rarest give theirs up and keep their name', async ({ page }) => {

@@ -101,9 +101,12 @@ const stockReceipt = buildStockReceiptHtml({
       { name: 'Болт М10х40 - DIN 931 - 8.8 - ZN', unit: 'pcs', quantity: 3, unitPrice: 41 },
       { name: LONG, unit: 'pcs', quantity: 12345.678, unitPrice: 1234.5678 },
       { name: UNBROKEN, unit: 'pcs', quantity: 1, unitPrice: 1 },
+      // No price at the sheet's level: a dash in the price and in the value, right-aligned like a figure.
+      { name: 'Гайка М10 - DIN 934', unit: 'pcs', quantity: 40, unitPrice: null },
     ],
   }],
   bill: { number: 'BILL-2026-00001', date: new Date('2026-11-03') },
+  price: { kind: 'tier', tier: 'Цена на едро' },
   currency: 'EUR',
   locale: 'bg',
 })

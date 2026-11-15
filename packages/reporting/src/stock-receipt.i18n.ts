@@ -1,5 +1,5 @@
 /**
- * Strings for the printed „Стокова разписка": the goods receipt a supplier bill booked, printed
+ * Strings for the printed „Складова разписка": the goods receipt a supplier bill booked, printed
  * from the bill (`pdf/stock-receipt.pdf.ts`).
  *
  * Same server-side constraint as `i18n.ts` — no Vue/i18n available, so the label set ships
@@ -23,11 +23,19 @@ export interface StockReceiptI18n {
     of: string
     /** After the number of a bill not received yet: a draft's number, which receiving replaces. */
     draft: string
-    /** The boxed total under the line table: the goods' value, before VAT. */
-    total: string
+    /** In front of the name of the price the sheet shows („Цена: Цена на едро"). */
+    price: string
     handedOverBy: string
     receivedBy: string
     signature: string
+  }
+  /**
+   * The prices that are no slot of the catalogue: the selling price, as the screens name it, and the price a line was
+   * booked at. A slot is named by its own label (`config/price-tiers#tierLabel`).
+   */
+  price: {
+    selling: string
+    booked: string
   }
   header: {
     lineNo: string
@@ -40,7 +48,7 @@ export interface StockReceiptI18n {
 }
 
 const bg: StockReceiptI18n = {
-  title: 'СТОКОВА РАЗПИСКА',
+  title: 'СКЛАДОВА РАЗПИСКА',
   label: {
     number: 'Номер',
     date: 'Дата',
@@ -48,11 +56,12 @@ const bg: StockReceiptI18n = {
     bill: 'Входяща фактура',
     of: 'от',
     draft: 'чернова',
-    total: 'Общо без ДДС',
+    price: 'Цена',
     handedOverBy: 'Предал',
     receivedBy: 'Приел',
     signature: 'подпис',
   },
+  price: { selling: 'Продажна цена', booked: 'Цена на заприходяване' },
   header: {
     lineNo: '№',
     name: 'Наименование',
@@ -72,11 +81,12 @@ const en: StockReceiptI18n = {
     bill: 'Purchase invoice',
     of: 'of',
     draft: 'draft',
-    total: 'Total excl. VAT',
+    price: 'Price',
     handedOverBy: 'Handed over by',
     receivedBy: 'Received by',
     signature: 'signature',
   },
+  price: { selling: 'Selling price', booked: 'Booked price' },
   header: {
     lineNo: 'No',
     name: 'Name',
@@ -96,11 +106,12 @@ const de: StockReceiptI18n = {
     bill: 'Eingangsrechnung',
     of: 'vom',
     draft: 'Entwurf',
-    total: 'Gesamt ohne MwSt.',
+    price: 'Preis',
     handedOverBy: 'Übergeben von',
     receivedBy: 'Empfangen von',
     signature: 'Unterschrift',
   },
+  price: { selling: 'Verkaufspreis', booked: 'Gebuchter Preis' },
   header: {
     lineNo: 'Nr',
     name: 'Bezeichnung',
@@ -120,11 +131,12 @@ const mk: StockReceiptI18n = {
     bill: 'Влезна фактура',
     of: 'од',
     draft: 'нацрт',
-    total: 'Вкупно без ДДВ',
+    price: 'Цена',
     handedOverBy: 'Предал',
     receivedBy: 'Примил',
     signature: 'потпис',
   },
+  price: { selling: 'Продажна цена', booked: 'Цена при прием' },
   header: {
     lineNo: 'Бр',
     name: 'Назив',

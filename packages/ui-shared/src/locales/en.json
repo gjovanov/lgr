@@ -1744,7 +1744,9 @@
     },
     "stockReceipt": {
       "print": "Stock receipt",
-      "hint": "Print the goods receipt this bill booked — one per warehouse the goods went into"
+      "hint": "Print the goods receipt this bill booked — one per warehouse the goods went into",
+      "price": "Price to print",
+      "booked": "Booked price (as on the receipt)"
     },
     "reservations": {
       "repeatOf": "reserved again",

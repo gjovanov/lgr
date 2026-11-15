@@ -1244,7 +1244,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         ...(isReceiptLinked(invoice) ? { receipts: await linkedReceiptsOf(orgId, invoice) } : {}),
         // FR-22.61: an invoice made from stock notes links them, and its form holds its quantities to theirs.
         ...(isDispatchLinked(invoice) ? { dispatches: await linkedDispatchesOf(orgId, invoice) } : {}),
-        // The goods receipts a supplier bill booked — what its „Стокова разписка" prints; the
+        // The goods receipts a supplier bill booked — what its „Складова разписка" prints; the
         // form offers the print only when there are some.
         ...(isSupplierBill(invoice) ? { stockMovements: await billStockReceipts(orgId, invoice) } : {}),
         // FR-23: the receipts that paid it, and what they leave to do.

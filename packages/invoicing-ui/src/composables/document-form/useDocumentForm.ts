@@ -1427,28 +1427,37 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     more: { icon: 'mdi-tune-variant', label: t('invoicing.issueFlow.printOptions'), handler: onPrintOptions, testId: 'print-options' },
   }))
 
-  // ── „Стокова разписка": the goods a supplier bill booked ──
+  // ── „Складова разписка": the goods a supplier bill booked ──
   /** The receipts the bill booked (`GET /invoices/:id`); the print is offered when there are some. */
   const stockReceipts = computed<Array<{ id: string; number: string; date: string; warehouseName: string }>>(
     () => (config.direction === 'incoming' && invoiceData.value?.stockMovements) || [],
   )
   const { loading: stockReceiptLoading, exportOne: exportStockReceipt } = useInvoicingExport(() => appStore.orgUrl())
+  /** `StockReceiptPrintDialog`: which price the sheet shows. The action opens it; its „Печат" prints. */
+  const stockReceiptDialog = ref(false)
+
+  /** The action asks before it prints: nothing is rendered, and nothing downloaded, by opening the dialog. */
+  function onPrintStockReceipt() {
+    if (route.params.id && stockReceipts.value.length) stockReceiptDialog.value = true
+  }
 
   /**
-   * One section per receipt the bill booked. It prints what was booked, not what the form holds, so
-   * nothing is saved first: no edit on the form changes a receipt.
+   * One section per receipt the bill booked, its prices at `priceLevel` (`config/stock-receipt-price`). It prints
+   * what was booked, not what the form holds, so nothing is saved first: no edit on the form changes a receipt.
+   * The dialog closes once the file is there; a refusal leaves it open, with what the server said.
    */
-  async function onPrintStockReceipt() {
+  async function printStockReceipt(priceLevel: string) {
     const id = route.params.id as string
     if (!id || !stockReceipts.value.length) return
     try {
-      await exportStockReceipt(id, `${invoiceNumber.value || id}-stock-receipt`, 'pdf', 'detailed', undefined, appStore.locale, 'stock_receipt')
+      await exportStockReceipt(id, `${invoiceNumber.value || id}-stock-receipt`, 'pdf', 'detailed', undefined, appStore.locale, 'stock_receipt', undefined, { priceLevel })
+      stockReceiptDialog.value = false
     } catch (e: any) {
       showError(e?.response?.data?.message || t('export.failed'))
     }
   }
 
-  /** „Стокова разписка" in the action bars: offered once the bill has booked a receipt, and not before. */
+  /** „Складова разписка" in the action bars: offered once the bill has booked a receipt, and not before. */
   const stockReceiptAction = computed<FormAction | null>(() => (stockReceipts.value.length
     ? {
         key: 'stock-receipt',
@@ -2151,10 +2160,12 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     onIssueAndPrint,
     onPrintDialogConfirm,
     printAction,
-    // a supplier bill's „Стокова разписка"
+    // a supplier bill's „Складова разписка": the action opens the price dialog, the dialog prints
     stockReceipts,
     stockReceiptLoading,
+    stockReceiptDialog,
     onPrintStockReceipt,
+    printStockReceipt,
     stockReceiptAction,
     // persistence
     buildPayload,

@@ -340,6 +340,18 @@ them into PRs.
       currency can still be edited, and then receiving it carries no price to the products.
 - **FR-22.33 (MUST)** The bill form offers „Запази и получи". Payment method starts empty, then
   per FR-22.26.
+  - **FR-22.33a (MUST)** A bill that booked goods prints their „Складова разписка", at the price the
+    person chooses (owner, 2026-11-15). The warehouse prices the goods from the sheet.
+    - The action opens a dialog with one field, the price to print: the selling price, each price slot
+      under the name a person reads, and the booked price last. It starts on „Цена на едро", and after
+      that on the level the person printed last (per user and org). Cancel prints nothing.
+    - The sheet shows each article's price at that level as the catalogue holds it on the day it is
+      printed, and names the level. An article with no price there prints a dash. It carries no total.
+    - The server decides who prints which level: one the role does not see is refused (403
+      `capability_required`), a name that is no level too (422 `unknown_price_level`), and a request
+      that names none prints „Цена на едро".
+    - Only this document's Bulgarian name changed (it was „Стокова разписка"). The receipt movement
+      and the imported document kinds keep theirs.
 
 ### 2.3a Hand the goods over, then invoice them (#725)
 

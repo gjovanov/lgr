@@ -2570,7 +2570,7 @@ dialog first, its columns folded.
 - **One list, drawn twice.** `DocumentForm` hands `barActions` to `EntityFormShell`, which draws it
   under the title and, with `bottom-actions`, again at the foot (`ui-shared/FormActionBar.vue`). The
   list is `useDocumentForm#formActions` (the document's own steps) with e-mail, Print and a bill's
-  „Стокова разписка" put in before Import (`document-form/form-actions.ts#withOutputActions`). There
+  „Складова разписка" put in before Import (`document-form/form-actions.ts#withOutputActions`). There
   is no second place that decides what a bar offers: ⚠ never add a button to the form's body or to one
   bar. `FormAction` grew what those buttons needed: `key`, `testId`, `title`, `disabledHint` (shown
   while disabled: e-mail on a draft), `more` (the split button's second half: Print's options),
@@ -2600,9 +2600,43 @@ dialog first, its columns folded.
   them (`export-columns-toggle`, `-count`, `export-columns`); `confirmLabel`; `export-confirm` /
   `export-cancel`. It is `scrollable`: opened, the columns no longer push its buttons off a laptop
   screen.
-- Tests: `unit/document-form-actions.test.ts` (23: the list's order, the collapse order, and guards
+- Tests: `unit/document-form-actions.test.ts` (28: the list's order, the collapse order, and guards
   that the form's template holds no button of its own), `e2e/tests/document-form-actions.spec.ts`
   (9, project `invoicing-inventory`), walks P5-invoice and P6.
+
+### A bill's „Складова разписка" asks which price to print (2026-11-15, FR-22.33a)
+
+The owner's ask: the sheet goes to the people in the warehouse, who price the goods from it. So the
+bill's action (in Bulgarian „Стокова разписка" until then) was renamed, asks for a price level before
+it prints, and the sheet lost its „Общо без ДДС" box.
+
+- ⚠ **Only this document was renamed, and only in Bulgarian.** „Стокова разписка" stays the name of
+  the receipt MOVEMENT („+ Нов", `goodsReceipt`), of the report type `receipt_note`, and of the
+  imported document kinds, where „стокова" (`stokrazp`) and „складова" (`sklrazp`) разписка are two
+  different PlusMinus documents. en/de/mk keep their wording (en „Stock receipt" / „GOODS RECEIPT").
+- **One list of levels**, `config/stock-receipt-price` (import-pure), read by the dialog AND by the
+  route: `selling`, every `PRICE_TIERS` slot by its STORED name (drawn through `tierLabel`: „Доставна
+  цена" reads „Цена с ТО"), and `booked` last: the receipt's own unit prices, which is what the sheet
+  printed before it asked. An org's own-named tier is no level here.
+- **The dialog** (`invoicing-ui/StockReceiptPrintDialog.vue`: `stock-receipt-dialog`, `-price`,
+  `-confirm`, `-cancel`) opens on „Цена на едро", or on the first level the role sees. The level
+  PRINTED last is kept per user and org (`lgr:stock-receipt-price:<user>:<org>`,
+  `composables/stock-receipt-price.ts`); one the role no longer sees gives way to the default.
+  Cancel prints nothing and remembers nothing.
+- **The route**: `GET /invoicing/export/:id?doc=stock_receipt&priceLevel=<key>`. ⚠ The server decides
+  (FR-27.11, `stockReceiptLevelFor`): a level the role does not see is 403 `capability_required`, a
+  name that is no level is 422 `unknown_price_level` (never the default in its place), and no
+  parameter prints what the dialog would open on. `booked` asks nothing beyond the print itself. The
+  route declares no query schema, so there is nothing to add the parameter to and nothing drops it.
+- **The sheet** (`reporting/pdf/stock-receipt.pdf.ts`): „Цена" is the article's price at that level AS
+  THE CATALOGUE HOLDS IT ON THE DAY IT IS PRINTED (`sellingPrice`, or the slot's `finalPrice`), in the
+  org's currency; „Стойност" is quantity × that. An article with no price there (no slot, a zero, no
+  article any more) prints a dash in both cells, never another level's figure. The level is named
+  under the bill („Цена: Цена на едро (€)"): the currency mark stands there because only the removed
+  total showed it.
+- Tests: `unit/stock-receipt-price` (15), `unit/stock-receipt-dialog-levels` (9),
+  `unit/stock-receipt-export` (17), `integration/bill-stock-receipt.flow` (18),
+  `e2e/tests/bill-stock-receipt.spec.ts` (2).
 
 ## Document lists: one row menu, fit 1366 px, a Create that says what (2026-10-26, FR-22 slice 2b: FR-22.23–.27, .50)
 
