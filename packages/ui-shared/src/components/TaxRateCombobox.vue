@@ -10,12 +10,17 @@
     variant="underlined"
     :label="label"
     :placeholder="$t ? $t('invoicing.taxRate') : 'Tax Rate'"
+    class="one-line-value"
+    :class="{ 'one-line-value--typing': typing }"
     data-testid="tax-rate-combobox"
     @update:model-value="onValueChange"
+    @update:search="typing = !!$event"
   >
     <!-- Closed control shows the bare "{rate}%" as a non-editable span, so it never gets
          clipped by the narrow column's editable <input> (which the dropdown arrow + field
-         padding squeeze to ~30px). -->
+         padding squeeze to ~30px).
+         ⚠ A `#selection` slot is what made the field grow a second line on focus: `one-line-value`
+         (ui-shared/styles/line-grid.css) keeps it on one, and a typed rate takes the value's place. -->
     <template #selection>
       <span class="text-truncate">{{ modelValue != null ? modelValue + '%' : '' }}</span>
     </template>
@@ -68,6 +73,9 @@ const props = withDefaults(
 const emit = defineEmits<{
   'update:modelValue': [rate: number]
 }>()
+
+/** Something is typed into the field: it is shown in the rate's place, on the same line. */
+const typing = ref(false)
 
 // Module-level cache to avoid refetching on every row render. Keyed by orgUrl.
 const fetchCache = new Map<string, { rates: VatRate[]; defaultRate: number | null }>()

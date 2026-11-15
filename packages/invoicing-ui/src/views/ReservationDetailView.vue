@@ -148,7 +148,7 @@
                   <td class="text-end" data-col="invoiced" :title="hidden.has('dispatched') ? invoicedAndDispatched(node.figures) : undefined">{{ node.figures.invoiced }}</td>
                   <td v-if="!hidden.has('dispatched')" class="text-end" data-col="dispatched">{{ node.figures.dispatched }}</td>
                   <td data-col="status">
-                    <div class="d-flex flex-wrap ga-1">
+                    <div class="d-flex flex-wrap align-center ga-1 line-grid__line">
                       <v-chip v-for="c in statusChips(node, open)" :key="c.key" size="x-small" :label="c.label" :variant="c.variant || 'tonal'" :color="c.color" :title="c.text">{{ c.text }}</v-chip>
                     </div>
                   </td>

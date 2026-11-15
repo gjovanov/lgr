@@ -13,16 +13,21 @@
     hide-details
     variant="underlined"
     style="min-width: 130px"
+    class="one-line-value"
+    :class="{ 'one-line-value--typing': typing }"
     :placeholder="$t('invoicing.unitPrice')"
     data-testid="price-combobox"
     :data-typed="typed ? 'true' : 'false'"
     @update:model-value="onValueChange"
+    @update:search="typing = !!$event"
   >
     <template v-if="!typed" #prepend-inner>
       <v-icon size="x-small" icon="mdi-lock-outline" :title="$t('invoicing.pricePickOnly')" :aria-label="$t('invoicing.pricePickOnly')" data-testid="price-pick-only" />
     </template>
     <!-- Closed control shows ONLY the number (≤5 decimals, no name); the "— {tag name}"
-         appears only in the open dropdown items (#item below). min-width fits 5 decimals + arrow. -->
+         appears only in the open dropdown items (#item below). min-width fits 5 decimals + arrow.
+         ⚠ A `#selection` slot is what made the field grow a second line on focus: `one-line-value`
+         (ui-shared/styles/line-grid.css) keeps it on one, and a typed price takes the number's place. -->
     <template #selection>
       <span class="text-truncate">{{ displayNumber }}</span>
     </template>
@@ -88,6 +93,8 @@ const { t, locale } = useI18n()
 const options = ref<PriceOption[]>([])
 const resolvedKey = ref('')
 const loading = ref(false)
+/** Something is typed into the field: it is shown in the price's place, on the same line. */
+const typing = ref(false)
 
 const comboItems = computed(() =>
   options.value.map(opt => ({
