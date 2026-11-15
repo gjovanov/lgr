@@ -1,5 +1,6 @@
 import { expect } from '@playwright/test'
 import { activeContact, apiGet, apiLogin, apiPost } from './api'
+import type { ApiSession } from './api'
 
 /**
  * A supplier bill fixture for the bill-form specs: an article of its own (so no other spec's stock
@@ -18,9 +19,23 @@ export interface ReceivedBill {
   refs: { supplier: any; warehouse: any; product: any }
 }
 
-/** The article is bought at 2.50 and billed at 2.75 × 12, into the default warehouse. */
+/**
+ * The article is bought at 2.50 and billed at 2.75 × 12, into the default warehouse. Still a draft: the form's own
+ * „Save and receive" can run on it, so it carries the supplier's number, which the form asks for before it receives.
+ */
+export async function draftBill(): Promise<ReceivedBill> {
+  return makeBill(await apiLogin(), { reference: `E2E-${Date.now().toString(36)}` })
+}
+
+/** The same bill, received: it booked its goods. */
 export async function receivedBill(): Promise<ReceivedBill> {
   const s = await apiLogin()
+  const bill = await makeBill(s)
+  const received = await okJson(await apiPost(s, `/invoices/${bill.id}/receive`, {}))
+  return { ...bill, number: received.invoice.invoiceNumber }
+}
+
+async function makeBill(s: ApiSession, extra: Record<string, unknown> = {}): Promise<ReceivedBill> {
   const stamp = Date.now().toString(36)
   const supplier = await activeContact(s, 'supplier')
   const warehouses = (await apiGet(s, '/warehouse/warehouse?size=100')).warehouses || []
@@ -34,8 +49,7 @@ export async function receivedBill(): Promise<ReceivedBill> {
     type: 'invoice', direction: 'incoming', contactId: supplier._id, issueDate: new Date().toISOString().slice(0, 10), currency: 'EUR',
     lines: [{ productId: product._id, warehouseId: warehouse._id, description: product.name, quantity: 12, unit: 'pcs', unitPrice: 2.75, taxRate: 20 }],
     subtotal: 33, total: 39.6,
+    ...extra,
   }))
-  const id = invoice.id || invoice._id
-  const received = await okJson(await apiPost(s, `/invoices/${id}/receive`, {}))
-  return { id, number: received.invoice.invoiceNumber, refs: { supplier, warehouse, product } }
+  return { id: invoice.id || invoice._id, number: invoice.invoiceNumber, refs: { supplier, warehouse, product } }
 }

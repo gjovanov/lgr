@@ -19,7 +19,7 @@ import {
 } from '../session/session'
 import type { OrgChoice } from '../session/useOrgSession'
 import { getI18n, getVuetify } from '../plugins'
-import { loadLocale } from '../plugins/i18n'
+import { initialLocale, loadLocale } from '../plugins/i18n'
 import { portalHref } from '../nav/navigate'
 import { currentAppId } from '../session/useOrgSession'
 import { setAccessRefetch, setLiveAccess } from '../access/live-grant'
@@ -112,7 +112,9 @@ export const useAppStore = defineStore('app', () => {
 
   // UI state
   const leftDrawer = ref(true)
-  const locale = ref(localStorage.getItem('lgr_locale') || 'en')
+  // The language the screen is in (`initialLocale`), never a second guess: this is what every
+  // export, print and date asks, and it has to be the language the person is reading.
+  const locale = ref(initialLocale())
   const theme = ref(localStorage.getItem('lgr_theme') || 'light')
 
   // Getters
