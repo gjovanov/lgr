@@ -20,6 +20,14 @@ export interface EmailAttachment {
   type?: string
 }
 
+/** One of the documents a mail carries. */
+export interface EmailEntity {
+  entityType: string
+  entityId: string
+  /** The document's own file among the mail's attachments. */
+  attachmentName?: string
+}
+
 export interface SendEmailOptions {
   to: string
   subject: string
@@ -31,6 +39,14 @@ export interface SendEmailOptions {
   /** Ties the log row back to the document that triggered the send. */
   entityType?: string
   entityId?: string
+  /**
+   * Several documents in ONE mail (`biz/doc-email`): each gets an `EmailLog` row of its own, naming it and its file
+   * (`attachmentName`), with the mail's recipient, subject, status and outbox id. So the 60-second resend guard and a
+   * document's history read one document's rows, whatever else travelled with it. A failed and a queued mail log
+   * the same way. On a master the outbox payload carries the list, and the worker updates every invoice in it once
+   * the mail has gone. Given, it replaces `entityType` / `entityId`; absent, nothing changes.
+   */
+  entities?: EmailEntity[]
   /** Where a reply goes (SendGrid `reply_to`). Global sets it to the org's address for a relayed mail. */
   replyTo?: string
   /**
@@ -89,6 +105,25 @@ async function logEmail(
 ): Promise<void> {
   if (opts.log === false) return
   try {
+    if (opts.entities?.length) {
+      // One row per document the mail carries, each naming its own file. `create`, as the one-row path below:
+      // the same save hooks run for each.
+      await EmailLog.create(opts.entities.map(e => ({
+        creatorId: opts.creatorId || undefined,
+        orgId: opts.orgId || undefined,
+        from: config.email.fromEmail,
+        to: opts.to,
+        subject: opts.subject,
+        body: opts.html,
+        status,
+        error,
+        entityType: e.entityType,
+        entityId: e.entityId,
+        attachmentNames: e.attachmentName ? [e.attachmentName] : [],
+        outboxId,
+      })) as any)
+      return
+    }
     await EmailLog.create({
       creatorId: opts.creatorId || undefined,
       orgId: opts.orgId || undefined,
@@ -135,7 +170,11 @@ async function queueMail(opts: SendEmailOptions): Promise<SendEmailResult> {
       _id: id,
       orgId: opts.orgId,
       kind: 'mail',
-      payload: { to: opts.to, subject: opts.subject, html: opts.html, attachments, entityType: opts.entityType, entityId: opts.entityId },
+      payload: {
+        to: opts.to, subject: opts.subject, html: opts.html, attachments, entityType: opts.entityType, entityId: opts.entityId,
+        // Every document the mail carries: the worker settles each one's send history when the mail has gone.
+        ...(opts.entities?.length ? { entities: opts.entities } : {}),
+      },
       state: 'queued',
       nextAt: new Date(),
     })
@@ -146,6 +185,14 @@ async function queueMail(opts: SendEmailOptions): Promise<SendEmailResult> {
   }
   await logEmail(opts, 'queued', undefined, id)
   return { ok: true, queued: true }
+}
+
+/**
+ * Can this node mail at all: a master always can (it queues for lgrai.app), any other node with its provider key.
+ * For a caller that would otherwise do real work (render ten PDFs) before `sendEmail` says `not_configured`.
+ */
+export function mailConfigured(): boolean {
+  return nodeRole() === 'master' || !!config.email.sendgridApiKey
 }
 
 export async function sendEmail(opts: SendEmailOptions): Promise<SendEmailResult> {
