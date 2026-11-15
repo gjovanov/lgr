@@ -3601,6 +3601,9 @@
     "storagePrefix": "Storage Key",
     "displayPrefix": "Display Prefix",
     "lastNumber": "Last Number",
+    "numbering": "Numbering",
+    "continuous": "No year",
+    "continuousHint": "No year: ten digits that go on from one year into the next (INV-0000000413), above every number already issued. It applies to documents issued from now on.",
     "posSessions": "Till sessions",
     "empty": "No sequences yet",
     "emptyHint": "Number sequences appear here once you create your first document."

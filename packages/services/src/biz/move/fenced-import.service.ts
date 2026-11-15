@@ -40,9 +40,9 @@ import { postInvoiceJournal, postPaymentJournal, postPosSessionJournal } from '.
 import { createAuditEntry, recordAuditEntry } from '../audit-log.service.js'
 import { createInvoiceStockMovement } from '../invoicing.service.js'
 import { withMovementNumber } from '../movement-number.js'
-import { draftSequenceKeyFor, getNextDraftInvoiceNumber, sequenceKeyFor } from '../invoice-numbering.service.js'
+import { continuousSuffixOf, draftSequenceKeyFor, getNextDraftInvoiceNumber, sequenceKeyFor } from '../invoice-numbering.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
-import { ensureSequenceAtLeast } from '../sequence.service.js'
+import { ensureSequenceAtLeast, isContinuousSeries } from '../sequence.service.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { normalizeStored, resolveStored } from '../files/stored-path.js'
 import { idKey } from '../replication/pages.js'
@@ -160,10 +160,18 @@ function seriesPart(number: unknown): { year: number; n: number } | null {
   return m ? { year: Number(m[1]), n: Number(m[2]) } : null
 }
 
-/** Numbering goes on above every number imported: lgrai.app never issues one of them again. */
-async function continueSeries(orgId: string, doc: Doc): Promise<void> {
-  const part = seriesPart(doc.invoiceNumber)
+/** Numbering goes on above every number imported: lgrai.app never issues one of them again. Exported for its test. */
+export async function continueSeries(orgId: string, doc: Doc): Promise<void> {
+  let part = seriesPart(doc.invoiceNumber)
   const key = doc.status === 'draft' ? draftSequenceKeyFor(doc.type, doc.direction) : sequenceKeyFor(doc.type, doc.direction)
+  // A continuous series' number carries no year (`INV-3000004106`). It is recorded on this year's
+  // row: any row keeps the series above it (`getNextContinuousNumber`). Read by the series' own
+  // prefixes, and only where the org numbers so: a trailing run of digits alone is no number of a
+  // series (a till day's `CSR-<date>` would send the cash sales to the millions).
+  if (!part && key && doc.status !== 'draft' && await isContinuousSeries(orgId, key)) {
+    const n = await continuousSuffixOf(orgId, key, doc.invoiceNumber)
+    if (n !== null) part = { year: new Date().getFullYear(), n }
+  }
   if (part && key) await ensureSequenceAtLeast(orgId, key, part.year, part.n)
   // The УНП: `<device>-<operator>-<number>`, counted per device.
   const unp = /^([^-]{8})-[^-]+-(\d+)$/.exec(String(doc.register?.unp ?? ''))

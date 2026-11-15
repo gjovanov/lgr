@@ -6,6 +6,7 @@
 
     <v-alert type="info" variant="tonal" class="mb-4" density="compact">
       {{ $t('sequences.hint') }}
+      <div v-if="rows.some(r => r.mayBeContinuous)" class="mt-1" data-testid="continuous-hint">{{ $t('sequences.continuousHint') }}</div>
     </v-alert>
 
     <v-card>
@@ -49,8 +50,25 @@
               </v-btn>
             </div>
           </template>
+          <!-- A series an org may number without a year: the sales documents (the registry's mayBeContinuous). -->
+          <template #item.continuous="{ item }">
+            <v-switch
+              v-if="item.mayBeContinuous"
+              v-cap="'sequences.edit'"
+              :model-value="item.continuous"
+              :label="$t('sequences.continuous')"
+              :loading="saving === `${keyOf(item)}:continuous`"
+              :disabled="saving !== null"
+              color="primary"
+              density="compact"
+              hide-details
+              inset
+              :data-testid="`continuous-${item.prefix}`"
+              @update:model-value="saveContinuous(item, $event === true)"
+            />
+          </template>
           <template #item.lastNumber="{ item }">
-            <span class="text-mono">{{ String(item.lastNumber).padStart(5, '0') }}</span>
+            <span class="text-mono" :data-testid="`last-${item.prefix}`">{{ String(item.lastNumber).padStart(item.padLength || 5, '0') }}</span>
           </template>
           <template #no-data>
             <EmptyState
@@ -82,6 +100,11 @@ interface SequenceRow {
   variant: 'draft' | 'issued'
   year: number
   lastNumber: number
+  /** The org may number this series without a year (the sales documents). */
+  mayBeContinuous?: boolean
+  /** It does: ten digits, no year, on through the years. */
+  continuous?: boolean
+  padLength?: number
 }
 
 const { t } = useI18n()
@@ -98,6 +121,7 @@ const headers = computed(() => [
   { title: t('sequences.variant'), key: 'variant', sortable: false },
   { title: t('sequences.storagePrefix'), key: 'prefix', sortable: false },
   { title: t('sequences.displayPrefix'), key: 'displayPrefix', sortable: false },
+  { title: t('sequences.numbering'), key: 'continuous', sortable: false },
   { title: t('sequences.lastNumber'), key: 'lastNumber', align: 'end' as const, sortable: false },
 ])
 
@@ -160,6 +184,21 @@ async function save(item: SequenceRow) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     saving.value = null
+  }
+}
+
+/** Number the series without a year, or per year again. Saved at once: it is one switch, not a form. */
+async function saveContinuous(item: SequenceRow, continuous: boolean) {
+  saving.value = `${keyOf(item)}:continuous`
+  try {
+    await httpClient.put(`${appStore.orgUrl()}/invoicing/sequences/${item.prefix}`, { continuous })
+    showSuccess(t('common.savedSuccessfully'))
+  } catch (e: any) {
+    showError(e?.response?.data?.message || t('common.operationFailed'))
+  } finally {
+    saving.value = null
+    // Whatever the answer, the page shows what the server holds.
+    await load()
   }
 }
 
