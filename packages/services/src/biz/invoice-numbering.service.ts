@@ -102,7 +102,7 @@ function escapeRe(s: string): string {
  * prefixes the counter rendered historically (CRN/DBN before the FR-01 merge: their suffixes came
  * from this counter, so they count toward its max).
  */
-async function seriesPrefixes(orgId: string, key: string): Promise<string[]> {
+export async function seriesPrefixes(orgId: string, key: string): Promise<string[]> {
   const defs = INVOICING_SEQUENCE_KEYS.filter(e => e.prefix === key && e.variant === 'issued')
   if (!defs.length) return []
   return [...new Set([

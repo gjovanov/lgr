@@ -1575,6 +1575,17 @@ it), so an org that imports and also issues by hand read two ways until it chose
   `{ displayPrefix?, continuous? }` and changes only what a request names; `continuous` on any other series is
   **422 `not_continuous_series`** (the registry's `mayBeContinuous` says which series may). Audit-logged. Future
   allocations only: a document keeps the number it has.
+- **The documents issued with a year BEFORE the choice** keep it unless the org asks:
+  `scripts/drop-year-from-sales-numbers.ts` (`services/biz/yearless-numbers.ts`; dry run by default, `--execute`
+  needs `--backup`, `--restore` puts a backup back) brings `INV-2026-3000004106` to `INV-3000004106`. Only the year
+  goes: the running number, the counters and every link by id stay, and `numberHistory` names the number the
+  document had. It refuses an org whose series is numbered per year, and it leaves, counted by reason, a number
+  another document already holds (`taken`), one that two years would share (`twice`: a series that started again
+  each year cannot be brought over), BOTH documents of a number issued twice (`clash_pair`), a draft, and a
+  document of another series. Text that quotes the old number (a reversal movement's note, a journal entry, the
+  audit log) stays as written and is counted. ⚠ From then on every reader of the number's form takes such a
+  document for an imported one: the daily importer's index, its audit's content compare, and the passes that
+  act on `INV-<number>` (`scripts/lib/void-annulled.ts`, `scripts/repair-invoices-from-plusminus.ts`).
 - **It counts on ONE row**, the year-0 row's `lastNumber` (`getNextContinuousNumber`): the same atomic `$inc`
   as every counter, so no number is given twice and none is skipped, whatever year a request's clock says.
   - Before counting, that row is raised to the highest of every row of the series and of every number of the series
