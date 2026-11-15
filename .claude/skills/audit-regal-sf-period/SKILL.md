@@ -132,7 +132,7 @@ and one decrease batch (`fromWarehouseId`), never invented as a fake document. B
 fully reversible (search stock movements for the marker) if a later finding says
 otherwise. Re-run step 3 afterwards — it should come back near-zero.
 
-⚠ Lines on a product with no established cost (`avgCost`/`purchasePrice` both unset —
+⚠ Lines on a product with no established cost (`avgCost`, the `Доставна цена` slot and `purchasePrice` all unset —
 typically the "opening stock never seeded" class) book at **zero cost**, same precedent
 as the standing opening-stock corrections elsewhere in this migration (memory
 `lgr-regal-sf-org`'s retired `SM-2026-01050`). That is accepted here, not a bug.
