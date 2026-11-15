@@ -1812,6 +1812,76 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
 
 Routes: `/inventory/products/:id/:tab` where `tab ∈ {edit|pricing|settings|stock|ledger|movements|levels}`. `/products/:id` redirects to `/edit`, `/products/new` to `/new/edit`. Shared `ProductTabBar.vue` component at top of both ProductFormView and ProductStockView navigates between siblings via named routes (works in both inventory-ui and desktop-ui). `new` mode disables stock/ledger/movements/levels tabs with "save first" tooltip.
 
+## External warehouse (2026-11-16)
+
+The owner's ask: a warehouse can be marked **external**: another site's warehouse, named in this org
+so a transfer can say where the goods went or where they came from. No stock is kept on it here. The
+movement is a document for the colleagues on the other side, who keep their own stock in their own
+org; booking the other org's side waits until the two catalogues agree on names.
+
+- **`Warehouse.isExternal`** (rules in `config/src/external-warehouse.ts`: pure, shared by the form
+  and the server). Never default and external together: 422 `external_default`. A warehouse does not
+  BECOME external while a `StockLevel` of it has `quantity != 0` or `reservedQuantity > 0`: 422
+  `warehouse_holds_stock`, with `articles` (how many). External → own is always allowed. ⚠ That
+  check reads the levels alone: a draft movement or an ORDO allocation that names the warehouse does
+  not stop it.
+- ⚠ **`GET /warehouse/warehouse` answers only the warehouses that keep stock.** Every picker in every
+  app lists through this route, and none of them may offer an external one. `?external=include`
+  answers all (the Warehouses page, the movement form, the movements filter), `?external=only` the
+  external ones; any other value is the default.
+- **The server's "default, else first warehouse" fallbacks skip one**: doc-import (`persist.ts`,
+  `map-movement.ts#resolveWarehouse`), Files (`doc-pipeline`, `compare-snapshot`, `doc-reconcile`),
+  `orders-from-products`. The ops scripts that list warehouses over the API get the default above.
+  ⚠ The few that read `Warehouse` from the database themselves do not skip one.
+- **Only a transfer names one, with a warehouse of our own on the other side**
+  (`config/src/movement-warehouses.ts#movementWarehouseRefusal`, told `fromExternal` / `toExternal`
+  by `services/biz/external-warehouses.ts#movementExternalSides`). 422
+  `external_warehouse_not_transfer`: a movement of any other type names one. 422
+  `transfer_without_own_warehouse`: a transfer names no warehouse of our own. Doors:
+  `movement.controller` POST `/`, POST `/with-update`, PUT `/:id`, POST `/:id/confirm`;
+  `/doc-import/convert`; `doc-import/commit.ts`; the movement form, before it sends anything. The
+  flag is read at the door and never remembered on a draft, so a draft whose warehouse became
+  external since is judged at `/confirm`. Opening stock writes levels past the engine, so it refuses
+  one at its own door (422 `external_warehouse`). A transfer-only session (FR-26.7) writes both
+  directions: an external warehouse counts as a named side.
+- ⚠ **Completed, `fromWarehouseId` / `toWarehouseId` name only warehouses whose stock the movement
+  moved.** `confirmMovement` books an external side as if the movement named none (no level, no cost
+  layer; goods from one arrive at the line's cost, as a receipt's do) and, in the update that
+  completes it, moves that id to `externalFromWarehouseId` / `externalToWarehouseId`. Every reader
+  that derives stock from movements relies on it, and none reads the pair. ⚠ It is NOT a refusal in
+  `confirmMovement`, which never refuses (see its note): the engine is the last line of defence for
+  what passes no door (a sale's dispatch, a bill's receipt, an import, a replay). A draft keeps the
+  form's choice in the two stock fields.
+- **Reading the other side**: `fromWarehouseId || externalFromWarehouseId`. `sideIsExternal`
+  (`config/external-warehouse`) is the one rule behind `fromExternal` / `toExternal` on the list, on
+  `GET /:id` and on the print: booked, the pair says so; a draft, the warehouse as it is now. The
+  list's `warehouseId` filter and its two name sorts follow the pair. ⚠ The `stock-movements` report
+  and the product ledger read the stock fields alone: the external side is blank there. The digest
+  files every transfer under „transferred", whichever way it went.
+- ⚠ **A transfer posts no journal entry** (`createMovementValuationEntry` books receipts, dispatches
+  and returns only), with an external side as without: goods sent to another site leave the stock
+  and stay on the inventory account.
+- **Print**: `GET /warehouse/movement/:id/export?locale=` answers `<movementNumber>.pdf`, draft or
+  booked, to whoever may read the movement. `services/biz/stock-movement-document.service.ts`
+  (`renderStockMovementPdf`: one function for the route and for anything that sends the sheet on),
+  `reporting/pdf/stock-movement.pdf.ts` (`buildStockMovementHtml`), `reporting/stock-movement.i18n.ts`
+  ×4. The title follows the type („Стокова разписка" a receipt, „Складова разписка" a transfer, a
+  general title with a type row otherwise); then number, date, From / To with „(външен)", partner,
+  reference, note, the lines (№, name, unit, quantity) and two signature lines. ⚠ No price and no
+  total: a line's `unitCost` is a cost not every role sees (on a sale's dispatch, the sale price),
+  and the sheet leaves the org. UI: Print on the movement form and on each row of the list
+  (`inventory-ui/composables/useMovementPrint.ts`), downloaded as the tab's session.
+- **Screens**: `WarehouseFormView` (the switch; Default and External exclude each other),
+  `WarehousesView` and `MovementsView` (a chip; the filter lists external ones marked),
+  `MovementFormView` (an external warehouse is offered on a transfer only and is cleared when the
+  type changes; a note says which stock the transfer changes; from an external one the line reads
+  the destination's stock and no quantity is prefilled). Keys in `warehouse.*` ×4.
+- **Tests**: `unit/external-warehouse.test.ts`, `unit/stock-movement-document.test.ts`,
+  `integration/external-warehouse.flow.test.ts`, `e2e/tests/external-warehouse.spec.ts`
+  (`invoicing-inventory`). ⚠ The spec names its warehouses to sort LAST and scrolls the picker: a
+  warehouse is never removed, and a select renders only the rows in view, so leftovers sorting first
+  would push the seed's warehouses out of the other specs' pickers.
+
 ## Reporting → Export (2026-04-21)
 
 New `POST /api/org/:orgId/invoicing/export/kind/:kind` endpoint with `kind ∈ {outgoing, incoming, cash_register}`.
