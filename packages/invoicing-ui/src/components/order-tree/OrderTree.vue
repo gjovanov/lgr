@@ -7,11 +7,15 @@
 
        Open and closed is kept here, not in a table library: it has to open by itself where something needs
        a look, open and close one supplier at a time, survive the reload a save causes, and open the way to
-       a row a link points at (see `tree-rows.ts`). -->
+       a row a link points at (see `tree-rows.ts`).
+
+       `line-grid` (ui-shared/styles/line-grid.css): a row's cells start at its top with the control line, so the
+       fields of a row are underlined on one line whatever hangs under one of them (the linked article's chip, a
+       message under the row being added). -->
   <v-table
     ref="tableRef"
     density="compact"
-    class="order-tree"
+    class="order-tree line-grid"
     :style="{ '--tree-min-width': `${minWidth}px` }"
     data-testid="order-tree"
     @keydown="onKeydown"
@@ -43,13 +47,15 @@
         :data-depth="row.node.depth"
       >
         <td class="order-tree__item" data-col="item">
-          <div class="d-flex align-center" :style="{ paddingInlineStart: `${row.node.depth * 20}px` }">
+          <!-- A name or an icon is centred on the control line; a field with something under it (the article and
+               its chip) is taller than that line, and the toggle stays on the line, at the top. -->
+          <div class="d-flex align-center line-grid__line" :style="{ paddingInlineStart: `${row.node.depth * 20}px` }">
             <v-btn
               v-if="row.expandable"
               icon
               size="x-small"
               variant="text"
-              class="order-tree__toggle flex-shrink-0"
+              class="order-tree__toggle flex-shrink-0 align-self-start"
               :aria-expanded="row.open ? 'true' : 'false'"
               :aria-label="toggleLabel(row.node, row.open)"
               :title="toggleLabel(row.node, row.open)"
@@ -262,9 +268,6 @@ defineExpose({ toggle, setOpen, isOpen, expandAll, collapseAll, reveal, highligh
   hyphens: auto;
   line-height: 1.15;
   font-size: 0.75rem;
-}
-.order-tree :deep(td) {
-  vertical-align: middle;
 }
 /* A header that explains itself when the pointer rests on it says so. */
 .order-tree :deep(th.order-tree__hinted) {

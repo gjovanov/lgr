@@ -129,8 +129,10 @@
     <div style="overflow-x: auto;" @keydown.capture="onGridKeydown">
       <!-- The description takes whatever the fixed-width columns leave. It used to demand half the
            viewport (min-width: 50vw), which pushed Price and Total off-screen on a laptop with the
-           side panel open — the row could not be read without scrolling sideways. -->
-      <v-table density="compact" class="line-table">
+           side panel open — the row could not be read without scrolling sideways.
+           `line-grid` (ui-shared/styles/line-grid.css): every field of a row is underlined on one line, with the
+           linked article's chip hanging under it. -->
+      <v-table density="compact" class="line-table line-grid">
       <thead>
         <tr>
           <th class="line-no">{{ $t('invoicing.lineNoShort') }}</th>
@@ -154,7 +156,8 @@
         <tr v-for="(line, idx) in form.lines" :key="idx">
           <td class="line-no text-medium-emphasis">{{ idx + 1 }}</td>
           <td>
-            <div class="d-flex align-center ga-1">
+            <!-- From the top: the button stays beside the field, not beside the field and its chip. -->
+            <div class="d-flex align-start ga-1">
               <ProductLineDescription
                 :description="line.description"
                 :product-id="line.productId"
@@ -178,24 +181,13 @@
           </td>
           <td v-if="isColActive('unit')">
             <!-- Owner, 2026-11-12: on an outgoing document the unit is the article's once the line has one. -->
-            <v-autocomplete
+            <LineUnitSelect
               v-model="line.unit"
               :items="uomOptions"
-              item-title="title"
-              item-value="value"
-              density="compact"
-              hide-details
-              variant="underlined"
               :readonly="unitLocked(line)"
               :title="unitLocked(line) ? $t('invoicing.unitFromProduct') : undefined"
               data-testid="line-unit"
-            >
-              <!-- Closed: localized abbreviation only. Dropdown: abbrev + full name. -->
-              <template #selection="{ item }">{{ item.raw.short }}</template>
-              <template #item="{ item, props: ip }">
-                <v-list-item v-bind="ip" :title="item.raw.short" :subtitle="item.raw.full" />
-              </template>
-            </v-autocomplete>
+            />
           </td>
           <td v-if="isColActive('unitPrice')">
             <div class="d-flex align-center ga-1">
@@ -304,6 +296,7 @@ import PriceSelectButton from 'ui-shared/components/PriceSelectButton'
 import { grColumnLabel } from 'ui-shared/composables/useGRColumns'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
+import LineUnitSelect from 'ui-shared/components/LineUnitSelect.vue'
 import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
 import GRProductUpdateCell from 'ui-shared/components/GRProductUpdateCell.vue'
 import GRColumnPickerDialog from 'ui-shared/components/GRColumnPickerDialog.vue'
