@@ -118,6 +118,12 @@ test.describe('Accounting CRUD', () => {
       return
     }
 
+    // The form is drawn empty and filled when its account arrives, and reading a value does not wait: a
+    // read that came first saw the empty form's. Two such reads agree and prove nothing; one of each
+    // fails, which a fast machine did in 12 runs of 20. The code is required, so a form that shows one
+    // holds its account (the whole account is set at once).
+    await expect(dialog.getByLabel(/account code/i)).not.toHaveValue('')
+
     // Verify subType field is present and has a value
     // #408: the sub type and the description are on the form (AccountFormView.vue). The guard answered
     // at once, and `getByLabel(/sub type/)` matches two elements of a v-select, so it threw, the catch
@@ -139,6 +145,7 @@ test.describe('Accounting CRUD', () => {
     // Re-open the same row and verify values are preserved
     const reopened = await editFirstRow(page)
     if (reopened) {
+      await expect(reopened.getByLabel(/account code/i)).not.toHaveValue('')
       const subTypeAfter = reopened.locator('.v-select').filter({ hasText: /sub\s*type/i })
       await expect(subTypeAfter).toBeVisible()
       expect((await subTypeAfter.locator('.v-select__selection-text').allInnerTexts()).join('|')).toBe(subTypeValue)
