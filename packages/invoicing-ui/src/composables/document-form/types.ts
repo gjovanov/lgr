@@ -170,7 +170,14 @@ export interface DocumentTypeConfig {
   status: StatusStep[]
 
   // ── actions ──
-  /** In edit mode: show Save only while draft, or always. */
+  /**
+   * Once the document is issued: offer Import from a file only while it is a draft, or always.
+   *
+   * It used to gate Save as well, in the bar under the title only: the foot of the form offered Save in every
+   * status, so an issued sales invoice had Save in one bar and not in the other. A document is editable in
+   * every status, so both bars offer Save now (`useDocumentForm#formActions`); the cash sale is the exception,
+   * issued as it is saved on its own terminal.
+   */
   editSaveGate: 'draft-only' | 'always'
   /** Render the smart-button row from loaded data (sales invoice only). */
   showSmartButtons: boolean
