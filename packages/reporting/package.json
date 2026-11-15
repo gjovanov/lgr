@@ -11,6 +11,7 @@
     "./companion-doc.i18n": "./src/companion-doc.i18n.ts",
     "./invoice-doc.i18n": "./src/invoice-doc.i18n.ts",
     "./stock-receipt.i18n": "./src/stock-receipt.i18n.ts",
+    "./stock-movement.i18n": "./src/stock-movement.i18n.ts",
     "./unit.i18n": "./src/unit.i18n.ts",
     "./product-credit": "./src/product-credit.ts"
   },

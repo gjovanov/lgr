@@ -18,6 +18,7 @@ import { findPageSortedBy } from 'services/biz/sorted-page'
 import { billingByMovement, receiptBillingFor } from 'services/biz/receipt-bill.service'
 import { dispatchInvoicingFor, invoicingByMovement } from 'services/biz/dispatch-invoice.service'
 import { movementExternalSides } from 'services/biz/external-warehouses'
+import { renderStockMovementPdf } from 'services/biz/stock-movement-document.service'
 
 /** FR-22.61: the live sales invoice that holds a dispatch, as a list row and the movement page name it. */
 function saleOf(holder: { id: string; number: string; status: string; type: string; direction: string } | undefined): { id: string; number: string } | undefined {
@@ -432,6 +433,18 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     const hidden = await hiddenBills(user, orgId, [movement])
     return { stockMovement: redactMovementTotals(grant, withoutBill(hidden, { ...movement, number: movement.movementNumber, lines, ...externalSides, ...billing, ...invoicing })) }
+  }, { isSignIn: true })
+  /**
+   * The movement as a printed document (`reporting/pdf/stock-movement.pdf`), for whoever may read it. It
+   * carries no price: a line's `unitCost` is a cost figure not every role sees, and the sheet leaves the org.
+   */
+  .get('/:id/export', async ({ params: { orgId, id }, query, user, status, set }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const rendered = await renderStockMovementPdf(orgId, id, { locale: (query.locale as string) || 'en' })
+    if (!rendered.ok) return status(rendered.status, { message: rendered.message, ...(rendered.detail ? { detail: rendered.detail } : {}) })
+    set.headers['content-type'] = 'application/pdf'
+    set.headers['content-disposition'] = `attachment; filename="${rendered.filename}"`
+    return new Response(rendered.buffer as any)
   }, { isSignIn: true })
   .put(
     '/:id',
