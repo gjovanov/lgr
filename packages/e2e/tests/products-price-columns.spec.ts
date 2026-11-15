@@ -5,16 +5,23 @@ import { columnValues, headerTitles } from './helpers/table'
 /**
  * The Products list's price tiers: a column per slot — Доставна цена, Цена на едро, Цена 0..Цена 10.
  * Доставна цена, Цена на едро and Цена 1, 2, 4, 5 are shown and the other seven are on the cog,
- * with the purchase price (Доставна цена again wherever the tiers are kept); each column prints
- * its tier's price to four decimals (a dash when the article has none there) and sorts by it,
- * across every filtered article and through a reload.
+ * with the purchase price (a figure of its own: „Цена 2" / 1.2 since 2026-11-15, never the slot
+ * again); each column prints its tier's price to four decimals (a dash when the article has none
+ * there) and sorts by it, across every filtered article and through a reload.
+ *
+ * „Доставна цена" is the slot's STORED name, which is what the fixture writes and the sort key
+ * (`tier_delivery`) stands for. Its column is headed by the label a person reads
+ * (`config/price-tiers`): "Trade-discount price" in English, „Цена с ТО" in Bulgarian.
  *
  * Articles used: four this spec creates per worker (`E2E-TIER-<ts>-a..d`), found by that prefix.
  */
 test.use({ viewport: { width: 1920, height: 900 } })
 
 const apiBase = process.env.BASE_URL || 'http://localhost:4001'
-const SHOWN = ['Доставна цена', 'Цена на едро', 'Цена 1', 'Цена 2', 'Цена 4', 'Цена 5']
+/** How the slot stored as „Доставна цена" is headed. */
+const DELIVERY = 'Trade-discount price'
+const DELIVERY_BG = 'Цена с ТО'
+const SHOWN = [DELIVERY, 'Цена на едро', 'Цена 1', 'Цена 2', 'Цена 4', 'Цена 5']
 const ON_COG = ['Purchase Price', 'Цена 0', 'Цена 3', 'Цена 6', 'Цена 7', 'Цена 8', 'Цена 9', 'Цена 10']
 
 let prefix = ''
@@ -36,7 +43,8 @@ test.beforeAll(async () => {
       body: JSON.stringify({
         sku: `${prefix}-${key}`, name: `E2E Tier ${key} ${prefix}`, category: 'Test', type: 'goods', unit: 'pcs',
         purchasePrice: 0.05, sellingPrice: 5, taxRate: 20,
-        priceTiers: [tier('Доставна цена', 0.05), tier('Цена на едро', 0.0583), tier('Цена 1', price1)],
+        // The slot holds another figure than the purchase price: the two are not one column twice.
+        priceTiers: [tier('Доставна цена', 0.0456), tier('Цена на едро', 0.0583), tier('Цена 1', price1)],
       }),
     })
     expect(res.ok, `create ${prefix}-${key}`).toBe(true)
@@ -53,7 +61,7 @@ async function openList(page: Page, query = '') {
 
 const skus = async (table: ReturnType<Page['locator']>) => (await columnValues(table, 'SKU')).map((s) => s.slice(prefix.length + 1))
 
-test('shows Доставна цена, Цена на едро and Цена 1, 2, 4, 5; the cog offers the other seven and the purchase price', async ({ page }) => {
+test('shows the trade-discount price, Цена на едро and Цена 1, 2, 4, 5; the cog offers the other seven and the purchase price', async ({ page }) => {
   await loginForApp(page)
   const table = await openList(page)
   const titles = await headerTitles(table)
@@ -61,7 +69,9 @@ test('shows Доставна цена, Цена на едро and Цена 1, 2,
   for (const t of ON_COG) expect(titles, t).not.toContain(t)
   // Shown in slot order, after the selling price.
   expect(titles.filter((t) => SHOWN.includes(t))).toEqual(SHOWN)
-  expect(titles.indexOf('Доставна цена')).toBe(titles.indexOf('Selling Price') + 1)
+  expect(titles.indexOf(DELIVERY)).toBe(titles.indexOf('Selling Price') + 1)
+  // The stored name is a key: nothing on the page is headed by it.
+  expect(titles).not.toContain('Доставна цена')
 
   await page.getByRole('button', { name: 'Columns' }).click()
   const dialog = page.getByRole('dialog')
@@ -71,7 +81,7 @@ test('shows Доставна цена, Цена на едро and Цена 1, 2,
   }
   await dialog.getByRole('button', { name: 'Close' }).click()
   await expect.poll(async () => headerTitles(table)).toContain('Цена 3')
-  // The purchase price keeps its decimals too, beside the tier that repeats it.
+  // The purchase price keeps its decimals too. It is its own figure, not the slot beside it.
   await expect.poll(() => columnValues(table, 'Purchase Price')).toEqual(Array(4).fill('€0.05'))
 
   // The choice is the user's, and it stays.
@@ -87,6 +97,21 @@ test('prints each tier\'s price to four decimals, a dash where the article has n
   expect(await columnValues(table, 'Цена 1')).toEqual(['€2.50', '€0.0472', '—', '€1.00'])
   expect(await columnValues(table, 'Цена на едро')).toEqual(Array(4).fill('€0.0583'))
   expect(await columnValues(table, 'Цена 2')).toEqual(Array(4).fill('—'))
+  // The column under the label reads the slot stored as „Доставна цена", not the purchase price (0.05).
+  expect(await columnValues(table, DELIVERY)).toEqual(Array(4).fill('€0.0456'))
+})
+
+test('in Bulgarian the slot is headed „Цена с ТО", and still sorts by its own key', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('lgr_locale', 'bg'))
+  await loginForApp(page)
+  const table = await openList(page)
+  const titles = await headerTitles(table)
+  expect(titles).toContain(DELIVERY_BG)
+  expect(titles).not.toContain('Доставна цена')
+  expect(titles).not.toContain(DELIVERY)
+
+  await table.locator('thead th').filter({ hasText: new RegExp(`^${DELIVERY_BG}$`) }).click()
+  await expect(page).toHaveURL(/sortBy=tier_delivery/)
 })
 
 test('sorts by a tier — every filtered article, the ones without a price last — and keeps it on reload', async ({ page }) => {

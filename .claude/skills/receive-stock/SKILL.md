@@ -127,5 +127,7 @@ Daily cadence (after the day's exports land): `import-sales-invoices` →
   missing StockLevel rows (migration mode).
 - **Future extension (not built)**: "With product update" semantics — use the
   file's `Цена` column via `POST /warehouse/movement/with-update` to also
-  refresh purchase price/tiers. For now quantities only; do not add prices
-  ad-hoc.
+  refresh the tiers. For now quantities only; do not add prices ad-hoc.
+  ⚠ Never the `purchasePrice` from `Цена`: that column is the delivery price (the
+  `Доставна цена` slot, drawn as „Цена с ТО"), and since 2026-11-15 the purchase
+  price is „Цена 2" / 1.2, which no import writes on a product that exists.

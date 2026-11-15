@@ -146,7 +146,7 @@
             :key="'gr-' + col.key"
             :class="col.align === 'end' ? 'text-end' : ''"
             style="min-width: 110px"
-          >{{ col.label || $t(col.i18n || '') }}</th>
+          >{{ grColumnLabel(col, $t, $i18n.locale) }}</th>
           <th style="width:32px"></th>
         </tr>
       </thead>
@@ -301,6 +301,7 @@ import ProductLineDescription from '../ProductLineDescription.vue'
 import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import PriceSelectButton from 'ui-shared/components/PriceSelectButton'
+import { grColumnLabel } from 'ui-shared/composables/useGRColumns'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'

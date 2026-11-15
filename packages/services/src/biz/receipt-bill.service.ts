@@ -1,4 +1,5 @@
 import { isRemovalReversalNote, noteSaysNoDelivery } from 'config/movement-notes'
+import { PURCHASE_BASIS_TIER_NAME, purchasePriceFromTier2, tierFinalPrice } from 'config/price-tiers'
 import { mongoose } from 'db/connection'
 import { Contact, Invoice, Org, Product, StockMovement } from 'db/models'
 import { getRepos } from '../context.js'
@@ -904,6 +905,15 @@ export async function checkLinkedBillEdit(orgId: string, existing: any, body: { 
  * price someone set since — a later receipt with product update, an edit in Products — is newer
  * than this bill and stays. An article billed at two different prices on one bill is left alone
  * too: there is no one price to carry forward.
+ *
+ * The purchase price an import gave the article is no price someone set either: its „Цена 2" / 1.2
+ * (`config/price-tiers`, owner 2026-11-15), an approximation that stands until a bill says what the
+ * goods cost. It is not what any receipt was booked at, so without this a bill never replaced it.
+ *
+ * ⚠ It gives way only to a price the bill states ITSELF: one that differs from every receipt's cost.
+ * A bill that repeats what its receipts were booked at says nothing new, and on an imported receipt
+ * that cost is PlusMinus's delivery price, the very figure that is not the purchase price: replacing
+ * the approximation with it would undo the rule one bill at a time.
  */
 export async function applyLinkedBillPrices(orgId: string, bill: any, userId: string): Promise<string[]> {
   if (!isReceiptLinked(bill)) return []
@@ -922,9 +932,19 @@ export async function applyLinkedBillPrices(orgId: string, bill: any, userId: st
   for (const [id, price] of billedPrice) {
     const receivedAt = [...new Set((cost.get(id) || []).map(round4))]
     if (price === null || !(price > 0) || !receivedAt.length) continue
-    if (receivedAt.length === 1 && receivedAt[0] === price) continue
+    let approximated: number | null = null
+    if (!receivedAt.includes(price)) {
+      const held: any = await Product.findOne({ orgId, _id: id } as any, { priceTiers: 1 }).lean().exec()
+      approximated = purchasePriceFromTier2(tierFinalPrice(held?.priceTiers, PURCHASE_BASIS_TIER_NAME))
+    }
+    // What the purchase price may still hold. Where the approximation plays no part (there is none, or the bill
+    // states that very figure) this is the receipts' costs alone, and everything below, the audit entry's wording
+    // included, is what D-2 did before the approximation existed.
+    const candidates = approximated === null || approximated === price ? receivedAt : [...new Set([...receivedAt, approximated])]
+    const replaceable = candidates.filter(c => c !== price)
+    if (!replaceable.length) continue
     const res = await Product.updateOne(
-      { orgId, _id: id, purchasePrice: { $in: receivedAt.filter(c => c !== price) } } as any,
+      { orgId, _id: id, purchasePrice: { $in: replaceable } } as any,
       { $set: { purchasePrice: price } },
     ).exec()
     if (res.modifiedCount === 1) {
@@ -932,7 +952,7 @@ export async function applyLinkedBillPrices(orgId: string, bill: any, userId: st
       createAuditEntry({
         orgId, userId, action: 'update', module: 'warehouse', entityType: 'product', entityId: id,
         correlationId: idOf(bill._id ?? bill.id),
-        changes: [{ field: 'purchasePrice', oldValue: receivedAt.join(' / '), newValue: price }],
+        changes: [{ field: 'purchasePrice', oldValue: candidates.join(' / '), newValue: price }],
       })
     }
   }

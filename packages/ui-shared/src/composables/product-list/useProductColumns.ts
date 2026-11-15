@@ -1,6 +1,7 @@
 import { computed, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { capOfTier, type CapabilityId } from 'config/access'
+import { tierLabel } from 'config/price-tiers'
 import { TIER_COLUMNS } from '../product-price-columns'
 import { useAccess } from '../../access/useAccess'
 import type { ActiveFilter } from './product-list-params'
@@ -54,6 +55,8 @@ export interface ProductColumnsOptions {
   seesCosts?: boolean
   /** FR-27.11.D: which price levels the role sees (the selling price, a slot). Default: every one. */
   sees?: (cap: CapabilityId) => boolean
+  /** The language a slot's heading is drawn in (`config/price-tiers#tierLabel`: „Доставна цена" reads „Цена с ТО"). */
+  locale?: string
 }
 
 type Translate = (key: string) => string
@@ -106,7 +109,8 @@ export function productColumnHeaders(t: Translate, opts: ProductColumnsOptions):
       const cap = capOfTier(c.name)
       return cap === 'products.costs' ? opts.seesCosts !== false : !opts.sees || opts.sees(cap)
     })
-      .map((c) => ({ title: c.name, key: c.key, align: 'end' as const, ...hidden(c.key, c.defaultHidden), ...PRICE_CELL })),
+      // The heading is the slot's LABEL; `key` (and the sort, and the saved column choice) stay the slot's own.
+      .map((c) => ({ title: tierLabel(c.name, opts.locale), key: c.key, align: 'end' as const, ...hidden(c.key, c.defaultHidden), ...PRICE_CELL })),
     // FR-22.48: only when the list can hold deactivated articles. Among active ones it says "yes"
     // on every row, and its width is what keeps the row actions inside 1366 px. It takes the price columns' 8 px
     // gutters too: the tick column of FR-28.13 is 48 px of that width, and "all statuses" has to fit as it did.
@@ -121,9 +125,10 @@ export interface UseProductColumnsOptions extends Omit<ProductColumnsOptions, 'a
 }
 
 export function useProductColumns(opts: UseProductColumnsOptions) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const access = useAccess()
   const headers = computed(() => productColumnHeaders((k) => t(k), {
+    locale: locale.value,
     seesCosts: access.can('products.costs'),
     sees: (cap) => access.can(cap),
     seesSuppliers: opts.seesSuppliers,

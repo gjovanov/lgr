@@ -214,6 +214,13 @@ test('the tiers begin with the purchase price and the selling price: the same fi
   await expect(page.getByTestId('tier-row')).toHaveCount(TIER_NAMES.length)
   await expect(rows.nth(2).locator('td').first()).toHaveText('1')
 
+  // The slot stored as „Доставна цена" is drawn by its label and its name is no field: the stored name is what the
+  // imports, the list's column and the access rules find it by (`config/price-tiers`). The save below keeps it.
+  const delivery = tierRow(page, 'Доставна цена')
+  await expect(delivery.getByTestId('tier-label')).toHaveText('Price with trade discount')
+  await expect(delivery.locator('.tier-name')).toHaveCount(0)
+  await expect(tierRow(page, 'Цена 1').locator('.tier-name input')).toHaveValue('Цена 1')
+
   const topPurchase = input(page, 'base-purchase-price')
   const topSelling = input(page, 'base-selling-price')
   const topMargin = input(page, 'base-selling-margin')
