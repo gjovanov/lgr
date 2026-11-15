@@ -727,6 +727,18 @@ export const config = {
      */
     keepPerOrg: Number(process.env.BACKUP_KEEP_PER_ORG) || 14,
     /**
+     * The bundles a person made with "Create backup now" are kept apart from the nights: this many
+     * of them per org and kind, the newest. An org admin can make one (`backup.controller`), so they
+     * must not be able to push a night out by pressing a button.
+     */
+    keepManualPerOrg: Number(process.env.BACKUP_KEEP_MANUAL_PER_ORG) || 5,
+    /**
+     * How many backups an org admin who is not a system administrator may start for one org within
+     * 24 hours. Each is a full export of the org on a shared volume. A system administrator is not
+     * counted.
+     */
+    manualPerDay: Number(process.env.BACKUP_MANUAL_PER_DAY) || 3,
+    /**
      * FR-20.21 (plan step P1-9) — a local copy of every night's bundle: a second disk, a USB drive
      * or a NAS path on the master's own network. Empty = no local copy. Its generations are pruned
      * to `localKeep` (default `keepPerOrg`).

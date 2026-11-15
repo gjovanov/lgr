@@ -11,7 +11,8 @@
  * a configured sys-admin would test the easy path and miss the one that matters.
  *
  * `BACKUP_SYS_ADMINS` is unset on a normal dev machine, so the seeded admin is deliberately
- * NOT a backup administrator here — which is exactly the state the banner exists for.
+ * NOT a backup administrator here — which is exactly the state the banner exists for. An org's
+ * own admin makes and downloads its backups; restoring one is what takes the allow-list.
  */
 import { test, expect } from '@playwright/test'
 import { loginAsAdmin } from './helpers/login'
@@ -23,27 +24,49 @@ test.beforeEach(async ({ page }) => {
 
 test('renders the screen and its history table', async ({ page }) => {
   await expect(page.getByRole('heading', { name: /backup & restore/i })).toBeVisible()
-  await expect(page.getByText(/system-administrator area/i)).toBeVisible()
+  // One line for a system administrator, another for the org's own admin: both are legitimate
+  // deployments, and a spec that demands one of them is a spec people delete.
+  await expect(page.getByTestId('backup-subtitle')).toHaveText(/system-administrator area|make a backup of this organisation/i)
 
   await expect(page.getByText(/create a backup now/i)).toBeVisible()
   await expect(page.getByText(/^backups$/i).first()).toBeVisible()
 })
 
-test('a non-sys-admin is told why, and the controls are inert', async ({ page }) => {
-  const banner = page.getByText(/you cannot use the restore functions/i)
+test('the org’s own admin is told what is theirs, and makes a backup', async ({ page }) => {
+  const note = page.getByTestId('backup-org-admin-note')
 
-  // Skipped rather than failed when the machine DOES configure a backup admin — both are
-  // legitimate deployments, and a spec that demands one of them is a spec people delete.
-  test.skip(!(await banner.isVisible().catch(() => false)), 'BACKUP_SYS_ADMINS is configured here')
+  // Skipped rather than failed when the machine DOES configure a backup admin (see above).
+  test.skip(!(await note.isVisible().catch(() => false)), 'BACKUP_SYS_ADMINS is configured here')
 
+  await expect(note).toContainText(/you can make and download backups/i)
   // Two distinct reasons, and conflating them costs an operator an afternoon: nobody is
   // configured on this server, versus you personally are not on the list.
-  await expect(
-    page.getByText(/no backup administrator is configured|not on the server/i).first(),
-  ).toBeVisible()
+  await expect(note).toContainText(/no backup administrator is configured|not on the server/i)
 
-  await expect(page.getByRole('button', { name: /create backup/i })).toBeDisabled()
-  await expect(page.getByRole('combobox', { name: /contents/i })).toBeDisabled()
+  // What goes in a bundle is a system administrator's choice: an org admin's holds the records.
+  await expect(page.getByRole('combobox', { name: /contents/i })).toHaveCount(0)
+
+  const create = page.getByTestId('backup-create')
+  await expect(create).toBeEnabled()
+  const before = await page.getByText(/no off-site copy/i).count()
+  await create.click()
+
+  // The bundle lands in the list, marked as kept on this server only. ⚠ Or this organisation has
+  // used its day's allowance, which a re-run on the same database does: then the screen must say
+  // THAT, in its own words, and nothing else counts as passing.
+  await expect(async () => {
+    const limited = await page.getByTestId('backup-error').isVisible()
+    if (limited) {
+      await expect(page.getByTestId('backup-error')).toContainText(/limit of \d+ backups in 24 hours/i)
+      return
+    }
+    expect(await page.getByText(/no off-site copy/i).count()).toBeGreaterThan(before)
+  }).toPass({ timeout: 45_000 })
+})
+
+test('the navigation offers the screen to the org’s own admin', async ({ page }) => {
+  // It used to be offered only to a system administrator, so an org admin reached it by typing the URL.
+  await expect(page.getByTestId('nav-backup')).toBeVisible()
 })
 
 test('the screen never reveals another organisation\'s runs', async ({ page }) => {
