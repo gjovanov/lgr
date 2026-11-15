@@ -138,7 +138,7 @@
           <th class="line-no">{{ $t('invoicing.lineNoShort') }}</th>
           <th style="min-width:220px">{{ $t('common.description') }}</th>
           <th
-            v-for="col in activeLineColumns.filter((c) => c.key !== 'description')"
+            v-for="col in lineCells"
             :key="col.key"
             :class="col.align === 'end' ? 'text-end' : ''"
             :style="col.width ? `width:${col.width};min-width:${col.width}` : ''"
@@ -175,11 +175,15 @@
               <ProductDetailsButton @click="openProductPicker(idx)" />
             </div>
           </td>
-          <td v-if="isColActive('qty')">
+          <!-- The cells in the order of their headings: the catalog's, or the one the person dragged them into in
+               the column picker. They kept an order of their own (subtotal before tax rate and warehouse), so with
+               one of those two switched on a heading stood over another column's cells. -->
+          <template v-for="col in lineCells" :key="col.key">
+          <td v-if="col.key === 'qty'">
             <!-- the column width (catalog) fits 5-digit quantities plus the number-input spinner -->
             <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
           </td>
-          <td v-if="isColActive('unit')">
+          <td v-else-if="col.key === 'unit'">
             <!-- Owner, 2026-11-12: on an outgoing document the unit is the article's once the line has one. -->
             <LineUnitSelect
               v-model="line.unit"
@@ -189,7 +193,7 @@
               data-testid="line-unit"
             />
           </td>
-          <td v-if="isColActive('unitPrice')">
+          <td v-else-if="col.key === 'unitPrice'">
             <div class="d-flex align-center ga-1">
               <!-- Explicit price picker: selling + every named tier (Цена1..N). Sits to the
                    LEFT of the price editor, mirroring the explain-price icon on Total. -->
@@ -241,23 +245,24 @@
               ({{ receiptCostOf(line)!.diff > 0 ? '+' : '' }}{{ fmtCurrency(receiptCostOf(line)!.diff) }})
             </div>
           </td>
-          <td v-if="isColActive('discount')">
+          <td v-else-if="col.key === 'discount'">
             <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
           </td>
-          <td v-if="isColActive('lineSubtotal')" class="text-end" style="white-space: nowrap;">
+          <td v-else-if="col.key === 'lineSubtotal'" class="text-end" style="white-space: nowrap;">
             <PriceExplainButton v-if="!isColActive('lineTotal') && line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
             <span>{{ fmtCurrency(computeLineSubtotal(line)) }}</span>
           </td>
-          <td v-if="isColActive('taxRate')">
+          <td v-else-if="col.key === 'taxRate'">
             <TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" :org-url="appStore.orgUrl()" />
           </td>
-          <td v-if="isColActive('warehouse')">
+          <td v-else-if="col.key === 'warehouse'">
             <v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable />
           </td>
-          <td v-if="isColActive('lineTotal')" class="text-end" style="white-space: nowrap;">
+          <td v-else-if="col.key === 'lineTotal'" class="text-end" style="white-space: nowrap;">
             <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
             <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
           </td>
+          </template>
           <!-- GR product-update columns (with-product-update toggle ON) -->
           <td v-for="col in (grColumnsVisible ? grActiveColumns : [])" :key="'gr-' + col.key" :class="col.align === 'end' ? 'text-end' : ''">
             <GRProductUpdateCell
@@ -382,6 +387,10 @@ const {
  * supplier's, typed as ever.
  */
 const typesPrice = computed(() => config.direction !== 'outgoing' || useAccess().can('sales-docs.manual-price'))
+
+/** The columns after the description, in the order the headings and each line's cells share. */
+const lineCells = computed<{ key: string; i18n: string; align?: string; width?: string }[]>(() =>
+  activeLineColumns.value.filter((c: { key: string }) => c.key !== 'description'))
 
 // Spreadsheet-like Tab/Enter navigation across the line-item cells.
 const { onGridKeydown } = useGridNavigation({ addLine, getLines: () => form.lines })

@@ -123,17 +123,20 @@ const API = process.env.BASE_URL || 'http://localhost:4001'
  *
  * The tax rate is a line column only when switched on, and it is one of the three controls the
  * owner named. Call it BEFORE the first navigation.
+ *
+ * `order` is the order a person dragged the columns into in the picker (column keys, the
+ * description first); empty leaves the catalog's.
  */
-export async function showEveryLineColumn(page: Page, docTypes: string[]): Promise<void> {
+export async function showEveryLineColumn(page: Page, docTypes: string[], order: string[] = []): Promise<void> {
   const res = await fetch(`${API}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ orgSlug: 'acme-corp', username: 'admin', password: 'test123' }),
   })
   const { user, org } = await res.json()
-  await page.addInitScript(({ userId, orgId, types }) => {
+  await page.addInitScript(({ userId, orgId, types, order }) => {
     for (const type of types) {
-      localStorage.setItem(`lgr:invoice-line-cols:${userId}:${orgId}:${type}`, JSON.stringify({ order: [], hidden: [] }))
+      localStorage.setItem(`lgr:invoice-line-cols:${userId}:${orgId}:${type}`, JSON.stringify({ order, hidden: [] }))
     }
-  }, { userId: user.id, orgId: org.id || org._id, types: docTypes })
+  }, { userId: user.id, orgId: org.id || org._id, types: docTypes, order })
 }

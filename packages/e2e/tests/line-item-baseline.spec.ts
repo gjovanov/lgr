@@ -197,4 +197,40 @@ test.describe('Line items: the underlines of a row are one line', () => {
     await leaveField(page)
     expectUnmoved(saved, await rowLines(row), 'the line left alone again')
   })
+
+  // The headings follow the column picker (what is on, and the order they were dragged into). A line's
+  // cells kept an order of their own: subtotal BEFORE tax rate and warehouse, where the catalog has it
+  // after them. With one of those two columns on, "Tax Rate" stood over the subtotals.
+  const ORDERS_OF_COLUMNS = [
+    { name: "the catalog's order", order: [] as string[] },
+    { name: 'an order dragged in the picker', order: ['description', 'taxRate', 'lineTotal', 'qty', 'warehouse', 'unit', 'unitPrice', 'discount', 'lineSubtotal'] },
+  ]
+  for (const columns of ORDERS_OF_COLUMNS) {
+    test(`a sales invoice with every column on, ${columns.name}: each heading stands over its own cells`, async ({ page }) => {
+      await showEveryLineColumn(page, ['invoice'], columns.order)
+      await loginForApp(page)
+      await page.goto('/invoicing/invoices/new')
+      const row = page.locator('.line-table tbody tr').first()
+      await expect(row).toBeVisible()
+      const headings = (await page.locator('.line-table thead th').allInnerTexts()).map((h) => h.trim().toLowerCase())
+      const under = (heading: string) => {
+        expect(headings, `a "${heading}" heading`).toContain(heading)
+        return row.locator('td').nth(headings.indexOf(heading))
+      }
+
+      // A cell is known by the control it holds…
+      await expect(under('unit').getByTestId('line-unit')).toBeVisible()
+      await expect(under('unit price').getByTestId('price-combobox')).toBeVisible()
+      await expect(under('tax rate').getByTestId('tax-rate-combobox')).toBeVisible()
+      await expect(under('description').getByTestId('product-field')).toBeVisible()
+      // …or by holding none: the two amounts are text, every other column is a field.
+      for (const amount of ['subtotal', 'total']) await expect(under(amount).locator('.v-field')).toHaveCount(0)
+      for (const field of ['qty', 'discount', 'warehouse']) await expect(under(field).locator('.v-field')).toHaveCount(1)
+
+      if (columns.order.length) {
+        expect(headings.slice(1, 1 + columns.order.length), 'the headings are in the dragged order')
+          .toEqual(['description', 'tax rate', 'total', 'qty', 'warehouse', 'unit', 'unit price', 'discount', 'subtotal'])
+      }
+    })
+  }
 })
