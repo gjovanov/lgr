@@ -200,10 +200,10 @@ import {
   prefixFor,
   draftSequenceKeyFor,
   draftPrefixFor,
-  currentMaxSuffix,
   resolveDisplayPrefix,
   getNextInvoiceNumber,
   getNextDraftInvoiceNumber,
+  peekNextInvoiceNumber,
   issuableRefusal,
 } from 'services/biz/invoice-numbering.service'
 
@@ -763,24 +763,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const t = (query.type as string) || 'invoice'
     const direction = (query.direction as string) || 'outgoing'
     const wantDraft = (query.status as string) === 'draft' && t !== 'cash_sale'
+    // An issued number: the same reading as the allocation, a continuous series included.
+    if (!wantDraft) return peekNextInvoiceNumber(orgId, direction, t)
+
     const year = new Date().getFullYear()
-
-    let key: string
-    let prefix: string
-    if (wantDraft) {
-      key = draftSequenceKeyFor(t, direction) || sequenceKeyFor(t, direction)
-      prefix = draftPrefixFor(t, direction) || prefixFor(t, direction)
-    } else {
-      key = sequenceKeyFor(t, direction)
-      prefix = prefixFor(t, direction)
-    }
-
-    // For SALES_DOC keep the reconciliation behaviour aligned with allocate-time.
-    const minValue = !wantDraft ? await currentMaxSuffix(orgId, key, year) : 0
+    const key = draftSequenceKeyFor(t, direction) || sequenceKeyFor(t, direction)
+    const prefix = draftPrefixFor(t, direction) || prefixFor(t, direction)
     const counter = await getCurrentNumber(orgId, key, year)
-    const next = Math.max(counter, minValue) + 1
     const display = await resolveDisplayPrefix(orgId, prefix, key)
-    const seq = String(next).padStart(5, '0')
+    const seq = String(counter + 1).padStart(5, '0')
     return { next: `${display}-${year}-${seq}`, counter, prefix: display }
   }, { isSignIn: true })
   // KPI summary for list pages. Accepts the SAME scope filters as the list

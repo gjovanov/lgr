@@ -1561,6 +1561,48 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
 
 Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales skip drafts (CS direct). On `/send` or `/receive`, the controller allocates a new issued number from the canonical SALES_DOC/PROFORMA/OFFER/BILL counter, sets `draftNumber = previousInvoiceNumber`, replaces `invoiceNumber`, and appends to `numberHistory[]`. Display prefix override (per-org-global) lives on the Sequence year=0 sentinel doc; future allocations only. **Documents are editable in EVERY status** — PUT applies no status or posting check. The edit-sent guard (409 when a posted JournalEntry referenced the invoice, with credit-note remediation) was **removed**; ⚠ an edit to a posted document does NOT re-post, so the JournalEntry keeps its pre-edit amounts and trial balance / P&L / balance sheet report the stale figures with nothing marking them so — repost is manual. DELETE keeps its draft-only guard. Configuration page at `/invoicing/configuration/sequences` (admin/manager only).
 
+### A sales series without a year (2026-11-15)
+
+An org may number its sales documents (invoices and their notes, the `SALES_DOC` series) **without a year**:
+`INV-3000004107`, ten digits that go on from one year into the next. It is the form a number brought in from
+another system already has (`convertDraftInvoice` issues `<prefix>-<original number>` and raises the counter past
+it), so an org that imports and also issues by hand read two ways until it chose this: `INV-3000004104` imported,
+`INV-2026-3000004106` issued here. Every other org, and every other series, keeps a number per year.
+
+- **The switch** is on the sequences page (`/invoicing/configuration/sequences`, the "Numbering" column) and is
+  stored as `continuous: true` on the series' year-0 Sequence row, beside its display prefix
+  (`sequence.service#isContinuousSeries` / `setContinuousSeries`). `PUT /invoicing/sequences/:prefix` takes
+  `{ displayPrefix?, continuous? }` and changes only what a request names; `continuous` on any other series is
+  **422 `not_continuous_series`** (the registry's `mayBeContinuous` says which series may). Audit-logged. Future
+  allocations only: a document keeps the number it has.
+- **It counts on ONE row**, the year-0 row's `lastNumber` (`getNextContinuousNumber`): the same atomic `$inc`
+  as every counter, so no number is given twice and none is skipped, whatever year a request's clock says.
+  - Before counting, that row is raised to the highest of every row of the series and of every number of the series
+    on a document, **with a year or without** (`currentMaxSuffix(…, { everyYear: true })`).
+  - After counting, the number is written to **this year's row** as well. ⚠ That mirror is load-bearing: the legal
+    mark on a master, the last numbers a person records after a promotion (`legalCounters`, which leave the
+    year-0 row out) and a build that does not know the option all read the YEARLY rows. A document carries a number
+    only after the mirror is written.
+  - ⚠ Do not move the count back onto the yearly rows. That was the first version: two years counted on at once
+    (midnight on 31 December, two servers whose clocks disagree) had to look at each other's row afterwards and give
+    a number up, which leaves holes in a legal series.
+- **The form's preview and the issue agree**: `peekNextInvoiceNumber` is the one reading behind
+  `GET /invoice/peek-next` for an issued number, in both modes. Drafts are numbered per year as before.
+- `scripts/reconcile-sequences.ts` leaves a continuous series out: every allocation of it catches up by itself.
+- ⚠ **Other readers of the number's FORM.** An importer that tells a document typed here from an imported one by
+  the year in its number (`scripts/lib/invoice-index.ts`: `INV-<year>-<n>` = "entered by hand") sees both
+  as `INV-<n>` once the org numbers without a year. Both were skipped before and both are skipped now; only
+  the label in its log changes. Its audit (`scripts/audit-coverage-api.ts`) then compares such a document with
+  the other system's invoice of the same number and lists a difference as `DIFF`, and lists one with no
+  counterpart there. ⚠ One series, two systems: a number issued here stands for the other system's invoice of
+  that number, so the two must not both issue.
+- **The highest number is counted in the database** (`currentMaxSuffix` is one `$group`, index-covered): a
+  continuous series matches every sales document the org holds, and the reading runs at each issue and each
+  time a form asks for the next number.
+- **The legal mark's ceiling is ten digits** (`legal-mark.service#SERIES_MAX`). It was nine: a ten-digit
+  counter's mark was dropped as damage at every read, so a series standing where another system's numbers
+  left it had no mark on a master, and a database put back below it locked nothing.
+
 ## Generic grid column picker + price-select + Словом + perf (2026-07-26)
 
 - **Per-user grid columns** (visibility + reorder) on EVERY `ListScaffold` grid: `ui-shared/composables/useGridColumns.ts` (localStorage `lgr:grid-cols:<userId>:<orgId>:<gridId>`, gridId = route name) + `GridColumnPickerDialog.vue`; a cog in the results header opens it. userId read from the JWT in localStorage (no app-store coupling). Grids NOT on ListScaffold (e.g. `StockLevelsView`) don't get it yet. ⚠ A saved order exists only after a MOVE and then wins, so a new default order reaches only users who never reordered; a column the saved order has never seen goes right after its catalog predecessor (`orderColumnKeys`, FR-22.46).

@@ -11,6 +11,13 @@
  * Only the first was recognised. A whole-folder import over those days would have created all 64 a second
  * time and dispatched their goods again. A hand-entered invoice is reported separately so the importer can
  * skip it loudly rather than guess.
+ *
+ * ⚠ An org that numbers its sales documents WITHOUT a year (the sequences page's option) issues its own
+ * invoices as `INV-<number>`, the imported form. One entered by hand there is read as the first kind: the
+ * PlusMinus invoice of that number counts as held, and is skipped as "already imported", not as "entered by
+ * hand". The outcome is the same (it is not brought in a second time). What differs is who checks it:
+ * `audit-coverage-api.ts` then compares it with the PlusMinus invoice of the same number, line count and
+ * total, and lists a difference as `DIFF`, where the yearly form was only matched by day and total.
  */
 export interface InvoiceRow { invoiceNumber?: string; reference?: unknown; type?: string; direction?: string; status?: string }
 
