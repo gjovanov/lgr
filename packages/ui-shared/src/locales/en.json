@@ -4241,7 +4241,38 @@
     "clampLine": "live {live}, bundle {bundle} — kept {kept}",
     "dangling": "{n} document rows point at files that are not on the volume",
     "safetyTaken": "Safety backup taken",
-    "restoresTitle": "Restore history"
+    "restoresTitle": "Restore history",
+    "subtitleOrgAdmin": "Make a backup of this organisation and download it.",
+    "orgAdminTitle": "You can make and download backups of this organisation here.",
+    "orgAdminHint": "A backup made here holds the database records without the document files and stays on this server. Up to {n} can be made in 24 hours.",
+    "adminOnly": "This screen is for the organisation’s administrators.",
+    "errors": {
+      "backup_running": "A backup of this organisation is being made right now. Wait for it to finish.",
+      "backup_daily_limit": "This organisation has reached its limit of {n} backups in 24 hours. Try again later.",
+      "backup_full_needs_sys_admin": "A backup that includes the document files takes a system administrator."
+    },
+    "col": {
+      "started": "Started",
+      "date": "Date",
+      "status": "Status",
+      "variant": "Contents",
+      "documents": "Records",
+      "size": "Size",
+      "offsite": "Off-site",
+      "mode": "Mode",
+      "by": "By",
+      "bundle": "Bundle"
+    },
+    "status": {
+      "running": "running",
+      "completed": "completed",
+      "failed": "failed",
+      "rolled_back": "rolled back"
+    },
+    "variantName": {
+      "data": "records only",
+      "full": "records and files"
+    }
   },
   "fiscalYear": {
     "subtitle": "Accounting periods, and which of them are closed to further change",

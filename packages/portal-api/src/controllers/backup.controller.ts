@@ -8,6 +8,7 @@ import { config } from 'config'
 import { runBackupForOrg } from 'services/biz/backup/backup-runner.service'
 import { bundleDir, verifyBundle, BUNDLE_DATE_RE } from 'services/biz/backup/backup-bundle.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
+import { isSysAdmin } from 'services/biz/sys-admin'
 import { orgLocalParts } from 'services/biz/digest/daily-digest.service'
 
 /**
@@ -15,10 +16,11 @@ import { orgLocalParts } from 'services/biz/digest/daily-digest.service'
  *
  * Admin-only, using the same raw `role !== 'admin'` guard as the digest controller it sits
  * beside. This is the ORG's own backup: creating and downloading it is org-admin work
- * (arguably GDPR portability). The *restoring* half is a different animal entirely and is
- * NOT here — §5.7 gates that behind a separate, fail-closed sys-admin allow-list, because
- * `admin` is org-scoped and handing the regal-pz shop owner a button that deletes issued
- * fiscal documents is exactly what FR-13.26 forbids.
+ * (arguably GDPR portability), and that includes the screen's "Create backup now"
+ * (`POST /create`, within `orgAdminCreateRefusal`'s limits). The *restoring* half is a
+ * different animal entirely — §5.7 gates that behind a separate, fail-closed sys-admin
+ * allow-list, because `admin` is org-scoped and handing a shop owner a button that deletes
+ * issued fiscal documents is exactly what FR-13.26 forbids.
  *
  * ⚠ Every route carries its own explicit `if (!user) return status(401)`. Per CLAUDE.md the
  * `isSignIn` macro does not by itself reject anonymous callers on these controllers — that
@@ -92,6 +94,45 @@ function requireSysAdmin(user: any, orgId: string, status: any) {
   const email = String(user.email || '').toLowerCase()
   if (!allow.includes(id) && !(email && allow.includes(email))) {
     return status(403, { message: 'This action requires a system administrator' })
+  }
+  return null
+}
+
+/** A bundle a person asked for: `POST /create` gives each one a claim of its own, `manual-<variant>-<time>`. */
+const MANUAL_CLAIM = /^manual-/
+/** The `BackgroundTask` type of a `POST /create` job: the only kind `GET /task/:taskId` answers about. */
+const CREATE_TASK = 'backup-create'
+/** A manual run still `running` after this long died with its pod: it no longer holds the button. */
+const MANUAL_RUNNING_MS = 30 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * What "Create backup now" asks of an org admin who is not a system administrator, beyond `guard`.
+ *
+ * Each press is a full export of the org onto a volume every org shares, and anyone may found an
+ * org and be its admin. So: one at a time, and `config.backup.manualPerDay` in any 24 hours,
+ * counted per ORG (its admins share the allowance, and an operator's creates count toward it).
+ * The route also keeps these bundles on this server and unmailed, and `pruneBundles` counts them
+ * apart from the nights.
+ *
+ * ⚠ A check, not a lock: two admins pressing within the same instant can both pass it. The cap
+ * is there to bound a habit, and one bundle over it costs a few megabytes.
+ */
+async function orgAdminCreateRefusal(orgId: string): Promise<{ status: 409 | 429; code: string; message: string } | null> {
+  const now = Date.now()
+  const recent: any[] = await BackupRun.find(
+    { orgId, claimKey: MANUAL_CLAIM, startedAt: { $gte: new Date(now - DAY_MS) } },
+    { status: 1, startedAt: 1 },
+  ).lean().exec()
+  if (recent.some(r => r.status === 'running' && new Date(r.startedAt).getTime() > now - MANUAL_RUNNING_MS)) {
+    return { status: 409, code: 'backup_running', message: 'A backup of this organisation is being made right now' }
+  }
+  if (recent.length >= config.backup.manualPerDay) {
+    return {
+      status: 429,
+      code: 'backup_daily_limit',
+      message: `This organisation has made ${recent.length} backups in the last 24 hours, and ${config.backup.manualPerDay} is the limit`,
+    }
   }
   return null
 }
@@ -269,33 +310,25 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
     return { sent: true, to: user!.email, filename: run.filename, skippedReason: result.skippedReason }
   }, { isSignIn: true })
 
-  // ── §5.7 — the system-administrator surface ────────────────────────────────────
-  //
-  // Everything below is gated on `requireSysAdmin`, never on `guard` alone.
-  //
-  // ⚠ Open decision 2 on issue #24 ("should create + download of an org's OWN backup stay
-  // self-service?") is answered here by splitting the screen rather than the routes' names:
-  // `POST /run`, `GET /runs`, `/verify`, `/download` and `/test-email` above remain org-admin
-  // — an org exporting its own data is arguably GDPR portability, and they shipped that way —
-  // while everything that can WRITE to live data, or that reaches across a tenant boundary,
-  // is behind the allow-list. The dividing line is destructiveness, not tidiness.
-
   /**
-   * Whether the CALLER may use §5.7 — a presentation probe, not a gate.
+   * What the CALLER may do on the backup screen — a presentation probe, not a gate.
    *
-   * Answers 200 with `false` rather than 403, deliberately: the nav entry has to be able to
-   * ask this question without the answer itself being an error, and hiding the entry is
-   * cosmetic anyway (see `requireSysAdmin`). Nothing is authorised by this route.
+   * `sysAdmin`: §5.7, the restoring half. Answers 200 with `false` rather than 403,
+   * deliberately: the nav entry has to be able to ask this question without the answer itself
+   * being an error, and hiding the entry is cosmetic anyway (see `requireSysAdmin`).
+   * `create`: the org's own admin may press "Create backup now", and anyone this route answers
+   * at all is one. `createPerDay` is the limit the screen tells them about; an operator has
+   * none, so it is absent for one. Nothing is authorised by this route.
    */
   .get('/access', async ({ params: { orgId }, user, status }) => {
     const denied = guard(user, orgId, status)
     if (denied) return denied
-    const allow = config.backup.sysAdmins.map(s => String(s).toLowerCase())
-    const id = String(user!.id || '').toLowerCase()
-    const email = String(user!.email || '').toLowerCase()
+    const sysAdmin = isSysAdmin(user)
     return {
-      sysAdmin: allow.length > 0 && (allow.includes(id) || (!!email && allow.includes(email))),
-      configured: allow.length > 0,
+      sysAdmin,
+      configured: config.backup.sysAdmins.length > 0,
+      create: true,
+      ...(sysAdmin ? {} : { createPerDay: config.backup.manualPerDay }),
     }
   }, { isSignIn: true })
 
@@ -307,15 +340,34 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
    * to become an async job. Today's bundle takes seconds — at the §2.3 year-10 volumes
    * (737k documents, ~6.9 GB of `docs/`) it will not, and the shape must be right before the
    * data grows into it rather than after.
+   *
+   * For the org's own admin, like the rest of the org's own backup (`guard`). ⚠ A system
+   * administrator's create is the full one: either variant, pushed off-site, mailed, as often
+   * as they like. An org admin's is the rows only, kept on this server and unmailed, one at a
+   * time and a few a day (`orgAdminCreateRefusal`): what a person who can found an org by
+   * signing up may safely be handed. They download it from the list like any other.
    */
   .post(
     '/create',
     async ({ params: { orgId }, body, user, status }) => {
-      const denied = requireSysAdmin(user, orgId, status)
+      const denied = guard(user, orgId, status)
       if (denied) return denied
+      const operator = isSysAdmin(user)
 
       const b = (body || {}) as any
       const variant = b.variant === 'full' ? 'full' : 'data'
+      if (!operator) {
+        // The document files are gigabytes on the shared volume. A refusal says so, where quietly
+        // making the smaller bundle would hand back something other than what was asked for.
+        if (variant === 'full') {
+          return status(403, {
+            code: 'backup_full_needs_sys_admin',
+            message: 'A backup that includes the document files requires a system administrator',
+          })
+        }
+        const refused = await orgAdminCreateRefusal(orgId)
+        if (refused) return status(refused.status, { code: refused.code, message: refused.message })
+      }
       const date = await claimDateFor(orgId)
       // One token identifies this create everywhere: it suffixes the artifact AND is the row's
       // `claimKey`, so a bundle on disk and the row describing it cannot drift apart. Seconds
@@ -324,7 +376,7 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
       const stamp = `manual-${variant}-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}`
 
       const { startJob, updateProgress, completeJob, failJob } = await import('services/background/task.service')
-      const task = await startJob(orgId, user!.id, 'backup-create', { variant, date })
+      const task = await startJob(orgId, user!.id, CREATE_TASK, { variant, date })
 
       // ⚠ Not awaited. The floating promise is the point of the route; every terminal state
       // is written onto the task, so a failure lands somewhere the poller reads rather than
@@ -349,6 +401,7 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
             // `variant` (rows-only vs rows+docs) — two axes that share both their words.
             filenameSuffix: stamp,
             actorUserId: user!.id,
+            ...(operator ? {} : { offsite: false, mail: false }),
             onProgress: (percent, message) => { void updateProgress(String(task.id), percent, message) },
           })
           if (!outcome || outcome.status === 'failed') {
@@ -375,14 +428,18 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
    * ⚠ Reads the in-process store first and falls back to the row, because the two answer
    * different questions: the store knows about the job running in THIS pod right now, the row
    * survives a restart and a different pod picking up the poll. Neither alone is enough.
+   *
+   * ⚠ A `backup-create` task of this org and nothing else. The org's other background jobs (a
+   * document analysis, an import) each have a route with its own permission, and this one must
+   * not be a second door to their results.
    */
   .get('/task/:taskId', async ({ params: { orgId, taskId }, user, status }) => {
-    const denied = requireSysAdmin(user, orgId, status)
+    const denied = guard(user, orgId, status)
     if (denied) return denied
 
     const { taskStore } = await import('services/background/task.store')
     const live = taskStore.get(taskId)
-    if (live && String(live.orgId) === String(orgId)) {
+    if (live && String(live.orgId) === String(orgId) && live.type === CREATE_TASK) {
       return {
         status: live.status, progress: live.progress,
         logs: live.logs.slice(-20), result: live.result, error: live.error,
@@ -390,13 +447,24 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
     }
     if (badId(taskId)) return status(404, { message: 'No such task' })
     const { BackgroundTask } = await import('db/models')
-    const row: any = await BackgroundTask.findOne({ _id: taskId, orgId }).lean().exec()
+    const row: any = await BackgroundTask.findOne({ _id: taskId, orgId, type: CREATE_TASK }).lean().exec()
     if (!row) return status(404, { message: 'No such task' })
     return {
       status: row.status, progress: row.progress,
       logs: (row.logs || []).slice(-20), result: row.result, error: row.error,
     }
   }, { isSignIn: true })
+
+  // ── §5.7 — the system-administrator surface ────────────────────────────────────
+  //
+  // Everything below is gated on `requireSysAdmin`, never on `guard` alone.
+  //
+  // ⚠ Open decision 2 on issue #24 ("should create + download of an org's OWN backup stay
+  // self-service?") is answered here by splitting the screen rather than the routes' names:
+  // everything above remains org-admin — an org exporting its own data is arguably GDPR
+  // portability, and it shipped that way — while everything that can WRITE to live data, or
+  // that reaches across a tenant boundary, is behind the allow-list. The dividing line is
+  // destructiveness, not tidiness.
 
   /**
    * FR-13.30 — get an artifact onto the server without a 50 MB ceiling in the way.
