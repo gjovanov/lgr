@@ -18,6 +18,8 @@
  * hand". The outcome is the same (it is not brought in a second time). What differs is who checks it:
  * `audit-coverage-api.ts` then compares it with the PlusMinus invoice of the same number, line count and
  * total, and lists a difference as `DIFF`, where the yearly form was only matched by day and total.
+ * The same holds for the documents such an org typed in BEFORE it chose, once
+ * `scripts/drop-year-from-sales-numbers.ts` has brought them to `INV-<number>`.
  */
 export interface InvoiceRow { invoiceNumber?: string; reference?: unknown; type?: string; direction?: string; status?: string }
 
