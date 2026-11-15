@@ -517,9 +517,10 @@ function goBack() {
     flex-basis: 100%;
   }
 
-  /* A form that offers nothing now (a cancelled order) has no line of actions to leave a gap for. */
+  /* A form that offers nothing now (a cancelled order) has no line of actions to leave a gap for.
+     (`!important`: the row is a `d-flex`, and Vuetify's utilities are.) */
   .form-actions-bar__actions:empty {
-    display: none;
+    display: none !important;
   }
 
   .form-actions-bar__status {
