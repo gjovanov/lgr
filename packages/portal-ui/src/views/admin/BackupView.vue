@@ -1,22 +1,33 @@
 <template>
   <v-container fluid>
     <h1 class="text-h4 mb-1">{{ $t('backup.title') }}</h1>
-    <div class="text-caption text-medium-emphasis mb-4">{{ $t('backup.subtitle') }}</div>
+    <!-- Empty until the server has said who is asking: an operator must not read the org admin's line first. -->
+    <div class="text-caption text-medium-emphasis mb-4" style="min-height: 1.25rem" data-testid="backup-subtitle">
+      <template v-if="accessKnown">{{ store.sysAdmin ? $t('backup.subtitle') : $t('backup.subtitleOrgAdmin') }}</template>
+    </div>
 
     <!--
-      ⚠ Presentation only. A signed-in user who types this URL gets the screen; the server's
-      allow-list is what refuses the calls. This banner explains a wall of 403s rather than
-      preventing them.
+      ⚠ Presentation only. A signed-in user who types this URL gets the screen; the server is
+      what refuses the calls. The org's own administrator makes and downloads its backups;
+      restoring one takes the server's allow-list, and this banner says so rather than leaving a
+      wall of 403s to explain itself.
     -->
-    <v-alert v-if="!store.sysAdmin" type="info" variant="tonal" class="mb-4" density="comfortable">
-      <div class="font-weight-medium">{{ $t('backup.notSysAdmin') }}</div>
-      <div class="text-caption mt-1">
-        {{ store.configured ? $t('backup.notListed') : $t('backup.notConfigured') }}
-      </div>
-    </v-alert>
+    <template v-if="accessKnown && !store.sysAdmin">
+      <v-alert v-if="store.canCreate" type="info" variant="tonal" class="mb-4" density="comfortable" data-testid="backup-org-admin-note">
+        <div class="font-weight-medium">{{ $t('backup.orgAdminTitle') }}</div>
+        <div v-if="store.createPerDay" class="text-caption mt-1">{{ $t('backup.orgAdminHint', { n: store.createPerDay }) }}</div>
+        <div class="text-caption mt-1">
+          {{ $t('backup.notSysAdmin') }}
+          {{ store.configured ? $t('backup.notListed') : $t('backup.notConfigured') }}
+        </div>
+      </v-alert>
+      <v-alert v-else type="info" variant="tonal" class="mb-4" density="comfortable" data-testid="backup-admin-only">
+        {{ $t('backup.adminOnly') }}
+      </v-alert>
+    </template>
 
-    <v-alert v-if="store.error" type="error" variant="tonal" class="mb-4" closable @click:close="store.error = ''">
-      {{ store.error }}
+    <v-alert v-if="store.error" type="error" variant="tonal" class="mb-4" closable data-testid="backup-error" @click:close="store.error = ''">
+      {{ errorText }}
     </v-alert>
 
     <!-- ── Create (FR-13.29) ─────────────────────────────────────────────── -->
@@ -24,21 +35,21 @@
       <v-card-title class="text-subtitle-1">{{ $t('backup.createTitle') }}</v-card-title>
       <v-card-text>
         <v-row dense align="center">
-          <v-col cols="12" sm="4">
+          <!-- What goes in the bundle is a system administrator's choice: an org admin's holds the records. -->
+          <v-col v-if="store.sysAdmin" cols="12" sm="4">
             <v-select
               v-model="variant"
               :items="variantItems"
               :label="$t('backup.variant')"
               density="compact"
               hide-details
-              :disabled="!store.sysAdmin"
             />
           </v-col>
-          <v-col cols="12" sm="5" class="text-caption text-medium-emphasis">
+          <v-col cols="12" :sm="store.sysAdmin ? 5 : 9" class="text-caption text-medium-emphasis">
             {{ variant === 'full' ? $t('backup.variantFullHint') : $t('backup.variantDataHint') }}
           </v-col>
           <v-col cols="12" sm="3" class="text-sm-right">
-            <v-btn color="primary" :loading="creating" :disabled="!store.sysAdmin" @click="create">
+            <v-btn color="primary" :loading="creating" :disabled="!store.canCreate" data-testid="backup-create" @click="create">
               {{ $t('backup.createNow') }}
             </v-btn>
           </v-col>
@@ -65,11 +76,11 @@
           </template>
           <template #item.status="{ item }">
             <v-chip :color="item.status === 'completed' ? 'success' : item.status === 'failed' ? 'error' : 'warning'" size="x-small" label>
-              {{ item.status }}
+              {{ named('backup.status', item.status) }}
             </v-chip>
           </template>
           <template #item.variant="{ item }">
-            <v-chip size="x-small" variant="outlined">{{ item.variant || 'data' }}</v-chip>
+            <v-chip size="x-small" variant="outlined">{{ named('backup.variantName', item.variant || 'data') }}</v-chip>
           </template>
           <template #item.bytes="{ item }">{{ humanBytes(item.bytes) }}</template>
           <template #item.destinations="{ item }">
@@ -98,8 +109,9 @@
               @click="verify(item)"
             />
             <v-btn
+              v-if="store.sysAdmin"
               icon="mdi-database-import" size="x-small" variant="text"
-              :disabled="!store.sysAdmin || item.artifactPruned || !item.filename"
+              :disabled="item.artifactPruned || !item.filename"
               :title="$t('backup.useForRestore')"
               @click="pickRun(item)"
             />
@@ -300,7 +312,7 @@
             </v-chip>
           </template>
           <template #item.status="{ item }">
-            <v-chip :color="statusColor(item.status)" size="x-small" label>{{ item.status }}</v-chip>
+            <v-chip :color="statusColor(item.status)" size="x-small" label>{{ named('backup.status', item.status) }}</v-chip>
           </template>
         </v-data-table>
       </v-card-text>
@@ -318,13 +330,30 @@
  * not a layout preference: pick a source → Inspect (which writes nothing) → read the diff →
  * only then choose a writing mode. The apply button does not exist until an Inspect result
  * does, and Replace stays disabled until the org's slug has been typed.
+ *
+ * Two readers. The org's own administrator makes a backup, sees the list, verifies and
+ * downloads; a system administrator also picks what goes in one, and restores.
  */
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useBackupStore } from '../../store/backup.store'
 import { useAppStore } from '../../store/app.store'
 
 const store = useBackupStore()
 const appStore = useAppStore()
+const { t, te } = useI18n()
+
+/** False until `/access` has answered: nothing about WHO is reading shows before then. */
+const accessKnown = ref(false)
+
+/** A server word (a status, a variant) in the reader's language, or the word itself where there is none. */
+const named = (group: string, word: string) => (te(`${group}.${word}`) ? t(`${group}.${word}`) : word)
+
+/** A refusal the server gave a `code` reads in the reader's language; any other is the server's own sentence. */
+const errorText = computed(() => {
+  const key = `backup.errors.${store.errorCode}`
+  return store.errorCode && te(key) ? t(key, { n: store.createPerDay ?? '' }) : store.error
+})
 
 const variant = ref<'data' | 'full'>('data')
 const creating = ref(false)
@@ -343,31 +372,31 @@ const orgSlug = computed(() => (appStore.currentOrg as any)?.slug || '')
 const crossOrg = computed(() =>
   !!store.inspection && String(store.inspection.manifestOrgId || '') !== String(appStore.currentOrg?.id || ''))
 
-const variantItems = [
-  { title: 'data', value: 'data' },
-  { title: 'full', value: 'full' },
-]
+const variantItems = computed(() => [
+  { title: named('backup.variantName', 'data'), value: 'data' },
+  { title: named('backup.variantName', 'full'), value: 'full' },
+])
 
-const runHeaders = [
-  { title: 'Started', key: 'startedAt' },
-  { title: 'Date', key: 'date' },
-  { title: 'Status', key: 'status' },
-  { title: 'Variant', key: 'variant' },
-  { title: 'Documents', key: 'documentCount', align: 'end' as const },
-  { title: 'Size', key: 'bytes', align: 'end' as const },
-  { title: 'Off-site', key: 'destinations', sortable: false },
+const runHeaders = computed(() => [
+  { title: t('backup.col.started'), key: 'startedAt' },
+  { title: t('backup.col.date'), key: 'date' },
+  { title: t('backup.col.status'), key: 'status' },
+  { title: t('backup.col.variant'), key: 'variant' },
+  { title: t('backup.col.documents'), key: 'documentCount', align: 'end' as const },
+  { title: t('backup.col.size'), key: 'bytes', align: 'end' as const },
+  { title: t('backup.col.offsite'), key: 'destinations', sortable: false },
   { title: '', key: 'actions', sortable: false },
-]
+])
 
-const restoreHeaders = [
-  { title: 'Started', key: 'startedAt' },
-  { title: 'Mode', key: 'mode' },
-  { title: 'Status', key: 'status' },
-  { title: 'By', key: 'actorEmail' },
-  { title: 'Bundle', key: 'bundleDate' },
-  { title: 'Inserted', key: 'documentsInserted', align: 'end' as const },
-  { title: 'Deleted', key: 'documentsDeleted', align: 'end' as const },
-]
+const restoreHeaders = computed(() => [
+  { title: t('backup.col.started'), key: 'startedAt' },
+  { title: t('backup.col.mode'), key: 'mode' },
+  { title: t('backup.col.status'), key: 'status' },
+  { title: t('backup.col.by'), key: 'actorEmail' },
+  { title: t('backup.col.bundle'), key: 'bundleDate' },
+  { title: t('backup.inserted'), key: 'documentsInserted', align: 'end' as const },
+  { title: t('backup.deleted'), key: 'documentsDeleted', align: 'end' as const },
+])
 
 const reached = (run: any) =>
   (run.destinations || []).filter((d: any) => d.status === 'reached').map((d: any) => d.name)
@@ -467,6 +496,7 @@ async function apply() {
 
 onMounted(async () => {
   await store.checkAccess()
+  accessKnown.value = true
   await store.listArchives()
   await store.listRestores()
 })

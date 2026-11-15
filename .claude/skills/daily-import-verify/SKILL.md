@@ -50,7 +50,12 @@ Every price that changed since the snapshot of step 3 must be named by a receipt
 (`out/price-list.tsv` lists them for the report).
 
 - **A purchase price or a cost tier changed** (`STOP`): an import never writes those on a product that existed.
-  Something else wrote it; find out what before the next run.
+  Something else wrote it; find out what before the next run. The tiers are named as stored: `Доставна цена` is the
+  slot the screens draw as „Цена с ТО".
+  - A product the run CREATED takes its purchase price from its „Цена 2" / 1.2 (owner, 2026-11-15), so it differs
+    from the receipt's delivery price by design.
+  - ⚠ `scripts/set-purchase-price-from-tier2.ts` rewrites purchase prices and margins across an org. Run between a
+    run's price snapshot and this check, every product it corrected shows here as `PROTECTED changed`.
 - **Unexplained changes** (`ACT`): someone edited prices in LGR during the run, or a log is missing from `out/`.
   Name each one.
 

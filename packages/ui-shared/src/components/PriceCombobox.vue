@@ -84,14 +84,14 @@ const emit = defineEmits<{
   'chosen': []
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const options = ref<PriceOption[]>([])
 const resolvedKey = ref('')
 const loading = ref(false)
 
 const comboItems = computed(() =>
   options.value.map(opt => ({
-    title: formatPriceItem({ ...opt, name: priceOptionLabel(opt, t) }, props.currency),
+    title: formatPriceItem({ ...opt, name: priceOptionLabel(opt, t, locale.value) }, props.currency),
     value: opt.price,
     raw: opt,
   }))

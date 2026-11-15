@@ -52,6 +52,7 @@ import { readFileSync } from 'node:fs'
 import { assertTokenOrg } from './lib/token-org.js'
 import { createSupplierResolver } from './lib/supplier-partner.js'
 import { deliveryNote, movementMarker } from '../packages/config/src/movement-notes.js'
+import { purchasePriceForNewProduct } from '../packages/config/src/price-tiers.js'
 import { describeMatch, partnerOf } from '../packages/services/src/biz/doc-import/supplier-name.js'
 
 const TIER_NAMES = ['Доставна цена', 'Цена на едро', 'Цена 0', 'Цена 1', 'Цена 2', 'Цена 3', 'Цена 4', 'Цена 5', 'Цена 6', 'Цена 7', 'Цена 8', 'Цена 9', 'Цена 10']
@@ -170,14 +171,15 @@ async function matchProduct(name: string): Promise<any | null> {
   return null
 }
 
-/** Mirror of seed-products buildTiers: 10 canonical slots, percent vs cost,
- *  manualOverride + tier-name tag on non-zero sale tiers. */
-function buildTiers(cost: number, tiers: Record<string, number> | undefined) {
+/** Mirror of seed-products buildTiers: the canonical slots, manualOverride + tier-name tag on non-zero
+ *  sale tiers. The delivery price (`cost`) fills „Доставна цена" (drawn as „Цена с ТО"); each slot's margin
+ *  is over `purchase`, the product's purchase price, which is no longer the delivery price (2026-11-15). */
+function buildTiers(cost: number, tiers: Record<string, number> | undefined, purchase: number = cost) {
   return TIER_NAMES.map((name) => {
     const price = name === 'Доставна цена' ? cost : (tiers?.[name] ?? 0)
     return {
       name,
-      percent: cost > 0 && price > 0 ? +(((price - cost) / cost) * 100).toFixed(1) : 0,
+      percent: purchase > 0 && price > 0 ? +(((price - purchase) / purchase) * 100).toFixed(1) : 0,
       finalPrice: price,
       manualOverride: price > 0,
       contactIds: [],
@@ -315,16 +317,19 @@ async function main() {
     // ⚠ `cost` is what we paid, never a selling price. A line with no retail price says nothing about it.
     const sellingUpdate = p.it.selling != null ? { sellingPrice: p.selling } : {}
     if (!prod) {
+      // A NEW product's purchase price is its „Цена 2" / 1.2 (owner, 2026-11-15), the delivery price only when
+      // the receipt carries no Цена 2 (or holds it as a typo). The delivery price stays the line's unit cost.
+      const purchase = purchasePriceForNewProduct(p.it.cost, p.it.tiers)
       const res = await http('POST', org('/warehouse/product'), {
         sku: `${prefix}-${String(next + created).padStart(pad, '0')}`,
         name: p.it.name, category: cat.name, categoryId: cat._id || cat.id,
-        type: 'goods', unit: p.unit, purchasePrice: p.it.cost, sellingPrice: p.selling,
+        type: 'goods', unit: p.unit, purchasePrice: purchase, sellingPrice: p.selling,
         currency: 'BGN', taxRate: 20, trackInventory: true, isActive: true,
-        priceTiers: buildTiers(p.it.cost, p.it.tiers),
+        priceTiers: buildTiers(p.it.cost, p.it.tiers, purchase),
       })
       prod = res.product
       created++
-      console.log(`  + created ${prod.sku} "${String(prod.name).replace(/\s+/g, ' ').slice(0, 40)}"  purchase=${p.it.cost}`)
+      console.log(`  + created ${prod.sku} "${String(prod.name).replace(/\s+/g, ' ').slice(0, 40)}"  purchase=${purchase} delivery=${p.it.cost}`)
     } else {
       // The buying price is NOT among the updates: it belongs to the storeAvailability re-baseline.
       const body: Record<string, any> = {
@@ -340,7 +345,7 @@ async function main() {
     // the разписка actually carried instead of losing them to the product master.
     const deliveredTiers = p.existing
       ? repriceTiers(prod.priceTiers, p.it.tiers, Number(prod.purchasePrice) || 0)
-      : buildTiers(p.it.cost, p.it.tiers)
+      : buildTiers(p.it.cost, p.it.tiers, Number(prod.purchasePrice) || p.it.cost)
     if (!p.it.qty) continue
     lines.push({
       productId: prod._id || prod.id, quantity: p.it.qty, unitCost: p.it.cost, totalCost: round2(p.it.qty * p.it.cost),

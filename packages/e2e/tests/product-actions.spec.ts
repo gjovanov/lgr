@@ -139,7 +139,8 @@ test('at 1366 px the Products list keeps the name and the row menu in view — a
 
   await page.getByRole('button', { name: 'Columns' }).click()
   const dialog = page.getByRole('dialog')
-  for (const tier of ['Доставна цена', 'Цена на едро', 'Цена 1', 'Цена 2', 'Цена 4', 'Цена 5']) {
+  // The first is the slot stored as „Доставна цена", under the label it is headed by (`config/price-tiers`).
+  for (const tier of ['Trade-discount price', 'Цена на едро', 'Цена 1', 'Цена 2', 'Цена 4', 'Цена 5']) {
     await dialog.locator('.v-list-item').filter({ has: page.locator('.v-list-item-title', { hasText: new RegExp(`^${tier}$`) }) }).getByRole('checkbox').click()
   }
   await dialog.getByRole('button', { name: 'Close' }).click()

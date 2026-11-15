@@ -1105,10 +1105,10 @@ Products support custom pricing based on contact tags. Each custom price entry c
 - **UI**: `PriceExplainButton` (info icon on invoice line items) opens dialog showing the full price derivation chain
 - **Product form**: Unified "Custom Prices" tab with contact autocomplete + tags multiselect (TagInput)
 - **Data model**: **`Product.priceTiers[]`** (canonical since 2026-04-21, 10-slot cap) — each tier `{ name, percent, finalPrice, manualOverride, contactIds?, tags?, minQuantity?, validFrom?, validTo? }`. Tiers with filters participate in resolution; filterless slots are storage-only (used as `price1..price10` columns in goods-receipt flow). **LEGACY**: `Product.tagPrices[]` + `Product.customPrices[]` — still read by `resolvePrice()` for backward compat; UI no longer writes them. Existing records continue to work; new pricing flows through `priceTiers[]`.
-- **Tier-name tags convention**: seeded sales tiers carry `tags: [<tier name>]` (e.g. `"Цена 4"`) — tagging a contact with the same name selects that tier via resolution step 4 (legacy per-client price groups). The cost tier (`Доставна цена`) and zero-price slots stay filterless (display-only). Wiring: `scripts/assign-price-group-tags.ts` (tags tiers + derives contact groups from imported invoices; dry-run default). PriceCombobox never overwrites a loaded line's stored historical price (`auto-apply-resolved=false` for `line.loaded`); `listPriceOptions` mirrors `resolvePrice` for its resolvedKey.
+- **Tier-name tags convention**: seeded sales tiers carry `tags: [<tier name>]` (e.g. `"Цена 4"`) — tagging a contact with the same name selects that tier via resolution step 4 (legacy per-client price groups). The cost tier (`Доставна цена`: the STORED name, drawn as „Цена с ТО" since 2026-11-15, see below) and zero-price slots stay filterless (display-only). Wiring: `scripts/assign-price-group-tags.ts` (tags tiers + derives contact groups from imported invoices; dry-run default). PriceCombobox never overwrites a loaded line's stored historical price (`auto-apply-resolved=false` for `line.loaded`); `listPriceOptions` mirrors `resolvePrice` for its resolvedKey.
 - **Product form "Pricing" tab**: 10-row compact tier table. Always-visible columns: Name / % / Final Price. Filter chips (Contact, Tags, Min Qty, Validity) reveal optional columns. Editing `purchasePrice` cascades into all non-overridden tiers; editing a tier's `finalPrice` sets `manualOverride=true` (shown with lock icon).
   - **Since 2026-11-12** the table begins with two unnumbered rows, the purchase price and the selling price: the SAME models as the fields above (never tiers, never sent as such), shown to whoever sees the field above (`seesCosts`, `seesSelling`).
-  - **A price keeps four decimals and a margin three** (0.0472, 2000.555): `ui-shared/composables/price-precision.ts` is the one rule (`roundTo` rounds the figure as WRITTEN, not `toFixed`'s double; `priceAtMargin`, `marginOver`), used by the form and by the goods receipt's cascade (`gr-product-update.ts`), so both give an article the same price. The form rounded a price to the cent and a margin to a tenth until then.
+  - **A price keeps four decimals and a margin three** (0.0472, 2000.555): `config/price-precision` is the one rule (in `config` since 2026-11-15 so the server and the scripts read it too; `ui-shared/composables/price-precision.ts` re-exports it. `roundTo` rounds the figure as WRITTEN, not `toFixed`'s double; `priceAtMargin`, `marginOver`), used by the form and by the goods receipt's cascade (`gr-product-update.ts`), so both give an article the same price. The form rounded a price to the cent and a margin to a tenth until then.
   - `ui-shared/components/DecimalField.vue` shows such a figure with every decimal at rest. ⚠ It emits only for what was TYPED, already rounded: a figure it was only handed is shown rounded and never written back (an import's 0.047231 stays until somebody changes that price), and a Ctrl+S with the field focused stores no fifth decimal.
   - The figures' columns have widths of their own (`th` hints, the fields' `min-width` in `ch`), and a column with no width takes the rest (`spareColumn`): in a table whose every column names a width the browser shares the slack out among them all. With every filter shown in a narrow window the table scrolls sideways before a field is cut. `e2e/tests/product-form.spec.ts` measures the room at 1366 and 1920.
 - **`Product.tariffCode`** (2026-11-12): the customs tariff number, free text, trimmed, ≤ `PRODUCT_TARIFF_CODE_MAX` (50), absent or empty when not kept. On the form's Edit tab after the name (lines: SKU, Name, Tariff code / Type, Category, Unit / Barcode, Description, Tags / Active). Not searched, not a list column, not on any document yet.
@@ -1117,6 +1117,44 @@ Products support custom pricing based on contact tags. Each custom price entry c
 - **Invoice lines**: `priceExplanation: IPriceStep[]` persisted for audit trail (types: `base | category | tag | contact | tier | override`)
 - ⚠ **A price the person typed or picked is pinned, on every document** (`pricePinned`, `PriceCombobox#chosen`), so a resolved one does not come back over it on a quantity edit or a restored draft. `update:modelValue` cannot say so: a resolved price arrives by it too. A draft from before this has no pin, and its trail's `override` step stands in. A change of contact still re-resolves every line.
 - **Backfill**: `bun run scripts/backfill-price-tiers.ts [--execute] [--org slug]` — idempotent, seeds 10 default slots with `percent=0, finalPrice=sellingPrice`, no filters
+- **„Доставна цена" is a KEY; it reads „Цена с ТО" (owner, 2026-11-15).** The slot's stored name did not change:
+  `priceTiers[].name`, `PRICE_TIERS`, `COST_TIER_NAMES`, the importers' column mapping and the tier-name tags find it
+  by `Доставна цена`, and PlusMinus's „Доставна цена" / „Дост. цена" and a receipt's „Цена" keep filling it. What a
+  person READS comes from one table, `config/price-tiers#tierLabel(name, locale, form)`: bg „Цена с ТО" (long: „Цена с
+  търговска отстъпка (Цена с ТО)"), en "Trade-discount price" / "Price with trade discount", de, mk.
+  - ⚠ The label is put on at RENDER, in the UI only. `listPriceOptions`, `resolvePrice`'s steps and a line's stored
+    `priceExplanation` keep the stored name: the access rules class a price by it (`capOfTier`, `capOfPriceSource`),
+    and a relabelled cost slot would read as `products.price:other` and reach a role without costs.
+  - Render sites: the Products list (`productColumnHeaders`, `opts.locale`), receipt and bill lines
+    (`grColumnLabel`), the price menus (`priceOptionLabel`), the price trail (`priceStepLabel`), the till, and the
+    product form, where a labelled slot's name is text and not a field (`data-testid="tier-label"`; `data-tier` stays
+    the stored name). A name a person types is taken back to the stored one (`tierNameOfLabel`): a label is never
+    stored. ⚠ A new place that draws a tier's name goes through `tierLabel`.
+  - ⚠ The bg receipt column for the product's `purchasePrice` was headed „Доставна цена" as well: it reads „Покупна
+    цена" now (`warehouse.grCol.purchasePrice`).
+- **`purchasePrice` is „Цена 2" / 1.2, not the delivery price (owner, 2026-11-15).** PlusMinus keeps no buying price,
+  and "Доставна цена = Покупна цена" was wrong. One function: `config/price-tiers#purchasePriceFromTier2` (four
+  decimals, a half goes up, null without a „Цена 2" above 0).
+  - **A product an import CREATES** takes it when its row carries a „Цена 2" (`purchasePriceForNewProduct`:
+    `newProductDoc`, `receive-new-products.ts`, `seed-products.ts`, `import-regal-pz.ts`), the delivery price
+    otherwise. The delivery price still fills its slot and opens avgCost; each slot's `percent` is over the purchase
+    price.
+  - **An import never re-derives it for a product that exists** (`PROTECTED_TIERS` and `persistMovement`'s strip
+    stand). Those are corrected once per org by `scripts/set-purchase-price-from-tier2.ts --org <slug>` (a dry run;
+    `--execute --backup <file>` writes; `--restore <file>` puts it back), core in
+    `services/biz/purchase-price-from-tier2.ts`. A product without „Цена 2" is left as it is. ⚠ ONCE: the run cannot
+    tell a stale figure from one a bill or a person set since, and a later run would put the approximation back over it.
+  - ⚠ That run moves NO price: `finalPrice`, `sellingPrice`, `manualOverride` and avgCost stay (a written product's
+    `updatedAt` moves, as with any save). It rewrites `percent`
+    where a slot is fixed by hand or followed the purchase price (`marginsAfterPurchaseChange`), which is what the
+    form's cascade shows for such a slot; a backfilled slot (the selling price at 0 %) stays as stored.
+  - ⚠ Nothing compares `purchasePrice` with PlusMinus's „Дост. цена" any more: the snapshot compare
+    (`compare-snapshot.service.ts`, `scripts/compare-products.ts`) holds that column to the SLOT. The daily import's
+    `prices.ts diff` still reports a changed `purchase` as PROTECTED, so the one-time run stays out of a run's
+    snapshot pair.
+  - D-2 (`applyLinkedBillPrices`) also replaces a purchase price that is still the approximation, but only by a
+    price the bill states itself (one that differs from every receipt's cost): a bill entered in LGR is where the
+    real one comes from, and one that repeats an imported receipt's cost would put the delivery price back.
 
 ---
 
@@ -1851,8 +1889,11 @@ alone: filling it from `Цена` sets the price to what we paid (`scripts/recei
 did until 2026-11-02);
 `Цена N` → the tier named `Цена N`, and only the N the document carries. `purchasePrice` and the
 cost tiers (`Доставна цена`, `Цена на едро`, `Цена 0` — `PROTECTED_TIERS`) are **never written**
-by an import; they belong to the storeAvailability re-baseline. A NEW product is the exception —
-nothing to protect, so `Цена` still opens its `purchasePrice`/avgCost. Two traps this closed:
+by an import; the cost tiers belong to the storeAvailability re-baseline, and `purchasePrice` to no
+import at all (2026-11-15: it is „Цена 2" / 1.2, see Tag-Based Pricing). A NEW product is the
+exception — nothing to protect: `Цена` opens its „Доставна цена" slot and its avgCost, and its
+`purchasePrice` is „Цена 2" / 1.2 when the document carries a „Цена 2", `Цена` only when it does
+not (`purchasePriceForNewProduct`). Two traps this closed:
 the staged `priceTiers` array REPLACED the product's on commit and was built from a blank slate
 (wiping every slot the document didn't carry — it now merges by name from the product's current
 tiers), and `persistMovement` strips `purchasePrice` from any staged payload so a pre-rule
@@ -2368,7 +2409,10 @@ billable-receipts,:id/link-receipts}`.
   quantity must equal the receipts' (422 `receipt_quantity_mismatch`), the supplier cannot change.
   Prices, text and lines that hold no stock (a fee, a service) stay free.
 - Receiving it moves `purchasePrice` to the billed price for future receipts — only where it still
-  equals the receipts' cost (a newer price stays); avgCost and cost layers are never re-costed, and
+  equals the receipts' cost (a newer price stays), or the „Цена 2" / 1.2 approximation when the bill
+  states a price of its own, one that differs from every receipt's cost (2026-11-15: a bill that only
+  repeats an imported receipt would put the delivery price back); avgCost and cost layers are never
+  re-costed, and
   posting is unchanged (FR-22's D-2 note).
 - `POST`/`PUT /invoices` strip `stockSource` (Elysia's schema already drops it; this is defence in
   depth). `link-receipts` takes an EMPTY draft, or a draft with lines given `replaceLines: true`
@@ -3539,7 +3583,7 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - ⚠ Permission sets stay reachable (the empty Roles page links there) while an org has no roles, and hold the roles'
     projections. Phase 3 removes them.
 - **Field groups (FR-27.6, Phase 2): `products.costs`** (`config/access/fields.ts`, "Cost figures" in the editor).
-  `purchasePrice`, `standardCost`, the „Доставна цена" slot, every slot's `percent` (a margin gives the cost back)
+  `purchasePrice`, `standardCost`, the „Доставна цена" slot (drawn as „Цена с ТО"), every slot's `percent` (a margin gives the cost back)
   and a stock level's `avgCost` are ABSENT from the JSON for a role without it: the product list (`products` and
   `items`), by id, create, quick create, update, `/pricing/options`, `/warehouse/stock-level`; `/warehouse/cost-layer`
   answers 403 `capability_required`. A write by such a role keeps the stored costs (`keepStoredCosts`: the cost slot
@@ -3766,6 +3810,28 @@ MinIO, AWS), and `pushBundleToS3` seals with the same key the Drive push uses.
 - Prove a real bucket with `bun --env-file=.env scripts/backup-s3-smoke.ts`
   (`--prove-lock` writes one undeletable object and watches the delete be refused).
   The unit tests stub `fetch` and cannot prove a signature a real S3 accepts.
+
+## The backup screen: the org's admin backs up, an operator restores (2026-11-15)
+
+`/admin/backup` is in every org admin's navigation, and "Create backup now" (`POST /create`) is
+theirs, like `/run`, the list, verify and download (`backup.controller.ts#guard`). Restoring,
+uploading a bundle and the restore history stay on `BACKUP_SYS_ADMINS` (`requireSysAdmin`).
+
+- ⚠ Anyone can found an org and be its admin, so an org admin's create is bounded where an
+  operator's is not: the `data` variant only (`full` answers 403), `offsite: false` and
+  `mail: false` on the run, one at a time (409 `backup_running`) and `BACKUP_MANUAL_PER_DAY` (3)
+  per org in 24 hours (429 `backup_daily_limit`). The count is over `claimKey` starting
+  `manual-`, so a master's `pre-update-…` bundles and the nights are not in it.
+- ⚠ **Why not off-site:** every destination counts its generations in ONE folder, so each press
+  would push a night out of Drive. The row's empty `destinations` is what the screen shows as
+  "no off-site copy".
+- `pruneBundles` keeps the bundles a person asked for in a class of their own
+  (`BACKUP_KEEP_MANUAL_PER_ORG`, 5). ⚠ `isManualBundle` reads the END of the filename
+  (`…-<date>-manual-<variant>-<HHMMSS>.ndjson.zst`): the slug comes first and is the org's own
+  text, so looking for `-manual-` anywhere would misfile an org named `acme-manual-co`.
+- `GET /task/:taskId` answers about a `backup-create` task of the org and no other job.
+- `/access` says `{ sysAdmin, configured, create, createPerDay? }`; the screen and the nav are
+  presentation, and the refusals carry a `code` the screen translates (`backup.errors.*`).
 
 ## A master's own backups (2026-10-25, FR-20.21, plan step P1-9)
 

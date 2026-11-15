@@ -17,6 +17,7 @@ import { getRepos } from '../../context.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { createNumberedMovement } from '../movement-number.js'
 import { createAuditEntry } from '../audit-log.service.js'
+import { purchasePriceForNewProduct } from 'config/price-tiers'
 import { buildTiers, repriceTiers, PROTECTED_TIERS } from './map-movement.js'
 import { findSeparatorTwins } from './matching.js'
 import type { MappedMovement, NewProductDraft } from './types.js'
@@ -38,10 +39,15 @@ export async function nextSkuBase(orgId: string, orgSlug?: string): Promise<{ pr
 }
 
 /**
- * A catalog-new product as an import creates it: priced at the document's cost, its sale price
- * the document's (or the cost plus the default markup), its tiers the org's tier template with the
- * tier-name tags that make tag-based pricing pick a slot. Shared with the inline „+ Нов продукт"
- * of a receipt or bill line (FR-22.30), so there is one way a new article is born.
+ * A catalog-new product as an import creates it: its sale price the document's (or the cost plus
+ * the default markup), its tiers the org's tier template with the tier-name tags that make
+ * tag-based pricing pick a slot. Shared with the inline „+ Нов продукт" of a receipt or bill line
+ * (FR-22.30), so there is one way a new article is born.
+ *
+ * The purchase price (owner, 2026-11-15): „Цена 2" / 1.2 when the document carries a „Цена 2", else
+ * the document's cost as before (`config/price-tiers#purchasePriceForNewProduct`). The cost itself, a
+ * receipt's delivery price, goes into the „Доставна цена" slot either way, and each slot's margin is
+ * over the purchase price. The inline „+ Нов продукт" carries no tiers, so what the person typed stands.
  */
 export function newProductDoc(
   orgId: string,
@@ -49,6 +55,7 @@ export function newProductDoc(
   o: { sku: string; categoryName: string; categoryId?: unknown; currency: string; taxRate: number },
 ): Record<string, any> {
   const selling = d.selling ?? (d.cost > 0 ? +(d.cost * DEFAULT_MARKUP).toFixed(4) : 0)
+  const purchase = purchasePriceForNewProduct(d.cost, d.tiers)
   return {
     orgId,
     sku: o.sku,
@@ -57,13 +64,13 @@ export function newProductDoc(
     ...(o.categoryId ? { categoryId: o.categoryId } : {}),
     type: 'goods',
     unit: d.unit || 'pcs',
-    purchasePrice: d.cost,
+    purchasePrice: purchase,
     sellingPrice: selling,
     currency: o.currency,
     taxRate: o.taxRate,
     trackInventory: true,
     isActive: true,
-    priceTiers: buildTiers(d.cost, d.tiers),
+    priceTiers: buildTiers(d.cost, d.tiers, purchase),
   }
 }
 

@@ -2562,6 +2562,7 @@
     "priceTiers": "Preisstufen ({count} Plätze)",
     "priceTiersHelp": "Jeder Platz entspricht standardmäßig dem Verkaufspreis ohne Filter. Geben Sie Namen und Preis (oder %) ein, um ihn zu nutzen. Filter aktivieren, damit eine Stufe nur für bestimmte Kontakte, Tags, Mengen oder Datumsbereiche gilt.",
     "finalPrice": "Endpreis",
+    "deliveryTierHint": "Preis mit Handelsrabatt: „Доставна цена“ aus PlusMinus, vom Import gefüllt. Das ist nicht der Einkaufspreis.",
     "withProductUpdate": "Mit Produktaktualisierung",
     "foreignCurrencyNoUpdate": "In {currency}: diese Rechnung aktualisiert keine Produkte",
     "withoutProductUpdate": "Ohne Produktaktualisierung",
@@ -4240,7 +4241,38 @@
     "clampLine": "aktuell {live}, Paket {bundle} — behalten {kept}",
     "dangling": "{n} Dokumentzeilen zeigen auf Dateien, die nicht auf dem Volume liegen",
     "safetyTaken": "Sicherheitskopie erstellt",
-    "restoresTitle": "Wiederherstellungsverlauf"
+    "restoresTitle": "Wiederherstellungsverlauf",
+    "subtitleOrgAdmin": "Erstellen Sie eine Sicherung dieser Organisation und laden Sie sie herunter.",
+    "orgAdminTitle": "Hier können Sie Sicherungen dieser Organisation erstellen und herunterladen.",
+    "orgAdminHint": "Eine hier erstellte Sicherung enthält die Datenbankzeilen ohne die Dokumentdateien und bleibt auf diesem Server. In 24 Stunden sind höchstens {n} möglich.",
+    "adminOnly": "Dieser Bildschirm ist für die Administratoren der Organisation.",
+    "errors": {
+      "backup_running": "Für diese Organisation wird gerade eine Sicherung erstellt. Warten Sie, bis sie fertig ist.",
+      "backup_daily_limit": "Diese Organisation hat ihr Limit von {n} Sicherungen in 24 Stunden erreicht. Versuchen Sie es später erneut.",
+      "backup_full_needs_sys_admin": "Eine Sicherung mit den Dokumentdateien kann nur ein Systemadministrator erstellen."
+    },
+    "col": {
+      "started": "Beginn",
+      "date": "Datum",
+      "status": "Status",
+      "variant": "Inhalt",
+      "documents": "Datensätze",
+      "size": "Größe",
+      "offsite": "Externe Kopie",
+      "mode": "Modus",
+      "by": "Von",
+      "bundle": "Paket"
+    },
+    "status": {
+      "running": "läuft",
+      "completed": "abgeschlossen",
+      "failed": "fehlgeschlagen",
+      "rolled_back": "zurückgerollt"
+    },
+    "variantName": {
+      "data": "nur Datenbankzeilen",
+      "full": "Zeilen und Dateien"
+    }
   },
   "fiscalYear": {
     "subtitle": "Buchungsperioden und welche davon für Änderungen geschlossen sind",

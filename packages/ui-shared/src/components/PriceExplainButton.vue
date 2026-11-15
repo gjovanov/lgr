@@ -34,7 +34,7 @@
             </template>
             <v-list-item-title class="d-flex justify-space-between align-center">
               <!-- FR-27.11.C.6: a hidden level's winning price, as the customer's own. -->
-              <span>{{ step.type === 'customer' ? $t('pricing.customerPrice') : step.label }}</span>
+              <span>{{ step.type === 'customer' ? $t('pricing.customerPrice') : priceStepLabel(step, $i18n.locale) }}</span>
               <span class="font-weight-medium">{{ formatPrice(step.price) }}</span>
             </v-list-item-title>
             <template v-if="idx < steps.length - 1" #append>
@@ -53,9 +53,10 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { priceStepLabel } from '../composables/usePriceOptions'
 
 export interface PriceStep {
-  type: 'base' | 'tag' | 'contact' | 'override'
+  type: 'base' | 'tag' | 'contact' | 'override' | 'tier' | 'category' | 'customer'
   label: string
   price: number
 }

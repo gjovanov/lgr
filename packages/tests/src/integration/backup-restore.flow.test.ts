@@ -44,6 +44,8 @@ import type { Types } from 'mongoose'
 let TMP = ''
 let app: Elysia
 const SYS_ADMINS_WERE = config.backup.sysAdmins
+const MANUAL_PER_DAY_WAS = config.backup.manualPerDay
+const LOCAL_PATH_WAS = config.backup.localPath
 
 beforeAll(async () => {
   await setupTestDB()
@@ -59,6 +61,8 @@ afterAll(async () => {
 
 afterEach(async () => {
   config.backup.sysAdmins = SYS_ADMINS_WERE
+  config.backup.manualPerDay = MANUAL_PER_DAY_WAS
+  config.backup.localPath = LOCAL_PATH_WAS
   await clearCollections()
 }, 30_000)
 
@@ -114,8 +118,9 @@ describe('the sys-admin allow-list (FR-13.26, AC 14)', () => {
     const a = await orgWithAdmin('closed-co')
     config.backup.sysAdmins = []
 
+    // `POST /create` is not among them: making a backup of its own org is the org admin's
+    // (see "create, for the org's own admin" below). Everything that writes to live data is here.
     const routes: [string, string][] = [
-      ['POST', `/org/${a.orgId}/backup/create`],
       ['POST', `/org/${a.orgId}/backup/upload`],
       ['POST', `/org/${a.orgId}/backup/restore/inspect`],
       ['POST', `/org/${a.orgId}/backup/restore/apply`],
@@ -172,11 +177,24 @@ describe('the sys-admin allow-list (FR-13.26, AC 14)', () => {
     config.backup.sysAdmins = []
     let res = await call(`/org/${a.orgId}/backup/access`, { token: a.token })
     expect(res.status).toBe(200)
-    expect(res.json).toEqual({ sysAdmin: false, configured: false })
+    // `create` is the org admin's own; the limit rides along so the screen can say it.
+    expect(res.json).toEqual({ sysAdmin: false, configured: false, create: true, createPerDay: config.backup.manualPerDay })
 
     config.backup.sysAdmins = [a.email]
     res = await call(`/org/${a.orgId}/backup/access`, { token: a.token })
-    expect(res.json).toEqual({ sysAdmin: true, configured: true })
+    // No limit to tell an operator about: they have none.
+    expect(res.json).toEqual({ sysAdmin: true, configured: true, create: true })
+  })
+
+  it('answers /access to nobody but an admin of that organisation', async () => {
+    const a = await orgWithAdmin('probe-a')
+    const b = await orgWithAdmin('probe-b')
+    const member = await createTestUser(a.org._id as Types.ObjectId, { email: 'member@probe-a.test', role: 'member' } as any)
+    const memberToken = await tokenFor({ id: String(member._id), orgId: a.orgId, role: 'member', email: 'member@probe-a.test' })
+
+    expect((await call(`/org/${a.orgId}/backup/access`, { token: memberToken })).status).toBe(403)
+    expect((await call(`/org/${a.orgId}/backup/access`, { token: b.token })).status).toBe(403)
+    expect((await call(`/org/${a.orgId}/backup/access`)).status).toBe(401)
   })
 })
 
@@ -767,14 +785,181 @@ describe('manual create (FR-13.29)', () => {
     expect(await BackupRun.countDocuments({ orgId: a.orgId, claimKey: 'scheduled' })).toBe(1)
   })
 
-  it('403s the create route for an admin who is not on the allow-list', async () => {
-    const a = await orgWithAdmin('create-denied-co')
-    config.backup.sysAdmins = []
-    const res = await call(`/org/${a.orgId}/backup/create`, {
-      method: 'POST', token: a.token, body: { variant: 'data' },
+  // ── The org's own admin, who is not on the allow-list ──────────────────────
+  //
+  // Making a backup of one's own organisation is org-admin work, like listing and downloading
+  // it. What follows is what makes that safe to hand to anyone who can found an org by signing
+  // up: the bundle is the rows only, it goes nowhere, and there is a limit to how many.
+
+  describe('create, for the org’s own admin', () => {
+    const create = (orgId: string, token: string, variant = 'data') =>
+      call(`/org/${orgId}/backup/create`, { method: 'POST', token, body: { variant } })
+
+    it('makes a rows-only bundle that stays on this server, unmailed, and downloads', async () => {
+      const a = await orgWithAdmin('own-create-co')
+      config.backup.sysAdmins = []   // nobody is an operator here, and it still works
+      // A destination that would take the bundle if it were offered one: the witness that it is not.
+      const away = mkdtempSync(join(tmpdir(), 'lgr-away-'))
+      config.backup.localPath = away
+      await createTestContact(a.org._id as Types.ObjectId, {} as any)
+
+      const started = await create(a.orgId, a.token)
+      expect(started.status).toBe(200)
+      expect(await awaitTask(a.orgId, a.token, started.json.taskId)).toMatchObject({ status: 'completed' })
+
+      const run: any = await BackupRun.findOne({ orgId: a.orgId }).lean().exec()
+      expect(run.source).toBe('manual')
+      expect(run.variant).toBe('data')
+      expect(run.filename).toContain('manual-data-')
+      // ⚠ An EMPTY list, which the screen renders as "no off-site copy": the row says where the
+      // bundle went, and this one went nowhere.
+      expect(run.destinations).toEqual([])
+      expect(existsSync(join(away, 'LGR'))).toBe(false)
+      expect(run.emailed).toBe(false)
+      expect(run.emailSkippedReason).toBe('not_mailed')
+
+      // And it is theirs to take away.
+      const download = await app.handle(new Request(`http://localhost/org/${a.orgId}/backup/${run._id}/download`, {
+        headers: { authorization: `Bearer ${a.token}` },
+      }))
+      expect(download.status).toBe(200)
+      expect(Buffer.from(await download.arrayBuffer())).toEqual(readFileSync(join(bundleDir(a.orgId), run.filename)))
+      rmSync(away, { recursive: true, force: true })
     })
-    expect(res.status).toBe(403)
-    expect(await BackupRun.countDocuments({ orgId: a.orgId })).toBe(0)
+
+    it('leaves a system administrator’s create as it was: offered to every destination', async () => {
+      const a = await orgWithAdmin('operator-create-co')
+      config.backup.sysAdmins = [a.email]
+      const away = mkdtempSync(join(tmpdir(), 'lgr-away-'))
+      config.backup.localPath = away
+
+      const started = await create(a.orgId, a.token)
+      expect(await awaitTask(a.orgId, a.token, started.json.taskId)).toMatchObject({ status: 'completed' })
+
+      const run: any = await BackupRun.findOne({ orgId: a.orgId }).lean().exec()
+      const local = (run.destinations || []).find((d: any) => d.name === 'local_path')
+      expect(local?.status).toBe('reached')
+      expect(run.emailSkippedReason).not.toBe('not_mailed')
+      rmSync(away, { recursive: true, force: true })
+    })
+
+    it('refuses the variant with the document files, and says which refusal it is', async () => {
+      const a = await orgWithAdmin('own-full-co')
+      config.backup.sysAdmins = []
+      const res = await create(a.orgId, a.token, 'full')
+      expect(res.status).toBe(403)
+      expect(res.json.code).toBe('backup_full_needs_sys_admin')
+      expect(await BackupRun.countDocuments({ orgId: a.orgId })).toBe(0)
+    })
+
+    it('stops at the daily limit, per organisation, and never stops a system administrator', async () => {
+      const a = await orgWithAdmin('own-limit-co')
+      const other = await orgWithAdmin('own-limit-other')
+      config.backup.sysAdmins = []
+      config.backup.manualPerDay = 2
+
+      // Two of the day's allowance are already on the books. One of them FAILED: an attempt is
+      // what costs an export, so it counts.
+      const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000)
+      await BackupRun.create([
+        { orgId: a.orgId, kind: 'full', date: todayLocal(), claimKey: 'manual-data-010101', status: 'completed', startedAt: at(600), completedAt: at(599) },
+        { orgId: a.orgId, kind: 'full', date: todayLocal(), claimKey: 'manual-data-020202', status: 'failed', startedAt: at(300) },
+      ])
+
+      const refused = await create(a.orgId, a.token)
+      expect(refused.status).toBe(429)
+      expect(refused.json.code).toBe('backup_daily_limit')
+      expect(await BackupRun.countDocuments({ orgId: a.orgId })).toBe(2)
+
+      // Another organisation's allowance is its own.
+      const elsewhere = await create(other.orgId, other.token)
+      expect(elsewhere.status).toBe(200)
+      expect(await awaitTask(other.orgId, other.token, elsewhere.json.taskId)).toMatchObject({ status: 'completed' })
+
+      // And the limit is the org admin's, never the operator's.
+      config.backup.sysAdmins = [a.email]
+      const operator = await create(a.orgId, a.token)
+      expect(operator.status).toBe(200)
+      expect(await awaitTask(a.orgId, a.token, operator.json.taskId)).toMatchObject({ status: 'completed' })
+    })
+
+    it('counts only the last 24 hours, and only the bundles a person asked for', async () => {
+      const a = await orgWithAdmin('own-window-co')
+      config.backup.sysAdmins = []
+      config.backup.manualPerDay = 1
+
+      const at = (hoursAgo: number) => new Date(Date.now() - hoursAgo * 3_600_000)
+      await BackupRun.create([
+        // Yesterday's manual bundle has aged out of the window.
+        { orgId: a.orgId, kind: 'full', date: '2026-01-01', claimKey: 'manual-data-030303', status: 'completed', startedAt: at(25), completedAt: at(25) },
+        // Tonight's scheduled run is not anybody's button.
+        { orgId: a.orgId, kind: 'full', date: todayLocal(), claimKey: 'scheduled', status: 'completed', startedAt: at(1), completedAt: at(1) },
+      ])
+
+      const started = await create(a.orgId, a.token)
+      expect(started.status).toBe(200)
+      expect(await awaitTask(a.orgId, a.token, started.json.taskId)).toMatchObject({ status: 'completed' })
+    })
+
+    it('makes one at a time, and is not held for ever by a run whose pod died', async () => {
+      const a = await orgWithAdmin('own-running-co')
+      config.backup.sysAdmins = []
+      config.backup.manualPerDay = 5
+
+      const live = await BackupRun.create({
+        orgId: a.orgId, kind: 'full', date: todayLocal(), claimKey: 'manual-data-040404',
+        status: 'running', startedAt: new Date(Date.now() - 60_000),
+      })
+      const refused = await create(a.orgId, a.token)
+      expect(refused.status).toBe(409)
+      expect(refused.json.code).toBe('backup_running')
+
+      // The same row, an hour old and still `running`: nothing is building it any more.
+      await BackupRun.updateOne({ _id: live._id }, { $set: { startedAt: new Date(Date.now() - 60 * 60_000) } }).exec()
+      const started = await create(a.orgId, a.token)
+      expect(started.status).toBe(200)
+      expect(await awaitTask(a.orgId, a.token, started.json.taskId)).toMatchObject({ status: 'completed' })
+    })
+
+    it('is nobody else’s: not a member’s, not another organisation’s admin’s, not an anonymous caller’s', async () => {
+      const a = await orgWithAdmin('own-guard-a')
+      const b = await orgWithAdmin('own-guard-b')
+      config.backup.sysAdmins = []
+      const member = await createTestUser(a.org._id as Types.ObjectId, { email: 'member@own-guard.test', role: 'member' } as any)
+      const memberToken = await tokenFor({ id: String(member._id), orgId: a.orgId, role: 'member', email: 'member@own-guard.test' })
+      const manager = await createTestUser(a.org._id as Types.ObjectId, { email: 'manager@own-guard.test', role: 'manager' } as any)
+      const managerToken = await tokenFor({ id: String(manager._id), orgId: a.orgId, role: 'manager', email: 'manager@own-guard.test' })
+
+      expect((await create(a.orgId, memberToken)).status).toBe(403)
+      expect((await create(a.orgId, managerToken)).status).toBe(403)
+      expect((await create(a.orgId, b.token)).status).toBe(403)
+      expect((await call(`/org/${a.orgId}/backup/create`, { method: 'POST', body: { variant: 'data' } })).status).toBe(401)
+      expect(await BackupRun.countDocuments({ orgId: a.orgId })).toBe(0)
+    })
+
+    it('answers the task route about its own create and about no other job of the organisation', async () => {
+      const a = await orgWithAdmin('own-task-a')
+      const b = await orgWithAdmin('own-task-b')
+      config.backup.sysAdmins = []
+      const { startJob } = await import('services/background/task.service')
+      const { taskStore } = await import('services/background/task.store')
+
+      // A job of the same org that is not a backup: it has a route of its own, with its own permission.
+      const foreign = await startJob(a.orgId, a.userId, 'doc-import-analyze', { files: 3 })
+      expect((await call(`/org/${a.orgId}/backup/task/${foreign.id}`, { token: a.token })).status).toBe(404)
+      // And once this pod has forgotten it, the stored row is no second door either.
+      taskStore.delete(foreign.id)
+      expect((await call(`/org/${a.orgId}/backup/task/${foreign.id}`, { token: a.token })).status).toBe(404)
+
+      const started = await create(a.orgId, a.token)
+      expect(await awaitTask(a.orgId, a.token, started.json.taskId)).toMatchObject({ status: 'completed' })
+      // Another organisation's admin cannot read it, live or stored.
+      expect((await call(`/org/${a.orgId}/backup/task/${started.json.taskId}`, { token: b.token })).status).toBe(403)
+      expect((await call(`/org/${b.orgId}/backup/task/${started.json.taskId}`, { token: b.token })).status).toBe(404)
+      taskStore.delete(started.json.taskId)
+      expect((await call(`/org/${a.orgId}/backup/task/${started.json.taskId}`, { token: a.token })).status).toBe(200)
+      expect((await call(`/org/${b.orgId}/backup/task/${started.json.taskId}`, { token: b.token })).status).toBe(404)
+    })
   })
 })
 

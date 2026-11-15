@@ -668,6 +668,15 @@ selected explicitly and named in the UI with their estimated size **before** the
 | `data` | Mongo rows only | 3.2 MiB | ~68 MB | disk · S3 · email (while under §4.3) |
 | `full` | Mongo rows **+ the org's `docs/` files** | ~80 MB | ~6.9 GB | disk · S3 only |
 
+*Who may press it (2026-11-15).* The org's own admin, like the rest of the org's own backup
+(`POST /run`, the list, verify, download): the screen is in their navigation and "Create backup
+now" works for them. Restoring stays behind FR-13.26's allow-list. Because anyone can found an
+org and be its admin, theirs is bounded: the `data` variant only (`full` answers 403), kept on
+the server's volume and sent to no destination and no mailbox, one at a time, and
+`BACKUP_MANUAL_PER_DAY` (3) per org in any 24 hours. A system administrator's create is
+unchanged. The bundles a person asks for are also pruned in a class of their own
+(`BACKUP_KEEP_MANUAL_PER_ORG`, 5), so they never count against the nights.
+
 **FR-13.30 — restore from file: getting the bytes in.** Upload is multipart, matching the Files
 app pattern (`files-ui/src/views/FileUploadView.vue:340` — `FormData` +
 `Content-Type: multipart/form-data`). ⚠ **`config.upload.maxFileSize` is `50_000_000`**

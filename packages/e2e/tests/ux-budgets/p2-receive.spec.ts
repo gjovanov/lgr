@@ -179,7 +179,8 @@ test('P2 receive: goods before the invoice — receipt with product update, incl
 
   const qtyCol = await colIndex(page, 'Количество')
   const costCol = await colIndex(page, 'Единична цена')
-  const purchaseCol = await colIndex(page, 'Доставна цена')
+  // The product's purchase price. Until 2026-11-15 this column was headed „Доставна цена", the name of a tier slot.
+  const purchaseCol = await colIndex(page, 'Покупна цена')
   const sellingCol = await colIndex(page, 'Продажна цена')
 
   // ── Two articles the catalog has ──

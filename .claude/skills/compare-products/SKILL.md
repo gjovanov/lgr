@@ -22,7 +22,8 @@ that is why "LGR products not in file" is large and expected).
 ## What it compares (per snapshot row, matched to LGR by exact + whitespace-tolerant name)
 
 - **quantity** — file `Количество` vs LGR `StockLevel.quantity` in the warehouse
-- **purchase** — file `Дост. цена` vs LGR `product.purchasePrice`
+- **delivery** — file `Дост. цена` vs the LGR product's `Доставна цена` tier slot (drawn as „Цена с ТО").
+  Not `product.purchasePrice`: since 2026-11-15 that is „Цена 2" / 1.2, a figure PlusMinus does not keep
 - **selling**  — file `Прод. цена` vs LGR `product.sellingPrice`
 - **tiers**    — file `Цена на едро`, `Цена0`..`Цена7` vs LGR `priceTiers` slots
   `Цена на едро`, `Цена 0`..`Цена 7` finalPrice — matched by SLOT/index, not
