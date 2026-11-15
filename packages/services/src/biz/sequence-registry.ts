@@ -49,6 +49,13 @@ export interface SequenceKeyDef {
   closed?: boolean
   /** Digits of the running number, when not 5. */
   padLength?: number
+  /**
+   * An org may number this series without a year, straight on through the years
+   * (`sequence.service#isContinuousSeries`): `INV-3000004106`, ten digits. The sales documents
+   * only: a Bulgarian invoice carries a ten-digit running number, and a number brought in from another
+   * system is in that form already, so one org's documents read two ways without it.
+   */
+  mayBeContinuous?: boolean
 }
 
 /**
@@ -71,7 +78,7 @@ export const INVOICING_SEQUENCE_KEYS: SequenceKeyDef[] = [
   { prefix: 'DRAFT_ORD',  defaultDisplay: 'DRF-ORDO', group: 'order',          variant: 'draft' },
   { prefix: 'DRAFT_ORDI', defaultDisplay: 'DRF-ORDI', group: 'internal_order', variant: 'draft' },
   // Issued (SALES_DOC covers sales invoices + outgoing credit/debit notes)
-  { prefix: 'SALES_DOC',  defaultDisplay: 'INV',      group: 'invoice',        variant: 'issued' },
+  { prefix: 'SALES_DOC',  defaultDisplay: 'INV',      group: 'invoice',        variant: 'issued', mayBeContinuous: true },
   { prefix: 'PROFORMA',   defaultDisplay: 'PRF',      group: 'proforma',       variant: 'issued' },
   // An offer („оферта"): a quote in a series of its own, never the proforma's or the invoices'.
   { prefix: 'OFFER',      defaultDisplay: 'OFR',      group: 'offer',          variant: 'issued' },

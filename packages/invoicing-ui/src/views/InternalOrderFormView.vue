@@ -80,8 +80,9 @@
             <div ref="linesRef">
               <OrderTree ref="treeRef" :nodes="shownNodes" :columns="treeColumns">
                 <template #item="{ node }">
-                  <!-- The article: the line's own search and picker, as they were. -->
-                  <div v-if="node.kind === 'line'" class="d-flex align-center ga-1 flex-grow-1" style="min-width: 0">
+                  <!-- The article: the line's own search and picker, as they were. From the top: the button stays
+                       beside the field, not beside the field and its chip. -->
+                  <div v-if="node.kind === 'line'" class="d-flex align-start ga-1 flex-grow-1" style="min-width: 0">
                     <ProductLineDescription
                       :description="lineOf(node).description"
                       :product-id="lineOf(node).productId"
@@ -144,23 +145,13 @@
                       <span v-else class="d-block text-end" :class="node.status === 'cancelled' ? 'text-decoration-line-through text-medium-emphasis' : ''">{{ node.figures.quantity }}</span>
                     </td>
                     <td data-col="unit">
-                      <v-autocomplete
+                      <LineUnitSelect
                         v-if="node.kind === 'line'"
                         v-model="lineOf(node).unit"
                         :items="uomOptions"
-                        item-title="title"
-                        item-value="value"
-                        density="compact"
-                        hide-details
-                        variant="underlined"
                         :aria-label="$t('invoicing.unit')"
                         :readonly="readonly"
-                      >
-                        <template #selection="{ item }">{{ item.raw.short }}</template>
-                        <template #item="{ item, props: ip }">
-                          <v-list-item v-bind="ip" :title="item.raw.short" :subtitle="item.raw.full" />
-                        </template>
-                      </v-autocomplete>
+                      />
                     </td>
                     <td data-col="price">
                       <!-- The article's prices for this client, as on an invoice line („Select price"): the selling
@@ -210,7 +201,7 @@
                       <td class="text-end" data-col="invoiced" :title="hidden.has('dispatched') ? invoicedAndDelivered(node.figures) : undefined">{{ figureOf(node, node.figures.invoiced, true) }}</td>
                       <td v-if="!hidden.has('dispatched')" class="text-end" data-col="dispatched">{{ figureOf(node, node.figures.dispatched, true) }}</td>
                       <td data-col="status">
-                        <div class="d-flex flex-wrap ga-1">
+                        <div class="d-flex flex-wrap align-center ga-1 line-grid__line">
                           <v-chip v-for="c in statusChips(node, open)" :key="c.key" size="x-small" variant="tonal" :label="c.label" :color="c.color" :prepend-icon="c.icon" :title="c.title || c.text">{{ c.text }}</v-chip>
                         </div>
                       </td>
@@ -590,6 +581,7 @@ import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
+import LineUnitSelect from 'ui-shared/components/LineUnitSelect.vue'
 import PriceSelectButton from 'ui-shared/components/PriceSelectButton'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'

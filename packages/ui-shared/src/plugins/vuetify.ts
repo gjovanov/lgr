@@ -3,6 +3,8 @@ import '@mdi/font/css/materialdesignicons.css'
 // Loaded here rather than per app: every UI goes through createVuetifyPlugin, so this is the
 // one choke point that reaches all of them (desktop-ui included). See the file for why.
 import '../styles/tooltip.css'
+// The same choke point: a row of line controls lines up on every screen that has one.
+import '../styles/line-grid.css'
 import { createVuetify } from 'vuetify'
 import { createVueI18nAdapter } from 'vuetify/locale/adapters/vue-i18n'
 import { useI18n } from 'vue-i18n'

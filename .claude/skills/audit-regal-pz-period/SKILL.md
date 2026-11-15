@@ -16,7 +16,7 @@ is not regal-sf with a different slug. Read the differences first; most of this 
 | Invoice families | `-ФЕ` | `-ФЕ` **and `-ФЕА`** (an annulment: same number, negative sum) |
 | Other families | none | receipts `СТ`, transfers-out `СР`, write-offs `СИ` |
 | Baseline | opened 2026-09-30 | **quantities were re-baselined on 2026-07-30**: documents dated on/before it are already inside LGR's numbers |
-| Staff also type in LGR | no | yes — hand-entered invoices exist under `INV-2026-<PlusMinus number>` |
+| Staff also type in LGR | no | yes — hand-entered invoices exist. Until 2026-11-15 under `INV-2026-<PlusMinus number>`; since then the org numbers its sales series without a year and they read `INV-<PlusMinus number>`, like an imported one |
 | Trading days | Mon–Sat | Mon–Fri |
 
 Backed by `.claude/skills/pull-plusminus-api/pull-api.ts` (pull), `scripts/audit-coverage-api.ts` (audit),
@@ -70,7 +70,7 @@ bun run scripts/audit-coverage-api.ts --org regal-pz --dir "$R/<chunk1>/api,$R/<
 
 | Section | What to do with it |
 |---|---|
-| 1 INVOICES `not under that number` → `hand-entered` | Expected (staff type in LGR too). They carry `INV-2026-<same number>` and **no reference**. Leave them. The invoice importer now recognises that shape and skips them (`entered by hand in LGR as … — skip`); an older importer saw all 64 as NEW and a whole-folder run would have dispatched them twice. Never force with `--include-hand-entered`. |
+| 1 INVOICES `not under that number` → `hand-entered` | Expected (staff type in LGR too). They carry `INV-2026-<same number>` and **no reference**. Leave them. The invoice importer now recognises that shape and skips them (`entered by hand in LGR as … — skip`); an older importer saw all 64 as NEW and a whole-folder run would have dispatched them twice. Never force with `--include-hand-entered`. **Since 2026-11-15** the org numbers its sales series without a year, and `scripts/drop-year-from-sales-numbers.ts` brought the earlier hand-entered ones to `INV-<same number>`: the audit now counts them under `as INV-<number>` and compares line count and total with the PlusMinus invoice of that number (a difference is a `DIFF` to read, not a missing document). This row then shows only what was typed under a number PlusMinus does not have. |
 | …→ `DRAFT` | An unissued draft of a PlusMinus number (a blocked Files/OCR import). Fix its blocker, then issue it — §4c. |
 | …→ `MISSING` | Really absent. `import-sales-invoices-api.ts --only <n> --convert`. |
 | `DIFF` | Total or line count differs from the document — §4d. Sub-3-cent rounding and the credit-note sign are counted separately and are fine. |

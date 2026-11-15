@@ -100,8 +100,9 @@
                 :columns="treeColumns"
               >
                 <template #item="{ node }">
-                  <!-- The article: the line's own search and picker, as they were. -->
-                  <div v-if="node.kind === 'line'" class="d-flex align-center ga-1 flex-grow-1" style="min-width: 0">
+                  <!-- The article: the line's own search and picker, as they were. From the top: the button stays
+                       beside the field, not beside the field and its chip. -->
+                  <div v-if="node.kind === 'line'" class="d-flex align-start ga-1 flex-grow-1" style="min-width: 0">
                     <ProductLineDescription
                       :description="lineOf(node).description"
                       :product-id="lineOf(node).productId"
@@ -213,7 +214,7 @@
                       />
                     </td>
                     <td :colspan="span - 2" @keydown.capture="onEditorKeydown">
-                      <div class="d-flex align-center ga-2 flex-wrap">
+                      <div class="d-flex align-center ga-2 flex-wrap line-grid__line">
                         <v-btn size="x-small" color="primary" variant="flat" data-testid="tree-add" @click="commitAdding">{{ $t('common.add') }}</v-btn>
                         <v-btn size="x-small" variant="text" data-testid="tree-add-cancel" @click="cancelAdding">{{ $t('common.cancel') }}</v-btn>
                         <span class="text-caption text-medium-emphasis">{{ $t('invoicing.tree.enterAdds') }}</span>
@@ -264,23 +265,13 @@
                       </template>
                     </td>
                     <td data-col="unit">
-                      <v-autocomplete
+                      <LineUnitSelect
                         v-if="node.kind === 'line'"
                         v-model="lineOf(node).unit"
                         :items="uomOptions"
-                        item-title="title"
-                        item-value="value"
-                        density="compact"
-                        hide-details
-                        variant="underlined"
                         :aria-label="$t('invoicing.unit')"
                         :readonly="readonly"
-                      >
-                        <template #selection="{ item }">{{ item.raw.short }}</template>
-                        <template #item="{ item, props: ip }">
-                          <v-list-item v-bind="ip" :title="item.raw.short" :subtitle="item.raw.full" />
-                        </template>
-                      </v-autocomplete>
+                      />
                     </td>
                     <td data-col="price">
                       <v-text-field
@@ -308,7 +299,7 @@
                       <td v-if="!hidden.has('dispatched')" class="text-end" data-col="dispatched">{{ node.figures.dispatched }}</td>
                     </template>
                     <td data-col="status">
-                      <div class="d-flex flex-wrap ga-1">
+                      <div class="d-flex flex-wrap align-center ga-1 line-grid__line">
                         <v-chip v-for="c in statusChips(node, open)" :key="c.key" size="x-small" :label="c.label" :variant="c.variant || 'tonal'" :color="c.color" :title="c.text">{{ c.text }}</v-chip>
                       </div>
                     </td>
@@ -625,6 +616,7 @@ import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
+import LineUnitSelect from 'ui-shared/components/LineUnitSelect.vue'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import { useConversionFeedback } from '../composables/useConversionFeedback'

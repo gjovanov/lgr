@@ -12,8 +12,10 @@ export const isLegalSeries = (prefix: string) => LEGAL_SERIES.has(prefix) || pre
 
 /**
  * The key (`prefix|year`) of a Sequence row that is a legal COUNTER, or null for one that is not:
- * the year-0 row of a yearly series holds a display override, never a count, and a legacy
- * per-operator УНП row (`UNP-<device>-<operator>`) is no series of its own (migration 0001).
+ * the year-0 row of a series holds its display override, never the count a guard reads (a continuous
+ * series counts on it, and writes every number it draws to its year's row too:
+ * `getNextContinuousNumber`), and a legacy per-operator УНП row (`UNP-<device>-<operator>`) is no
+ * series of its own (migration 0001).
  */
 export function legalCounterKey(prefix: string, year: number): string | null {
   const unp = prefix.startsWith('UNP-')
@@ -81,6 +83,70 @@ export async function getNextNumber(
 
   const seq = String(doc!.lastNumber).padStart(padLength, '0')
   return `${prefix}-${yr}-${seq}`
+}
+
+/**
+ * Digits of a continuous series' running number. A Bulgarian invoice carries a ten-digit number
+ * (ЗДДС чл. 114, ал. 1, т. 2), and it is the form a number brought in from another system has.
+ */
+export const CONTINUOUS_PAD = 10
+
+/**
+ * Whether the org numbers this series without a year, straight on through the years. Set on the
+ * series' year-0 row, beside its display prefix (`setContinuousSeries`).
+ */
+export async function isContinuousSeries(orgId: string, prefix: string): Promise<boolean> {
+  const doc: any = await Sequence.findOne({ orgId, prefix, year: 0 }, { continuous: 1 }).lean().exec()
+  return doc?.continuous === true
+}
+
+/** Switch a series to continuous numbering, or back to a number per year. Future allocations only. */
+export async function setContinuousSeries(orgId: string, prefix: string, on: boolean): Promise<void> {
+  await Sequence.findOneAndUpdate(
+    { orgId, prefix, year: 0 },
+    on ? { $set: { continuous: true } } : { $unset: { continuous: 1 } },
+    { upsert: true, returnDocument: 'after' },
+  ).exec()
+}
+
+/**
+ * The highest count any row of a series holds, its year-0 row included: where a continuous series
+ * stands. (A yearly series' year-0 row holds no count, so for one this is its busiest year's.)
+ */
+export async function highestCounter(orgId: string, prefix: string): Promise<number> {
+  const doc: any = await Sequence.findOne({ orgId, prefix }, { lastNumber: 1 }).sort({ lastNumber: -1 }).lean().exec()
+  return Number(doc?.lastNumber ?? 0)
+}
+
+/**
+ * The next running number of a CONTINUOUS series: one that goes on through the years.
+ *
+ * It counts on ONE row, the series' year-0 row, with the same atomic `$inc` as every counter here:
+ * no number twice and none skipped, whatever year each request's clock says (around midnight on
+ * 31 December two requests disagree about it, and so can two servers).
+ *
+ * ⚠ Everything that guards a legal series reads its YEARLY rows (`prefix|year`): the legal mark on
+ * a master, the last numbers a person records after a promotion, a build that does not know this
+ * option. So the two are kept together, both ways:
+ *   - before counting, the year-0 row is raised to the highest of every row and of `floor` (what
+ *     the caller found on documents): a number recorded or imported on a yearly row is never given again;
+ *   - after counting, this year's row is raised to the number drawn. A document carries a number
+ *     only once that is written, so "the yearly rows stand at or above every number on a document"
+ *     holds as it does for a yearly series, and a series switched back to yearly goes on above.
+ */
+export async function getNextContinuousNumber(orgId: string, prefix: string, floor: number = 0, year?: number): Promise<number> {
+  const yr = year ?? new Date().getFullYear()
+  if (isLegalSeries(prefix)) await assertSeriesOpen(orgId)
+
+  await ensureSequenceAtLeast(orgId, prefix, 0, Math.max(floor, await highestCounter(orgId, prefix)))
+  const doc = await Sequence.findOneAndUpdate(
+    { orgId, prefix, year: 0 },
+    { $inc: { lastNumber: 1 } },
+    { upsert: true, returnDocument: 'after' },
+  ).exec()
+  const n = doc!.lastNumber
+  await ensureSequenceAtLeast(orgId, prefix, yr, n)
+  return n
 }
 
 /**
@@ -232,13 +298,14 @@ export async function setDisplayPrefix(orgId: string, prefix: string, displayPre
  * List every Sequence document for an org. Used by the configuration page so admins can
  * see counters + override prefixes side-by-side.
  */
-export async function listSequencesForOrg(orgId: string): Promise<Array<{ prefix: string; year: number; lastNumber: number; displayPrefix?: string }>> {
+export async function listSequencesForOrg(orgId: string): Promise<Array<{ prefix: string; year: number; lastNumber: number; displayPrefix?: string; continuous?: boolean }>> {
   const docs = await Sequence.find({ orgId }).sort({ prefix: 1, year: -1 }).lean().exec()
   return docs.map(d => ({
     prefix: (d as any).prefix,
     year: (d as any).year,
     lastNumber: (d as any).lastNumber,
     displayPrefix: (d as any).displayPrefix,
+    continuous: (d as any).continuous === true,
   }))
 }
 

@@ -1551,7 +1551,12 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
 
 ## Line Items Column Picker + Status Translatability (2026-04-28; defaults reworked 2026-07-26)
 
-`ui-shared/composables/useInvoiceLineColumns(docType, { userId, orgId })` exposes 9-column catalog (description anchor, qty, unit, unitPrice, discount, **lineSubtotal** = qty×unitPrice net, taxRate, warehouse, lineTotal); per-doc-type localStorage key `lgr:invoice-line-cols:<userId>:<orgId>:<docType>` (falls back to the legacy `anon` key); Discount `defaultOn:false`; `discount` only on `invoice` + `proforma`. **Since 2026-07-26**: `lineSubtotal` defaultOn, `taxRate`/`warehouse`/`lineTotal` default OFF — the form shows doc-level single-value controls instead (TaxRateCombobox + WH autocomplete above the table, apply-to-all + seed for new lines; WH pin button persists a per-user default at `lgr:default-wh:<userId>:<orgId>`, init priority: loaded uniform → user default → org isDefault). Totals card shows "Tax Total (X%)" (`invoicing.taxTotalWithRate`) when all filled lines share one rate. Contact pickers in all 6 forms search server-side (debounced `search` + `size:20`; `contact.controller` `type` filter is `$in [type,'both']` so both-typed contacts appear as customer AND supplier). `LineColumnPickerDialog.vue` renders the checkbox grid with Select all / Clear / Reset Defaults. Cog button next to "+ Add line" on all 6 invoice form views drives `activeColumns` for thead/tbody. `usePaymentMethods()` in ui-shared returns translated `[{ value, text }]` from `pos.cash/card/bankTransfer/check`; v-selects use `item-title="text" item-value="value" persistent-placeholder` so labels render and placeholder stays visible. `StatusChip.vue` translates via `invoicing.status.<status>` with `te()` fallback to raw string. Status filter dropdowns (Sales/Purchase/Proforma/CreditNotes/DebitNotes/PaymentOrders) and kanban column titles migrated from raw string arrays / `statusDraft`-style flat keys to nested `invoicing.status.draft|sent|received|partially_paid|paid|overdue|voided|cancelled|completed|converted|issued|applied|approved|executed|accepted|expired` (16 keys × 4 locales).
+`ui-shared/composables/useInvoiceLineColumns(docType, { userId, orgId })` exposes 9-column catalog (description anchor, qty, unit, unitPrice, discount, taxRate, warehouse, **lineSubtotal** = qty×unitPrice net, lineTotal); per-doc-type localStorage key `lgr:invoice-line-cols:<userId>:<orgId>:<docType>` (falls back to the legacy `anon` key); Discount `defaultOn:false`; `discount` only on `invoice` + `proforma`. **Since 2026-07-26**: `lineSubtotal` defaultOn, `taxRate`/`warehouse`/`lineTotal` default OFF — the form shows doc-level single-value controls instead (TaxRateCombobox + WH autocomplete above the table, apply-to-all + seed for new lines; WH pin button persists a per-user default at `lgr:default-wh:<userId>:<orgId>`, init priority: loaded uniform → user default → org isDefault). Totals card shows "Tax Total (X%)" (`invoicing.taxTotalWithRate`) when all filled lines share one rate. Contact pickers in all 6 forms search server-side (debounced `search` + `size:20`; `contact.controller` `type` filter is `$in [type,'both']` so both-typed contacts appear as customer AND supplier). `LineColumnPickerDialog.vue` renders the checkbox grid with Select all / Clear / Reset Defaults. Cog button next to "+ Add line" on all 6 invoice form views drives `activeColumns` for thead/tbody. ⚠ A line's cells are rendered in that order too (`DocumentLineTable#lineCells`, 2026-11-15): they used to keep a fixed order of their own (subtotal before tax rate and warehouse), so with one of those two on a heading stood over another column's cells, and an order dragged in the picker moved only the headings. `usePaymentMethods()` in ui-shared returns translated `[{ value, text }]` from `pos.cash/card/bankTransfer/check`; v-selects use `item-title="text" item-value="value" persistent-placeholder` so labels render and placeholder stays visible. `StatusChip.vue` translates via `invoicing.status.<status>` with `te()` fallback to raw string. Status filter dropdowns (Sales/Purchase/Proforma/CreditNotes/DebitNotes/PaymentOrders) and kanban column titles migrated from raw string arrays / `statusDraft`-style flat keys to nested `invoicing.status.draft|sent|received|partially_paid|paid|overdue|voided|cancelled|completed|converted|issued|applied|approved|executed|accepted|expired` (16 keys × 4 locales).
+
+**A row's underlines are one line (owner, 2026-11-15)**, in every state of the row: `ui-shared/src/styles/line-grid.css`, imported once in `plugins/vuetify.ts`.
+- A table of line controls carries **`line-grid`** (`DocumentLineTable`, `OrderTree`): its cells start at the top with the 32 px control line, so what hangs under a field (the linked article's chip, a message) makes the row taller and moves no other field. Centred cells put that one field half of it higher. A cell's content that is not a field sits on the control line with `line-grid__line`.
+- ⚠ A single-value select / combobox that draws its value through a **`#selection` slot** carries **`one-line-value`**, and `one-line-value--typing` while its `update:search` is non-empty (`PriceCombobox`, `TaxRateCombobox`, `LineUnitSelect`: the unit of a line, on every such table). Without it Vuetify puts the search input BESIDE the value and gives it 64 px on focus: in a narrow cell it wraps, the field grows from 32 to 60 px and the row jumps.
+- Held by `e2e/tests/line-item-baseline.spec.ts` (underline positions read from the rendered boxes, before and after each focus). The stock movement form is not a line grid: its rows hold nothing under a field.
 
 ## Cyrillic-Safe Search (2026-04-28)
 
@@ -1560,6 +1565,59 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
 ## Draft+Issued Invoice Numbering (2026-04-28)
 
 Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales skip drafts (CS direct). On `/send` or `/receive`, the controller allocates a new issued number from the canonical SALES_DOC/PROFORMA/OFFER/BILL counter, sets `draftNumber = previousInvoiceNumber`, replaces `invoiceNumber`, and appends to `numberHistory[]`. Display prefix override (per-org-global) lives on the Sequence year=0 sentinel doc; future allocations only. **Documents are editable in EVERY status** — PUT applies no status or posting check. The edit-sent guard (409 when a posted JournalEntry referenced the invoice, with credit-note remediation) was **removed**; ⚠ an edit to a posted document does NOT re-post, so the JournalEntry keeps its pre-edit amounts and trial balance / P&L / balance sheet report the stale figures with nothing marking them so — repost is manual. DELETE keeps its draft-only guard. Configuration page at `/invoicing/configuration/sequences` (admin/manager only).
+
+### A sales series without a year (2026-11-15)
+
+An org may number its sales documents (invoices and their notes, the `SALES_DOC` series) **without a year**:
+`INV-3000004107`, ten digits that go on from one year into the next. It is the form a number brought in from
+another system already has (`convertDraftInvoice` issues `<prefix>-<original number>` and raises the counter past
+it), so an org that imports and also issues by hand read two ways until it chose this: `INV-3000004104` imported,
+`INV-2026-3000004106` issued here. Every other org, and every other series, keeps a number per year.
+
+- **The switch** is on the sequences page (`/invoicing/configuration/sequences`, the "Numbering" column) and is
+  stored as `continuous: true` on the series' year-0 Sequence row, beside its display prefix
+  (`sequence.service#isContinuousSeries` / `setContinuousSeries`). `PUT /invoicing/sequences/:prefix` takes
+  `{ displayPrefix?, continuous? }` and changes only what a request names; `continuous` on any other series is
+  **422 `not_continuous_series`** (the registry's `mayBeContinuous` says which series may). Audit-logged. Future
+  allocations only: a document keeps the number it has.
+- **The documents issued with a year BEFORE the choice** keep it unless the org asks:
+  `scripts/drop-year-from-sales-numbers.ts` (`services/biz/yearless-numbers.ts`; dry run by default, `--execute`
+  needs `--backup`, `--restore` puts a backup back) brings `INV-2026-3000004106` to `INV-3000004106`. Only the year
+  goes: the running number, the counters and every link by id stay, and `numberHistory` names the number the
+  document had. It refuses an org whose series is numbered per year, and it leaves, counted by reason, a number
+  another document already holds (`taken`), one that two years would share (`twice`: a series that started again
+  each year cannot be brought over), BOTH documents of a number issued twice (`clash_pair`), a draft, and a
+  document of another series. Text that quotes the old number (a reversal movement's note, a journal entry, the
+  audit log) stays as written and is counted. ⚠ From then on every reader of the number's form takes such a
+  document for an imported one: the daily importer's index, its audit's content compare, and the passes that
+  act on `INV-<number>` (`scripts/lib/void-annulled.ts`, `scripts/repair-invoices-from-plusminus.ts`).
+- **It counts on ONE row**, the year-0 row's `lastNumber` (`getNextContinuousNumber`): the same atomic `$inc`
+  as every counter, so no number is given twice and none is skipped, whatever year a request's clock says.
+  - Before counting, that row is raised to the highest of every row of the series and of every number of the series
+    on a document, **with a year or without** (`currentMaxSuffix(…, { everyYear: true })`).
+  - After counting, the number is written to **this year's row** as well. ⚠ That mirror is load-bearing: the legal
+    mark on a master, the last numbers a person records after a promotion (`legalCounters`, which leave the
+    year-0 row out) and a build that does not know the option all read the YEARLY rows. A document carries a number
+    only after the mirror is written.
+  - ⚠ Do not move the count back onto the yearly rows. That was the first version: two years counted on at once
+    (midnight on 31 December, two servers whose clocks disagree) had to look at each other's row afterwards and give
+    a number up, which leaves holes in a legal series.
+- **The form's preview and the issue agree**: `peekNextInvoiceNumber` is the one reading behind
+  `GET /invoice/peek-next` for an issued number, in both modes. Drafts are numbered per year as before.
+- `scripts/reconcile-sequences.ts` leaves a continuous series out: every allocation of it catches up by itself.
+- ⚠ **Other readers of the number's FORM.** An importer that tells a document typed here from an imported one by
+  the year in its number (`scripts/lib/invoice-index.ts`: `INV-<year>-<n>` = "entered by hand") sees both
+  as `INV-<n>` once the org numbers without a year. Both were skipped before and both are skipped now; only
+  the label in its log changes. Its audit (`scripts/audit-coverage-api.ts`) then compares such a document with
+  the other system's invoice of the same number and lists a difference as `DIFF`, and lists one with no
+  counterpart there. ⚠ One series, two systems: a number issued here stands for the other system's invoice of
+  that number, so the two must not both issue.
+- **The highest number is counted in the database** (`currentMaxSuffix` is one `$group`, index-covered): a
+  continuous series matches every sales document the org holds, and the reading runs at each issue and each
+  time a form asks for the next number.
+- **The legal mark's ceiling is ten digits** (`legal-mark.service#SERIES_MAX`). It was nine: a ten-digit
+  counter's mark was dropped as damage at every read, so a series standing where another system's numbers
+  left it had no mark on a master, and a database put back below it locked nothing.
 
 ## Generic grid column picker + price-select + Словом + perf (2026-07-26)
 

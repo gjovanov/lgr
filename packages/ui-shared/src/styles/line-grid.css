@@ -1,0 +1,70 @@
+/*
+ * Line grids: a table whose rows are a line of controls (a document's line items, an order's tree).
+ *
+ * Every field of a row is underlined, and the underlines read as ONE line across the row, in every
+ * state of it (owner, 2026-11-15). Two things used to break that, and each has its rule here.
+ *
+ * 1. `.line-grid`: the cells were centred vertically. Whatever hangs under a field (the chip of the
+ *    linked article, a validation message, a caption) made that one cell taller, so its field sat
+ *    higher than the row's other fields by half of what hung under it: 12 px for the chip.
+ *    A cell now starts at the row's top with the CONTROL LINE, 32 px, the height of a compact
+ *    underlined field; what belongs under a field hangs below that line and moves nothing.
+ *
+ * 2. `.one-line-value`: a control that draws its own value (a `#selection` slot) grew a second line
+ *    when it took focus. See the rule.
+ *
+ * ⚠ The 2 px above the control line is (36 - 32) / 2: Vuetify's compact table row is 36 px, so a row
+ * with nothing under its fields is exactly as tall as it was, and its fields are where they were.
+ */
+.line-grid {
+  --line-grid-control: 32px;
+}
+.v-table.line-grid > .v-table__wrapper > table > tbody > tr > td {
+  vertical-align: top;
+  padding-top: 2px;
+  /* A cell's own text and its buttons sit ON the control line, not above it. Whatever wraps over
+     several lines carries a line height of its own (Vuetify's `text-*` classes do). */
+  line-height: var(--line-grid-control);
+}
+/* An icon button that is a cell's own content (remove a line, explain a price) is as tall as the
+   control line and fills it. Left on the text's middle it sits a pixel low, and makes the line, and
+   so the row, that pixel taller. A smaller button stays on the text's middle. */
+.v-table.line-grid > .v-table__wrapper > table > tbody > tr > td > .v-btn--icon.v-btn--size-x-small.v-btn--density-default {
+  vertical-align: top;
+}
+/* What a cell shows instead of a field (an icon and a name, a row of chips, a toggle beside the
+   article): centred on the control line, and taller than it only when it wraps. */
+.line-grid .line-grid__line {
+  min-height: var(--line-grid-control);
+}
+
+/*
+ * A single value drawn through a `#selection` slot keeps ONE line.
+ *
+ * Vuetify overlays the search <input> on the value only on the slot-LESS variant. With a slot the
+ * two sit side by side in a wrapping flex row, and a focused input asks for `min-width: 64px`. In a
+ * narrow cell (a unit, a price, a tax rate) they do not fit, so on focus the input wrapped to a
+ * second line: the field grew from 32 to 60 px, its underline dropped by 28 px, and the row with it.
+ *
+ * Here the input lies OVER the value, as Vuetify's own slot-less variant has it, so taking focus
+ * changes nothing. The component says when something is typed (`one-line-value--typing`, from
+ * `update:search`): the typed text takes the value's place until it is picked or given up.
+ */
+.one-line-value.v-combobox--single .v-field__input,
+.one-line-value.v-autocomplete--single .v-field__input {
+  flex-wrap: nowrap;
+}
+.one-line-value.v-combobox--single .v-field__input > input,
+.one-line-value.v-autocomplete--single .v-field__input > input {
+  flex: 1 1;
+  position: absolute;
+  left: 0;
+  right: 0;
+  width: 100%;
+  min-width: 0;
+  padding-inline: inherit;
+}
+.one-line-value--typing .v-combobox__selection,
+.one-line-value--typing .v-autocomplete__selection {
+  visibility: hidden;
+}
