@@ -44,8 +44,8 @@ afterEach(async () => { await clearCollections() }, 30_000)
 let TMP = ''
 const DAY = '2026-09-03'
 
-async function seedOrg() {
-  const org = await createTestOrg({ slug: 'backup-co', settings: { timezone: 'Europe/Sofia' } } as any)
+async function seedOrg(opts: { slug?: string } = {}) {
+  const org = await createTestOrg({ slug: opts.slug || 'backup-co', settings: { timezone: 'Europe/Sofia' } } as any)
   const orgId = org._id as Types.ObjectId
   const customer = await createTestContact(orgId, { companyName: 'Buyer Ltd' })
   const wh = await createTestWarehouse(orgId, { name: 'Main' })
@@ -599,6 +599,72 @@ describe('retention (FR-13.8 applied to Layer 2)', () => {
     const left = readdirSync(bundleDir(orgId))
     expect(left.filter(f => f.includes('-full-')).length).toBe(1)
     expect(left.filter(f => f.includes('-delta-')).length).toBe(1)
+  })
+
+  // The bundles a person asked for ("Create backup now", which an org admin may press) are kept
+  // in a class of their own. Counted with the nights, each press pushed a night out.
+  describe('a bundle a person asked for', () => {
+    const manual = (orgId: string, date: string, time: string) =>
+      buildBundle(orgId, { date, filenameSuffix: `manual-data-${time}` })
+
+    it('never pushes a night out, however many are made', async () => {
+      const { orgId } = await seedOrg()
+      for (const d of ['01', '02', '03']) await buildBundle(orgId, { date: `2026-09-${d}` })
+      // All of them on the newest day, so by name they sort AFTER every night.
+      for (const t of ['080000', '090000', '100000', '110000']) await manual(orgId, '2026-09-03', t)
+
+      await pruneBundles(orgId, 'full', 3)
+      const left = readdirSync(bundleDir(orgId))
+      expect(left.filter(f => !f.includes('-manual-')).length).toBe(3)
+      expect(left.some(f => f.includes('2026-09-01'))).toBe(true)
+    })
+
+    it('is kept by its own count, newest first, and a run of nights does not evict it', async () => {
+      const { orgId } = await seedOrg()
+      const saved = config.backup.keepManualPerOrg
+      config.backup.keepManualPerOrg = 2
+      try {
+        for (const t of ['080000', '090000', '100000']) await manual(orgId, '2026-09-01', t)
+        for (const d of ['02', '03', '04', '05']) await buildBundle(orgId, { date: `2026-09-${d}` })
+
+        const removed = await pruneBundles(orgId, 'full', 2)
+        const left = readdirSync(bundleDir(orgId)).sort()
+        expect(left.filter(f => f.includes('-manual-')).map(f => f.slice(-17, -11))).toEqual(['090000', '100000'])
+        expect(left.filter(f => !f.includes('-manual-')).length).toBe(2)
+        expect(removed.length).toBe(3)
+        expect(removed.some(f => f.includes('manual-data-080000'))).toBe(true)
+      } finally {
+        config.backup.keepManualPerOrg = saved
+      }
+    })
+
+    it('survives as the only bundle there is, whatever the counts say', async () => {
+      const { orgId } = await seedOrg()
+      const saved = config.backup.keepManualPerOrg
+      config.backup.keepManualPerOrg = 0
+      try {
+        await manual(orgId, '2026-09-01', '080000')
+        expect(await pruneBundles(orgId, 'full', 0)).toEqual([])
+        expect(readdirSync(bundleDir(orgId)).length).toBe(1)
+      } finally {
+        config.backup.keepManualPerOrg = saved
+      }
+    })
+
+    it('is told by the end of the name, so a slug that says "manual" is not one', async () => {
+      // The slug is the org's own text and comes first in the name. Looked for anywhere, the
+      // mark would have put every night of this org in the smaller class.
+      const { orgId } = await seedOrg({ slug: 'acme-manual-co' })
+      const saved = config.backup.keepManualPerOrg
+      config.backup.keepManualPerOrg = 1
+      try {
+        for (const d of ['01', '02', '03']) await buildBundle(orgId, { date: `2026-09-${d}` })
+        expect(await pruneBundles(orgId, 'full', 3)).toEqual([])
+        expect(readdirSync(bundleDir(orgId)).length).toBe(3)
+      } finally {
+        config.backup.keepManualPerOrg = saved
+      }
+    })
   })
 
   it('a completed run prunes, and marks the rows whose artifact it removed', async () => {

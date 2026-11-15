@@ -203,6 +203,14 @@ export async function runBackupForOrg(
      * otherwise land in the digest recipient's inbox every time. Defaults to mailing.
      */
     mail?: boolean
+    /**
+     * `false`: the bundle stays on this server and goes to no destination. For a bundle an org
+     * admin asked for: every off-site destination counts its generations in one folder, so each
+     * press of their button would push one of the nights out of the copy that matters most. The
+     * row then says so itself: an empty `destinations` is what the screen shows as "no off-site
+     * copy". Defaults to pushing.
+     */
+    offsite?: boolean
     /** Called with (percent, message) so a `BackgroundTask` can show progress (FR-13.29). */
     onProgress?: (percent: number, message: string) => void
   } = {},
@@ -305,7 +313,7 @@ export async function runBackupForOrg(
     // Never throws — see `pushToDestinations`. A run whose bundle is built, verified and on
     // the PV is a completed run; an unreachable destination is a recorded gap, not a reason
     // to throw away the work and mark the day failed.
-    const destinations = await pushToDestinations({
+    const destinations = opts.offsite === false ? [] : await pushToDestinations({
       orgId,
       manifest: built.manifest,
       absolutePath: built.absolutePath,

@@ -356,6 +356,17 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
 }
 
 /**
+ * Is this the artifact of a bundle a person asked for? `POST /create` suffixes those
+ * `manual-<variant>-<HHMMSS>`, straight after the date.
+ *
+ * ⚠ Read off the END of the name, never by looking for `-manual-` anywhere in it: the slug comes
+ * first and is the org's own text, so an org called `acme-manual-co` would have had every one of
+ * its nights counted as somebody's button press.
+ */
+const MANUAL_BUNDLE_RE = /-\d{4}-\d{2}-\d{2}-manual-[a-z]+-\d{6}\.ndjson\.zst$/
+export const isManualBundle = (filename: string) => MANUAL_BUNDLE_RE.test(filename)
+
+/**
  * FR-13.8's rule, applied to Layer 2: keep N GENERATIONS, never delete by age.
  *
  * ⚠ `find -mtime +N -delete` — or its JavaScript equivalent — can delete the last good copy
@@ -364,6 +375,9 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
  *
  * Artifacts are named `lgr-<slug>-<kind>-<YYYY-MM-DD>.ndjson.zst`, so within one org and kind
  * lexical order IS chronological. Pruning is per kind, so a run of deltas cannot evict fulls.
+ *
+ * The bundles a person asked for are a class of their own (`config.backup.keepManualPerOrg`): they
+ * never count against the nights, and the nights never count against them.
  *
  * Returns the filenames removed, so the caller can mark their runs and the operator can see
  * it happened.
@@ -386,7 +400,16 @@ export async function pruneBundles(
     .sort()
     .reverse()
 
-  const victims = mine.slice(Math.max(keep, 1))
+  // A bundle a person asked for (`POST /create`: `…-manual-<variant>-<time>`) is kept in a class of
+  // its own. ⚠ Counted together with the nights, every press of the button pushed a night out: an
+  // org admin making three a day would have cut fourteen nights of history to under four.
+  const manual = mine.filter(isManualBundle)
+  const nightly = mine.filter(f => !isManualBundle(f))
+  const victims = [
+    ...nightly.slice(Math.max(keep, 1)),
+    // Floored at 1 like the nights: the bundle this very run has just written must outlive its prune.
+    ...manual.slice(Math.max(config.backup.keepManualPerOrg, 1)),
+  ]
   const removed: string[] = []
   for (const f of victims) {
     try {

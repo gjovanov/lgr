@@ -3720,6 +3720,28 @@ MinIO, AWS), and `pushBundleToS3` seals with the same key the Drive push uses.
   (`--prove-lock` writes one undeletable object and watches the delete be refused).
   The unit tests stub `fetch` and cannot prove a signature a real S3 accepts.
 
+## The backup screen: the org's admin backs up, an operator restores (2026-11-15)
+
+`/admin/backup` is in every org admin's navigation, and "Create backup now" (`POST /create`) is
+theirs, like `/run`, the list, verify and download (`backup.controller.ts#guard`). Restoring,
+uploading a bundle and the restore history stay on `BACKUP_SYS_ADMINS` (`requireSysAdmin`).
+
+- ⚠ Anyone can found an org and be its admin, so an org admin's create is bounded where an
+  operator's is not: the `data` variant only (`full` answers 403), `offsite: false` and
+  `mail: false` on the run, one at a time (409 `backup_running`) and `BACKUP_MANUAL_PER_DAY` (3)
+  per org in 24 hours (429 `backup_daily_limit`). The count is over `claimKey` starting
+  `manual-`, so a master's `pre-update-…` bundles and the nights are not in it.
+- ⚠ **Why not off-site:** every destination counts its generations in ONE folder, so each press
+  would push a night out of Drive. The row's empty `destinations` is what the screen shows as
+  "no off-site copy".
+- `pruneBundles` keeps the bundles a person asked for in a class of their own
+  (`BACKUP_KEEP_MANUAL_PER_ORG`, 5). ⚠ `isManualBundle` reads the END of the filename
+  (`…-<date>-manual-<variant>-<HHMMSS>.ndjson.zst`): the slug comes first and is the org's own
+  text, so looking for `-manual-` anywhere would misfile an org named `acme-manual-co`.
+- `GET /task/:taskId` answers about a `backup-create` task of the org and no other job.
+- `/access` says `{ sysAdmin, configured, create, createPerDay? }`; the screen and the nav are
+  presentation, and the refusals carry a `code` the screen translates (`backup.errors.*`).
+
 ## A master's own backups (2026-10-25, FR-20.21, plan step P1-9)
 
 A master has no mars: nothing like the Layer-1 rsync of the uploads PV backs its files up, and
