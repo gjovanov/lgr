@@ -330,7 +330,26 @@ test.describe('revocation', () => {
   test('the hub says so and the shell shows it within one heartbeat', async () => {
     // FR-14.22, AC 9. The row is the revocation list; the socket notice is what makes it visible
     // without waiting for the next request.
-    await hub.revoke()
+    //
+    // ⚠ **The notice is a push, and a push needs a socket.** The case before this one takes the hub
+    // away and brings it back, and the shell's presence link returns on its OWN backoff (1 s doubling
+    // to 60 s, `presence::backoff_secs`), not when the window does: the window's probe and the
+    // presence socket are two loops. They happen to agree while that outage is a few seconds long.
+    // On 2026-11-15 a runner took 28 s over it instead of 5: the window was back at once, presence
+    // was 12 s short of its next try, the stub pushed to nobody (`pushed: 0`), and this case then
+    // waited a minute for a line that could not come. It read as a broken revocation on a commit
+    // that had changed nothing in the shell.
+    //
+    // So this case states what it needs. The wait covers the longest step of the backoff, and the
+    // stub's own count says the notice reached a socket before the log is asked for it.
+    await expect
+      .poll(async () => (await hub.state()).presenceSockets, {
+        message: 'the presence socket is back after the outage of the case before',
+        timeout: 75_000,
+      })
+      .toBeGreaterThan(0)
+    const { pushed } = await hub.revoke()
+    expect(pushed, 'the stub pushed the notice down a live presence socket').toBeGreaterThan(0)
     await waitForLog(/revoked/i, 60_000, shell.stderr())
 
     const st = await statusJson(BIN)
