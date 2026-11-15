@@ -1,8 +1,10 @@
 import { Product, StockMovement, Warehouse } from 'db/models'
+import { tierFinalPrice } from 'config/price-tiers'
+import type { StockReceiptPriceLevel } from 'config/stock-receipt-price'
 import { isReceiptLinked } from './receipt-bill.service.js'
 
 /**
- * „Стокова разписка" for a supplier bill: the goods receipts that booked the bill's goods.
+ * „Складова разписка" for a supplier bill: the goods receipts that booked the bill's goods.
  *
  * Both kinds of bill that book goods leave their receipts pointing at the bill (`invoiceId`):
  *   - a bill that receives its own goods (`/receive`, `/send` → `createInvoiceStockMovement`)
@@ -23,11 +25,14 @@ export function isSupplierBill(invoice: any): boolean {
 }
 
 /**
- * The currency a bill's stock receipt prints in. A bill that received its own goods booked them at
- * its own prices. A bill made from receipts prints what those receipts booked, and a receipt books
- * in the org's currency, whatever the bill says.
+ * The currency a bill's stock receipt prints in.
+ *
+ * A price level is the catalogue's own figure, and the catalogue is priced in the org's currency, whatever the bill
+ * was written in. „As booked" is the receipts' figure: a bill that received its own goods booked them at its own
+ * prices, and a bill made from receipts prints what those receipts booked, which is the org's currency again.
  */
-export function stockReceiptCurrency(bill: any, baseCurrency: string | undefined): string {
+export function stockReceiptCurrency(bill: any, baseCurrency: string | undefined, level: StockReceiptPriceLevel): string {
+  if (level.kind !== 'booked') return baseCurrency || bill.currency
   return (isReceiptLinked(bill) && baseCurrency) || bill.currency
 }
 
@@ -91,22 +96,42 @@ export interface BillStockReceiptSection {
   number: string
   date: Date
   warehouse: string
-  lines: Array<{ name: string; unit?: string; quantity: number; unitPrice: number }>
+  /** `unitPrice` is null where the article has no price at the level asked for: the sheet prints a dash. */
+  lines: Array<{ name: string; unit?: string; quantity: number; unitPrice: number | null }>
+}
+
+/** What the print reads of an article for a level: the figure itself, and nothing of any other level. */
+function priceFields(level: StockReceiptPriceLevel): Record<string, 1> {
+  if (level.kind === 'selling') return { sellingPrice: 1 }
+  return level.kind === 'tier' ? { 'priceTiers.name': 1, 'priceTiers.finalPrice': 1 } : {}
+}
+
+/**
+ * An article's price at a level, as the catalogue holds it now and as the product form shows it: the selling price,
+ * or the slot's final price, found by the slot's name. Null when the article has none there: no such slot, a zero
+ * (which the price pickers do not offer either), or no article any more. Never another level's figure in its place.
+ */
+function priceAtLevel(product: any, level: StockReceiptPriceLevel): number | null {
+  if (!product) return null
+  const price = level.kind === 'tier' ? tierFinalPrice(product.priceTiers, level.tier) : Number(product.sellingPrice)
+  return Number.isFinite(price) && price > 0 ? price : null
 }
 
 /**
  * The receipts, line by line, as the print shows them: each article by its catalog name and unit
- * (the bill line's wording for one the catalog no longer has), the quantity received and the
- * price it was booked at — on a bill that received its own goods, the bill's unit price, in the
- * bill's currency.
+ * (the bill line's wording for one the catalog no longer has), the quantity received and its price.
+ *
+ * Which price is the caller's `level` (`config/stock-receipt-price`): a price level of the article as the catalogue
+ * holds it today, or `booked`, the price the line was booked at (on a bill that received its own goods, the bill's
+ * unit price, in the bill's currency).
  */
-export async function billStockReceiptSections(orgId: string, bill: any): Promise<BillStockReceiptSection[]> {
+export async function billStockReceiptSections(orgId: string, bill: any, level: StockReceiptPriceLevel): Promise<BillStockReceiptSection[]> {
   const movements = await bookedReceipts(orgId, bill)
   if (!movements.length) return []
   const productIds = [...new Set(movements.flatMap(m => (m.lines || []).map((l: any) => idOf(l.productId))).filter(Boolean))]
   const [names, products] = await Promise.all([
     warehouseNames(orgId, movements),
-    Product.find({ orgId, _id: { $in: productIds } } as any, { name: 1, unit: 1 }).lean().exec() as Promise<any[]>,
+    Product.find({ orgId, _id: { $in: productIds } } as any, { name: 1, unit: 1, ...priceFields(level) }).lean().exec() as Promise<any[]>,
   ])
   const byId = new Map(products.map(p => [idOf(p._id), p]))
   const billLine = new Map<string, any>()
@@ -128,7 +153,7 @@ export async function billStockReceiptSections(orgId: string, bill: any): Promis
           name: p?.name || own?.description || id,
           unit: p?.unit || own?.unit || undefined,
           quantity: num(l.quantity),
-          unitPrice: num(l.unitCost),
+          unitPrice: level.kind === 'booked' ? num(l.unitCost) : priceAtLevel(p, level),
         }
       }),
   }))

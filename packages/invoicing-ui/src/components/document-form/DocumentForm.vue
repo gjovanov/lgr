@@ -189,6 +189,9 @@
       @confirm="doc.onPrintDialogConfirm"
     />
 
+    <!-- FR-22.33a: a bill's „Складова разписка" asks which price to print before it prints anything. -->
+    <StockReceiptPrintDialog v-model="stockReceiptDialog" :loading="stockReceiptLoading" @confirm="printStockReceipt" />
+
     <!-- FR-22.17: issuing from the form checks stock as the list does, and offers the same transfers. -->
     <StockTransferDialog
       v-model="transferOpen"
@@ -532,6 +535,7 @@ import DispatchOverlapDialog from '../DispatchOverlapDialog.vue'
 import RecordPaymentDialog from '../RecordPaymentDialog.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
 import IssuePaymentConfirmDialog from '../IssuePaymentConfirmDialog.vue'
+import StockReceiptPrintDialog from '../StockReceiptPrintDialog.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
@@ -656,6 +660,9 @@ const {
   printDialogFor,
   printAction,
   stockReceiptAction,
+  stockReceiptDialog,
+  stockReceiptLoading,
+  printStockReceipt,
 } = doc
 
 // FR-22.17: the stock check's transfer dialog, as top-level refs so the template unwraps them.

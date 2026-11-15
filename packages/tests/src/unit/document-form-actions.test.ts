@@ -187,6 +187,70 @@ describe('„Издай и печатай" asks how to print before it issues', 
   })
 })
 
+describe('„Складова разписка" asks which price to print before it prints', () => {
+  const composable = read('invoicing-ui/src/composables/document-form/useDocumentForm.ts')
+  const form = read('invoicing-ui/src/components/document-form/DocumentForm.vue')
+  const dialog = read('invoicing-ui/src/components/StockReceiptPrintDialog.vue')
+  const between = (source: string, from: string, to: string) => {
+    const a = source.indexOf(from)
+    const b = source.indexOf(to, a)
+    expect(a).toBeGreaterThan(-1)
+    expect(b).toBeGreaterThan(a)
+    return source.slice(a, b)
+  }
+
+  it('the action opens the dialog, and nothing is rendered or downloaded by opening it', () => {
+    expect(composable).toMatch(/key: 'stock-receipt',[\s\S]{0,400}?handler: onPrintStockReceipt,/)
+    const body = between(composable, 'function onPrintStockReceipt()', 'async function printStockReceipt(')
+    expect(body).toContain('stockReceiptDialog.value = true')
+    for (const call of ['exportStockReceipt(', 'httpClient.', 'await ']) {
+      expect({ call, made: body.includes(call) }).toEqual({ call, made: false })
+    }
+  })
+
+  it('the dialog\'s „Печат" prints at the level it chose, then closes it; a refusal leaves it open', () => {
+    const body = between(composable, 'async function printStockReceipt(priceLevel: string)', 'const stockReceiptAction')
+    expect(body).toContain("'stock_receipt', undefined, { priceLevel })")
+    const printed = body.indexOf('await exportStockReceipt(')
+    const closed = body.indexOf('stockReceiptDialog.value = false')
+    const refused = body.indexOf('} catch')
+    expect(printed).toBeGreaterThan(-1)
+    expect(closed).toBeGreaterThan(printed)
+    expect(refused).toBeGreaterThan(closed)
+    expect(body.slice(refused)).not.toContain('stockReceiptDialog')
+  })
+
+  it('the form mounts it once, and it is the dialog that prints', () => {
+    const tags = templateOf(form).match(/<StockReceiptPrintDialog\b[^>]*\/>/g) ?? []
+    expect(tags).toHaveLength(1)
+    expect(tags[0]).toContain('v-model="stockReceiptDialog"')
+    expect(tags[0]).toContain(':loading="stockReceiptLoading"')
+    expect(tags[0]).toContain('@confirm="printStockReceipt"')
+  })
+
+  it('Cancel only closes; the choice is remembered when it is printed, never before', () => {
+    const template = templateOf(dialog)
+    expect(template).toMatch(/data-testid="stock-receipt-cancel" @click="open = false"/)
+    expect(template).toMatch(/data-testid="stock-receipt-confirm"\s+@click="confirm"/)
+    const confirm = between(dialog, 'function confirm()', '</script>')
+    expect(confirm.indexOf('rememberPriceLevel(level.value)')).toBeGreaterThan(-1)
+    expect(confirm.indexOf("emit('confirm', level.value)")).toBeGreaterThan(confirm.indexOf('rememberPriceLevel(level.value)'))
+    expect((dialog.match(/rememberPriceLevel\(/g) ?? []).length).toBe(1)
+  })
+
+  it('it reads the levels and the last choice again every time it opens, from the one list the route checks', () => {
+    const opened = between(dialog, 'watch(open,', 'function focusPrint')
+    expect(opened).toContain('accessGrant()')
+    expect(opened).toContain('priceLevelItems(grant,')
+    expect(opened).toContain('level.value = startingPriceLevel(grant)')
+    const levels = read('invoicing-ui/src/composables/stock-receipt-price.ts')
+    expect(levels).toContain("from 'config/stock-receipt-price'")
+    // Per user and org, through the session: never a key of its own.
+    expect(levels).toContain("rememberedSetting<string>('stock-receipt-price')")
+    expect(levels).not.toMatch(/localStorage|sessionStorage/)
+  })
+})
+
 describe('the Print dialog of a document keeps its columns folded', () => {
   function* vueFiles(dir: string): Generator<string> {
     for (const name of readdirSync(dir)) {
@@ -238,7 +302,8 @@ describe('the words the bars and the dialog reuse, in four locales', () => {
     'export.columns', 'export.companionDocs', 'export.companionDocsHint',
     'invoicing.issueFlow.issueAndPrint', 'invoicing.issueFlow.printOptions',
     'invoicing.sendEmail.action', 'invoicing.sendEmail.draftBlocked', 'invoicing.sendEmail.lastSent',
-    'invoicing.stockReceipt.print', 'invoicing.stockReceipt.hint',
+    'invoicing.stockReceipt.print', 'invoicing.stockReceipt.hint', 'invoicing.stockReceipt.price', 'invoicing.stockReceipt.booked',
+    'warehouse.sellingPrice',
     'docImport.importFile',
   ]
   const at = (cat: any, key: string) => key.split('.').reduce((o, k) => o?.[k], cat)

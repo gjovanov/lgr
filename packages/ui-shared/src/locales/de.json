@@ -2314,7 +2314,9 @@
     },
     "stockReceipt": {
       "print": "Wareneingangsschein",
-      "hint": "Den Wareneingang dieser Eingangsrechnung drucken — einen je Lager, in das die Ware ging"
+      "hint": "Den Wareneingang dieser Eingangsrechnung drucken — einen je Lager, in das die Ware ging",
+      "price": "Zu druckender Preis",
+      "booked": "Gebuchter Preis (laut Wareneingang)"
     },
     "reservations": {
       "repeatOf": "erneut reserviert",

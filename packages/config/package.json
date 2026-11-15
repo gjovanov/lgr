@@ -11,6 +11,7 @@
     "./pos-totals": "./src/pos-totals.ts",
     "./price-precision": "./src/price-precision.ts",
     "./price-tiers": "./src/price-tiers.ts",
+    "./stock-receipt-price": "./src/stock-receipt-price.ts",
     "./fiscal-clock": "./src/fiscal-clock.ts",
     "./line-amounts": "./src/line-amounts.ts",
     "./amount-in-words": "./src/amount-in-words.ts",

@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { grantOf } from 'services/biz/access/evaluate'
 import { kindOfDocument, readsKind } from 'config/access'
+import { stockReceiptLevelFor, type StockReceiptPriceLevel } from 'config/stock-receipt-price'
 import { representativeOf } from 'config/party-identity'
 import { assertHomeIsHere, HomeElsewhereError } from 'db/home/home'
 import { AppAuthService } from '../auth/app-auth.service.js'
@@ -492,23 +493,27 @@ async function buildCompanionData(
   }
 }
 
-// ── „Стокова разписка": the goods receipts a supplier bill booked ──
+// ── „Складова разписка": the goods receipts a supplier bill booked ──
 
 /** `?doc=` value of the stock receipt — checked before the companion branch, which refuses bills. */
 const STOCK_RECEIPT_DOC = 'stock_receipt'
 
 /**
  * The stock receipt of `bill`: one section per receipt it booked, the bill named by OUR number
- * and date (no supplier block, no supplier invoice number). `null` when it booked no goods.
+ * and date (no supplier block, no supplier invoice number), its lines priced at `level`
+ * (`config/stock-receipt-price`). `null` when it booked no goods.
+ *
+ * Exported for the flow test, which reads what the page is rendered from without launching Chromium.
  */
-async function buildStockReceiptData(orgId: string, bill: any, locale: string): Promise<StockReceiptData | null> {
-  const sections = await billStockReceiptSections(orgId, bill)
+export async function buildStockReceiptData(orgId: string, bill: any, locale: string, level: StockReceiptPriceLevel): Promise<StockReceiptData | null> {
+  const sections = await billStockReceiptSections(orgId, bill, level)
   if (!sections.length) return null
   const org = await Org.findById(orgId).lean()
   return {
     sections,
     bill: { number: bill.invoiceNumber, date: bill.issueDate, draft: bill.status === 'draft' },
-    currency: stockReceiptCurrency(bill, (org as any)?.settings?.baseCurrency),
+    price: level,
+    currency: stockReceiptCurrency(bill, (org as any)?.settings?.baseCurrency, level),
     footerText: orgFooterLine(org),
     // Same letterhead the invoice form prints; the generator falls back to the bundled asset.
     logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo,
@@ -816,7 +821,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       const filename = `${(invoice as any).invoiceNumber}.${format}`
       const doc = query.doc as string | undefined
 
-      // ── „Стокова разписка" (?doc=stock_receipt): the goods a supplier bill booked ──
+      // ── „Складова разписка" (?doc=stock_receipt): the goods a supplier bill booked ──
       if (doc === STOCK_RECEIPT_DOC) {
         const inv = invoice as any
         if (format !== 'pdf') return status(400, { message: 'A stock receipt prints as PDF only' })
@@ -826,7 +831,17 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         if (RELEASED_BILL_STATUSES.includes(inv.status)) {
           return status(422, { code: 'bill_voided', message: `${inv.invoiceNumber} is voided — the goods it booked are no longer its own` })
         }
-        const data = await buildStockReceiptData(orgId, inv, locale)
+        // `?priceLevel=`: which price the sheet shows (`config/stock-receipt-price`). A request that names none
+        // prints „Цена на едро", or the first level its caller sees: what the form's dialog starts on.
+        // FR-27.11: a level the caller's role does not see is refused here, whatever the dialog offered.
+        const answer = stockReceiptLevelFor(grantOf(user as any), query.priceLevel)
+        if ('refused' in answer) {
+          if (answer.refused === 'unknown_price_level') {
+            return status(422, { code: 'unknown_price_level', message: `Unknown price level: ${String(query.priceLevel).slice(0, 80)}` })
+          }
+          return status(403, { code: 'capability_required', capabilities: [answer.capability], message: 'Your role does not see this price level.' })
+        }
+        const data = await buildStockReceiptData(orgId, inv, locale, answer.level)
         if (!data) {
           return status(404, { code: 'no_goods_booked', message: `${inv.invoiceNumber} has booked no goods — a stock receipt prints once they are received` })
         }
