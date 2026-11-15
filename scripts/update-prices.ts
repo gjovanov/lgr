@@ -2,7 +2,7 @@
  * Update product prices from LgrProducts.xlsx for the Regal org.
  *
  * Matches existing products by exact name, then sets:
- *   purchasePrice = price2 (Col 16)
+ *   purchasePrice = price2 (Col 16) / 1.2  (`config/price-tiers`, owner 2026-11-15; it was price2 itself)
  *   sellingPrice  = price2 * 1.5
  *   avgCost on corresponding StockLevel records = price2
  *
@@ -13,6 +13,7 @@
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { Org, Product, StockLevel } from '../packages/db/src/models/index.js'
+import { purchasePriceFromTier2 } from '../packages/config/src/price-tiers.js'
 import ExcelJS from 'exceljs'
 import path from 'path'
 
@@ -107,7 +108,7 @@ async function main() {
     productOps.push({
       updateOne: {
         filter: { _id: product._id },
-        update: { $set: { purchasePrice: price2, sellingPrice } },
+        update: { $set: { purchasePrice: purchasePriceFromTier2(price2) ?? 0, sellingPrice } },
       },
     })
     matchedProductIds.push({ productId: product._id, price2 })

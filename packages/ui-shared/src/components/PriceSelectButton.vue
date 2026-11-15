@@ -43,7 +43,7 @@
           <template #prepend>
             <v-icon size="small" :color="typeColor(opt.type)">{{ typeIcon(opt.type) }}</v-icon>
           </template>
-          <v-list-item-title>{{ priceOptionLabel(opt, $t) }}</v-list-item-title>
+          <v-list-item-title>{{ priceOptionLabel(opt, $t, $i18n.locale) }}</v-list-item-title>
           <template #append>
             <span class="text-body-2 font-weight-medium ml-4">{{ fmt(opt.price) }}</span>
           </template>

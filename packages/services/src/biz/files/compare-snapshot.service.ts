@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs'
+import { DELIVERY_TIER_NAME } from 'config/price-tiers'
 import { Product, StockLevel, Warehouse, DocFile, Org } from 'db/models'
 import { mkdir, writeFile } from 'fs/promises'
 import { join, dirname, basename } from 'path'
@@ -214,7 +215,11 @@ export async function compareSnapshot(
       if (file === 0 && lgr === 0) return
       if (Math.abs(file - lgr) > priceTol) { priceMismatches++; rows.push({ kind: 'price_mismatch', sku: p.sku, name: String(p.name).trim(), field, file, lgr, diff: round4(file - lgr) }) }
     }
-    cmp('Дост.цена', fr.purchase, round4(Number(p.purchasePrice) || 0))
+    // The export's „Дост. цена" is the product's „Доставна цена" SLOT (drawn as „Цена с ТО"), which every import
+    // fills from it. Until 2026-11-15 this row read `purchasePrice`, which an import also set to the delivery
+    // price; the purchase price is „Цена 2" / 1.2 since (`config/price-tiers`), a figure PlusMinus does not keep,
+    // so it has no column to be compared with.
+    cmp('Дост.цена', fr.purchase, tierPrice(DELIVERY_TIER_NAME))
     cmp('Прод.цена', fr.selling, round4(Number(p.sellingPrice) || 0))
     TIER_NAMES.forEach((t, i) => cmp(t, fr.slots[i], tierPrice(t)))
   }

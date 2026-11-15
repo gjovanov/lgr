@@ -46,6 +46,7 @@
 import { readFileSync } from 'node:fs'
 import { assertTokenOrg } from './lib/token-org.js'
 import { collapseName as collapse, matchSnapshot, snapshotRows } from './lib/snapshot-match.js'
+import { DELIVERY_TIER_NAME, tierFinalPrice } from '../packages/config/src/price-tiers.js'
 
 function parseArgs(argv: string[]) {
   const o: Record<string, string | boolean> = {}
@@ -71,6 +72,13 @@ if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { console.error('Required: --dat
 const MARKER = `snapshot-reconcile:${date}`
 
 const round2 = (v: number) => +v.toFixed(2)
+/**
+ * A true-up line's unit cost: the average cost, else the delivery price („Доставна цена", which is what an import
+ * opens a level's average cost with), else the purchase price. It read the purchase price second while an import
+ * wrote the delivery price there too; since 2026-11-15 that is „Цена 2" / 1.2, an approximation no level is costed at.
+ */
+const costOf = (p: any): number =>
+  Number(p.avgCost) || tierFinalPrice(p.priceTiers, DELIVERY_TIER_NAME) || Number(p.purchasePrice) || 0
 /** Latin look-alikes of Cyrillic letters (PlusMinus and LGR spell the same article with either). */
 const CYR2LAT: Record<string, string> = { 'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'х': 'x', 'у': 'y' }
 /** Loosest name key: no `<label>:` prefix, no quote marks, homoglyphs folded. Used ONLY to decide "has a twin", never to match. */
@@ -153,7 +161,7 @@ async function main() {
   for (const { product: p, snapshotQty, lgrQty, diff } of match.lines) {
     // diff >0: LGR too low, need increase. <0: LGR too high, need decrease.
     if (Math.abs(diff) <= 0.001) continue
-    const unitCost = Number(p.avgCost) || Number(p.purchasePrice) || 0
+    const unitCost = costOf(p)
     const entry = { productId: idOf(p), sku: p.sku, name: p.name, quantity: round2(Math.abs(diff)), unitCost, totalCost: round2(Math.abs(diff) * unitCost), _before: lgrQty, _snapshot: snapshotQty }
     if (diff > 0) increase.push(entry); else decrease.push(entry)
   }
@@ -183,7 +191,7 @@ async function main() {
       //    person to settle (rename / merge), never zeroed.
       const twins = looseToExact.get(loose(name))
       if (twins?.length && !twins.some(k => productNames.has(k))) { namingTwins++; continue }
-      const unitCost = Number(p.avgCost) || Number(p.purchasePrice) || 0
+      const unitCost = costOf(p)
       const entry = { productId: pid, sku: p.sku, name: p.name, quantity: round2(Math.abs(q)), unitCost, totalCost: round2(Math.abs(q) * unitCost), _before: q, _snapshot: 0 }
       if (q > 0) zeroDown.push(entry); else zeroUp.push(entry)
     }

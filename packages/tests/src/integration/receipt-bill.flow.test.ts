@@ -358,6 +358,23 @@ describe('a bill made from a goods receipt (FR-22.31)', () => {
   }, 60_000)
 })
 
+describe('a purchase price an import approximated („Цена 2" / 1.2) gives way to the billed price', () => {
+  it('is replaced by the bill, although no receipt was booked at it', async () => {
+    const w = await world()
+    const r = await w.receipt([[w.bolt, 10, 5]])
+    const bill = (await w.fromReceipt([r._id])).json.invoice
+    // As the daily import leaves an article: priced by its tiers, the purchase price taken from „Цена 2".
+    await Product.updateOne({ _id: w.bolt._id }, { $set: { purchasePrice: 6, priceTiers: [{ name: 'Цена 2', percent: 20, finalPrice: 7.2, manualOverride: true }] } }).exec()
+    const lines = [{ productId: String(w.bolt._id), warehouseId: String(w.warehouse._id), description: 'Болт М8', quantity: 10, unitPrice: 5.5, taxRate: 20 }]
+    expect((await w.call('PUT', `/invoices/${bill.id}`, { lines, reference: 'F-10', subtotal: 55, total: 66 })).status).toBe(200)
+    expect((await w.call('POST', `/invoices/${bill.id}/receive`)).status).toBe(200)
+    const bolt: any = await Product.findById(w.bolt._id).lean().exec()
+    expect(bolt.purchasePrice).toBe(5.5)
+    // The tiers are prices, not costs: the bill moves none of them.
+    expect(bolt.priceTiers.map((t: any) => [t.name, t.finalPrice])).toEqual([['Цена 2', 7.2]])
+  }, 60_000)
+})
+
 describe('„Свържи с доставка" (FR-22.32)', () => {
   it('puts a delivery on an empty draft bill, and only on an empty draft', async () => {
     const w = await world()

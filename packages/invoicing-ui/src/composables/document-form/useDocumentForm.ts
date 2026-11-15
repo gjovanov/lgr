@@ -1,5 +1,6 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { tierLabel } from 'config/price-tiers'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -115,7 +116,7 @@ function emptyBillingAddress() {
 }
 
 export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFormOptions = {}) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const route = useRoute()
   const router = useRouter()
   const appStore = useAppStore()
@@ -730,8 +731,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     return options || []
   }
 
+  /** A choice is a price NAME as the products carry it; a tier slot is drawn by its label (`config/price-tiers`). */
   function docPriceChoiceLabel(key: string): string {
-    return key === BASE_CHOICE ? t('warehouse.sellingPrice') : key
+    return key === BASE_CHOICE ? t('warehouse.sellingPrice') : tierLabel(key, locale.value)
   }
 
   const docPriceItems = computed(() => {

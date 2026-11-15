@@ -112,7 +112,7 @@
                 <template v-if="!readonly">
                   <slot name="line-price" :line="line" :idx="idx">
                     <span>{{ line.quantity }} x {{ fmt(line.unitPrice, 4) }}</span>
-                    <span v-if="line.priceName" class="text-caption">({{ line.priceName }})</span>
+                    <span v-if="line.priceName" class="text-caption">({{ tierLabel(line.priceName, $i18n.locale) }})</span>
                     <PriceSelectButton
                       :product-id="line.productId"
                       :contact-id="contactId"
@@ -197,6 +197,7 @@ import { useDisplay } from 'vuetify'
 import { httpClient } from '../../composables/useHttpClient'
 import TagInput from '../TagInput.vue'
 import PriceSelectButton from '../PriceSelectButton.vue'
+import { tierLabel } from 'config/price-tiers'
 import ProductDetailsButton from '../ProductDetailsButton.vue'
 import ProductPickerDialog from '../ProductPickerDialog.vue'
 
