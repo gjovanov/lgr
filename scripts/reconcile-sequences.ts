@@ -10,6 +10,10 @@
  *
  * Idempotent — safe to re-run.
  *
+ * A series an org numbers WITHOUT a year (`isContinuousSeries`) is left out: every allocation of it reads the
+ * highest number of the series on any document and on any year's row first, so it has nothing to catch up with,
+ * and a per-year reading would miss its year-less numbers.
+ *
  * Usage:
  *   bun run scripts/reconcile-sequences.ts               # dry-run audit
  *   bun run scripts/reconcile-sequences.ts --execute     # apply updates
@@ -19,7 +23,7 @@ import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { keepHomeOrgs } from './lib/home-guard.js'
 import { Invoice, Org, Sequence } from '../packages/db/src/models/index.js'
-import { ensureSequenceAtLeast } from '../packages/services/src/biz/sequence.service.js'
+import { ensureSequenceAtLeast, isContinuousSeries } from '../packages/services/src/biz/sequence.service.js'
 import { currentMaxSuffix } from '../packages/services/src/biz/invoice-numbering.service.js'
 import { INVOICING_SEQUENCE_KEYS } from '../packages/services/src/biz/sequence-registry.js'
 
@@ -58,8 +62,12 @@ async function main() {
       if (m) years.add(Number(m[1]))
     }
     const maxPerGroup = new Map<string, number>() // "year|key" → max
+    const continuous = new Set<string>()
+    for (const key of COUNTER_KEYS) if (await isContinuousSeries(String(org._id), key)) continuous.add(key)
+    for (const key of continuous) console.log(`  [${org.slug}] ${key}: numbered without a year, reconciled at every allocation — skipping`)
     for (const year of years) {
       for (const key of COUNTER_KEYS) {
+        if (continuous.has(key)) continue
         const max = await currentMaxSuffix(String(org._id), key, year)
         if (max > 0) maxPerGroup.set(`${year}|${key}`, max)
       }

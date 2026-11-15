@@ -1566,6 +1566,59 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
 
 Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales skip drafts (CS direct). On `/send` or `/receive`, the controller allocates a new issued number from the canonical SALES_DOC/PROFORMA/OFFER/BILL counter, sets `draftNumber = previousInvoiceNumber`, replaces `invoiceNumber`, and appends to `numberHistory[]`. Display prefix override (per-org-global) lives on the Sequence year=0 sentinel doc; future allocations only. **Documents are editable in EVERY status** — PUT applies no status or posting check. The edit-sent guard (409 when a posted JournalEntry referenced the invoice, with credit-note remediation) was **removed**; ⚠ an edit to a posted document does NOT re-post, so the JournalEntry keeps its pre-edit amounts and trial balance / P&L / balance sheet report the stale figures with nothing marking them so — repost is manual. DELETE keeps its draft-only guard. Configuration page at `/invoicing/configuration/sequences` (admin/manager only).
 
+### A sales series without a year (2026-11-15)
+
+An org may number its sales documents (invoices and their notes, the `SALES_DOC` series) **without a year**:
+`INV-3000004107`, ten digits that go on from one year into the next. It is the form a number brought in from
+another system already has (`convertDraftInvoice` issues `<prefix>-<original number>` and raises the counter past
+it), so an org that imports and also issues by hand read two ways until it chose this: `INV-3000004104` imported,
+`INV-2026-3000004106` issued here. Every other org, and every other series, keeps a number per year.
+
+- **The switch** is on the sequences page (`/invoicing/configuration/sequences`, the "Numbering" column) and is
+  stored as `continuous: true` on the series' year-0 Sequence row, beside its display prefix
+  (`sequence.service#isContinuousSeries` / `setContinuousSeries`). `PUT /invoicing/sequences/:prefix` takes
+  `{ displayPrefix?, continuous? }` and changes only what a request names; `continuous` on any other series is
+  **422 `not_continuous_series`** (the registry's `mayBeContinuous` says which series may). Audit-logged. Future
+  allocations only: a document keeps the number it has.
+- **The documents issued with a year BEFORE the choice** keep it unless the org asks:
+  `scripts/drop-year-from-sales-numbers.ts` (`services/biz/yearless-numbers.ts`; dry run by default, `--execute`
+  needs `--backup`, `--restore` puts a backup back) brings `INV-2026-3000004106` to `INV-3000004106`. Only the year
+  goes: the running number, the counters and every link by id stay, and `numberHistory` names the number the
+  document had. It refuses an org whose series is numbered per year, and it leaves, counted by reason, a number
+  another document already holds (`taken`), one that two years would share (`twice`: a series that started again
+  each year cannot be brought over), BOTH documents of a number issued twice (`clash_pair`), a draft, and a
+  document of another series. Text that quotes the old number (a reversal movement's note, a journal entry, the
+  audit log) stays as written and is counted. ⚠ From then on every reader of the number's form takes such a
+  document for an imported one: the daily importer's index, its audit's content compare, and the passes that
+  act on `INV-<number>` (`scripts/lib/void-annulled.ts`, `scripts/repair-invoices-from-plusminus.ts`).
+- **It counts on ONE row**, the year-0 row's `lastNumber` (`getNextContinuousNumber`): the same atomic `$inc`
+  as every counter, so no number is given twice and none is skipped, whatever year a request's clock says.
+  - Before counting, that row is raised to the highest of every row of the series and of every number of the series
+    on a document, **with a year or without** (`currentMaxSuffix(…, { everyYear: true })`).
+  - After counting, the number is written to **this year's row** as well. ⚠ That mirror is load-bearing: the legal
+    mark on a master, the last numbers a person records after a promotion (`legalCounters`, which leave the
+    year-0 row out) and a build that does not know the option all read the YEARLY rows. A document carries a number
+    only after the mirror is written.
+  - ⚠ Do not move the count back onto the yearly rows. That was the first version: two years counted on at once
+    (midnight on 31 December, two servers whose clocks disagree) had to look at each other's row afterwards and give
+    a number up, which leaves holes in a legal series.
+- **The form's preview and the issue agree**: `peekNextInvoiceNumber` is the one reading behind
+  `GET /invoice/peek-next` for an issued number, in both modes. Drafts are numbered per year as before.
+- `scripts/reconcile-sequences.ts` leaves a continuous series out: every allocation of it catches up by itself.
+- ⚠ **Other readers of the number's FORM.** An importer that tells a document typed here from an imported one by
+  the year in its number (`scripts/lib/invoice-index.ts`: `INV-<year>-<n>` = "entered by hand") sees both
+  as `INV-<n>` once the org numbers without a year. Both were skipped before and both are skipped now; only
+  the label in its log changes. Its audit (`scripts/audit-coverage-api.ts`) then compares such a document with
+  the other system's invoice of the same number and lists a difference as `DIFF`, and lists one with no
+  counterpart there. ⚠ One series, two systems: a number issued here stands for the other system's invoice of
+  that number, so the two must not both issue.
+- **The highest number is counted in the database** (`currentMaxSuffix` is one `$group`, index-covered): a
+  continuous series matches every sales document the org holds, and the reading runs at each issue and each
+  time a form asks for the next number.
+- **The legal mark's ceiling is ten digits** (`legal-mark.service#SERIES_MAX`). It was nine: a ten-digit
+  counter's mark was dropped as damage at every read, so a series standing where another system's numbers
+  left it had no mark on a master, and a database put back below it locked nothing.
+
 ## Generic grid column picker + price-select + Словом + perf (2026-07-26)
 
 - **Per-user grid columns** (visibility + reorder) on EVERY `ListScaffold` grid: `ui-shared/composables/useGridColumns.ts` (localStorage `lgr:grid-cols:<userId>:<orgId>:<gridId>`, gridId = route name) + `GridColumnPickerDialog.vue`; a cog in the results header opens it. userId read from the JWT in localStorage (no app-store coupling). Grids NOT on ListScaffold (e.g. `StockLevelsView`) don't get it yet. ⚠ A saved order exists only after a MOVE and then wins, so a new default order reaches only users who never reordered; a column the saved order has never seen goes right after its catalog predecessor (`orderColumnKeys`, FR-22.46).
@@ -1595,7 +1648,8 @@ Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales 
   the tree's number columns are budgeted to the pixel, and `customer-order-tree.spec` measures the field, the button
   and the sideways scroll at 1366 px and 1920 px.
 - **Amount-in-words (Словом)**: `ui-shared/composables/useAmountInWords.ts` (`amountInWords` / `upsertAmountInWords`) — deterministic en/bg/de/mk converter, client-side, written into notes on save of every OUTGOING doc (gated `config.direction === 'outgoing'` in `useDocumentForm.buildPayload`) + orders, in the user's UI language, de-duped on re-save. Legacy format: `Словом : … евро и NN цента, Данъчна основа X.XX €`. Unit-tested (`amount-in-words.test.ts`).
-- **Bottom Save/Print bar** on all doc forms (`DocumentForm.vue`) + order form.
+- **Bottom Save/Print bar** on all doc forms (`DocumentForm.vue`) + order form. Since 2026-11-15 a document form's is
+  the bar under its title drawn again, from one list: „One list of actions for a document's two bars" below.
 - **billingAddress fully optional** (model `addressSchema` + all POST/PUT body schemas) — saving without postal code no longer 500s.
 - **Perf**: dashboard `/summary` stock uses `getStockValuationTotals` ($group aggregation, ~25ms) not the 23k-doc materialisation (~1.6s). **CoreDNS upstream** was switched from the cluster dnsmasq forwarder (~6s first external lookup → slow OAuth/Google) to public resolvers (8.8.8.8/1.1.1.1) — cluster-infra change, lives in kube-system configmap `coredns` (backup on master-node `/tmp/coredns-backup-*.yaml`); belongs in k8s-cluster-multi long-term.
 - Invoice POST/PUT accept `orderId`/`orderGroupId` (API clients can link bills to orders).
@@ -2524,7 +2578,9 @@ is the one place that knows the rules; `invoicing-api/…/dispatch-invoice.contr
 ## Issue, print and get paid on the document (2026-10-26, FR-22 slice 2a: FR-22.16–.22)
 
 A sales document is finished on its own form: „Издай и печатай" saves it, issues it, settles a card
-or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs → 0).
+or cash sale and prints it (P5-invoice 20 → 14 clicks, 2 dialogs → 0 at the time). Since 2026-11-15 it
+asks HOW to print first, in the Print dialog, and that dialog's confirmation is what saves, issues and
+prints: „One list of actions for a document's two bars" below.
 
 - **Save stays on the document** (every invoicing document form but the cash sale, which FR-21
   owns): a new one moves onto its own edit route. The views key `DocumentForm` on
@@ -2543,7 +2599,7 @@ or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs
   draft says why (`issueError`).
 - **„Печат" prints in one click** with the user's last settings (`lgr:doc-print:<user>:<org>`:
   format, mode, columns — never the companion documents); „Печат с настройки…" beside it opens the
-  dialog on them (`ExportDialog` `initialColumns`). An edited document is saved first. A printed
+  dialog on them (`ExportDialog` `initialColumns`), its columns folded. An edited document is saved first. A printed
   draft says ЧЕРНОВА, as one copy, without its DRF- number (`invoice.pdf.ts`).
 - **Card is paid on issue like cash** (D-3): `syncCashSettlement` records `card_on_issue`; cash ↔
   card moves the automatic payment; hand-recorded payments are untouched; bank transfer and cash on
@@ -2560,7 +2616,51 @@ or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs
   prices the invoice charged.
 - Tests: `integration/cash-settlement.flow` (+7 card), `proforma-issue.flow` (6),
   `document-form-flow.flow` (6), `unit/invoice-pdf-form` (+4); walks P5-invoice 14 · 6 · 0 dialogs,
-  P5-credit 5 · 1, P6 12 · 5 · 0.
+  P5-credit 5 · 1, P6 12 · 5 · 0 (since 2026-11-15, with the payment-method question of 11-12 and the
+  Print dialog: P5-invoice 16 · 6 · 2, P6 15 · 5 · 3).
+
+### One list of actions for a document's two bars; „Издай и печатай" asks how to print (2026-11-15)
+
+The owner's two asks: an issued sales invoice had its Save only at the foot of the form, and „Изпрати по
+имейл" / „Печат" sat in a third row inside the document; and „Издай и печатай" should open the Print
+dialog first, its columns folded.
+
+- **One list, drawn twice.** `DocumentForm` hands `barActions` to `EntityFormShell`, which draws it
+  under the title and, with `bottom-actions`, again at the foot (`ui-shared/FormActionBar.vue`). The
+  list is `useDocumentForm#formActions` (the document's own steps) with e-mail, Print and a bill's
+  „Стокова разписка" put in before Import (`document-form/form-actions.ts#withOutputActions`). There
+  is no second place that decides what a bar offers: ⚠ never add a button to the form's body or to one
+  bar. `FormAction` grew what those buttons needed: `key`, `testId`, `title`, `disabledHint` (shown
+  while disabled: e-mail on a draft), `more` (the split button's second half: Print's options),
+  `note` (the last-sent chip), `collapse`.
+- **Test ids**: the bar under the title has `print-now`, `print-options`, `print-stock-receipt` (as the
+  row in the body had) and `issue-and-print`; the foot's are the same with `-bottom`. Every action carries `data-action="<key>"`
+  in both. `.form-actions-bar` is the title's bar ONLY (specs scope to it); the foot is
+  `[data-testid="form-bottom-actions"]`. A label looked up with no scope now matches twice on every
+  document form: `.first()`, or scope it.
+- **Save is offered in every status**, in both bars (the cash-sale terminal apart): the foot always
+  had it, the API takes an edit in every status, and `editSaveGate: 'draft-only'` (the sales invoice)
+  now only keeps Import off an issued one. So Ctrl+S saves an issued invoice too.
+- **One line where it fits** (`form-action-collapse.ts`, `COLLAPSE` in `form-actions.ts`): an action
+  with a `collapse` rank gives up its label for its icon when the row would wrap, the rarest first
+  (import → attach / a draft quote's converts → debit note → credit note → stock receipt → e-mail →
+  print); Save, issue, receive and a payment never do. The label stays as `aria-label` and tooltip, so
+  ⚠ find a bar's button by role and name, never by its text. A row that is two lines even as icons
+  (a phone) shows every label and wraps.
+- **„Издай и печатай"** (`onIssueAndPrint` → `onPrintDialogConfirm` → `issueFromForm(print)`): a new
+  or edited form is validated, then the Print dialog opens and NOTHING has happened: closing it saves
+  nothing, issues nothing, prints nothing. Its confirmation (the button says „Издай и печатай") closes it, then
+  saves, issues (the payment-method question and the transfer dialog are asked over the form, as
+  before) and prints with what it chose, companions included; refused, nothing prints. The settings
+  are remembered only by a print that happened. „Издай" and plain „Печат" are unchanged.
+- **`ExportDialog`**: `collapsibleColumns` (every document's Print dialog, the cash-sale terminal's
+  too; list exports are as they were) folds the columns on every open under a header that counts
+  them (`export-columns-toggle`, `-count`, `export-columns`); `confirmLabel`; `export-confirm` /
+  `export-cancel`. It is `scrollable`: opened, the columns no longer push its buttons off a laptop
+  screen.
+- Tests: `unit/document-form-actions.test.ts` (23: the list's order, the collapse order, and guards
+  that the form's template holds no button of its own), `e2e/tests/document-form-actions.spec.ts`
+  (9, project `invoicing-inventory`), walks P5-invoice and P6.
 
 ## Document lists: one row menu, fit 1366 px, a Create that says what (2026-10-26, FR-22 slice 2b: FR-22.23–.27, .50)
 

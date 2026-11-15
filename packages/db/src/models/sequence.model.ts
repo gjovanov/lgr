@@ -11,6 +11,13 @@ export interface ISequence extends Document {
   /** Optional display override. When set on the year=0 sentinel doc for a given prefix,
    * future allocations use this string as the formatted prefix instead of the canonical key. */
   displayPrefix?: string
+  /**
+   * On the year=0 sentinel doc of a series: its numbers carry no year and never start again on
+   * 1 January (`INV-3000004106`). Such a series COUNTS on this row (`lastNumber`), and each number
+   * drawn is written to its year's row as well, which is what the legal mark and a promotion's last
+   * numbers read (`sequence.service#getNextContinuousNumber`).
+   */
+  continuous?: boolean
 }
 
 const sequenceSchema = new Schema<ISequence>(
@@ -19,6 +26,7 @@ const sequenceSchema = new Schema<ISequence>(
     year: { type: Number, required: true },
     lastNumber: { type: Number, required: true, default: 0 },
     displayPrefix: String,
+    continuous: Boolean,
   },
   { timestamps: true },
 )

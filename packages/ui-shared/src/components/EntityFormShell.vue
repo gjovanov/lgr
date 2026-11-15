@@ -33,30 +33,17 @@
       <!-- Left: form sheet (scrollable) -->
       <div class="form-sheet flex-grow-1">
         <!-- Actions bar: sticky -->
-        <div v-if="visibleActions.length || status" class="form-actions-bar d-flex align-center justify-space-between px-4 py-1">
-          <div class="d-flex align-center ga-1 flex-wrap">
-            <template v-for="action in visibleActions" :key="action.label">
-              <v-btn
-                :color="action.color || 'primary'"
-                :variant="action.variant || 'flat'"
-                :loading="action.loading"
-                :disabled="action.disabled"
-                :prepend-icon="action.icon"
-                :aria-keyshortcuts="ariaShortcuts(action)"
-                size="small"
-                @click="action.handler"
-              >
-                {{ action.label }}
-                <!-- FR-22.52: the keys that run this action, named where the person looks for them. -->
-                <v-tooltip v-if="shortcutLabels(action).length" activator="parent" location="bottom" content-class="tooltip-visible">
-                  {{ shortcutLabels(action).join(' · ') }}
-                </v-tooltip>
-              </v-btn>
-            </template>
-          </div>
+        <div v-if="visibleActions.length || status" class="form-actions-bar d-flex align-center justify-space-between ga-2 px-4 py-1">
+          <FormActionBar
+            class="form-actions-bar__actions"
+            :actions="visibleActions"
+            size="small"
+            :shortcut-labels="shortcutLabels"
+            :aria-shortcuts="ariaShortcuts"
+          />
 
           <!-- Status pipeline -->
-          <div v-if="status" class="d-flex align-center ga-1 flex-wrap">
+          <div v-if="status" class="form-actions-bar__status d-flex align-center ga-1 flex-wrap">
             <template v-for="(step, idx) in status.steps" :key="step">
               <v-chip
                 :color="getStepColor(step, idx)"
@@ -96,6 +83,20 @@
               </div>
               <v-card-text class="pa-4">
                 <slot />
+                <!-- The same actions again at the foot of a long form (`bottom-actions`), so nobody scrolls
+                     back up for them. It is the list the bar under the title draws, in the same order: an
+                     action is offered in both places or in neither. -->
+                <template v-if="bottomActions && visibleActions.length">
+                  <v-divider class="my-4" />
+                  <FormActionBar
+                    class="form-bottom-actions pb-2"
+                    :actions="visibleActions"
+                    test-id-suffix="-bottom"
+                    :shortcut-labels="shortcutLabels"
+                    :aria-shortcuts="ariaShortcuts"
+                    data-testid="form-bottom-actions"
+                  />
+                </template>
               </v-card-text>
             </v-card>
           </div>
@@ -144,11 +145,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { inModule } from '../nav/open-page'
 import { useI18n } from 'vue-i18n'
 import SmartButton from './SmartButton.vue'
+import FormActionBar from './FormActionBar.vue'
 import { focusFirstField, isMacPlatform, useFormShortcuts } from '../composables/form-shortcuts'
 import { capShows, type CapValue } from '../access/v-cap'
 
 export interface FormAction {
   label: string
+  /** A theme colour. Unset: primary. `''`: none, the plain outlined button of a side action (Print). */
   color?: string
   icon?: string
   handler: () => void
@@ -156,6 +159,23 @@ export interface FormAction {
   loading?: boolean
   disabled?: boolean
   variant?: 'flat' | 'outlined' | 'text'
+  /** A name that does not change with the language: what the row is keyed by, and `data-action` on its button. */
+  key?: string
+  /** `data-testid` of its button. A second row of the same actions adds its suffix (`-bottom`). */
+  testId?: string
+  /** A longer word on what it does, as the button's native tooltip. */
+  title?: string
+  /** Said on hover while it is disabled: why, and what to do first. */
+  disabledHint?: string
+  /** A second, icon-only half joined to the button: the same action with options („Печат" | „Печат с настройки…"). */
+  more?: { icon: string; label: string; handler: () => void; testId?: string }
+  /** A quiet marker shown in front of it (FR-10.9: when the document was last e-mailed). */
+  note?: { text: string; title?: string; icon?: string; color?: string }
+  /**
+   * Where the row is too narrow for every label, this action shows as its icon alone (its label the tooltip),
+   * the lowest number first. Unset, or with no icon: it always keeps its label.
+   */
+  collapse?: number
   /** Ctrl+S runs it (FR-22.52). Unset on every action: the one labelled „Запази" (`common.save`). */
   save?: boolean
   /**
@@ -199,6 +219,8 @@ const props = withDefaults(defineProps<{
   backTo?: string
   backLabel?: string
   entityId?: string
+  /** Draw the actions a second time at the foot of the form: the same list, for a form long enough to scroll. */
+  bottomActions?: boolean
   /**
    * Focus the first field once the form renders. Unset: on a new document, which is a route
    * with a `new` segment (`/invoices/new`, `/products/new/edit`) and no `entityId`.
@@ -324,6 +346,19 @@ function goBack() {
   background: rgb(var(--v-theme-surface));
   border-bottom: thin solid rgba(var(--v-border-color), 0.12);
   flex-shrink: 0;
+}
+
+/* The actions take what the status pipeline leaves, and fit themselves into it (`FormActionBar`): their width
+   must not depend on how many labels they show, or the fitting would chase itself. The pipeline keeps to its
+   own width up to a share of the bar, and wraps its steps past it, so the actions are never left with nothing. */
+.form-actions-bar__actions {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.form-actions-bar__status {
+  flex: 0 1 auto;
+  max-width: 60%;
 }
 
 .smart-buttons-row {
@@ -471,6 +506,25 @@ function goBack() {
 
   .form-paper-scroll {
     overflow: visible;
+  }
+
+  /* No room for the actions beside the pipeline: each takes a line of its own. */
+  .form-actions-bar {
+    flex-wrap: wrap;
+  }
+
+  .form-actions-bar__actions {
+    flex-basis: 100%;
+  }
+
+  /* A form that offers nothing now (a cancelled order) has no line of actions to leave a gap for.
+     (`!important`: the row is a `d-flex`, and Vuetify's utilities are.) */
+  .form-actions-bar__actions:empty {
+    display: none !important;
+  }
+
+  .form-actions-bar__status {
+    max-width: 100%;
   }
 
   .form-sidebar,
