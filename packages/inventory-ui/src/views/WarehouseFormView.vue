@@ -109,7 +109,7 @@ const emptyAddress = (): IAddress => ({ street: '', city: '', state: '', postalC
 const emptyForm = () => ({ code: '', name: '', type: 'warehouse', manager: '', address: emptyAddress(), isDefault: false, isExternal: false, isActive: true })
 const form = ref(emptyForm())
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'inventory',
   entityType: 'warehouse',
   icon: 'mdi-warehouse',
@@ -136,16 +136,18 @@ async function fetchItem() {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse/${route.params.id}`)
     const item = data.warehouse || data
     const addr = item.address || emptyAddress()
-    form.value = {
-      code: item.code,
-      name: item.name,
-      type: item.type || 'warehouse',
-      manager: item.manager || '',
-      address: { street: addr.street || '', city: addr.city || '', state: addr.state || '', postalCode: addr.postalCode || '', country: addr.country || '' },
-      isDefault: item.isDefault,
-      isExternal: !!item.isExternal,
-      isActive: item.isActive,
-    }
+    await markLoaded(() => {
+      form.value = {
+        code: item.code,
+        name: item.name,
+        type: item.type || 'warehouse',
+        manager: item.manager || '',
+        address: { street: addr.street || '', city: addr.city || '', state: addr.state || '', postalCode: addr.postalCode || '', country: addr.country || '' },
+        isDefault: item.isDefault,
+        isExternal: !!item.isExternal,
+        isActive: item.isActive,
+      }
+    })
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {

@@ -132,7 +132,7 @@ const form = ref({
   items: [emptyItem()] as any[],
 })
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'inventory',
   entityType: 'priceList',
   icon: 'mdi-tag-multiple',
@@ -155,11 +155,13 @@ async function fetchItem() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/price-list/${route.params.id}`)
     const item = data.priceList || data
-    form.value = {
-      name: item.name, currency: item.currency, validFrom: item.validFrom?.split('T')[0] || '',
-      validTo: item.validTo?.split('T')[0] || '', isActive: item.isActive,
-      items: item.items || [emptyItem()],
-    }
+    await markLoaded(() => {
+      form.value = {
+        name: item.name, currency: item.currency, validFrom: item.validFrom?.split('T')[0] || '',
+        validTo: item.validTo?.split('T')[0] || '', isActive: item.isActive,
+        items: item.items || [emptyItem()],
+      }
+    })
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {

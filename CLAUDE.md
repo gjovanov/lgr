@@ -1645,9 +1645,8 @@ it), so an org that imports and also issues by hand read two ways until it chose
   first** (`InternalOrderFormView#saveIfNeeded`, quietly, as a document's Issue does): they used to act on the
   stored order and the reload after them dropped the edit, so "pick a price, press Convert" invoiced the client's
   price. The picker stands only while the order can still be saved, and by this person (draft or confirmed, the Save
-  button's capability; else both buttons act on the stored order as before). ⚠ A browser test that edits
-  and then presses either button must first wait out the form's 500 ms baseline timer (`usePendingChanges`), or the
-  edit counts as loaded and nothing is saved. ⚠ There it is `density="comfortable"` (20 px,
+  button's capability; else both buttons act on the stored order as before). The form's clean state is taken when
+  its load resolves, never on a timer (FR-31.2), so a browser test may edit as soon as the order shows. ⚠ There it is `density="comfortable"` (20 px,
   the till's and the invoice's is 32 px) inside `.order-tree__num-group`, and the price column is 108 px to hold it:
   the tree's number columns are budgeted to the pixel, and `customer-order-tree.spec` measures the field, the button
   and the sideways scroll at 1366 px and 1920 px.
@@ -2864,8 +2863,18 @@ prints: „One list of actions for a document's two bars" below.
   view when only the id or query changes, so A's form used to stay up under B's address), and the
   form's own create keeps it (`onCreated` → `adopt`) — it goes on issuing or printing what it made.
   ⚠ `usePendingChanges`' leave guard now FOLLOWS the route record: `onBeforeRouteLeave` binds to
-  the record of the moment, and after new → edit in the same form it never ran again. `markClean()`
-  (called by `loadDocument`) re-arms it after a save that stays.
+  the record of the moment, and after new → edit in the same form it never ran again.
+  - ⚠ **Saving never switches the guard off** (FR-31.1, 2026-11-16). `markSaved()` takes the clean state again and
+    keeps guarding: it used to raise a flag nothing lowered, and on the eight forms that stay open after a save
+    (movement, count, price list, warehouse, category, POS device, timesheet, payroll run) an edit made afterwards
+    was dropped on leaving without a word.
+  - **The clean state is taken when the load resolves** (FR-31.2): `markLoaded(apply)`, with the assignment of the
+    stored values as `apply`, on the first load and a reload. A new record is clean once it has mounted. No timer: the
+    500 ms one counted a slower load as an edit and an edit in the first half second as loaded. An edit made while the
+    load runs is put back over the loaded field and stays an edit (`editsSince`), unless the load is of another record.
+  - A value the form only reads (a line's stock, a device's status) is left out of `getFormData`: its late arrival
+    would read as an edit. Tested in `unit/pending-changes-guard.test.ts` (no DOM: a no-op renderer) and
+    `e2e/tests/unsaved-after-save.spec.ts`.
 - **One issue path** (FR-22.17): `invoicing-ui/composables/document-issue.ts` holds the requests (the
   document, `/stock-availability/check`, `create-transfers`, `/send`) with no Vue in it — the
   integration test drives the same functions — and `useDocumentIssue` adds the transfer dialog, the

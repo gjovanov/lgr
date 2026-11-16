@@ -93,7 +93,7 @@ const form = ref({
   source: 'manual',
 })
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'accounting',
   entityType: 'exchangeRate',
   icon: 'mdi-currency-usd',
@@ -145,13 +145,15 @@ async function loadExchangeRate() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/accounting/exchange-rate/${route.params.id}`)
     const rate = data.exchangeRate || data
-    form.value = {
-      fromCurrency: rate.fromCurrency || '',
-      toCurrency: rate.toCurrency || '',
-      rate: rate.rate || 1,
-      date: rate.date?.split('T')[0] || '',
-      source: rate.source || 'manual',
-    }
+    await markLoaded(() => {
+      form.value = {
+        fromCurrency: rate.fromCurrency || '',
+        toCurrency: rate.toCurrency || '',
+        rate: rate.rate || 1,
+        date: rate.date?.split('T')[0] || '',
+        source: rate.source || 'manual',
+      }
+    })
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {

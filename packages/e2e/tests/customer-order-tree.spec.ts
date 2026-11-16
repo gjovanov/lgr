@@ -580,10 +580,6 @@ test.describe('A line\'s price is picked from the article\'s prices, as on an in
     const ordi = (await api.call('POST', `/invoicing/internal-orders/${internalOrder._id}/confirm`)).internalOrder
     await api.call('POST', `/invoicing/internal-orders/${ordi._id}/reserve-available`, {})
     await open(page, ordi)
-    // The form takes one more clean baseline by itself, on a timer 500 ms after it mounts (`usePendingChanges`), and
-    // a pick that timer finds counts as loaded: the form would then have nothing to save before it converts. A person
-    // cannot pick that soon after a form opens; this test can. A timer set in the page now runs after that one.
-    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)))
 
     const row = lineRow(page, ordi.lines[0]._id)
     await pickerOf(row).click()
@@ -633,8 +629,6 @@ test.describe('A line\'s price is picked from the article\'s prices, as on an in
     await page.goto(`/invoicing/internal-orders/${internalOrder._id}/edit`)
     const row = lineRow(page, internalOrder.lines[0]._id)
     await expect(priceOf(row)).toHaveValue('10', { timeout: 15000 })
-    // After the form's own baseline timer (see the test above).
-    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 500)))
     await pickerOf(row).click()
     await options(page).filter({ hasText: 'Цена 1' }).click()
     await expect(pickerOf(row)).toHaveAttribute('data-pinned', 'true')

@@ -192,7 +192,7 @@ const form = ref({
   isActive: true,
 })
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'accounting',
   entityType: 'account',
   icon: 'mdi-book-open-variant',
@@ -249,16 +249,18 @@ async function loadAccount() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/accounting/account/${route.params.id}`)
     const account = data.account || data
-    form.value = {
-      code: account.code || '',
-      name: account.name || '',
-      type: account.type || '',
-      subType: account.subType || '',
-      parentId: account.parentId || '',
-      currency: account.currency || '',
-      description: account.description || '',
-      isActive: account.isActive !== false,
-    }
+    await markLoaded(() => {
+      form.value = {
+        code: account.code || '',
+        name: account.name || '',
+        type: account.type || '',
+        subType: account.subType || '',
+        parentId: account.parentId || '',
+        currency: account.currency || '',
+        description: account.description || '',
+        isActive: account.isActive !== false,
+      }
+    })
     books.value = {
       ...(account.balanceSide ? { balanceSide: account.balanceSide } : {}),
       analyticRoots: Array.isArray(account.analyticRoots) ? account.analyticRoots : [],

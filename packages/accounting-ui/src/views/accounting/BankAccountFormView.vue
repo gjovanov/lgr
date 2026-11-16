@@ -148,7 +148,7 @@ const form = ref({
   isActive: true,
 })
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'accounting',
   entityType: 'bankAccount',
   icon: 'mdi-bank',
@@ -204,17 +204,19 @@ async function loadBankAccount() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/accounting/bank-account/${route.params.id}`)
     const bank = data.bankAccount || data
-    form.value = {
-      name: bank.name || '',
-      bankName: bank.bankName || '',
-      accountNumber: bank.accountNumber || '',
-      iban: bank.iban || '',
-      swift: bank.swift || '',
-      accountId: bank.accountId || '',
-      currency: bank.currency || 'EUR',
-      isDefault: bank.isDefault || false,
-      isActive: bank.isActive !== false,
-    }
+    await markLoaded(() => {
+      form.value = {
+        name: bank.name || '',
+        bankName: bank.bankName || '',
+        accountNumber: bank.accountNumber || '',
+        iban: bank.iban || '',
+        swift: bank.swift || '',
+        accountId: bank.accountId || '',
+        currency: bank.currency || 'EUR',
+        isDefault: bank.isDefault || false,
+        isActive: bank.isActive !== false,
+      }
+    })
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {

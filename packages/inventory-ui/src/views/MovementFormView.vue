@@ -679,11 +679,12 @@ watch(() => form.value.type, (t) => { if (t !== 'receipt') grWithUpdate.value = 
 
 const computedTotal = computed(() => form.value.lines.reduce((s: number, l: any) => s + l.quantity * (l.unitCost || 0), 0))
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'inventory',
   entityType: 'stockMovement',
   icon: 'mdi-swap-horizontal',
-  getFormData: () => ({ ...form.value }),
+  // What a line's warehouse holds is read, never typed: its arrival after a load is no unsaved change.
+  getFormData: () => ({ ...form.value, lines: form.value.lines.map(({ stockQty: _stockQty, ...line }: any) => line) }),
   // The pending-changes panel shows the values: the type by its name, not as „receipt".
   getPreviewFields: () => [
     { label: 'Type', value: t(`warehouse.movementTypes.${form.value.type}`) },
@@ -841,19 +842,22 @@ async function fetchItem() {
     }
     // ⚠ A booked movement names an external side in `externalFromWarehouseId` / `externalToWarehouseId`:
     // its stock fields name only the warehouses whose stock it moved. The page shows the side either way.
-    form.value = {
-      type: detail.type,
-      fromWarehouseId: detail.fromWarehouseId || detail.externalFromWarehouseId || null,
-      toWarehouseId: detail.toWarehouseId || detail.externalToWarehouseId || null,
-      toGuessed: false,
-      contactId: detail.contactId || undefined, date: detail.date?.split('T')[0] || '', notes: detail.notes || '',
-      lines: (detail.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null, productUpdate: l.productUpdate || {}, priceTiers: l.priceTiers || [] })),
-    }
-    const wasOn = grWithUpdate.value
-    syncGrWithUpdateFromLines()
-    // Reloaded with the switch on (after a save): the lines take their articles' current values
-    // again, so what the next save sends is what changes from here. Turning it on seeds them too.
-    if (wasOn && !readonly.value) await seedUnseededLines()
+    await markLoaded(async () => {
+      form.value = {
+        type: detail.type,
+        fromWarehouseId: detail.fromWarehouseId || detail.externalFromWarehouseId || null,
+        toWarehouseId: detail.toWarehouseId || detail.externalToWarehouseId || null,
+        toGuessed: false,
+        contactId: detail.contactId || undefined, date: detail.date?.split('T')[0] || '', notes: detail.notes || '',
+        lines: (detail.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null, productUpdate: l.productUpdate || {}, priceTiers: l.priceTiers || [] })),
+      }
+      const wasOn = grWithUpdate.value
+      syncGrWithUpdateFromLines()
+      // Reloaded with the switch on (after a save): the lines take their articles' current values
+      // again, so what the next save sends is what changes from here. Turning it on seeds them too
+      // (its watcher), and that is awaited here: seeding is part of the load, not an edit.
+      if ((wasOn && !readonly.value) || (!wasOn && grWithUpdate.value)) await seedUnseededLines()
+    })
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
@@ -1361,9 +1365,12 @@ onMounted(async () => {
     await fetchItem()
     return
   }
-  applyNewReceiptDefaults()
+  // A new receipt's defaults (and the article it was started from) are what it starts with, not an edit.
   const productId = typeof route.query.productId === 'string' ? route.query.productId : ''
-  if (productId) await prefillFromProduct(productId)
+  await markLoaded(async () => {
+    applyNewReceiptDefaults()
+    if (productId) await prefillFromProduct(productId)
+  })
 })
 </script>
 

@@ -425,7 +425,7 @@ const accountOptions = computed(() => store.accounts.map((a: any) => ({ _id: a._
 
 const form = ref<FixedAssetForm>(emptyForm())
 
-const { markSaved, markClean, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'accounting',
   entityType: 'fixedAsset',
   icon: 'mdi-domain',
@@ -549,10 +549,11 @@ async function loadFixedAsset() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/accounting/fixed-asset/${route.params.id}`)
     const asset = data.fixedAsset || data
-    loaded.value = asset
-    form.value = formOf(asset)
     // What it shows now is the clean state: a slow answer is not an unsaved change.
-    markClean()
+    await markLoaded(() => {
+      loaded.value = asset
+      form.value = formOf(asset)
+    })
     void loadAnalytics()
   } catch (e: any) {
     showError(refusal(e))

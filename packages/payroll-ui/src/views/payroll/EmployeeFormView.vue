@@ -143,7 +143,7 @@ const personal = useEmployeePersonal()
 
 const isEdit = computed(() => !!route.params.id)
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'payroll',
   entityType: 'employee',
   icon: 'mdi-account',
@@ -177,12 +177,14 @@ onMounted(async () => {
     const employee = await store.fetchEmployee(route.params.id as string)
     if (employee) {
       const empty = emptyForm()
-      Object.assign(form, {
-        ...empty,
-        ...employee,
-        salary: { ...empty.salary, ...employee.salary },
-        deductions: employee.deductions?.length ? employee.deductions.map((d: any) => ({ ...d })) : [],
-        benefits: employee.benefits?.length ? employee.benefits.map((b: any) => ({ ...b })) : [],
+      await markLoaded(() => {
+        Object.assign(form, {
+          ...empty,
+          ...employee,
+          salary: { ...empty.salary, ...employee.salary },
+          deductions: employee.deductions?.length ? employee.deductions.map((d: any) => ({ ...d })) : [],
+          benefits: employee.benefits?.length ? employee.benefits.map((b: any) => ({ ...b })) : [],
+        })
       })
       personal.reset(employee)
     }

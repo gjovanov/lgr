@@ -474,11 +474,15 @@ const device = reactive({
   status: '' as string,
 })
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'invoicing',
   entityType: 'posDevice',
   icon: 'mdi-printer-pos',
-  getFormData: () => ({ ...device }),
+  // The device's status is what the bridge reports, never an edit: a printer coming online is no unsaved change.
+  getFormData: () => {
+    const { status: _status, ...fields } = device
+    return fields
+  },
   getPreviewFields: () => [
     { label: t('common.name'), value: device.name },
     { label: t('pos.device.number'), value: device.deviceNumber },
@@ -703,16 +707,18 @@ async function fetchDevice() {
   try {
     const { data } = await httpClient.get(`${deviceUrl.value}/${deviceId.value}`)
     const d = data.fiscalDevice || data
-    Object.assign(device, {
-      name: d.name || '',
-      deviceNumber: d.deviceNumber || '',
-      manufacturer: d.manufacturer || 'datecs',
-      connectionType: d.connectionType || 'browser',
-      ip: d.connectionParams?.ip || '',
-      tcpPort: d.connectionParams?.tcpPort || 4999,
-      warehouseId: d.warehouseId || null,
-      isActive: d.isActive !== false,
-      status: d.status || '',
+    await markLoaded(() => {
+      Object.assign(device, {
+        name: d.name || '',
+        deviceNumber: d.deviceNumber || '',
+        manufacturer: d.manufacturer || 'datecs',
+        connectionType: d.connectionType || 'browser',
+        ip: d.connectionParams?.ip || '',
+        tcpPort: d.connectionParams?.tcpPort || 4999,
+        warehouseId: d.warehouseId || null,
+        isActive: d.isActive !== false,
+        status: d.status || '',
+      })
     })
     setCapabilities(d)
     clockHeld.value = d.clockHeld ?? null

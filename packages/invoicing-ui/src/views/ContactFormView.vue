@@ -260,7 +260,7 @@ function keepTypedAlias() {
   aliasText.value = ''
 }
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'invoicing',
   entityType: 'contact',
   icon: 'mdi-contacts',
@@ -444,27 +444,29 @@ onMounted(async () => {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/${route.params.id}`)
       const contact = data.contact || data
-      Object.assign(form, {
-        companyName: contact.companyName || '',
-        firstName: contact.firstName || '',
-        lastName: contact.lastName || '',
-        type: contact.type || 'customer',
-        email: contact.email || '',
-        phone: contact.phone || '',
-        mobile: contact.mobile || '',
-        taxId: contact.taxId || '',
-        taxNumber: contact.taxNumber || '',
-        vatNumber: contact.vatNumber || '',
-        registrationNumber: contact.registrationNumber || '',
-        paymentTermsDays: contact.paymentTermsDays ?? 30,
-        website: contact.website || '',
-        isActive: contact.isActive ?? true,
-        notes: contact.notes || '',
-        representative: contact.representative || '',
-        addresses: contact.addresses || [],
-        bankDetails: contact.bankDetails || [],
-        tags: contact.tags || [],
-        aliases: contact.aliases || [],
+      await markLoaded(() => {
+        Object.assign(form, {
+          companyName: contact.companyName || '',
+          firstName: contact.firstName || '',
+          lastName: contact.lastName || '',
+          type: contact.type || 'customer',
+          email: contact.email || '',
+          phone: contact.phone || '',
+          mobile: contact.mobile || '',
+          taxId: contact.taxId || '',
+          taxNumber: contact.taxNumber || '',
+          vatNumber: contact.vatNumber || '',
+          registrationNumber: contact.registrationNumber || '',
+          paymentTermsDays: contact.paymentTermsDays ?? 30,
+          website: contact.website || '',
+          isActive: contact.isActive ?? true,
+          notes: contact.notes || '',
+          representative: contact.representative || '',
+          addresses: contact.addresses || [],
+          bankDetails: contact.bankDetails || [],
+          tags: contact.tags || [],
+          aliases: contact.aliases || [],
+        })
       })
     } catch (err) {
       console.error('Failed to load contact:', err)

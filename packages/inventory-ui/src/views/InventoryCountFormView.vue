@@ -113,7 +113,7 @@ const form = ref({
   lines: [] as Array<{ productId: string; productName: string; systemQuantity: number; countedQuantity: number; avgCost: number }>,
 })
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'inventory',
   entityType: 'inventoryCount',
   icon: 'mdi-clipboard-check',
@@ -154,17 +154,19 @@ async function fetchItem() {
     countNumber.value = detail.countNumber || detail.number || ''
     countStatus.value = detail.status || 'draft'
     adjustmentMovementId.value = detail.adjustmentMovementId || ''
-    form.value = {
-      warehouseId: detail.warehouseId || '', date: detail.date?.split('T')[0] || '', type: detail.type || 'full',
-      notes: detail.notes || '',
-      lines: (detail.lines || []).map((l: any) => ({
-        productId: l.productId,
-        productName: l.productName || '',
-        systemQuantity: l.systemQuantity ?? 0,
-        countedQuantity: l.countedQuantity ?? 0,
-        avgCost: l.avgCost || 0,
-      })),
-    }
+    await markLoaded(() => {
+      form.value = {
+        warehouseId: detail.warehouseId || '', date: detail.date?.split('T')[0] || '', type: detail.type || 'full',
+        notes: detail.notes || '',
+        lines: (detail.lines || []).map((l: any) => ({
+          productId: l.productId,
+          productName: l.productName || '',
+          systemQuantity: l.systemQuantity ?? 0,
+          countedQuantity: l.countedQuantity ?? 0,
+          avgCost: l.avgCost || 0,
+        })),
+      }
+    })
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {

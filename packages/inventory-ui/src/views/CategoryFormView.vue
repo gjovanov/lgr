@@ -58,7 +58,7 @@ const formRef = ref()
 const emptyForm = () => ({ name: '', description: '', icon: '', color: '', sortOrder: 0 })
 const form = ref(emptyForm())
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'inventory',
   entityType: 'category',
   icon: 'mdi-shape',
@@ -81,13 +81,15 @@ async function fetchItem() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category/${route.params.id}`)
     const item = data.productCategory || data
-    form.value = {
-      name: item.name,
-      description: item.description || '',
-      icon: item.icon || '',
-      color: item.color || '',
-      sortOrder: item.sortOrder ?? 0,
-    }
+    await markLoaded(() => {
+      form.value = {
+        name: item.name,
+        description: item.description || '',
+        icon: item.icon || '',
+        color: item.color || '',
+        sortOrder: item.sortOrder ?? 0,
+      }
+    })
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {

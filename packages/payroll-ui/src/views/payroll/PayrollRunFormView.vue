@@ -82,7 +82,7 @@ const employees = ref<any[]>([])
 
 const form = ref({ _id: '', name: '', periodStart: '', periodEnd: '', currency: 'EUR' })
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'payroll',
   entityType: 'payrollRun',
   icon: 'mdi-calculator',
@@ -115,7 +115,9 @@ async function fetchItem() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/payroll/run/${route.params.id}`)
     const item = data.payrollRun || data
-    form.value = { _id: item._id, name: item.name || '', periodStart: item.period?.from?.slice(0, 10) || '', periodEnd: item.period?.to?.slice(0, 10) || '', currency: item.currency || 'EUR' }
+    await markLoaded(() => {
+      form.value = { _id: item._id, name: item.name || '', periodStart: item.period?.from?.slice(0, 10) || '', periodEnd: item.period?.to?.slice(0, 10) || '', currency: item.currency || 'EUR' }
+    })
     runStatus.value = item.status || ''
     employees.value = item.employees || []
   } catch (e: any) {
