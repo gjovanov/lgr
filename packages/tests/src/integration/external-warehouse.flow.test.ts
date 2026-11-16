@@ -280,6 +280,47 @@ describe('a transfer with an external warehouse', () => {
     expect(await w.levelsAtSite()).toBe(0)
   }, 60_000)
 
+  it('external → own, a line that carries no cost: the goods arrive at what the article costs here', async () => {
+    const w = await world()
+    // The average (6) is not what the article is bought at (5), so the two answers can be told apart.
+    await w.stocked(10, 6)
+
+    // ⚠ A role that does not see costs has none to send, and its form posts 0. Averaged in at zero the
+    // level would read 14 at 4.29, and drop again with every delivery from the other site.
+    const id = await w.transferred({ fromWarehouseId: w.ids.site, toWarehouseId: w.ids.main }, 4, 0)
+    const here = await w.level(w.main)
+    expect([here.quantity, here.avgCost]).toEqual([14, 6])
+    // The document keeps what it said; the line records what the goods were booked at.
+    const stored = await w.load(id)
+    expect([stored.lines[0].unitCost, stored.lines[0].resolvedUnitCost]).toEqual([0, 6])
+
+    // Into a warehouse that has none of the article: what the article is bought at.
+    await w.transferred({ fromWarehouseId: w.ids.site, toWarehouseId: w.ids.second }, 3, 0)
+    const there = await w.level(w.second)
+    expect([there.quantity, there.avgCost]).toEqual([3, 5])
+
+    // Line by line: one that says its cost keeps it, and an article nobody priced arrives at zero as before.
+    const nut = await createTestProduct(w.org._id, { sku: 'PRD-0004', name: 'Nut M8', unit: 'pcs', purchasePrice: 0, sellingPrice: 1 } as any)
+    const washer = await createTestProduct(w.org._id, { sku: 'PRD-0005', name: 'Washer M8', unit: 'pcs', purchasePrice: 2, sellingPrice: 4 } as any)
+    const mixed = await w.call('POST', '/warehouse/movement', {
+      type: 'transfer', date: '2026-11-16', fromWarehouseId: w.ids.site, toWarehouseId: w.ids.second,
+      lines: [
+        { productId: String(washer._id), quantity: 2, unitCost: 9, totalCost: 18 },
+        { productId: String(nut._id), quantity: 2, unitCost: 0, totalCost: 0 },
+        { productId: String(w.bolt._id), quantity: 1, unitCost: 0, totalCost: 0 },
+      ],
+      totalAmount: 18,
+    })
+    expect(mixed.status).toBe(200)
+    expect((await w.confirm(w.idOf(mixed))).status).toBe(200)
+    const [washers, nuts, bolts] = await Promise.all([w.level(w.second, washer), w.level(w.second, nut), w.level(w.second)])
+    expect([washers.quantity, washers.avgCost]).toEqual([2, 9])
+    expect([nuts.quantity, nuts.avgCost]).toEqual([2, 0])
+    expect([bolts.quantity, bolts.avgCost]).toEqual([4, 5])
+    expect((await w.load(w.idOf(mixed))).lines.map((l: any) => l.resolvedUnitCost)).toEqual([9, 0, 5])
+    expect(await w.levelsAtSite()).toBe(0)
+  }, 60_000)
+
   it('a layer-costed article: layers open where the goods arrive, are consumed where they leave, and never at the external one', async () => {
     const w = await world()
     const rod = await createTestProduct(w.org._id, { sku: 'PRD-0003', name: 'Threaded rod', costingMethod: 'fifo' } as any)

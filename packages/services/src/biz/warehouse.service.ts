@@ -75,8 +75,9 @@ async function claimDraftMovement(movementId: string): Promise<void> {
  *
  * ⚠ An external warehouse keeps no stock in this org (`Warehouse.isExternal`), so a side that names
  * one is booked as if it named none: no level, no cost layer, and the costs read the sides that
- * remain. A transfer from one is goods arriving from outside (the level takes the line's cost), a
- * transfer to one goods leaving. This is the last line of defence, for every path that reaches here
+ * remain. A transfer from one is goods arriving from outside (the level takes the line's cost, or,
+ * where the line carries none, what the article costs here: `costsAt`), a transfer to one goods
+ * leaving. This is the last line of defence, for every path that reaches here
  * without passing a user door (a sale's dispatch, a bill's receipt, an import, a replay): none of
  * them can put stock on an external warehouse. The id then moves to `externalFromWarehouseId` /
  * `externalToWarehouseId`, so that on a COMPLETED movement `fromWarehouseId` / `toWarehouseId` name
@@ -102,6 +103,13 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
   const fromWarehouseId = fromExternal ? undefined : movement.fromWarehouseId
   const toWarehouseId = toExternal ? undefined : movement.toWarehouseId
 
+  // ⚠ Goods from an external warehouse arrive at the line's cost, and a line may carry none: a role that
+  // does not see costs has none to send. Booked at zero they would pull the level's average down with
+  // every delivery from the other site, so such a line arrives at what the article costs here.
+  const costOf = (line: any): number => Number(line.resolvedUnitCost ?? line.unitCost)
+  const uncosted = fromExternal && toWarehouseId ? movement.lines.filter(l => !(costOf(l) > 0)).map(l => l.productId) : []
+  const costHere = uncosted.length ? await costsAt(orgId, toWarehouseId!, uncosted, r) : undefined
+
   for (const line of movement.lines) {
     const productId = line.productId
     let consumptionResult: ConsumptionResult | undefined
@@ -118,7 +126,8 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
     // What the goods are worth where they arrive. A return of a sale says so apart, because its `unitCost` is the
     // document's price, as on every invoice-born line (`createInvoiceStockMovement`). What leaves a warehouse on
     // the way here is worth what it consumes.
-    const incomingCost = (fromWarehouseId ? undefined : (line as any).resolvedUnitCost) ?? line.unitCost
+    let incomingCost = (fromWarehouseId ? undefined : (line as any).resolvedUnitCost) ?? line.unitCost
+    if (costHere && !(incomingCost > 0)) incomingCost = costHere.get(String(productId)) ?? incomingCost
 
     // Add stock to destination warehouse
     if (toWarehouseId) {
@@ -170,6 +179,24 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
 
   logger.info({ movementId, type: movement.type }, 'Stock movement confirmed')
   return updated
+}
+
+/**
+ * What each of these articles costs in a warehouse, for goods that arrive saying nothing of their own:
+ * today's average of its level there, so their arrival moves no average, then what the article is
+ * bought at (as a return no dispatch prices, `invoicing.service#costNoDispatchSays`). An article with
+ * neither is not in the answer.
+ */
+async function costsAt(orgId: string, warehouseId: string, productIds: unknown[], r: RepositoryRegistry): Promise<Map<string, number>> {
+  const ids = [...new Set(productIds.map(String))]
+  const [levels, products] = await Promise.all([
+    r.stockLevels.findMany({ orgId, warehouseId, productId: { $in: ids } } as any),
+    r.products.findMany({ orgId, id: { $in: ids } } as any),
+  ])
+  const cost = new Map<string, number>()
+  for (const p of products as any[]) if (Number(p.purchasePrice) > 0) cost.set(String(p.id), Number(p.purchasePrice))
+  for (const l of levels as any[]) if (Number(l.avgCost) > 0) cost.set(String(l.productId), Number(l.avgCost))
+  return cost
 }
 
 /**
