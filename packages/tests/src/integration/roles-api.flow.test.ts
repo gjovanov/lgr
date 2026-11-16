@@ -11,7 +11,8 @@ import { AuditLog, Org, PermissionSet, Role, User, type IUser } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { forgetAccessModel } from 'services/biz/access/shadow'
-import { compileLegacy, grantOfRole, sameGrant, templateGrant } from 'config/access'
+import { PRICE_CAPS, compileLegacy, grantOfRole, sameGrant, templateGrant, withPriceLevels } from 'config/access'
+import { RoleRefusal, setRoleCapsBySystem } from 'services/biz/access/role.service'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 
 /**
@@ -200,5 +201,39 @@ describe('editing and deleting roles', () => {
     const lookers: any = await Role.findOne({ orgId: org._id, name: 'Lookers' }).lean().exec()
     expect((await call('DELETE', `/roles/${lookers._id}`, tokens.admin2)).status).toBe(200)
     expect(await PermissionSet.exists({ _id: lookers.legacy.setId })).toBeNull()
+  })
+})
+
+describe("#529: a sys-admin sets a role's price levels by script, as the editor would", () => {
+  const VIA = 'scripts/role-price-levels.ts'
+  const priceCaps = (caps: string[]) => caps.filter(c => (PRICE_CAPS as readonly string[]).includes(c)).sort()
+  const notPrice = (caps: Iterable<string>) => [...caps].filter(c => !(PRICE_CAPS as readonly string[]).includes(c)).sort()
+
+  it("the store's levels land on the built-in role, with the rest of it kept, a new version and an audit row", async () => {
+    // As migration 0015 left the stores' roles: built-in, never edited.
+    const seller: any = await Role.findOne({ orgId: other._id, isBuiltin: true, templateKey: 'seller' }).lean().exec()
+    expect(seller.edited).toBe(false)
+    const edit = withPriceLevels(templateGrant('seller').caps as Set<any>, ['selling', '1', '2', 'other'])
+    expect([edit.unknown, edit.cameBack]).toEqual([[], []])
+
+    const { before, after, role } = await setRoleCapsBySystem(String(other._id), String(seller._id), edit.caps, VIA)
+    expect(priceCaps(after)).toEqual(['products.price:1', 'products.price:2', 'products.price:other', 'products.price:selling'])
+    expect(notPrice(after)).toEqual(notPrice(before))
+    expect(role).toMatchObject({ edited: true, version: (seller.version ?? 1) + 1, needsRelease: true })
+
+    // What the server reads from now on is what was saved: the role is edited, so its caps are its grant.
+    const stored: any = await Role.findById(seller._id).lean().exec()
+    expect(priceCaps([...grantOfRole(stored).caps as Set<string>])).toEqual(priceCaps(after))
+    const audit: any = await AuditLog.findOne({ orgId: other._id, entityType: 'role', entityId: seller._id }).lean().exec()
+    expect(audit).toMatchObject({ action: 'update', via: VIA })
+  })
+
+  it('the Administrator role is refused, and nothing is written', async () => {
+    const admin: any = await Role.findOne({ orgId: other._id, isBuiltin: true, templateKey: 'admin' }).lean().exec()
+    let refused: unknown
+    try { await setRoleCapsBySystem(String(other._id), String(admin._id), [], VIA) } catch (e) { refused = e }
+    expect(refused).toBeInstanceOf(RoleRefusal)
+    expect((refused as RoleRefusal).body.code).toBe('administrator_role_fixed')
+    expect(((await Role.findById(admin._id).lean().exec()) as any).version).toBe(admin.version)
   })
 })
