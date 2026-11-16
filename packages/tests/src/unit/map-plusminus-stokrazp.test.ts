@@ -4,7 +4,7 @@
  * `price1`/`price2`), and a whole-document return with an ordinary partner name (regal-sf).
  */
 import { describe, it, expect } from 'bun:test'
-import { mapStokrazpDoc } from 'services/biz/doc-import/map-plusminus-stokrazp'
+import { mapStokrazpDoc, parsePrice } from 'services/biz/doc-import/map-plusminus-stokrazp'
 import type { PlusMinusDocument } from 'services/biz/doc-import/map-plusminus-invoice'
 
 /** stokrazp_2222639233.json, 2 lines — regal-sf shape, price0/price9 tiers. */
@@ -184,6 +184,37 @@ describe('mapStokrazpDoc', () => {
     const allHeld = mapStokrazpDoc({ ...PRICE_ONLY, lines: [{ name: 'ПОП-НИТ 4х20', sum: '0', price: '0.12', price1: '0.001', retailPrice: '12' } as any] })
     expect(allHeld.priceOnlyItems).toEqual([])
     expect(allHeld.priceWarnings.map(w => [w.field, w.held])).toEqual([['price1', true], ['retailPrice', true]])
+  })
+
+  it('reports a price that is no number, holds it, and proposes what it probably meant without writing it', () => {
+    // The shapes real item cards hold: one decimal point too many ("1.741.5700"), a decimal comma, and plain garbage.
+    const m = mapStokrazpDoc({
+      ...PLAIN_RECEIPT,
+      lines: [{ name: 'ШАЙБА ТЕСТ', quantity: '400', price: '2.61', price1: '2.085', price2: '1.741.5700', retailPrice: '2,87', wholesalePrice: 'n/a' } as any],
+    })
+    // Nothing malformed is written: the selling price and the tiers it names are left out, the rest is mapped as before.
+    expect(m.receiptItems[0]).toEqual({ name: 'ШАЙБА ТЕСТ', qty: 400, unit: 'pcs', cost: 2.61, tiers: { 'Цена 1': 2.085 } })
+    expect(m.priceWarnings.map(w => [w.field, w.raw, w.malformed, w.suggested, w.held])).toEqual([
+      ['price2', '1.741.5700', true, 1.74157, true],
+      ['retailPrice', '2,87', true, 2.87, true],
+      ['wholesalePrice', 'n/a', true, undefined, true],
+    ])
+  })
+
+  it('a malformed DELIVERY price is reported, not held: the receipt\'s unit cost is then 0, and the run says so', () => {
+    const m = mapStokrazpDoc({ ...PLAIN_RECEIPT, lines: [{ name: 'ВИНТ ТЕСТ', quantity: '10', price: '0.4.55', price1: '0.3', retailPrice: '0.5' } as any] })
+    expect(m.receiptItems[0].cost).toBe(0)
+    expect(m.priceWarnings).toMatchObject([{ field: 'price', raw: '0.4.55', malformed: true, suggested: 0.455, held: false }])
+  })
+
+  it('reads a leading-dot number as a number, and an empty price as no price at all', () => {
+    expect(parsePrice('.064')).toEqual({ value: 0.064, malformed: false })
+    expect(parsePrice('')).toEqual({ value: 0, malformed: false })
+    expect(parsePrice(undefined)).toEqual({ value: 0, malformed: false })
+    expect(parsePrice('1.5')).toEqual({ value: 1.5, malformed: false })
+    expect(parsePrice('0172')).toEqual({ value: 172, malformed: false }) // a leading-zero typo is a number: the median rule judges it
+    const m = mapStokrazpDoc({ ...PLAIN_RECEIPT, lines: [{ name: 'ВИНТ ТЕСТ', quantity: '10', price: '.064', price1: '', retailPrice: '0.09' } as any] })
+    expect(m.priceWarnings).toEqual([])
   })
 
   it('books a line on its stock ITEM, not on the display alias typed over it', () => {

@@ -3,6 +3,7 @@ import { seesBills } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { NOT_PAYMENT_RECEIPT } from 'services/biz/sale-counting'
+import { isQuoteType } from 'config/constants'
 
 /**
  * Stats endpoints for smart buttons — returns all counts in a single response per entity.
@@ -73,7 +74,8 @@ export const statsController = new Elysia({ prefix: '/org/:orgId/stats' })
 
     const invoiceCount = invoiceResult.total
     const openBalance = invoiceResult.items.reduce((s: number, inv: any) => {
-      if (['draft', 'sent', 'partially_paid', 'overdue'].includes(inv.status)) {
+      // A quote (a proforma, an offer) owes nothing (FR-22.22).
+      if (!isQuoteType(inv.type) && ['draft', 'sent', 'partially_paid', 'overdue'].includes(inv.status)) {
         return s + (inv.amountDue || inv.total || 0)
       }
       return s

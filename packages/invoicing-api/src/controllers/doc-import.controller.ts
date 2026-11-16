@@ -28,6 +28,7 @@ import { convertDraftInvoice } from 'services/biz/doc-import/persist'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import { getRepos } from 'services/context'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
+import { movementExternalSides } from 'services/biz/external-warehouses'
 import { targetRefusal } from 'services/biz/doc-import/target-access'
 import type { ImportTarget } from 'services/biz/doc-import/types'
 import { containedJoin, stampedUploadPath } from 'services/biz/files/safe-path'
@@ -323,7 +324,12 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
               results.push({ id, ok: false, error: 'not found' })
               continue
             }
-            const misfit = movementWarehouseRefusal(draft)
+            const misfit = movementWarehouseRefusal({
+              type: draft.type,
+              fromWarehouseId: draft.fromWarehouseId,
+              toWarehouseId: draft.toWarehouseId,
+              ...await movementExternalSides(orgId, draft),
+            })
             if (misfit) {
               results.push({ id, ok: false, code: misfit.code, error: misfit.message })
               continue

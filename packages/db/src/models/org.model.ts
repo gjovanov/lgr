@@ -43,6 +43,16 @@ export interface IOrgBooksExternalBranch {
   docSeries: string[]
 }
 
+/**
+ * FR-25 R7: one legal entity's books spread over its store orgs, each holding its own share. Every
+ * org of the group carries it, with the same `branches` (the group, itself included) and the same
+ * home. A sales document in a store's series is that store's; everything else is the home's, which
+ * also holds the opening and the VAT files.
+ */
+export interface IOrgBooksSplit {
+  homeOrgId: Types.ObjectId
+}
+
 export interface IOrgBooks {
   mode: 'own' | 'books' | 'branch'
   /** On a branch. */
@@ -53,6 +63,8 @@ export interface IOrgBooks {
   branches?: IOrgBooksBranch[]
   /** On the books org. */
   externalBranches?: IOrgBooksExternalBranch[]
+  /** On every org of a split (FR-25 R7). Unset: one books org holds the whole of the books. */
+  split?: IOrgBooksSplit
 }
 
 export interface IOrg extends Document {
@@ -73,6 +85,13 @@ export interface IOrg extends Document {
   email?: string
   phone?: string
   website?: string
+  // FR-25a: what a Bulgarian document prints of its issuer beside the numbers above.
+  /** The person legally responsible for the company (МОЛ / управител). */
+  representative?: string
+  /** Where the company's documents are issued (`Място на сделката`): a town. */
+  placeOfIssue?: string
+  /** The company's economic activity code (КИД/НКИД). */
+  activityCode?: string
   addresses?: IOrgAddress[]
   bankDetails?: IOrgBankDetail[]
   settings: {
@@ -257,6 +276,10 @@ const orgSchema = new Schema<IOrg>(
     email: String,
     phone: String,
     website: String,
+    // FR-25a. No defaults, so no org needs a backfill.
+    representative: String,
+    placeOfIssue: String,
+    activityCode: String,
     addresses: [
       {
         type: { type: String, required: true, enum: ['billing', 'shipping', 'office'] },
@@ -353,6 +376,10 @@ const orgSchema = new Schema<IOrg>(
             }, { _id: false })],
             default: undefined,
           },
+          // FR-25 R7. A nested path with no default: unset stays absent, so no org needs a backfill.
+          split: {
+            homeOrgId: { type: Schema.Types.ObjectId, ref: 'Org' },
+          },
         },
       },
       // FR-11 (#21). Every section defaults ON: a digest nobody configured in detail
@@ -427,7 +454,7 @@ replicate(orgSchema, {
   // The org is the document itself: no `orgId`, its `_id` is the org (applied by `{_id}`).
   orgPath: '_id',
   // The company's own data and its settings are the home's (FR-20.63).
-  home: ['name', 'description', 'logo', 'ownerId', 'taxNumber', 'vatNumber', 'email', 'phone', 'website', 'addresses', 'bankDetails', 'settings', 'createdAt', 'updatedAt'],
+  home: ['name', 'description', 'logo', 'ownerId', 'taxNumber', 'vatNumber', 'email', 'phone', 'website', 'representative', 'placeOfIssue', 'activityCode', 'addresses', 'bankDetails', 'settings', 'createdAt', 'updatedAt'],
   // ⚠ Global's: the address label, the billing, the cloud integrations' tokens, the masters' enrolment
   // switch, the link to a legal entity's books (a sys-admin's, on global: FR-25 §3.1), and the second
   // home record. A page never overwrites them (acceptance 33).

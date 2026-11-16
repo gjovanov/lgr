@@ -6,6 +6,10 @@ allowed-tools: Bash(bun:*)
 
 # Import daily cash-register sales (legacy PlusMinus → LGR)
 
+> **The daily run books the till from the API pull**: `scripts/import-cash-register-sales-api.ts` over a store's
+> till tickets or POS receipts, through the `daily-import` skills. This skill is the route for a
+> `salesAnalysis_*.xlsx` export.
+
 > **UI equivalent:** *Invoicing → Cash Register Sales → Import* accepts the same
 > `salesAnalysis_*.xlsx` (and a printed cash-sale PDF). It applies the identical
 > `Общо` cross-check and the same `reference = salesAnalysis:<date>` idempotency key, so a

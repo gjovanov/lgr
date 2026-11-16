@@ -8,6 +8,10 @@
  *
  * ⚠ Prove a re-import with a dry rerun, never a live one: `unchanged` equal to `entries` is the proof.
  *
+ * FR-25 R7: books split over a group of orgs are imported org by org, each with the SAME files, and each
+ * keeps its share (`--org` one at a time, every org of the group). There, `journal total` also says how
+ * many entries the whole file makes (`fileEntries`): the group's `entries` add up to it.
+ *
  * Usage:
  *   bun run scripts/import-accounting-books.ts --org <slug> --chart <chartOfAccounts.xlsx>                  # dry run
  *   bun run scripts/import-accounting-books.ts --org <slug> \
@@ -40,6 +44,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { readSheet } from './lib/plusminus-sheet.js'
 import { LgrApiError, signIn, type LgrSession } from './lib/lgr-api.js'
+import { stepLines } from './lib/books-import-print.js'
 import {
   ExportRefused,
   assertWholeJournal,
@@ -136,9 +141,7 @@ function noteEik(file: string, found: string | undefined): string {
 const eikOfAnalyticsFile = (file: string) => /_(\d{9,13})\.json$/.exec(basename(file))?.[1]
 
 function show(step: string, answer: any): void {
-  const { dryRun: _dry, byDocType: _types, junk, ...rest } = answer
-  console.log(`${step}: ${JSON.stringify(rest)}`)
-  if (junk?.length) console.log(`  dropped from the chart: ${junk.map((j: any) => `${j.code} (${j.reason})`).join(', ')}`)
+  for (const line of stepLines(step, answer)) console.log(line)
 }
 
 /** The chart, from its GUI export or from the books folder's `chart-<year>.json`. */
@@ -253,6 +256,8 @@ async function importJournal(session: LgrSession, file: string): Promise<void> {
 
   const byMonth = documentsByMonth(journal.documents)
   const totals = { entries: 0, operations: 0, balanced: 0, new: 0, changed: 0, gone: 0, unchanged: 0, settles: 0 }
+  // FR-25 R7: in an org of a split the counts above are its share; the whole file's entries come apart.
+  let fileEntries: number | undefined
   // Every month of the period, the empty ones too: an empty month in the file empties it in the books.
   for (const month of monthsBetween(journal.period.from, journal.period.to)) {
     const answer = await session.post('/accounting/import/journal', {
@@ -264,9 +269,10 @@ async function importJournal(session: LgrSession, file: string): Promise<void> {
     })
     show(`journal ${month}`, answer)
     for (const key of Object.keys(totals) as (keyof typeof totals)[]) totals[key] += answer[key] ?? 0
+    if (answer.split) fileEntries = (fileEntries ?? 0) + (answer.split.fileEntries ?? 0)
     if (answer.unknownDocTypes?.length) console.log(`  document types the registry does not know: ${JSON.stringify(answer.unknownDocTypes)}`)
   }
-  console.log(`journal total: ${JSON.stringify(totals)}`)
+  console.log(`journal total: ${JSON.stringify(fileEntries === undefined ? totals : { ...totals, fileEntries })}`)
   if (totals.balanced !== totals.entries) fail(`${totals.entries - totals.balanced} entries do not balance.`)
 }
 

@@ -99,6 +99,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { numberFormat } from '../composables/number-display'
 
 export interface PivotMeasure {
   field: string
@@ -209,7 +210,7 @@ function formatHeader(field: string): string {
 
 function formatNumber(val: number | undefined): string {
   if (val == null) return '—'
-  return Number.isInteger(val) ? val.toLocaleString() : val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return Number.isInteger(val) ? numberFormat().format(val) : numberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val)
 }
 </script>
 

@@ -6,6 +6,8 @@
  * every row, where the API refuses all but drafts.
  */
 
+import { QUOTE_CONVERTS_TO, isQuoteType } from 'config/constants'
+
 export interface RowDoc {
   type?: string
   direction?: string
@@ -41,7 +43,8 @@ export function canVoid(d: RowDoc): boolean {
  * which is sometimes paid before its goods are received, as the bills list always offered.)
  */
 export function canRecordPayment(d: RowDoc): boolean {
-  if (d.type === 'proforma' || d.type === 'cash_sale') return false
+  // A quote (a proforma, an offer) owes nothing, and the API refuses its payment (FR-22.22).
+  if (isQuoteType(d.type) || d.type === 'cash_sale') return false
   return OWING.includes(d.status) || (d.direction === 'incoming' && d.status === 'draft')
 }
 
@@ -60,7 +63,11 @@ export function canCopy(d: RowDoc): boolean {
   return !d.cashSaleId
 }
 
-/** A proforma becomes an invoice once — and not after it was voided. */
-export function canConvert(d: RowDoc): boolean {
-  return d.type === 'proforma' && !['converted', 'voided', 'cancelled'].includes(d.status)
+/**
+ * A quote becomes the next document once — and not after it was voided. A proforma becomes an invoice; an
+ * offer a proforma or an invoice (`target`, the invoice when none is named, as `/convert` takes it).
+ */
+export function canConvert(d: RowDoc, target: 'invoice' | 'proforma' = 'invoice'): boolean {
+  if (!isQuoteType(d.type) || !QUOTE_CONVERTS_TO[d.type].includes(target)) return false
+  return !['converted', 'voided', 'cancelled'].includes(d.status)
 }

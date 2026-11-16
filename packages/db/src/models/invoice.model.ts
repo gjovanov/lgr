@@ -328,8 +328,14 @@ export interface IInvoice extends Document {
   billingAddress: IInvoiceAddress
   shippingAddress?: IInvoiceAddress
   relatedInvoiceId?: Types.ObjectId
+  /** On a quote (a proforma or an offer) that was converted: the document it became, a proforma or an invoice. */
   convertedInvoiceId?: Types.ObjectId
   proformaId?: Types.ObjectId
+  /**
+   * The offer this document came from: on a proforma or an invoice converted from an offer, and on the
+   * invoice a proforma made from an offer becomes (carried on, so the invoice still names its offer).
+   */
+  offerId?: Types.ObjectId
   /** Source external order (ORDO-) this document was generated from / received against. */
   orderId?: Types.ObjectId
   /** The supplier group inside the order (ORDO-linked purchase bills). */
@@ -358,6 +364,8 @@ export interface IInvoice extends Document {
     movementIds: Types.ObjectId[]
     /** The receipts that named no supplier and took this bill's: releasing the link takes it off. */
     supplierGivenTo?: Types.ObjectId[]
+    /** The stock notes that named no customer and took this invoice's (FR-22.61a): released the same way. */
+    customerGivenTo?: Types.ObjectId[]
     /** How the link was established — `lines` (detected) or `manual`. */
     detectedBy: string
     linkedAt: Date
@@ -413,8 +421,10 @@ const invoiceSchema = new Schema<IInvoice>(
     // `payment_receipt` (FR-23): the fiscal receipt of a payment on an invoice or a debit note. Not a
     // sale: its invoice is. ⚠ A reader that names no type counts it beside its invoice, unless it says
     // `NOT_PAYMENT_RECEIPT`. `payment_storno` (FR-23 R2): the storno receipt of a refund on a credit
-    // note, the same way: not a return of revenue, its credit note is.
-    type: { type: String, required: true, enum: ['invoice', 'proforma', 'credit_note', 'debit_note', 'cash_sale', 'cash_storno', 'payment_receipt', 'payment_storno'] },
+    // note, the same way: not a return of revenue, its credit note is. `offer` („оферта"): a quote
+    // like the proforma, in a series of its own, converted into a proforma or an invoice
+    // (`config/constants#QUOTE_TYPES`): no sale, no stock, no money.
+    type: { type: String, required: true, enum: ['invoice', 'proforma', 'offer', 'credit_note', 'debit_note', 'cash_sale', 'cash_storno', 'payment_receipt', 'payment_storno'] },
     direction: { type: String, required: true, enum: ['outgoing', 'incoming'] },
     status: {
       type: String,
@@ -552,6 +562,7 @@ const invoiceSchema = new Schema<IInvoice>(
     relatedInvoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
     convertedInvoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
     proformaId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
+    offerId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
     orderId: { type: Schema.Types.ObjectId, ref: 'Order' },
     orderGroupId: { type: Schema.Types.ObjectId },
     internalOrderId: { type: Schema.Types.ObjectId, ref: 'InternalOrder' },
@@ -606,6 +617,7 @@ const invoiceSchema = new Schema<IInvoice>(
       movementIds: [{ type: Schema.Types.ObjectId, ref: 'StockMovement' }],
       // No default: `movementIds` is materialised on every invoice, and this has no business there.
       supplierGivenTo: { type: [{ type: Schema.Types.ObjectId, ref: 'StockMovement' }], default: undefined },
+      customerGivenTo: { type: [{ type: Schema.Types.ObjectId, ref: 'StockMovement' }], default: undefined },
       detectedBy: String,
       linkedAt: Date,
     },

@@ -44,7 +44,11 @@ export interface IContact extends TenantEntity {
   creditLimit?: number
   discount?: number
   notes?: string
+  /** The person legally responsible for the company (МОЛ), FR-25a. */
+  representative?: string
   tags?: string[]
+  /** Other names the company is written under on documents („Also known as", FR-28.12). */
+  aliases?: string[]
   accountReceivableId?: string
   accountPayableId?: string
   isActive: boolean
@@ -152,6 +156,8 @@ export interface IInvoice extends TenantEntity {
   relatedInvoiceId?: string
   convertedInvoiceId?: string
   proformaId?: string
+  /** The offer a proforma or an invoice was converted from. */
+  offerId?: string
   cashSaleRef?: IInvoiceCashSaleRef
   taxEventDate?: Date
   journalEntryId?: string

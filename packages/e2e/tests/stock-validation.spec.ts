@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
 import { activeContact, apiLogin, apiGet, apiPost } from './helpers/api'
-import { lineUnitPrice } from './helpers/document-form'
+import { answerIssuePayment, lineUnitPrice } from './helpers/document-form'
 import { rowAction, rowOf, rowsWithStatus } from './helpers/row-actions'
 import { createBackOfficeCashSale } from './helpers/cash-register'
 
@@ -68,6 +68,8 @@ test.describe('Stock Validation on Invoicing', () => {
     const row = rowOf(page, draft.invoiceNumber)
     await expect(row).toBeVisible({ timeout: 15000 })
     await (await rowAction(row, 'issue')).click()
+    // The payment method is confirmed first; then the stock check stops the issue.
+    await answerIssuePayment(page)
 
     // The issue stops at the stock check: the transfer dialog says the stock is short, and that no
     // warehouse covers all of it (nothing holds 999,999), so there is nothing it could confirm.

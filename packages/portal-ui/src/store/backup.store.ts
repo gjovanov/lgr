@@ -9,8 +9,10 @@ import { useAppStore } from './app.store'
  *
  * ⚠ Nothing here is a security control. Portal routes carry no client-side role gating, so a
  * signed-in user can type `/admin/backup` and this store will happily call every endpoint;
- * `sysAdmin` below only decides what is worth SHOWING. The server's `requireSysAdmin`
- * allow-list is the whole of the authorisation, and every method here expects to be refused.
+ * `sysAdmin` and `canCreate` below only decide what is worth SHOWING. The server decides: the
+ * org's own admin makes, lists, verifies and downloads its backups, and `requireSysAdmin`'s
+ * allow-list is the whole of the authorisation for restoring. Every method here expects to be
+ * refused.
  *
  * Method names mirror the desktop shell's Tauri commands (`archive.rs`: `create_archive`,
  * `restore_archive`, `list_archives`, …) per FR-13.28, so `desktop-ui` can later be pointed at
@@ -25,9 +27,15 @@ export const useBackupStore = defineStore('backup', () => {
   const sysAdmin = ref(false)
   /** False when `BACKUP_SYS_ADMINS` is unset on the server — nobody can, not just this user. */
   const configured = ref(false)
+  /** Whether "Create backup now" is this caller's to press: the org's own admin. Presentation only. */
+  const canCreate = ref(false)
+  /** How many an org admin may make in 24 hours, for the screen to say; null for an operator, who has no limit. */
+  const createPerDay = ref<number | null>(null)
   const loading = ref(false)
   const busy = ref(false)
   const error = ref('')
+  /** The refusal's `code`, when the server gave one: the screen says those in the reader's language. */
+  const errorCode = ref('')
   /** The last Inspect, which is what authorises an apply (FR-13.33). */
   const inspection = ref<any>(null)
   const lastRestore = ref<any>(null)
@@ -38,12 +46,14 @@ export const useBackupStore = defineStore('backup', () => {
   /** Every call funnels through here so a 403 renders as a message rather than a broken screen. */
   async function guarded<T>(fn: () => Promise<T>): Promise<T | null> {
     error.value = ''
+    errorCode.value = ''
     busy.value = true
     try {
       return await fn()
     } catch (e: any) {
       const d = e?.response?.data
       error.value = [d?.message, d?.detail].filter(Boolean).join(' — ') || e?.message || 'Request failed'
+      errorCode.value = typeof d?.code === 'string' ? d.code : ''
       return null
     } finally {
       busy.value = false
@@ -56,9 +66,13 @@ export const useBackupStore = defineStore('backup', () => {
       const { data } = await httpClient.get(`${base()}/access`)
       sysAdmin.value = !!data.sysAdmin
       configured.value = !!data.configured
+      canCreate.value = !!(data.create ?? data.sysAdmin)
+      createPerDay.value = Number(data.createPerDay) || null
     } catch {
       sysAdmin.value = false
       configured.value = false
+      canCreate.value = false
+      createPerDay.value = null
     }
   }
 
@@ -162,7 +176,7 @@ export const useBackupStore = defineStore('backup', () => {
   }
 
   return {
-    runs, restores, sysAdmin, configured, loading, busy, error, inspection, lastRestore,
+    runs, restores, sysAdmin, configured, canCreate, createPerDay, loading, busy, error, errorCode, inspection, lastRestore,
     checkAccess, listArchives, listRestores, createArchive, taskStatus, download,
     verifyArchive, uploadBundle, inspect, restoreArchive,
   }

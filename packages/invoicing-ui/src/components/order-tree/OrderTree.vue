@@ -7,11 +7,15 @@
 
        Open and closed is kept here, not in a table library: it has to open by itself where something needs
        a look, open and close one supplier at a time, survive the reload a save causes, and open the way to
-       a row a link points at (see `tree-rows.ts`). -->
+       a row a link points at (see `tree-rows.ts`).
+
+       `line-grid` (ui-shared/styles/line-grid.css): a row's cells start at its top with the control line, so the
+       fields of a row are underlined on one line whatever hangs under one of them (the linked article's chip, a
+       message under the row being added). -->
   <v-table
     ref="tableRef"
     density="compact"
-    class="order-tree"
+    class="order-tree line-grid"
     :style="{ '--tree-min-width': `${minWidth}px` }"
     data-testid="order-tree"
     @keydown="onKeydown"
@@ -43,13 +47,15 @@
         :data-depth="row.node.depth"
       >
         <td class="order-tree__item" data-col="item">
-          <div class="d-flex align-center" :style="{ paddingInlineStart: `${row.node.depth * 20}px` }">
+          <!-- A name or an icon is centred on the control line; a field with something under it (the article and
+               its chip) is taller than that line, and the toggle stays on the line, at the top. -->
+          <div class="d-flex align-center line-grid__line" :style="{ paddingInlineStart: `${row.node.depth * 20}px` }">
             <v-btn
               v-if="row.expandable"
               icon
               size="x-small"
               variant="text"
-              class="order-tree__toggle flex-shrink-0"
+              class="order-tree__toggle flex-shrink-0 align-self-start"
               :aria-expanded="row.open ? 'true' : 'false'"
               :aria-label="toggleLabel(row.node, row.open)"
               :title="toggleLabel(row.node, row.open)"
@@ -263,9 +269,6 @@ defineExpose({ toggle, setOpen, isOpen, expandAll, collapseAll, reveal, highligh
   line-height: 1.15;
   font-size: 0.75rem;
 }
-.order-tree :deep(td) {
-  vertical-align: middle;
-}
 /* A header that explains itself when the pointer rests on it says so. */
 .order-tree :deep(th.order-tree__hinted) {
   cursor: help;
@@ -319,6 +322,19 @@ defineExpose({ toggle, setOpen, isOpen, expandAll, collapseAll, reveal, highligh
 .order-tree :deep(.order-tree__num input::-webkit-outer-spin-button) {
   -webkit-appearance: none;
   margin: 0;
+}
+/* A number with a control before it (the customer order's price and its „Select price"): the pair takes the cell's
+   start padding, the control first, and the field keeps every pixel that is left. */
+.order-tree :deep(.order-tree__num-group) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: calc(-1 * var(--tree-cell-pad));
+}
+.order-tree :deep(.order-tree__num-group .order-tree__num) {
+  margin-inline-start: 0;
+  flex: 1 1 0;
+  min-width: 0;
 }
 /* A figure is never split over two lines (a Free of 99,999 read 9999 over 9): it keeps its line, and one wider than its
    column spends the padding of its cell instead. */

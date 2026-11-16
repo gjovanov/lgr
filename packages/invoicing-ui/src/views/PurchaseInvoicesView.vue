@@ -9,6 +9,8 @@
     :kpis="kpis"
     :view="viewMode"
     :has-active-filters="hasActiveFilters"
+    selectable
+    v-model:selected="ticked"
     :empty="{ icon: 'mdi-receipt-text-outline', title: $t('list.empty.bills'), description: $t('list.empty.billsHint') }"
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
     @update:options="onUpdateOptions"
@@ -46,6 +48,11 @@
     <template #empty-actions>
       <!-- FR-22.50: says what it creates; the supplier's notes beside it. -->
       <CreateButton :label="create.label" :to="create.to" :more="create.more" :more-label="$t('invoicing.createOther')" />
+    </template>
+
+    <!-- The ticked bills by e-mail: all to one address (a colleague, the accountant), or each to its supplier. -->
+    <template #bulk-bar>
+      <DocEmailBar v-model:selected="ticked" kind="invoice" :may-email="mailsTicked" />
     </template>
 
     <!-- Cell renderers -->
@@ -197,7 +204,9 @@ import RecordPaymentDialog from '../components/RecordPaymentDialog.vue'
 import ReceiptOverlapDialog from '../components/ReceiptOverlapDialog.vue'
 import { receiptOverlapOf, type ReceiptOverlap } from '../composables/receipt-overlap'
 import { useRowPrint } from '../composables/useRowPrint'
+import { useDocEmailAccess } from '../composables/doc-email-access'
 import * as can from '../composables/document-row-actions'
+import DocEmailBar from '../components/DocEmailBar.vue'
 interface Invoice { _id: string; number: string; type: string; supplierInvoiceNumber?: string; contactName: string; contactId?: string; issueDate: string; dueDate: string; status: string; total: number; amountPaid?: number; paymentMethod?: string; currency: string; exchangeRate?: number; notes?: string; lines?: any[] }
 
 const { t } = useI18n()
@@ -208,6 +217,10 @@ const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 const { printRow } = useRowPrint()
+
+// The ticked rows by e-mail (their ids, so a tick holds across pages and filters), for a role that works on bills.
+const ticked = ref<string[]>([])
+const mailsTicked = useDocEmailAccess().invoices('bills')
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')

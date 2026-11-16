@@ -5404,11 +5404,12 @@ describe('§2.6 — who reads what: each counts the money once', () => {
     const inv = await paidInvoice(w)
     const note = await issuedNote(w, inv)
     expect((await pay(w, note.id, 10)).status).toBe(200)
+    // The rows only: the answer's `asOfDate` is today, and on the 14th of a month it holds `-14` too.
     const part = await w.call('GET', '/invoicing/reports/aging')
-    expect(JSON.stringify(part.json)).toContain('-14')
+    expect(JSON.stringify(part.json.data)).toContain('-14')
     expect((await pay(w, note.id, 14)).status).toBe(200)
     const gone = await w.call('GET', '/invoicing/reports/aging')
-    expect(JSON.stringify(gone.json)).not.toContain('-14')
+    expect(JSON.stringify(gone.json.data)).not.toContain('-14')
   })
 
   it('the journal lists it: number, УНП, amount, the credit note, and the receipt it cites, both ways', async () => {

@@ -281,6 +281,9 @@ describe('the Products list: reserved and on order, per article (FR-22.45)', () 
     }
     const page = (n: number) => products.slice(0, n).map((p) => String(p._id)).join(',')
 
+    // One request first: a session reads its membership once a minute (`liveSessionUser`), which is the
+    // session's query and not this route's. Counted on the first of the two below, it made them differ.
+    await w.get('/stock-level/by-products?productIds=')
     const five = await mongoOps(() => w.get(`/stock-level/by-products?productIds=${page(5)}`))
     const fifty = await mongoOps(() => w.get(`/stock-level/by-products?productIds=${page(50)}`))
     expect(fifty.result.status).toBe(200)

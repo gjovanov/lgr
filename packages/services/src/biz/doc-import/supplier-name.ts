@@ -14,6 +14,10 @@
  *     alone left a third of the named receipts without their supplier (2026-11-11);
  *   - no fuzzy rung beyond that: a shorter, longer or differently spelled name is a different company until a
  *     person says otherwise, and the answer decides who the article is "bought from";
+ *   - a person says otherwise on the contact, under „Also known as" (`Contact.aliases`): when no supplier is NAMED
+ *     that, the supplier that keeps the name among its other names is asked for, by the same two rules (the exact
+ *     name, else the same words). A supplier's own name always comes first, so another name only ever fills a gap:
+ *     it cannot take a receipt from the supplier that is named so;
  *   - among ACTIVE contacts of type supplier or both, as every order and recorded supplier is (FR-28.9, .17);
  *   - never creating a contact from free text. A name that matches none, or several, resolves to nothing, and the
  *     import REPORTS it with how many documents named it (`summarizePartners`), so a person can fix the contact.
@@ -79,10 +83,13 @@ export function unmatchedPartnerOf(warning: unknown): string | undefined {
 }
 
 export type SupplierNameMatch =
-  /** `by`: present when the names are equal only once their punctuation is not counted. */
-  | { status: 'matched'; contactId: string; name: string; by?: 'punctuation' }
+  /**
+   * `by`: absent when the supplier is named exactly so. `punctuation`: its name is the same words with other
+   * punctuation. `alias`: the name is one of its other names („Also known as"), exactly or but for its punctuation.
+   */
+  | { status: 'matched'; contactId: string; name: string; by?: 'punctuation' | 'alias' }
   | { status: 'none' }
-  /** `count`: how many active suppliers carry that exact name. */
+  /** `count`: how many active suppliers carry that name (as their own, or among their other names). */
   | { status: 'ambiguous'; count: number }
 
 /** The part of a contact the rule reads. `id` is its `_id` as a string. */
@@ -91,35 +98,55 @@ export interface SupplierCandidate {
   companyName?: string | null
   type?: string
   isActive?: boolean
+  /** Its other names („Also known as"). A caller that leaves them out asks by the suppliers' own names only. */
+  aliases?: readonly (string | null | undefined)[] | null
 }
 
 const isSupplierType = (t: string | undefined) => t === 'supplier' || t === 'both'
 
 /**
- * The one active supplier whose name is exactly this one, from candidates the caller found any way it likes (the
+ * The one active supplier that goes by exactly this name, from candidates the caller found any way it likes (the
  * database, the API's contact search). Candidates that do not qualify are ignored, so a loose search may pass more
  * than the rule keeps: a customer of the same name, a deactivated contact, a longer name that contains the words.
  *
- * The exact name decides whenever any supplier has it (one: matched; several: ambiguous). Only when none has, the
- * same words with other punctuation are asked, by the same rule.
+ * Four questions, in this order, and the first that any supplier answers decides (one: matched; several: ambiguous):
+ * who is NAMED exactly so; whose name is the same words with other punctuation; who keeps exactly this among its
+ * other names; whose other name is the same words. So a supplier's own name outranks another supplier's other
+ * name, and an other name can only resolve what no name does.
+ *
+ * ⚠ Each question is answered from the candidates given. A caller that passes a partial set (a search's answer)
+ * must pass every supplier that could answer an EARLIER question too, or a later one may decide in its place.
  */
 export function pickSupplierByName(name: string, candidates: readonly SupplierCandidate[]): SupplierNameMatch {
   const key = normalizeName(name)
   if (!key) return { status: 'none' }
-  const suppliers = candidates.filter((c) => isSupplierType(c.type ?? 'supplier') && c.isActive !== false)
-  const same = suppliers.filter((c) => normalizeName(c.companyName) === key)
-  if (same.length === 1) return { status: 'matched', contactId: same[0].id, name: String(same[0].companyName ?? '').trim() }
-  if (same.length) return { status: 'ambiguous', count: same.length }
   const words = foldName(name)
-  if (!words) return { status: 'none' }
-  const alike = suppliers.filter((c) => foldName(c.companyName) === words)
-  if (alike.length === 1) return { status: 'matched', contactId: alike[0].id, name: String(alike[0].companyName ?? '').trim(), by: 'punctuation' }
-  return alike.length ? { status: 'ambiguous', count: alike.length } : { status: 'none' }
+  const suppliers = candidates.filter((c) => isSupplierType(c.type ?? 'supplier') && c.isActive !== false)
+  const otherNames = (c: SupplierCandidate) => (c.aliases ?? []).filter((a): a is string => typeof a === 'string')
+  const questions: Array<[by: 'punctuation' | 'alias' | undefined, asks: (c: SupplierCandidate) => boolean]> = [
+    [undefined, (c) => normalizeName(c.companyName) === key],
+    ['punctuation', (c) => !!words && foldName(c.companyName) === words],
+    ['alias', (c) => otherNames(c).some((a) => normalizeName(a) === key)],
+    ['alias', (c) => !!words && otherNames(c).some((a) => foldName(a) === words)],
+  ]
+  for (const [by, asks] of questions) {
+    const found = suppliers.filter(asks)
+    if (found.length === 1) return { status: 'matched', contactId: found[0].id, name: String(found[0].companyName ?? '').trim(), ...(by ? { by } : {}) }
+    if (found.length) return { status: 'ambiguous', count: found.length }
+  }
+  return { status: 'none' }
 }
 
-/** One line for a run's log: what this partner name resolved to. */
+/**
+ * One line for a run's log: what this partner name resolved to.
+ * ⚠ The two ⚠ lines are a format other code reads: the daily import's log checks find a document's unresolved
+ * partner by their opening words. Do not reword them; "named" covers a supplier's other names there too.
+ */
 export function describeMatch(name: string, match: SupplierNameMatch): string {
-  if (match.status === 'matched') return `supplier: ${match.name} (${match.contactId})${match.by ? ', the same name but for its punctuation' : ''}`
+  if (match.status === 'matched') {
+    const how = match.by === 'punctuation' ? ', the same name but for its punctuation' : match.by === 'alias' ? `, also known as "${name}"` : ''
+    return `supplier: ${match.name} (${match.contactId})${how}`
+  }
   if (match.status === 'ambiguous') return `⚠ supplier: ${match.count} active suppliers are named "${name}", so the receipt names none`
   return `⚠ supplier: no active supplier is named "${name}", so the receipt names none`
 }
@@ -176,7 +203,7 @@ export function formatPartnerReport(s: PartnerSummary): string[] {
   if (!s.unresolved.length) return out
   out.push(
     `⚠ ${s.unresolved.length} partner name(s) matched no single active supplier, so ${total} receipt(s) carry no supplier ` +
-      '(the name stays in the notes). Add or rename the supplier in LGR before the next import: a receipt already booked is not changed.',
+      '(the name stays in the notes). Add the supplier in LGR, or add the name to the supplier it is under „Also known as" on that contact, before the next import: a receipt already booked is not changed.',
   )
   for (const u of s.unresolved) {
     const why = u.reason === 'ambiguous' ? `${u.candidates} suppliers share that name` : 'no active supplier of that name'

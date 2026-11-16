@@ -18,7 +18,8 @@
  *    a company's books.
  * 2. **Nothing reaches outward.** Hardware, devices, credentials, invites, mail logs and inboxes
  *    are never copied (`policy.ts#NEVER_CLONED`); the daily digest and the nightly backup are
- *    switched off on the copy.
+ *    switched off on the copy. A source that keeps a company's books keeps them too
+ *    (`policy.ts#BOOKS_NEVER_CLONED`, FR-25 R7), and `scanCopyForBooks` proves the copy holds none.
  * 3. **No file store.** Files, documents, archives and backups are not copied, so a delete in the
  *    test org cannot reach a file of the real one.
  * 4. **Idempotent and stateless.** A copy's id is a pure function of its source's (`ids.ts`) and a
@@ -41,14 +42,16 @@ import { contentHash } from './canonical.js'
 import { HEX24, cloneIdHex } from './ids.js'
 import { namedIds } from './leaks.js'
 import {
+  BOOKS_NEVER_CLONED,
   IDENTITY_FIELDS,
   KEPT_ON_RESET,
-  NEVER_CLONED,
   OUTWARD_SWITCHES_OFF,
   REFUSED_SOURCE_MODELS,
   clonePlain,
   clonedModels,
   copyOrder,
+  keepsBooks,
+  neverClonedFor,
   testOrgSettings,
 } from './policy.js'
 import { remapDoc, remapValue, type RemapEnv } from './remap.js'
@@ -474,8 +477,10 @@ export async function cloneOrgData(opts: CloneOptions): Promise<CloneReport> {
   const tgtHex = String(tgtOid)
 
   const tenant = tenantCollections()
-  const toCopy = copyOrder(clonedModels(tenant)).filter(m => !opts.only?.length || opts.only.includes(m))
-  const unknown = (opts.only ?? []).filter(m => !tenant.includes(m) || m in NEVER_CLONED)
+  // Read from the source as it is now: an org that keeps a company's books never lets them into a copy.
+  const never = neverClonedFor(source)
+  const toCopy = copyOrder(clonedModels(tenant, source)).filter(m => !opts.only?.length || opts.only.includes(m))
+  const unknown = (opts.only ?? []).filter(m => !tenant.includes(m) || m in never)
   if (unknown.length) throw new OrgCloneError('bad_only', `not a model a copy carries: ${unknown.join(', ')}`)
 
   log('reading the source ids', { source: source.slug })
@@ -525,7 +530,7 @@ export async function cloneOrgData(opts: CloneOptions): Promise<CloneReport> {
   }
 
   const notCloned: CloneReport['notCloned'] = []
-  for (const [name, reason] of Object.entries(NEVER_CLONED)) {
+  for (const [name, reason] of Object.entries(never)) {
     if (!tenant.includes(name)) continue
     const rows = await model(name).collection.countDocuments({ orgId: srcOid })
     if (rows) notCloned.push({ model: name, reason, rows })
@@ -740,12 +745,16 @@ export async function resetOrgData(opts: { orgId: string; expectSlug: string; ex
 
 export interface CompareRow { model: string; source: number; target: number }
 
-/** Document counts per carried model, side by side. The target may hold more (what only it created); fewer is a copy not yet made. */
+/**
+ * Document counts per carried model, side by side. The target may hold more (what only it created); fewer is a copy not yet made.
+ * A source that keeps a company's books carries none of them, so they are not rows here (`scanCopyForBooks` checks them).
+ */
 export async function compareOrgs(sourceOrgId: string, targetOrgId: string): Promise<CompareRow[]> {
   const srcOid = asOid(sourceOrgId, 'source')
   const tgtOid = asOid(targetOrgId, 'target')
+  const source = (await Org.collection.findOne({ _id: srcOid }, { projection: { 'settings.accounting.books.mode': 1 } })) as RawOrg | null
   const rows: CompareRow[] = []
-  for (const name of clonedModels(tenantCollections())) {
+  for (const name of clonedModels(tenantCollections(), source)) {
     const coll = model(name).collection
     const [source, target] = await Promise.all([coll.countDocuments({ orgId: srcOid }), coll.countDocuments({ orgId: tgtOid })])
     if (source || target) rows.push({ model: name, source, target })
@@ -815,4 +824,47 @@ export async function scanCopyForLeaks(sourceOrgId: string, targetOrgId: string)
     for await (const d of c.find({ orgId: target._id })) look(name, d)
   }
   return { sourceIds: ids.size, copyDocs, leaking, byCollection, samples }
+}
+
+export interface BooksScan {
+  /** Whether the real org keeps a company's books. When it does not, nothing was looked for. */
+  keepsBooks: boolean
+  /** Rows of the real org's books looked for in the copy. */
+  checked: number
+  /** Per model, how many of them the copy holds a copy of. Empty is the only acceptable answer. */
+  copied: Record<string, number>
+}
+
+/**
+ * READ-ONLY: does the copy hold a copy of the real org's books (FR-25 R7)? The leak scan cannot tell: a
+ * copied entry has every id rewritten, so it names nothing of the real org. A copy's id is a function of
+ * its source's (`ids.ts`), so each row of the books is looked for under the id its copy would carry. The
+ * test org's own accounting, typed in there, is not a copy and is not counted. Counts only.
+ */
+export async function scanCopyForBooks(sourceOrgId: string, targetOrgId: string): Promise<BooksScan> {
+  const { source, target } = await assertCloneAllowed(sourceOrgId, targetOrgId)
+  if (!keepsBooks(source)) return { keepsBooks: false, checked: 0, copied: {} }
+  const tgtHex = String(target._id)
+  const copied: Record<string, number> = {}
+  let checked = 0
+  for (const name of Object.keys(BOOKS_NEVER_CLONED)) {
+    const coll = mongoose.models[name]?.collection
+    if (!coll) continue
+    let batch: Oid[] = []
+    const flush = async () => {
+      if (!batch.length) return
+      const held = await coll.countDocuments({ _id: { $in: batch }, orgId: target._id })
+      batch = []
+      if (held) copied[name] = (copied[name] ?? 0) + held
+    }
+    for await (const d of coll.find({ orgId: source._id }, { projection: { _id: 1 } }) as any) {
+      const hex = String(d._id).toLowerCase()
+      if (!HEX24.test(hex)) continue
+      checked++
+      batch.push(new ObjectId(cloneIdHex(hex, tgtHex)))
+      if (batch.length >= 1000) await flush()
+    }
+    await flush()
+  }
+  return { keepsBooks: true, checked, copied }
 }

@@ -303,6 +303,23 @@ describe('the legal counters\' mark, outside the database (#549)', () => {
     expect(markOf(file, s.orgId)).toBe(120)
   }, 60_000)
 
+  it('a ten-digit counter keeps its mark: a series that goes on from another system\'s numbers is watched like any other', async () => {
+    const s = await homeHere()
+    // Where a series stands that continues the ten-digit numbers of the system it replaced.
+    await Sequence.collection.updateOne({ orgId: s.oid, prefix: 'SALES_DOC', year } as any, { $set: { lastNumber: 3_000_004_106 } })
+    expect(await legalMarkTick()).toBe(0)
+    await issue(s.orgId, 2)
+    expect(await legalMarkTick()).toBe(0)
+    expect(markOf(legalMarkFile()!, s.orgId)).toBe(3_000_004_108)
+    // The database put back: the mark is read as the floor it is. Under a nine-digit ceiling it was
+    // dropped as damage at every read, and this locked nothing.
+    await putBack(s.oid, 3_000_004_106)
+    expect(await legalMarkTick()).toBe(1)
+    expect(await frozen(s.oid)).toMatchObject({ reason: 'restored' })
+    expect((await captureRejection(getNextNumber(s.orgId, 'SALES_DOC')))?.code).toBe('series_frozen')
+    expect(markOf(legalMarkFile()!, s.orgId)).toBe(3_000_004_108)
+  }, 60_000)
+
   it('a backup share that does not answer: the tick ends within its bound, the database is still checked, and the hung share is not asked again', async () => {
     const s = await homeHere()
     await issue(s.orgId, 5)

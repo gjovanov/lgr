@@ -46,11 +46,27 @@
         </v-col>
       </v-row>
       <v-row>
+        <!-- Default and external exclude each other: the default warehouse is where documents book stock,
+             and an external one books none. Whichever is on switches the other off. -->
         <v-col cols="12" md="6">
-          <v-switch v-model="form.isDefault" :label="$t('warehouse.default')" color="primary" density="compact" />
+          <v-switch v-model="form.isDefault" :label="$t('warehouse.default')" :disabled="!writes || form.isExternal" color="primary" density="compact" data-testid="warehouse-default" />
         </v-col>
         <v-col cols="12" md="6">
           <v-switch v-model="form.isActive" :label="$t('common.active')" color="primary" density="compact" />
+        </v-col>
+      </v-row>
+      <v-row>
+        <v-col cols="12">
+          <v-switch
+            v-model="form.isExternal"
+            :label="$t('warehouse.externalWarehouse')"
+            :disabled="!writes || form.isDefault"
+            :hint="form.isDefault ? $t('warehouse.externalNotDefault') : $t('warehouse.externalWarehouseHint')"
+            persistent-hint
+            color="primary"
+            density="compact"
+            data-testid="warehouse-external"
+          />
         </v-col>
       </v-row>
     </v-form>
@@ -89,7 +105,8 @@ const formRef = ref()
 
 interface IAddress { street: string; city: string; state: string; postalCode: string; country: string }
 const emptyAddress = (): IAddress => ({ street: '', city: '', state: '', postalCode: '', country: '' })
-const emptyForm = () => ({ code: '', name: '', type: 'warehouse', manager: '', address: emptyAddress(), isDefault: false, isActive: true })
+// `isExternal`: another site's warehouse, named here for transfers. It keeps no stock in this organization.
+const emptyForm = () => ({ code: '', name: '', type: 'warehouse', manager: '', address: emptyAddress(), isDefault: false, isExternal: false, isActive: true })
 const form = ref(emptyForm())
 
 const { markSaved, tryRestore } = usePendingChanges({
@@ -126,6 +143,7 @@ async function fetchItem() {
       manager: item.manager || '',
       address: { street: addr.street || '', city: addr.city || '', state: addr.state || '', postalCode: addr.postalCode || '', country: addr.country || '' },
       isDefault: item.isDefault,
+      isExternal: !!item.isExternal,
       isActive: item.isActive,
     }
   } catch (e: any) {
@@ -155,10 +173,25 @@ async function handleSubmit() {
     markSaved()
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    showError(saveFailure(e))
   } finally {
     saving.value = false
   }
+}
+
+/**
+ * Why the save was refused. The refusals of the external flag (`config/external-warehouse`) are said
+ * in the user's language; anything else says what the server said.
+ */
+function saveFailure(e: any): string {
+  const body = e?.response?.data
+  if (body?.code === 'warehouse_holds_stock') return t('warehouse.externalHoldsStock', { articles: body.articles })
+  if (body?.code === 'warehouse_in_use') {
+    const uses = Object.entries(body.uses || {}) as [string, number][]
+    return t('warehouse.externalInUse', { uses: uses.map(([kind, n]) => t(`warehouse.inUse.${kind}`, { n }, n)).join(', ') })
+  }
+  if (body?.code === 'external_default') return t('warehouse.externalNotDefault')
+  return body?.message || t('common.operationFailed')
 }
 
 onMounted(async () => {

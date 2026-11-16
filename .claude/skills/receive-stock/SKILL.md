@@ -6,6 +6,10 @@ allowed-tools: Bash(bun:*)
 
 # Receive stock — daily goods receipts (legacy PlusMinus → LGR)
 
+> **The daily run books receipts from the API pull**, not from this export: `scripts/receive-stock-api.ts`
+> over `stokrazp_*.json` (prices, new products and the outgoing lines of a correction included), through the
+> `daily-import` skills. This skill is the route for a `storeOperations_*.xlsx` GUI export.
+
 > **UI equivalent:** *Inventory → Stock Movements → Import* accepts the same
 > `storeOperations_*.xlsx`, applies the same `Операция: Доставки` gate, header check,
 > `Всичко` cross-check and period↔date guard, and writes the same
@@ -123,5 +127,7 @@ Daily cadence (after the day's exports land): `import-sales-invoices` →
   missing StockLevel rows (migration mode).
 - **Future extension (not built)**: "With product update" semantics — use the
   file's `Цена` column via `POST /warehouse/movement/with-update` to also
-  refresh purchase price/tiers. For now quantities only; do not add prices
-  ad-hoc.
+  refresh the tiers. For now quantities only; do not add prices ad-hoc.
+  ⚠ Never the `purchasePrice` from `Цена`: that column is the delivery price (the
+  `Доставна цена` slot, drawn as „Цена с ТО"), and since 2026-11-15 the purchase
+  price is „Цена 2" / 1.2, which no import writes on a product that exists.

@@ -45,7 +45,7 @@ export const fiscalPeriodController = new Elysia({ prefix: '/org/:orgId/accounti
     const r = getRepos()
     const existing = await r.fiscalPeriods.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
-    const item = await r.fiscalPeriods.updateInOrg(params.id, params.orgId, clientUpdate('FiscalPeriod', body, existing) as any)
+    const item = await r.fiscalPeriods.updateInOrg(params.id, params.orgId, clientUpdate('FiscalPeriod', body, existing) as any, {}, { validate: true })
     if (!item) return status(404, { message: 'Not found' })
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'fiscal_period', entityId: params.id, entityName: (item as any).name, changes: existing ? diffChanges(existing as any, item as any) : undefined })

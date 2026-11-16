@@ -62,6 +62,15 @@ export interface IOrg extends BaseEntity {
   description?: string
   logo?: string
   ownerId: string
+  // The company's identity, as its documents print it (FR-25a added the last three).
+  taxNumber?: string
+  vatNumber?: string
+  email?: string
+  phone?: string
+  website?: string
+  representative?: string
+  placeOfIssue?: string
+  activityCode?: string
   settings: IOrgSettings
   subscription: IOrgSubscription
 }

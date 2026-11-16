@@ -3,7 +3,11 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { ensureFiscalPeriod, JournalEntryRefusedError, postJournalEntry, voidJournalEntry } from 'services/biz/accounting.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
-import { buildSearchFilter } from 'services/biz/search.utils'
+import { listJournalEntries, withHeaderReferences } from 'services/biz/journal-header.service'
+import {
+  BOOKS_SOURCE_MODULE, JOURNAL_HEADER_FIELDS, headerProblems, headerUpdateOf, isAsBooked, mergedHeader,
+  type HeaderProblem, type JournalHeaderInput,
+} from 'config/journal-header'
 
 interface LineInput {
   debit: number
@@ -30,38 +34,90 @@ function storedLine<L extends LineInput>(line: L) {
   }
 }
 
+// ── FR-25a §3.6: the document header ──────────────────────────────────────────────────────────────
+
+/** A header field a person may clear: `null` removes it. */
+const text = (maxLength: number) => t.Optional(t.Union([t.String({ maxLength }), t.Null()]))
+const amount = t.Optional(t.Union([t.Number({ minimum: 0 }), t.Null()]))
+const day = t.Optional(t.Union([t.String({ maxLength: 40 }), t.Null()]))
+
+/** What an entry made in LGR may say of its document. `docOptions` and `source` are the books import's alone. */
+const headerBody = {
+  docType: text(20),
+  docNumber: text(40),
+  docDate: day,
+  registerDocType: text(2),
+  reasonRef: text(200),
+  paymentCode: text(2),
+  paidAmount: amount,
+  paidCash: amount,
+  bankOperation: text(100),
+  vatKind: text(20),
+  vatRate: t.Optional(t.Union([t.Number(), t.Null()])),
+  vatRule: text(200),
+  vatExemptionReason: text(300),
+  taxEventDate: day,
+  reportingMonth: text(6),
+  protocolType: text(20),
+  customsRef: text(40),
+  links: t.Optional(t.Union([
+    t.Array(t.Object({
+      docType: t.String({ minLength: 1, maxLength: 20 }),
+      docNumber: t.String({ minLength: 1, maxLength: 40 }),
+      date: t.Optional(t.Union([t.String({ maxLength: 40 }), t.Null()])),
+      amount: t.Optional(t.Union([t.Number(), t.Null()])),
+      amountFx: t.Optional(t.Union([t.Number(), t.Null()])),
+    }), { maxItems: 100 }),
+    t.Null(),
+  ])),
+}
+
+/** The body without its header, and the header alone. */
+function splitHeader<B extends Record<string, unknown>>(body: B) {
+  const rest: Record<string, unknown> = { ...body }
+  const header: Record<string, unknown> = {}
+  for (const field of JOURNAL_HEADER_FIELDS) {
+    if (field in rest) {
+      header[field] = rest[field]
+      delete rest[field]
+    }
+  }
+  return { rest, header: header as JournalHeaderInput }
+}
+
+const AS_BOOKED = {
+  code: 'journal_entry_as_booked',
+  message: 'This entry is as booked in the accountant\'s program: the books import wrote it, and it is changed there, not here.',
+} as const
+
+function headerRefusal(problems: HeaderProblem[]) {
+  return {
+    code: 'journal_header_invalid',
+    message: `The document header is not valid: ${problems.map(p => `${p.field} (${p.code})`).join(', ')}`,
+    problems,
+  }
+}
+
 export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/journal' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    const r = getRepos()
-
-    const filter: Record<string, any> = { orgId }
-    if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['entryNumber', 'description'])
-      Object.assign(filter, searchFilter)
-    }
-    if (query.status) filter.status = query.status
-    if (query.fiscalPeriodId) filter.fiscalPeriodId = query.fiscalPeriodId
-    if (query.startDate || query.endDate) {
-      filter.date = {}
-      if (query.startDate) filter.date.$gte = new Date(query.startDate as string)
-      if (query.endDate) filter.date.$lte = new Date(query.endDate as string)
-    }
-
-    const page = Math.max(0, Number(query.page) || 0)
-    const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = (query.sortBy as string) || 'createdAt'
-    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
-
-    const result = await r.journalEntries.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+    // FR-25a: the entries without their lines, and the header's filters (`journal-header.service.ts`).
+    const result = await listJournalEntries(orgId, query)
     return { journalEntries: result.items, ...result }
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, status }) => {
+    async ({ params: { orgId }, body: fullBody, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
+
+      // FR-25a: an entry made here is LGR's own, so its header is the person's to state, by the same rules as an edit.
+      const { rest, header } = splitHeader(fullBody)
+      const body = rest as typeof fullBody
+      const headerUpdate = headerUpdateOf(header)
+      const problems = headerProblems(mergedHeader({}, headerUpdate))
+      if (problems.length) return status(422, headerRefusal(problems))
 
       // Compute totalDebit and totalCredit from lines if not provided
       const totalDebit = body.totalDebit ?? body.lines.reduce((sum, l) => sum + (l.debit || 0), 0)
@@ -99,6 +155,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
 
       const entry = await r.journalEntries.create({
         ...body,
+        ...headerUpdate.set,
         lines,
         entryNumber,
         fiscalPeriodId,
@@ -142,6 +199,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
         })),
         totalDebit: t.Optional(t.Number()),
         totalCredit: t.Optional(t.Number()),
+        ...headerBody,
       }),
     },
   )
@@ -166,17 +224,26 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
       })
     }
 
-    return { journalEntry: entry }
+    // FR-25a: each link with the entry it names, and the partner the links are matched by.
+    return { journalEntry: await withHeaderReferences(orgId, entry as any) }
   }, { isSignIn: true })
   .put(
     '/:id',
-    async ({ params: { orgId, id }, body, user, status }) => {
+    async ({ params: { orgId, id }, body: fullBody, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
 
       const existing = await r.journalEntries.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Journal entry not found' })
+      // FR-25a: what the books import wrote is as booked, for everyone and whatever the body holds.
+      if (isAsBooked(existing)) return status(422, AS_BOOKED)
       if ((existing as any).status !== 'draft') return status(400, { message: 'Can only edit draft entries' })
+
+      const { rest, header } = splitHeader(fullBody)
+      const body = rest as typeof fullBody
+      const headerUpdate = headerUpdateOf(header)
+      const problems = headerProblems(mergedHeader(existing as any, headerUpdate))
+      if (problems.length) return status(422, headerRefusal(problems))
 
       // New lines bring new totals: posting checks the totals, so stale ones would let it through unbalanced.
       const totalDebit = body.totalDebit ?? body.lines?.reduce((sum, l) => sum + (l.debit || 0), 0)
@@ -188,10 +255,13 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
         }
       }
 
+      // The draft, LGR's own, at the moment of the write: a post or an import between the checks and here changes nothing.
       const updated = await r.journalEntries.updateInOrg(id, orgId, {
         ...body,
+        ...headerUpdate.set,
         ...(body.lines ? { lines: body.lines.map(storedLine), totalDebit, totalCredit } : {}),
-      } as any)
+      } as any, { status: 'draft', sourceModule: { $ne: BOOKS_SOURCE_MODULE } }, { unset: headerUpdate.unset })
+      if (!updated) return status(409, { message: 'The entry changed meanwhile: it is no longer a draft of LGR\'s own.' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'accounting', entityType: 'journal_entry', entityId: id, entityName: existing.entryNumber, changes: diffChanges(existing as any, updated as any) })
 
@@ -215,6 +285,7 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
         }))),
         totalDebit: t.Optional(t.Number()),
         totalCredit: t.Optional(t.Number()),
+        ...headerBody,
       }),
     },
   )
@@ -258,6 +329,8 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
 
     const entry = await r.journalEntries.findOne({ id, orgId } as any)
     if (!entry) return status(404, { message: 'Journal entry not found' })
+    // FR-25a: voiding an imported entry would change the books the accountant filed, and the next import would not know.
+    if (isAsBooked(entry)) return status(422, AS_BOOKED)
     if ((entry as any).status !== 'posted') return status(400, { message: 'Can only void posted entries' })
 
     let updated

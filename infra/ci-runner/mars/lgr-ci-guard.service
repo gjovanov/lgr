@@ -1,0 +1,13 @@
+[Unit]
+Description=LGR CI runner guard (the runner containers reach the internet and nothing private)
+Documentation=https://github.com/gjovanov/lgr/tree/master/infra/ci-runner
+After=network-pre.target
+Before=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft -f /etc/lgr-ci-guard.nft
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

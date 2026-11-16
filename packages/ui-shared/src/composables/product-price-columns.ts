@@ -1,4 +1,5 @@
 import { MAX_PRICE_TIERS, PRICE_TIERS, PRICE_TIER_COLUMN_PREFIX } from 'config/constants'
+import { numberFormat } from './number-display'
 
 /**
  * The Products list's price-tier columns: one per canonical slot (`PRICE_TIERS`: Доставна цена,
@@ -83,9 +84,9 @@ export function formatUnitPrice(amount: number, currency: string, locale: string
   const n = Number(amount) || 0
   const digits = { minimumFractionDigits: 2, maximumFractionDigits: 4 }
   try {
-    return new Intl.NumberFormat(locale, { style: 'currency', currency, ...digits }).format(n)
+    return numberFormat(locale, { style: 'currency', currency, ...digits }).format(n)
   } catch {
     // A malformed currency code, which Intl refuses: the figure, then the code.
-    return `${new Intl.NumberFormat(locale, digits).format(n)} ${currency}`
+    return `${numberFormat(locale, digits).format(n)} ${currency}`
   }
 }

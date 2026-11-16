@@ -1,3 +1,4 @@
+import { QUOTE_TYPES } from 'config/constants'
 import { Invoice } from 'db/models'
 import { NOT_INVOICE_FOR_CASH_SALE, NOT_PAYMENT_RECEIPT, NOT_UNPROVED_STORNO } from './sale-counting.js'
 import { signedAmount } from './money-sign.js'
@@ -37,8 +38,10 @@ export async function getInvoiceSummary(
     if (list.length === 1) match.type = list[0]
     else if (list.length > 1) match.type = { $in: list }
   }
-  // FR-23: a payment's receipt is money its invoice already counts.
-  if (!match.type) Object.assign(match, NOT_PAYMENT_RECEIPT)
+  // FR-23: a payment's receipt is money its invoice already counts. A quote (a proforma, an offer) is no
+  // money at all (FR-22.22): issued, it is `sent` and its amountDue is its total, and the dashboard counted
+  // every one never converted as owed. A caller that names a type gets exactly that type.
+  if (!match.type) match.type = { $nin: [...NOT_PAYMENT_RECEIPT.type.$nin, ...QUOTE_TYPES] }
   if (f.direction) match.direction = f.direction
   if (f.contactId) match.contactId = f.contactId
   if (f.tags) {

@@ -19,7 +19,8 @@ const ORDERED = 12 // on a supplier order that is out, nothing received yet
 const PROMISED = 4 // of those 12, already reserved for the customer
 
 /** The quantity as the Bulgarian list prints it. */
-const qty = (n: number) => new Intl.NumberFormat('bg-BG', { maximumFractionDigits: 3 }).format(n)
+// As the page shows a quantity: bg grouping, and a decimal POINT whatever the language (owner, 2026-11-12).
+const qty = (n: number) => new Intl.NumberFormat('bg-BG', { maximumFractionDigits: 3 }).format(n).replace(',', '.')
 
 async function productBySku(api: Api, sku: string): Promise<any> {
   const { products } = await api.get(`/warehouse/product?search=${encodeURIComponent(sku)}&size=5`)

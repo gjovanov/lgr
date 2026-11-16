@@ -29,6 +29,7 @@ export interface IProduct extends TenantEntity {
   sku: string
   barcode?: string
   name: string
+  tariffCode?: string
   description?: string
   category: string
   type: string
@@ -62,6 +63,7 @@ export interface IProduct extends TenantEntity {
 | sku | string | Yes | - | Stock keeping unit, unique per org |
 | barcode | string | No | - | Product barcode |
 | name | string | Yes | - | Product name (text-indexed for search) |
+| tariffCode | string | No | - | Customs tariff number of the goods (HS / CN / TARIC), free text as the org writes it, trimmed, at most 50 characters (`PRODUCT_TARIFF_CODE_MAX`). Absent or empty when not kept |
 | description | string | No | - | Product description |
 | category | string | Yes | - | Product category |
 | type | string | Yes | - | One of: `goods`, `service`, `raw_material`, `finished_product` |

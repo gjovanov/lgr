@@ -273,6 +273,15 @@
               <template #item.type="{ item }">
                 <v-chip size="x-small" label :color="eventColor(item.type)">{{ eventLabel(item.type) }}</v-chip>
               </template>
+              <!-- An external side is another site's warehouse: the movement booked nothing there. -->
+              <template #item.fromWarehouseName="{ item }">
+                {{ item.fromWarehouseName }}
+                <v-chip v-if="item.fromExternal" size="x-small" label color="info" variant="tonal" class="ml-1">{{ $t('warehouse.external') }}</v-chip>
+              </template>
+              <template #item.toWarehouseName="{ item }">
+                {{ item.toWarehouseName }}
+                <v-chip v-if="item.toExternal" size="x-small" label color="info" variant="tonal" class="ml-1">{{ $t('warehouse.external') }}</v-chip>
+              </template>
               <template #item.productQuantity="{ item }">
                 <span v-if="item.productQuantity !== undefined" :class="item.productQuantity > 0 ? 'text-success' : item.productQuantity < 0 ? 'text-error' : ''">
                   {{ item.productQuantity > 0 ? '+' : '' }}{{ item.productQuantity }}

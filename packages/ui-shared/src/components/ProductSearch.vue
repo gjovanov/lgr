@@ -55,6 +55,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { numberFormat } from '../composables/number-display'
 import { useAccess } from '../access/useAccess'
 import { useI18n } from 'vue-i18n'
 import {
@@ -138,7 +139,7 @@ function showAllResults() {
 
 // ── FR-28.24: the hit's second line — SKU · unit · stock · price ──
 const resolvedLocale = computed(() => props.locale || 'en-US')
-const fmtQty = (n: number) => new Intl.NumberFormat(resolvedLocale.value, { maximumFractionDigits: 3 }).format(n || 0)
+const fmtQty = (n: number) => numberFormat(resolvedLocale.value, { maximumFractionDigits: 3 }).format(n || 0)
 // FR-27.11.D: a price the role does not see is no price to show: the purchase price needs the cost figures, the selling
 // price its level.
 const access = useAccess()

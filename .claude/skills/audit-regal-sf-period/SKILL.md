@@ -25,17 +25,12 @@ quantity diffs on already-matched products, trued up in one pass.
 ## 0. Credentials
 
 Needs `LGR_USERNAME`/`LGR_PASSWORD` (or `LGR_TOKEN`) for the target org, and PlusMinus
-credentials for the pull. If `.secrets/lgr-session.env` has no live account, create a
-throwaway one — see memory `lgr-temp-service-account` — and drop it when done:
+credentials for the pull. With no live account, the `temp-admin` skill creates a throwaway
+one and drops it when done:
 
 ```bash
-# on mars, via the usual seed-user recipe (regal-sf org)
-bun run scripts/seed-user.ts --org regal-sf --email jamesbond007@lgr.internal --username jamesbond \
-  --password "$(openssl rand -hex 16)" --first James --last Bond --role admin --execute
-```
-
-```bash
-set -a && source .secrets/lgr-session.env && set +a   # before every step below
+bash .claude/skills/temp-admin/temp-admin.sh create <tag> regal-sf
+set -a && source .secrets/lgr-session-<tag>.env && set +a   # before every step below
 ```
 
 ## 1. Pull everything for the range
@@ -137,15 +132,15 @@ and one decrease batch (`fromWarehouseId`), never invented as a fake document. B
 fully reversible (search stock movements for the marker) if a later finding says
 otherwise. Re-run step 3 afterwards — it should come back near-zero.
 
-⚠ Lines on a product with no established cost (`avgCost`/`purchasePrice` both unset —
+⚠ Lines on a product with no established cost (`avgCost`, the `Доставна цена` slot and `purchasePrice` all unset —
 typically the "opening stock never seeded" class) book at **zero cost**, same precedent
 as the standing opening-stock corrections elsewhere in this migration (memory
 `lgr-regal-sf-org`'s retired `SM-2026-01050`). That is accepted here, not a bug.
 
 ## 5. Clean up
 
-Drop the throwaway service account from step 0 if you created one (memory
-`lgr-temp-service-account`), and `roomler kill` any forward left over from step 1.
+Drop the throwaway account from step 0 if you created one (`temp-admin.sh drop <tag> regal-sf`, which
+proves the drop), and `roomler kill` any forward left over from step 1.
 
 ## Known-clean baseline (2026-10-31)
 

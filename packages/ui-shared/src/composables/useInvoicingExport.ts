@@ -3,10 +3,10 @@ import { httpClient } from './useHttpClient'
 
 export type ExportFormat = 'xlsx' | 'pdf'
 export type ExportMode = 'compact' | 'detailed'
-export type DocType = 'invoice' | 'proforma' | 'credit_note' | 'debit_note' | 'cash_sale' | 'bill'
+export type DocType = 'invoice' | 'proforma' | 'offer' | 'credit_note' | 'debit_note' | 'cash_sale' | 'bill'
 /** Extra documents printable alongside an outgoing document, each rendered as its own file. */
 export type CompanionDoc = 'certificate' | 'ppprotocol'
-/** What `exportOne` can render instead of the document itself: a companion, or a bill's „Стокова разписка". */
+/** What `exportOne` can render instead of the document itself: a companion, or a bill's „Складова разписка". */
 export type PrintDoc = CompanionDoc | 'stock_receipt'
 
 const MIME: Record<ExportFormat, string> = {
@@ -98,6 +98,8 @@ export function useInvoicingExport(orgUrl: () => string) {
      * document — it travels with the request and is forgotten afterwards.
      */
     note?: string,
+    /** What else the rendered document asks for, as query parameters: a stock receipt's `priceLevel`. */
+    extra?: Record<string, string>,
   ): Promise<void> {
     loading.value = true
     try {
@@ -106,6 +108,7 @@ export function useInvoicingExport(orgUrl: () => string) {
       if (locale) params.set('locale', locale)
       if (doc) params.set('doc', doc)
       if (note?.trim()) params.set('note', note.trim())
+      for (const [name, value] of Object.entries(extra ?? {})) params.set(name, value)
       const { data } = await httpClient.get(
         `${orgUrl()}/invoicing/export/${invoiceId}?${params.toString()}`,
         { responseType: 'blob' },

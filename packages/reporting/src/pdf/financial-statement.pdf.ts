@@ -1,5 +1,5 @@
 import type { IOrg } from 'db/models'
-import { markdownToPdf, buildHeader } from './base.pdf.js'
+import { markdownToPdf, buildHeader, mdText } from './base.pdf.js'
 
 export interface ProfitLossData {
   revenue: { name: string; amount: number }[]
@@ -25,7 +25,7 @@ function sumItems(items: { name: string; amount: number }[]): number {
 function renderSection(items: { name: string; amount: number }[], indent = ''): string {
   let md = ''
   for (const item of items) {
-    md += `| ${indent}${item.name} | ${item.amount.toFixed(2)} |\n`
+    md += `| ${indent}${mdText(item.name)} | ${item.amount.toFixed(2)} |\n`
   }
   return md
 }
@@ -46,7 +46,7 @@ export async function generateProfitLossStatementPDF(
   const totalOtherExpenses = sumItems(data.otherExpenses)
   const netIncome = operatingIncome + totalOtherIncome - totalOtherExpenses
 
-  md += `| Account | Amount (${org.settings.baseCurrency}) |\n`
+  md += `| Account | Amount (${mdText(org.settings.baseCurrency)}) |\n`
   md += `|---------|-------:|\n`
 
   // Revenue
@@ -100,7 +100,7 @@ export async function generateBalanceSheetPDF(
   asOfDate: string,
 ): Promise<Buffer | undefined> {
   let md = buildHeader('Balance Sheet', org.name)
-  md += `**As of:** ${asOfDate}\n\n---\n\n`
+  md += `**As of:** ${mdText(asOfDate)}\n\n---\n\n`
 
   const totalCurrentAssets = sumItems(data.currentAssets)
   const totalFixedAssets = sumItems(data.fixedAssets)
@@ -114,7 +114,7 @@ export async function generateBalanceSheetPDF(
   const totalEquity = sumItems(data.equity)
   const totalLiabilitiesAndEquity = totalLiabilities + totalEquity
 
-  md += `| Account | Amount (${org.settings.baseCurrency}) |\n`
+  md += `| Account | Amount (${mdText(org.settings.baseCurrency)}) |\n`
   md += `|---------|-------:|\n`
 
   // Assets

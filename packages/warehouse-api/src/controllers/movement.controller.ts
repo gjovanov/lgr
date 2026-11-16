@@ -1,18 +1,31 @@
 import { Elysia, t } from 'elysia'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
+import { sideIsExternal } from 'config/external-warehouse'
 import { can, grantOf } from 'services/biz/access/evaluate'
 import { seesBills } from 'services/biz/access/partition'
-import { redactMovementLine } from 'config/access'
+import { redactMovementLine, redactMovementTotals, seesCosts, sortsByMovementTotal } from 'config/access'
 import { AppAuthService } from '../auth/app-auth.service.js'
+import { writesTransfersOnly } from '../lib/movement-access.js'
 import { getRepos } from 'services/context'
 import { confirmMovement, MovementClaimedError, MovementNotDraftError, unclaimedMovement } from 'services/biz/warehouse.service'
 import { DocFile, Invoice, StockMovement } from 'db/models'
 import { createMovementWithProductUpdates, updateMovementWithProductUpdates, GRValidationError } from 'services/biz/movement-with-update.service'
+import { createNumberedMovement, withMovementNumber } from 'services/biz/movement-number'
+import { nextCountNumber } from 'services/biz/count-number'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { buildProductListFilter, hasProductListFilter, productIdsMatching } from 'services/biz/product-list-filter'
 import { findPageSortedBy } from 'services/biz/sorted-page'
 import { billingByMovement, receiptBillingFor } from 'services/biz/receipt-bill.service'
+import { dispatchInvoicingFor, invoicingByMovement } from 'services/biz/dispatch-invoice.service'
+import { movementExternalSides } from 'services/biz/external-warehouses'
+import { renderStockMovementPdf } from 'services/biz/stock-movement-document.service'
+
+/** FR-22.61: the live sales invoice that holds a dispatch, as a list row and the movement page name it. */
+function saleOf(holder: { id: string; number: string; status: string; type: string; direction: string } | undefined): { id: string; number: string } | undefined {
+  if (!holder || holder.type !== 'invoice' || holder.direction !== 'outgoing' || ['voided', 'cancelled'].includes(holder.status)) return undefined
+  return { id: holder.id, number: holder.number }
+}
 
 /**
  * What the Movements list's columns sort by. Two print a field under another name; three print
@@ -23,9 +36,14 @@ const refName = (from: string, localField: string, name: unknown) => [
   { $lookup: { from, localField, foreignField: '_id', as: '_ref' } },
   { $addFields: { sortKey: name } },
 ]
+/** A side's warehouse as the list names it: the one whose stock moved, else the external one a completed movement keeps apart. */
+const sideName = (stock: string, external: string) => [
+  { $addFields: { _side: { $ifNull: [`$${stock}`, `$${external}`] } } },
+  ...refName('warehouses', '_side', { $first: '$_ref.name' }),
+]
 const MOVEMENT_SORT_BY_REF: Record<string, Record<string, unknown>[]> = {
-  fromWarehouseName: refName('warehouses', 'fromWarehouseId', { $first: '$_ref.name' }),
-  toWarehouseName: refName('warehouses', 'toWarehouseId', { $first: '$_ref.name' }),
+  fromWarehouseName: sideName('fromWarehouseId', 'externalFromWarehouseId'),
+  toWarehouseName: sideName('toWarehouseId', 'externalToWarehouseId'),
   // As the list prints it: the company, else the person's first and last name.
   contactName: refName('contacts', 'contactId', {
     $let: {
@@ -41,40 +59,16 @@ const MOVEMENT_SORT_BY_REF: Record<string, Record<string, unknown>[]> = {
   }),
 }
 
-async function getNextMovementNumber(orgId: string): Promise<string> {
-  const r = getRepos()
-  const year = new Date().getFullYear()
-  const prefix = `SM-${year}-`
-  const movements = await r.stockMovements.findMany(
-    { orgId, movementNumber: { $regex: `^${prefix}` } } as any,
-    { movementNumber: -1 },
-  )
-  if (!movements.length) return `${prefix}00001`
-  const currentNum = parseInt(movements[0].movementNumber.replace(prefix, ''), 10)
-  return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
-}
-
-// Same max+1 scheme the inventory-count controller uses (deliberately duplicated, like
-// getNextMovementNumber itself — these counters predate the Sequence registry).
-async function getNextCountNumber(orgId: string): Promise<string> {
-  const r = getRepos()
-  const year = new Date().getFullYear()
-  const prefix = `IC-${year}-`
-  const counts = await r.inventoryCounts.findMany(
-    { orgId, countNumber: { $regex: `^${prefix}` } } as any,
-    { countNumber: -1 },
-  )
-  if (!counts.length) return `${prefix}00001`
-  const currentNum = parseInt(counts[0].countNumber.replace(prefix, ''), 10)
-  return `${prefix}${String(currentNum + 1).padStart(5, '0')}`
-}
+/** An id no contact has: what a `contactId` that is no id is read as, so it finds nothing. */
+const NO_CONTACT = '000000000000000000000000'
 
 /**
  * FR-26.7: a session that writes movements through `inventory.transfer` alone (a Seller) writes
  * transfers and nothing else. `inventory.write` keeps every type; `admin` is refused nothing.
+ * The rule itself is `lib/movement-access.ts#writesTransfersOnly`, which the list's mail asks too.
  */
 function transferOnly(user: { role?: string; permissions?: readonly string[] }): boolean {
-  return !can(user, 'movements.create')
+  return writesTransfersOnly(grantOf(user as any))
 }
 
 const TRANSFER_ONLY = { code: 'transfer_only', message: 'Your role moves stock between warehouses only: a transfer.' } as const
@@ -129,10 +123,16 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     }
     if (query.type) filter.type = query.type
     if (query.status) filter.status = query.status
+    // The movements that name one contact (the contact form's Movements button). What is no id finds nothing: the
+    // button counts by the same field, and a list of everybody's movements under one contact's name is the wrong answer.
+    if (query.contactId !== undefined) filter.contactId = /^[0-9a-f]{24}$/i.test(String(query.contactId)) ? String(query.contactId) : NO_CONTACT
     if (query.warehouseId) {
+      // An external warehouse sits in the external pair once the movement is completed.
       filter.$or = [
         { fromWarehouseId: query.warehouseId },
         { toWarehouseId: query.warehouseId },
+        { externalFromWarehouseId: query.warehouseId },
+        { externalToWarehouseId: query.warehouseId },
       ]
     }
     // The movements carrying any article the Products list's search and filters find (`product*`,
@@ -160,8 +160,13 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = (query.sortBy as string) || 'date'
-    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+    // FR-27.11.C.2/C.3: a movement's total is its lines' costs summed. A role without the costs is sent none, and
+    // does not order the list by it: asked to, the list comes in its usual order.
+    const grant = grantOf(user as any)
+    const asked = (query.sortBy as string) || 'date'
+    const usual = !seesCosts(grant) && sortsByMovementTotal(asked)
+    const sortBy = usual ? 'date' : asked
+    const sortOrder = !usual && (query.sortOrder as string) === 'asc' ? 1 : -1
 
     const byRef = MOVEMENT_SORT_BY_REF[sortBy]
     const result = byRef
@@ -173,8 +178,10 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const toWhIds = new Set<string>()
     const contactIds = new Set<string>()
     for (const m of result.items) {
-      if (m.fromWarehouseId) fromWhIds.add(m.fromWarehouseId)
-      if (m.toWarehouseId) toWhIds.add(m.toWarehouseId)
+      const from = m.fromWarehouseId || m.externalFromWarehouseId
+      const to = m.toWarehouseId || m.externalToWarehouseId
+      if (from) fromWhIds.add(from)
+      if (to) toWhIds.add(to)
       if ((m as any).contactId) contactIds.add((m as any).contactId)
     }
 
@@ -190,11 +197,21 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     // #493: none for a session without `purchases`, and the bills it would name are hidden (`withoutBill`).
     const receipts = seesBills(user as any) ? result.items.filter((m: any) => m.type === 'receipt' && m.invoiceId) : []
     const billing = receipts.length ? await billingByMovement(orgId, receipts) : new Map()
+    // FR-22.61: a dispatch names the live sales invoice that holds it, for a session that reads sales documents.
+    const dispatches = can(user, 'sales-docs.view') ? result.items.filter((m: any) => m.type === 'dispatch' && m.invoiceId) : []
+    const invoicing = dispatches.length ? await invoicingByMovement(orgId, dispatches) : new Map()
     const hidden = await hiddenBills(user, orgId, result.items)
 
+    /** A side as the list shows it: the warehouse's name, and whether it is an external one (`sideIsExternal`). */
+    const sideOf = (m: any, stockId?: string, externalId?: string) => {
+      const id = stockId || externalId
+      const wh: any = id ? warehouseMap.get(id) : null
+      return { name: wh?.name || '', external: sideIsExternal(m, stockId, externalId, !!wh?.isExternal) }
+    }
+
     const stockMovements = result.items.map(m => {
-      const fromWh = m.fromWarehouseId ? warehouseMap.get(m.fromWarehouseId) : null
-      const toWh = m.toWarehouseId ? warehouseMap.get(m.toWarehouseId) : null
+      const from = sideOf(m, m.fromWarehouseId, m.externalFromWarehouseId)
+      const to = sideOf(m, m.toWarehouseId, m.externalToWarehouseId)
       const contact = (m as any).contactId ? contactMap.get((m as any).contactId) : null
       const contactName = contact
         ? (contact as any).companyName || [(contact as any).firstName, (contact as any).lastName].filter(Boolean).join(' ') || ''
@@ -219,17 +236,21 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       // Strip lines from list response (not needed for table, reduces payload)
       const { lines, ...rest } = m as any
       const bill = billing.get(String(m.id))?.invoice
-      return withoutBill(hidden, {
+      const sale = saleOf(invoicing.get(String(m.id))?.invoice)
+      return redactMovementTotals(grant, withoutBill(hidden, {
         ...rest,
         lineCount: lines?.length || 0,
         number: m.movementNumber,
         total: m.totalAmount,
-        fromWarehouseName: fromWh?.name || '',
-        toWarehouseName: toWh?.name || '',
+        fromWarehouseName: from.name,
+        toWarehouseName: to.name,
+        fromExternal: from.external,
+        toExternal: to.external,
         contactName,
         ...(productQuantity !== undefined ? { productQuantity } : {}),
         ...(bill && !['voided', 'cancelled'].includes(bill.status) ? { bill: { id: bill.id, number: bill.number } } : {}),
-      })
+        ...(sale ? { sale } : {}),
+      }))
     })
 
     return { stockMovements, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages }
@@ -244,18 +265,16 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       if (notTransfer) return status(notTransfer.status, notTransfer.body)
       if (transferOnly(user)) for (const l of body.lines) { delete (l as any).productUpdate; delete (l as any).priceTiers }
 
-      const misfit = movementWarehouseRefusal(body)
+      const misfit = movementWarehouseRefusal({ ...body, ...await movementExternalSides(orgId, body) })
       if (misfit) return status(422, misfit)
 
-      const movementNumber = body.movementNumber || await getNextMovementNumber(orgId)
-
-      const movement = await r.stockMovements.create({
-        ...body,
-        orgId,
-        movementNumber,
-        status: 'draft',
-        createdBy: user.id,
-      } as any)
+      // A number the caller chose is saved or refused as it is. Otherwise the org's next one, and when another
+      // movement took that at the same moment, the one after it (`createNumberedMovement`).
+      const draft = { ...body, status: 'draft', createdBy: user.id }
+      const movement = body.movementNumber
+        ? await r.stockMovements.create({ ...draft, orgId } as any)
+        : await createNumberedMovement(r, orgId, draft)
+      const movementNumber = movement.movementNumber
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'stock_movement', entityId: movement.id, entityName: movementNumber })
 
@@ -302,14 +321,21 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       if (!user) return status(401, { message: 'Unauthorized' })
       // FR-26.7: this route books receipts only.
       if (transferOnly(user)) return status(403, TRANSFER_ONLY)
-      const misfit = movementWarehouseRefusal(body)
+      const misfit = movementWarehouseRefusal({ ...body, ...await movementExternalSides(orgId, body) })
       if (misfit) return status(422, misfit)
-      const movementNumber = body.movementNumber || await getNextMovementNumber(orgId)
-      try {
-        const { movementId, updatedProductIds } = await createMovementWithProductUpdates(
+      // The product updates and the movement are one transaction, so a number another movement took at the same
+      // moment undoes both, and both are written again under the next number.
+      const write = async (movementNumber: string) => ({
+        movementNumber,
+        ...await createMovementWithProductUpdates(
           { ...body, orgId, movementNumber, createdBy: user.id } as any,
           (body.productUpdates || []) as any,
-        )
+        ),
+      })
+      try {
+        const { movementId, movementNumber, updatedProductIds } = body.movementNumber
+          ? await write(body.movementNumber)
+          : await withMovementNumber(orgId, write)
         // Audit log: one entry per product update, all tied to the movement via correlationId.
         for (const pid of updatedProductIds) {
           createAuditEntry({
@@ -373,6 +399,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const productMap = new Map(products.map(p => [p.id, p]))
 
     // FR-27.11.C.1: no line's cost, and a receipt line's product update by the product's rule, for a role without them.
+    // C.2: nor the movement's total, which is those costs summed.
     const grant = grantOf(user as any)
     const lines = movement.lines.map(l => redactMovementLine(grant, {
       ...l,
@@ -386,8 +413,40 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       ? await receiptBillingFor(orgId, { ...movement, _id: movement.id }, user.id)
       : { billable: false }
 
+    // FR-22.61: the sales invoice that holds this dispatch, or whether one may be made from it. A session that reads
+    // no sales documents is told of none, and one that may not create them is offered none.
+    const noted = movement.type === 'dispatch' && can(user, 'sales-docs.view')
+      ? await dispatchInvoicingFor(orgId, { ...movement, _id: movement.id }, user.id)
+      : null
+    const invoicing = noted
+      ? (({ sale, invoiceable, ...rest }) => ({
+          ...rest,
+          invoiceable: invoiceable && can(user, 'sales-docs.create'),
+          ...(saleOf(sale) ? { sale: saleOf(sale) } : {}),
+        }))(noted)
+      : {}
+
+    // Which side is an external warehouse (`sideIsExternal`): only a draft's choice needs the flag as it is now.
+    const live = movement.status === 'draft' ? await movementExternalSides(orgId, movement) : { fromExternal: false, toExternal: false }
+    const externalSides = {
+      fromExternal: sideIsExternal(movement, movement.fromWarehouseId, movement.externalFromWarehouseId, live.fromExternal),
+      toExternal: sideIsExternal(movement, movement.toWarehouseId, movement.externalToWarehouseId, live.toExternal),
+    }
+
     const hidden = await hiddenBills(user, orgId, [movement])
-    return { stockMovement: withoutBill(hidden, { ...movement, number: movement.movementNumber, lines, ...billing }) }
+    return { stockMovement: redactMovementTotals(grant, withoutBill(hidden, { ...movement, number: movement.movementNumber, lines, ...externalSides, ...billing, ...invoicing })) }
+  }, { isSignIn: true })
+  /**
+   * The movement as a printed document (`reporting/pdf/stock-movement.pdf`), for whoever may read it. It
+   * carries no price: a line's `unitCost` is a cost figure not every role sees, and the sheet leaves the org.
+   */
+  .get('/:id/export', async ({ params: { orgId, id }, query, user, status, set }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const rendered = await renderStockMovementPdf(orgId, id, { locale: (query.locale as string) || 'en' })
+    if (!rendered.ok) return status(rendered.status, { message: rendered.message, ...(rendered.detail ? { detail: rendered.detail } : {}) })
+    set.headers['content-type'] = 'application/pdf'
+    set.headers['content-disposition'] = `attachment; filename="${rendered.filename}"`
+    return new Response(rendered.buffer as any)
   }, { isSignIn: true })
   .put(
     '/:id',
@@ -399,20 +458,17 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       if (!existing) return status(404, { message: 'Stock movement not found' })
       if (existing.status !== 'draft') return status(400, { message: 'Can only edit draft movements' })
 
-      const notTransfer = transferRefusal(user, {
-        type: existing.type,
-        fromWarehouseId: body.fromWarehouseId === undefined ? existing.fromWarehouseId : body.fromWarehouseId,
-        toWarehouseId: body.toWarehouseId === undefined ? existing.toWarehouseId : body.toWarehouseId,
-      }, { warehouses: true })
-      if (notTransfer) return status(notTransfer.status, notTransfer.body)
-
       // The movement as it would stand after this edit. A warehouse the body does not mention
       // stays; `null` clears it, which is how a draft saved with the wrong side gets repaired.
-      const misfit = movementWarehouseRefusal({
+      const after = {
         type: existing.type,
         fromWarehouseId: body.fromWarehouseId === undefined ? existing.fromWarehouseId : body.fromWarehouseId,
         toWarehouseId: body.toWarehouseId === undefined ? existing.toWarehouseId : body.toWarehouseId,
-      })
+      }
+      const notTransfer = transferRefusal(user, after, { warehouses: true })
+      if (notTransfer) return status(notTransfer.status, notTransfer.body)
+
+      const misfit = movementWarehouseRefusal({ ...after, ...await movementExternalSides(orgId, after) })
       if (misfit) return status(422, misfit)
 
       // Inline product-master updates (receipts only) ride the edit in one transaction.
@@ -480,7 +536,13 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     if (notTransfer) return status(notTransfer.status, notTransfer.body)
 
     // A draft saved before the rule existed reaches the stock through here: this is the last door.
-    const misfit = movementWarehouseRefusal(movement)
+    // So does one whose warehouse became external after it was saved: the flag is read now.
+    const misfit = movementWarehouseRefusal({
+      type: movement.type,
+      fromWarehouseId: movement.fromWarehouseId,
+      toWarehouseId: movement.toWarehouseId,
+      ...await movementExternalSides(orgId, movement),
+    })
     if (misfit) return status(422, misfit)
 
     // FR-04 (#11): confirming a MANUAL adjustment can auto-create its completed inventory
@@ -537,7 +599,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
           }
         })
       if (lines.length) {
-        const countNumber = await getNextCountNumber(orgId)
+        const countNumber = await nextCountNumber(orgId)
         const count = await r.inventoryCounts.create({
           orgId,
           countNumber,

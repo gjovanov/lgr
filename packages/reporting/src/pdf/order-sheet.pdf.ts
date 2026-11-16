@@ -1,19 +1,28 @@
-import { markdownToPdf } from './base.pdf.js'
+import { markdownToPdf, mdText } from './base.pdf.js'
 import { orderSheetI18n, type OrderSheetCtx } from '../order-sheet.i18n.js'
 
 /**
- * Per-supplier-group Order sheets as PDF (markdown → md-to-pdf).
+ * Per-supplier-group Order sheets as PDF (markdown, printed by `markdownToPdf`).
  *
  *  - 'supplier': offer sheet with blank price/total/delivery columns; no internal data.
  *  - 'internal': allocation + reservation breakdown for warehouse/transport planning.
  */
 export async function generateOrderSheetPDF(ctx: OrderSheetCtx, variant: 'supplier' | 'internal'): Promise<Buffer | undefined> {
+  return markdownToPdf(buildOrderSheetMarkdown(ctx, variant), { locale: ctx.locale })
+}
+
+/**
+ * The sheet as markdown. ⚠ Every value a person typed goes through `mdText`: a name, an article,
+ * a note is printed as it was typed, never read as markup or as markdown. Exported so that a
+ * test can hold the sheet to that without a browser.
+ */
+export function buildOrderSheetMarkdown(ctx: OrderSheetCtx, variant: 'supplier' | 'internal'): string {
   const t = orderSheetI18n(ctx.locale)
   const lines: any[] = ctx.group.lines || []
-  const esc = (s: any) => String(s ?? '').replace(/\|/g, '\\|')
+  const esc = mdText
 
   let md = `# ${variant === 'supplier' ? t.titleSupplier : t.titleInternal}\n\n`
-  md += `**${t.orderNo}** ${ctx.order.orderNumber || ''}  \n`
+  md += `**${t.orderNo}** ${esc(ctx.order.orderNumber)}  \n`
   md += `**${t.date}:** ${ctx.order.issueDate ? new Date(ctx.order.issueDate).toISOString().split('T')[0] : ''}  \n`
   if (ctx.order.expectedDate) md += `**${t.expectedDate}:** ${new Date(ctx.order.expectedDate).toISOString().split('T')[0]}  \n`
   md += `\n`
@@ -77,9 +86,9 @@ export async function generateOrderSheetPDF(ctx: OrderSheetCtx, variant: 'suppli
     md += `\n`
   }
 
-  if (ctx.order.notes) md += `**${t.notes}:** ${ctx.order.notes}\n\n`
-  if (ctx.order.terms && variant === 'supplier') md += `**${t.terms}:** ${ctx.order.terms}\n\n`
+  if (ctx.order.notes) md += `**${t.notes}:** ${esc(ctx.order.notes)}\n\n`
+  if (ctx.order.terms && variant === 'supplier') md += `**${t.terms}:** ${esc(ctx.order.terms)}\n\n`
   md += `---\n\n*${t.generated}: ${new Date().toISOString().split('T')[0]}*\n`
 
-  return markdownToPdf(md, { locale: ctx.locale })
+  return md
 }

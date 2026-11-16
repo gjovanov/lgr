@@ -70,16 +70,18 @@ export class ScopedRepository<T extends BaseEntity> implements IBatchRepository<
     return this.inner.findOne(this.mergeFilter({ id, orgId }) as any)
   }
 
-  async updateInOrg(id: string, orgId: string, data: any): Promise<T | null> {
+  async updateInOrg(id: string, orgId: string, data: any, where?: Record<string, unknown>, opts?: { validate?: boolean; unset?: string[] }): Promise<T | null> {
     const check = await this.findByIdInOrg(id, orgId)
     if (!check) return null
-    return this.inner.updateInOrg(id, orgId, data)
+    // Both forwarded (#675): a caller's guard (`where`) and the validators it asked for. The guard was dropped here.
+    return this.inner.updateInOrg(id, orgId, data, where, opts)
   }
 
-  async deleteInOrg(id: string, orgId: string): Promise<boolean> {
+  async deleteInOrg(id: string, orgId: string, where?: Record<string, unknown>): Promise<boolean> {
     const check = await this.findByIdInOrg(id, orgId)
     if (!check) return false
-    return this.inner.deleteInOrg(id, orgId)
+    // A caller's guard (`where`) is forwarded, as `updateInOrg`'s is (#675): the fixed-asset route names one (FR-25a §3.4).
+    return this.inner.deleteInOrg(id, orgId, where)
   }
 
   // Batch operations — delegate with scope

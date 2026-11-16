@@ -31,7 +31,9 @@
  *
  * ⚠ A sale price PRICE_TYPO_FACTOR times or more from the rest of its line ("0172" for 0.172) is a
  * typo on the PlusMinus item card: it is not written, and the run lists it at the end so the store
- * can correct the card. Every receipt of that article repeats the typo until they do.
+ * can correct the card. Every receipt of that article repeats the typo until they do. So is a price
+ * that is no number at all ("1.741.5700"): it reads as no price, and the list says what it probably
+ * meant (1.74157), never writing it.
  *
  * Usage:
  *   bun run scripts/receive-stock-api.ts --dir <dir with stokrazp_*.json>            # dry-run
@@ -113,11 +115,14 @@ const round2 = (v: number) => +v.toFixed(2)
 /** The column a person sees on the разписка and on the item card. */
 const priceLabel = (field: string) =>
   field === 'price' ? 'Цена (delivery)' : field === 'retailPrice' ? 'Прод. цена' : field === 'wholesalePrice' ? 'Цена на едро' : `Цена ${field.slice(5)}`
-const describeTypo = (w: StokrazpPriceWarning) =>
-  `${priceLabel(w.field)} "${w.raw}" is ${w.ratio >= 1 ? `${w.ratio.toFixed(1)}× above` : `${(1 / w.ratio).toFixed(1)}× below`} the line's ${w.reference} — ` +
-  (w.held ? 'NOT written'
-    : w.field === 'price' ? "kept, it is the receipt's unit cost"
-    : 'written: the line has only two prices, and either one may be the wrong one')
+const describeTypo = (w: StokrazpPriceWarning) => w.malformed
+  // Not a number: it reads as no price. A repair is proposed when the shape is a known one, and only proposed.
+  ? `${priceLabel(w.field)} "${w.raw}" is not a number${w.suggested !== undefined ? ` (probably ${w.suggested})` : ''} — ` +
+    (w.held ? 'NOT written: the product keeps its price' : "read as no price, so the receipt's unit cost is 0")
+  : `${priceLabel(w.field)} "${w.raw}" is ${w.ratio >= 1 ? `${w.ratio.toFixed(1)}× above` : `${(1 / w.ratio).toFixed(1)}× below`} the line's ${w.reference} — ` +
+    (w.held ? 'NOT written'
+      : w.field === 'price' ? "kept, it is the receipt's unit cost"
+      : 'written: the line has only two prices, and either one may be the wrong one')
 const collapse = (s: string) => s.replace(/\s+/g, ' ').trim().toLocaleLowerCase('bg')
 const CYR2LAT: Record<string, string> = { 'а': 'a', 'в': 'b', 'е': 'e', 'к': 'k', 'м': 'm', 'н': 'h', 'о': 'o', 'р': 'p', 'с': 'c', 'т': 't', 'х': 'x', 'у': 'y', 'ѕ': 's', 'і': 'i', 'ј': 'j', 'ԁ': 'd', 'ԛ': 'q', 'ѡ': 'w' }
 const fold = (s: string) => collapse(s).split('').map(c => CYR2LAT[c] ?? c).join('')
@@ -275,7 +280,7 @@ async function main() {
   for (const line of formatPartnerReport(summarizePartners(partners))) console.log(line)
   if (typos.length) {
     const held = typos.filter(t => t.w.held).length
-    console.log(`\n⚠ ${typos.length} price(s) ${PRICE_TYPO_FACTOR}× or more off the rest of their line, ${held} of them not written. ` +
+    console.log(`\n⚠ ${typos.length} price(s) ${PRICE_TYPO_FACTOR}× or more off the rest of their line, or not a number, ${held} of them not written. ` +
       'They are typos on the PlusMinus item card, so the store should correct these cards:')
     for (const { docNumber, w } of typos) console.log(`   ${docNumber}  "${w.name}": ${describeTypo(w)}`)
   }

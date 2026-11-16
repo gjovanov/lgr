@@ -1,5 +1,7 @@
 <template>
-  <v-dialog v-model="show" max-width="640">
+  <!-- `scrollable`: the options scroll between the title and the buttons, which stay in view. With the columns
+       open the dialog is taller than a laptop screen, and its Download used to be below the fold. -->
+  <v-dialog v-model="show" max-width="640" scrollable>
     <v-card>
       <v-card-title class="d-flex align-center">
         <v-icon class="mr-2">{{ icon || 'mdi-download' }}</v-icon>
@@ -64,34 +66,60 @@
 
         <v-divider class="my-2" />
 
-        <div class="d-flex align-center mb-1">
-          <strong>{{ $t ? $t('export.columns') : 'Columns' }}</strong>
-          <v-spacer />
-          <v-btn size="x-small" variant="text" @click="selectAll">
-            {{ $t ? $t('common.selectAll') : 'Select all' }}
-          </v-btn>
-          <v-btn size="x-small" variant="text" @click="selectNone">
-            {{ $t ? $t('common.selectNone') : 'Clear' }}
-          </v-btn>
+        <!-- The columns shape one printed form and are rarely changed, so a document's print dialog
+             (`collapsibleColumns`) keeps them folded: the header says how many are chosen, and the whole
+             header opens them. A list export shows them as it always did. Where the dialog is a phone's
+             width, Select all / Clear take the line under the header instead of squeezing it. -->
+        <div class="d-flex align-center mb-1" :class="{ 'flex-wrap': collapsibleColumns }">
+          <button
+            v-if="collapsibleColumns"
+            type="button"
+            class="export-columns-toggle d-flex align-center ga-1 flex-grow-1 text-start text-no-wrap"
+            :aria-expanded="columnsOpen ? 'true' : 'false'"
+            :aria-controls="columnsId"
+            :title="$t ? $t(columnsOpen ? 'common.collapse' : 'common.expand') : undefined"
+            data-testid="export-columns-toggle"
+            @click="columnsOpen = !columnsOpen"
+          >
+            <v-icon size="small">{{ columnsOpen ? 'mdi-chevron-down' : 'mdi-chevron-right' }}</v-icon>
+            <strong>{{ $t ? $t('export.columns') : 'Columns' }}</strong>
+            <span class="text-caption text-medium-emphasis ml-1" data-testid="export-columns-count">
+              {{ $t ? $t('common.itemsSelected', { n: selectedColumns.length }) : `${selectedColumns.length} selected` }}
+            </span>
+          </button>
+          <template v-else>
+            <strong>{{ $t ? $t('export.columns') : 'Columns' }}</strong>
+            <v-spacer />
+          </template>
+          <div v-if="columnsOpen" class="d-flex ml-auto">
+            <v-btn size="x-small" variant="text" @click="selectAll">
+              {{ $t ? $t('common.selectAll') : 'Select all' }}
+            </v-btn>
+            <v-btn size="x-small" variant="text" @click="selectNone">
+              {{ $t ? $t('common.selectNone') : 'Clear' }}
+            </v-btn>
+          </div>
         </div>
 
-        <v-row dense>
-          <v-col v-for="col in availableColumns" :key="col.key" cols="12" sm="6">
-            <v-checkbox
-              :model-value="selectedSet.has(col.key)"
-              :label="labelFor(col)"
-              density="compact"
-              hide-details
-              @update:model-value="toggle(col.key, $event)"
-            />
-          </v-col>
-        </v-row>
+        <v-expand-transition>
+          <v-row v-show="columnsOpen" :id="columnsId" dense data-testid="export-columns">
+            <v-col v-for="col in availableColumns" :key="col.key" cols="12" sm="6">
+              <v-checkbox
+                :model-value="selectedSet.has(col.key)"
+                :label="labelFor(col)"
+                density="compact"
+                hide-details
+                @update:model-value="toggle(col.key, $event)"
+              />
+            </v-col>
+          </v-row>
+        </v-expand-transition>
       </v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn @click="show = false" :disabled="loading">{{ $t ? $t('common.cancel') : 'Cancel' }}</v-btn>
-        <v-btn color="primary" :loading="loading" :disabled="!selectedColumns.length" @click="onConfirm">
-          {{ $t ? $t('common.download') : 'Download' }}
+        <v-btn data-testid="export-cancel" @click="show = false" :disabled="loading">{{ $t ? $t('common.cancel') : 'Cancel' }}</v-btn>
+        <v-btn color="primary" :loading="loading" :disabled="!selectedColumns.length" data-testid="export-confirm" @click="onConfirm">
+          {{ confirmLabel || ($t ? $t('common.download') : 'Download') }}
         </v-btn>
       </v-card-actions>
     </v-card>
@@ -99,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   filterColumns,
@@ -142,6 +170,13 @@ const props = defineProps<{
    * Keys the mode does not offer are ignored; none left means the defaults.
    */
   initialColumns?: string[]
+  /**
+   * Fold the column picker away, closed every time the dialog opens: its header then counts the columns
+   * chosen and opens them. A document's Print dialog asks for it; a list export does not.
+   */
+  collapsibleColumns?: boolean
+  /** What the confirming button says instead of "Download": the action it finishes („Издай и печатай"). */
+  confirmLabel?: string
 }>()
 
 const emit = defineEmits<{
@@ -166,6 +201,10 @@ const companionSet = computed(() => new Set(selectedCompanions.value))
 
 const aggregated = ref(false)
 
+/** The column picker shows; with `collapsibleColumns` it starts folded on every open. */
+const columnsOpen = ref(!props.collapsibleColumns)
+const columnsId = `export-columns-${useId()}`
+
 const docType = computed<DocType>(() => props.docType || 'invoice')
 const availableColumns = computed<ExportColumn[]>(() =>
   aggregated.value ? CASH_AGG_COLUMNS : filterColumns(mode.value, docType.value),
@@ -184,6 +223,7 @@ watch(() => props.modelValue, (open) => {
     format.value = props.defaultFormat || DEFAULT_FORMAT
     mode.value = props.defaultMode || 'compact'
     aggregated.value = props.showAggregate ? (props.defaultAggregate ?? false) : false
+    columnsOpen.value = !props.collapsibleColumns
     resetSelection()
     // Companion documents are opt-in on every print — never carried over from the last one.
     selectedCompanions.value = []
@@ -243,3 +283,20 @@ function onConfirm() {
   })
 }
 </script>
+
+<style scoped>
+/* The folded column picker's header: a button that reads as the heading it replaces. */
+.export-columns-toggle {
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.export-columns-toggle:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 2px;
+}
+</style>

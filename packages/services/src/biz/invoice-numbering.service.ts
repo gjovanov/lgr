@@ -8,7 +8,11 @@
  * existing importers keep working unchanged.
  */
 import { Invoice } from 'db/models'
-import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, isLegalSeries, seriesFrozenSince, SeriesFrozenError } from './sequence.service.js'
+import { mongoose } from 'db/connection'
+import {
+  CONTINUOUS_PAD, getNextNumber, getNextContinuousNumber, getCurrentNumber, highestCounter, isContinuousSeries,
+  ensureSequenceAtLeast, getDisplayPrefix, isLegalSeries, seriesFrozenSince, SeriesFrozenError,
+} from './sequence.service.js'
 import {
   INVOICING_SEQUENCE_KEYS,
   LEGACY_DISPLAY_ALIASES,
@@ -21,7 +25,7 @@ import {
 // Prefix rendered on the invoice number, derived from the sequences registry so the
 // configuration page (/invoicing/configuration/sequences) stays the single source of truth.
 export const TYPE_PREFIX: Record<string, string> = Object.fromEntries(
-  (['cash_sale', 'proforma', 'credit_note', 'debit_note'] as const)
+  (['cash_sale', 'proforma', 'offer', 'credit_note', 'debit_note'] as const)
     .map(t => [t, sequenceDefFor(sequenceGroupFor(t), 'issued')?.defaultDisplay || 'INV']),
 )
 
@@ -93,36 +97,69 @@ function escapeRe(s: string): string {
 }
 
 /**
+ * Every display prefix a counter renders for this org: the registry defaults, whatever the org
+ * configured on the sequences page (so renaming a prefix doesn't hide existing numbers), and the
+ * prefixes the counter rendered historically (CRN/DBN before the FR-01 merge: their suffixes came
+ * from this counter, so they count toward its max).
+ */
+export async function seriesPrefixes(orgId: string, key: string): Promise<string[]> {
+  const defs = INVOICING_SEQUENCE_KEYS.filter(e => e.prefix === key && e.variant === 'issued')
+  if (!defs.length) return []
+  return [...new Set([
+    ...(await Promise.all(defs.map(async d => [d.defaultDisplay, await resolveDefPrefix(orgId, d)]))).flat(),
+    ...(LEGACY_DISPLAY_ALIASES[key] || []),
+  ])]
+}
+
+/**
+ * How a series' numbers read. A yearly series: `<prefix>-<year>-<number>`, of ONE year. A
+ * continuous one: `<prefix>-<number>`, and every yearly number issued before it became continuous,
+ * of ANY year, because its running number goes on above all of them.
+ */
+function seriesPattern(prefixes: string[], year: number | null): RegExp {
+  const head = `^(?:${prefixes.map(escapeRe).join('|')})-`
+  return new RegExp(year === null ? `${head}(?:\\d{4}-)?(\\d+)$` : `${head}${year}-(\\d+)$`)
+}
+
+/**
+ * The running number a document number carries in a CONTINUOUS series, or null when the number is
+ * not one of the series' (a draft's, another series', a number with letters in it).
+ */
+export async function continuousSuffixOf(orgId: string, key: string, number: unknown): Promise<number | null> {
+  const prefixes = await seriesPrefixes(orgId, key)
+  if (!prefixes.length) return null
+  const m = seriesPattern(prefixes, null).exec(String(number ?? ''))
+  return m ? Number(m[1]) : null
+}
+
+/** A continuous series' number: its prefix and ten digits, no year. */
+export function continuousNumber(display: string, n: number): string {
+  return `${display}-${String(n).padStart(CONTINUOUS_PAD, '0')}`
+}
+
+/**
  * Scan existing invoices that share the given sequence key and return the highest trailing
  * numeric suffix already in use for `year`. Used to bootstrap `lastNumber` when legacy rows
  * (seeds, pre-refactor per-prefix counters) have numbers above the current sequence value.
+ *
+ * `everyYear`: the series is continuous. Its numbers carry no year, and the yearly ones issued
+ * before it became continuous count whatever their year.
  */
-export async function currentMaxSuffix(orgId: string, key: string, year: number): Promise<number> {
-  // Every display prefix this counter renders — registry defaults PLUS whatever the org
-  // configured on the sequences page, so renaming a prefix doesn't hide existing numbers.
-  const defs = INVOICING_SEQUENCE_KEYS.filter(e => e.prefix === key && e.variant === 'issued')
-  if (!defs.length) return 0
-  const prefixes = [...new Set([
-    ...(await Promise.all(defs.map(async d => [d.defaultDisplay, await resolveDefPrefix(orgId, d)]))).flat(),
-    // Prefixes this counter rendered historically (e.g. CRN/DBN before the FR-01 merge) —
-    // their suffixes came from this counter, so they count toward its max.
-    ...(LEGACY_DISPLAY_ALIASES[key] || []),
-  ])]
+export async function currentMaxSuffix(orgId: string, key: string, year: number, opts: { everyYear?: boolean } = {}): Promise<number> {
+  const prefixes = await seriesPrefixes(orgId, key)
+  if (!prefixes.length) return 0
 
-  const re = new RegExp(`^(?:${prefixes.map(escapeRe).join('|')})-${year}-(\\d+)$`)
-  const docs = await Invoice
-    .find({ orgId, invoiceNumber: { $regex: re } } as any, { invoiceNumber: 1 })
-    .lean()
-    .exec()
-  let max = 0
-  for (const d of docs) {
-    const m = (d as any).invoiceNumber?.match(re)
-    if (m) {
-      const n = Number(m[1])
-      if (n > max) max = n
-    }
-  }
-  return max
+  // Counted where the numbers are: a continuous series matches every document the org ever issued or
+  // imported, and this runs at each allocation and each time a form asks what the next number would be.
+  // The pattern ends in `-<digits>`, so the running number is the piece after the last dash. An aggregate
+  // casts nothing: the org's id is made one here.
+  const re = seriesPattern(prefixes, opts.everyYear ? null : year)
+  const rows: Array<{ max?: number }> = await Invoice.aggregate([
+    { $match: { orgId: new mongoose.Types.ObjectId(String(orgId)), invoiceNumber: { $regex: re } } },
+    { $project: { _id: 0, n: { $convert: { input: { $arrayElemAt: [{ $split: ['$invoiceNumber', '-'] }, -1] }, to: 'double', onError: 0, onNull: 0 } } } },
+    { $group: { _id: null, max: { $max: '$n' } } },
+  ]).exec()
+  return Number(rows[0]?.max ?? 0)
 }
 
 /**
@@ -146,6 +183,15 @@ export async function getNextInvoiceNumber(orgId: string, direction: string, typ
   const key = sequenceKeyFor(t, direction)
   const year = new Date().getFullYear()
 
+  // A continuous series: no year, ten digits, on above every number of the series in any form
+  // (the yearly ones issued before the switch, and the ones an import brought with it).
+  if (await isContinuousSeries(orgId, key)) {
+    const floor = await currentMaxSuffix(orgId, key, year, { everyYear: true })
+    const n = await getNextContinuousNumber(orgId, key, floor, year)
+    const display = (await resolveDocPrefix(orgId, t, direction, 'issued')) || prefixFor(t, direction)
+    return continuousNumber(display, n)
+  }
+
   // Reconcile: ensure the shared counter has caught up with any pre-existing numbers in the
   // same prefix group (fixes legacy data where the per-prefix counter pre-dated SALES_DOC,
   // or where seeds inserted invoiceNumbers directly without bumping a counter).
@@ -158,6 +204,26 @@ export async function getNextInvoiceNumber(orgId: string, direction: string, typ
   const seqPart = numberFromService.split('-').pop()!
   const display = (await resolveDocPrefix(orgId, t, direction, 'issued')) || prefixFor(t, direction)
   return `${display}-${year}-${seqPart}`
+}
+
+/**
+ * The number the next issued document of a series would get, without drawing it: what a form shows
+ * before the document is issued. The same reading as `getNextInvoiceNumber`, so the two agree.
+ */
+export async function peekNextInvoiceNumber(orgId: string, direction: string, type?: string): Promise<{ next: string; counter: number; prefix: string }> {
+  const t = type || 'invoice'
+  const key = sequenceKeyFor(t, direction)
+  const year = new Date().getFullYear()
+  const display = await resolveDisplayPrefix(orgId, prefixFor(t, direction), key)
+  if (await isContinuousSeries(orgId, key)) {
+    const counter = await highestCounter(orgId, key)
+    const next = Math.max(counter, await currentMaxSuffix(orgId, key, year, { everyYear: true })) + 1
+    return { next: continuousNumber(display, next), counter, prefix: display }
+  }
+  // For SALES_DOC keep the reconciliation behaviour aligned with allocate-time.
+  const counter = await getCurrentNumber(orgId, key, year)
+  const next = Math.max(counter, await currentMaxSuffix(orgId, key, year)) + 1
+  return { next: `${display}-${year}-${String(next).padStart(5, '0')}`, counter, prefix: display }
 }
 
 /**

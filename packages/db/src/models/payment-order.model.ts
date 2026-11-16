@@ -18,6 +18,8 @@ export interface IPaymentOrder extends Document {
   description?: string
   status: string
   executedAt?: Date
+  /** #675: who executed it. `POST /:id/execute` wrote it, and the model had no such field, so it was dropped. */
+  executedBy?: Types.ObjectId
   journalEntryId?: Types.ObjectId
   createdBy: Types.ObjectId
   createdAt: Date
@@ -39,6 +41,7 @@ const paymentOrderSchema = new Schema<IPaymentOrder>(
     description: String,
     status: { type: String, required: true, default: 'draft', enum: ['draft', 'approved', 'executed', 'cancelled'] },
     executedAt: Date,
+    executedBy: { type: Schema.Types.ObjectId, ref: 'User' },
     journalEntryId: { type: Schema.Types.ObjectId, ref: 'JournalEntry' },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },

@@ -60,6 +60,23 @@ function signInAs(username: string, password: string, extra: Record<string, unkn
 }
 const claimsOf = (token: string) => JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString())
 
+/**
+ * Run `act` while every audit insert takes 300 ms. A sign-in that writes its entry in the background answers first
+ * and a read straight after finds none (the busy-runner flake of #750); one that waits for it does not.
+ */
+async function withSlowAudit<T>(act: () => Promise<T>): Promise<T> {
+  const realCreate = AuditLog.create
+  ;(AuditLog as any).create = async (...args: any[]) => {
+    await new Promise(res => setTimeout(res, 300))
+    return (realCreate as any).apply(AuditLog, args)
+  }
+  try {
+    return await act()
+  } finally {
+    ;(AuditLog as any).create = realCreate
+  }
+}
+
 async function org(prefix = 'o') {
   const o = await createTestOrg({ slug: `${prefix}-${Date.now()}-${++seq}`, name: `${prefix.toUpperCase()} ${seq}` } as any)
   return { id: String(o._id), slug: o.slug as string, _id: o._id as Types.ObjectId }
@@ -105,6 +122,16 @@ describe('signing in without an org', () => {
     const claims = claimsOf(res.body.token)
     expect([claims.orgId, claims.iid, claims.tv]).toEqual([a.id, String(identity._id), 0])
     expect(String((await Identity.findById(identity._id).lean().exec())!.lastOrgId)).toBe(a.id)
+  })
+
+  it('records the sign-in before it answers: a slow audit write is waited for, not raced (#750)', async () => {
+    const a = await org('aud')
+    const { members } = await person(`aud-${seq}@x.test`, [a])
+
+    const res = await withSlowAudit(() => signInAs(members[0].username, PW))
+    expect(res.status).toBe(200)
+    // Read at once, never waited for: the entry is there because the answer waited for it.
+    expect(await AuditLog.countDocuments({ orgId: a._id, action: 'login' })).toBe(1)
   })
 
   it('takes an email address, in any case', async () => {
@@ -310,6 +337,13 @@ describe('switching org', () => {
     const audit = await AuditLog.findOne({ orgId: b._id, action: 'login' }).sort({ timestamp: -1 }).lean().exec()
     expect(audit!.changes!.find(c => c.field === 'method')!.newValue).toBe('switch')
     expect(String((await Identity.findById(identity._id).lean().exec())!.lastOrgId)).toBe(b.id)
+  })
+
+  it('records the switch before it answers, the same way (every enterOrg path: switch, join, new org, LGR)', async () => {
+    const { token, b } = await sessionIn('audsw')
+    const switched = await withSlowAudit(() => call('POST', '/auth/switch', { token, body: { orgId: b.id } }))
+    expect(switched.status).toBe(200)
+    expect(await AuditLog.countDocuments({ orgId: b._id, action: 'login' })).toBe(1)
   })
 
   it('tells a session that names no person (not migrated yet) to sign in to each org instead', async () => {

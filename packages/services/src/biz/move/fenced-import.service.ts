@@ -30,6 +30,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { mongo } from 'mongoose'
+import { isQuoteType } from 'config/constants'
 import { mongoose } from 'db/connection'
 import { FencedExport, FencedImportItem, Invoice, StockMovement } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
@@ -37,10 +38,11 @@ import { getRepos } from '../../context.js'
 import { logger } from '../../logger/logger.js'
 import { postInvoiceJournal, postPaymentJournal, postPosSessionJournal } from '../../events/handlers.js'
 import { createAuditEntry, recordAuditEntry } from '../audit-log.service.js'
-import { createInvoiceStockMovement, getNextMovementNumber } from '../invoicing.service.js'
-import { draftSequenceKeyFor, getNextDraftInvoiceNumber, sequenceKeyFor } from '../invoice-numbering.service.js'
+import { createInvoiceStockMovement } from '../invoicing.service.js'
+import { withMovementNumber } from '../movement-number.js'
+import { continuousSuffixOf, draftSequenceKeyFor, getNextDraftInvoiceNumber, sequenceKeyFor } from '../invoice-numbering.service.js'
 import { syncOrderForInvoice } from '../reservation.service.js'
-import { ensureSequenceAtLeast } from '../sequence.service.js'
+import { ensureSequenceAtLeast, isContinuousSeries } from '../sequence.service.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { normalizeStored, resolveStored } from '../files/stored-path.js'
 import { idKey } from '../replication/pages.js'
@@ -124,7 +126,8 @@ function sourceText(ctx: Ctx): string {
 
 /** How lgrai.app books a sale once it is in: as `/send`, `/receive` or the till would have. */
 export function bookingOf(doc: Doc): 'none' | 'sale' | 'bill' | 'register' {
-  if (doc.status === 'draft' || DEAD.has(String(doc.status)) || doc.type === 'proforma') return 'none'
+  // A quote (a proforma, an offer) books nothing, issued or not: it is no sale (FR-22.22).
+  if (doc.status === 'draft' || DEAD.has(String(doc.status)) || isQuoteType(doc.type)) return 'none'
   // FR-23: a payment's receipt books nothing. Its invoice comes in with the stock, the entry and the
   // payment row; `createInvoiceStockMovement` below would dispatch its lines a second time. A refund's
   // storno the same: its credit note comes in with the return and the payment row.
@@ -157,10 +160,18 @@ function seriesPart(number: unknown): { year: number; n: number } | null {
   return m ? { year: Number(m[1]), n: Number(m[2]) } : null
 }
 
-/** Numbering goes on above every number imported: lgrai.app never issues one of them again. */
-async function continueSeries(orgId: string, doc: Doc): Promise<void> {
-  const part = seriesPart(doc.invoiceNumber)
+/** Numbering goes on above every number imported: lgrai.app never issues one of them again. Exported for its test. */
+export async function continueSeries(orgId: string, doc: Doc): Promise<void> {
+  let part = seriesPart(doc.invoiceNumber)
   const key = doc.status === 'draft' ? draftSequenceKeyFor(doc.type, doc.direction) : sequenceKeyFor(doc.type, doc.direction)
+  // A continuous series' number carries no year (`INV-3000004106`). It is recorded on this year's
+  // row: any row keeps the series above it (`getNextContinuousNumber`). Read by the series' own
+  // prefixes, and only where the org numbers so: a trailing run of digits alone is no number of a
+  // series (a till day's `CSR-<date>` would send the cash sales to the millions).
+  if (!part && key && doc.status !== 'draft' && await isContinuousSeries(orgId, key)) {
+    const n = await continuousSuffixOf(orgId, key, doc.invoiceNumber)
+    if (n !== null) part = { year: new Date().getFullYear(), n }
+  }
   if (part && key) await ensureSequenceAtLeast(orgId, key, part.year, part.n)
   // The УНП: `<device>-<operator>-<number>`, counted per device.
   const unp = /^([^-]{8})-[^-]+-(\d+)$/.exec(String(doc.register?.unp ?? ''))
@@ -346,12 +357,18 @@ export async function importMovement(ctx: Ctx, doc: Doc, listed: ReadonlySet<str
     const kept: Doc = { ...doc, status: confirm ? 'draft' : doc.status, importedFrom: { ...ctx.source, at: ctx.at, by: oid(ctx.by) } }
     delete kept.journalEntryId
     const taken = await StockMovement.collection.findOne({ orgId: ctx.org, movementNumber: doc.movementNumber, _id: { $ne: doc._id } } as any, { projection: { _id: 1 } })
-    // A movement number is no legal number: one lgrai.app has since used is given the next.
+    // A movement number is no legal number: one lgrai.app has since used is given the next, and the one after
+    // that when another movement takes it at the same moment.
+    const insert = () => StockMovement.collection.insertOne(kept as any)
     if (taken) {
-      kept.movementNumber = await getNextMovementNumber(ctx.orgId, getRepos())
       kept.importedFrom.number = doc.movementNumber
+      await withMovementNumber(ctx.orgId, (movementNumber) => {
+        kept.movementNumber = movementNumber
+        return insert()
+      })
+    } else {
+      await insert()
     }
-    await StockMovement.collection.insertOne(kept as any)
   }
   if (confirm && (!there || there.status === 'draft')) {
     try {

@@ -43,7 +43,10 @@ describe('Compare', () => {
     expect(orders.onlyA).toEqual([])
     expect(orders.onlyB.length).toBeGreaterThan(0)
     // What both hold is no difference.
-    expect(rows.find(r => r.feature === 'sales-docs')!.differs).toBe(false)
+    expect(rows.find(r => r.feature === 'proforma')!.differs).toBe(false)
+    // Sales documents: the Sales Consultant types a price, the Seller picks one (owner, 2026-11-12).
+    const docs = rows.find(r => r.feature === 'sales-docs')!
+    expect({ differs: docs.differs, onlyA: docs.onlyA, onlyB: docs.onlyB }).toEqual({ differs: true, onlyA: [], onlyB: ['sales-docs.manual-price'] })
   })
 
   it('a role against itself differs nowhere; against the Administrator, wherever it lacks something', () => {

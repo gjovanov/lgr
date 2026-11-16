@@ -23,7 +23,9 @@ import { headerTitles } from './helpers/table'
 test.describe.configure({ mode: 'serial' })
 test.use({ viewport: { width: 1920, height: 900 } })
 
-const stamp = Date.now().toString(36)
+// Digits only. The Supplier filter finds a name by its words, and a stamp in base 36 can hold a "b": then
+// "E2E Supplier B <stamp>" finds A and C as well, for as long as that letter stays in the stamp.
+const stamp = String(Date.now())
 const prefix = `E2E-PS-${stamp}`
 const PASSWORD = 'e2e-test-pw-12345'
 const sellerName = `seller-ps-${stamp}`

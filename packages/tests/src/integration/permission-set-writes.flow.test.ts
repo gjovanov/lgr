@@ -141,7 +141,9 @@ describe('and cannot change what a set grants', () => {
   it('the refusal says why, and is the same for a holder of every permission without the admin role', async () => {
     const res = await call('PUT', sets(`/${deputySetId}`), tokens.everything, { isAdmin: true })
     expect(res.status).toBe(403)
-    expect(res.json?.message).toBe('Admin only')
+    // S-28's order: refused before the body is read, by the route's floor (`roles.edit`), which only the admin role
+    // holds on the legacy model.
+    expect(res.json).toMatchObject({ code: 'permission_required', capabilities: ['roles.edit'] })
     expect((await setRow(deputySetId)).isAdmin).toBe(false)
   })
 

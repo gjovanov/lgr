@@ -47,7 +47,7 @@ interface IInvoice extends Document {
   _id: Types.ObjectId
   orgId: Types.ObjectId
   invoiceNumber: string
-  type: string                 // 'invoice' | 'proforma' | 'credit_note' | 'debit_note'
+  type: string                 // 'invoice' | 'proforma' | 'offer' | 'credit_note' | 'debit_note' (+ the register's types)
   direction: string            // 'outgoing' | 'incoming'
   status: string               // 'draft' | 'sent' | 'partially_paid' | 'paid' | 'overdue' | 'voided' | 'cancelled' | 'converted'
   contactId: Types.ObjectId    // ref: Contact
@@ -72,6 +72,7 @@ interface IInvoice extends Document {
   relatedInvoiceId?: Types.ObjectId   // ref: Invoice (self)
   convertedInvoiceId?: Types.ObjectId // ref: Invoice (self)
   proformaId?: Types.ObjectId         // ref: Invoice (self)
+  offerId?: Types.ObjectId            // ref: Invoice (self) — the offer a proforma or an invoice came from
   journalEntryId?: Types.ObjectId     // ref: JournalEntry
   recurringConfig?: IInvoiceRecurringConfig
   attachments: Types.ObjectId[]       // ref: File
@@ -93,7 +94,7 @@ interface IInvoice extends Document {
 | id / _id | ObjectId | TEXT PK | Yes | auto | |
 | orgId / org_id | ObjectId | TEXT | Yes | - | Tenant ID |
 | invoiceNumber / invoice_number | String | TEXT | Yes | - | Auto-generated (INV-/BILL- prefix) |
-| type | String | TEXT | Yes | - | `invoice`, `proforma`, `credit_note`, `debit_note` |
+| type | String | TEXT | Yes | - | `invoice`, `proforma`, `offer`, `credit_note`, `debit_note` (+ the register's types) |
 | direction | String | TEXT | Yes | - | `outgoing`, `incoming` |
 | status | String | TEXT | Yes | `draft` | See status enum |
 | contactId / contact_id | ObjectId | TEXT FK | Yes | - | Ref: Contact |
@@ -116,6 +117,7 @@ interface IInvoice extends Document {
 | relatedInvoiceId / related_invoice_id | ObjectId | TEXT FK | No | - | Self-ref |
 | convertedInvoiceId / converted_invoice_id | ObjectId | TEXT FK | No | - | Self-ref |
 | proformaId / proforma_id | ObjectId | TEXT FK | No | - | Self-ref |
+| offerId / offer_id | ObjectId | TEXT FK | No | - | Self-ref: the offer a proforma or an invoice was converted from (carried on from a proforma to its invoice) |
 | journalEntryId / journal_entry_id | ObjectId | TEXT | No | - | Ref: JournalEntry |
 | recurringConfig / recurring_config | Object | TEXT (JSON) | No | - | JSON in SQLite |
 | attachments | [ObjectId] | TEXT (JSON) | No | `[]` | JSON array / child table |
@@ -171,6 +173,7 @@ interface IInvoice extends Document {
 | References | Invoice (self) | relatedInvoiceId | Self-ref (optional) |
 | References | Invoice (self) | convertedInvoiceId | Self-ref (optional) |
 | References | Invoice (self) | proformaId | Self-ref (optional) |
+| References | Invoice (self) | offerId | Self-ref (optional) |
 | Has many | InvoiceLine | lines (embedded) / invoice_lines (child table) | One-to-many |
 | Has many | InvoicePayment | payments (embedded) / invoice_payments (child table) | One-to-many |
 | Has many | File | attachments / invoice_attachments (child table) | Many-to-many |
@@ -194,7 +197,7 @@ interface IInvoice extends Document {
 | POST | `/:id/receive` | Mark incoming invoice as received + create stock movement. An unlinked bill answers 409 `receipt_overlap` while an unclaimed goods receipt may be the same delivery; the optional body `{ acknowledgeOverlap: true }` receives anyway (FR-22.31c). 409 `bill_not_draft` when another request took it first; 422 `stock_line_without_warehouse` or `stock_line_without_product` when booking it would be refused, with the bill still a draft | Yes | - |
 | POST | `/:id/payments` | Record a payment on invoice. Cash or card on an issued sales invoice or debit note prints a `payment_receipt` where the org prints (FR-23); on a credit note it is a refund, and prints a `payment_storno` citing a receipt that paid its invoice | Yes | - |
 | POST | `/:id/void` | Void invoice + reverse stock movement | Yes | - |
-| POST | `/:id/convert` | Convert proforma to invoice | Yes | - |
+| POST | `/:id/convert` | Convert a quote, once: a proforma into an invoice; an offer into an invoice or a proforma (`{ target }`). A draft of the target's own draft series | Yes | `{ target?: 'invoice' \| 'proforma' }` |
 
 **List response key:** `invoices`
 
@@ -204,7 +207,9 @@ interface IInvoice extends Document {
 - `draft` -> `sent` (via `/send`) or `received` (incoming, via `/receive`)
 - `sent` -> `partially_paid` -> `paid` (via `/payments`)
 - `draft` | `sent` -> `voided` (via `/void`)
-- `proforma` -> `converted` (via `/convert`, creates new invoice)
+- `proforma` -> `converted` (via `/convert`, creates a draft invoice)
+- `offer` -> `converted` (via `/convert`, creates a draft proforma or a draft invoice)
+- A quote (`proforma`, `offer`) is no sale (`config/constants#QUOTE_TYPES`): issued, it moves no stock, posts no journal entry, takes no payment, and no receivable reader counts it (aging, dashboard, contact balance, the contact ledger's totals).
 
 **MongoDB indexes:**
 - `{ orgId: 1, invoiceNumber: 1 }` (unique)

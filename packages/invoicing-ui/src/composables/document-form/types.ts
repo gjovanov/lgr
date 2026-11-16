@@ -19,6 +19,7 @@ export type DocType =
   | 'invoice'
   | 'purchase_invoice'
   | 'proforma'
+  | 'offer'
   | 'credit_note'
   | 'debit_note'
   | 'purchase_credit_note'
@@ -69,7 +70,7 @@ export interface PayloadConfig {
   emitDueDate: boolean
   /** Fall back `dueDate` → `issueDate` when empty (sales invoice only). */
   dueDateFallbackToIssue: boolean
-  /** Emit the validity date `validUntil` (proforma only) — as `dueDate`, where the model keeps it. */
+  /** Emit the validity date `validUntil` (the quotes: proforma, offer) — as `dueDate`, where the model keeps it. */
   emitValidUntil: boolean
   /** Emit `supplierInvoiceNumber` (purchase only). */
   emitSupplierInvoiceNumber: boolean
@@ -169,7 +170,14 @@ export interface DocumentTypeConfig {
   status: StatusStep[]
 
   // ── actions ──
-  /** In edit mode: show Save only while draft, or always. */
+  /**
+   * Once the document is issued: offer Import from a file only while it is a draft, or always.
+   *
+   * It used to gate Save as well, in the bar under the title only: the foot of the form offered Save in every
+   * status, so an issued sales invoice had Save in one bar and not in the other. A document is editable in
+   * every status, so both bars offer Save now (`useDocumentForm#formActions`); the cash sale is the exception,
+   * issued as it is saved on its own terminal.
+   */
   editSaveGate: 'draft-only' | 'always'
   /** Render the smart-button row from loaded data (sales invoice only). */
   showSmartButtons: boolean
@@ -186,6 +194,8 @@ export interface DocumentTypeConfig {
   saveAndReceive?: boolean
   /** The goods receipts the bill pays for: links, price differences, „Свържи с доставка" (FR-22.31/.32). */
   linkDelivery?: boolean
+  /** The stock notes a sales invoice was made from: links, „Свържи с експедиция" (FR-22.61/.62). */
+  linkStockNote?: boolean
   /** „+ Нов продукт „…"" in a line's article search (FR-22.30). */
   allowCreateProduct?: boolean
 

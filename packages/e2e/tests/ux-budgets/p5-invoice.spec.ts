@@ -14,6 +14,10 @@ import { listGeometry } from '../helpers/list-geometry'
  * action, „Издай и печатай" (FR-22.16–.20). It used to be Save (back to the list), the row's
  * „Изпрати", the row's „Запис на плащане" dialog with the card picked a second time, then the
  * invoice reopened for Печат and its print dialog: 22 clicks and 2 dialogs, 20 after slice 1.
+ *
+ * Owner, 2026-11-15: „Издай и печатай" asks HOW to print before it does anything — the Print dialog
+ * (format, mode, the documents that go with it, its columns folded) — and its confirmation is what
+ * saves, issues and prints. One more click and one more dialog, on his word.
  */
 
 type Api = Awaited<ReturnType<typeof uxApi>>
@@ -26,8 +30,12 @@ const LINES = [
   { sku: 'PRD-0023', qty: 4 },
 ]
 
-/** FR-22 §3: P5-invoice ≤ 14 clicks · 6 typed · ≤ 1 dialog, and paid with no extra step. */
-const BUDGET = { clicks: 14, typed: 6, dialogs: 1 }
+/**
+ * FR-22 §3: P5-invoice ≤ 14 clicks · 6 typed · ≤ 1 dialog, and paid with no extra step. Owner, 2026-11-12: issuing an
+ * outgoing invoice confirms its payment method first, one more click (Yes). Owner, 2026-11-15: „Издай и печатай" opens
+ * the Print dialog first, one more click (its confirmation) and one more dialog: 16 clicks, 2 dialogs.
+ */
+const BUDGET = { clicks: 16, typed: 6, dialogs: 2 }
 
 /** Product records by SKU (uncounted setup). */
 async function productsBySku(api: Api, skus: string[]): Promise<Record<string, any>> {
@@ -155,11 +163,22 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   await expect(rows).toHaveCount(LINES.length + 1)
   await walk.shot('lines-entered')
 
-  // ── 5. „Издай и печатай": saved, issued, paid and printed in one action ──
+  // ── 5. „Издай и печатай": how it prints is asked first; its confirmation saves, issues, settles and prints ──
   const issueAndPrint = page.getByRole('button', { name: 'Издай и печатай' }).first()
   await expect(issueAndPrint).toBeVisible()
   const downloadPromise = page.waitForEvent('download', { timeout: 60000 })
   await walk.click(issueAndPrint, 'issue and print („Издай и печатай")')
+  walk.dialog('how it prints: the Print dialog (owner, 2026-11-15)')
+  const printDialog = page.getByRole('dialog').filter({ has: page.getByTestId('export-confirm') })
+  await expect(printDialog).toContainText('Допълнителни документи')
+  // Its columns are there, folded away; and nothing has happened to the invoice yet: it is still a new one.
+  await expect(printDialog.getByTestId('export-columns-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await expect(printDialog.getByTestId('export-columns')).toBeHidden()
+  expect(page.url()).toMatch(/\/invoicing\/invoices\/new/)
+  await walk.shot('print-dialog')
+  await walk.click(printDialog.getByTestId('export-confirm'), 'confirm the print („Издай и печатай" in the dialog)')
+  walk.dialog('confirm the payment method (owner, 2026-11-12)')
+  await walk.click(page.getByTestId('issue-payment-yes'), 'yes, issue with that payment method')
   const download = await downloadPromise
   await expect(page.locator('.v-snackbar').filter({ hasText: 'Експортът е генериран' })).toBeVisible()
   // On the issued invoice: its own edit route, its number, paid.
@@ -178,7 +197,7 @@ test('P5 invoice: create, issue, print and mark paid a card sale', async ({ page
   const smartButtonTexts = (await page.locator('.smart-buttons-row').allInnerTexts()).join(' ')
   if (await page.locator('.v-snackbar').getByRole('button', { name: /^close$/i }).count()) english.push('every snackbar\'s „CLOSE" button')
 
-  walk.note(`„Издай и печатай" saved the draft (${final.draftNumber}), issued it as ${final.invoiceNumber}, settled it by card (${final.payments?.map((p: any) => `${p.amount} ${p.method}/${p.origin}`).join(', ')}) and printed ${download.suggestedFilename()} — one click, no dialog, still on the invoice.`)
+  walk.note(`„Издай и печатай" saved the draft (${final.draftNumber}), issued it as ${final.invoiceNumber}, settled it by card (${final.payments?.map((p: any) => `${p.amount} ${p.method}/${p.origin}`).join(', ')}) and printed ${download.suggestedFilename()} — the button, the Print dialog's confirmation and the payment-method question, still on the invoice.`)
   // FR-22.26 (uncounted): the next invoice this user starts — a new tab — opens on card.
   const nextPm = await walk.offTheClock(async () => {
     const next = await page.context().newPage()

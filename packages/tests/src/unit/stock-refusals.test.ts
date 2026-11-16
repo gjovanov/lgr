@@ -12,11 +12,13 @@ import { STOCK_REFUSAL_CODES, stockRefusalMessage } from 'ui-shared/composables/
 
 const PACKAGES = join(import.meta.dir, '..', '..', '..')
 const read = (path: string) => readFileSync(join(PACKAGES, path), 'utf8')
-const SERVER = read('services/src/biz/receipt-bill.service.ts') + read('services/src/biz/invoicing.service.ts') + read('config/src/movement-warehouses.ts')
+const SERVER = read('services/src/biz/receipt-bill.service.ts') + read('services/src/biz/dispatch-invoice.service.ts') + read('services/src/biz/invoicing.service.ts') + read('config/src/movement-warehouses.ts')
 const CATALOGS = ['en', 'bg', 'de', 'mk'].map(locale => [locale, JSON.parse(read(`ui-shared/src/locales/${locale}.json`))] as const)
 
 /** What can reach the movement page's „why not" (`receiptBillingFor`): the page words each. */
 const PAGE_REASONS = ['receipt_not_completed', 'receipt_not_billable', 'orphan', 'receipt_is_reversal', 'receipt_not_a_delivery', 'receipt_rolled_back']
+/** And its „why not" for a dispatch no invoice can be made from (`dispatchInvoicingFor`, FR-22.61). */
+const DISPATCH_PAGE_REASONS = ['dispatch_not_completed', 'dispatch_not_invoiceable', 'orphan', 'dispatch_is_reversal', 'dispatch_not_a_delivery', 'dispatch_rolled_back']
 
 describe('the refusals of a movement and of a bill made from receipts', () => {
   it('names only codes the server sends', () => {
@@ -35,6 +37,16 @@ describe('the refusals of a movement and of a bill made from receipts', () => {
   it('the movement page words every reason it can be given', () => {
     for (const [, catalog] of CATALOGS) expect(Object.keys(catalog.warehouse.notBillable).sort()).toEqual([...PAGE_REASONS].sort())
     for (const code of PAGE_REASONS.filter(r => r !== 'orphan')) expect(SERVER).toContain(`'${code}'`)
+  })
+
+  it('and every reason a dispatch can be given, in no language left in English', () => {
+    const english = CATALOGS[0][1].warehouse.notInvoiceable
+    for (const [locale, catalog] of CATALOGS) {
+      expect([locale, Object.keys(catalog.warehouse.notInvoiceable).sort()]).toEqual([locale, [...DISPATCH_PAGE_REASONS].sort()])
+      if (locale === 'en') continue
+      for (const code of DISPATCH_PAGE_REASONS) expect(catalog.warehouse.notInvoiceable[code]).not.toBe(english[code])
+    }
+    for (const code of DISPATCH_PAGE_REASONS.filter(r => r !== 'orphan')) expect(SERVER).toContain(`'${code}'`)
   })
 
   it('calls each type of movement what the type select calls it, in every language', () => {

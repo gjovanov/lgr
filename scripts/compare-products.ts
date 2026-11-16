@@ -6,7 +6,8 @@
  * The snapshot is PlusMinus's ground truth for one warehouse. For every file row it
  * finds the LGR product by exact (whitespace-tolerant) name and compares:
  *   - quantity   file "Количество"  vs  LGR StockLevel.quantity in the warehouse
- *   - purchase   file "Дост. цена"   vs  LGR product.purchasePrice
+ *   - delivery   file "Дост. цена"   vs  LGR priceTiers "Доставна цена".finalPrice (drawn as „Цена с ТО";
+ *                the purchase price is „Цена 2" / 1.2 since 2026-11-15 and has no column in the export)
  *   - selling    file "Прод. цена"   vs  LGR product.sellingPrice
  *   - wholesale  file "Цена на едро" vs  LGR priceTiers "Цена на едро".finalPrice
  *   - Цена0..7   file "Цена0".."Цена7" vs LGR priceTiers "Цена 0".."Цена 7".finalPrice
@@ -44,8 +45,8 @@ import { assertTokenOrg } from './lib/token-org.js'
 const HEADER_ROW = 5
 const DATA_START_ROW = 6
 const SKIP_NAMES = new Set(['Всичко', 'ОБЩО:', 'Опаковка', 'Име'])
-// File columns → LGR tier slots (by index). Cols 4/5 map to purchasePrice/sellingPrice
-// scalar fields; cols 6-16 map to priceTiers slots "Цена на едро", "Цена 0".."Цена 9".
+// File columns → LGR tier slots (by index). Col 4 maps to the "Доставна цена" slot and col 5 to the
+// sellingPrice scalar field; cols 6-16 map to priceTiers slots "Цена на едро", "Цена 0".."Цена 9".
 // (Extended 2026-08-06: the export carries Цена8/Цена9 in cols 15/16 — previously ignored.)
 const TIER_SLOTS = [
   { col: 6, tier: 'Цена на едро' },
@@ -316,7 +317,7 @@ async function main() {
     if (Math.abs(f.qty - lgrQty) > qtyTol) qtyDiffs.push({ name: f.name, sku: p.sku, file: f.qty, lgr: lgrQty, diff: round4(f.qty - lgrQty) })
 
     const checks: Array<{ field: string; file: number; lgr: number }> = [
-      { field: 'Дост.цена', file: f.purchase, lgr: round4(Number(p.purchasePrice) || 0) },
+      { field: 'Дост.цена', file: f.purchase, lgr: round4(tierFinal(p, 'Доставна цена')) },
       { field: 'Прод.цена', file: f.selling, lgr: round4(Number(p.sellingPrice) || 0) },
       ...TIER_SLOTS.map((s, i) => ({ field: s.tier, file: f.slots[i], lgr: round4(tierFinal(p, s.tier)) })),
     ]

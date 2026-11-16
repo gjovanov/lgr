@@ -2,18 +2,24 @@ import { markdownToPdf, escHtml as esc, fmtDate, currencyMark, flattenHtml } fro
 import { logoImgTag, LOGO_CSS } from './logo.js'
 import { GRID_CELL_PADDING_X, GRID_FIT_CLASS, LINE_GRID_CSS } from './line-grid.js'
 import { pageMargin } from './page-margins.js'
+import { tierLabel } from 'config/price-tiers'
 import { productCredit } from '../product-credit.js'
 import { stockReceiptI18n } from '../stock-receipt.i18n.js'
 import { unitLabel } from '../unit.i18n.js'
 
 /**
- * „Стокова разписка" — the goods a supplier bill booked into stock, printed from the bill.
+ * „Складова разписка" — the goods a supplier bill booked into stock, printed from the bill.
  *
  * One section per receipt movement the bill booked (a bill whose lines go to two warehouses books
  * two), each on its own page: the title, the movement's number and date, its warehouse, the bill
- * it came with — OUR bill, by its number and date — the received lines with their prices, the
- * value before VAT and the two signature lines. There is no supplier block and no supplier invoice
+ * it came with — OUR bill, by its number and date — which price the sheet shows, the received lines
+ * with that price and the two signature lines. There is no supplier block and no supplier invoice
  * number on it: it records what came into which warehouse, not who invoiced it.
+ *
+ * It is the sheet the people in the warehouse price the goods from (owner, 2026-11-15). So the
+ * price column is the level the person printing chose (`config/stock-receipt-price`), named above
+ * the lines, and the sheet carries no total: it had one, „Общо без ДДС", which the owner had
+ * removed as not needed. The currency, which only the total showed, stands beside the price's name.
  *
  * Its own CSS, as the companion documents have theirs (`companion-doc.pdf.ts`); the invoice
  * layout (`invoice.pdf.ts`) is frozen and is not shared. What every document form does share is
@@ -26,9 +32,18 @@ export interface StockReceiptLine {
   /** The canonical unit code (`pcs`); printed as the locale's abbreviation. */
   unit?: string
   quantity: number
-  /** What the goods were booked at — the bill's own unit price, on a bill that received them. */
-  unitPrice: number
+  /**
+   * The article's price at the level the sheet shows. Null where it has none there: both the price
+   * and the value print a dash, never another level's figure.
+   */
+  unitPrice: number | null
 }
+
+/**
+ * Which price the sheet shows: the selling price, a slot of the catalogue by its STORED name (drawn
+ * by its label), or `booked`, what each line was booked at.
+ */
+export type StockReceiptPrice = { kind: 'selling' } | { kind: 'booked' } | { kind: 'tier'; tier: string }
 
 export interface StockReceiptSection {
   /** The receipt movement's number (SM-…). */
@@ -43,7 +58,9 @@ export interface StockReceiptData {
   sections: StockReceiptSection[]
   /** The bill the goods came with: OUR number and date. A draft's number is marked as such. */
   bill: { number: string; date: Date | string; draft?: boolean }
-  /** The bill's currency: what the prices and the total are in. */
+  /** Which price the lines carry; the sheet names it. */
+  price: StockReceiptPrice
+  /** What the prices are in: the org's currency for a price level, the receipts' own for `booked`. */
   currency: string
   /** The issuing org's letterhead logo; falls back to the bundled asset when absent. */
   logo?: string
@@ -75,9 +92,16 @@ function fmtMoney(v: unknown): string {
   return round2(Number(v)).toFixed(2)
 }
 
-/** The value of one line as printed: quantity × price, to the cent. The total adds these. */
+/** The value of one line as printed: quantity × price, to the cent. */
 function lineAmount(l: StockReceiptLine): number {
   return round2(Number(l.quantity || 0) * Number(l.unitPrice || 0))
+}
+
+/** What a line with no price at the sheet's level prints, in its price and in its value. */
+const NO_PRICE = '—'
+
+function hasPrice(l: StockReceiptLine): boolean {
+  return l.unitPrice !== null && l.unitPrice !== undefined && Number.isFinite(Number(l.unitPrice))
 }
 
 /**
@@ -117,16 +141,6 @@ const CSS = `
   table.lines .c-no { text-align: left; }
   table.lines .c-unit { text-align: center; }
   table.lines .c-qty, table.lines .c-price, table.lines .c-amount { text-align: right; }
-  /* Boxed total, in the visual language of the printed invoice's totals block. */
-  table.totals { margin-top: 10px; font-size: 9pt; page-break-inside: avoid; }
-  table.totals td.spacer { width: 52%; }
-  table.totals td.box-cell { width: 48%; }
-  .totals-box { border: 1px solid #000; border-radius: 6px; padding: 5px 14px 6px 12px;
-    margin-right: 1px; }
-  table.tbox td { padding: 0 0 1px 0; }
-  table.tbox td.tk { text-align: left; padding-right: 10px; font-size: 9.5pt; font-weight: 700; }
-  table.tbox td.tv { text-align: right; white-space: nowrap; font-weight: 700; font-size: 13pt;
-    line-height: 1.25; }
   table.signatures { margin-top: 34px; font-size: 9pt; page-break-inside: avoid; }
   table.signatures td { width: 50%; vertical-align: top; padding: 2px 0 0 0; }
   table.signatures td.sig-line { padding-top: 16px; }
@@ -151,6 +165,9 @@ export function buildStockReceiptHtml(data: StockReceiptData): { html: string; c
   const logoImg = logoImgTag(data.logo)
 
   const billRef = `№ ${esc(data.bill.number)} ${esc(L.of)} ${fmtDate(data.bill.date)}${data.bill.draft ? ` (${esc(L.draft)})` : ''}`
+  // Which price the lines carry, by the name the dialog offered it under, and what it is in.
+  const priceName = data.price.kind === 'tier' ? tierLabel(data.price.tier, data.locale) : i18n.price[data.price.kind]
+  const priceRef = `${esc(priceName)}${cur ? ` (${esc(cur)})` : ''}`
 
   const fit = GRID_FIT_CLASS
   const section = (s: StockReceiptSection) => {
@@ -160,10 +177,9 @@ export function buildStockReceiptHtml(data: StockReceiptData): { html: string; c
         <td>${esc(l.name)}</td>
         <td class="c-unit ${fit}">${esc(unitLabel(l.unit, data.locale))}</td>
         <td class="c-qty ${fit}">${fmtQty(l.quantity)}</td>
-        <td class="c-price ${fit}">${fmtPrice(l.unitPrice)}</td>
-        <td class="c-amount ${fit}">${fmtMoney(lineAmount(l))}</td>
+        <td class="c-price ${fit}">${hasPrice(l) ? fmtPrice(l.unitPrice) : NO_PRICE}</td>
+        <td class="c-amount ${fit}">${hasPrice(l) ? fmtMoney(lineAmount(l)) : NO_PRICE}</td>
       </tr>`).join('')
-    const total = round2(s.lines.reduce((sum, l) => sum + lineAmount(l), 0))
     return `
       ${logoImg ? `<div class="logo-bar">${logoImg}</div>` : ''}
       <table class="top-bar">
@@ -181,6 +197,7 @@ export function buildStockReceiptHtml(data: StockReceiptData): { html: string; c
       <table class="info">
         <tr><td class="k">${esc(L.warehouse)}:</td><td class="v">${esc(s.warehouse)}</td></tr>
         <tr><td class="k">${esc(L.bill)}:</td><td class="v">${billRef}</td></tr>
+        <tr><td class="k">${esc(L.price)}:</td><td class="v">${priceRef}</td></tr>
       </table>
       <table class="lines">
         <thead>
@@ -194,18 +211,6 @@ export function buildStockReceiptHtml(data: StockReceiptData): { html: string; c
           </tr>
         </thead>
         <tbody>${rows}</tbody>
-      </table>
-      <table class="totals">
-        <tr>
-          <td class="spacer"></td>
-          <td class="box-cell">
-            <div class="totals-box">
-              <table class="tbox">
-                <tr><td class="tk">${esc(L.total)}:</td><td class="tv">${fmtMoney(total)} ${esc(cur)}</td></tr>
-              </table>
-            </div>
-          </td>
-        </tr>
       </table>
       <table class="signatures">
         <tr>

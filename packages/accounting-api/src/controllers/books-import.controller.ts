@@ -35,6 +35,44 @@ const Operation = t.Object({
   tax: t.Optional(t.String()),
 })
 
+/**
+ * FR-25a: the rest of a document's header (`import.types.ts#ImportDocumentProps`). ⚠ Every field is named: `t.Object`
+ * drops one that is not, and answers 200. An older client sends no `props`, and is answered exactly as before. The
+ * dates and the month are plain text here: the service keeps what reads as one, and a stray value in a field this
+ * auxiliary never refuses a whole month.
+ */
+const DocumentProps = t.Object({
+  paymentCode: t.Optional(t.String()),
+  paidAmount: t.Optional(t.Number()),
+  paidCash: t.Optional(t.Number()),
+  taxEventDate: t.Optional(t.String()),
+  vatRate: t.Optional(t.Number()),
+  vatRule: t.Optional(t.String()),
+  vatExemptionReason: t.Optional(t.String()),
+  registerDocType: t.Optional(t.String()),
+  protocolType: t.Optional(t.String()),
+  reasonRef: t.Optional(t.String()),
+  customsRef: t.Optional(t.String()),
+  bankOperation: t.Optional(t.String()),
+  reportingMonth: t.Optional(t.String()),
+  partnerPath: t.Optional(t.String()),
+  links: t.Optional(t.Array(t.Object({
+    docType: t.String(),
+    docNumber: t.String(),
+    date: t.Optional(t.String()),
+    amount: t.Optional(t.Number()),
+    amountFx: t.Optional(t.Number()),
+  }))),
+  docOptions: t.Optional(t.Record(t.String(), t.String())),
+  source: t.Optional(t.Object({
+    createdBy: t.Optional(t.String()),
+    createdAt: t.Optional(t.String()),
+    modifiedBy: t.Optional(t.String()),
+    modifiedAt: t.Optional(t.String()),
+    version: t.Optional(t.String()),
+  })),
+})
+
 const Document = t.Object({
   date: Day,
   docType: t.Optional(t.String()),
@@ -43,6 +81,7 @@ const Document = t.Object({
   total: t.Optional(t.Number()),
   comment: t.Optional(t.String()),
   ops: t.Array(Operation),
+  props: t.Optional(DocumentProps),
 })
 
 const AnalyticItem = t.Object({
@@ -56,6 +95,8 @@ const AnalyticItem = t.Object({
   contactPerson: t.Optional(t.String()),
   bankName: t.Optional(t.String()),
   foreignCurrency: t.Optional(t.Boolean()),
+  // FR-25a: the analytic's own properties, in file order.
+  params: t.Optional(t.Array(t.Object({ key: t.String(), value: t.String() }))),
 })
 
 const OpeningLine = { code: t.String({ minLength: 1 }), debit: t.Number(), credit: t.Number() }

@@ -124,6 +124,7 @@ describe('what an expired licence stops', () => {
     expect(licensedAction('POST', route, { type: 'invoice', direction: 'outgoing' })).not.toBeNull()
     expect(licensedAction('POST', route, { type: 'cash_sale', direction: 'outgoing' })).not.toBeNull()
     expect(licensedAction('POST', route, { type: 'proforma', direction: 'outgoing' })).not.toBeNull()
+    expect(licensedAction('POST', route, { type: 'offer', direction: 'outgoing' })).not.toBeNull()
     expect(licensedAction('POST', route, { type: 'credit_note', direction: 'outgoing' })).toBeNull()
     expect(licensedAction('POST', route, { type: 'debit_note', direction: 'outgoing' })).toBeNull()
     expect(licensedAction('POST', route, { type: 'invoice', direction: 'incoming' })).toBeNull()

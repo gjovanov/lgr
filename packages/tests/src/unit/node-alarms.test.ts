@@ -14,7 +14,7 @@ const healthy = (over: Record<string, unknown> = {}) => ({
   disk: { freeBytes: 500, totalBytes: 1000 },
   oplogWindowSecs: 30 * 86400,
   clockSkewSecs: 3,
-  api: { lastBackupAt: ago(3600), fenced: 0, outboxQueued: 0 },
+  api: { ok: true, lastBackupAt: ago(3600), fenced: 0, outboxQueued: 0 },
   ...over,
 })
 const kinds = (a: Array<{ kind: string }>) => a.map(x => x.kind).sort()
@@ -63,12 +63,31 @@ describe('the alarms a master raises (FR-20.101)', () => {
   })
 
   it('no backup at all: an alarm once the server has served its orgs a day and more, not on its first day', () => {
-    const h = healthy({ api: { fenced: 0 } })
+    const h = healthy({ api: { ok: true, fenced: 0 } })
     const mirrors = [{ orgId: 'o1', watermark: 1, lastPageAt: ago(10) }]
     expect(nodeAlarms({ node: { health: h, enrolledAt: ago(3600) }, connected: up, mirrors, now: NOW })).toEqual([])
     expect(nodeAlarms({ node: { health: h, enrolledAt: ago(ALARM_AT.backupSecs + 3600) }, connected: up, mirrors, now: NOW })).toEqual([{ kind: 'backup_stale', value: null }])
     // A server that writes no org yet has nothing to back up.
     expect(nodeAlarms({ node: { health: h, enrolledAt: ago(30 * 86400) }, connected: up, mirrors: [], now: NOW })).toEqual([])
+  })
+
+  it('a frame in which the API did not answer says nothing about backups (#710)', () => {
+    const mirrors = [{ orgId: 'o1', watermark: 1, lastPageAt: ago(10) }]
+    const served = { enrolledAt: ago(30 * 86400) }
+    const { api: _, ...noAccount } = healthy()
+    // An empty account is what is kept of a status call that got no answer. `ok: false` is an API on its way down.
+    for (const h of [healthy({ api: {} }), noAccount, healthy({ api: { ok: false, fenced: 0 } })]) {
+      expect(nodeAlarms({ node: { health: h, ...served }, connected: up, mirrors, now: NOW })).toEqual([])
+    }
+    // The same server once its API answers and still names no backup: the alarm.
+    expect(nodeAlarms({ node: { health: healthy({ api: { ok: true } }), ...served }, connected: up, mirrors, now: NOW })).toEqual([{ kind: 'backup_stale', value: null }])
+  })
+
+  it('a backup that is too old raises the alarm whatever the API says of itself (#710)', () => {
+    const old = ago(ALARM_AT.backupSecs + 60)
+    for (const api of [{ lastBackupAt: old }, { ok: false, lastBackupAt: old }, { ok: true, lastBackupAt: old }]) {
+      expect(nodeAlarms({ node: { health: healthy({ api }) }, connected: up, mirrors: [], now: NOW })).toEqual([{ kind: 'backup_stale', value: ALARM_AT.backupSecs + 60 }])
+    }
   })
 
   it("an update held for its SUPTO version's declaration (P3-8c)", () => {
@@ -137,6 +156,22 @@ describe('what lgrai.app keeps of a health frame for them (P3-8)', () => {
     expect(h.clockSkewSecs).toBe(210)
     expect(h.api.lastBackupAt).toEqual(new Date('2026-10-27T02:00:00Z'))
     expect([h.api.fenced, h.api.outboxQueued]).toEqual([1, 4])
+  })
+
+  it('a frame built while the API did not answer is kept without its account, and raises no backup alarm (#710)', () => {
+    const at = ago(30)
+    const mirrors = [{ orgId: 'o1', watermark: 1, lastPageAt: ago(10) }]
+    const alarmsOf = (frame: unknown) => nodeAlarms({ node: { health: sanitizeHealth(frame, at), enrolledAt: ago(30 * 86400) }, connected: up, mirrors, now: NOW })
+    // What a server sends when its status call got no answer from the API: the account with every field null.
+    const unanswered = { ok: null, posOpen: null, fiscalInFlight: null, clockTrusted: null, lastBackupAt: null, fenced: null, outboxQueued: null }
+    for (const frame of [{ disk: { freeBytes: 500, totalBytes: 1000 }, api: unanswered }, { disk: { freeBytes: 500, totalBytes: 1000 } }]) {
+      expect((sanitizeHealth(frame, at) as any).api).toEqual({})
+      expect(alarmsOf(frame)).toEqual([])
+    }
+    // The API answered and names no backup: kept as that, and the alarm stands.
+    const none = { api: { ...unanswered, ok: true, fenced: 0 } }
+    expect((sanitizeHealth(none, at) as any).api).toEqual({ ok: true, fenced: 0 })
+    expect(alarmsOf(none)).toEqual([{ kind: 'backup_stale', value: null }])
   })
 
   it('the SUPTO version that runs and the one an update waits for, and nothing that is not one (P3-8c)', () => {

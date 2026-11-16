@@ -330,15 +330,47 @@ test.describe('revocation', () => {
   test('the hub says so and the shell shows it within one heartbeat', async () => {
     // FR-14.22, AC 9. The row is the revocation list; the socket notice is what makes it visible
     // without waiting for the next request.
-    await hub.revoke()
+    //
+    // ⚠ **The notice is a push, and a push needs a socket.** The case before this one takes the hub
+    // away and brings it back, and the shell's presence link returns on its OWN backoff (1 s doubling
+    // to 60 s, `presence::backoff_secs`), not when the window does: the window's probe and the
+    // presence socket are two loops. They happen to agree while that outage is a few seconds long.
+    // On 2026-11-15 a runner took 28 s over it instead of 5: the window was back at once, presence
+    // was 12 s short of its next try, the stub pushed to nobody (`pushed: 0`), and this case then
+    // waited a minute for a line that could not come. It read as a broken revocation on a commit
+    // that had changed nothing in the shell.
+    //
+    // So this case states what it needs. The wait covers the longest step of the backoff, and the
+    // stub's own count says the notice reached a socket before the log is asked for it.
+    await expect
+      .poll(async () => (await hub.state()).presenceSockets, {
+        message: 'the presence socket is back after the outage of the case before',
+        timeout: 75_000,
+      })
+      .toBeGreaterThan(0)
+    const { pushed } = await hub.revoke()
+    expect(pushed, 'the stub pushed the notice down a live presence socket').toBeGreaterThan(0)
     await waitForLog(/revoked/i, 60_000, shell.stderr())
 
-    const st = await statusJson(BIN)
-    expect(st.registration.state).toBe('revoked')
+    // ⚠ **The line is the shell SAYING so, and saying so comes first.** FR-14.22's order is: say
+    // so, stop the bridge, delete the key (`main.rs`, then `enroll::mark_revoked`). `--status-json`
+    // is a second process that reads the record. Asked the instant the line appears, it can still
+    // read the record of a moment before. On 2026-11-16 the run on the `desktop-v0.1.13` tag did:
+    // `registered`, where the shell's next line came 38 ms later and the record collected after
+    // the job said `revoked: true`. So the state is asked until the shell has acted, not once.
+    //
     // ⚠ The KEY is gone, and the record is KEPT so the Overview can explain what happened. A
     // deleted record would leave a machine that merely looks unregistered and an operator with no
-    // idea why the till stopped printing.
-    expect(st.keyStorage).toBe('none')
+    // idea why the till stopped printing. The key goes last, so one wait covers both.
+    await expect
+      .poll(
+        async () => {
+          const st = await statusJson(BIN)
+          return `${st.registration.state}, key ${st.keyStorage}`
+        },
+        { message: 'the record says revoked and the key is gone, once the shell has acted on the notice', timeout: 15_000 },
+      )
+      .toBe('revoked, key none')
 
     const page = await shellPage(browser)
     await gotoView(page, '/overview')

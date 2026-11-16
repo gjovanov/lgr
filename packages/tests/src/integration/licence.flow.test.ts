@@ -223,7 +223,7 @@ describe('a master enforces it', () => {
     expect((await licenceOf(m.orgId) as any).state).toBe('restricted')
     const refused = await newDoc(m, 'invoice')
     expect(refused.status).toBe(402)
-    expect((await refused.json())).toMatchObject({ code: 'licence_expired', action: 'a new invoice, proforma or cash sale' })
+    expect((await refused.json())).toMatchObject({ code: 'licence_expired', action: 'a new invoice, proforma, offer or cash sale' })
     expect((await newDoc(m, 'cash_sale')).status).toBe(402)
     // A credit note of an existing sale, reading, the licence itself: never stopped.
     expect((await newDoc(m, 'credit_note')).status).not.toBe(402)
@@ -350,7 +350,7 @@ describe('a master enforces it', () => {
       expire()
       await session(t)
 
-      for (const type of ['invoice', 'proforma', 'cash_sale']) {
+      for (const type of ['invoice', 'proforma', 'offer', 'cash_sale']) {
         const r = await t.api('POST', '/invoices', {
           type, direction: 'outgoing', contactId: String(t.contact._id), issueDate: today(), currency: 'EUR', lines, subtotal: 20, taxTotal: 4, total: 24, paymentMethod: 'cash',
         })

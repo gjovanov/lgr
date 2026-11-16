@@ -8,6 +8,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { startJob, updateProgress, completeJob, failJob } from 'services/background/task.service'
 import { BackgroundTask } from 'db/models'
 import { parseOpeningStock, applyOpeningStock } from '../lib/opening-stock.js'
+import { externalWarehouseIds } from 'services/biz/external-warehouses'
 
 export const openingStockController = new Elysia({ prefix: '/org/:orgId/warehouse/opening-stock' })
   .use(AppAuthService)
@@ -27,6 +28,11 @@ export const openingStockController = new Elysia({ prefix: '/org/:orgId/warehous
         } catch { /* body already parsed */ }
       }
       if (!file || !warehouseId) return status(400, { message: 'file and warehouseId are required' })
+      // ⚠ This import writes levels itself (`adjustStock`), past `confirmMovement`'s guard: an external
+      // warehouse keeps no stock here, so it is refused at this door.
+      if ((await externalWarehouseIds(orgId, [warehouseId])).size) {
+        return status(422, { code: 'external_warehouse', message: 'An external warehouse keeps no stock here: choose one of your own warehouses.' })
+      }
 
       const buf = Buffer.from(await file.arrayBuffer())
       const rows = await parseOpeningStock(buf)

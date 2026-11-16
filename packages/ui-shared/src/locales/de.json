@@ -99,6 +99,7 @@
       "salesInvoice": "Ausgangsrechnung",
       "creditNote": "Gutschrift",
       "proforma": "Proformarechnung",
+      "offer": "Angebot",
       "cashSale": "Kassenverkauf",
       "bill": "Eingangsrechnung",
       "goodsReceipt": "Wareneingang",
@@ -112,6 +113,7 @@
       "creditNote": "Neue Gutschrift",
       "debitNote": "Neue Lastschrift",
       "proforma": "Neue Proformarechnung",
+      "offer": "Neues Angebot",
       "bill": "Neue Eingangsrechnung",
       "goodsReceipt": "Neuer Wareneingang",
       "customerOrder": "Neuer Kundenauftrag",
@@ -122,6 +124,7 @@
     "dashboard": "Dashboard",
     "accounting": "Buchhaltung",
     "accounts": "Konten",
+    "analytics": "Analytiken",
     "journalEntries": "Buchungen",
     "generalLedger": "Hauptbuch",
     "financialStatements": "Finanzberichte",
@@ -137,6 +140,7 @@
     "bills": "Eingangsrechnungen",
     "proformaInvoices": "Proforma-Rechnungen",
     "proforma": "Proforma",
+    "offers": "Angebote",
     "orders": "Bestellungen",
     "externalOrders": "Lieferantenbestellungen",
     "internalOrders": "Kundenbestellungen",
@@ -308,6 +312,8 @@
       "billsHint": "Erfassen Sie Ihre erste Lieferantenrechnung, um zu beginnen.",
       "proforma": "Noch keine Proformarechnungen",
       "proformaHint": "Erstellen Sie Ihre erste Proforma, um zu beginnen.",
+      "offer": "Noch keine Angebote",
+      "offerHint": "Erstellen Sie Ihr erstes Angebot, um zu beginnen.",
       "creditNotes": "Noch keine Gutschriften",
       "creditNotesHint": "Erstellen Sie eine Gutschrift zur Erstattung oder Korrektur einer Rechnung.",
       "debitNotes": "Noch keine Lastschriften",
@@ -470,6 +476,37 @@
     "ppProtocol": "Übergabe- und Abnahmeprotokoll"
   },
   "accounting": {
+    "salvageValue": "Restwert",
+    "assetAccount": "Anlagekonto",
+    "depreciationAccount": "Abschreibungsaufwandskonto",
+    "accumulatedDepAccount": "Konto für kumulierte Abschreibungen",
+    "years": "Jahre",
+    "depreciationMethods": {
+      "straight_line": "Linear",
+      "declining_balance": "Degressiv",
+      "units_of_production": "Leistungsabhängig"
+    },
+    "rateSources": {
+      "manual": "Manuell",
+      "api": "Automatisch (API)"
+    },
+    "reconciliationUi": {
+      "importStatement": "Kontoauszug importieren",
+      "addLine": "Zeile hinzufügen",
+      "importHint": "Bankzeilen stammen aus einer Auszugsdatei (CSV mit Spalten für Datum, Beschreibung und Betrag oder Soll und Haben) oder werden von Hand erfasst, wenn es keine Datei gibt.",
+      "imported": "{added} Zeilen importiert, {skipped} bereits vorhanden, {unrecognized} Zeilen nicht gelesen",
+      "noBankLines": "Noch keine Bankzeilen: importieren Sie den Auszug oder erfassen Sie seine Zeilen von Hand.",
+      "removeLine": "Zeile entfernen",
+      "matched": "Abgeglichen",
+      "unmatch": "Abgleich aufheben",
+      "bookBalance": "Buchsaldo",
+      "completed": "Der Abgleich ist abgeschlossen",
+      "lineDate": "Datum",
+      "lineDescription": "Beschreibung",
+      "lineAmount": "Betrag",
+      "lineAmountHint": "Eingänge positiv, Ausgänge negativ",
+      "lineReference": "Bankreferenz"
+    },
     "accounts": "Kontenplan",
     "journalEntries": "Buchungen",
     "generalLedger": "Hauptbuch",
@@ -511,6 +548,165 @@
     "accountType": "Kontotyp",
     "subType": "Untertyp",
     "parentAccount": "Übergeordnetes Konto",
+    "accountBooks": {
+      "title": "Laut Buchhaltung",
+      "readOnly": "Diese Organisation führt die Bücher des Buchhalters. Ihr Kontenplan ist so, wie er im Programm des Buchhalters gebucht ist, und hier schreibgeschützt: der nächste Import würde eine Änderung überschreiben.",
+      "balanceSide": "Saldoseite",
+      "balanceSides": {
+        "debit": "Soll",
+        "credit": "Haben",
+        "both": "Beidseitig"
+      },
+      "analyticRoots": "Analytiken",
+      "noAnalyticRoots": "Keine Analytiken",
+      "quantitative": "Mengenmäßig",
+      "hasAnalytics": "Mit Analytiken"
+    },
+    "analytics": {
+      "title": "Analytiken",
+      "one": "Analytik",
+      "asBooked": "Wie im Programm des Buchhalters gebucht: hier schreibgeschützt, da der nächste Import eine Änderung überschreiben würde.",
+      "empty": "Keine Analytiken",
+      "emptyHint": "Eine Organisation, die die Bücher des Buchhalters führt, erhält ihre Analytiken mit ihnen.",
+      "path": "Pfad",
+      "root": "Gruppe",
+      "kind": "Art",
+      "unit": "Einheit",
+      "contact": "Kontakt",
+      "bankAccount": "Bankkonto",
+      "fixedAsset": "Anlagegut",
+      "hasContact": "Mit Kontakt",
+      "openRoot": "Nur diese Gruppe anzeigen",
+      "open": "Öffnen",
+      "above": "Unter",
+      "links": "Verknüpfungen",
+      "noLinks": "Mit dieser Analytik ist nichts verknüpft.",
+      "properties": "Eigenschaften",
+      "propertiesHint": "Wie die Datei des Buchhalters sie auflistet, in ihrer Reihenfolge.",
+      "key": "Eigenschaft",
+      "value": "Wert",
+      "addProperty": "Eigenschaft hinzufügen",
+      "removeProperty": "Eigenschaft entfernen",
+      "noProperties": "Keine Eigenschaften",
+      "keyRequired": "Eine Eigenschaft braucht einen Namen",
+      "keyDuplicate": "Diese Eigenschaft steht schon in der Liste",
+      "deactivate": "Deaktivieren",
+      "deactivateConfirm": "Diese Analytik deaktivieren? Sie bleibt in den Büchern und auf jeder Zeile, die sie nennt; sie wird nur als inaktiv markiert.",
+      "deactivated": "Die Analytik ist deaktiviert",
+      "activate": "Aktivieren",
+      "activated": "Die Analytik ist wieder aktiv",
+      "export": "Nach Excel exportieren",
+      "kinds": {
+        "goods_group": "Warengruppe",
+        "material": "Material",
+        "product": "Erzeugnis",
+        "service": "Dienstleistung",
+        "customer": "Kunde",
+        "supplier": "Lieferant",
+        "partner": "Partner",
+        "bank_account": "Bankkonto",
+        "expense": "Aufwand",
+        "income": "Ertrag",
+        "settlement": "Verrechnung",
+        "personnel": "Personal",
+        "fixed_asset": "Anlagegut",
+        "equity": "Eigenkapital",
+        "other": "Sonstiges"
+      },
+      "errors": {
+        "books_as_booked": "Diese Analytik ist so, wie sie im Programm des Buchhalters gebucht ist, und wird hier nicht geändert.",
+        "not_found": "Diese Analytik gibt es nicht mehr.",
+        "contact_not_found": "Dieser Kontakt gehört nicht zu dieser Organisation.",
+        "bank_account_not_found": "Dieses Bankkonto gehört nicht zu dieser Organisation.",
+        "fixed_asset_not_found": "Dieses Anlagegut gehört nicht zu dieser Organisation.",
+        "param_key_required": "Jede Eigenschaft braucht einen Namen.",
+        "param_key_duplicate": "Jede Eigenschaft darf nur einmal vorkommen.",
+        "too_many_params": "Eine Analytik hat höchstens 200 Eigenschaften."
+      }
+    },
+    "bankAccountBooks": {
+      "analytic": "Analytik",
+      "analyticHint": "Die Analytik der Bücher, die auf dieses Bankkonto zeigt",
+      "operationsThisMonth": "Bankvorgänge diesen Monat"
+    },
+    "fixedAssetBooks": {
+      "asBooked": "Wie im Programm des Buchhalters gebucht: hier schreibgeschützt, da der nächste Import eine Änderung überschreiben würde.",
+      "imported": "Aus den Büchern des Buchhalters",
+      "native": "In LGR geführt",
+      "origin": "Herkunft",
+      "book": "Buchhaltung",
+      "analytic": "Analytik",
+      "analyticHint": "Die Analytik der Bücher, aus der dieses Anlagegut entstanden ist",
+      "openingValue": "Anfangsbuchwert",
+      "openingValueHint": "Der Wert, mit dem die Bücher beginnen: der Preis abzüglich der vorher aufgelaufenen Abschreibung. Nicht der heutige Wert, solange die monatliche Abschreibung der Bücher nicht mit diesem Anlagegut verknüpft ist.",
+      "currency": "Währung",
+      "disposalDate": "Abgangsdatum",
+      "statuses": {
+        "active": "Aktiv",
+        "disposed": "Abgegangen",
+        "fully_depreciated": "Voll abgeschrieben",
+        "not_depreciated": "Nicht abgeschrieben"
+      },
+      "tax": {
+        "title": "Steuerlich (ЗКПО)",
+        "category": "Steuerkategorie",
+        "noCategory": "Keine Kategorie",
+        "categories": {
+          "1": "Massivgebäude, Anlagen, Übertragungs- und Kommunikationseinrichtungen",
+          "2": "Maschinen, Produktionsanlagen, Apparate",
+          "3": "Transportmittel außer Pkw; Straßen-, Wege- und Pistenbeläge",
+          "4": "Computer und Peripheriegeräte, Software und das Recht zu ihrer Nutzung, Mobiltelefone",
+          "5": "Pkw",
+          "6": "Wirtschaftsgüter mit vertraglich oder gesetzlich befristetem Nutzungsrecht",
+          "7": "Alle übrigen abschreibbaren Wirtschaftsgüter"
+        },
+        "rate": "Steuerlicher Abschreibungssatz",
+        "statutoryRate": "Der gesetzliche Höchstsatz dieser Kategorie: {rate}%",
+        "limitedTermRate": "Kategorie VI: 100% geteilt durch die Dauer der Befristung, höchstens 33⅓%",
+        "aboveStatutory": "Der Satz liegt über dem gesetzlichen Höchstsatz dieser Kategorie ({rate}%).",
+        "months": "Steuerliche Nutzungsdauer",
+        "monthsUnit": "Monate",
+        "inYears": "= {years} Jahre",
+        "value": "Steuerlicher Wert",
+        "valueHint": "Standardmäßig der Kaufpreis",
+        "inServiceDate": "In Betrieb genommen",
+        "mismatch": "Satz und Dauer passen nicht zusammen: Satz × Jahre ergibt {product}%, nicht 100%.",
+        "errors": {
+          "tax_category_invalid": "Eine Steuerkategorie ist eine von I bis VII",
+          "tax_rate_invalid": "Ein Satz liegt zwischen 0 und 100%",
+          "tax_months_invalid": "Ganze Monate, 0 oder mehr",
+          "tax_value_invalid": "Der steuerliche Wert kann nicht negativ sein",
+          "in_service_date_invalid": "Kein Datum",
+          "in_service_before_purchase": "Vor dem Kauf in Betrieb genommen"
+        }
+      },
+      "properties": "Eigenschaften",
+      "propertiesHint": "Wie die Datei des Buchhalters sie auflistet, in ihrer Reihenfolge.",
+      "noProperties": "Keine Eigenschaften",
+      "property": "Eigenschaft",
+      "value": "Wert",
+      "schedule": {
+        "title": "Abschreibungsplan",
+        "book": "Buchhalterische Abschreibung",
+        "tax": "Steuerliche Abschreibung (ЗКПО)",
+        "date": "Datum",
+        "year": "Jahr",
+        "months": "Monate",
+        "amount": "Abschreibung",
+        "accumulated": "Kumuliert",
+        "bookValue": "Buchwert",
+        "remaining": "Verbleibender steuerlicher Wert",
+        "entry": "Buchungssatz",
+        "planned": "Geplant aus Preis, Restwert und Nutzungsdauer: noch nichts ist gebucht.",
+        "notLinked": "Die Abschreibung, die die Bücher des Buchhalters buchen, ist noch nicht mit diesem Anlagegut verknüpft.",
+        "noBookPlan": "Keine buchhalterische Abschreibung: keine Nutzungsdauer oder nichts abzuschreiben.",
+        "taxComputed": "Hier aus den steuerlichen Feldern berechnet und nie gespeichert: ab Beginn des Monats der Inbetriebnahme (sonst des Kaufs), zum Jahressatz, bis der steuerliche Wert abgeschrieben ist oder bis zum Monat des Abgangs.",
+        "taxEmpty": "Noch kein steuerlicher Plan: Er braucht einen steuerlichen Wert (oder einen Kaufpreis), einen Satz oder eine Dauer und das Datum der Inbetriebnahme."
+      },
+      "errors": {
+        "books_as_booked": "Dieses Anlagegut ist wie im Programm des Buchhalters gebucht und wird hier nicht geändert."
+      }
+    },
     "depreciationSchedule": "Abschreibungsplan",
     "purchaseDate": "Kaufdatum",
     "purchasePrice": "Kaufpreis",
@@ -590,6 +786,102 @@
       "viesKindRepresentative": "Vertreter",
       "companyAddress": "Adresse des Unternehmens"
     },
+    "journalEntry": {
+      "empty": "Noch keine Buchungen",
+      "document": {
+        "title": "Beleg",
+        "needsAttention": "{n} zu prüfen",
+        "asBooked": "Wie im Programm des Buchhalters gebucht",
+        "asBookedHint": "Der Import der Buchhaltung hat diese Buchung geschrieben, daher ist sie hier schreibgeschützt: Der nächste Import würde eine Änderung überschreiben, und die Bücher müssen dem entsprechen, was der Buchhalter eingereicht hat.",
+        "docType": "Belegart",
+        "docNumber": "Belegnummer",
+        "docDate": "Belegdatum",
+        "registerDocType": "Registerart",
+        "reasonRef": "Korrigiert",
+        "reasonRefHint": "Die Rechnung, die diese Gutschrift oder Belastung korrigiert",
+        "partner": "Geschäftspartner",
+        "total": "Belegsumme",
+        "switches": "Schalter",
+        "source": "Erfasst von {by} am {at}",
+        "sourceChanged": "geändert von {by} am {at}",
+        "version": "Version {version}",
+        "registerDocTypes": {
+          "invoice": "Rechnung",
+          "debitNotice": "Belastungsanzeige",
+          "creditNotice": "Gutschrift",
+          "customs": "Zollanmeldung",
+          "protocol": "Protokoll",
+          "tillReport": "Kassenbericht"
+        }
+      },
+      "payment": {
+        "title": "Zahlung",
+        "code": "Bezahlt per",
+        "paidAmount": "Bezahlt",
+        "paidCash": "Bar bezahlt",
+        "open": "Offen",
+        "bankOperation": "Bankvorgang"
+      },
+      "vat": {
+        "title": "MwSt.",
+        "kind": "MwSt.-Art",
+        "rate": "MwSt.-Satz",
+        "rule": "MwSt.-Regel",
+        "exemptionReason": "Befreiungsgrund",
+        "taxEventDate": "Datum des Steuertatbestands",
+        "reportingMonth": "Erklärt im",
+        "protocolType": "Protokollart",
+        "customsRef": "Zollanmeldung (MRN)",
+        "docVat": "MwSt. des Belegs"
+      },
+      "links": {
+        "title": "Verknüpfte Belege",
+        "none": "Keine verknüpften Belege",
+        "docType": "Art",
+        "docNumber": "Nummer",
+        "date": "Datum",
+        "amount": "Betrag",
+        "amountFx": "In Währung",
+        "add": "Verknüpfung hinzufügen",
+        "remove": "Verknüpfung entfernen",
+        "open": "Verknüpfte Buchung öffnen",
+        "notFound": "Nicht im Journal dieser Organisation"
+      },
+      "filters": {
+        "payment": "Zahlung",
+        "unpaid": "Unbezahlt",
+        "notices": "Nur Gutschriften und Belastungen",
+        "otherMonth": "In anderem Monat erklärt"
+      },
+      "columns": {
+        "paymentCode": "Bezahlt per",
+        "paidAmount": "Bezahlt",
+        "openAmount": "Offen",
+        "registerDocType": "Registerart",
+        "reportingMonth": "Erklärt im"
+      },
+      "errors": {
+        "journal_entry_as_booked": "Diese Buchung ist wie im Programm des Buchhalters gebucht und kann hier nicht geändert werden.",
+        "payment_code_unknown": "Wählen Sie bar oder Bank.",
+        "paid_cash_exceeds_paid": "Bar bezahlt kann nicht mehr sein als bezahlt.",
+        "vat_rate_unknown": "Wählen Sie 20, 9 oder 0 %.",
+        "exemption_reason_required": "Eine Ausgangsrechnung mit 0 % nennt ihren Befreiungsgrund.",
+        "register_doc_type_unknown": "Wählen Sie eine Registerart aus der Liste.",
+        "reason_ref_required": "Eine Gutschrift oder Belastung nennt die Rechnung, die sie korrigiert.",
+        "reporting_month_invalid": "Geben Sie einen Monat ein.",
+        "date_invalid": "Geben Sie ein Datum ein.",
+        "link_incomplete": "Jede Verknüpfung braucht eine Art und eine Nummer."
+      }
+    },
+    "paymentCodes": {
+      "cash": "Bar",
+      "bank": "Bank"
+    },
+    "vatRegister": {
+      "entry": "Buchung",
+      "otherMonth": "In anderem Monat erklärt",
+      "notInOrg": "Nicht im Journal dieser Organisation"
+    },
     "fromCurrency": "Von Währung",
     "toCurrency": "Zu Währung",
     "rate": "Kurs",
@@ -622,6 +914,18 @@
     "default": "Standard"
   },
   "payroll": {
+    "timesheetTypes": {
+      "regular": "Regulär",
+      "overtime": "Überstunden",
+      "holiday": "Feiertag",
+      "sick": "Krankheit",
+      "vacation": "Urlaub"
+    },
+    "timesheetStatuses": {
+      "submitted": "Eingereicht",
+      "approved": "Genehmigt",
+      "rejected": "Abgelehnt"
+    },
     "employees": "Mitarbeiter",
     "employee": "Mitarbeiter",
     "newEmployee": "Neuer Mitarbeiter",
@@ -1005,6 +1309,21 @@
       "vatGroup": "MwSt-Gruppe {group}"
     },
     "device": {
+      "clock": {
+        "setButton": "Uhr stellen",
+        "set": "Die Uhr des Geräts ist gestellt",
+        "failed": "Die Uhr konnte nicht gestellt werden",
+        "keptSummerTime": "Die Uhr des Geräts geht eine Stunde vor: Sie hat nicht auf Winterzeit umgestellt.",
+        "keptWinterTime": "Die Uhr des Geräts geht eine Stunde nach: Sie hat nicht auf Sommerzeit umgestellt.",
+        "off": "Die Uhr des Geräts weicht um {step} von der geprüften Zeit ab.",
+        "chip": "Uhr {step}",
+        "confirmTitle": "Die Uhr des Geräts stellen?",
+        "confirmHint": "Ein fiskalisiertes Gerät lehnt eine Zeit vor seinem letzten Fiskaleintrag ab und meldet das.",
+        "deviceTime": "Uhr des Geräts",
+        "serverTime": "Geprüfte Zeit",
+        "confirm": "Stellen",
+        "sessionsBanner": "Die Uhr eines Fiskalgeräts muss gestellt werden:"
+      },
       "why": {
         "protocol": {
           "readOperator": "{brand}-Geräte können ihre Bediener nicht auslesen — programmieren Sie sie hier",
@@ -1340,6 +1659,13 @@
     "users": "Benutzer & Rollen",
     "generalInfo": "Allgemeine Informationen",
     "companyIdentity": "Firmenidentität",
+    "representative": "Vertreter (МОЛ)",
+    "representativeHint": "Wird auf jedem Beleg der Firma unter ihrem Namen gedruckt",
+    "placeOfIssue": "Ausstellungsort",
+    "placeOfIssueHint": "Ein Ort. Wird als Leistungsort auf Belegen gedruckt, die keinen eigenen nennen",
+    "activityCode": "Wirtschaftszweig (NACE-Code)",
+    "activityCodeHint": "Ziffern mit Punkten, z. B. 47.52. Wird auf Belegen nicht gedruckt",
+    "activityCodeInvalid": "Ziffern mit Punkten, z. B. 47.52, höchstens {max} Zeichen",
     "logo": "Logo",
     "logoNone": "Kein Logo hochgeladen",
     "logoUpload": "Logo hochladen",
@@ -1477,16 +1803,19 @@
     "required": "Dieses Feld ist erforderlich",
     "invalidEmail": "Ungültige E-Mail-Adresse",
     "positiveNumber": "Muss eine positive Zahl sein",
-    "invalidDate": "Ungültiges Datum"
+    "invalidDate": "Ungültiges Datum",
+    "maxLength": "Höchstens {max} Zeichen"
   },
   "invoicing": {
     "documentType": "Belegart",
     "docType": {
       "invoice": "Rechnung",
       "proforma": "Proforma",
+      "offer": "Angebot",
       "credit_note": "Gutschrift",
       "debit_note": "Lastschrift",
-      "cash_sale": "Barverkauf"
+      "cash_sale": "Barverkauf",
+      "stock_movement": "Lagerbewegungsbeleg"
     },
     "companyName": "Firmenname",
     "email": "E-Mail",
@@ -1568,6 +1897,8 @@
     "qty": "Menge",
     "unit": "Einheit",
     "unitPrice": "Einzelpreis",
+    "pricePickOnly": "Wählen Sie einen der angebotenen Preise: einen Preis von Hand einzugeben gehört nicht zu Ihrer Rolle",
+    "priceNotOffered": "Zeile {lines}: dieser Preis ist keiner der für den Artikel angebotenen. Wählen Sie einen der angebotenen Preise: einen Preis von Hand einzugeben gehört nicht zu Ihrer Rolle",
     "discount": "Rabatt",
     "taxRate": "Steuersatz",
     "subtotal": "Zwischensumme",
@@ -1630,6 +1961,8 @@
     "searchContact": "Kontakt suchen",
     "selectPrice": "Preis wählen",
     "noPrices": "Keine Preise konfiguriert",
+    "orderPriceChosen": "Für diesen Auftrag gewählter Preis: die Rechnung übernimmt ihn",
+    "orderPriceAuto": "Kundenpreis bei Rechnungsstellung",
     "newOrder": "Neue Lieferantenbestellung",
     "editOrder": "Lieferantenbestellung bearbeiten",
     "orderNumber": "Bestellung Nr.",
@@ -1724,6 +2057,8 @@
     "editCashSale": "Kassenverkauf bearbeiten",
     "editProformaInvoice": "Proformarechnung bearbeiten",
     "newProformaInvoice": "Neue Proformarechnung",
+    "newOffer": "Neues Angebot",
+    "editOffer": "Angebot bearbeiten",
     "editCreditNote": "Gutschrift bearbeiten",
     "newCreditNote": "Neue Gutschrift",
     "send": "Senden",
@@ -1737,6 +2072,7 @@
     "supplierInvoiceNumber": "Lief.-Rechnungsnr.",
     "validUntil": "Gültig bis",
     "convertToInvoice": "In Rechnung umwandeln",
+    "convertToProforma": "In Proforma umwandeln",
     "relatedInvoice": "Zugehörige Rechnung",
     "reason": "Grund",
     "deleteCreditNoteConfirm": "Sind Sie sicher, dass Sie diese Gutschrift löschen möchten?",
@@ -1772,6 +2108,7 @@
     "creditNoteVoided": "Gutschrift erfolgreich storniert",
     "creditNoteReceived": "Gutschrift empfangen",
     "contactLedger": "Kontakt-Kontoauszug",
+    "stockMovement": "Lagerbewegung",
     "addLineItems": "Positionen hinzufügen",
     "selectItemsToAdd": "Positionen zum Hinzufügen zur Rechnung auswählen",
     "insufficientStock": "Unzureichender Bestand",
@@ -1783,6 +2120,7 @@
     "paymentRecorded": "Zahlung erfolgreich erfasst",
     "paymentExceedsOutstanding": "Der Betrag übersteigt die noch offenen {amount}",
     "convertedToInvoice": "Erfolgreich in Rechnung umgewandelt",
+    "convertedToProforma": "Erfolgreich in Proforma umgewandelt",
     "smart": {
       "journalEntry": "Buchung",
       "transfers": "Umlagerungen"
@@ -1809,9 +2147,20 @@
     "invoice": "Rechnung",
     "invoiceRef": "Rechnung #",
     "proformaRef": "Proforma #",
+    "offerRef": "Angebot #",
+    "convertedInto": "Umgewandelt in",
     "taxNumber": "Steuernummer (EIK)",
     "vatNumber": "USt-IdNr.",
+    "representative": "Vertreter (МОЛ)",
+    "partyRepresentative": "Vertreter",
+    "moveRepresentative": "Ins Feld übernehmen",
+    "moveRepresentativeHint": "Die Notizen enthalten den МОЛ noch als Zeile: {name}",
+    "representativeMoved": "Aus den Notizen ins Feld übernommen. Gespeichert wird beim Speichern des Kontakts",
+    "undoMoveRepresentative": "Rückgängig",
     "lookupCompany": "Unternehmen suchen",
+    "alsoKnownAs": "Auch bekannt als",
+    "alsoKnownAsHint": "Andere Namen, unter denen dieses Unternehmen auf Belegen steht: ein Kurzname, eine andere Schreibweise. Namen eingeben und Enter drücken. Ein Import, der einen davon findet, ordnet den Beleg diesem Kontakt zu.",
+    "alsoKnownAsLimit": "Höchstens {count} Namen, jeder bis zu {length} Zeichen",
     "companyFound": "Unternehmensdaten gefunden",
     "vatConfirmed": "USt-IdNr. bestätigt",
     "companyNotFound": "Unternehmen nicht gefunden",
@@ -1841,6 +2190,7 @@
     "debitNoteReceived": "Lastschrift empfangen",
     "invoices": "Rechnungen",
     "openBalance": "Offener Saldo",
+    "unpaidListCapped": "Die ersten {shown} von {total} Belegen sind aufgelistet. Die Summe zählt alle.",
     "movements": "Bewegungen",
     "aging": {
       "title": "Fälligkeitsbericht",
@@ -1964,7 +2314,9 @@
     },
     "stockReceipt": {
       "print": "Wareneingangsschein",
-      "hint": "Den Wareneingang dieser Eingangsrechnung drucken — einen je Lager, in das die Ware ging"
+      "hint": "Den Wareneingang dieser Eingangsrechnung drucken — einen je Lager, in das die Ware ging",
+      "price": "Zu druckender Preis",
+      "booked": "Gebuchter Preis (laut Wareneingang)"
     },
     "reservations": {
       "repeatOf": "erneut reserviert",
@@ -2117,17 +2469,25 @@
       "saveAndIssue": "Speichern und ausstellen",
       "notIssued": "Nicht ausgestellt — das Dokument bleibt ein Entwurf: {reason}",
       "notIssuedStock": "der Bestand reicht nicht, und die Umlagerung wurde nicht bestätigt",
-      "printOptions": "Drucken mit Optionen…"
+      "printOptions": "Drucken mit Optionen…",
+      "confirmPayment": {
+        "title": "{number} ausstellen?",
+        "text": "Möchten Sie sie wirklich mit dieser Zahlungsmethode ausstellen?",
+        "none": "Keine Zahlungsmethode"
+      }
     },
     "proformaIssued": "Proforma erfolgreich ausgestellt",
+    "offerIssued": "Angebot erfolgreich ausgestellt",
     "createOther": "Anderes Dokument",
     "voidConfirm": "{number} stornieren? Es bleibt als storniert in der Liste, und der Bestand, den es bewegt hat, wird zurückgebucht.",
     "proformaVoided": "Proforma erfolgreich storniert",
+    "offerVoided": "Angebot erfolgreich storniert",
     "billVoided": "Eingangsrechnung erfolgreich storniert",
     "newPaymentOrder": "Neuer Zahlungsauftrag",
     "newCashOrder": "Neuer Kassenbeleg",
     "relatedDocument": "Verknüpftes Dokument",
     "voidConfirmProforma": "{number} stornieren? Sie bleibt als storniert in der Liste und kann nicht mehr in eine Rechnung umgewandelt werden.",
+    "voidConfirmOffer": "{number} stornieren? Es bleibt als storniert in der Liste und kann nicht mehr in eine Proforma oder Rechnung umgewandelt werden.",
     "numberClash": {
       "banner": "{n} Rechnungsnummern wurden doppelt vergeben. Das spätere Dokument jedes Paars wird durch eine Gutschrift aufgehoben und unter einer neuen Nummer neu ausgestellt (ЗДДС Art. 116).",
       "review": "Prüfen",
@@ -2143,6 +2503,34 @@
       "byPerson": "Ein Barverkauf oder eine Notiz wird von einem Menschen korrigiert",
       "preparedToast": "Gutschrift und Neuausstellung sind als Entwürfe vorbereitet",
       "failed": "Es konnte nicht vorbereitet werden."
+    },
+    "unitFromProduct": "Die Einheit des Artikels",
+    "linkNote": {
+      "action": "Mit Warenausgang verknüpfen",
+      "hint": "Ware schon übergeben?",
+      "dialogHint": "Warenausgänge dieses Kunden, die noch keine Rechnung abdeckt, und Warenausgänge ohne Kunde. Die Rechnung bewegt dann keinen Bestand: Das hat der Warenausgang schon getan.",
+      "none": "Es gibt keinen offenen Warenausgang für diesen Kunden oder ohne Kunde.",
+      "noCustomer": "ohne Kunde",
+      "noteLines": "{n} Zeile, insgesamt {quantity} | {n} Zeilen, insgesamt {quantity}",
+      "confirm": "Verknüpfen",
+      "differs": "Die Zeilen der Rechnung weichen vom Gelieferten ab:",
+      "differsLine": "{name}: geliefert {dispatched}, fakturiert {invoiced}",
+      "replaceWarning": "Das Verknüpfen ersetzt die Lagerzeilen der Rechnung durch die des Warenausgangs, zu den Preisen dieses Kunden. Zeilen ohne Bestand, Nummer, Daten und Zahlungsart bleiben.",
+      "replaceConfirm": "Zeilen ersetzen und verknüpfen",
+      "linked": "Die Rechnung ist mit dem Warenausgang verknüpft",
+      "linkedCheck": "Die Rechnung ist mit dem Warenausgang verknüpft. Prüfen Sie Zeilen und Preise und stellen Sie sie dann aus.",
+      "banner": "Rechnung zum Warenausgang",
+      "noStock": "Die Ware wurde mit dem Warenausgang ausgebucht: diese Rechnung bewegt keinen Bestand.",
+      "made": "Rechnungsentwurf aus dem Warenausgang erstellt. Prüfen Sie die Preise und stellen Sie ihn dann aus.",
+      "select": "Diesen Warenausgang mit der Rechnung verknüpfen"
+    },
+    "dispatchOverlap": {
+      "title": "Diese Ware ist vielleicht schon ausgebucht",
+      "text": "Für dieselbe Ware gibt es Warenausgänge ohne Rechnung. Wird diese Rechnung so ausgestellt, wird die Ware ein zweites Mal ausgebucht.",
+      "chooseCustomer": "Diese Rechnung nennt keinen Kunden. Wählen Sie ihn, und das Verknüpfen trägt ihn auf der Rechnung und dem Warenausgang ein.",
+      "link": "Mit dem Warenausgang verknüpfen",
+      "issueAnyway": "Andere Ware: trotzdem ausstellen",
+      "notIssued": "sie betrifft vielleicht Ware, die ein Warenausgang schon geliefert hat, und die Frage blieb unbeantwortet"
     }
   },
   "warehouse": {
@@ -2151,6 +2539,7 @@
     "category": "Kategorie",
     "unit": "Einheit",
     "barcode": "Barcode",
+    "tariffCode": "Zolltarifnummer",
     "purchasePrice": "Einkaufspreis",
     "sellingPrice": "Verkaufspreis",
     "deleteProductConfirm": "Sind Sie sicher, dass Sie dieses Produkt löschen möchten?",
@@ -2172,9 +2561,10 @@
     "customPrices": "Sonderpreise",
     "customPrice": "Sonderpreis",
     "addCustomPrice": "Sonderpreis hinzufügen",
-    "priceTiers": "Preisstufen (10 Plätze)",
+    "priceTiers": "Preisstufen ({count} Plätze)",
     "priceTiersHelp": "Jeder Platz entspricht standardmäßig dem Verkaufspreis ohne Filter. Geben Sie Namen und Preis (oder %) ein, um ihn zu nutzen. Filter aktivieren, damit eine Stufe nur für bestimmte Kontakte, Tags, Mengen oder Datumsbereiche gilt.",
     "finalPrice": "Endpreis",
+    "deliveryTierHint": "Preis mit Handelsrabatt: „Доставна цена“ aus PlusMinus, vom Import gefüllt. Das ist nicht der Einkaufspreis.",
     "withProductUpdate": "Mit Produktaktualisierung",
     "foreignCurrencyNoUpdate": "In {currency}: diese Rechnung aktualisiert keine Produkte",
     "withoutProductUpdate": "Ohne Produktaktualisierung",
@@ -2223,6 +2613,24 @@
     "minQuantity": "Mindestmenge",
     "manager": "Verwalter",
     "default": "Standard",
+    "external": "Extern",
+    "externalWarehouse": "Externes Lager",
+    "externalWarehouseHint": "Das Lager eines anderen Standorts. Hier wird dafür kein Bestand geführt: Eine Umlagerung dorthin oder von dort ändert nur Ihr eigenes Lager, und ihr Beleg kann an die Kollegen dort gehen.",
+    "externalNotDefault": "Ein externes Lager führt hier keinen Bestand und kann deshalb nicht das Standardlager sein.",
+    "externalHoldsStock": "Artikel mit Bestand oder Reservierung in diesem Lager: {articles}. Ein externes Lager führt keinen Bestand: Lagern Sie die Ware zuerst um oder buchen Sie sie aus.",
+    "externalInUse": "Das Lager wird noch verwendet: {uses}. Ein externes Lager führt keinen Bestand, sie würden also nichts bewegen: Schließen Sie sie zuerst ab oder ordnen Sie sie einem anderen Lager zu.",
+    "inUse": {
+      "fiscalDevices": "{n} Fiskalgerät | {n} Fiskalgeräte",
+      "workstations": "{n} Arbeitsplatz | {n} Arbeitsplätze",
+      "tillSessions": "{n} offene Kassensitzung | {n} offene Kassensitzungen",
+      "counts": "{n} laufende Inventur | {n} laufende Inventuren",
+      "reservations": "{n} aktive Reservierung | {n} aktive Reservierungen",
+      "supplierOrders": "{n} offene Lieferantenbestellung | {n} offene Lieferantenbestellungen",
+      "customerOrders": "{n} offene Kundenbestellung | {n} offene Kundenbestellungen"
+    },
+    "externalName": "{name} (extern)",
+    "externalTransferOut": "„{warehouse}“ ist ein externes Lager: Die Ware verlässt Ihr Lager, und dort wird kein Bestand gebucht.",
+    "externalTransferIn": "„{warehouse}“ ist ein externes Lager: Die Ware geht in Ihr Lager ein, und dort wird kein Bestand abgebucht.",
     "deleteWarehouseConfirm": "Sind Sie sicher, dass Sie dieses Lager löschen möchten?",
     "deleteMovementConfirm": "Diesen Bewegungsentwurf löschen? Er hat keinen Bestand verändert und wird es auch nicht.",
     "warehouse": "Lager",
@@ -2436,6 +2844,8 @@
     "refusals": {
       "transfer_without_from_warehouse": "Eine Umlagerung nimmt Ware aus einem Lager: Wählen Sie auch „Von Lager“. Ware von außen ist ein Zugang.",
       "adjustment_with_both_warehouses": "Eine Korrektur ändert ein Lager: Wählen Sie „Von Lager“, um Ware abzubuchen, oder „Zu Lager“, um sie zuzubuchen, nicht beides. Ware zwischen Lagern ist eine Umlagerung.",
+      "external_warehouse_not_transfer": "Ein externes Lager führt hier keinen Bestand: Es wird nur bei einer Umlagerung genannt, als die andere Seite.",
+      "transfer_without_own_warehouse": "Eine Umlagerung mit einem externen Lager bewegt den Bestand Ihres eigenen Lagers: Wählen Sie es als die andere Seite.",
       "receipt_rolled_back": "Wareneingang {movementNumber} wurde mit seinem Dokument zurückgenommen: Die Ware ist wieder abgegangen, und er wird nicht abgerechnet.",
       "bill_foreign_currency": "Diese Rechnung lautet auf {currency}, die Preise der Lieferung auf {baseCurrency}: Eine Rechnung in anderer Währung wird nicht mit einer Lieferung verknüpft.",
       "receipt_not_a_delivery": "Wareneingang {movementNumber} ist eine Korrektur oder eine Tagessumme, keine Lieferung eines Lieferanten, und wird nicht abgerechnet.",
@@ -2452,7 +2862,20 @@
       "bill_already_linked": "Die Rechnung ist bereits mit einer Lieferung verknüpft.",
       "nothing_to_bill": "Die Wareneingänge enthalten keine abzurechnenden Mengen.",
       "stock_line_without_warehouse": "Die Bestandszeilen dieser Rechnung nennen kein Lager, die Ware käme nicht in den Bestand. Wählen Sie das Lager auf der Rechnung und empfangen Sie sie dann.",
-      "stock_line_without_product": "Eine Zeile dieser Rechnung hat eine Menge, aber kein Produkt: Sie würde bezahlt, und die Ware käme nie in den Bestand. Wählen Sie das Produkt in der Zeile und empfangen Sie die Rechnung dann."
+      "stock_line_without_product": "Eine Zeile dieser Rechnung hat eine Menge, aber kein Produkt: Sie würde bezahlt, und die Ware käme nie in den Bestand. Wählen Sie das Produkt in der Zeile und empfangen Sie die Rechnung dann.",
+      "dispatch_without_customer": "Warenausgang {movementNumber} nennt keinen Kunden: Wählen Sie ihn.",
+      "dispatch_not_a_delivery": "Warenausgang {movementNumber} ist eine Korrektur oder der Vermerk einer anderen Bewegung, keine Lieferung an einen Kunden, und wird nicht fakturiert.",
+      "dispatch_rolled_back": "Warenausgang {movementNumber} wurde mit seinem Dokument zurückgenommen: Die Ware ist wieder im Bestand, und er wird nicht fakturiert.",
+      "customer_not_found": "Wählen Sie einen Kunden dieser Organisation.",
+      "customer_mismatch": "Die Warenausgänge gehören einem anderen Kunden.",
+      "mixed_customers": "Eine Rechnung deckt die Warenausgänge eines Kunden ab, diese gehören verschiedenen Kunden.",
+      "dispatch_already_invoiced": "Warenausgang {movementNumber} ist bereits fakturiert.",
+      "invoice_on_order": "Die Rechnung gehört zu einem Auftrag: Ihre Zeilen lösen beim Abgang dessen Reservierungen auf, sie kann nicht mit einem Warenausgang verknüpft werden.",
+      "invoice_foreign_currency": "Diese Rechnung lautet auf {currency}, die Preise der Organisation auf {baseCurrency}: Ihre Zeilen werden nicht aus einem Warenausgang übernommen.",
+      "invoice_not_draft": "Die Rechnung ist kein Entwurf mehr.",
+      "invoice_already_linked": "Die Rechnung ist bereits mit dem Dokument verknüpft, das ihre Ware bewegt hat, oder wurde inzwischen geändert: Laden Sie sie neu.",
+      "nothing_to_invoice": "Die Warenausgänge enthalten keine zu fakturierenden Mengen.",
+      "dispatch_quantity_mismatch": "„{name}“: geliefert {dispatched}, fakturiert {invoiced}. Eine Rechnung zu einem Warenausgang fakturiert das Gelieferte: Eine Differenz mit dem Kunden wird per Gutschrift oder Lastschrift ausgeglichen."
     },
     "supply": {
       "reserved": "Reserviert",
@@ -2540,7 +2963,23 @@
       "reserve": "Reservieren",
       "inactive": "Der Artikel ist deaktiviert – aktivieren Sie ihn, um ihn zu verkaufen oder zu reservieren."
     },
-    "valuationNeedsCosts": "Die Lagerbewertung besteht aus Kostenzahlen, die nicht zu Ihrer Rolle gehören."
+    "valuationNeedsCosts": "Die Lagerbewertung besteht aus Kostenzahlen, die nicht zu Ihrer Rolle gehören.",
+    "invoiced": "Fakturiert",
+    "invoicedBy": "Fakturiert mit der Ausgangsrechnung",
+    "salesInvoice": "Ausgangsrechnung",
+    "invoiceCustomer": {
+      "title": "Wer hat diese Ware erhalten?",
+      "hint": "Dieser Warenausgang nennt keinen Kunden. Die Rechnung lautet auf den gewählten Kunden, und der Warenausgang behält ihn.",
+      "confirm": "Rechnung erstellen"
+    },
+    "notInvoiceable": {
+      "dispatch_rolled_back": "Dieser Warenausgang wurde mit seinem Dokument zurückgenommen: Die Ware ist wieder im Bestand, und er wird nicht fakturiert.",
+      "dispatch_not_a_delivery": "Dieser Warenausgang ist eine Korrektur oder der Vermerk einer anderen Bewegung, keine Lieferung an einen Kunden, und wird nicht fakturiert.",
+      "dispatch_not_completed": "Eine Ausgangsrechnung entsteht aus einem abgeschlossenen Warenausgang.",
+      "dispatch_not_invoiceable": "Dieser Warenausgang wurde von {number} gebucht, das storniert ist. Er ist keine Lieferung und wird nicht fakturiert.",
+      "orphan": "Dieser Warenausgang gehört zu einem Dokument, das es nicht mehr gibt. Er ist keine Lieferung und wird nicht fakturiert.",
+      "dispatch_is_reversal": "Dieser Warenausgang bucht die Ware eines entfernten Dokuments aus. Er ist keine Lieferung und wird nicht fakturiert."
+    }
   },
   "pricing": {
     "explainPrice": "Preis erklären",
@@ -3185,6 +3624,9 @@
     "storagePrefix": "Speicherschlüssel",
     "displayPrefix": "Anzeigepräfix",
     "lastNumber": "Letzte Nummer",
+    "numbering": "Nummerierung",
+    "continuous": "Ohne Jahr",
+    "continuousHint": "Ohne Jahr: zehn Ziffern, die von einem Jahr ins nächste weiterlaufen (INV-0000000413), oberhalb jeder bereits vergebenen Nummer. Gilt für Dokumente, die ab jetzt ausgestellt werden.",
     "posSessions": "Kassensitzungen",
     "empty": "Noch keine Nummernkreise",
     "emptyHint": "Nummernkreise erscheinen hier, sobald Sie Ihr erstes Dokument erstellen."
@@ -3543,6 +3985,7 @@
       "date": "Datum",
       "document": "Beleg",
       "docType": "Belegart",
+      "stockMovement": "Lagerbewegung",
       "contact": "Geschäftspartner",
       "warehouse": "Lager",
       "batch": "Charge",
@@ -3607,7 +4050,9 @@
       "debit_note": "Lastschrift",
       "receipt_note": "Wareneingang (ohne Rechnung)",
       "dispatch_note": "Lieferschein (ohne Rechnung)",
-      "proforma": "Proforma"
+      "proforma": "Proforma",
+      "offer": "Angebot",
+      "stock_movement": "Lagerbewegungsbeleg"
     },
     "summary": {
       "operations": "Vorgänge",
@@ -3821,7 +4266,38 @@
     "clampLine": "aktuell {live}, Paket {bundle} — behalten {kept}",
     "dangling": "{n} Dokumentzeilen zeigen auf Dateien, die nicht auf dem Volume liegen",
     "safetyTaken": "Sicherheitskopie erstellt",
-    "restoresTitle": "Wiederherstellungsverlauf"
+    "restoresTitle": "Wiederherstellungsverlauf",
+    "subtitleOrgAdmin": "Erstellen Sie eine Sicherung dieser Organisation und laden Sie sie herunter.",
+    "orgAdminTitle": "Hier können Sie Sicherungen dieser Organisation erstellen und herunterladen.",
+    "orgAdminHint": "Eine hier erstellte Sicherung enthält die Datenbankzeilen ohne die Dokumentdateien und bleibt auf diesem Server. In 24 Stunden sind höchstens {n} möglich.",
+    "adminOnly": "Dieser Bildschirm ist für die Administratoren der Organisation.",
+    "errors": {
+      "backup_running": "Für diese Organisation wird gerade eine Sicherung erstellt. Warten Sie, bis sie fertig ist.",
+      "backup_daily_limit": "Diese Organisation hat ihr Limit von {n} Sicherungen in 24 Stunden erreicht. Versuchen Sie es später erneut.",
+      "backup_full_needs_sys_admin": "Eine Sicherung mit den Dokumentdateien kann nur ein Systemadministrator erstellen."
+    },
+    "col": {
+      "started": "Beginn",
+      "date": "Datum",
+      "status": "Status",
+      "variant": "Inhalt",
+      "documents": "Datensätze",
+      "size": "Größe",
+      "offsite": "Externe Kopie",
+      "mode": "Modus",
+      "by": "Von",
+      "bundle": "Paket"
+    },
+    "status": {
+      "running": "läuft",
+      "completed": "abgeschlossen",
+      "failed": "fehlgeschlagen",
+      "rolled_back": "zurückgerollt"
+    },
+    "variantName": {
+      "data": "nur Datenbankzeilen",
+      "full": "Zeilen und Dateien"
+    }
   },
   "fiscalYear": {
     "subtitle": "Buchungsperioden und welche davon für Änderungen geschlossen sind",
@@ -4636,6 +5112,62 @@
     "seriesFrozen": "Die gesetzliche Nummerierung wartet: Erfassen Sie die letzten am Standort vergebenen Nummern auf der Seite Server.",
     "fenced": "Dieser Server ist nicht mehr das Zuhause der Organisation: Er schreibt nichts mehr von ihr."
   },
+  "docEmail": {
+    "bar": {
+      "selected": "{n} ausgewählt",
+      "send": "Per E-Mail senden",
+      "clear": "Aufheben",
+      "tooMany": "Mehr als {max} Dokumente gewählt: einige abwählen."
+    },
+    "title": "Per E-Mail senden",
+    "intro": "{n} Dokument wird gesendet, als gedrucktes PDF. | {n} Dokumente werden gesendet, jedes als gedrucktes PDF.",
+    "nothing": "Keines der gewählten Dokumente kann gesendet werden.",
+    "blockedTitle": "Werden nicht gesendet: {n}",
+    "recipient": "Empfänger",
+    "modePartner": "An den Kunden / Lieferanten",
+    "modeSingle": "An eine Adresse",
+    "noPartner": "Dokumente ohne Kunden oder Lieferanten",
+    "noAddress": "keine Adresse",
+    "addressOf": "E-Mail-Adresse von {name}",
+    "partnerHint": "Die Adresse stammt vom Kontakt und kann hier geändert werden. Eine Zeile ohne Adresse wird nicht gesendet.",
+    "singleTo": "E-Mail-Adresse",
+    "singleHint": "Alle Dokumente gehen an diese Adresse.",
+    "severalMails": "Eine E-Mail trägt höchstens {max} Dokumente: Die übrigen gehen in eigenen E-Mails.",
+    "subject": "Betreff",
+    "subjectHint": "Bleibt er leer, wird jede E-Mail nach ihren Dokumenten benannt.",
+    "documents": "Dokumente",
+    "message": "Nachricht (optional)",
+    "unaddressed": "Ohne Adresse, werden nicht gesendet: {n}",
+    "noRecipient": "Adresse eingeben: Es gibt noch nichts zu senden.",
+    "send": "Senden",
+    "sendN": "{documents} an {recipients} senden",
+    "nDocuments": "{n} Dokument | {n} Dokumente",
+    "nRecipients": "{n} Empfänger | {n} Empfänger",
+    "andMore": "und {n} weitere",
+    "sending": "Senden: {done} von {total}",
+    "stopped": "Angehalten: Der Rest wurde nicht gesendet.",
+    "result": {
+      "sent": "gesendet: {n}",
+      "queued": "in der Warteschlange: {n}",
+      "notSent": "nicht gesendet: {n}"
+    },
+    "queuedNote": "E-Mails in der Warteschlange werden gesendet, sobald dieser Server lgrai.app erreicht.",
+    "stayTicked": "Was nicht gesendet wurde, bleibt in der Liste ausgewählt.",
+    "done": "{documents} an {recipients} gesendet",
+    "doneQueued": "{documents} für {recipients} in der Warteschlange: Sie werden gesendet, sobald dieser Server lgrai.app erreicht.",
+    "reason": {
+      "draft": "Entwurf: wird nicht gesendet",
+      "cancelled": "storniert: wird nicht gesendet",
+      "not_found": "kein solches Dokument",
+      "forbidden": "Ihre Rolle versendet solche Dokumente nicht",
+      "just_sent": "gerade erst an diese Adresse gesendet",
+      "render_failed": "konnte nicht gedruckt werden",
+      "too_large": "zu groß für eine E-Mail",
+      "provider_error": "vom E-Mail-Dienst abgelehnt",
+      "not_configured": "E-Mail ist auf diesem Server nicht konfiguriert",
+      "notAsked": "nicht gesendet"
+    }
+  },
   "productOrders": {
     "bar": {
       "selected": "{n} ausgewählt",
@@ -4686,7 +5218,7 @@
   "access": {
     "feature": {
       "sales-docs": "Verkaufsbelege",
-      "proforma": "Proforma",
+      "proforma": "Proforma und Angebote",
       "bills": "Einkaufsbelege",
       "orders": "Bestellungen und Reservierungen",
       "payments": "Zahlungs- und Kassenanweisungen",
@@ -4753,6 +5285,7 @@
       "totals": "Summenleiste",
       "costs": "Einkaufspreise",
       "import": "Import",
+      "manual_price": "Preis von Hand eingeben",
       "storno": "Storno",
       "settle": "Unklaren Beleg klären",
       "sell": "Verkaufen",

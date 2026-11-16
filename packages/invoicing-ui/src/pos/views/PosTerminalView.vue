@@ -13,14 +13,15 @@
 
     <!-- Active POS Terminal -->
     <template v-if="activeSession">
-      <div class="d-flex align-center justify-space-between mb-4">
+      <!-- Wraps on a phone, where the printer and session controls do not fit beside the title. -->
+      <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-4">
         <div>
           <h1 class="text-h5">{{ $t('nav.csTerminal') }}</h1>
           <span class="text-caption text-medium-emphasis">
             {{ $t('pos.session') }}: {{ activeSession.sessionNumber }} | {{ activeSession.openedAt?.split('T')[0] }}
           </span>
         </div>
-        <div class="d-flex align-center ga-3">
+        <div class="d-flex align-center flex-wrap ga-3">
           <!-- The device decides, and what it says must be seen: every receipt here is text. -->
           <v-chip v-if="printsText" color="warning" size="small" prepend-icon="mdi-receipt-text-outline" data-testid="terminal-prints-text">
             {{ $t('pos.bridge.printsText') }}
@@ -203,6 +204,7 @@
 
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { computePosTotals, tillLineAmounts, tillTotals } from 'config/pos-totals'
@@ -229,7 +231,7 @@ interface CatalogProduct { productId: string; productName: string; unitPrice: nu
 interface Session { _id: string; sessionNumber: string; warehouseId: string; openedAt: string; status: string; totalSales: number }
 interface Warehouse { id: string; name: string }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError, showSnackbar } = useSnackbar()
 const fiscalBridge = useFiscalBridge()
@@ -294,7 +296,7 @@ const paymentMethods = [
 ]
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
-function fmt(n: number, decimals = 2) { return new Intl.NumberFormat(undefined, { style: 'currency', currency: currency.value, minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n) }
+function fmt(n: number, decimals = 2) { return numberFormat(undefined, { style: 'currency', currency: currency.value, minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n) }
 
 const activeSession = computed<Session | null>(() => sessions.value.find(s => s.status === 'open') || null)
 
@@ -357,7 +359,7 @@ async function loadDocPriceNames() {
     for (const line of cart.value) {
       for (const o of await optionsFor(line.productId)) {
         const v = optionValue(o)
-        if (!seen.has(v)) seen.set(v, priceOptionLabel(o, t))
+        if (!seen.has(v)) seen.set(v, priceOptionLabel(o, t, locale.value))
       }
     }
     docPriceItems.value = [...seen].map(([value, title]) => ({ value, title }))

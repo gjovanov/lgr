@@ -5,6 +5,8 @@ import { getRepos } from 'services/context'
 import { resolveStored } from 'services/biz/files/stored-path'
 import { VatFileError } from 'services/biz/vat-files/codec'
 import { isVatPeriod, vatCurrency } from 'services/biz/vat-files/rules'
+import { withRegisterEntries } from 'services/biz/journal-header.service'
+import { monthBounds } from 'config/journal-header'
 import {
   VatReturnRefused, generateVatReturn, markVatReturnFiled, vatPeriodSummary, vatReturnFile, withoutPersonalId,
 } from 'services/biz/vat-files/vat-return.service'
@@ -68,11 +70,17 @@ export const vatController = new Elysia({ prefix: '/org/:orgId/accounting/vat' }
     const sortBy = ROW_SORTS.has(query.sortBy as string) ? (query.sortBy as string) : 'rowNo'
     const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : 1
     const side = query.side === 'purchase' ? 'purchase' : 'sales'
-    const result = await getRepos().vatRegisterEntries.findAll(
-      { orgId: params.orgId, period: params.period, ledger: 'books', side } as any,
-      { page, size, sort: { [sortBy]: sortOrder } },
-    )
-    return { rows: result.items, ...result }
+    const filter: Record<string, unknown> = { orgId: params.orgId, period: params.period, ledger: 'books', side }
+    // FR-25a §3.8: a document declared in this return that is dated in another month (a late purchase invoice). The row's
+    // own date says it: it is the month the journal entry names (`reportingMonth`), and a split's store holds no row.
+    if (query.otherMonth === 'true' || query.otherMonth === '1') {
+      const { from, to } = monthBounds(params.period)
+      filter.$or = [{ docDate: { $lt: from } }, { docDate: { $gte: to } }]
+    }
+    const result = await getRepos().vatRegisterEntries.findAll(filter as any, { page, size, sort: { [sortBy]: sortOrder } })
+    // Read only: a frozen row stays as filed, and the link is looked up, never stored on it.
+    const rows = await withRegisterEntries(params.orgId, result.items)
+    return { rows, ...result, items: rows }
   }, { isSignIn: true })
   .get('/:period/file/:name', async ({ params, status }) => {
     try {

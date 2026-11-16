@@ -3,6 +3,8 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
+import { becomesExternal, externalScope, externalWarehouseRefusal, flagsAfterSave, holdsStockRefusal, inUseRefusal } from 'config/external-warehouse'
+import { articlesHeldAt, liveUsesOf } from 'services/biz/external-warehouses'
 
 export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/warehouse' })
   .use(AppAuthService)
@@ -21,6 +23,13 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
       const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
       filter.tags = { $in: tagList }
     }
+    // ⚠ Without `external` the list answers the warehouses that keep stock. Every picker in every app
+    // lists warehouses through this route, and none of them may offer an external one: a document
+    // booked there moves nothing. `external=include` answers all (the Warehouses page, the movement
+    // form and the movements filter), `external=only` the external ones.
+    const scope = externalScope(query.external)
+    if (scope === 'own') filter.isExternal = { $ne: true }
+    else if (scope === 'only') filter.isExternal = true
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
@@ -35,6 +44,9 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
+
+      const misfit = externalWarehouseRefusal(body)
+      if (misfit) return status(422, misfit)
 
       const warehouse = await r.warehouses.create({ ...body, orgId } as any)
 
@@ -74,6 +86,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
         manager: t.Optional(t.String()),
         managerId: t.Optional(t.String()),
         isDefault: t.Optional(t.Boolean()),
+        isExternal: t.Optional(t.Boolean()),
         isActive: t.Optional(t.Boolean()),
         tags: t.Optional(t.Array(t.String())),
       }),
@@ -96,6 +109,19 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
 
       const existing = await r.warehouses.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Warehouse not found' })
+
+      // The warehouse as it would stand after this save: either flag may be the one that changes.
+      const next = flagsAfterSave(existing, body)
+      const misfit = externalWarehouseRefusal(next)
+      if (misfit) return status(422, misfit)
+      // Becoming external is the one change that needs it empty, and named by nothing live (#779);
+      // the way back is always open.
+      if (becomesExternal(existing, next)) {
+        const holds = holdsStockRefusal(await articlesHeldAt(orgId, id))
+        if (holds) return status(422, holds)
+        const inUse = inUseRefusal(await liveUsesOf(orgId, id))
+        if (inUse) return status(422, inUse)
+      }
 
       const warehouse = await r.warehouses.updateInOrg(id, orgId, body as any)
 
@@ -136,6 +162,7 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
         manager: t.Optional(t.String()),
         managerId: t.Optional(t.String()),
         isDefault: t.Optional(t.Boolean()),
+        isExternal: t.Optional(t.Boolean()),
         isActive: t.Optional(t.Boolean()),
       }),
     },

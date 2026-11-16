@@ -24,6 +24,53 @@ export interface JournalEntry {
   createdAt: string
 }
 
+/** FR-25a: a link of an entry's document, with the entry it names where the server found exactly one. */
+export interface JournalEntryLink {
+  docType: string
+  docNumber: string
+  date?: string
+  amount?: number
+  amountFx?: number
+  entryId?: string
+}
+
+/** FR-25a §3.6: one entry as `GET /journal/:id` answers it, its document header included. */
+export interface JournalEntryDetail {
+  _id: string
+  entryNumber: string
+  date: string
+  description: string
+  reference?: string
+  status: 'draft' | 'posted' | 'voided'
+  sourceModule?: string
+  sourceId?: string
+  lines: (JournalLine & { account?: { code: string; name: string } })[]
+  docType?: string
+  docNumber?: string
+  docDate?: string
+  docTotal?: number
+  docVat?: number
+  docCurrency?: string
+  partnerName?: string
+  paymentCode?: string
+  paidAmount?: number
+  paidCash?: number
+  bankOperation?: string
+  vatKind?: string
+  vatRate?: number
+  vatRule?: string
+  vatExemptionReason?: string
+  registerDocType?: string
+  reasonRef?: string
+  taxEventDate?: string
+  reportingMonth?: string
+  protocolType?: string
+  customsRef?: string
+  links?: JournalEntryLink[]
+  docOptions?: Record<string, string>
+  source?: { createdBy?: string; createdAt?: string; modifiedBy?: string; modifiedAt?: string; version?: string }
+}
+
 export interface JournalLine {
   accountId: string
   accountName?: string
@@ -49,17 +96,26 @@ export interface FiscalPeriod {
   status: 'open' | 'closed'
 }
 
+/** As the fixed-asset routes answer it: the model's fields (#675), and its origin (FR-25a §3.4). */
 export interface FixedAsset {
   _id: string
   name: string
   code: string
   category: string
-  acquisitionDate: string
-  acquisitionCost: number
+  purchaseDate: string
+  purchasePrice: number
+  currency?: string
   depreciationMethod: string
-  usefulLife: number
+  usefulLifeMonths: number
   currentValue: number
   status: string
+  taxCategory?: string
+  taxDepreciationRate?: number
+  taxUsefulLifeMonths?: number
+  taxValue?: number
+  inServiceDate?: string
+  /** The books import made it: as booked, read-only (FR-25a §3.4). */
+  imported?: boolean
 }
 
 export interface BankAccount {
@@ -153,7 +209,10 @@ export const useAccountingStore = defineStore('accounting', () => {
   async function fetchAccounts() {
     loading.value = true
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/accounting/account`)
+      // Every account, not the API's first page of 10: the pickers of the journal entry, the fixed assets, the bank
+      // accounts and the ledger all look an account up here, and an account missing from this list shows as its raw id.
+      // A books org holds a few hundred (the demo orgs never held more than a handful, which hid it).
+      const { data } = await httpClient.get(`${orgUrl()}/accounting/account`, { params: { size: 0 } })
       accounts.value = data.accounts || []
     } finally {
       loading.value = false
@@ -204,7 +263,18 @@ export const useAccountingStore = defineStore('accounting', () => {
     }
   }
 
-  async function createJournalEntry(payload: Partial<JournalEntry>) {
+  /** One entry, whole: its lines and its document header (FR-25a). Not kept in the list's state. */
+  async function fetchJournalEntry(id: string): Promise<JournalEntryDetail> {
+    loading.value = true
+    try {
+      const { data } = await httpClient.get(`${orgUrl()}/accounting/journal/${id}`)
+      return data.journalEntry
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function createJournalEntry(payload: Record<string, unknown>) {
     loading.value = true
     try {
       const { data } = await httpClient.post(`${orgUrl()}/accounting/journal`, payload)
@@ -215,7 +285,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     }
   }
 
-  async function updateJournalEntry(id: string, payload: Partial<JournalEntry>) {
+  async function updateJournalEntry(id: string, payload: Record<string, unknown>) {
     loading.value = true
     try {
       const { data } = await httpClient.put(`${orgUrl()}/accounting/journal/${id}`, payload)
@@ -628,6 +698,7 @@ export const useAccountingStore = defineStore('accounting', () => {
     deleteAccount,
     // Actions - Journal Entries
     fetchJournalEntries,
+    fetchJournalEntry,
     createJournalEntry,
     updateJournalEntry,
     deleteJournalEntry,

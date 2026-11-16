@@ -19,6 +19,7 @@ import {
   emailInUse,
   normalizeEmail,
 } from 'services/biz/identity/identity.service'
+import { forgetMembership } from 'services/biz/identity/session.service'
 
 /** An identity refusal as the HTTP answer: its status, and a code the UI can act on. */
 const refused = (err: unknown) =>
@@ -203,14 +204,21 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         }
         delete updateData.roleId
       }
-      if (body.isActive === false && existing.isActive !== false) {
+      // The Users form's Active switch, turned off or on.
+      const switchedOff = body.isActive === false && existing.isActive !== false
+      if (switchedOff) {
         try {
           await assertNotLastAdministrator(orgId, userId)
         } catch (e) {
           if (e instanceof RoleRefusal) return status(e.status, e.body)
           throw e
         }
+        // ⚠ Switched off is deactivated, and says when, as the DELETE below does. Without the date the membership
+        // read as one still waiting for its first activation, which is the person's own to finish.
+        updateData.deactivatedAt = new Date()
       }
+      // Switched on again: the date goes, so the next switching off is told from this one.
+      if (body.isActive === true && existing.isActive === false) updateData.deactivatedAt = null
 
       // ⚠ An admin may not change their OWN role. Now that the Users screen exposes the role
       // select (it was rendered `disabled`, so this was unreachable), the single-admin org is
@@ -280,7 +288,10 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       const updated = await userDao.updateInOrg(userId, orgId, updateData)
       if (!updated) return status(404, { message: 'User not found' })
       if (body.isActive === true && existing.isActive === false) await adminActivated(existing, orgId)
-      if (grantChanged) await endSessionsOf(existing.identityId)
+      // What the person may do changed, or they may do nothing here any more: the sessions they hold end.
+      if (grantChanged || switchedOff) await endSessionsOf(existing.identityId)
+      // And this membership's own session, person or none: read afresh on its next request here.
+      if (body.isActive !== undefined) forgetMembership(userId)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'admin', entityType: 'user', entityId: userId, entityName: `${updated.firstName} ${updated.lastName}` })
 
@@ -320,6 +331,10 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
 
     // Soft delete: set isActive=false and deactivatedAt
     await userDao.updateInOrg(userId, orgId, { isActive: false, deactivatedAt: new Date() })
+    // The sessions the person holds end with it, as on a change of what they may do (FR-26.9.4).
+    if (existing.isActive !== false) await endSessionsOf(existing.identityId)
+    // And this membership's own session, person or none: read afresh on its next request here.
+    forgetMembership(userId)
 
     createAuditEntry({ orgId, userId: user.id, action: 'deactivate', module: 'admin', entityType: 'user', entityId: userId, entityName: `${existing.firstName} ${existing.lastName}` })
 

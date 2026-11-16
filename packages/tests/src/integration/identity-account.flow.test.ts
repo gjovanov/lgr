@@ -5,9 +5,10 @@ import { config } from 'config'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
-import { AuthToken, Identity, Invite, OrgApp, PermissionSet, User } from 'db/models'
+import { AuthToken, Code, Identity, Invite, OrgApp, PermissionSet, User } from 'db/models'
 import { inviteDao } from 'services/dao/invite.dao'
-import { sessionFor } from 'services/biz/auth.service'
+import { resendActivation, sessionFor } from 'services/biz/auth.service'
+import { forgetMembership, membershipSwitchedOff } from 'services/biz/identity/session.service'
 import jwt from '@elysiajs/jwt'
 import type { Types } from 'mongoose'
 
@@ -209,7 +210,184 @@ describe('forgot and reset', () => {
   })
 })
 
-// ── Joining and founding (rule 3) ──────────────────────────────────────────────────────────
+// ── Switched off by an administrator ───────────────────────────────────────────────────────
+
+/**
+ * A member an administrator switches off has no way in from then on: the session they hold ends, and what a person
+ * may ask for themselves (a reset link, an activation mail) gives them no membership back. Both ways of switching
+ * off say when: the Users form's Active switch (`PUT … { isActive: false }`) and the list's remove (`DELETE`).
+ */
+describe('a member an administrator switches off', () => {
+  /** An org with its administrator and one more member, signed in. */
+  async function pair(prefix: string) {
+    const a = await org(prefix)
+    const boss = await person(`boss-${seq}@x.test`, [a])
+    const email = `gone-${seq}@x.test`
+    const gone = await person(email, [a])
+    return { a, admin: await sessionOf(boss.identity.email), email, identity: gone.identity, member: gone.members[0], session: await sessionOf(email) }
+  }
+  async function linkFor(identityId: unknown) {
+    const token = randomBytes(32).toString('base64url')
+    await AuthToken.create({ purpose: 'password_reset', identityId, tokenHash: createHash('sha256').update(token).digest('hex'), expiresAt: new Date(Date.now() + 60_000) })
+    return token
+  }
+  const stateOf = async (id: unknown) => {
+    const m = await User.findById(id).lean().exec()
+    return { isActive: m!.isActive, dated: m!.deactivatedAt instanceof Date }
+  }
+  const reads = async (w: { a: { id: string } }, token: string) => (await call('GET', `/org/${w.a.id}/user?size=1`, { token })).status
+  /** The org a sign-in by the person lands in: none when no membership of theirs is live. */
+  const landsIn = async (email: string, password: string) => {
+    const res = await signIn(email, password)
+    return res.body?.token ? claimsOf(res.body.token).orgId : undefined
+  }
+
+  for (const [how, switchOff] of [
+    ["the Users form's switch", (w: any) => call('PUT', `/org/${w.a.id}/user/${w.member._id}`, { token: w.admin, body: { isActive: false } })],
+    ["the list's remove", (w: any) => call('DELETE', `/org/${w.a.id}/user/${w.member._id}`, { token: w.admin })],
+  ] as const) {
+    it(`by ${how}: they are deactivated, the session they hold ends, and no link of their own brings them back`, async () => {
+      const w = await pair('off')
+      expect(await reads(w, w.session)).toBe(200)
+
+      expect((await switchOff(w)).status).toBe(200)
+      expect(await stateOf(w.member._id)).toEqual({ isActive: false, dated: true })
+      // The session they held answers nothing more, here at once and on another pod within its cache minute.
+      expect(await reads(w, w.session)).toBe(401)
+      expect((await call('GET', '/auth/me', { token: w.session })).status).toBe(401)
+      // They are still a person, so a sign-in may answer: with no org behind it, and the org itself refuses them.
+      expect(await landsIn(w.email, PW)).toBeUndefined()
+      expect((await signInToOrg(w.email, PW, w.a.slug)).status).not.toBe(200)
+
+      // A reset link is the person's to ask for and to use: it gives them a password, and no way back in.
+      expect((await reset(await linkFor(w.identity._id), PW2)).status).toBe(200)
+      expect(await stateOf(w.member._id)).toEqual({ isActive: false, dated: true })
+      expect(await landsIn(w.email, PW2)).toBeUndefined()
+      expect((await signInToOrg(w.email, PW2, w.a.slug)).status).not.toBe(200)
+      // Nor an activation mail: none is made for them.
+      await resendActivation(w.email)
+      expect(await Code.countDocuments({ userId: w.member._id })).toBe(0)
+      // The administrator's own session is untouched.
+      expect(await reads(w, w.admin)).toBe(200)
+    })
+  }
+
+  it('switched on again by the administrator: they sign in, and the next switching off is dated anew', async () => {
+    const w = await pair('on')
+    const put = (isActive: boolean) => call('PUT', `/org/${w.a.id}/user/${w.member._id}`, { token: w.admin, body: { isActive } })
+    expect((await put(false)).status).toBe(200)
+    expect((await put(true)).status).toBe(200)
+    expect(await stateOf(w.member._id)).toEqual({ isActive: true, dated: false })
+    const back = await signIn(w.email, PW)
+    expect(back.status).toBe(200)
+    expect(await reads(w, back.body.token)).toBe(200)
+
+    expect((await put(false)).status).toBe(200)
+    expect(await stateOf(w.member._id)).toEqual({ isActive: false, dated: true })
+    expect(await reads(w, back.body.token)).toBe(401)
+  })
+
+  it('in one of their two orgs: the other still takes their sign-in, and a reset link opens only that one', async () => {
+    const a = await org('two-a')
+    const b = await org('two-b')
+    const boss = await person(`boss-${seq}@x.test`, [a])
+    const email = `two-${seq}@x.test`
+    const both = await person(email, [a, b])
+    const inA = both.members[0]
+    const admin = await sessionOf(boss.identity.email)
+
+    expect((await call('PUT', `/org/${a.id}/user/${inA._id}`, { token: admin, body: { isActive: false } })).status).toBe(200)
+    expect((await reset(await linkFor(both.identity._id), PW2)).status).toBe(200)
+    expect(await stateOf(inA._id)).toEqual({ isActive: false, dated: true })
+    expect((await signInToOrg(email, PW2, a.slug)).status).not.toBe(200)
+    expect((await signInToOrg(email, PW2, b.slug)).status).toBe(200)
+  })
+
+  it('saved with the switch off while still waiting for a first activation: that is no deactivation, and they finish it', async () => {
+    const a = await org('wait')
+    const boss = await person(`boss-${seq}@x.test`, [a])
+    const email = `wait-${seq}@x.test`
+    const waiting = await person(email, [a], { active: false })
+    const admin = await sessionOf(boss.identity.email)
+
+    expect((await call('PUT', `/org/${a.id}/user/${waiting.members[0]._id}`, { token: admin, body: { isActive: false, position: 'Clerk' } })).status).toBe(200)
+    expect(await stateOf(waiting.members[0]._id)).toEqual({ isActive: false, dated: false })
+    expect((await reset(await linkFor(waiting.identity._id), PW2)).status).toBe(200)
+    expect(await stateOf(waiting.members[0]._id)).toEqual({ isActive: true, dated: false })
+    expect((await signIn(email, PW2)).status).toBe(200)
+  })
+})
+
+describe('a session is its membership\'s: switched off by any other way, it ends too', () => {
+  const reads = async (orgId: string, token: string) => (await call('GET', `/org/${orgId}/user?size=1`, { token })).status
+  /** As a script, a restore or an import does it: straight to the row, past the routes. */
+  const setActive = (id: unknown, isActive: boolean) =>
+    User.updateOne({ _id: id }, { $set: { isActive, deactivatedAt: isActive ? null : new Date() } }).exec()
+
+  it('switched off past the routes: the session ends where nothing was remembered, and within the minute where it was', async () => {
+    const a = await org('script')
+    const email = `script-${seq}@x.test`
+    const gone = await person(email, [a])
+    const session = await sessionOf(email)
+    const member = gone.members[0]
+
+    // Never seen by this process: refused on the first request.
+    forgetMembership(member._id)
+    await setActive(member._id, false)
+    expect(await reads(a.id, session)).toBe(401)
+    expect((await call('GET', '/auth/me', { token: session })).status).toBe(401)
+
+    // Switched on again the same way: the session was never revoked, and no stale answer keeps it out.
+    await setActive(member._id, true)
+    expect(await reads(a.id, session)).toBe(200)
+
+    // Seen active a moment ago: this process answers for up to a minute more, as another pod does.
+    await setActive(member._id, false)
+    expect(await reads(a.id, session)).toBe(200)
+    // The minute over (what `forgetMembership` stands for here): refused.
+    forgetMembership(member._id)
+    expect(await reads(a.id, session)).toBe(401)
+    // The person is untouched: the session of their other org is no business of this one.
+    expect((await Identity.findById(gone.identity._id).lean().exec())!.tokenVersion ?? 0).toBe(0)
+  })
+
+  it('a membership no person is linked to: its session carries no person to check, and ends with the membership all the same', async () => {
+    const a = await org('unlinked')
+    const boss = await person(`boss-${seq}@x.test`, [a])
+    const admin = await sessionOf(boss.identity.email)
+    const lone = await createTestUser(a._id, { email: `lone-${seq}@x.test` } as any)
+    // The session such a membership holds: `tokenize()`'s claims, with no `iid` and no `tv`.
+    const claims = await sessionFor(lone as any)
+    expect('iid' in claims).toBe(false)
+    const session: string = await (signer as any).decorator.jwt.sign({ ...claims, exp: Math.floor(Date.now() / 1000) + 3600 })
+    expect(await reads(a.id, session)).toBe(200)
+
+    // By the Users form's switch: there is no person whose sessions could be ended, and it ends at once.
+    expect((await call('PUT', `/org/${a.id}/user/${lone._id}`, { token: admin, body: { isActive: false } })).status).toBe(200)
+    expect(await reads(a.id, session)).toBe(401)
+    // Switched on again, the same session is good again: nothing revoked it but the membership's state.
+    expect((await call('PUT', `/org/${a.id}/user/${lone._id}`, { token: admin, body: { isActive: true } })).status).toBe(200)
+    expect(await reads(a.id, session)).toBe(200)
+    // By the list's remove.
+    expect((await call('DELETE', `/org/${a.id}/user/${lone._id}`, { token: admin })).status).toBe(200)
+    expect(await reads(a.id, session)).toBe(401)
+  })
+
+  it('a membership that is not there, or cannot be read, decides nothing: the request is answered as before', async () => {
+    const a = await org('phantom')
+    const member = await createTestUser(a._id, { email: `phantom-${seq}@x.test` } as any)
+    const claims = await sessionFor(member as any)
+    const sign = (id: string) => (signer as any).decorator.jwt.sign({ ...claims, id, exp: Math.floor(Date.now() / 1000) + 3600 }) as Promise<string>
+    // A row that is gone (its person, where there is one, is what ends such a session).
+    expect(await reads(a.id, await sign('0123456789abcdef01234567'))).toBe(200)
+    // An id that is no id at all.
+    expect(await reads(a.id, await sign('not-an-id'))).toBe(200)
+    expect(await membershipSwitchedOff('not-an-id')).toBe(false)
+    expect(await membershipSwitchedOff(String(member._id))).toBe(false)
+  })
+})
+
+// ── Joining and founding (rule 3)──────────────────────────────────────────────────────────
 
 describe('accepting an invitation while signed in', () => {
   async function invited(email: string, opts: Parameters<typeof person>[2] = {}) {

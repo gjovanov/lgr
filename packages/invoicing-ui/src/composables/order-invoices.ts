@@ -30,6 +30,7 @@ export interface OrderInvoiceRow {
 /** Where a document opens. Credit and debit notes open in the sales form, as everywhere else. */
 function routeName(i: OrderInvoiceInfo): string {
   if (i.type === 'proforma') return 'invoicing.proforma.edit'
+  if (i.type === 'offer') return 'invoicing.offer.edit'
   if (i.type === 'cash_sale') return 'invoicing.cash-sales.edit'
   if (i.direction === 'incoming' && (i.type || 'invoice') === 'invoice') return 'invoicing.purchases.edit'
   return 'invoicing.sales.edit'

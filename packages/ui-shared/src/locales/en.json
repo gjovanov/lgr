@@ -99,6 +99,7 @@
       "salesInvoice": "Outgoing invoice",
       "creditNote": "Credit note",
       "proforma": "Proforma",
+      "offer": "Offer",
       "cashSale": "Cash sale",
       "bill": "Incoming invoice",
       "goodsReceipt": "Goods receipt",
@@ -112,6 +113,7 @@
       "creditNote": "New credit note",
       "debitNote": "New debit note",
       "proforma": "New proforma invoice",
+      "offer": "New offer",
       "bill": "New incoming invoice",
       "goodsReceipt": "New goods receipt",
       "customerOrder": "New customer order",
@@ -122,6 +124,7 @@
     "dashboard": "Dashboard",
     "accounting": "Accounting",
     "accounts": "Accounts",
+    "analytics": "Analytics",
     "journalEntries": "Journal Entries",
     "generalLedger": "General Ledger",
     "financialStatements": "Financial Statements",
@@ -137,6 +140,7 @@
     "bills": "Bills",
     "proformaInvoices": "Proforma Invoices",
     "proforma": "Proforma",
+    "offers": "Offers",
     "orders": "Orders",
     "externalOrders": "Supplier Orders",
     "internalOrders": "Customer Orders",
@@ -308,6 +312,8 @@
       "billsHint": "Record your first supplier bill to get started.",
       "proforma": "No proforma invoices yet",
       "proformaHint": "Create your first proforma to get started.",
+      "offer": "No offers yet",
+      "offerHint": "Create your first offer to get started.",
       "creditNotes": "No credit notes yet",
       "creditNotesHint": "Create a credit note to refund or correct an invoice.",
       "debitNotes": "No debit notes yet",
@@ -470,6 +476,37 @@
     "ppProtocol": "Acceptance & Handover Protocol"
   },
   "accounting": {
+    "salvageValue": "Salvage value",
+    "assetAccount": "Asset account",
+    "depreciationAccount": "Depreciation expense account",
+    "accumulatedDepAccount": "Accumulated depreciation account",
+    "years": "years",
+    "depreciationMethods": {
+      "straight_line": "Straight line",
+      "declining_balance": "Declining balance",
+      "units_of_production": "Units of production"
+    },
+    "rateSources": {
+      "manual": "Manual",
+      "api": "Automatic (API)"
+    },
+    "reconciliationUi": {
+      "importStatement": "Import statement",
+      "addLine": "Add a line",
+      "importHint": "Bank lines come from a statement file (CSV with a date, a description and an amount, or debit and credit, column), or are added by hand where there is no file.",
+      "imported": "{added} lines imported, {skipped} already there, {unrecognized} rows not read",
+      "noBankLines": "No bank lines yet: import the statement, or add its lines by hand.",
+      "removeLine": "Remove the line",
+      "matched": "Matched",
+      "unmatch": "Unmatch",
+      "bookBalance": "Book balance",
+      "completed": "The reconciliation is complete",
+      "lineDate": "Date",
+      "lineDescription": "Description",
+      "lineAmount": "Amount",
+      "lineAmountHint": "Money in is positive, money out negative",
+      "lineReference": "Bank reference"
+    },
     "accounts": "Chart of Accounts",
     "journalEntries": "Journal Entries",
     "generalLedger": "General Ledger",
@@ -511,6 +548,165 @@
     "accountType": "Account Type",
     "subType": "Sub Type",
     "parentAccount": "Parent Account",
+    "accountBooks": {
+      "title": "Books",
+      "readOnly": "This organisation keeps the accountant's books. Its chart of accounts is as booked in the accountant's program, and read-only here: the next import would overwrite an edit.",
+      "balanceSide": "Balance side",
+      "balanceSides": {
+        "debit": "Debit",
+        "credit": "Credit",
+        "both": "Both sides"
+      },
+      "analyticRoots": "Analytics",
+      "noAnalyticRoots": "No analytics",
+      "quantitative": "Quantitative",
+      "hasAnalytics": "Has analytics"
+    },
+    "analytics": {
+      "title": "Analytics",
+      "one": "Analytic",
+      "asBooked": "As booked in the accountant's program: read-only here, since the next import would overwrite an edit.",
+      "empty": "No analytics",
+      "emptyHint": "An organisation that keeps the accountant's books gets its analytics with them.",
+      "path": "Path",
+      "root": "Root",
+      "kind": "Kind",
+      "unit": "Unit",
+      "contact": "Contact",
+      "bankAccount": "Bank account",
+      "fixedAsset": "Fixed asset",
+      "hasContact": "Has a contact",
+      "openRoot": "Show only this root",
+      "open": "Open",
+      "above": "Under",
+      "links": "Links",
+      "noLinks": "Nothing is linked to this analytic.",
+      "properties": "Properties",
+      "propertiesHint": "As the accountant's file lists them, in its order.",
+      "key": "Property",
+      "value": "Value",
+      "addProperty": "Add property",
+      "removeProperty": "Remove property",
+      "noProperties": "No properties",
+      "keyRequired": "A property needs a name",
+      "keyDuplicate": "This property is already listed",
+      "deactivate": "Deactivate",
+      "deactivateConfirm": "Deactivate this analytic? It stays in the books and on every line that names it; it is only marked inactive.",
+      "deactivated": "The analytic is deactivated",
+      "activate": "Activate",
+      "activated": "The analytic is active again",
+      "export": "Export to Excel",
+      "kinds": {
+        "goods_group": "Goods group",
+        "material": "Material",
+        "product": "Product",
+        "service": "Service",
+        "customer": "Customer",
+        "supplier": "Supplier",
+        "partner": "Partner",
+        "bank_account": "Bank account",
+        "expense": "Expense",
+        "income": "Income",
+        "settlement": "Settlement",
+        "personnel": "Personnel",
+        "fixed_asset": "Fixed asset",
+        "equity": "Equity",
+        "other": "Other"
+      },
+      "errors": {
+        "books_as_booked": "This analytic is as booked in the accountant's program, and is not changed here.",
+        "not_found": "This analytic no longer exists.",
+        "contact_not_found": "That contact is not in this organisation.",
+        "bank_account_not_found": "That bank account is not in this organisation.",
+        "fixed_asset_not_found": "That fixed asset is not in this organisation.",
+        "param_key_required": "Each property needs a name.",
+        "param_key_duplicate": "Each property may be listed once.",
+        "too_many_params": "An analytic keeps at most 200 properties."
+      }
+    },
+    "bankAccountBooks": {
+      "analytic": "Analytic",
+      "analyticHint": "The analytic of the books that points at this bank account",
+      "operationsThisMonth": "Bank operations this month"
+    },
+    "fixedAssetBooks": {
+      "asBooked": "As booked in the accountant's program: read-only here, since the next import would overwrite an edit.",
+      "imported": "From the accountant's books",
+      "native": "Kept in LGR",
+      "origin": "Origin",
+      "book": "Book",
+      "analytic": "Analytic",
+      "analyticHint": "The analytic of the books this asset was made from",
+      "openingValue": "Opening book value",
+      "openingValueHint": "The value the books start from: the price less the book depreciation accumulated before them. Not today's value until the books' monthly depreciation is linked to this asset.",
+      "currency": "Currency",
+      "disposalDate": "Disposal date",
+      "statuses": {
+        "active": "Active",
+        "disposed": "Disposed",
+        "fully_depreciated": "Fully depreciated",
+        "not_depreciated": "Not depreciated"
+      },
+      "tax": {
+        "title": "Tax (ЗКПО)",
+        "category": "Tax category",
+        "noCategory": "No category",
+        "categories": {
+          "1": "Massive buildings, facilities, transmission and communication equipment",
+          "2": "Machines, production equipment, apparatus",
+          "3": "Transport vehicles other than cars; road, street and runway surfaces",
+          "4": "Computers and their peripherals, software and the right to use it, mobile phones",
+          "5": "Cars",
+          "6": "Assets whose right of use is limited in time by contract or by law",
+          "7": "All other depreciable assets"
+        },
+        "rate": "Tax depreciation rate",
+        "statutoryRate": "The statutory maximum for this category: {rate}%",
+        "limitedTermRate": "Category VI: 100% divided by the term of the limitation, at most 33⅓%",
+        "aboveStatutory": "The rate is above the statutory maximum for this category ({rate}%).",
+        "months": "Tax useful life",
+        "monthsUnit": "months",
+        "inYears": "= {years} years",
+        "value": "Tax value",
+        "valueHint": "Defaults to the purchase price",
+        "inServiceDate": "Put into service",
+        "mismatch": "The rate and the term disagree: the rate × the years make {product}%, not 100%.",
+        "errors": {
+          "tax_category_invalid": "A tax category is one of I to VII",
+          "tax_rate_invalid": "A rate is between 0 and 100%",
+          "tax_months_invalid": "Whole months, 0 or more",
+          "tax_value_invalid": "The tax value cannot be negative",
+          "in_service_date_invalid": "Not a date",
+          "in_service_before_purchase": "Put into service before it was bought"
+        }
+      },
+      "properties": "Properties",
+      "propertiesHint": "As the accountant's file lists them, in its order.",
+      "noProperties": "No properties",
+      "property": "Property",
+      "value": "Value",
+      "schedule": {
+        "title": "Schedule",
+        "book": "Book depreciation",
+        "tax": "Tax depreciation (ЗКПО)",
+        "date": "Date",
+        "year": "Year",
+        "months": "Months",
+        "amount": "Depreciation",
+        "accumulated": "Accumulated",
+        "bookValue": "Book value",
+        "remaining": "Tax value left",
+        "entry": "Journal entry",
+        "planned": "Planned from the price, the salvage value and the useful life: nothing is posted yet.",
+        "notLinked": "The depreciation the accountant's books post is not linked to this asset yet.",
+        "noBookPlan": "No book depreciation: no useful life, or nothing to depreciate.",
+        "taxComputed": "Computed here from the tax fields and never stored: from the start of the month the asset was put into service (else bought), at the yearly rate, until the tax value is written off or the month the asset was disposed of.",
+        "taxEmpty": "No tax schedule yet: it needs a tax value (or a purchase price), a rate or a term, and the date the asset was put into service."
+      },
+      "errors": {
+        "books_as_booked": "This fixed asset is as booked in the accountant's program, and is not changed here."
+      }
+    },
     "depreciationSchedule": "Depreciation Schedule",
     "purchaseDate": "Purchase Date",
     "purchasePrice": "Purchase Price",
@@ -590,6 +786,102 @@
       "viesKindRepresentative": "Representative",
       "companyAddress": "The company's address"
     },
+    "journalEntry": {
+      "empty": "No journal entries yet",
+      "document": {
+        "title": "Document",
+        "needsAttention": "{n} to check",
+        "asBooked": "As booked in the accountant's program",
+        "asBookedHint": "The books import wrote this entry, so it is read-only here: the next import would overwrite a change, and the books must match what the accountant filed.",
+        "docType": "Document type",
+        "docNumber": "Document number",
+        "docDate": "Document date",
+        "registerDocType": "Register type",
+        "reasonRef": "Corrects",
+        "reasonRefHint": "The invoice this notice corrects",
+        "partner": "Partner",
+        "total": "Document total",
+        "switches": "Switches",
+        "source": "Keyed by {by} on {at}",
+        "sourceChanged": "changed by {by} on {at}",
+        "version": "version {version}",
+        "registerDocTypes": {
+          "invoice": "Invoice",
+          "debitNotice": "Debit notice",
+          "creditNotice": "Credit notice",
+          "customs": "Customs declaration",
+          "protocol": "Protocol",
+          "tillReport": "Till report"
+        }
+      },
+      "payment": {
+        "title": "Payment",
+        "code": "Paid by",
+        "paidAmount": "Paid",
+        "paidCash": "Paid in cash",
+        "open": "Open",
+        "bankOperation": "Bank operation"
+      },
+      "vat": {
+        "title": "VAT",
+        "kind": "VAT kind",
+        "rate": "VAT rate",
+        "rule": "VAT rule",
+        "exemptionReason": "Exemption ground",
+        "taxEventDate": "Tax event date",
+        "reportingMonth": "Declared in",
+        "protocolType": "Protocol type",
+        "customsRef": "Customs declaration (MRN)",
+        "docVat": "Document VAT"
+      },
+      "links": {
+        "title": "Linked documents",
+        "none": "No linked documents",
+        "docType": "Type",
+        "docNumber": "Number",
+        "date": "Date",
+        "amount": "Amount",
+        "amountFx": "In currency",
+        "add": "Add a link",
+        "remove": "Remove the link",
+        "open": "Open the linked entry",
+        "notFound": "Not in this organization's journal"
+      },
+      "filters": {
+        "payment": "Payment",
+        "unpaid": "Unpaid",
+        "notices": "Notices only",
+        "otherMonth": "Declared in another month"
+      },
+      "columns": {
+        "paymentCode": "Paid by",
+        "paidAmount": "Paid",
+        "openAmount": "Open",
+        "registerDocType": "Register type",
+        "reportingMonth": "Declared in"
+      },
+      "errors": {
+        "journal_entry_as_booked": "This entry is as booked in the accountant's program and cannot be changed here.",
+        "payment_code_unknown": "Choose cash or bank.",
+        "paid_cash_exceeds_paid": "Paid in cash cannot be more than paid.",
+        "vat_rate_unknown": "Choose 20, 9 or 0 %.",
+        "exemption_reason_required": "A sales invoice at 0 % states its exemption ground.",
+        "register_doc_type_unknown": "Choose a register type from the list.",
+        "reason_ref_required": "A notice states the invoice it corrects.",
+        "reporting_month_invalid": "Enter a month.",
+        "date_invalid": "Enter a date.",
+        "link_incomplete": "Each link needs a type and a number."
+      }
+    },
+    "paymentCodes": {
+      "cash": "Cash",
+      "bank": "Bank"
+    },
+    "vatRegister": {
+      "entry": "Journal entry",
+      "otherMonth": "Declared in another month",
+      "notInOrg": "Not in this organization's journal"
+    },
     "fromCurrency": "From Currency",
     "toCurrency": "To Currency",
     "rate": "Rate",
@@ -622,6 +914,18 @@
     "default": "Default"
   },
   "payroll": {
+    "timesheetTypes": {
+      "regular": "Regular",
+      "overtime": "Overtime",
+      "holiday": "Holiday",
+      "sick": "Sick leave",
+      "vacation": "Vacation"
+    },
+    "timesheetStatuses": {
+      "submitted": "Submitted",
+      "approved": "Approved",
+      "rejected": "Rejected"
+    },
     "employees": "Employees",
     "employee": "Employee",
     "newEmployee": "New Employee",
@@ -785,6 +1089,13 @@
     "users": "Users & Roles",
     "generalInfo": "General Information",
     "companyIdentity": "Company Identity",
+    "representative": "Representative (МОЛ)",
+    "representativeHint": "Printed under the company's name on every document it issues",
+    "placeOfIssue": "Place of issue",
+    "placeOfIssueHint": "A town. Printed as the place of transaction on a document that names none of its own",
+    "activityCode": "Activity code (NACE)",
+    "activityCodeHint": "Digits joined by dots, e.g. 47.52. Not printed on documents",
+    "activityCodeInvalid": "Digits joined by dots, e.g. 47.52, at most {max} characters",
     "logo": "Logo",
     "logoNone": "No logo uploaded",
     "logoUpload": "Upload logo",
@@ -922,16 +1233,19 @@
     "required": "This field is required",
     "invalidEmail": "Invalid email address",
     "positiveNumber": "Must be a positive number",
-    "invalidDate": "Invalid date"
+    "invalidDate": "Invalid date",
+    "maxLength": "At most {max} characters"
   },
   "invoicing": {
     "documentType": "Document Type",
     "docType": {
       "invoice": "Invoice",
       "proforma": "Proforma",
+      "offer": "Offer",
       "credit_note": "Credit Note",
       "debit_note": "Debit Note",
-      "cash_sale": "Cash Sale"
+      "cash_sale": "Cash Sale",
+      "stock_movement": "Stock Movement Document"
     },
     "companyName": "Company Name",
     "email": "Email",
@@ -1013,6 +1327,8 @@
     "qty": "Qty",
     "unit": "Unit",
     "unitPrice": "Unit Price",
+    "pricePickOnly": "Choose one of the offered prices: typing a price by hand is not part of your role",
+    "priceNotOffered": "Line {lines}: this price is not one of those offered for the article. Choose one of the offered prices: typing a price by hand is not part of your role",
     "discount": "Discount",
     "taxRate": "Tax Rate",
     "subtotal": "Subtotal",
@@ -1075,6 +1391,8 @@
     "searchContact": "Search Contact",
     "selectPrice": "Select price",
     "noPrices": "No prices configured",
+    "orderPriceChosen": "Price chosen for this order: its invoice charges it",
+    "orderPriceAuto": "Customer price when invoiced",
     "newOrder": "New Supplier Order",
     "editOrder": "Edit Supplier Order",
     "orderNumber": "Order #",
@@ -1169,6 +1487,8 @@
     "editCashSale": "Edit Cash Register Sale",
     "editProformaInvoice": "Edit Proforma Invoice",
     "newProformaInvoice": "New Proforma Invoice",
+    "newOffer": "New Offer",
+    "editOffer": "Edit Offer",
     "editCreditNote": "Edit Credit Note",
     "newCreditNote": "New Credit Note",
     "send": "Send",
@@ -1182,6 +1502,7 @@
     "supplierInvoiceNumber": "Supplier Invoice #",
     "validUntil": "Valid Until",
     "convertToInvoice": "Convert to Invoice",
+    "convertToProforma": "Convert to Proforma",
     "relatedInvoice": "Related Invoice",
     "reason": "Reason",
     "deleteCreditNoteConfirm": "Are you sure you want to delete this credit note?",
@@ -1217,6 +1538,7 @@
     "creditNoteVoided": "Credit note voided successfully",
     "creditNoteReceived": "Credit note received",
     "contactLedger": "Contact Ledger",
+    "stockMovement": "Stock movement",
     "addLineItems": "Add Line Items",
     "selectItemsToAdd": "Select items to add to invoice",
     "insufficientStock": "Insufficient Stock",
@@ -1228,6 +1550,7 @@
     "paymentRecorded": "Payment recorded successfully",
     "paymentExceedsOutstanding": "The amount is more than the {amount} still due",
     "convertedToInvoice": "Converted to invoice successfully",
+    "convertedToProforma": "Converted to proforma successfully",
     "smart": {
       "journalEntry": "Journal entry",
       "transfers": "Stock transfers"
@@ -1254,9 +1577,20 @@
     "invoice": "Invoice",
     "invoiceRef": "Invoice #",
     "proformaRef": "Proforma #",
+    "offerRef": "Offer #",
+    "convertedInto": "Converted into",
     "taxNumber": "Tax Number (EIK)",
     "vatNumber": "VAT Number",
+    "representative": "Representative (МОЛ)",
+    "partyRepresentative": "Representative",
+    "moveRepresentative": "Move to the field",
+    "moveRepresentativeHint": "The notes still hold the МОЛ as a line: {name}",
+    "representativeMoved": "Moved from the notes into the field. Stored when you save the contact",
+    "undoMoveRepresentative": "Undo",
     "lookupCompany": "Lookup Company",
+    "alsoKnownAs": "Also known as",
+    "alsoKnownAsHint": "Other names this company is written under on documents: a short name, another spelling. Type a name and press Enter. An import that finds one of them takes the document for this contact.",
+    "alsoKnownAsLimit": "At most {count} names, each up to {length} characters",
     "companyFound": "Company info found",
     "vatConfirmed": "VAT number confirmed",
     "companyNotFound": "Company not found",
@@ -1286,6 +1620,7 @@
     "debitNoteReceived": "Debit note received",
     "invoices": "Invoices",
     "openBalance": "Open Balance",
+    "unpaidListCapped": "The first {shown} of {total} documents are listed. The total counts them all.",
     "movements": "Movements",
     "aging": {
       "title": "Aging Report",
@@ -1409,7 +1744,9 @@
     },
     "stockReceipt": {
       "print": "Stock receipt",
-      "hint": "Print the goods receipt this bill booked — one per warehouse the goods went into"
+      "hint": "Print the goods receipt this bill booked — one per warehouse the goods went into",
+      "price": "Price to print",
+      "booked": "Booked price (as on the receipt)"
     },
     "reservations": {
       "repeatOf": "reserved again",
@@ -1562,17 +1899,25 @@
       "saveAndIssue": "Save and issue",
       "notIssued": "Not issued — the document is still a draft: {reason}",
       "notIssuedStock": "not enough stock, and the transfer was not confirmed",
-      "printOptions": "Print with options…"
+      "printOptions": "Print with options…",
+      "confirmPayment": {
+        "title": "Issue {number}?",
+        "text": "Are you sure you want to issue it with this payment method?",
+        "none": "No payment method"
+      }
     },
     "proformaIssued": "Proforma issued successfully",
+    "offerIssued": "Offer issued successfully",
     "createOther": "Another document",
     "voidConfirm": "Void {number}? It stays in the list as voided, and the stock it moved is moved back.",
     "proformaVoided": "Proforma voided successfully",
+    "offerVoided": "Offer voided successfully",
     "billVoided": "Incoming invoice voided successfully",
     "newPaymentOrder": "New Payment Order",
     "newCashOrder": "New Cash Order",
     "relatedDocument": "Related document",
     "voidConfirmProforma": "Void {number}? It stays in the list as voided and can no longer be converted into an invoice.",
+    "voidConfirmOffer": "Void {number}? It stays in the list as voided and can no longer be converted into a proforma or an invoice.",
     "numberClash": {
       "banner": "{n} invoice numbers were issued twice. The later document of each pair is annulled by a credit note and re-issued under a new number (ЗДДС чл. 116).",
       "review": "Review",
@@ -1588,6 +1933,34 @@
       "byPerson": "A cash sale or a note is corrected by a person",
       "preparedToast": "The credit note and the re-issue are prepared as drafts",
       "failed": "It could not be prepared."
+    },
+    "unitFromProduct": "The article's own unit",
+    "linkNote": {
+      "action": "Link to a dispatch",
+      "hint": "Goods already handed over?",
+      "dialogHint": "This customer's dispatches that no invoice covers yet, and dispatches that name no customer. The invoice then moves no stock: the dispatch already did.",
+      "none": "No dispatch left to invoice, for this customer or for none.",
+      "noCustomer": "no customer",
+      "noteLines": "{n} line, {quantity} in all | {n} lines, {quantity} in all",
+      "confirm": "Link",
+      "differs": "The invoice's lines say something other than the dispatch delivered:",
+      "differsLine": "{name}: dispatched {dispatched}, invoiced {invoiced}",
+      "replaceWarning": "Linking replaces the invoice's stock lines with the dispatch's, at this customer's prices. Lines that hold no stock, the number, the dates and the payment method stay.",
+      "replaceConfirm": "Replace the lines and link",
+      "linked": "The invoice is linked to the dispatch",
+      "linkedCheck": "The invoice is linked to the dispatch. Check the lines and prices, then issue it.",
+      "banner": "Invoice for the dispatch",
+      "noStock": "The goods left stock on the dispatch: this invoice moves no stock.",
+      "made": "Draft invoice made from the dispatch. Check the prices, then issue it.",
+      "select": "Link this dispatch to the invoice"
+    },
+    "dispatchOverlap": {
+      "title": "These goods may have already left stock",
+      "text": "Dispatches for the same goods have no invoice yet. Issued as it is, this invoice takes the goods out of stock a second time.",
+      "chooseCustomer": "This invoice names no customer. Choose one, and linking writes it on the invoice and on the dispatch.",
+      "link": "Link to the dispatch",
+      "issueAnyway": "Other goods: issue anyway",
+      "notIssued": "it may be for goods a dispatch already delivered, and the question was not answered"
     }
   },
   "pos": {
@@ -1815,6 +2188,21 @@
       "vatGroup": "VAT group {group}"
     },
     "device": {
+      "clock": {
+        "setButton": "Set the clock",
+        "set": "The device's clock is set",
+        "failed": "The clock could not be set",
+        "keptSummerTime": "The device's clock is an hour ahead: it has not switched to winter time.",
+        "keptWinterTime": "The device's clock is an hour behind: it has not switched to summer time.",
+        "off": "The device's clock is {step} off the verified time.",
+        "chip": "Clock {step}",
+        "confirmTitle": "Set the device's clock?",
+        "confirmHint": "A fiscalized device refuses a time earlier than its last fiscal record, and says so.",
+        "deviceTime": "Device's clock",
+        "serverTime": "Verified time",
+        "confirm": "Set it",
+        "sessionsBanner": "A fiscal device's clock needs setting:"
+      },
       "why": {
         "protocol": {
           "readOperator": "{brand} devices cannot report their operators — program them from here",
@@ -2151,6 +2539,7 @@
     "category": "Category",
     "unit": "Unit",
     "barcode": "Barcode",
+    "tariffCode": "Tariff Code",
     "purchasePrice": "Purchase Price",
     "sellingPrice": "Selling Price",
     "deleteProductConfirm": "Are you sure you want to delete this product?",
@@ -2174,9 +2563,10 @@
     "addCustomPrice": "Add Custom Price",
     "basePrices": "Base Prices",
     "customPricesHelp": "Define custom prices for specific contacts or contact tags. Tag-based prices apply to all contacts with matching tags.",
-    "priceTiers": "Price Tiers (10 slots)",
+    "priceTiers": "Price Tiers ({count} slots)",
     "priceTiersHelp": "Each slot defaults to the selling price with no filters. Enter Name and Price (or %) to use it. Toggle filters to make a tier apply only to certain contacts, tags, quantities, or date ranges.",
     "finalPrice": "Final Price",
+    "deliveryTierHint": "Price with trade discount: PlusMinus's „Доставна цена“, filled by the import. It is not the purchase price.",
     "withProductUpdate": "With product update",
     "foreignCurrencyNoUpdate": "In {currency}: this bill updates no products",
     "withoutProductUpdate": "Without product update",
@@ -2223,6 +2613,24 @@
     "minQuantity": "Min Quantity",
     "manager": "Manager",
     "default": "Default",
+    "external": "External",
+    "externalWarehouse": "External warehouse",
+    "externalWarehouseHint": "Another site's warehouse. No stock is kept for it here: a transfer to or from it changes only your own warehouse, and its document can go to the people there.",
+    "externalNotDefault": "An external warehouse keeps no stock here, so it cannot be the default warehouse.",
+    "externalHoldsStock": "Articles with stock or a reservation in this warehouse: {articles}. An external warehouse keeps none: move the goods out or write them off first.",
+    "externalInUse": "Still used by {uses}. An external warehouse keeps no stock, so they would move none: finish them or move them to another warehouse first.",
+    "inUse": {
+      "fiscalDevices": "{n} fiscal device | {n} fiscal devices",
+      "workstations": "{n} workstation | {n} workstations",
+      "tillSessions": "{n} open till session | {n} open till sessions",
+      "counts": "{n} count in progress | {n} counts in progress",
+      "reservations": "{n} active reservation | {n} active reservations",
+      "supplierOrders": "{n} open supplier order | {n} open supplier orders",
+      "customerOrders": "{n} open customer order | {n} open customer orders"
+    },
+    "externalName": "{name} (external)",
+    "externalTransferOut": "„{warehouse}“ is an external warehouse: the goods leave your warehouse, and no stock is booked there.",
+    "externalTransferIn": "„{warehouse}“ is an external warehouse: the goods arrive in your warehouse, and nothing is taken from stock there.",
     "deleteWarehouseConfirm": "Are you sure you want to delete this warehouse?",
     "deleteMovementConfirm": "Delete this draft movement? It has not changed any stock, and it never will.",
     "warehouse": "Warehouse",
@@ -2436,6 +2844,8 @@
     "refusals": {
       "transfer_without_from_warehouse": "A transfer takes goods out of a warehouse: choose „From Warehouse“ too. Goods arriving from outside are a receipt.",
       "adjustment_with_both_warehouses": "An adjustment changes one warehouse: choose „From Warehouse“ to take goods out or „To Warehouse“ to add them, not both. Goods moving between warehouses are a transfer.",
+      "external_warehouse_not_transfer": "An external warehouse keeps no stock here: it is named only on a transfer, as the other side.",
+      "transfer_without_own_warehouse": "A transfer with an external warehouse moves the stock of your own warehouse: choose it as the other side.",
       "receipt_rolled_back": "Receipt {movementNumber} was rolled back with its document: the goods left again, and no bill pays for it.",
       "bill_foreign_currency": "This bill is in {currency}, and the delivery's prices are in {baseCurrency}: a bill in another currency is not linked to a delivery.",
       "receipt_not_a_delivery": "Receipt {movementNumber} is a correction or a day's total, not one supplier's delivery, so no bill pays for it.",
@@ -2452,7 +2862,20 @@
       "bill_already_linked": "The bill is already linked to a delivery.",
       "nothing_to_bill": "The receipts carry no quantities to bill.",
       "stock_line_without_warehouse": "The stock lines of this bill name no warehouse, so nothing would reach stock. Choose the warehouse on the bill, then receive it.",
-      "stock_line_without_product": "A line of this bill has a quantity but no product: it would be paid for and never reach stock. Choose the product on the line, then receive it."
+      "stock_line_without_product": "A line of this bill has a quantity but no product: it would be paid for and never reach stock. Choose the product on the line, then receive it.",
+      "dispatch_without_customer": "Dispatch {movementNumber} names no customer: choose one.",
+      "dispatch_not_a_delivery": "Dispatch {movementNumber} is a correction or a record of another movement, not a delivery to a customer, so no invoice is made from it.",
+      "dispatch_rolled_back": "Dispatch {movementNumber} was rolled back with its document: the goods are back in stock, and no invoice is made from it.",
+      "customer_not_found": "Choose a customer of this organization.",
+      "customer_mismatch": "The dispatches are another customer's.",
+      "mixed_customers": "One invoice covers the dispatches of one customer, and these are different customers'.",
+      "dispatch_already_invoiced": "Dispatch {movementNumber} is already invoiced.",
+      "invoice_on_order": "The invoice is written against an order: its lines release that order's reservations as they dispatch, so it cannot be linked to a dispatch.",
+      "invoice_foreign_currency": "This invoice is in {currency}, and the organization's prices are in {baseCurrency}: its lines are not written from a dispatch.",
+      "invoice_not_draft": "The invoice is no longer a draft.",
+      "invoice_already_linked": "The invoice is already linked to the document that moved its goods, or it changed meanwhile: reload it.",
+      "nothing_to_invoice": "The dispatches carry no quantities to invoice.",
+      "dispatch_quantity_mismatch": "„{name}“ was dispatched {dispatched} and is invoiced {invoiced}. An invoice made from a dispatch invoices what was delivered: a difference with the customer is settled by a credit or debit note."
     },
     "supply": {
       "reserved": "Reserved",
@@ -2540,7 +2963,23 @@
       "reserve": "Reserve",
       "inactive": "The product is deactivated — activate it to sell or reserve it."
     },
-    "valuationNeedsCosts": "The inventory valuation is cost figures, which are not part of your role."
+    "valuationNeedsCosts": "The inventory valuation is cost figures, which are not part of your role.",
+    "invoiced": "Invoiced",
+    "invoicedBy": "Invoiced by the sales invoice",
+    "salesInvoice": "Sales invoice",
+    "invoiceCustomer": {
+      "title": "Who received these goods?",
+      "hint": "This dispatch names no customer. The invoice is made out to the one you choose, and the dispatch keeps it.",
+      "confirm": "Make the invoice"
+    },
+    "notInvoiceable": {
+      "dispatch_rolled_back": "This dispatch was rolled back with its document: the goods are back in stock, and no invoice is made from it.",
+      "dispatch_not_a_delivery": "This dispatch is a correction or a record of another movement, not a delivery to a customer, so no invoice is made from it.",
+      "dispatch_not_completed": "A sales invoice is made from a completed dispatch.",
+      "dispatch_not_invoiceable": "This dispatch was booked by {number}, which is voided. It is no delivery, and no invoice is made from it.",
+      "orphan": "This dispatch belongs to a document that no longer exists. It is no delivery, and no invoice is made from it.",
+      "dispatch_is_reversal": "This dispatch takes out the goods of a removed document. It is no delivery, and no invoice is made from it."
+    }
   },
   "pricing": {
     "explainPrice": "Explain price",
@@ -3185,6 +3624,9 @@
     "storagePrefix": "Storage Key",
     "displayPrefix": "Display Prefix",
     "lastNumber": "Last Number",
+    "numbering": "Numbering",
+    "continuous": "No year",
+    "continuousHint": "No year: ten digits that go on from one year into the next (INV-0000000413), above every number already issued. It applies to documents issued from now on.",
     "posSessions": "Till sessions",
     "empty": "No sequences yet",
     "emptyHint": "Number sequences appear here once you create your first document."
@@ -3543,6 +3985,7 @@
       "date": "Date",
       "document": "Document",
       "docType": "Doc. type",
+      "stockMovement": "Stock movement",
       "contact": "Counterparty",
       "warehouse": "Warehouse",
       "batch": "Batch",
@@ -3607,7 +4050,9 @@
       "debit_note": "Debit note",
       "receipt_note": "Goods receipt (no invoice)",
       "dispatch_note": "Dispatch note (no invoice)",
-      "proforma": "Proforma"
+      "proforma": "Proforma",
+      "offer": "Offer",
+      "stock_movement": "Stock Movement Document"
     },
     "summary": {
       "operations": "Operations",
@@ -3821,7 +4266,38 @@
     "clampLine": "live {live}, bundle {bundle} — kept {kept}",
     "dangling": "{n} document rows point at files that are not on the volume",
     "safetyTaken": "Safety backup taken",
-    "restoresTitle": "Restore history"
+    "restoresTitle": "Restore history",
+    "subtitleOrgAdmin": "Make a backup of this organisation and download it.",
+    "orgAdminTitle": "You can make and download backups of this organisation here.",
+    "orgAdminHint": "A backup made here holds the database records without the document files and stays on this server. Up to {n} can be made in 24 hours.",
+    "adminOnly": "This screen is for the organisation’s administrators.",
+    "errors": {
+      "backup_running": "A backup of this organisation is being made right now. Wait for it to finish.",
+      "backup_daily_limit": "This organisation has reached its limit of {n} backups in 24 hours. Try again later.",
+      "backup_full_needs_sys_admin": "A backup that includes the document files takes a system administrator."
+    },
+    "col": {
+      "started": "Started",
+      "date": "Date",
+      "status": "Status",
+      "variant": "Contents",
+      "documents": "Records",
+      "size": "Size",
+      "offsite": "Off-site",
+      "mode": "Mode",
+      "by": "By",
+      "bundle": "Bundle"
+    },
+    "status": {
+      "running": "running",
+      "completed": "completed",
+      "failed": "failed",
+      "rolled_back": "rolled back"
+    },
+    "variantName": {
+      "data": "records only",
+      "full": "records and files"
+    }
   },
   "fiscalYear": {
     "subtitle": "Accounting periods, and which of them are closed to further change",
@@ -4636,6 +5112,62 @@
     "seriesFrozen": "Legal numbering waits: record the last numbers issued at the site, on the Servers page.",
     "fenced": "This server was replaced as the organization's home: it writes nothing more of it."
   },
+  "docEmail": {
+    "bar": {
+      "selected": "{n} selected",
+      "send": "Send by email",
+      "clear": "Clear",
+      "tooMany": "More than {max} documents are selected: untick some."
+    },
+    "title": "Send by email",
+    "intro": "{n} document will be sent, as its printed PDF. | {n} documents will be sent, each as its printed PDF.",
+    "nothing": "None of the selected documents can be sent.",
+    "blockedTitle": "Will not be sent: {n}",
+    "recipient": "Recipient",
+    "modePartner": "To the customer / supplier",
+    "modeSingle": "To one address",
+    "noPartner": "Documents with no customer or supplier",
+    "noAddress": "no address",
+    "addressOf": "Email address of {name}",
+    "partnerHint": "The address is the contact's and can be changed here. A line without an address is not sent.",
+    "singleTo": "Email address",
+    "singleHint": "Every document goes to this address.",
+    "severalMails": "One mail carries at most {max} documents: the rest go in mails of their own.",
+    "subject": "Subject",
+    "subjectHint": "Left empty, each mail is named after its documents.",
+    "documents": "Documents",
+    "message": "Message (optional)",
+    "unaddressed": "Without an address, not sent: {n}",
+    "noRecipient": "Enter an address: there is nothing to send yet.",
+    "send": "Send",
+    "sendN": "Send {documents} to {recipients}",
+    "nDocuments": "{n} document | {n} documents",
+    "nRecipients": "{n} recipient | {n} recipients",
+    "andMore": "and {n} more",
+    "sending": "Sending: {done} of {total}",
+    "stopped": "Stopped: the rest was not sent.",
+    "result": {
+      "sent": "sent: {n}",
+      "queued": "queued: {n}",
+      "notSent": "not sent: {n}"
+    },
+    "queuedNote": "Queued mails leave when this server reaches lgrai.app.",
+    "stayTicked": "What did not go stays selected in the list.",
+    "done": "Sent {documents} to {recipients}",
+    "doneQueued": "Queued {documents} for {recipients}: they leave when this server reaches lgrai.app.",
+    "reason": {
+      "draft": "draft: not sent",
+      "cancelled": "cancelled: not sent",
+      "not_found": "no such document",
+      "forbidden": "your role does not send this kind of document",
+      "just_sent": "sent to this address a moment ago",
+      "render_failed": "could not be printed",
+      "too_large": "too large for one mail",
+      "provider_error": "the mail provider refused it",
+      "not_configured": "email is not configured on this server",
+      "notAsked": "not sent"
+    }
+  },
   "productOrders": {
     "bar": {
       "selected": "{n} selected",
@@ -4686,7 +5218,7 @@
   "access": {
     "feature": {
       "sales-docs": "Sales documents",
-      "proforma": "Proforma",
+      "proforma": "Proforma and offers",
       "bills": "Purchase documents",
       "orders": "Orders and reservations",
       "payments": "Payment and cash orders",
@@ -4753,6 +5285,7 @@
       "totals": "Totals strip",
       "costs": "Cost figures",
       "import": "Import",
+      "manual_price": "Type a price by hand",
       "storno": "Storno",
       "settle": "Settle a receipt in doubt",
       "sell": "Sell",

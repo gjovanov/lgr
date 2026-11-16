@@ -13,6 +13,8 @@
  *       document it holds)? Counts per collection and the copy's own document ids, never the real org's.
  *       Exit 1 if any does. It walks every collection on its own rule, not the engine's: run it on the real
  *       copies after a change to the rewrite (`remap.ts`), a new model with an `orgId`, or a doubt.
+ *       For a real org that keeps a company's books (FR-25 R7) it also looks for a copy of any row of
+ *       them in the test org, which the first check cannot see (a copy names nothing of the real org).
  *
  *   bun scripts/org-clone.ts mark   --org regal-pz --env prod [--execute]
  *       the PROD / DEV badge beside an org's name (`settings.environment`)
@@ -53,9 +55,11 @@ import {
   createTestOrgFrom,
   markOrgEnvironment,
   resetOrgData,
+  scanCopyForBooks,
   scanCopyForLeaks,
   type CloneReport,
 } from '../packages/services/src/biz/org-clone/clone.service.js'
+import { BOOKS_NEVER_CLONED, keepsBooks } from '../packages/services/src/biz/org-clone/policy.js'
 import { buildBundle, verifyBundle } from '../packages/services/src/biz/backup/backup-bundle.service.js'
 
 const argv = process.argv.slice(2)
@@ -128,6 +132,15 @@ async function main(): Promise<number> {
       out(`\n${p.source} (${s.settings?.environment ?? 'unmarked'}) vs ${p.target} (${t.settings?.environment ?? 'unmarked'})`)
       out('model'.padEnd(24) + 'real'.padStart(10) + 'copy'.padStart(10))
       for (const r of await compareOrgs(String(s._id), String(t._id))) out(r.model.padEnd(24) + String(r.source).padStart(10) + String(r.target).padStart(10) + (r.target < r.source ? '   <- behind' : ''))
+      if (keepsBooks(s)) {
+        // Never copied: the copy's count is what the test org keeps of its own. `leaks` says whether any is a copy.
+        out(`the company's books (${p.source} keeps them), never copied:`)
+        for (const name of Object.keys(BOOKS_NEVER_CLONED)) {
+          const coll = mongoose.models[name]!.collection
+          const [real, copy] = await Promise.all([coll.countDocuments({ orgId: s._id }), coll.countDocuments({ orgId: t._id })])
+          if (real || copy) out(name.padEnd(24) + String(real).padStart(10) + String(copy).padStart(10))
+        }
+      }
     }
     return 0
   }
@@ -144,6 +157,13 @@ async function main(): Promise<number> {
         out(`${scan.copyDocs} documents of the copy read against ${scan.sourceIds} ids of the real org: ${scan.leaking} name one`)
         for (const [collection, n] of Object.entries(scan.byCollection)) out(`    ${collection}: ${n}   (copy documents ${scan.samples[collection]!.join(', ')})`)
         leaking += scan.leaking
+        const books = await scanCopyForBooks(String(s._id), String(t._id))
+        if (books.keepsBooks) {
+          const copied = Object.values(books.copied).reduce((a, b) => a + b, 0)
+          out(`the company's books: ${books.checked} rows of the real org looked for in the copy: ${copied} copied`)
+          for (const [model, n] of Object.entries(books.copied)) out(`    ${model}: ${n}`)
+          leaking += copied
+        }
       } catch (e: any) {
         failed++
         console.error(`${p.source} -> ${p.target}: ${e instanceof OrgCloneError ? `[${e.code}] ` : ''}${e?.message ?? e}`)

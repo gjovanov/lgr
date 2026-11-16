@@ -30,14 +30,22 @@ export function bundledLogoDataUri(): string | null {
 }
 
 /**
- * The tenant's own logo wins when it is something Chromium can render on its own (a data URI
- * or an absolute URL); anything else — an empty field, a storage key, a relative path — falls
- * back to the bundled asset.
+ * What a letterhead may be: one inline image of a kind the upload accepts (`org-logo.service`),
+ * and nothing but base64 after the comma. The value is written into an attribute as it is, so
+ * the pattern is also what keeps it inside that attribute.
+ */
+const INLINE_IMAGE = /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/
+
+/**
+ * The tenant's own logo wins when it is an inline image; anything else — an empty field, a
+ * storage key, a path, an address on the network — falls back to the bundled asset. The stored
+ * field is free text an organization's admin can set, and a printed page fetches nothing
+ * (`lockPage` in `base.pdf.ts`): an uploaded logo reaches here already inlined by
+ * `getOrgLogoDataUri`.
  */
 export function resolveLogo(logo: unknown): string | null {
   const own = String(logo ?? '').trim()
-  if (own.startsWith('data:') || /^https?:\/\//i.test(own)) return own
-  return bundledLogoDataUri()
+  return INLINE_IMAGE.test(own) ? own : bundledLogoDataUri()
 }
 
 /** `<img>` for the resolved logo, or an empty string when there is none. */

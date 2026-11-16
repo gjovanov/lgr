@@ -50,6 +50,7 @@
  * the amount on the credit note, and takes it from what the receipt it cites still holds
  * (`refund-budget.ts`), both before a number is drawn. Past the print it goes as a receipt goes.
  */
+import { isQuoteType } from 'config/constants'
 import { Invoice, POSSession } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
 import { createAuditEntry } from '../audit-log.service.js'
@@ -444,6 +445,11 @@ async function releaseHold(doc: any): Promise<void> {
  */
 export async function paymentRefusal(orgId: string, doc: any, amount: number): Promise<RegisterRefusal | null> {
   if (!doc || ['voided', 'cancelled', 'paid'].includes(doc.status)) return new RegisterRefusal(400, { message: 'Cannot record payment on this invoice' })
+  // FR-22.22: a quote owes nothing. The lists never offered Pay on one; the route took it all the same, and a
+  // payment row on a proforma posted its journal entry for money no invoice was owed.
+  if (isQuoteType(doc.type)) {
+    return new RegisterRefusal(422, { code: 'quote_takes_no_payment', message: `A ${doc.type} takes no payment: convert it into an invoice, which does` })
+  }
   if (isBeingVoided(doc)) return new RegisterRefusal(409, { ...DOCUMENT_CLAIMED })
   if (overpays(doc, amount)) {
     const outstanding = outstandingOf(doc)

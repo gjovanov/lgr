@@ -1,5 +1,5 @@
 import { Types } from 'mongoose'
-import { IMPORTED_OPENING, POSTED_BOOKS } from 'db/models'
+import { IMPORTED_OPENING, Org, POSTED_BOOKS } from 'db/models'
 import type { IAccountRepository, IJournalEntryRepository, JournalAnalyticTotals, JournalLineTotals, JournalLineTotalsQuery } from 'dal'
 import type { IAccount, IJournalEntry } from 'dal/entities'
 import { MongoRepository } from './base.repository.js'
@@ -23,10 +23,22 @@ const quantities = ({ quantityDebit, quantityCredit }: { quantityDebit: number; 
 })
 
 export class MongoJournalEntryRepository extends MongoRepository<IJournalEntry> implements IJournalEntryRepository {
+  /**
+   * Whose imported openings restate this org's balances: its own, or, for an org keeping a share of
+   * split books (FR-25 R7), the home's. The home's opening carries the company's balances, the store's
+   * share of the year before included, so a store reads its lines from that day on, as the home does:
+   * otherwise the group's shares add up to that year twice.
+   */
+  private async openingOrg(orgId: Types.ObjectId): Promise<Types.ObjectId> {
+    const org: any = await Org.findById(orgId, { 'settings.accounting.books.split.homeOrgId': 1 }).lean().exec()
+    const home = org?.settings?.accounting?.books?.split?.homeOrgId
+    return home ? new Types.ObjectId(String(home)) : orgId
+  }
+
   /** The imported opening a reading at `at` starts from; with no `at`, the last there is. */
-  private lastOpening(orgId: Types.ObjectId, at?: Date): Promise<{ _id: Types.ObjectId; date: Date } | null> {
+  private async lastOpening(orgId: Types.ObjectId, at?: Date): Promise<{ _id: Types.ObjectId; date: Date } | null> {
     return this.model
-      .findOne({ orgId, ...POSTED_BOOKS, ...IMPORTED_OPENING, ...(at ? { date: { $lte: at } } : {}) }, { date: 1 })
+      .findOne({ orgId: await this.openingOrg(orgId), ...POSTED_BOOKS, ...IMPORTED_OPENING, ...(at ? { date: { $lte: at } } : {}) }, { date: 1 })
       .sort({ date: -1 })
       .lean()
       .exec() as any

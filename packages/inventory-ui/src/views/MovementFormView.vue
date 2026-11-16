@@ -26,6 +26,17 @@
       {{ notBillableText }}
     </v-alert>
 
+    <!-- FR-22.61: the sales invoice that holds this dispatch (the one made from it, or the one that booked it): a
+         link into invoicing. -->
+    <v-alert v-if="movement.sale && !transferOnly" type="success" variant="tonal" density="compact" class="mb-3" icon="mdi-receipt-text-check-outline" data-testid="dispatch-sale">
+      {{ $t('warehouse.invoicedBy') }}
+      <a :href="saleHref(movement.sale.id)" class="font-weight-medium" data-testid="dispatch-sale-link">{{ movement.sale.number }}</a>
+    </v-alert>
+    <!-- A dispatch that no invoice can be made from says why, rather than just not offering one. -->
+    <v-alert v-else-if="notInvoiceableText && !transferOnly" type="info" variant="tonal" density="compact" class="mb-3" data-testid="dispatch-not-invoiceable">
+      {{ notInvoiceableText }}
+    </v-alert>
+
     <v-form ref="formRef" @submit.prevent="handleSubmit">
       <v-row>
         <v-col cols="12" md="3">
@@ -33,32 +44,56 @@
         </v-col>
         <!-- Empty is `null`, never '': Vuetify treats '' as a selected value, which floated the
              label away and left a blank "selection" — the field read as nothing at all. -->
+        <!-- An external warehouse is offered on a transfer only, and named as one (`warehouseItems`). -->
         <v-col v-if="showWarehouse.from" cols="12" md="3">
-          <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse') + (transferOnly ? ' *' : '')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" :rules="transferOnly ? [rules.required] : []" density="compact" data-testid="from-warehouse" />
+          <v-select v-model="form.fromWarehouseId" :label="$t('warehouse.fromWarehouse') + (transferOnly ? ' *' : '')" :items="warehouseItems.from" item-title="name" item-value="_id" clearable :disabled="readonly" :rules="transferOnly ? [rules.required] : []" density="compact" data-testid="from-warehouse" />
         </v-col>
         <v-col v-if="showWarehouse.to" cols="12" md="3">
-          <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse') + (transferOnly ? ' *' : '')" :items="warehouses" item-title="name" item-value="_id" clearable :disabled="readonly" :rules="transferOnly ? [rules.required] : []" density="compact" data-testid="to-warehouse" @update:model-value="form.toGuessed = false" />
+          <v-select v-model="form.toWarehouseId" :label="$t('warehouse.toWarehouse') + (transferOnly ? ' *' : '')" :items="warehouseItems.to" item-title="name" item-value="_id" clearable :disabled="readonly" :rules="transferOnly ? [rules.required] : []" density="compact" data-testid="to-warehouse" @update:model-value="form.toGuessed = false" />
         </v-col>
         <v-col cols="12" md="3">
           <DateField v-model="form.date" :label="$t('common.date')" :rules="[rules.required]" :disabled="readonly" density="compact" />
         </v-col>
       </v-row>
+      <!-- A transfer with an external warehouse: which side keeps its stock, said before it is booked. -->
+      <v-alert v-if="externalNote" type="info" variant="tonal" density="compact" class="mb-3" icon="mdi-truck-delivery-outline" data-testid="external-transfer-note">
+        {{ externalNote }}
+      </v-alert>
       <!-- FR-22.6 (B-8): searched on the server, so every supplier can be reached; on a receipt
-           it lists suppliers only and is called „Доставчик". -->
-      <v-defaults-provider :defaults="{ VAutocomplete: { density: 'compact' } }">
-        <ContactAutocompleteWithCreate
-          v-model="form.contactId"
-          :contacts="partners.contacts.value"
-          :loading="partners.loading.value"
-          :label="partnerLabel"
-          :org-url="appStore.orgUrl()"
-          :new-contact-type="isReceipt ? 'supplier' : undefined"
+           it lists suppliers only and is called „Доставчик". An adjustment names a client or a
+           supplier: the toggle says which, and the field lists, labels and creates that side. -->
+      <div class="d-flex align-start ga-3">
+        <v-btn-toggle
+          v-if="isAdjustment"
+          v-model="adjustmentSide"
+          mandatory
+          density="compact"
+          variant="outlined"
+          divided
+          color="primary"
+          class="flex-shrink-0 mt-1"
           :disabled="readonly"
-          data-testid="movement-partner"
-          @update:search="partners.onSearch"
-          @contact-created="partners.add"
-        />
-      </v-defaults-provider>
+          data-testid="adjustment-partner-side"
+        >
+          <v-btn value="customer" size="small">{{ $t('invoicing.client') }}</v-btn>
+          <v-btn value="supplier" size="small">{{ $t('invoicing.supplier') }}</v-btn>
+        </v-btn-toggle>
+        <v-defaults-provider :defaults="{ VAutocomplete: { density: 'compact' } }">
+          <ContactAutocompleteWithCreate
+            v-model="form.contactId"
+            class="flex-grow-1"
+            :contacts="partners.contacts.value"
+            :loading="partners.loading.value"
+            :label="partnerLabel"
+            :org-url="appStore.orgUrl()"
+            :new-contact-type="partnerSide ?? undefined"
+            :disabled="readonly"
+            data-testid="movement-partner"
+            @update:search="partners.onSearch"
+            @contact-created="partners.add"
+          />
+        </v-defaults-provider>
+      </div>
 
       <div class="d-flex align-center mt-4 mb-2">
         <span class="text-subtitle-2">{{ $t('invoicing.lineItems') }}</span>
@@ -88,7 +123,7 @@
               <th v-if="seesCosts" class="text-end" style="width:96px">{{ $t('common.total') }}</th>
               <!-- A fixed width: the room they leave goes to the article's name, which is what a line is read by. -->
               <th v-for="col in (grWithUpdate ? activeColumns : [])" :key="col.key" :class="col.align === 'end' ? 'text-end' : ''" style="width: 88px; min-width: 80px">
-                {{ col.label || $t(col.i18n || '') }}
+                {{ grColumnLabel(col, $t, $i18n.locale) }}
               </th>
               <th v-if="!readonly" style="width:32px"></th>
             </tr>
@@ -286,6 +321,36 @@
       </v-card>
     </v-dialog>
 
+    <!-- FR-22.61a: a dispatch that names no customer is invoiced once someone says whose goods they were. -->
+    <v-dialog v-model="invoiceCustomerDialog" max-width="520">
+      <v-card data-testid="invoice-customer-dialog">
+        <v-card-title>{{ $t('warehouse.invoiceCustomer.title') }}</v-card-title>
+        <v-card-text>
+          <div class="text-body-2 text-medium-emphasis mb-3">{{ $t('warehouse.invoiceCustomer.hint') }}</div>
+          <v-defaults-provider :defaults="{ VAutocomplete: { density: 'compact' } }">
+            <ContactAutocompleteWithCreate
+              v-model="invoiceCustomerId"
+              :contacts="invoiceCustomers.contacts.value"
+              :loading="invoiceCustomers.loading.value"
+              :label="$t('invoicing.customer')"
+              :org-url="appStore.orgUrl()"
+              new-contact-type="customer"
+              data-testid="invoice-customer"
+              @update:search="invoiceCustomers.onSearch"
+              @contact-created="invoiceCustomers.add"
+            />
+          </v-defaults-provider>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="invoiceCustomerDialog = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn color="primary" variant="flat" :disabled="!invoiceCustomerId" :loading="invoicing" data-testid="invoice-customer-confirm" @click="createInvoice(invoiceCustomerId)">
+            {{ $t('warehouse.invoiceCustomer.confirm') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- Single-document import: OCR one разписка and merge it into THIS movement.
          Nothing is booked — the user still has to save and confirm. -->
     <DocImportDialog
@@ -308,7 +373,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
-import { unusedWarehouseSide } from 'config/movement-warehouses'
+import { movementWarehouseRefusal, namesExternalWarehouses, unusedWarehouseSide, type WarehouseSide } from 'config/movement-warehouses'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
 import { pinnedWarehouseId, rememberedFlag } from 'ui-shared/composables/useUserDefaults'
@@ -329,17 +394,22 @@ import { useProductTypes } from 'ui-shared/composables/useProductTypes'
 import type { FormAction, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import GRColumnPicker from '../components/GRColumnPicker.vue'
 import { useGRColumns } from '../composables/useGRColumns'
+import { useMovementPrint } from '../composables/useMovementPrint'
+import { grColumnLabel } from 'ui-shared/composables/useGRColumns'
 // What a line stages for its product, and what reaches it — shared with the supplier bill's form.
 import {
   buildProductUpdates, cascadePurchasePrice, needsSeed, productsForSeed, seedFromProduct, setProductField, setTierPrice, tierPriceOf,
   type GRBase, type GRTier,
 } from 'ui-shared/composables/gr-product-update'
 
-interface Warehouse { _id: string; name: string; isDefault?: boolean }
+interface Warehouse { _id: string; name: string; isDefault?: boolean; isExternal?: boolean }
 interface MovementState {
   number?: string
   status: string
   inventoryCountId?: string
+  /** The From / To warehouse is an external one, as the movement says it (a booked one: as it was booked). */
+  fromExternal?: boolean
+  toExternal?: boolean
   /** FR-22.31: a supplier bill may be made from it (a completed receipt nobody has billed). */
   billable?: boolean
   /** FR-22.31a: it may, once the user says who the supplier is: the receipt names none. */
@@ -348,6 +418,14 @@ interface MovementState {
   notBillable?: { code: string; number?: string }
   /** FR-22.31: the live bill that holds it. */
   bill?: { id: string; number: string }
+  /** FR-22.61: a sales invoice may be made from it (a completed dispatch no document holds). */
+  invoiceable?: boolean
+  /** FR-22.61a: it may, once the user says who the customer is: the dispatch names none. */
+  needsCustomer?: boolean
+  /** FR-22.61: why no invoice can be made from it. */
+  notInvoiceable?: { code: string; number?: string }
+  /** FR-22.61: the live sales invoice that holds it. */
+  sale?: { id: string; number: string }
 }
 
 const route = useRoute()
@@ -361,6 +439,7 @@ const isEdit = computed(() => !!route.params.id)
 const loading = ref(false)
 const saving = ref(false)
 const billing = ref(false)
+const invoicing = ref(false)
 const formRef = ref()
 const warehouses = ref<Warehouse[]>([])
 const movement = ref<MovementState>({ status: 'draft' })
@@ -426,6 +505,70 @@ function clearUnusedWarehouse() {
   if (unused === 'to') form.value.toWarehouseId = null
 }
 
+// ── an external warehouse (`config/external-warehouse`): another site's, which keeps no stock here ──
+function warehouseOf(id: string | null | undefined) {
+  return id ? warehouses.value.find(w => w._id === id) : undefined
+}
+
+/**
+ * Which side names an external warehouse. A booked movement says it itself: it records what was true
+ * when it was confirmed, and the flag may have changed since. A new one or a draft reads the
+ * warehouse as it is now, which is what the server will read when it saves or confirms it.
+ */
+const externalSide = computed<Record<WarehouseSide, boolean>>(() => {
+  if (isEdit.value && movement.value.status !== 'draft') {
+    return { from: !!movement.value.fromExternal, to: !!movement.value.toExternal }
+  }
+  return { from: !!warehouseOf(form.value.fromWarehouseId)?.isExternal, to: !!warehouseOf(form.value.toWarehouseId)?.isExternal }
+})
+
+/**
+ * What each field offers. An external warehouse only on a transfer, the one type that may name it,
+ * and under a name that says it is one. The warehouse a side already names stays listed whatever
+ * the type, so the field shows it by name and not as an id.
+ */
+const warehouseItems = computed<Record<WarehouseSide, { _id: string; name: string }[]>>(() => {
+  const offered = namesExternalWarehouses(form.value.type)
+  const forSide = (side: WarehouseSide, chosen: string | null) => warehouses.value
+    .filter(w => !w.isExternal || offered || w._id === chosen)
+    .map((w) => {
+      const external = w._id === chosen ? externalSide.value[side] : !!w.isExternal
+      return { _id: w._id, name: external ? t('warehouse.externalName', { name: w.name }) : w.name }
+    })
+  return { from: forSide('from', form.value.fromWarehouseId), to: forSide('to', form.value.toWarehouseId) }
+})
+
+/** Only a transfer names an external warehouse: on any other type the choice goes with the type. */
+function clearExternalWarehouses() {
+  if (namesExternalWarehouses(form.value.type)) return
+  if (warehouseOf(form.value.fromWarehouseId)?.isExternal) form.value.fromWarehouseId = null
+  if (warehouseOf(form.value.toWarehouseId)?.isExternal) form.value.toWarehouseId = null
+}
+
+/** A transfer with an external side says which warehouse that is, and that nothing is booked there. */
+const externalNote = computed(() => {
+  const side = externalSide.value
+  // Both sides external moves nothing here: the rule refuses it, and its refusal says why.
+  if (side.to && !side.from) return t('warehouse.externalTransferOut', { warehouse: warehouseOf(form.value.toWarehouseId)?.name || '' })
+  if (side.from && !side.to) return t('warehouse.externalTransferIn', { warehouse: warehouseOf(form.value.fromWarehouseId)?.name || '' })
+  return ''
+})
+
+/**
+ * Why these warehouses do not fit the type, in the user's language, or null when they do. The rule
+ * the server applies at its doors (`config/movement-warehouses`), asked here before anything is sent.
+ */
+function warehouseRefusal(): string | null {
+  const refusal = movementWarehouseRefusal({
+    type: form.value.type,
+    fromWarehouseId: form.value.fromWarehouseId,
+    toWarehouseId: form.value.toWarehouseId,
+    fromExternal: externalSide.value.from,
+    toExternal: externalSide.value.to,
+  })
+  return refusal ? stockRefusalMessage({ response: { data: refusal } }, t) : null
+}
+
 /**
  * The user changed the type. ⚠ Not a watcher on `form.type`: loading a movement changes that too,
  * and would clear a warehouse off a booked document on screen. A new movement starts as a receipt
@@ -436,6 +579,7 @@ function clearUnusedWarehouse() {
 function onTypeChange(type: string) {
   form.value.type = type
   clearUnusedWarehouse()
+  clearExternalWarehouses()
   if (form.value.toGuessed) {
     form.value.toWarehouseId = null
     form.value.toGuessed = false
@@ -451,15 +595,37 @@ function onTypeChange(type: string) {
  * asks for suppliers (and `both`) only.
  */
 const isReceipt = computed(() => form.value.type === 'receipt')
-const partnerLabel = computed(() => t(isReceipt.value ? 'invoicing.supplier' : 'invoicing.contact'))
+/**
+ * An adjustment names a client or a supplier (owner, 2026-11-12). Every type was already searched, but the list opens on
+ * the newest contacts, which in a shop that imported its suppliers are suppliers only, so a client read as not allowed.
+ * The toggle makes the side explicit: the list, the label and a contact created from the field follow it.
+ */
+const isAdjustment = computed(() => form.value.type === 'adjustment')
+const adjustmentSide = ref<'customer' | 'supplier'>('customer')
+/** The side the partner field lists and creates: suppliers on a receipt, the toggle's on an adjustment, any otherwise. */
+const partnerSide = computed<'customer' | 'supplier' | null>(() =>
+  isReceipt.value ? 'supplier' : isAdjustment.value ? adjustmentSide.value : null)
+const partnerLabel = computed(() => t(
+  partnerSide.value === 'supplier' ? 'invoicing.supplier' : partnerSide.value === 'customer' ? 'invoicing.client' : 'invoicing.contact'))
 const partners = useContactSearch({
   orgUrl: () => appStore.orgUrl(),
-  type: () => (isReceipt.value ? 'supplier' : undefined),
+  type: () => partnerSide.value,
   selected: () => [form.value.contactId],
 })
-watch(() => form.value.type, () => { void partners.search() })
+watch(partnerSide, () => { void partners.search() })
 // A loaded, restored or imported movement names its contact by id: fetch it so it shows by name.
 watch(() => form.value.contactId, () => { void partners.ensureSelected() })
+/** The chosen partner, once the list holds it (a loaded movement's after `ensureSelected`). */
+const chosenPartner = computed(() => partners.contacts.value.find(c => c._id === form.value.contactId) ?? null)
+// The toggle shows the side of the partner an adjustment names: a loaded supplier reads Supplier. `both` keeps the side.
+watch(chosenPartner, (c) => {
+  if (isAdjustment.value && (c?.type === 'customer' || c?.type === 'supplier')) adjustmentSide.value = c.type
+})
+// Switching sides drops a partner of the other side; a `both` contact stays.
+watch(adjustmentSide, (side) => {
+  const c = chosenPartner.value
+  if (isAdjustment.value && !readonly.value && c && c.type !== side && c.type !== 'both') form.value.contactId = undefined
+})
 
 // ── neither warehouse set ──
 /**
@@ -542,6 +708,15 @@ const notBillableText = computed(() => {
   return t(`warehouse.notBillable.${why.code}`, { number: why.number || '' })
 })
 
+/** FR-22.61: why no invoice can be made from this dispatch, in the words of the page. */
+const notInvoiceableText = computed(() => {
+  const why = movement.value.notInvoiceable
+  if (!why) return ''
+  // A voided document names itself; one that is gone has nothing to name.
+  if (why.code === 'dispatch_not_invoiceable' && !why.number) return t('warehouse.notInvoiceable.orphan')
+  return t(`warehouse.notInvoiceable.${why.code}`, { number: why.number || '' })
+})
+
 /**
  * FR-22.29: an editable movement's primary action books it — „Запази и потвърди" saves and
  * confirms in one go (it was Save, then a separate „Потвърди" on the draft it left). Plain Save
@@ -565,9 +740,29 @@ const formActions = computed<FormAction[]>(() => {
     })
   } else if (movement.value.billable && !transferOnly) {
     actions.push({ label: t('warehouse.incomingInvoice'), color: 'primary', icon: 'mdi-receipt-text-plus-outline', handler: onIncomingInvoice, loading: billing.value })
+  } else if (movement.value.invoiceable && !transferOnly) {
+    // FR-22.61: a completed dispatch no document holds offers its customer's invoice, made from it.
+    actions.push({ label: t('warehouse.salesInvoice'), color: 'primary', icon: 'mdi-receipt-text-plus-outline', handler: onSalesInvoice, loading: invoicing.value })
   }
+  // „Печат": the movement as a document, for whoever reads it. Any saved one, a draft too (the sheet
+  // says it is one); it prints what is saved, so a new movement has none until its first save.
+  if (isEdit.value) actions.push({
+    label: t('common.print'),
+    color: '',
+    variant: 'outlined',
+    icon: 'mdi-printer',
+    key: 'print',
+    testId: 'movement-print',
+    handler: onPrint,
+    loading: !!printing.value,
+  })
   return actions
 })
+
+const { printing, printMovement } = useMovementPrint()
+function onPrint() {
+  void printMovement({ _id: route.params.id as string, number: movement.value.number })
+}
 
 // ── single-document import ──
 const importDialogOpen = ref(false)
@@ -606,8 +801,10 @@ function applyImportedMovement(payload: { fields: Record<string, any>; lines: an
       grWithUpdate.value = true
     }
   }
-  // The document may have changed the type: it names its warehouse, and not the one it leaves open.
+  // The document may have changed the type: it names its warehouse, and not the one it leaves open,
+  // nor an external one unless it is a transfer.
   clearUnusedWarehouse()
+  clearExternalWarehouses()
   showSuccess(t('docImport.applied'))
 }
 
@@ -635,9 +832,20 @@ async function fetchItem() {
       needsSupplier: !!detail.needsSupplier,
       notBillable: detail.notBillable || undefined,
       bill: detail.bill || undefined,
+      invoiceable: !!detail.invoiceable,
+      needsCustomer: !!detail.needsCustomer,
+      notInvoiceable: detail.notInvoiceable || undefined,
+      sale: detail.sale || undefined,
+      fromExternal: !!detail.fromExternal,
+      toExternal: !!detail.toExternal,
     }
+    // ⚠ A booked movement names an external side in `externalFromWarehouseId` / `externalToWarehouseId`:
+    // its stock fields name only the warehouses whose stock it moved. The page shows the side either way.
     form.value = {
-      type: detail.type, fromWarehouseId: detail.fromWarehouseId || null, toWarehouseId: detail.toWarehouseId || null, toGuessed: false,
+      type: detail.type,
+      fromWarehouseId: detail.fromWarehouseId || detail.externalFromWarehouseId || null,
+      toWarehouseId: detail.toWarehouseId || detail.externalToWarehouseId || null,
+      toGuessed: false,
       contactId: detail.contactId || undefined, date: detail.date?.split('T')[0] || '', notes: detail.notes || '',
       lines: (detail.lines || []).map((l: any) => ({ productId: l.productId, productName: l.productName || '', quantity: l.quantity, unitCost: l.unitCost, stockQty: null, productUpdate: l.productUpdate || {}, priceTiers: l.priceTiers || [] })),
     }
@@ -713,6 +921,8 @@ async function showSaved(id: string | null) {
 async function handleSubmit() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
+  const misfit = warehouseRefusal()
+  if (misfit) { showError(misfit); return }
   if (hasNoWarehouse() && !(await askNoWarehouse('save'))) return
   saving.value = true
   try {
@@ -730,6 +940,8 @@ async function handleSubmit() {
 async function saveAndConfirm() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
+  const misfit = warehouseRefusal()
+  if (misfit) { showError(misfit); return }
   if (hasNoWarehouse() && !(await askNoWarehouse('confirm'))) return
   saving.value = true
   let id: string | null = null
@@ -808,17 +1020,79 @@ function billHref(id: string) {
   return appHref('invoicing', `/invoicing/bills/${id}/edit`)
 }
 
+/**
+ * FR-22.61 (#725): the customer's invoice for this dispatch. The server makes it, a draft, linked, so it will move
+ * no stock, with each line at that customer's price; the user reads the prices there and issues it. `contactId` is
+ * the customer of a dispatch that names none.
+ */
+async function createInvoice(contactId?: string) {
+  invoicing.value = true
+  try {
+    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/sales/from-dispatch`, {
+      movementIds: [route.params.id],
+      // „Словом" is written in the language the person works in, as the invoice form writes it.
+      locale: appStore.locale,
+      ...(contactId ? { contactId } : {}),
+    })
+    goTo(saleHref(data.invoice.id || data.invoice._id))
+  } catch (e: any) {
+    const res = e?.response?.data
+    // Invoiced meanwhile (a second click, another tab): go to that invoice rather than refuse.
+    if (res?.code === 'dispatch_already_invoiced' && res.invoiceId) {
+      goTo(saleHref(res.invoiceId))
+      return
+    }
+    invoicing.value = false
+    // Its invoice was voided in another tab, and took its customer with it.
+    if (res?.code === 'dispatch_without_customer') {
+      askInvoiceCustomer()
+      return
+    }
+    showError(stockRefusalMessage(e, t))
+  }
+}
+
+// ── FR-22.61a: the customer of a dispatch that names none ──
+const invoiceCustomerDialog = ref(false)
+const invoiceCustomerId = ref<string | undefined>(undefined)
+const invoiceCustomers = useContactSearch({
+  orgUrl: () => appStore.orgUrl(),
+  type: () => 'customer',
+  selected: () => [invoiceCustomerId.value],
+})
+
+function askInvoiceCustomer() {
+  invoiceCustomerId.value = undefined
+  invoiceCustomerDialog.value = true
+  void invoiceCustomers.search()
+}
+
+function onSalesInvoice() {
+  if (movement.value.needsCustomer) askInvoiceCustomer()
+  else void createInvoice()
+}
+
+function saleHref(id: string) {
+  return appHref('invoicing', `/invoicing/invoices/${id}/edit`)
+}
+
 function addLine() { form.value.lines.push(emptyLine()) }
 
 /** FR-22.28: keyboard across the line grid, as on the invoice forms. */
 const { onGridKeydown } = useGridNavigation({ addLine, getLines: () => form.value.lines })
 
 /**
- * The warehouse a line's „Наличност" reads: where the goods arrive on a receipt (FR-22.28 — it
- * read the „От склад" a receipt does not have, so a receipt line always showed —), where they
- * leave from on everything else.
+ * The goods arrive from outside: a receipt, or a transfer from an external warehouse, which keeps no
+ * stock here to read or to start a quantity from.
  */
-const stockWarehouseId = computed(() => (isReceipt.value ? form.value.toWarehouseId : form.value.fromWarehouseId))
+const arriving = computed(() => isReceipt.value || externalSide.value.from)
+
+/**
+ * The warehouse a line's „Наличност" reads: where the goods arrive on a receipt (FR-22.28 — it
+ * read the „От склад" a receipt does not have, so a receipt line always showed —) and on a transfer
+ * from an external warehouse, where they leave from on everything else.
+ */
+const stockWarehouseId = computed(() => (arriving.value ? form.value.toWarehouseId : form.value.fromWarehouseId))
 
 /**
  * What the warehouse currently holds for a line — CONTEXT, shown as the „stock" chip.
@@ -831,7 +1105,8 @@ const stockWarehouseId = computed(() => (isReceipt.value ? form.value.toWarehous
  *
  * `prefill` is the one deliberate exception: picking a product onto an EMPTY line of a movement
  * that takes goods OUT fills in what is on hand as a starting point. It never overwrites a
- * quantity that is already there, and never on a receipt: what arrives is not what is on hand.
+ * quantity that is already there, and never where the goods arrive (`arriving`): what arrives is
+ * not what is on hand.
  */
 async function fetchLineStock(idx: number, opts: { prefill?: boolean } = {}) {
   const line = form.value.lines[idx]
@@ -847,7 +1122,7 @@ async function fetchLineStock(idx: number, opts: { prefill?: boolean } = {}) {
     const sl = data.stockLevels?.[0]
     if (!sl) { line.stockQty = 0; return }
     line.stockQty = sl.availableQuantity ?? sl.quantity ?? 0
-    if (opts.prefill && !isReceipt.value && !Number(line.quantity)) {
+    if (opts.prefill && !arriving.value && !Number(line.quantity)) {
       line.quantity = line.stockQty
       line.unitCost = sl.avgCost || line.unitCost
     }
@@ -1008,7 +1283,12 @@ watch(() => route.params.id, (id, was) => {
 })
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } }); warehouses.value = data.warehouses || [] } catch { /* */ }
+  // ⚠ `external: 'include'`: unasked, the route answers only the warehouses that keep stock. This form
+  // is where an external one is chosen (on a transfer) and where a booked one is shown by name.
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000, external: 'include' } })
+    warehouses.value = data.warehouses || []
+  } catch { /* */ }
 }
 
 async function fetchCategories() {
@@ -1046,8 +1326,9 @@ function onUnitCostChange(idx: number) {
 function applyNewReceiptDefaults() {
   if (form.value.type !== 'receipt') return
   const pinned = pinnedWarehouseId()
-  const candidate = (pinned && warehouses.value.some(w => w._id === pinned) ? pinned : '')
-    || warehouses.value.find(w => w.isDefault)?._id
+  // A warehouse pinned before it was made external is no place to receive goods: it keeps no stock.
+  const candidate = (pinned && warehouses.value.some(w => w._id === pinned && !w.isExternal) ? pinned : '')
+    || warehouses.value.find(w => w.isDefault && !w.isExternal)?._id
     || null
   if (candidate && !form.value.toWarehouseId) {
     form.value.toWarehouseId = candidate

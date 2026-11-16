@@ -14,6 +14,8 @@ export interface InvoiceDocI18n {
     invoice: string
     bill: string
     proforma: string
+    /** An offer („оферта"): a quote, printed on the proforma's form. */
+    offer: string
     credit_note: string
     debit_note: string
     cash_sale: string
@@ -49,6 +51,8 @@ export interface InvoiceDocI18n {
     address: string
     taxId: string
     vatId: string
+    /** The МОЛ, the person legally responsible for a party (FR-25a): printed only when a party has one. */
+    representative: string
     subtotal: string
     taxTotal: string
     total: string
@@ -88,6 +92,7 @@ const bg: InvoiceDocI18n = {
     invoice: 'ФАКТУРА',
     bill: 'ФАКТУРА',
     proforma: 'ПРОФОРМА ФАКТУРА',
+    offer: 'ОФЕРТА',
     credit_note: 'КРЕДИТНО ИЗВЕСТИЕ',
     debit_note: 'ДЕБИТНО ИЗВЕСТИЕ',
     cash_sale: 'КАСОВА ПРОДАЖБА',
@@ -118,6 +123,7 @@ const bg: InvoiceDocI18n = {
     address: 'Адрес',
     taxId: 'ЕИК',
     vatId: 'ИН по ДДС',
+    representative: 'МОЛ',
     subtotal: 'Междинна сума',
     taxTotal: 'Общо ДДС',
     total: 'Общо',
@@ -162,6 +168,7 @@ const en: InvoiceDocI18n = {
     invoice: 'INVOICE',
     bill: 'PURCHASE INVOICE',
     proforma: 'PROFORMA INVOICE',
+    offer: 'OFFER',
     credit_note: 'CREDIT NOTE',
     debit_note: 'DEBIT NOTE',
     cash_sale: 'CASH SALE',
@@ -192,6 +199,7 @@ const en: InvoiceDocI18n = {
     address: 'Address',
     taxId: 'Reg. No',
     vatId: 'VAT No',
+    representative: 'Representative',
     subtotal: 'Subtotal',
     taxTotal: 'Tax Total',
     total: 'Total',
@@ -235,6 +243,7 @@ const de: InvoiceDocI18n = {
     invoice: 'RECHNUNG',
     bill: 'EINGANGSRECHNUNG',
     proforma: 'PROFORMARECHNUNG',
+    offer: 'ANGEBOT',
     credit_note: 'GUTSCHRIFT',
     debit_note: 'LASTSCHRIFT',
     cash_sale: 'BARVERKAUF',
@@ -265,6 +274,7 @@ const de: InvoiceDocI18n = {
     address: 'Adresse',
     taxId: 'Reg.-Nr.',
     vatId: 'USt-IdNr.',
+    representative: 'Vertreter',
     subtotal: 'Zwischensumme',
     taxTotal: 'Steuer gesamt',
     total: 'Gesamt',
@@ -308,6 +318,7 @@ const mk: InvoiceDocI18n = {
     invoice: 'ФАКТУРА',
     bill: 'ВЛЕЗНА ФАКТУРА',
     proforma: 'ПРОФОРМА ФАКТУРА',
+    offer: 'ПОНУДА',
     credit_note: 'КРЕДИТНА БЕЛЕШКА',
     debit_note: 'ДЕБИТНА БЕЛЕШКА',
     cash_sale: 'КАСОВА ПРОДАЖБА',
@@ -338,6 +349,7 @@ const mk: InvoiceDocI18n = {
     address: 'Адреса',
     taxId: 'ЕМБС',
     vatId: 'ЕДБ',
+    representative: 'Застапник',
     subtotal: 'Меѓузбир',
     taxTotal: 'Вкупен ДДВ',
     total: 'Вкупно',

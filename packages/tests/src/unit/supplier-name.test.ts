@@ -228,3 +228,68 @@ describe('the same words with other punctuation are the same name', () => {
     expect(describeMatch('ТЕСТ', { status: 'matched', contactId: '1', name: 'ТЕСТ' })).toBe('supplier: ТЕСТ (1)')
   })
 })
+
+describe('a supplier\'s other names („Also known as"): what a person said a rule must not guess', () => {
+  const s = (id: string, companyName: string, aliases?: SupplierCandidate['aliases'], extra: Partial<SupplierCandidate> = {}): SupplierCandidate => ({ id, companyName, type: 'supplier', isActive: true, aliases, ...extra })
+
+  it('a short form, a longer one and a respelling find the supplier that keeps them', () => {
+    expect(pickSupplierByName('ТЕСТ ТРЕЙД', [s('1', 'ТЕСТ ТРЕЙД ЕООД', ['ТЕСТ ТРЕЙД'])])).toEqual({ status: 'matched', contactId: '1', name: 'ТЕСТ ТРЕЙД ЕООД', by: 'alias' })
+    expect(pickSupplierByName('TESTER', [s('1', 'F.TESTER Nchfg.GMBH', ['Tester'])])).toMatchObject({ status: 'matched', contactId: '1', by: 'alias' })
+    expect(pickSupplierByName('T+P', [s('1', 'TESTER+PARTNER GMBH', ['T+P'])])).toMatchObject({ status: 'matched', contactId: '1', by: 'alias' })
+    expect(pickSupplierByName('ТЕСТ ООД', [s('1', 'ТЕСТ ООС', ['ТЕСТ ООД'])])).toMatchObject({ status: 'matched', contactId: '1', by: 'alias' })
+    // Any of several, whatever its case and spacing.
+    expect(pickSupplierByName('  втори   тест ', [s('1', 'ТЕСТ ЕООД', ['Първи Тест', 'Втори Тест'])])).toMatchObject({ status: 'matched', contactId: '1', by: 'alias' })
+  })
+
+  it('an other name is the same words with other punctuation too', () => {
+    expect(pickSupplierByName('ТЕСТ-7 СД', [s('1', 'СД ТЕСТ-7 ИВАНОВ И С-ИЕ', ['ТЕСТ - 7 СД'])])).toEqual({ status: 'matched', contactId: '1', name: 'СД ТЕСТ-7 ИВАНОВ И С-ИЕ', by: 'alias' })
+    expect(pickSupplierByName('Testmare', [s('1', 'TEST-MARE S.R.L', ['Test mare'])])).toEqual({ status: 'none' })
+  })
+
+  it('a supplier\'s OWN name comes first: an other name cannot take a receipt from the supplier named so', () => {
+    const named = s('1', 'ТЕСТ ТРЕЙД')
+    const known = s('2', 'ТЕСТ ТРЕЙД ЕООД', ['ТЕСТ ТРЕЙД'])
+    expect(pickSupplierByName('ТЕСТ ТРЕЙД', [known, named])).toEqual({ status: 'matched', contactId: '1', name: 'ТЕСТ ТРЕЙД' })
+    // Named by the same words with other punctuation: still before anybody's other name, even an exact one.
+    expect(pickSupplierByName('ТЕСТ - 04 ООД', [s('2', 'ДРУГ ТЕСТ ООД', ['ТЕСТ - 04 ООД']), s('1', 'ТЕСТ-04 ООД')])).toEqual({ status: 'matched', contactId: '1', name: 'ТЕСТ-04 ООД', by: 'punctuation' })
+    // And two suppliers named so stay ambiguous: an other name does not break the tie.
+    expect(pickSupplierByName('ТЕСТ', [s('1', 'ТЕСТ'), s('2', 'тест'), s('3', 'ТРЕТИ', ['ТЕСТ'])])).toEqual({ status: 'ambiguous', count: 2 })
+  })
+
+  it('an exact other name comes before one that is alike but for its punctuation', () => {
+    expect(pickSupplierByName('ТЕСТ - 7', [s('1', 'ПЪРВИ ООД', ['ТЕСТ-7']), s('2', 'ВТОРИ ООД', ['тест - 7'])])).toEqual({ status: 'matched', contactId: '2', name: 'ВТОРИ ООД', by: 'alias' })
+  })
+
+  it('two suppliers that keep the same other name are nobody, and one that keeps it twice is one', () => {
+    expect(pickSupplierByName('ТЕСТ', [s('1', 'ПЪРВИ ООД', ['Тест']), s('2', 'ВТОРИ ООД', ['ТЕСТ'])])).toEqual({ status: 'ambiguous', count: 2 })
+    expect(pickSupplierByName('ТЕСТ - 7', [s('1', 'ПЪРВИ ООД', ['ТЕСТ-7']), s('2', 'ВТОРИ ООД', ['ТЕСТ 7'])])).toEqual({ status: 'ambiguous', count: 2 })
+    expect(pickSupplierByName('ТЕСТ', [s('1', 'ПЪРВИ ООД', ['Тест', 'ТЕСТ', ' тест '])])).toMatchObject({ status: 'matched', contactId: '1' })
+  })
+
+  it('only an active supplier\'s other names count', () => {
+    expect(pickSupplierByName('ТЕСТ', [s('1', 'ПЪРВИ ООД', ['ТЕСТ'], { type: 'customer' })])).toEqual({ status: 'none' })
+    expect(pickSupplierByName('ТЕСТ', [s('1', 'ПЪРВИ ООД', ['ТЕСТ'], { isActive: false })])).toEqual({ status: 'none' })
+    expect(pickSupplierByName('ТЕСТ', [s('1', 'ПЪРВИ ООД', ['ТЕСТ'], { type: 'both' })])).toMatchObject({ status: 'matched', contactId: '1', by: 'alias' })
+    // A deactivated namesake does not hide the supplier that keeps the name.
+    expect(pickSupplierByName('ТЕСТ', [s('1', 'ТЕСТ', undefined, { isActive: false }), s('2', 'ВТОРИ ООД', ['ТЕСТ'])])).toMatchObject({ status: 'matched', contactId: '2', by: 'alias' })
+  })
+
+  it('a contact with no other names, an empty list or junk in it is read by its own name only', () => {
+    for (const aliases of [undefined, null, [], ['', '   '], [null, undefined] as any]) {
+      expect(pickSupplierByName('ТЕСТ', [s('1', 'ПЪРВИ ООД', aliases)])).toEqual({ status: 'none' })
+      expect(pickSupplierByName('ПЪРВИ ООД', [s('1', 'ПЪРВИ ООД', aliases)])).toEqual({ status: 'matched', contactId: '1', name: 'ПЪРВИ ООД' })
+    }
+  })
+
+  it('the log says which name found it, and the two warnings keep the words other code reads', () => {
+    expect(describeMatch('ТЕСТ', { status: 'matched', contactId: '1', name: 'ТЕСТ ТРЕЙД ЕООД', by: 'alias' })).toBe('supplier: ТЕСТ ТРЕЙД ЕООД (1), also known as "ТЕСТ"')
+    // The daily import's log checks find an unresolved partner by these openings.
+    expect(describeMatch('ТЕСТ', { status: 'none' })).toStartWith('⚠ supplier: no active supplier is named "ТЕСТ"')
+    expect(describeMatch('ТЕСТ', { status: 'ambiguous', count: 2 })).toStartWith('⚠ supplier: 2 active suppliers are named "ТЕСТ"')
+  })
+
+  it('the report tells a person where a short or respelled name is fixed', () => {
+    const lines = formatPartnerReport(summarizePartners([{ docNumber: 'D1', partner: { kind: 'supplier', name: 'ТЕСТ' }, match: { status: 'none' } }]))
+    expect(lines[1]).toContain('„Also known as"')
+  })
+})

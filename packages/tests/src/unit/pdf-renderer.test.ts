@@ -1,7 +1,6 @@
-import { describe, it, expect, afterEach } from 'bun:test'
+import { describe, it, expect } from 'bun:test'
 import net from 'node:net'
 import { readdir, readFile, readlink } from 'node:fs/promises'
-import { config } from 'config'
 import { markdownToPdf, renderedPageDom, mdToPdfPageDom, looksLikePdf, buildHeader, CHROME_OVER_PIPE } from 'reporting/pdf/base.pdf'
 import { buildInvoiceHtml } from 'reporting/pdf/invoice.pdf'
 import { buildReportHtml } from 'reporting/pdf/report.pdf'
@@ -24,7 +23,6 @@ import { buildCashAggHtml } from 'reporting/pdf/cash-agg.pdf'
 
 const RENDER_TIMEOUT = 120_000
 
-afterEach(() => { (config.pdf as any).renderer = 'chrome' })
 
 // ── Fixtures: what the real builders hand the renderer ─────────────────────────────────────
 
@@ -222,8 +220,8 @@ describe('rendering serves nothing (FR-20.25, AC 10)', () => {
   }, RENDER_TIMEOUT)
 
   it('positive control: the same probe sees md-to-pdf\'s server', async () => {
-    ;(config.pdf as any).renderer = 'md-to-pdf'
-    const found = await listenersDuringRender(() => markdownToPdf(invoice.html, { css: invoice.css }))
+    // md-to-pdf no longer prints anything here; building its page still starts its server.
+    const found = await listenersDuringRender(() => mdToPdfPageDom(invoice.html, { css: invoice.css }))
     expect(found.length).toBeGreaterThan(0)
   }, RENDER_TIMEOUT)
 })

@@ -129,14 +129,16 @@
     <div style="overflow-x: auto;" @keydown.capture="onGridKeydown">
       <!-- The description takes whatever the fixed-width columns leave. It used to demand half the
            viewport (min-width: 50vw), which pushed Price and Total off-screen on a laptop with the
-           side panel open — the row could not be read without scrolling sideways. -->
-      <v-table density="compact" class="line-table">
+           side panel open — the row could not be read without scrolling sideways.
+           `line-grid` (ui-shared/styles/line-grid.css): every field of a row is underlined on one line, with the
+           linked article's chip hanging under it. -->
+      <v-table density="compact" class="line-table line-grid">
       <thead>
         <tr>
           <th class="line-no">{{ $t('invoicing.lineNoShort') }}</th>
           <th style="min-width:220px">{{ $t('common.description') }}</th>
           <th
-            v-for="col in activeLineColumns.filter((c) => c.key !== 'description')"
+            v-for="col in lineCells"
             :key="col.key"
             :class="col.align === 'end' ? 'text-end' : ''"
             :style="col.width ? `width:${col.width};min-width:${col.width}` : ''"
@@ -146,7 +148,7 @@
             :key="'gr-' + col.key"
             :class="col.align === 'end' ? 'text-end' : ''"
             style="min-width: 110px"
-          >{{ col.label || $t(col.i18n || '') }}</th>
+          >{{ grColumnLabel(col, $t, $i18n.locale) }}</th>
           <th style="width:32px"></th>
         </tr>
       </thead>
@@ -154,7 +156,8 @@
         <tr v-for="(line, idx) in form.lines" :key="idx">
           <td class="line-no text-medium-emphasis">{{ idx + 1 }}</td>
           <td>
-            <div class="d-flex align-center ga-1">
+            <!-- From the top: the button stays beside the field, not beside the field and its chip. -->
+            <div class="d-flex align-start ga-1">
               <ProductLineDescription
                 :description="line.description"
                 :product-id="line.productId"
@@ -172,20 +175,25 @@
               <ProductDetailsButton @click="openProductPicker(idx)" />
             </div>
           </td>
-          <td v-if="isColActive('qty')">
+          <!-- The cells in the order of their headings: the catalog's, or the one the person dragged them into in
+               the column picker. They kept an order of their own (subtotal before tax rate and warehouse), so with
+               one of those two switched on a heading stood over another column's cells. -->
+          <template v-for="col in lineCells" :key="col.key">
+          <td v-if="col.key === 'qty'">
             <!-- the column width (catalog) fits 5-digit quantities plus the number-input spinner -->
             <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
           </td>
-          <td v-if="isColActive('unit')">
-            <v-autocomplete v-model="line.unit" :items="uomOptions" item-title="title" item-value="value" density="compact" hide-details variant="underlined">
-              <!-- Closed: localized abbreviation only. Dropdown: abbrev + full name. -->
-              <template #selection="{ item }">{{ item.raw.short }}</template>
-              <template #item="{ item, props: ip }">
-                <v-list-item v-bind="ip" :title="item.raw.short" :subtitle="item.raw.full" />
-              </template>
-            </v-autocomplete>
+          <td v-else-if="col.key === 'unit'">
+            <!-- Owner, 2026-11-12: on an outgoing document the unit is the article's once the line has one. -->
+            <LineUnitSelect
+              v-model="line.unit"
+              :items="uomOptions"
+              :readonly="unitLocked(line)"
+              :title="unitLocked(line) ? $t('invoicing.unitFromProduct') : undefined"
+              data-testid="line-unit"
+            />
           </td>
-          <td v-if="isColActive('unitPrice')">
+          <td v-else-if="col.key === 'unitPrice'">
             <div class="d-flex align-center ga-1">
               <!-- Explicit price picker: selling + every named tier (Цена1..N). Sits to the
                    LEFT of the price editor, mirroring the explain-price icon on Total. -->
@@ -208,11 +216,14 @@
                 :resolved-price="line.resolvedPrice"
                 :price-explanation="line.priceExplanation"
                 :auto-apply-resolved="!line.loaded && !line.pricePinned"
+                :typed="typesPrice"
                 class="flex-grow-1"
                 @update:model-value="onLinePriceChange(idx, $event)"
                 @update:price-explanation="line.priceExplanation = $event"
                 @chosen="line.pricePinned = true"
               />
+              <!-- A credit note (outgoing) and the bills take a typed figure here; on a SALES document only a role
+                   that may type a price does (FR-27 `sales-docs.manual-price`): the others pick with the icon. -->
               <v-text-field
                 v-else
                 v-model.number="line.unitPrice"
@@ -222,6 +233,9 @@
                 hide-details
                 variant="underlined"
                 class="flex-grow-1"
+                :readonly="!typesPrice"
+                :title="typesPrice ? undefined : $t('invoicing.pricePickOnly')"
+                data-testid="price-plain"
                 @change="onLinePriceManualChange(idx)"
               />
             </div>
@@ -231,23 +245,24 @@
               ({{ receiptCostOf(line)!.diff > 0 ? '+' : '' }}{{ fmtCurrency(receiptCostOf(line)!.diff) }})
             </div>
           </td>
-          <td v-if="isColActive('discount')">
+          <td v-else-if="col.key === 'discount'">
             <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
           </td>
-          <td v-if="isColActive('lineSubtotal')" class="text-end" style="white-space: nowrap;">
+          <td v-else-if="col.key === 'lineSubtotal'" class="text-end" style="white-space: nowrap;">
             <PriceExplainButton v-if="!isColActive('lineTotal') && line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
             <span>{{ fmtCurrency(computeLineSubtotal(line)) }}</span>
           </td>
-          <td v-if="isColActive('taxRate')">
+          <td v-else-if="col.key === 'taxRate'">
             <TaxRateCombobox v-model="line.taxRate" :rates="vatRates" :default-rate="defaultVatRate" :org-url="appStore.orgUrl()" />
           </td>
-          <td v-if="isColActive('warehouse')">
+          <td v-else-if="col.key === 'warehouse'">
             <v-autocomplete v-model="line.warehouseId" :items="warehouses" item-title="name" item-value="_id" density="compact" hide-details variant="underlined" clearable />
           </td>
-          <td v-if="isColActive('lineTotal')" class="text-end" style="white-space: nowrap;">
+          <td v-else-if="col.key === 'lineTotal'" class="text-end" style="white-space: nowrap;">
             <PriceExplainButton v-if="line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
             <span>{{ fmtCurrency(computeLineTotal(line)) }}</span>
           </td>
+          </template>
           <!-- GR product-update columns (with-product-update toggle ON) -->
           <td v-for="col in (grColumnsVisible ? grActiveColumns : [])" :key="'gr-' + col.key" :class="col.align === 'end' ? 'text-end' : ''">
             <GRProductUpdateCell
@@ -283,14 +298,17 @@ import ProductLineDescription from '../ProductLineDescription.vue'
 import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import PriceSelectButton from 'ui-shared/components/PriceSelectButton'
+import { grColumnLabel } from 'ui-shared/composables/useGRColumns'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
+import LineUnitSelect from 'ui-shared/components/LineUnitSelect.vue'
 import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
 import GRProductUpdateCell from 'ui-shared/components/GRProductUpdateCell.vue'
 import GRColumnPickerDialog from 'ui-shared/components/GRColumnPickerDialog.vue'
 import QuickProductDialog from 'ui-shared/components/QuickProductDialog.vue'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
+import { useAccess } from 'ui-shared/access/useAccess'
 
 const props = defineProps<{
   doc: any
@@ -363,8 +381,28 @@ const {
   setGRTierPrice,
 } = props.doc
 
+/**
+ * FR-27 `sales-docs.manual-price` (owner, 2026-11-12): on a SALES document a price the person TYPES is their role's to
+ * give (the Seller picks, the Sales Consultant may type). The bills are not sales documents: their price is the
+ * supplier's, typed as ever.
+ */
+const typesPrice = computed(() => config.direction !== 'outgoing' || useAccess().can('sales-docs.manual-price'))
+
+/** The columns after the description, in the order the headings and each line's cells share. */
+const lineCells = computed<{ key: string; i18n: string; align?: string; width?: string }[]>(() =>
+  activeLineColumns.value.filter((c: { key: string }) => c.key !== 'description'))
+
 // Spreadsheet-like Tab/Enter navigation across the line-item cells.
 const { onGridKeydown } = useGridNavigation({ addLine, getLines: () => form.lines })
+
+/**
+ * Owner, 2026-11-12: an outgoing document (invoice, credit and debit note, proforma) sells the article in ITS unit, so
+ * once a line has a product the unit is read-only (the product's, set by `onProductSelected`). A line without one (a
+ * typed service) keeps its unit editable, and an incoming bill keeps the supplier's.
+ */
+function unitLocked(line: any): boolean {
+  return config.direction === 'outgoing' && !!line?.productId
+}
 
 // ── FR-22.30: „+ Нов продукт „…"" on a line ──
 const quickOpen = ref(false)

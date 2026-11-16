@@ -10,7 +10,7 @@ import {
   createTestUser,
 } from '../helpers/factories'
 import { config } from 'config'
-import { AuditLog, BackupRun, Invoice, Org } from 'db/models'
+import { AuditLog, BackupRun, Invoice, Org, Product } from 'db/models'
 import { generateBackupKeyPair, unsealBundle } from 'services/biz/backup/backup-crypto'
 import {
   buildBundle, verifyBundle, readBundleManifest, tenantCollections, bundleDir, pruneBundles,
@@ -44,8 +44,8 @@ afterEach(async () => { await clearCollections() }, 30_000)
 let TMP = ''
 const DAY = '2026-09-03'
 
-async function seedOrg() {
-  const org = await createTestOrg({ slug: 'backup-co', settings: { timezone: 'Europe/Sofia' } } as any)
+async function seedOrg(opts: { slug?: string } = {}) {
+  const org = await createTestOrg({ slug: opts.slug || 'backup-co', settings: { timezone: 'Europe/Sofia' } } as any)
   const orgId = org._id as Types.ObjectId
   const customer = await createTestContact(orgId, { companyName: 'Buyer Ltd' })
   const wh = await createTestWarehouse(orgId, { name: 'Main' })
@@ -237,6 +237,103 @@ describe('the bundle (FR-13.12)', () => {
     expect(verified.ok).toBe(false)
     expect(verified.problems.join(' ')).toContain('Invoice')
   })
+})
+
+/**
+ * Catalogue rows varied enough that level 19 has real work to do. The same row ten thousand
+ * times compresses in no time, and would prove nothing about the bundle of a real org.
+ */
+async function seedVariedRows(org: { _id: unknown }, targetBytes: number): Promise<number> {
+  let seed = 694
+  const rnd = () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  const pick = <T>(a: T[]) => a[Math.floor(rnd() * a.length)]
+  const hex = (n: number) => Array.from({ length: n }, () => Math.floor(rnd() * 16).toString(16)).join('')
+  const KINDS = ['БОЛТ', 'ГАЙКА', 'ШАЙБА', 'ВИНТ', 'ДЮБЕЛ', 'ШПИЛКА', 'АНКЕР', 'СВРЕДЛО']
+  const NORMS = ['DIN 933', 'DIN 931', 'DIN 934', 'DIN 125', 'DIN 912', 'ISO 4017', 'DIN 985', 'DIN 603']
+
+  let bytes = 0
+  let rows = 0
+  let batch: Record<string, unknown>[] = []
+  while (bytes < targetBytes) {
+    const cost = +(rnd() * 12).toFixed(4)
+    const name = `${pick(KINDS)} ${pick(NORMS)} М${3 + Math.floor(rnd() * 30)}Х${6 + Math.floor(rnd() * 200)}`
+    const row = {
+      orgId: org._id,
+      sku: `BULK-${String(rows).padStart(6, '0')}`,   // unique per org, as the index wants
+      name,
+      nameLower: name.toLowerCase(),
+      barcode: String(Math.floor(rnd() * 1e13)),
+      unit: 'бр',
+      purchasePrice: cost,
+      sellingPrice: +(cost * 1.6).toFixed(4),
+      priceTiers: Array.from({ length: 10 }, (_, i) => ({
+        name: `Цена ${i + 1}`, percent: i * 5, finalPrice: +(cost * (1.6 - i * 0.05)).toFixed(4),
+      })),
+      description: hex(64),
+      isActive: true,
+      createdAt: new Date(1.75e12 + rnd() * 3e10),
+      updatedAt: new Date(1.78e12 + rnd() * 1e9),
+    }
+    bytes += Buffer.byteLength(JSON.stringify(row))
+    batch.push(row)
+    rows++
+    // Straight into the collection: twelve megabytes through the model's validators and hooks
+    // would cost more than the build this test is about.
+    if (batch.length === 1000) { await Product.collection.insertMany(batch, { ordered: false }); batch = [] }
+  }
+  if (batch.length) await Product.collection.insertMany(batch, { ordered: false })
+  return rows
+}
+
+describe('the process keeps answering while a bundle is built (#694)', () => {
+  /**
+   * ⚠ Level 19 over a whole org is seconds of work. Done in one synchronous call it is seconds in
+   * which this process answers nothing: no request, no WebSocket frame, no readiness probe. A pod
+   * left the Service for as long as one org's nightly bundle took to compress, and an offline
+   * master is one process, so there every till waits.
+   *
+   * A timer is the smallest thing that needs the event loop, so its longest silence is the stall
+   * a request would have felt. Two bounds, because each alone can pass for the wrong reason: the
+   * absolute one is the promise, and the relative one still fails on a machine fast enough to
+   * compress these rows in under a second.
+   */
+  it('a timer keeps ticking through the compression of a bundle of some megabytes', async () => {
+    const { org, orgId } = await seedOrg()
+    const rows = await seedVariedRows(org, 12 * 1024 * 1024)
+
+    let last = performance.now()
+    let longest = 0
+    const timer = setInterval(() => {
+      const now = performance.now()
+      longest = Math.max(longest, now - last)
+      last = now
+    }, 10)
+    const started = performance.now()
+    let built: Awaited<ReturnType<typeof buildBundle>>
+    try {
+      built = await buildBundle(orgId, { date: DAY })
+    } finally {
+      clearInterval(timer)
+    }
+    const took = performance.now() - started
+    // A silence that lasted to the very end never reached the timer's own callback.
+    longest = Math.max(longest, performance.now() - last)
+
+    expect(built.manifest.collections.find(c => c.name === 'Product')!.count).toBe(rows + 2)
+    expect(longest).toBeLessThan(1000)
+    expect(longest).toBeLessThan(took / 4)
+
+    // What the asynchronous call returns was put together from many output chunks, which no
+    // small bundle's artifact is. It must still be the bundle, whole and readable.
+    const verified = await verifyBundle(built.absolutePath, built.sha256)
+    expect(verified.ok).toBe(true)
+    expect(verified.documentCount).toBe(built.manifest.documentCount)
+  }, 120_000)
 })
 
 describe('the claim (FR-13.11)', () => {
@@ -502,6 +599,72 @@ describe('retention (FR-13.8 applied to Layer 2)', () => {
     const left = readdirSync(bundleDir(orgId))
     expect(left.filter(f => f.includes('-full-')).length).toBe(1)
     expect(left.filter(f => f.includes('-delta-')).length).toBe(1)
+  })
+
+  // The bundles a person asked for ("Create backup now", which an org admin may press) are kept
+  // in a class of their own. Counted with the nights, each press pushed a night out.
+  describe('a bundle a person asked for', () => {
+    const manual = (orgId: string, date: string, time: string) =>
+      buildBundle(orgId, { date, filenameSuffix: `manual-data-${time}` })
+
+    it('never pushes a night out, however many are made', async () => {
+      const { orgId } = await seedOrg()
+      for (const d of ['01', '02', '03']) await buildBundle(orgId, { date: `2026-09-${d}` })
+      // All of them on the newest day, so by name they sort AFTER every night.
+      for (const t of ['080000', '090000', '100000', '110000']) await manual(orgId, '2026-09-03', t)
+
+      await pruneBundles(orgId, 'full', 3)
+      const left = readdirSync(bundleDir(orgId))
+      expect(left.filter(f => !f.includes('-manual-')).length).toBe(3)
+      expect(left.some(f => f.includes('2026-09-01'))).toBe(true)
+    })
+
+    it('is kept by its own count, newest first, and a run of nights does not evict it', async () => {
+      const { orgId } = await seedOrg()
+      const saved = config.backup.keepManualPerOrg
+      config.backup.keepManualPerOrg = 2
+      try {
+        for (const t of ['080000', '090000', '100000']) await manual(orgId, '2026-09-01', t)
+        for (const d of ['02', '03', '04', '05']) await buildBundle(orgId, { date: `2026-09-${d}` })
+
+        const removed = await pruneBundles(orgId, 'full', 2)
+        const left = readdirSync(bundleDir(orgId)).sort()
+        expect(left.filter(f => f.includes('-manual-')).map(f => f.slice(-17, -11))).toEqual(['090000', '100000'])
+        expect(left.filter(f => !f.includes('-manual-')).length).toBe(2)
+        expect(removed.length).toBe(3)
+        expect(removed.some(f => f.includes('manual-data-080000'))).toBe(true)
+      } finally {
+        config.backup.keepManualPerOrg = saved
+      }
+    })
+
+    it('survives as the only bundle there is, whatever the counts say', async () => {
+      const { orgId } = await seedOrg()
+      const saved = config.backup.keepManualPerOrg
+      config.backup.keepManualPerOrg = 0
+      try {
+        await manual(orgId, '2026-09-01', '080000')
+        expect(await pruneBundles(orgId, 'full', 0)).toEqual([])
+        expect(readdirSync(bundleDir(orgId)).length).toBe(1)
+      } finally {
+        config.backup.keepManualPerOrg = saved
+      }
+    })
+
+    it('is told by the end of the name, so a slug that says "manual" is not one', async () => {
+      // The slug is the org's own text and comes first in the name. Looked for anywhere, the
+      // mark would have put every night of this org in the smaller class.
+      const { orgId } = await seedOrg({ slug: 'acme-manual-co' })
+      const saved = config.backup.keepManualPerOrg
+      config.backup.keepManualPerOrg = 1
+      try {
+        for (const d of ['01', '02', '03']) await buildBundle(orgId, { date: `2026-09-${d}` })
+        expect(await pruneBundles(orgId, 'full', 3)).toEqual([])
+        expect(readdirSync(bundleDir(orgId)).length).toBe(3)
+      } finally {
+        config.backup.keepManualPerOrg = saved
+      }
+    })
   })
 
   it('a completed run prunes, and marks the rows whose artifact it removed', async () => {

@@ -6,6 +6,9 @@ allowed-tools: Bash(bun:*), Read
 
 # Transfer stock OUT (store-to-store разписки → dispatch from the WH)
 
+> **The daily run books transfers from the API pull**: `scripts/transfer-stock-api.ts` over `sklrazp_*.json`,
+> through the `daily-import` skills. This skill is the route for a `sklrazp_*.pdf` export.
+
 > **UI equivalent:** *Inventory → Stock Movements → Import* a `sklrazp_*.pdf` directly. The
 > OCR sidecar's `stock_note` profile does the transcription this skill asks Claude to do by
 > hand, and the resulting movement is identical: `type:'transfer'`, `fromWarehouseId` set,

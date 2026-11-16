@@ -14,8 +14,9 @@ import { AuditLog, Identity, Invoice, LeaveBalance, Org, OrgApp, OrgLogo, Permis
 import { tenantCollections } from 'services/biz/backup/backup-bundle.service'
 import {
   OrgCloneError, assertCloneAllowed, cloneOrgData, compareOrgs, convertToTestOrg, createTestOrgFrom,
-  markOrgEnvironment, resetOrgData, scanCopyForLeaks,
+  markOrgEnvironment, resetOrgData, scanCopyForBooks, scanCopyForLeaks,
 } from 'services/biz/org-clone/clone.service'
+import { BOOKS_NEVER_CLONED } from 'services/biz/org-clone/policy'
 import { cloneIdHex } from 'services/biz/org-clone/ids'
 import { contentHash } from 'services/biz/org-clone/canonical'
 
@@ -580,6 +581,110 @@ describe('every model with an orgId takes a side', () => {
     const tenant = tenantCollections()
     for (const m of Object.keys(NEVER_CLONED)) expect(tenant).toContain(m)
     for (const m of KEPT_ON_RESET) expect(tenant).toContain(m)
+  })
+
+  it('a source that keeps a company\'s books carries the same, less its books (FR-25 R7)', async () => {
+    const { clonedModels } = await import('services/biz/org-clone/policy')
+    const books = Object.keys(BOOKS_NEVER_CLONED)
+    for (const m of books) expect(CARRIED).toContain(m)
+    expect(clonedModels(tenantCollections(), { settings: { accounting: { books: { mode: 'books' } } } })).toEqual(CARRIED.filter(m => !books.includes(m)))
+    for (const mode of [undefined, 'own', 'branch']) {
+      expect(clonedModels(tenantCollections(), { settings: { accounting: { books: { mode } } } })).toEqual(CARRIED)
+    }
+  })
+})
+
+describe('a real org that keeps a company\'s books (FR-25 R7)', () => {
+  /** One row of each kind the books hold, as the import and the VAT import write them. */
+  async function giveBooks(orgId: unknown) {
+    const org = oid(orgId)
+    const n = ++seq
+    const account = await coll('Account').insertOne({ orgId: org, code: '411', name: 'Клиенти', type: 'asset', balance: 0, isActive: true })
+    const analytic = await coll('AccountingAnalytic').insertOne({ orgId: org, path: `КЛИЕНТИ:Някой ${n}`, root: 'КЛИЕНТИ', name: `Някой ${n}`, nameLower: `някой ${n}`, kind: 'customer', isActive: true })
+    const year = await coll('FiscalYear').insertOne({ orgId: org, name: 'FY 2025', startDate: new Date('2025-01-01'), endDate: new Date('2025-12-31'), status: 'open' })
+    const period = await coll('FiscalPeriod').insertOne({ orgId: org, fiscalYearId: year.insertedId, name: 'March', number: 3, startDate: new Date('2025-03-01'), endDate: new Date('2025-03-31'), status: 'open' })
+    await coll('JournalEntry').insertOne({
+      orgId: org, entryNumber: `PM-2025-${n}`, date: new Date('2025-03-03'), fiscalPeriodId: period.insertedId, status: 'posted', ledger: 'books',
+      sourceModule: 'plusminus', importKey: `doc|-ФЕ|${n}`, lines: [{ accountId: account.insertedId, analyticId: analytic.insertedId, side: 'debit', debit: 1, credit: 0 }],
+    })
+    const bank = await coll('BankAccount').insertOne({ orgId: org, name: 'XX00', bankName: 'Банка', accountNumber: `XX00${n}`, accountId: account.insertedId, balance: 0 })
+    await coll('BankReconciliation').insertOne({ orgId: org, bankAccountId: bank.insertedId, statementDate: new Date('2025-03-31'), status: 'draft' })
+    await coll('Journal').insertOne({ orgId: org, code: `S${n}`, name: 'Продажби', type: 'sale', bankAccountId: bank.insertedId })
+    await coll('FixedAsset').insertOne({ orgId: org, code: `FA-${n}`, name: 'Машина', category: 'machinery', accountId: account.insertedId })
+    await coll('VatRegisterEntry').insertOne({ orgId: org, period: '202503', side: 'sales', ledger: 'books', rowNo: n, docNumber: String(n) })
+    await coll('TaxReturn').insertOne({ orgId: org, period: '202503', kind: 'vat' })
+  }
+
+  const keepBooks = (orgId: unknown) => Org.updateOne({ _id: oid(orgId) }, { $set: { 'settings.accounting.books': { mode: 'books', split: { homeOrgId: oid(orgId) } } } })
+  const BOOKS = Object.keys(BOOKS_NEVER_CLONED).sort()
+
+  it('never lets its books into the copy, and says so; the shop itself is copied as before', async () => {
+    const shop = await realShop('books')
+    await keepBooks(shop.id)
+    await giveBooks(shop.id)
+    const { id, report } = await testCopyOf(shop)
+
+    expect(report.totals.errors).toBe(0)
+    for (const m of BOOKS) expect(await countOf(m, id)).toBe(0)
+    // The calendar is no ledger: a store's own years were copied before it kept books, and still are.
+    for (const m of ['Contact', 'Invoice', 'Product', 'StockMovement', 'Warehouse', 'User', 'FiscalYear', 'FiscalPeriod']) expect(await countOf(m, id)).toBe(await countOf(m, shop.id))
+    expect(report.notCloned.filter(n => BOOKS.includes(n.model)).map(n => [n.model, n.rows])).toEqual(BOOKS.map(m => [m, 1]))
+    expect(report.collections.map(c => c.model).filter(m => BOOKS.includes(m))).toEqual([])
+    expect((await compareOrgs(shop.id, id)).map(r => r.model).filter(m => BOOKS.includes(m))).toEqual([])
+
+    // The proof the runbook takes: no row of the books has a copy, and nothing names the real org.
+    expect(await scanCopyForBooks(shop.id, id)).toEqual({ keepsBooks: true, checked: BOOKS.length, copied: {} })
+    expect((await scanCopyForLeaks(shop.id, id)).leaking).toBe(0)
+
+    const again = await cloneOrgData({ sourceOrgId: shop.id, targetOrgId: id, execute: true })
+    expect(again.totals).toMatchObject({ inserted: 0, updated: 0, errors: 0 })
+    // Asked for by name, a model of the books is refused, not copied.
+    expect(((await captureRejection(cloneOrgData({ sourceOrgId: shop.id, targetOrgId: id, execute: false, only: ['JournalEntry'] }))) as OrgCloneError).code).toBe('bad_only')
+  })
+
+  it('finds the books a copy took before its real org kept them, which a sync never removes', async () => {
+    const shop = await realShop('late')
+    await giveBooks(shop.id)
+    const { id } = await testCopyOf(shop)
+    for (const m of BOOKS) expect(await countOf(m, id)).toBe(1)
+
+    await keepBooks(shop.id)
+    // The copy names nothing of the real org, so only the books scan can tell.
+    expect((await scanCopyForLeaks(shop.id, id)).leaking).toBe(0)
+    const scan = await scanCopyForBooks(shop.id, id)
+    expect(scan.copied).toEqual(Object.fromEntries(BOOKS.map(m => [m, 1])))
+    await cloneOrgData({ sourceOrgId: shop.id, targetOrgId: id, execute: true })
+    expect(await countOf('JournalEntry', id)).toBe(1)
+
+    // What the test org typed in itself is no copy.
+    await coll('Account').insertOne({ orgId: oid(id), code: '501', name: 'Каса', type: 'asset', balance: 0 })
+    expect((await scanCopyForBooks(shop.id, id)).copied.Account).toBe(1)
+  })
+
+  it('an org that keeps its own books the ordinary way is copied with them, as before', async () => {
+    const shop = await realShop('own')
+    await Org.updateOne({ _id: shop.org._id }, { $unset: { 'settings.accounting.books': 1 } })
+    await giveBooks(shop.id)
+    const { id } = await testCopyOf(shop)
+    for (const m of BOOKS) expect(await countOf(m, id)).toBe(1)
+    expect(await scanCopyForBooks(shop.id, id)).toEqual({ keepsBooks: false, checked: 0, copied: {} })
+  })
+
+  it('the leak scan exits 1 on a copy of the books, and names the model, never a row', async () => {
+    const shop = await realShop('cli')
+    await giveBooks(shop.id)
+    const { id } = await testCopyOf(shop)
+    await keepBooks(shop.id)
+    const copy: any = await Org.findById(id).lean().exec()
+    const REPO = join(import.meta.dir, '..', '..', '..', '..')
+    const proc = Bun.spawn(['bun', join(REPO, 'scripts', 'org-clone.ts'), 'leaks', '--pairs', `${shop.org.slug}:${copy.slug}`], {
+      cwd: REPO, env: { ...process.env, MONGODB_URI: testDbUri() }, stdout: 'pipe', stderr: 'pipe',
+    })
+    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+    expect(code).toBe(1)
+    expect(out + err).toContain('LEAKS FOUND')
+    expect(out + err).toContain(`the company's books: ${BOOKS.length} rows of the real org looked for in the copy: ${BOOKS.length} copied`)
+    expect(out + err).toContain('    JournalEntry: 1')
   })
 })
 

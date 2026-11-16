@@ -24,6 +24,7 @@ import { runWarehouseOperations } from './reports/warehouse-operations.report.js
 import { runSalesHistory } from './reports/sales-history.report.js'
 import { makeDocumentsReport, DOCUMENT_STATUS_OPTIONS } from './reports/documents.report.js'
 import { runContactLedger } from './reports/contact-ledger.report.js'
+import { STOCK_MOVEMENT_TYPE } from './contact-ledger.service.js'
 import { runProductLedger } from './reports/product-ledger.report.js'
 import { runStockLevels } from './reports/stock-levels.report.js'
 import { runStockMovements, MOVEMENT_TYPE_OPTIONS, MOVEMENT_STATUS_OPTIONS } from './reports/stock-movements.report.js'
@@ -346,6 +347,8 @@ export const REPORT_REGISTRY: ReportEntry[] = [
         { key: 'currency', type: 'text', labelKey: 'common.currency' },
       ],
       outputs: ['table', 'xlsx', 'pdf'],
+      // The sales register is printed and handed over: its Export starts on PDF (owner, 2026-11-12).
+      ...(kind === 'outgoing' ? { defaultExport: 'pdf' as const } : {}),
       view: 'runner',
       route: `/${spec.id}`,
       handler: makeDocumentsReport(kind),
@@ -379,6 +382,9 @@ export const REPORT_REGISTRY: ReportEntry[] = [
           { value: 'credit_note', labelKey: 'reports.docTypes.credit_note' },
           { value: 'debit_note', labelKey: 'reports.docTypes.debit_note' },
           { value: 'proforma', labelKey: 'reports.docTypes.proforma' },
+          { value: 'offer', labelKey: 'reports.docTypes.offer' },
+          // The contact's stock movements that no document carries.
+          { value: STOCK_MOVEMENT_TYPE, labelKey: 'reports.docTypes.stock_movement' },
         ],
       },
     ],
@@ -386,7 +392,11 @@ export const REPORT_REGISTRY: ReportEntry[] = [
     view: 'runner',
     route: '/contact-ledger',
     handler: runContactLedger,
-    drilldown: (row) => (row.documentId ? `/invoicing/invoices/${row.documentId}/edit` : undefined),
+    drilldown: (row) => (!row.documentId
+      ? undefined
+      : row.documentType === STOCK_MOVEMENT_TYPE
+        ? `/inventory/movements/${row.documentId}`
+        : `/invoicing/invoices/${row.documentId}/edit`),
   },
   {
     id: 'product-ledger',

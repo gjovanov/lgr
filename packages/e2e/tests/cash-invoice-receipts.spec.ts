@@ -3,6 +3,7 @@ import { apiLogin } from './helpers/api'
 import { loginForApp } from './helpers/login'
 import { openTillSession, tillCatalog } from './helpers/cash-register'
 import { openSelect } from './helpers/vuetify'
+import { answerIssuePayment } from './helpers/document-form'
 
 /**
  * FR-23 R1 — a fiscal receipt for a payment on an invoice, on the simulated Eltrade.
@@ -134,6 +135,7 @@ test.describe('FR-23 — a receipt for a payment on an invoice', () => {
     await page.goto(`/invoicing/invoices/${id}/edit`)
     const sending = issuing(page)
     await page.getByRole('button', { name: 'Issue', exact: true }).first().click()
+    await answerIssuePayment(page)
     expect((await sending).status()).toBe(200)
 
     const { invoice } = await ok(cashier, 'GET', `/invoices/${id}`)
@@ -220,6 +222,7 @@ test.describe('FR-23 — a receipt for a payment on an invoice', () => {
     await paper(false)
     const sending = issuing(page)
     await page.getByRole('button', { name: 'Issue', exact: true }).first().click()
+    await answerIssuePayment(page)
     expect((await sending).status()).toBe(200)
 
     await expect(page.getByTestId('receipt-error')).toContainText('the receipt did not print')
@@ -256,6 +259,7 @@ test.describe('FR-23 — a receipt for a payment on an invoice', () => {
     await paper(false)
     const sending = issuing(page)
     await page.getByRole('button', { name: 'Issue', exact: true }).first().click()
+    await answerIssuePayment(page)
     expect((await sending).status()).toBe(200)
 
     await expect(page.getByTestId('receipt-error')).toContainText('the receipt did not print')
@@ -291,6 +295,7 @@ test.describe('FR-23 — a receipt for a payment on an invoice', () => {
     await page.goto(`/invoicing/invoices/${id}/edit`)
     const sending = issuing(page)
     await page.getByRole('button', { name: 'Issue', exact: true }).first().click()
+    await answerIssuePayment(page)
     expect((await sending).status()).toBe(409)
 
     await expect(page.getByTestId('issue-error')).toContainText('Open a session at the till first')

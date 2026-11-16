@@ -8,6 +8,15 @@ import { findProductsByTierPrice, tierForSortKey } from 'services/biz/product-ti
 import { findProductsByStockColumn, stockColumnForSortKey } from 'services/biz/product-stock-sort'
 import { grantOf } from 'services/biz/access/evaluate'
 import { keepStoredCosts, redactProduct, redactProducts } from 'config/access'
+import { PRODUCT_TARIFF_CODE_MAX } from 'config/constants'
+
+/** What an article is (`PRODUCT_TYPES`). One list for the create and the update route. */
+const PRODUCT_TYPE = t.Union([
+  t.Literal('goods'),
+  t.Literal('service'),
+  t.Literal('raw_material'),
+  t.Literal('finished_product'),
+])
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AppAuthService)
@@ -78,14 +87,10 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         sku: t.String({ minLength: 1 }),
         barcode: t.Optional(t.String()),
         name: t.String({ minLength: 1 }),
+        tariffCode: t.Optional(t.String({ maxLength: PRODUCT_TARIFF_CODE_MAX })),
         description: t.Optional(t.String()),
         category: t.String({ minLength: 1 }),
-        type: t.Union([
-          t.Literal('goods'),
-          t.Literal('service'),
-          t.Literal('raw_material'),
-          t.Literal('finished_product'),
-        ]),
+        type: PRODUCT_TYPE,
         unit: t.String({ minLength: 1 }),
         purchasePrice: t.Optional(t.Number()),
         sellingPrice: t.Optional(t.Number()),
@@ -186,8 +191,12 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         sku: t.Optional(t.String()),
         barcode: t.Optional(t.String()),
         name: t.Optional(t.String()),
+        tariffCode: t.Optional(t.String({ maxLength: PRODUCT_TARIFF_CODE_MAX })),
         description: t.Optional(t.String()),
         category: t.Optional(t.String()),
+        // ⚠ A field this schema does not name never reaches the handler: Elysia drops it and answers 200. `type` was
+        // missing here from the first commit, so the form's Type select never saved on an existing article.
+        type: t.Optional(PRODUCT_TYPE),
         unit: t.Optional(t.String()),
         purchasePrice: t.Optional(t.Number()),
         sellingPrice: t.Optional(t.Number()),

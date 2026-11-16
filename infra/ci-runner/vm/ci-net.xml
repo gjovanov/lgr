@@ -1,0 +1,14 @@
+<!-- The CI runner guest's own network on this host. NAT to the internet, no DHCP and no DNS
+     from the host: the guest carries a static address and public resolvers, so it needs
+     nothing from the host itself. What it may reach is decided by lgr-ci-guard.nft. -->
+<network>
+  <name>ci-net</name>
+  <forward mode='nat'>
+    <nat>
+      <port start='1024' end='65535'/>
+    </nat>
+  </forward>
+  <bridge name='virbr-ci' stp='on' delay='0'/>
+  <dns enable='no'/>
+  <ip address='10.10.130.1' netmask='255.255.255.0'/>
+</network>

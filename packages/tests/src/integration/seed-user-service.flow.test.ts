@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { setupTestDB, teardownTestDB, testDbUri } from '../setup'
-import { Identity, PermissionSet, Sequence, User } from 'db/models'
+import { Identity, PermissionSet, Role, Sequence, User } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
 import { createTestOrg } from '../helpers/factories'
 
@@ -50,6 +50,19 @@ describe('seed-user --permissions: a service account', () => {
     expect(user.permissionSetIds.map(String)).toEqual([String(set._id)])
     expect(user.permissions).toEqual(['accounting.import'])
     expect((await tokenize(user)).permissions).toEqual(['accounting.import'])
+
+    // FR-27 (#529): a role with exactly that access, as migration 0015 gives one, so the org can move to `roles`.
+    const role: any = await Role.findById(user.roleId).lean()
+    expect([role.name, role.isBuiltin, role.caps]).toEqual(['Service: books import', false, ['books-import.run']])
+    expect(res.out).toContain('role: Service: books import')
+  }, 60_000)
+
+  it('a plain role gets the built-in role of that key (#529)', async () => {
+    const res = await seedUser('--email', 'acc@lgr.internal', '--username', 'acc', '--role', 'accountant', '--execute')
+    expect(res.code).toBe(0)
+    const user: any = await User.findOne({ username: 'acc' }).lean()
+    const role: any = await Role.findById(user.roleId).lean()
+    expect([role.isBuiltin, role.templateKey]).toEqual([true, 'accountant'])
   }, 60_000)
 
   it('refuses a set of that name that holds other permissions, and an unknown permission', async () => {

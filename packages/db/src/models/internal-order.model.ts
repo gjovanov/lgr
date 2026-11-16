@@ -27,8 +27,16 @@ export interface IInternalOrderLine {
   sku?: string
   quantity: number
   unit: string
-  /** Indicative price shown on the order — actual invoice pricing goes through resolvePrice. */
+  /**
+   * The price the order shows. An indication (the article's selling price) unless `pricePinned`: then it is the price
+   * chosen for this order, and what the order's invoice charges.
+   */
   expectedUnitPrice?: number
+  /**
+   * The price was chosen on the line: picked from the article's prices or typed (`config/order-line-price`). Convert
+   * charges it. Absent: the invoice is priced for the client on the day it is made (`resolvePrice`), as before.
+   */
+  pricePinned?: boolean
   taxRate?: number
   notes?: string
   reservedQuantity: number
@@ -79,6 +87,8 @@ const internalOrderLineSchema = new Schema<IInternalOrderLine>(
     quantity: { type: Number, required: true, min: 0 },
     unit: { type: String, required: true, default: 'pcs' },
     expectedUnitPrice: Number,
+    // No default: a line without it is priced for the client, which is every line written before the field existed.
+    pricePinned: Boolean,
     taxRate: Number,
     notes: String,
     reservedQuantity: { type: Number, default: 0, min: 0 },

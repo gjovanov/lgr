@@ -29,6 +29,8 @@ export interface IAccountingAnalytic extends Document {
   contactId?: Types.ObjectId
   bankAccountId?: Types.ObjectId
   fixedAssetId?: Types.ObjectId
+  /** The analytic's own properties as the accountant's file lists them (ПАРАМЕТРИ), in file order. A list of pairs, not a map: some names carry dots. Never for ПЕРСОНАЛ. */
+  params?: { key: string; value: string }[]
   isActive: boolean
   deactivatedAt?: Date
   createdAt: Date
@@ -47,6 +49,8 @@ const accountingAnalyticSchema = new Schema<IAccountingAnalytic>(
     contactId: { type: Schema.Types.ObjectId, ref: 'Contact' },
     bankAccountId: { type: Schema.Types.ObjectId, ref: 'BankAccount' },
     fixedAssetId: { type: Schema.Types.ObjectId, ref: 'FixedAsset' },
+    /** The analytic's own properties as the accountant's file lists them (ПАРАМЕТРИ), in file order. A list of pairs, not a map: some names carry dots. Never for ПЕРСОНАЛ. */
+    params: { type: [new Schema({ key: { type: String, required: true }, value: { type: String, default: '' } }, { _id: false })], default: undefined },
     isActive: { type: Boolean, default: true },
     deactivatedAt: Date,
   },

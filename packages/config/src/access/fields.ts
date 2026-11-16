@@ -9,7 +9,8 @@ import { can, type Grant } from './grant'
  *
  * `products.costs` (D-5, "Cost figures" in the editor) is what a product cost:
  *   - `purchasePrice`, `standardCost`, and a stock level's `avgCost`;
- *   - the „Доставна цена" price slot (the buying price, `PRICE_TIERS[0]`);
+ *   - the „Доставна цена" price slot (`PRICE_TIERS[0]`): the price with the trade discount, drawn as „Цена с ТО"
+ *     (`config/price-tiers`). Not the buying price, which is `purchasePrice`, and still a cost figure;
  *   - every slot's `percent`, its margin over the cost: with the final price it gives the cost back.
  *
  * The legacy compiler grants `products.costs` to whoever reads products (`legacy.ts`), so nobody's answer changes
@@ -254,4 +255,23 @@ export function redactMovementLine<T extends Record<string, any>>(grant: Grant |
   const out: Record<string, any> = redactProduct(grant, line)
   if (!seesCosts(grant)) for (const f of [...MOVEMENT_COST_FIELDS, 'lineTotalCost', 'runningValue']) delete out[f]
   return out as T
+}
+
+/**
+ * FR-27.11.C.2: a movement's own total is the sum of its lines' costs, so it goes where they go. With one line it
+ * IS that line's cost. `totalAmount` as stored, `total` as the list names it. Absent, never blank; the same object
+ * when the role sees the costs.
+ */
+export const MOVEMENT_TOTAL_FIELDS = ['totalAmount', 'total'] as const
+
+export function redactMovementTotals<T extends Record<string, any>>(grant: Grant | null | undefined, movement: T): T {
+  if (!movement || seesCosts(grant)) return movement
+  const out: Record<string, any> = { ...movement }
+  for (const f of MOVEMENT_TOTAL_FIELDS) delete out[f]
+  return out as T
+}
+
+/** FR-27.11.C.3: the keys that order a movement list by that total. */
+export function sortsByMovementTotal(sortBy: string | null | undefined): boolean {
+  return (MOVEMENT_TOTAL_FIELDS as readonly string[]).includes(String(sortBy ?? '').trim())
 }

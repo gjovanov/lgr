@@ -53,6 +53,8 @@ export interface ReportMeta {
   params: ParamDef[]
   view: 'runner' | 'custom'
   route: string
+  /** The format the Export dialog starts on, when `outputs` offers it; absent: Excel. */
+  defaultExport?: 'xlsx' | 'pdf'
 }
 
 export interface ReportRunResult {

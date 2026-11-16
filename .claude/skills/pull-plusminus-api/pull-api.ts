@@ -11,6 +11,7 @@
 //   bun pull-api.ts --org regal-pz --from 2026-10-26 [--to 2026-10-27] [--dest DIR]
 //                   [--warehouse NAME] [--no-snapshot] [--families invoicem,stokrazp]
 //   bun pull-api.ts --org regal-pz --from 2026-10-27 --to 2026-10-29 --families posReceipts --no-snapshot   # the till (opt-in)
+//   bun pull-api.ts --org regal-pz --from 2026-11-12 --families partners --no-snapshot                      # the partner directory (opt-in)
 //
 // Output mirrors the GUI export's naming (invoicem_<N>.json / stokrazp_<N>.json / ... /
 // storeAvailability_<pmDay>.json) under `${docsRoot or --dest}/<from>[_<to>]/api/`.
@@ -19,6 +20,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
 import { createHash } from 'crypto'
 import { getOrg } from './orgs'
+import { PARTNER_GROUPS_ARG } from '../../../packages/services/src/biz/doc-import/map-plusminus-partner'
 
 const tls = { rejectUnauthorized: false } as any
 
@@ -87,12 +89,14 @@ async function main() {
   const warehouse = warehouseOverride ?? org.warehouse!
   const dest = destOverride ?? `${org.docsRoot}/${from}${to !== from ? `_${to}` : ''}/api`
   // `posReceipts` is a pseudo-family: the till (POS) receipts, which live outside documents() — see the POS block below.
-  const docFilter = famFilter?.filter(f => f !== 'posReceipts')
+  // `partners` is another: the analytic partner directory (customers, suppliers) with its properties, one `apProperties` call.
+  const docFilter = famFilter?.filter(f => f !== 'posReceipts' && f !== 'partners')
   const families = docFilter ? org.families.filter(f => docFilter.includes(f.prefix)) : org.families
   if (docFilter && families.length !== docFilter.length) {
-    console.error(`pull-api.ts: --families named something not in ${orgId}'s family list (${org.families.map(f => f.prefix).join(', ')}${org.pos ? ', posReceipts' : ''})`)
+    console.error(`pull-api.ts: --families named something not in ${orgId}'s family list (${org.families.map(f => f.prefix).join(', ')}${org.pos ? ', posReceipts' : ''}, partners)`)
     process.exit(2)
   }
+  const wantPartners = !!famFilter?.includes('partners')
   if (famFilter?.includes('posReceipts') && !org.pos) {
     console.error(`pull-api.ts: org "${orgId}" has no POS config (orgs.ts \`pos\`), so there is no till to pull.`)
     process.exit(2)
@@ -222,6 +226,22 @@ async function main() {
         for (const [day, rs] of [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b))) write(`${file}_${day}.json`, JSON.stringify(rs, null, 2))
         console.log(`${file.padEnd(14)} ${String(all.length).padStart(5)} ${kind} on ${byDay.size} day(s)${undated ? `  ⚠ ${undated} without a usable closedOn/openedOn (not written)` : ''}`)
       }
+    }
+
+    // The partner directory (opt-in, `--families partners`). The vendor's own client loads every partner group with ONE call,
+    // `pm.apProperties("ДОСТАВЧИЦИ:; КЛИЕНТИ:; ПАРТНЬОРИ:; КОНТРАГЕНТИ:")` (its `loadPartners`), which answers
+    // `{ "КЛИЕНТИ:Name": { БУЛСТАТ, ИНДДС, АДРЕС, ГРАД, МОЛ, … } }`: about 1 MB for a shop. Read only, no document touched.
+    // Written with its keys sorted, so the same directory is the same bytes and the manifest says `same`.
+    if (wantPartners) {
+      const rawPartners = await m(['apProperties', PARTNER_GROUPS_ARG], 180000)
+      let directory: Record<string, unknown>
+      try { directory = JSON.parse(rawPartners || '{}') } catch { throw new Error(`partners: apProperties returned non-JSON: ${rawPartners.slice(0, 200)}`) }
+      if (!directory || typeof directory !== 'object' || Array.isArray(directory)) throw new Error('partners: expected an object of partners')
+      const sorted = Object.fromEntries(Object.keys(directory).sort().map(k => [k, directory[k]]))
+      write('partners.json', JSON.stringify(sorted, null, 2))
+      const byGroup = new Map<string, number>()
+      for (const k of Object.keys(sorted)) { const g = k.includes(':') ? k.slice(0, k.indexOf(':')) : '(no group)'; byGroup.set(g, (byGroup.get(g) ?? 0) + 1) }
+      console.log(`${'partners'.padEnd(10)} ${String(Object.keys(sorted).length).padStart(5)} entries: ${[...byGroup].map(([g, n]) => `${g} ${n}`).join(', ')}`)
     }
 
     if (snapshot) {

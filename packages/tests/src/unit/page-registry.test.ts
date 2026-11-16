@@ -319,7 +319,7 @@ describe('newDocumentMenu — „+ Нов" (FR-22.49)', () => {
 
   it('an admin gets every daily document, grouped', () => {
     expect(ids({ role: 'admin', permissions: [] })).toEqual([
-      ['/invoicing/invoices/new', '/invoicing/invoices/new?type=credit_note', '/invoicing/proforma/new'],
+      ['/invoicing/invoices/new', '/invoicing/invoices/new?type=credit_note', '/invoicing/proforma/new', '/invoicing/offer/new'],
       ['/invoicing/cash-sales/new'],
       ['/invoicing/bills/new', '/inventory/movements/new'],
       ['/invoicing/internal-orders/new', '/invoicing/orders/new', '/invoicing/reservations/new'],
@@ -356,6 +356,7 @@ describe('newDocumentMenu — „+ Нов" (FR-22.49)', () => {
       '/invoicing/invoices/new': '/api/org/:orgId/invoices',
       '/invoicing/invoices/new?type=credit_note': '/api/org/:orgId/invoices',
       '/invoicing/proforma/new': '/api/org/:orgId/invoices',
+      '/invoicing/offer/new': '/api/org/:orgId/invoices',
       '/invoicing/cash-sales/new': '/api/org/:orgId/trade/pos/session/:id/transaction',
       '/invoicing/bills/new': '/api/org/:orgId/invoices',
       '/inventory/movements/new': '/api/org/:orgId/warehouse/movement',

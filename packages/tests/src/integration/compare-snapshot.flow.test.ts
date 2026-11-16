@@ -54,8 +54,11 @@ describe('Files — compare-snapshot', () => {
   it('finds qty diffs, price diffs and missing products vs the live catalog', async () => {
     const org = await createTestOrg()
     const wh = await createTestWarehouse(org._id, { isDefault: true } as any)
-    const a = await createTestProduct(org._id, { name: 'PROD A', sku: 'A', purchasePrice: 1.0, sellingPrice: 2.0 } as any)
-    const b = await createTestProduct(org._id, { name: 'PROD B', sku: 'B', purchasePrice: 1.0, sellingPrice: 2.0 } as any)
+    // The export's „Дост. цена" is the product's „Доставна цена" SLOT. The purchase price is another figure
+    // („Цена 2" / 1.2 since 2026-11-15): PROD A's differs from the file's column and is no mismatch.
+    const delivery = [{ name: 'Доставна цена', percent: 0, finalPrice: 1.0, manualOverride: true }]
+    const a = await createTestProduct(org._id, { name: 'PROD A', sku: 'A', purchasePrice: 0.75, sellingPrice: 2.0, priceTiers: delivery } as any)
+    const b = await createTestProduct(org._id, { name: 'PROD B', sku: 'B', purchasePrice: 1.0, sellingPrice: 2.0, priceTiers: delivery } as any)
     await StockLevel.create({ orgId: org._id, productId: a._id, warehouseId: wh._id, quantity: 100, availableQuantity: 100, avgCost: 1 })
     await StockLevel.create({ orgId: org._id, productId: b._id, warehouseId: wh._id, quantity: 50, availableQuantity: 50, avgCost: 1 })
 
@@ -83,6 +86,23 @@ describe('Files — compare-snapshot', () => {
     // CSV is byte-shaped like the CLI (kind,sku,name,field,file,lgr,diff)
     expect(res.csv.split('\n')[0]).toBe('kind,sku,name,field,file,lgr,diff')
     expect(res.csv).toContain('qty_mismatch,A,"PROD A",quantity,90,100,-10')
+  })
+
+  it('holds the export\'s „Дост. цена" to the „Доставна цена" slot, never to the purchase price', async () => {
+    const org = await createTestOrg()
+    const wh = await createTestWarehouse(org._id, { isDefault: true } as any)
+    const slot = (finalPrice: number) => [{ name: 'Доставна цена', percent: 0, finalPrice, manualOverride: true }]
+    // SAME: the slot agrees with the file, and the purchase price (2 = a „Цена 2" of 2.4 / 1.2) does not have to.
+    const same = await createTestProduct(org._id, { name: 'SAME', sku: 'S', purchasePrice: 2, sellingPrice: 3, priceTiers: slot(1.5) } as any)
+    // MOVED: the purchase price equals the file's column, as it did on every product until 2026-11-15. The slot is off.
+    const moved = await createTestProduct(org._id, { name: 'MOVED', sku: 'M', purchasePrice: 1.5, sellingPrice: 3, priceTiers: slot(1.4) } as any)
+    for (const p of [same, moved]) await StockLevel.create({ orgId: org._id, productId: p._id, warehouseId: wh._id, quantity: 1, availableQuantity: 1, avgCost: 1 })
+
+    const res = await compareSnapshot(String(org._id), await buildSnapshot([
+      { name: 'SAME', qty: 1, purchase: 1.5, selling: 3 },
+      { name: 'MOVED', qty: 1, purchase: 1.5, selling: 3 },
+    ]))
+    expect(res.rows.filter(r => r.kind === 'price_mismatch').map(r => [r.name, r.field, r.file, r.lgr])).toEqual([['MOVED', 'Дост.цена', 1.5, 1.4]])
   })
 
   it('sums duplicate names (correction/split rows) before comparing', async () => {

@@ -66,21 +66,25 @@
         </div>
       </div>
     </Teleport>
-    <v-chip
-      v-if="linkedProductName"
-      size="x-small"
-      closable
-      color="primary"
-      class="mt-1"
-      @click:close="clearProduct"
-    >
-      {{ linkedProductName }}
-    </v-chip>
+    <!-- The linked article hangs UNDER the field. The row's other fields do not move for it: a line grid's cells
+         start at the top with the control line (ui-shared/styles/line-grid.css), so this only makes the row taller. -->
+    <div v-if="linkedProductName" class="pld-linked">
+      <v-chip
+        size="x-small"
+        closable
+        color="primary"
+        :title="linkedProductName"
+        @click:close="clearProduct"
+      >
+        {{ linkedProductName }}
+      </v-chip>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -199,7 +203,7 @@ function positionOverlay() {
   }
 }
 
-const fmtQty = (n: number) => new Intl.NumberFormat(localeCode.value, { maximumFractionDigits: 3 }).format(n || 0)
+const fmtQty = (n: number) => numberFormat(localeCode.value, { maximumFractionDigits: 3 }).format(n || 0)
 
 /** FR-28.24: the hit's second line — SKU · unit · stock · price. The stock fills in when its call has answered. */
 function hitLine(p: Product): string {
@@ -370,6 +374,23 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* A flex row, so the chip is a box of its own height (20 px) and not a line of the cell's text: a line grid's cells
+   carry the control line's height as their line height. The chip ends where the row ends, as it did before the
+   fields lined up: a row with a chip is no taller than it was. */
+.pld-linked {
+  display: flex;
+  min-width: 0;
+  margin-top: 2px;
+  line-height: 1.5;
+}
+/* A name longer than its place (an order's tree, a phone) is cut with an ellipsis INSIDE the chip. Cut by the chip's
+   own `overflow: hidden`, it lost its close button together with the end of the name. */
+.pld-linked :deep(.v-chip__content) {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .pld-overlay {
   background: rgb(var(--v-theme-surface));
   border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));

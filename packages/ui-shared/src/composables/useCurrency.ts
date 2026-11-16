@@ -1,3 +1,4 @@
+import { numberFormat } from './number-display'
 const CURRENCY_SYMBOLS: Record<string, string> = {
   EUR: '\u20AC', USD: '$', GBP: '\u00A3', CHF: 'CHF', MKD: '\u0434\u0435\u043D',
   BGN: '\u043B\u0432', RSD: '\u0434\u0438\u043D', JPY: '\u00A5', CNY: '\u00A5', AUD: 'A$',
@@ -8,7 +9,7 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
 export function useCurrency() {
   function formatCurrency(amount: number, currency = 'EUR', locale = 'en', maxDecimals = 2): string {
     try {
-      return new Intl.NumberFormat(locale, {
+      return numberFormat(locale, {
         style: 'currency',
         currency,
         minimumFractionDigits: maxDecimals,
@@ -35,7 +36,7 @@ export function useCurrency() {
 // Direct named exports for convenience
 export function formatCurrency(amount: number, currency = 'EUR', locale = 'en', maxDecimals = 2): string {
   try {
-    return new Intl.NumberFormat(locale, {
+    return numberFormat(locale, {
       style: 'currency',
       currency,
       minimumFractionDigits: maxDecimals,

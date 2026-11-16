@@ -32,6 +32,10 @@
           item-value="_id"
           hover
         >
+          <template #item.name="{ item }">
+            {{ item.name }}
+            <v-chip v-if="item.isExternal" size="x-small" label color="info" variant="tonal" class="ml-1" data-testid="warehouse-external-chip">{{ $t('warehouse.external') }}</v-chip>
+          </template>
           <template #item.type="{ item }">
             <v-chip size="small" label>{{ item.type || 'warehouse' }}</v-chip>
           </template>
@@ -82,7 +86,7 @@ import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 interface IAddress { street: string; city: string; state: string; postalCode: string; country: string }
-interface Item { _id: string; code: string; name: string; type: string; manager?: string; address?: IAddress; isDefault: boolean; isActive: boolean }
+interface Item { _id: string; code: string; name: string; type: string; manager?: string; address?: IAddress; isDefault: boolean; isExternal?: boolean; isActive: boolean }
 
 const { t } = useI18n()
 // FR-26.8.7: without `inventory.write` (a Seller) the page reads, and offers no New, Save or Delete.
@@ -100,7 +104,9 @@ function formatAddress(addr?: IAddress): string {
 }
 
 const filters = computed(() => {
-  const f: Record<string, any> = {}
+  // ⚠ `external: 'include'`: the route answers only the warehouses that keep stock unless asked, so
+  // that no picker offers an external one. This page manages them all.
+  const f: Record<string, any> = { external: 'include' }
   if (debouncedSearch.value) f.search = debouncedSearch.value
   return f
 })

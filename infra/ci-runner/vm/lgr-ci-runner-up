@@ -1,0 +1,48 @@
+#!/bin/bash
+# Brings the LGR CI runner guest up on this host, in the only order that is safe: the guard is
+# checked first, the guest's way out is opened second, the guest starts last. Idempotent.
+#
+# The guest is NOT set to autostart in libvirt, on purpose: this is the one path that starts it
+# at boot, and it refuses to when the guard is not loaded. Without the egress rule below the
+# guest has no internet (the host firewall drops what it has no rule for), so a runner that
+# somehow started without this script takes no job.
+set -euo pipefail
+
+NET=ci-net
+BRIDGE=virbr-ci
+SUBNET=10.10.130.0/24
+DOMAIN=lgr-ci-runner-1
+
+# 1. The guard must be live. Loading it is lgr-ci-guard.service's job; here it is only checked.
+if ! /usr/sbin/nft list table inet lgr_ci_guard >/dev/null 2>&1; then
+  echo "lgr-ci-runner-up: the guard table inet lgr_ci_guard is not loaded; the guest stays down" >&2
+  exit 1
+fi
+
+# 2. Egress. A chain of its own, so nothing else's rules are edited: private destinations are
+#    dropped here a second time (the guard already did), the rest of the guest's traffic may leave.
+iptables -N LGR_CI_FWD 2>/dev/null || iptables -F LGR_CI_FWD
+for net in 10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16; do
+  iptables -A LGR_CI_FWD -d "$net" -j DROP
+done
+iptables -A LGR_CI_FWD -s "$SUBNET" -j ACCEPT
+iptables -C FORWARD -i "$BRIDGE" -j LGR_CI_FWD 2>/dev/null || iptables -I FORWARD 1 -i "$BRIDGE" -j LGR_CI_FWD
+
+# 3. The network (it autostarts with libvirtd; this covers a start by hand).
+if ! virsh net-info "$NET" 2>/dev/null | grep -q '^Active: *yes'; then
+  virsh net-start "$NET" || virsh net-info "$NET" | grep -q '^Active: *yes'
+fi
+
+# 4. The guest.
+if [ "$(virsh domstate "$DOMAIN" 2>/dev/null)" != running ]; then
+  virsh start "$DOMAIN"
+fi
+
+# 5. If this host ever runs out of memory, the kernel takes this guest first, never a cluster VM.
+for _ in $(seq 1 30); do
+  [ -s "/run/libvirt/qemu/$DOMAIN.pid" ] && break
+  sleep 1
+done
+pid=$(cat "/run/libvirt/qemu/$DOMAIN.pid")
+echo 1000 > "/proc/$pid/oom_score_adj"
+echo "lgr-ci-runner-up: $DOMAIN is $(virsh domstate "$DOMAIN"), qemu pid $pid, oom_score_adj $(cat "/proc/$pid/oom_score_adj")"

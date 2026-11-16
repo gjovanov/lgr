@@ -16,7 +16,8 @@
  *
  * It is resolved by the one rule the importers use (`pickSupplierByName`): the exact normalized name, else the same
  * words whatever punctuation stands between them, among ACTIVE contacts of type supplier or both, exactly one of
- * them. One more rule that needs every contact at hand, so it lives here: a name that is exactly a CUSTOMER's (the
+ * them; and when no supplier is named that, the supplier a person gave the name to as one of its other names
+ * („Also known as", `Contact.aliases`). One more rule that needs every contact at hand, so it lives here: a name that is exactly a CUSTOMER's (the
  * documents print the partner as the customer list spells it) is the supplier that carries that customer's tax
  * number, when exactly one does: the same company, kept twice. Nothing is created and nothing is guessed: a name
  * that matches no supplier, or several, is reported with its receipts so a person can fix the contact and run it again.
@@ -51,10 +52,10 @@ export interface ReceiptSupplierPlan {
   /** Where the partner's name was read: the receipt's notes, the analysis of the document that booked it, or the partners given. */
   source: 'notes' | 'document' | 'given'
   /**
-   * How the name became this supplier: its own name, the same words with other punctuation, or the tax number of the
-   * contact that has exactly this name (a customer kept beside the supplier).
+   * How the name became this supplier: its own name, the same words with other punctuation, one of its other names
+   * („Also known as"), or the tax number of the contact that has exactly this name (a customer kept beside the supplier).
    */
-  rule: 'name' | 'punctuation' | 'taxNumber'
+  rule: 'name' | 'punctuation' | 'alias' | 'taxNumber'
 }
 
 export interface UnresolvedPartnerName {
@@ -154,17 +155,19 @@ export interface ReceiptSupplierOptions {
 /** What a run would write for this organization, and why it would leave the rest. Reads only. */
 export async function planReceiptSupplierBackfill(orgId: string, opts: ReceiptSupplierOptions = {}): Promise<ReceiptSupplierBackfill> {
   const given = new Map(Object.entries(opts.partners ?? {}).map(([n, p]) => [numberKey(n), p]))
-  // Every contact by its normalized name (the rule keeps the active suppliers, the rest explain a miss), by its
-  // words (the candidates of the name rule), and the active suppliers by their tax numbers.
+  // Every contact by its normalized name (the rule keeps the active suppliers, the rest explain a miss), by the
+  // words of its name and of each of its other names (the candidates of the name rule), and the active suppliers
+  // by their tax numbers.
   const byName = new Map<string, KnownContact[]>()
   const byWords = new Map<string, KnownContact[]>()
   const suppliersByTax = new Map<string, KnownContact[]>()
   const into = (map: Map<string, KnownContact[]>, key: string, c: KnownContact) => { if (key) map.set(key, [...(map.get(key) ?? []), c]) }
-  const contacts = Contact.find({ orgId } as any, { companyName: 1, type: 1, isActive: 1, taxId: 1, taxNumber: 1, vatNumber: 1 }).lean().cursor() as AsyncIterable<any>
+  const contacts = Contact.find({ orgId } as any, { companyName: 1, type: 1, isActive: 1, taxId: 1, taxNumber: 1, vatNumber: 1, aliases: 1 }).lean().cursor() as AsyncIterable<any>
   for await (const row of contacts) {
-    const c: KnownContact = { id: String(row._id), companyName: row.companyName, type: row.type, isActive: row.isActive, tax: taxKeys(row) }
+    const c: KnownContact = { id: String(row._id), companyName: row.companyName, type: row.type, isActive: row.isActive, aliases: row.aliases, tax: taxKeys(row) }
     into(byName, normalizeName(c.companyName), c)
-    into(byWords, foldName(c.companyName), c)
+    // Once per key: a contact whose other name is the words of its own name is still one candidate.
+    for (const words of new Set([c.companyName, ...(Array.isArray(row.aliases) ? row.aliases : [])].map(foldName))) into(byWords, words, c)
     if ((c.type === 'supplier' || c.type === 'both') && c.isActive !== false) for (const t of c.tax) into(suppliersByTax, t, c)
   }
   /** The one active supplier that carries a tax number of a contact named exactly `key`, if exactly one does. */

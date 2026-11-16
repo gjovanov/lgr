@@ -19,7 +19,11 @@ const FILES = /^(DEKLAR|PRODAGBI|POKUPKI|VIES)\.TXT$/i
 
 const subfolders = (dir: string) => readdirSync(dir).filter(name => statSync(join(dir, name)).isDirectory()).sort()
 
-/** Every month under `dir`, oldest first. A month with two companies comes twice: `--org` tells them apart. */
+/**
+ * Every month under `dir`, oldest first, its files by name. A month with two companies comes twice: `--org` tells them
+ * apart. The files are sorted because a folder lists them in the disk's order: ext4 gave PRODAGBI before DEKLAR,
+ * so the gate's line for a month differed from one machine to the next.
+ */
 export function readVatDir(dir: string): VatDirMonth[] {
   const months: VatDirMonth[] = []
   for (const period of subfolders(dir).filter(name => /^\d{6}$/.test(name))) {
@@ -27,6 +31,7 @@ export function readVatDir(dir: string): VatDirMonth[] {
       const folder = join(dir, period, company)
       const files = readdirSync(folder)
         .filter(name => FILES.test(name))
+        .sort((a, b) => a.toUpperCase().localeCompare(b.toUpperCase()))
         .map(name => ({ name, bytes: new Uint8Array(readFileSync(join(folder, name))) }))
       if (files.length) months.push({ period, company, files })
     }

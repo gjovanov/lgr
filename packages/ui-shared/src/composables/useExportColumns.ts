@@ -7,7 +7,7 @@
  */
 
 export type ExportMode = 'compact' | 'detailed'
-export type DocType = 'invoice' | 'proforma' | 'credit_note' | 'debit_note' | 'cash_sale' | 'bill'
+export type DocType = 'invoice' | 'proforma' | 'offer' | 'credit_note' | 'debit_note' | 'cash_sale' | 'bill'
 
 export interface ExportColumn {
   key: string
@@ -26,7 +26,7 @@ export const EXPORT_COLUMNS: ExportColumn[] = [
   // Off by default in detailed mode so the single-document Print dialog stays unchanged.
   { key: 'type',         i18n: 'invoicing.documentType',  label: 'Type',        modes: ['compact','detailed'], docs: ['invoice','bill'], defaultOn: true, defaultOnByMode: { detailed: false } },
   { key: 'issueDate',    i18n: 'invoicing.issueDate',     label: 'Issue Date',  modes: ['compact','detailed'], defaultOn: true },
-  { key: 'dueDate',      i18n: 'invoicing.dueDate',       label: 'Due Date',    modes: ['compact'], docs: ['invoice','proforma','bill'], defaultOn: true },
+  { key: 'dueDate',      i18n: 'invoicing.dueDate',       label: 'Due Date',    modes: ['compact'], docs: ['invoice','proforma','offer','bill'], defaultOn: true },
   { key: 'contactName',  i18n: 'invoicing.contact',       label: 'Contact',     modes: ['compact','detailed'], defaultOn: true },
   { key: 'contactTaxId', i18n: 'invoicing.taxId',         label: 'Tax ID',      modes: ['compact'], defaultOn: false },
   // Status/currency stay default-on for the detailed (print) flow but start unticked on the

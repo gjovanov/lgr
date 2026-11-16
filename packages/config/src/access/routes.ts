@@ -20,12 +20,27 @@ import type { CapabilityId, FeatureId } from './catalogue'
 
 export type AccessRule =
   | { readonly anyOf: readonly CapabilityId[] }
-  | { readonly self: string }
+  /**
+   * The controller decides (`why` says by what). `floor`: capabilities without one of which no caller passes that
+   * check. The auth plugins refuse such a caller before the body is validated (`floorRefusal`), so a role that may
+   * not write there gets 403, never a 422 describing the body (S-28's order). The controller still decides the rest.
+   */
+  | { readonly self: string; readonly floor?: readonly CapabilityId[] }
   | { readonly member: string }
 
 type Cap = CapabilityId
 const any = (...caps: Cap[]): AccessRule => ({ anyOf: caps })
-const self = (why: string): AccessRule => ({ self: why })
+const self = (why: string, floor?: readonly Cap[]): AccessRule => (floor ? { self: why, floor } : { self: why })
+/** Every fiscal-device write the controllers take, each asking one of these (`fiscal-device.controller`). */
+const DEVICE_WRITES: readonly Cap[] = ['devices.edit', 'devices.report', 'devices.z-report', 'devices.sync-time', 'devices.name-payments']
+/**
+ * Mailing a list's ticked documents is work on their kind, and the kind is in the body: a sales document, a quote, a
+ * bill, a supplier order or a customer order (`invoicing-api/lib/email-guards.ts`; both orders are the `orders`
+ * work). A session holding none of these mails none.
+ */
+const DOC_EMAIL_WORK: readonly Cap[] = [
+  'sales-docs.create', 'sales-docs.edit', 'proforma.create', 'proforma.edit', 'bills.create', 'bills.edit', 'orders.create', 'orders.edit',
+]
 const member = (why: string): AccessRule => ({ member: why })
 /** A feature's reads: its page's capability and its page-less one. */
 const reads = (f: FeatureId, ...also: Cap[]): AccessRule => any(`${f}.view` as Cap, `${f}.lookup` as Cap, ...also)
@@ -41,6 +56,8 @@ export const READ_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   // The invoicing app picks an account and a bank account for cash and payment orders.
   ['accounting/account', reads('accounts', 'sales-docs.view')],
   ['accounting/bank-account', reads('bank-accounts', 'sales-docs.view')],
+  // FR-25a §3.2: the books' analytic tree belongs with the chart it hangs off.
+  ['accounting/analytics', reads('accounts')],
   ['accounting/books', reads('ledgers')],
   ['accounting/report', reads('ledgers')],
   ['accounting/reports', reads('ledgers')],
@@ -123,7 +140,7 @@ export const READ_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['file', any('files.view')],
   ['files', self('files-api: admin, or admin.settings; the archives also for nra_auditor; the diff of a snapshot also takes what reading stock takes (compareRefusal)')],
   ['digest', self('admin role (FR-11): admin.settings deliberately does not suffice')],
-  ['backup', self('requireSysAdmin')],
+  ['backup', self('admin role of this org (guard): its own backups, made, listed, verified and downloaded; restoring, uploading a bundle and the restore history take requireSysAdmin')],
   ['desktops', self(ADMIN_OR_SETTINGS)],
   ['nodes', self(`${ADMIN_OR_SETTINGS} (FR-20.2; global only, 404 on a master)`)],
   ['moves', self(`${ADMIN_OR_SETTINGS} (FR-20.79; global only, 404 on a master)`)],
@@ -147,6 +164,9 @@ export const READ_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
 export const EXACT_READS: ReadonlyMap<string, AccessRule> = new Map([
   // A contact's amounts due and paid: the invoicing app's, not the pickers'.
   ['invoicing/contact/:id/summary', any('contacts.view')],
+  // The documents that sum is made of are theirs who read the documents, as the ledger behind the Invoices button
+  // is (FR-27.6). The bills among them go by the caller's own partition, in the controller.
+  ['invoicing/contact/:id/unpaid', any('sales-docs.view')],
   ['trade/pos/session/:id/device-report', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager')],
   // A filing's files name a person: they go to who files them and who audits them (FR-25 D10).
   ['accounting/vat/:period/file/:name', any('vat.file', 'audit-log.lookup')],
@@ -156,6 +176,8 @@ export const WRITE_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   // A new account is the admin's or the accountant's: the controller asks for `accounts.create` on top.
   ['accounting/account', any('accounts.edit', 'accounts.delete')],
   ['accounting/bank-account', writes('bank-accounts')],
+  // FR-25a §3.2: an analytic of LGR's own, its links and properties; the controller refuses one of the books (422).
+  ['accounting/analytics', any('accounts.edit')],
   ['accounting/exchange-rate', writes('exchange-rates')],
   ['accounting/fiscal-year', writes('accounting-setup')],
   ['accounting/fiscal-period', writes('accounting-setup')],
@@ -210,21 +232,21 @@ export const WRITE_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['pos', any('till.sell')],
 
   ['files', self('files-api: admin, or admin.settings; booking, undoing, reconciling or analysing a document also takes the write permission of what it books (booksRefusal)')],
-  ['fiscal', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager')],
-  ['user', self('admin role (S-21)')],
-  ['invite', self(ADMIN)],
-  ['permission-sets', self(ADMIN)],
-  ['roles', self('roles.edit, and FR-27.8 in role.service')],
-  ['apps', self(ADMIN)],
-  ['digest', self(ADMIN)],
-  ['backup', self('requireSysAdmin')],
+  ['fiscal', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager', DEVICE_WRITES)],
+  ['user', self('admin role (S-21)', ['users.edit'])],
+  ['invite', self(ADMIN, ['invites.manage'])],
+  ['permission-sets', self(ADMIN, ['roles.edit'])],
+  ['roles', self('roles.edit, and FR-27.8 in role.service', ['roles.edit'])],
+  ['apps', self(ADMIN, ['apps.manage'])],
+  ['digest', self(ADMIN, ['digest.manage'])],
+  ['backup', self('admin role of this org (guard): its own backups, made, listed, verified and downloaded; restoring, uploading a bundle and the restore history take requireSysAdmin')],
   ['desktops', self(ADMIN_OR_SETTINGS)],
   ['nodes', self(`${ADMIN_OR_SETTINGS} (FR-20.2; global only, 404 on a master)`)],
   ['moves', self(`${ADMIN_OR_SETTINGS} (FR-20.79; global only, 404 on a master)`)],
   ['address', self(`${ADMIN_OR_SETTINGS} (FR-20.72; global only, 404 on a master)`)],
   ['server', self(`${ADMIN_OR_SETTINGS} (FR-20.47; on the server only, 404 on lgrai.app)`)],
   ['numbering', self(`${ADMIN_OR_SETTINGS} (FR-20.51; every node)`)],
-  ['integration', self(ADMIN)],
+  ['integration', self(ADMIN, ['integrations.manage'])],
   ['logo', self(ADMIN)],
 ]
 
@@ -258,11 +280,15 @@ export const EXACT_WRITES: ReadonlyMap<string, AccessRule> = new Map([
   ['POST invoicing/export/list', self('canExport')],
   ['POST invoicing/export/kind/:kind', self('canExport')],
   ['POST invoicing/export/:id/email', self('canWrite, and outgoing issued documents only')],
+  // Several documents at once (2026-11-16). The request is refused only when the session may mail none of the
+  // body's kind; each document is then a row of the answer, decided by the same rule in the preview and the mail.
+  ['POST invoicing/export/email/preview', self("mayEmailKind for the body's kind, then invoiceEmailSkip, orderEmailSkip or internalOrderEmailSkip per document", DOC_EMAIL_WORK)],
+  ['POST invoicing/export/email', self("mayEmailKind for the body's kind, then invoiceEmailSkip, orderEmailSkip or internalOrderEmailSkip per document", DOC_EMAIL_WORK)],
   ['POST invoicing/stock-availability/check', any('stock-availability.check')],
   // FR-21.18, FR-23: the journal's storno and its settle. The route also requires a storno role.
   ['POST cash-register/documents/:id/storno', any('till.sell', 'sales-docs.edit')],
   ['POST cash-register/documents/:id/settle', any('till.sell', 'sales-docs.edit')],
-  ['POST trade/pos/session/:id/device-report', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager')],
+  ['POST trade/pos/session/:id/device-report', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager', ['devices.report'])],
   ['POST doc-import/extract', any('doc-import.extract')],
   ['POST doc-import/analyze', self('PERMISSION_BY_TARGET: the write permission of the surface imported into')],
   ['POST doc-import/commit', self('PERMISSION_BY_TARGET: the write permission of the surface imported into')],
@@ -287,7 +313,7 @@ export const EXACT_WRITES: ReadonlyMap<string, AccessRule> = new Map([
   ['DELETE file/:id', any('files.manage')],
 
   // The org itself.
-  ['PUT ', self('admin role (org.controller)')],
+  ['PUT ', self('admin role (org.controller)', ['org-settings.edit'])],
 ])
 
 const byLength = (rules: ReadonlyArray<readonly [string, AccessRule]>) => [...rules].sort((a, b) => b[0].length - a[0].length)

@@ -61,6 +61,10 @@ export const EXACT_WRITE_RULES: ReadonlyMap<string, WriteRule> = new Map<string,
   ['POST invoicing/export/list', { self: 'canExport' }],
   ['POST invoicing/export/kind/:kind', { self: 'canExport' }],
   ['POST invoicing/export/:id/email', { self: 'canWrite, and outgoing issued documents only' }],
+  // Several documents at once (2026-11-16): a session that may mail none of the body's kind is 403, and each
+  // document is then a row of the answer (`invoicing-api/lib/email-guards.ts`).
+  ['POST invoicing/export/email/preview', { self: "mayEmailKind for the body's kind, then invoiceEmailSkip, orderEmailSkip or internalOrderEmailSkip per document" }],
+  ['POST invoicing/export/email', { self: "mayEmailKind for the body's kind, then invoiceEmailSkip, orderEmailSkip or internalOrderEmailSkip per document" }],
   ['POST invoicing/stock-availability/check', { need: ['invoicing.read', 'inventory.read'] }],
   // FR-21.18: the journal's storno, from invoicing's /cash-sales. The route also requires a storno
   // role (admin, manager, warehouse_manager), as the till's does.
@@ -116,7 +120,7 @@ export const PREFIX_WRITE_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['roles', { self: 'roles.edit, and FR-27.8 in role.service' }],
   ['apps', { self: 'admin role' }],
   ['digest', { self: 'admin role' }],
-  ['backup', { self: 'requireSysAdmin' }],
+  ['backup', { self: 'admin role of this org (guard): its own backups, made, listed, verified and downloaded; restoring, uploading a bundle and the restore history take requireSysAdmin' }],
   ['desktops', { self: 'admin role, or admin.settings' }],
   ['nodes', { self: 'admin role, or admin.settings (FR-20.2; global only, 404 on a master)' }],
   ['moves', { self: 'admin role, or admin.settings (FR-20.79; global only, 404 on a master)' }],
@@ -207,7 +211,7 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   ['file', { need: ['admin.settings'] }],
   ['files', { self: 'files-api: admin, or admin.settings; the archives also for nra_auditor; the diff of a snapshot also takes what reading stock takes (compareRefusal)' }],
   ['digest', { self: 'admin role (FR-11): admin.settings deliberately does not suffice' }],
-  ['backup', { self: 'requireSysAdmin' }],
+  ['backup', { self: 'admin role of this org (guard): its own backups, made, listed, verified and downloaded; restoring, uploading a bundle and the restore history take requireSysAdmin' }],
   ['desktops', { self: 'admin role, or admin.settings' }],
   ['nodes', { self: 'admin role, or admin.settings (FR-20.2; global only, 404 on a master)' }],
   ['moves', { self: 'admin role, or admin.settings (FR-20.79; global only, 404 on a master)' }],
@@ -233,6 +237,8 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
 export const EXACT_READ_RULES: ReadonlyMap<string, WriteRule> = new Map<string, WriteRule>([
   // A contact's amounts due and paid: the invoicing app's, not the pickers'.
   ['invoicing/contact/:id/summary', { need: INVOICING }],
+  // And the documents that sum is made of: the invoicing app reads its documents.
+  ['invoicing/contact/:id/unpaid', { need: INVOICING }],
   // What the POS Sessions menu offers: the roles of the route it posts to.
   ['trade/pos/session/:id/device-report', { self: 'FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager' }],
   // A filing's files name a person: DEKLAR its filer, VIES its declarant's ЕГН. They go to who files

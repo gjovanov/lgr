@@ -23,6 +23,7 @@
  *     `storeOperations:<date>`) — the same markers `check-doc-sequences` looks for.
  */
 import { deliveryNote, movementMarker as noteMarker } from 'config/movement-notes'
+import { tierNameOfLabel } from 'config/price-tiers'
 import { Product, StockLevel, Warehouse } from 'db/models'
 import { normalizeUomBg } from '../uom.utils.js'
 import { clean, num } from './detect.js'
@@ -113,12 +114,15 @@ export interface MapMovementResult {
 /**
  * Resolve the store printed on a note to one of our warehouses. Matched on the full value
  * and on the leaf after a colon, because the exports print `ОБЕКТИ:СКЛАД - 1`.
+ *
+ * ⚠ One of OUR warehouses: an external one (another site's, named here for transfers) is never the
+ * answer, even under the same name. The note books stock, and an external warehouse keeps none.
  */
 export async function resolveWarehouse(orgId: string, printed?: string | null): Promise<string | null> {
   const raw = clean(printed)
   if (!raw || /всички\s+складове/i.test(raw)) return null
   const candidates = [raw, storeLeaf(raw)].map(s => s.toLocaleLowerCase('bg'))
-  const all: any[] = await Warehouse.find({ orgId, isActive: { $ne: false } } as any, { name: 1, code: 1 }).lean()
+  const all: any[] = await Warehouse.find({ orgId, isActive: { $ne: false }, isExternal: { $ne: true } } as any, { name: 1, code: 1 }).lean()
   const hit = all.find(w =>
     candidates.includes(String(w.name || '').toLocaleLowerCase('bg'))
     || candidates.includes(String(w.code || '').toLocaleLowerCase('bg')),
@@ -157,14 +161,20 @@ async function productPriceMap(orgId: string, productIds: string[]): Promise<Map
   return out
 }
 
-/** Price-tier slots for a NEW product: cost in Доставна цена, sale tiers tagged by name. */
-export function buildTiers(cost: number, tiers: Record<string, number> | undefined) {
+/**
+ * Price-tier slots for a NEW product: the delivery price in Доставна цена, sale tiers tagged by name.
+ *
+ * `purchase` is the article's purchase price, which each slot's margin is over. It was the delivery price itself until
+ * 2026-11-15; a new article's purchase price is now taken from its „Цена 2" (`config/price-tiers`), so the caller
+ * that knows it passes it. The delivery price still fills the „Доставна цена" slot, whatever the purchase price is.
+ */
+export function buildTiers(cost: number, tiers: Record<string, number> | undefined, purchase: number = cost) {
   const delivered = canonicalTiers(tiers)
   return TIER_NAMES.map((name) => {
     const price = name === 'Доставна цена' ? cost : (delivered[name] ?? 0)
     return {
       name,
-      percent: cost > 0 && price > 0 ? +(((price - cost) / cost) * 100).toFixed(1) : 0,
+      percent: purchase > 0 && price > 0 ? +(((price - purchase) / purchase) * 100).toFixed(1) : 0,
       finalPrice: price,
       manualOverride: price > 0,
       contactIds: [] as string[],
@@ -201,7 +211,10 @@ export function repriceTiers(existing: any[] | undefined, tiers: Record<string, 
   return slots
 }
 
-/** Cost-side slots a разписка must leave alone — they mirror the buying price, not a sale tier. */
+/**
+ * Cost-side slots a разписка must leave alone on a product that exists: none is a sale tier. They are matched by
+ * their STORED names („Доставна цена" is the price with the trade discount, drawn as „Цена с ТО": `config/price-tiers`).
+ */
 export const PROTECTED_TIERS = new Set(['Доставна цена', 'Цена на едро', 'Цена 0', 'Прод. цена'])
 
 /** The sale-tier subset of a line's price columns (everything except the cost column). */
@@ -220,6 +233,9 @@ const CANON_BY_SQUASH = new Map<string, string>(
 )
 
 function canonicalTierName(k: string): string {
+  // A heading that carries the slot's LABEL („Цена с ТО", `config/price-tiers`) is the slot it stands for.
+  const labelled = tierNameOfLabel(k)
+  if (labelled) return labelled
   const m = k.match(/^\s*Цена\s*(\d+)\s*$/)
   if (m) return 'Цена ' + m[1]
   return CANON_BY_SQUASH.get(k.replace(/\s+/g, '').toLocaleLowerCase('bg')) ?? k.trim()
@@ -318,9 +334,10 @@ export async function mapMovementExtraction(
         }
       }
     }
-    // „Цена" is the DELIVERY price — the Excel's „Дост. цена". Checked against the live catalog on
-    // 2026-08-31: it equals the product's purchasePrice, its avgCost AND its „Доставна цена" slot on
-    // every product sampled. What we SELL for is „Прод. цена", a separate column the wide layout
+    // „Цена" is the DELIVERY price — the Excel's „Дост. цена": the product's „Доставна цена" slot (drawn as
+    // „Цена с ТО", `config/price-tiers`) and its avgCost. ⚠ It is NOT the purchase price: until 2026-11-15 an
+    // import wrote it there too, and the two were equal on every product. A new article's purchase price is its
+    // „Цена 2" / 1.2 now (`newProductDoc`). What we SELL for is „Прод. цена", a separate column the wide layout
     // added. An older разписка carries no selling price at all, and then sellingPrice must be left
     // alone — filling it from „Цена" set every received product's price to what we paid for it.
     const deliveryPrice = num(li.prices?.['Цена'] ?? li.unit_price)

@@ -3,8 +3,8 @@ import { activeContact, apiLogin, apiPost } from './api'
 
 /**
  * A draft document of the kind a document form edits, made through the API: a one-line service
- * document for the seeded customer (outgoing) or supplier (incoming). The seed has no proformas,
- * so a spec that needs one makes it here.
+ * document for the seeded customer (outgoing) or supplier (incoming). The seed has no proformas
+ * and no offers, so a spec that needs one makes it here.
  *
  * Nothing is deleted afterwards: the specs run against a seeded throwaway database, and a draft
  * is what the lists already hold.
@@ -16,7 +16,7 @@ export interface DraftDocument {
 }
 
 export async function draftDocument(
-  type: 'invoice' | 'proforma',
+  type: 'invoice' | 'proforma' | 'offer',
   direction: 'incoming' | 'outgoing',
   description = `E2E draft ${Date.now().toString(36)}`,
 ): Promise<DraftDocument> {

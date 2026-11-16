@@ -12,6 +12,7 @@
  *       the dry run. Counts only: how many receipts name nobody, why each group is left alone, how many it would
  *       name. `--names` adds the partner names that matched no single active supplier, with their receipts, for
  *       the person who will add or fix those contacts (names of the org's partners: keep that output private).
+ *       A short or respelled name of a supplier that exists is fixed on that contact, under „Also known as".
  *       `--partners` names the receipts that keep no partner of their own (everything booked before the importers
  *       recorded one) by the number of the document each says it is. Pass the same file to the run that writes.
  *   bun scripts/backfill-receipt-suppliers.ts --org <slug> --execute --expect <receipts> [--partners <partners.json>] [--manifest <file.ndjson>] [--reason "<text>"]
@@ -114,10 +115,10 @@ try {
     row(counts.unresolved, `name a partner that matched no single active supplier (${unresolved.length} names): left alone`)
     row(counts.resolved, `receipts to name their supplier (${from('notes')} from their notes, ${from('document')} from their document${partners ? `, ${from('given')} from the partners given` : ''})`)
     const by = (rule: ReceiptSupplierPlan['rule']) => plans.filter(p => p.rule === rule).length
-    if (plans.length) console.log(`        of them ${by('name')} by the supplier's own name, ${by('punctuation')} by the same words with other punctuation, ${by('taxNumber')} by the tax number of the customer that has the name`)
+    if (plans.length) console.log(`        of them ${by('name')} by the supplier's own name, ${by('punctuation')} by the same words with other punctuation, ${by('alias')} by one of the supplier's other names (Also known as), ${by('taxNumber')} by the tax number of the customer that has the name`)
 
     if (unresolved.length && args.names) {
-      console.log('\nPartner names that matched no single active supplier. Add the supplier, make the contact a supplier, or leave it if it is one of the org\'s own stores; then run this again:')
+      console.log('\nPartner names that matched no single active supplier. Add the supplier, add the name to the supplier it is (Also known as, on the contact), make the contact a supplier, or leave it if it is one of the org\'s own stores; then run this again:')
       for (const u of unresolved) {
         const why = u.reason === 'ambiguous' ? `${u.candidates} active suppliers share the name` : u.heldBy ? `no active supplier; the name is held by: ${u.heldBy}` : 'no contact of that name'
         console.log(`   "${u.name}" — ${why} — ${u.receipts.length} receipt(s): ${u.receipts.join(', ')}`)

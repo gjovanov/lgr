@@ -9,6 +9,9 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
 import { pickerContacts } from 'services/biz/contact-picker.service'
 import { Invoice, StockMovement } from 'db/models'
+import { cleanContactAliases, MAX_CONTACT_ALIASES, MAX_CONTACT_ALIAS_LENGTH } from 'config/contact-aliases'
+import { QUOTE_TYPES } from 'config/constants'
+import { MAX_REPRESENTATIVE_LENGTH } from 'config/party-identity'
 
 /**
  * Email is optional, and an empty box is how a form says "none". `format: 'email'` alone
@@ -23,6 +26,69 @@ const optionalEmail = t.Optional(t.Union(
   { error: 'Expected a valid email address (or leave it empty)' },
 ))
 
+/**
+ * A contact's other names („Also known as", FR-28.12). The bounds only keep a careless client from storing a
+ * document's worth of text; what is stored is `cleanContactAliases` of what came.
+ */
+const otherNames = t.Optional(t.Array(
+  t.String({ maxLength: MAX_CONTACT_ALIAS_LENGTH }),
+  { maxItems: MAX_CONTACT_ALIASES, error: `Expected at most ${MAX_CONTACT_ALIASES} other names, each up to ${MAX_CONTACT_ALIAS_LENGTH} characters` },
+))
+
+/**
+ * The МОЛ (FR-25a), a person's name: bounded so a careless client cannot store a document's worth of text, and stored
+ * trimmed (`trimmedRepresentative`). ⚠ Named in each body, or `t.Object` drops it and answers 200.
+ */
+const representativeField = t.Optional(t.String({ maxLength: MAX_REPRESENTATIVE_LENGTH }))
+
+/** The МОЛ as it is stored: trimmed; undefined when the body does not carry it. */
+const trimmedRepresentative = (v: string | undefined) => (typeof v === 'string' ? v.trim() : undefined)
+
+/** The statuses in which a document still owes. */
+const OWING_STATUSES = ['sent', 'partially_paid', 'overdue', 'received'] as const
+
+/** The most rows the Open Balance list sends. Its count and its total are always of them all. */
+export const UNPAID_LIST_MAX = 500
+
+/**
+ * The contact's documents that still owe: what the contact form's Open Balance button sums, and what the list
+ * behind it shows. One reader, so the figure on the button and the rows under it cannot disagree.
+ */
+function owingDocuments(orgId: string, contactId: string, user: unknown, fields: string) {
+  // FR-26.6: without `purchases` the contact's bills are no part of what they are shown.
+  const side = seesBills(user as any) ? {} : { direction: 'outgoing' }
+  return Invoice.find({
+    orgId,
+    contactId,
+    ...side,
+    status: { $in: [...OWING_STATUSES] },
+    // An issued quote (a proforma, an offer) is `sent` and owes nothing (FR-22.22).
+    type: { $nin: [...QUOTE_TYPES] },
+  } as any).select(fields).lean()
+}
+
+/** A document's stored amount as it counts in a sum (#447): a credit note's is owed TO the contact. */
+const signed = (inv: any, amount: unknown): number => moneySign(inv.type) * (Number(amount) || 0)
+
+/** What a document still owes, signed. */
+function owedBy(inv: any): number {
+  return signed(inv, inv.amountDue ?? (inv.total - (inv.amountPaid || 0)))
+}
+
+/** What the documents owe together, in their one currency; no figure when they are in several. */
+function openBalanceOf(docs: any[]): { openBalance: number | null; currency: string | null; mixedCurrency: boolean } {
+  let sum = 0
+  let mixedCurrency = false
+  let currency: string | null = null
+  for (const inv of docs) {
+    sum += owedBy(inv)
+    const c = inv.currency || null
+    if (currency == null) currency = c
+    else if (c && c !== currency) mixedCurrency = true
+  }
+  return { openBalance: mixedCurrency ? null : +sum.toFixed(2), currency: mixedCurrency ? null : currency, mixedCurrency }
+}
+
 export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/contact' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
@@ -31,9 +97,13 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
 
     const filter: Record<string, any> = { orgId }
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['companyName', 'firstName', 'lastName', 'email', 'phone', 'taxId', 'vatNumber'], {
+      // `aliases`: a contact is found by its other names too („Also known as"), in the list and in every picker.
+      // `representative`: and by its МОЛ (FR-25a), through its mirror (`scripts/backfill-contact-representative-lower.ts`).
+      const searchFilter = buildSearchFilter(query.search as string, ['companyName', 'aliases', 'firstName', 'lastName', 'email', 'phone', 'taxId', 'vatNumber', 'representative'], {
         lowered: {
           companyName: 'companyNameLower',
+          aliases: 'aliasesLower',
+          representative: 'representativeLower',
           firstName: 'firstNameLower',
           lastName: 'lastNameLower',
           email: 'emailLower',
@@ -77,9 +147,11 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
 
-      // An empty email means none: store nothing rather than ''.
-      const { email, ...rest } = body
-      const contact = await r.contacts.create({ ...rest, ...(email ? { email } : {}), orgId } as any)
+      // An empty email means none: store nothing rather than ''. The same for other names and the МОЛ: none, no field.
+      const { email, aliases, representative, ...rest } = body
+      const names = cleanContactAliases(aliases, rest.companyName)
+      const mol = trimmedRepresentative(representative)
+      const contact = await r.contacts.create({ ...rest, ...(email ? { email } : {}), ...(names.length ? { aliases: names } : {}), ...(mol ? { representative: mol } : {}), orgId } as any)
       await upsertTags(orgId, 'contact', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'contact', entityId: contact.id, entityName: (contact as any).companyName || (contact as any).firstName })
@@ -110,7 +182,10 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         creditLimit: t.Optional(t.Number()),
         discount: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
+        // FR-25a: the МОЛ. ⚠ Named here, or `t.Object` drops it and answers 200.
+        representative: representativeField,
         tags: t.Optional(t.Array(t.String())),
+        aliases: otherNames,
         isActive: t.Optional(t.Boolean()),
         addresses: t.Optional(t.Array(t.Object({
           type: t.Optional(t.String()),
@@ -152,34 +227,40 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       // FR-23: the two counts, not a `$ne` on the type, which would fetch every document the contact has.
       Invoice.countDocuments({ orgId, contactId: id, ...side } as any),
       Invoice.countDocuments({ orgId, type: { $in: ['payment_receipt', 'payment_storno'] }, contactId: id, ...side } as any),
-      Invoice.find({
-        orgId,
-        contactId: id,
-        ...side,
-        status: { $in: ['sent', 'partially_paid', 'overdue', 'received'] },
-      } as any).select('type amountDue total amountPaid currency').lean(),
+      owingDocuments(orgId, id, user, 'type amountDue total amountPaid currency'),
       StockMovement.countDocuments({ orgId, contactId: id } as any),
     ])
 
-    const invoiceCount = documents - receipts
-    let openBalance = 0
-    let mixedCurrency = false
-    let currency: string | null = null
-    for (const inv of unpaid) {
-      const due = (inv as any).amountDue ?? ((inv as any).total - ((inv as any).amountPaid || 0))
-      // #447: what a credit note still owes is owed TO the contact, and takes from their balance.
-      openBalance += moneySign((inv as any).type) * (Number(due) || 0)
-      const c = (inv as any).currency || null
-      if (currency == null) currency = c
-      else if (c && c !== currency) mixedCurrency = true
-    }
+    return { invoiceCount: documents - receipts, ...openBalanceOf(unpaid), movementCount }
+  }, { isSignIn: true })
+  // The documents behind the Open Balance button, each with what it still owes: the summary's own reader, so the
+  // rows add up to the button's figure. The longest due first.
+  .get('/:id/unpaid', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const time = (d: unknown) => (d ? new Date(d as any).getTime() : 0)
+    const owing = (await owingDocuments(orgId, id, user, 'type direction invoiceNumber issueDate dueDate status total amountDue amountPaid currency'))
+      .map((inv: any) => ({ inv, due: +owedBy(inv).toFixed(2) }))
+      // Issued, with nothing left to pay (a document of 0): it owes nothing, and adds nothing to the sum.
+      .filter(d => d.due !== 0)
+      .sort((a, b) => time(a.inv.dueDate ?? a.inv.issueDate) - time(b.inv.dueDate ?? b.inv.issueDate))
 
     return {
-      invoiceCount,
-      openBalance: mixedCurrency ? null : +openBalance.toFixed(2),
-      currency: mixedCurrency ? null : currency,
-      mixedCurrency,
-      movementCount,
+      documents: owing.slice(0, UNPAID_LIST_MAX).map(({ inv, due }) => ({
+        _id: String(inv._id),
+        type: inv.type,
+        direction: inv.direction,
+        invoiceNumber: inv.invoiceNumber,
+        issueDate: inv.issueDate,
+        dueDate: inv.dueDate,
+        status: inv.status,
+        currency: inv.currency,
+        // Signed like `due`, so a row reads total − paid = due whatever its type.
+        total: +signed(inv, inv.total).toFixed(2),
+        amountPaid: +signed(inv, inv.amountPaid).toFixed(2),
+        due,
+      })),
+      count: owing.length,
+      ...openBalanceOf(owing.map(d => d.inv)),
     }
   }, { isSignIn: true })
   .put(
@@ -191,7 +272,12 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
       const existing = await r.contacts.findOne({ id, orgId } as any)
       if (!existing) return status(404, { message: 'Contact not found' })
 
-      const contact = await r.contacts.updateInOrg(id, orgId, body as any)
+      // Other names are stored cleaned, against the name the contact will have after this save. A body that does
+      // not carry them leaves them as they are; an empty list clears them.
+      const names = body.aliases === undefined ? undefined : cleanContactAliases(body.aliases, body.companyName ?? (existing as any).companyName)
+      // The МОЛ is stored trimmed; `''` clears it, as it does every text field of the form.
+      const mol = trimmedRepresentative(body.representative)
+      const contact = await r.contacts.updateInOrg(id, orgId, { ...body, ...(names ? { aliases: names } : {}), ...(mol !== undefined ? { representative: mol } : {}) } as any)
       await upsertTags(orgId, 'contact', body.tags)
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'contact', entityId: id, entityName: (contact as any).companyName || (contact as any).firstName, changes: diffChanges(existing as any, contact as any) })
@@ -222,7 +308,10 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
         creditLimit: t.Optional(t.Number()),
         discount: t.Optional(t.Number()),
         notes: t.Optional(t.String()),
+        // FR-25a: the МОЛ. ⚠ Named here, or `t.Object` drops it and answers 200.
+        representative: representativeField,
         tags: t.Optional(t.Array(t.String())),
+        aliases: otherNames,
         isActive: t.Optional(t.Boolean()),
         addresses: t.Optional(t.Array(t.Object({
           type: t.Optional(t.String()),

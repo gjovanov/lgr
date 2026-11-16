@@ -5,7 +5,7 @@ import type { UserTokenized } from '../biz/auth.service'
 import { buildScopedRepos } from '../biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from '../biz/tenant-guard'
 import { shadowAccess } from '../biz/access/shadow'
-import { decideAccess, sortAccessRefusal } from '../biz/access/evaluate'
+import { decideAccess, floorRefusal, sortAccessRefusal } from '../biz/access/evaluate'
 import { attachAccess } from '../biz/access/live'
 import { homeGate } from '../biz/home-gate'
 import { licenceGate } from '../biz/licence/master-licence.service'
@@ -64,6 +64,9 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
     const refusal = decideAccess(user, request.method, route)
     shadowAccess(user, params?.orgId, request.method, route, !!refusal)
     if (refusal) throw status(403, refusal)
+    // S-28: a route whose controller decides refuses here a caller holding none of its floor, before validation.
+    const floor = floorRefusal(user, request.method, route)
+    if (floor) throw status(403, floor)
     // FR-27.11.C.3: a sort on a price the role does not see.
     const sorted = sortAccessRefusal(user, request.url)
     if (sorted) throw status(403, sorted)

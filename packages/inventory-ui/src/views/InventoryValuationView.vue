@@ -87,6 +87,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -123,7 +124,7 @@ const unitAggregation = computed(() => {
 })
 
 function fmtCurrency(val: number) { return formatCurrency(val, baseCurrency.value, localeCode.value) }
-function fmtQty(val: number) { return new Intl.NumberFormat(localeCode.value, { maximumFractionDigits: 2 }).format(val) }
+function fmtQty(val: number) { return numberFormat(localeCode.value, { maximumFractionDigits: 2 }).format(val) }
 
 function costingLabel(method: string) {
   const labels: Record<string, string> = {

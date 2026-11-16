@@ -249,9 +249,10 @@ describe('C.1 / C.2 what else carries a cost', () => {
   let reader: string
   beforeAll(async () => {
     const org: any = await Org.findById(orgId).lean().exec()
-    // What `invoicing.read` + `inventory.read` give, less the cost figures.
-    const caps = [...(compileLegacy({ role: 'member', permissions: ['invoicing.read', 'inventory.read'] }) as any).caps].filter((c: string) => c !== 'products.costs')
-    const role: any = await Role.create({ orgId: org._id, name: 'Reader (no costs)', isBuiltin: false, edited: true, version: 1, legacy: { role: 'member', permissions: ['invoicing.read', 'inventory.read'] }, caps } as any)
+    // What `invoicing.read` + `inventory.read` give, and the Reports app, less the cost figures.
+    const permissions = ['invoicing.read', 'inventory.read', 'reports.read']
+    const caps = [...(compileLegacy({ role: 'member', permissions }) as any).caps].filter((c: string) => c !== 'products.costs')
+    const role: any = await Role.create({ orgId: org._id, name: 'Reader (no costs)', isBuiltin: false, edited: true, version: 1, legacy: { role: 'member', permissions }, caps } as any)
     const person = await createTestUser(org._id, { role: 'member', username: 'reader', email: 'reader@price-levels.test' } as any)
     await User.updateOne({ _id: person._id }, { $set: { roleId: role._id } }).exec()
     forgetMember(person._id)
@@ -270,6 +271,35 @@ describe('C.1 / C.2 what else carries a cost', () => {
     expect((await call('GET', `/warehouse/movement/${m._id}`, tokens.admin)).json.stockMovement.lines[0].unitCost).toBe(9)
   })
 
+  it("a movement's own total is those costs summed: absent by id and in the list, which is not ordered by it", async () => {
+    const org: any = await Org.findById(orgId).lean().exec()
+    // Two receipts of one line each, so each total IS its line's cost. Dated apart from every other movement here.
+    const dear: any = await createTestStockMovement(org._id, { type: 'receipt', movementNumber: 'SM-PL-DEAR', date: new Date('2026-01-02'), totalAmount: 500, lines: [{ productId, quantity: 1, unitCost: 500, totalCost: 500 }] } as any)
+    await createTestStockMovement(org._id, { type: 'receipt', movementNumber: 'SM-PL-CHEAP', date: new Date('2026-01-03'), totalAmount: 5, lines: [{ productId, quantity: 1, unitCost: 5, totalCost: 5 }] } as any)
+    const totals = ['totalAmount', 'total']
+
+    const mine = (await call('GET', `/warehouse/movement/${dear._id}`, reader)).json.stockMovement
+    expect(mine.movementNumber).toBe('SM-PL-DEAR')
+    expect(totals.filter(k => k in mine)).toEqual([])
+    expect((await call('GET', `/warehouse/movement/${dear._id}`, tokens.admin)).json.stockMovement.totalAmount).toBe(500)
+
+    const listed = async (token: string, sort = '') =>
+      (await call('GET', `/warehouse/movement?dateFrom=2026-01-01&dateTo=2026-01-04&size=50${sort}`, token)).json.stockMovements as any[]
+    const numbers = (rows: any[]) => rows.map(r => r.number)
+    const rows = await listed(reader)
+    expect(numbers(rows)).toEqual(['SM-PL-CHEAP', 'SM-PL-DEAR']) // newest first, as the list comes unasked
+    expect(rows.flatMap(r => totals.filter(k => k in r))).toEqual([])
+    expect((await listed(tokens.admin)).map(r => r.total)).toEqual([5, 500])
+
+    // Ordered by the total, the Administrator's list is. The reader's comes as it does unasked: an order by a figure
+    // it is not sent would say which receipt cost more.
+    expect(numbers(await listed(tokens.admin, '&sortBy=total&sortOrder=desc'))).toEqual(['SM-PL-DEAR', 'SM-PL-CHEAP'])
+    for (const key of ['total', 'totalAmount']) {
+      expect(numbers(await listed(reader, `&sortBy=${key}&sortOrder=desc`))).toEqual(['SM-PL-CHEAP', 'SM-PL-DEAR'])
+      expect(numbers(await listed(reader, `&sortBy=${key}&sortOrder=asc`))).toEqual(['SM-PL-CHEAP', 'SM-PL-DEAR'])
+    }
+  })
+
   it("the product ledger: no unit cost, line value, running value or current value", async () => {
     const mine = await call('GET', `/warehouse/product-ledger/${productId}`, reader)
     expect(mine.status).toBe(200)
@@ -284,6 +314,62 @@ describe('C.1 / C.2 what else carries a cost', () => {
     for (const e of mine.json.entries) expect('purchasePrice' in e).toBe(false)
     const theirs = await call('GET', `/invoicing/contact-ledger/${contactId}`, tokens.admin)
     expect(typeof theirs.json.summary.profitabilityNet).toBe('number')
+  })
+
+  it("the contact ledger: a stock movement's own row carries no unit cost and no value; the report that reads it, the same", async () => {
+    const org: any = await Org.findById(orgId).lean().exec()
+    const wh: any = await createTestWarehouse(org._id)
+    await createTestStockMovement(org._id, {
+      movementNumber: 'SM-PL-OUT', type: 'transfer', status: 'completed', fromWarehouseId: wh._id, contactId,
+      lines: [{ productId, quantity: 4, unitCost: 9, totalCost: 36 }],
+    } as any)
+    const movement = (r: any) => (r.json.entries ?? r.json.rows).find((e: any) => e.documentType === 'stock_movement')
+
+    const mine = await call('GET', `/invoicing/contact-ledger/${contactId}`, reader)
+    expect(mine.status).toBe(200)
+    expect(movement(mine).movements.map((m: any) => m.number)).toEqual(['SM-PL-OUT'])
+    expect(movement(mine).quantity).toBe(4)
+    expect(['unitPrice', 'lineTotal'].filter(k => k in movement(mine))).toEqual([])
+    // A document's row keeps its price: what the customer was charged is no cost figure.
+    expect(mine.json.entries.find((e: any) => e.documentNumber === 'INV-PL-1').unitPrice).toBe(20)
+    const theirs = await call('GET', `/invoicing/contact-ledger/${contactId}`, tokens.admin)
+    expect([movement(theirs).unitPrice, movement(theirs).lineTotal]).toEqual([9, 36])
+
+    const report = await call('POST', '/reports/contact-ledger/run', reader, { params: { contactId } })
+    expect(report.status).toBe(200)
+    expect(movement(report).movementNumbers).toBe('SM-PL-OUT')
+    expect(['unitPrice', 'lineTotal'].filter(k => k in movement(report))).toEqual([])
+    expect(movement(report)._href).toBe(`/inventory/movements/${movement(report).documentId}`)
+    const admins = await call('POST', '/reports/contact-ledger/run', tokens.admin, { params: { contactId } })
+    expect([movement(admins).unitPrice, movement(admins).lineTotal]).toEqual([9, 36])
+  })
+
+  it('the reports that read the two ledgers carry what the ledgers carry: no profitability, no unit, line, running or current value', async () => {
+    const org: any = await Org.findById(orgId).lean().exec()
+    const wh: any = await createTestWarehouse(org._id)
+    // An article of its own: the count above booked an adjustment of the bolt.
+    const nut: any = await Product.create({ orgId: org._id, sku: 'N-1', name: 'Nut', category: 'Общи', type: 'goods', unit: 'pcs', purchasePrice: 9, sellingPrice: 20 } as any)
+    await createTestStockMovement(org._id, { type: 'receipt', status: 'completed', toWarehouseId: wh._id, lines: [{ productId: nut._id, quantity: 3, unitCost: 9, totalCost: 27 }] } as any)
+
+    const contact = await call('POST', '/reports/contact-ledger/run', reader, { params: { contactId } })
+    expect(contact.status).toBe(200)
+    expect(contact.json.rows.length).toBeGreaterThan(0)
+    expect(typeof contact.json.meta.ledgerSummary.totalSalesNet).toBe('number')
+    expect('profitabilityNet' in contact.json.meta.ledgerSummary || 'profitabilityGross' in contact.json.meta.ledgerSummary).toBe(false)
+
+    const article = await call('POST', '/reports/product-ledger/run', reader, { params: { productId: String(nut._id) } })
+    expect(article.status).toBe(200)
+    expect(article.json.rows).toHaveLength(1)
+    expect(article.json.meta.ledgerSummary.totalIn).toBe(3)
+    expect('currentValue' in article.json.meta.ledgerSummary).toBe(false)
+    for (const r of article.json.rows) expect(['unitCost', 'lineTotalCost', 'runningValue'].filter(k => k in r)).toEqual([])
+    expect(article.json.columns.map((c: any) => c.key)).not.toContain('unitCost')
+
+    // The Administrator's carry them.
+    const theirs = await call('POST', '/reports/product-ledger/run', tokens.admin, { params: { productId: String(nut._id) } })
+    expect(theirs.json.meta.ledgerSummary.currentValue).toBe(27)
+    expect(theirs.json.rows.map((r: any) => [r.unitCost, r.lineTotalCost, r.runningValue])).toEqual([[9, 27, 27]])
+    expect(typeof (await call('POST', '/reports/contact-ledger/run', tokens.admin, { params: { contactId } })).json.meta.ledgerSummary.profitabilityNet).toBe('number')
   })
 
   it("an outgoing order's sheet (XLSX), like its JSON: no expected purchase price; the Administrator's has it", async () => {
@@ -399,5 +485,96 @@ describe('C.4 / C.6 the trail is not overwritten, and every answer is redacted',
     const list = await call('GET', '/invoices?size=50', writer)
     expect(list.status).toBe(200)
     expect(JSON.stringify(list.json)).not.toContain('Цена 3')
+  })
+
+  // A conversion answers with the draft invoice it made, from another controller than the invoices': the same rule.
+  describe('the draft a conversion answers with', () => {
+    const today = new Date().toISOString().slice(0, 10)
+    let warehouseId: string
+    const ok = async (method: string, path: string, body?: unknown) => {
+      const res = await call(method, path, tokens.admin, body)
+      expect(res.status, `${method} ${path}: ${JSON.stringify(res.json)}`).toBe(200)
+      return res.json
+    }
+    /** What the clerk was answered names no hidden level; what is stored is whole. */
+    const expectRedacted = async (conv: { status: number; json: any }) => {
+      expect(conv.status, JSON.stringify(conv.json)).toBe(200)
+      expect(JSON.stringify(conv.json)).not.toContain('Цена 3')
+      const line = conv.json.invoice.lines[0]
+      expect(line.unitPrice).toBe(15)
+      expect(line.priceExplanation).toEqual([trail[0], { type: 'customer', label: 'Customer price', price: 15 }])
+      const stored: any = await Invoice.findById(conv.json.invoice._id ?? conv.json.invoice.id).lean().exec()
+      expect(stored.lines[0].priceExplanation.map((s: any) => [s.type, s.label, s.price])).toEqual([['base', 'Selling price', 20], ['tier', 'Цена 3', 15]])
+    }
+
+    beforeAll(async () => {
+      const org: any = await Org.findById(orgId).lean().exec()
+      const wh = await createTestWarehouse(org._id, { name: 'Conversion WH', code: 'CVW' } as any)
+      warehouseId = String(wh._id)
+    })
+
+    it('a customer order converted by the clerk', async () => {
+      await StockLevel.create({ orgId, productId, warehouseId, quantity: 5, availableQuantity: 5, avgCost: 9 } as any)
+      const { internalOrder } = await ok('POST', '/invoicing/internal-orders', {
+        contactId, issueDate: today, requestedDeliveryDate: today, warehouseId,
+        lines: [{ productId, description: 'Bolt', quantity: 2, unit: 'pcs', expectedUnitPrice: 20 }],
+      })
+      await ok('POST', `/invoicing/internal-orders/${internalOrder._id}/confirm`)
+      await ok('POST', `/invoicing/internal-orders/${internalOrder._id}/reserve-available`, {})
+
+      await expectRedacted(await call('POST', `/invoicing/internal-orders/${internalOrder._id}/convert`, writer))
+    })
+
+    it('a supplier order converted by the clerk for that client', async () => {
+      const supplier: any = await createTestContact(orgId as any, { type: 'supplier', companyName: 'Conversion supplier' } as any)
+      const { order: made } = await ok('POST', '/invoicing/orders', {
+        issueDate: today,
+        supplierGroups: [{
+          supplierId: String(supplier._id),
+          lines: [{ productId, description: 'Bolt', quantity: 3, unit: 'pcs', expectedUnitPrice: 9, allocations: [{ warehouseId, quantity: 3 }] }],
+        }],
+      })
+      const { order } = await ok('POST', `/invoicing/orders/${made._id}/send`)
+      const g = order.supplierGroups[0]
+      const l = g.lines[0]
+      const a = l.allocations[0]
+      await ok('POST', '/invoicing/reservations', {
+        source: 'order', productId, quantity: 3, contactId,
+        orderId: String(order._id), groupId: String(g._id), lineId: String(l._id), allocationId: String(a._id),
+      })
+      // The goods arrive: a bill against the allocation, received.
+      const { invoice: bill } = await ok('POST', '/invoices', {
+        type: 'invoice', direction: 'incoming', contactId: String(supplier._id), issueDate: today, currency: 'EUR',
+        orderId: String(order._id), orderGroupId: String(g._id),
+        lines: [{
+          productId, description: 'Bolt', quantity: 3, unit: 'pcs', unitPrice: 9, taxRate: 20, warehouseId,
+          orderRef: { orderId: String(order._id), groupId: String(g._id), lineId: String(l._id), allocationId: String(a._id) },
+        }],
+        subtotal: 27, total: 32.4,
+      })
+      await ok('POST', `/invoices/${bill._id ?? bill.id}/receive`)
+
+      await expectRedacted(await call('POST', `/invoicing/orders/${order._id}/convert`, writer, { contactId }))
+    })
+
+    it('a line whose price was chosen on the order: the order\'s step stays, the level the customer resolves to is not named', async () => {
+      const { internalOrder } = await ok('POST', '/invoicing/internal-orders', {
+        contactId, issueDate: today, requestedDeliveryDate: today, warehouseId,
+        lines: [{ productId, description: 'Bolt', quantity: 2, unit: 'pcs', expectedUnitPrice: 14, pricePinned: true }],
+      })
+      const { internalOrder: confirmed } = await ok('POST', `/invoicing/internal-orders/${internalOrder._id}/confirm`)
+      await ok('POST', `/invoicing/internal-orders/${internalOrder._id}/reserve-available`, {})
+
+      const conv = await call('POST', `/invoicing/internal-orders/${internalOrder._id}/convert`, writer)
+      expect(conv.status, JSON.stringify(conv.json)).toBe(200)
+      expect(JSON.stringify(conv.json)).not.toContain('Цена 3')
+      const line = conv.json.invoice.lines[0]
+      expect(line.unitPrice).toBe(14)
+      // The hidden level lost to the order's price: a losing step is not named at all. The override is the person's own.
+      expect(line.priceExplanation).toEqual([trail[0], { type: 'override', label: confirmed.orderNumber, price: 14 }])
+      const stored: any = await Invoice.findById(conv.json.invoice._id ?? conv.json.invoice.id).lean().exec()
+      expect(stored.lines[0].priceExplanation.map((s: any) => [s.type, s.label, s.price]))
+        .toEqual([['base', 'Selling price', 20], ['tier', 'Цена 3', 15], ['override', confirmed.orderNumber, 14]])
+    })
   })
 })

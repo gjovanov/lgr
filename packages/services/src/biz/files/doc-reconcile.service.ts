@@ -3,7 +3,7 @@ import { createAuditEntry } from '../audit-log.service.js'
 import { analyzeDocFile, targetForDocType } from './doc-pipeline.service.js'
 import { reconcileNote } from 'config/movement-notes'
 import { confirmMovement } from '../warehouse.service.js'
-import { stockMovementDao } from '../../dao/warehouse/stock-movement.dao.js'
+import { withMovementNumber } from '../movement-number.js'
 
 /**
  * Files app — idempotent create/update/DELETE reconciliation for MOVEMENT documents. When a doc
@@ -131,8 +131,9 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
 
   // 4) book ONE compensating movement per direction (receipt for +Δ, adjustment for −Δ), verify each.
   //    Land it in the SAME warehouse the document's own movements touch (so per-warehouse stock stays
-  //    consistent, not just the global total), falling back to the org default.
-  const whs: any[] = await Warehouse.find({ orgId }).lean()
+  //    consistent, not just the global total), falling back to the org default. Never an external
+  //    warehouse: it keeps no stock, and a completed movement names none in these two fields.
+  const whs: any[] = await Warehouse.find({ orgId, isExternal: { $ne: true } }).lean()
   const docWhId = newMovs.map((m: any) => m?.toWarehouseId || m?.fromWarehouseId).find(Boolean)
   const wh = (docWhId && whs.find(w => String(w._id) === String(docWhId))) || whs.find(w => w.isDefault) || whs[0]
   if (!wh) throw new Error('Org has no warehouse')
@@ -152,8 +153,7 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
     if (!set.length) continue
     const lines: any[] = []
     for (const d of set) { const { avgCost } = await stockQty(orgId, d.productId, wh._id); lines.push({ productId: d.productId, quantity: Math.abs(d.delta), unitCost: avgCost, totalCost: round2(Math.abs(d.delta) * avgCost) }) }
-    const num = await stockMovementDao.getNextMovementNumber(orgId)
-    const mv: any = await StockMovement.create({ orgId, movementNumber: num, type, status: 'draft', date: bookDate, [whField]: wh._id, totalAmount: round2(lines.reduce((s, l) => s + l.totalCost, 0)), notes: reconcileNote(doc.originalName, doc.version, marker), lines, createdBy: userId })
+    const mv: any = await withMovementNumber(orgId, movementNumber => StockMovement.create({ orgId, movementNumber, type, status: 'draft', date: bookDate, [whField]: wh._id, totalAmount: round2(lines.reduce((s, l) => s + l.totalCost, 0)), notes: reconcileNote(doc.originalName, doc.version, marker), lines, createdBy: userId }))
     await confirmMovement(String(mv._id))
     bookedNow.push(mv.movementNumber)
   }

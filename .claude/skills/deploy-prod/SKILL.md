@@ -41,17 +41,23 @@ git push master  ─────►  ~/lgr            (source; docker build here
 
 | Change | Gate | Where |
 |---|---|---|
-| Backend (models/services/controllers) | `bun run test` — ~780 tests, ~12 min | **on the host**, not Windows |
+| Backend (models/services/controllers) | `bun run test` — ~8,000 tests; CI's `test (ubuntu)` lane, ~8 min | CI, else **on the host**, not Windows |
 | Frontend (views/stores/composables) | `bun run build` | either box |
 | Full flow | `bun run test:e2e` | either box |
 
-Run the test suite on master-node — the Windows box hits the Bun async-matcher deadlock
-(see Known Issues in CLAUDE.md), so red runs there are usually not real:
+CI's run of the commit is the gate. When CI cannot give one, run the suite on master-node — the
+Windows box hits the Bun async-matcher deadlock (see Known Issues in CLAUDE.md), so red runs there
+are usually not real:
 
 ```bash
 ssh -o IdentitiesOnly=yes -i ~/.ssh/id_ed25519 mars \
-  'cd ~/lgr && PATH=$HOME/.bun/bin:$PATH bun run test'
+  'cd ~/lgr && PATH=$HOME/.bun/bin:$PATH PDF_CHROME_NO_SANDBOX=1 bun run test'
 ```
+
+- `PDF_CHROME_NO_SANDBOX=1`, as CI sets it: the host's kernel refuses Chrome's sandbox to this user, and
+  without it every PDF test fails with "Chrome could not start its sandbox".
+- ⚠ It is slow there: on 2026-11-11 it took 45 minutes for under half the files, where CI runs all
+  of them in about 8. Prefer re-running CI.
 
 The Docker build compiles all 6 UIs, so a broken UI build fails the deploy — but ~20 minutes
 in. Run `bun run build` locally first.

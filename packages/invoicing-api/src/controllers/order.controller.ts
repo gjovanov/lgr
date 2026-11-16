@@ -16,7 +16,7 @@ import {
   applyReservationCancel,
   ORDER_HOLDING_STATUSES,
 } from 'services/biz/reservation.service'
-import { Order, Reservation, InternalOrder, Contact, Warehouse, Product, Invoice, Org } from 'db/models'
+import { Order, Reservation, Contact, Warehouse, Invoice } from 'db/models'
 import { sequenceDefFor, resolveSequencePrefix } from 'services/biz/sequence-registry'
 import { getNextOrderNumber } from 'services/biz/order-numbering'
 import {
@@ -26,11 +26,12 @@ import { ReservationOpsError } from 'services/biz/reservation-ops.service'
 import {
   OrdersFromProductsError, checkOrderReferences, createSupplierOrderFromProducts, previewOrderFromProducts, supplierOrderRefs,
 } from 'services/biz/orders-from-products.service'
-import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
+import { buildConversionInvoice, planConversion, pinnedOrderPrices, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
 import { canExport } from '../lib/export-access.js'
 import { generateOrderSheetXLSX } from 'reporting/excel/order-sheet.excel'
 import { generateOrderSheetPDF } from 'reporting/pdf/order-sheet.pdf'
-import type { OrderSheetCtx } from 'reporting/order-sheet.i18n'
+import { buildOrderSheetCtx, nameMaps, withoutExpectedPrices } from '../lib/order-sheet.js'
+import { conversionAnswer } from '../lib/reservation-convert.js'
 
 // ── numbering ─────────────────────────────────────────────────────────────────
 // External orders get their own counters: issued ORDO-YYYY-NNNNN (key ORDER), drafts
@@ -63,56 +64,6 @@ function validateSupplierGroups(groups: any[]): string | null {
     }
   }
   return null
-}
-
-// ── enrichment lookups ────────────────────────────────────────────────────────
-
-async function nameMaps(orgId: string, order: any, reservations: any[] = []) {
-  const contactIds = new Set<string>()
-  const warehouseIds = new Set<string>()
-  const productIds = new Set<string>()
-  const invoiceIds = new Set<string>()
-  const internalOrderIds = new Set<string>()
-  for (const g of order.supplierGroups || []) {
-    if (g.supplierId) contactIds.add(String(g.supplierId))
-    for (const line of g.lines || []) {
-      if (line.productId) productIds.add(String(line.productId))
-      for (const alloc of line.allocations || []) {
-        if (alloc.warehouseId) warehouseIds.add(String(alloc.warehouseId))
-      }
-    }
-  }
-  for (const res of reservations) {
-    if (res.contactId) contactIds.add(String(res.contactId))
-    if (res.internalOrderId) internalOrderIds.add(String(res.internalOrderId))
-    for (const iid of res.invoiceIds || []) invoiceIds.add(String(iid))
-  }
-  // A conversion invoice mixing sources may lack the doc-level orderId — match line refs too.
-  const linkedInvoices = await Invoice.find(
-    { orgId, $or: [{ orderId: order._id }, { 'lines.orderRef.orderId': order._id }] } as any,
-    { invoiceNumber: 1, type: 1, direction: 1, status: 1, orderGroupId: 1, total: 1, currency: 1, issueDate: 1, contactId: 1 },
-  ).lean().exec()
-  for (const inv of linkedInvoices) invoiceIds.add(String((inv as any)._id))
-
-  const [contacts, warehouses, products, internalOrders] = await Promise.all([
-    contactIds.size ? Contact.find({ orgId, _id: { $in: [...contactIds] } } as any, { companyName: 1, firstName: 1, lastName: 1 }).lean().exec() : [],
-    warehouseIds.size ? Warehouse.find({ orgId, _id: { $in: [...warehouseIds] } } as any, { name: 1, code: 1 }).lean().exec() : [],
-    productIds.size ? Product.find({ orgId, _id: { $in: [...productIds] } } as any, { name: 1, sku: 1, unit: 1 }).lean().exec() : [],
-    internalOrderIds.size ? InternalOrder.find({ orgId, _id: { $in: [...internalOrderIds] } } as any, { orderNumber: 1, status: 1 }).lean().exec() : [],
-  ])
-
-  const contactName = (c: any) => c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || String(c._id)
-  return {
-    contacts: Object.fromEntries(contacts.map((c: any) => [String(c._id), contactName(c)])),
-    warehouses: Object.fromEntries(warehouses.map((w: any) => [String(w._id), w.name])),
-    products: Object.fromEntries(products.map((p: any) => [String(p._id), { name: p.name, sku: p.sku, unit: p.unit }])),
-    internalOrders: Object.fromEntries(internalOrders.map((o: any) => [String(o._id), { orderNumber: o.orderNumber, status: o.status }])),
-    invoices: Object.fromEntries(linkedInvoices.map((i: any) => [String(i._id), {
-      invoiceNumber: i.invoiceNumber, type: i.type, direction: i.direction, status: i.status,
-      orderGroupId: i.orderGroupId ? String(i.orderGroupId) : undefined, total: i.total, currency: i.currency, issueDate: i.issueDate,
-      contactId: i.contactId ? String(i.contactId) : undefined,
-    }])),
-  }
 }
 
 // ── body schemas ──────────────────────────────────────────────────────────────
@@ -251,22 +202,6 @@ const previewBody = t.Object({
   warehouseId: t.Optional(t.String()),
   kind: t.Optional(t.Union([t.Literal('supplier'), t.Literal('customer')])),
 })
-
-/**
- * FR-27.11.C.1 / C.4 (#529): an outgoing order's `expectedUnitPrice` is a purchase price, a cost figure. A role without
- * the costs reads no line's, and its save sets none: a new line's goes, an existing line's stays as stored.
- */
-function withoutExpectedPrices(order: any): any {
-  const o = order?.toObject ? order.toObject() : order
-  if (!o || !Array.isArray(o.supplierGroups)) return o
-  return {
-    ...o,
-    supplierGroups: o.supplierGroups.map((g: any) => ({
-      ...g,
-      lines: Array.isArray(g?.lines) ? g.lines.map(({ expectedUnitPrice: _price, ...l }: any) => l) : g?.lines,
-    })),
-  }
-}
 
 function keepExpectedPrices(user: any, groups: any[] | undefined, existing?: any): void {
   if (!Array.isArray(groups) || seesCosts(grantOf(user))) return
@@ -772,8 +707,11 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
         if (plan.ready.some((p) => !p.res.productId)) {
           return status(422, { message: 'Reserved lines without a linked product cannot be invoiced' })
         }
+        // A reservation here may cover a line of a customer order: a price chosen on that line is the invoice's.
+        const pins = await pinnedOrderPrices(orgId, plan.ready.map((p) => p.res))
         const items: ConversionItem[] = plan.ready.map(({ res, quantity }) => {
           const line = lineById.get(String(res.lineId))
+          const pin = res.internalOrderLineId ? pins.get(String(res.internalOrderLineId)) : undefined
           return {
             productId: String(res.productId),
             description: line?.description || String(res.productId),
@@ -782,6 +720,8 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
             taxRate: line?.taxRate ?? undefined,
             // FR-27.11.C.2: never a price derived from a cost figure for a role without them (the product gone).
             fallbackPrice: seesCosts(grantOf(user)) ? line?.expectedUnitPrice || 0 : 0,
+            pinnedPrice: pin?.price,
+            pinnedBy: pin?.orderNumber,
             warehouseId: String(res.warehouseId),
             orderRef: {
               orderId: id,
@@ -812,7 +752,7 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
       createAuditEntry({ orgId, userId: user.id, action: 'convert', module: 'invoicing', entityType: 'order', entityId: id, entityName: order.orderNumber, changes: { invoice: { to: invoice.invoiceNumber } } })
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id || String(invoice._id), entityName: invoice.invoiceNumber })
 
-      return { invoice, waiting: plan.waiting }
+      return conversionAnswer(grantOf(user as any), invoice, plan.waiting)
     },
     { isSignIn: true, body: t.Object({ contactId: t.String() }) },
   )
@@ -833,40 +773,7 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
     const variant = query.variant === 'internal' ? 'internal' : 'supplier'
     const format = query.format === 'pdf' ? 'pdf' : 'xlsx'
 
-    const resDocs = variant === 'internal'
-      ? await Reservation.find({ orgId, orderId: id, status: { $ne: 'cancelled' } } as any).lean().exec()
-      : []
-    const [lookup, org, supplier] = await Promise.all([
-      nameMaps(orgId, order, resDocs),
-      Org.findById(orgId).lean().exec(),
-      Contact.findOne({ _id: group.supplierId, orgId } as any).lean().exec(),
-    ])
-    const resByAlloc: Record<string, Array<{ contactId: any; quantity: number }>> = {}
-    for (const r of resDocs) {
-      const k = String((r as any).allocationId || '')
-      if (!k) continue
-      if (!resByAlloc[k]) resByAlloc[k] = []
-      resByAlloc[k].push({ contactId: (r as any).contactId, quantity: (r as any).quantity })
-    }
-
-    const ctx: OrderSheetCtx = {
-      order,
-      group,
-      org: {
-        name: (org as any)?.name || 'Organization',
-        taxNumber: (org as any)?.taxNumber,
-        vatNumber: (org as any)?.vatNumber,
-        email: (org as any)?.email,
-        phone: (org as any)?.phone,
-      },
-      supplierName: lookup.contacts[String(group.supplierId)] || '',
-      supplierTaxId: (supplier as any)?.taxNumber || (supplier as any)?.taxId,
-      productInfo: lookup.products,
-      warehouseNames: lookup.warehouses,
-      contactNames: lookup.contacts,
-      reservations: resByAlloc,
-      locale: (query.locale as string) || undefined,
-    }
+    const ctx = await buildOrderSheetCtx({ orgId, order, group, variant, locale: (query.locale as string) || undefined })
 
     const filename = `${order.orderNumber}-${variant}.${format}`
     if (format === 'xlsx') {

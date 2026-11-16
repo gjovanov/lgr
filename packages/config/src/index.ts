@@ -546,13 +546,13 @@ export const config = {
      */
     auto: process.env.MIGRATIONS_AUTO === 'true',
   },
+  /**
+   * FR-20.25 (P0a-2) — documents render in-process: the HTML goes to Chrome with `setContent`,
+   * and nothing listens on a socket but Chrome's own DevTools port on loopback. The previous
+   * renderer (`PDF_RENDERER=md-to-pdf`, a kill switch kept for one release) is gone: it printed
+   * a page that could run script and fetch (`lockPage` in `reporting/pdf/base.pdf.ts`).
+   */
   pdf: {
-    /**
-     * FR-20.25 (P0a-2) — `chrome` renders in-process: the HTML goes to Chrome with `setContent`,
-     * Chrome is driven over a pipe, and nothing listens on a socket. `md-to-pdf` is the previous
-     * renderer, kept for ONE release as the kill switch should a document print differently.
-     */
-    renderer: (process.env.PDF_RENDERER === 'md-to-pdf' ? 'md-to-pdf' : 'chrome') as 'chrome' | 'md-to-pdf',
     /** The Chrome to drive. Unset → Puppeteer's own (its cache), as before. */
     chromePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     /**
@@ -726,6 +726,18 @@ export const config = {
      * bundle.
      */
     keepPerOrg: Number(process.env.BACKUP_KEEP_PER_ORG) || 14,
+    /**
+     * The bundles a person made with "Create backup now" are kept apart from the nights: this many
+     * of them per org and kind, the newest. An org admin can make one (`backup.controller`), so they
+     * must not be able to push a night out by pressing a button.
+     */
+    keepManualPerOrg: Number(process.env.BACKUP_KEEP_MANUAL_PER_ORG) || 5,
+    /**
+     * How many backups an org admin who is not a system administrator may start for one org within
+     * 24 hours. Each is a full export of the org on a shared volume. A system administrator is not
+     * counted.
+     */
+    manualPerDay: Number(process.env.BACKUP_MANUAL_PER_DAY) || 3,
     /**
      * FR-20.21 (plan step P1-9) — a local copy of every night's bundle: a second disk, a USB drive
      * or a NAS path on the master's own network. Empty = no local copy. Its generations are pruned

@@ -150,11 +150,12 @@ describe('tierPrice — a tier is found by its name', () => {
 describe('formatUnitPrice — four decimals, never rounded away', () => {
   const plain = (s: string) => s.replace(/\s/g, ' ')
 
+  // Owner, 2026-11-12: a decimal is shown with a point in every interface language (`number-display.ts`).
   it('keeps a fraction of a cent, and pads a round price to two', () => {
-    expect(plain(formatUnitPrice(0.0472, 'EUR', 'bg-BG'))).toBe('0,0472 €')
-    expect(plain(formatUnitPrice(12.5, 'EUR', 'bg-BG'))).toBe('12,50 €')
+    expect(plain(formatUnitPrice(0.0472, 'EUR', 'bg-BG'))).toBe('0.0472 €')
+    expect(plain(formatUnitPrice(12.5, 'EUR', 'bg-BG'))).toBe('12.50 €')
     expect(formatUnitPrice(185, 'EUR', 'en-US')).toBe('€185.00')
-    expect(plain(formatUnitPrice(1.23456, 'EUR', 'bg-BG'))).toBe('1,2346 €')
+    expect(plain(formatUnitPrice(1.23456, 'EUR', 'bg-BG'))).toBe('1.2346 €')
   })
 
   it('a missing price is zero, and a malformed currency still prints the figure', () => {

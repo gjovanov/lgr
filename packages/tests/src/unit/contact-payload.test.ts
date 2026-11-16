@@ -117,3 +117,48 @@ describe('buildContactPayload — update', () => {
     expect(body.bankDetails[0]._id).toBe('b1')
   })
 })
+
+describe('buildContactPayload — the other names („Also known as")', () => {
+  it('sends them as the API stores them: trimmed, single-spaced, each once, never the contact\'s own name', () => {
+    const body = buildContactPayload(blankForm({ companyName: 'Acme Ltd', aliases: ['  ACME ', 'acme', 'Acme   Fasteners', '', ' acme  ltd ', 'А+М'] }), 'update')
+    expect(body.aliases).toEqual(['ACME', 'Acme Fasteners', 'А+М'])
+  })
+
+  it('a new contact with none sends no key; one that has some sends them', () => {
+    expect('aliases' in buildContactPayload(blankForm({ aliases: [] }), 'create')).toBe(false)
+    expect('aliases' in buildContactPayload(blankForm({ aliases: ['  '] }), 'create')).toBe(false)
+    expect(buildContactPayload(blankForm({ aliases: ['Acme BG'] }), 'create').aliases).toEqual(['Acme BG'])
+  })
+
+  it('an edit that removes the last one sends an empty list, which clears what is stored', () => {
+    expect(buildContactPayload(blankForm({ aliases: [] }), 'update').aliases).toEqual([])
+  })
+
+  it('a form with no such field (the picker\'s create dialog) leaves the key out, so nothing stored is touched', () => {
+    expect('aliases' in buildContactPayload(blankForm(), 'create')).toBe(false)
+    expect('aliases' in buildContactPayload(blankForm(), 'update')).toBe(false)
+  })
+})
+
+/**
+ * FR-25a: the МОЛ has a field of its own, which the importers fill. The contact form shows and saves it; a
+ * payload that left it out would make the form a reader that can never write it, and one that sent `''` from a
+ * form without the box would clear what an import stored.
+ */
+describe('buildContactPayload — the МОЛ (representative)', () => {
+  it('a new contact sends it trimmed, and leaves an empty box out like every empty field', () => {
+    expect(buildContactPayload(blankForm({ representative: '  Иван Тестов ' }), 'create').representative).toBe('Иван Тестов')
+    expect('representative' in buildContactPayload(blankForm({ representative: '' }), 'create')).toBe(false)
+    expect('representative' in buildContactPayload(blankForm({ representative: '   ' }), 'create')).toBe(false)
+  })
+
+  it('an edit sends what the box holds, and "" when it was cleared, which clears what is stored', () => {
+    expect(buildContactPayload(blankForm({ representative: 'Иван Тестов' }), 'update').representative).toBe('Иван Тестов')
+    expect(buildContactPayload(blankForm({ representative: '' }), 'update').representative).toBe('')
+  })
+
+  it('a form with no such field (the picker\'s create dialog) leaves the key out, so an import\'s МОЛ is never cleared', () => {
+    expect('representative' in buildContactPayload(blankForm(), 'create')).toBe(false)
+    expect('representative' in buildContactPayload(blankForm(), 'update')).toBe(false)
+  })
+})

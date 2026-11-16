@@ -8,7 +8,7 @@
  * something to re-derive in a second place.
  */
 
-import { getProductLedger } from '../product-ledger.service.js'
+import { getProductLedger, withoutLedgerCosts } from '../product-ledger.service.js'
 import {
   rowCapFor,
   ReportParamError,
@@ -37,15 +37,21 @@ export async function runProductLedger(ctx: ReportHandlerContext): Promise<Repor
   const cap = rowCapFor(ctx.output)
   const period = (ctx.params.period || {}) as { from?: string; to?: string }
 
-  const result = await getProductLedger(ctx.orgId, productId, {
+  const read = await getProductLedger(ctx.orgId, productId, {
     warehouseId: ctx.params.warehouseId ? String(ctx.params.warehouseId) : undefined,
     contactId: ctx.params.contactId ? String(ctx.params.contactId) : undefined,
     dateFrom: period.from,
     dateTo: period.to,
     eventTypes: ctx.params.eventTypes as string[] | undefined,
+    // As the ledger's own route reads it: a movement names no bill without the purchases side (#493)…
+    withoutBills: ctx.sees ? !ctx.sees.bills : false,
     page: 0,
     size: cap + 1,
   })
+  // …and no cost figure without them (FR-27.11.C.1). The two cost columns go with their field group; a row's
+  // running value and the summary's current value are no column, so they go here.
+  const costs = !ctx.sees || ctx.sees.costs
+  const result = costs ? read : withoutLedgerCosts(read)
 
   const truncated = result.entries.length > cap
   const entries = truncated ? result.entries.slice(0, cap) : result.entries
@@ -56,8 +62,7 @@ export async function runProductLedger(ctx: ReportHandlerContext): Promise<Repor
     quantityChange: +(e.quantityChange || 0).toFixed(3),
     startQty: +(e.startQty || 0).toFixed(3),
     endQty: +(e.endQty || 0).toFixed(3),
-    unitCost: +(e.unitCost || 0).toFixed(4),
-    lineTotalCost: +(e.lineTotalCost || 0).toFixed(2),
+    ...(costs ? { unitCost: +(e.unitCost || 0).toFixed(4), lineTotalCost: +(e.lineTotalCost || 0).toFixed(2) } : {}),
   }))
 
   return {

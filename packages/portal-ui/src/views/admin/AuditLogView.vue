@@ -313,6 +313,7 @@ const ENTITY_URL_MAP: Record<string, { base: string; path: string; hasDetail: bo
   credit_note: { base: '/invoicing', path: 'credit-notes', hasDetail: true },
   debit_note: { base: '/invoicing', path: 'debit-notes', hasDetail: true },
   proforma: { base: '/invoicing', path: 'proforma', hasDetail: true },
+  offer: { base: '/invoicing', path: 'offer', hasDetail: true },
   cash_sale: { base: '/invoicing', path: 'cash-sales', hasDetail: true },
   bill: { base: '/invoicing', path: 'bills', hasDetail: true },
   warehouse: { base: '/inventory', path: 'warehouses', hasDetail: false },

@@ -72,6 +72,8 @@ this backup exists **only on the cluster volume**, which is the same disk as the
 | `BACKUP_CHECK_INTERVAL_MS` | `600000` (10 min) | How often the scheduler asks "is it any org's backup hour yet?". **`0` disables the whole thing** (tests set this). |
 | `BACKUP_HOUR` | `3` | Org-local hour the nightly run targets. `0` means midnight and is a real value. |
 | `BACKUP_KEEP_PER_ORG` | `14` | Generations kept on the **cluster volume**, separately from Drive. |
+| `BACKUP_KEEP_MANUAL_PER_ORG` | `5` | Bundles made with "Create backup now" kept on the cluster volume, per org. Counted apart from the nights: pressing the button never pushes a night out. |
+| `BACKUP_MANUAL_PER_DAY` | `3` | How many backups an org's own admin may start in 24 hours. Theirs hold the rows only, stay on the cluster volume and are **not** sent to Drive or mailed; a system administrator (`BACKUP_SYS_ADMINS`) is not limited, and theirs go to every destination. |
 | `BACKUP_EMAIL_ATTACH_BUNDLE` | `false` | Whether the daily mail carries the bundle. What it attaches is the **sealed** artifact — there is no setting that mails a plaintext one. The manifest is mailed either way. |
 
 ### Not a variable: the per-org switch
@@ -347,8 +349,9 @@ zstd -dc bundle.ndjson.zst | head -1 | jq .manifest
 ```
 
 To restore it *into* the product, use the sys-admin Backups screen (`/admin/backup`): **Inspect
-first** — it writes nothing and produces the per-collection diff — then Merge or Replace. That
-screen is gated on `BACKUP_SYS_ADMINS`, which is already set in production.
+first** — it writes nothing and produces the per-collection diff — then Merge or Replace. The
+restoring half of that screen is gated on `BACKUP_SYS_ADMINS`, which is already set in
+production; the org's own admin sees the screen too, and makes and downloads backups there.
 
 ---
 

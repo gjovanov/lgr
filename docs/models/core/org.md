@@ -47,6 +47,17 @@ interface IOrg extends Document {
   description?: string
   logo?: string
   ownerId: Types.ObjectId
+  // the company's identity, as its documents print it
+  taxNumber?: string
+  vatNumber?: string
+  email?: string
+  phone?: string
+  website?: string
+  representative?: string   // FR-25a: МОЛ / управител
+  placeOfIssue?: string     // FR-25a: `Място на сделката`
+  activityCode?: string     // FR-25a: КИД/НКИД
+  addresses?: IOrgAddress[]
+  bankDetails?: IOrgBankDetail[]
   settings: IOrgSettings
   subscription: IOrgSubscription
   createdAt: Date
@@ -64,6 +75,11 @@ interface IOrg extends Document {
 | description | string | No | - | Organization description |
 | logo | string | No | - | URL or path to organization logo |
 | ownerId | string (ObjectId) | Yes | - | References the User who owns this org |
+| taxNumber, vatNumber, email, phone, website | string | No | - | The company's identity, as its documents print it. Settings → Organization → Company Identity |
+| representative | string | No | - | FR-25a. The person legally responsible for the company (МОЛ / управител). `PUT /org/:orgId` (at most 200 characters, stored trimmed, `''` unsets it), returned by `GET /org/:orgId` and `/auth/me`. Settings → Organization, Company Identity. Printed in the company's block on the invoice and companion forms when set |
+| placeOfIssue | string | No | - | FR-25a. Where the company's documents are issued (`Място на сделката`), a town. One value for every document the accountant's books hold, so it is the company's, not a document's (an invoice keeps its own in `placeOfTransaction`). At most 100 characters, stored trimmed, `''` unsets it. The invoice form prints it as the place of transaction of a document that has none of its own (`config/party-identity#placeOfIssueOf`) |
+| activityCode | string | No | - | FR-25a. The economic activity code (КИД/НКИД): digits joined by dots (`47.52`), at most 20 characters, `''` unsets it. No document prints it |
+| addresses, bankDetails | array | No | `[]` | The company's addresses and bank accounts |
 | settings | JSON (IOrgSettings) | Yes | `{}` | Organization settings (see interface above) |
 | settings.baseCurrency | string | Yes | `'EUR'` | ISO currency code |
 | settings.fiscalYearStart | number | Yes | `1` | Month number (1-12) when fiscal year starts |

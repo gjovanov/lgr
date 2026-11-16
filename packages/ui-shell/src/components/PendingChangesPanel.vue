@@ -108,6 +108,7 @@ const ENTITY_ICONS: Record<string, string> = {
   salesInvoice: 'mdi-receipt-text-outline',
   purchaseInvoice: 'mdi-receipt-text',
   proformaInvoice: 'mdi-file-document-outline',
+  offer: 'mdi-file-sign',
   creditNote: 'mdi-file-undo',
   debitNote: 'mdi-file-plus-outline',
   cashSale: 'mdi-cash-register',

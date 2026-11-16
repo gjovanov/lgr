@@ -212,6 +212,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { createIdempotentAction, isOutcomeUnknown } from 'ui-shared/composables/idempotency'
@@ -285,7 +286,7 @@ const visibleMethods = computed(() =>
 function fmt(v: number | undefined) {
   const cur = props.currency || appStore.currentOrg?.baseCurrency || 'EUR'
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur }).format(v || 0)
+    return numberFormat(undefined, { style: 'currency', currency: cur }).format(v || 0)
   } catch {
     return (v || 0).toFixed(2)
   }

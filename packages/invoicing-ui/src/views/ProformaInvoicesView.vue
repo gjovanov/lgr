@@ -8,6 +8,8 @@
     :pagination="pagination"
     :view="viewMode"
     :has-active-filters="hasActiveFilters"
+    selectable
+    v-model:selected="ticked"
     :empty="{ icon: 'mdi-file-document-outline', title: $t('list.empty.proforma'), description: $t('list.empty.proformaHint') }"
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
     @update:options="onUpdateOptions"
@@ -35,6 +37,11 @@
       <CreateButton :label="$t('invoicing.newProformaInvoice')" :to="{ name: 'invoicing.proforma.new' }" />
     </template>
 
+    <!-- The ticked proformas by e-mail: each to its customer, or all to one address. -->
+    <template #bulk-bar>
+      <DocEmailBar v-model:selected="ticked" kind="invoice" :may-email="mailsTicked" />
+    </template>
+
     <!-- Cell renderers -->
     <template #item.number="{ item }">
       <entity-link :label="item.number" :to="{ name: 'invoicing.proforma.edit', params: { id: item._id } }" />
@@ -53,6 +60,10 @@
     <template #item.convertedInvoiceNumber="{ item }">
       <entity-link v-if="item.convertedInvoiceId" :label="item.convertedInvoiceNumber || ''" :to="{ name: 'invoicing.sales.edit', params: { id: item.convertedInvoiceId } }" />
       <span v-else-if="item.convertedInvoiceNumber">{{ item.convertedInvoiceNumber }}</span>
+    </template>
+    <!-- The offer a proforma was made from (offered on the cog). -->
+    <template #item.offerNumber="{ item }">
+      <entity-link v-if="item.offerId" :label="item.offerNumber || ''" :to="{ name: 'invoicing.offer.edit', params: { id: item.offerId } }" />
     </template>
     <template #item.actions="{ item }">
       <!-- FR-22.23/.24: every action of the row in one menu, offered exactly when the API takes it. -->
@@ -154,10 +165,12 @@ import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useRowEmail } from '../composables/useRowEmail'
+import { useDocEmailAccess } from '../composables/doc-email-access'
 import { useDocumentIssue } from '../composables/useDocumentIssue'
 import { useRowPrint } from '../composables/useRowPrint'
 import * as can from '../composables/document-row-actions'
-interface Item { _id: string; number: string; type?: string; contactName: string; contactId?: string; issueDate: string; validUntil: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; convertedInvoiceId?: string; convertedInvoiceNumber?: string }
+import DocEmailBar from '../components/DocEmailBar.vue'
+interface Item { _id: string; number: string; type?: string; contactName: string; contactId?: string; issueDate: string; validUntil: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; convertedInvoiceId?: string; convertedInvoiceNumber?: string; offerId?: string; offerNumber?: string }
 
 const { t } = useI18n()
 const router = useRouter()
@@ -178,6 +191,10 @@ const {
   send: sendRowEmail,
 } = useRowEmail()
 const { printRow } = useRowPrint()
+
+// The ticked rows by e-mail (their ids, so a tick holds across pages and filters), for a role that works on quotes.
+const ticked = ref<string[]>([])
+const mailsTicked = useDocEmailAccess().invoices('proforma')
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
@@ -233,6 +250,7 @@ const headers = computed(() => [
   { title: t('common.total'), key: 'total', align: 'end' as const },
   { title: t('common.status'), key: 'status' },
   { title: t('invoicing.invoiceRef'), key: 'convertedInvoiceNumber' },
+  { title: t('invoicing.offerRef'), key: 'offerNumber', defaultHidden: true },
   // FR-22.23: one menu button, so the column is as narrow as its title.
   { title: '', key: 'actions', sortable: false, align: 'end' as const, width: 48 },
 ])

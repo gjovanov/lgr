@@ -17,8 +17,13 @@ import { lineQuantity } from '../helpers/document-form'
  * itself could never be issued.
  */
 
-/** FR-22 §3: P6 ≤ 12 clicks · 5 typed (and no more dialogs than the 1 it had). */
-const BUDGET = { clicks: 12, typed: 5, dialogs: 1 }
+/**
+ * FR-22 §3: P6 ≤ 12 clicks · 5 typed (and no more dialogs than the 1 it had). Owner, 2026-11-12: the converted invoice
+ * confirms its payment method as it is issued, one more click (Yes). Owner, 2026-11-15: „Издай и печатай" opens the
+ * Print dialog first — once on the proforma, once on the invoice — each a click (its confirmation) and a dialog more:
+ * 15 clicks, 3 dialogs.
+ */
+const BUDGET = { clicks: 15, typed: 5, dialogs: 3 }
 
 type Api = Awaited<ReturnType<typeof uxApi>>
 
@@ -115,6 +120,9 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
   // ── 2. The proforma goes to the customer: issued (its PRF number) and printed (FR-22.22) ──
   const prfDownload = page.waitForEvent('download', { timeout: 60000 })
   await walk.click(page.getByRole('button', { name: 'Издай и печатай' }).first(), 'issue and print the proforma')
+  walk.dialog('how the proforma prints: the Print dialog (owner, 2026-11-15)')
+  await expect(page.getByTestId('export-columns-toggle')).toHaveAttribute('aria-expanded', 'false')
+  await walk.click(page.getByTestId('export-confirm'), 'confirm the print („Издай и печатай" in the dialog)')
   const prfFile = await prfDownload
   await expect(page.getByRole('heading', { name: 'Редактиране на проформа фактура' })).toBeVisible()
   // „Проформата е издадена успешно", then the print's own message replaces it.
@@ -158,6 +166,10 @@ test('P6 proforma: quote, convert to an invoice, issue and print it', async ({ p
   // ── 4. Issue and print the invoice ──
   const invDownload = page.waitForEvent('download', { timeout: 60000 })
   await walk.click(page.getByRole('button', { name: 'Издай и печатай' }).first(), 'issue and print the invoice')
+  walk.dialog('how the invoice prints: the Print dialog (owner, 2026-11-15)')
+  await walk.click(page.getByTestId('export-confirm'), 'confirm the print („Издай и печатай" in the dialog)')
+  walk.dialog('confirm the payment method (owner, 2026-11-12)')
+  await walk.click(page.getByTestId('issue-payment-yes'), 'yes, issue with that payment method')
   const invFile = await invDownload
   await expect(page.locator('.v-snackbar').filter({ hasText: 'Експортът е генериран' })).toBeVisible()
   let issued: any

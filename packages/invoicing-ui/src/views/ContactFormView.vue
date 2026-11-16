@@ -15,6 +15,7 @@
             VTextField: { density: 'compact', variant: 'outlined' },
             VSelect: { density: 'compact', variant: 'outlined' },
             VAutocomplete: { density: 'compact', variant: 'outlined' },
+            VCombobox: { density: 'compact', variant: 'outlined' },
             VTextarea: { density: 'compact', variant: 'outlined' },
             VSwitch: { density: 'compact' },
           }">
@@ -34,6 +35,25 @@
                     { title: $t('invoicing.both'), value: 'both' },
                   ]"
                   :rules="[rules.required]"
+                />
+              </v-col>
+            </v-row>
+            <!-- FR-28.12: the names this company is written under on documents besides its own. Free text, one
+                 chip each; there is nothing to choose from, so no menu. -->
+            <v-row dense>
+              <v-col cols="12">
+                <v-combobox
+                  v-model="form.aliases"
+                  v-model:search="aliasText"
+                  :label="$t('invoicing.alsoKnownAs')"
+                  :hint="$t('invoicing.alsoKnownAsHint')"
+                  :rules="[rules.aliases]"
+                  :items="[]"
+                  menu-icon=""
+                  multiple
+                  chips
+                  closable-chips
+                  data-testid="contact-aliases"
                 />
               </v-col>
             </v-row>
@@ -74,6 +94,11 @@
                   </template>
                 </v-text-field>
               </v-col>
+              <!-- FR-25a: the МОЛ, the person legally responsible for the company. The importers write it here
+                   since #746 (before, a notes line `МОЛ: <name>`). -->
+              <v-col cols="12" md="4">
+                <v-text-field v-model="form.representative" :label="$t('invoicing.representative')" :rules="[rules.representative]" data-testid="contact-representative" />
+              </v-col>
               <v-col cols="12" md="4">
                 <v-text-field
                   v-model.number="form.paymentTermsDays"
@@ -90,6 +115,38 @@
               </v-col>
             </v-row>
             <v-textarea v-model="form.notes" :label="$t('invoicing.notes')" rows="2" />
+            <!-- FR-25a §3.5: a МОЛ still kept as a notes line, `МОЛ: <name>`, moves into its field on a click. Exactly that
+                 line leaves the notes; nothing is stored until the contact is saved, and until then it can be undone. -->
+            <v-alert
+              v-if="representativeMove"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="representative-in-notes"
+            >
+              {{ $t('invoicing.moveRepresentativeHint', { name: representativeMove.name }) }}
+              <template #append>
+                <v-btn size="small" variant="text" color="primary" data-testid="move-representative" @click="moveRepresentative">
+                  {{ $t('invoicing.moveRepresentative') }}
+                </v-btn>
+              </template>
+            </v-alert>
+            <v-alert
+              v-else-if="movedRepresentative"
+              type="success"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+              data-testid="representative-moved"
+            >
+              {{ $t('invoicing.representativeMoved') }}
+              <template #append>
+                <v-btn size="small" variant="text" data-testid="undo-move-representative" @click="undoMoveRepresentative">
+                  {{ $t('invoicing.undoMoveRepresentative') }}
+                </v-btn>
+              </template>
+            </v-alert>
 
             <v-divider class="my-4" />
 
@@ -108,13 +165,13 @@
     </template>
 
     <ContactLedgerDialog v-model="invoicesDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" :selectable="false" />
-    <ContactLedgerDialog v-model="balanceDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" :selectable="false" />
+    <ContactUnpaidDialog v-model="balanceDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" :base-currency="baseCurrency" />
     <ContactMovementsDialog v-model="movementsDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" />
   </EntityFormShell>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
@@ -126,10 +183,14 @@ import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ContactMovementsDialog from '../components/ContactMovementsDialog.vue'
+import ContactUnpaidDialog from '../components/ContactUnpaidDialog.vue'
 import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { buildContactPayload, isValidOptionalEmail } from 'ui-shared/composables/contact-payload'
+import { cleanContactAliases, contactAliasesFit, MAX_CONTACT_ALIASES, MAX_CONTACT_ALIAS_LENGTH } from 'config/contact-aliases'
+import { representativeMoveOf } from 'config/contact-representative'
+import { MAX_REPRESENTATIVE_LENGTH } from 'config/party-identity'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -178,10 +239,26 @@ const form = reactive({
   website: '',
   isActive: true,
   notes: '',
+  representative: '',
   addresses: [] as Array<{ type: string; street: string; city: string; postalCode: string; country: string; isDefault: boolean }>,
   bankDetails: [] as Array<{ bankName: string; accountNumber: string; iban: string; swift: string; currency: string; isDefault: boolean }>,
   tags: [] as string[],
+  aliases: [] as string[],
 })
+
+/** What is typed in „Also known as" and is not a chip yet. */
+const aliasText = ref('')
+
+/**
+ * A name typed and not confirmed with Enter is still a name the person meant: it joins the list before a save,
+ * instead of being dropped without a word.
+ */
+function keepTypedAlias() {
+  const typed = aliasText.value?.trim()
+  if (!typed) return
+  form.aliases = cleanContactAliases([...form.aliases, typed])
+  aliasText.value = ''
+}
 
 const { markSaved, tryRestore } = usePendingChanges({
   appId: 'invoicing',
@@ -203,7 +280,39 @@ const rules = {
   required: (v: string) => !!v || t('validation.required'),
   // Optional — but if one is typed it must be an address the API will accept.
   email: (v: string) => isValidOptionalEmail(v) || t('validation.invalidEmail'),
+  // The API's own bounds, said here instead of as a schema error after the save.
+  aliases: (v: string[]) => contactAliasesFit(cleanContactAliases(v)) || t('invoicing.alsoKnownAsLimit', { count: MAX_CONTACT_ALIASES, length: MAX_CONTACT_ALIAS_LENGTH }),
+  representative: (v: string) => (v || '').trim().length <= MAX_REPRESENTATIVE_LENGTH || t('validation.maxLength', { max: MAX_REPRESENTATIVE_LENGTH }),
 }
+
+// ── FR-25a §3.5: "move to the field" ──
+/** What the move would do, while the notes still keep the МОЛ as a line (`config/contact-representative`). */
+const representativeMove = computed(() => representativeMoveOf(form.notes, form.representative))
+/** The two fields before the move, and as the move left them: the undo, offered until the contact is saved. */
+const movedRepresentative = ref<{ before: { notes: string; representative: string }; after: { notes: string; representative: string } } | null>(null)
+
+function moveRepresentative() {
+  const move = representativeMove.value
+  if (!move) return
+  const before = { notes: form.notes, representative: form.representative }
+  form.notes = move.notes
+  form.representative = move.name
+  movedRepresentative.value = { before, after: { notes: form.notes, representative: form.representative } }
+}
+
+function undoMoveRepresentative() {
+  const moved = movedRepresentative.value
+  if (!moved) return
+  form.notes = moved.before.notes
+  form.representative = moved.before.representative
+  movedRepresentative.value = null
+}
+
+// A person's own edit to either field after the move is theirs: an undo would overwrite it, so it is no longer offered.
+watch(() => [form.notes, form.representative], () => {
+  const moved = movedRepresentative.value
+  if (moved && (form.notes !== moved.after.notes || form.representative !== moved.after.representative)) movedRepresentative.value = null
+})
 
 const contactName = computed(() => {
   const parts = [form.companyName, form.firstName, form.lastName].filter(Boolean)
@@ -243,24 +352,26 @@ const balanceLabel = computed(() => {
   return formatCurrency(summary.value.openBalance ?? 0, summary.value.currency || baseCurrency.value)
 })
 
+// ⚠ A button's action is `click` (`SmartButtonDef`). These three said `handler`, which the shell never calls and
+// nothing type-checks: from the day they were added they opened nothing.
 const smartButtons = computed<SmartButtonDef[]>(() => [
   {
     label: t('invoicing.invoices'),
     value: summary.value.invoiceCount,
     icon: 'mdi-receipt-text',
-    handler: () => { invoicesDialog.value = true },
+    click: () => { invoicesDialog.value = true },
   },
   {
     label: t('invoicing.openBalance'),
     value: balanceLabel.value,
     icon: 'mdi-cash',
-    handler: () => { balanceDialog.value = true },
+    click: () => { balanceDialog.value = true },
   },
   {
     label: t('invoicing.movements'),
     value: summary.value.movementCount,
     icon: 'mdi-swap-horizontal',
-    handler: () => { movementsDialog.value = true },
+    click: () => { movementsDialog.value = true },
   },
 ])
 
@@ -305,6 +416,7 @@ function orgUrl() {
 }
 
 async function handleSubmit() {
+  keepTypedAlias()
   const { valid } = await formRef.value.validate()
   if (!valid) return
 
@@ -348,9 +460,11 @@ onMounted(async () => {
         website: contact.website || '',
         isActive: contact.isActive ?? true,
         notes: contact.notes || '',
+        representative: contact.representative || '',
         addresses: contact.addresses || [],
         bankDetails: contact.bankDetails || [],
         tags: contact.tags || [],
+        aliases: contact.aliases || [],
       })
     } catch (err) {
       console.error('Failed to load contact:', err)

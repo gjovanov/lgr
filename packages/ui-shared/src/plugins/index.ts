@@ -9,6 +9,8 @@ import { matchPage } from '../nav/page-registry'
 import { installInAppLinks } from '../nav/navigate'
 import { vCap } from '../access/v-cap'
 import { usePageFavorites } from '../composables/usePageFavorites'
+import { installDecimalComma } from '../composables/decimal-comma'
+import { tolerateForeignAnchors } from '../composables/foreign-anchor'
 
 type LocaleMessages = Record<string, Record<string, unknown>>
 
@@ -78,6 +80,12 @@ export function registerPlugins(app: App, options?: RegisterPluginsOptions) {
   app.use(createPinia())
   // FR-27.7: `v-cap="'feature.action'"` shows a control only to a role that holds it.
   app.directive('cap', vCap)
+  // Owner, 2026-11-12: a comma typed into a number field is a decimal separator. Asked of the browser once, before
+  // mount: where its number fields drop a comma, the comma becomes a point.
+  installDecimalComma()
+  // A page a translator or an extension has rewritten must stay usable: an insert whose anchor is gone goes at the
+  // end of its parent instead of stopping the render half way (composables/foreign-anchor).
+  tolerateForeignAnchors()
 
   if (options?.router) {
     app.use(options.router)

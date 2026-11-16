@@ -673,7 +673,10 @@ describe('doc-import — stock movements', () => {
     const created: any = await Product.findOne({ orgId: org._id, name: '49160 СВРЕДЛО - Ф16 - с намалена опашка' }).lean()
     expect(created).toBeTruthy()
     expect(created.sku).toBe('REGAL-00008') // continues the org's SKU sequence
-    expect(created.purchasePrice).toBe(8.24)
+    // The purchase price is „Цена 2" / 1.2 (owner, 2026-11-15), not the разписка's delivery price: 6.24 / 1.2.
+    expect(created.purchasePrice).toBe(5.2)
+    // The delivery price still fills its slot (drawn as „Цена с ТО"), and each margin is over the purchase price.
+    expect(created.priceTiers.find((t: any) => t.name === 'Цена 2')).toMatchObject({ finalPrice: 6.24, percent: 20 })
     const cost = created.priceTiers.find((t: any) => t.name === 'Доставна цена')
     const tier1 = created.priceTiers.find((t: any) => t.name === 'Цена 1')
     expect(cost.finalPrice).toBe(8.24)

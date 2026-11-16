@@ -57,7 +57,7 @@ packages/
   config/              → Shared config (env vars) + constants (roles, permissions, modules, enums, APP_REGISTRY)
   db/                  → Mongoose models (71) + tenant plugin + connection management
   services/            → Business logic (biz/), DAOs (dao/), background tasks, events, mixins, logger
-  reporting/           → Excel (ExcelJS) + PDF (md-to-pdf) export generators
+  reporting/           → Excel (ExcelJS) + PDF (HTML or markdown, printed by Chrome) export generators
   fiscal/              → Fiscal printer abstraction (IFiscalPrinter, Datecs protocol, device manager, NTP sync, VAT groups)
 
   # ── DAL (Data Abstraction Layer) ──
@@ -790,6 +790,12 @@ so the tenant guard and every permission check are unchanged. Plan:
   `User.password` copy.
 - `iid`/`tv` on a session tie it to the person: a password change bumps `tokenVersion` and every
   session they hold stops working (`liveSessionUser`, cached a minute per process).
+  - The same check reads the MEMBERSHIP (`membershipSwitchedOff`): a session whose membership says
+    `isActive: false` is refused, whoever switched it off (the two user routes end the person's sessions
+    themselves; a script, a restore or an import used to leave the session good for up to a day, and so did a
+    membership with no person linked). ⚠ Only a row that is there and switched off refuses: one that is missing
+    or cannot be read decides nothing, because this runs on every request of every org. "Active" is cached a
+    minute; "switched off" never, so a member switched on again is not kept out.
 - An org admin never sets the password, email or name of someone active in another org
   (`identity_shared`), and never creates a user at an address that is already someone's
   (`identity_exists`: they invite instead).
@@ -1099,12 +1105,60 @@ Products support custom pricing based on contact tags. Each custom price entry c
 - **UI**: `PriceExplainButton` (info icon on invoice line items) opens dialog showing the full price derivation chain
 - **Product form**: Unified "Custom Prices" tab with contact autocomplete + tags multiselect (TagInput)
 - **Data model**: **`Product.priceTiers[]`** (canonical since 2026-04-21, 10-slot cap) — each tier `{ name, percent, finalPrice, manualOverride, contactIds?, tags?, minQuantity?, validFrom?, validTo? }`. Tiers with filters participate in resolution; filterless slots are storage-only (used as `price1..price10` columns in goods-receipt flow). **LEGACY**: `Product.tagPrices[]` + `Product.customPrices[]` — still read by `resolvePrice()` for backward compat; UI no longer writes them. Existing records continue to work; new pricing flows through `priceTiers[]`.
-- **Tier-name tags convention**: seeded sales tiers carry `tags: [<tier name>]` (e.g. `"Цена 4"`) — tagging a contact with the same name selects that tier via resolution step 4 (legacy per-client price groups). The cost tier (`Доставна цена`) and zero-price slots stay filterless (display-only). Wiring: `scripts/assign-price-group-tags.ts` (tags tiers + derives contact groups from imported invoices; dry-run default). PriceCombobox never overwrites a loaded line's stored historical price (`auto-apply-resolved=false` for `line.loaded`); `listPriceOptions` mirrors `resolvePrice` for its resolvedKey.
+- **Tier-name tags convention**: seeded sales tiers carry `tags: [<tier name>]` (e.g. `"Цена 4"`) — tagging a contact with the same name selects that tier via resolution step 4 (legacy per-client price groups). The cost tier (`Доставна цена`: the STORED name, drawn as „Цена с ТО" since 2026-11-15, see below) and zero-price slots stay filterless (display-only). Wiring: `scripts/assign-price-group-tags.ts` (tags tiers + derives contact groups from imported invoices; dry-run default). PriceCombobox never overwrites a loaded line's stored historical price (`auto-apply-resolved=false` for `line.loaded`); `listPriceOptions` mirrors `resolvePrice` for its resolvedKey.
 - **Product form "Pricing" tab**: 10-row compact tier table. Always-visible columns: Name / % / Final Price. Filter chips (Contact, Tags, Min Qty, Validity) reveal optional columns. Editing `purchasePrice` cascades into all non-overridden tiers; editing a tier's `finalPrice` sets `manualOverride=true` (shown with lock icon).
+  - **Since 2026-11-12** the table begins with two unnumbered rows, the purchase price and the selling price: the SAME models as the fields above (never tiers, never sent as such), shown to whoever sees the field above (`seesCosts`, `seesSelling`).
+  - **A price keeps four decimals and a margin three** (0.0472, 2000.555): `config/price-precision` is the one rule (in `config` since 2026-11-15 so the server and the scripts read it too; `ui-shared/composables/price-precision.ts` re-exports it. `roundTo` rounds the figure as WRITTEN, not `toFixed`'s double; `priceAtMargin`, `marginOver`), used by the form and by the goods receipt's cascade (`gr-product-update.ts`), so both give an article the same price. The form rounded a price to the cent and a margin to a tenth until then.
+  - `ui-shared/components/DecimalField.vue` shows such a figure with every decimal at rest. ⚠ It emits only for what was TYPED, already rounded: a figure it was only handed is shown rounded and never written back (an import's 0.047231 stays until somebody changes that price), and a Ctrl+S with the field focused stores no fifth decimal.
+  - The figures' columns have widths of their own (`th` hints, the fields' `min-width` in `ch`), and a column with no width takes the rest (`spareColumn`): in a table whose every column names a width the browser shares the slack out among them all. With every filter shown in a narrow window the table scrolls sideways before a field is cut. `e2e/tests/product-form.spec.ts` measures the room at 1366 and 1920.
+- **`Product.tariffCode`** (2026-11-12): the customs tariff number, free text, trimmed, ≤ `PRODUCT_TARIFF_CODE_MAX` (50), absent or empty when not kept. On the form's Edit tab after the name (lines: SKU, Name, Tariff code / Type, Category, Unit / Barcode, Description, Tags / Active). Not searched, not a list column, not on any document yet.
+- ⚠ **A route's body schema is a whitelist.** Elysia drops a field the schema does not name and answers 200. `PUT /warehouse/product/:id` never named `type`, so the form's Type select did not save on an existing article until 2026-11-12. `integration/product-form-fields.flow.test.ts` reads the form's own fields out of `ProductFormView.vue` and holds each one to the update route: a field added to the form must be added to both schemas.
 - **Goods-receipt with product update**: `POST /warehouse/movement/with-update` — atomic via Mongo transaction. Updates product fields (purchasePrice, sellingPrice, priceTiers, type, category, unit) AND creates the stock movement in one session. Requires replica set. On failure, transaction aborts → full rollback, no partial state. Audit-log: one entry per product update + one for the movement, correlated by movement id.
 - **Invoice lines**: `priceExplanation: IPriceStep[]` persisted for audit trail (types: `base | category | tag | contact | tier | override`)
 - ⚠ **A price the person typed or picked is pinned, on every document** (`pricePinned`, `PriceCombobox#chosen`), so a resolved one does not come back over it on a quantity edit or a restored draft. `update:modelValue` cannot say so: a resolved price arrives by it too. A draft from before this has no pin, and its trail's `override` step stands in. A change of contact still re-resolves every line.
 - **Backfill**: `bun run scripts/backfill-price-tiers.ts [--execute] [--org slug]` — idempotent, seeds 10 default slots with `percent=0, finalPrice=sellingPrice`, no filters
+- **„Доставна цена" is a KEY; it reads „Цена с ТО" (owner, 2026-11-15).** The slot's stored name did not change:
+  `priceTiers[].name`, `PRICE_TIERS`, `COST_TIER_NAMES`, the importers' column mapping and the tier-name tags find it
+  by `Доставна цена`, and PlusMinus's „Доставна цена" / „Дост. цена" and a receipt's „Цена" keep filling it. What a
+  person READS comes from one table, `config/price-tiers#tierLabel(name, locale, form)`: bg „Цена с ТО" in both
+  forms, en "Trade-discount price" / "Price with trade discount", de, mk.
+  - ⚠ In Bulgarian the name is „Цена с ТО" everywhere (owner, 2026-11-16). For a day the long form (the product
+    form's row, the price trail) spelled it out as „Цена с търговска отстъпка (Цена с ТО)": that text is a RETIRED
+    label (`RETIRED_TIER_LABELS`), never drawn and still read back to the slot when typed. The form's hint
+    (`warehouse.deliveryTierHint`) is where the term is spelled out.
+  - ⚠ The label is put on at RENDER, in the UI only. `listPriceOptions`, `resolvePrice`'s steps and a line's stored
+    `priceExplanation` keep the stored name: the access rules class a price by it (`capOfTier`, `capOfPriceSource`),
+    and a relabelled cost slot would read as `products.price:other` and reach a role without costs.
+  - Render sites: the Products list (`productColumnHeaders`, `opts.locale`), receipt and bill lines
+    (`grColumnLabel`), the price menus (`priceOptionLabel`), the price trail (`priceStepLabel`), the till, and the
+    product form, where a labelled slot's name is text and not a field (`data-testid="tier-label"`; `data-tier` stays
+    the stored name). A name a person types is taken back to the stored one (`tierNameOfLabel`): a label is never
+    stored. ⚠ A new place that draws a tier's name goes through `tierLabel`.
+  - ⚠ The bg receipt column for the product's `purchasePrice` was headed „Доставна цена" as well: it reads „Покупна
+    цена" now (`warehouse.grCol.purchasePrice`).
+- **`purchasePrice` is „Цена 2" / 1.2, not the delivery price (owner, 2026-11-15).** PlusMinus keeps no buying price,
+  and "Доставна цена = Покупна цена" was wrong. One function: `config/price-tiers#purchasePriceFromTier2` (four
+  decimals, a half goes up, null without a „Цена 2" above 0).
+  - **A product an import CREATES** takes it when its row carries a „Цена 2" (`purchasePriceForNewProduct`:
+    `newProductDoc`, `receive-new-products.ts`, `seed-products.ts`, `import-regal-pz.ts`), the delivery price
+    otherwise. The delivery price still fills its slot and opens avgCost; each slot's `percent` is over the purchase
+    price.
+  - **An import never re-derives it for a product that exists** (`PROTECTED_TIERS` and `persistMovement`'s strip
+    stand). Those are corrected once per org by `scripts/set-purchase-price-from-tier2.ts --org <slug>` (a dry run;
+    `--execute --backup <file>` writes; `--restore <file>` puts it back), core in
+    `services/biz/purchase-price-from-tier2.ts`. A product without „Цена 2" is left as it is. ⚠ ONCE: the run cannot
+    tell a stale figure from one a bill or a person set since, and a later run would put the approximation back over it.
+  - ⚠ That run moves NO price: `finalPrice`, `sellingPrice`, `manualOverride` and avgCost stay (a written product's
+    `updatedAt` moves, as with any save). It rewrites `percent`
+    where a slot is fixed by hand or followed the purchase price (`marginsAfterPurchaseChange`), which is what the
+    form's cascade shows for such a slot; a backfilled slot (the selling price at 0 %) stays as stored.
+  - ⚠ Nothing compares `purchasePrice` with PlusMinus's „Дост. цена" any more: the snapshot compare
+    (`compare-snapshot.service.ts`, `scripts/compare-products.ts`) holds that column to the SLOT. The daily import's
+    `prices.ts diff` still reports a changed `purchase` as PROTECTED, so the one-time run stays out of a run's
+    snapshot pair.
+  - D-2 (`applyLinkedBillPrices`) also replaces a purchase price that is still the approximation, but only by a
+    price the bill states itself (one that differs from every receipt's cost): a bill entered in LGR is where the
+    real one comes from, and one that repeats an imported receipt's cost would put the delivery price back.
 
 ---
 
@@ -1241,6 +1295,11 @@ LGR implements СУПТО (Софтуер за Управление на Про�
     move by ≤ 2 min. Anything else is held, with the reason.
   - A person confirms with `POST /fiscal/device/:id/sync-time`. It answers 409
     `clock_unconfirmed` with both times, and sets the clock on `{ confirm: true }` (audit-logged).
+  - **A clock the sync holds is noted on the device** (#450): `FiscalDevice.clockHeld` (node-owned: the
+    holding node read it), cleared by the next set. The device page shows it ("Set the clock" there opens
+    the confirm), as do the device list and POS Sessions. An hour off reads as the summer-time change the
+    device missed (`config/fiscal-clock`). ⚠ No rule of LGR's own on a fiscalized unit: the device
+    refuses a time before its last fiscal record by itself, and that refusal is what the person sees.
   - Until 2026-10-25 the check asked worldtimeapi.org over plain HTTP, and reported 0 on failure.
     That host now resets every connection, so every check "passed", and the sync set every device
     regardless.
@@ -1309,6 +1368,22 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   every other movement path — never from a `getNextNumber('SM')` counter, which nothing else advances. Until
   2026-09-26 that counter pointed at taken numbers in any org with prior movements: the unique index refused
   every POS movement, the error was only logged, and sales never left stock. A failure now returns `stockError`
+  - ⚠ "Latest + 1" is read and then written, so every creator writes through **`services/biz/movement-number.ts`**
+    (`withMovementNumber`, `createNumberedMovement`), which tries again under the next number when another
+    movement took it at the same moment. Until 2026-11-12 only a sale's dispatch did: the movement form, a goods
+    receipt, an import, a transfer and a count each read the latest themselves, and two made at once answered
+    one of them a 500. `unit/movement-number-source.test.ts` fails when another source builds the number.
+    What runs inside the write runs again, so it is the insert alone or one transaction around it.
+    The numbers are TEXT in the index (`…-99999` sorts after `…-100000`), so the latest is read per width, the
+    widest last (#714): read as one list it stopped at 99999 and nothing more was booked that year.
+  - ⚠ That collision was also all that kept two completions of ONE inventory count at the same moment from both
+    booking its adjustment. `POST /warehouse/inventory-count/:id/complete` now holds its count while it books
+    (`leaseUntil`, the lease of `services/biz/hot-path-key`, renewed while a large count runs); a second request
+    answers 409 `count_busy`, and so do an edit and a delete of a held count, in the write's own filter. The
+    list's Complete button takes one click (`integration/count-completion.flow`).
+  - A count's own number (`IC-<year>-NNNNN`) is the org's `IC` counter (`services/biz/count-number.ts`, #713),
+    pulled past the highest number a count already holds before each `$inc`. It was latest + 1 with no unique
+    index beside it: counts made at the same moment were saved under one number, silently.
 - **The two-hour rule (Прил. 29 т. 8, FR-20.49, `fiscal/device-reach.ts`):** in SUPTO production mode a NEW fiscal
   sale answers 409 `fiscal_device_unreached` when none of the warehouse's active devices was reached within 2 h
   AND none answers a status read now. A keyed retry is a sale that already opened and is never refused. The same
@@ -1456,10 +1531,11 @@ lines still match `newTag: v[0-9]{8}-[0-9a-f]{12}$` before committing.
 
 ### How long a deploy takes, and why (2026-11-11)
 
-About **a minute** for a commit that changes no dependency, ~30 s more when it changes the UI. The first deploy of a month, a `bun.lock` / `package.json` change or a new base image rebuilds everything: ~5 min, which is what **every** deploy took until 2026-11-10 (176 deploy logs, 2026-09-26 → 11-10: build ~2 min, push ~1.8 min, rollout ~1 min).
+About **a minute** for a commit that changes no dependency, ~30 s more when it changes the UI. The first deploy of a month, a changed dependency (`bun.lock`, or a dependency in a `package.json`) or a new base image rebuilds everything: ~5 min, which is what **every** deploy took until 2026-11-10 (176 deploy logs, 2026-09-26 → 11-10: build ~2 min, push ~1.8 min, rollout ~1 min).
 
 - **The image's layers are ordered by how often they change** (`Dockerfile`: `base` OS packages → `deps` node_modules + Chrome → `web` the built SPA → the repository, last). A deploy rebuilds, pushes and pulls only what its commit touched. Until 2026-11 the repository was copied *before* `bun install` and the OS packages were installed after it, so a one-line fix remade and re-pushed 1.5 GB.
 - ⚠ **The `web` stage is given only the packages the SPA is built from** (`web`, `config`, `ui-shared`, `ui-shell`, `*-ui`), so a backend commit reuses the built SPA *and its build id*: no open tab is told to reload for a deploy that changed no UI file (FR-24.14). A UI file importing from another package fails that build; `unit/image-layers.test.ts` says so in CI first.
+- ⚠ **The `deps` layer is keyed on each `package.json` without its `exports`** (`scripts/install-manifests.ts`, which the Dockerfile's `src` stage runs on the copies the install is given; the image's own files are the repository's, whole). The install never reads that key, and a new module in `config` or a UI package is a new line in it. Copied whole, such a line made the 1.15 GB layer again: 15 of the 24 merges that changed a manifest from 2026-10-28 to 2026-11-11, and 256 s instead of ~40 s for two such lines on 2026-11-11. A key goes on that script's list only with proof that the install does not read it (`unit/install-manifests.test.ts`).
 - **Every deploy log ends with `DEPLOY_TIMING`** (per phase, and `layers: os=… deps=… web=…`). ⚠ A `deps=rebuilt` or `os=rebuilt` that no lockfile change or new month explains means the build cache was lost: every deploy is back to five minutes until someone reads that line.
 - The OS packages are not pinned, so `deploy-prod.sh` passes the month (`OS_REFRESH`) and they are reinstalled once a month.
 
@@ -1479,7 +1555,12 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
 
 ## Line Items Column Picker + Status Translatability (2026-04-28; defaults reworked 2026-07-26)
 
-`ui-shared/composables/useInvoiceLineColumns(docType, { userId, orgId })` exposes 9-column catalog (description anchor, qty, unit, unitPrice, discount, **lineSubtotal** = qty×unitPrice net, taxRate, warehouse, lineTotal); per-doc-type localStorage key `lgr:invoice-line-cols:<userId>:<orgId>:<docType>` (falls back to the legacy `anon` key); Discount `defaultOn:false`; `discount` only on `invoice` + `proforma`. **Since 2026-07-26**: `lineSubtotal` defaultOn, `taxRate`/`warehouse`/`lineTotal` default OFF — the form shows doc-level single-value controls instead (TaxRateCombobox + WH autocomplete above the table, apply-to-all + seed for new lines; WH pin button persists a per-user default at `lgr:default-wh:<userId>:<orgId>`, init priority: loaded uniform → user default → org isDefault). Totals card shows "Tax Total (X%)" (`invoicing.taxTotalWithRate`) when all filled lines share one rate. Contact pickers in all 6 forms search server-side (debounced `search` + `size:20`; `contact.controller` `type` filter is `$in [type,'both']` so both-typed contacts appear as customer AND supplier). `LineColumnPickerDialog.vue` renders the checkbox grid with Select all / Clear / Reset Defaults. Cog button next to "+ Add line" on all 6 invoice form views drives `activeColumns` for thead/tbody. `usePaymentMethods()` in ui-shared returns translated `[{ value, text }]` from `pos.cash/card/bankTransfer/check`; v-selects use `item-title="text" item-value="value" persistent-placeholder` so labels render and placeholder stays visible. `StatusChip.vue` translates via `invoicing.status.<status>` with `te()` fallback to raw string. Status filter dropdowns (Sales/Purchase/Proforma/CreditNotes/DebitNotes/PaymentOrders) and kanban column titles migrated from raw string arrays / `statusDraft`-style flat keys to nested `invoicing.status.draft|sent|received|partially_paid|paid|overdue|voided|cancelled|completed|converted|issued|applied|approved|executed|accepted|expired` (16 keys × 4 locales).
+`ui-shared/composables/useInvoiceLineColumns(docType, { userId, orgId })` exposes 9-column catalog (description anchor, qty, unit, unitPrice, discount, taxRate, warehouse, **lineSubtotal** = qty×unitPrice net, lineTotal); per-doc-type localStorage key `lgr:invoice-line-cols:<userId>:<orgId>:<docType>` (falls back to the legacy `anon` key); Discount `defaultOn:false`; `discount` only on `invoice` + `proforma`. **Since 2026-07-26**: `lineSubtotal` defaultOn, `taxRate`/`warehouse`/`lineTotal` default OFF — the form shows doc-level single-value controls instead (TaxRateCombobox + WH autocomplete above the table, apply-to-all + seed for new lines; WH pin button persists a per-user default at `lgr:default-wh:<userId>:<orgId>`, init priority: loaded uniform → user default → org isDefault). Totals card shows "Tax Total (X%)" (`invoicing.taxTotalWithRate`) when all filled lines share one rate. Contact pickers in all 6 forms search server-side (debounced `search` + `size:20`; `contact.controller` `type` filter is `$in [type,'both']` so both-typed contacts appear as customer AND supplier). `LineColumnPickerDialog.vue` renders the checkbox grid with Select all / Clear / Reset Defaults. Cog button next to "+ Add line" on all 6 invoice form views drives `activeColumns` for thead/tbody. ⚠ A line's cells are rendered in that order too (`DocumentLineTable#lineCells`, 2026-11-15): they used to keep a fixed order of their own (subtotal before tax rate and warehouse), so with one of those two on a heading stood over another column's cells, and an order dragged in the picker moved only the headings. `usePaymentMethods()` in ui-shared returns translated `[{ value, text }]` from `pos.cash/card/bankTransfer/check`; v-selects use `item-title="text" item-value="value" persistent-placeholder` so labels render and placeholder stays visible. `StatusChip.vue` translates via `invoicing.status.<status>` with `te()` fallback to raw string. Status filter dropdowns (Sales/Purchase/Proforma/CreditNotes/DebitNotes/PaymentOrders) and kanban column titles migrated from raw string arrays / `statusDraft`-style flat keys to nested `invoicing.status.draft|sent|received|partially_paid|paid|overdue|voided|cancelled|completed|converted|issued|applied|approved|executed|accepted|expired` (16 keys × 4 locales).
+
+**A row's underlines are one line (owner, 2026-11-15)**, in every state of the row: `ui-shared/src/styles/line-grid.css`, imported once in `plugins/vuetify.ts`.
+- A table of line controls carries **`line-grid`** (`DocumentLineTable`, `OrderTree`): its cells start at the top with the 32 px control line, so what hangs under a field (the linked article's chip, a message) makes the row taller and moves no other field. Centred cells put that one field half of it higher. A cell's content that is not a field sits on the control line with `line-grid__line`.
+- ⚠ A single-value select / combobox that draws its value through a **`#selection` slot** carries **`one-line-value`**, and `one-line-value--typing` while its `update:search` is non-empty (`PriceCombobox`, `TaxRateCombobox`, `LineUnitSelect`: the unit of a line, on every such table). Without it Vuetify puts the search input BESIDE the value and gives it 64 px on focus: in a narrow cell it wraps, the field grows from 32 to 60 px and the row jumps.
+- Held by `e2e/tests/line-item-baseline.spec.ts` (underline positions read from the rendered boxes, before and after each focus). The stock movement form is not a line grid: its rows hold nothing under a field.
 
 ## Cyrillic-Safe Search (2026-04-28)
 
@@ -1487,14 +1568,92 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
 
 ## Draft+Issued Invoice Numbering (2026-04-28)
 
-Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/CN/DN/BILL); cash sales skip drafts (CS direct). On `/send` or `/receive`, the controller allocates a new issued number from the canonical SALES_DOC/PROFORMA/BILL counter, sets `draftNumber = previousInvoiceNumber`, replaces `invoiceNumber`, and appends to `numberHistory[]`. Display prefix override (per-org-global) lives on the Sequence year=0 sentinel doc; future allocations only. **Documents are editable in EVERY status** — PUT applies no status or posting check. The edit-sent guard (409 when a posted JournalEntry referenced the invoice, with credit-note remediation) was **removed**; ⚠ an edit to a posted document does NOT re-post, so the JournalEntry keeps its pre-edit amounts and trial balance / P&L / balance sheet report the stale figures with nothing marking them so — repost is manual. DELETE keeps its draft-only guard. Configuration page at `/invoicing/configuration/sequences` (admin/manager only).
+Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales skip drafts (CS direct). On `/send` or `/receive`, the controller allocates a new issued number from the canonical SALES_DOC/PROFORMA/OFFER/BILL counter, sets `draftNumber = previousInvoiceNumber`, replaces `invoiceNumber`, and appends to `numberHistory[]`. Display prefix override (per-org-global) lives on the Sequence year=0 sentinel doc; future allocations only. **Documents are editable in EVERY status** — PUT applies no status or posting check. The edit-sent guard (409 when a posted JournalEntry referenced the invoice, with credit-note remediation) was **removed**; ⚠ an edit to a posted document does NOT re-post, so the JournalEntry keeps its pre-edit amounts and trial balance / P&L / balance sheet report the stale figures with nothing marking them so — repost is manual. DELETE keeps its draft-only guard. Configuration page at `/invoicing/configuration/sequences` (admin/manager only).
+
+### A sales series without a year (2026-11-15)
+
+An org may number its sales documents (invoices and their notes, the `SALES_DOC` series) **without a year**:
+`INV-3000004107`, ten digits that go on from one year into the next. It is the form a number brought in from
+another system already has (`convertDraftInvoice` issues `<prefix>-<original number>` and raises the counter past
+it), so an org that imports and also issues by hand read two ways until it chose this: `INV-3000004104` imported,
+`INV-2026-3000004106` issued here. Every other org, and every other series, keeps a number per year.
+
+- **The switch** is on the sequences page (`/invoicing/configuration/sequences`, the "Numbering" column) and is
+  stored as `continuous: true` on the series' year-0 Sequence row, beside its display prefix
+  (`sequence.service#isContinuousSeries` / `setContinuousSeries`). `PUT /invoicing/sequences/:prefix` takes
+  `{ displayPrefix?, continuous? }` and changes only what a request names; `continuous` on any other series is
+  **422 `not_continuous_series`** (the registry's `mayBeContinuous` says which series may). Audit-logged. Future
+  allocations only: a document keeps the number it has.
+- **The documents issued with a year BEFORE the choice** keep it unless the org asks:
+  `scripts/drop-year-from-sales-numbers.ts` (`services/biz/yearless-numbers.ts`; dry run by default, `--execute`
+  needs `--backup`, `--restore` puts a backup back) brings `INV-2026-3000004106` to `INV-3000004106`. Only the year
+  goes: the running number, the counters and every link by id stay, and `numberHistory` names the number the
+  document had. It refuses an org whose series is numbered per year, and it leaves, counted by reason, a number
+  another document already holds (`taken`), one that two years would share (`twice`: a series that started again
+  each year cannot be brought over), BOTH documents of a number issued twice (`clash_pair`), a draft, and a
+  document of another series. Text that quotes the old number (a reversal movement's note, a journal entry, the
+  audit log) stays as written and is counted. ⚠ From then on every reader of the number's form takes such a
+  document for an imported one: the daily importer's index, its audit's content compare, and the passes that
+  act on `INV-<number>` (`scripts/lib/void-annulled.ts`, `scripts/repair-invoices-from-plusminus.ts`).
+- **It counts on ONE row**, the year-0 row's `lastNumber` (`getNextContinuousNumber`): the same atomic `$inc`
+  as every counter, so no number is given twice and none is skipped, whatever year a request's clock says.
+  - Before counting, that row is raised to the highest of every row of the series and of every number of the series
+    on a document, **with a year or without** (`currentMaxSuffix(…, { everyYear: true })`).
+  - After counting, the number is written to **this year's row** as well. ⚠ That mirror is load-bearing: the legal
+    mark on a master, the last numbers a person records after a promotion (`legalCounters`, which leave the
+    year-0 row out) and a build that does not know the option all read the YEARLY rows. A document carries a number
+    only after the mirror is written.
+  - ⚠ Do not move the count back onto the yearly rows. That was the first version: two years counted on at once
+    (midnight on 31 December, two servers whose clocks disagree) had to look at each other's row afterwards and give
+    a number up, which leaves holes in a legal series.
+- **The form's preview and the issue agree**: `peekNextInvoiceNumber` is the one reading behind
+  `GET /invoice/peek-next` for an issued number, in both modes. Drafts are numbered per year as before.
+- `scripts/reconcile-sequences.ts` leaves a continuous series out: every allocation of it catches up by itself.
+- ⚠ **Other readers of the number's FORM.** An importer that tells a document typed here from an imported one by
+  the year in its number (`scripts/lib/invoice-index.ts`: `INV-<year>-<n>` = "entered by hand") sees both
+  as `INV-<n>` once the org numbers without a year. Both were skipped before and both are skipped now; only
+  the label in its log changes. Its audit (`scripts/audit-coverage-api.ts`) then compares such a document with
+  the other system's invoice of the same number and lists a difference as `DIFF`, and lists one with no
+  counterpart there. ⚠ One series, two systems: a number issued here stands for the other system's invoice of
+  that number, so the two must not both issue.
+- **The highest number is counted in the database** (`currentMaxSuffix` is one `$group`, index-covered): a
+  continuous series matches every sales document the org holds, and the reading runs at each issue and each
+  time a form asks for the next number.
+- **The legal mark's ceiling is ten digits** (`legal-mark.service#SERIES_MAX`). It was nine: a ten-digit
+  counter's mark was dropped as damage at every read, so a series standing where another system's numbers
+  left it had no mark on a master, and a database put back below it locked nothing.
 
 ## Generic grid column picker + price-select + Словом + perf (2026-07-26)
 
 - **Per-user grid columns** (visibility + reorder) on EVERY `ListScaffold` grid: `ui-shared/composables/useGridColumns.ts` (localStorage `lgr:grid-cols:<userId>:<orgId>:<gridId>`, gridId = route name) + `GridColumnPickerDialog.vue`; a cog in the results header opens it. userId read from the JWT in localStorage (no app-store coupling). Grids NOT on ListScaffold (e.g. `StockLevelsView`) don't get it yet. ⚠ A saved order exists only after a MOVE and then wins, so a new default order reaches only users who never reordered; a column the saved order has never seen goes right after its catalog predecessor (`orderColumnKeys`, FR-22.46).
 - **Price-select icon** (`ui-shared/PriceSelectButton.vue`) left of every invoice-line Unit Price: lists selling + all named tiers via `GET /pricing/options?...&all=true` (new `all` mode in `listPriceOptions` offers filterless Цена slots too); `onLinePriceSelected` sets price + base→chosen explanation.
+  The same icon stands before every line's price on the **customer order** (`InternalOrderFormView`, new and saved;
+  none on a closed order), for the order's client and the line's quantity: a pick is the line's `expectedUnitPrice`.
+  **A price chosen on the line is the order's own** (`config/order-line-price`, one rule for the form, the route and
+  the conversion): a pick or a typed figure sets `pricePinned` on the line, the button turns into a ticked tag
+  (`data-pinned`), and **`/convert` charges that price**, from the customer order and from a supplier order that
+  covers the line alike (`lib/reservation-convert.ts#pinnedOrderPrices`). The invoice line's trail keeps what the
+  client resolves to and names the order after it as an `override` step (which the invoice form reads as "do not
+  resolve again"). ⚠ A line nobody chose a price on is priced as before, by `resolvePrice` for the client on the day
+  of the invoice, with `expectedUnitPrice` only its fallback when the article is gone: that is every line written
+  before 2026-11-12, every order made from the Products list, and every line whose price is the default the form
+  filled in (the article's selling price, NOT the client's price). ⚠ A pin needs a price above zero (an emptied
+  field unpins); another article on a pinned line drops the pin and the price; the menu's first entry on a pinned
+  line gives the choice back and shows the client's price of today. ⚠ A save that does not say `pricePinned` at all
+  (a tab older than the field, a script) keeps the stored pin while the line's article and price are unchanged, and
+  pins nothing new: the form therefore always sends `true` or `false`. ⚠ **Confirm and Convert save an unsaved edit
+  first** (`InternalOrderFormView#saveIfNeeded`, quietly, as a document's Issue does): they used to act on the
+  stored order and the reload after them dropped the edit, so "pick a price, press Convert" invoiced the client's
+  price. The picker stands only while the order can still be saved, and by this person (draft or confirmed, the Save
+  button's capability; else both buttons act on the stored order as before). ⚠ A browser test that edits
+  and then presses either button must first wait out the form's 500 ms baseline timer (`usePendingChanges`), or the
+  edit counts as loaded and nothing is saved. ⚠ There it is `density="comfortable"` (20 px,
+  the till's and the invoice's is 32 px) inside `.order-tree__num-group`, and the price column is 108 px to hold it:
+  the tree's number columns are budgeted to the pixel, and `customer-order-tree.spec` measures the field, the button
+  and the sideways scroll at 1366 px and 1920 px.
 - **Amount-in-words (Словом)**: `ui-shared/composables/useAmountInWords.ts` (`amountInWords` / `upsertAmountInWords`) — deterministic en/bg/de/mk converter, client-side, written into notes on save of every OUTGOING doc (gated `config.direction === 'outgoing'` in `useDocumentForm.buildPayload`) + orders, in the user's UI language, de-duped on re-save. Legacy format: `Словом : … евро и NN цента, Данъчна основа X.XX €`. Unit-tested (`amount-in-words.test.ts`).
-- **Bottom Save/Print bar** on all doc forms (`DocumentForm.vue`) + order form.
+- **Bottom Save/Print bar** on all doc forms (`DocumentForm.vue`) + order form. Since 2026-11-15 a document form's is
+  the bar under its title drawn again, from one list: „One list of actions for a document's two bars" below.
 - **billingAddress fully optional** (model `addressSchema` + all POST/PUT body schemas) — saving without postal code no longer 500s.
 - **Perf**: dashboard `/summary` stock uses `getStockValuationTotals` ($group aggregation, ~25ms) not the 23k-doc materialisation (~1.6s). **CoreDNS upstream** was switched from the cluster dnsmasq forwarder (~6s first external lookup → slow OAuth/Google) to public resolvers (8.8.8.8/1.1.1.1) — cluster-infra change, lives in kube-system configmap `coredns` (backup on master-node `/tmp/coredns-backup-*.yaml`); belongs in k8s-cluster-multi long-term.
 - Invoice POST/PUT accept `orderId`/`orderGroupId` (API clients can link bills to orders).
@@ -1514,7 +1673,7 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
 ```
 
 - **ORDO** (`packages/db/src/models/order.model.ts`, model name `Order`): supplier groups → lines (product, qty, expectedUnitPrice) → warehouse **allocations**. Counter keys `ORDER`/`DRAFT_ORD` **unchanged** across the ORD→ORDO rename — numbering continues, display prefixes now `ORDO`/`DRF-ORDO` (historic ORD- numbers untouched; migration copies any legacy year-0 `ORD`/`DRF-ORD` display sentinel onto the counter keys). Status: draft → sent → partially_received → received → completed/cancelled. Embedded `reservations[]` subdocs are DEPRECATED (read only by the migration; strip phase empties them).
-- **ORDI** (`internal-order.model.ts`, `InternalOrder`): client order for future delivery — `contactId`, `requestedDeliveryDate` (drives priority; rank = urgent>high>normal>low, then earliest deadline, then createdAt; no-ORDI reservations rank last), optional preferred `warehouseId`, flat lines `{productId (req), quantity, expectedUnitPrice?}` + derived per-line `reservedQuantity/invoicedQuantity/deliveredQuantity`. Sequences `INTERNAL_ORDER`/`ORDI` + `DRAFT_ORDI`/`DRF-ORDI`. Status: draft → confirmed (number issued) → partially_delivered → delivered (derived from dispatch) → completed (manual, releases open RES) / cancelled (draft/confirmed only, cascades RES).
+- **ORDI** (`internal-order.model.ts`, `InternalOrder`): client order for future delivery — `contactId`, `requestedDeliveryDate` (drives priority; rank = urgent>high>normal>low, then earliest deadline, then createdAt; no-ORDI reservations rank last), optional preferred `warehouseId`, flat lines `{productId (req), quantity, expectedUnitPrice?, pricePinned?}` (`pricePinned`: the price was chosen on the line and is what `/convert` charges, see "price-select" above; absent: an indication) + derived per-line `reservedQuantity/invoicedQuantity/deliveredQuantity`. Sequences `INTERNAL_ORDER`/`ORDI` + `DRAFT_ORDI`/`DRF-ORDI`. Status: draft → confirmed (number issued) → partially_delivered → delivered (derived from dispatch) → completed (manual, releases open RES) / cancelled (draft/confirmed only, cascades RES).
 - **RES** (`reservation.model.ts`, `Reservation`): numbered hold (`RESERVATION`/`RES`, direct issue) linking demand (contactId, optional internalOrderId/LineId) to supply (`source: 'stock' | 'order'` + warehouseId; order-source carries orderId/groupId/lineId/allocationId). Derived `invoicedQuantity/dispatchedQuantity/invoiceIds` from LIVE outgoing type-'invoice' docs only (converted proformas/bills never count). Status active ↔ fulfilled (auto), cancelled terminal with `cancelReason: manual|preempted|internal_order_cancelled|external_order_cancelled|released` + `preemptedBy`. Holds: stock-source = `qty − dispatched` while active (availability-validated at create); order-source = old formula `min(Σ(qty−dispatched), received−Σdispatched)` per allocation, only while the ORDO is sent/partially_received/received (draft-ORDO RES records intent, holds nothing). Reopen rule: a void only reactivates a fulfilled RES if its ORDI is still live — closed demand shrinks instead (no zombie holds).
 - **Sync engine** (`services/biz/reservation.service.ts`): decomposed into `recomputeOrderReceipts` / `recomputeReservations` / `recomputeInternalOrder` / `syncReservedQuantities` (now reads the Reservation collection). Public entry points kept: `syncOrderDerivedState(orgId, orderId)` and `syncOrderForInvoice(orgId, invoice)` — the latter walks doc `orderId`/`internalOrderId` AND line `orderRef.{orderId,internalOrderId,reservationId}` (mixed-source conversion invoices may have no doc orderId). Invoice hooks: POST create (after the cash-sale rollback block), PUT, DELETE, send, receive, void, proforma-convert, bill-import convert. `applyReservationCancel`/`reservationReleasable` implement release semantics (fully-open cancel keeps quantity for audit; partially-consumed shrinks to consumed).
 - **Ops layer** (`services/biz/reservation-ops.service.ts`, throws `ReservationOpsError{statusCode}`): `createReservation` (validates availability / allocation capacity / ORDI line open demand / contact match), `cancelReservation {quantity?}` (releasable = qty − max(invoiced, dispatched)), `preemptReservation` (Mongo txn, releasable re-checked on the session read → concurrent preempts serialize, loser gets 422; beneficiary RES inherits the supply source), `reserveAvailableForInternalOrder` (one-click stock cover, preferred-WH first), `getInternalOrderSuggestions` (per short line: freeStock / unreserved incoming (+`late` vs deadline) / preemptable ranked most-deferrable first with equal/higher-priority demand excluded, caps 20 + totals, supplierHint from the latest ORDO carrying the product), `completeInternalOrder`, `cancelInternalOrder`, `generateExternalOrder` (txn: new/append-to draft ORDO grouped by supplier + order-source RES per line).
@@ -1525,6 +1684,41 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
 - **ORDO-aware purchase import**: unchanged mechanics — `POST /bills/import/draft` accepts `orderId`; ladder alias → exact → AI-vs-order-candidates; bills carry `orderRef {groupId,lineId,allocationId}` (NEVER reservationId — 422). Skill `.claude/skills/import-purchase-invoices/` + `scripts/import-purchase-invoices.ts` are prefix-agnostic (resolve by number search). **Ops:** ORDO-received deliveries must not ALSO be booked by the daily `receive-stock` import.
 - **UI** (labels renamed 2026-10-25, see the next section: Internal → **Incoming**, External → **Outgoing**): nav group "Orders" → Internal Orders (`/internal-orders`, InternalOrdersView + InternalOrderFormView with coverage chips, Reserve-from-stock, Cover-shortages dialog (free stock / incoming / preempt with confirm), Generate-external dialog with supplier hints), External Orders (`/orders` — paths/route names unchanged for e2e; OrderFormView: allocation editor + read-only RES panel + per-allocation Reserve-for-client dialog; convert dialog fed by linked RES), Reservations (`/reservations`, ReservationsView with source/late/shortage indicators + cancel). Sequences page groups: order/internal_order/reservation. i18n ×4 (en/bg/de/mk): nav keys, `invoicing.status.{confirmed,partially_delivered,delivered,active,fulfilled}`, priority/coverage/preempt blocks.
 - **Tests**: `order-reservations.flow` (7-case behavioral contract over RES docs), `order-import.flow`, `order-sheet-export`, `reservation-migration.flow` (preserved ids, upsert refresh, hold parity, strip), `internal-order.flow` (budgeted exemption incl. N-lines-one-RES, delivered statuses, void-after-complete no zombie hold, cascades), `reservation-preempt.flow` (partial/concurrent preempt, suggestions ranking, generate-external rollback, cross-WH exemption).
+
+## Orders: the customer order prints (2026-11-16)
+
+An ORDI had no printed form: nothing to hand a client, nothing an e-mail could attach.
+
+- **The sheet** — `reporting/pdf/customer-order.pdf.ts` + `customer-order.i18n.ts` (en/bg/de/mk), in the
+  supplier sheet's family (markdown through `markdownToPdf`; `buildCustomerOrderMarkdown` is exported so
+  the layout is tested without a browser). The title says where the order stands: confirmed and later
+  „ПОТВЪРЖДЕНИЕ НА ПОРЪЧКА", a draft „ПОРЪЧКА (ЧЕРНОВА)", a cancelled one „ПОРЪЧКА (ОТКАЗАНА)"; a
+  status it does not know is never called a confirmation. Then the number, the date and the requested
+  delivery date; the supplier (the org) and the customer (the contact); the lines as № / article / SKU /
+  quantity / unit, a line's own words before the catalogue's; the notes, cut at 500 characters; the
+  terms; the "generated on" foot, on the org's own day.
+- ⚠ **No price, no amount, no total, on purpose.** A line's `expectedUnitPrice` is an indication unless
+  it is pinned, and the invoice may charge the client's own price: a figure on a confirmation is read as
+  agreed. It also leaves nothing to redact, so every role gets the same page.
+  `unit/customer-order-sheet.test.ts` fails when a money word or one of the order's figures reaches it.
+- A draft shows **no number** (FR-22.18: its `DRF-` number goes on confirm). The file is still named
+  `<orderNumber>.pdf`.
+- ⚠ **Stored text is printed as text**: every name, description and note goes through the renderer's
+  `mdText` (see „A printed page runs nothing and fetches nothing"). A new field goes through it.
+- **One function**: `renderInternalOrderPdf(orgId, orderId, { locale })` in
+  `invoicing-api/src/lib/internal-order-pdf.ts`, with `renderInvoicePdf`'s result shape
+  (`{ok, buffer, filename, order}` or `{ok: false, status: 404 | 503, message, detail?}`). The route calls
+  it, and so does the mail of the list's ticked orders (kind `internal-order`, „A list's ticked
+  documents by e-mail"). Every read names the org (the contact and the
+  articles too), a malformed id is 404, and it writes nothing.
+- **Route** `GET /org/:orgId/invoicing/internal-orders/:id/export?locale=`. Its gate is `canExport`
+  (`sales-docs.export`) ON TOP of the order's read rule (`orders.view`). Both route tables resolve it by
+  the existing `invoicing/internal-orders` prefix: no row was added.
+- **UI**: „Печат" on the form (`print-order`; an edit not saved yet is saved first, as Confirm does) and
+  in every row of the list (`print-order-row`). Both show to `sales-docs.export` and download through
+  `useCustomerOrderPrint` → `downloadAsSession`, in the user's language. No new i18n key.
+- **Tests**: `unit/customer-order-sheet`, `integration/internal-order-print.flow`,
+  `e2e/customer-order-print.spec` (in the `invoicing-inventory` project).
 
 ## Orders: client reservations where the order is (2026-10-25, #203)
 
@@ -1657,6 +1851,94 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
 
 Routes: `/inventory/products/:id/:tab` where `tab ∈ {edit|pricing|settings|stock|ledger|movements|levels}`. `/products/:id` redirects to `/edit`, `/products/new` to `/new/edit`. Shared `ProductTabBar.vue` component at top of both ProductFormView and ProductStockView navigates between siblings via named routes (works in both inventory-ui and desktop-ui). `new` mode disables stock/ledger/movements/levels tabs with "save first" tooltip.
 
+## External warehouse (2026-11-16)
+
+The owner's ask: a warehouse can be marked **external**: another site's warehouse, named in this org
+so a transfer can say where the goods went or where they came from. No stock is kept on it here. The
+movement is a document for the colleagues on the other side, who keep their own stock in their own
+org; booking the other org's side waits until the two catalogues agree on names.
+
+- **`Warehouse.isExternal`** (rules in `config/src/external-warehouse.ts`: pure, shared by the form
+  and the server). Never default and external together: 422 `external_default`. A warehouse does not
+  BECOME external while a `StockLevel` of it has `quantity != 0` or `reservedQuantity > 0`: 422
+  `warehouse_holds_stock`, with `articles` (how many). External → own is always allowed. ⚠ That
+  check reads the levels alone: a draft movement or an ORDO allocation that names the warehouse does
+  not stop it.
+- ⚠ **`GET /warehouse/warehouse` answers only the warehouses that keep stock.** Every picker in every
+  app lists through this route, and none of them may offer an external one. `?external=include`
+  answers all (the Warehouses page, the movement form, the movements filter), `?external=only` the
+  external ones; any other value is the default.
+- **The server's "default, else first warehouse" fallbacks skip one**: doc-import (`persist.ts`,
+  `map-movement.ts#resolveWarehouse`), Files (`doc-pipeline`, `compare-snapshot`, `doc-reconcile`),
+  `orders-from-products`. The ops scripts that list warehouses over the API get the default above.
+  ⚠ The few that read `Warehouse` from the database themselves do not skip one.
+- **Only a transfer names one, with a warehouse of our own on the other side**
+  (`config/src/movement-warehouses.ts#movementWarehouseRefusal`, told `fromExternal` / `toExternal`
+  by `services/biz/external-warehouses.ts#movementExternalSides`). 422
+  `external_warehouse_not_transfer`: a movement of any other type names one. 422
+  `transfer_without_own_warehouse`: a transfer names no warehouse of our own. Doors:
+  `movement.controller` POST `/`, POST `/with-update`, PUT `/:id`, POST `/:id/confirm`;
+  `/doc-import/convert`; `doc-import/commit.ts`; the movement form, before it sends anything. The
+  flag is read at the door and never remembered on a draft, so a draft whose warehouse became
+  external since is judged at `/confirm`. Opening stock writes levels past the engine, so it refuses
+  one at its own door (422 `external_warehouse`). A transfer-only session (FR-26.7) writes both
+  directions: an external warehouse counts as a named side.
+- ⚠ **Completed, `fromWarehouseId` / `toWarehouseId` name only warehouses whose stock the movement
+  moved.** `confirmMovement` books an external side as if the movement named none (no level, no cost
+  layer; goods from one arrive at the line's cost, as a receipt's do) and, in the update that
+  completes it, moves that id to `externalFromWarehouseId` / `externalToWarehouseId`. Every reader
+  that derives stock from movements relies on it, and none reads the pair. ⚠ It is NOT a refusal in
+  `confirmMovement`, which never refuses (see its note): the engine is the last line of defence for
+  what passes no door (an import, a replay, a count, the legacy POS). A draft keeps the form's choice
+  in the two stock fields.
+- ⚠ **Goods from an external warehouse that say no cost arrive at what the article costs here**
+  (`warehouse.service#costsAt`: the average of its level in the receiving warehouse, so the arrival
+  moves no average; with no level, its purchase price; with neither, zero as before). A role that does
+  not see costs posts `unitCost: 0`, and averaged in at zero every delivery from the other site
+  pulled the average down. The line keeps the `unitCost` it said; `resolvedUnitCost` is what was
+  booked. ⚠ Only for an external From: a transfer between two of our own warehouses still books the
+  destination at the line's `unitCost` under WAC, zero included (older than this feature, not changed
+  here).
+- ⚠ **A sale or a bill never names one.** `invoicing.service#stockBooking` refuses a document whose
+  product line names an external warehouse (`stock_line_external_warehouse`): `/send` answers 400
+  before a number is drawn, `/receive` 422, and the till's sale reports it as its stock error. No
+  picker offers one on a document, so this is a warehouse that became external after the line was
+  written (an order's allocation, a pinned default) or an API client. Booking nothing there would be
+  a document issued with its stock unmoved, which is what the function's two older refusals exist to
+  stop.
+- **Reading the other side**: `fromWarehouseId || externalFromWarehouseId`. `sideIsExternal`
+  (`config/external-warehouse`) is the one rule behind `fromExternal` / `toExternal` on the list, on
+  `GET /:id` and on the print: booked, the pair says so; a draft, the warehouse as it is now. The
+  list's `warehouseId` filter and its two name sorts follow the pair. ⚠ The `stock-movements` report
+  and the product ledger read the stock fields alone: the external side is blank there. The digest
+  files every transfer under „transferred", whichever way it went.
+- ⚠ **A transfer posts no journal entry** (`createMovementValuationEntry` books receipts, dispatches
+  and returns only), with an external side as without: goods sent to another site leave the stock
+  and stay on the inventory account.
+- **Print**: `GET /warehouse/movement/:id/export?locale=` answers `<movementNumber>.pdf`, draft or
+  booked, to whoever may read the movement. `services/biz/stock-movement-document.service.ts`
+  (`renderStockMovementPdf`: one function for the route and for anything that sends the sheet on),
+  `reporting/pdf/stock-movement.pdf.ts` (`buildStockMovementHtml`), `reporting/stock-movement.i18n.ts`
+  ×4. The title follows the type („Стокова разписка" a receipt, „Складова разписка" a transfer, a
+  general title with a type row otherwise); then number, date, From / To with „(външен)", partner,
+  reference, note, the lines (№, name, unit, quantity) and two signature lines. ⚠ No price and no
+  total: a line's `unitCost` is a cost not every role sees (on a sale's dispatch, the sale price),
+  and the sheet leaves the org. UI: Print on the movement form and on each row of the list
+  (`inventory-ui/composables/useMovementPrint.ts`), downloaded as the tab's session.
+- **By e-mail**: the movements list mails its ticked movements, each as this sheet (kind `movement`
+  in „A list's ticked documents by e-mail"). Transfers open the dialog on „До един адрес": the
+  colleagues of the other site. A draft and a cancelled movement are not mailed.
+- **Screens**: `WarehouseFormView` (the switch; Default and External exclude each other),
+  `WarehousesView` and `MovementsView` (a chip; the filter lists external ones marked),
+  `MovementFormView` (an external warehouse is offered on a transfer only and is cleared when the
+  type changes; a note says which stock the transfer changes; from an external one the line reads
+  the destination's stock and no quantity is prefilled). Keys in `warehouse.*` ×4.
+- **Tests**: `unit/external-warehouse.test.ts`, `unit/stock-movement-document.test.ts`,
+  `integration/external-warehouse.flow.test.ts`, `e2e/tests/external-warehouse.spec.ts`
+  (`invoicing-inventory`). ⚠ The spec names its warehouses to sort LAST and scrolls the picker: a
+  warehouse is never removed, and a select renders only the rows in view, so leftovers sorting first
+  would push the seed's warehouses out of the other specs' pickers.
+
 ## Reporting → Export (2026-04-21)
 
 New `POST /api/org/:orgId/invoicing/export/kind/:kind` endpoint with `kind ∈ {outgoing, incoming, cash_register}`.
@@ -1676,6 +1958,34 @@ Top menu reorganized into 5 workflow-based groups:
 - **Contacts**: Contacts, Invoice Aging
 
 Debit Notes moved from Vendors group (outgoing-direction) to Outgoing Documents. i18n keys `nav.outgoingDocs`, `nav.incomingDocs`, `nav.cashRegister` added across en/bg/de/mk.
+
+## Offers („оферта") — a quote before the proforma (2026-11-12)
+
+Invoice `type: 'offer'`, at `/invoicing/offer` (list, `/new`, `/:id/edit`): the proforma's form and list
+(`DOCUMENT_CONFIGS.offer`, `OffersView.vue`), in a series of its own — `DRAFT_OFR`/`DRF-OFR` while a draft,
+`OFFER`/`OFR` once issued (`sequence-registry.ts`; renamable on the sequences page). Not a legal series.
+
+- **Converted once** — `POST /invoices/:id/convert { target }`: an offer into a `proforma` or an `invoice`
+  (default), a proforma into an `invoice` only (`config/constants#QUOTE_CONVERTS_TO`). The new document is a
+  DRAFT of the target's draft series; it carries the deal over and names its source (`proformaId`,
+  `offerId`; a proforma made from an offer passes `offerId` on to its invoice). The quote becomes
+  `converted` with `convertedInvoiceId`; the list returns `convertedInvoiceType`, `offerNumber`.
+  ⚠ Once by a compare-and-set AFTER the draft exists: two presses at once (two tabs, „→ Проформа" and
+  „→ Фактура") make one document, the loser deletes its draft and answers 409. A voided quote converts
+  into nothing (400 `quote_withdrawn`; the API took a voided proforma until this). The target's kind must
+  be the role's to create (403 `capability_required`, `sales-docs.create` for an invoice).
+- ⚠ **A quote is no money** — `QUOTE_TYPES = ['proforma', 'offer']`, `isQuoteType()` in `config/constants`.
+  Issued it is `sent` with `amountDue = total`, which is exactly what a receivable reader counts. Every
+  reader of money or stock leaves the quotes out: stock booking (`movesNoStock`), the journal handler,
+  the fenced import, `/payments` (422 `quote_takes_no_payment`), `getInvoiceSummary` (when no type is
+  named), both agings, the contact form's balance, `/stats/contact`, `checkOverdueInvoices`, and the
+  contact ledger's TOTALS (its rows list them). Until this, every issued proforma never converted counted
+  as owed on the dashboard and in the aging. A new reader of outgoing `sent` documents must do the same.
+- **Access** rides on the `proforma` feature (`config/access/partition.ts`): the quotes are one kind, so
+  every role that works proformas works offers, and no stored role needed migrating. The role editor
+  labels it „Проформи и оферти".
+- ⚠ An older on-prem master (FR-20) does not know the type: an org moved to one carries offers its code
+  treats as sales documents (the move copies raw). Say so in the next server release's notes.
 
 ## Document Import (2026-08-21)
 
@@ -1764,8 +2074,11 @@ alone: filling it from `Цена` sets the price to what we paid (`scripts/recei
 did until 2026-11-02);
 `Цена N` → the tier named `Цена N`, and only the N the document carries. `purchasePrice` and the
 cost tiers (`Доставна цена`, `Цена на едро`, `Цена 0` — `PROTECTED_TIERS`) are **never written**
-by an import; they belong to the storeAvailability re-baseline. A NEW product is the exception —
-nothing to protect, so `Цена` still opens its `purchasePrice`/avgCost. Two traps this closed:
+by an import; the cost tiers belong to the storeAvailability re-baseline, and `purchasePrice` to no
+import at all (2026-11-15: it is „Цена 2" / 1.2, see Tag-Based Pricing). A NEW product is the
+exception — nothing to protect: `Цена` opens its „Доставна цена" slot and its avgCost, and its
+`purchasePrice` is „Цена 2" / 1.2 when the document carries a „Цена 2", `Цена` only when it does
+not (`purchasePriceForNewProduct`). Two traps this closed:
 the staged `priceTiers` array REPLACED the product's on commit and was built from a blank slate
 (wiping every slot the document didn't carry — it now merges by name from the product's current
 tiers), and `persistMovement` strips `purchasePrice` from any staged payload so a pre-rule
@@ -1832,6 +2145,13 @@ type `shipment` → `dispatch` (the backend enum) and `completed` added to the s
    rendering, and the run stays green. Use `tests/helpers/vuetify.ts#appears`. A green run says
    what it skipped and what only passed on a retry in its job summary
    (`e2e/scripts/night-summary.ts`): read it. #408 tracks the 94 conditional sites left.
+8. **"Passed on its second try" is not "flaky" until it is counted.** A retry starts a fresh
+   worker, which is slower, so a test that one runner loses every time still passes there. On
+   2026-11-13 the night's one retried test failed 20 of 20 on the faster runner and passed 20 of
+   20 on the other, at the same commit (`--repeat-each=20 --retries=0` on a runner of each host).
+   A scheduled night with a retried test therefore opens the issue "Nightly e2e needed a retry"
+   and names the test, and a red night's issue names its tests too (`e2e-nightly.yml`'s `report`
+   job, fed by `e2e/scripts/night-findings.ts`).
 
 ## DIN/ISO Fastener Catalog + Product Tagging (2026-08-03)
 
@@ -2042,6 +2362,155 @@ in LGR while the device still had it open.
   asserts this before writing).
 - `.env.example` now documents `SENDGRID_API_KEY` + `FROM_EMAIL`. **Ops: `FROM_EMAIL` must be
   a SendGrid-verified sender** or every send 502s; prod's `lgr-secret` already carries the key.
+
+## A list's ticked documents by e-mail (2026-11-16)
+
+Seven lists tick rows and mail them: sales documents, proformas, offers and bills (kind `invoice`:
+any document of the invoice collection), supplier orders (kind `order`: one sheet per supplier
+group), customer orders (kind `internal-order`: the order's one sheet, see its bullet below) and
+stock movements (kind `movement`: each as its printed sheet, by the warehouse API's own two
+routes, see its bullet below). The dialog, the composable and the engine take a kind as a name and
+two routes. FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is untouched.
+
+- **Two routes**: `invoicing-api/controllers/doc-email.controller.ts`, everything they decide in
+  `lib/doc-email.ts`. The wire types and the dialog's planning are **`config/doc-email`**
+  (import-pure, read by the server and the UI alike).
+  - `POST /org/:orgId/invoicing/export/email/preview { kind, ids }` → `{ documents: [{ id,
+    groupId?, number, docType, date?, status?, partner?: { id, name, email? }, blocked? }] }`.
+    Writes nothing. At most 100 ids (`MAX_SELECTION`).
+  - `POST /org/:orgId/invoicing/export/email { kind, to, items: [{ id, groupId? }], subject?,
+    message?, locale?, columns? }` → `{ to, mails, queued, results: [{ id, groupId?, number,
+    status: sent | queued | skipped | failed, reason?, message? }] }`. **One recipient and at most
+    ten documents a request** (`MAX_DOCS_PER_MAIL`); the dialog asks once per recipient, in turn.
+- ⚠ **A refused DOCUMENT is a row of a 200, never the request's status**: a draft among ten is
+  `skipped` and the other nine are `sent`. The request is refused only for what is true of all of
+  it, in this order: 403 (the session mails no document of the kind) → 400 (no valid address, no
+  items, an unknown column) → 422 `selection_too_large` → **503 `not_configured`, before a single
+  PDF is printed**.
+- **Who mails what** is `lib/email-guards.ts` (`invoiceEmailSkip`, `orderEmailSkip`,
+  `internalOrderEmailSkip`), and the SAME
+  function decides the preview and the mail, so the two cannot disagree. A document of the invoice
+  collection goes when the session WORKS on its kind (`writesKind(grant, kind, 'edit')`, FR-27.6);
+  one of a kind it does not read is `not_found`, exactly like an id that names nothing. Only a
+  `draft` is held back by status. ⚠ Wider than FR-10 on purpose: an INCOMING document goes (a bill
+  forwarded to the accountant). An order's sheet takes the orders' read, `sales-docs.export` and
+  `orders.create|edit`. `just_sent` (the 60 s double-click window) is per document AND address.
+- **The engine** is `services/biz/doc-email/` and knows no kind. `emailDocuments({ orgId, userId,
+  to, replyTo?, documents: [{ entityType, entityId, number, render }], subject, html })` renders
+  two at a time, packs the files into mails that fit this node (`pack.ts`: ten attachments, and
+  `config.relay.maxAttachmentBytes` on a master, the provider's cap anywhere else), sends each and
+  answers per document. A render that fails drops that document only; a file no mail can carry is
+  `too_large`. On a master the answer is `queued`, never `sent` (FR-20.86).
+- **`sendEmail` takes `entities`** (`[{ entityType, entityId, attachmentName }]`): one `EmailLog`
+  row per document a mail carries, each naming its own file. That is what lets the resend guard
+  and a document's history read ONE document, whatever travelled with it. On a master the outbox
+  payload carries the list. Absent, nothing changes.
+- Every document that went or was queued gets an audit entry (`action: 'email'`). An invoice's
+  `emailedTo` / `lastEmailedAt` change only when the mail has LEFT: at once when sent, from
+  `relay/outbox-worker.ts` when a master's queued mail has gone.
+- An invoice is attached as its Print prints it: the dialog passes the person's saved print
+  columns (`readPrintSettings().columns`). An order's sheet is the SUPPLIER variant, and a role
+  that does not see costs gets it without expected prices, as from the export route.
+- **UI**: `ui-shared/components/BatchEmailBar.vue` (the bar in `ListScaffold`'s `#bulk-bar`, and
+  the dialog's owner), `BatchEmailDialog.vue`, `composables/useBatchEmail.ts` (the state and the
+  requests, without words; unit-tested with an injected `post`). Invoicing wraps them once:
+  `invoicing-ui/components/DocEmailBar.vue` + `composables/doc-email-access.ts`, which asks the
+  same `writesKind` the server does. A role that only reads ticks and clears, and sees no button.
+  - **„До клиента / доставчика"** (the default when a document has a partner): a line per partner
+    with the address on its card, each editable. A line left empty is not sent and its documents
+    stay ticked. **„До един адрес"**: one field, prefilled with the address this person last
+    mailed this kind to in this org (`lgr:doc-email-to-<kind>:<user>:<org>`, written only after a
+    mail to it went).
+  - One request per recipient per ten documents, one after the other. **503 `not_configured`,
+    401, 403 and 409 stop the rest** (`stopsTheBatch`); any other failure is that recipient's.
+  - Everything asked went → the dialog closes with a snackbar; otherwise it stays on the results.
+    Either way only what went leaves the selection (an order, when every sheet of it went).
+- **Customer orders** (kind `internal-order`, the customer orders list): each ticked order as the
+  sheet its Print button downloads (`renderInternalOrderPdf`, no price on it), on the invoicing
+  pair of routes. An item is the order's id; a `groupId` beside it is not read. In
+  `lib/doc-email.ts` a kind is an entry of `PREVIEW_ROWS` and of `MAIL_ROWS`: one without both
+  does not compile.
+  - **Who mails what** is `internalOrderEmailSkip`, for the preview and the mail alike. The
+    request takes what the sheet's export takes (`orders.view`, `sales-docs.export`) AND the work
+    on orders (`orders.create|edit`): a role that only reads prints a sheet and mails none. ⚠ Its
+    own access function, never the supplier order's: a customer order is read by `orders.view`
+    alone. Per order: an id that names none in this org is `not_found`; a `draft` is held back
+    (its sheet shows no number). ⚠ **A cancelled order GOES**, as every status but `draft`
+    does: its sheet's title says it is cancelled, and telling the client so is a use. The
+    `cancelled` reason stays a stock movement's.
+  - A row's `docType` is `internal_order` and its `partner` the order's contact, so the dialog
+    opens on „До клиента / доставчика" with a line per client. The mail names an order as its
+    sheet is titled, in sentence case (`customerOrderDocName`: „Потвърждение на поръчка",
+    „Поръчка (отказана)"), and states no total. `entityType: 'internal_order'`, audit module
+    `invoicing`. An order keeps no send history, so the outbox worker needed no branch.
+  - UI: `invoicing-ui/views/InternalOrdersView.vue` is a `fit`, `selectable` `ListScaffold` with
+    `<DocEmailBar kind="internal-order">`; the button shows to
+    `useDocEmailAccess().internalOrders()`, which `unit/doc-email-access` holds to the server's
+    rule. ⚠ The list has nine columns beside its tick: the client's name is clipped at 9em (whole
+    in its `title`) and a row's icons sit in one unwrapped row, which is what keeps a draft's row
+    (four icons) one line at 1366 px.
+- **Stock movements** (kind `movement`, the movements list): each ticked movement as its printed
+  sheet. `warehouse-api/controllers/movement-email.controller.ts`, everything the two routes
+  decide in `lib/movement-email.ts`.
+  - `POST /org/:orgId/warehouse/movement/email/preview { kind: 'movement', ids }` and
+    `POST /org/:orgId/warehouse/movement/email { kind: 'movement', to, items: [{ id }], subject?,
+    message?, locale? }`: the answers, the caps and the refusal order of the invoicing pair. A
+    row's `docType` is the movement's type, its `partner` the movement's contact. ⚠ A transfer
+    names no contact, so ticked transfers open the dialog on „До един адрес": that is how a
+    transfer to or from an external warehouse reaches the people of the other site.
+  - **Who mails what** is `lib/movement-email-guards.ts#movementEmailSkip`, for the preview and
+    the mail alike. The request: a session that works on movements (`movements.create|edit|delete`)
+    or writes a Seller's transfers (`movements.create:transfer`, FR-26.7). That is the rule both
+    route tables already reach every `warehouse/movement` write by, so NO row was added to
+    either. Per movement, in this order: one the session does not read is `not_found`; a
+    transfer-only session mails transfers, and any other type is `forbidden`
+    (`lib/movement-access.ts#writesTransfersOnly`, the one rule the movement controller writes
+    by); a `draft` is `draft`; a cancelled one is **`cancelled`**, a block reason this kind
+    added (it moved nothing, so its sheet says nothing true); `confirmed` and `completed` go.
+  - The file is `renderStockMovementPdf`'s (`<movementNumber>.pdf`, no price on it), the mail
+    names each movement by its type word (`reporting/stock-movement.i18n.ts`), `entityType:
+    'stock_movement'`, audit module `warehouse`. ⚠ A movement keeps no `emailedTo` history, so the
+    outbox worker needed NO branch: a master's queued mail settles its `EmailLog` rows by
+    `outboxId` like any other.
+  - UI: `inventory-ui/views/MovementsView.vue` places its own table, so it carries the tick
+    column (`show-select`, the ids) and `<BatchEmailBar kind="movement" …>` itself.
+    `composables/movement-email-access.ts` names the server's capabilities again (the UI cannot
+    import the warehouse API) and `unit/movement-email-access` holds the two together. ⚠ With the
+    tick column the list is `list-fit` (`ui-shared/styles/list-fit.css`, the rules
+    `ListScaffold`'s `fit` uses): its two warehouses and its contact are clipped at 9em and 10em,
+    a row's icons are the size of a row menu, and the title row wraps, which is what keeps a
+    390 px page from scrolling sideways.
+- **What every kind's two routes share** is `services/biz/doc-email/request.ts`: the three
+  whole-request refusals, `distinctItems`, `partnersOf`, `recentlyMailed` (the 60 s window,
+  `RESEND_WINDOW_MS` in `config/doc-email`), `docEmailResults`, `auditMailed`.
+- **Another kind** (the movement kind is the model) brings: two routes speaking
+  `config/doc-email`'s types; its own loading and rules, handing `emailDocuments` an
+  `EmailableDocument` with a `render` per document; the right rule for each route in BOTH route
+  tables (`config/access/routes.ts`, `services/biz/route-permission.ts`), by a row of its own
+  or by a prefix row that already reaches it, shown over the real route table (a role that only
+  reads posts `{}` and gets 403, never 422); and on its list
+  `<BatchEmailBar v-model:selected kind org-url preview-path email-path :may-email>`. A reason the
+  catalogue does not know needs a `docEmail.reason.<code>` key ×4, or it reads as its code.
+- ⚠ The outbox worker settles the send history of `invoice` entities only. A kind with a history
+  of its own adds its branch there, or a mail queued on a master never marks its document.
+- ⚠ The preview is a POST that reads, and is deliberately NOT in `route-class.ts#READ_ONLY_WRITES`:
+  an org that is read-only here could mail nothing (the mail writes `EmailLog` and audit rows), so
+  its dialog is told at once (409 `org_home_elsewhere`) instead of after the form is filled in.
+- ⚠ `lib/doc-email.ts#docEmailRenderers` is the seam a test swaps to mail without a browser: a
+  render is a fresh Chrome, and the suites ask who gets which file, not what the file looks like.
+  The movement kind's is `lib/movement-email.ts#movementEmailRenderers`.
+- ⚠ Never "send" in a route or a handler name here either: `POST /invoices/:id/send` ISSUES.
+- ⚠ No mail leaves the e2e (`batch-email.spec.ts`): the mail request is answered by `page.route`,
+  and the one case that needs the server's own 503 first asks, with a draft that is never mailed,
+  whether the server can mail, and is skipped where it can.
+- Tests: `unit/doc-email`, `unit/doc-email-guards`, `unit/batch-email`,
+  `integration/doc-email-engine`, `integration/doc-email.flow`, `e2e/tests/batch-email.spec.ts`.
+  The movement kind: `unit/movement-email-guards`, `unit/movement-email-access`,
+  `integration/movement-email.flow`, `e2e/tests/movement-email.spec.ts` (the Bulgarian UI; its
+  mail request is answered by `page.route` too, and it holds the list's fit at 1366 and 390 px).
+  The customer-order kind: `unit/doc-email-guards` and `unit/doc-email-access` (its rule, on the
+  server and in the UI), `integration/customer-order-email.flow`,
+  `e2e/tests/customer-order-email.spec.ts` (the same walk on the customer orders list).
 
 ## FR-06 P2 — the rest of the report catalog (2026-08-26)
 
@@ -2274,7 +2743,10 @@ billable-receipts,:id/link-receipts}`.
   quantity must equal the receipts' (422 `receipt_quantity_mismatch`), the supplier cannot change.
   Prices, text and lines that hold no stock (a fee, a service) stay free.
 - Receiving it moves `purchasePrice` to the billed price for future receipts — only where it still
-  equals the receipts' cost (a newer price stays); avgCost and cost layers are never re-costed, and
+  equals the receipts' cost (a newer price stays), or the „Цена 2" / 1.2 approximation when the bill
+  states a price of its own, one that differs from every receipt's cost (2026-11-15: a bill that only
+  repeats an imported receipt would put the delivery price back); avgCost and cost layers are never
+  re-costed, and
   posting is unchanged (FR-22's D-2 note).
 - `POST`/`PUT /invoices` strip `stockSource` (Elysia's schema already drops it; this is defence in
   depth). `link-receipts` takes an EMPTY draft, or a draft with lines given `replaceLines: true`
@@ -2344,10 +2816,47 @@ billable-receipts,:id/link-receipts}`.
   `e2e/receipt-to-bill.spec`; walks P2 (17 clicks · 12 typed · 0 hops) and P3 (3 · 1 · 1, stock
   unchanged).
 
+## The goods first, then their invoice (2026-11-13, FR-22.61–.62, #725)
+
+The sales twin of the section above. Goods leave on a dispatch that names the customer (a stock
+note); an invoice typed for them later dispatched them a second time. `services/biz/dispatch-invoice.service.ts`
+is the one place that knows the rules; `invoicing-api/…/dispatch-invoice.controller.ts` its routes
+(`/invoicing/sales/{from-dispatch, invoiceable-dispatches, :id/link-dispatches, :id/dispatch-overlap}`).
+
+- An invoice made from notes carries `stockSource { marker: 'dispatch:<ids>', movementIds, detectedBy:
+  'manual' }` and claims each note by a compare-and-set on its `invoiceId`. ⚠ The marker is NOT
+  `movement:`: `isReceiptLinked` must stay false for an invoice, or the bill's paths run on it (its
+  form is sent the receipts' costs, its edit is refused in a bill's words). The paths that read
+  `stockSource.movementIds` (the ledgers, the org move, `movesNoStock`, a rollback's guard) serve both.
+- ⚠ **A note carries costs, an invoice charges prices.** Lines take `resolvePrice` for that customer,
+  with the trail; a note's `unitCost` never reaches an invoice, and the picker sends no amount at all.
+- ⚠ **A typed invoice keeps its lines when it is linked**, where its stock-held quantities already
+  equal the notes' (the bill side always replaces). Only a difference is replaced, and only with
+  `replaceLines`, after 422 `invoice_lines_differ` named it. The link is a compare-and-set on
+  `updatedAt`: the lines were judged from that read.
+- The question (FR-22.61b) is asked by `/send`, 409 `dispatch_overlap`, answered by a link or
+  `acknowledgeOverlap`. ⚠ The UI asks FIRST (`prepareIssue`, `GET …/dispatch-overlap`), before the
+  payment method and the stock check: an invoice about to be linked takes no stock, and a stock check
+  run first offered a transfer to cover goods that had already left. `checksStockOnIssue` is false
+  for any document with a `stockSource`.
+- ⚠ The notes are found by `invoiceId: null` IN THE QUERY (`freeOf`), never by reading the newest
+  few hundred dispatches and filtering: nearly every dispatch of a customer is one an invoice booked
+  for itself.
+- ⚠ A dispatch held by a purchase document (a voided bill's mirror) is a reversal, and the bill is
+  not named: a session that makes sales invoices need not read the purchases.
+- ⚠ FR-07 and the digest read MOVEMENTS, and a hand-booked note carries what the goods cost. A note an
+  ISSUED invoice claims is valued at that invoice's price per article (`CLAIMED_SALE_UNIT_PRICE`,
+  weighted over the invoice's lines of it), on the note's own day; read at its own figures, a sale
+  through a note had no sale value and no profit. A note nobody has invoiced, or one a draft holds,
+  keeps its own figures. FR-08 reads documents and needed nothing.
+- Tests: `integration/dispatch-invoice.flow` (34, with 23 mutations caught), `e2e/stock-note-to-invoice.spec` (9).
+
 ## Issue, print and get paid on the document (2026-10-26, FR-22 slice 2a: FR-22.16–.22)
 
 A sales document is finished on its own form: „Издай и печатай" saves it, issues it, settles a card
-or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs → 0).
+or cash sale and prints it (P5-invoice 20 → 14 clicks, 2 dialogs → 0 at the time). Since 2026-11-15 it
+asks HOW to print first, in the Print dialog, and that dialog's confirmation is what saves, issues and
+prints: „One list of actions for a document's two bars" below.
 
 - **Save stays on the document** (every invoicing document form but the cash sale, which FR-21
   owns): a new one moves onto its own edit route. The views key `DocumentForm` on
@@ -2366,7 +2875,7 @@ or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs
   draft says why (`issueError`).
 - **„Печат" prints in one click** with the user's last settings (`lgr:doc-print:<user>:<org>`:
   format, mode, columns — never the companion documents); „Печат с настройки…" beside it opens the
-  dialog on them (`ExportDialog` `initialColumns`). An edited document is saved first. A printed
+  dialog on them (`ExportDialog` `initialColumns`), its columns folded. An edited document is saved first. A printed
   draft says ЧЕРНОВА, as one copy, without its DRF- number (`invoice.pdf.ts`).
 - **Card is paid on issue like cash** (D-3): `syncCashSettlement` records `card_on_issue`; cash ↔
   card moves the automatic payment; hand-recorded payments are untouched; bank transfer and cash on
@@ -2383,7 +2892,85 @@ or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs
   prices the invoice charged.
 - Tests: `integration/cash-settlement.flow` (+7 card), `proforma-issue.flow` (6),
   `document-form-flow.flow` (6), `unit/invoice-pdf-form` (+4); walks P5-invoice 14 · 6 · 0 dialogs,
-  P5-credit 5 · 1, P6 12 · 5 · 0.
+  P5-credit 5 · 1, P6 12 · 5 · 0 (since 2026-11-15, with the payment-method question of 11-12 and the
+  Print dialog: P5-invoice 16 · 6 · 2, P6 15 · 5 · 3).
+
+### One list of actions for a document's two bars; „Издай и печатай" asks how to print (2026-11-15)
+
+The owner's two asks: an issued sales invoice had its Save only at the foot of the form, and „Изпрати по
+имейл" / „Печат" sat in a third row inside the document; and „Издай и печатай" should open the Print
+dialog first, its columns folded.
+
+- **One list, drawn twice.** `DocumentForm` hands `barActions` to `EntityFormShell`, which draws it
+  under the title and, with `bottom-actions`, again at the foot (`ui-shared/FormActionBar.vue`). The
+  list is `useDocumentForm#formActions` (the document's own steps) with e-mail, Print and a bill's
+  „Складова разписка" put in before Import (`document-form/form-actions.ts#withOutputActions`). There
+  is no second place that decides what a bar offers: ⚠ never add a button to the form's body or to one
+  bar. `FormAction` grew what those buttons needed: `key`, `testId`, `title`, `disabledHint` (shown
+  while disabled: e-mail on a draft), `more` (the split button's second half: Print's options),
+  `note` (the last-sent chip), `collapse`.
+- **Test ids**: the bar under the title has `print-now`, `print-options`, `print-stock-receipt` (as the
+  row in the body had) and `issue-and-print`; the foot's are the same with `-bottom`. Every action carries `data-action="<key>"`
+  in both. `.form-actions-bar` is the title's bar ONLY (specs scope to it); the foot is
+  `[data-testid="form-bottom-actions"]`. A label looked up with no scope now matches twice on every
+  document form: `.first()`, or scope it.
+- **Save is offered in every status**, in both bars (the cash-sale terminal apart): the foot always
+  had it, the API takes an edit in every status, and `editSaveGate: 'draft-only'` (the sales invoice)
+  now only keeps Import off an issued one. So Ctrl+S saves an issued invoice too.
+- **One line where it fits** (`form-action-collapse.ts`, `COLLAPSE` in `form-actions.ts`): an action
+  with a `collapse` rank gives up its label for its icon when the row would wrap, the rarest first
+  (import → attach / a draft quote's converts → debit note → credit note → stock receipt → e-mail →
+  print); Save, issue, receive and a payment never do. The label stays as `aria-label` and tooltip, so
+  ⚠ find a bar's button by role and name, never by its text. A row that is two lines even as icons
+  (a phone) shows every label and wraps.
+- **„Издай и печатай"** (`onIssueAndPrint` → `onPrintDialogConfirm` → `issueFromForm(print)`): a new
+  or edited form is validated, then the Print dialog opens and NOTHING has happened: closing it saves
+  nothing, issues nothing, prints nothing. Its confirmation (the button says „Издай и печатай") closes it, then
+  saves, issues (the payment-method question and the transfer dialog are asked over the form, as
+  before) and prints with what it chose, companions included; refused, nothing prints. The settings
+  are remembered only by a print that happened. „Издай" and plain „Печат" are unchanged.
+- **`ExportDialog`**: `collapsibleColumns` (every document's Print dialog, the cash-sale terminal's
+  too; list exports are as they were) folds the columns on every open under a header that counts
+  them (`export-columns-toggle`, `-count`, `export-columns`); `confirmLabel`; `export-confirm` /
+  `export-cancel`. It is `scrollable`: opened, the columns no longer push its buttons off a laptop
+  screen.
+- Tests: `unit/document-form-actions.test.ts` (28: the list's order, the collapse order, and guards
+  that the form's template holds no button of its own), `e2e/tests/document-form-actions.spec.ts`
+  (9, project `invoicing-inventory`), walks P5-invoice and P6.
+
+### A bill's „Складова разписка" asks which price to print (2026-11-15, FR-22.33a)
+
+The owner's ask: the sheet goes to the people in the warehouse, who price the goods from it. So the
+bill's action (in Bulgarian „Стокова разписка" until then) was renamed, asks for a price level before
+it prints, and the sheet lost its „Общо без ДДС" box.
+
+- ⚠ **Only this document was renamed, and only in Bulgarian.** „Стокова разписка" stays the name of
+  the receipt MOVEMENT („+ Нов", `goodsReceipt`), of the report type `receipt_note`, and of the
+  imported document kinds, where „стокова" (`stokrazp`) and „складова" (`sklrazp`) разписка are two
+  different PlusMinus documents. en/de/mk keep their wording (en „Stock receipt" / „GOODS RECEIPT").
+- **One list of levels**, `config/stock-receipt-price` (import-pure), read by the dialog AND by the
+  route: `selling`, every `PRICE_TIERS` slot by its STORED name (drawn through `tierLabel`: „Доставна
+  цена" reads „Цена с ТО"), and `booked` last: the receipt's own unit prices, which is what the sheet
+  printed before it asked. An org's own-named tier is no level here.
+- **The dialog** (`invoicing-ui/StockReceiptPrintDialog.vue`: `stock-receipt-dialog`, `-price`,
+  `-confirm`, `-cancel`) opens on „Цена на едро", or on the first level the role sees. The level
+  PRINTED last is kept per user and org (`lgr:stock-receipt-price:<user>:<org>`,
+  `composables/stock-receipt-price.ts`); one the role no longer sees gives way to the default.
+  Cancel prints nothing and remembers nothing.
+- **The route**: `GET /invoicing/export/:id?doc=stock_receipt&priceLevel=<key>`. ⚠ The server decides
+  (FR-27.11, `stockReceiptLevelFor`): a level the role does not see is 403 `capability_required`, a
+  name that is no level is 422 `unknown_price_level` (never the default in its place), and no
+  parameter prints what the dialog would open on. `booked` asks nothing beyond the print itself. The
+  route declares no query schema, so there is nothing to add the parameter to and nothing drops it.
+- **The sheet** (`reporting/pdf/stock-receipt.pdf.ts`): „Цена" is the article's price at that level AS
+  THE CATALOGUE HOLDS IT ON THE DAY IT IS PRINTED (`sellingPrice`, or the slot's `finalPrice`), in the
+  org's currency; „Стойност" is quantity × that. An article with no price there (no slot, a zero, no
+  article any more) prints a dash in both cells, never another level's figure. The level is named
+  under the bill („Цена: Цена на едро (€)"): the currency mark stands there because only the removed
+  total showed it.
+- Tests: `unit/stock-receipt-price` (15), `unit/stock-receipt-dialog-levels` (9),
+  `unit/stock-receipt-export` (17), `integration/bill-stock-receipt.flow` (18),
+  `e2e/tests/bill-stock-receipt.spec.ts` (2).
 
 ## Document lists: one row menu, fit 1366 px, a Create that says what (2026-10-26, FR-22 slice 2b: FR-22.23–.27, .50)
 
@@ -2403,6 +2990,9 @@ or cash sale and prints it — one click (P5-invoice 20 → 14 clicks, 2 dialogs
   `useGridColumns` knows `defaultHidden` (the cog shows it again; `shown` in the saved pref). With
   the widest rows (a 60-character name, a partly paid note, a converted proforma) the bg tables need
   1135 / 1143 of 1300 px; de shortened two labels to fit. Measure before adding a column.
+  The rules are `ui-shared/styles/list-fit.css` (class `list-fit`, loaded by the Vuetify plugin):
+  `ListScaffold` puts the class on its card, and a list with a table of its own (the stock
+  movements, 2026-11-16) carries it itself.
 - **Partner picker** (FR-22.25): `GET /invoicing/contact?prefer=customer|supplier` (without
   `sortBy`) answers the side's partners of the last 365 days' documents, most recent first, then the
   rest of that side, then everyone else (`services/biz/contact-picker.service.ts`). Recency is the
@@ -3074,9 +3664,71 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   `pickSupplierByName`, since 2026-11-11): PlusMinus prints a document's partner from its partner list („КАМ - 04
   ООД") and keeps the supplier ledger LGR was seeded from in another spelling („КАМ-04 ООД"), which alone left a
   third of the shops' named receipts without their supplier. A shorter, longer or respelled name („REYHER" for
-  „F.REYHER Nchfg.GMBH", a missing ООД) is still nobody: that needs a person, not a rule.
+  „F.REYHER Nchfg.GMBH", a missing ООД) is still nobody to a rule: that needs a person, who says it once on the
+  contact (next bullet).
   ⚠ An importer never changes a booked receipt (a movement is editable only as a draft): add the supplier BEFORE
   the next run, or name the receipt afterwards with the backfill below.
+- **A contact's other names: „Also known as" (`Contact.aliases`, 2026-11-11).** The names a company is written
+  under on documents besides its own, typed on the contact form (chips; a name typed and not confirmed with Enter
+  is kept by the save). Stored cleaned by ONE function, `config/contact-aliases#cleanContactAliases`, in the form's
+  payload and again in the route: trimmed, single-spaced, each once whatever its case, never the contact's own
+  name; at most 50, each up to 200 characters (422 beyond). A contact with none keeps neither `aliases` nor its
+  mirror `aliasesLower` (`loweredFieldsPlugin` mirrors a list entry by entry now), so nothing changes for the
+  contacts that existed before. Who reads them:
+  - `pickSupplierByName` asks four questions in order, and the first that any active supplier answers decides
+    (one: matched; several: ambiguous): named exactly so; named by the same words; keeps exactly this as an other
+    name; keeps the same words as one. ⚠ **A supplier's own name always comes first, so an other name only fills
+    a gap**: it can never take a receipt from the supplier that is named so, and no match that worked before it
+    changes. ⚠ Each question is answered from the candidates given: a caller holding a PARTIAL set (a search's
+    answer) asks the own names over everything it can fetch before it reads any other name. That is why
+    `scripts/lib/supplier-partner.ts` and `matching.ts#matchSupplierByName` pass candidates without their other
+    names first, and only then with them.
+  - `matching.ts#matchContactByName` (the Files import's contact ladder, either side): after a contact NAMED
+    exactly so and before the every-word guess, the one contact that keeps exactly this as an other name; two
+    are refused, never picked from; the document's tax number still rules a contact out.
+  - The contact search (`GET /invoicing/contact?search=`), so the list and every picker find a contact by an
+    other name. ⚠ The receipt scripts' resolver finds its candidates through that search: dropping `aliases` from
+    the searched fields silently turns every other name off for the daily import.
+  - The backfill below (`rule: 'alias'` in its plan and manifest).
+  ⚠ `describeMatch`'s two ⚠ lines („no active supplier is named …", „N active suppliers are named …") are a format
+  the daily import's log checks read by their opening words: do not reword them.
+- **The daily import settles the day's contacts FIRST, from PlusMinus's own partner directory
+  (`scripts/import-contacts-api.ts`, family `contacts` of `daily.ts`, 2026-11-12).** The receipts and invoices
+  look a supplier or customer up by name, so a partner no contact carries used to arrive as a receipt with no
+  supplier, or as a customer created by name alone. `pull-api.ts --families partners` writes `partners.json` into
+  the day folder (ONE `apProperties("ДОСТАВЧИЦИ:; КЛИЕНТИ:; ПАРТНЬОРИ:; КОНТРАГЕНТИ:")` call, the vendor client's own
+  `loadPartners`): `КЛИЕНТИ` is a shop's customer ledger, `ПАРТНЬОРИ` every name a document ever used (suppliers
+  included), each with БУЛСТАТ, ИНДДС, АДРЕС, ГРАД, МОЛ, ТЕЛ./ТЕЛЕФОН. The rules are `doc-import/map-plusminus-partner.ts`
+  (pure, tested) and are deliberately narrow:
+  - **Which partners**: the ones the day's documents name, a sales invoice's customer and the supplier of a receipt
+    that brings stock IN (a price-only restatement, a pure outgoing correction, the КОРЕКЦИЯ placeholder and the org's
+    own stores buy nothing), plus, only with `--all-clients`, every `КЛИЕНТИ` entry PlusMinus identifies. Never the
+    whole `ПАРТНЬОРИ` list: thousands of names never traded in the period LGR holds.
+  - **Who it is in LGR**, in order: the same ЕИК/VAT number (a branch's 13 digits find its head office's 9; a
+    placeholder like 999999999 finds nobody), the same name or one of the contact's other names, the same words with
+    other punctuation. A contact of that name holding a DIFFERENT ЕИК is another company: a `conflict` for a person.
+    Several contacts sharing a number do not stop the run: the one that already plays the role the documents give the
+    partner (a receipt's supplier is the supplier, an invoice's customer the customer), then the named one, else the
+    oldest (#762: a company held twice, as a customer and as a supplier, used to be settled on the older of the two and
+    widened to `both`, which left two active suppliers answering to one name and the receipt with none; the same
+    preference applies to a match by name); two that merely share another name, or only the words, are `ambiguous`; only
+    a deactivated contact fits: `inactive`. Each of those is an `ACT` of `daily.ts dry`, and nothing is written for it.
+  - **What is written**: a contact nobody holds is created with what PlusMinus knows; a contact somebody holds is
+    FILLED WHERE EMPTY (ЕИК in `taxId` and `taxNumber`, VAT, phone, address, МОЛ in the notes), given the documents'
+    name as one of its other names when the match was made by number or by the words, and widened to `both` when the
+    documents use it in a role no other contact of that number plays. **Nothing a person typed is overwritten, nothing
+    is deleted or deactivated.** Twins that already exist are not merged either: that is a person's call on the contact
+    form, and `scripts/backfill-receipt-suppliers.ts` then names the receipts left without a supplier.
+    A SUPPLIER of a receipt that PlusMinus knows by name alone is created by name (a receipt can only name a supplier
+    that exists), with a note saying so and the contacts that start with the same word listed for a person to merge;
+    a customer PlusMinus says nothing about is left to the invoice import.
+  - ⚠ **The civil number (`ЕГН`) is never read**; a sole trader's БУЛСТАТ can be their ЕГН and the seeded contacts
+    already carry it, but this neither copies the field nor widens that.
+  - `--max-create` (default 80) refuses a run that would create more; the one-off catch-up of a shop's whole
+    `КЛИЕНТИ` ledger is `daily.ts book --family contacts --all-clients --execute` after reading its dry run.
+  The log lines `Planned: …` and `Done: …` are a format `scripts/lib/daily-import.ts#parseContactsLog` reads.
+  A price on a receipt line that is no number ("1.741.5700", "1,74") is reported with a proposed meaning and NOT
+  written (`map-plusminus-stokrazp.ts#parsePrice`): the stores correct their cards, LGR follows for the flagged products.
 - **A receipt booked without a supplier: `scripts/backfill-receipt-suppliers.ts --org <slug>`**
   (`scripts/lib/receipt-supplier-backfill.ts`). The partner's NAME is still in LGR: in the notes the API importers
   wrote (`deliveryNote`, read back by `config/movement-notes#deliveryNotePartner`), or in the analysis of the Files
@@ -3302,7 +3954,7 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - ⚠ Permission sets stay reachable (the empty Roles page links there) while an org has no roles, and hold the roles'
     projections. Phase 3 removes them.
 - **Field groups (FR-27.6, Phase 2): `products.costs`** (`config/access/fields.ts`, "Cost figures" in the editor).
-  `purchasePrice`, `standardCost`, the „Доставна цена" slot, every slot's `percent` (a margin gives the cost back)
+  `purchasePrice`, `standardCost`, the „Доставна цена" slot (drawn as „Цена с ТО"), every slot's `percent` (a margin gives the cost back)
   and a stock level's `avgCost` are ABSENT from the JSON for a role without it: the product list (`products` and
   `items`), by id, create, quick create, update, `/pricing/options`, `/warehouse/stock-level`; `/warehouse/cost-layer`
   answers 403 `capability_required`. A write by such a role keeps the stored costs (`keepStoredCosts`: the cost slot
@@ -3334,6 +3986,10 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     level is "Customer price", a hidden losing one is not named, D-13), `redactMovementLine` (a movement's lines by id,
     the product ledger), a count's `varianceCost`, an outgoing order's `expectedUnitPrice` (the order controller's
     `onAfterHandle`), `canSeeSupplierPrices` = `bills.view` and `products.costs`.
+  - **C.6 a document's stored price trail** (`priceExplanation`): `access/price-trails#withVisibleTrails` on every
+    answer of the invoice and the till controllers (their `onAfterHandle`), and on the draft the two order
+    conversions answer with (`lib/reservation-convert#conversionAnswer`: `/internal-orders/:id/convert`,
+    `/orders/:id/convert`). ⚠ A new route that answers an invoice from any other controller says it the same way.
   - **C.2 derived**: the contact ledger's row `purchasePrice` and its profitability, the dashboard's `stock.totalValue`
     (its tile is not drawn without it).
   - **C.3 sort**: both auth plugins refuse `?sortBy=` naming a level the role lacks (`sortAccessRefusal`, 403
@@ -3348,6 +4004,18 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     recent activity, the Files audit.
   - **C.7 / D views**: the Products grid offers only the levels held (`useProductColumns`), the product form edits
     only those, and an open product list re-reads its rows when `x-access-version` changes.
+- **A typed line price (2026-11-12) is `sales-docs.manual-price`**: `invoicing.write` grants it, the role NAME `seller` withholds
+  it (`LEGACY_ROLE_WITHHOLDS`). The forms lock the field (`PriceCombobox :typed`), and since #724 the routes hold it too
+  (`services/biz/sales-lines.ts#typedPriceRefusal`: `/invoices` POST/PUT of an outgoing document, the till's sale, a
+  customer order's PINNED price): without it a line price must be one the form could have given, i.e. the selling price,
+  a `listPriceOptions(all)` price or the resolved one, a price the document or its related invoice already carries, one
+  the client was already charged for the article, or the customer order line it converts. Else **403
+  `price_not_offered`** naming the lines (translated by `receiptRefusalKey`). ⚠ Widen that list, never narrow it, when
+  a form gains a new way to put a price on a line: a price the form offers and the route refuses blocks the Seller's
+  sale.
+- **An outgoing article line's unit is its article's** (#724, `withArticleUnits`): the routes write the article's unit
+  over any other, except where the stored document already holds the article at that unit. Nothing is refused; the
+  importers send the article's unit already. The form locks the field (`DocumentLineTable#unitLocked`).
 - **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
   null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
   gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`
@@ -3514,6 +4182,28 @@ MinIO, AWS), and `pushBundleToS3` seals with the same key the Drive push uses.
   (`--prove-lock` writes one undeletable object and watches the delete be refused).
   The unit tests stub `fetch` and cannot prove a signature a real S3 accepts.
 
+## The backup screen: the org's admin backs up, an operator restores (2026-11-15)
+
+`/admin/backup` is in every org admin's navigation, and "Create backup now" (`POST /create`) is
+theirs, like `/run`, the list, verify and download (`backup.controller.ts#guard`). Restoring,
+uploading a bundle and the restore history stay on `BACKUP_SYS_ADMINS` (`requireSysAdmin`).
+
+- ⚠ Anyone can found an org and be its admin, so an org admin's create is bounded where an
+  operator's is not: the `data` variant only (`full` answers 403), `offsite: false` and
+  `mail: false` on the run, one at a time (409 `backup_running`) and `BACKUP_MANUAL_PER_DAY` (3)
+  per org in 24 hours (429 `backup_daily_limit`). The count is over `claimKey` starting
+  `manual-`, so a master's `pre-update-…` bundles and the nights are not in it.
+- ⚠ **Why not off-site:** every destination counts its generations in ONE folder, so each press
+  would push a night out of Drive. The row's empty `destinations` is what the screen shows as
+  "no off-site copy".
+- `pruneBundles` keeps the bundles a person asked for in a class of their own
+  (`BACKUP_KEEP_MANUAL_PER_ORG`, 5). ⚠ `isManualBundle` reads the END of the filename
+  (`…-<date>-manual-<variant>-<HHMMSS>.ndjson.zst`): the slug comes first and is the org's own
+  text, so looking for `-manual-` anywhere would misfile an org named `acme-manual-co`.
+- `GET /task/:taskId` answers about a `backup-create` task of the org and no other job.
+- `/access` says `{ sysAdmin, configured, create, createPerDay? }`; the screen and the nav are
+  presentation, and the refusals carry a `code` the screen translates (`backup.errors.*`).
+
 ## A master's own backups (2026-10-25, FR-20.21, plan step P1-9)
 
 A master has no mars: nothing like the Layer-1 rsync of the uploads PV backs its files up, and
@@ -3624,6 +4314,40 @@ Desktops pin a master's own CA (FR-20.31), so it is never replaced silently.
 - A connection kept from before the switch, or a TLS session resumed from one, still carries the
   old certificate, legitimately: only that master holds the session. A probe of the old CA must
   make a full handshake (a fresh client) to see it refused.
+
+## A printed page runs nothing and fetches nothing (2026-11-16)
+
+Every printed form is built from text people typed (a name, an article, a note), and Chrome obeys
+markup wherever it finds it. Two locks, both in `packages/reporting/src/pdf/`:
+
+- **The builders print typed text as text.** HTML-built forms use `escHtml`. Markdown-built ones
+  (the order sheets, the payslip, the statements) use **`mdText`**, which also keeps the text from
+  being read as markdown (`![…](…)` is an image to the parser) and turns its own line breaks into
+  `<br>`.
+  - ⚠ A new builder never interpolates a stored value bare.
+  - ⚠ A stored value never goes into an attribute. The letterhead is the one that does, and
+    `resolveLogo` lets through only an inline PNG, JPEG or WebP (`data:image/…;base64,`); anything
+    else (an address, a path, other data) prints the bundled logo. `Org.logo` is free text an
+    admin can set, so the pattern is what keeps it inside its attribute.
+- **`lockPage` (`base.pdf.ts`) stands behind them**, for the place a builder forgets:
+  - no script runs, neither a script element nor an `on…` attribute;
+  - every request the page makes is cancelled unless it is a `data:` URL. Cancelled as `aborted`:
+    any other reason puts Chrome's error page in place of a document that tried to send itself
+    elsewhere;
+  - Chrome is started with a proxy that is not there (`NO_NETWORK_ARGS`), because a
+    `<link rel="prefetch">` is fetched by the browser itself and never passes the page's
+    interception.
+  So a form carries everything inline: a remote image, font or stylesheet never loads.
+- ⚠ **A locked page fires no timer** (`setTimeout`, `requestAnimationFrame`): an expression given
+  to `evaluateRenderedPage` that waits on one never settles. Wait on an animation's `finished`.
+- The previous renderer and its `PDF_RENDERER=md-to-pdf` switch are gone (it printed pages
+  unlocked). `md-to-pdf` remains only as the parity test's reference page.
+- Proven in the production image and with the masters' `chrome-headless-shell`, not only here:
+  the same hostile page, nothing run, nothing requested, render time unchanged.
+- Tests: `unit/pdf-page-lock.test.ts` (one page that tries every way against a listener that
+  counts; the sheets through the markdown parser; the letterhead). ⚠ A stalled render can no
+  longer be made with a server that never answers, so `pdf-render-deadline.test.ts` awaits a
+  promise the page never settles.
 
 ## A master prints with its own Chrome (2026-10-25, FR-20.25)
 
@@ -4859,3 +5583,58 @@ key of their own, so `outgoingOnly` (FR-26.6) still decides what a session sees.
 - Tests: `integration/contact-ledger.flow.test.ts` (the `#526` block), the Seller case in
   `seller-roles.flow.test.ts`, `e2e/tests/contact-ledger-search.spec.ts`. ⚠ A new e2e spec runs
   nowhere until a project in `playwright.config.ts` lists it by name.
+
+## The contact ledger shows the stock movements (2026-11-12)
+
+The owner's ask: the Contact Ledger — its page and the dialog the invoice, bill and proforma forms open
+from their contact field — shows the stock movements: in the row of the document that carries one, and
+a movement with no document as a row of its own, with "Stock Movement Document" in the Type filter.
+
+A movement is in the ledger one of two ways, never both (`services/biz/contact-ledger.service.ts`):
+- **With its document.** Each document line's row carries `movements[]` (`{ id, number, type,
+  reference? }`): the movements the document booked (`invoiceId`) and the ones it stands for
+  (`stockSource.movementIds`: the receipts a bill was made from, the stock note or the till sale an
+  invoice was issued for), those that carry the line's article, and of those the ones of the line's
+  own warehouse when any is (a document selling from two warehouses books a movement for each). Read
+  for the page's rows alone, after the page is cut.
+- **On a row of its own** (`documentType: 'stock_movement'`, `movementType`, `documentNumber: ''`,
+  `documentId` = the movement's): a movement that names the contact and no document (`invoiceId`
+  unset), booked (`confirmed` / `completed`), not `recordOnly`, not `reversedBy`. One row per line, at
+  the movement's `date`, joined to the documents' lines by `$unionWith` before the sort and the page.
+  ⚠ A receipt a bill still in DRAFT holds is such a row too: a draft is no row of the ledger, and the
+  delivery it will pay for happened (`heldByDrafts`). Without that, making a bill from a receipt took
+  the receipt off the supplier's ledger until the bill was received.
+- ⚠ **A movement's own row is valued at COST** (`unitPrice` = the line's `unitCost`, `lineTotal` = its
+  `totalCost`; a `return` negative, as a credit note's line). Both are absent for a role without
+  `products.costs`: `withoutLedgerCosts`, one definition for the route and the report. It has no
+  `taxRate`.
+- **The summary counts documents**, with the movements listed or not: a movement owes nobody anything.
+- **Type** (`documentTypes`): `stock_movement` beside the document types. None chosen: everything.
+- **FR-26.6**: without the purchases side there is no bill, and of the movements' own rows no goods
+  receipt and no return to the supplier (`type: 'return'` out of a warehouse).
+- **Invoice #** (`documentNumber`) also finds a movement by its number or by the document it was
+  booked from (`reference`, „sklrazp_0000615713"), and brings the document that carries it. Looked for
+  among the contact's own movements and the ones its documents stand for, in two indexed reads.
+- ⚠ **A period's last day is whole.** A calendar date bounds a day in the shop's time
+  (`local-day.ts`); `new Date('2026-11-12')` as the END of a period is that day's first instant, which
+  dropped every till document and every movement made during it. The documents' filter had this from
+  the start; both go through `periodOf` now.
+- **UI**: `ui-shared` `useContactLedger` (headers, `typeLabel` / `typeColor`, `isMovementRow`),
+  `LedgerMovementLinks.vue` (the numbers, links for a role that opens Stock Movement Documents; a
+  movement's own row prints its `reference` under the number), `ContactLedgerDialog.vue` (every
+  document form, the cash-sale terminal, the contact form) and `invoicing-ui` `ContactLedgerView.vue`.
+- ⚠ **In the dialog a movement's row has no checkbox.** A document made from its lines would move its
+  goods a second time: nothing links a hand-made invoice to the stock note it is for (only the
+  import's `findStockNoteConversion` does), and a bill has „Свържи с доставка" for exactly this.
+- **Reports** `contact-ledger`: a `movementNumbers` column, the `stock_movement` type option, and a
+  movement's row drills down to `/inventory/movements/:id`.
+- ⚠ **A report that reads a ledger is told its caller** (`ReportHandlerContext.sees: { bills, costs }`,
+  filled by the reports controller, #704). The contact-ledger and product-ledger reports ran their
+  services with no caller, so they listed incoming documents and carried cost figures the ledgers' own
+  routes withhold; the product ledger (route and report) and the warehouse operations report now name
+  no bill to a session without the purchases side, as the movement routes do (#493). A handler run with
+  no caller reads everything.
+- Tests: `integration/contact-ledger-movements.flow.test.ts` (the fixture's table is its header),
+  `seller-roles.flow`, `access-price-levels.flow`, `reports-p2.flow`,
+  `e2e/tests/contact-ledger-movements.spec.ts` (the page, and the dialog of a new invoice, bill and
+  proforma).

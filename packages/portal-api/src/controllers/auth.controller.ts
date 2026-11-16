@@ -169,7 +169,7 @@ export const authController = new Elysia({ prefix: '/auth' })
         const { user, org } = result
         const token: string = await jwt.sign({ ...user, exp })
         setSessionCookie(cookie, token)
-        auditSignIn(user, 'password')
+        await auditSignIn(user, 'password')
 
         return {
           user,
@@ -507,7 +507,7 @@ export const authController = new Elysia({ prefix: '/auth' })
 
       // Audit: login event (Appendix 29 requirement). An OAuth sign-in was never recorded — only
       // `POST /auth/login` was — so the audit log showed no login for anyone using Google.
-      auditSignIn(user, 'oauth')
+      await auditSignIn(user, 'oauth')
 
       return {
         user,
@@ -634,6 +634,9 @@ export const authController = new Elysia({ prefix: '/auth' })
             email: (org as any).email || undefined,
             phone: (org as any).phone || undefined,
             website: (org as any).website || undefined,
+            representative: (org as any).representative || undefined,
+            placeOfIssue: (org as any).placeOfIssue || undefined,
+            activityCode: (org as any).activityCode || undefined,
             addresses: (org as any).addresses || [],
             bankDetails: (org as any).bankDetails || [],
             settings: settingsForClient((org as any).settings) || undefined,

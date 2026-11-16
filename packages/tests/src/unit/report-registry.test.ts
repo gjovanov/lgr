@@ -227,4 +227,9 @@ describe('toReportMeta', () => {
     expect(meta.id).toBe('test')
     expect(meta.route).toBe('/test')
   })
+
+  it("carries the entry's default export, and no key at all for an entry without one", () => {
+    expect(toReportMeta(entry({ outputs: ['table', 'xlsx', 'pdf'], defaultExport: 'pdf' })).defaultExport).toBe('pdf')
+    expect(Object.keys(toReportMeta(entry()))).not.toContain('defaultExport')
+  })
 })

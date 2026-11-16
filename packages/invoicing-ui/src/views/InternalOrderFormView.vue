@@ -80,8 +80,9 @@
             <div ref="linesRef">
               <OrderTree ref="treeRef" :nodes="shownNodes" :columns="treeColumns">
                 <template #item="{ node }">
-                  <!-- The article: the line's own search and picker, as they were. -->
-                  <div v-if="node.kind === 'line'" class="d-flex align-center ga-1 flex-grow-1" style="min-width: 0">
+                  <!-- The article: the line's own search and picker, as they were. From the top: the button stays
+                       beside the field, not beside the field and its chip. -->
+                  <div v-if="node.kind === 'line'" class="d-flex align-start ga-1 flex-grow-1" style="min-width: 0">
                     <ProductLineDescription
                       :description="lineOf(node).description"
                       :product-id="lineOf(node).productId"
@@ -90,9 +91,9 @@
                       style="min-width: 0"
                       :stock-warehouse-id="form.warehouseId || undefined"
                       @update:description="lineOf(node).description = $event"
-                      @update:product-id="lineOf(node).productId = $event"
+                      @update:product-id="setLineArticle(lineOf(node), $event)"
                       @product-selected="onProductSelected(lineOf(node), $event)"
-                      @product-cleared="lineOf(node).productId = undefined"
+                      @product-cleared="setLineArticle(lineOf(node), undefined)"
                       @details="openProductPicker(node.source.lineIndex!, $event)"
                     />
                     <ProductDetailsButton @click="openProductPicker(node.source.lineIndex!)" />
@@ -144,38 +145,54 @@
                       <span v-else class="d-block text-end" :class="node.status === 'cancelled' ? 'text-decoration-line-through text-medium-emphasis' : ''">{{ node.figures.quantity }}</span>
                     </td>
                     <td data-col="unit">
-                      <v-autocomplete
+                      <LineUnitSelect
                         v-if="node.kind === 'line'"
                         v-model="lineOf(node).unit"
                         :items="uomOptions"
-                        item-title="title"
-                        item-value="value"
-                        density="compact"
-                        hide-details
-                        variant="underlined"
                         :aria-label="$t('invoicing.unit')"
                         :readonly="readonly"
-                      >
-                        <template #selection="{ item }">{{ item.raw.short }}</template>
-                        <template #item="{ item, props: ip }">
-                          <v-list-item v-bind="ip" :title="item.raw.short" :subtitle="item.raw.full" />
-                        </template>
-                      </v-autocomplete>
+                      />
                     </td>
                     <td data-col="price">
-                      <v-text-field
-                        v-if="node.kind === 'line'"
-                        v-model.number="lineOf(node).expectedUnitPrice"
-                        type="number"
-                        step="0.0001"
-                        min="0"
-                        class="order-tree__num"
-                        density="compact"
-                        hide-details
-                        variant="underlined"
-                        :aria-label="$t('invoicing.expectedPrice')"
-                        :readonly="readonly"
-                      />
+                      <!-- The article's prices for this client, as on an invoice line („Select price"): the selling
+                           price and every named one. A price that is picked, or typed, is the order's own: the line
+                           is pinned (`config/order-line-price`), the button says so, and the order's invoice charges
+                           it. Until then the figure is an indication and the invoice is priced for the client. -->
+                      <div v-if="node.kind === 'line'" class="order-tree__num-group">
+                        <!-- Only while the order can still be saved, and by this person: a price that cannot be stored
+                             must not look chosen. -->
+                        <PriceSelectButton
+                          v-if="canSaveOrder()"
+                          density="comfortable"
+                          :product-id="lineOf(node).productId"
+                          :contact-id="form.contactId || undefined"
+                          :quantity="Number(lineOf(node).quantity) || 1"
+                          :org-url="orgUrl()"
+                          :currency="form.currency || baseCurrency"
+                          :pinned="!!lineOf(node).pricePinned"
+                          :pinned-title="$t('invoicing.orderPriceChosen')"
+                          :release-label="$t('invoicing.orderPriceAuto')"
+                          @select="pickLinePrice(lineOf(node), $event.price)"
+                          @release="releaseLinePrice(lineOf(node), $event)"
+                        />
+                        <!-- A price typed here is the invoice's (#695), so it is the role's to give (FR-27
+                             `sales-docs.manual-price`); without it the line takes a price picked with Select price. -->
+                        <v-text-field
+                          v-model.number="lineOf(node).expectedUnitPrice"
+                          type="number"
+                          step="0.0001"
+                          min="0"
+                          class="order-tree__num"
+                          density="compact"
+                          hide-details
+                          variant="underlined"
+                          :aria-label="$t('invoicing.expectedPrice')"
+                          :readonly="readonly || !typesPrice"
+                          :title="typesPrice ? undefined : $t('invoicing.pricePickOnly')"
+                          data-testid="order-line-price"
+                          @update:model-value="typeLinePrice(lineOf(node), $event)"
+                        />
+                      </div>
                     </td>
                     <template v-if="isEdit">
                       <td class="text-end" data-col="reserved">{{ figureOf(node, node.figures.reserved) }}</td>
@@ -184,7 +201,7 @@
                       <td class="text-end" data-col="invoiced" :title="hidden.has('dispatched') ? invoicedAndDelivered(node.figures) : undefined">{{ figureOf(node, node.figures.invoiced, true) }}</td>
                       <td v-if="!hidden.has('dispatched')" class="text-end" data-col="dispatched">{{ figureOf(node, node.figures.dispatched, true) }}</td>
                       <td data-col="status">
-                        <div class="d-flex flex-wrap ga-1">
+                        <div class="d-flex flex-wrap align-center ga-1 line-grid__line">
                           <v-chip v-for="c in statusChips(node, open)" :key="c.key" size="x-small" variant="tonal" :label="c.label" :color="c.color" :prepend-icon="c.icon" :title="c.title || c.text">{{ c.text }}</v-chip>
                         </div>
                       </td>
@@ -558,19 +575,25 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useAccess } from 'ui-shared/access/useAccess'
 import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
+import LineUnitSelect from 'ui-shared/components/LineUnitSelect.vue'
+import PriceSelectButton from 'ui-shared/components/PriceSelectButton'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import { useConversionFeedback } from '../composables/useConversionFeedback'
+import { useCustomerOrderPrint } from '../composables/useCustomerOrderPrint'
+import { COLLAPSE } from '../composables/document-form/form-actions'
 import ReservationQuantityDialog from '../components/ReservationQuantityDialog.vue'
 import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { reservationErrorMessage } from '../composables/reservation-errors'
 import { orderCoverage } from 'config/order-coverage'
+import { pickLinePrice, releaseLinePrice, setLineArticle, typeLinePrice } from 'config/order-line-price'
 import { asDraftOrder, defaultDraftFor, pickDraftsFor, type DraftOrder } from '../composables/order-generate'
 import { cascadeSummary } from '../composables/order-cascade'
 import OrderCascadeDialog from '../components/OrderCascadeDialog.vue'
@@ -593,6 +616,8 @@ interface LineRow {
   quantity: number
   unit: string
   expectedUnitPrice?: number
+  /** The price was chosen for this order (a pick or a typed figure): its invoice charges it. `true` or absent. */
+  pricePinned?: boolean
   taxRate?: number
 }
 
@@ -807,7 +832,7 @@ function onProductsPicked(ps: any[]) {
     }
     const line = form.lines[li]
     if (!line) return
-    line.productId = p._id
+    setLineArticle(line, p._id)
     line.description = p.name
     onProductSelected(line, p)
   })
@@ -885,9 +910,12 @@ function lineOf(node: TreeNode): LineRow { return form.lines[node.source.lineInd
  * The widths of the two figures the user types: a quantity of five digits and a price to 9,999.99 are read whole at 1366 px
  * (the right panel open or folded) and at 1920 px, which `customer-order-tree.spec.ts` measures on the fields. They rest on
  * the number-field rules of `OrderTree.vue` (no spin buttons, no padding in the field): with those a digit takes 9 px.
+ * The price column also holds the line's „Select price" before the field: the button's 20 px and the 4 px between them
+ * are added to the 84 px the column had, so the field is as wide as it was. The article's column pays for it, and still
+ * has more than its minimum at 1366 px with the right panel open.
  */
 const QTY_COL = '68px'
-const PRICE_COL = '84px'
+const PRICE_COL = '108px'
 
 /**
  * The columns are the supplier order's, with what a customer order says in them: Free is what is still SHORT, and Delivered
@@ -1035,17 +1063,21 @@ const statusDef = computed<StatusDef | undefined>(() => ({
 }))
 
 const saving = ref(false)
+const { printingId, printOrder } = useCustomerOrderPrint()
 const formActions = computed<FormAction[]>(() => [
   { label: t('common.save'), icon: 'mdi-content-save', handler: onSave, loading: saving.value, show: !readonly.value && ['draft', 'confirmed'].includes(orderStatus.value), cap: isEdit.value ? ['orders.create', 'orders.edit'] : 'orders.create' },
   { label: t('invoicing.confirmOrder'), icon: 'mdi-check', color: 'success', handler: confirmOrder, show: isEdit.value && orderStatus.value === 'draft', cap: ['orders.create', 'orders.edit'] },
   { label: t('invoicing.convertToInvoice'), icon: 'mdi-swap-horizontal', color: 'info', handler: convertOrder, show: isEdit.value && ['confirmed', 'partially_delivered', 'delivered'].includes(orderStatus.value), cap: 'sales-docs.create' },
   { label: t('invoicing.completeOrder'), icon: 'mdi-check-all', variant: 'outlined', handler: completeOrder, show: isEdit.value && ['confirmed', 'partially_delivered', 'delivered'].includes(orderStatus.value), cap: ['orders.create', 'orders.edit'] },
+  // The order's sheet for the client: any saved order, in any status, to whoever may export (the route's own gate).
+  // After the order's own steps, as on a document; the one label given up where the bar would otherwise wrap.
+  { key: 'print', label: t('common.print'), icon: 'mdi-printer', color: '', variant: 'outlined', handler: printSheet, loading: printingId.value !== '', show: isEdit.value, cap: 'sales-docs.export', testId: 'print-order', collapse: COLLAPSE.print },
   { label: t('invoicing.cancelOrder'), icon: 'mdi-cancel', color: 'error', variant: 'outlined', handler: cancelOrder, show: isEdit.value && ['draft', 'confirmed'].includes(orderStatus.value), cap: ['orders.create', 'orders.edit'] },
   { label: t('common.delete'), icon: 'mdi-delete', color: 'error', variant: 'text', handler: deleteOrder, show: isEdit.value && orderStatus.value === 'draft', cap: 'orders.delete' },
 ])
 
 // ── pending changes ──
-const { markSaved, markClean, tryRestore, snapshot: snapshotPending } = usePendingChanges({
+const { markSaved, markClean, tryRestore, isDirty, snapshot: snapshotPending } = usePendingChanges({
   appId: 'invoicing',
   entityType: 'internal_order',
   icon: 'mdi-account-clock-outline',
@@ -1082,30 +1114,35 @@ function buildPayload() {
         quantity: Number(l.quantity) || 0,
         unit: l.unit || 'pcs',
         expectedUnitPrice: l.expectedUnitPrice !== undefined && l.expectedUnitPrice !== null ? Number(l.expectedUnitPrice) : undefined,
+        // Always said, either way: a save that does not say keeps the stored pin (the rule for callers older than it).
+        pricePinned: l.pricePinned === true,
         taxRate: l.taxRate,
       })),
   }
 }
 
-async function onSave() {
+function onSave() { return save() }
+
+/** True when the order is stored as the form shows it. `quiet`: no toast of its own (an action follows and says its own). */
+async function save(quiet = false): Promise<boolean> {
   const { valid } = (await formRef.value?.validate()) || { valid: true }
-  if (!valid) return
+  if (!valid) return false
   if (!form.lines.some((l) => l.productId && (Number(l.quantity) || 0) > 0)) {
     showError(t('invoicing.linesRequired'))
-    return
+    return false
   }
   saving.value = true
   try {
     if (isEdit.value) {
       await httpClient.put(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`, buildPayload())
-      showSuccess(t('common.savedSuccessfully'))
+      if (!quiet) showSuccess(t('common.savedSuccessfully'))
       markSaved()
       await loadOrder()
       // It stays open on what it saved: an edit from here is unsaved again (FR-22.16, as the documents do).
       markClean()
     } else {
       const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders`, buildPayload())
-      showSuccess(t('common.savedSuccessfully'))
+      if (!quiet) showSuccess(t('common.savedSuccessfully'))
       markSaved()
       router.replace({ name: 'invoicing.internalOrders.edit', params: { id: data.internalOrder._id } })
       orderNumber.value = data.internalOrder.orderNumber
@@ -1113,11 +1150,33 @@ async function onSave() {
       await loadOrder(data.internalOrder._id)
       markClean()
     }
+    return true
   } catch (e: any) {
     showError(reservationErrorMessage(e, t))
+    return false
   } finally {
     saving.value = false
   }
+}
+
+const access = useAccess()
+/** FR-27 `sales-docs.manual-price`: may this person TYPE a line's price (the invoice charges it, #695), or only pick one? */
+const typesPrice = computed(() => access.can('sales-docs.manual-price'))
+/** The order can still be saved, and by this person: the rule of the Save button (its status, and its capability). */
+function canSaveOrder(): boolean {
+  return canAddLines.value && access.can(isEdit.value ? ['orders.create', 'orders.edit'] : 'orders.create')
+}
+
+/**
+ * What the form shows is what Confirm and Convert act on: an edit not saved yet (a price just chosen, a quantity) is
+ * saved first, as Issue does on a document. Before, both acted on the stored order and the reload after them dropped
+ * the edit without a word, so a price picked and converted at once was not the invoice's. False when the save was
+ * refused: the action then does not run. An order that can no longer be edited, or that this person may not edit,
+ * has nothing to save: the action runs on the stored order, as it always did.
+ */
+async function saveIfNeeded(): Promise<boolean> {
+  if (!canSaveOrder() || !isDirty()) return true
+  return save(true)
 }
 
 /** True when it went through; a refusal goes to `onError` (the cascade dialog) or the snackbar. */
@@ -1137,7 +1196,16 @@ async function doAction(path: string, successKey: string, opts: { onError?: (mes
     loading.value = false
   }
 }
-function confirmOrder() { doAction('confirm', 'invoicing.orderConfirmed') }
+async function confirmOrder() {
+  if (await saveIfNeeded()) await doAction('confirm', 'invoicing.orderConfirmed')
+}
+
+// ── „Печат": the order's sheet ──
+/** The sheet prints what is stored, so an unsaved edit is saved first, as the documents' „Печат" does. */
+async function printSheet() {
+  if (!(await saveIfNeeded())) return
+  await printOrder({ _id: route.params.id as string, number: orderNumber.value })
+}
 
 // ── FR-22.41: Complete and Cancel say what they release before they do it ──
 const cascade = reactive({ open: false, action: 'cancel' as 'cancel' | 'complete', error: '', busy: false })
@@ -1164,6 +1232,7 @@ async function confirmCascade() {
 }
 
 async function convertOrder() {
+  if (!(await saveIfNeeded())) return
   loading.value = true
   try {
     const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/convert`)
@@ -1422,6 +1491,8 @@ async function loadOrder(id?: string) {
       quantity: l.quantity || 0,
       unit: l.unit || 'pcs',
       expectedUnitPrice: l.expectedUnitPrice,
+      // `true` or absent, never `false`: the unsaved-changes check compares the lines as JSON.
+      pricePinned: l.pricePinned === true ? true : undefined,
       taxRate: l.taxRate,
     }))
     // FR-22.43: a blank line waits for the next article while lines can still be added.

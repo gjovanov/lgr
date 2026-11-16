@@ -1,6 +1,8 @@
 import { Elysia, t } from 'elysia'
 import { grantOf } from 'services/biz/access/evaluate'
 import { kindOfDocument, readsKind } from 'config/access'
+import { stockReceiptLevelFor, type StockReceiptPriceLevel } from 'config/stock-receipt-price'
+import { representativeOf } from 'config/party-identity'
 import { assertHomeIsHere, HomeElsewhereError } from 'db/home/home'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { Invoice, Contact, Org, Product } from 'db/models'
@@ -23,6 +25,7 @@ import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
 import { moneySign } from 'services/biz/money-sign'
 import { orgFooterLine, renderInvoicePdf } from '../lib/invoice-pdf.js'
 import { sendEmail } from 'services/biz/email.service'
+import { buildEmailHtml } from 'services/biz/doc-email/body'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { EmailLog } from 'db/models'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
@@ -46,9 +49,10 @@ function isAllowedSortField(key: string): boolean {
   return ALLOWED_SORT_FIELDS.has(key)
 }
 
-class ColumnValidationError extends Error {}
+export class ColumnValidationError extends Error {}
 
-function normaliseColumns(raw: any): string[] | undefined {
+/** Exported for the mail of several documents (`doc-email.controller.ts`), which prints with the same columns. */
+export function normaliseColumns(raw: any): string[] | undefined {
   if (raw === undefined || raw === null) return undefined
   // Accept "a,b,c" string form from GET query param too.
   const arr = typeof raw === 'string' ? raw.split(',').map(s => s.trim()).filter(Boolean) : raw
@@ -70,47 +74,9 @@ function titleFor(docType: string, direction: string | undefined, locale?: strin
 
 // The recipient pattern, the resend window and the whole gate live in lib/email-guards.ts —
 // pure and unit-tested, because Elysia's `handle()` does not route under `bun test` here.
-
-const EMAIL_BODY_I18N: Record<string, { greeting: string; attached: string; regards: string; date: string; total: string }> = {
-  en: { greeting: 'Hello,', attached: 'Please find attached', regards: 'Kind regards,', date: 'Date', total: 'Total' },
-  bg: { greeting: 'Здравейте,', attached: 'Прикачено ще намерите', regards: 'С уважение,', date: 'Дата', total: 'Общо' },
-  de: { greeting: 'Guten Tag,', attached: 'Anbei finden Sie', regards: 'Mit freundlichen Grüßen,', date: 'Datum', total: 'Gesamt' },
-  mk: { greeting: 'Здраво,', attached: 'Во прилог ќе најдете', regards: 'Со почит,', date: 'Датум', total: 'Вкупно' },
-}
-
-function esc(s: unknown): string {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-/**
- * A deliberately minimal covering note — the document itself is the attachment. No new
- * templating engine enters the codebase for four paragraphs of text.
- */
-function buildEmailHtml(opts: {
-  title: string
-  invoice: any
-  orgName: string
-  message?: string
-  locale?: string
-}): string {
-  const L = EMAIL_BODY_I18N[(opts.locale || 'en').slice(0, 2)] || EMAIL_BODY_I18N.en
-  const inv = opts.invoice
-  const issued = inv.issueDate ? new Date(inv.issueDate).toISOString().slice(0, 10) : ''
-  const total = `${Number(inv.total || 0).toFixed(2)} ${esc(inv.currency || '')}`.trim()
-
-  return [
-    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222">',
-    `<p>${esc(L.greeting)}</p>`,
-    `<p>${esc(L.attached)} <strong>${esc(opts.title)} ${esc(inv.invoiceNumber)}</strong>.</p>`,
-    opts.message ? `<p>${esc(opts.message).replace(/\n/g, '<br>')}</p>` : '',
-    '<table style="border-collapse:collapse;margin:12px 0">',
-    issued ? `<tr><td style="padding:2px 12px 2px 0;color:#666">${esc(L.date)}</td><td>${esc(issued)}</td></tr>` : '',
-    `<tr><td style="padding:2px 12px 2px 0;color:#666">${esc(L.total)}</td><td><strong>${total}</strong></td></tr>`,
-    '</table>',
-    `<p>${esc(L.regards)}<br>${esc(opts.orgName)}</p>`,
-    '</div>',
-  ].filter(Boolean).join('\n')
-}
+//
+// The covering note (`buildEmailHtml`) is `services/biz/doc-email/body`'s since 2026-11-16: a batch of one
+// document reads as this route's mail does, from the one definition.
 
 // Doc types that share the merged sales/purchase grids (FR-01) and may be exported together.
 const MERGEABLE_TYPES = new Set(['invoice', 'credit_note', 'debit_note'])
@@ -436,6 +402,8 @@ function partyFromContact(contact: any, invoice: any) {
     city: addr?.city || '',
     address: [addr?.street, addr?.street2].filter(Boolean).join(' '),
     taxId: contact?.taxId || contact?.vatNumber || '',
+    // FR-25a: the form prints a МОЛ row only when a party has one.
+    representative: representativeOf(contact),
   }
 }
 
@@ -446,6 +414,7 @@ function partyFromOrg(org: any) {
     city: addr?.city || '',
     address: addr?.street || '',
     taxId: org?.taxNumber || org?.vatNumber || '',
+    representative: representativeOf(org),
   }
 }
 
@@ -488,23 +457,27 @@ async function buildCompanionData(
   }
 }
 
-// ── „Стокова разписка": the goods receipts a supplier bill booked ──
+// ── „Складова разписка": the goods receipts a supplier bill booked ──
 
 /** `?doc=` value of the stock receipt — checked before the companion branch, which refuses bills. */
 const STOCK_RECEIPT_DOC = 'stock_receipt'
 
 /**
  * The stock receipt of `bill`: one section per receipt it booked, the bill named by OUR number
- * and date (no supplier block, no supplier invoice number). `null` when it booked no goods.
+ * and date (no supplier block, no supplier invoice number), its lines priced at `level`
+ * (`config/stock-receipt-price`). `null` when it booked no goods.
+ *
+ * Exported for the flow test, which reads what the page is rendered from without launching Chromium.
  */
-async function buildStockReceiptData(orgId: string, bill: any, locale: string): Promise<StockReceiptData | null> {
-  const sections = await billStockReceiptSections(orgId, bill)
+export async function buildStockReceiptData(orgId: string, bill: any, locale: string, level: StockReceiptPriceLevel): Promise<StockReceiptData | null> {
+  const sections = await billStockReceiptSections(orgId, bill, level)
   if (!sections.length) return null
   const org = await Org.findById(orgId).lean()
   return {
     sections,
     bill: { number: bill.invoiceNumber, date: bill.issueDate, draft: bill.status === 'draft' },
-    currency: stockReceiptCurrency(bill, (org as any)?.settings?.baseCurrency),
+    price: level,
+    currency: stockReceiptCurrency(bill, (org as any)?.settings?.baseCurrency, level),
     footerText: orgFooterLine(org),
     // Same letterhead the invoice form prints; the generator falls back to the bundled asset.
     logo: (await getOrgLogoDataUri(orgId)) ?? (org as any)?.logo,
@@ -611,6 +584,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         docType: t.Union([
           t.Literal('invoice'),
           t.Literal('proforma'),
+          t.Literal('offer'),
           t.Literal('credit_note'),
           t.Literal('debit_note'),
           t.Literal('cash_sale'),
@@ -811,7 +785,7 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
       const filename = `${(invoice as any).invoiceNumber}.${format}`
       const doc = query.doc as string | undefined
 
-      // ── „Стокова разписка" (?doc=stock_receipt): the goods a supplier bill booked ──
+      // ── „Складова разписка" (?doc=stock_receipt): the goods a supplier bill booked ──
       if (doc === STOCK_RECEIPT_DOC) {
         const inv = invoice as any
         if (format !== 'pdf') return status(400, { message: 'A stock receipt prints as PDF only' })
@@ -821,7 +795,17 @@ export const invoiceExportController = new Elysia({ prefix: '/org/:orgId/invoici
         if (RELEASED_BILL_STATUSES.includes(inv.status)) {
           return status(422, { code: 'bill_voided', message: `${inv.invoiceNumber} is voided — the goods it booked are no longer its own` })
         }
-        const data = await buildStockReceiptData(orgId, inv, locale)
+        // `?priceLevel=`: which price the sheet shows (`config/stock-receipt-price`). A request that names none
+        // prints „Цена на едро", or the first level its caller sees: what the form's dialog starts on.
+        // FR-27.11: a level the caller's role does not see is refused here, whatever the dialog offered.
+        const answer = stockReceiptLevelFor(grantOf(user as any), query.priceLevel)
+        if ('refused' in answer) {
+          if (answer.refused === 'unknown_price_level') {
+            return status(422, { code: 'unknown_price_level', message: `Unknown price level: ${String(query.priceLevel).slice(0, 80)}` })
+          }
+          return status(403, { code: 'capability_required', capabilities: [answer.capability], message: 'Your role does not see this price level.' })
+        }
+        const data = await buildStockReceiptData(orgId, inv, locale, answer.level)
         if (!data) {
           return status(404, { code: 'no_goods_booked', message: `${inv.invoiceNumber} has booked no goods — a stock receipt prints once they are received` })
         }

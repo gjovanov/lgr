@@ -3,7 +3,8 @@
     :title="isEdit ? $t(config.titleEditKey) : $t(config.titleNewKey)"
     :subtitle="isEdit ? invoiceNumber : ''"
     :status="statusDef"
-    :actions="formActions"
+    :actions="barActions"
+    bottom-actions
     :smart-buttons="isEdit ? smartButtons : undefined"
     :loading="loading"
     :back-to="config.backTo"
@@ -106,76 +107,8 @@
       </DocumentBanner>
     </template>
 
-    <!-- On a saved document only: a new one has „Издай и печатай" in the action bar and Печат
-         (which saves first) at the bottom, and this row would push its lines down the screen. -->
-    <div v-if="isEdit" class="d-flex justify-end align-center ga-2 mb-2">
-      <!-- FR-10.9: a quiet "this went out already" marker, so nobody re-sends blindly. -->
-      <v-chip
-        v-if="lastEmailedAt"
-        size="small"
-        variant="tonal"
-        color="success"
-        prepend-icon="mdi-email-check-outline"
-        :title="$t('invoicing.sendEmail.lastSent', { date: formatEmailedAt, to: lastEmailedTo })"
-      >
-        {{ formatEmailedAt }}
-      </v-chip>
-      <!-- FR-10.8: mirrors Print exactly, outgoing documents only. Draft is blocked because
-           a DRF- number in a customer's inbox is worse than no email at all.
-           The tooltip hangs off a WRAPPER span, not the button: Vuetify gives a disabled
-           v-btn `pointer-events: none`, so a tooltip (or a native `title`) attached to the
-           button itself never fires — the button just looks broken. -->
-      <v-tooltip
-        v-if="config.direction === 'outgoing'"
-        location="top"
-        :disabled="!isDraft"
-        :text="$t('invoicing.sendEmail.draftBlocked')"
-      >
-        <template #activator="{ props: tip }">
-          <span v-bind="tip">
-            <v-btn
-              variant="outlined"
-              prepend-icon="mdi-email-arrow-right-outline"
-              :disabled="isDraft"
-              :loading="emailLoading"
-              @click="openEmailDialog"
-            >
-              {{ $t('invoicing.sendEmail.action') }}
-            </v-btn>
-          </span>
-        </template>
-      </v-tooltip>
-      <!-- FR-22.20: „Печат" prints in one click with the user's last settings; the options are the
-           button beside it. An edited document is saved first (#4.13). -->
-      <div class="d-inline-flex print-split">
-        <v-btn variant="outlined" prepend-icon="mdi-printer" class="rounded-e-0" :loading="exportLoading" data-testid="print-now" @click="doc.onPrint">
-          {{ $t('common.print') }}
-        </v-btn>
-        <v-btn
-          variant="outlined"
-          class="rounded-s-0 print-options"
-          min-width="0"
-          :title="$t('invoicing.issueFlow.printOptions')"
-          :aria-label="$t('invoicing.issueFlow.printOptions')"
-          data-testid="print-options"
-          @click="doc.onPrintOptions"
-        >
-          <v-icon>mdi-tune-variant</v-icon>
-        </v-btn>
-      </div>
-      <!-- A supplier bill's goods as they were booked: one receipt per warehouse they went into. -->
-      <v-btn
-        v-if="stockReceipts.length"
-        variant="outlined"
-        prepend-icon="mdi-clipboard-text-outline"
-        :loading="stockReceiptLoading"
-        :title="$t('invoicing.stockReceipt.hint')"
-        data-testid="print-stock-receipt"
-        @click="onPrintStockReceipt"
-      >
-        {{ $t('invoicing.stockReceipt.print') }}
-      </v-btn>
-    </div>
+    <!-- No row of buttons here: what a document offers (save, issue, print, e-mail, the stock receipt…) is
+         ONE list, `barActions`, that the shell draws under the title and again at the foot of the form. -->
 
     <!-- FR-22 §5.2: asked to be issued, and not issued — the draft says why. -->
     <v-alert
@@ -251,8 +184,13 @@
       :title="$t('common.print')"
       icon="mdi-printer"
       :companion-docs="companionDocs"
-      @confirm="onExportSingle"
+      collapsible-columns
+      :confirm-label="printDialogFor === 'issue' ? $t('invoicing.issueFlow.issueAndPrint') : undefined"
+      @confirm="doc.onPrintDialogConfirm"
     />
+
+    <!-- FR-22.33a: a bill's „Складова разписка" asks which price to print before it prints anything. -->
+    <StockReceiptPrintDialog v-model="stockReceiptDialog" :loading="stockReceiptLoading" @confirm="printStockReceipt" />
 
     <!-- FR-22.17: issuing from the form checks stock as the list does, and offers the same transfers. -->
     <StockTransferDialog
@@ -263,6 +201,12 @@
       :confirming="transferConfirming"
       @confirm="confirmTransfers"
     />
+
+    <IssuePaymentConfirmDialog :ask="paymentConfirm" @answer="answerPayment" />
+
+    <!-- FR-22.61b: „Издай" on goods a stock note may already have delivered. Asked before the stock is checked:
+         an invoice linked to the note takes none. -->
+    <DispatchOverlapDialog v-model:overlap="dispatchOverlap" :org-url="orgUrl()" @linked="overlapLinked" @issue-anyway="issueDespiteOverlap" />
 
     <v-form ref="formRef" @submit.prevent="onSave">
       <v-defaults-provider :defaults="{
@@ -332,6 +276,31 @@
               {{ $t('invoicing.linkDelivery.action') }}
             </v-btn>
           </div>
+          <!-- FR-22.61: an invoice made from stock notes. They delivered the goods, so it moves none. -->
+          <v-alert
+            v-if="invoiceDispatches.linkedDispatches.value.length"
+            type="info"
+            variant="tonal"
+            density="compact"
+            class="mb-3"
+            icon="mdi-truck-delivery-outline"
+            data-testid="invoice-dispatches"
+          >
+            {{ $t('invoicing.linkNote.banner') }}
+            <template v-for="(d, i) in invoiceDispatches.linkedDispatches.value" :key="d.id">
+              <span v-if="i">, </span>
+              <a :href="invoiceDispatches.dispatchHref(d.id)" class="font-weight-medium" data-testid="invoice-dispatch-link">{{ d.number }}</a>
+            </template>
+            <div class="text-caption mt-1">{{ $t('invoicing.linkNote.noStock') }}</div>
+          </v-alert>
+          <!-- FR-22.62: goods already handed over? Invoice that stock note instead of dispatching them again. -->
+          <div v-else-if="invoiceDispatches.canLink.value" class="d-flex align-center ga-2 mb-1 text-body-2 text-medium-emphasis">
+            <v-icon size="small">mdi-truck-delivery-outline</v-icon>
+            {{ $t('invoicing.linkNote.hint') }}
+            <v-btn size="small" variant="tonal" color="primary" prepend-icon="mdi-link-variant" data-testid="link-note-btn" @click="invoiceDispatches.openLink">
+              {{ $t('invoicing.linkNote.action') }}
+            </v-btn>
+          </div>
           <DocumentLineTable :doc="doc" :receipt-cost-of="billReceipts.enabled ? billReceipts.receiptCostOf : undefined" />
         </template>
 
@@ -386,89 +355,8 @@
           v-if="config.showSignatureFooter"
           :prepared-by="form.preparedBy || userFullName"
           :place="form.placeOfTransaction"
+          :org-place="config.direction === 'incoming' ? undefined : appStore.currentOrg?.placeOfIssue"
         />
-
-        <!-- Bottom action bar: same Save (+ Print on edit) as the top, so users don't
-             have to scroll back up after filling a long document. -->
-        <v-divider class="my-4" />
-        <div class="d-flex justify-end ga-2 flex-wrap pb-2">
-          <v-btn v-if="canImport" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="importDialogOpen = true">
-            {{ $t('docImport.importFile') }}
-          </v-btn>
-          <!-- Wrapper span carries the tooltip — see the top bar for why. -->
-          <v-tooltip
-            v-if="isEdit && config.direction === 'outgoing'"
-            location="top"
-            :disabled="!isDraft"
-            :text="$t('invoicing.sendEmail.draftBlocked')"
-          >
-            <template #activator="{ props: tip }">
-              <span v-bind="tip">
-                <v-btn
-                  variant="outlined"
-                  prepend-icon="mdi-email-arrow-right-outline"
-                  :disabled="isDraft"
-                  :loading="emailLoading"
-                  @click="openEmailDialog"
-                >
-                  {{ $t('invoicing.sendEmail.action') }}
-                </v-btn>
-              </span>
-            </template>
-          </v-tooltip>
-          <div class="d-inline-flex print-split">
-            <v-btn variant="outlined" prepend-icon="mdi-printer" class="rounded-e-0" :loading="exportLoading" @click="doc.onPrint">
-              {{ $t('common.print') }}
-            </v-btn>
-            <v-btn
-              variant="outlined"
-              class="rounded-s-0 print-options"
-              min-width="0"
-              :title="$t('invoicing.issueFlow.printOptions')"
-              :aria-label="$t('invoicing.issueFlow.printOptions')"
-              @click="doc.onPrintOptions"
-            >
-              <v-icon>mdi-tune-variant</v-icon>
-            </v-btn>
-          </div>
-          <v-btn
-            v-if="stockReceipts.length"
-            variant="outlined"
-            prepend-icon="mdi-clipboard-text-outline"
-            :loading="stockReceiptLoading"
-            :title="$t('invoicing.stockReceipt.hint')"
-            @click="onPrintStockReceipt"
-          >
-            {{ $t('invoicing.stockReceipt.print') }}
-          </v-btn>
-          <v-btn
-            v-if="canSaveAndReceive"
-            color="primary"
-            variant="flat"
-            prepend-icon="mdi-package-down"
-            :loading="doc.receiving.value"
-            @click="doc.onSaveAndReceive"
-          >
-            {{ $t('invoicing.saveAndReceive') }}
-          </v-btn>
-          <v-btn color="primary" :variant="canSaveAndReceive || bottomActions.length ? 'outlined' : 'flat'" prepend-icon="mdi-content-save" :loading="loading" @click="onSave">
-            {{ $t('common.save') }}
-          </v-btn>
-          <!-- What follows from the document — issue, convert, a note — as the top bar offers it,
-               the action that finishes the job rightmost. -->
-          <v-btn
-            v-for="a in bottomActions"
-            :key="a.label"
-            :color="a.color || 'primary'"
-            :variant="a.primary ? 'flat' : 'outlined'"
-            :prepend-icon="a.icon"
-            :loading="a.loading"
-            :disabled="a.disabled"
-            @click="a.handler"
-          >
-            {{ a.label }}
-          </v-btn>
-        </div>
       </v-defaults-provider>
     </v-form>
 
@@ -476,7 +364,15 @@
       <EntityNotesPanel :org-url="orgUrl()" :entity-type="config.notesEntityType" :entity-id="isEdit ? (route.params.id as string) : undefined" />
     </template>
 
-    <ContactLedgerDialog v-model="ledgerDialog" :contact-id="form.contactId || ''" :org-url="orgUrl()" :selectable="true" @add-lines="onAddLedgerLines" />
+    <ContactLedgerDialog
+      v-model="ledgerDialog"
+      :contact-id="form.contactId || ''"
+      :org-url="orgUrl()"
+      :selectable="true"
+      :link-notes="invoiceDispatches.canLink.value"
+      @add-lines="onAddLedgerLines"
+      @link-notes="invoiceDispatches.linkNotes"
+    />
     <ProductPickerDialog
       v-model="productPickerOpen"
       :org-url="orgUrl()"
@@ -535,6 +431,53 @@
       </v-card>
     </v-dialog>
 
+    <!-- FR-22.62: the customer's stock notes this invoice can take. An invoice whose lines already say what they
+         delivered keeps them; one that differs is told how, and replaces them only on a second press. -->
+    <v-dialog v-model="invoiceDispatches.dialogOpen.value" max-width="640" scrollable>
+      <v-card data-testid="link-note-dialog">
+        <v-card-title>{{ $t('invoicing.linkNote.action') }}</v-card-title>
+        <v-card-text>
+          <div class="text-body-2 text-medium-emphasis mb-2">{{ $t('invoicing.linkNote.dialogHint') }}</div>
+          <v-progress-linear v-if="invoiceDispatches.loading.value" indeterminate />
+          <div v-else-if="!invoiceDispatches.invoiceable.value.length" class="text-body-2" data-testid="link-note-none">{{ $t('invoicing.linkNote.none') }}</div>
+          <v-list v-else density="compact">
+            <v-list-item v-for="n in invoiceDispatches.invoiceable.value" :key="n.id" data-testid="link-note-row">
+              <template #prepend>
+                <v-checkbox-btn :model-value="invoiceDispatches.selected.value" :value="n.id" @update:model-value="invoiceDispatches.onSelect" />
+              </template>
+              <v-list-item-title>
+                {{ n.number }} · {{ String(n.date || '').slice(0, 10) }}
+                <v-chip v-if="n.noCustomer" size="x-small" label class="ml-1" data-testid="dispatch-no-customer">{{ $t('invoicing.linkNote.noCustomer') }}</v-chip>
+              </v-list-item-title>
+              <v-list-item-subtitle>{{ $t('invoicing.linkNote.noteLines', { n: n.lineCount, quantity: n.quantity }, n.lineCount) }}</v-list-item-subtitle>
+              <div v-if="n.notes" class="text-caption text-medium-emphasis" data-testid="dispatch-notes">{{ n.notes }}</div>
+            </v-list-item>
+          </v-list>
+        </v-card-text>
+        <v-alert v-if="invoiceDispatches.differs.value.length" type="warning" variant="tonal" density="compact" class="mx-4 mt-2 flex-grow-0" data-testid="dispatch-differs">
+          <div>{{ $t('invoicing.linkNote.differs') }}</div>
+          <ul class="pl-4">
+            <li v-for="d in invoiceDispatches.differs.value" :key="d.productId" data-testid="dispatch-differs-line">{{ $t('invoicing.linkNote.differsLine', d) }}</li>
+          </ul>
+          <div class="mt-1">{{ $t('invoicing.linkNote.replaceWarning') }}</div>
+        </v-alert>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="invoiceDispatches.dialogOpen.value = false">{{ $t('common.cancel') }}</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :disabled="!invoiceDispatches.selected.value.length"
+            :loading="invoiceDispatches.linking.value"
+            data-testid="link-note-confirm"
+            @click="invoiceDispatches.link"
+          >
+            {{ $t(invoiceDispatches.differs.value.length ? 'invoicing.linkNote.replaceConfirm' : 'invoicing.linkNote.confirm') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- FR-22.31c: „Запази и получи" on goods a receipt may already have booked. -->
     <ReceiptOverlapDialog
       v-model:overlap="doc.receiptOverlap.value"
@@ -586,11 +529,13 @@ import ContactLedgerDialog from 'ui-shared/components/ContactLedgerDialog.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
-import { useAccess } from 'ui-shared/access/useAccess'
 import AttachToCashSaleDialog from '../AttachToCashSaleDialog.vue'
 import ReceiptOverlapDialog from '../ReceiptOverlapDialog.vue'
+import DispatchOverlapDialog from '../DispatchOverlapDialog.vue'
 import RecordPaymentDialog from '../RecordPaymentDialog.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
+import IssuePaymentConfirmDialog from '../IssuePaymentConfirmDialog.vue'
+import StockReceiptPrintDialog from '../StockReceiptPrintDialog.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import BankInfoRow from '../BankInfoRow.vue'
 import SignatureFooter from '../SignatureFooter.vue'
@@ -602,7 +547,9 @@ import DocumentLineTable from './DocumentLineTable.vue'
 import DocumentTotalsCard from './DocumentTotalsCard.vue'
 import { useDocumentForm, type UseDocumentFormOptions } from '../../composables/document-form/useDocumentForm'
 import { useBillReceipts } from '../../composables/document-form/useBillReceipts'
+import { useInvoiceDispatches } from '../../composables/document-form/useInvoiceDispatches'
 import type { DocumentTypeConfig } from '../../composables/document-form/types'
+import { COLLAPSE, withOutputActions } from '../../composables/document-form/form-actions'
 
 const props = defineProps<{
   config: DocumentTypeConfig
@@ -618,6 +565,8 @@ const emit = defineEmits<{
 const doc = useDocumentForm(props.config, { onBeforeCreate: props.onBeforeCreate, onCreated: (id) => emit('created', id) })
 // FR-22.31/.32: a supplier bill and the goods receipts it pays for.
 const billReceipts = useBillReceipts(doc)
+// FR-22.61/.62: a sales invoice and the stock notes that delivered its goods.
+const invoiceDispatches = useInvoiceDispatches(doc)
 
 const contactCreateRef = ref<InstanceType<typeof ContactAutocompleteWithCreate> | null>(null)
 
@@ -677,7 +626,6 @@ const {
   printNote,
   companionNote,
   exportLoading,
-  onExportSingle,
   onSave,
   submitCreate,
   onAddLedgerLines,
@@ -704,9 +652,17 @@ const {
   onPaymentRecorded,
   isDraftDoc,
   confirmTransfers,
-  stockReceipts,
+  paymentConfirm,
+  answerPayment,
+  dispatchOverlap,
+  issueDespiteOverlap,
+  overlapLinked,
+  printDialogFor,
+  printAction,
+  stockReceiptAction,
+  stockReceiptDialog,
   stockReceiptLoading,
-  onPrintStockReceipt,
+  printStockReceipt,
 } = doc
 
 // FR-22.17: the stock check's transfer dialog, as top-level refs so the template unwraps them.
@@ -717,17 +673,6 @@ const {
   allResolvable: transferAllResolvable,
   confirming: transferConfirming,
 } = doc.transfer
-
-/**
- * The bottom bar repeats what the top bar offers beyond Save and Import (which it has its own
- * buttons for): issue, convert, a note — reversed, so the action that finishes the job sits at the
- * far right, where Save used to end the row.
- */
-const bottomActions = computed<FormAction[]>(() =>
-  formActions.value
-    .filter((a) => !a.save && a.label !== t('docImport.importFile') && a.label !== t('invoicing.saveAndReceive'))
-    .reverse(),
-)
 
 // ── FR-10 (#19): email this document ──────────────────────────────────────
 
@@ -799,6 +744,44 @@ watch(
 )
 
 /**
+ * „Изпрати по имейл" in the action bars (FR-10.8): a saved outgoing document. A draft is blocked, and the
+ * button says why: a DRF- number in a customer's inbox is worse than no e-mail at all. FR-10.9: once it has
+ * gone out, a quiet marker in front of the button says when, so nobody re-sends blindly.
+ */
+const emailAction = computed<FormAction | null>(() => (isEdit.value && props.config.direction === 'outgoing'
+  ? {
+      key: 'email',
+      label: t('invoicing.sendEmail.action'),
+      color: '',
+      variant: 'outlined',
+      icon: 'mdi-email-arrow-right-outline',
+      handler: openEmailDialog,
+      disabled: isDraft.value,
+      disabledHint: t('invoicing.sendEmail.draftBlocked'),
+      loading: emailLoading.value,
+      collapse: COLLAPSE.email,
+      note: lastEmailedAt.value
+        ? {
+            text: formatEmailedAt.value,
+            icon: 'mdi-email-check-outline',
+            title: t('invoicing.sendEmail.lastSent', { date: formatEmailedAt.value, to: lastEmailedTo.value }),
+          }
+        : undefined,
+    }
+  : null))
+
+/**
+ * What the form offers, in BOTH bars — under the title and at its foot (`EntityFormShell`, `bottom-actions`):
+ * the document's own steps (`formActions`), then what puts it out (e-mail, print, the stock receipt), Import
+ * last. One list, drawn twice: an action is in both bars or in neither, in the same order and under the same
+ * rule. The two bars used to be built apart — a sales invoice, once issued, kept Save at its foot only, and
+ * e-mail and print sat in a third row inside the document.
+ */
+const barActions = computed<FormAction[]>(() =>
+  withOutputActions(formActions.value, [emailAction.value, printAction.value, stockReceiptAction.value]),
+)
+
+/**
  * Which import surface this form is. The engine only distinguishes sales-vs-purchase
  * direction and cash sales; proforma/credit/debit notes ride the sales mapping, which is
  * correct — they carry the same party block, dates and line table.
@@ -825,28 +808,6 @@ const importCurrentForm = computed(() => ({
  */
 const importFieldLabels = computed(() => ({ notes: props.config.notesFieldLabelKey }))
 
-/** FR-22.33: the bottom bar offers what the top bar does — „Запази и получи" on a bill not yet received. */
-const canSaveAndReceive = computed(() => !!props.config.saveAndReceive && (!isEdit.value || invoiceStatus.value === 'draft'))
-
-/**
- * Import is offered wherever Save is — mirrors the `formActions` gate exactly — and only where the import itself is
- * the role's: what `doc-import/target-access` asks of the target (#493 item 5, FR-27 acceptance 4). A sales document
- * or a cash sale is `sales-docs.import`, a bill `bills.create`.
- */
-const IMPORT_NEEDS = { sales_invoice: 'sales-docs.import', cash_sale: 'sales-docs.import', bill: 'bills.create' } as const
-const access = useAccess()
-const canImport = computed(() =>
-  access.can(IMPORT_NEEDS[importTarget.value]) && !cashSaleRef.value && (!isEdit.value || props.config.editSaveGate !== 'draft-only' || invoiceStatus.value === 'draft'),
-)
-
 // Let wrappers (CashSale) drive the create after a suspended onBeforeCreate.
 defineExpose({ submitCreate, doc })
 </script>
-
-<style scoped>
-/* FR-22.20: „Печат" and its options, one control in two parts. */
-.print-split .print-options {
-  padding-inline: 8px;
-  border-inline-start-width: 0;
-}
-</style>

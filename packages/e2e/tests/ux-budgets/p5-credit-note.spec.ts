@@ -9,7 +9,10 @@ import { lineQuantity } from '../helpers/document-form'
  * Setup (uncounted, API): an issued invoice for Nordic Wholesale with two lines — PRD-0024 ×3
  * sold by the box („кут.") at 10 % off, and PRD-0025 ×2. The customer returns ONE box of
  * PRD-0024. The discount and the unit are there on purpose: they show whether the credit note
- * copies what was actually sold.
+ * copies what was actually sold. An outgoing line carries its article's unit (#724: the server
+ * writes it), so PRD-0024 is sold by the box while the box is its own unit, and gets its unit back
+ * once the invoice is issued. The note then starts from an invoice whose unit is no longer the
+ * article's, as with any article whose unit changed after the sale, and has to copy the invoice's.
  *
  * Products used: PRD-0024, PRD-0025 (this agent's share of the acme-corp seed).
  *
@@ -81,11 +84,23 @@ function creditUnitPrice(row: ReturnType<UxWalk['page']['locator']>) {
   return row.locator('td').nth(4).locator('input').last()
 }
 
-/** The issued invoice the customer brings back (uncounted setup). */
+/** Set an article's own unit, and check that it took. */
+async function setArticleUnit(api: Api, product: any, unit: string) {
+  const res = await api.put(`/warehouse/product/${product._id}`, { unit })
+  expect(res?.product?.unit, `${product.sku}'s unit set to ${unit}: ${JSON.stringify(res).slice(0, 200)}`).toBe(unit)
+}
+
+/**
+ * The issued invoice the customer brings back (uncounted setup). PRD-0024 is sold by the box while the
+ * box is its article's unit, and the article gets its own unit back once the invoice is issued, whatever
+ * happens in between.
+ */
 async function issueSourceInvoice(api: Api, products: Record<string, any>, contactId: string) {
   const main = await mainWarehouse(api)
   const r = products[RETURNED.sku]
   const k = products[KEPT.sku]
+  // Otherwise the walk could not tell the invoice's unit from the article's.
+  expect(r.unit, `${RETURNED.sku}'s own unit`).not.toBe(RETURNED.unit)
   const raw = [
     { p: r, quantity: RETURNED.soldQty, unit: RETURNED.unit, discount: RETURNED.discount },
     { p: k, quantity: KEPT.soldQty, unit: 'pcs', discount: 0 },
@@ -111,27 +126,34 @@ async function issueSourceInvoice(api: Api, products: Record<string, any>, conta
   const discountTotal = round2(raw.reduce((s, x) => s + x.quantity * x.p.sellingPrice * x.discount / 100, 0))
   const taxTotal = round2(lines.reduce((s, l) => s + l.taxAmount, 0))
   const today = new Date().toISOString().split('T')[0]
-  const { invoice } = await api.post('/invoices', {
-    type: 'invoice',
-    direction: 'outgoing',
-    contactId,
-    issueDate: today,
-    dueDate: today,
-    currency: 'EUR',
-    exchangeRate: 1,
-    paymentMethod: 'cash',
-    lines,
-    subtotal,
-    discountTotal,
-    taxTotal,
-    total: round2(subtotal - discountTotal + taxTotal),
-  })
-  expect(invoice?._id || invoice?.id, 'setup invoice created').toBeTruthy()
-  const id = invoice._id || invoice.id
-  const sent = await api.post(`/invoices/${id}/send`, {})
-  // A cash invoice is settled on issue (`syncCashSettlement`), so it comes back `paid`.
-  expect(['sent', 'paid'], `setup invoice issued: ${JSON.stringify(sent).slice(0, 200)}`).toContain(sent?.invoice?.status)
-  return sent.invoice
+  await setArticleUnit(api, r, RETURNED.unit)
+  try {
+    const { invoice } = await api.post('/invoices', {
+      type: 'invoice',
+      direction: 'outgoing',
+      contactId,
+      issueDate: today,
+      dueDate: today,
+      currency: 'EUR',
+      exchangeRate: 1,
+      paymentMethod: 'cash',
+      lines,
+      subtotal,
+      discountTotal,
+      taxTotal,
+      total: round2(subtotal - discountTotal + taxTotal),
+    })
+    expect(invoice?._id || invoice?.id, 'setup invoice created').toBeTruthy()
+    const sold = (invoice.lines || []).find((l: any) => String(l.productId) === String(r._id))
+    expect(sold?.unit, 'the invoice sold it by the box').toBe(RETURNED.unit)
+    const id = invoice._id || invoice.id
+    const sent = await api.post(`/invoices/${id}/send`, {})
+    // A cash invoice is settled on issue (`syncCashSettlement`), so it comes back `paid`.
+    expect(['sent', 'paid'], `setup invoice issued: ${JSON.stringify(sent).slice(0, 200)}`).toContain(sent?.invoice?.status)
+    return sent.invoice
+  } finally {
+    await setArticleUnit(api, r, r.unit)
+  }
 }
 
 test('P5 credit note: one returned article from an issued invoice', async ({ page }, testInfo) => {

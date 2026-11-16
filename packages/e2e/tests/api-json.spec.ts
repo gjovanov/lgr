@@ -10,6 +10,7 @@
  * module APIs via Caddy.
  */
 import { test, expect } from '@playwright/test'
+import { columnValues } from './helpers/table'
 
 const PORTAL_API = process.env.BASE_URL || 'http://localhost:4001'
 const WAREHOUSE_API = PORTAL_API
@@ -375,9 +376,8 @@ test.describe('UI Data Loading', () => {
     const rows = page.locator('.v-data-table tbody tr')
     const count = await rows.count()
     if (count > 0) {
-      // First cell of first row (# column) should not be empty
-      const firstCell = rows.first().locator('td').first()
-      const text = await firstCell.textContent()
+      // The first row's cell under „#" should not be empty. ⚠ Found by its heading: the tick column stands before it.
+      const [text] = await columnValues(page.locator('.v-data-table').first(), '#')
       // Should contain a movement number like "SM-2026-00001", not be blank
       if (text && text.trim()) {
         expect(text.trim().length).toBeGreaterThan(0)

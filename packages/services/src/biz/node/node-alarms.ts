@@ -5,7 +5,9 @@
  *
  * - **Mirror lag** over an hour while the uplink is up: the server holds journal the mirror has not
  *   applied (its reported head past the watermark) and no page has been applied for an hour.
- * - **Backup** older than 26 hours; none at all once the server has served its orgs that long.
+ * - **Backup** older than 26 hours; none at all once the server has served its orgs that long, and
+ *   that only from a frame in which its API answered (#710): a frame without the API's own account
+ *   knows nothing about backups.
  * - **Disk** under 10 % free.
  * - **Oplog** reaching back less than seven days. Only once it wraps: until then nothing is lost
  *   however long a capture stops (the supervisor sends no window).
@@ -78,7 +80,13 @@ export function nodeAlarms({ node, connected, mirrors, now }: AlarmInput): NodeA
   const healthAge = h?.at ? now.getTime() - new Date(h.at).getTime() : Number.POSITIVE_INFINITY
   if (!h || healthAge > ALARM_AT.healthFreshMs) return out
   const backup = secsSince(h.api?.lastBackupAt, now)
-  if (backup !== null ? backup > ALARM_AT.backupSecs : mirrors.length > 0 && (secsSince(node.enrolledAt, now) ?? 0) > ALARM_AT.backupSecs) {
+  // #710: "none at all" needs a frame in which the API answered. The server fills the frame's `api`
+  // account from the API's own status and waits two seconds for it. While the API starts, stops or is
+  // busy the account stays empty, and the first frame of every start of the service is built that way:
+  // such a frame knows nothing about backups. `=== true`, not "answered": an API that is stopping says
+  // `ok: false`, with its database already closing. A backup that is too old needs none of this.
+  const neverBackedUp = h.api?.ok === true && mirrors.length > 0 && (secsSince(node.enrolledAt, now) ?? 0) > ALARM_AT.backupSecs
+  if (backup !== null ? backup > ALARM_AT.backupSecs : neverBackedUp) {
     out.push({ kind: 'backup_stale', value: backup })
   }
   const free = Number(h.disk?.freeBytes)

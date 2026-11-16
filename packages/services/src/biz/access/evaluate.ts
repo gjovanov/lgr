@@ -80,6 +80,23 @@ export function sortAccessRefusal(user: AccessCaller | null | undefined, url: st
   return sortBy ? fieldSortRefusal(grantOf(user), sortBy) : null
 }
 
+/**
+ * S-28's order for a route whose controller decides (`self`): a caller holding none of the rule's `floor` is refused
+ * here, before the body is validated, so it never learns the body's shape from a 422. Asked of the session's grant,
+ * the one the controllers' `can()` asks, in either model. Null where the rule names no floor.
+ */
+export function floorRefusal(user: AccessCaller | null | undefined, method: string, route: string): AccessRefusal | null {
+  if (!user || method.toUpperCase() === 'OPTIONS') return null
+  const path = route.startsWith('/api/') ? route : `/api${route.startsWith('/') ? '' : '/'}${route}`
+  const rest = orgRouteRest(path)
+  if (rest === null) return null
+  const rule = accessRuleFor(method, rest)
+  if (!rule || !('self' in rule) || !rule.floor?.length) return null
+  const grant = grantOf(user)
+  if (grant.all || grantCan(grant, rule.floor)) return null
+  return { message: `Not part of your role: ${rule.floor.join(' or ')}`, code: 'permission_required', capabilities: rule.floor }
+}
+
 export function decideAccess(user: AccessCaller | null | undefined, method: string, route: string) {
   return user?.access ? accessRefusal(user, method, route) : permissionRefusal(user as any, method, route)
 }

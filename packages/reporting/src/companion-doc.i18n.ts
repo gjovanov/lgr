@@ -24,6 +24,7 @@ export interface CompanionDocI18n {
   sourceDoc: {
     invoice: string
     proforma: string
+    offer: string
     credit_note: string
     debit_note: string
     cash_sale: string
@@ -36,6 +37,8 @@ export interface CompanionDocI18n {
     city: string
     address: string
     taxId: string
+    /** The МОЛ, the person legally responsible for a party (FR-25a): printed only when a party has one. */
+    representative: string
     /**
      * Heading of the source-document reference block. Per kind: the protocol is "issued
      * against" its documents, while the declaration simply "refers to" them — the old shared
@@ -78,6 +81,7 @@ const bg: CompanionDocI18n = {
   sourceDoc: {
     invoice: 'Фактура',
     proforma: 'Проформа',
+    offer: 'Оферта',
     credit_note: 'Кредитно известие',
     debit_note: 'Дебитно известие',
     cash_sale: 'Касова продажба',
@@ -90,6 +94,7 @@ const bg: CompanionDocI18n = {
     city: 'Град',
     address: 'Адрес',
     taxId: 'ЕИК',
+    representative: 'МОЛ',
     docList: {
       certificate: 'Отнася се за документ:',
       ppprotocol: 'Списък с документи, по които е издаден протоколът:',
@@ -128,6 +133,7 @@ const en: CompanionDocI18n = {
   sourceDoc: {
     invoice: 'Invoice',
     proforma: 'Proforma',
+    offer: 'Offer',
     credit_note: 'Credit Note',
     debit_note: 'Debit Note',
     cash_sale: 'Cash Sale',
@@ -140,6 +146,7 @@ const en: CompanionDocI18n = {
     city: 'City',
     address: 'Address',
     taxId: 'Reg. No',
+    representative: 'Representative',
     docList: {
       certificate: 'Refers to document:',
       ppprotocol: 'Documents this protocol was issued against:',
@@ -178,6 +185,7 @@ const de: CompanionDocI18n = {
   sourceDoc: {
     invoice: 'Rechnung',
     proforma: 'Proformarechnung',
+    offer: 'Angebot',
     credit_note: 'Gutschrift',
     debit_note: 'Lastschrift',
     cash_sale: 'Barverkauf',
@@ -190,6 +198,7 @@ const de: CompanionDocI18n = {
     city: 'Stadt',
     address: 'Adresse',
     taxId: 'Reg.-Nr.',
+    representative: 'Vertreter',
     docList: {
       certificate: 'Betrifft Dokument:',
       ppprotocol: 'Dokumente, zu denen dieses Protokoll ausgestellt wurde:',
@@ -228,6 +237,7 @@ const mk: CompanionDocI18n = {
   sourceDoc: {
     invoice: 'Фактура',
     proforma: 'Проформа',
+    offer: 'Понуда',
     credit_note: 'Кредитна белешка',
     debit_note: 'Дебитна белешка',
     cash_sale: 'Касова продажба',
@@ -240,6 +250,7 @@ const mk: CompanionDocI18n = {
     city: 'Град',
     address: 'Адреса',
     taxId: 'ЕДБ',
+    representative: 'Застапник',
     docList: {
       certificate: 'Се однесува на документ:',
       ppprotocol: 'Список на документи по кои е издаден протоколот:',

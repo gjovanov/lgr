@@ -58,9 +58,14 @@ interface SeriesMark { last: number; at: string }
 interface MarkFile { v: 1; node: string; orgs: Record<string, Record<string, SeriesMark>> }
 type Merged = Record<string, Record<string, SeriesMark & { from: MarkSource }>>
 
-/** No real counter goes past these (a УНП is 7 digits): a mark beyond one is damage, never a floor. */
+/**
+ * No real counter goes past these: a mark beyond one is damage, never a floor. A УНП is 7 digits. A
+ * sales document's number is up to TEN (ЗДДС чл. 114, ал. 1, т. 2), and a series that goes on from
+ * another system's numbers stands there already: under a nine-digit ceiling its mark was dropped at
+ * every read, so that series had no mark at all.
+ */
 const UNP_MAX = 9_999_999
-const SERIES_MAX = 999_999_999
+const SERIES_MAX = 9_999_999_999
 
 /** Beside the node token, in the server's state: the supervisor names that file whether it exists or not. */
 export function legalMarkFile(): string | null {

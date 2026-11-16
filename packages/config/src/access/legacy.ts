@@ -47,9 +47,11 @@ const POS_READS: Cap[] = ['till.view', 'cash-sales.view', 'devices.view', 'conta
 
 export const LEGACY_BRIDGE: Readonly<Record<Permission, readonly Cap[]>> = {
   'invoicing.read': [...INVOICING_READS, 'sales-docs.export', 'stock-availability.check'],
+  // `sales-docs.manual-price`: whoever writes documents today may type a line's price; the Seller's name withholds it
+  // (`LEGACY_ROLE_WITHHOLDS`).
   'invoicing.write': [
     ...INVOICING_READS, 'sales-docs.export',
-    ...work(['sales-docs', 'proforma', 'bills', 'orders', 'payments', 'contacts']), 'sales-docs.import',
+    ...work(['sales-docs', 'proforma', 'bills', 'orders', 'payments', 'contacts']), 'sales-docs.import', 'sales-docs.manual-price',
     'stock-availability.transfer', 'doc-import.extract', 'tags.edit',
   ],
   // ⚠ Opens reads only: no route and no controller checks `invoicing.send`, and `canExport` ignores it.
@@ -105,6 +107,19 @@ export const LEGACY_ROLE_CAPS: Readonly<Partial<Record<string, readonly Cap[]>>>
   accountant: ['accounts.create'],
   // SUPTO_ROLES, and the Files archives (file.controller).
   nra_auditor: ['supto.view', 'supto.export', 'files.archives'],
+}
+
+/**
+ * What a role's NAME takes away, whatever its permissions and sets: applied after `LEGACY_ROLE_CAPS`. The Seller types
+ * no price on a sales document line; he picks one the engine offers (owner, 2026-11-12: "Manual price, unavailable for
+ * Seller, but available for Sales Consultant"). The Sales Consultant holds the same permissions and keeps it, and so
+ * does the old `sales` role: the name decides, as the role table above does.
+ *
+ * No route rule reads these, so the differential test is untouched. `projectGrant` may choose a key for what it
+ * withholds (a key that only takes away never serves more than the role).
+ */
+export const LEGACY_ROLE_WITHHOLDS: Readonly<Partial<Record<string, readonly Cap[]>>> = {
+  seller: ['sales-docs.manual-price'],
 }
 
 /**
@@ -222,6 +237,7 @@ export function compileLegacy(claims: LegacyClaims | null | undefined): Grant {
   const caps = new Set<Cap>()
   for (const p of claims.permissions ?? []) for (const c of LEGACY_BRIDGE[p as Permission] ?? []) caps.add(c)
   for (const c of LEGACY_ROLE_CAPS[claims.role ?? ''] ?? []) caps.add(c)
+  for (const c of LEGACY_ROLE_WITHHOLDS[claims.role ?? ''] ?? []) caps.delete(c)
   caps.add('org.switch')
   if (PRODUCT_READERS.some(c => caps.has(c))) for (const c of ['products.costs', ...PRICE_LEVEL_CAPS] as Cap[]) caps.add(c)
   if (Array.isArray(claims.areas)) {

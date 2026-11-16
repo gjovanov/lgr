@@ -217,9 +217,9 @@ describe('Export aggregates', () => {
 
     const own = buildListHtml({
       title: 'Invoices', orgName: 'Test Org', mode: 'compact', rows,
-      logo: 'https://cdn.example.com/acme.png',
+      logo: 'data:image/png;base64,AAAA',
     })
-    expect(own.html).toContain('<img class="org-logo" src="https://cdn.example.com/acme.png"')
+    expect(own.html).toContain('<img class="org-logo" src="data:image/png;base64,AAAA"')
   })
 
   it('PDF: mixed currencies print the warning instead of a summary box', async () => {

@@ -19,7 +19,7 @@ import {
   rootOfPath,
   settlesOf,
 } from './registry.js'
-import type { ImportDocument, ImportOperation } from './import.types.js'
+import type { ImportDocument, ImportDocumentProps, ImportOperation } from './import.types.js'
 
 export interface BranchSeries {
   orgId: string
@@ -37,7 +37,26 @@ export interface PlannedEntry {
   docVat?: number
   /** The store whose document it is, when its number says so. */
   branchOrgId?: string
+  /** The org that holds it, when the books are split over a group (FR-25 R7): `ownerOf`. */
+  ownerOrgId?: string
   description: string
+}
+
+/**
+ * FR-25 R7: which org of a split holds an entry. A sales document in a store's series is that
+ * store's; everything else (bank, purchases, protocols, operations with no document, stock and
+ * payroll postings, the till rows and a store outside LGR) is the home's.
+ */
+export function ownerOf(homeOrgId: string, entryBranchOrgId: string | undefined): string {
+  return entryBranchOrgId ?? homeOrgId
+}
+
+/**
+ * Whether `selfOrgId` holds an entry whose number names `entryBranchOrgId` (or no store). With no
+ * split (`homeOrgId` unset) an org holds everything it is sent, as a books org of its own always has.
+ */
+export function ownsEntry(selfOrgId: string, homeOrgId: string | undefined, entryBranchOrgId: string | undefined): boolean {
+  return !homeOrgId || ownerOf(homeOrgId, entryBranchOrgId) === selfOrgId
 }
 
 const isBankAccount = (code: string) => code === BANK_ACCOUNT_LOCAL || code === BANK_ACCOUNT_FOREIGN
@@ -82,15 +101,45 @@ function describe(doc: ImportDocument): string {
 
 /** The document's content, in a fixed order: what `changed` means. */
 function contentOf(doc: ImportDocument): string {
-  return JSON.stringify([
+  const parts: unknown[] = [
     doc.date, doc.docType, doc.docNumber, doc.vatKind, doc.total, doc.comment,
     doc.ops.map(op => [op.d, op.k, op.ad, op.ak, op.qty, op.amount, op.cur, op.rate, op.fx, op.comment, op.journal, op.tax]),
-  ])
+  ]
+  // ⚠ Appended only when the document has any: a client from before FR-25a sends none, and every document it sends
+  // must hash exactly as it always did, or its next run would call the whole year changed.
+  const props = headerContentOf(doc.props)
+  if (props) parts.push(props)
+  return JSON.stringify(parts)
+}
+
+const PROP_SCALARS = [
+  'paymentCode', 'paidAmount', 'paidCash', 'taxEventDate', 'vatRate', 'vatRule', 'vatExemptionReason', 'registerDocType',
+  'protocolType', 'reasonRef', 'customsRef', 'bankOperation', 'reportingMonth', 'partnerPath',
+] as const
+
+/**
+ * FR-25a's header, in a fixed order whatever order its keys arrived in (a client's JSON decides that): the scalars by
+ * the list above, the links in the file's order, the switches by name. Null when it says nothing.
+ */
+export function headerContentOf(p: ImportDocumentProps | undefined): unknown[] | null {
+  if (!p) return null
+  const scalars = PROP_SCALARS.map(key => p[key] ?? null)
+  const links = (p.links ?? []).map(l => [l.docType, l.docNumber, l.date ?? null, l.amount ?? null, l.amountFx ?? null])
+  const options = Object.keys(p.docOptions ?? {}).sort().map(key => [key, p.docOptions![key]])
+  const s = p.source ?? {}
+  const source = [s.createdBy ?? null, s.createdAt ?? null, s.modifiedBy ?? null, s.modifiedAt ?? null, s.version ?? null]
+  const empty = scalars.every(v => v === null) && !links.length && !options.length && source.every(v => v === null)
+  return empty ? null : [...scalars, links, options, source]
 }
 
 export const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')
 
-export function planMonth(documents: readonly ImportDocument[], branches: readonly BranchSeries[]): PlannedEntry[] {
+/**
+ * ⚠ The whole month is planned, whoever holds what: an entry's key counts the same identity from the
+ * top of the FILE (`#2`), so a split org's share keys its entries exactly as a books org holding all of
+ * them would. Pass `homeOrgId` and each entry says which org of the split holds it (`ownerOrgId`).
+ */
+export function planMonth(documents: readonly ImportDocument[], branches: readonly BranchSeries[], homeOrgId?: string): PlannedEntry[] {
   const seen = new Map<string, number>()
   return documents.map(doc => {
     const partnerPath = partnerOf(doc)
@@ -114,6 +163,7 @@ export function planMonth(documents: readonly ImportDocument[], branches: readon
     if (vat !== undefined) planned.docVat = vat
     const branch = branchOf(doc, branches)
     if (branch) planned.branchOrgId = branch
+    if (homeOrgId) planned.ownerOrgId = ownerOf(homeOrgId, branch)
     return planned
   })
 }

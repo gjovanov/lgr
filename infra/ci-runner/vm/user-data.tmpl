@@ -1,0 +1,122 @@
+#cloud-config
+# The LGR CI runner guest: Docker, and nothing else that listens. The runner itself is the
+# container from infra/ci-runner, started by hand after the first boot (README).
+hostname: lgr-ci-runner-1
+fqdn: lgr-ci-runner-1.ci.local
+manage_etc_hosts: true
+timezone: Etc/UTC
+ssh_pwauth: false
+
+users:
+  - name: ops
+    gecos: LGR CI runner guest operator
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: adm, sudo
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - @@OPS_KEY@@
+
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - curl
+  - jq
+  - iptables
+
+write_files:
+  # Containers resolve names at public resolvers: they are given no private address to ask.
+  # live-restore: a Docker update restarts the daemon, not the job that is running.
+  - path: /etc/docker/daemon.json
+    permissions: '0644'
+    content: |
+      {
+        "dns": ["1.1.1.1", "8.8.8.8"],
+        "live-restore": true,
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "20m", "max-file": "3" }
+      }
+  - path: /etc/lgr-ci-closed-v4
+    permissions: '0644'
+    content: |
+      # Destinations a container on this guest never opens a connection to: every private
+      # range. One CIDR per line.
+      10.0.0.0/8
+      100.64.0.0/10
+      169.254.0.0/16
+      172.16.0.0/12
+      192.168.0.0/16
+  - path: /etc/lgr-ci-fleet-v4
+    permissions: '0644'
+    content: |
+      # The fleet hosts' own public addresses, one per line. A container reaches what they serve
+      # to everybody (the web, ports 80 and 443) and nothing else on them.
+@@FLEET_V4_LINES@@
+  - path: /usr/local/sbin/lgr-ci-container-guard
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Containers on this guest never open a connection to a private address, to a fleet host
+      # (but for its public web), or to this guest itself. The hypervisor's guard says the first
+      # two for the whole guest; this is the layer inside it, which a job cannot change: its sudo
+      # is the container's, not the guest's.
+      set -euo pipefail
+      for _ in $(seq 1 60); do
+        iptables -nL DOCKER-USER >/dev/null 2>&1 && break
+        sleep 1
+      done
+      iptables -nL DOCKER-USER >/dev/null
+      # Refused at once, never left to time out: a page that names a closed address must fail to
+      # load that one thing, not wait for it.
+      iptables -N LGR_CI_REFUSE 2>/dev/null || iptables -F LGR_CI_REFUSE
+      iptables -A LGR_CI_REFUSE -p tcp -j REJECT --reject-with tcp-reset
+      iptables -A LGR_CI_REFUSE -j REJECT --reject-with icmp-admin-prohibited
+      # Forwarded: a container to anywhere else.
+      iptables -N LGR_CI_GUARD 2>/dev/null || iptables -F LGR_CI_GUARD
+      while read -r net; do
+        case "$net" in ''|'#'*) continue ;; esac
+        iptables -A LGR_CI_GUARD -d "$net" -m conntrack --ctstate NEW -j LGR_CI_REFUSE
+      done < /etc/lgr-ci-closed-v4
+      while read -r host; do
+        case "$host" in ''|'#'*) continue ;; esac
+        iptables -A LGR_CI_GUARD -d "$host" -p tcp -m multiport --dports 80,443 -j RETURN
+        iptables -A LGR_CI_GUARD -d "$host" -m conntrack --ctstate NEW -j LGR_CI_REFUSE
+      done < /etc/lgr-ci-fleet-v4
+      iptables -C DOCKER-USER -j LGR_CI_GUARD 2>/dev/null || iptables -I DOCKER-USER 1 -j LGR_CI_GUARD
+      # Local: a container to this guest (its sshd). Docker's bridges are docker0 and br-*.
+      iptables -N LGR_CI_GUARD_IN 2>/dev/null || iptables -F LGR_CI_GUARD_IN
+      iptables -A LGR_CI_GUARD_IN -m conntrack --ctstate NEW -j LGR_CI_REFUSE
+      for br in docker0 br-+; do
+        iptables -C INPUT -i "$br" -j LGR_CI_GUARD_IN 2>/dev/null || iptables -I INPUT 1 -i "$br" -j LGR_CI_GUARD_IN
+      done
+  - path: /etc/systemd/system/lgr-ci-container-guard.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=LGR CI: containers reach the internet and nothing private
+      After=docker.service
+      Requires=docker.service
+      PartOf=docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/lgr-ci-container-guard
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=docker.service
+
+growpart:
+  mode: auto
+  devices: ['/']
+
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable --now docker
+  - systemctl enable --now lgr-ci-container-guard.service
+
+power_state:
+  mode: reboot
+  timeout: 30
+  condition: true

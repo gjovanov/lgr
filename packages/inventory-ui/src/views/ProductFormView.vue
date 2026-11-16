@@ -16,9 +16,9 @@
       <ProductTabBar :active-tab="urlTab" :is-new="!isEdit" :product-id="(route.params.id as string) || ''" />
 
           <v-tabs-window v-model="tab" class="pt-2">
-            <!-- Basic Info -->
+            <!-- Basic Info: SKU, Name, Tariff code / Type, Category, Unit / Barcode, Description, Tags / Active -->
             <v-tabs-window-item value="basic">
-              <v-row>
+              <v-row data-testid="product-basic-line-1">
                 <v-col cols="12" md="4">
                   <v-text-field v-model="form.sku" :label="$t('warehouse.sku')" :rules="[rules.required]" />
                 </v-col>
@@ -26,10 +26,18 @@
                   <v-text-field v-model="form.name" :label="$t('common.name')" :rules="[rules.required]" />
                 </v-col>
                 <v-col cols="12" md="4">
-                  <v-select v-model="form.type" :label="$t('common.type')" :items="productTypeItems()" :rules="[rules.required]" />
+                  <v-text-field
+                    v-model="form.tariffCode"
+                    :label="$t('warehouse.tariffCode')"
+                    :maxlength="PRODUCT_TARIFF_CODE_MAX"
+                    data-testid="product-tariff-code"
+                  />
                 </v-col>
               </v-row>
-              <v-row>
+              <v-row data-testid="product-basic-line-2">
+                <v-col cols="12" md="4">
+                  <v-select v-model="form.type" :label="$t('common.type')" :items="productTypeItems()" :rules="[rules.required]" />
+                </v-col>
                 <v-col cols="12" md="4">
                   <!-- A category name no category carries is shown as the placeholder, and kept. -->
                   <v-autocomplete
@@ -41,64 +49,87 @@
                     :loading="loadingCategories"
                     :placeholder="unlinkedCategory || undefined"
                     :persistent-placeholder="!!unlinkedCategory"
+                    :rules="[categoryGiven]"
+                    data-testid="product-category"
                     clearable
                   />
                 </v-col>
                 <v-col cols="12" md="4">
                   <v-autocomplete v-model="form.unit" :label="$t('warehouse.unit')" :items="uomOptions" item-title="title" item-value="value" />
                 </v-col>
+              </v-row>
+              <v-row data-testid="product-basic-line-3">
                 <v-col cols="12" md="4">
                   <v-text-field v-model="form.barcode" :label="$t('warehouse.barcode')" />
                 </v-col>
+                <v-col cols="12" md="4">
+                  <!-- One line while it is short, as its neighbours are; it grows with what is written. -->
+                  <v-textarea v-model="form.description" :label="$t('common.description')" rows="1" max-rows="8" auto-grow />
+                </v-col>
+                <v-col cols="12" md="4">
+                  <!-- As tall as the description beside it (the tier rows keep the compact one). -->
+                  <TagInput v-model="form.tags" type="product" :org-url="orgUrl()" density="default" />
+                </v-col>
               </v-row>
-              <v-textarea v-model="form.description" :label="$t('common.description')" rows="3" />
-              <v-switch v-model="form.isActive" :label="$t('common.active')" color="primary" />
-              <TagInput v-model="form.tags" type="product" :org-url="orgUrl()" />
+              <v-row data-testid="product-basic-line-4">
+                <v-col cols="12">
+                  <v-switch v-model="form.isActive" :label="$t('common.active')" color="primary" hide-details />
+                </v-col>
+              </v-row>
             </v-tabs-window-item>
 
             <!-- Pricing (base prices + custom prices merged) -->
             <v-tabs-window-item value="pricing">
-              <!-- Base prices: 4 fields in one row -->
+              <!-- Base prices: 4 fields in one row. A price keeps four decimals and a margin three
+                   (`price-precision.ts`); the selling price's column is the wide one, for its margin beside it. -->
               <p class="text-subtitle-1 font-weight-bold mb-3">{{ $t('warehouse.basePrices') }}</p>
               <v-row>
                 <v-col v-if="seesCosts" cols="12" sm="6" md="3">
-                  <v-text-field
-                    v-model.number="form.purchasePrice"
+                  <DecimalField
+                    v-model="form.purchasePrice"
+                    :decimals="PRICE_DECIMALS"
                     :label="$t('warehouse.purchasePrice')"
-                    type="number"
-                    step="0.01"
+                    data-testid="base-purchase-price"
                     @update:model-value="onPurchasePriceChange"
                   />
                 </v-col>
                 <!-- FR-27.11.D: the selling price is a level of its own. -->
-                <v-col v-if="seesSelling" cols="12" sm="6" md="3">
-                  <div class="d-flex ga-2 align-start">
-                    <v-text-field
-                      v-model.number="form.sellingPrice"
+                <v-col v-if="seesSelling" cols="12" sm="6" :md="seesCosts ? 4 : 3">
+                  <!-- Side by side while both fit; in a narrow column the margin goes under the price. -->
+                  <div class="d-flex flex-wrap ga-2 align-start">
+                    <DecimalField
+                      v-model="form.sellingPrice"
+                      :decimals="PRICE_DECIMALS"
                       :label="$t('warehouse.sellingPrice')"
-                      type="number"
-                      step="0.01"
-                      class="flex-grow-1"
+                      class="flex-grow-1 base-price"
+                      data-testid="base-selling-price"
                       @update:model-value="onSellingPriceChange"
                     />
-                    <v-text-field
+                    <DecimalField
                       v-if="seesCosts"
-                      v-model.number="sellingPricePercent"
+                      v-model="sellingPricePercent"
+                      :decimals="PERCENT_DECIMALS"
                       :label="$t('warehouse.margin')"
-                      type="number"
-                      step="0.1"
                       suffix="%"
-                      style="max-width: 100px"
+                      class="base-margin"
                       :disabled="!form.purchasePrice"
+                      data-testid="base-selling-margin"
                       @update:model-value="onSellingPercentChange"
                     />
                   </div>
                 </v-col>
-                <v-col cols="12" sm="6" md="3">
+                <v-col cols="12" sm="6" :md="seesCosts ? 2 : 3">
                   <v-text-field v-model.number="form.taxRate" :label="$t('warehouse.taxRate')" type="number" suffix="%" />
                 </v-col>
                 <v-col v-if="seesCosts" cols="12" sm="6" md="3">
-                  <v-text-field :model-value="margin" :label="$t('warehouse.margin')" suffix="%" readonly />
+                  <DecimalField
+                    :model-value="margin"
+                    :decimals="PERCENT_DECIMALS"
+                    :label="$t('warehouse.margin')"
+                    suffix="%"
+                    readonly
+                    data-testid="base-margin"
+                  />
                 </v-col>
               </v-row>
 
@@ -106,7 +137,8 @@
 
               <!-- Price Tiers (13 slots: Доставна, Цена на едро, Цена 0..Цена 10) -->
               <div class="d-flex align-center mb-2">
-                <p class="text-subtitle-1 font-weight-bold">{{ $t('warehouse.priceTiers') }}</p>
+                <!-- The slots the table shows below: 13 since 2026-08-06, fewer for a role that sees fewer levels. -->
+                <p class="text-subtitle-1 font-weight-bold" data-testid="tier-title">{{ $t('warehouse.priceTiers', { count: priceTiers.length }) }}</p>
                 <v-spacer />
                 <div class="d-flex ga-1">
                   <v-chip
@@ -122,46 +154,119 @@
               </div>
               <p class="text-body-2 text-medium-emphasis mb-3">{{ $t('warehouse.priceTiersHelp') }}</p>
 
-              <v-table density="compact" class="mb-4">
+              <v-table density="compact" class="mb-4" data-testid="tier-table">
                 <thead>
                   <tr>
                     <th style="width: 40px">#</th>
-                    <th style="width: 22%">{{ $t('common.name') }}</th>
-                    <th v-if="seesCosts" style="width: 80px">%</th>
-                    <th style="width: 120px">{{ $t('warehouse.finalPrice') }}</th>
+                    <th style="width: 220px">{{ $t('common.name') }}</th>
+                    <th v-if="seesCosts" style="width: 130px">%</th>
+                    <th style="width: 190px">{{ $t('warehouse.finalPrice') }}</th>
                     <th v-if="visibleFilters.contact">{{ $t('invoicing.contact') }}</th>
                     <th v-if="visibleFilters.tags">{{ $t('warehouse.contactTags') }}</th>
                     <th v-if="visibleFilters.minQty" style="width: 110px">{{ $t('warehouse.minQuantity') }}</th>
                     <th v-if="visibleFilters.validity" style="width: 160px">{{ $t('warehouse.validFrom') }}</th>
                     <th v-if="visibleFilters.validity" style="width: 160px">{{ $t('warehouse.validTo') }}</th>
+                    <!-- Takes the width nothing else wants, so the figures keep their own and stay beside the names. -->
+                    <th v-if="spareColumn" aria-hidden="true" />
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(tier, i) in priceTiers" :key="i">
-                    <td class="text-medium-emphasis">{{ i + 1 }}</td>
+                  <!-- The article's two base prices again, where the tiers begin: the SAME figures as the fields above
+                       (one model each), so every price of the article reads down one column. Shown to whoever sees
+                       the field above, and no slot of the article: they are not numbered and never sent as tiers. -->
+                  <tr v-if="seesCosts" class="tier-base-row" data-testid="tier-base-purchase">
+                    <td />
+                    <td><span class="tier-base-name">{{ $t('warehouse.purchasePrice') }}</span></td>
+                    <td />
                     <td>
-                      <v-text-field v-model="tier.name" density="compact" hide-details variant="plain" :rules="[rules.required]" />
-                    </td>
-                    <td v-if="seesCosts">
-                      <v-text-field
-                        v-model.number="tier.percent"
-                        type="number"
-                        step="0.1"
+                      <DecimalField
+                        v-model="form.purchasePrice"
+                        :decimals="PRICE_DECIMALS"
                         density="compact"
                         hide-details
                         variant="plain"
+                        class="tier-price"
+                        :aria-label="$t('warehouse.purchasePrice')"
+                        @update:model-value="onPurchasePriceChange"
+                      />
+                    </td>
+                    <td v-if="trailingColumns" :colspan="trailingColumns" />
+                  </tr>
+                  <tr v-if="seesSelling" class="tier-base-row" data-testid="tier-base-selling">
+                    <td />
+                    <td><span class="tier-base-name">{{ $t('warehouse.sellingPrice') }}</span></td>
+                    <td v-if="seesCosts">
+                      <DecimalField
+                        v-model="sellingPricePercent"
+                        :decimals="PERCENT_DECIMALS"
+                        density="compact"
+                        hide-details
+                        variant="plain"
+                        class="tier-percent"
+                        :disabled="!form.purchasePrice"
+                        :aria-label="$t('warehouse.margin')"
+                        @update:model-value="onSellingPercentChange"
+                      />
+                    </td>
+                    <td>
+                      <DecimalField
+                        v-model="form.sellingPrice"
+                        :decimals="PRICE_DECIMALS"
+                        density="compact"
+                        hide-details
+                        variant="plain"
+                        class="tier-price"
+                        :aria-label="$t('warehouse.sellingPrice')"
+                        @update:model-value="onSellingPriceChange"
+                      />
+                    </td>
+                    <td v-if="trailingColumns" :colspan="trailingColumns" />
+                  </tr>
+                  <tr v-for="(tier, i) in priceTiers" :key="i" data-testid="tier-row" :data-tier="tier.name">
+                    <td class="text-medium-emphasis">{{ i + 1 }}</td>
+                    <td>
+                      <!-- A slot that reads differently from how it is stored („Доставна цена", the slot PlusMinus's
+                           column of that name feeds, reads „Цена с ТО"; the hint spells the term out) shows its LABEL
+                           and is not renamed here: the stored name is what the imports, the list's column and the
+                           access rules find it by (`config/price-tiers`). -->
+                      <span
+                        v-if="hasTierLabel(tier.name)"
+                        class="tier-base-name tier-label-name"
+                        :title="$t('warehouse.deliveryTierHint')"
+                        data-testid="tier-label"
+                      >{{ tierLabel(tier.name, $i18n.locale, 'long') }}</span>
+                      <!-- A label typed as a name goes back to the slot it stands for: a label is never stored. -->
+                      <v-text-field
+                        v-else
+                        :model-value="tier.name"
+                        density="compact"
+                        hide-details
+                        variant="plain"
+                        class="tier-name"
+                        :rules="[rules.required]"
+                        @update:model-value="tier.name = tierNameOfLabel($event) ?? $event"
+                      />
+                    </td>
+                    <td v-if="seesCosts">
+                      <DecimalField
+                        v-model="tier.percent"
+                        :decimals="PERCENT_DECIMALS"
+                        density="compact"
+                        hide-details
+                        variant="plain"
+                        class="tier-percent"
                         :disabled="!form.purchasePrice"
                         @update:model-value="onTierPercentChange(i)"
                       />
                     </td>
                     <td>
-                      <v-text-field
-                        v-model.number="tier.finalPrice"
-                        type="number"
-                        step="0.01"
+                      <DecimalField
+                        v-model="tier.finalPrice"
+                        :decimals="PRICE_DECIMALS"
                         density="compact"
                         hide-details
                         variant="plain"
+                        class="tier-price"
                         :append-inner-icon="tier.manualOverride ? 'mdi-pencil-lock' : undefined"
                         @update:model-value="onTierFinalPriceChange(i)"
                       />
@@ -188,14 +293,15 @@
                       <TagInput v-model="tier.tags" type="contact" :org-url="orgUrl()" />
                     </td>
                     <td v-if="visibleFilters.minQty">
-                      <v-text-field v-model.number="tier.minQuantity" type="number" density="compact" hide-details variant="plain" />
+                      <v-text-field v-model.number="tier.minQuantity" type="number" density="compact" hide-details variant="plain" class="tier-min-qty" />
                     </td>
                     <td v-if="visibleFilters.validity">
-                      <v-text-field v-model="tier.validFrom" type="date" density="compact" hide-details variant="plain" />
+                      <v-text-field v-model="tier.validFrom" type="date" density="compact" hide-details variant="plain" class="tier-date" />
                     </td>
                     <td v-if="visibleFilters.validity">
-                      <v-text-field v-model="tier.validTo" type="date" density="compact" hide-details variant="plain" />
+                      <v-text-field v-model="tier.validTo" type="date" density="compact" hide-details variant="plain" class="tier-date" />
                     </td>
+                    <td v-if="spareColumn" />
                   </tr>
                 </tbody>
               </v-table>
@@ -222,7 +328,8 @@
                   />
                 </v-col>
                 <v-col v-if="seesCosts && form.costingMethod === 'standard'" cols="12" md="4">
-                  <v-text-field v-model.number="form.standardCost" :label="$t('warehouse.standardCost')" type="number" min="0" step="0.01" />
+                  <!-- A price like the others: four decimals (`price-precision.ts`). -->
+                  <DecimalField v-model="form.standardCost" :decimals="PRICE_DECIMALS" :label="$t('warehouse.standardCost')" data-testid="standard-cost" />
                 </v-col>
               </v-row>
             </v-tabs-window-item>
@@ -246,14 +353,17 @@ import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { useContactSearch, contactTitle } from 'ui-shared/composables/useContactSearch'
 import { useProductTypes } from 'ui-shared/composables/useProductTypes'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import DecimalField from 'ui-shared/components/DecimalField.vue'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import ProductTabBar from '../components/ProductTabBar.vue'
 import ProductDocActions from '../components/ProductDocActions.vue'
 import type { ProductForActions } from '../composables/product-doc-actions'
-import { PRICE_TIER_NAMES } from 'config/constants'
+import { PRICE_TIER_NAMES, PRODUCT_TARIFF_CODE_MAX } from 'config/constants'
+import { hasTierLabel, tierLabel, tierNameOfLabel } from 'config/price-tiers'
 import { capOfTier } from 'config/access'
 import { tierSlotsToAdd } from 'ui-shared/composables/product-price-columns'
+import { PERCENT_DECIMALS, PRICE_DECIMALS, cascadeTiers, marginOver, markFollowers, priceAtMargin } from 'ui-shared/composables/price-precision'
 import { useAccess } from 'ui-shared/access/useAccess'
 
 const { t } = useI18n()
@@ -291,6 +401,8 @@ interface PriceTier {
   minQuantity: number | null
   validFrom: string
   validTo: string
+  /** The form's own note, never sent: this tier moves with the purchase price (`markFollowers`, `cascadeTiers`). */
+  followsPurchase?: boolean
 }
 
 const FILTER_KEYS = ['contact', 'tags', 'minQty', 'validity'] as const
@@ -315,7 +427,7 @@ const urlTab = computed(() => (route.params.tab as string) || 'edit')
 watch(urlTab, (v) => { tab.value = URL_TO_INTERNAL[v] || 'basic' }, { immediate: true })
 
 const form = reactive({
-  sku: '', name: '', type: 'goods' as string, category: '', categoryId: null as string | null, unit: 'pcs', barcode: '',
+  sku: '', name: '', tariffCode: '', type: 'goods' as string, category: '', categoryId: null as string | null, unit: 'pcs', barcode: '',
   description: '', isActive: true,
   purchasePrice: 0, sellingPrice: 0, taxRate: 0,
   trackInventory: true, minStockLevel: 0, maxStockLevel: 0,
@@ -352,6 +464,17 @@ const { productTypeItems } = useProductTypes()
 const priceEntries = ref<PriceEntry[]>([])
 const priceTiers = ref<PriceTier[]>([])
 const visibleFilters = reactive<Record<FilterKey, boolean>>({ contact: false, tags: false, minQty: false, validity: false })
+/**
+ * The tiers table gives each figure a width of its own (`th` widths, and the fields' minimums in the styles below). In
+ * a table whose every column names a width the browser shares the rest out among them, in proportion: `#` stood 200 px
+ * wide and the prices a third of the page from their names. So one more column, with no width, takes the rest, unless
+ * a filter column without a width (contacts, tags) is there to take it.
+ */
+const spareColumn = computed(() => !visibleFilters.contact && !visibleFilters.tags)
+/** The columns after the price (validity is two): what a base-price row spans with one empty cell. */
+const trailingColumns = computed(() =>
+  (visibleFilters.contact ? 1 : 0) + (visibleFilters.tags ? 1 : 0) + (visibleFilters.minQty ? 1 : 0)
+  + (visibleFilters.validity ? 2 : 0) + (spareColumn.value ? 1 : 0))
 
 /**
  * The contacts a tier can be limited to. Loaded unpaged until FR-22.6 — the API's 10 newest
@@ -392,27 +515,66 @@ function ensureTierSlots() {
   }
 }
 
+/**
+ * The purchase price moved: a tier that follows it goes to the new price plus its margin, and a tier fixed by hand
+ * keeps its price, so its margin is what moves (it was left showing the margin over the OLD purchase price).
+ * Prices to four decimals, margins to three: `price-precision.ts`.
+ *
+ * ⚠ A tier that is neither keeps both: a slot the backfill filled with the selling price at 0 %, a price an import
+ * wrote. Every tier not fixed by hand used to be moved, and such a slot then took the purchase price itself, which
+ * nobody chose. The goods receipt's cascade has always told them apart; this reads the same rule (`cascadeTiers`).
+ */
 function recomputeTiersFromPurchase() {
-  if (!form.purchasePrice) return
-  for (const t of priceTiers.value) {
-    if (!t.manualOverride) t.finalPrice = +(form.purchasePrice * (1 + (t.percent || 0) / 100)).toFixed(2)
-  }
+  cascadeTiers(priceTiers.value, form.purchasePrice)
 }
 
 function onTierPercentChange(i: number) {
   const t = priceTiers.value[i]
   t.manualOverride = false
-  if (form.purchasePrice) t.finalPrice = +(form.purchasePrice * (1 + (t.percent || 0) / 100)).toFixed(2)
+  // A margin typed here is a margin over the purchase price: from now on the tier follows it.
+  t.followsPurchase = true
+  if (form.purchasePrice) t.finalPrice = priceAtMargin(form.purchasePrice, t.percent)
 }
 
 function onTierFinalPriceChange(i: number) {
   const t = priceTiers.value[i]
   t.manualOverride = true
-  if (form.purchasePrice) t.percent = +(((t.finalPrice - form.purchasePrice) / form.purchasePrice) * 100).toFixed(1)
+  t.followsPurchase = false
+  if (form.purchasePrice) t.percent = marginOver(form.purchasePrice, t.finalPrice)
+}
+
+/** The stored tiers as the table edits them. */
+function tiersOf(product: any): PriceTier[] {
+  return (product?.priceTiers || []).map((t: any) => ({
+    name: t.name || '',
+    percent: Number(t.percent) || 0,
+    finalPrice: Number(t.finalPrice) || 0,
+    manualOverride: !!t.manualOverride,
+    contactIds: (t.contactIds || []).map((id: any) => String(id)),
+    tags: t.tags || [],
+    minQuantity: t.minQuantity ?? null,
+    validFrom: t.validFrom ? String(t.validFrom).split('T')[0] : '',
+    validTo: t.validTo ? String(t.validTo).split('T')[0] : '',
+  }))
+}
+
+/** The article's tiers into the table: its own, a slot for every level it lacks, and which of them follow the purchase price. */
+function showTiers(product: any) {
+  priceTiers.value = tiersOf(product)
+  ensureTierSlots()
+  markFollowers(priceTiers.value, product?.purchasePrice)
+  void tierContacts.ensureSelected()
+  // Turn on filter columns if any tier has a value in that filter, for nicer reveal UX.
+  for (const t of priceTiers.value) {
+    if (t.contactIds.length) visibleFilters.contact = true
+    if (t.tags.length) visibleFilters.tags = true
+    if (t.minQuantity != null) visibleFilters.minQty = true
+    if (t.validFrom || t.validTo) visibleFilters.validity = true
+  }
 }
 
 const rules = { required: (v: string) => !!v || t('validation.required') }
-const margin = computed(() => form.purchasePrice > 0 ? (((form.sellingPrice - form.purchasePrice) / form.purchasePrice) * 100).toFixed(1) : '0.0')
+const margin = computed(() => (form.purchasePrice > 0 ? marginOver(form.purchasePrice, form.sellingPrice) : 0))
 
 /**
  * A category is stored twice: `categoryId`, which the field edits, and the `category` name that
@@ -425,6 +587,15 @@ const margin = computed(() => form.purchasePrice > 0 ? (((form.sellingPrice - fo
  *     a clear drops it.
  */
 const unlinkedCategory = computed(() => (form.categoryId ? '' : form.category))
+
+/**
+ * A NEW article has a category: the route that makes one refuses it without, and a new article saved with the
+ * field empty got that refusal back as the save's error, with nothing on the field to say what was missing.
+ * An article that exists may be saved with the field cleared: that drops its category, as it always did.
+ */
+const categoryGiven = (picked: string | null) => isEdit.value || !!picked || !!form.category || t('validation.required')
+/** Whether a field of the Edit tab that must be filled is not. */
+const editTabIncomplete = () => !form.sku || !form.name || !form.type || categoryGiven(form.categoryId) !== true
 
 function linkCategoryByName() {
   if (form.categoryId || !form.category) return
@@ -442,19 +613,22 @@ watch(() => form.categoryId, (id, old) => {
   }
 })
 
-const { markSaved, tryRestore, snapshot } = usePendingChanges({
+const { markSaved, markClean, tryRestore, snapshot } = usePendingChanges({
   appId: 'inventory',
   entityType: 'product',
   icon: 'mdi-package-variant',
-  getFormData: () => ({ ...form, priceEntries: priceEntries.value }),
+  // The tiers are part of what the form holds: left out, an edit of a tier alone was no unsaved change (the form
+  // let it go without a word), and edits kept for later came back with an empty tier table.
+  getFormData: () => ({ ...form, priceEntries: priceEntries.value, priceTiers: priceTiers.value }),
   getPreviewFields: () => [
     { label: 'SKU', value: form.sku },
     { label: 'Name', value: form.name },
   ],
   setFormData: (data) => {
-    const { priceEntries: pe, ...rest } = data
+    const { priceEntries: pe, priceTiers: pt, ...rest } = data
     Object.assign(form, rest)
     if (pe) priceEntries.value = pe
+    if (Array.isArray(pt)) priceTiers.value = pt
   },
   isEdit: () => isEdit.value,
   entityId: () => route.params.id as string,
@@ -494,12 +668,11 @@ const formActions = computed<FormAction[]>(() => {
 // ── Percentage ↔ Price sync ──
 
 function calcPercent(price: number): number {
-  if (!form.purchasePrice) return 0
-  return +((( price - form.purchasePrice) / form.purchasePrice) * 100).toFixed(1)
+  return marginOver(form.purchasePrice, price)
 }
 
 function calcPrice(percent: number): number {
-  return +(form.purchasePrice * (1 + percent / 100)).toFixed(2)
+  return priceAtMargin(form.purchasePrice, percent)
 }
 
 function onSellingPriceChange() {
@@ -516,7 +689,7 @@ function onSellingPercentChange() {
 function onPurchasePriceChange() {
   // Recalculate selling-price margin from current absolute prices
   sellingPricePercent.value = calcPercent(form.sellingPrice)
-  // Cascade: recompute each non-overridden tier from its stored percent
+  // Cascade: each tier that follows the purchase price from its margin, each fixed one's margin from its price
   recomputeTiersFromPurchase()
   for (const entry of priceEntries.value) {
     entry.percent = calcPercent(entry.price)
@@ -635,7 +808,12 @@ async function fetchCategories() {
 
 async function handleSubmit() {
   const { valid } = await formRef.value.validate()
-  if (!valid) return
+  if (!valid) {
+    // What must be filled is on the Edit tab. Asked from another tab, the save did nothing and said nothing: the
+    // field that stops it is shown instead.
+    if (urlTab.value !== 'edit' && editTabIncomplete()) router.replace({ params: { ...route.params, tab: 'edit' } })
+    return
+  }
   loading.value = true
   try {
     // Set category name from selected category for backward compat. No category selected leaves
@@ -644,6 +822,8 @@ async function handleSubmit() {
       const cat = categories.value.find(c => c._id === form.categoryId)
       if (cat) form.category = cat.name
     }
+    // As it is stored (the model trims it): the field shows what the article now holds.
+    form.tariffCode = (form.tariffCode || '').trim()
 
     // Legacy customPrices/tagPrices UI was retired in Phase 7 (2026-04-21).
     // The server preserves the existing arrays when the field is omitted.
@@ -672,11 +852,15 @@ async function handleSubmit() {
       const { data } = await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)
       markSaved()
       keepStored(data?.product)
+      // The form stays open on what it saved, on the current tab: an edit from here is unsaved again. `markSaved`
+      // alone let every later edit go without a word.
+      markClean()
       showSuccess(t('common.savedSuccessfully'))
-      // Stay on the current tab.
     } else {
       const { data } = await httpClient.post(`${orgUrl()}/warehouse/product`, payload)
       markSaved()
+      // The new article opens as itself in this same form: what is edited there is unsaved again.
+      markClean()
       showSuccess(t('common.savedSuccessfully'))
       const newId = data?.product?._id || data?._id
       if (newId) router.push({ name: 'inventory.products.edit', params: { id: newId, tab: urlTab.value } })
@@ -695,8 +879,18 @@ onMounted(async () => {
     // The form holds the restored edits; the header's actions still read the article as stored.
     if (isEdit.value) {
       httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
-        .then(({ data }) => keepStored(data?.product))
+        .then(({ data }) => {
+          keepStored(data?.product)
+          // Edits kept before the tiers were kept with them: the table shows the stored tiers, not nothing.
+          if (!priceTiers.value.length) {
+            showTiers(data?.product)
+            snapshot()
+          }
+        })
         .catch(() => { /* no actions until it can be read */ })
+    } else if (!priceTiers.value.length) {
+      ensureTierSlots()
+      markFollowers(priceTiers.value, 0)
     }
     return
   }
@@ -705,7 +899,7 @@ onMounted(async () => {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
       const p = data.product || data
       Object.assign(form, {
-        sku: p.sku || '', name: p.name || '', type: p.type || 'goods', category: p.category || '',
+        sku: p.sku || '', name: p.name || '', tariffCode: p.tariffCode || '', type: p.type || 'goods', category: p.category || '',
         categoryId: p.categoryId || null,
         unit: p.unit || 'pcs', barcode: p.barcode || '', description: p.description || '',
         isActive: p.isActive ?? true, purchasePrice: p.purchasePrice || 0, sellingPrice: p.sellingPrice || 0, taxRate: p.taxRate || 0,
@@ -719,32 +913,15 @@ onMounted(async () => {
       linkCategoryByName()
       sellingPricePercent.value = calcPercent(form.sellingPrice)
       priceEntries.value = mergePriceEntries(p.customPrices || [], p.tagPrices || [])
-      // Load existing priceTiers; pad to 13 slots with base-price defaults if fewer exist.
-      priceTiers.value = (p.priceTiers || []).map((t: any) => ({
-        name: t.name || '',
-        percent: Number(t.percent) || 0,
-        finalPrice: Number(t.finalPrice) || 0,
-        manualOverride: !!t.manualOverride,
-        contactIds: (t.contactIds || []).map((id: any) => String(id)),
-        tags: t.tags || [],
-        minQuantity: t.minQuantity ?? null,
-        validFrom: t.validFrom ? String(t.validFrom).split('T')[0] : '',
-        validTo: t.validTo ? String(t.validTo).split('T')[0] : '',
-      }))
-      ensureTierSlots()
-      void tierContacts.ensureSelected()
-      // Turn on filter columns if any tier has a value in that filter, for nicer reveal UX.
-      for (const t of priceTiers.value) {
-        if (t.contactIds.length) visibleFilters.contact = true
-        if (t.tags.length) visibleFilters.tags = true
-        if (t.minQuantity != null) visibleFilters.minQty = true
-        if (t.validFrom || t.validTo) visibleFilters.validity = true
-      }
+      // The article's price tiers; a slot with base-price defaults for every level it lacks.
+      showTiers(p)
     } catch { /* handle */ }
   } else {
     // New product: seed the default slots client-side so the table is always full. (This called
     // `ensureTenTiers`, gone since the 10 → 13 rename, and threw on every new article — FR-22 B-2.)
     ensureTierSlots()
+    // Empty slots at no purchase price yet: they follow the one typed, as they always did.
+    markFollowers(priceTiers.value, 0)
     await applyOrgDefaultVat()
   }
   // The clean state is the loaded article, taken once the field watchers have run (FR-22.13).
@@ -765,3 +942,58 @@ async function applyOrgDefaultVat() {
   } catch { /* keep the field as is */ }
 }
 </script>
+
+<style scoped>
+/*
+ * Wide enough for the figures these fields keep, whatever else the table shows: a margin of four digits and three
+ * decimals with its sign (-2000.555), and a price of six digits and four decimals (123456.7891) beside the lock of a
+ * price fixed by hand. `ch` is a digit's width in the field's own font; the pixels are the field's paddings, its
+ * suffix and its icon.
+ */
+.tier-percent {
+  min-width: calc(9ch + 16px);
+}
+.tier-price {
+  min-width: calc(11ch + 16px + 32px);
+}
+.base-margin {
+  flex: 0 0 calc(9ch + 16px + 28px);
+}
+.base-price {
+  flex-basis: calc(11ch + 16px);
+}
+
+/*
+ * The wider figures must not be paid for by the columns beside them: a date squeezed to "dd/m" says nothing. With
+ * every filter shown in a narrow window the table scrolls sideways (`v-table` does) before a field is cut.
+ */
+.tier-name {
+  min-width: 140px;
+}
+.tier-min-qty {
+  min-width: 80px;
+}
+.tier-date {
+  min-width: 136px;
+}
+
+/* The two base prices at the head of the tiers: the article's own prices, not slots of it. */
+.tier-base-row {
+  background: rgba(var(--v-theme-on-surface), 0.04);
+}
+/* A slot's label can be longer than the name column: it takes a second line there, never a cut. */
+.tier-label-name {
+  display: inline-block;
+  white-space: normal;
+  line-height: 1.25;
+  padding-block: 4px;
+}
+/* Reads as the tier names under it, which are fields: their size, 8px in from the cell, 3px under its middle. */
+.tier-base-name {
+  display: inline-block;
+  padding-inline-start: 8px;
+  padding-top: 6px;
+  font-size: 1rem;
+  font-weight: 500;
+}
+</style>

@@ -26,6 +26,8 @@ target/
 *.xlsx
 *.csv
 ap_*.json
+# A relink's manifest holds whole contacts, names and tax numbers (scripts/relink-books-contacts.ts).
+relink-books-contacts-*.json
 # FR-13.23/13.56 (#24) - the PRIVATE half of the backup seal key.
 #
 # The cluster gets a write-only public key; this is the half that can OPEN a sealed bundle,

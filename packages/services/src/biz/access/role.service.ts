@@ -3,7 +3,7 @@ import {
   projectGrant, sameGrant, templateDefaults, templateGrant, unknownCaps, withImplied, type CapabilityId, type Grant, type LegacySet,
 } from 'config/access'
 import { Org, PermissionSet, Role, User } from 'db/models'
-import { createAuditEntry } from '../audit-log.service'
+import { createAuditEntry, recordAuditEntry } from '../audit-log.service'
 import { endSessionsOf } from '../permission-set.service'
 import { grantOf, type AccessCaller } from './evaluate'
 import { forgetMember, forgetRole } from './live'
@@ -222,6 +222,44 @@ export async function updateRole(actor: Actor, orgId: string, roleId: string, in
   const me = await User.findOne({ _id: actor.id, orgId }, { roleId: 1 }).lean().exec()
   if (me && String((me as any).roleId) === String(role._id)) refuse(403, 'own_role', 'You cannot edit your own role.')
 
+  return applyRoleUpdate(orgId, role, input, { userId: actor.id }, (before, after) => {
+    assertWithin(actor, after)
+    // Taking a capability away is the actor's to do only within their own reach too: what they do not hold, they
+    // neither give nor remove.
+    assertWithin(actor, { caps: new Set([...(before.all ? [] : before.caps)].filter(c => !(after as any).caps.has(c))) })
+  })
+}
+
+/**
+ * #529 — the same edit as the role editor's save, made by a sys-admin's script rather than a person: no actor, so no
+ * actor checks, and the audit row says where it came from (`via`). The Administrator role is still refused. Used by
+ * `scripts/role-price-levels.ts`.
+ */
+export async function setRoleCapsBySystem(
+  orgId: string,
+  roleId: string,
+  caps: readonly string[],
+  via: string,
+): Promise<{ before: CapabilityId[]; after: CapabilityId[]; role: RoleView }> {
+  const role = await roleInOrg(orgId, roleId)
+  if (isAdministratorRole(role)) refuse(409, 'administrator_role_fixed', 'The Administrator role cannot be edited.')
+  const before = capsOf(grantOfRole(role))
+  const view = await applyRoleUpdate(orgId, role, { caps: [...caps] }, { userId: '', via })
+  return { before, after: view.caps as CapabilityId[], role: view }
+}
+
+/**
+ * What an edit writes, whoever asked (`updateRole`, `setRoleCapsBySystem`): the capabilities with their implied
+ * helpers, the legacy projection and its set, a new version, the people on the role, their sessions on the legacy
+ * model, and the audit row. `check` sees the grant before and after, before anything is written.
+ */
+async function applyRoleUpdate(
+  orgId: string,
+  role: any,
+  input: RoleInput,
+  audit: { userId: string; via?: string },
+  check?: (before: Grant, after: Grant) => void,
+): Promise<RoleView> {
   const before = grantOfRole(role)
   const set: Record<string, unknown> = {}
   if (input.name !== undefined) {
@@ -234,10 +272,7 @@ export async function updateRole(actor: Actor, orgId: string, roleId: string, in
   let after = before
   if (input.caps !== undefined) {
     after = { caps: new Set(withImplied(cleanCaps(input.caps).caps)) }
-    assertWithin(actor, after)
-    // Taking a capability away is the actor's to do only within their own reach too: what they do not hold, they
-    // neither give nor remove.
-    assertWithin(actor, { caps: new Set([...(before.all ? [] : before.caps)].filter(c => !(after as any).caps.has(c))) })
+    check?.(before, after)
     set.caps = capsOf(after)
     set.edited = true
   }
@@ -266,7 +301,10 @@ export async function updateRole(actor: Actor, orgId: string, roleId: string, in
     const people = (await User.find({ orgId, roleId: role._id }, { _id: 1 }).lean().exec()).map(p => p._id)
     await endSessionsOnLegacy(orgId, people)
   }
-  createAuditEntry({ orgId, userId: actor.id, action: 'update', module: 'admin', entityType: 'role', entityId: roleId, entityName: String(updated!.name), changes: [{ field: 'caps', oldValue: capsOf(before), newValue: capsOf(after) }] })
+  const entry = { orgId, userId: audit.userId, action: 'update', module: 'admin', entityType: 'role', entityId: String(role._id), entityName: String(updated!.name), changes: [{ field: 'caps', oldValue: capsOf(before), newValue: capsOf(after) }] }
+  // A script exits once this returns: its row is written before, and says where it came from.
+  if (audit.via) await recordAuditEntry({ ...entry, via: audit.via })
+  else createAuditEntry(entry)
   return view(updated, await User.countDocuments({ orgId, roleId: role._id, isActive: { $ne: false } }))
 }
 

@@ -9,6 +9,8 @@
     :kpis="kpis"
     :view="viewMode"
     :has-active-filters="hasActiveFilters"
+    selectable
+    v-model:selected="ticked"
     :empty="{ icon: 'mdi-file-document-outline', title: $t('list.empty.invoices'), description: $t('list.empty.invoicesHint') }"
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
     @update:options="onUpdateOptions"
@@ -49,6 +51,11 @@
       <CreateButton :label="create.label" :to="create.to" :more="create.more" :more-label="$t('invoicing.createOther')" />
     </template>
 
+    <!-- The ticked documents by e-mail: each to its customer, or all to one address. -->
+    <template #bulk-bar>
+      <DocEmailBar v-model:selected="ticked" kind="invoice" :may-email="mailsTicked" />
+    </template>
+
     <!-- Cell renderers -->
     <template #item.number="{ item }">
       <entity-link :label="item.number" :to="{ name: 'invoicing.sales.edit', params: { id: item._id } }" />
@@ -70,8 +77,9 @@
         {{ $t(`invoicing.docType.${item.type}`) }}
       </v-chip>
     </template>
-    <!-- FR-22.23: the invoice a note corrects, or the proforma an invoice came from — one column
-         where there were two, each empty on most rows. -->
+    <!-- FR-22.23: the invoice a note corrects, or the quote an invoice came from — one column
+         where there were two, each empty on most rows. An invoice made from a proforma names the
+         proforma, one made straight from an offer the offer. -->
     <template #item.relatedDocument="{ item }">
       <entity-link
         v-if="item.relatedInvoiceId"
@@ -80,6 +88,7 @@
       />
       <entity-link v-if="item.proformaId" :label="item.proformaNumber || ''" :to="{ name: 'invoicing.proforma.edit', params: { id: item.proformaId } }" />
       <span v-else-if="item.proformaNumber">{{ item.proformaNumber }}</span>
+      <entity-link v-else-if="item.offerId" :label="item.offerNumber || ''" :to="{ name: 'invoicing.offer.edit', params: { id: item.offerId } }" />
     </template>
     <template #item.contactName="{ item }">
       <!-- FR-22.23: a long name is cut short on the row, whole on hover. -->
@@ -175,6 +184,11 @@
       @confirm="confirmTransfers"
     />
 
+    <IssuePaymentConfirmDialog :ask="paymentConfirm" @answer="answerPayment" />
+
+    <!-- FR-22.61b: „Изпрати" on goods a stock note may already have delivered: the same question as the form's. -->
+    <DispatchOverlapDialog v-model:overlap="dispatchOverlap" :org-url="appStore.orgUrl()" @linked="overlapLinked" @issue-anyway="issueDespiteOverlap" />
+
     <!-- FR-10 (#19): one dialog for the whole grid, driven by the row the user clicked. -->
     <SendEmailDialog
       v-model="emailDialog"
@@ -203,6 +217,8 @@ import RowActionsMenu, { type RowAction } from 'ui-shared/components/RowActionsM
 import TagInput from 'ui-shared/components/TagInput.vue'
 import DateField from 'ui-shared/components/DateField.vue'
 import StockTransferDialog from 'ui-shared/components/StockTransferDialog.vue'
+import IssuePaymentConfirmDialog from '../components/IssuePaymentConfirmDialog.vue'
+import DispatchOverlapDialog from '../components/DispatchOverlapDialog.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
@@ -217,11 +233,13 @@ import type { StatCardDef } from 'ui-shared/components/StatCard.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useRowEmail } from '../composables/useRowEmail'
+import { useDocEmailAccess } from '../composables/doc-email-access'
 import { useDocumentIssue } from '../composables/useDocumentIssue'
 import { useRowPrint } from '../composables/useRowPrint'
 import * as can from '../composables/document-row-actions'
 import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import RecordPaymentDialog from '../components/RecordPaymentDialog.vue'
+import DocEmailBar from '../components/DocEmailBar.vue'
 
 interface Invoice {
   _id: string
@@ -259,6 +277,10 @@ const {
   send: sendRowEmail,
 } = useRowEmail()
 const { printRow } = useRowPrint()
+
+// The ticked rows by e-mail (their ids, so a tick holds across pages and filters), for a role that works on sales documents.
+const ticked = ref<string[]>([])
+const mailsTicked = useDocEmailAccess().invoices('sales')
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
@@ -493,7 +515,12 @@ const {
   },
   issue,
   confirmTransfers,
-} = useDocumentIssue({ loading, onIssued: refresh })
+  paymentConfirm,
+  answerPayment,
+  dispatchOverlap,
+  issueDespiteOverlap,
+  overlapLinked,
+} = useDocumentIssue({ loading, onIssued: refresh, onLinked: refresh })
 
 function sendInvoice(item: Invoice) {
   return issue(item)

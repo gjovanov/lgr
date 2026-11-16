@@ -4,7 +4,7 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { livePresence } from 'services/biz/fiscal-presence.service'
 import { getRepos } from 'services/context'
 import { buildProductSearchFilter } from 'services/biz/search.utils'
-import { createAuditEntry, generateCorrelationId } from 'services/biz/audit-log.service'
+import { createAuditEntry, generateCorrelationId, recordAuditEntry } from 'services/biz/audit-log.service'
 import { eventBus } from 'services/events/event-bus'
 import { nextRegistryNumber } from 'services/biz/sequence-registry'
 import { assertDispatchAvailable } from 'services/biz/invoicing.service'
@@ -32,6 +32,7 @@ import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
 import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import { withVisibleTrails } from 'services/biz/access/price-trails'
+import { typedPriceRefusal } from 'services/biz/sales-lines'
 import {
   assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, assertTillTender, findKeyedTillDocument, finishDeadSales, finishInterruptedDocuments, floatInItsOwnTurn, getFiscalContext, owesDeviceFloat, saleResponse, stornoDoor, tillContext, tillSettings, zReportOwingFloat,
 } from '../lib/cash-register-till.js'
@@ -83,6 +84,10 @@ function closeIsDead(session: any, now = Date.now()): boolean {
 /**
  * A close that died in its Z goes back to `open`. Conditional on it still being that dead close, so two presses
  * reopen it once and audit it once. Whoever pressed is told either way (`CLOSE_INTERRUPTED`).
+ *
+ * The entry is written before the answer (`recordAuditEntry`, which never throws), so the trail of a Z that may
+ * have printed is there by the time the cashier is told to check the device. Written in the background, it could
+ * land after the answer.
  */
 async function reopenDeadClose(orgId: string, session: any, user: { id: string; operatorCode?: string }): Promise<void> {
   const id = String(session._id ?? session.id)
@@ -95,7 +100,7 @@ async function reopenDeadClose(orgId: string, session: any, user: { id: string; 
     },
   ).exec()
   if (reopened) {
-    createAuditEntry({
+    await recordAuditEntry({
       orgId, userId: user.id, operatorCode: user.operatorCode, action: 'close_interrupted',
       module: 'pos', entityType: 'pos_session', entityId: id, entityName: session.sessionNumber,
     })
@@ -1080,6 +1085,11 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         if (body.type !== 'sale') {
           return status(422, { code: 'register_type_unsupported', message: 'Only sales are rung up at the till; a sale is reversed by its storno' })
         }
+        // #724 (FR-27 `sales-docs.manual-price`): the till offers no typed price, only the catalogue's and the price
+        // menu's (`/pricing/options?all=true`, no client), so a figure none of them is refused for a role that may not
+        // type one, before a number or a receipt is drawn. A keyed retry was answered above from the sale it made.
+        const typed = await typedPriceRefusal(orgId, user as any, { direction: 'outgoing', lines: body.lines })
+        if (typed) return status(403, typed)
 
         // FR-20.55: a session opened under an expired licence takes the money of what already exists,
         // and rings up nothing new. One already open when the restriction began keeps selling.

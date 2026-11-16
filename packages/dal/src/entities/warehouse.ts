@@ -74,6 +74,7 @@ export interface IProduct extends TenantEntity {
   sku: string
   barcode?: string
   name: string
+  tariffCode?: string
   description?: string
   category: string
   categoryId?: string
@@ -122,6 +123,8 @@ export interface IWarehouse extends TenantEntity {
   manager?: string
   managerId?: string
   isDefault: boolean
+  /** Another site's warehouse: it keeps no stock here (`config/external-warehouse`). */
+  isExternal?: boolean
   isActive: boolean
   deactivatedAt?: Date
   tags?: string[]
@@ -237,6 +240,9 @@ export interface IStockMovement extends TenantEntity {
   date: Date
   fromWarehouseId?: string
   toWarehouseId?: string
+  /** The external warehouse a completed movement named on a side: no stock moved there (see the model). */
+  externalFromWarehouseId?: string
+  externalToWarehouseId?: string
   contactId?: string
   invoiceId?: string
   productionOrderId?: string

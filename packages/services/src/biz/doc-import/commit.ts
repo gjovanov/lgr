@@ -7,6 +7,7 @@
  * collected per-item errors into an array nothing ever read.
  */
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
+import { movementExternalSides } from '../external-warehouses.js'
 import { File as FileModel } from 'db/models'
 import { persistInvoiceDraft, persistCashSale, convertDraftInvoice } from './persist.js'
 import { persistMovement } from './persist-movement.js'
@@ -152,7 +153,7 @@ async function commitMovement(
   // The client shapes what it sends here (`/doc-import/commit` takes `mapped` as it comes), and
   // confirming writes stock. Before anything books: both must land or neither is useful.
   for (const m of all) {
-    const misfit = movementWarehouseRefusal(m)
+    const misfit = movementWarehouseRefusal({ ...m, ...await movementExternalSides(orgId, m) })
     if (misfit) return { fileId: item.fileId, ok: false, code: misfit.code, error: misfit.message }
   }
   const numbers: string[] = []

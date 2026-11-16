@@ -14,8 +14,14 @@
  * - `contactId` goes on a line wherever its analytic links to a Contact. The balance sheet splits an
  *   account that runs on both sides by it: without it 411 nets a customer who owes against one who
  *   has paid in advance, and the sheet still balances.
+ *
+ * FR-25 R7, a split (`settings.accounting.books.split`): each org of the group is sent the same files
+ * and keeps its share. A store keeps the sales documents of its series; the home keeps everything else,
+ * the opening included. Every org keeps the whole chart and the whole analytic tree, and a store makes
+ * a partner's Contact only when one of its own entries names the partner.
  */
 import { mongoose } from 'db/connection'
+import { hasRepresentative } from 'config/contact-representative'
 import {
   Account,
   AccountingAnalytic,
@@ -23,6 +29,7 @@ import {
   BankAccount,
   Contact,
   FiscalPeriod,
+  FiscalYear,
   FixedAsset,
   JournalEntry,
   Org,
@@ -52,6 +59,8 @@ import {
   rootOfPath,
 } from './registry.js'
 import { importHashOf, pathsOf, planMonth, settlesOfOperation, sha256, type PlannedEntry } from './journal-plan.js'
+import { ContactIndex } from './contact-match.js'
+import { isImportedAsset, syncFixedAssetRegister } from './fixed-asset-register.js'
 import type {
   AnalyticsAnswer,
   AnalyticsBody,
@@ -66,8 +75,9 @@ import type {
   OpeningAnalyticLine,
   OpeningAnswer,
   OpeningBody,
+  SplitRole,
 } from './import.types.js'
-import type { AnalyticItem } from './plusminus-exports.js'
+import { itemOfRow, type AnalyticItem } from './plusminus-exports.js'
 
 export class BooksImportError extends Error {
   constructor(readonly statusCode: number, readonly code: string, message: string, readonly extra?: Record<string, unknown>) {
@@ -89,11 +99,18 @@ const isDryRun = (body: { dryRun?: boolean }) => body.dryRun !== false
 
 const eikOf = (taxNumber: string | undefined) => String(taxNumber ?? '').replace(/^BG/i, '').trim()
 
+interface BooksOrg {
+  id: string
+  branches: { orgId: string; docSeries?: string[] }[]
+  /** FR-25 R7: the books are split over a group, and this org keeps its share. */
+  split?: { homeOrgId: string; role: SplitRole }
+}
+
 /**
  * The books org, and proof the file is about it. The accountant's PC holds other companies' books, and
  * their exports look the same (FR-25 §1.1). An org that is not a books org runs none of this (§11).
  */
-async function booksOrg(orgId: string, eik: string) {
+async function booksOrg(orgId: string, eik: string): Promise<BooksOrg> {
   const org: any = await Org.findById(orgId, { taxNumber: 1, 'settings.accounting.books': 1 }).lean()
   if (!org) throw new BooksImportError(404, 'not_found', 'Not found')
   const books = org.settings?.accounting?.books
@@ -101,7 +118,13 @@ async function booksOrg(orgId: string, eik: string) {
   if (!eikOf(org.taxNumber) || eikOf(eik) !== eikOf(org.taxNumber)) {
     throw new BooksImportError(422, 'other_company', 'This file belongs to another company than this organisation.')
   }
-  return { id: String(org._id), branches: (books.branches ?? []).map((b: any) => ({ orgId: String(b.orgId), docSeries: b.docSeries })) }
+  const id = String(org._id)
+  const home = books.split?.homeOrgId ? String(books.split.homeOrgId) : undefined
+  return {
+    id,
+    branches: (books.branches ?? []).map((b: any) => ({ orgId: String(b.orgId), docSeries: b.docSeries })),
+    ...(home ? { split: { homeOrgId: home, role: home === id ? 'home' as const : 'member' as const } } : {}),
+  }
 }
 
 async function audit(orgId: string, by: Importer, what: string, changes: Record<string, unknown>): Promise<void> {
@@ -176,28 +199,6 @@ const CONTACT_TYPE: Partial<Record<AnalyticKind, 'customer' | 'supplier' | 'both
 
 const kindOfPath = (path: string): AnalyticKind => analyticRootDef(rootOfPath(path))?.kind ?? 'other'
 
-interface ContactKeys {
-  type: string
-  taxId?: string
-  vatNumber?: string
-  companyName?: string
-}
-
-/** Everything a contact can be found by. */
-function contactKeys(c: ContactKeys): string[] {
-  return [
-    ...(c.taxId ? [`${c.type}|id|${c.taxId}`] : []),
-    ...(c.vatNumber ? [`${c.type}|vat|${c.vatNumber}`] : []),
-    ...(c.companyName ? [`${c.type}|name|${c.companyName}`] : []),
-  ]
-}
-
-/**
- * The one key a partner is looked up by, as `seed-contacts` has it: ЕИК, else the VAT number, else
- * the name. ⚠ Never the name of a partner with a number: two companies can share one.
- */
-const contactKey = (c: ContactKeys) => contactKeys(c)[0]
-
 function newContact(orgId: string, type: string, item: AnalyticItem) {
   const companyName = item.path.slice(item.path.indexOf(':') + 1).trim()
   const street = item.address || item.city
@@ -208,9 +209,31 @@ function newContact(orgId: string, type: string, item: AnalyticItem) {
     ...(item.taxId ? { taxId: item.taxId, taxNumber: item.taxId } : {}),
     ...(item.vatNumber ? { vatNumber: item.vatNumber } : {}),
     ...(item.phone ? { phone: item.phone } : {}),
-    ...(item.contactPerson ? { notes: `МОЛ: ${item.contactPerson}` } : {}),
+    // FR-25a: the МОЛ has a field of its own; it was a notes line, `МОЛ: <name>`, before.
+    ...(item.contactPerson ? { representative: item.contactPerson } : {}),
     ...(street ? { addresses: [{ type: 'billing', street, ...(item.city ? { city: item.city } : {}), country: 'BG', isDefault: true }] } : {}),
   }
+}
+
+/**
+ * How a partner with no Contact is treated (FR-25 R7). A books org of its own makes one for every
+ * partner it meets (`create`), and finds one only of the partner's own type, by its key as written. A
+ * store keeping a share (`split`) finds a partner with a number by any number a contact holds, of any
+ * type (`contact-match.ts`); at analytics time it only links (`create: false`), and makes a partner's
+ * Contact when one of its own entries names it.
+ */
+interface ContactPolicy {
+  create: boolean
+  split: boolean
+}
+
+const OWN_BOOKS: ContactPolicy = { create: true, split: false }
+
+/** What a partner's analytic keeps of the file (`params`), read the way the file is: its Contact's numbers. */
+async function itemsKept(orgId: string, paths: string[]): Promise<Map<string, AnalyticItem>> {
+  if (!paths.length) return new Map()
+  const rows: any[] = await AccountingAnalytic.find({ orgId, path: { $in: paths } }, { path: 1, params: 1 }).lean()
+  return new Map(rows.map(a => [a.path as string, itemOfRow(a.path, a.params ?? [])]))
 }
 
 /**
@@ -218,7 +241,13 @@ function newContact(orgId: string, type: string, item: AnalyticItem) {
  * by the same keys as the seed skills, name included: `contactId` on a line is what tells a debtor
  * from a customer who paid in advance, and a person with no ЕИК has a balance like anyone else.
  */
-async function ensureAnalytics(orgId: string, items: ReadonlyMap<string, AnalyticItem | undefined>, known: AnalyticMap, dryRun: boolean) {
+async function ensureAnalytics(
+  orgId: string,
+  items: ReadonlyMap<string, AnalyticItem | undefined>,
+  known: AnalyticMap,
+  dryRun: boolean,
+  policy: ContactPolicy = OWN_BOOKS,
+) {
   const paths = new Set<string>()
   for (const path of items.keys()) {
     for (const p of [...ancestorsOfPath(path), path]) if (!known.has(p)) paths.add(p)
@@ -227,31 +256,39 @@ async function ensureAnalytics(orgId: string, items: ReadonlyMap<string, Analyti
   const byRoot: Record<string, number> = {}
   for (const path of missing) byRoot[rootOfPath(path)] = (byRoot[rootOfPath(path)] ?? 0) + 1
 
-  const contacts = { created: 0, linked: 0, withoutIdentifier: 0 }
+  const contacts: AnalyticsAnswer['contacts'] = { created: 0, linked: 0, withoutIdentifier: 0, ...(policy.create ? {} : { deferred: 0 }) }
   // A root on its own is no one: only a path under it, booked on or listed, is a partner.
   const partners = [...items.entries()]
     .filter(([path]) => path.includes(':') && !!CONTACT_TYPE[kindOfPath(path)] && !known.get(path)?.contactId)
-    .map(([path, item]) => ({ path, item: item ?? { path }, type: CONTACT_TYPE[kindOfPath(path)]! }))
+    .map(([path, item]) => ({ path, item, type: CONTACT_TYPE[kindOfPath(path)]! }))
 
   const contactIds = new Map<string, mongoose.Types.ObjectId>()
   if (partners.length) {
-    const held = new Map<string, mongoose.Types.ObjectId>()
-    const rows: any[] = await Contact.find({ orgId }, { type: 1, taxId: 1, vatNumber: 1, companyName: 1 }).lean()
-    for (const c of rows) for (const key of contactKeys(c)) held.set(key, c._id)
+    const held = new ContactIndex<mongoose.Types.ObjectId>(policy.split)
+    // A split finds a partner by any number a contact holds, the oldest first (`contact-match.ts`).
+    const rows: any[] = await Contact.find({ orgId }, { type: 1, taxId: 1, taxNumber: 1, vatNumber: 1, companyName: 1, createdAt: 1 }).lean()
+    for (const c of rows) held.add(c._id, { ...c, createdAt: c.createdAt ?? c._id.getTimestamp() })
+    // A store's partner met by the journal is made from what its analytic keeps of the file (R7).
+    const kept = policy.split ? await itemsKept(orgId, partners.filter(p => !p.item && known.has(p.path)).map(p => p.path)) : new Map<string, AnalyticItem>()
 
     const fresh: any[] = []
-    for (const { path, item, type } of partners) {
+    for (const { path, item: given, type } of partners) {
+      const item = given ?? kept.get(path) ?? { path }
       const contact = newContact(orgId, type, item)
       if (!item.taxId && !item.vatNumber) contacts.withoutIdentifier++
-      const match = held.get(contactKey(contact))
+      const match = held.find(contact)
       if (match) {
         contacts.linked++
         contactIds.set(path, match)
         continue
       }
+      if (!policy.create) {
+        contacts.deferred!++
+        continue
+      }
       contacts.created++
       const _id = new mongoose.Types.ObjectId()
-      for (const key of contactKeys(contact)) held.set(key, _id)
+      held.add(_id, contact)
       contactIds.set(path, _id)
       fresh.push({ _id, ...contact })
     }
@@ -287,6 +324,8 @@ async function ensureAnalytics(orgId: string, items: ReadonlyMap<string, Analyti
       kind: kindOfPath(path),
       ...(item?.unit ? { unit: item.unit } : {}),
       ...(contactId ? { contactId } : {}),
+      // FR-25a: the file's own properties. Never an employee's: that file is refused before here.
+      ...(paramsOf(item) && kindOfPath(path) !== 'personnel' ? { params: paramsOf(item) } : {}),
       isActive: true,
     }
   })
@@ -309,12 +348,14 @@ async function fillContacts(orgId: string, items: readonly AnalyticItem[], known
   const linked = items.filter(item => !!CONTACT_TYPE[kindOfPath(item.path)] && known.get(item.path)?.contactId)
   if (!linked.length) return
   const ids = linked.map(item => known.get(item.path)!.contactId)
-  const rows = new Map((await Contact.find({ orgId, _id: { $in: ids } }, { taxId: 1, taxNumber: 1, vatNumber: 1, phone: 1, notes: 1, addresses: 1 }).lean()).map((c: any) => [String(c._id), c]))
+  const rows = new Map((await Contact.find({ orgId, _id: { $in: ids } }, { taxId: 1, taxNumber: 1, vatNumber: 1, phone: 1, notes: 1, representative: 1, addresses: 1 }).lean()).map((c: any) => [String(c._id), c]))
   for (const item of linked) {
     const contact = rows.get(known.get(item.path)!.contactId!)
     if (!contact) continue
     const { orgId: _org, type: _type, companyName: _name, ...fields } = newContact(orgId, '', item) as Record<string, any>
-    const blanks = Object.entries(fields).filter(([key]) => !(Array.isArray(contact[key]) ? contact[key].length : contact[key]))
+    // A contact from before FR-25a keeps its МОЛ in its notes: it has one, and the file does not give it a second.
+    const held = (key: string) => (key === 'representative' ? hasRepresentative(contact) : Array.isArray(contact[key]) ? contact[key].length : contact[key])
+    const blanks = Object.entries(fields).filter(([key]) => !held(key))
     if (blanks.length) await Contact.updateOne({ _id: contact._id, orgId }, { $set: Object.fromEntries(blanks) })
   }
 }
@@ -330,31 +371,45 @@ export async function importAnalytics(orgId: string, body: AnalyticsBody, by: Im
 
   const known = await storedAnalytics(org.id)
   const items = new Map(body.items.map(item => [item.path, item]))
-  const { created, byRoot, contacts } = await ensureAnalytics(org.id, items, known, dryRun)
-  if (!dryRun) await fillContacts(org.id, body.items, known)
+  // FR-25 R7: a store links the partners it already holds, and makes the others' Contacts only when its
+  // own entries name them, so the sister store's customers and the supplier list stay out of it.
+  const { created, byRoot, contacts } = await ensureAnalytics(org.id, items, known, dryRun, org.split ? { create: false, split: true } : OWN_BOOKS)
+  // A store's contacts are its people's: the books fill in blanks only where they made the Contact.
+  if (!dryRun && !org.split) await fillContacts(org.id, body.items, known)
 
   // What already exists may have gained a unit, a bank account or an asset.
   const banks = await linkBankAccounts(org.id, body.items, dryRun)
-  const assets = new Map((await FixedAsset.find({ orgId: org.id }, { name: 1 }).lean()).map((a: any) => [a.name as string, a._id]))
+  // FR-25a §4.2: in the org that holds the register, a file that carries the assets' properties makes an asset of each `ДА`
+  // analytic, and links it (`fixed-asset-register.ts`): those are not linked by name here. What is, as before, is an asset
+  // kept in LGR, and only that: an analytic linked to an asset the import made is never moved off it.
+  const register = holdsRegister(org) && body.items.some(item => isRegisterItem(item.path) && !!paramsOf(item))
+  const held: any[] = await FixedAsset.find({ orgId: org.id }, { name: 1, sourceModule: 1, importKey: 1 }).lean()
+  const imported = new Set(held.filter(isImportedAsset).map(a => String(a._id)))
+  const assets = new Map(held.filter(a => !isImportedAsset(a)).map(a => [a.name as string, a._id]))
   const fixedAssets = { linked: 0, unlinked: 0 }
-  const stored: any[] = await AccountingAnalytic.find({ orgId: org.id, path: { $in: body.items.map(i => i.path) } }, { path: 1, unit: 1, bankAccountId: 1, fixedAssetId: 1 }).lean()
+  const stored: any[] = await AccountingAnalytic.find({ orgId: org.id, path: { $in: body.items.map(i => i.path) } }, { path: 1, unit: 1, bankAccountId: 1, fixedAssetId: 1, params: 1 }).lean()
   const storedByPath = new Map(stored.map(a => [a.path, a]))
 
   const ops: any[] = []
   let updated = 0
   let unchanged = 0
   for (const item of body.items) {
-    const isAsset = kindOfPath(item.path) === 'fixed_asset'
-    const assetId = isAsset ? assets.get(nameOfPath(item.path)) : undefined
-    if (isAsset) fixedAssets[assetId ? 'linked' : 'unlinked']++
-
     const row = storedByPath.get(item.path)
+    const isAsset = kindOfPath(item.path) === 'fixed_asset' && !(register && isRegisterItem(item.path))
+    // Linked to an asset the import made: the register's, which a name never moves (none exists where it never ran).
+    const registers = isAsset && imported.has(String(row?.fixedAssetId ?? ''))
+    const assetId = isAsset && !registers ? assets.get(nameOfPath(item.path)) : undefined
+    if (isAsset) fixedAssets[assetId || registers ? 'linked' : 'unlinked']++
+
     if (!row) continue
     const set: Record<string, unknown> = {}
     if (item.unit && row.unit !== item.unit) set.unit = item.unit
     const bankId = banks.ids.get(item.path)
     if (bankId && String(row.bankAccountId ?? '') !== String(bankId)) set.bankAccountId = bankId
     if (assetId && String(row.fixedAssetId ?? '') !== String(assetId)) set.fixedAssetId = assetId
+    // FR-25a: a file that lists the properties replaces them; one that lists none (an older client) leaves them.
+    const params = paramsOf(item)
+    if (params && !sameParams(row.params, params)) set.params = params
     if (Object.keys(set).length) {
       updated++
       ops.push({ updateOne: { filter: { _id: row._id, orgId: oid(org.id) }, update: { $set: set } } })
@@ -366,8 +421,46 @@ export async function importAnalytics(orgId: string, body: AnalyticsBody, by: Im
   if (!dryRun && ops.length) await AccountingAnalytic.bulkWrite(ops)
   if (!dryRun && (created || updated)) await audit(org.id, by, 'analytics', { created, updated })
 
-  return { dryRun, created, updated, unchanged, byRoot, contacts, bankAccounts: banks.answer, fixedAssets }
+  if (!register) return { dryRun, created, updated, unchanged, byRoot, contacts, bankAccounts: banks.answer, fixedAssets }
+
+  // FR-25a §4.2: from what each analytic holds once this import is through, the file's properties or the stored ones.
+  const assetItems = body.items.filter(item => isRegisterItem(item.path)).map(item => {
+    const row = storedByPath.get(item.path)
+    return {
+      path: item.path,
+      params: paramsOf(item) ?? row?.params ?? [],
+      ...(row ? { analyticId: row._id } : {}),
+      ...(row?.fixedAssetId ? { fixedAssetId: String(row.fixedAssetId) } : {}),
+    }
+  })
+  const assetRegister = await syncFixedAssetRegister(org.id, assetItems, dryRun)
+  if (!dryRun && (assetRegister.created || assetRegister.updated)) {
+    await audit(org.id, by, 'fixed assets', { created: assetRegister.created, updated: assetRegister.updated })
+    logger.info({ orgId: org.id, created: assetRegister.created, updated: assetRegister.updated, problems: assetRegister.problems.length }, 'Books import: the fixed-asset register written')
+  }
+  return { dryRun, created, updated, unchanged, byRoot, contacts, bankAccounts: banks.answer, fixedAssets: assetRegister }
 }
+
+/**
+ * FR-25a §4.2: the org that keeps the company's fixed-asset register. A books org of its own, or the home of a split: the
+ * register is the company's, like the opening and the VAT files, and a store keeping its share of the books makes none.
+ */
+const holdsRegister = (org: BooksOrg) => !org.split || org.split.role === 'home'
+
+/** A `ДА` analytic under the root: an asset. The root itself is none. */
+const isRegisterItem = (path: string) => path.includes(':') && kindOfPath(path) === 'fixed_asset'
+
+type Params = { key: string; value: string }[]
+
+/** An item's properties as an analytic keeps them: each with a name, in the file's order. Unset when there are none. */
+function paramsOf(item: AnalyticItem | undefined): Params | undefined {
+  const params = (item?.params ?? []).filter(p => typeof p?.key === 'string' && p.key.trim()).map(p => ({ key: p.key, value: String(p.value ?? '') }))
+  return params.length ? params : undefined
+}
+
+/** The same properties, in the same order. */
+const sameParams = (a: Params | undefined, b: Params) =>
+  JSON.stringify((a ?? []).map(p => [p.key, p.value ?? ''])) === JSON.stringify(b.map(p => [p.key, p.value ?? '']))
 
 /** `БАНКОВИ СМЕТКИ:<iban>`: a BankAccount, booked on 503 or, for a currency account, 504. */
 async function linkBankAccounts(orgId: string, items: readonly AnalyticItem[], dryRun: boolean) {
@@ -411,6 +504,12 @@ async function periodOfMonth(orgId: string, month: string, dryRun: boolean) {
     throw new BooksImportError(409, 'period_closed', `The period ${month} is closed: an import does not rewrite it.`)
   }
   if (period) return { state: 'exists' as const, id: String(period._id) }
+  // A year someone closed or locked before it had periods (a store org can hold such years, FR-25 R7)
+  // gets none made open inside it: that would be an import rewriting a closed year.
+  const year: any = await FiscalYear.findOne({ orgId, ...fiscalRangeFilter(middle) }, { status: 1 }).lean()
+  if (year && year.status !== 'open') {
+    throw new BooksImportError(409, 'period_closed', `The fiscal year of ${month} is ${year.status}: an import does not write into it.`)
+  }
   if (dryRun) return { state: 'would_create' as const, id: '' }
   return { state: 'created' as const, id: await ensureFiscalPeriod(orgId, middle) }
 }
@@ -544,11 +643,20 @@ export async function importOpening(orgId: string, body: OpeningBody, by: Import
   const iso = `${body.year}-01-01`
   const currency = ledgerCurrencyOn(iso)
 
+  // FR-25 R7: the company's opening is one entry, the home's. A store's share starts from nothing and
+  // reads its balances from the home's opening on (`postedIn`), so it is never added twice.
+  if (org.split?.role === 'member') {
+    return {
+      dryRun, year: body.year, currency, outcome: 'unchanged', lines: 0, balanced: true,
+      accountsWithRemainder: [], unknownAccounts: [], analyticsToCreate: 0, continuity: null, split: { role: 'member' },
+    }
+  }
+
   const { ids: accounts, unknownAccounts } = await accountIdsOf(org.id, [...body.accounts.map(a => a.code), ...(body.analytics ?? []).map(a => a.code)], dryRun)
   const period = await periodOfMonth(org.id, `${body.year}-01`, dryRun)
   const analytics = await storedAnalytics(org.id)
   const items = new Map<string, AnalyticItem | undefined>((body.analytics ?? []).map(a => [a.path, undefined]))
-  const created = await ensureAnalytics(org.id, items, analytics, dryRun)
+  const created = await ensureAnalytics(org.id, items, analytics, dryRun, org.split ? { create: true, split: true } : OWN_BOOKS)
 
   const ctx: LineContext = { currency, branchOrgId: oid(org.id), analytics }
   const { lines, accountsWithRemainder } = openingLines(body, accounts, ctx)
@@ -594,7 +702,9 @@ export async function importOpening(orgId: string, body: OpeningBody, by: Import
     accountsWithRemainder,
     unknownAccounts,
     analyticsToCreate: created.created,
-    continuity: await openingContinuity(org.id, body),
+    // A share's closing is not the company's: the group's continuity is summed outside (FR-25 R7).
+    continuity: org.split ? null : await openingContinuity(org.id, body),
+    ...(org.split ? { split: { role: org.split.role } } : {}),
   }
 }
 
@@ -668,6 +778,61 @@ async function noteAccountRoots(orgId: string, plans: readonly PlannedEntry[], a
 }
 
 /**
+ * FR-25a: the document's partner when its operations name none, or several: the header's own (`ПАРТНЬОР`), when it is
+ * a customer, a supplier or a partner (a bank statement's header can name its bank account, which is no partner). Where
+ * the operations name exactly one, that one stays, as before: it is also what the entry is found again by (`importKey`).
+ */
+function headerPartnerOf(plan: PlannedEntry): string | undefined {
+  if (plan.partnerPath) return undefined
+  const path = plan.doc.props?.partnerPath
+  return path && path.includes(':') && analyticRootDef(rootOfPath(path))?.partner ? path : undefined
+}
+
+/** A switch's key: what a stored map may hold (no dot, no `$`). */
+const SWITCH_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/
+const isDay = (s: string | undefined): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s)
+const instantOf = (s: string | undefined) => {
+  const d = s ? new Date(s) : undefined
+  return d && !Number.isNaN(d.getTime()) ? d : undefined
+}
+
+/**
+ * FR-25a: the rest of the document's header, as the entry stores it. Every key is there, undefined where the file says
+ * nothing, so a re-import clears what the file no longer says (`replacing`), as it does for the fields before them.
+ */
+function headerFieldsOf(doc: ImportDocument) {
+  const p = doc.props ?? {}
+  const links = (p.links ?? []).filter(l => l.docType && l.docNumber).map(l => ({
+    docType: l.docType,
+    docNumber: l.docNumber,
+    ...(isDay(l.date) ? { date: dayOf(l.date) } : {}),
+    ...(l.amount !== undefined ? { amount: l.amount } : {}),
+    ...(l.amountFx !== undefined ? { amountFx: l.amountFx } : {}),
+  }))
+  const options = Object.entries(p.docOptions ?? {}).filter(([key, value]) => SWITCH_KEY.test(key) && typeof value === 'string' && value !== '' && value !== 'false')
+  const s = p.source ?? {}
+  const source = present({ createdBy: s.createdBy || undefined, createdAt: instantOf(s.createdAt), modifiedBy: s.modifiedBy || undefined, modifiedAt: instantOf(s.modifiedAt), version: s.version || undefined })
+  return {
+    paymentCode: p.paymentCode || undefined,
+    paidAmount: p.paidAmount,
+    paidCash: p.paidCash,
+    taxEventDate: isDay(p.taxEventDate) ? dayOf(p.taxEventDate) : undefined,
+    vatRate: p.vatRate,
+    vatRule: p.vatRule || undefined,
+    vatExemptionReason: p.vatExemptionReason || undefined,
+    registerDocType: p.registerDocType || undefined,
+    protocolType: p.protocolType || undefined,
+    reasonRef: p.reasonRef || undefined,
+    customsRef: p.customsRef || undefined,
+    bankOperation: p.bankOperation || undefined,
+    reportingMonth: p.reportingMonth && /^\d{4}(0[1-9]|1[0-2])$/.test(p.reportingMonth) ? p.reportingMonth : undefined,
+    links: links.length ? links : undefined,
+    docOptions: options.length ? Object.fromEntries(options) : undefined,
+    source: Object.keys(source).length ? source : undefined,
+  }
+}
+
+/**
  * One month, whole: a re-import replaces what the month holds, and answers with the difference.
  *
  * ⚠ Prove a re-import with a dry rerun, never a live one (FR-25 §5.5): `unchanged` equal to `entries`
@@ -679,7 +844,10 @@ export async function importJournalMonth(orgId: string, body: JournalBody, by: I
   const dryRun = isDryRun(body)
   assertMonth(body)
 
-  const plans = planMonth(body.documents, org.branches)
+  // FR-25 R7: the whole month is planned, so a share keys its entries as the whole would, and then
+  // this org keeps what it holds. An entry it imported that another org of the group now holds is gone.
+  const month = planMonth(body.documents, org.branches, org.split?.homeOrgId)
+  const plans = org.split ? month.filter(p => p.ownerOrgId === org.id) : month
   const codes = plans.flatMap(p => p.doc.ops.flatMap(op => [op.d, op.k]))
   const { ids: accounts, unknownAccounts } = await accountIdsOf(org.id, codes, dryRun)
   const period = await periodOfMonth(org.id, body.month, dryRun)
@@ -687,7 +855,8 @@ export async function importJournalMonth(orgId: string, body: JournalBody, by: I
   const analytics = await storedAnalytics(org.id)
   const seen = new Map<string, AnalyticItem | undefined>()
   for (const { doc } of plans) for (const op of doc.ops) for (const path of pathsOf(op)) seen.set(path, undefined)
-  const { created: analyticsToCreate } = await ensureAnalytics(org.id, seen, analytics, dryRun)
+  for (const plan of plans) { const path = headerPartnerOf(plan); if (path) seen.set(path, undefined) } // FR-25a
+  const { created: analyticsToCreate, contacts } = await ensureAnalytics(org.id, seen, analytics, dryRun, org.split ? { create: true, split: true } : OWN_BOOKS)
 
   const { from, to } = coveredDays(body)
   const stored: any[] = await JournalEntry.find(
@@ -714,6 +883,7 @@ export async function importJournalMonth(orgId: string, body: JournalBody, by: I
     byDocType: {},
     unknownDocTypes: [],
     unknownAccounts,
+    ...(org.split ? { split: { role: org.split.role, fileEntries: month.length, contacts: { created: contacts.created, linked: contacts.linked } } } : {}),
   }
 
   const unknown = new Map<string, number>()
@@ -739,6 +909,7 @@ export async function importJournalMonth(orgId: string, body: JournalBody, by: I
     if (what === 'unchanged') continue
 
     const date = dayOf(doc.date)
+    const partnerPath = plan.partnerPath ?? headerPartnerOf(plan)
     const fields = {
       date,
       docDate: date,
@@ -753,8 +924,9 @@ export async function importJournalMonth(orgId: string, body: JournalBody, by: I
       docTotal: doc.total,
       docVat: plan.docVat,
       docCurrency: currency,
-      partnerAnalyticId: plan.partnerPath ? analytics.get(plan.partnerPath)?.id : undefined,
+      partnerAnalyticId: partnerPath ? analytics.get(partnerPath)?.id : undefined,
       branchOrgId,
+      ...headerFieldsOf(doc),
       importBatchId: batchId,
       importHash,
     }

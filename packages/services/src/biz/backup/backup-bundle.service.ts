@@ -23,10 +23,10 @@
  * every document, and compares against what the header claims. A restore can therefore prove
  * completeness instead of assuming it.
  *
- * **Compression** is zstd via `zlib.zstdCompressSync`, verified present in the deployed Bun
- * (§1.3) — level 19 for a full, 3 for a delta (FR-13.13). ⚠ If brotli is ever preferred here
- * it MUST pin quality 5: the library default of 11 costs 2,734 s to save 8 % over zstd-19's
- * 37.5 s on this data, and reads as a hung job.
+ * **Compression** is zstd, level 19 for a full and 3 for a delta (FR-13.13), through the
+ * ASYNCHRONOUS `zlib.zstdCompress`, so the work is done off the event loop (#694, see
+ * `compress`). ⚠ If brotli is ever preferred here it MUST pin quality 5: the library default
+ * of 11 costs 2,734 s to save 8 % over zstd-19's 37.5 s on this data, and reads as a hung job.
  */
 
 import { createHash } from 'node:crypto'
@@ -105,16 +105,35 @@ export function tenantCollections(): string[] {
  */
 export const PEOPLE_MODEL = 'Identity'
 
-/** zstd, with the level the FR pins per kind. */
-function compress(plain: Buffer, kind: 'full' | 'delta'): Buffer {
+/**
+ * zstd, with the level the FR pins per kind, done OFF the event loop.
+ *
+ * ⚠ `zlib.zstdCompress`, never `zstdCompressSync`. Level 19 over a whole organisation is seconds
+ * of work, and one synchronous call is seconds in which this process answers nothing: no request,
+ * no WebSocket frame, no readiness probe (#694). A pod left the Service for as long as one
+ * org's nightly bundle took to compress, and an offline master is ONE process, so there every
+ * till waits.
+ *
+ * Measured in the production image under the pod's own limits (Bun 1.4.4, one CPU), on a 30 MB
+ * bundle: the synchronous call silenced a 5 ms timer for 17.5 s. This one silenced it for 39 ms
+ * at most, a sign-in's password check was still answered in a third of a second while it ran,
+ * and it wrote the same bytes, so an artifact is what it always was.
+ */
+async function compress(plain: Buffer, kind: 'full' | 'delta'): Promise<Buffer> {
   const level = kind === 'full' ? 19 : 3
   const z: any = zlib
-  if (typeof z.zstdCompressSync !== 'function') {
-    // Verified present in the deployed Bun 1.3.10 and in 1.3.9 locally; if a runtime ever
-    // lacks it, fail loudly rather than silently writing a different format.
-    throw new Error('zlib.zstdCompressSync is unavailable in this runtime')
+  if (typeof z.zstdCompress !== 'function') {
+    // Present in the one Bun this repo runs on (`.bun-version`). If a runtime ever lacks it,
+    // fail loudly rather than silently write a different format, or go back to blocking.
+    throw new Error('zlib.zstdCompress is unavailable in this runtime')
   }
-  return z.zstdCompressSync(plain, { params: { [z.constants.ZSTD_c_compressionLevel]: level } })
+  return new Promise<Buffer>((done, fail) => {
+    z.zstdCompress(
+      plain,
+      { params: { [z.constants.ZSTD_c_compressionLevel]: level } },
+      (err: Error | null, out: Buffer) => (err ? fail(err) : done(out)),
+    )
+  })
 }
 
 function decompress(buf: Buffer): Buffer {
@@ -303,7 +322,7 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
   parts[0] = Buffer.from(JSON.stringify({ format: BUNDLE_FORMAT, manifest }) + '\n', 'utf8')
 
   const plain = Buffer.concat(parts)
-  const artifact = compress(plain, kind)
+  const artifact = await compress(plain, kind)
 
   const dir = opts.subdir ? join(bundleDir(orgId), opts.subdir) : bundleDir(orgId)
   await mkdir(dir, { recursive: true })
@@ -337,6 +356,17 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
 }
 
 /**
+ * Is this the artifact of a bundle a person asked for? `POST /create` suffixes those
+ * `manual-<variant>-<HHMMSS>`, straight after the date.
+ *
+ * ⚠ Read off the END of the name, never by looking for `-manual-` anywhere in it: the slug comes
+ * first and is the org's own text, so an org called `acme-manual-co` would have had every one of
+ * its nights counted as somebody's button press.
+ */
+const MANUAL_BUNDLE_RE = /-\d{4}-\d{2}-\d{2}-manual-[a-z]+-\d{6}\.ndjson\.zst$/
+export const isManualBundle = (filename: string) => MANUAL_BUNDLE_RE.test(filename)
+
+/**
  * FR-13.8's rule, applied to Layer 2: keep N GENERATIONS, never delete by age.
  *
  * ⚠ `find -mtime +N -delete` — or its JavaScript equivalent — can delete the last good copy
@@ -345,6 +375,9 @@ export async function buildBundle(orgId: string, opts: BuildBundleOptions): Prom
  *
  * Artifacts are named `lgr-<slug>-<kind>-<YYYY-MM-DD>.ndjson.zst`, so within one org and kind
  * lexical order IS chronological. Pruning is per kind, so a run of deltas cannot evict fulls.
+ *
+ * The bundles a person asked for are a class of their own (`config.backup.keepManualPerOrg`): they
+ * never count against the nights, and the nights never count against them.
  *
  * Returns the filenames removed, so the caller can mark their runs and the operator can see
  * it happened.
@@ -367,7 +400,16 @@ export async function pruneBundles(
     .sort()
     .reverse()
 
-  const victims = mine.slice(Math.max(keep, 1))
+  // A bundle a person asked for (`POST /create`: `…-manual-<variant>-<time>`) is kept in a class of
+  // its own. ⚠ Counted together with the nights, every press of the button pushed a night out: an
+  // org admin making three a day would have cut fourteen nights of history to under four.
+  const manual = mine.filter(isManualBundle)
+  const nightly = mine.filter(f => !isManualBundle(f))
+  const victims = [
+    ...nightly.slice(Math.max(keep, 1)),
+    // Floored at 1 like the nights: the bundle this very run has just written must outlive its prune.
+    ...manual.slice(Math.max(config.backup.keepManualPerOrg, 1)),
+  ]
   const removed: string[] = []
   for (const f of victims) {
     try {

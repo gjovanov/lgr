@@ -1,3 +1,4 @@
+import { representativeOf } from 'config/party-identity'
 import { markdownToPdf } from './base.pdf.js'
 import { logoImgTag, LOGO_CSS } from './logo.js'
 import { GRID_CELL_PADDING_X, GRID_EDGE_PADDING_X, GRID_FIT_CLASS, GRID_GUTTER_PX, LINE_GRID_CSS } from './line-grid.js'
@@ -11,6 +12,8 @@ export interface CompanionParty {
   city?: string
   address?: string
   taxId?: string
+  /** The МОЛ (FR-25a). The form prints its row only when a party has one. */
+  representative?: string
 }
 
 export interface CompanionLine {
@@ -153,6 +156,15 @@ function flattenHtml(html: string): string {
 }
 
 /**
+ * The two parties' МОЛ (FR-25a) as the companion forms print them, recipient first: `null` when neither has one, and
+ * then the forms print no МОЛ row at all. Shared by the page and its worksheet twin.
+ */
+export function companionRepresentatives(data: Pick<CompanionDocData, 'recipient' | 'supplier'>): [string, string] | null {
+  const pair: [string, string] = [representativeOf(data.recipient), representativeOf(data.supplier)]
+  return pair[0] || pair[1] ? pair : null
+}
+
+/**
  * Build the page body. Exported so the layout can be asserted (and previewed) without
  * launching Chromium; `generateCompanionDocPDF` is the only production caller.
  */
@@ -176,6 +188,10 @@ export function buildCompanionHtml(data: CompanionDocData): { html: string; css:
       <td class="k">${esc(key)}</td><td class="v">${esc(right || '')}</td>
     </tr>`
 
+  // FR-25a: the МОЛ closes each party's block, as on the invoice; no row when neither party names one, so such a
+  // document prints byte for byte as before (`unit/print-party-identity.test.ts`).
+  const representativeRow = companionRepresentatives(data)
+
   const parties = `
     <table class="parties">
       <tr class="band">
@@ -186,6 +202,7 @@ export function buildCompanionHtml(data: CompanionDocData): { html: string; css:
       ${partyRow(L.city, data.recipient.city, data.supplier.city)}
       ${partyRow(L.address, data.recipient.address, data.supplier.address)}
       ${partyRow(L.taxId, data.recipient.taxId, data.supplier.taxId)}
+      ${representativeRow ? partyRow(L.representative, representativeRow[0], representativeRow[1]) : ''}
     </table>`
 
   const fit = GRID_FIT_CLASS

@@ -2,6 +2,7 @@ import { Invoice, StockMovement } from 'db/models'
 import { getRepos } from '../context.js'
 import { confirmMovement } from './warehouse.service.js'
 import { loadReservationBudgets } from './invoicing.service.js'
+import { createNumberedMovement } from './movement-number.js'
 
 export interface StockShortfall {
   productId: string
@@ -173,26 +174,12 @@ export async function createTransferMovements(
     for (const source of proposal.sources) {
       if (source.transferQuantity <= 0) continue
 
-      // Generate movement number
-      const year = new Date().getFullYear()
-      const prefix = `SM-${year}-`
-      const movements = await r.stockMovements.findMany(
-        { orgId, movementNumber: { $regex: `^${prefix}` } } as any,
-        { movementNumber: -1 },
-      )
-      const seq = movements.length > 0
-        ? Number(movements[0].movementNumber.replace(prefix, '')) + 1
-        : 1
-      const movementNumber = `${prefix}${String(seq).padStart(5, '0')}`
-
       // Look up current cost for the product in the source warehouse
       const stockLevel = await r.stockLevels.findOne({ orgId, productId: proposal.productId, warehouseId: source.fromWarehouseId } as any)
       const unitCost = stockLevel?.avgCost || 0
       const totalCost = source.transferQuantity * unitCost
 
-      const movement = await r.stockMovements.create({
-        orgId,
-        movementNumber,
+      const movement = await createNumberedMovement(r, orgId, {
         type: 'transfer',
         status: 'draft',
         date: new Date(),
@@ -207,7 +194,7 @@ export async function createTransferMovements(
         totalAmount: totalCost,
         notes: `Auto-transfer for invoice: ${proposal.productName} (${source.transferQuantity} units from ${source.fromWarehouseName} to ${proposal.toWarehouseName})`,
         createdBy: userId,
-      } as any)
+      })
 
       transferIds.push(movement.id)
     }

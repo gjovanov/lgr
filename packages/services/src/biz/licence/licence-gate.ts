@@ -39,16 +39,16 @@ export interface LicensedAction {
   when?: (body: any) => boolean
 }
 
-const NEW_SALES_DOCUMENT_TYPES = new Set(['invoice', 'proforma', 'cash_sale'])
+const NEW_SALES_DOCUMENT_TYPES = new Set(['invoice', 'proforma', 'offer', 'cash_sale'])
 
 export const LICENSED_ACTIONS: ReadonlyMap<string, LicensedAction> = new Map<string, LicensedAction>([
   // Decided by the handler: it has the session, and one opened before the restriction keeps selling.
   ['POST /api/org/:orgId/trade/pos/session/:id/transaction', { what: 'a new till sale', when: body => body?.type === 'sale' }],
   ['POST /api/org/:orgId/invoices', {
-    what: 'a new invoice, proforma or cash sale',
+    what: 'a new invoice, proforma, offer or cash sale',
     when: body => body?.direction === 'outgoing' && NEW_SALES_DOCUMENT_TYPES.has(body?.type),
   }],
-  ['POST /api/org/:orgId/invoices/:id/convert', { what: 'invoicing a proforma' }],
+  ['POST /api/org/:orgId/invoices/:id/convert', { what: 'converting a proforma or an offer' }],
   ['POST /api/org/:orgId/invoices/:id/to-invoice', { what: 'invoicing a cash sale' }],
   ['POST /api/org/:orgId/invoices/:id/attach-to-cash-sale', { what: 'attaching an invoice to a cash sale' }],
   ['POST /api/org/:orgId/invoicing/internal-orders', { what: 'a new client order' }],

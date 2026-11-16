@@ -39,6 +39,8 @@ export const PAGE_ACCESS: Readonly<Record<string, PageAccess>> = {
   '/invoicing/internal-orders': p('orders.view'),
   '/invoicing/reservations': p('orders.view'),
   '/invoicing/proforma': p('proforma.view'),
+  // An offer is a quote, of the proforma kind (`partition.ts`): the proforma capabilities open it.
+  '/invoicing/offer': p('proforma.view'),
   '/invoicing/bills': p('bills.view'),
   '/invoicing/cash-sales': till('cash-sales.view'),
   '/invoicing/payment-orders': p('payments.view'),
@@ -61,6 +63,7 @@ export const PAGE_ACCESS: Readonly<Record<string, PageAccess>> = {
   '/invoicing/invoices/new?type=credit_note': p('sales-docs.create'),
   '/invoicing/invoices/new?type=debit_note': p('sales-docs.create'),
   '/invoicing/proforma/new': p('proforma.create'),
+  '/invoicing/offer/new': p('proforma.create'),
   '/invoicing/cash-sales/new': till('till.sell'),
   '/invoicing/bills/new': p('bills.create'),
   '/inventory/movements/new': p('movements.create', 'movements.create:transfer'),
@@ -69,6 +72,8 @@ export const PAGE_ACCESS: Readonly<Record<string, PageAccess>> = {
   '/invoicing/reservations/new': p('orders.create'),
   // ── Accounting ──
   '/accounting/accounts': p('accounts.view'),
+  // FR-25a §3.2: the analytic tree reads with the chart (`accounting/analytics` in routes.ts).
+  '/accounting/analytics': p('accounts.view'),
   '/accounting/journal-entries': p('journal.view'),
   '/accounting/general-ledger': p('ledgers.view'),
   '/accounting/financial-statements': p('ledgers.view'),

@@ -146,4 +146,27 @@ describe('FR-25 R3 — the sales register, derived from the branches and compare
     expect(gate.counts["filed 01, PZW's series: a store outside LGR"]).toBe(1)
     expect(gate.counts["filed 01, no branch's series"]).toBeUndefined()
   })
+
+  it('reads the same from the home of a split, whose branches are both stores and itself (FR-25 R7)', async () => {
+    const split = {
+      mode: 'books',
+      branches: [{ orgId: pz._id, code: 'PZ', label: 'Магазин А', docSeries: ['3000'] }, { orgId: sf._id, code: 'SF', label: 'Магазин Б', docSeries: ['2000'] }],
+      externalBranches: [{ code: 'PZW', docSeries: ['00000'] }],
+      split: { homeOrgId: pz._id },
+    }
+    await Org.updateMany({ _id: { $in: [pz._id, sf._id] } }, { $set: { 'settings.accounting.books': split } })
+    // The VAT files are the home's: the same filed rows, held by the home.
+    const filed: any[] = await VatRegisterEntry.find({ orgId: books._id }).lean()
+    await VatRegisterEntry.insertMany(filed.map(({ _id, ...row }) => ({ ...row, orgId: pz._id })))
+    try {
+      const fromBooks = await compareSalesRegisterOf(books._id, PERIOD)
+      const fromHome = await compareSalesRegisterOf(pz._id, PERIOD)
+      expect(fromHome).toMatchObject({ filedRows: 10, derivedRows: 7, branches: ['PZ', 'SF'], outside: ['PZW'], gap: true })
+      expect(fromHome.counts).toEqual(fromBooks.counts)
+      expect(fromHome.details).toEqual(fromBooks.details)
+    } finally {
+      await VatRegisterEntry.deleteMany({ orgId: pz._id })
+      await Org.updateMany({ _id: { $in: [pz._id, sf._id] } }, { $unset: { 'settings.accounting.books': 1 } })
+    }
+  })
 })

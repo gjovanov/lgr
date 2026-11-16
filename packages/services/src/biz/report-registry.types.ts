@@ -119,6 +119,11 @@ export interface ReportMeta {
   view: 'runner' | 'custom'
   /** App-relative path inside reports-ui, e.g. "/export" or "/inventory-valuation". */
   route: string
+  /**
+   * The format the runner's Export dialog starts on, when `outputs` offers it; absent: Excel. A register that is
+   * printed and handed over (the sales documents) starts on PDF.
+   */
+  defaultExport?: 'xlsx' | 'pdf'
 }
 
 // ── Period presets (FR-6.11) ────────────────────────────────────────────────
@@ -210,6 +215,13 @@ export interface ReportHandlerContext {
   /** Which surface asked — decides the row cap. */
   output: ReportOutput
   locale?: string
+  /**
+   * What the caller reads beyond the report's own gate, for a handler that reads a source with partitions of its own:
+   * the purchases side (`bills`: incoming documents, and the bill behind a delivery, FR-26.6) and the cost figures
+   * (`costs`: `products.costs`, FR-27.11) that are no column of the report, which `withoutFieldGroups` cannot drop.
+   * A handler run with no caller (absent) reads everything.
+   */
+  sees?: { bills: boolean; costs: boolean }
 }
 
 export interface ReportEntry extends ReportMeta {
@@ -365,8 +377,8 @@ export function canExportReport(entry: ReportEntry, user: ReportCaller | null | 
 
 /** The serialisable projection — `permission`/`roles`/`handler` never cross the wire. */
 export function toReportMeta(entry: ReportEntry): ReportMeta {
-  const { id, category, labelKey, descriptionKey, icon, outputs, params, view, route } = entry
-  return { id, category, labelKey, descriptionKey, icon, outputs, params, view, route }
+  const { id, category, labelKey, descriptionKey, icon, outputs, params, view, route, defaultExport } = entry
+  return { id, category, labelKey, descriptionKey, icon, outputs, params, view, route, ...(defaultExport ? { defaultExport } : {}) }
 }
 
 /**

@@ -35,6 +35,7 @@ import { fiscalYearController } from 'accounting-api/src/controllers/fiscal-year
 import { fiscalPeriodController } from 'accounting-api/src/controllers/fiscal-period.controller.js'
 import { fixedAssetController } from 'accounting-api/src/controllers/fixed-asset.controller.js'
 import { bankAccountController } from 'accounting-api/src/controllers/bank-account.controller.js'
+import { analyticController } from 'accounting-api/src/controllers/analytic.controller.js'
 import { reconciliationController } from 'accounting-api/src/controllers/reconciliation.controller.js'
 import { taxReturnController } from 'accounting-api/src/controllers/tax-return.controller.js'
 import { vatController } from 'accounting-api/src/controllers/vat.controller.js'
@@ -56,6 +57,7 @@ import { reservationController } from 'invoicing-api/src/controllers/reservation
 import { productSupplyController } from 'invoicing-api/src/controllers/product-supply.controller.js'
 import { billImportController } from 'invoicing-api/src/controllers/bill-import.controller.js'
 import { receiptBillController } from 'invoicing-api/src/controllers/receipt-bill.controller.js'
+import { dispatchInvoiceController } from 'invoicing-api/src/controllers/dispatch-invoice.controller.js'
 import { docImportController } from 'invoicing-api/src/controllers/doc-import.controller.js'
 import { paymentOrderController } from 'invoicing-api/src/controllers/payment-order.controller.js'
 import { cashOrderController } from 'invoicing-api/src/controllers/cash-order.controller.js'
@@ -64,6 +66,7 @@ import { stockAvailabilityController } from 'invoicing-api/src/controllers/stock
 import { statsController } from 'invoicing-api/src/controllers/stats.controller.js'
 import { agingReportController } from 'invoicing-api/src/controllers/aging-report.controller.js'
 import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller.js'
+import { docEmailController } from 'invoicing-api/src/controllers/doc-email.controller.js'
 import { sequenceConfigController } from 'invoicing-api/src/controllers/sequence-config.controller.js'
 import { posController } from 'invoicing-api/src/controllers/pos.controller.js'
 import { cashRegisterController } from 'invoicing-api/src/controllers/cash-register.controller.js'
@@ -73,6 +76,7 @@ import { productController } from 'warehouse-api/src/controllers/product.control
 import { productSupplierController, productSupplierRecordController } from 'warehouse-api/src/controllers/product-supplier.controller.js'
 import { warehouseController } from 'warehouse-api/src/controllers/warehouse.controller.js'
 import { movementController } from 'warehouse-api/src/controllers/movement.controller.js'
+import { movementEmailController } from 'warehouse-api/src/controllers/movement-email.controller.js'
 import { openingStockController } from 'warehouse-api/src/controllers/opening-stock.controller.js'
 import { stockLevelController } from 'warehouse-api/src/controllers/stock-level.controller.js'
 import { inventoryCountController } from 'warehouse-api/src/controllers/inventory-count.controller.js'
@@ -234,6 +238,8 @@ export function createApiApp() {
         .use(fiscalPeriodController)
         .use(fixedAssetController)
         .use(bankAccountController)
+        // FR-25a §3.2: the books' analytic tree.
+        .use(analyticController)
         .use(reconciliationController)
         .use(taxReturnController)
         .use(vatController)
@@ -257,6 +263,8 @@ export function createApiApp() {
         .use(billImportController)
         // FR-22.31/32 (#168): the supplier's bill for goods a receipt already booked.
         .use(receiptBillController)
+        // FR-22.61/62 (#725): the customer's invoice for goods a stock note already delivered.
+        .use(dispatchInvoiceController)
         .use(docImportController)
         .use(paymentOrderController)
         .use(cashOrderController)
@@ -265,6 +273,7 @@ export function createApiApp() {
         .use(statsController)
         .use(agingReportController)
         .use(invoiceExportController)
+        .use(docEmailController)
         .use(sequenceConfigController)
 
         // Warehouse
@@ -275,6 +284,8 @@ export function createApiApp() {
         .use(productSupplierRecordController)
         .use(warehouseController)
         .use(movementController)
+        // The list's ticked movements by e-mail, each as its printed sheet.
+        .use(movementEmailController)
         .use(openingStockController)
         .use(stockLevelController)
         .use(inventoryCountController)

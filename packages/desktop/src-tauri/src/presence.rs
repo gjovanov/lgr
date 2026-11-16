@@ -247,37 +247,38 @@ pub fn run(
     let mut attempt = 0u32;
 
     while !stop.load(Ordering::SeqCst) {
-        match connect_once(&server_url, &state, &stop, &mut on_event) {
-            Outcome::Closed => {
-                attempt = 0;
-                on_event(Event::Disconnected(DisconnectReason::Closed));
-            }
+        // Whether this session got as far as the server's `desktop:authenticated`, seen in front of
+        // the caller's handler: a link that worked starts the backoff over (`next_attempt`, #741).
+        let mut authenticated = false;
+        let outcome = connect_once(&server_url, &state, &stop, &mut |event| {
+            authenticated |= matches!(event, Event::Authenticated);
+            on_event(event)
+        });
+        match outcome {
+            Outcome::Closed => on_event(Event::Disconnected(DisconnectReason::Closed)),
             Outcome::Unreachable => {
                 state.set(Link::Unreachable);
                 on_event(Event::Disconnected(DisconnectReason::Unreachable));
-                attempt = attempt.saturating_add(1);
             }
             Outcome::Silent => {
                 // The Overview and the bridge stop showing a link that is not there.
                 state.set(Link::Unreachable);
                 on_event(Event::Disconnected(DisconnectReason::Silent));
-                attempt = attempt.saturating_add(1);
             }
             Outcome::Refused => {
                 // ⚠ Do NOT retry in a tight loop with a credential the server refused. The row
                 // is the revocation list; hammering it is noise in the audit log and nothing else.
                 state.set(Link::SignedOut);
                 on_event(Event::Disconnected(DisconnectReason::Refused));
-                attempt = 6; // ~60 s between attempts from here on
             }
             Outcome::NotConfigured => {
                 // Same chip and same slow retry as `Refused` - re-enrolment is the remedy for
                 // both, and a locked keystore may well come back - but the REASON is the truth.
                 state.set(Link::SignedOut);
                 on_event(Event::Disconnected(DisconnectReason::NotConfigured));
-                attempt = 6;
             }
         }
+        attempt = next_attempt(attempt, outcome, authenticated);
 
         let wait = backoff_secs(attempt);
         for _ in 0..(wait * 10) {
@@ -298,6 +299,27 @@ enum Outcome {
     NotConfigured,
 }
 
+/// The backoff step after a session ended, from the step before it.
+///
+/// ⚠ **A session that authenticated starts the count over, whatever ended it (#741).** The count used
+/// to go back to 0 only on `Closed`, and a server that stops or restarts reaches a till as a read
+/// error, never as a Close frame. A link that had worked for hours kept the step the outage before
+/// it had left, so the wait before the FIRST retry grew with every outage the app had seen: 2 s, 4,
+/// 8, 16, 32, then a minute for good, however short the server's restart. A lane that restarts its
+/// master many times read 2.6 s, 7.6 s and 8.1 s on three restarts in a row, and 60 s on a later one
+/// that its fiscal bridge was over in 2.6 s.
+///
+/// ⚠ Pure and tested, like `backoff_secs`.
+fn next_attempt(attempt: u32, outcome: Outcome, authenticated: bool) -> u32 {
+    let attempt = if authenticated { 0 } else { attempt };
+    match outcome {
+        Outcome::Closed => 0,
+        Outcome::Unreachable | Outcome::Silent => attempt.saturating_add(1),
+        // ~60 s between attempts from here on, a link that worked before it or not.
+        Outcome::Refused | Outcome::NotConfigured => 6,
+    }
+}
+
 /// What a failure to mint the socket's credential means, from `enroll`'s error code.
 ///
 /// ⚠ **Pure, and tested as such.** The mapping used to live inline in `connect_once`, where the
@@ -307,12 +329,20 @@ enum Outcome {
 ///
 /// ⚠ **The default is `NotConfigured`, not `Refused`.** Everything `mint_token` can fail with
 /// before it has an HTTP response is local; only a code the server itself returned means refused.
+///
+/// ⚠ **An answer with no code is not the server's refusal (#735).** The API names a code on every
+/// refusal of a token. `token_failed` is an error that carried none, and `bad_response` a success
+/// that was not a token: both are something answering in the API's place. A master's ingress says
+/// `502` in plain text while its API starts, and a reverse proxy or a middlebox may answer for a
+/// server the same way. Read as a refusal, each restart of the server left the till on the
+/// once-a-minute retry meant for a credential that was turned down, with "Signed out" on its
+/// Overview for that minute. The bridge has read these as worth retrying since #567.
 fn classify_mint_error(msg: &str) -> Outcome {
     match msg {
-        // Reached the server, and it answered.
-        "desktop_revoked" | "desktop_outdated" | "token_failed" | "bad_response" => Outcome::Refused,
-        // Never left the machine.
-        "server_unreachable" | "server_timeout" => Outcome::Unreachable,
+        // Reached the server, and it answered with its reason.
+        "desktop_revoked" | "desktop_outdated" => Outcome::Refused,
+        // Never left the machine, or never reached the API: tried again on the backoff.
+        "server_unreachable" | "server_timeout" | "token_failed" | "bad_response" => Outcome::Unreachable,
         "not_registered" | "no_secure_storage" | "no_key" | "bad_key" | "client_build_failed" => {
             Outcome::NotConfigured
         }
@@ -500,9 +530,26 @@ mod tests {
                 "{code} happens before any request, so it can never mean the server refused us",
             );
         }
-        for code in ["desktop_revoked", "desktop_outdated", "token_failed", "bad_response", "whatever_the_hub_sent"] {
+        for code in ["desktop_revoked", "desktop_outdated", "whatever_the_hub_sent"] {
             assert_eq!(classify_mint_error(code), Outcome::Refused, "{code}");
         }
+    }
+
+    #[test]
+    fn an_answer_without_a_code_is_a_server_that_is_not_there_yet() {
+        // #735. A master's ingress answers `502` in plain text while its API starts, which mints as
+        // `token_failed`. Taken for a refusal, every restart of the server put presence on the
+        // once-a-minute retry and the Overview on "Signed out". A 2 h soak that updated its master
+        // saw both tills' presence back 65 s after the stop, and their bridges after 8 s.
+        for code in ["token_failed", "bad_response"] {
+            assert_eq!(
+                classify_mint_error(code),
+                Outcome::Unreachable,
+                "{code} carries no reason from the API, so it is tried again on the backoff",
+            );
+        }
+        // What that buys: the next tries come seconds apart, not a minute.
+        assert!(backoff_secs(1) + backoff_secs(2) < backoff_secs(6));
     }
 
     #[test]
@@ -615,6 +662,39 @@ mod tests {
         assert!(timed_out(&tungstenite::Error::Io(Error::from(ErrorKind::TimedOut))));
         assert!(!timed_out(&tungstenite::Error::Io(Error::from(ErrorKind::ConnectionReset))));
         assert!(!timed_out(&tungstenite::Error::ConnectionClosed));
+    }
+
+    #[test]
+    fn a_link_that_worked_starts_the_backoff_over() {
+        // #741. The step went back to 0 only on a Close frame, and a server that restarts reaches a
+        // till as a read error. A lane that restarts its master many times saw the wait before the
+        // first retry double from one restart to the next, each after a good connection, and a
+        // minute's wait on a restart its fiscal bridge was over in 2.6 s.
+        let mut attempt = 0;
+        for outage in 1..=8 {
+            attempt = next_attempt(attempt, Outcome::Unreachable, true);
+            assert_eq!(backoff_secs(attempt), 2, "outage {outage}: the first retry after a link that worked");
+        }
+        // Tries that never got as far as the server's word still back off, to the ceiling.
+        let mut attempt = 0;
+        let waits: Vec<u64> = (0..7)
+            .map(|_| {
+                attempt = next_attempt(attempt, Outcome::Unreachable, false);
+                backoff_secs(attempt)
+            })
+            .collect();
+        assert_eq!(waits, [2, 4, 8, 16, 32, 60, 60]);
+        // A link that went silent is counted the same way.
+        assert_eq!(next_attempt(4, Outcome::Silent, false), 5);
+        assert_eq!(next_attempt(4, Outcome::Silent, true), 1);
+        // A clean close starts over, as it always did.
+        assert_eq!(next_attempt(5, Outcome::Closed, false), 0);
+        // A refusal stays on the slow retry, a link that worked before it or not: a desktop revoked
+        // in the middle of a session must not come back hammering.
+        for authenticated in [false, true] {
+            assert_eq!(backoff_secs(next_attempt(0, Outcome::Refused, authenticated)), 60);
+            assert_eq!(backoff_secs(next_attempt(0, Outcome::NotConfigured, authenticated)), 60);
+        }
     }
 
     #[test]

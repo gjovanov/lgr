@@ -10,6 +10,13 @@
   >
     <!-- FR-26 D-8: whoever does not run the devices reads the page. The server refuses them every write and
          command here (`FISCAL_ADMIN_ROLES`), so none is offered: no Save, no Connect, no operators, no reports but the status. -->
+    <!-- #450: the clock the scheduled sync left for a person (an hour off: summer time not switched). -->
+    <v-alert v-if="!isNew && clockHeld" type="warning" variant="tonal" class="mb-4" data-testid="clock-held">
+      {{ clockMessage }}
+      <template v-if="canSyncTime" #append>
+        <v-btn variant="flat" color="warning" :loading="syncing" data-testid="clock-held-set" @click="setClock()">{{ t('pos.device.clock.setButton') }}</v-btn>
+      </template>
+    </v-alert>
     <v-form ref="formRef" :disabled="!runs" @submit.prevent="handleSave">
       <v-tabs v-model="tab">
         <v-tab value="general">{{ t('pos.device.tabs.general') }}</v-tab>
@@ -167,6 +174,7 @@
                 </v-card-text>
                 <v-card-actions>
                   <v-spacer />
+                  <v-btn v-if="canSyncTime" variant="text" :loading="syncing" data-testid="clock-set" @click="setClock()">{{ t('pos.device.clock.setButton') }}</v-btn>
                   <v-btn color="primary" :loading="reportLoading.status" @click="readDeviceStatus">{{ t('pos.device.status.read') }}</v-btn>
                 </v-card-actions>
               </v-card>
@@ -371,6 +379,27 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+    <!-- #450: a step the server does not take on its own is shown, both times, and set only once confirmed. -->
+    <v-dialog :model-value="!!clockConfirm" max-width="520" persistent data-testid="clock-confirm">
+      <v-card v-if="clockConfirm">
+        <v-card-title>{{ t('pos.device.clock.confirmTitle') }}</v-card-title>
+        <v-card-text>
+          <p class="mb-3">{{ clockConfirm.message }}</p>
+          <v-table density="compact">
+            <tbody>
+              <tr><td style="width: 200px">{{ t('pos.device.clock.deviceTime') }}</td><td>{{ clockConfirm.deviceTime ? new Date(clockConfirm.deviceTime).toLocaleString() : '—' }}</td></tr>
+              <tr><td>{{ t('pos.device.clock.serverTime') }}</td><td>{{ new Date(clockConfirm.serverTime).toLocaleString() }}</td></tr>
+            </tbody>
+          </v-table>
+          <p class="text-caption text-medium-emphasis mt-3">{{ t('pos.device.clock.confirmHint') }}</p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn data-testid="clock-confirm-cancel" @click="clockConfirm = null">{{ t('common.cancel') }}</v-btn>
+          <v-btn color="primary" variant="flat" :loading="syncing" data-testid="clock-confirm-set" @click="setClock(true)">{{ t('pos.device.clock.confirm') }}</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </EntityFormShell>
 </template>
 
@@ -388,6 +417,7 @@ import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { grantOfViewer, runsDevices } from 'ui-shared/nav/page-registry'
 import { can } from 'config/access'
+import { clockOffsetKind, formatClockStep, type ClockHeld } from 'config/fiscal-clock'
 
 const { t, te } = useI18n()
 const route = useRoute()
@@ -625,6 +655,36 @@ async function readDeviceStatus() {
   }
 }
 
+// ── #450: the device's clock ────────────────────────────────────────────────────────────────
+const canSyncTime = computed(() => can(grantOfViewer(sessionViewer()), 'devices.sync-time'))
+const clockHeld = ref<ClockHeld | null>(null)
+const clockConfirm = ref<{ message: string; serverTime: string; deviceTime: string | null } | null>(null)
+const syncing = ref(false)
+const clockMessage = computed(() => {
+  if (!clockHeld.value) return ''
+  const kind = clockOffsetKind(clockHeld.value.stepMs)
+  if (kind === 'kept-summer-time') return t('pos.device.clock.keptSummerTime')
+  if (kind === 'kept-winter-time') return t('pos.device.clock.keptWinterTime')
+  return t('pos.device.clock.off', { step: formatClockStep(clockHeld.value.stepMs) })
+})
+
+/** Set the device's clock from the verified time: a step the server will not take alone is shown first (409). */
+async function setClock(confirm = false) {
+  syncing.value = true
+  try {
+    await httpClient.post(`${deviceUrl.value}/${deviceId.value}/sync-time`, confirm ? { confirm: true } : {})
+    clockConfirm.value = null
+    clockHeld.value = null
+    showSuccess(t('pos.device.clock.set'))
+  } catch (e: any) {
+    const d = e?.response?.data
+    if (e?.response?.status === 409 && d?.code === 'clock_unconfirmed') clockConfirm.value = { message: d.message, serverTime: d.serverTime, deviceTime: d.deviceTime }
+    else showError(d?.message || t('pos.device.clock.failed'))
+  } finally {
+    syncing.value = false
+  }
+}
+
 async function fetchWarehouses() {
   loadingWarehouses.value = true
   try {
@@ -655,6 +715,7 @@ async function fetchDevice() {
       status: d.status || '',
     })
     setCapabilities(d)
+    clockHeld.value = d.clockHeld ?? null
   } catch (e: any) {
     showError(e?.response?.data?.message || t('pos.device.loadFailed'))
   } finally {

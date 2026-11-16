@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-36** are fixed. The rest are open, ordered by
+**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-41** are fixed. The rest are open, ordered by
 severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
@@ -26,7 +26,13 @@ and fiscal-device screens, and S-31 while fixing #168. S-32 came a few days late
 FR-27 (#529), and S-33 while handling it. S-34 turned up while closing S-33, when the rest of the
 Files routes were read against the same rule. S-35 came out of re-checking the Known Issue about the
 controllers that take any field, and S-36 is the rest of that Known Issue: what a save could set
-inside the caller's own org.
+inside the caller's own org. S-37 was found a day later, while building on the order conversion: the
+draft invoice it answers with. S-38 came the same day, while adding the stock movements to the
+contact ledger: the reports that read a ledger. S-39 followed from the same work: a stock movement's
+total. S-40 was found that evening, while adding the offer: the right a conversion asks for. S-41 came
+out of the field test of the ledger work: the test's own deactivated member still read with the session
+it held. It was filed as a private advisory, fixed and deployed the same minute, and published the same
+day.
 
 | # | Severity | Finding | Status |
 |---|----------|---------|--------|
@@ -66,6 +72,11 @@ inside the caller's own org.
 | S-34 | Low | Analysing a document in the Files app, and the diff of a stock snapshot, asked for `admin.settings` alone: a holder could read the catalog, contacts, costs and stock they are matched against without the permission that guards them | **Fixed** (#541) |
 | S-35 | Medium | A body could name another org's record by id, and the views that resolve stored ids showed it | **Fixed 2026-11-11** (#641) |
 | S-36 | Low | On the twelve routes that store the body as the document, a save could set the fields the server sets: a count's `completed` without its stock adjustment, an order's number or author, a backdated `createdAt` | **Fixed 2026-11-11** (#674) |
+| S-37 | Low | The draft invoice an order conversion answers with carried its stored price trail, so it named a price level to a role that does not see it | **Fixed 2026-11-12** (#696) |
+| S-38 | Low | The reports that read a ledger did not hold what the ledger's own page holds: a session without the purchases side or the cost figures was shown incoming documents, the bill behind a delivery and cost-derived totals | **Fixed 2026-11-12** (#704) |
+| S-39 | Low | A stock movement's total, which is its lines' costs summed, was sent to a role without the cost figures, by id and on every row of the list | **Fixed 2026-11-12** (#708) |
+| S-40 | Low | Converting a proforma made a draft sales invoice without asking for the right to make sales documents | **Fixed 2026-11-12** (#712) |
+| **S-41** | **High** | **A member an administrator switched off kept the session they held for up to a day, and one switched off through the Users form could bring themselves back with a password reset** ([GHSA-24p6-3j68-4v2c](https://github.com/gjovanov/lgr/security/advisories/GHSA-24p6-3j68-4v2c)) | **Fixed 2026-11-12** |
 
 ---
 
@@ -1840,3 +1851,256 @@ A dotted key did the same one level down. `updateInOrg` puts the body in a `$set
 - Left open, inside the caller's own module: a PUT's values are cast, not validated (Mongoose runs
   no validators on an update, so an enum field takes any word), and a POST's schema rejection
   answers 500, not 422 (#675).
+
+## S-37 — A conversion's answer named a price level its reader's role does not see (Low, **fixed 2026-11-12**)
+
+> Found on 2026-11-12 while building on the order conversion. Fixed in #696 and written up here once
+> the fix was on production.
+
+**Where:** `POST /org/:orgId/invoicing/internal-orders/:id/convert` and
+`POST /org/:orgId/invoicing/orders/:id/convert`.
+
+**What was wrong:** a document's stored price trail (`priceExplanation`) names no price level the
+reader's role does not see: a hidden level that won reads "Customer price", a hidden one that lost
+is not named (FR-27.11.C.6). The invoice and the till controllers hold that for every answer of
+theirs, in one `onAfterHandle`. A conversion makes a draft invoice and answers with it, from the
+order controllers, which had no such step. So that one answer carried the trail as stored: the name
+of the level the customer resolves to, and the names and figures of the steps that lost to it.
+
+- **Who:** a member whose role does not see every price level, in an org on the roles model, who
+  may convert an order.
+- **Impact:** for the lines of that one draft, which price level the customer is on and the figures
+  of the levels that lost. The line's price itself is the invoice's, which the same person reads
+  and issues. Nothing stored was touched, and no screen showed it: the order form reads the
+  draft's id and number from the answer and opens the invoice, whose own routes answer by the rule.
+- **Why Low:** an insider, in their own org, who may already invoice that customer at that price.
+  What was crossed is a level's name and the losing figures, in one API answer.
+- **Exposure on the day:** none. A read-only count on production: of 87 orgs one is on the roles
+  model, a test copy. Its 3 roles that do not see every level have 3 people, none of them active,
+  and of the 5 conversions ever recorded none was made by such a person.
+
+### Fix
+
+- Both routes answer through `lib/reservation-convert#conversionAnswer`, which reads the draft's
+  trail by the invoice routes' own rule (`access/price-trails#withVisibleTrails`). What is stored
+  is whole, and a role that sees every level is answered exactly as before.
+- Tests: `integration/access-price-levels.flow.test.ts`, 2 more: a clerk whose role does not see
+  one level converts a customer order, and then a supplier order, of a customer priced at that
+  level. The answer names no hidden level, its last step reads "Customer price" with the line's
+  price, and the stored trail still names the level. With the two routes answering as before, both
+  fail.
+- Deployed as `v20261112-2aa489cd1ca2`. On production the deploy was checked: the image, both pods,
+  the new code in a pod, the health route. The behaviour is the flow test's. A conversion needs a
+  reservation, and one made in the demo org could not be removed again.
+- `CLAUDE.md` now says where the rule is held, and that a new route which answers an invoice from
+  any other controller says it the same way.
+
+## S-38 — The reports that read a ledger did not answer as the ledger's own page does (Low, **fixed 2026-11-12**)
+
+> Found on 2026-11-12 while adding the stock movements to the contact ledger. Fixed in #704 and
+> written up here once the fix was on production.
+
+**Where:** `POST /org/:orgId/reports/{contact-ledger,product-ledger,warehouse-operations}/{run,export}`
+and `GET /org/:orgId/warehouse/product-ledger/:productId`.
+
+**What was wrong:** a ledger has a route of its own and a report in the Reports app that reads the
+same service. The routes answer by what the caller holds. The reports ran the service with no
+caller, and three rules went unheld:
+
+- **The purchases side.** A session without it (FR-26.6: no `purchases` area; `bills.view` on the
+  roles model) is shown no incoming document: not in a list, by id, in an export or in the contact
+  ledger. The contact-ledger report listed a contact's incoming documents all the same, line by
+  line, and counted them in the summary it carries.
+- **A movement names no bill** to such a session, on the movement's own routes (#493). The product
+  ledger named it, by number and by id, on its route and in its report, and the warehouse-operations
+  report listed a delivery under its bill's number.
+- **The cost figures.** A role without them (FR-27.11) is sent none. The two ledger reports carry
+  the service's whole summary beside their rows, where no column holds it: the contact ledger's
+  includes the profitability (the sales less their cost), the product ledger's the current value,
+  and the product-ledger report's rows carried each row's running value.
+
+- **Who:** for the reports, a member who holds the Reports app and whose session lacks the purchases
+  side or the cost figures. For the product ledger's route, any session without the purchases side
+  that reads products or sales documents.
+- **Impact:** read-only, in the caller's own org. Through one report, a counterparty's purchase
+  documents by line (number, article, quantity, price). The number and the id of the bill behind a
+  delivery. Cost-derived totals for one contact or one article. The bill itself still answered 404,
+  and nothing stored was touched.
+- **Why Low:** an insider, in their own org. The two roles the purchases area was made for (Seller,
+  Sales Consultant) do not hold the Reports app, so the document lines were out of their reach; what
+  they could read was a bill's number beside a delivery.
+- **Exposure on the day:** none. A read-only count on production, each active person read as their
+  session is: of 87 orgs one is on the roles model. Of 70 active people 13 are not administrators.
+  Five hold no purchases side: none of them could run the contact-ledger or the warehouse-operations
+  report, and the four who could read a product's ledger are in two test copies of a shop, where no
+  receipt names a live bill. Three hold no cost figures, and none of them could run a ledger report.
+
+### Fix
+
+- A report handler is told what its caller reads beyond the report's own gate
+  (`ReportHandlerContext.sees: { bills, costs }`, filled by the reports controller for a run and for
+  an export). A handler run with no caller reads everything, as the tests that call one directly do.
+- The contact-ledger report reads the service as the route does: outgoing documents only without the
+  purchases side, and `withoutLedgerCosts` (the route's rule, moved to the service so both share one
+  definition) without the cost figures.
+- The product ledger takes `withoutBills`: the row stays, without the incoming document's number and
+  id, and a sales document it names stays. It is decided before the rows are sorted, so a sort by
+  the invoice column orders nothing by a number that is not shown. Its report passes it, and drops
+  the running value and the current value without the cost figures.
+- The warehouse-operations report lists a delivery a bill holds under its own number for such a
+  caller, as a delivery with no invoice. That is decided where the row's type and number are, so a
+  filter by document type reads what the caller is shown.
+- Tests: `integration/seller-roles.flow.test.ts` (the product ledger as a Seller; the three reports
+  as a session with the Reports app and no purchases area) and
+  `integration/access-price-levels.flow.test.ts` (the two ledger reports as a role without the cost
+  figures). Each of the five new cases failed before the change.
+- Deployed as `v20261112-4299d824ee75`. On production the deploy was checked: the image, both pods,
+  the health route. In the demo organization the three reports still answer an administrator with
+  their values, and a Seller is still refused the Reports app. The behaviour for a session without
+  the purchases side or the cost figures is the flow tests': the demo organization has no delivery
+  that a live bill holds, and its Seller holds no Reports app.
+
+## S-39 — A stock movement's total reached a role without the cost figures (Low, **fixed 2026-11-12**)
+
+> Found on 2026-11-12 while adding the Movements list to the contact form (#707). Fixed in #708 and
+> written up here once the fix was on production.
+
+**Where:** `GET /org/:orgId/warehouse/movement` and `GET /org/:orgId/warehouse/movement/:id`.
+
+**What was wrong:** a role without the cost figures (`products.costs`) is sent no cost of a movement's
+line: a movement read by id carries its lines without them (FR-27.11.C.1). The movement's own total
+is those costs summed, and it was sent all the same: `totalAmount` by id, and `total` on every row of
+the list, which also took an order by it. A movement of one line gave that line's cost, and with
+its quantity the unit cost. The Stock Movement Documents list drew the column for everybody; the
+movement's own form already hid its total from such a role.
+
+- **Who:** a member whose role reads stock movements without the cost figures.
+- **Impact:** read-only, in the caller's own org: what a delivery, a write-off or a transfer was
+  worth at cost, per movement, and which of two cost more. Nothing stored was touched.
+- **Why Low:** an insider, in their own org. A role that writes movements always sees the costs
+  (`movements.create` implies every price), so only a reader could be in that position.
+- **Exposure on the day:** none. A read-only count on production, each active person read as their
+  session is: of 87 orgs one is on the roles model. Of 70 active people 13 are not administrators.
+  Three hold no cost figures, and none of them may read stock movements.
+
+### Fix
+
+- The list and the by-id answer carry no `total` / `totalAmount` without the cost figures
+  (`config/access/fields#redactMovementTotals`). Absent, never blank. A role that sees the costs is
+  answered exactly as before.
+- Asked to order the list by the total, such a role gets the list in its usual order. An order by a
+  figure it is not sent would say which receipt cost more.
+- The Stock Movement Documents list (table and cards) and the contact form's Movements list draw the
+  Total column only for a role that is sent it.
+- Tests: `integration/access-price-levels.flow.test.ts`, 1 more: a reader without the costs gets no
+  total by id or in the list, and the list in its usual order when it asks for the total's, by either
+  name and in either direction, while the Administrator's answers and order are unchanged. It fails
+  on the code before the change.
+- Deployed as `v20261112-44c234c411d9`. On production the deploy was checked: the image, both pods,
+  the new code in a pod, the health route. In the demo organization the Administrator's list, order
+  and by-id answer are unchanged, and both lists draw their Total column. The withheld side is the
+  flow test's: it needs a role that reads movements without the cost figures, and the demo
+  organization has none.
+
+## S-40 — Converting a proforma made a sales invoice without the right to make one (Low, **fixed 2026-11-12**)
+
+> Found on 2026-11-12 while adding the offer, a second quote that converts (#712). Fixed in #712 and
+> written up here once the fix was on production.
+
+**Where:** `POST /org/:orgId/invoices/:id/convert`.
+
+**What was wrong:** converting a proforma makes a draft sales invoice. The route asked only what every
+write to a proforma by id asks, a work right on the proforma (FR-27.6: `proforma.create` or
+`proforma.edit`), and never whether the caller makes sales documents (`sales-docs.create`). The list
+and the form offered the action only to a role that does; the route did not hold the same rule.
+
+- **Who:** a member whose role works proformas and makes no sales documents. Only the roles model can
+  hold such a role: on the legacy model `invoicing.write` grants both.
+- **Impact:** a draft sales invoice with the proforma's lines, in the caller's own org. Issuing it,
+  editing it or deleting it still needed the sales documents' rights, and a role that does not read
+  sales documents did not see it in any list.
+- **Why Low:** an insider, in their own org, and only a draft came of it.
+- **Exposure on the day:** none. A read-only count on production: of 87 orgs one is on the roles model,
+  and it has no role that works proformas without making sales documents. One invoice has ever been
+  converted from a proforma, by an account allowed to make it.
+
+### Fix
+
+- `/convert` asks for the create right of the kind it makes: `sales-docs.create` for an invoice and,
+  since the offer (#712), `proforma.create` for a proforma made from an offer. It refuses with 403
+  `capability_required` before anything is written.
+- In the same change, and not part of this finding (no right was crossed by them): `/payments` refuses
+  a quote, where a payment on a proforma recorded a payment row and its journal entry (production holds
+  none); `/convert` refuses a voided quote; and a quote converts once, even for two requests at once.
+- The document form's bottom action bar hides an action the role does not hold, as its top bar already
+  did (FR-27.7).
+- Tests: `integration/access-partitions.flow.test.ts`: a role of the quotes is refused converting a
+  proforma into an invoice (403, `sales-docs.create`), with the proforma still a draft and no invoice
+  made; it fails with the route's new check taken out. And it converts an offer into a proforma but
+  not into an invoice.
+- Deployed as `v20261112-8438302454fb`. On production the deploy was checked: the image, both pods,
+  the new strings in the bundle, ArgoCD synced. In the demo organization an administrator converts an
+  offer into a proforma and into an invoice. The refused side is the flow test's: the demo organization
+  is on the legacy model, where no role works proformas without making sales documents.
+
+## S-41 — A member an administrator switched off kept their access (High, **fixed 2026-11-12**)
+
+> Found on 2026-11-12, in the field test of the contact ledger's stock movements: the test's own member,
+> deactivated at the end, still read with the session it held. Reported and fixed privately
+> ([GHSA-24p6-3j68-4v2c](https://github.com/gjovanov/lgr/security/advisories/GHSA-24p6-3j68-4v2c)): fixed in
+> `379b757e`, on production 37 seconds after the push, and published the same day.
+
+**Where:** `PUT /org/:orgId/user/:userId` (the Users form's Active switch) and
+`DELETE /org/:orgId/user/:userId` (the list's remove).
+
+**What was wrong:** an administrator who switches a member off expects that person to be out. Two things kept them
+in.
+
+- **The session they hold.** A session is the person's and lasts a day. A change of role ends it (FR-26.9.4); neither
+  way of switching a member off did. Only a new sign-in was refused. Until the token expired the person read and
+  wrote in the org with the role they had.
+- **The account itself, through the form's switch.** The remove records when the member was deactivated
+  (`deactivatedAt`). The switch did not. Inactive with no deactivation date is the state of a registration still
+  waiting for its first activation, and that state is the person's own to finish: a password reset activates the
+  person and every membership of theirs that is waiting, and so does the activation mail. So a member switched off
+  through the form asked for a reset link, used it, and was an active member again with the same role. The Users
+  list showed them as active.
+
+- **Who:** a person whose membership an administrator switched off. For the second part they need nothing but their
+  own mailbox and the public reset endpoint.
+- **Impact:** for up to a day, everything their role could read and write in that org. Through the form's switch,
+  the same again for as long as nobody looked.
+- **Why High:** an organization removes a person so that they no longer see or change its invoices, bank details,
+  payroll and stock. The control it used did not do that.
+- **Exposure on the day:** none. Read-only counts on production: 143 memberships, none switched off while the person
+  behind it is active (the 40 inactive with no date are first registrations still waiting, in test organizations).
+  No reset link had ever been asked for. 33 memberships were deactivated with a date, in a test copy of a shop and a
+  field-test organization, and the audit trail holds no act of any of them after their deactivation.
+
+### Fix
+
+- The form's switch deactivates as the remove does: it records when. An administrator who switches the member on
+  again clears the date, so the next switching off is told from this one.
+- Both ways end the sessions the person holds (`endSessionsOf`, the person's `tokenVersion`, as a change of role
+  does): at once on the pod that took the request, within the cache minute on the others. The counter is the
+  person's, so they are signed out of their other orgs too and sign in again there (D-10).
+- A membership still waiting for its first activation is unchanged: saving it with the switch off is no
+  deactivation, and the person still finishes their activation.
+- A sign-in to the org now answers a switched-off member "Account is disabled". It used to tell them to look for an
+  activation link.
+- Tests: `integration/identity-account.flow.test.ts`, 5 cases (by the switch and by the remove: deactivated, the
+  held session refused, a used reset link and an activation mail give nothing back; switched on again; one of two
+  orgs; still waiting). Four fail on the code before the fix. The whole suite on the commit: 8195 pass, 0 fail.
+- Deployed as `v20261112-aff22c59d77f`. Field check on production's demo organization with one throwaway member,
+  19 of 19: switched off by the form (inactive and dated; a new sign-in refused as disabled; the held session
+  refused at once and on all six reads from 63 s on; a write refused), switched on again (active, no date, signs in;
+  the old session stays refused), removed from the list (the same again; the held session answered once more from
+  the other pod inside its cache minute, and was refused three seconds later and from then on). The member and its
+  person were deleted again by exact id.
+- An on-prem server gets it with the first server release cut after `379b757e`. Until then the first part holds
+  there: a session outlives the deactivation by up to a day. The second needs a mailed reset link, which a server
+  with no mail key never sends.
+- Left by this fix and closed in #718: a membership switched off by any other way than those two routes (a script,
+  a restore, an import) kept its session until the token expired, and a membership no person is linked to had no
+  person whose sessions could be ended. The session check now reads the membership too. Neither case was live:
+  every membership on production is linked to a person that is there.

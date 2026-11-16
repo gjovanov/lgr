@@ -1,7 +1,9 @@
 import { FiscalRoute, deviceFromAuthorSession, deviceFromCounter, deviceFromDeadReceipt } from 'fiscal/fiscal-route'
 import { can, grantOf } from 'services/biz/access/evaluate'
 import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, writesKind } from 'config/access'
+import { QUOTE_CONVERTS_TO, isQuoteType } from 'config/constants'
 import { keepStoredTrails, withVisibleTrails } from 'services/biz/access/price-trails'
+import { typedPriceRefusal, withArticleUnits } from 'services/biz/sales-lines'
 import { Elysia, t } from 'elysia'
 import { seesOrders } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
@@ -56,6 +58,10 @@ import {
   ReceiptBillError, applyLinkedBillPrices, checkLinkedBillEdit, isReceiptLinked, linkedReceiptsOf, receiptsOverlapping, releaseReceiptLinks,
   type ReceiptOverlap,
 } from 'services/biz/receipt-bill.service'
+import {
+  DispatchInvoiceError, checkLinkedInvoiceEdit, dispatchesOverlapping, isDispatchLinked, linkedDispatchesOf, releaseDispatchLinks,
+  type DispatchOverlap,
+} from 'services/biz/dispatch-invoice.service'
 import { PAYMENT_STORNO, REGISTER_TYPES } from 'services/biz/cash-register/pos-union'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { billStockReceipts, isSupplierBill } from 'services/biz/bill-stock-receipt.service'
@@ -194,10 +200,10 @@ import {
   prefixFor,
   draftSequenceKeyFor,
   draftPrefixFor,
-  currentMaxSuffix,
   resolveDisplayPrefix,
   getNextInvoiceNumber,
   getNextDraftInvoiceNumber,
+  peekNextInvoiceNumber,
   issuableRefusal,
 } from 'services/biz/invoice-numbering.service'
 
@@ -519,6 +525,27 @@ function auditOverlapAcknowledged(orgId: string, userId: string, id: string, num
   })
 }
 
+/**
+ * FR-22.61b: the stock notes an unlinked sales invoice may be for. The answer to it is `{ acknowledgeOverlap:
+ * true }`, or linking the invoice to one of them; the UI offers both (`DispatchOverlapDialog.vue`).
+ */
+function dispatchOverlapRefusal(invoice: any, overlap: DispatchOverlap) {
+  const numbers = overlap.notes.map(n => n.number).join(', ')
+  return {
+    code: 'dispatch_overlap',
+    message: `${invoice.invoiceNumber} may be for goods that already left stock (${numbers}): link it to the stock note, or issue it anyway`,
+    ...overlap,
+  }
+}
+
+/** Someone was shown these stock notes and dispatched the goods again anyway: that stays on the record. */
+function auditDispatchOverlapAcknowledged(orgId: string, userId: string, id: string, number: string, overlap: DispatchOverlap) {
+  createAuditEntry({
+    orgId, userId, action: 'issue_overlap_acknowledged', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: number,
+    changes: [{ field: 'stockNotes', oldValue: null, newValue: overlap.notes.map(n => n.number).join(', ') }],
+  })
+}
+
 /** FR-26.6: a document's order links, head and lines, as comparable keys. */
 const ORDER_HEAD_FIELDS = ['orderId', 'orderGroupId', 'internalOrderId'] as const
 function lineOrderKey(ref: Record<string, unknown> | null | undefined): string {
@@ -684,6 +711,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       if (item.contactId) contactIds.add(item.contactId)
       if ((item as any).convertedInvoiceId) relatedInvoiceIds.add((item as any).convertedInvoiceId)
       if ((item as any).proformaId) relatedInvoiceIds.add((item as any).proformaId)
+      if ((item as any).offerId) relatedInvoiceIds.add((item as any).offerId)
       if ((item as any).relatedInvoiceId) relatedInvoiceIds.add((item as any).relatedInvoiceId)
     }
 
@@ -699,6 +727,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       const contact = item.contactId ? contactMap.get(item.contactId) : null
       const convertedInv = item.convertedInvoiceId ? invoiceMap.get(item.convertedInvoiceId) : null
       const proformaInv = item.proformaId ? invoiceMap.get(item.proformaId) : null
+      const offerInv = item.offerId ? invoiceMap.get(item.offerId) : null
       const relatedInv = item.relatedInvoiceId ? invoiceMap.get(item.relatedInvoiceId) : null
       return {
         ...item,
@@ -710,7 +739,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // so opening the dialog costs no extra round trip. The contacts are already loaded.
         contactEmail: contact ? ((contact as any).email || '') : '',
         convertedInvoiceNumber: convertedInv?.invoiceNumber || '',
+        // An offer becomes a proforma or an invoice: the row links to the form of what it became.
+        convertedInvoiceType: convertedInv?.type || '',
         proformaNumber: proformaInv?.invoiceNumber || '',
+        offerNumber: offerInv?.invoiceNumber || '',
         relatedInvoiceNumber: relatedInv?.invoiceNumber || '',
         ...(item.type === 'cash_sale'
           ? { invoices: invoicing.get(String(item.id))?.invoices || [], invoicingState: invoicing.get(String(item.id))?.state || 'none' }
@@ -731,24 +763,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const t = (query.type as string) || 'invoice'
     const direction = (query.direction as string) || 'outgoing'
     const wantDraft = (query.status as string) === 'draft' && t !== 'cash_sale'
+    // An issued number: the same reading as the allocation, a continuous series included.
+    if (!wantDraft) return peekNextInvoiceNumber(orgId, direction, t)
+
     const year = new Date().getFullYear()
-
-    let key: string
-    let prefix: string
-    if (wantDraft) {
-      key = draftSequenceKeyFor(t, direction) || sequenceKeyFor(t, direction)
-      prefix = draftPrefixFor(t, direction) || prefixFor(t, direction)
-    } else {
-      key = sequenceKeyFor(t, direction)
-      prefix = prefixFor(t, direction)
-    }
-
-    // For SALES_DOC keep the reconciliation behaviour aligned with allocate-time.
-    const minValue = !wantDraft ? await currentMaxSuffix(orgId, key, year) : 0
+    const key = draftSequenceKeyFor(t, direction) || sequenceKeyFor(t, direction)
+    const prefix = draftPrefixFor(t, direction) || prefixFor(t, direction)
     const counter = await getCurrentNumber(orgId, key, year)
-    const next = Math.max(counter, minValue) + 1
     const display = await resolveDisplayPrefix(orgId, prefix, key)
-    const seq = String(next).padStart(5, '0')
+    const seq = String(counter + 1).padStart(5, '0')
     return { next: `${display}-${year}-${seq}`, counter, prefix: display }
   }, { isSignIn: true })
   // KPI summary for list pages. Accepts the SAME scope filters as the list
@@ -853,6 +876,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       })
       if (relErr) return status(422, { message: relErr })
 
+      // #724: an outgoing article line's unit is its article's (the form locks it there); a note keeps the unit its
+      // invoice sold the article in. Before the amounts, which carry the lines into the document.
+      body.lines = (await withArticleUnits(orgId, body.direction, body.lines as any[], undefined, { relatedInvoiceId: body.relatedInvoiceId })) as any
+
       // Compute defaults for fields the form may not provide
       const { lines, taxTotal, totalBase } = documentAmounts(body as any)
       const exchangeRate = body.exchangeRate || 1
@@ -876,6 +903,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
        * re-sent with the same body (`ui-shared/composables/idempotency#isOutcomeUnknown`).
        */
       const discardRequested = () => discardPendingTransfers(orgId, pendingTransferIds, { createdBy: user.id })
+      // #724 (FR-27 `sales-docs.manual-price`): a line price this session's role may not type is refused, before
+      // anything is written or numbered. A definitive answer, so the transfers drawn up for it go (#454).
+      const typed = await typedPriceRefusal(orgId, user as any, { direction: body.direction, contactId: body.contactId, relatedInvoiceId: body.relatedInvoiceId, lines: body.lines })
+      if (typed) {
+        await discardRequested()
+        return status(403, typed)
+      }
       if (pendingTransferIds?.length) {
         // Checked before the insert, so a refused list draws no CS number.
         try {
@@ -1090,6 +1124,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         type: t.Union([
           t.Literal('invoice'),
           t.Literal('proforma'),
+          t.Literal('offer'),
           t.Literal('credit_note'),
           t.Literal('debit_note'),
           t.Literal('cash_sale'),
@@ -1198,7 +1233,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         // FR-22.31: a bill made from goods receipts links them, and its form compares its prices
         // with what they were received at.
         ...(isReceiptLinked(invoice) ? { receipts: await linkedReceiptsOf(orgId, invoice) } : {}),
-        // The goods receipts a supplier bill booked — what its „Стокова разписка" prints; the
+        // FR-22.61: an invoice made from stock notes links them, and its form holds its quantities to theirs.
+        ...(isDispatchLinked(invoice) ? { dispatches: await linkedDispatchesOf(orgId, invoice) } : {}),
+        // The goods receipts a supplier bill booked — what its „Складова разписка" prints; the
         // form offers the print only when there are some.
         ...(isSupplierBill(invoice) ? { stockMovements: await billStockReceipts(orgId, invoice) } : {}),
         // FR-23: the receipts that paid it, and what they leave to do.
@@ -1224,6 +1261,20 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       // FR-26.6: the order links it has are kept; without `orders` none is added or changed.
       const unlinked = orderLinkRefusal(user, body, existing)
       if (unlinked) return status(403, unlinked)
+      // #724: a line price this session's role may not type is refused (FR-27 `sales-docs.manual-price`; the
+      // document's own lines are not this save's figures), and an outgoing article line's unit is its article's.
+      if (Array.isArray((body as any).lines)) {
+        const typed = await typedPriceRefusal(orgId, user as any, {
+          direction: (existing as any).direction,
+          contactId: body.contactId !== undefined ? body.contactId : (existing as any).contactId,
+          relatedInvoiceId: body.relatedInvoiceId !== undefined ? body.relatedInvoiceId : (existing as any).relatedInvoiceId,
+          lines: (body as any).lines,
+        }, { stored: (existing as any).lines, excludeId: id })
+        if (typed) return status(403, typed)
+        ;(body as any).lines = await withArticleUnits(orgId, (existing as any).direction, (body as any).lines, (existing as any).lines, {
+          relatedInvoiceId: body.relatedInvoiceId !== undefined ? body.relatedInvoiceId : (existing as any).relatedInvoiceId,
+        })
+      }
       // ⚠ What is due is derived, never taken (#454): from the total and what was paid, below, or
       // from the sale for an invoice for one. A client's figure was written as sent whenever the
       // total stayed put. Dropped HERE, before anything below derives its own. Still accepted by
@@ -1313,6 +1364,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           await checkLinkedBillEdit(orgId, existing, body as any)
         } catch (e: any) {
           if (e instanceof ReceiptBillError) return status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
+          throw e
+        }
+      }
+      // FR-22.61: an invoice made from stock notes invoices what they delivered, whole.
+      if (isDispatchLinked(existing)) {
+        try {
+          await checkLinkedInvoiceEdit(orgId, existing, body as any)
+        } catch (e: any) {
+          if (e instanceof DispatchInvoiceError) return status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
           throw e
         }
       }
@@ -1511,6 +1571,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!claimed) return draftTaken(status, orgId, id)
     try {
       await releaseReceiptLinks(orgId, existing, user.id)
+      // FR-22.61: a draft invoice made from stock notes gives them back the same way, and for the same reason.
+      await releaseDispatchLinks(orgId, existing, user.id)
     } catch (e) {
       await Invoice.updateOne({ _id: id, orgId }, { $set: { voidingUntil: null } }).exec()
       throw e
@@ -1645,7 +1707,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
      * The dialog draws up the transfers before it issues, and each retry from it draws new ones, so what a
      * request that will not issue leaves in draft stays in the movements list, and moves goods if somebody
      * confirms it. ⚠ Only on a refusal that means this request will not issue. Never on `issue_in_progress`,
-     * where the holder may confirm those same ids, nor on the overlap question, whose answer sends them again,
+     * where the holder may confirm those same ids, nor on a bill's overlap question, whose answer sends them again,
      * nor any id the document already carries: that one was confirmed for it.
      */
     const discardAsked = () => {
@@ -1671,6 +1733,16 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const overlap = await receiptsOverlapping(orgId, invoice)
     // `/send` has no schema, so this reads the answer itself: only the answer counts as one.
     if (overlap && (body as any)?.acknowledgeOverlap !== true) return status(409, receiptOverlapRefusal(invoice, overlap))
+    // FR-22.61b: the mirror question, of a sales invoice typed for goods a stock note already delivered. Asked here,
+    // before the tender, the claim and the dispatch: a refusal leaves the draft as it was.
+    const noteOverlap = await dispatchesOverlapping(orgId, invoice)
+    if (noteOverlap && (body as any)?.acknowledgeOverlap !== true) {
+      // ⚠ Unlike the bill's question, this one is answered by starting the issue again: an invoice linked to the
+      // note takes no stock at all, and one issued anyway is checked for stock afresh. So the transfers this request
+      // drew up are not sent again, and would stay in draft for somebody to confirm.
+      await discardAsked()
+      return status(409, dispatchOverlapRefusal(invoice, noteOverlap))
+    }
 
     // FR-23 §2.3: a document paid at the counter prints, in the open session of whoever issues it.
     // No session, no device: refused here, with no number drawn, no stock moved, no claim taken. R2: a
@@ -1763,7 +1835,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     }
     // ⚠ FR-23: what will print keeps its claim past this write, because nothing else stands on the document
     // until its receipt does: an edit in that gap rang one amount and booked another. `printAtIssue` lets
-    // go of it. What prints nothing, an invoice for a cash sale and a proforma among them, is done here.
+    // go of it. What prints nothing, an invoice for a cash sale and a quote among them, is done here.
     if (counter) updateData['issue.tender'] = { method: counter.tender.method, amount: counter.tender.amount }
     else updateData['issue.leaseUntil'] = null
     if (pendingTransferIds?.length) updateData.pendingTransferIds = pendingTransferIds
@@ -1780,12 +1852,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { draftNumber: { from: draftNumber, to: null }, invoiceNumber: { from: draftNumber, to: issuedNumber } } })
     if (overlap) auditOverlapAcknowledged(orgId, user.id, id, issuedNumber, overlap)
+    if (noteOverlap) auditDispatchOverlapAcknowledged(orgId, user.id, id, issuedNumber, noteOverlap)
 
     // The sale's revenue belongs to its cash sale: an invoice for one posts no second entry.
     if (forCashSale) return { invoice: updated }
-    // An issued proforma is an offer (FR-22.22): no receivable, no revenue, nothing paid. The
-    // invoice it is converted into posts when that invoice is issued.
-    if (invoice.type === 'proforma') return { invoice: updated }
+    // An issued quote — a proforma or an offer — is no sale (FR-22.22): no receivable, no revenue,
+    // nothing paid. The invoice it is converted into posts when that invoice is issued.
+    if (isQuoteType(invoice.type)) return { invoice: updated }
 
     // Emit for cross-module journal entry creation
     eventBus.emit('invoice.posted', {
@@ -2140,6 +2213,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // FR-22 §5.3: a voided bill made from goods receipts gives them back — they can be billed
     // again. Nothing moved above (its `stockSource` stops the reversal) and nothing moves here.
     await releaseReceiptLinks(orgId, invoice, user.id)
+    // FR-22.61: so does a voided invoice made from stock notes. Its notes can be invoiced again.
+    await releaseDispatchLinks(orgId, invoice, user.id)
 
     createAuditEntry({ orgId, userId: user.id, action: 'void', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
 
@@ -2217,73 +2292,133 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     },
     { isSignIn: true, body: t.Object({ cashSaleId: t.String() }) },
   )
-  .post('/:id/convert', async ({ params: { orgId, id }, user, status }) => {
+  /**
+   * FR-22.22: a quote becomes the next document, once. A proforma becomes an invoice; an offer becomes a
+   * proforma or an invoice (`target`: the invoice when none is named, the only target a proforma has).
+   *
+   * The new document is a DRAFT under a number of its own draft series, as a draft made by hand is
+   * (FR-22.3): issuing it draws the issued number, so no number of a series is left on no document. It
+   * carries the deal over — the lines and prices, how it is paid, where it is made, what it is filed
+   * under, the validity as its due date — and names where it came from: `proformaId`, `offerId` (a
+   * proforma made from an offer passes the offer on to its invoice). Nothing moves: no stock, no entry,
+   * until the invoice is issued.
+   *
+   * ⚠ Once, even for two presses at once (a double click, two tabs, „→ Проформа" and „→ Фактура" on one
+   * offer): the quote is marked converted by a compare-and-set AFTER its new draft exists, and the press
+   * that loses takes its draft back and is told what won. A crash in between leaves an unlinked draft a
+   * person can delete, never a quote converted into nothing.
+   */
+  .post('/:id/convert', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
-    const proforma = await r.invoices.findOne({ id, orgId } as any)
-    if (!proforma) return status(404, { message: 'Invoice not found' })
-    if (proforma.type !== 'proforma')
-      return status(400, { message: 'Only proforma invoices can be converted' })
-    if (proforma.status === 'converted')
-      return status(400, { message: 'Proforma is already converted' })
+    const quote = await r.invoices.findOne({ id, orgId } as any)
+    if (!quote) return status(404, { message: 'Invoice not found' })
+    if (!isQuoteType(quote.type) || quote.direction !== 'outgoing') {
+      return status(400, { code: 'not_a_quote', message: 'Only a proforma or an offer can be converted' })
+    }
+    const offered = QUOTE_CONVERTS_TO[quote.type]
+    const target = (body as any)?.target ?? offered[0]
+    if (!offered.includes(target)) {
+      return status(400, { code: 'conversion_not_offered', message: `A ${quote.type} is converted into ${offered.map(t => `a ${t}`).join(' or ')}, not into a ${target}` })
+    }
+    if (quote.status === 'converted') {
+      return status(400, { code: 'already_converted', message: `${quote.invoiceNumber} is already converted` })
+    }
+    // A quote withdrawn is not accepted after all. The lists never offered it; the route converted one anyway.
+    if (['voided', 'cancelled'].includes(quote.status)) {
+      return status(400, { code: 'quote_withdrawn', message: `${quote.invoiceNumber} is ${quote.status}: it can no longer be converted` })
+    }
+    // FR-27.6: what it becomes is a document of its own kind, which the role must make. A role that works
+    // proformas and makes no sales documents converted one into an invoice all the same.
+    const targetKind = kindOfDocument({ direction: quote.direction, type: target })
+    if (!writesKind(grantOf(user as any), targetKind, 'create')) {
+      const feature = targetKind === 'sales' ? 'sales-docs' : targetKind
+      return status(403, { code: 'capability_required', capabilities: [`${feature}.create`], message: 'The document this converts into is not one your role makes.' })
+    }
 
-    // FR-22.3: the new invoice is a DRAFT, so it takes its number from the draft series, as a draft
-    // made by hand does (POST /). It took one from the ISSUED series, and issuing it took another:
-    // the first was left on no document, a gap in the sales series.
-    const invoiceNumber = (await getNextDraftInvoiceNumber(orgId, proforma.direction, 'invoice'))
-      || (await getNextInvoiceNumber(orgId, proforma.direction, 'invoice'))
+    // FR-22.3: a DRAFT, so a number of the draft series, as a draft made by hand takes (POST /). It took one
+    // from the ISSUED series, and issuing it took another: the first was left on no document.
+    const number = (await getNextDraftInvoiceNumber(orgId, quote.direction, target))
+      || (await getNextInvoiceNumber(orgId, quote.direction, target))
+    // The offer behind it: this one, or the one the proforma was made from.
+    const offerId = quote.type === 'offer' ? quote.id : (quote as any).offerId
 
-    const invoice = await r.invoices.create({
+    const created = await r.invoices.create({
       orgId,
-      type: 'invoice',
-      direction: proforma.direction,
-      contactId: proforma.contactId,
-      invoiceNumber,
-      numberHistory: [{ number: invoiceNumber, allocatedAt: new Date(), status: 'draft' }],
+      type: target,
+      direction: quote.direction,
+      contactId: quote.contactId,
+      invoiceNumber: number,
+      numberHistory: [{ number, allocatedAt: new Date(), status: 'draft' }],
       issueDate: new Date(),
-      dueDate: proforma.dueDate,
-      currency: proforma.currency,
-      exchangeRate: proforma.exchangeRate,
-      reference: proforma.reference,
-      lines: proforma.lines,
-      subtotal: proforma.subtotal,
-      discountTotal: proforma.discountTotal,
-      taxTotal: proforma.taxTotal,
-      total: proforma.total,
-      totalBase: proforma.totalBase,
-      amountDue: proforma.total,
-      notes: proforma.notes,
-      terms: proforma.terms,
-      footer: proforma.footer,
+      // A quote keeps its validity as its dueDate (B-11): the invoice's due date, the proforma's validity.
+      dueDate: quote.dueDate,
+      currency: quote.currency,
+      exchangeRate: quote.exchangeRate,
+      reference: quote.reference,
+      lines: quote.lines,
+      subtotal: quote.subtotal,
+      discountTotal: quote.discountTotal,
+      taxTotal: quote.taxTotal,
+      total: quote.total,
+      totalBase: quote.totalBase,
+      amountDue: quote.total,
+      notes: quote.notes,
+      terms: quote.terms,
+      footer: quote.footer,
       // FR-22.22: the deal the customer accepted — how it is paid, where it is made, what it is
       // filed under. A card proforma used to become an invoice with no method, so issuing it left
       // the card sale unpaid (FR-22.19).
-      paymentMethod: (proforma as any).paymentMethod,
-      placeOfTransaction: (proforma as any).placeOfTransaction,
-      tags: (proforma as any).tags || [],
-      billingAddress: proforma.billingAddress,
-      shippingAddress: proforma.shippingAddress,
-      proformaId: proforma.id,
+      paymentMethod: (quote as any).paymentMethod,
+      placeOfTransaction: (quote as any).placeOfTransaction,
+      tags: (quote as any).tags || [],
+      billingAddress: quote.billingAddress,
+      shippingAddress: quote.shippingAddress,
+      ...(quote.type === 'proforma' ? { proformaId: quote.id } : {}),
+      ...(offerId ? { offerId } : {}),
       status: 'draft',
-      statusHistory: [statusEntry('draft', undefined, user.id, `converted_from_proforma ${proforma.invoiceNumber}`)],
+      statusHistory: [statusEntry('draft', undefined, user.id, `converted_from_${quote.type} ${quote.invoiceNumber}`)],
       createdBy: user.id,
     } as any)
 
-    const proformaHistory = [
-      ...((proforma as any).statusHistory || []),
-      statusEntry('converted', proforma.status, user.id, `converted_to ${invoice.invoiceNumber}`),
-    ]
-    await r.invoices.update(proforma.id, {
-      status: 'converted',
-      convertedInvoiceId: invoice.id,
-      statusHistory: proformaHistory,
-    } as any)
+    // Once: the quote is taken by a compare-and-set on what it was read as.
+    const taken = await Invoice.findOneAndUpdate(
+      { _id: id, orgId, type: quote.type, status: quote.status, convertedInvoiceId: null },
+      {
+        $set: { status: 'converted', convertedInvoiceId: created.id },
+        $push: { statusHistory: statusEntry('converted', quote.status, user.id, `converted_to ${created.invoiceNumber}`) },
+      },
+    ).exec()
+    if (!taken) {
+      // Another press won (or the quote was voided meanwhile): its draft goes, a gap in a draft series only.
+      await r.invoices.deleteInOrg(created.id, orgId)
+      const now: any = await Invoice.findOne({ _id: id, orgId }, { status: 1, convertedInvoiceId: 1 }).lean().exec()
+      const won: any = now?.convertedInvoiceId
+        ? await Invoice.findOne({ _id: now.convertedInvoiceId, orgId }, { invoiceNumber: 1, type: 1 }).lean().exec()
+        : null
+      return status(409, {
+        code: 'already_converted',
+        ...(won ? { convertedInvoiceId: String(won._id), convertedInvoiceNumber: won.invoiceNumber, convertedInvoiceType: won.type } : {}),
+        message: won
+          ? `${quote.invoiceNumber} was converted into ${won.invoiceNumber} meanwhile`
+          : `${quote.invoiceNumber} changed meanwhile (${now?.status ?? 'deleted'}): it can no longer be converted`,
+      })
+    }
 
-    // The new sales invoice may have inherited order/reservation refs from the proforma
-    // lines — derive counters (the converted proforma itself never counts: reservation
-    // aggregation is scoped to type 'invoice').
-    await syncOrderForInvoice(orgId, invoice, user.id)
+    // An invoice may have inherited order/reservation refs from the quote's lines — derive the counters
+    // (the quote itself never counts: reservation aggregation is scoped to type 'invoice').
+    if (target === 'invoice') await syncOrderForInvoice(orgId, created, user.id)
 
-    return { invoice }
-  }, { isSignIn: true })
+    createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: created.id, entityName: created.invoiceNumber, correlationId: id })
+    createAuditEntry({
+      orgId, userId: user.id, action: 'convert', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: quote.invoiceNumber,
+      changes: { status: { from: quote.status, to: 'converted' }, [target]: { to: created.invoiceNumber } }, correlationId: id,
+    })
+
+    return { invoice: created }
+  }, {
+    isSignIn: true,
+    // Optional: a proforma's convert, and every caller before the offer, sends none.
+    body: t.Optional(t.Object({ target: t.Optional(t.Union([t.Literal('invoice'), t.Literal('proforma')])) })),
+  })

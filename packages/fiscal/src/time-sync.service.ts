@@ -22,6 +22,8 @@
  */
 
 import { logger } from 'services/logger'
+import { mongoose } from 'db/connection'
+import { FiscalDevice } from 'db/models'
 import { getActiveDeviceIds, getPrinter } from './fiscal-device.service.js'
 import { clockTrusted, formatStep, MAX_STEP_MS, verifyClock, type ClockCheck } from './clock.js'
 
@@ -53,6 +55,20 @@ export interface DeviceSyncResult {
   held: Array<{ deviceId: string; reason: string }>
 }
 
+/**
+ * #450: what the sync left for a person goes on the device (`clockHeld`), so the device page and the lists can say it
+ * and offer the confirmed time sync; a clock set clears it. Never throws: the sync goes on whatever this answers.
+ */
+async function noteClock(deviceId: string, held: { deviceTime: Date; serverTime: Date; stepMs: number } | null): Promise<void> {
+  if (!mongoose.isValidObjectId(deviceId)) return
+  try {
+    if (held) await FiscalDevice.updateOne({ _id: deviceId }, { $set: { clockHeld: { ...held, at: new Date() } } }).exec()
+    else await FiscalDevice.updateOne({ _id: deviceId, clockHeld: { $exists: true } }, { $unset: { clockHeld: 1 } }).exec()
+  } catch (e: any) {
+    logger.warn({ deviceId, error: e?.message }, "The device's clock could not be noted")
+  }
+}
+
 /** Set every connected fiscal device's clock from the server's, where FR-20.22 allows it. */
 export async function syncAllFiscalDevices(): Promise<DeviceSyncResult> {
   const result: DeviceSyncResult = { set: [], held: [] }
@@ -77,10 +93,12 @@ export async function syncAllFiscalDevices(): Promise<DeviceSyncResult> {
         const reason = `the device's clock would move by ${formatStep(step)}: a step that large waits for a person`
         result.held.push({ deviceId, reason })
         logger.warn({ deviceId, stepMs: step }, `Fiscal device clock not set: ${reason}`)
+        await noteClock(deviceId, { deviceTime: theirs, serverTime: now, stepMs: step })
         continue
       }
       await printer.syncDateTime(now)
       result.set.push(deviceId)
+      await noteClock(deviceId, null)
     } catch (e: any) {
       result.held.push({ deviceId, reason: `the device did not answer: ${e.message}` })
       logger.warn({ deviceId, error: e.message }, 'Failed to sync fiscal device time')

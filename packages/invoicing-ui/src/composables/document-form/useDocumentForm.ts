@@ -1,5 +1,6 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { tierLabel } from 'config/price-tiers'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -13,6 +14,7 @@ import { fetchPriceOptions, type PriceOption } from 'ui-shared/composables/usePr
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useInvoiceLineColumns } from 'ui-shared/composables/useInvoiceLineColumns'
 import { upsertAmountInWords } from 'config/amount-in-words'
+import { QUOTE_CONVERTS_TO, isQuoteType, type QuoteType } from 'config/constants'
 import { useGRColumns } from 'ui-shared/composables/useGRColumns'
 import { cascadePurchasePrice, needsSeed, productsForSeed, seedFromProduct, setProductField, setTierPrice } from 'ui-shared/composables/gr-product-update'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
@@ -23,8 +25,9 @@ import { appHref } from 'ui-shared/nav/navigate'
 import { canOpenPage, pageById } from 'ui-shared/nav/page-registry'
 import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import type { DocumentTypeConfig } from './types'
+import { COLLAPSE, IMPORT_KEY } from './form-actions'
 import { useDocumentIssue } from '../useDocumentIssue'
-import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
+import { receiptRefusalKey, receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { canRecordPayment } from '../document-row-actions'
 import { receiptOverlapOf, type ReceiptOverlap } from '../receipt-overlap'
 import {
@@ -71,6 +74,14 @@ export interface UseDocumentFormOptions {
 
 export type { PrintSettings }
 
+/** How a print is to be made: what the Print dialog answers, or the user's last settings with no companion. */
+export interface PrintChoice {
+  format: 'xlsx' | 'pdf'
+  mode: 'compact' | 'detailed'
+  columns?: string[]
+  companions?: string[]
+}
+
 /** Statuses of a document that stands issued: a note can correct it (the API's own rule). */
 const CORRECTABLE = ['sent', 'received', 'partially_paid', 'paid', 'overdue']
 
@@ -114,7 +125,7 @@ function emptyBillingAddress() {
 }
 
 export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFormOptions = {}) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const route = useRoute()
   const router = useRouter()
   const appStore = useAppStore()
@@ -729,8 +740,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     return options || []
   }
 
+  /** A choice is a price NAME as the products carry it; a tier slot is drawn by its label (`config/price-tiers`). */
   function docPriceChoiceLabel(key: string): string {
-    return key === BASE_CHOICE ? t('warehouse.sellingPrice') : key
+    return key === BASE_CHOICE ? t('warehouse.sellingPrice') : tierLabel(key, locale.value)
   }
 
   const docPriceItems = computed(() => {
@@ -810,7 +822,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   // and say so. The line prices and their explanation ("Last price (INV-…, date)") are what is
   // saved. FR-22.26: a proforma offers it too, and the choice is remembered per user and document
   // type — a counter that always quotes a customer's last price no longer ticks it every time.
-  const lastPriceEnabled = config.docType === 'invoice' || config.docType === 'proforma'
+  const lastPriceEnabled = config.docType === 'invoice' || config.docType === 'proforma' || config.docType === 'offer'
   const lastPriceMemory = rememberedFlag(`last-price:${config.docType}`)
   const useLastPrice = ref(lastPriceEnabled && lastPriceMemory.read() === true)
   const lastPriceLoading = ref(false)
@@ -1146,15 +1158,17 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   // ── actions ──
   /**
-   * Import is offered exactly where Save is: the merge is pointless on a document the user
-   * cannot then save, and the `draft-only` gate below already encodes that rule for issued
-   * sales invoices and cash sales.
+   * Import from a file merges a document's fields into this form, for the user to save. It is offered on
+   * every document not issued yet; on an issued one only where `editSaveGate` is `always` — an issued sales
+   * invoice and a cash sale take no import (both bars agreed on that before they became one list).
    */
   const importAction: FormAction = {
+    key: IMPORT_KEY,
     label: t('docImport.importFile'),
     color: 'secondary',
     variant: 'outlined',
     icon: 'mdi-file-upload-outline',
+    collapse: COLLAPSE.import,
     // What `doc-import/target-access` asks of this form's target (#493 item 5, FR-27 acceptance 4): a bill is
     // `bills.create`, a sales document or a cash sale `sales-docs.import`.
     cap: config.direction === 'incoming' && config.apiType !== 'cash_sale' ? 'bills.create' : 'sales-docs.import',
@@ -1193,57 +1207,80 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     isEdit.value && config.direction === 'outgoing' && (config.docType === 'invoice' || config.docType === 'debit_note' || config.docType === 'credit_note')
     && !cashSaleRef.value && canRecordPayment({ type: config.apiType, status: invoiceStatus.value, direction: config.direction }),
   )
-  /** FR-22.22: a proforma becomes an invoice once — and not after it was voided. */
-  const convertible = computed(() => config.docType === 'proforma' && !['converted', 'voided', 'cancelled'].includes(invoiceStatus.value))
+  /**
+   * FR-22.22: a quote becomes the next document once — and not after it was voided. A proforma becomes an
+   * invoice; an offer a proforma or an invoice (`QUOTE_CONVERTS_TO`), each its own button.
+   */
+  const convertible = computed(() => isQuoteType(config.apiType) && !['converted', 'voided', 'cancelled'].includes(invoiceStatus.value))
+  const convertTargets = computed(() => (convertible.value ? QUOTE_CONVERTS_TO[config.apiType as QuoteType] : []))
+
+  /**
+   * Save is offered in every status: a document is editable in every status (the API applies no status
+   * check), and the foot of the form always offered it while the bar under the title dropped it once a sales
+   * invoice was issued. The cash sale is the exception: it is issued as it is saved, on its own terminal.
+   */
+  const savesIssued = config.docType !== 'cash_sale'
 
   const formActions = computed<FormAction[]>(() => {
-    const save: FormAction = { label: t('common.save'), color: 'primary', handler: onSave, loading: loading.value, save: true }
+    const save: FormAction = { key: 'save', label: t('common.save'), color: 'primary', handler: onSave, loading: loading.value, save: true }
     const outlinedSave: FormAction = { ...save, variant: 'outlined' }
     const notes: FormAction[] = correctable.value
       ? [
-          { label: t('invoicing.docType.credit_note'), icon: 'mdi-file-undo', variant: 'outlined', handler: () => openNote('credit_note') },
-          { label: t('invoicing.docType.debit_note'), icon: 'mdi-file-plus-outline', variant: 'outlined', handler: () => openNote('debit_note') },
+          { key: 'credit-note', label: t('invoicing.docType.credit_note'), icon: 'mdi-file-undo', variant: 'outlined', handler: () => openNote('credit_note'), collapse: COLLAPSE.creditNote },
+          { key: 'debit-note', label: t('invoicing.docType.debit_note'), icon: 'mdi-file-plus-outline', variant: 'outlined', handler: () => openNote('debit_note'), collapse: COLLAPSE.debitNote },
         ]
       : []
-    if (cashSaleRef.value) return invoiceStatus.value === 'draft' ? [save] : notes
+    // #171: an invoice for a cash sale keeps that sale's lines, so it takes no import; what an edit may still
+    // change, the API says.
+    if (cashSaleRef.value) return [save, ...notes]
     // FR-22.33: a bill that is not received yet is saved and received in one action — the
     // primary one, so it comes first; plain Save keeps a draft.
     if (config.saveAndReceive && isDraftDoc.value) {
       const receive: FormAction = {
-        label: t('invoicing.saveAndReceive'), color: 'primary', icon: 'mdi-package-down', handler: onSaveAndReceive, loading: receiving.value, primary: true,
+        key: 'receive', label: t('invoicing.saveAndReceive'), color: 'primary', icon: 'mdi-package-down', handler: onSaveAndReceive, loading: receiving.value, primary: true,
       }
       return [receive, outlinedSave, importAction]
     }
-    const convert: FormAction | null = convertible.value
-      ? { label: t('invoicing.convertToInvoice'), icon: 'mdi-swap-horizontal', variant: 'outlined', handler: onConvert, loading: converting.value }
-      : null
+    // One button per document the quote may become, each for the role that makes that document (FR-27.7).
+    // The invoice is the first target: on an issued quote it is the action that finishes the job.
+    const converts: FormAction[] = convertTargets.value.map((target) => ({
+      key: `convert-${target}`,
+      label: t(target === 'proforma' ? 'invoicing.convertToProforma' : 'invoicing.convertToInvoice'),
+      icon: target === 'proforma' ? 'mdi-file-document-arrow-right-outline' : 'mdi-swap-horizontal',
+      variant: 'outlined' as const,
+      handler: () => onConvert(target),
+      loading: convertingTo.value === target,
+      disabled: !!convertingTo.value && convertingTo.value !== target,
+      cap: target === 'proforma' ? 'proforma.create' : 'sales-docs.create',
+    }))
     // FR-22.17/.18: a document not issued yet is issued from its own form. „Издай и печатай"
     // finishes the job, so it is the primary action and comes first. „Издай" saves first when the
     // form holds anything unsaved, and says so.
     if (issuable && isDraftDoc.value) {
       const busy = issuing.value
       return [
-        { label: t('invoicing.issueFlow.issueAndPrint'), color: 'primary', icon: 'mdi-printer-check', handler: () => issueFromForm(true), loading: busy && issuingWithPrint.value, disabled: busy && !issuingWithPrint.value, primary: true },
-        { label: t(isDirtyNow.value ? 'invoicing.issueFlow.saveAndIssue' : 'invoicing.issueFlow.issue'), color: 'primary', variant: 'outlined', icon: 'mdi-send-check', handler: () => issueFromForm(false), loading: busy && !issuingWithPrint.value, disabled: busy && issuingWithPrint.value },
+        { key: 'issue-print', label: t('invoicing.issueFlow.issueAndPrint'), color: 'primary', icon: 'mdi-printer-check', handler: onIssueAndPrint, loading: busy && issuingWithPrint.value, disabled: busy && !issuingWithPrint.value, primary: true, testId: 'issue-and-print' },
+        { key: 'issue', label: t(isDirtyNow.value ? 'invoicing.issueFlow.saveAndIssue' : 'invoicing.issueFlow.issue'), color: 'primary', variant: 'outlined', icon: 'mdi-send-check', handler: () => issueFromForm(null), loading: busy && !issuingWithPrint.value, disabled: busy && issuingWithPrint.value },
         outlinedSave,
-        ...(convert ? [convert] : []),
+        // A quote not issued yet is rarely converted next: where the bar is narrow these show as their icons.
+        ...converts.map((c) => ({ ...c, collapse: COLLAPSE.followUp })),
         importAction,
       ]
     }
     if (!isEdit.value) return [save, importAction]
     // Issued: what it can still change, and what follows from it.
     const issued: FormAction[] = []
-    if (convert) issued.push({ ...convert, color: 'primary', variant: 'flat', primary: true })
-    if (config.editSaveGate !== 'draft-only') issued.push(issued.length ? outlinedSave : save)
+    converts.forEach((c, i) => issued.push(i === 0 ? { ...c, color: 'primary', variant: 'flat', primary: true } : c))
+    if (savesIssued) issued.push(issued.length ? outlinedSave : save)
     // FR-23: an issued invoice or debit note is paid from its own form too. It is how a payment
     // whose receipt failed is taken again.
     if (payable.value) {
       const refund = config.docType === 'credit_note'
-      issued.push({ label: t(refund ? 'invoicing.recordRefund' : 'invoicing.recordPayment'), icon: refund ? 'mdi-cash-refund' : 'mdi-cash', variant: 'outlined', handler: () => { paymentDialog.value = true } })
+      issued.push({ key: 'payment', label: t(refund ? 'invoicing.recordRefund' : 'invoicing.recordPayment'), icon: refund ? 'mdi-cash-refund' : 'mdi-cash', variant: 'outlined', handler: () => { paymentDialog.value = true } })
     }
     issued.push(...notes)
     if (attachable.value) {
-      issued.push({ label: t('invoicing.cashSaleInvoice.attach'), icon: 'mdi-link-variant', variant: 'outlined', handler: () => { attachDialogOpen.value = true } })
+      issued.push({ key: 'attach', label: t('invoicing.cashSaleInvoice.attach'), icon: 'mdi-link-variant', variant: 'outlined', handler: () => { attachDialogOpen.value = true }, collapse: COLLAPSE.followUp })
     }
     if (config.editSaveGate !== 'draft-only') issued.push(importAction)
     return issued
@@ -1302,12 +1339,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   /** FR-22.20: where a print starts — the user's last print settings (`../print-settings`). */
   const lastPrint = ref<PrintSettings>(readPrintSettings())
 
-  async function onExportSingle(o: {
-    format: 'xlsx' | 'pdf'
-    mode: 'compact' | 'detailed'
-    columns?: string[]
-    companions?: string[]
-  }) {
+  async function onExportSingle(o: PrintChoice) {
     const id = route.params.id as string
     if (!id) return
     const base = invoiceNumber.value || id
@@ -1343,32 +1375,103 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     await onExportSingle({ ...lastPrint.value, companions: [] })
   }
 
+  /**
+   * What the Print dialog was opened to finish: a print of the document as it stands („Печат с настройки…"),
+   * or the issue-and-print of one not issued yet („Издай и печатай"). `onPrintDialogConfirm` reads it.
+   */
+  const printDialogFor = ref<'print' | 'issue'>('print')
+
   /** „Печат…": the print options (format, columns, companion documents), after saving the same way. */
   async function onPrintOptions() {
     if (!(await saveIfNeeded())) return
+    printDialogFor.value = 'print'
     showExportDialog.value = true
   }
 
-  // ── „Стокова разписка": the goods a supplier bill booked ──
+  /**
+   * „Издай и печатай": first HOW it is to print — the Print dialog, with the format, the mode, the documents
+   * that go with it and the columns. Nothing has happened yet: closing the dialog saves nothing, issues
+   * nothing and prints nothing. Its confirmation is what issues the document (`onPrintDialogConfirm`).
+   *
+   * A form that cannot be saved says so here, before it asks anything: an answer given to a dialog should not
+   * be thrown away over a missing date. (What only the server can refuse — a draft with no customer is saved,
+   * and not issued — is still said after the dialog, on the draft: `issueError`.)
+   */
+  async function onIssueAndPrint() {
+    if (issuing.value) return
+    if (isDirtyNow.value && !(await validate())) return
+    printDialogFor.value = 'issue'
+    showExportDialog.value = true
+  }
+
+  /** The Print dialog was confirmed: print with what it chose, or issue and then print that way. */
+  async function onPrintDialogConfirm(o: PrintChoice) {
+    if (printDialogFor.value !== 'issue') return onExportSingle(o)
+    // The dialog has said what it had to; what issuing may still ask (the payment method, a transfer for a
+    // warehouse that is short) is asked over the form, not over it.
+    showExportDialog.value = false
+    await issueFromForm(o)
+  }
+
+  /** „Печат" in the action bars: the print, and its options as the button's second half. */
+  const printAction = computed<FormAction>(() => ({
+    key: 'print',
+    label: t('common.print'),
+    color: '',
+    variant: 'outlined',
+    icon: 'mdi-printer',
+    handler: onPrint,
+    loading: exportLoading.value,
+    testId: 'print-now',
+    collapse: COLLAPSE.print,
+    more: { icon: 'mdi-tune-variant', label: t('invoicing.issueFlow.printOptions'), handler: onPrintOptions, testId: 'print-options' },
+  }))
+
+  // ── „Складова разписка": the goods a supplier bill booked ──
   /** The receipts the bill booked (`GET /invoices/:id`); the print is offered when there are some. */
   const stockReceipts = computed<Array<{ id: string; number: string; date: string; warehouseName: string }>>(
     () => (config.direction === 'incoming' && invoiceData.value?.stockMovements) || [],
   )
   const { loading: stockReceiptLoading, exportOne: exportStockReceipt } = useInvoicingExport(() => appStore.orgUrl())
+  /** `StockReceiptPrintDialog`: which price the sheet shows. The action opens it; its „Печат" prints. */
+  const stockReceiptDialog = ref(false)
+
+  /** The action asks before it prints: nothing is rendered, and nothing downloaded, by opening the dialog. */
+  function onPrintStockReceipt() {
+    if (route.params.id && stockReceipts.value.length) stockReceiptDialog.value = true
+  }
 
   /**
-   * One section per receipt the bill booked. It prints what was booked, not what the form holds, so
-   * nothing is saved first: no edit on the form changes a receipt.
+   * One section per receipt the bill booked, its prices at `priceLevel` (`config/stock-receipt-price`). It prints
+   * what was booked, not what the form holds, so nothing is saved first: no edit on the form changes a receipt.
+   * The dialog closes once the file is there; a refusal leaves it open, with what the server said.
    */
-  async function onPrintStockReceipt() {
+  async function printStockReceipt(priceLevel: string) {
     const id = route.params.id as string
     if (!id || !stockReceipts.value.length) return
     try {
-      await exportStockReceipt(id, `${invoiceNumber.value || id}-stock-receipt`, 'pdf', 'detailed', undefined, appStore.locale, 'stock_receipt')
+      await exportStockReceipt(id, `${invoiceNumber.value || id}-stock-receipt`, 'pdf', 'detailed', undefined, appStore.locale, 'stock_receipt', undefined, { priceLevel })
+      stockReceiptDialog.value = false
     } catch (e: any) {
       showError(e?.response?.data?.message || t('export.failed'))
     }
   }
+
+  /** „Складова разписка" in the action bars: offered once the bill has booked a receipt, and not before. */
+  const stockReceiptAction = computed<FormAction | null>(() => (stockReceipts.value.length
+    ? {
+        key: 'stock-receipt',
+        label: t('invoicing.stockReceipt.print'),
+        title: t('invoicing.stockReceipt.hint'),
+        color: '',
+        variant: 'outlined',
+        icon: 'mdi-clipboard-text-outline',
+        handler: onPrintStockReceipt,
+        loading: stockReceiptLoading.value,
+        testId: 'print-stock-receipt',
+        collapse: COLLAPSE.stockReceipt,
+      }
+    : null))
 
   /** Bumped when the form takes a fresh clean state, so `isDirtyNow` reads it again. */
   const cleanTick = ref(0)
@@ -1477,7 +1580,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       await loadDocument()
       return id
     } catch (e: any) {
-      showError(receiptRefusalMessage(t, e, t('common.operationFailed')))
+      // A receipt's refusal in its own words (FR-23); a stock refusal in the user's language (#168, FR-22.61: an
+      // invoice made from a stock note keeps its quantities); any other as the server said it.
+      showError(receiptRefusalKey(e?.response?.data) ? receiptRefusalMessage(t, e, t('common.operationFailed')) : stockRefusalMessage(e, t))
       return null
     } finally {
       loading.value = false
@@ -1557,7 +1662,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   // ── issue (FR-22.17 / .18) ──
-  const issuer = useDocumentIssue()
+  // FR-22.61b: an invoice the question linked to its stock note is another document than the form holds: read again.
+  const issuer = useDocumentIssue({ onLinked: () => loadDocument() })
   const issuing = ref(false)
   const issuingWithPrint = ref(false)
   /** Why the document is still a draft after it was asked to be issued (FR-22 §5.2). */
@@ -1607,21 +1713,22 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   /**
    * „Издай" / „Запази и издай" / „Издай и печатай": save what the form shows when it differs from
    * what is stored, then issue through the very path the list's „Изпрати" takes — the stock check,
-   * the transfer dialog when a warehouse is short, `/send`. With `print`, the issued document is
-   * printed with the user's last print settings. Nothing prints unless it was issued: a document
-   * that could not be issued stays a draft, and the form says why.
+   * the transfer dialog when a warehouse is short, `/send`. With `print` (what the Print dialog
+   * chose), the issued document is printed that way, with the documents ticked to go with it; a print
+   * that worked is where the next one starts. Nothing prints unless it was issued: a document that
+   * could not be issued stays a draft, and the form says why.
    */
-  async function issueFromForm(print: boolean) {
+  async function issueFromForm(print: PrintChoice | null) {
     if (issuing.value) return
     issuing.value = true
-    issuingWithPrint.value = print
+    issuingWithPrint.value = !!print
     issueError.value = ''
     try {
       const id = await saveIfNeeded()
       if (!id) return
       const outcome = await issuer.issue({ _id: id, type: config.apiType }, async () => {
         await loadDocument()
-        if (print) await onExportSingle({ ...lastPrint.value, companions: [] })
+        if (print) await onExportSingle(print)
       })
       // Refused: the draft as stored, with the reason on it. ('transfer': the dialog is open, and
       // confirming it issues — and prints — the document.)
@@ -1643,25 +1750,28 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   /**
-   * FR-22.22 — „Преобразувай във фактура" on the proforma: the invoice it becomes opens at once,
-   * ready to be issued. The list used to stay where it was, the new invoice only a link in its row.
-   * A proforma that is new or edited is saved first.
+   * FR-22.22 — „Преобразувай във фактура" on a quote, and „Преобразувай в проформа" on an offer: what it
+   * becomes opens at once, ready to be issued. The list used to stay where it was, the new invoice only a
+   * link in its row. A quote that is new or edited is saved first.
    */
   const converting = ref(false)
-  async function onConvert() {
+  const convertingTo = ref<'' | 'invoice' | 'proforma'>('')
+  async function onConvert(target: 'invoice' | 'proforma' = 'invoice') {
     if (converting.value) return
     converting.value = true
+    convertingTo.value = target
     try {
       const id = await saveIfNeeded()
       if (!id) return
-      const { data } = await httpClient.post(`${orgUrl()}/invoices/${id}/convert`)
-      showSuccess(t('invoicing.convertedToInvoice'))
-      const invoiceId = data?.invoice?.id || data?.invoice?._id
-      if (invoiceId) await router.push({ name: 'invoicing.sales.edit', params: { id: String(invoiceId) } })
+      const { data } = await httpClient.post(`${orgUrl()}/invoices/${id}/convert`, { target })
+      showSuccess(t(target === 'proforma' ? 'invoicing.convertedToProforma' : 'invoicing.convertedToInvoice'))
+      const createdId = data?.invoice?.id || data?.invoice?._id
+      if (createdId) await router.push({ name: target === 'proforma' ? 'invoicing.proforma.edit' : 'invoicing.sales.edit', params: { id: String(createdId) } })
     } catch (e: any) {
       showError(e?.response?.data?.message || t('common.operationFailed'))
     } finally {
       converting.value = false
+      convertingTo.value = ''
     }
   }
 
@@ -2045,10 +2155,18 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     lastPrint,
     onPrint,
     onPrintOptions,
-    // a supplier bill's „Стокова разписка"
+    // the Print dialog: what it was opened to finish, and its answer („Издай и печатай" asks it first)
+    printDialogFor,
+    onIssueAndPrint,
+    onPrintDialogConfirm,
+    printAction,
+    // a supplier bill's „Складова разписка": the action opens the price dialog, the dialog prints
     stockReceipts,
     stockReceiptLoading,
+    stockReceiptDialog,
     onPrintStockReceipt,
+    printStockReceipt,
+    stockReceiptAction,
     // persistence
     buildPayload,
     onSave,
@@ -2081,14 +2199,23 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     onPaymentRecorded,
     transfer: issuer.transfer,
     confirmTransfers: issuer.confirmTransfers,
+    // Owner, 2026-11-12: the payment method an outgoing invoice is issued with, confirmed first.
+    paymentConfirm: issuer.paymentConfirm,
+    answerPayment: issuer.answerPayment,
+    // FR-22.61b: the question before an invoice dispatches goods a stock note already delivered, and its answers.
+    dispatchOverlap: issuer.dispatchOverlap,
+    issueDespiteOverlap: issuer.issueDespiteOverlap,
+    overlapLinked: issuer.overlapLinked,
     // FR-22.27: place of deal
     showPlaceOfDeal,
     // FR-22.21 / FR-22.22
     correctable,
     openNote,
     convertible,
+    convertTargets,
     onConvert,
     converting,
+    convertingTo,
     // misc
     orgUrl,
     appStore,

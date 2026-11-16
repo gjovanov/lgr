@@ -7,9 +7,11 @@ export interface LoweredFieldsConfig {
   locale?: string
 }
 
-function lower(value: unknown, locale: string): string | undefined {
-  if (typeof value !== 'string') return undefined
-  return value.toLocaleLowerCase(locale)
+function lower(value: unknown, locale: string): string | string[] | undefined {
+  if (typeof value === 'string') return value.toLocaleLowerCase(locale)
+  // A list of strings (a contact's other names) is mirrored entry by entry, so a search reads it like any name.
+  if (Array.isArray(value)) return Array.from(value).filter((v): v is string => typeof v === 'string').map((v) => v.toLocaleLowerCase(locale))
+  return undefined
 }
 
 /**
@@ -18,6 +20,10 @@ function lower(value: unknown, locale: string): string | undefined {
  *
  * Hooks save/findOneAndUpdate/updateOne/updateMany so the lowered fields stay in sync
  * regardless of how the document is mutated.
+ *
+ * A source field may be a list of strings (`Contact.aliases`): its mirror is the list, lowered entry by
+ * entry. ⚠ Only a write that sets the whole list is mirrored (a save, a `$set`, a top-level field of an
+ * update); a `$push` or `$addToSet` into the source would leave the mirror behind.
  */
 export function loweredFieldsPlugin(schema: Schema, config: LoweredFieldsConfig) {
   const locale = config.locale ?? 'bg'

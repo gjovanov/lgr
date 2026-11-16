@@ -1,5 +1,8 @@
 import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
+import { grantOf } from 'services/biz/access/evaluate'
+import { pinnedPriceRefusal } from 'services/biz/sales-lines'
+import { conversionAnswer } from '../lib/reservation-convert.js'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
@@ -20,7 +23,10 @@ import {
   OrdersFromProductsError, checkOrderReferences, createCustomerOrderFromProducts, customerOrderRefs,
 } from 'services/biz/orders-from-products.service'
 import { orderCoverage } from 'config/order-coverage'
+import { linePricePinned, pinnedPriceOf } from 'config/order-line-price'
 import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
+import { canExport } from '../lib/export-access.js'
+import { renderInternalOrderPdf } from '../lib/internal-order-pdf.js'
 
 // ── numbering ─────────────────────────────────────────────────────────────────
 // Internal orders: issued ORDI-YYYY-NNNNN (key INTERNAL_ORDER), drafts
@@ -123,6 +129,8 @@ const lineBody = t.Object({
   quantity: t.Number({ exclusiveMinimum: 0 }),
   unit: t.Optional(t.String()),
   expectedUnitPrice: t.Optional(t.Number()),
+  // The price was chosen for this order (a pick or a typed figure): its invoice charges it. `config/order-line-price`.
+  pricePinned: t.Optional(t.Boolean()),
   taxRate: t.Optional(t.Number()),
   notes: t.Optional(t.String()),
 })
@@ -141,7 +149,13 @@ const orderBody = t.Object({
   lines: t.Array(lineBody, { minItems: 1 }),
 })
 
-function sanitizeLines(lines: any[]): any[] {
+/**
+ * The lines as they are stored. `stored` is the order's lines before this save: a line that does not say whether its
+ * price is pinned (a tab opened before the field existed, a script) keeps the pin it had while its article and its
+ * price are unchanged (`linePricePinned`), so saving an order back never unpins a price somebody chose.
+ */
+function sanitizeLines(lines: any[], stored: any[] = []): any[] {
+  const storedById = new Map(stored.map((l: any) => [String(l._id), l]))
   return (lines || []).map((l) => ({
     ...(l._id ? { _id: l._id } : {}),
     productId: l.productId,
@@ -150,6 +164,7 @@ function sanitizeLines(lines: any[]): any[] {
     quantity: l.quantity,
     unit: l.unit || 'pcs',
     expectedUnitPrice: l.expectedUnitPrice,
+    pricePinned: linePricePinned(l, l._id ? storedById.get(String(l._id)) : undefined) || undefined,
     taxRate: l.taxRate,
     notes: l.notes || undefined,
   }))
@@ -243,6 +258,10 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
         if (e instanceof OrdersFromProductsError) return status(e.statusCode, { message: e.message, ...e.details })
         throw e
       }
+      // #724: a price chosen on a line is what the order's invoice charges (#695), so typing one is the role's to give
+      // (FR-27 `sales-docs.manual-price`), as on the invoice. Before a number is drawn.
+      const typed = await pinnedPriceRefusal(orgId, user as any, { contactId: body.contactId, lines: body.lines as any[] })
+      if (typed) return status(403, typed)
 
       let ordi: any
       let lastErr: any
@@ -333,6 +352,9 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
         if (e instanceof OrdersFromProductsError) return status(e.statusCode, { message: e.message, ...e.details })
         throw e
       }
+      // #724: the price chosen on a line, as on POST; one the order already carries is not this save's.
+      const typed = await pinnedPriceRefusal(orgId, user as any, { contactId: body.contactId, lines: body.lines as any[] }, existing.lines)
+      if (typed) return status(403, typed)
 
       // Lines carrying reservations or deliveries must survive with enough quantity.
       const liveRes = await Reservation.find(
@@ -369,7 +391,7 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
       existing.notes = body.notes
       existing.terms = body.terms
       existing.tags = body.tags || []
-      existing.lines = sanitizeLines(body.lines as any[])
+      existing.lines = sanitizeLines(body.lines as any[], before.lines)
       await existing.save()
 
       const synced = await syncInternalOrderDerivedState(orgId, id, user.id)
@@ -549,6 +571,9 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
           unit: line?.unit || 'pcs',
           taxRate: line?.taxRate ?? undefined,
           fallbackPrice: line?.expectedUnitPrice || 0,
+          // A price chosen on the order's line is what its invoice charges.
+          pinnedPrice: pinnedPriceOf(line),
+          pinnedBy: ordi.orderNumber,
           warehouseId: String(res.warehouseId),
           orderRef: {
             orderId: res.orderId ? String(res.orderId) : undefined,
@@ -578,5 +603,18 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
 
     createAuditEntry({ orgId, userId: user.id, action: 'convert', module: 'invoicing', entityType: 'internal_order', entityId: id, entityName: ordi.orderNumber, changes: { invoice: { to: invoice.invoiceNumber } } })
     createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id || String(invoice._id), entityName: invoice.invoiceNumber })
-    return { invoice, waiting: plan.waiting }
+    return conversionAnswer(grantOf(user as any), invoice, plan.waiting)
+  }, { isSignIn: true })
+  // The order as its printed sheet (PDF), in `?locale=`: what the client is handed or sent. The gate is the supplier
+  // order sheet's (`canExport`), on top of what reading an order here takes. The sheet carries no price
+  // (`reporting/pdf/customer-order.pdf`), so no role's answer differs.
+  .get('/:id/export', async ({ params: { orgId, id }, query, user, status, set }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!canExport(user)) return status(403, { message: 'Forbidden' })
+
+    const result = await renderInternalOrderPdf(orgId, id, { locale: (query.locale as string) || undefined })
+    if (!result.ok) return status(result.status, { message: result.message, ...(result.detail ? { detail: result.detail } : {}) })
+    set.headers['content-type'] = 'application/pdf'
+    set.headers['content-disposition'] = `attachment; filename="${result.filename}"`
+    return new Response(result.buffer)
   }, { isSignIn: true })

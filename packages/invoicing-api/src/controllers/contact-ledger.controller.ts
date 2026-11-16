@@ -1,7 +1,7 @@
 import { Elysia } from 'elysia'
 import { seesBills } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { getContactLedger } from 'services/biz/contact-ledger.service'
+import { getContactLedger, withoutLedgerCosts } from 'services/biz/contact-ledger.service'
 import { grantOf } from 'services/biz/access/evaluate'
 import { seesCosts } from 'config/access'
 
@@ -26,7 +26,5 @@ export const contactLedgerController = new Elysia({ prefix: '/org/:orgId/invoici
     const result = await getContactLedger(orgId, contactId, options)
     // FR-27.11.C.2: each row's purchase price, and the profitability (the sales less the total cost, which gives the
     // cost back), are cost figures: absent for a role without them.
-    if (seesCosts(grantOf(user as any))) return result
-    const { profitabilityNet: _net, profitabilityGross: _gross, ...summary } = result.summary as any
-    return { ...result, entries: result.entries.map(({ purchasePrice: _cost, ...e }: any) => e), summary }
+    return seesCosts(grantOf(user as any)) ? result : withoutLedgerCosts(result)
   }, { isSignIn: true })

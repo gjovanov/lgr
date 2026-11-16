@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { apiLogin } from './helpers/api'
 import { loginForApp } from './helpers/login'
 import { openTillSession, tillCatalog } from './helpers/cash-register'
+import { answerIssuePayment } from './helpers/document-form'
 
 /**
  * FR-23 (owner, 2026-11-01) — a cash invoice on a device that is not fiscalized.
@@ -116,6 +117,7 @@ test.describe('FR-23 — a cash invoice on a device that is not fiscalized', () 
     await page.goto(`/invoicing/invoices/${draftId}/edit`)
     const sending = page.waitForResponse((r: any) => /\/invoices\/[^/]+\/send$/.test(r.url()) && r.request().method() === 'POST')
     await page.getByRole('button', { name: 'Issue', exact: true }).first().click()
+    await answerIssuePayment(page)
     const answer = await sending
     expect(answer.status()).toBe(200)
     expect((await answer.json()).receiptError).toBeUndefined()

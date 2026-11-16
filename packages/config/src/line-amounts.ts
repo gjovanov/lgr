@@ -34,7 +34,7 @@ const round2 = (v: number): number => +num(v).toFixed(2)
 
 /**
  * Per-line raw (unrounded) amounts.
- * - discount-aware (sales invoice, proforma, credit and debit notes): taxable =
+ * - discount-aware (sales invoice, the quotes — proforma, offer — credit and debit notes): taxable =
  *   net − net·discount%, then tax.
  * - non-discount (purchase invoice, cash sale): legacy expressions reproduced exactly
  *   (`qty·price·rate/100` and `qty·price·(1 + rate/100)`).

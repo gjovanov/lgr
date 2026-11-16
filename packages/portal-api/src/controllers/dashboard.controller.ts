@@ -4,6 +4,7 @@ import { getStockValuationTotals } from 'services/biz/warehouse.service'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
 import { grantOf } from 'services/biz/access/evaluate'
 import { seesCosts } from 'config/access'
+import { QUOTE_TYPES } from 'config/constants'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { getRepos } from 'services/context'
 import { Invoice, JournalEntry, POSTED_BOOKS } from 'db/models'
@@ -45,6 +46,8 @@ async function aggregateAging(orgId: string, asOf: Date) {
         orgId: new Invoice.base.Types.ObjectId(orgId),
         direction: 'outgoing',
         status: { $in: ['sent', 'partially_paid', 'overdue'] },
+        // An issued quote (a proforma, an offer) is `sent` and owes nothing (FR-22.22).
+        type: { $nin: [...QUOTE_TYPES] },
       },
     },
     {

@@ -29,6 +29,17 @@ function build(invoice: Record<string, unknown> = {}, org: Record<string, unknow
   ).html
 }
 
+describe('an offer prints on the proforma form, under its own title (#712)', () => {
+  for (const [locale, offer, proforma] of [['bg', 'ОФЕРТА', 'ПРОФОРМА ФАКТУРА'], ['en', 'OFFER', 'PROFORMA INVOICE'], ['de', 'ANGEBOT', 'PROFORMARECHNUNG'], ['mk', 'ПОНУДА', 'ПРОФОРМА ФАКТУРА']]) {
+    it(`in ${locale}: „${offer}", never the proforma's or the invoice's title`, () => {
+      const html = build({ type: 'offer', invoiceNumber: 'OFR-2026-00001' }, {}, { locale })
+      expect(html).toContain(`<h1 class="doc-title">${offer}</h1>`)
+      expect(html).not.toContain(`<h1 class="doc-title">${proforma}</h1>`)
+      expect(html).toContain('OFR-2026-00001')
+    })
+  }
+})
+
 describe('a note names the invoice it corrects', () => {
   const note = {
     type: 'credit_note',
@@ -59,11 +70,13 @@ describe('printed invoice form', () => {
     expect(html.indexOf('org-logo')).toBeLessThan(html.indexOf('doc-title'))
   })
 
-  it("uses the org's own logo when it is something the renderer can load", () => {
-    expect(build({}, { logo: 'https://cdn.example.com/acme.png' }))
-      .toContain('<img class="org-logo" src="https://cdn.example.com/acme.png"')
+  it("uses the org's own logo when it is an inline image", () => {
     expect(build({}, { logo: 'data:image/png;base64,AAAA' }))
       .toContain('<img class="org-logo" src="data:image/png;base64,AAAA"')
+    // An address on the network is not loaded (a printed page fetches nothing): the bundle prints.
+    const remote = build({}, { logo: 'https://cdn.example.com/acme.png' })
+    expect(remote).toContain('<img class="org-logo" src="data:image/png;base64,')
+    expect(remote).not.toContain('cdn.example.com')
     // A storage key or relative path is not renderable on its own — fall back to the bundle.
     expect(build({}, { logo: 'uploads/acme.png' }))
       .toContain('<img class="org-logo" src="data:image/png;base64,')
@@ -206,7 +219,7 @@ describe('printed invoice form', () => {
   })
 
   it('leaves every other document type as a single original', () => {
-    for (const invoice of [{ type: 'proforma' }, { type: 'credit_note' }, { type: 'cash_sale' }, { direction: 'incoming' }]) {
+    for (const invoice of [{ type: 'proforma' }, { type: 'offer' }, { type: 'credit_note' }, { type: 'cash_sale' }, { direction: 'incoming' }]) {
       const html = build(invoice)
       expect(html).toContain('ОРИГИНАЛ')
       expect(html).not.toContain('КОПИЕ')

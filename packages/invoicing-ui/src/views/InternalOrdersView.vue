@@ -7,6 +7,9 @@
     :loading="loading"
     :pagination="pagination"
     :has-active-filters="hasActiveFilters"
+    fit
+    selectable
+    v-model:selected="ticked"
     :empty="{ icon: 'mdi-account-clock-outline', title: $t('list.empty.internalOrders'), description: $t('list.empty.internalOrdersHint') }"
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
     @update:options="onUpdateOptions"
@@ -27,10 +30,18 @@
       <CreateButton :label="$t('invoicing.newInternalOrder')" :to="{ name: 'invoicing.internalOrders.new' }" />
     </template>
 
+    <!-- The ticked orders by e-mail: each as its printed sheet, to the client who placed it, or all to one address. -->
+    <template #bulk-bar>
+      <DocEmailBar v-model:selected="ticked" kind="internal-order" :may-email="mailsTicked" />
+    </template>
+
     <template #item.number="{ item }">
       <entity-link :label="item.number" :to="{ name: 'invoicing.internalOrders.edit', params: { id: item._id } }" />
     </template>
-    <template #item.contactName="{ item }">{{ item.contactName }}</template>
+    <!-- `fit`: a row is one line, so a client's name that runs long is cut short, whole in its `title`. -->
+    <template #item.contactName="{ item }">
+      <span class="cell-clip order-client" :title="item.contactName">{{ item.contactName }}</span>
+    </template>
     <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
     <template #item.requestedDeliveryDate="{ item }">
       <span :class="item.late ? 'text-error font-weight-medium' : ''">
@@ -57,9 +68,15 @@
       <StatusChip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
     </template>
     <template #item.actions="{ item }">
-      <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.internalOrders.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
-      <v-btn v-if="item.status === 'draft'" icon="mdi-check" size="small" variant="text" color="primary" :title="$t('invoicing.confirmOrder')" :aria-label="$t('invoicing.confirmOrder')" @click="confirmOrder(item)" />
-      <v-btn v-cap="'orders.delete'" v-if="item.status === 'draft'" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
+      <!-- One row of icons, each the size of a document list's row menu: a draft has four, and wrapped in the
+           column's width they made its row two lines tall at 1366 px. -->
+      <div class="d-flex flex-nowrap">
+        <v-btn icon="mdi-pencil" size="small" density="comfortable" variant="text" :to="{ name: 'invoicing.internalOrders.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
+        <!-- The order's sheet (PDF). Every row has it, so it stands before the actions only a draft has. -->
+        <v-btn v-cap="'sales-docs.export'" icon="mdi-printer" size="small" density="comfortable" variant="text" :loading="printingId === item._id" :title="$t('common.print')" :aria-label="$t('common.print')" data-testid="print-order-row" @click="printOrder(item)" />
+        <v-btn v-if="item.status === 'draft'" icon="mdi-check" size="small" density="comfortable" variant="text" color="primary" :title="$t('invoicing.confirmOrder')" :aria-label="$t('invoicing.confirmOrder')" @click="confirmOrder(item)" />
+        <v-btn v-cap="'orders.delete'" v-if="item.status === 'draft'" icon="mdi-delete" size="small" density="comfortable" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
+      </div>
     </template>
 
     <v-dialog v-model="deleteDialog" max-width="400">
@@ -91,6 +108,9 @@ import StatusChip from 'ui-shared/components/StatusChip'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
+import DocEmailBar from '../components/DocEmailBar.vue'
+import { useDocEmailAccess } from '../composables/doc-email-access'
+import { useCustomerOrderPrint } from '../composables/useCustomerOrderPrint'
 
 interface Item {
   _id: string
@@ -111,6 +131,11 @@ interface Item {
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+const { printingId, printOrder } = useCustomerOrderPrint()
+
+// The ticked rows by e-mail (their ids, so a tick holds across pages and filters), for a role that prints a sheet and works on orders.
+const ticked = ref<string[]>([])
+const mailsTicked = useDocEmailAccess().internalOrders()
 
 const { search, debouncedSearch } = useSearchDebounce()
 const deleteDialog = ref(false)
@@ -198,3 +223,12 @@ onMounted(() => {
   fetchItems()
 })
 </script>
+
+<style scoped>
+/* A row has nine columns beside its tick, where a document list has fewer: the client's name is clipped sooner than
+   `list-fit`'s 12em, so that the row fits 1366 px beside a draft's four icons with the longest coverage and status
+   the list shows („Частично резервирана (−12000)", „Частично доставена"). */
+.order-client {
+  --cell-clip: 9em;
+}
+</style>

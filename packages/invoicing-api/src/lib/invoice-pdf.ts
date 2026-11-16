@@ -2,18 +2,11 @@ import { Invoice, Contact, Org } from 'db/models'
 import { generateInvoicePDF, HEADER_NOTE_MAX } from 'reporting/pdf/invoice.pdf'
 import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
 import { paidByReceipts } from 'services/biz/cash-register/payment-receipt.service'
+import { orgFooterLine } from 'services/biz/org-footer-line'
 
-/**
- * Issuer line printed in the page foot, beneath the software-credit line printed by the
- * generators (see `reporting/product-credit`). Lived in the export controller; moved here
- * so both the export and the email path share one definition.
- */
-export function orgFooterLine(org: any): string {
-  return [
-    org?.phone ? `тел.: ${org.phone}` : '',
-    org?.website,
-  ].filter(Boolean).join('   ')
-}
+// The issuer line of the page foot. It lives in `services` since the stock movement prints it too;
+// re-exported here, where the export and the email path have always read it.
+export { orgFooterLine }
 
 /**
  * FR-10.1 — the single-invoice PDF assembly, extracted so `GET /export/:id` and

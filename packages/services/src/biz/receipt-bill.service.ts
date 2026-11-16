@@ -1,4 +1,5 @@
 import { isRemovalReversalNote, noteSaysNoDelivery } from 'config/movement-notes'
+import { PURCHASE_BASIS_TIER_NAME, purchasePriceFromTier2, tierFinalPrice } from 'config/price-tiers'
 import { mongoose } from 'db/connection'
 import { Contact, Invoice, Org, Product, StockMovement } from 'db/models'
 import { getRepos } from '../context.js'
@@ -168,8 +169,8 @@ export function billingStateOf(movement: any, invoices: Map<string, any>): Recei
   return { billable: false, reason: 'receipt_not_billable', invoice: ref }
 }
 
-/** The invoices a set of movements point at, by id. */
-async function invoicesOf(orgId: string, movements: any[]): Promise<Map<string, any>> {
+/** The invoices a set of movements point at, by id. Shared with the sales side (`dispatch-invoice.service.ts`). */
+export async function invoicesOf(orgId: string, movements: any[]): Promise<Map<string, any>> {
   const ids = [...new Set(movements.map(m => idOf(m.invoiceId)).filter(Boolean))]
   if (!ids.length) return new Map()
   const rows: any[] = await Invoice.find(
@@ -316,9 +317,9 @@ async function settleSupplier(orgId: string, movements: any[], chosen: string | 
 
 // ── The bill's lines ────────────────────────────────────────────────────────────────────────
 
-interface ProductInfo { name: string; unit?: string; taxRate?: number; trackInventory?: boolean }
+export interface ProductInfo { name: string; unit?: string; taxRate?: number; trackInventory?: boolean }
 
-async function productsOf(orgId: string, ids: string[]): Promise<Map<string, ProductInfo>> {
+export async function productsOf(orgId: string, ids: string[]): Promise<Map<string, ProductInfo>> {
   if (!ids.length) return new Map()
   const rows: any[] = await Product.find(
     { orgId, _id: { $in: [...new Set(ids)] } } as any,
@@ -392,7 +393,7 @@ function statusEntry(status: string, fromStatus: string | undefined, userId: str
  * Give claims back: only the ones `billId` still holds, never another bill's. `givenTo` are the
  * receipts that bill named: they go back to naming nobody, as they were before it.
  */
-async function releaseClaims(orgId: string, billId: unknown, ids: unknown[], givenTo: unknown[]): Promise<number> {
+export async function releaseClaims(orgId: string, billId: unknown, ids: unknown[], givenTo: unknown[]): Promise<number> {
   const given = new Set(givenTo.map(idOf))
   const named = ids.filter(id => given.has(idOf(id)))
   const others = ids.filter(id => !given.has(idOf(id)))
@@ -483,7 +484,7 @@ export interface BillFromReceiptsInput {
 
 interface Actor { id: string }
 
-async function orgDefaults(orgId: string): Promise<{ currency: string; vat: number }> {
+export async function orgDefaults(orgId: string): Promise<{ currency: string; vat: number }> {
   const org: any = await Org.findById(orgId, { settings: 1, baseCurrency: 1 }).lean().exec()
   return {
     currency: org?.settings?.baseCurrency || org?.baseCurrency || 'EUR',
@@ -904,6 +905,15 @@ export async function checkLinkedBillEdit(orgId: string, existing: any, body: { 
  * price someone set since — a later receipt with product update, an edit in Products — is newer
  * than this bill and stays. An article billed at two different prices on one bill is left alone
  * too: there is no one price to carry forward.
+ *
+ * The purchase price an import gave the article is no price someone set either: its „Цена 2" / 1.2
+ * (`config/price-tiers`, owner 2026-11-15), an approximation that stands until a bill says what the
+ * goods cost. It is not what any receipt was booked at, so without this a bill never replaced it.
+ *
+ * ⚠ It gives way only to a price the bill states ITSELF: one that differs from every receipt's cost.
+ * A bill that repeats what its receipts were booked at says nothing new, and on an imported receipt
+ * that cost is PlusMinus's delivery price, the very figure that is not the purchase price: replacing
+ * the approximation with it would undo the rule one bill at a time.
  */
 export async function applyLinkedBillPrices(orgId: string, bill: any, userId: string): Promise<string[]> {
   if (!isReceiptLinked(bill)) return []
@@ -922,9 +932,19 @@ export async function applyLinkedBillPrices(orgId: string, bill: any, userId: st
   for (const [id, price] of billedPrice) {
     const receivedAt = [...new Set((cost.get(id) || []).map(round4))]
     if (price === null || !(price > 0) || !receivedAt.length) continue
-    if (receivedAt.length === 1 && receivedAt[0] === price) continue
+    let approximated: number | null = null
+    if (!receivedAt.includes(price)) {
+      const held: any = await Product.findOne({ orgId, _id: id } as any, { priceTiers: 1 }).lean().exec()
+      approximated = purchasePriceFromTier2(tierFinalPrice(held?.priceTiers, PURCHASE_BASIS_TIER_NAME))
+    }
+    // What the purchase price may still hold. Where the approximation plays no part (there is none, or the bill
+    // states that very figure) this is the receipts' costs alone, and everything below, the audit entry's wording
+    // included, is what D-2 did before the approximation existed.
+    const candidates = approximated === null || approximated === price ? receivedAt : [...new Set([...receivedAt, approximated])]
+    const replaceable = candidates.filter(c => c !== price)
+    if (!replaceable.length) continue
     const res = await Product.updateOne(
-      { orgId, _id: id, purchasePrice: { $in: receivedAt.filter(c => c !== price) } } as any,
+      { orgId, _id: id, purchasePrice: { $in: replaceable } } as any,
       { $set: { purchasePrice: price } },
     ).exec()
     if (res.modifiedCount === 1) {
@@ -932,7 +952,7 @@ export async function applyLinkedBillPrices(orgId: string, bill: any, userId: st
       createAuditEntry({
         orgId, userId, action: 'update', module: 'warehouse', entityType: 'product', entityId: id,
         correlationId: idOf(bill._id ?? bill.id),
-        changes: [{ field: 'purchasePrice', oldValue: receivedAt.join(' / '), newValue: price }],
+        changes: [{ field: 'purchasePrice', oldValue: candidates.join(' / '), newValue: price }],
       })
     }
   }

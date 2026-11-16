@@ -45,7 +45,20 @@ export interface IContact extends Document {
   creditLimit?: number
   discount?: number
   notes?: string
+  /**
+   * The person legally responsible for the company (МОЛ), printed on a Bulgarian invoice beside its name. Until
+   * FR-25a it was kept as a notes line, `МОЛ: <name>`: `scripts/backfill-contact-representative.ts` moves those.
+   */
+  representative?: string
   tags?: string[]
+  /**
+   * Other names this company is written under on documents („Also known as", FR-28.12): a short form, another
+   * list's spelling, a name before a rename. Stored cleaned (`config/contact-aliases#cleanContactAliases`). An
+   * import that looks a contact up by name takes one of these for this contact when nobody is NAMED that
+   * (`doc-import/supplier-name.ts#pickSupplierByName`, `matching.ts#matchContactByName`), and the contact search
+   * reads them through `aliasesLower`. Absent on a contact that has none.
+   */
+  aliases?: string[]
   accountReceivableId?: Types.ObjectId
   accountPayableId?: Types.ObjectId
   isActive: boolean
@@ -56,6 +69,9 @@ export interface IContact extends Document {
   emailLower?: string
   taxIdLower?: string
   vatNumberLower?: string
+  aliasesLower?: string[]
+  /** The МОЛ lowered, for the contact search (FR-25a). Absent until the contact's МОЛ is written, or backfilled. */
+  representativeLower?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -103,7 +119,10 @@ const contactSchema = new Schema<IContact>(
     creditLimit: Number,
     discount: Number,
     notes: String,
+    representative: String,
     tags: [String],
+    // No default: a contact with no other name keeps neither field, as every contact before this did.
+    aliases: { type: [String], default: undefined },
     accountReceivableId: { type: Schema.Types.ObjectId, ref: 'Account' },
     accountPayableId: { type: Schema.Types.ObjectId, ref: 'Account' },
     isActive: { type: Boolean, default: true },
@@ -114,6 +133,9 @@ const contactSchema = new Schema<IContact>(
     emailLower: { type: String, index: true },
     taxIdLower: { type: String, index: true },
     vatNumberLower: { type: String, index: true },
+    aliasesLower: { type: [String], default: undefined },
+    // No index, like `aliasesLower`: the search reads it with an unanchored pattern, which an index does not serve.
+    representativeLower: String,
   },
   { timestamps: true },
 )
@@ -127,6 +149,8 @@ contactSchema.plugin(loweredFieldsPlugin, {
     email: 'emailLower',
     taxId: 'taxIdLower',
     vatNumber: 'vatNumberLower',
+    aliases: 'aliasesLower',
+    representative: 'representativeLower',
   },
 })
 contactSchema.index({ orgId: 1, type: 1 })

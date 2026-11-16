@@ -12,6 +12,7 @@ import {
   journalOfYear,
   readArchiveBooks,
   walkDump,
+  type RawRecord,
 } from 'services/biz/accounting-books/plusminus-archive'
 import { assertWholeJournal } from 'services/biz/accounting-books/plusminus-exports'
 import { personnelOfArchive, readArchivePayroll, sheetsOfArchive } from '../../../../scripts/lib/payroll-archive'
@@ -124,6 +125,65 @@ describe('the books', () => {
     expect(j.withoutHeader).toEqual([{ at: 'archive 20251231\\00000005', date: '2025-12-31', docType: '+ББ', docNumber: '9' }])
   })
 
+  describe('the rest of a document header (FR-25a)', () => {
+    // Field names are PlusMinus's own; every value is invented.
+    const header = (f: Record<string, string | number>): RawRecord => ({ date: '20250303', seq: '00000001', f: { 'ДОКУМЕНТ': '-ФЕ', 'ДОКУМ.No': '0000000101', 'СУМА': 120, 'ТИП': '1', ...f } })
+    const op: RawRecord = { date: '20250303', seq: '00000002', f: { 'ДОКУМЕНТ': '-ФЕ', 'ДОКУМ.No': '0000000101', 'ДЕБИТ': '411', 'КРЕДИТ': '702', 'СУМА': '120', 'АНАЛДЕБ': 'КЛИЕНТИ:Клиент А' } }
+    const propsOf = (f: Record<string, string | number>) => journalFromRecords([header(f), op]).documents[0].props
+
+    it('reads each field the file states, under its own name, and leaves out what it does not', () => {
+      expect(propsOf({
+        'ПЛАЩАНЕ': '2', 'ВИДПЛА': '2', 'ПЛАТЕНО': '120', 'paidCash': '0', 'vatRate': '20', 'VATPER': '20', 'ВИДДОК': '3',
+        'ОСНИЗВ': '-ФЕ 0000000100/01.03.2025', 'ОНС': 'чл. 0 от закона', 'МЕСЕЦ': '202504', 'ПАРТНЬОР': 'КЛИЕНТИ:Клиент А',
+        'protocolType': 'p117', 'vatRules': 'ВОП', 'taxEventDate': '03.03.2025', 'НОММД': '00XX0000000000000', 'operation': 'Плащане',
+        // restating the entry's own date and VAT, or the same thing twice: not read
+        'docDate': '20250303', 'ДАТА1': '20250301', 'ДДС': 20, 'АВТОР': 'Оператор', 'placeOfIssue': 'гр.Тестоград',
+      })).toEqual({
+        paymentCode: '2', paidAmount: 120, paidCash: 0, vatRate: 20, registerDocType: '3', reasonRef: '-ФЕ 0000000100/01.03.2025',
+        vatExemptionReason: 'чл. 0 от закона', reportingMonth: '202504', partnerPath: 'КЛИЕНТИ:Клиент А', protocolType: 'p117',
+        vatRule: 'ВОП', taxEventDate: '2025-03-03', customsRef: '00XX0000000000000', bankOperation: 'Плащане',
+      })
+      // a header that says nothing more has no props at all
+      expect(journalFromRecords([header({}), op]).documents[0]).not.toHaveProperty('props')
+    })
+
+    it('reads the links: each document with its date and what it settles, and drops what names none', () => {
+      const links = JSON.stringify([
+        { doc: '+ББ', docNumber: '901', date: '20250312', partner: 'КЛИЕНТИ:Клиент А', type: '2', param: 'paid', value: '100' },
+        { doc: '-ФЕ', docNumber: '0000000100', type: '2', param: 'paid|paidCurrency', value: '20|10.23' },
+        { doc: '+ББ', docNumber: '902', date: '20251399', param: '', value: '' },
+        { broken: true }, 'text', null,
+      ])
+      expect(propsOf({ links })?.links).toEqual([
+        { docType: '+ББ', docNumber: '901', date: '2025-03-12', amount: 100 },
+        { docType: '-ФЕ', docNumber: '0000000100', amount: 20, amountFx: 10.23 },
+        { docType: '+ББ', docNumber: '902' },
+      ])
+      expect(propsOf({ links: 'not json' })).toBeUndefined()
+      expect(propsOf({ links: '[]' })).toBeUndefined()
+    })
+
+    it('keeps the switches that are set, and not to false, under keys that are identifiers', () => {
+      const options = JSON.stringify({ exportInvoice: 'true', mixedDeal: 'false', comment: '', paidType: '2', 'bad.key': 'x', $where: 'x', nested: { a: 1 }, count: 3, off: false })
+      expect(propsOf({ options })?.docOptions).toEqual({ exportInvoice: 'true', paidType: '2', count: '3' })
+      expect(propsOf({ options: '{"a":"false","b":""}' })).toBeUndefined()
+    })
+
+    it('reads who keyed it and when, on the accountant\'s clock in Bulgaria, summer and winter', () => {
+      expect(propsOf({ createdOn: '20250304:101530123456789', createdBy: 'Оператор', modifiedOn: '20250305:091500', modifiedBy: 'Оператор', version: '20240101' })?.source).toEqual({
+        createdBy: 'Оператор', createdAt: '2025-03-04T08:15:30.123Z', modifiedBy: 'Оператор', modifiedAt: '2025-03-05T07:15:00.000Z', version: '20240101',
+      })
+      expect(propsOf({ createdOn: '20250704:101530' })?.source).toEqual({ createdAt: '2025-07-04T07:15:30.000Z' })
+      // no stamp of either shape is no instant
+      expect(propsOf({ createdOn: '1720000000000' })).toBeUndefined()
+      expect(propsOf({ createdOn: '20250704:256000' })).toBeUndefined()
+    })
+
+    it('never refuses a document for a value of these that is none: it is left out', () => {
+      expect(propsOf({ 'ПЛАТЕНО': 'x', taxEventDate: '31.02.2025', 'МЕСЕЦ': '202513', paidCash: 'NaN' })).toBeUndefined()
+    })
+  })
+
   it('gives each year its booked currency and a period the import can replace months over', async () => {
     const b = await readArchiveBooks(archive, '20250101', '20261231')
     const y2025 = journalOfYear(b, 2025, '2026-11-05'), y2026 = journalOfYear(b, 2026, '2026-11-05')
@@ -152,9 +212,15 @@ describe('the books', () => {
     ])
     expect(analyticItems(roots)).toEqual([
       { path: 'БАНКОВИ СМЕТКИ:BG00TEST00000000000000', foreignCurrency: true },
-      { path: 'ДОСТАВЧИЦИ:ДОСТАВЧИК ЕООД', taxId: '123456789', vatNumber: 'BG123456789' },
-      { path: 'СТОКИ:ВИНТОВЕ:ВИНТ', unit: 'БР' },
+      { path: 'ДОСТАВЧИЦИ:ДОСТАВЧИК ЕООД', taxId: '123456789', vatNumber: 'BG123456789', params: [{ key: 'БУЛСТАТ', value: '123456789' }, { key: 'ИНДДС', value: 'BG123456789' }] },
+      { path: 'СТОКИ:ВИНТОВЕ:ВИНТ', unit: 'БР', params: [{ key: 'МЯРКА', value: 'БР' }] },
     ])
+    // A property stored as a number reads as the export prints it, without the database's float noise (FR-25a keeps them).
+    const value = (v: number) => ({ name: '', value: v, kids: [] })
+    const floats = analyticNodes({ name: 'АНАЛИТИЧНИ ПРИЗНАЦИ', kids: [{ name: 'СТОКИ', kids: [{ name: 'БОЛТ', kids: [
+      { name: 'ПАРАМЕТРИ', kids: [{ name: 'СР.ЦЕНА', kids: [value(837.5699999999999)] }, { name: 'ЦЕНА', kids: [value(NaN)] }, { name: 'МЯРКА', kids: [{ name: 'БР', kids: [] }] }] },
+    ] }] }] })
+    expect(floats[0].nodes[0].params).toEqual({ 'СР.ЦЕНА': '837.57', 'ЦЕНА': '', 'МЯРКА': 'БР' })
     expect(analyticOpenings(roots[2].nodes, 2026, '304')).toEqual([{ code: '304', path: 'СТОКИ:ВИНТОВЕ:ВИНТ', debit: 12.5, credit: 0, quantity: 5 }])
     expect(analyticOpenings(roots[1].nodes, 2026, '401')).toEqual([{ code: '401', path: 'ДОСТАВЧИЦИ:ДОСТАВЧИК ЕООД', debit: 0, credit: 50 }])
     expect(analyticOpenings(roots[1].nodes, 2025, '401')).toEqual([])

@@ -15,6 +15,8 @@ export const manifest: ModuleManifest = {
     icon: 'mdi-chart-bar',
     children: [
       { labelKey: 'nav.accounts', icon: 'mdi-chart-bar', to: '/accounts' },
+      // FR-25a §3.2: the books' analytic tree, beside the chart it hangs off.
+      { labelKey: 'nav.analytics', icon: 'mdi-file-tree-outline', to: '/analytics' },
       { labelKey: 'nav.journalEntries', icon: 'mdi-book-open-variant', to: '/journal-entries' },
       { labelKey: 'nav.generalLedger', icon: 'mdi-book-multiple', to: '/general-ledger' },
       { labelKey: 'nav.fiscalYears', icon: 'mdi-calendar-range', to: '/fiscal-years' },
@@ -49,6 +51,9 @@ export const manifest: ModuleManifest = {
       { path: 'accounts', name: 'accounting.accounts', component: () => import('./views/accounting/AccountsView.vue') },
       { path: 'accounts/new', name: 'accounting.account-new', component: () => import('./views/accounting/AccountFormView.vue') },
       { path: 'accounts/:id/edit', name: 'accounting.account-edit', component: () => import('./views/accounting/AccountFormView.vue') },
+      // FR-25a §3.2: the books' analytics. No `new`: the import makes them.
+      { path: 'analytics', name: 'accounting.analytics', component: () => import('./views/accounting/AnalyticsView.vue') },
+      { path: 'analytics/:id', name: 'accounting.analytic', component: () => import('./views/accounting/AnalyticFormView.vue') },
       { path: 'journal-entries', name: 'accounting.journal-entries', component: () => import('./views/accounting/JournalEntriesView.vue') },
       { path: 'journal-entries/new', name: 'accounting.journal-entry-new', component: () => import('./views/accounting/JournalEntryFormView.vue') },
       { path: 'journal-entries/:id/edit', name: 'accounting.journal-entry-edit', component: () => import('./views/accounting/JournalEntryFormView.vue') },

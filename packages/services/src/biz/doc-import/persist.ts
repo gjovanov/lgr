@@ -57,9 +57,9 @@ async function matchLinesCreatedSinceAnalysis(orgId: string, mapped: MappedInvoi
     line.productId = hit.productId
     if (!line.warehouseId) {
       // A product line with no warehouse is refused outright by the stock booking, so give it the
-      // one its siblings use, or the org's default.
+      // one its siblings use, or the org's default. Never an external one: it keeps no stock.
       if (fallbackWh === undefined) {
-        const whs = await Warehouse.find({ orgId, isActive: { $ne: false } } as any).select('_id isDefault').lean() as any[]
+        const whs = await Warehouse.find({ orgId, isActive: { $ne: false }, isExternal: { $ne: true } } as any).select('_id isDefault').lean() as any[]
         fallbackWh = mapped.lines.find(l => l.warehouseId)?.warehouseId
           ?? String((whs.find(w => w.isDefault) ?? whs[0])?._id ?? '')
       }

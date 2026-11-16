@@ -64,6 +64,17 @@ export interface StokrazpPriceWarning {
    *  because it is the delivery price (the receipt's unit cost) or because the line has only two
    *  prices and nothing says which of them is wrong. */
   held: boolean
+  /**
+   * The value is not a number at all ("1.741.5700", "1,74"): it reads as no price, so nothing writes it, and without this
+   * it was silently missing from the run (the delivery price of such a line is booked as a unit cost of 0). `value`,
+   * `reference` and `ratio` mean nothing then.
+   */
+  malformed?: boolean
+  /**
+   * What a malformed value PROBABLY meant, when it is one of the two shapes the cards show: one decimal point too many
+   * (the second is dropped) or a decimal comma. Only ever listed for the store to check, never written.
+   */
+  suggested?: number
 }
 
 export interface StokrazpMapped {
@@ -115,22 +126,47 @@ const median = (values: number[]): number => {
 
 const isPriceField = (key: string) => key === 'price' || key === 'retailPrice' || key === 'wholesalePrice' || /^price\d{1,2}$/.test(key)
 
-/** The line's prices that sit `PRICE_TYPO_FACTOR` times or more from the rest of it. */
+/**
+ * A price as PlusMinus typed it. A number is a number ("0.0165", ".064"). Anything else is malformed and reads as NO price;
+ * the two shapes the item cards show get a proposed meaning, which is advice and nothing more:
+ * "1.741.5700" (an extra decimal point; the second is dropped: 1.74157) and "1,74" (a decimal comma).
+ */
+export function parsePrice(raw: unknown): { value: number; malformed: boolean; suggested?: number } {
+  const s = String(raw ?? '').trim()
+  if (!s) return { value: 0, malformed: false }
+  const n = Number(s)
+  if (Number.isFinite(n)) return { value: n, malformed: false }
+  const dots = /^(\d+\.\d+)\.(\d+)$/.exec(s)
+  if (dots) return { value: 0, malformed: true, suggested: Number(`${dots[1]}${dots[2]}`) }
+  const comma = /^(\d+),(\d+)$/.exec(s)
+  if (comma) return { value: 0, malformed: true, suggested: Number(`${comma[1]}.${comma[2]}`) }
+  return { value: 0, malformed: true }
+}
+
+/** The line's prices that sit `PRICE_TYPO_FACTOR` times or more from the rest of it, and those that are no number. */
 function priceTypos(line: Record<string, unknown>, name: string): StokrazpPriceWarning[] {
-  const prices = Object.entries(line)
+  const all = Object.entries(line)
     .filter(([key]) => isPriceField(key))
-    .map(([field, raw]) => ({ field, raw: String(raw), value: num(raw) }))
-    .filter(p => p.value > 0)
+    .map(([field, raw]) => ({ field, raw: String(raw), ...parsePrice(raw) }))
+    .filter(p => p.raw.trim() !== '')
+  const prices = all.filter(p => !p.malformed && p.value > 0)
   const cost = prices.find(p => p.field === 'price')?.value ?? 0
   // Two prices have no majority, and either can be the typo: one regal-sf card sells at 24 times
   // its delivery price, and the wrong one is the delivery price. So a pair is only reported,
   // measured against the delivery price, and still written.
   const majority = prices.length >= 3
   const reference = majority ? median(prices.map(p => p.value)) : prices.length === 2 ? cost : 0
-  if (!(reference > 0)) return []
-  return prices
-    .filter(p => p.value >= reference * PRICE_TYPO_FACTOR || p.value * PRICE_TYPO_FACTOR <= reference)
-    .map(p => ({ name, field: p.field, raw: p.raw, value: p.value, reference, ratio: p.value / reference, held: majority && p.field !== 'price' }))
+  const typos: StokrazpPriceWarning[] = reference > 0
+    ? prices
+      .filter(p => p.value >= reference * PRICE_TYPO_FACTOR || p.value * PRICE_TYPO_FACTOR <= reference)
+      .map(p => ({ name, field: p.field, raw: p.raw, value: p.value, reference, ratio: p.value / reference, held: majority && p.field !== 'price' }))
+    : []
+  // A value that is no number reads as no price: say so (the delivery price of the line is then booked as a unit cost of 0).
+  const malformed: StokrazpPriceWarning[] = all.filter(p => p.malformed).map(p => ({
+    name, field: p.field, raw: p.raw, value: 0, reference: reference > 0 ? reference : median(prices.map(x => x.value)) || 0, ratio: NaN,
+    held: p.field !== 'price', malformed: true, ...(p.suggested !== undefined ? { suggested: p.suggested } : {}),
+  }))
+  return [...typos, ...malformed]
 }
 
 /** Same mapping `receive-new-products.ts`/`receive-stock.ts` use for PlusMinus's `measure` codes. */
