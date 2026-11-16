@@ -1120,8 +1120,12 @@ Products support custom pricing based on contact tags. Each custom price entry c
 - **„Доставна цена" is a KEY; it reads „Цена с ТО" (owner, 2026-11-15).** The slot's stored name did not change:
   `priceTiers[].name`, `PRICE_TIERS`, `COST_TIER_NAMES`, the importers' column mapping and the tier-name tags find it
   by `Доставна цена`, and PlusMinus's „Доставна цена" / „Дост. цена" and a receipt's „Цена" keep filling it. What a
-  person READS comes from one table, `config/price-tiers#tierLabel(name, locale, form)`: bg „Цена с ТО" (long: „Цена с
-  търговска отстъпка (Цена с ТО)"), en "Trade-discount price" / "Price with trade discount", de, mk.
+  person READS comes from one table, `config/price-tiers#tierLabel(name, locale, form)`: bg „Цена с ТО" in both
+  forms, en "Trade-discount price" / "Price with trade discount", de, mk.
+  - ⚠ In Bulgarian the name is „Цена с ТО" everywhere (owner, 2026-11-16). For a day the long form (the product
+    form's row, the price trail) spelled it out as „Цена с търговска отстъпка (Цена с ТО)": that text is a RETIRED
+    label (`RETIRED_TIER_LABELS`), never drawn and still read back to the slot when typed. The form's hint
+    (`warehouse.deliveryTierHint`) is where the term is spelled out.
   - ⚠ The label is put on at RENDER, in the UI only. `listPriceOptions`, `resolvePrice`'s steps and a line's stored
     `priceExplanation` keep the stored name: the access rules class a price by it (`capOfTier`, `capOfPriceSource`),
     and a relabelled cost slot would read as `products.price:other` and reach a role without costs.

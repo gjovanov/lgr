@@ -5,6 +5,7 @@ import {
   DELIVERY_TIER_NAME, PURCHASE_BASIS_TIER_NAME, canonicalTierName, hasTierLabel, marginsAfterPurchaseChange,
   purchasePriceForNewProduct, purchasePriceFromTier2, tierFinalPrice, tierLabel, tierNameOfLabel,
 } from 'config/price-tiers'
+import { stockReceiptLevelOf } from 'config/stock-receipt-price'
 import { productColumnHeaders } from 'ui-shared/composables/product-list/useProductColumns'
 import { GR_COLUMNS, grColumnLabel } from 'ui-shared/composables/useGRColumns'
 import { priceOptionLabel, priceStepLabel } from 'ui-shared/composables/usePriceOptions'
@@ -25,7 +26,8 @@ describe('the slot stored as „Доставна цена" is a key, and reads �
   })
 
   it('has a short and a long label per language, and English for a language it does not know', () => {
-    expect([tierLabel(DELIVERY_TIER_NAME, 'bg'), tierLabel(DELIVERY_TIER_NAME, 'bg', 'long')]).toEqual(['Цена с ТО', 'Цена с търговска отстъпка (Цена с ТО)'])
+    // Bulgarian: one name in both forms (owner, 2026-11-16).
+    expect([tierLabel(DELIVERY_TIER_NAME, 'bg'), tierLabel(DELIVERY_TIER_NAME, 'bg', 'long')]).toEqual(['Цена с ТО', 'Цена с ТО'])
     expect([tierLabel(DELIVERY_TIER_NAME, 'en'), tierLabel(DELIVERY_TIER_NAME, 'en', 'long')]).toEqual(['Trade-discount price', 'Price with trade discount'])
     expect(tierLabel(DELIVERY_TIER_NAME, 'de', 'long')).toBe('Preis mit Handelsrabatt')
     expect([tierLabel(DELIVERY_TIER_NAME, 'mk'), tierLabel(DELIVERY_TIER_NAME, 'mk', 'long')]).toEqual(['Цена со ТП', 'Цена со трговски попуст'])
@@ -54,6 +56,20 @@ describe('the slot stored as „Доставна цена" is a key, and reads �
     expect(canonicalTierName('Моя цена ')).toBe('Моя цена ')
   })
 
+  it('no longer draws the spelled-out Bulgarian label of 2026-11-15, and still reads it as the slot', () => {
+    const retired = 'Цена с търговска отстъпка (Цена с ТО)'
+    for (const locale of ['bg', 'bg-BG', 'en', 'de', 'mk', undefined]) {
+      for (const form of ['short', 'long'] as const) expect(tierLabel(DELIVERY_TIER_NAME, locale, form)).not.toBe(retired)
+    }
+    // Typed from memory, or a heading in a sheet made while it stood: the slot, never a tier of that name beside it,
+    // which the access rules would class as a sale price and show to a role without costs.
+    for (const typed of [retired, retired.toUpperCase(), ` ${retired} `]) {
+      expect(tierNameOfLabel(typed)).toBe(DELIVERY_TIER_NAME)
+      expect(capOfTier(canonicalTierName(typed))).toBe('products.costs')
+    }
+    expect(stockReceiptLevelOf(retired)?.key).toBe(DELIVERY_TIER_NAME)
+  })
+
   it('heads the Products list, the goods receipt and the price menus with the label, keyed by the slot', () => {
     const t = (k: string) => k
     const head = (locale: string) => productColumnHeaders(t, { seesSuppliers: false, activeFilter: 'active', locale }).find((h: any) => h.key === 'tier_delivery')
@@ -71,7 +87,9 @@ describe('the slot stored as „Доставна цена" is a key, and reads �
     expect(priceOptionLabel({ name: 'Цена 4', type: 'tier' }, t, 'bg')).toBe('Цена 4')
     // A tag or contact price is named by a person: drawn as named, whatever the name.
     expect(priceOptionLabel({ name: DELIVERY_TIER_NAME, type: 'tag' }, t, 'bg')).toBe(DELIVERY_TIER_NAME)
-    expect(priceStepLabel({ type: 'tier', label: DELIVERY_TIER_NAME }, 'bg')).toBe('Цена с търговска отстъпка (Цена с ТО)')
+    // The price trail asks for the long form: in Bulgarian that is the same name, in English the spelled-out one.
+    expect(priceStepLabel({ type: 'tier', label: DELIVERY_TIER_NAME }, 'bg')).toBe('Цена с ТО')
+    expect(priceStepLabel({ type: 'tier', label: DELIVERY_TIER_NAME }, 'en')).toBe('Price with trade discount')
     expect(priceStepLabel({ type: 'base', label: 'Selling price' }, 'bg')).toBe('Selling price')
   })
 })

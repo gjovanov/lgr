@@ -226,7 +226,7 @@
                     <td class="text-medium-emphasis">{{ i + 1 }}</td>
                     <td>
                       <!-- A slot that reads differently from how it is stored („Доставна цена", the slot PlusMinus's
-                           column of that name feeds, reads „Цена с търговска отстъпка (Цена с ТО)") shows its LABEL
+                           column of that name feeds, reads „Цена с ТО"; the hint spells the term out) shows its LABEL
                            and is not renamed here: the stored name is what the imports, the list's column and the
                            access rules find it by (`config/price-tiers`). -->
                       <span

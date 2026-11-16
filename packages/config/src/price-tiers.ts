@@ -12,10 +12,13 @@ import { followsPurchasePrice, marginOver, roundPrice, roundTo } from './price-p
  * (`doc-import/map-movement.ts#buildTiers`, `scripts/seed-products.ts`, `scripts/receive-new-products.ts`,
  * `files/compare-snapshot.service.ts`). Renaming the stored slot would cut the catalogue off from its source.
  *
- * What the shop calls that figure is „Цена с търговска отстъпка": the price with the trade discount. So wherever the
- * slot's name is DRAWN (a grid heading, the product form's row, a price menu, a price trail) it goes through
- * `tierLabel`, and wherever a person TYPES a slot's name `canonicalTierName` takes the label back to the key. A label
- * is never stored and never sent.
+ * What the shop calls that figure is „Цена с търговска отстъпка", the price with the trade discount, and writes it
+ * „Цена с ТО". So wherever the slot's name is DRAWN (a grid heading, the product form's row, a price menu, a price
+ * trail) it goes through `tierLabel`, and wherever a person TYPES a slot's name `canonicalTierName` takes the label
+ * back to the key. A label is never stored and never sent.
+ *
+ * ⚠ In Bulgarian the name is „Цена с ТО" in BOTH forms (owner, 2026-11-16). For a day the long form spelled the term
+ * out with the short one in brackets; that spelling is in `RETIRED_TIER_LABELS`: never drawn, still read.
  *
  * Import-pure: the SPA and the server's renderers read the same table.
  */
@@ -29,22 +32,33 @@ export type TierLabelForm = 'short' | 'long'
 
 const TIER_LABELS: Readonly<Record<string, Readonly<Record<TierLabelLocale, Readonly<Record<TierLabelForm, string>>>>>> = {
   [DELIVERY_TIER_NAME]: {
-    bg: { short: 'Цена с ТО', long: 'Цена с търговска отстъпка (Цена с ТО)' },
+    bg: { short: 'Цена с ТО', long: 'Цена с ТО' },
     en: { short: 'Trade-discount price', long: 'Price with trade discount' },
     de: { short: 'Preis mit Handelsrabatt', long: 'Preis mit Handelsrabatt' },
     mk: { short: 'Цена со ТП', long: 'Цена со трговски попуст' },
   },
 }
 
+/**
+ * Labels a slot was drawn by once. `tierLabel` never returns one; `tierNameOfLabel` still takes each back to its
+ * slot, so a name typed from memory, or a heading in a sheet made while the label stood, does not name a new tier
+ * beside the slot it meant.
+ */
+const RETIRED_TIER_LABELS: Readonly<Record<string, readonly string[]>> = {
+  // The Bulgarian long form of 2026-11-15, until the owner's "it should have been named „Цена с ТО"" a day later.
+  [DELIVERY_TIER_NAME]: ['Цена с търговска отстъпка (Цена с ТО)'],
+}
+
 /** As the access rules and the grids find a slot: spaces and case ignored („Доставнацена", an import's folded heading). */
 const squash = (name: unknown) => String(name ?? '').replace(/\s+/g, '').toLowerCase()
 
 const LABELS_BY_KEY = new Map(Object.entries(TIER_LABELS).map(([name, labels]) => [squash(name), labels]))
-/** Every label of every locale → the stored name it stands for. */
-const NAME_BY_LABEL = new Map<string, string>(
-  Object.entries(TIER_LABELS).flatMap(([name, byLocale]) =>
+/** Every label of every locale, and every retired one → the stored name it stands for. */
+const NAME_BY_LABEL = new Map<string, string>([
+  ...Object.entries(TIER_LABELS).flatMap(([name, byLocale]) =>
     Object.values(byLocale).flatMap((forms) => Object.values(forms).map((label): [string, string] => [squash(label), name]))),
-)
+  ...Object.entries(RETIRED_TIER_LABELS).flatMap(([name, labels]) => labels.map((label): [string, string] => [squash(label), name])),
+])
 const CANONICAL_BY_KEY = new Map(PRICE_TIERS.map((t) => [squash(t.name), t.name]))
 
 function localeOf(locale: unknown): TierLabelLocale {
