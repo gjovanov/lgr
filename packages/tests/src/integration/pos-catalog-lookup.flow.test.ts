@@ -3,6 +3,8 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser, createTestProduct, createTestWarehouse, createTestStockLevel } from '../helpers/factories'
+import { mongoose } from 'db/connection'
+import { tokenize } from 'services/biz/auth.service'
 import { posController } from 'invoicing-api/src/controllers/pos.controller'
 import { Product } from 'db/models'
 import { config } from 'config'
@@ -32,11 +34,10 @@ let warehouseId: string
 const tokens: Record<string, string> = {}
 const ids: Record<string, string> = {}
 
-async function sign(role: Role, org: string, userId: string) {
-  return (signer as any).decorator.jwt.sign({
-    id: userId, orgId: org, role, email: `${role}@lookup.test`, username: role,
-    firstName: 'Каса', lastName: 'Тест', permissions: DEFAULT_ROLE_PERMISSIONS[role], ownRecordsModules: [],
-  })
+/** A session of a person with the built-in role `role`, as sign-in issues it (FR-27 P3-2: the role decides). */
+async function sign(role: Role, org: string, _userId: string) {
+  const person = await createTestUser(new mongoose.Types.ObjectId(org) as any, { role, firstName: 'Каса', lastName: 'Тест' } as any)
+  return (signer as any).decorator.jwt.sign(await tokenize(person))
 }
 
 async function get(path: string, token: string | null = tokens.sales) {
