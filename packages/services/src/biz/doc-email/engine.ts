@@ -8,8 +8,8 @@ import { packAttachments, type MailLimits } from './pack.js'
  *
  * The engine knows no kind of document. Its caller has already decided which documents go (it loaded them, held
  * them to the session's access, left out the drafts and the ones just mailed) and hands each over with a `render`
- * that prints it. So the invoicing API mails invoices and supplier orders through it, and the warehouse API mails
- * stock movements the same way.
+ * that prints it. The invoicing API mails invoices and supplier orders through it; another kind (a stock movement's
+ * document) brings its own loading, rules and `render`, and is mailed the same way.
  *
  * What it does with them:
  *   1. renders, two at a time: a render is a fresh Chrome and about a second, and under load the renderer fails
