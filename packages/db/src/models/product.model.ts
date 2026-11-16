@@ -214,7 +214,11 @@ productSchema.index({ orgId: 1, sku: 1 }, { unique: true })
 productSchema.index({ orgId: 1, barcode: 1 })
 productSchema.index({ orgId: 1, category: 1 })
 productSchema.index({ orgId: 1, categoryId: 1 })
-productSchema.index({ name: 'text', sku: 'text', barcode: 'text', description: 'text', category: 'text' })
+// FR-30.4: no text index. Nothing ran a `$text` query, and every write kept one up; migration 0016 drops it.
+// FR-30.1: the Products list's sorts (`config/list-sorts`): the newest first (the grid's default) and by name
+// (the API's), each a page read off the index instead of the organization's every article sorted in memory.
+productSchema.index({ orgId: 1, createdAt: -1 })
+productSchema.index({ orgId: 1, name: 1 })
 productSchema.index({ orgId: 1, tags: 1 })
 productSchema.index({ orgId: 1, 'priceTiers.tags': 1 })
 productSchema.index({ orgId: 1, 'priceTiers.contactIds': 1 })

@@ -209,6 +209,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { sortableHeaders } from 'config/list-sorts'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
 import CreateButton from 'ui-shared/components/CreateButton.vue'
@@ -447,10 +448,11 @@ const VOIDED_KEY: Record<string, string> = {
   debit_note: 'invoicing.debitNoteVoided',
 }
 
-const headers = computed(() => [
+// FR-30.2: a sort only on a column the list's server sorts by (`config/list-sorts`).
+const headers = computed(() => sortableHeaders('invoices', [
   { title: t('invoicing.invoiceNumber'), key: 'number', sortable: true },
   { title: t('invoicing.documentType'), key: 'type' },
-  { title: t('invoicing.contact'), key: 'contactName', sortable: true },
+  { title: t('invoicing.contact'), key: 'contactName' },
   { title: t('invoicing.relatedDocument'), key: 'relatedDocument', sortable: false },
   { title: t('invoicing.issueDate'), key: 'issueDate', sortable: true },
   { title: t('invoicing.dueDate'), key: 'dueDate', sortable: true },
@@ -461,7 +463,7 @@ const headers = computed(() => [
   { title: t('common.status'), key: 'status' },
   // FR-22.23: one menu button, so the column is as narrow as its title.
   { title: '', key: 'actions', sortable: false, align: 'end' as const, width: 48 },
-])
+]))
 
 const kanbanColumns = computed(() => [
   { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },

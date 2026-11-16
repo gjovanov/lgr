@@ -18,12 +18,8 @@ class ProductDaoClass extends BaseDao<IProduct> {
     return this.model.find({ orgId, category }).exec()
   }
 
-  async search(orgId: string, query: string): Promise<IProduct[]> {
-    return this.model
-      .find({ orgId, $text: { $search: query } })
-      .sort({ score: { $meta: 'textScore' } })
-      .exec()
-  }
+  // FR-30.4: `search`, a `$text` query nothing called, went with the text index it needed. The search is
+  // `buildProductSearchFilter` (`services/biz/search.utils.ts`).
 
   // FR-28.5: `findLowStock` lived here, with no caller and no test, as a third definition of "below minimum"
   // beside the Reports `stock-levels` rule. The one definition is `services/biz/product-stock-filter.ts`

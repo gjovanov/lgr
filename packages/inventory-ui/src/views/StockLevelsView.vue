@@ -88,6 +88,7 @@ import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { sortableHeaders } from 'config/list-sorts'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ExportMenu from 'ui-shared/components/ExportMenu'
@@ -139,16 +140,17 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   urlSync: true,
 })
 
-const headers = computed(() => [
-  { title: t('warehouse.sku'), key: 'productSku', sortable: true },
-  { title: t('warehouse.product'), key: 'productName', sortable: true },
-  { title: t('warehouse.warehouse'), key: 'warehouseName', sortable: true },
+// FR-30.2: a sort only on a column the list's server sorts by (`config/list-sorts`).
+const headers = computed(() => sortableHeaders('stockLevels', [
+  { title: t('warehouse.sku'), key: 'productSku' },
+  { title: t('warehouse.product'), key: 'productName' },
+  { title: t('warehouse.warehouse'), key: 'warehouseName' },
   { title: t('warehouse.quantity'), key: 'quantity', align: 'end' as const, sortable: true },
   { title: t('warehouse.reorderLevel'), key: 'reorderLevel', align: 'end' as const },
   // FR-27.11.D: the value is quantity × average cost, a cost figure.
   ...(seesCosts.value ? [{ title: t('warehouse.value'), key: 'value', align: 'end' as const }] : []),
   { title: t('common.status'), key: 'status' },
-])
+]))
 
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 function onExport(format: string) { console.log('Export stock levels as', format) }

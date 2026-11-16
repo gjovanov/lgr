@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
 import { sideIsExternal } from 'config/external-warehouse'
+import { chooseListSort } from 'config/list-sorts'
 import { can, grantOf } from 'services/biz/access/evaluate'
 import { seesBills } from 'services/biz/access/partition'
 import { redactMovementLine, redactMovementTotals, seesCosts, sortsByMovementTotal } from 'config/access'
@@ -28,10 +29,9 @@ function saleOf(holder: { id: string; number: string; status: string; type: stri
 }
 
 /**
- * What the Movements list's columns sort by. Two print a field under another name; three print
- * the name of what the movement points at, which only an aggregation can order by.
+ * What the Movements list's columns sort by: `config/list-sorts` (FR-30.2), where two print a field under another
+ * name. Three print the name of what the movement points at, which only an aggregation can order by.
  */
-const MOVEMENT_SORT_FIELDS: Record<string, string> = { number: 'movementNumber', total: 'totalAmount' }
 const refName = (from: string, localField: string, name: unknown) => [
   { $lookup: { from, localField, foreignField: '_id', as: '_ref' } },
   { $addFields: { sortKey: name } },
@@ -118,7 +118,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     const filter: Record<string, any> = { orgId }
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['movementNumber', 'notes', 'reference'], { hasTextIndex: true })
+      const searchFilter = buildSearchFilter(query.search as string, ['movementNumber', 'notes', 'reference'])
       Object.assign(filter, searchFilter)
     }
     if (query.type) filter.type = query.type
@@ -163,15 +163,14 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     // FR-27.11.C.2/C.3: a movement's total is its lines' costs summed. A role without the costs is sent none, and
     // does not order the list by it: asked to, the list comes in its usual order.
     const grant = grantOf(user as any)
-    const asked = (query.sortBy as string) || 'date'
-    const usual = !seesCosts(grant) && sortsByMovementTotal(asked)
-    const sortBy = usual ? 'date' : asked
-    const sortOrder = !usual && (query.sortOrder as string) === 'asc' ? 1 : -1
+    const usual = !seesCosts(grant) && sortsByMovementTotal(query.sortBy as string)
+    // FR-30.2: a sort the list declares, else the list's default (the newest first).
+    const sort = usual ? chooseListSort('movements', undefined, undefined) : chooseListSort('movements', query.sortBy, query.sortOrder)
 
-    const byRef = MOVEMENT_SORT_BY_REF[sortBy]
+    const byRef = MOVEMENT_SORT_BY_REF[sort.key]
     const result = byRef
-      ? await findPageSortedBy(r.stockMovements, filter, byRef, sortOrder, page, size, { date: -1 })
-      : await r.stockMovements.findAll(filter, { page, size, sort: { [MOVEMENT_SORT_FIELDS[sortBy] || sortBy]: sortOrder } })
+      ? await findPageSortedBy(r.stockMovements, filter, byRef, sort.order, page, size, { date: -1 })
+      : await r.stockMovements.findAll(filter, { page, size, sort: { [sort.field]: sort.order } })
 
     // Manual lookups to replace .populate()
     const fromWhIds = new Set<string>()

@@ -31,6 +31,8 @@ const stockLevelSchema = new Schema<IStockLevel>(
 
 stockLevelSchema.plugin(tenantPlugin)
 stockLevelSchema.index({ orgId: 1, productId: 1, warehouseId: 1 }, { unique: true })
+// FR-30.1: the Stock levels list's default sort, the newest first: a page read off the index.
+stockLevelSchema.index({ orgId: 1, createdAt: -1 })
 
 replicate(stockLevelSchema, { class: 'R' })
 

@@ -37,20 +37,20 @@ describe('buildSearchFilter', () => {
     expect(filter.$or[0].name.$regex).toBe('M8\\*10')
   })
 
-  it('always uses $regex for partial match support (not $text)', () => {
+  it('uses $regex for partial match support (FR-30.4: there is no text index to ask)', () => {
     // $text only matches whole words — not suitable for typeahead search
-    const filter = buildSearchFilter('bolt stainless', ['name'], { hasTextIndex: true })
+    const filter = buildSearchFilter('bolt stainless', ['name'])
     expect(filter.$text).toBeUndefined()
     expect(filter.$and).toBeDefined()
   })
 
   it('handles short keywords with $regex', () => {
-    const filter = buildSearchFilter('bo', ['name'], { hasTextIndex: true })
+    const filter = buildSearchFilter('bo', ['name'])
     expect(filter.$or).toBeDefined()
   })
 
   it('handles regex metacharacters safely', () => {
-    const filter = buildSearchFilter('M8*10', ['name'], { hasTextIndex: true })
+    const filter = buildSearchFilter('M8*10', ['name'])
     expect(filter.$or).toBeDefined()
     expect(filter.$or[0].name.$regex).toBe('M8\\*10')
   })
@@ -117,13 +117,13 @@ describe('Search with MongoDB', () => {
     expect(r2).toHaveLength(1)
   })
 
-  it('$text search works for full words on products (text index exists)', async () => {
+  it('finds a whole word on products by its pattern', async () => {
     const org = await createTestOrg()
     await createTestProduct(org._id, { sku: 'T1', name: 'Stainless Steel Bolt' })
     await createTestProduct(org._id, { sku: 'T2', name: 'Carbon Steel Nut' })
 
-    // $text search — "stainless" is a full word, matches via text index
-    const filter = { orgId: org._id, ...buildSearchFilter('stainless', ['name'], { hasTextIndex: true }) }
+    // "stainless" is a whole word; the pattern finds it as it finds any part of one
+    const filter = { orgId: org._id, ...buildSearchFilter('stainless', ['name']) }
     const results = await Product.find(filter).lean()
     expect(results).toHaveLength(1)
   })

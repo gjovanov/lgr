@@ -69,7 +69,7 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
 
     const filter: Record<string, any> = { orgId }
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['firstName', 'middleName', 'lastName', 'email'], { hasTextIndex: true })
+      const searchFilter = buildSearchFilter(query.search as string, ['firstName', 'middleName', 'lastName', 'email'])
       Object.assign(filter, searchFilter)
       // An exact ЕГН finds its person through the lookup value, and nothing is opened to do it.
       if (/^\d{9,10}$/.test(String(query.search).trim())) {

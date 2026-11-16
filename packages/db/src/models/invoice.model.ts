@@ -752,7 +752,18 @@ invoiceSchema.index(
   { orgId: 1, 'cashSaleRef.cashSaleId': 1 },
   { partialFilterExpression: { 'cashSaleRef.cashSaleId': { $exists: true } } },
 )
-invoiceSchema.index({ invoiceNumber: 'text', notes: 'text', reference: 'text' })
+// FR-30.4: no text index. Nothing ran a `$text` query, and every write kept one up; migration 0016 drops it.
+// FR-30.1: the documents lists' default sort, the newest first, inside a direction (Sales invoices, Bills).
+invoiceSchema.index({ orgId: 1, direction: 1, createdAt: -1 })
+// FR-30.2: their № column inside a direction. The unique key `{ orgId, invoiceNumber, … }` orders the numbers too, but
+// across both directions: the Sales list sorted by number read every bill (`BILL-…` sorts before `INV-…`) first.
+invoiceSchema.index({ orgId: 1, direction: 1, invoiceNumber: 1 })
+// FR-30.3: the cash sales an invoice was issued for, per customer (`sale-counting#cashSalesInvoicedAway`, read by
+// the contact ledger). Partial: only the invoices issued for a cash sale carry the field.
+invoiceSchema.index(
+  { orgId: 1, 'cashSaleRef.contactId': 1 },
+  { partialFilterExpression: { 'cashSaleRef.contactId': { $exists: true } } },
+)
 // FR-21: the cash-register journal lists by type and date; Invoice had no `type` index at all.
 invoiceSchema.index({ orgId: 1, type: 1, issueDate: -1 })
 invoiceSchema.index({ orgId: 1, 'register.sessionId': 1 }, { partialFilterExpression: { 'register.sessionId': { $exists: true } } })

@@ -1562,6 +1562,20 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
 - ⚠ A single-value select / combobox that draws its value through a **`#selection` slot** carries **`one-line-value`**, and `one-line-value--typing` while its `update:search` is non-empty (`PriceCombobox`, `TaxRateCombobox`, `LineUnitSelect`: the unit of a line, on every such table). Without it Vuetify puts the search input BESIDE the value and gives it 64 px on focus: in a narrow cell it wraps, the field grows from 32 to 60 px and the row jumps.
 - Held by `e2e/tests/line-item-baseline.spec.ts` (underline positions read from the rendered boxes, before and after each focus). The stock movement form is not a line grid: its rows hold nothing under a field.
 
+## Lists sort as they declare (FR-30 slice A, #795, 2026-11-16)
+
+- **A list sorts only on a key of its table**, `config/list-sorts.ts` (products, invoices, stock levels, movements):
+  `chooseListSort(list, sortBy, sortOrder)` on the route, `sortableHeaders(list, headers)` on the grid. Any other
+  `sortBy` (a name the server looks up after the page, a field of the lines) is the list's default sort.
+- Each key says how it is served: `index` (by name; `integration/list-plans.flow.test.ts` asserts from the profiler
+  that the page reads at most five pages with no in-memory sort), `scan` (reads the filtered rows, with a reason) or
+  `aggregate`. ⚠ A new `scan` key fails that test until it is added to its list there: it is a decision.
+- ⚠ A list's default sort is an index's: `Product { orgId, createdAt }` / `{ orgId, name }`, `Invoice { orgId,
+  direction, createdAt }` / `{ orgId, direction, invoiceNumber }`, `StockLevel { orgId, createdAt }`,
+  `StockMovement { orgId, date }` / `{ orgId, createdAt }`. What is left in a list's time is its `countDocuments`.
+- **No text indexes** (FR-30.4): nothing ran `$text`, and migration `0016` drops them. Search is a pattern over the
+  fields or their lowered mirrors (below).
+
 ## Cyrillic-Safe Search (2026-04-28)
 
 `packages/db/src/plugins/lowered-fields.plugin.ts` maintains `*Lower` mirror fields via Mongoose pre-save / pre-insertMany / pre-(findOneAndUpdate|updateOne|updateMany) hooks (locale='bg'). `buildSearchFilter(search, fields, { lowered: { name: 'nameLower', ... } })` lowercases the keyword and queries the mirrors without `$options:'i'`. Backfill: `bun run scripts/backfill-search-lowercase.ts --execute`. Models with mirrors: Product (name/sku/barcode/description/category), Contact (companyName/firstName/lastName/email/taxId/vatNumber), Warehouse (name/code), ProductCategory (name/description).

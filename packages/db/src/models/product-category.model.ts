@@ -44,7 +44,7 @@ productCategorySchema.plugin(loweredFieldsPlugin, {
 })
 productCategorySchema.index({ orgId: 1, name: 1 }, { unique: true })
 productCategorySchema.index({ orgId: 1, sortOrder: 1 })
-productCategorySchema.index({ name: 'text' })
+// FR-30.4: no text index. Nothing ran a `$text` query, and every write kept one up; migration 0016 drops it.
 
 replicate(productCategorySchema, { class: 'R' })
 

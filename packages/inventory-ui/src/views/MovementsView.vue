@@ -254,6 +254,7 @@ import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { sortableHeaders } from 'config/list-sorts'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -439,7 +440,8 @@ function onImported(results: any[]) {
 
 const seesCosts = computed(() => useAccess().can('products.costs'))
 
-const headers = computed(() => [
+// FR-30.2: a sort only on a column the list's server sorts by (`config/list-sorts`).
+const headers = computed(() => sortableHeaders('movements', [
   { title: '#', key: 'number', sortable: true },
   { title: t('common.type'), key: 'type' },
   { title: t('common.date'), key: 'date', sortable: true },
@@ -450,7 +452,7 @@ const headers = computed(() => [
   // FR-27.11.C.2: a movement's total is its lines' costs summed; the server sends it only with `products.costs`.
   ...(seesCosts.value ? [{ title: t('common.total'), key: 'total', align: 'end' as const }] : []),
   { title: t('common.actions'), key: 'actions', sortable: false },
-])
+]))
 
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 const MOVEMENT_TYPES = ['receipt', 'dispatch', 'transfer', 'adjustment', 'return', 'production_in', 'production_out']

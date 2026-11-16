@@ -148,7 +148,11 @@ stockMovementSchema.index({ orgId: 1, 'lines.productId': 1, date: -1 })
  */
 stockMovementSchema.index({ orgId: 1, invoiceId: 1 })
 stockMovementSchema.index({ orgId: 1, reference: 1 })
-stockMovementSchema.index({ movementNumber: 'text', notes: 'text' })
+// FR-30.4: no text index. Nothing ran a `$text` query, and every write kept one up; migration 0016 drops it.
+// FR-30.1: the Movements list's sorts (`config/list-sorts`): by date (the API's default) and the newest made first
+// (the grid's default), each a page read off the index.
+stockMovementSchema.index({ orgId: 1, date: -1 })
+stockMovementSchema.index({ orgId: 1, createdAt: -1 })
 
 replicate(stockMovementSchema, { class: 'R' })
 

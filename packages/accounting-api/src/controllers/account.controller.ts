@@ -45,7 +45,7 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
 
     const filter: Record<string, any> = { orgId }
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['name', 'code', 'description'], { hasTextIndex: true })
+      const searchFilter = buildSearchFilter(query.search as string, ['name', 'code', 'description'])
       Object.assign(filter, searchFilter)
     }
     // FR-25a §3.1: what the books say of an account. Neither is set on an account of LGR's own, so both read "no" there.

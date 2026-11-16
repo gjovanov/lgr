@@ -159,7 +159,7 @@ contactSchema.index({ orgId: 1, companyName: 1 })
 contactSchema.index({ orgId: 1, taxId: 1 })
 contactSchema.index({ orgId: 1, vatNumber: 1 })
 contactSchema.index({ orgId: 1, taxNumber: 1 })
-contactSchema.index({ companyName: 'text', firstName: 'text', lastName: 'text', email: 'text' })
+// FR-30.4: no text index. Nothing ran a `$text` query, and every write kept one up; migration 0016 drops it.
 
 replicate(contactSchema, { class: 'R' })
 

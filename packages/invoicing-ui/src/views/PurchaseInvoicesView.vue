@@ -183,6 +183,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { sortableHeaders } from 'config/list-sorts'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState, allOptionsParam } from 'ui-shared/composables/useListQueryState'
 import CreateButton from 'ui-shared/components/CreateButton.vue'
@@ -385,11 +386,12 @@ async function refresh() {
   fetchSummary()
 }
 
-const headers = computed(() => [
+// FR-30.2: a sort only on a column the list's server sorts by (`config/list-sorts`).
+const headers = computed(() => sortableHeaders('invoices', [
   { title: t('invoicing.invoiceNumber'), key: 'number', sortable: true },
   { title: t('invoicing.documentType'), key: 'type' },
   { title: t('invoicing.supplierInvoiceNumber'), key: 'reference' },
-  { title: t('invoicing.supplier'), key: 'contactName', sortable: true },
+  { title: t('invoicing.supplier'), key: 'contactName' },
   // FR-22.23: filled only on a supplier's credit or debit note, so it is offered on the cog.
   { title: t('invoicing.relatedInvoice'), key: 'relatedInvoiceNumber', defaultHidden: true },
   { title: t('invoicing.issueDate'), key: 'issueDate', sortable: true },
@@ -401,7 +403,7 @@ const headers = computed(() => [
   { title: t('common.status'), key: 'status' },
   // FR-22.23: one menu button, so the column is as narrow as its title.
   { title: '', key: 'actions', sortable: false, align: 'end' as const, width: 48 },
-])
+]))
 
 const kanbanColumns = computed(() => [
   { id: 'draft', title: t('invoicing.status.draft'), color: 'grey' },

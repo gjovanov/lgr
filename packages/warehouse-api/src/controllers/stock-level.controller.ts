@@ -6,6 +6,7 @@ import { getProductsSupplyTotals } from 'services/biz/product-supply.service'
 import { grantOf } from 'services/biz/access/evaluate'
 import { redactStockCost } from 'config/access'
 import { productIdsPassingStockFilter } from 'services/biz/product-stock-filter'
+import { chooseListSort } from 'config/list-sorts'
 
 export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/stock-level' })
   .use(AppAuthService)
@@ -21,7 +22,7 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
     let needProductLookup = false
     if (query.category) { productFilter.category = query.category; needProductLookup = true }
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['name', 'sku', 'barcode'], { hasTextIndex: true })
+      const searchFilter = buildSearchFilter(query.search as string, ['name', 'sku', 'barcode'])
       Object.assign(productFilter, searchFilter)
       needProductLookup = true
     }
@@ -47,10 +48,10 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = (query.sortBy as string) || 'createdAt'
-    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+    // FR-30.2: a sort the list declares (`config/list-sorts`), else the list's default.
+    const sort = chooseListSort('stockLevels', query.sortBy, query.sortOrder)
 
-    const result = await r.stockLevels.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+    const result = await r.stockLevels.findAll(filter, { page, size, sort: { [sort.field]: sort.order } })
 
     // Manual lookups to replace .populate()
     const productIds = new Set<string>()
