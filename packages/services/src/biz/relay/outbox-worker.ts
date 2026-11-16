@@ -52,15 +52,31 @@ function backoff(attempts: number): number {
 
 async function settle(item: any, state: 'sent' | 'failed', now: Date, error?: string, from: 'sending' | 'queued' = 'sending'): Promise<void> {
   const p = item.payload ?? {}
+  // A mail of several documents names each (`sendEmail`'s `entities`); one of a single document names it flat.
+  const entities: Array<{ entityType?: string; entityId?: string }> = Array.isArray(p.entities) && p.entities.length ? p.entities : []
   // The bytes go once the item is done: a sent mail's attachments have no further use here.
   const done = await Outbox.updateOne(
     { _id: item._id, state: from },
-    { $set: { state, doneAt: now, payload: { to: p.to, subject: p.subject, entityType: p.entityType, entityId: p.entityId }, ...(error ? { lastError: error.slice(0, 1000) } : {}) }, $unset: { leaseUntil: 1 } },
+    {
+      $set: {
+        state,
+        doneAt: now,
+        payload: { to: p.to, subject: p.subject, entityType: p.entityType, entityId: p.entityId, ...(entities.length ? { entities } : {}) },
+        ...(error ? { lastError: error.slice(0, 1000) } : {}),
+      },
+      $unset: { leaseUntil: 1 },
+    },
   )
   if (!done.modifiedCount) return
   await EmailLog.updateMany({ outboxId: item._id }, { $set: { status: state, ...(error ? { error: error.slice(0, 1000) } : {}) } })
-  if (state === 'sent' && p.entityType === 'invoice' && p.entityId) {
+  if (state !== 'sent') return
+  if (p.entityType === 'invoice' && p.entityId) {
     await Invoice.updateOne({ _id: p.entityId, orgId: item.orgId }, { $addToSet: { emailedTo: p.to }, $set: { lastEmailedAt: now } })
+  }
+  // Every invoice the mail carried: its send history changes now that the mail has gone, never when it was queued.
+  const invoiceIds = entities.filter(e => e?.entityType === 'invoice' && e.entityId).map(e => e.entityId)
+  if (invoiceIds.length) {
+    await Invoice.updateMany({ _id: { $in: invoiceIds }, orgId: item.orgId }, { $addToSet: { emailedTo: p.to }, $set: { lastEmailedAt: now } })
   }
 }
 

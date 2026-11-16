@@ -8,6 +8,8 @@
     :pagination="pagination"
     :view="viewMode"
     :has-active-filters="hasActiveFilters"
+    selectable
+    v-model:selected="ticked"
     :empty="{ icon: 'mdi-file-document-outline', title: $t('list.empty.proforma'), description: $t('list.empty.proformaHint') }"
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
     @update:options="onUpdateOptions"
@@ -33,6 +35,11 @@
     <template #empty-actions>
       <!-- FR-22.50: says what it creates. -->
       <CreateButton :label="$t('invoicing.newProformaInvoice')" :to="{ name: 'invoicing.proforma.new' }" />
+    </template>
+
+    <!-- The ticked proformas by e-mail: each to its customer, or all to one address. -->
+    <template #bulk-bar>
+      <DocEmailBar v-model:selected="ticked" kind="invoice" :may-email="mailsTicked" />
     </template>
 
     <!-- Cell renderers -->
@@ -158,9 +165,11 @@ import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useRowEmail } from '../composables/useRowEmail'
+import { useDocEmailAccess } from '../composables/doc-email-access'
 import { useDocumentIssue } from '../composables/useDocumentIssue'
 import { useRowPrint } from '../composables/useRowPrint'
 import * as can from '../composables/document-row-actions'
+import DocEmailBar from '../components/DocEmailBar.vue'
 interface Item { _id: string; number: string; type?: string; contactName: string; contactId?: string; issueDate: string; validUntil: string; status: string; total: number; currency: string; exchangeRate?: number; notes?: string; lines?: any[]; convertedInvoiceId?: string; convertedInvoiceNumber?: string; offerId?: string; offerNumber?: string }
 
 const { t } = useI18n()
@@ -182,6 +191,10 @@ const {
   send: sendRowEmail,
 } = useRowEmail()
 const { printRow } = useRowPrint()
+
+// The ticked rows by e-mail (their ids, so a tick holds across pages and filters), for a role that works on quotes.
+const ticked = ref<string[]>([])
+const mailsTicked = useDocEmailAccess().invoices('proforma')
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')

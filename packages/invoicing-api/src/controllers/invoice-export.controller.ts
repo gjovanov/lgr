@@ -25,6 +25,7 @@ import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
 import { moneySign } from 'services/biz/money-sign'
 import { orgFooterLine, renderInvoicePdf } from '../lib/invoice-pdf.js'
 import { sendEmail } from 'services/biz/email.service'
+import { buildEmailHtml } from 'services/biz/doc-email/body'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { EmailLog } from 'db/models'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
@@ -48,9 +49,10 @@ function isAllowedSortField(key: string): boolean {
   return ALLOWED_SORT_FIELDS.has(key)
 }
 
-class ColumnValidationError extends Error {}
+export class ColumnValidationError extends Error {}
 
-function normaliseColumns(raw: any): string[] | undefined {
+/** Exported for the mail of several documents (`doc-email.controller.ts`), which prints with the same columns. */
+export function normaliseColumns(raw: any): string[] | undefined {
   if (raw === undefined || raw === null) return undefined
   // Accept "a,b,c" string form from GET query param too.
   const arr = typeof raw === 'string' ? raw.split(',').map(s => s.trim()).filter(Boolean) : raw
@@ -72,47 +74,9 @@ function titleFor(docType: string, direction: string | undefined, locale?: strin
 
 // The recipient pattern, the resend window and the whole gate live in lib/email-guards.ts —
 // pure and unit-tested, because Elysia's `handle()` does not route under `bun test` here.
-
-const EMAIL_BODY_I18N: Record<string, { greeting: string; attached: string; regards: string; date: string; total: string }> = {
-  en: { greeting: 'Hello,', attached: 'Please find attached', regards: 'Kind regards,', date: 'Date', total: 'Total' },
-  bg: { greeting: 'Здравейте,', attached: 'Прикачено ще намерите', regards: 'С уважение,', date: 'Дата', total: 'Общо' },
-  de: { greeting: 'Guten Tag,', attached: 'Anbei finden Sie', regards: 'Mit freundlichen Grüßen,', date: 'Datum', total: 'Gesamt' },
-  mk: { greeting: 'Здраво,', attached: 'Во прилог ќе најдете', regards: 'Со почит,', date: 'Датум', total: 'Вкупно' },
-}
-
-function esc(s: unknown): string {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-/**
- * A deliberately minimal covering note — the document itself is the attachment. No new
- * templating engine enters the codebase for four paragraphs of text.
- */
-function buildEmailHtml(opts: {
-  title: string
-  invoice: any
-  orgName: string
-  message?: string
-  locale?: string
-}): string {
-  const L = EMAIL_BODY_I18N[(opts.locale || 'en').slice(0, 2)] || EMAIL_BODY_I18N.en
-  const inv = opts.invoice
-  const issued = inv.issueDate ? new Date(inv.issueDate).toISOString().slice(0, 10) : ''
-  const total = `${Number(inv.total || 0).toFixed(2)} ${esc(inv.currency || '')}`.trim()
-
-  return [
-    '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222">',
-    `<p>${esc(L.greeting)}</p>`,
-    `<p>${esc(L.attached)} <strong>${esc(opts.title)} ${esc(inv.invoiceNumber)}</strong>.</p>`,
-    opts.message ? `<p>${esc(opts.message).replace(/\n/g, '<br>')}</p>` : '',
-    '<table style="border-collapse:collapse;margin:12px 0">',
-    issued ? `<tr><td style="padding:2px 12px 2px 0;color:#666">${esc(L.date)}</td><td>${esc(issued)}</td></tr>` : '',
-    `<tr><td style="padding:2px 12px 2px 0;color:#666">${esc(L.total)}</td><td><strong>${total}</strong></td></tr>`,
-    '</table>',
-    `<p>${esc(L.regards)}<br>${esc(opts.orgName)}</p>`,
-    '</div>',
-  ].filter(Boolean).join('\n')
-}
+//
+// The covering note (`buildEmailHtml`) is `services/biz/doc-email/body`'s since 2026-11-16: a batch of one
+// document reads as this route's mail does, from the one definition.
 
 // Doc types that share the merged sales/purchase grids (FR-01) and may be exported together.
 const MERGEABLE_TYPES = new Set(['invoice', 'credit_note', 'debit_note'])

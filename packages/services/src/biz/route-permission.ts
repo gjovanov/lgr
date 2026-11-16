@@ -61,6 +61,10 @@ export const EXACT_WRITE_RULES: ReadonlyMap<string, WriteRule> = new Map<string,
   ['POST invoicing/export/list', { self: 'canExport' }],
   ['POST invoicing/export/kind/:kind', { self: 'canExport' }],
   ['POST invoicing/export/:id/email', { self: 'canWrite, and outgoing issued documents only' }],
+  // Several documents at once (2026-11-16): a session that may mail none of the body's kind is 403, and each
+  // document is then a row of the answer (`invoicing-api/lib/email-guards.ts`).
+  ['POST invoicing/export/email/preview', { self: "mayEmailKind for the body's kind, then invoiceEmailSkip or orderEmailSkip per document" }],
+  ['POST invoicing/export/email', { self: "mayEmailKind for the body's kind, then invoiceEmailSkip or orderEmailSkip per document" }],
   ['POST invoicing/stock-availability/check', { need: ['invoicing.read', 'inventory.read'] }],
   // FR-21.18: the journal's storno, from invoicing's /cash-sales. The route also requires a storno
   // role (admin, manager, warehouse_manager), as the till's does.

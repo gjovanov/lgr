@@ -5102,6 +5102,61 @@
     "seriesFrozen": "Legal numbering waits: record the last numbers issued at the site, on the Servers page.",
     "fenced": "This server was replaced as the organization's home: it writes nothing more of it."
   },
+  "docEmail": {
+    "bar": {
+      "selected": "{n} selected",
+      "send": "Send by email",
+      "clear": "Clear",
+      "tooMany": "More than {max} documents are selected: untick some."
+    },
+    "title": "Send by email",
+    "intro": "{n} document will be sent, as its printed PDF. | {n} documents will be sent, each as its printed PDF.",
+    "nothing": "None of the selected documents can be sent.",
+    "blockedTitle": "Will not be sent: {n}",
+    "recipient": "Recipient",
+    "modePartner": "To the customer / supplier",
+    "modeSingle": "To one address",
+    "noPartner": "Documents with no customer or supplier",
+    "noAddress": "no address",
+    "addressOf": "Email address of {name}",
+    "partnerHint": "The address is the contact's and can be changed here. A line without an address is not sent.",
+    "singleTo": "Email address",
+    "singleHint": "Every document goes to this address.",
+    "severalMails": "One mail carries at most {max} documents: the rest go in mails of their own.",
+    "subject": "Subject",
+    "subjectHint": "Left empty, each mail is named after its documents.",
+    "documents": "Documents",
+    "message": "Message (optional)",
+    "unaddressed": "Without an address, not sent: {n}",
+    "noRecipient": "Enter an address: there is nothing to send yet.",
+    "send": "Send",
+    "sendN": "Send {documents} to {recipients}",
+    "nDocuments": "{n} document | {n} documents",
+    "nRecipients": "{n} recipient | {n} recipients",
+    "andMore": "and {n} more",
+    "sending": "Sending: {done} of {total}",
+    "stopped": "Stopped: the rest was not sent.",
+    "result": {
+      "sent": "sent: {n}",
+      "queued": "queued: {n}",
+      "notSent": "not sent: {n}"
+    },
+    "queuedNote": "Queued mails leave when this server reaches lgrai.app.",
+    "stayTicked": "What did not go stays selected in the list.",
+    "done": "Sent {documents} to {recipients}",
+    "doneQueued": "Queued {documents} for {recipients}: they leave when this server reaches lgrai.app.",
+    "reason": {
+      "draft": "draft: not sent",
+      "not_found": "no such document",
+      "forbidden": "your role does not send this kind of document",
+      "just_sent": "sent to this address a moment ago",
+      "render_failed": "could not be printed",
+      "too_large": "too large for one mail",
+      "provider_error": "the mail provider refused it",
+      "not_configured": "email is not configured on this server",
+      "notAsked": "not sent"
+    }
+  },
   "productOrders": {
     "bar": {
       "selected": "{n} selected",

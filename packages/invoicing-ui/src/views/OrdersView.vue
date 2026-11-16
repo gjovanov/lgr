@@ -7,6 +7,8 @@
     :loading="loading"
     :pagination="pagination"
     :has-active-filters="hasActiveFilters"
+    selectable
+    v-model:selected="ticked"
     :empty="{ icon: 'mdi-clipboard-list-outline', title: $t('list.empty.orders'), description: $t('list.empty.ordersHint') }"
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
     @update:options="onUpdateOptions"
@@ -25,6 +27,11 @@
 
     <template #empty-actions>
       <CreateButton :label="$t('invoicing.newOrder')" :to="{ name: 'invoicing.orders.new' }" />
+    </template>
+
+    <!-- The ticked orders by e-mail: a sheet per supplier, each to its supplier, or all to one address. -->
+    <template #bulk-bar>
+      <DocEmailBar v-model:selected="ticked" kind="order" :may-email="mailsTicked" />
     </template>
 
     <template #item.number="{ item }">
@@ -77,12 +84,18 @@ import StatusChip from 'ui-shared/components/StatusChip'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
+import DocEmailBar from '../components/DocEmailBar.vue'
+import { useDocEmailAccess } from '../composables/doc-email-access'
 
 interface Item { _id: string; number: string; supplierNames: string[]; issueDate: string; status: string; orderedQuantity: number; receivedQuantity: number; statusHistory?: any[] }
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+
+// The ticked rows by e-mail (their ids, so a tick holds across pages and filters), for a role that prints a sheet and works on orders.
+const ticked = ref<string[]>([])
+const mailsTicked = useDocEmailAccess().orders()
 
 const { search, debouncedSearch } = useSearchDebounce()
 const deleteDialog = ref(false)

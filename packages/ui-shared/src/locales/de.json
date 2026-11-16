@@ -5102,6 +5102,61 @@
     "seriesFrozen": "Die gesetzliche Nummerierung wartet: Erfassen Sie die letzten am Standort vergebenen Nummern auf der Seite Server.",
     "fenced": "Dieser Server ist nicht mehr das Zuhause der Organisation: Er schreibt nichts mehr von ihr."
   },
+  "docEmail": {
+    "bar": {
+      "selected": "{n} ausgewählt",
+      "send": "Per E-Mail senden",
+      "clear": "Aufheben",
+      "tooMany": "Mehr als {max} Dokumente gewählt: einige abwählen."
+    },
+    "title": "Per E-Mail senden",
+    "intro": "{n} Dokument wird gesendet, als gedrucktes PDF. | {n} Dokumente werden gesendet, jedes als gedrucktes PDF.",
+    "nothing": "Keines der gewählten Dokumente kann gesendet werden.",
+    "blockedTitle": "Werden nicht gesendet: {n}",
+    "recipient": "Empfänger",
+    "modePartner": "An den Kunden / Lieferanten",
+    "modeSingle": "An eine Adresse",
+    "noPartner": "Dokumente ohne Kunden oder Lieferanten",
+    "noAddress": "keine Adresse",
+    "addressOf": "E-Mail-Adresse von {name}",
+    "partnerHint": "Die Adresse stammt vom Kontakt und kann hier geändert werden. Eine Zeile ohne Adresse wird nicht gesendet.",
+    "singleTo": "E-Mail-Adresse",
+    "singleHint": "Alle Dokumente gehen an diese Adresse.",
+    "severalMails": "Eine E-Mail trägt höchstens {max} Dokumente: Die übrigen gehen in eigenen E-Mails.",
+    "subject": "Betreff",
+    "subjectHint": "Bleibt er leer, wird jede E-Mail nach ihren Dokumenten benannt.",
+    "documents": "Dokumente",
+    "message": "Nachricht (optional)",
+    "unaddressed": "Ohne Adresse, werden nicht gesendet: {n}",
+    "noRecipient": "Adresse eingeben: Es gibt noch nichts zu senden.",
+    "send": "Senden",
+    "sendN": "{documents} an {recipients} senden",
+    "nDocuments": "{n} Dokument | {n} Dokumente",
+    "nRecipients": "{n} Empfänger | {n} Empfänger",
+    "andMore": "und {n} weitere",
+    "sending": "Senden: {done} von {total}",
+    "stopped": "Angehalten: Der Rest wurde nicht gesendet.",
+    "result": {
+      "sent": "gesendet: {n}",
+      "queued": "in der Warteschlange: {n}",
+      "notSent": "nicht gesendet: {n}"
+    },
+    "queuedNote": "E-Mails in der Warteschlange werden gesendet, sobald dieser Server lgrai.app erreicht.",
+    "stayTicked": "Was nicht gesendet wurde, bleibt in der Liste ausgewählt.",
+    "done": "{documents} an {recipients} gesendet",
+    "doneQueued": "{documents} für {recipients} in der Warteschlange: Sie werden gesendet, sobald dieser Server lgrai.app erreicht.",
+    "reason": {
+      "draft": "Entwurf: wird nicht gesendet",
+      "not_found": "kein solches Dokument",
+      "forbidden": "Ihre Rolle versendet solche Dokumente nicht",
+      "just_sent": "gerade erst an diese Adresse gesendet",
+      "render_failed": "konnte nicht gedruckt werden",
+      "too_large": "zu groß für eine E-Mail",
+      "provider_error": "vom E-Mail-Dienst abgelehnt",
+      "not_configured": "E-Mail ist auf diesem Server nicht konfiguriert",
+      "notAsked": "nicht gesendet"
+    }
+  },
   "productOrders": {
     "bar": {
       "selected": "{n} ausgewählt",

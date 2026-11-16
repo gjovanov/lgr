@@ -2321,6 +2321,86 @@ in LGR while the device still had it open.
 - `.env.example` now documents `SENDGRID_API_KEY` + `FROM_EMAIL`. **Ops: `FROM_EMAIL` must be
   a SendGrid-verified sender** or every send 502s; prod's `lgr-secret` already carries the key.
 
+## A list's ticked documents by e-mail (2026-11-16)
+
+Five lists tick rows and mail them: sales documents, proformas, offers and bills (kind `invoice`:
+any document of the invoice collection) and supplier orders (kind `order`: one sheet per supplier
+group). Stock movements are not on it yet; the dialog, the composable and the engine take a kind
+as a name and two routes. Customer orders (`InternalOrder`) have no printed form and are left out.
+FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is untouched.
+
+- **Two routes**: `invoicing-api/controllers/doc-email.controller.ts`, everything they decide in
+  `lib/doc-email.ts`. The wire types and the dialog's planning are **`config/doc-email`**
+  (import-pure, read by the server and the UI alike).
+  - `POST /org/:orgId/invoicing/export/email/preview { kind, ids }` → `{ documents: [{ id,
+    groupId?, number, docType, date?, status?, partner?: { id, name, email? }, blocked? }] }`.
+    Writes nothing. At most 100 ids (`MAX_SELECTION`).
+  - `POST /org/:orgId/invoicing/export/email { kind, to, items: [{ id, groupId? }], subject?,
+    message?, locale?, columns? }` → `{ to, mails, queued, results: [{ id, groupId?, number,
+    status: sent | queued | skipped | failed, reason?, message? }] }`. **One recipient and at most
+    ten documents a request** (`MAX_DOCS_PER_MAIL`); the dialog asks once per recipient, in turn.
+- ⚠ **A refused DOCUMENT is a row of a 200, never the request's status**: a draft among ten is
+  `skipped` and the other nine are `sent`. The request is refused only for what is true of all of
+  it, in this order: 403 (the session mails no document of the kind) → 400 (no valid address, no
+  items, an unknown column) → 422 `selection_too_large` → **503 `not_configured`, before a single
+  PDF is printed**.
+- **Who mails what** is `lib/email-guards.ts` (`invoiceEmailSkip`, `orderEmailSkip`), and the SAME
+  function decides the preview and the mail, so the two cannot disagree. A document of the invoice
+  collection goes when the session WORKS on its kind (`writesKind(grant, kind, 'edit')`, FR-27.6);
+  one of a kind it does not read is `not_found`, exactly like an id that names nothing. Only a
+  `draft` is held back by status. ⚠ Wider than FR-10 on purpose: an INCOMING document goes (a bill
+  forwarded to the accountant). An order's sheet takes the orders' read, `sales-docs.export` and
+  `orders.create|edit`. `just_sent` (the 60 s double-click window) is per document AND address.
+- **The engine** is `services/biz/doc-email/` and knows no kind. `emailDocuments({ orgId, userId,
+  to, replyTo?, documents: [{ entityType, entityId, number, render }], subject, html })` renders
+  two at a time, packs the files into mails that fit this node (`pack.ts`: ten attachments, and
+  `config.relay.maxAttachmentBytes` on a master, the provider's cap anywhere else), sends each and
+  answers per document. A render that fails drops that document only; a file no mail can carry is
+  `too_large`. On a master the answer is `queued`, never `sent` (FR-20.86).
+- **`sendEmail` takes `entities`** (`[{ entityType, entityId, attachmentName }]`): one `EmailLog`
+  row per document a mail carries, each naming its own file. That is what lets the resend guard
+  and a document's history read ONE document, whatever travelled with it. On a master the outbox
+  payload carries the list. Absent, nothing changes.
+- Every document that went or was queued gets an audit entry (`action: 'email'`). An invoice's
+  `emailedTo` / `lastEmailedAt` change only when the mail has LEFT: at once when sent, from
+  `relay/outbox-worker.ts` when a master's queued mail has gone.
+- An invoice is attached as its Print prints it: the dialog passes the person's saved print
+  columns (`readPrintSettings().columns`). An order's sheet is the SUPPLIER variant, and a role
+  that does not see costs gets it without expected prices, as from the export route.
+- **UI**: `ui-shared/components/BatchEmailBar.vue` (the bar in `ListScaffold`'s `#bulk-bar`, and
+  the dialog's owner), `BatchEmailDialog.vue`, `composables/useBatchEmail.ts` (the state and the
+  requests, without words; unit-tested with an injected `post`). Invoicing wraps them once:
+  `invoicing-ui/components/DocEmailBar.vue` + `composables/doc-email-access.ts`, which asks the
+  same `writesKind` the server does. A role that only reads ticks and clears, and sees no button.
+  - **„До клиента / доставчика"** (the default when a document has a partner): a line per partner
+    with the address on its card, each editable. A line left empty is not sent and its documents
+    stay ticked. **„До един адрес"**: one field, prefilled with the address this person last
+    mailed this kind to in this org (`lgr:doc-email-to-<kind>:<user>:<org>`, written only after a
+    mail to it went).
+  - One request per recipient per ten documents, one after the other. **503 `not_configured`,
+    401, 403 and 409 stop the rest** (`stopsTheBatch`); any other failure is that recipient's.
+  - Everything asked went → the dialog closes with a snackbar; otherwise it stays on the results.
+    Either way only what went leaves the selection (an order, when every sheet of it went).
+- **Another kind** (a stock movement's document) brings: two routes speaking `config/doc-email`'s
+  types; its own loading and rules, handing `emailDocuments` an `EmailableDocument` with a
+  `render` per document; a row for each route in BOTH route tables (`config/access/routes.ts`,
+  `services/biz/route-permission.ts`); and on its list
+  `<BatchEmailBar v-model:selected kind org-url preview-path email-path :may-email>`. A reason the
+  catalogue does not know needs a `docEmail.reason.<code>` key ×4, or it reads as its code.
+- ⚠ The outbox worker settles the send history of `invoice` entities only. A kind with a history
+  of its own adds its branch there, or a mail queued on a master never marks its document.
+- ⚠ The preview is a POST that reads, and is deliberately NOT in `route-class.ts#READ_ONLY_WRITES`:
+  an org that is read-only here could mail nothing (the mail writes `EmailLog` and audit rows), so
+  its dialog is told at once (409 `org_home_elsewhere`) instead of after the form is filled in.
+- ⚠ `lib/doc-email.ts#docEmailRenderers` is the seam a test swaps to mail without a browser: a
+  render is a fresh Chrome, and the suites ask who gets which file, not what the file looks like.
+- ⚠ Never "send" in a route or a handler name here either: `POST /invoices/:id/send` ISSUES.
+- ⚠ No mail leaves the e2e (`batch-email.spec.ts`): the mail request is answered by `page.route`,
+  and the one case that needs the server's own 503 first asks, with a draft that is never mailed,
+  whether the server can mail, and is skipped where it can.
+- Tests: `unit/doc-email`, `unit/doc-email-guards`, `unit/batch-email`,
+  `integration/doc-email-engine`, `integration/doc-email.flow`, `e2e/tests/batch-email.spec.ts`.
+
 ## FR-06 P2 — the rest of the report catalog (2026-08-26)
 
 P1 shipped the module; P2 fills it. The registry now holds **22 entries** and the claim
