@@ -29,6 +29,7 @@ mod proxy;
 mod logs;
 mod paths;
 mod settings;
+mod socket;
 mod status;
 mod trust;
 mod update;
@@ -1083,7 +1084,7 @@ fn start_presence(app: &AppHandle) {
                 handle.state::<AppState>().logger.info("presence: update requested by server");
                 let _ = handle.emit_to("main", "shell:update-requested", ());
             }
-            presence::Event::Disconnected(reason) => {
+            presence::Event::Disconnected(reason, why) => {
                 // ⚠ **Say it.** This arm used to emit to the UI and log NOTHING, so a till that
                 // could not reach its hub produced an empty log: the app ran, the Desktops page
                 // said offline, and there was nothing to go on. The bridge's own disconnect has
@@ -1092,29 +1093,35 @@ fn start_presence(app: &AppHandle) {
                 // ⚠ Consecutive identical reasons are suppressed. A server that is down for a
                 // day would otherwise write ~1,400 identical lines and push everything else out
                 // of a rotated log - but the FIRST one, and every CHANGE, is always recorded.
+                //
+                // ⚠ **And what happened** (lgr#811), after the words the lanes look for, which
+                // stay as they were. It is the first failure of a run of the same reason that is
+                // named: a link that worked and then broke always is, because `Authenticated`
+                // starts the run over.
                 let r = reason.as_str();
                 if last_reason != Some(r) {
                     last_reason = Some(r);
                     let st = handle.state::<AppState>();
+                    let what = if why.is_empty() { String::new() } else { format!(" ({why})") };
                     match reason {
-                        presence::DisconnectReason::Refused => st.logger.warn(
-                            "presence: the server refused this desktop's credential; retrying slowly",
-                        ),
+                        presence::DisconnectReason::Refused => st.logger.warn(&format!(
+                            "presence: the server refused this desktop's credential; retrying slowly{what}"
+                        )),
                         presence::DisconnectReason::Unreachable => st
                             .logger
-                            .warn("presence: the server did not answer; retrying with backoff"),
+                            .warn(&format!("presence: the server did not answer; retrying with backoff{what}")),
                         // #328: the line the first field lane looked for and never found.
                         presence::DisconnectReason::Silent => st.logger.warn(
                             "presence: the server said nothing for 75 s; the link is dead, reconnecting",
                         ),
                         presence::DisconnectReason::Closed => {
-                            st.logger.info("presence: socket closed, reconnecting")
+                            st.logger.info(&format!("presence: socket closed, reconnecting{what}"))
                         }
                         // ⚠ Names the TILL as the thing to look at. Reported as `Refused` this
                         // read as a hub problem, and the hub was never contacted.
-                        presence::DisconnectReason::NotConfigured => st.logger.warn(
-                            "presence: this machine cannot mint a credential (not registered, or no key); re-enrol it",
-                        ),
+                        presence::DisconnectReason::NotConfigured => st.logger.warn(&format!(
+                            "presence: this machine cannot mint a credential (not registered, or no key); re-enrol it{what}"
+                        )),
                     }
                 }
                 // ⚠ The STATE, not the literal `"unreachable"` this used to send for every
@@ -1316,10 +1323,12 @@ fn start_bridges(app: &AppHandle) {
                             .error(&format!("bridge: {label} refused ({code}); device {device_id} will not retry"));
                         let _ = h.emit_to("main", "shell:bridge-refused", code);
                     }
-                    bridge::Event::Disconnected(id) => h
+                    // ⚠ With what ended it (lgr#811). The line said only "disconnected", for a reset,
+                    // a TLS error, a port in use and a failed ping alike.
+                    bridge::Event::Disconnected { device_id, why } => h
                         .state::<AppState>()
                         .logger
-                        .warn(&format!("bridge: {label} disconnected (device {id}), retrying")),
+                        .warn(&format!("bridge: {label} disconnected (device {device_id}), retrying: {why}")),
                     bridge::Event::Silent(id) => h.state::<AppState>().logger.warn(&format!(
                         "bridge: {label} heard nothing from the hub for {} s (device {id}); connecting again",
                         bridge::SILENT_AFTER.as_secs()
