@@ -1943,6 +1943,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         throw e.failure
       }
       if (e instanceof IssueLostError) {
+        if (isBeingVoided(await Invoice.findOne({ _id: id, orgId }, { voidingUntil: 1 }).lean().exec() as any)) return status(409, { ...DOCUMENT_CLAIMED })
         return status(409, { code: 'bill_not_draft', message: `${draftNumber} is no longer a draft: another request is receiving or issuing it` })
       }
       throw e

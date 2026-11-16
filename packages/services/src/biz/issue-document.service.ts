@@ -5,6 +5,7 @@ import { createInvoiceStockMovement } from './invoicing.service.js'
 import { getNextInvoiceNumber } from './invoice-numbering.service.js'
 import { inTransaction } from './transaction.js'
 import { announceMovementConfirmed } from './warehouse.service.js'
+import { notBeingVoided } from './invoice-payment.js'
 
 /**
  * Issuing a document: `/send` (an invoice, a note, a quote, a bill issued there) and `/receive` (a
@@ -79,7 +80,8 @@ export interface IssueResult {
  *    and booked afresh (`resume`);
  * 2. the number, LAST, so a failed issue draws none and the counter is held for a moment (FR-29.11,
  *    D-3). Two issues at once meet on the counter; the later one runs again after the first commits;
- * 3. the status, the number and its history, only while the draft is still this request's.
+ * 3. the status, the number and its history, only while the draft is still this request's and no
+ *    void or attach has claimed it since (`notBeingVoided`).
  *
  * After the commit, the movements' `stock.movement.confirmed` (FR-29.7). The rest is the route's.
  *
@@ -112,7 +114,7 @@ export async function issueDocument(req: IssueRequest): Promise<IssueResult> {
         draftNumber,
         numberHistory,
         ...req.fields,
-      } as any, { status: 'draft', ...req.heldBy }, { session })
+      } as any, { status: 'draft', ...notBeingVoided(), ...req.heldBy }, { session })
       if (!written) throw new IssueLostError(draftNumber)
       return { issuedNumber, movements }
     })
