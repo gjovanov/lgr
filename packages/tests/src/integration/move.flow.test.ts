@@ -1,3 +1,5 @@
+import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
+import { tokenize } from 'services/biz/auth.service'
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -561,10 +563,12 @@ describe("the master's side (FR-20.79 steps 3–6)", () => {
 
 describe('the routes (FR-20.79)', () => {
   const signer = (new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret })) as any).decorator.jwt
-  const userToken = (u: any, orgId: string) => signer.sign({
-    id: String(u._id), email: u.email, username: u.username, firstName: u.firstName, lastName: u.lastName,
-    role: u.role, orgId, permissions: [...(u.permissions ?? [])],
-  })
+  // FR-27 P3-2: the role decides, so the shop's people get theirs (0015, exactly their access) and sign in as sign-in
+  // issues their session.
+  const userToken = async (u: any, orgId: string) => {
+    await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: { orgId: new mongoose.Types.ObjectId(orgId) } })
+    return signer.sign({ ...(await tokenize((await User.findById(u._id).exec())!)), orgId })
+  }
   const call = (path: string, init: RequestInit = {}) => app.handle(new Request(`http://localhost${path}`, init))
   const post = (body: unknown, token?: string): RequestInit => ({ method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) })
 

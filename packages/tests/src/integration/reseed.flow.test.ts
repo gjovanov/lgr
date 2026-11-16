@@ -1,3 +1,5 @@
+import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
+import { tokenize } from 'services/biz/auth.service'
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
@@ -236,9 +238,9 @@ describe("global's re-seed (FR-20.71)", () => {
   it('its routes answer for an org written on its server: the home gate lets them through', async () => {
     const s = await mirrored()
     const app = new Elysia().onError(spaErrorHandler({}) as any).use(moveController)
-    const token = await (new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret })) as any).decorator.jwt.sign({
-      id: String(s.anaId), orgId: String(s.orgId), role: 'admin', email: 'ana@reseed.test', username: 'ana', firstName: 'Ana', lastName: 'Shop', permissions: DEFAULT_ROLE_PERMISSIONS.admin, ownRecordsModules: [],
-    })
+    // FR-27 P3-2: the role decides, so Ana gets hers (0015, exactly her access) and signs in as sign-in issues it.
+    await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: { orgId: s.orgId } })
+    const token = await (new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret })) as any).decorator.jwt.sign(await tokenize((await User.findById(s.anaId).exec())!))
     const call = async (path: string, body: unknown = {}) => {
       const res = await app.handle(new Request(`http://localhost/org/${String(s.orgId)}/moves${path}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(body) }))
       return { status: res.status, json: await res.json().catch(() => null) as any }
