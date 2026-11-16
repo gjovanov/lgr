@@ -36,6 +36,9 @@ beforeAll(async () => {
   // A service account on a set of its own: 0015 gives it an imported role with exactly that.
   const set = await PermissionSet.create({ orgId: custom._id, name: 'Service: books import', permissions: ['accounting.import'], areas: [], isAdmin: false, isDefault: false, isSystem: false } as any)
   await createTestUser(custom._id, { role: 'member', username: 'svc', email: 'svc@all.test', permissions: ['accounting.import'], permissionSetIds: [set._id] } as any)
+  // The factory gives every person a role (FR-27 P3-4); these orgs are production's 84 as they were on legacy, before
+  // 0015 gave their newcomers one: nobody has a role, so `--set shadow` is what gives them.
+  await User.updateMany({}, { $unset: { roleId: 1 } }).exec()
 }, 60_000)
 
 afterAll(async () => { await teardownTestDB() }, 60_000)
