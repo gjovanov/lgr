@@ -1,5 +1,6 @@
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
+import { tokenize } from 'services/biz/auth.service'
 import type { Types } from 'mongoose'
 import {
   createTestOrg,
@@ -96,23 +97,27 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
     registered.push(deviceId)
   }
 
-  /** The cashier's token under another role, with that role's own permissions. */
-  const tokenAs = (asRole: string): Promise<string> => (signer as any).decorator.jwt.sign({
-    id: String(user._id), orgId, role: asRole, email: 'cashier@test.com', username: 'cashier',
-    firstName: 'Иван', lastName: 'Петров', operatorCode: '0001',
-    permissions: DEFAULT_ROLE_PERMISSIONS[asRole as keyof typeof DEFAULT_ROLE_PERMISSIONS] || DEFAULT_ROLE_PERMISSIONS.admin,
-    ownRecordsModules: [],
-  })
+  /**
+   * A token under a role. The world's own role is the cashier's own session. Another role is a person of its own
+   * holding that built-in role, each with an operator code of its own: since FR-27 P3-2 the role decides, so a token
+   * of the cashier with another role's claims written over it would be the cashier, deciding as the cashier.
+   */
+  const byRole = new Map<string, string>()
+  let nextOperator = 10
+  const tokenAs = async (asRole: string): Promise<string> => {
+    if (asRole === role) return (signer as any).decorator.jwt.sign(await tokenize(user))
+    const known = byRole.get(asRole)
+    if (known) return known
+    const person = await createTestUser(org._id, { role: asRole, operatorCode: String(++nextOperator).padStart(4, '0'), firstName: 'Иван', lastName: 'Петров' } as any)
+    const signed = await (signer as any).decorator.jwt.sign(await tokenize(person))
+    byRole.set(asRole, signed)
+    return signed
+  }
   const token = await tokenAs(role)
 
   // A back-office clerk with no session of their own: their cash sales stay sessionless (FR-21.31).
   const clerk = await createTestUser(org._id, { operatorCode: '0002', role } as any)
-  const clerkToken = await (signer as any).decorator.jwt.sign({
-    id: String(clerk._id), orgId, role, email: 'clerk@test.com', username: 'clerk',
-    firstName: 'Мария', lastName: 'Иванова', operatorCode: '0002',
-    permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || DEFAULT_ROLE_PERMISSIONS.admin,
-    ownRecordsModules: [],
-  })
+  const clerkToken = await (signer as any).decorator.jwt.sign(await tokenize(clerk))
 
   async function call(method: string, path: string, body?: any, key?: string, as = token) {
     const res = await app.handle(new Request(`http://localhost/org/${orgId}${path}`, {

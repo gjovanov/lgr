@@ -3,11 +3,11 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import {
-  createTestOrg, createTestUser, createTestWarehouse, createTestProduct, createTestContact,
-  createTestPOSSession, createTestPOSTransaction, createTestInvoice, createTestStockMovement,
+  createTestOrg, createTestUser, createTestWarehouse, createTestProduct, createTestContact, createTestPOSSession, createTestPOSTransaction, createTestInvoice, createTestStockMovement,
 } from '../helpers/factories'
 import { migrateTill } from '../helpers/migrate-till'
-import { Invoice, POSTransaction } from 'db/models'
+import { Invoice, POSTransaction, User } from 'db/models'
+import { tokenize } from 'services/biz/auth.service'
 import { fromPosTransaction } from 'services/biz/cash-register/mapping'
 import { cashRegisterController } from 'invoicing-api/src/controllers/cash-register.controller'
 import { config } from 'config'
@@ -34,11 +34,15 @@ afterAll(async () => { await teardownTestDB() }, 60_000)
 afterEach(async () => { await clearCollections() })
 
 const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
-function tokenFor(userId: string, orgId: string, role = 'admin', extra: Record<string, any> = {}) {
-  return (signer as any).decorator.jwt.sign({
-    id: userId, orgId, role, email: `${role}@test.com`, username: role, firstName: 'A', lastName: 'B',
-    operatorCode: '0001', permissions: (DEFAULT_ROLE_PERMISSIONS as any)[role] || [], ownRecordsModules: [], ...extra,
-  })
+/**
+ * A session as sign-in issues it, with `extra` claims on top (`amr`, …). FR-27 P3-2: the role decides, so `role` is a
+ * person holding that built-in role; the world's own person (an admin) stands for 'admin'.
+ */
+async function tokenFor(userId: string, orgId: string, role = 'admin', extra: Record<string, any> = {}) {
+  const person = role === 'admin'
+    ? await User.findById(userId).exec()
+    : await createTestUser(orgId as any, { role, username: `${role}-${Math.random().toString(36).slice(2, 8)}` } as any)
+  return (signer as any).decorator.jwt.sign({ ...(await tokenize(person as any)), orgId, ...extra })
 }
 
 /** Instants in Sofia time (UTC+3 in October). */
