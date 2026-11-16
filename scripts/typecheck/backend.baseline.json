@@ -1,0 +1,283 @@
+{
+  "packages/accounting-api/src/controllers/analytic.controller.ts": {
+    "TS2345": 1
+  },
+  "packages/accounting-api/src/controllers/bank-account.controller.ts": {
+    "TS18047": 3
+  },
+  "packages/accounting-api/src/controllers/exchange-rate.controller.ts": {
+    "TS18047": 3
+  },
+  "packages/accounting-api/src/controllers/fiscal-period.controller.ts": {
+    "TS18047": 3,
+    "TS2339": 5
+  },
+  "packages/accounting-api/src/controllers/fiscal-position.controller.ts": {
+    "TS18047": 3
+  },
+  "packages/accounting-api/src/controllers/fiscal-year.controller.ts": {
+    "TS18047": 3
+  },
+  "packages/accounting-api/src/controllers/fixed-asset.controller.ts": {
+    "TS18047": 3
+  },
+  "packages/accounting-api/src/controllers/journal-config.controller.ts": {
+    "TS18047": 3
+  },
+  "packages/accounting-api/src/controllers/payment-term.controller.ts": {
+    "TS18047": 3
+  },
+  "packages/accounting-api/src/controllers/reconciliation.controller.ts": {
+    "TS18047": 12
+  },
+  "packages/accounting-api/src/controllers/tax-return.controller.ts": {
+    "TS18047": 3
+  },
+  "packages/accounting-api/src/controllers/vat.controller.ts": {
+    "TS18047": 2
+  },
+  "packages/config/src/access/levels.ts": {
+    "TS7053": 1
+  },
+  "packages/dal-mongo/src/accounting.repositories.ts": {
+    "TS2724": 1
+  },
+  "packages/dal/src/lookup.ts": {
+    "TS7053": 1
+  },
+  "packages/db/src/plugins/lowered-fields.plugin.ts": {
+    "TS2578": 1
+  },
+  "packages/fiscal/src/bridge.ts": {
+    "TS2322": 1
+  },
+  "packages/invoicing-api/src/controllers/cash-order.controller.ts": {
+    "TS18047": 5
+  },
+  "packages/invoicing-api/src/controllers/internal-order.controller.ts": {
+    "TS2345": 1,
+    "TS2353": 3
+  },
+  "packages/invoicing-api/src/controllers/invoice-export.controller.ts": {
+    "TS2345": 11
+  },
+  "packages/invoicing-api/src/controllers/invoice.controller.ts": {
+    "TS2353": 3
+  },
+  "packages/invoicing-api/src/controllers/order.controller.ts": {
+    "TS2345": 2,
+    "TS2353": 4
+  },
+  "packages/invoicing-api/src/controllers/payment-order.controller.ts": {
+    "TS18047": 5
+  },
+  "packages/invoicing-api/src/controllers/reservation.controller.ts": {
+    "TS2353": 5
+  },
+  "packages/invoicing-api/src/lib/cash-register-till.ts": {
+    "TS2459": 1
+  },
+  "packages/invoicing-api/src/lib/counter-receipt.ts": {
+    "TS2345": 1
+  },
+  "packages/migrations/src/migrations/0005-granular-permissions.ts": {
+    "TS7006": 1
+  },
+  "packages/migrations/src/migrations/0010-invoice-number-clash.ts": {
+    "TS7006": 1
+  },
+  "packages/migrations/src/migrations/0012-printer-gate-off.ts": {
+    "TS2307": 1,
+    "TS7006": 1
+  },
+  "packages/migrations/src/migrations/0013-accounting-file-permission.ts": {
+    "TS7006": 1
+  },
+  "packages/migrations/src/migrations/0014-seller-permission-sets.ts": {
+    "TS2307": 1,
+    "TS2339": 1,
+    "TS7006": 1
+  },
+  "packages/migrations/src/migrations/0015-roles-from-sets.ts": {
+    "TS2307": 1,
+    "TS2339": 1,
+    "TS7006": 6
+  },
+  "packages/migrations/src/runner.ts": {
+    "TS2307": 1,
+    "TS2339": 2,
+    "TS2345": 2,
+    "TS7006": 5
+  },
+  "packages/migrations/src/types.ts": {
+    "TS2307": 1
+  },
+  "packages/payroll-api/src/controllers/payslip.controller.ts": {
+    "TS18047": 3
+  },
+  "packages/payroll-api/src/controllers/timesheet.controller.ts": {
+    "TS18047": 5
+  },
+  "packages/portal-api/src/api.ts": {
+    "TS2589": 23
+  },
+  "packages/portal-api/src/controllers/auth.controller.ts": {
+    "TS2322": 2
+  },
+  "packages/portal-api/src/controllers/invite.controller.ts": {
+    "TS2322": 1
+  },
+  "packages/portal-api/src/controllers/org-logo.controller.ts": {
+    "TS2345": 1
+  },
+  "packages/portal-api/src/controllers/org.controller.ts": {
+    "TS2559": 2
+  },
+  "packages/portal-api/src/controllers/pos-payment-method.controller.ts": {
+    "TS18047": 3
+  },
+  "packages/portal-api/src/controllers/stripe.controller.ts": {
+    "TS2345": 1
+  },
+  "packages/portal-api/src/controllers/user.controller.ts": {
+    "TS2322": 1
+  },
+  "packages/portal-api/src/front/control-socket.ts": {
+    "TS2345": 1
+  },
+  "packages/portal-api/src/tunnel/streams.ts": {
+    "TS18048": 1
+  },
+  "packages/portal-api/src/websocket/ws.server.ts": {
+    "TS2707": 1,
+    "TS7006": 3
+  },
+  "packages/reporting/src/excel/companion-doc.excel.ts": {
+    "TS2322": 1
+  },
+  "packages/reporting/src/excel/invoicing-list.excel.ts": {
+    "TS2322": 1,
+    "TS2353": 1
+  },
+  "packages/reporting/src/excel/invoicing-single.excel.ts": {
+    "TS2322": 1
+  },
+  "packages/reporting/src/pdf/base.pdf.ts": {
+    "TS7016": 1
+  },
+  "packages/reporting/src/pdf/payslip.pdf.ts": {
+    "TS18048": 3,
+    "TS2339": 2
+  },
+  "packages/reports-api/src/controllers/report.controller.ts": {
+    "TS2322": 2,
+    "TS2345": 2
+  },
+  "packages/services/src/biz/access/evaluate.ts": {
+    "TS2345": 1
+  },
+  "packages/services/src/biz/access/role.service.ts": {
+    "TS2322": 1,
+    "TS2339": 1
+  },
+  "packages/services/src/biz/accounting-books/plusminus-archive.ts": {
+    "TS2322": 1
+  },
+  "packages/services/src/biz/accounting-books/registry.ts": {
+    "TS2307": 1
+  },
+  "packages/services/src/biz/audit-log.service.ts": {
+    "TS2339": 4,
+    "TS2503": 1
+  },
+  "packages/services/src/biz/auth.service.ts": {
+    "TS2322": 1
+  },
+  "packages/services/src/biz/backup/backup-files.service.ts": {
+    "TS2345": 1
+  },
+  "packages/services/src/biz/backup/backup-runner.service.ts": {
+    "TS2322": 1
+  },
+  "packages/services/src/biz/cash-sale-invoice.service.ts": {
+    "TS2365": 1
+  },
+  "packages/services/src/biz/cloud-storage.service.ts": {
+    "TS2322": 1
+  },
+  "packages/services/src/biz/company-lookup.service.ts": {
+    "TS2769": 2
+  },
+  "packages/services/src/biz/doc-import/analyze.ts": {
+    "TS2345": 1
+  },
+  "packages/services/src/biz/doc-import/ocr-client.ts": {
+    "TS2322": 1
+  },
+  "packages/services/src/biz/doc-import/persist.ts": {
+    "TS2353": 1
+  },
+  "packages/services/src/biz/files/doc-pipeline.service.ts": {
+    "TS2322": 1,
+    "TS2345": 2
+  },
+  "packages/services/src/biz/files/doc-store.service.ts": {
+    "TS2345": 1
+  },
+  "packages/services/src/biz/move/fenced-export.service.ts": {
+    "TS2345": 2
+  },
+  "packages/services/src/biz/move/fenced-import.service.ts": {
+    "TS2339": 2
+  },
+  "packages/services/src/biz/node/inspection.service.ts": {
+    "TS2322": 1
+  },
+  "packages/services/src/biz/payroll/bg/elements.ts": {
+    "TS2345": 1
+  },
+  "packages/services/src/biz/payroll/bg/engine.ts": {
+    "TS2322": 1,
+    "TS2353": 1
+  },
+  "packages/services/src/biz/permission-set.service.ts": {
+    "TS2352": 1
+  },
+  "packages/services/src/biz/product-ledger.service.ts": {
+    "TS2345": 6
+  },
+  "packages/services/src/biz/replication/blob-source.ts": {
+    "TS2504": 1
+  },
+  "packages/services/src/biz/replication/mirror-blobs.ts": {
+    "TS2504": 1
+  },
+  "packages/services/src/biz/stripe.service.ts": {
+    "TS2339": 4
+  },
+  "packages/services/src/dao/user.dao.ts": {
+    "TS2416": 1
+  },
+  "packages/services/src/dao/warehouse/stock-level.dao.ts": {
+    "TS2352": 1
+  },
+  "packages/services/src/events/handlers.ts": {
+    "TS2322": 1
+  },
+  "packages/warehouse-api/src/controllers/inventory-count.controller.ts": {
+    "TS18047": 5,
+    "TS2345": 2
+  },
+  "packages/warehouse-api/src/controllers/operation-type.controller.ts": {
+    "TS18047": 3
+  },
+  "packages/warehouse-api/src/controllers/price-list.controller.ts": {
+    "TS18047": 2
+  },
+  "packages/warehouse-api/src/controllers/stock-location.controller.ts": {
+    "TS18047": 3
+  },
+  "packages/warehouse-api/src/controllers/stock-lot.controller.ts": {
+    "TS18047": 3
+  }
+}

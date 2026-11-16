@@ -1,0 +1,34 @@
+{
+  // FR-32.1 (#797): the one strict base every package's tsconfig.json extends.
+  //
+  // ⚠ Nothing compiles with these files. Bun runs the sources and Vite strips the types, so a
+  // type error never stopped anything until `scripts/typecheck.ts` (the CI job `typecheck`)
+  // started reading them. They exist for that check and for the editor: `noEmit` throughout.
+  //
+  // A package's own tsconfig.json says only what is its own: the runtime's types (`bun` for the
+  // server, the DOM for a UI module) and what it includes.
+  //
+  // ⚠ These files are READ by the builds, not only by the check: Bun and Vite's esbuild both take
+  // `useDefineForClassFields` from the tsconfig.json nearest each file, and before these files
+  // existed the two did OPPOSITE things with a class field. Bun kept it a class field (`seq = …`),
+  // Vite made it an assignment in the constructor. Each preset keeps what its builder did:
+  // nothing is set here, so Bun's packages keep `target: ESNext`'s default (define, as Bun did),
+  // and `tsconfig.dom.json` pins `false` for Vite's. Set here, `false` turned the server's class
+  // fields into assignments, and Bun.build did not even do it every time (the server package's
+  // reproducibility check caught two builds of one commit that differed). Changing either is a
+  // behaviour change of its own.
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext"],
+    "types": [],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}
