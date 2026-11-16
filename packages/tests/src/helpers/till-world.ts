@@ -1,6 +1,8 @@
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { tokenize } from 'services/biz/auth.service'
+import { forgetMember } from 'services/biz/access/live'
+import { Role, User } from 'db/models'
 import type { Types } from 'mongoose'
 import {
   createTestOrg,
@@ -98,20 +100,25 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
   }
 
   /**
-   * A token under a role. The world's own role is the cashier's own session. Another role is a person of its own
-   * holding that built-in role, each with an operator code of its own: since FR-27 P3-2 the role decides, so a token
-   * of the cashier with another role's claims written over it would be the cashier, deciding as the cashier.
+   * The cashier's token under a role (FR-27 P3-2). The role decides, read live from the person, so a token cannot
+   * carry another role's claims as it used to. A tokenAs token is the cashier's own, tagged with the role it stands
+   * for, and `call` puts the cashier on that built-in role just before its request: the same person (their open
+   * session, their operator code), holding another role, as these tests mean.
    */
-  const byRole = new Map<string, string>()
-  let nextOperator = 10
+  const roleOfToken = new Map<string, string>()
   const tokenAs = async (asRole: string): Promise<string> => {
-    if (asRole === role) return (signer as any).decorator.jwt.sign(await tokenize(user))
-    const known = byRole.get(asRole)
-    if (known) return known
-    const person = await createTestUser(org._id, { role: asRole, operatorCode: String(++nextOperator).padStart(4, '0'), firstName: 'Иван', lastName: 'Петров' } as any)
-    const signed = await (signer as any).decorator.jwt.sign(await tokenize(person))
-    byRole.set(asRole, signed)
+    const signed = await (signer as any).decorator.jwt.sign({ ...(await tokenize(user)), testRole: asRole })
+    roleOfToken.set(signed, asRole)
     return signed
+  }
+  let current = role
+  async function actAs(asRole: string) {
+    if (asRole === current) return
+    const builtin: any = await Role.findOne({ orgId: org._id, isBuiltin: true, templateKey: asRole }).lean().exec()
+    if (!builtin) throw new Error(`till-world: no built-in role "${asRole}"`)
+    await User.updateOne({ _id: user._id }, { $set: { roleId: builtin._id } }).exec()
+    forgetMember(user._id)
+    current = asRole
   }
   const token = await tokenAs(role)
 
@@ -120,6 +127,8 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
   const clerkToken = await (signer as any).decorator.jwt.sign(await tokenize(clerk))
 
   async function call(method: string, path: string, body?: any, key?: string, as = token) {
+    const asRole = roleOfToken.get(as)
+    if (asRole) await actAs(asRole)
     const res = await app.handle(new Request(`http://localhost/org/${orgId}${path}`, {
       method,
       headers: { 'content-type': 'application/json', authorization: `Bearer ${as}`, ...(key ? { 'idempotency-key': key } : {}) },
