@@ -9,6 +9,8 @@
     :kpis="kpis"
     :view="viewMode"
     :has-active-filters="hasActiveFilters"
+    selectable
+    v-model:selected="ticked"
     :empty="{ icon: 'mdi-file-document-outline', title: $t('list.empty.invoices'), description: $t('list.empty.invoicesHint') }"
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
     @update:options="onUpdateOptions"
@@ -47,6 +49,11 @@
 
     <template #empty-actions>
       <CreateButton :label="create.label" :to="create.to" :more="create.more" :more-label="$t('invoicing.createOther')" />
+    </template>
+
+    <!-- The ticked documents by e-mail: each to its customer, or all to one address. -->
+    <template #bulk-bar>
+      <DocEmailBar v-model:selected="ticked" kind="invoice" :may-email="mailsTicked" />
     </template>
 
     <!-- Cell renderers -->
@@ -226,11 +233,13 @@ import type { StatCardDef } from 'ui-shared/components/StatCard.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useRowEmail } from '../composables/useRowEmail'
+import { useDocEmailAccess } from '../composables/doc-email-access'
 import { useDocumentIssue } from '../composables/useDocumentIssue'
 import { useRowPrint } from '../composables/useRowPrint'
 import * as can from '../composables/document-row-actions'
 import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import RecordPaymentDialog from '../components/RecordPaymentDialog.vue'
+import DocEmailBar from '../components/DocEmailBar.vue'
 
 interface Invoice {
   _id: string
@@ -268,6 +277,10 @@ const {
   send: sendRowEmail,
 } = useRowEmail()
 const { printRow } = useRowPrint()
+
+// The ticked rows by e-mail (their ids, so a tick holds across pages and filters), for a role that works on sales documents.
+const ticked = ref<string[]>([])
+const mailsTicked = useDocEmailAccess().invoices('sales')
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')

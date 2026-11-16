@@ -8,6 +8,8 @@
     :pagination="pagination"
     :view="viewMode"
     :has-active-filters="hasActiveFilters"
+    selectable
+    v-model:selected="ticked"
     :empty="{ icon: 'mdi-file-sign', title: $t('list.empty.offer'), description: $t('list.empty.offerHint') }"
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
     @update:options="onUpdateOptions"
@@ -32,6 +34,11 @@
 
     <template #empty-actions>
       <CreateButton :label="$t('invoicing.newOffer')" :to="{ name: 'invoicing.offer.new' }" />
+    </template>
+
+    <!-- The ticked offers by e-mail: each to its customer, or all to one address. -->
+    <template #bulk-bar>
+      <DocEmailBar v-model:selected="ticked" kind="invoice" :may-email="mailsTicked" />
     </template>
 
     <!-- Cell renderers -->
@@ -158,9 +165,11 @@ import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useRowEmail } from '../composables/useRowEmail'
+import { useDocEmailAccess } from '../composables/doc-email-access'
 import { useDocumentIssue } from '../composables/useDocumentIssue'
 import { useRowPrint } from '../composables/useRowPrint'
 import * as can from '../composables/document-row-actions'
+import DocEmailBar from '../components/DocEmailBar.vue'
 
 /**
  * Offers („оферти") — the quotes a customer is made before a proforma or an invoice. The proforma's list,
@@ -192,6 +201,10 @@ const {
   send: sendRowEmail,
 } = useRowEmail()
 const { printRow } = useRowPrint()
+
+// The ticked rows by e-mail (their ids, so a tick holds across pages and filters), for a role that works on quotes.
+const ticked = ref<string[]>([])
+const mailsTicked = useDocEmailAccess().invoices('proforma')
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
