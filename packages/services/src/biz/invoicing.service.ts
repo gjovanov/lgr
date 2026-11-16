@@ -1,9 +1,10 @@
 import type { RepositoryRegistry } from 'dal'
-import type { IInvoice } from 'dal/entities'
+import type { IInvoice, IStockMovement } from 'dal/entities'
+import type { ClientSession } from 'mongoose'
 import { QUOTE_TYPES, isQuoteType } from 'config/constants'
-import { Reservation, Product } from 'db/models'
+import { Reservation, Product, StockMovement } from 'db/models'
 import { getRepos } from '../context.js'
-import { confirmMovement } from './warehouse.service.js'
+import { confirmMovement, MovementClaimedError, unclaimedMovement } from './warehouse.service.js'
 import { loadAllocationSupply } from './reservation.service.js'
 import { restoreCostLayers } from './costing.service.js'
 import { createNumberedMovement } from './movement-number.js'
@@ -501,14 +502,39 @@ async function returnCostOf(invoice: IInvoice, r: RepositoryRegistry): Promise<(
   }
 }
 
-export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean }): Promise<void> {
+export interface InvoiceStockOptions {
+  /** Migration imports dispatch goods not yet in stock. */
+  allowNegative?: boolean
+  /**
+   * The issue's transaction (FR-29.8): each movement is written in it and booked joined
+   * (`confirmMovement`'s `session`). The caller announces the movements it gets back after its commit.
+   */
+  session?: ClientSession
+  /**
+   * FR-29.9: finish what an earlier attempt of this document's issue left. Per warehouse, a completed
+   * movement that carries the document's id is kept, and its goods are not booked again; a draft one is
+   * removed and booked afresh from the document as it stands, never skipped. Without it every warehouse
+   * books, as every other caller wants.
+   */
+  resume?: boolean
+}
+
+/** A movement the stock already holds: `confirmMovement` leaves `completed`, older paths `confirmed`. */
+const isBooked = (m: { status?: string }) => m.status === 'completed' || m.status === 'confirmed'
+
+/**
+ * Book a document's goods: one movement per warehouse, each confirmed. Returns the movements booked by
+ * this call (none for a document that moves no stock).
+ */
+export async function createInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: InvoiceStockOptions): Promise<IStockMovement[]> {
   const r = repos ?? getRepos()
-  if (movesNoStock(invoice, 'book')) return
+  if (movesNoStock(invoice, 'book')) return []
 
   const booking = await stockBooking(invoice)
   if (booking.refusal) throw new Error(booking.refusal.message)
   const productLines = booking.lines
-  if (!productLines.length) return
+  if (!productLines.length) return []
+  const session = opts?.session
 
   const orgId = invoice.orgId
 
@@ -538,18 +564,37 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
     stockSide = 'to'
   }
 
+  // FR-29.9: what an earlier attempt left. A booked movement stands for its warehouse; a draft is never
+  // skipped (its goods did not move, and confirmed later from the movements list they would move twice).
+  if (opts?.resume) {
+    const sideOf = (m: any) => String(stockSide === 'from' ? m.fromWarehouseId : m.toWarehouseId)
+    const left: any[] = await r.stockMovements.findMany({ orgId, invoiceId: invoice.id, type: movementType } as any, undefined, { session })
+    const booked = new Set(left.filter(isBooked).map(sideOf))
+    for (const draft of left.filter(m => m.status === 'draft')) {
+      // Removed only while nobody confirms it from the movements list: that one is let finish.
+      const gone = await StockMovement.deleteOne({ _id: draft.id, orgId, status: 'draft', ...unclaimedMovement() } as any, session ? { session } : {}).exec()
+      if (!gone.deletedCount) throw new MovementClaimedError(draft.movementNumber)
+      logger.info({ invoiceId: invoice.id, movementId: draft.id }, 'Draft movement an earlier issue left: removed, booked again')
+    }
+    for (const warehouseId of booked) byWarehouse.delete(warehouseId)
+    if (!byWarehouse.size) return []
+  }
+  const linesToBook = [...byWarehouse.values()].flat()
+
   // Validate stock availability for dispatch movements (outgoing).
   // Migration imports pass allowNegative to permit dispatching items not yet in stock.
   // Incoming credit notes reduce stock too but deliberately skip validation — returning
   // more than is on hand is an operational reality the correction itself documents.
   if (movementType === 'dispatch' && !opts?.allowNegative) {
-    await validateStockAvailability(orgId, productLines, r)
+    await validateStockAvailability(orgId, linesToBook, r)
   }
 
   // ⚠ `unitCost` stays the document's price, as on every invoice-born line: FR-07 and the digest read their value
   // columns off it. What the goods are worth is `resolvedUnitCost`, which stock, the layers and the valuation entry read.
   const comesBackAt = movementType === 'return' && stockSide === 'to' ? await returnCostOf(invoice, r) : null
 
+  const booked: IStockMovement[] = []
+  // Its reads (`comesBackAt`) are outside the session, so they may run at once.
   for (const [warehouseId, lines] of byWarehouse) {
     const movementLines = await Promise.all(lines.map(async l => ({
       productId: l.productId!,
@@ -571,12 +616,13 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
       lines: movementLines,
       totalAmount,
       createdBy: userId,
-    } as any)
+    } as any, { session })
 
-    await confirmMovement(movement.id, r)
+    booked.push(await confirmMovement(movement.id, r, { session }))
   }
 
   logger.info({ invoiceId: invoice.id, movementType }, 'Invoice stock movement created')
+  return booked
 }
 
 export async function reverseInvoiceStockMovement(invoice: IInvoice, userId: string, repos?: RepositoryRegistry, opts?: { allowNegative?: boolean; note?: string }): Promise<void> {

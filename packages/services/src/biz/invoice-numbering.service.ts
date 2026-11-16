@@ -11,7 +11,7 @@ import { Invoice } from 'db/models'
 import { mongoose } from 'db/connection'
 import {
   CONTINUOUS_PAD, getNextNumber, getNextContinuousNumber, getCurrentNumber, highestCounter, isContinuousSeries,
-  ensureSequenceAtLeast, getDisplayPrefix, isLegalSeries, seriesFrozenSince, SeriesFrozenError,
+  ensureSequenceAtLeast, getDisplayPrefix, isLegalSeries, seriesFrozenSince, SeriesFrozenError, type SequenceOptions,
 } from './sequence.service.js'
 import {
   INVOICING_SEQUENCE_KEYS,
@@ -178,7 +178,7 @@ export async function resolveDisplayPrefix(orgId: string, typePrefix: string, co
   return typePrefix
 }
 
-export async function getNextInvoiceNumber(orgId: string, direction: string, type?: string): Promise<string> {
+export async function getNextInvoiceNumber(orgId: string, direction: string, type?: string, opts?: SequenceOptions): Promise<string> {
   const t = type || 'invoice'
   const key = sequenceKeyFor(t, direction)
   const year = new Date().getFullYear()
@@ -187,7 +187,7 @@ export async function getNextInvoiceNumber(orgId: string, direction: string, typ
   // (the yearly ones issued before the switch, and the ones an import brought with it).
   if (await isContinuousSeries(orgId, key)) {
     const floor = await currentMaxSuffix(orgId, key, year, { everyYear: true })
-    const n = await getNextContinuousNumber(orgId, key, floor, year)
+    const n = await getNextContinuousNumber(orgId, key, floor, year, opts)
     const display = (await resolveDocPrefix(orgId, t, direction, 'issued')) || prefixFor(t, direction)
     return continuousNumber(display, n)
   }
@@ -196,11 +196,11 @@ export async function getNextInvoiceNumber(orgId: string, direction: string, typ
   // same prefix group (fixes legacy data where the per-prefix counter pre-dated SALES_DOC,
   // or where seeds inserted invoiceNumbers directly without bumping a counter).
   const minValue = await currentMaxSuffix(orgId, key, year)
-  if (minValue > 0) await ensureSequenceAtLeast(orgId, key, year, minValue)
+  if (minValue > 0) await ensureSequenceAtLeast(orgId, key, year, minValue, opts)
 
   // Atomic $inc. Shared key → shared counter. The counter value is formatted with the
   // org's configured prefix (SALES_DOC=11 → "INV-2026-00011" or "CRN-2026-00011" etc.).
-  const numberFromService = await getNextNumber(orgId, key, 5, year)
+  const numberFromService = await getNextNumber(orgId, key, 5, year, opts)
   const seqPart = numberFromService.split('-').pop()!
   const display = (await resolveDocPrefix(orgId, t, direction, 'issued')) || prefixFor(t, direction)
   return `${display}-${year}-${seqPart}`

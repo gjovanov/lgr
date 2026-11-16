@@ -1,4 +1,4 @@
-import type { RepositoryRegistry } from 'dal'
+import type { DalSession, RepositoryRegistry } from 'dal'
 import { StockMovement } from 'db/models'
 import { logger } from '../logger/logger.js'
 
@@ -30,9 +30,9 @@ const WIDTH = 5
  * The latest number of exactly `digits` digits, or null. The latest one only, from the index: listing a year's
  * movements to read the first was the cost of a number in an org with thousands of them.
  */
-async function latestOfWidth(orgId: string, prefix: string, digits: number): Promise<number | null> {
+async function latestOfWidth(orgId: string, prefix: string, digits: number, session?: DalSession): Promise<number | null> {
   const row: any = await StockMovement
-    .findOne({ orgId, movementNumber: { $regex: `^${prefix}[0-9]{${digits}}$` } } as any, { movementNumber: 1, _id: 0 })
+    .findOne({ orgId, movementNumber: { $regex: `^${prefix}[0-9]{${digits}}$` } } as any, { movementNumber: 1, _id: 0 }, session ? { session: session as any } : {})
     .sort({ movementNumber: -1 })
     .lean()
     .exec()
@@ -40,7 +40,7 @@ async function latestOfWidth(orgId: string, prefix: string, digits: number): Pro
 }
 
 /** The org's next number. Read, not reserved: write under it through `withMovementNumber`. */
-export async function nextMovementNumber(orgId: string): Promise<string> {
+export async function nextMovementNumber(orgId: string, session?: DalSession): Promise<string> {
   const prefix = `SM-${new Date().getFullYear()}-`
   // ⚠ The numbers are text in the index, so `…-99999` sorts after `…-100000`. Read as one list, the latest
   // stopped at 99999, and from the 100 001st movement of a year on every creator was offered a taken number
@@ -48,7 +48,7 @@ export async function nextMovementNumber(orgId: string): Promise<string> {
   // wider one only when the width before it is used up: below 99 999 that is the one read it always was.
   let latest = 0
   for (let digits = WIDTH; ; digits++) {
-    const found = await latestOfWidth(orgId, prefix, digits)
+    const found = await latestOfWidth(orgId, prefix, digits, session)
     if (found === null) break
     latest = found
     if (found < 10 ** digits - 1) break
@@ -94,7 +94,18 @@ export async function withMovementNumber<T>(orgId: string, write: (movementNumbe
   }
 }
 
-/** Create a stock movement under the org's next number (`withMovementNumber`), through the DAL. */
-export function createNumberedMovement(repos: RepositoryRegistry, orgId: string, data: Record<string, any>): Promise<any> {
+/**
+ * Create a stock movement under the org's next number (`withMovementNumber`), through the DAL.
+ *
+ * With a `session` (FR-29.8) it is written inside that transaction and tried once: a taken number has
+ * aborted the transaction, so trying the next one in it would fail. The duplicate key goes up to
+ * `inTransaction`, which runs the whole transaction again and reads the next number then.
+ */
+export function createNumberedMovement(repos: RepositoryRegistry, orgId: string, data: Record<string, any>, opts?: { session?: DalSession }): Promise<any> {
+  if (opts?.session) {
+    // ⚠ Read through the session: a document booked into two warehouses writes two movements in one
+    // transaction, and read outside it the second would be given the first one's number.
+    return nextMovementNumber(orgId, opts.session).then(movementNumber => repos.stockMovements.create({ ...data, orgId, movementNumber } as any, { session: opts.session }))
+  }
   return withMovementNumber(orgId, movementNumber => repos.stockMovements.create({ ...data, orgId, movementNumber } as any))
 }

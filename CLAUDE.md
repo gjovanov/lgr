@@ -1568,7 +1568,7 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
 
 ## Draft+Issued Invoice Numbering (2026-04-28)
 
-Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales skip drafts (CS direct). On `/send` or `/receive`, the controller allocates a new issued number from the canonical SALES_DOC/PROFORMA/OFFER/BILL counter, sets `draftNumber = previousInvoiceNumber`, replaces `invoiceNumber`, and appends to `numberHistory[]`. Display prefix override (per-org-global) lives on the Sequence year=0 sentinel doc; future allocations only. **Documents are editable in EVERY status** — PUT applies no status or posting check. The edit-sent guard (409 when a posted JournalEntry referenced the invoice, with credit-note remediation) was **removed**; ⚠ an edit to a posted document does NOT re-post, so the JournalEntry keeps its pre-edit amounts and trial balance / P&L / balance sheet report the stale figures with nothing marking them so — repost is manual. DELETE keeps its draft-only guard. Configuration page at `/invoicing/configuration/sequences` (admin/manager only).
+Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales skip drafts (CS direct). On `/send` or `/receive`, `issueDocument` allocates a new issued number from the canonical SALES_DOC/PROFORMA/OFFER/BILL counter (last, inside the issue's transaction: FR-29.11), sets `draftNumber = previousInvoiceNumber`, replaces `invoiceNumber`, and appends to `numberHistory[]`. Display prefix override (per-org-global) lives on the Sequence year=0 sentinel doc; future allocations only. **Documents are editable in EVERY status** — PUT applies no status or posting check. The edit-sent guard (409 when a posted JournalEntry referenced the invoice, with credit-note remediation) was **removed**; ⚠ an edit to a posted document does NOT re-post, so the JournalEntry keeps its pre-edit amounts and trial balance / P&L / balance sheet report the stale figures with nothing marking them so — repost is manual. DELETE keeps its draft-only guard. Configuration page at `/invoicing/configuration/sequences` (admin/manager only).
 
 ### A sales series without a year (2026-11-15)
 
@@ -1867,11 +1867,21 @@ and each retry moved them again.
 - ⚠ **Never two operations at once on a transaction's session** (`Promise.all`). Both try to start
   the transaction, and `withTransaction` runs the whole booking again.
 - A duplicate key inside a transaction aborts it, so a level two bookings create at the same moment
-  makes the booking run again (`inBookingTransaction`), not `adjustStock`'s land-on-the-row fallback.
+  makes the booking run again (`services/biz/transaction.ts#inTransaction`), not `adjustStock`'s
+  land-on-the-row fallback.
 - A cost-layer refusal is `StockBookingRefusedError`: 422 `no_cost_layer` / `insufficient_cost_layers`,
   with the article's name and SKU and the warehouse's name, on every route (`spaErrorHandler`). It
   was a 500 naming two ids.
 - The repository methods take `{ select, session }` as their last argument (FR-32.14).
+- **Issuing is one service** (FR-29 B, `services/biz/issue-document.service.ts#issueDocument`), behind `/send` and
+  `/receive`. Each route keeps its checks, its questions and its claim (the `issue` lease). Then one transaction:
+  the stock (joined), the issued number LAST (so a failed issue draws none), the status, only while the draft is
+  still this request's (`heldBy`). Events, the audit row, the order and the prices come after the commit, in the route.
+  - ⚠ **A retry finishes what an earlier attempt left** (`createInvoiceStockMovement`'s `resume`): per warehouse a
+    completed movement carrying the document's id stands, a draft one is removed and booked afresh. It is never
+    skipped: `/send` used to skip "a movement with this id exists", issuing the invoice with its goods unmoved.
+  - `scripts/count-issue-leftovers.ts` (read-only, native driver) counts what older releases left: documents issued
+    with a draft movement, drafts with a booked one.
 
 ## External warehouse (2026-11-16)
 
@@ -2795,8 +2805,9 @@ billable-receipts,:id/link-receipts}`.
   back with its document stays `completed`, so `reverseMovement` stamps it (`reversedBy`,
   `receipt_rolled_back`). Own-store and „склад" разписки carry no mark: the dialogs show their notes
   on the row. ⚠ Neither dialog ever ticks a receipt that names nobody (`preselectedReceipts`).
-- ⚠ **`/receive` leaves draft once**: a compare-and-set on `status: 'draft'` and on `/send`'s lease, and
-  the loser answers 409 `bill_not_draft` with nothing booked. ⚠ What booking refuses is checked before
+- ⚠ **`/receive` leaves draft once**: it takes `/send`'s issue lease with a compare-and-set on `status: 'draft'`,
+  and the loser answers 409 `bill_not_draft` with nothing booked. Since FR-29 B a bill whose booking fails stays the
+  draft it was, with its draft number (`issueDocument`). ⚠ What booking refuses is checked before
   the number is drawn (`stockBookingRefusal`, shared with `createInvoiceStockMovement`).
 - ⚠ **`/receive` and `/send` ask before a bill books goods a receipt may have booked** (FR-22.31c,
   `receiptsOverlapping`): 409 `receipt_overlap`, answered by `{ acknowledgeOverlap: true }` or by

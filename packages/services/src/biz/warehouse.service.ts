@@ -3,7 +3,6 @@ import { DuplicateError } from 'dal'
 import type { IStockMovement } from 'dal/entities'
 import type { CostingMethod } from 'config'
 import type { ClientSession } from 'mongoose'
-import { mongoose } from 'db/connection'
 import { StockLevel, StockMovement } from 'db/models'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
@@ -13,6 +12,7 @@ import {
 } from './costing.service.js'
 import { eventBus } from '../events/event-bus.js'
 import { externalWarehouseIds } from './external-warehouses.js'
+import { inTransaction } from './transaction.js'
 
 export interface ConfirmMovementOptions {
   /**
@@ -147,7 +147,9 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
     // is in a transaction of its own (FR-29.3): its commit or its abort decides for both.
     updated = outer
       ? await bookMovement(movement, r, opts, outer)
-      : await inBookingTransaction(session => bookMovement(movement, r, opts, session))
+      // A level another booking opens at the same moment aborts this one with a duplicate key: it then
+      // runs again, on the row that exists (outside a transaction `adjustStock` lands on it instead).
+      : await inTransaction(session => bookMovement(movement, r, opts, session))
   } catch (e) {
     // FR-29.2: a confirm that did not complete lets go of the draft before it answers, so the next
     // one meets the real refusal again and not "is being confirmed". Joined, the caller's abort does.
@@ -175,33 +177,6 @@ export function announceMovementConfirmed(movement: IStockMovement): void {
     lines: (movement.lines ?? []).map((l: any) => ({ productId: l.productId, quantity: l.quantity })),
   })
 }
-
-/** How many times a booking is tried when a level it creates was created meanwhile by another one. */
-const BOOKING_ATTEMPTS = 3
-
-/**
- * Runs a booking in a transaction of its own. A level the booking creates may be created by another
- * booking at the same moment: outside a transaction `adjustStock` then lands on that row, but inside
- * one the duplicate key has already aborted the transaction, so the whole booking runs again, on the
- * row that now exists. A write conflict is retried by `withTransaction` itself.
- */
-async function inBookingTransaction<T>(fn: (session: ClientSession) => Promise<T>): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
-    const session = await mongoose.startSession()
-    try {
-      let out!: T
-      await session.withTransaction(async () => { out = await fn(session) })
-      return out
-    } catch (e) {
-      if (attempt < BOOKING_ATTEMPTS && isLevelRace(e)) continue
-      throw e
-    } finally {
-      await session.endSession()
-    }
-  }
-}
-
-const isLevelRace = (e: any) => e instanceof DuplicateError || e?.code === 11000
 
 /**
  * The writes of one booking, in `session`: the levels, the cost layers and the movement's status.
@@ -386,7 +361,7 @@ export async function adjustStock(
       return undefined
     } catch (err) {
       // Another movement made the row after this one looked: this one lands on that row. Not inside a
-      // transaction, which the duplicate key has aborted: the booking runs again (`inBookingTransaction`).
+      // transaction, which the duplicate key has aborted: the booking runs again (`inTransaction`).
       if (!(err instanceof DuplicateError) || session) throw err
       stockLevel = await moveLevel(orgId, productId, warehouseId, quantity, unitCost)
       if (!stockLevel) throw err
