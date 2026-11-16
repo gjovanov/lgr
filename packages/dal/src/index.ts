@@ -1,5 +1,5 @@
 // Types
-export type { BaseEntity, TenantEntity, Filter, FilterOperator, FilterValue, SortSpec, PageRequest, PageResult, AggregateStage, AggregateExpression } from './types.js'
+export type { BaseEntity, TenantEntity, Filter, FilterOperator, FilterValue, SortSpec, PageRequest, PageResult, AggregateStage, AggregateExpression, Projection, DalSession, SessionOptions, ReadOptions } from './types.js'
 
 // Repository interfaces
 export type {
