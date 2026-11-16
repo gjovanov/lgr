@@ -352,12 +352,25 @@ test.describe('revocation', () => {
     expect(pushed, 'the stub pushed the notice down a live presence socket').toBeGreaterThan(0)
     await waitForLog(/revoked/i, 60_000, shell.stderr())
 
-    const st = await statusJson(BIN)
-    expect(st.registration.state).toBe('revoked')
+    // ⚠ **The line is the shell SAYING so, and saying so comes first.** FR-14.22's order is: say
+    // so, stop the bridge, delete the key (`main.rs`, then `enroll::mark_revoked`). `--status-json`
+    // is a second process that reads the record. Asked the instant the line appears, it can still
+    // read the record of a moment before. On 2026-11-16 the run on the `desktop-v0.1.13` tag did:
+    // `registered`, where the shell's next line came 38 ms later and the record collected after
+    // the job said `revoked: true`. So the state is asked until the shell has acted, not once.
+    //
     // ⚠ The KEY is gone, and the record is KEPT so the Overview can explain what happened. A
     // deleted record would leave a machine that merely looks unregistered and an operator with no
-    // idea why the till stopped printing.
-    expect(st.keyStorage).toBe('none')
+    // idea why the till stopped printing. The key goes last, so one wait covers both.
+    await expect
+      .poll(
+        async () => {
+          const st = await statusJson(BIN)
+          return `${st.registration.state}, key ${st.keyStorage}`
+        },
+        { message: 'the record says revoked and the key is gone, once the shell has acted on the notice', timeout: 15_000 },
+      )
+      .toBe('revoked, key none')
 
     const page = await shellPage(browser)
     await gotoView(page, '/overview')
