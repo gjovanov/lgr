@@ -49,6 +49,10 @@ beforeAll(async () => {
   await make('foreignSet', 'warehouse_manager', { permissionSetIds: [(await set(other._id, 'Administrator'))._id] })
   // The same two sets on another legacy role: another access (the role name gives devices), another role.
   await make('twoSetsManager', 'manager', { permissionSetIds: await ids('Accountant', 'Warehouse Manager') })
+  // The factory gives every person their role (FR-27 P3-4): this suite is the migration that does it, so it starts
+  // from the world before it, with no role anywhere.
+  await User.updateMany({}, { $unset: { roleId: 1 } }).exec()
+  await Role.deleteMany({}).exec()
 }, 60_000)
 
 afterAll(async () => { await teardownTestDB() }, 60_000)

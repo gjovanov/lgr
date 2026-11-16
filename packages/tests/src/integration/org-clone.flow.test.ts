@@ -83,7 +83,12 @@ async function realShop(label = 'real') {
   const admin = await createTestUser(org._id, { identityId: adminPerson._id, role: 'admin', username: `admin-${seq}`, email: `admin-${seq}@x.test` } as any)
   const seller = await createTestUser(org._id, { identityId: sellerPerson._id, role: 'seller', username: `seller-${seq}`, email: `seller-${seq}@x.test`, operatorCode: '0002' } as any)
   const sellerSet = await PermissionSet.create({ orgId: org._id, name: 'Seller', description: 'the counter', permissions: ['invoicing.read'], isSystem: true } as any)
-  const sellerRole = await Role.create({ orgId: org._id, name: 'Seller', isBuiltin: true, templateKey: 'seller', caps: [], legacy: { role: 'seller', permissions: [] } } as any)
+  // The org's built-in Seller (the factory gives every person a role, FR-27 P3-4), as this test wants it.
+  const sellerRole: any = await Role.findOneAndUpdate(
+    { orgId: org._id, isBuiltin: true, templateKey: 'seller' },
+    { $set: { name: 'Seller', caps: [], legacy: { role: 'seller', permissions: [] } } },
+    { upsert: true, new: true },
+  ).lean()
   await User.updateOne({ _id: seller._id }, { $set: { permissionSetIds: [sellerSet._id], roleId: sellerRole._id } })
   await Org.updateOne({ _id: org._id }, { $set: { ownerId: admin._id } })
 
@@ -427,16 +432,24 @@ describe('people the test org already has', () => {
     await Org.updateOne({ _id: target._id }, { $set: { 'settings.environment': 'dev' } })
     const own = await createTestUser(target._id, { identityId: shop.adminPerson._id, role: 'admin', username: 'my-own-name', email: `own-${++seq}@x.test` } as any)
     const ownSet = await PermissionSet.create({ orgId: target._id, name: 'Seller', description: 'theirs', permissions: ['crm.read'], isSystem: true } as any)
-    const ownRole = await Role.create({ orgId: target._id, name: 'Seller', isBuiltin: true, templateKey: 'seller', caps: ['crm.read'], legacy: { role: 'seller', permissions: [] } } as any)
+    const ownRole: any = await Role.findOneAndUpdate(
+      { orgId: target._id, isBuiltin: true, templateKey: 'seller' },
+      { $set: { name: 'Seller', caps: ['crm.read'], legacy: { role: 'seller', permissions: [] } } },
+      { upsert: true, new: true },
+    ).lean()
     // The app made this one itself when someone opened the hub, and the test org has switched it off.
     await OrgApp.create({ orgId: target._id, appId: 'accounting', enabled: false })
 
+    // Both orgs hold the ten built-in roles (the factory gives every person a role, FR-27 P3-4): each of the real
+    // org's roles meets the test org's own, by name or template, and none is copied twice.
+    const sourceRoles = await countOf('Role', shop.id)
+    const targetRoles = await countOf('Role', String(target._id))
     const run = await cloneOrgData({ sourceOrgId: shop.id, targetOrgId: String(target._id), execute: true, activateAdmins: true })
     expect(byName(run, 'User').merged).toBe(1)
     expect(byName(run, 'User').inserted).toBe(1) // only the seller
     expect(byName(run, 'PermissionSet').merged).toBe(1)
-    expect(byName(run, 'Role').merged).toBe(1)
-    expect(await countOf('Role', String(target._id))).toBe(1)
+    expect(byName(run, 'Role').merged).toBe(sourceRoles)
+    expect(await countOf('Role', String(target._id))).toBe(targetRoles)
     // The enabled app is matched by which app it is: no clash, the test org's own switch stays, the other is added.
     expect(byName(run, 'OrgApp').merged).toBe(1)
     expect(byName(run, 'OrgApp').inserted).toBe(1)
@@ -545,7 +558,8 @@ describe('emptying a test org before the first copy', () => {
     expect(report.deleted.Warehouse).toBe(1)
     for (const m of ['Product', 'Contact', 'Warehouse', 'Notification']) expect(await countOf(m, orgId)).toBe(0)
     for (const m of ['User', 'FiscalDevice', 'Invite', 'PermissionSet', 'Desktop', 'BackupRun']) expect(await countOf(m, orgId)).toBe(1)
-    expect(Object.keys(report.kept).sort()).toEqual(['Desktop', 'FiscalDevice', 'Invite', 'PermissionSet', 'User'])
+    // The people's roles stay with them (FR-27 P3-4: every person has one).
+    expect(Object.keys(report.kept).sort()).toEqual(['Desktop', 'FiscalDevice', 'Invite', 'PermissionSet', 'Role', 'User'])
 
     // The kept device names a warehouse that no longer exists; the copy relinks it to the one with this code.
     const run = await cloneOrgData({ sourceOrgId: shop.id, targetOrgId: orgId, execute: true, activateAdmins: true, relinkHardwareTo: 'pz' })
