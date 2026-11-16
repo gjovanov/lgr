@@ -113,9 +113,8 @@ export interface DocumentTypeConfig {
   successKey: string
 
   // ── party ──
+  /** Also the type a contact created from the party picker starts as: a supplier on a bill. */
   partyRole: 'customer' | 'supplier'
-  /** 'create' → ContactAutocompleteWithCreate; 'plain' → bare v-autocomplete. */
-  partyPicker: 'create' | 'plain'
   partyRequired: boolean
   partyLabelKey: string
   /** Extra query params for the contact fetch (e.g. { type: 'supplier' }). */

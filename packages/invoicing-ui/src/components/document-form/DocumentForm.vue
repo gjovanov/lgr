@@ -24,8 +24,9 @@
             VTextField: { density: 'compact', variant: 'filled', persistentPlaceholder: true },
           }">
             <div class="d-flex align-center ga-1">
+              <!-- Every document type can create its party here, a bill its supplier: a contact made from
+                   this picker starts as the form's party role. -->
               <ContactAutocompleteWithCreate
-                v-if="config.partyPicker === 'create'"
                 ref="contactCreateRef"
                 v-model="form.contactId"
                 :contacts="contacts"
@@ -33,25 +34,11 @@
                 :org-url="orgUrl()"
                 :required="config.partyRequired"
                 :loading="loadingContacts"
+                :new-contact-type="config.partyRole"
                 class="flex-grow-1"
                 @update:model-value="onContactChange"
                 @update:search="onContactSearch"
                 @contact-created="onContactCreated"
-              />
-              <v-autocomplete
-                v-else
-                v-model="form.contactId"
-                :label="$t(config.partyLabelKey)"
-                :items="contacts"
-                item-title="companyName"
-                item-value="_id"
-                :rules="config.partyRequired ? [rules.required] : []"
-                hide-details="auto"
-                no-filter
-                :loading="loadingContacts"
-                class="flex-grow-1"
-                @update:model-value="onContactChange"
-                @update:search="onContactSearch"
               />
               <v-btn
                 icon="mdi-magnify-expand"
@@ -62,9 +49,10 @@
                 @click="contactPickerOpen = true"
               />
               <!-- New contact without leaving the document. The same dialog is also the last entry
-                   of the dropdown, but nobody finds it there under a page of contacts. -->
+                   of the dropdown, but nobody finds it there under a page of contacts. Both need
+                   contacts.create, the capability the Contacts page's own New button asks. -->
               <v-btn
-                v-if="config.partyPicker === 'create'"
+                v-cap="'contacts.create'"
                 icon="mdi-account-plus"
                 size="small"
                 variant="text"
