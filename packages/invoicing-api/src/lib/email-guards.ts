@@ -152,3 +152,58 @@ export function orderEmailSkip(input: {
   if (input.recentSend) return 'just_sent'
   return null
 }
+
+/**
+ * What mailing a CUSTOMER order's sheet takes (`InternalOrder`, ORDI-): what its export route asks, and the work on
+ * orders that mailing is.
+ *
+ * ⚠ Its own function, not `orderEmailAccess`: a customer order is read by `orders.view` alone
+ * (`config/access/routes.ts`, the `invoicing/internal-orders` row), where a supplier order is also read by the
+ * page-less `orders.browse` and `orders.lookup`. Neither is to be widened to the other.
+ */
+export interface InternalOrderEmailAccess {
+  /** `orders.view`: what reaches `GET invoicing/internal-orders/:id/export` at all (its route rule). */
+  reads: boolean
+  /** `canExport`, which that route asks itself. */
+  exports: boolean
+  /** `orders.create` or `orders.edit`: a read-only role prints a sheet and mails none. */
+  writes: boolean
+}
+
+export function internalOrderEmailAccess(user: AccessCaller | null | undefined): InternalOrderEmailAccess {
+  const grant = user ? grantOf(user) : null
+  return {
+    reads: grantCan(grant, 'orders.view'),
+    exports: canExport(user),
+    writes: grantCan(grant, ['orders.create', 'orders.edit']),
+  }
+}
+
+/** The request's 403: the answer is the same for every customer order, so a caller who may mail none is told once. */
+export function mayEmailInternalOrders(access: InternalOrderEmailAccess): boolean {
+  return access.reads && access.exports && access.writes
+}
+
+/**
+ * Why ONE customer order does not go, or null when it does.
+ *
+ * Order: a caller the sheet's export would answer 403, or who does not work on orders (`forbidden`, before anything
+ * about the order is said) → no such order in this org → a draft, which has no number yet (its sheet prints none)
+ * → the double-click window.
+ *
+ * ⚠ A CANCELLED order goes, as every status but `draft` does: its sheet's title says it is cancelled, and telling
+ * the client so is a use. `config/doc-email`'s `cancelled` reason is a stock movement's (a cancelled movement moved
+ * nothing, so its sheet says nothing true) and is never given here.
+ */
+export function internalOrderEmailSkip(input: {
+  access: InternalOrderEmailAccess
+  /** `null` when the id names no customer order of this org. */
+  order: { status?: string | null } | null | undefined
+  recentSend?: boolean
+}): DocEmailSkip | null {
+  if (!mayEmailInternalOrders(input.access)) return 'forbidden'
+  if (!input.order) return 'not_found'
+  if (input.order.status === 'draft') return 'draft'
+  if (input.recentSend) return 'just_sent'
+  return null
+}

@@ -3,9 +3,10 @@ import {
   MAX_DOCS_PER_MAIL, MAX_SELECTION, isValidRecipient,
   type DocEmailAnswer, type DocEmailBlock, type DocEmailItem, type DocEmailPreviewAnswer, type DocEmailPreviewRow,
 } from 'config/doc-email'
-import { Invoice, Order, Org } from 'db/models'
+import { InternalOrder, Invoice, Order, Org } from 'db/models'
 import { docTitleFor, exportI18n } from 'reporting/i18n'
 import { orderSheetI18n } from 'reporting/order-sheet.i18n'
+import { customerOrderDocName } from 'reporting/pdf/customer-order.pdf'
 import { generateOrderSheetPDF } from 'reporting/pdf/order-sheet.pdf'
 import { grantOf, type AccessCaller } from 'services/biz/access/evaluate'
 import { buildEmailHtml, docEmailHtml, docEmailSubject, type MailedDocument } from 'services/biz/doc-email/body'
@@ -16,16 +17,21 @@ import {
   type DocEmailReply, type DocEmailRow,
 } from 'services/biz/doc-email/request'
 import { mailConfigured } from 'services/biz/email.service'
-import { invoiceEmailSkip, mayEmailInvoices, mayEmailOrders, orderEmailAccess, orderEmailSkip } from './email-guards.js'
+import {
+  internalOrderEmailAccess, internalOrderEmailSkip, invoiceEmailSkip, mayEmailInternalOrders, mayEmailInvoices, mayEmailOrders, orderEmailAccess,
+  orderEmailSkip,
+} from './email-guards.js'
+import { renderInternalOrderPdf } from './internal-order-pdf.js'
 import { renderInvoicePdf } from './invoice-pdf.js'
 import { buildOrderSheetCtx, withoutExpectedPrices } from './order-sheet.js'
 
 /**
  * The ticked documents of a list, by e-mail (2026-11-16): the invoicing side of `config/doc-email`.
  *
- * Two kinds, behind `POST invoicing/export/email/preview` and `POST invoicing/export/email`:
- *   - `invoice`: any document of the invoice collection (sales documents, proformas, offers, bills, the till's);
- *   - `order`:   a supplier order, one sheet per supplier GROUP, the supplier variant its Export button downloads.
+ * Three kinds, behind `POST invoicing/export/email/preview` and `POST invoicing/export/email`:
+ *   - `invoice`:        any document of the invoice collection (sales documents, proformas, offers, bills, the till's);
+ *   - `order`:          a supplier order, one sheet per supplier GROUP, the supplier variant its Export button downloads;
+ *   - `internal-order`: a customer order (`InternalOrder`, ORDI-), the one sheet its Print button downloads.
  *
  * This file knows the documents: it loads them inside the org, holds each to the session (`lib/email-guards.ts`,
  * the same rule for the preview and the mail), prints through the code the export routes print with, and records
@@ -37,8 +43,11 @@ import { buildOrderSheetCtx, withoutExpectedPrices } from './order-sheet.js'
  * `skipped` beside nine `sent`. The request itself is refused only for what is true of all of it.
  */
 
-export const DOC_EMAIL_KINDS = ['invoice', 'order'] as const
+export const DOC_EMAIL_KINDS = ['invoice', 'order', 'internal-order'] as const
 export type DocEmailKind = (typeof DOC_EMAIL_KINDS)[number]
+
+/** What an `EmailLog` row and an audit entry call a customer order, as its other audit entries do. */
+export const INTERNAL_ORDER_ENTITY = 'internal_order'
 
 type Caller = AccessCaller & { id: string }
 
@@ -51,10 +60,12 @@ export type { DocEmailRefusal, DocEmailReply } from 'services/biz/doc-email/requ
 export const docEmailRenderers = {
   invoice: renderInvoicePdf,
   orderSheet: generateOrderSheetPDF,
+  internalOrder: renderInternalOrderPdf,
 }
 
 /** May this session e-mail any document of the kind at all: the request's 403. */
 export function mayEmailKind(kind: DocEmailKind, user: AccessCaller | null | undefined): boolean {
+  if (kind === 'internal-order') return mayEmailInternalOrders(internalOrderEmailAccess(user))
   return kind === 'order' ? mayEmailOrders(orderEmailAccess(user)) : mayEmailInvoices(grantOf(user))
 }
 
@@ -138,7 +149,47 @@ async function previewOrders(orgId: string, user: Caller, ids: string[]): Promis
   })
 }
 
+// ── customer orders ───────────────────────────────────────────────────────────
+
+const INTERNAL_ORDER_FIELDS = { orderNumber: 1, status: 1, issueDate: 1, contactId: 1 }
+
+/** The customer orders the ids name in this org, by id. An id that is no id names none (and is never cast). */
+async function internalOrdersById(orgId: string, ids: readonly string[]): Promise<Map<string, any>> {
+  const valid = ids.filter(id => OBJECT_ID.test(id))
+  const docs: any[] = valid.length ? await InternalOrder.find({ orgId, _id: { $in: valid } } as any, INTERNAL_ORDER_FIELDS).lean().exec() : []
+  return new Map(docs.map(d => [String(d._id), d]))
+}
+
+/** A customer order is one row: it has one sheet, for the client who placed it. */
+async function previewInternalOrders(orgId: string, user: Caller, ids: string[]): Promise<DocEmailPreviewRow[]> {
+  const access = internalOrderEmailAccess(user)
+  const byId = await internalOrdersById(orgId, ids)
+  const partners = await partnersOf(orgId, [...byId.values()].map(o => o.contactId))
+  return ids.map((id): DocEmailPreviewRow => {
+    const order = byId.get(id.toLowerCase())
+    const blocked = internalOrderEmailSkip({ access, order }) as DocEmailBlock | null
+    if (!order || blocked === 'not_found') return unknownRow(id)
+    const partner = order.contactId ? partners.get(String(order.contactId)) : undefined
+    return {
+      id,
+      number: String(order.orderNumber ?? ''),
+      docType: INTERNAL_ORDER_ENTITY,
+      date: iso(order.issueDate),
+      status: order.status,
+      ...(partner ? { partner } : {}),
+      ...(blocked ? { blocked } : {}),
+    }
+  })
+}
+
 // ── the preview ───────────────────────────────────────────────────────────────
+
+/** A kind's own reading of the ticked ids. One per kind: a kind without it does not compile. */
+const PREVIEW_ROWS: Record<DocEmailKind, (orgId: string, user: Caller, ids: string[]) => Promise<DocEmailPreviewRow[]>> = {
+  invoice: previewInvoices,
+  order: previewOrders,
+  'internal-order': previewInternalOrders,
+}
 
 /**
  * What the dialog opens on: each ticked document with its partner and, when it will not go, why. Writes nothing.
@@ -155,7 +206,7 @@ export async function previewDocEmail(input: {
   const ids = distinct(input.ids)
   if (!ids.length) return refuse(400, 'Choose at least one document')
   if (ids.length > MAX_SELECTION) return tooLarge(MAX_SELECTION, 'One selection')
-  const documents = kind === 'order' ? await previewOrders(orgId, user, ids) : await previewInvoices(orgId, user, ids)
+  const documents = await PREVIEW_ROWS[kind](orgId, user, ids)
   return { status: 200, body: { documents } }
 }
 
@@ -258,6 +309,47 @@ async function orderRows(ctx: MailContext, items: DocEmailItem[]): Promise<Row[]
   })
 }
 
+async function internalOrderRows(ctx: MailContext, items: DocEmailItem[]): Promise<Row[]> {
+  const access = internalOrderEmailAccess(ctx.user)
+  const ids = items.map(i => i.id)
+  const [byId, recent] = await Promise.all([internalOrdersById(ctx.orgId, ids), recentlyMailed(ctx, INTERNAL_ORDER_ENTITY, ids)])
+  const justSent = new Set(recent.map(r => String(r.entityId)))
+  return items.map((item): Row => {
+    const id = item.id.toLowerCase()
+    const order = byId.get(id)
+    const skip = internalOrderEmailSkip({ access, order, recentSend: justSent.has(id) })
+    // Unknown and foreign are one answer: the number is not said either.
+    if (!order || skip === 'not_found') return { item, number: '', skip: skip ?? 'not_found' }
+    const number = String(order.orderNumber ?? '')
+    if (skip) return { item, number, skip }
+    return {
+      item,
+      number,
+      document: {
+        item,
+        entityType: INTERNAL_ORDER_ENTITY,
+        entityId: id,
+        number,
+        // Named as its sheet's title names it, so a cancelled order's mail says so before it is opened. No total:
+        // the sheet states none (a line's price is an indication until the order's invoice).
+        mailed: { title: customerOrderDocName(order.status, ctx.locale), number, date: order.issueDate },
+        // The sheet the order's Print button downloads, so the attachment is the printed document.
+        render: async () => {
+          const r = await docEmailRenderers.internalOrder(ctx.orgId, id, { locale: ctx.locale })
+          return r.ok ? { ok: true, buffer: r.buffer, filename: r.filename } : failedRender(r)
+        },
+      },
+    }
+  })
+}
+
+/** A kind's own reading of the items asked for. One per kind: a kind without it does not compile. */
+const MAIL_ROWS: Record<DocEmailKind, (ctx: MailContext, items: DocEmailItem[]) => Promise<Row[]>> = {
+  invoice: invoiceRows,
+  order: orderRows,
+  'internal-order': internalOrderRows,
+}
+
 /**
  * Up to ten documents to ONE address, in as few mails as fit (`services/biz/doc-email`). The dialog asks once per
  * recipient, and once more per ten documents.
@@ -283,7 +375,8 @@ export async function sendDocEmail(input: {
   if (!mayEmailKind(kind, user)) return refuse(403, 'Forbidden')
   const to = String(input.to ?? '').trim()
   if (!isValidRecipient(to)) return refuse(400, 'A valid recipient email is required')
-  const items = distinctItems(input.items)
+  // A customer order is one sheet: an item is its id, and a group named beside it is not read.
+  const items = distinctItems(kind === 'internal-order' ? input.items.map(i => ({ id: i?.id })) : input.items)
   if (!items.length) return refuse(400, 'Choose at least one document')
   if (items.length > MAX_DOCS_PER_MAIL) return tooLarge(MAX_DOCS_PER_MAIL, 'One request')
   // Before a single PDF is printed: ten renders for a mail that cannot leave is ten seconds of nothing.
@@ -293,7 +386,7 @@ export async function sendDocEmail(input: {
   const ctx: MailContext = { orgId, user, to, locale, columns: input.columns }
   const [org, rows] = await Promise.all([
     Org.findById(orgId, { name: 1, email: 1 }).lean().exec() as Promise<any>,
-    kind === 'order' ? orderRows(ctx, items) : invoiceRows(ctx, items),
+    MAIL_ROWS[kind](ctx, items),
   ])
   const orgName = String(org?.name || '')
   const subject = String(input.subject ?? '').trim().slice(0, 200)

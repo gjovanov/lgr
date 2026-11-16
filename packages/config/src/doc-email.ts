@@ -33,7 +33,8 @@ export function isValidRecipient(to: unknown): boolean {
 
 /**
  * Why a document will not go, as the preview says it. `cancelled` is a stock movement's: one that was called off
- * moved nothing, and its sheet says nothing true to whoever receives it.
+ * moved nothing, and its sheet says nothing true to whoever receives it. ⚠ Not an order's: a cancelled order goes,
+ * with a sheet that says it is cancelled.
  */
 export const DOC_EMAIL_BLOCKS = ['not_found', 'forbidden', 'draft', 'cancelled'] as const
 export type DocEmailBlock = (typeof DOC_EMAIL_BLOCKS)[number]
@@ -64,12 +65,15 @@ export interface DocEmailPreviewRow {
   id: string
   groupId?: string
   number: string
-  /** What the document is, for the dialog to name: `invoice`, `credit_note`, `bill`, `order`, a movement's `transfer`… */
+  /** What the document is, for the dialog to name: `invoice`, `credit_note`, `bill`, `order`, `internal_order`, a movement's `transfer`… */
   docType: string
   /** ISO date. */
   date?: string
   status?: string
-  /** The customer of an outgoing document; the supplier of a bill or of an order's group; a stock movement's contact. */
+  /**
+   * The customer of an outgoing document or of a customer order; the supplier of a bill or of a supplier order's
+   * group; a stock movement's contact.
+   */
   partner?: DocEmailPartner
   blocked?: DocEmailBlock
 }

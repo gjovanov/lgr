@@ -9,9 +9,10 @@ import { ColumnValidationError, normaliseColumns } from './invoice-export.contro
  *   POST /org/:orgId/invoicing/export/email/preview   { kind, ids }                → { documents: [...] }
  *   POST /org/:orgId/invoicing/export/email           { kind, to, items, … }       → { to, mails, queued, results }
  *
- * `kind` is `invoice` (any document of the invoice collection) or `order` (a supplier order's sheets). The preview
- * writes nothing; the mail is ONE recipient and at most ten documents per request, and answers 200 with a row per
- * document. Everything they decide is `lib/doc-email.ts`'s, which a test calls without a server.
+ * `kind` is `invoice` (any document of the invoice collection), `order` (a supplier order's sheets) or
+ * `internal-order` (a customer order's sheet). The preview writes nothing; the mail is ONE recipient and at most ten
+ * documents per request, and answers 200 with a row per document. Everything they decide is `lib/doc-email.ts`'s,
+ * which a test calls without a server.
  *
  * ⚠ Not "send": `POST /invoices/:id/send` ISSUES a document. The single route, `POST export/:id/email`, stays as it
  * was (one outgoing document, its own statuses).
@@ -20,7 +21,7 @@ import { ColumnValidationError, normaliseColumns } from './invoice-export.contro
  * 422 `{ code: 'selection_too_large', max }`, which the dialog reads, and a schema refusal carries no code.
  */
 
-const kind = t.Union([t.Literal('invoice'), t.Literal('order')])
+const kind = t.Union([t.Literal('invoice'), t.Literal('order'), t.Literal('internal-order')])
 
 export const docEmailController = new Elysia({ prefix: '/org/:orgId/invoicing/export' })
   .use(AppAuthService)

@@ -25,6 +25,21 @@ function titleOf(status: string, t: CustomerOrderI18n): string {
 }
 
 /**
+ * What running text calls the sheet (a mail's subject, its covering note): its title for where the
+ * order stands, in sentence case. The title is a heading („ПОТВЪРЖДЕНИЕ НА ПОРЪЧКА"); a subject
+ * line in capitals shouts.
+ *
+ * ⚠ The words are the title's own, lowered after the first letter. That is right for the titles of
+ * an order a client is SENT (a confirmed one and everything after it, a cancelled one) in all four
+ * languages, and `unit/customer-order-sheet.test.ts` holds each. It is not for a draft's (German
+ * writes „Entwurf" with a capital), and a draft is never sent.
+ */
+export function customerOrderDocName(status: unknown, locale?: string): string {
+  const [first = '', ...rest] = Array.from(titleOf(String(status || 'draft'), customerOrderI18n(locale)))
+  return first + rest.join('').toLowerCase()
+}
+
+/**
  * A stored value as literal text on ONE markdown line: the renderer's own rule for typed text
  * (`mdText`), which every markdown-built form prints through.
  */

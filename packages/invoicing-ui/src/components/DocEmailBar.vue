@@ -21,7 +21,8 @@ import { readPrintSettings } from '../composables/print-settings'
 /**
  * A document list's ticked rows by e-mail (2026-11-16): the shared bar and dialog, told where invoicing's two routes
  * are. `invoice` is every document of the invoice collection (invoices, notes, proformas, offers, bills), `order` a
- * supplier order, which goes as one sheet per supplier.
+ * supplier order, which goes as one sheet per supplier, `internal-order` a customer order, which goes as its one
+ * sheet to the client who placed it.
  *
  *     <template #bulk-bar>
  *       <DocEmailBar v-model:selected="ticked" kind="invoice" :may-email="mailsTicked" />
@@ -29,7 +30,7 @@ import { readPrintSettings } from '../composables/print-settings'
  */
 const props = defineProps<{
   selected: string[]
-  kind: 'invoice' | 'order'
+  kind: 'invoice' | 'order' | 'internal-order'
   /** The list's answer to "does this role mail these documents" (`composables/doc-email-access`). */
   mayEmail: boolean
 }>()
