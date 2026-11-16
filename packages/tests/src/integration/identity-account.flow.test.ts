@@ -373,15 +373,15 @@ describe('a session is its membership\'s: switched off by any other way, it ends
     expect(await reads(a.id, session)).toBe(401)
   })
 
-  it('a membership that is not there, or cannot be read, decides nothing: the request is answered as before', async () => {
+  it('a membership that is not there, or cannot be read, is not "switched off"; since FR-27 P3-2 it has no role, and is refused', async () => {
     const a = await org('phantom')
     const member = await createTestUser(a._id, { email: `phantom-${seq}@x.test` } as any)
     const claims = await sessionFor(member as any)
     const sign = (id: string) => (signer as any).decorator.jwt.sign({ ...claims, id, exp: Math.floor(Date.now() / 1000) + 3600 }) as Promise<string>
-    // A row that is gone (its person, where there is one, is what ends such a session).
-    expect(await reads(a.id, await sign('0123456789abcdef01234567'))).toBe(200)
-    // An id that is no id at all.
-    expect(await reads(a.id, await sign('not-an-id'))).toBe(200)
+    // A row that is gone, and an id that is no id at all: no role to decide by, so refused (403 no_role), where the
+    // claims used to decide. `membershipSwitchedOff` still says nothing of them.
+    expect(await reads(a.id, await sign('0123456789abcdef01234567'))).toBe(403)
+    expect(await reads(a.id, await sign('not-an-id'))).toBe(403)
     expect(await membershipSwitchedOff('not-an-id')).toBe(false)
     expect(await membershipSwitchedOff(String(member._id))).toBe(false)
   })

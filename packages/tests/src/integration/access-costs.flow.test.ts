@@ -174,11 +174,11 @@ describe('everyone else, as before', () => {
     expect((await call('GET', '/warehouse/cost-layer', tokens.manager)).status).toBe(200)
   })
 
-  it('back on the legacy model, the clerk reads what their claims open, costs included', async () => {
+  it('FR-27 P3-2: the access model is no longer read: back on legacy, the clerk still sees what the role holds, no costs', async () => {
     await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'legacy' } }).exec()
     forgetAccessModel(orgId)
     const one = await call('GET', `/warehouse/product/${productId}`, tokens.clerk)
     expect(one.status).toBe(200)
-    expect(one.json.product.purchasePrice).toBe(2)
+    expect('purchasePrice' in one.json.product).toBe(false)
   })
 })

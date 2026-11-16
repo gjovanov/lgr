@@ -177,8 +177,9 @@ describe('FR-27.3: a member an admin creates', () => {
 })
 
 describe('FR-27.5: /auth/me says what the role grants', () => {
-  it('null while the org is on the legacy model; the role, its name and version once on `roles`', async () => {
-    expect((await call('GET', '/auth/me', adminToken)).json.access).toBeNull()
+  it('the role, its name and version, in every org (FR-27 P3-2: the access model is no longer read)', async () => {
+    // On the legacy model too: every org session is its role's.
+    expect((await call('GET', '/auth/me', adminToken)).json.access).toMatchObject({ all: true, caps: [] })
     await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
     forgetAccessModel(orgId)
     const clerk: any = await User.findOne({ orgId: org._id, username: 'nobody' }).lean().exec()

@@ -193,15 +193,16 @@ describe('the backfill, on a member\'s own list', () => {
     })
   }
 
-  it('which is what actually ends it for a member with no set', async () => {
+  it('which is what actually ends it for a member with no set, in the legacy fields', async () => {
     const org = await createTestOrg()
     const user = await createTestUser(org._id, { role: 'member', permissions: OWN_LIST, permissionSetIds: [] } as any)
-    // The role's defaults no longer hold it, and the merge still brings it back from the row.
-    expect((await tokenize((await User.findById(user._id))!)).permissions).toContain('payroll.read')
+    expect(await ownListOf(user)).toContain('payroll.read')
 
     await backfillMemberPayrollRead(String(org._id), { execute: true })
 
-    expect((await tokenize((await User.findById(user._id))!)).permissions).not.toContain('payroll.read')
+    // FR-27 P3-2: the legacy fields no longer decide (the person's role does); the backfill still clears them, which is
+    // what a release that reads no roles serves.
+    expect(await ownListOf(user)).not.toContain('payroll.read')
   })
 
   const kept: [string, Record<string, unknown>][] = [

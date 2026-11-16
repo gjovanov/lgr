@@ -217,8 +217,10 @@ describe("a contact's unpaid documents are theirs who read the documents (`GET /
   })
 })
 
-describe('FR-27.6 on the legacy model: the areas, for every session (`seesBills`)', () => {
-  it("a warehouse manager, who holds no invoicing permission, is still told of the bill that holds a receipt; a Seller is not", async () => {
+// FR-27 P3-2: every session is its role's, so `seesBills` asks the partition's own capability, in every org. FR-26's
+// `purchases` area (which told a warehouse manager of a receipt's bill on the legacy model) decides nothing any more.
+describe('FR-27.6, every session a role: the bill that holds a receipt is told to whoever reads bills (`seesBills`)', () => {
+  it("the built-in warehouse manager, who holds no bills capability, is not told of it; nor is a Seller", async () => {
     const legacy: any = await createTestOrg({ slug: 'access-partitions-legacy' } as any)
     const contact = await createTestContact(legacy._id)
     const bill = await createTestInvoice(legacy._id, contact._id as any, { invoiceNumber: 'BILL-L-1', direction: 'incoming' } as any)
@@ -231,7 +233,7 @@ describe('FR-27.6 on the legacy model: the areas, for every session (`seesBills`
     }
     const wm = await read('warehouse_manager')
     expect(wm.status).toBe(200)
-    expect(String(wm.json.stockMovement.invoiceId)).toBe(String(bill._id))
+    expect(wm.json.stockMovement.invoiceId).toBeUndefined()
     // FR-26.6: a Seller's areas leave `purchases` out, and the bill is not named.
     const seller = await read('seller')
     expect(seller.status).toBe(200)
