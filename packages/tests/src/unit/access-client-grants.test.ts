@@ -56,13 +56,11 @@ describe('ratchet: the client offers by the grant, never by a role name or the t
     .map(p => ({ file: relative(join(ROOT, 'packages'), p).split('\\').join('/'), text: readFileSync(p, 'utf8') }))
 
   /**
-   * `storno.ts` reads a legacy role key where one is handed to it (its callers hand it the grant). The users and
-   * permission-sets screens edit the legacy fields themselves until Phase 3.
+   * `storno.ts` reads a legacy role key where one is handed to it (its callers hand it the grant). FR-27 P3-3 (#529):
+   * the users and permission-sets screens no longer edit the legacy fields, so neither is on this list.
    */
   const ALLOWED = new Set([
     'ui-shared/src/cash-register/storno.ts',
-    'portal-ui/src/views/settings/UsersView.vue',
-    'portal-ui/src/views/settings/PermissionSetsView.vue',
   ])
 
   it('finds the client sources', () => {

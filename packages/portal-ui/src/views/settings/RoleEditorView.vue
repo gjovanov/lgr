@@ -173,7 +173,7 @@ const summary = computed(() => summarize(grant.value))
 /** FR-27.9: the portal's pages by the label its menu gives them (`DefaultLayout`). */
 const PORTAL_LABELS: Record<string, string> = {
   '/dashboard': 'nav.dashboard', '/settings/organization': 'nav.organization', '/settings/users': 'nav.users',
-  '/settings/roles': 'access.ui.title', '/settings/permission-sets': 'permissionSets.title', '/settings/desktops': 'desktops.title',
+  '/settings/roles': 'access.ui.title', '/settings/desktops': 'desktops.title',
   '/settings/servers': 'servers.title', '/settings/server': 'serverStatus.title', '/admin/audit-log': 'nav.auditLog',
 }
 /** FR-27.9 preview as the role: what it opens as it stands, by app, the portal last. */

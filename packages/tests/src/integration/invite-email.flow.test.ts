@@ -6,8 +6,7 @@ import { createTestOrg, createTestUser } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
-import { ROLES } from 'config/constants'
-import { Identity, Invite, Org } from 'db/models'
+import { Identity, Invite, Org, Role } from 'db/models'
 import { sessionFor } from 'services/biz/auth.service'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 
@@ -75,7 +74,7 @@ afterEach(() => {
 describe('an email invite is mailed (#510)', () => {
   it('mails the link to the address, and answers the link and that it went out', async () => {
     mailWorks()
-    const r = await call('POST', '/invite', { targetEmail: ' New.Person@Invite.test ', assignRole: 'sales' })
+    const r = await call('POST', '/invite', { targetEmail: ' New.Person@Invite.test ' })
     expect(r.status).toBe(200)
     const code = r.json.invite.code
     expect(r.json.invite.targetEmail).toBe('new.person@invite.test')
@@ -135,16 +134,30 @@ describe('what an invite may name (#510)', () => {
     }
   })
 
-  it('a role outside ROLES is refused; every role in it is accepted', async () => {
-    const bad = await call('POST', '/invite', { assignRole: 'nonsense' })
-    expect(bad.status).toBe(422)
-    expect(bad.json.code).toBe('invalid_role')
-    for (const role of ROLES) {
-      const r = await call('POST', '/invite', { assignRole: role })
-      expect({ role, status: r.status }).toEqual({ role, status: 200 })
-      expect(r.json.invite.assignRole).toBe(role)
+  it('the legacy assignRole is refused, whatever it names, and nothing is stored (FR-27 P3-3, #529)', async () => {
+    for (const assignRole of ['member', 'admin', 'nonsense', '']) {
+      const before = await Invite.countDocuments({ orgId })
+      const r = await call('POST', '/invite', { assignRole, targetEmail: 'legacy@invite.test' })
+      expect({ assignRole, status: r.status, code: r.json?.code }).toEqual({ assignRole, status: 422, code: 'legacy_role_field' })
+      expect(await Invite.countDocuments({ orgId })).toBe(before)
     }
-    // No role means member, as before.
-    expect((await call('POST', '/invite', {})).json.invite.assignRole).toBe('member')
+    // Beside a role by its id too: a caller naming both is told, not half-served.
+    const member: any = await Role.findOne({ orgId, isBuiltin: true, templateKey: 'member' }).lean()
+    const both = await call('POST', '/invite', { assignRole: 'member', assignRoleId: String(member._id) })
+    expect(both.status).toBe(422)
+  })
+
+  it('a role by its id rides on the invite with its legacy key; none is the built-in Member (FR-27 P3-3, #529)', async () => {
+    for (const key of ['accountant', 'seller', 'admin']) {
+      const role: any = await Role.findOne({ orgId, isBuiltin: true, templateKey: key }).lean()
+      const r = await call('POST', '/invite', { assignRoleId: String(role._id) })
+      expect({ key, status: r.status }).toEqual({ key, status: 200 })
+      expect(String(r.json.invite.assignRoleId)).toBe(String(role._id))
+      expect(r.json.invite.assignRole).toBe(role.all ? 'admin' : role.legacy?.role ?? key)
+    }
+    const member: any = await Role.findOne({ orgId, isBuiltin: true, templateKey: 'member' }).lean()
+    const none = await call('POST', '/invite', {})
+    expect(String(none.json.invite.assignRoleId)).toBe(String(member._id))
+    expect(none.json.invite.assignRole).toBe('member')
   })
 })

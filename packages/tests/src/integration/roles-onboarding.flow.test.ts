@@ -8,6 +8,7 @@ import { config } from 'config'
 import { Identity, Invite, Org, PermissionSet, Role, User } from 'db/models'
 import { register, tokenize } from 'services/biz/auth.service'
 import { joinOrgByInvite } from 'services/biz/identity/account.service'
+import { inviteDao } from 'services/dao/invite.dao'
 import { forgetAccessModel } from 'services/biz/access/shadow'
 import { ROLE_TEMPLATES, compileLegacy, grantOfRole, legacyClaimsOf, sameGrant } from 'config/access'
 
@@ -128,9 +129,18 @@ describe('FR-27.4: an invitation names a role', () => {
     expect(String(((await User.findById(member._id).lean().exec()) as any).roleId)).toBe(String(counter._id))
   })
 
-  it('a legacy role named is the built-in role of that name, the person keeping their system set', async () => {
-    await call('POST', `/org/${orgId}/invite`, adminToken, { targetEmail: 'legacy@onboarding.test', assignRole: 'accountant' })
-    const invite: any = await Invite.findOne({ orgId: org._id, targetEmail: 'legacy@onboarding.test' }).lean().exec()
+  it('a legacy role is no longer accepted by the route: 422, nothing stored (FR-27 P3-3, #529)', async () => {
+    const r = await call('POST', `/org/${orgId}/invite`, adminToken, { targetEmail: 'refused@onboarding.test', assignRole: 'accountant' })
+    expect({ status: r.status, code: r.json?.code }).toEqual({ status: 422, code: 'legacy_role_field' })
+    expect(await Invite.countDocuments({ orgId: org._id, targetEmail: 'refused@onboarding.test' })).toBe(0)
+  })
+
+  // An invitation stored before P3-3 names a legacy role only. It keeps working: the built-in role of that name.
+  const storedLegacyInvite = (targetEmail: string, assignRole: string) =>
+    inviteDao.createInvite({ orgId, inviterId: String(founder._id), targetEmail, assignRole })
+
+  it('a stored invitation naming a legacy role is the built-in role of that name, the person keeping their system set', async () => {
+    const invite: any = await storedLegacyInvite('legacy@onboarding.test', 'accountant')
     expect(invite.assignRoleId).toBeUndefined()
     const { member } = await joinOrgByInvite((await person('legacy@onboarding.test'))._id, invite.code)
     const joined: any = await User.findById(member._id).lean().exec()
@@ -144,8 +154,7 @@ describe('FR-27.4: an invitation names a role', () => {
     // Since P3-2 sign-in refuses a membership without a role, so "no role yet, the edited set decides" would be a
     // person who can never sign in. They start on the built-in Accountant, and what it grants is what they may do.
     await PermissionSet.updateOne({ orgId: org._id, name: 'Accountant', isSystem: true }, { $addToSet: { permissions: 'payroll.read' } }).exec()
-    await call('POST', `/org/${orgId}/invite`, adminToken, { targetEmail: 'edited@onboarding.test', assignRole: 'accountant' })
-    const invite: any = await Invite.findOne({ orgId: org._id, targetEmail: 'edited@onboarding.test' }).lean().exec()
+    const invite: any = await storedLegacyInvite('edited@onboarding.test', 'accountant')
     const { member } = await joinOrgByInvite((await person('edited@onboarding.test'))._id, invite.code)
     const joined: any = await User.findById(member._id).lean().exec()
     const accountant: any = await Role.findOne({ orgId: org._id, templateKey: 'accountant' }).lean().exec()

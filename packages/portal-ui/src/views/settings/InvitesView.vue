@@ -96,10 +96,8 @@
             density="compact"
             class="mb-2"
           />
-          <!-- #510: every role the server knows (`ROLES`), named as the Users screen names them. -->
-          <!-- FR-27.4: in an org with roles, a role of the org; the org's default first. -->
+          <!-- FR-27 P3-3 (#529): a role of the org, the org's default first. The legacy role list is gone: the API refuses it. -->
           <v-select
-            v-if="orgRoles.length"
             v-model="createForm.assignRoleId"
             :label="$t('access.ui.role')"
             :items="orgRoles.map(r => ({ title: r.name, value: r.id }))"
@@ -108,16 +106,6 @@
             variant="outlined"
             density="compact"
             data-testid="invite-role-select"
-          />
-          <v-select
-            v-else
-            v-model="createForm.assignRole"
-            :label="$t('settings.role')"
-            :items="roleItems"
-            item-title="title"
-            item-value="value"
-            variant="outlined"
-            density="compact"
           />
         </v-card-text>
         <v-card-actions>
@@ -146,7 +134,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ROLES } from 'config/constants'
 import { useInviteStore } from '../../store/invite.store'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -159,7 +146,6 @@ const inviteStore = useInviteStore()
 const appStore = useAppStore()
 const { t } = useI18n()
 const { showError } = useSnackbar()
-const roleItems = computed(() => ROLES.map(r => ({ value: r, title: t(`settings.roles.${r}`) })))
 const creating = ref(false)
 /** #510: what became of the invitation just made: its link, and whether the email went out. */
 const inviteResult = ref<InviteResult | null>(null)
@@ -176,11 +162,10 @@ const createForm = reactive({
   targetEmail: '',
   maxUses: null as number | null,
   expiresInHours: null as number | null,
-  assignRole: 'member',
   assignRoleId: '',
 })
 
-/** FR-27.4: the org's roles; none (no migration here yet, or no right to read them): the legacy roles. */
+/** FR-27.4: the org's roles. None (no right to read them): the invite takes the org's default role. */
 const orgRoles = ref<any[]>([])
 let defaultRoleId = ''
 async function fetchRoles() {
@@ -216,7 +201,8 @@ function copyLink(code: string) {
 }
 
 async function handleCreate() {
-  const params: any = orgRoles.value.length && createForm.assignRoleId ? { assignRoleId: createForm.assignRoleId } : { assignRole: createForm.assignRole }
+  // FR-27 P3-3 (#529): the role by its id only. None chosen is the org's default role, the server's to choose.
+  const params: any = createForm.assignRoleId ? { assignRoleId: createForm.assignRoleId } : {}
   if (createMode.value === 'email') {
     params.targetEmail = createForm.targetEmail.trim()
   } else if (createForm.maxUses) {
@@ -232,7 +218,6 @@ async function handleCreate() {
     createForm.targetEmail = ''
     createForm.maxUses = null
     createForm.expiresInHours = null
-    createForm.assignRole = 'member'
     createForm.assignRoleId = defaultRoleId
     inviteResult.value = { link: data.link, targetEmail: data.invite?.targetEmail, email: data.email }
     await fetchItems()
