@@ -1,31 +1,34 @@
-import type { BaseEntity, Filter, SortSpec, PageRequest, PageResult, AggregateStage } from './types.js'
+import type { BaseEntity, Filter, SortSpec, PageRequest, PageResult, AggregateStage, ReadOptions, SessionOptions } from './types.js'
 import type { IAccount, IJournalEntry } from './entities/index.js'
 
 /**
- * Storage-agnostic repository interface.
- * Implemented by both MongoRepository and SQLiteRepository.
+ * Storage-agnostic repository interface, implemented by `MongoRepository`.
+ *
+ * Every method takes its options last (FR-32.14): `session` runs it inside the caller's transaction,
+ * and every operation it makes carries that session; the methods that return documents also take
+ * `select`, a projection. Both are optional, and a call without them behaves as it always did.
  */
 export interface IRepository<T extends BaseEntity> {
   /** Find a single entity by ID */
-  findById(id: string): Promise<T | null>
+  findById(id: string, opts?: ReadOptions): Promise<T | null>
 
   /** Find a single entity matching the filter */
-  findOne(filter: Filter<T>): Promise<T | null>
+  findOne(filter: Filter<T>, opts?: ReadOptions): Promise<T | null>
 
   /** Find entities with pagination (size=0 returns all) */
-  findAll(filter: Filter<T>, page?: PageRequest): Promise<PageResult<T>>
+  findAll(filter: Filter<T>, page?: PageRequest, opts?: ReadOptions): Promise<PageResult<T>>
 
   /** Find all entities matching the filter (no pagination) */
-  findMany(filter: Filter<T>, sort?: SortSpec): Promise<T[]>
+  findMany(filter: Filter<T>, sort?: SortSpec, opts?: ReadOptions): Promise<T[]>
 
   /** Create a new entity (id, createdAt, updatedAt are auto-generated) */
-  create(data: Omit<T, 'id' | 'createdAt' | 'updatedAt'>): Promise<T>
+  create(data: Omit<T, 'id' | 'createdAt' | 'updatedAt'>, opts?: SessionOptions): Promise<T>
 
   /** Update an entity by ID. Returns the updated entity or null if not found. */
-  update(id: string, data: Partial<T>): Promise<T | null>
+  update(id: string, data: Partial<T>, opts?: SessionOptions): Promise<T | null>
 
   /** Delete an entity by ID. Returns true if deleted, false if not found. */
-  delete(id: string): Promise<boolean>
+  delete(id: string, opts?: SessionOptions): Promise<boolean>
 
   /**
    * Find an entity by ID **within one org**. Null when the id names no document of that org,
@@ -35,7 +38,7 @@ export interface IRepository<T extends BaseEntity> {
    * only that the URL's `:orgId` is the caller's; the id itself can name any org's document, and
    * `tenantPlugin` filters nothing (FR-20.7).
    */
-  findByIdInOrg(id: string, orgId: string): Promise<T | null>
+  findByIdInOrg(id: string, orgId: string, opts?: ReadOptions): Promise<T | null>
 
   /**
    * Update an entity by ID **within one org**; null when it is not that org's. `orgId` in
@@ -49,19 +52,19 @@ export interface IRepository<T extends BaseEntity> {
    * `opts.unset`: top-level fields the same write removes (FR-25a: a header field the person cleared). A field named
    * both here and in `data` is removed, not set.
    */
-  updateInOrg(id: string, orgId: string, data: Partial<T>, where?: Record<string, unknown>, opts?: { validate?: boolean; unset?: string[] }): Promise<T | null>
+  updateInOrg(id: string, orgId: string, data: Partial<T>, where?: Record<string, unknown>, opts?: { validate?: boolean; unset?: string[] } & SessionOptions): Promise<T | null>
 
   /** Delete an entity by ID **within one org**; false when it is not that org's. */
-  deleteInOrg(id: string, orgId: string, where?: Record<string, unknown>): Promise<boolean>
+  deleteInOrg(id: string, orgId: string, where?: Record<string, unknown>, opts?: SessionOptions): Promise<boolean>
 
   /** Atomically find one entity matching the filter and update it. Returns null if no match. */
-  findOneAndUpdate(filter: Filter<T>, data: Partial<T>): Promise<T | null>
+  findOneAndUpdate(filter: Filter<T>, data: Partial<T>, opts?: SessionOptions): Promise<T | null>
 
   /** Count entities matching the filter */
-  count(filter: Filter<T>): Promise<number>
+  count(filter: Filter<T>, opts?: SessionOptions): Promise<number>
 
   /** Run an aggregation pipeline (for complex reporting queries) */
-  aggregate<R = any>(pipeline: AggregateStage[]): Promise<R[]>
+  aggregate<R = any>(pipeline: AggregateStage[], opts?: SessionOptions): Promise<R[]>
 }
 
 /**
@@ -69,13 +72,13 @@ export interface IRepository<T extends BaseEntity> {
  */
 export interface IBatchRepository<T extends BaseEntity> extends IRepository<T> {
   /** Create multiple entities at once */
-  createMany(data: Omit<T, 'id' | 'createdAt' | 'updatedAt'>[]): Promise<T[]>
+  createMany(data: Omit<T, 'id' | 'createdAt' | 'updatedAt'>[], opts?: SessionOptions): Promise<T[]>
 
   /** Update multiple entities matching the filter */
-  updateMany(filter: Filter<T>, data: Partial<T>): Promise<number>
+  updateMany(filter: Filter<T>, data: Partial<T>, opts?: SessionOptions): Promise<number>
 
   /** Delete multiple entities matching the filter */
-  deleteMany(filter: Filter<T>): Promise<number>
+  deleteMany(filter: Filter<T>, opts?: SessionOptions): Promise<number>
 }
 
 /** Which of an org's posted journal lines to add up. */
@@ -126,10 +129,10 @@ export interface IJournalEntryRepository extends IBatchRepository<IJournalEntry>
    * ⚠ Statements read this and never `findMany`: a year of books is ~130k operations, and loading
    * them into a pod that holds 2 GiB beside the live service is how a report takes the API down.
    */
-  sumPostedLines(query: JournalLineTotalsQuery): Promise<JournalLineTotals[]>
+  sumPostedLines(query: JournalLineTotalsQuery, opts?: SessionOptions): Promise<JournalLineTotals[]>
 
   /** The same reading per analytic, for the lines that name one. `byContact` means nothing here. */
-  sumPostedAnalytics(query: JournalLineTotalsQuery): Promise<JournalAnalyticTotals[]>
+  sumPostedAnalytics(query: JournalLineTotalsQuery, opts?: SessionOptions): Promise<JournalAnalyticTotals[]>
 }
 
 export interface IAccountRepository extends IBatchRepository<IAccount> {
@@ -140,5 +143,5 @@ export interface IAccountRepository extends IBatchRepository<IAccount> {
    * ⚠ Never read a balance and write back a sum: two entries landing on one account would lose one
    * (the stock level's lost update, #460). This is one write per account, in one round trip.
    */
-  adjustBalances(orgId: string, amounts: Record<string, number>): Promise<void>
+  adjustBalances(orgId: string, amounts: Record<string, number>, opts?: SessionOptions): Promise<void>
 }

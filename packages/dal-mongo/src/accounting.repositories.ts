@@ -1,8 +1,8 @@
 import { Types } from 'mongoose'
 import { IMPORTED_OPENING, Org, POSTED_BOOKS } from 'db/models'
-import type { IAccountRepository, IJournalEntryRepository, JournalAnalyticTotals, JournalLineTotals, JournalLineTotalsQuery } from 'dal'
+import type { IAccountRepository, IJournalEntryRepository, JournalAnalyticTotals, JournalLineTotals, JournalLineTotalsQuery, SessionOptions } from 'dal'
 import type { IAccount, IJournalEntry } from 'dal/entities'
-import { MongoRepository } from './base.repository.js'
+import { MongoRepository, sessionOf, withSession } from './base.repository.js'
 
 const ids = (list: string[]) => list.filter(id => Types.ObjectId.isValid(id)).map(id => new Types.ObjectId(id))
 
@@ -29,23 +29,23 @@ export class MongoJournalEntryRepository extends MongoRepository<IJournalEntry> 
    * share of the year before included, so a store reads its lines from that day on, as the home does:
    * otherwise the group's shares add up to that year twice.
    */
-  private async openingOrg(orgId: Types.ObjectId): Promise<Types.ObjectId> {
-    const org: any = await Org.findById(orgId, { 'settings.accounting.books.split.homeOrgId': 1 }).lean().exec()
+  private async openingOrg(orgId: Types.ObjectId, opts?: SessionOptions): Promise<Types.ObjectId> {
+    const org: any = await Org.findById(orgId, { 'settings.accounting.books.split.homeOrgId': 1 }, withSession(opts)).lean().exec()
     const home = org?.settings?.accounting?.books?.split?.homeOrgId
     return home ? new Types.ObjectId(String(home)) : orgId
   }
 
   /** The imported opening a reading at `at` starts from; with no `at`, the last there is. */
-  private async lastOpening(orgId: Types.ObjectId, at?: Date): Promise<{ _id: Types.ObjectId; date: Date } | null> {
+  private async lastOpening(orgId: Types.ObjectId, at?: Date, opts?: SessionOptions): Promise<{ _id: Types.ObjectId; date: Date } | null> {
     return this.model
-      .findOne({ orgId: await this.openingOrg(orgId), ...POSTED_BOOKS, ...IMPORTED_OPENING, ...(at ? { date: { $lte: at } } : {}) }, { date: 1 })
+      .findOne({ orgId: await this.openingOrg(orgId, opts), ...POSTED_BOOKS, ...IMPORTED_OPENING, ...(at ? { date: { $lte: at } } : {}) }, { date: 1 }, withSession(opts))
       .sort({ date: -1 })
       .lean()
       .exec() as any
   }
 
   /** The one place that decides which entries a statement reads. */
-  private async postedIn({ orgId, fiscalPeriodIds, from, to, before, turnoverOnly }: JournalLineTotalsQuery) {
+  private async postedIn({ orgId, fiscalPeriodIds, from, to, before, turnoverOnly }: JournalLineTotalsQuery, opts?: SessionOptions) {
     // ⚠ `orgId` is cast by hand: an aggregation is not cast against the schema, so as a string it
     // matches nothing and the statement comes back empty.
     const org = new Types.ObjectId(orgId)
@@ -53,13 +53,13 @@ export class MongoJournalEntryRepository extends MongoRepository<IJournalEntry> 
     if (fiscalPeriodIds) match.fiscalPeriodId = { $in: ids(fiscalPeriodIds) }
 
     if (before) {
-      const opening = await this.lastOpening(org, before)
+      const opening = await this.lastOpening(org, before, opts)
       if (opening) match.$or = [{ _id: opening._id }, { date: { $gte: opening.date, $lt: before } }]
       else match.date = { $lt: before }
     } else if (from || fiscalPeriodIds) {
       if (from || to) match.date = { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) }
     } else {
-      const since = (await this.lastOpening(org, to))?.date
+      const since = (await this.lastOpening(org, to, opts))?.date
       if (since || to) match.date = { ...(since ? { $gte: since } : {}), ...(to ? { $lte: to } : {}) }
     }
 
@@ -67,12 +67,12 @@ export class MongoJournalEntryRepository extends MongoRepository<IJournalEntry> 
     return match
   }
 
-  async sumPostedLines(query: JournalLineTotalsQuery): Promise<JournalLineTotals[]> {
+  async sumPostedLines(query: JournalLineTotalsQuery, opts?: SessionOptions): Promise<JournalLineTotals[]> {
     const { byContact, asBooked, only } = query
     const onLine = only ? { 'lines.accountId': { $in: ids(only) } } : {}
 
     const rows = await this.model.aggregate([
-      { $match: { ...(await this.postedIn(query)), ...onLine } },
+      { $match: { ...(await this.postedIn(query, opts)), ...onLine } },
       { $project: { lines: 1 } },
       { $unwind: '$lines' },
       { $match: onLine },
@@ -82,7 +82,7 @@ export class MongoJournalEntryRepository extends MongoRepository<IJournalEntry> 
           ...totals(asBooked),
         },
       },
-    ]).exec()
+    ]).session(sessionOf(opts) ?? null).exec()
 
     return rows.map(row => ({
       accountId: String(row._id.accountId),
@@ -93,13 +93,13 @@ export class MongoJournalEntryRepository extends MongoRepository<IJournalEntry> 
     }))
   }
 
-  async sumPostedAnalytics(query: JournalLineTotalsQuery): Promise<JournalAnalyticTotals[]> {
+  async sumPostedAnalytics(query: JournalLineTotalsQuery, opts?: SessionOptions): Promise<JournalAnalyticTotals[]> {
     // ⚠ `$exists`, never `$ne: null`: before the `$unwind` that reads "no line lacks one", and drops
     // every document with a line on an account that has no analytics.
     const onLine = { 'lines.analyticId': query.only ? { $in: ids(query.only) } : { $exists: true } }
 
     const rows = await this.model.aggregate([
-      { $match: { ...(await this.postedIn(query)), ...onLine } },
+      { $match: { ...(await this.postedIn(query, opts)), ...onLine } },
       { $project: { lines: 1 } },
       { $unwind: '$lines' },
       { $match: onLine },
@@ -109,14 +109,14 @@ export class MongoJournalEntryRepository extends MongoRepository<IJournalEntry> 
           ...totals(query.asBooked),
         },
       },
-    ]).exec()
+    ]).session(sessionOf(opts) ?? null).exec()
 
     return rows.map(row => ({ analyticId: String(row._id), debit: row.debit, credit: row.credit, ...quantities(row) }))
   }
 }
 
 export class MongoAccountRepository extends MongoRepository<IAccount> implements IAccountRepository {
-  async adjustBalances(orgId: string, amounts: Record<string, number>): Promise<void> {
+  async adjustBalances(orgId: string, amounts: Record<string, number>, opts?: SessionOptions): Promise<void> {
     const ops = Object.entries(amounts)
       .filter(([, amount]) => amount)
       .map(([id, amount]) => ({
@@ -126,6 +126,6 @@ export class MongoAccountRepository extends MongoRepository<IAccount> implements
           update: [{ $set: { balance: { $round: [{ $add: [{ $ifNull: ['$balance', 0] }, amount] }, 2] } } }],
         },
       }))
-    if (ops.length) await this.model.bulkWrite(ops as any)
+    if (ops.length) await this.model.bulkWrite(ops as any, withSession(opts))
   }
 }

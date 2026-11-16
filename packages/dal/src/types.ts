@@ -73,3 +73,30 @@ export type AggregateStage =
   | { $group: Record<string, any> }
 
 export type AggregateExpression = string | Record<string, any>
+
+// ── Projection & session (FR-32.14) ──
+
+/**
+ * What a read returns: the fields named (`['name', 'sku']`), or a projection (`{ name: 1 }`,
+ * `{ lines: 0 }`). `id` is always there. A field left out is absent from the entity, whatever its
+ * type says.
+ */
+export type Projection = readonly string[] | Readonly<Record<string, 0 | 1>>
+
+/**
+ * A store transaction, as the backend hands it out (a Mongoose `ClientSession`). Opaque here: the
+ * DAL only carries it from the caller to every operation the method makes.
+ */
+export type DalSession = object
+
+/** For a method that writes, or that reads without returning documents. */
+export interface SessionOptions {
+  /** Run inside this transaction: every operation the method makes carries it. */
+  session?: DalSession
+}
+
+/** For a method that returns documents. */
+export interface ReadOptions extends SessionOptions {
+  /** Return only these fields (`id` always). */
+  select?: Projection
+}
