@@ -5,6 +5,7 @@ import { can, grantOf } from 'services/biz/access/evaluate'
 import { seesBills } from 'services/biz/access/partition'
 import { redactMovementLine, redactMovementTotals, seesCosts, sortsByMovementTotal } from 'config/access'
 import { AppAuthService } from '../auth/app-auth.service.js'
+import { writesTransfersOnly } from '../lib/movement-access.js'
 import { getRepos } from 'services/context'
 import { confirmMovement, MovementClaimedError, MovementNotDraftError, unclaimedMovement } from 'services/biz/warehouse.service'
 import { DocFile, Invoice, StockMovement } from 'db/models'
@@ -64,9 +65,10 @@ const NO_CONTACT = '000000000000000000000000'
 /**
  * FR-26.7: a session that writes movements through `inventory.transfer` alone (a Seller) writes
  * transfers and nothing else. `inventory.write` keeps every type; `admin` is refused nothing.
+ * The rule itself is `lib/movement-access.ts#writesTransfersOnly`, which the list's mail asks too.
  */
 function transferOnly(user: { role?: string; permissions?: readonly string[] }): boolean {
-  return !can(user, 'movements.create')
+  return writesTransfersOnly(grantOf(user as any))
 }
 
 const TRANSFER_ONLY = { code: 'transfer_only', message: 'Your role moves stock between warehouses only: a transfer.' } as const

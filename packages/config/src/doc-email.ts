@@ -18,6 +18,12 @@ export const MAX_DOCS_PER_MAIL = 10
 /** The most ticked documents one dialog takes. More is 422 `selection_too_large`. */
 export const MAX_SELECTION = 100
 
+/**
+ * FR-10.6: the same document to the same address again inside this window is a double click, not a second mail
+ * (`just_sent`). A FAILED attempt is no block: the failure is why the person asks again.
+ */
+export const RESEND_WINDOW_MS = 60_000
+
 /** Deliberately permissive — the real validation is the provider bouncing it. */
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
@@ -25,8 +31,11 @@ export function isValidRecipient(to: unknown): boolean {
   return EMAIL_RE.test(String(to ?? '').trim())
 }
 
-/** Why a document will not go, as the preview says it. */
-export const DOC_EMAIL_BLOCKS = ['not_found', 'forbidden', 'draft'] as const
+/**
+ * Why a document will not go, as the preview says it. `cancelled` is a stock movement's: one that was called off
+ * moved nothing, and its sheet says nothing true to whoever receives it.
+ */
+export const DOC_EMAIL_BLOCKS = ['not_found', 'forbidden', 'draft', 'cancelled'] as const
 export type DocEmailBlock = (typeof DOC_EMAIL_BLOCKS)[number]
 
 /** …and as the mail request says it: the same, and the double-click window, which only a recipient can answer. */
@@ -55,12 +64,12 @@ export interface DocEmailPreviewRow {
   id: string
   groupId?: string
   number: string
-  /** What the document is, for the dialog to name: `invoice`, `credit_note`, `bill`, `order`… */
+  /** What the document is, for the dialog to name: `invoice`, `credit_note`, `bill`, `order`, a movement's `transfer`… */
   docType: string
   /** ISO date. */
   date?: string
   status?: string
-  /** The customer of an outgoing document; the supplier of a bill or of an order's group. */
+  /** The customer of an outgoing document; the supplier of a bill or of an order's group; a stock movement's contact. */
   partner?: DocEmailPartner
   blocked?: DocEmailBlock
 }

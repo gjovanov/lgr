@@ -18,10 +18,8 @@ import { grantOf, type AccessCaller } from 'services/biz/access/evaluate'
 import { canExport, canWrite } from './export-access.js'
 
 // The recipient pattern is `config/doc-email`'s since the batch dialog reads it too; it is still exported from here.
-export { EMAIL_RE, isValidRecipient } from 'config/doc-email'
-
-/** FR-10.6: a second identical send inside this window is treated as a double-click. */
-export const RESEND_WINDOW_MS = 60_000
+// So is the double-click window (FR-10.6), which every kind of mailed document reads.
+export { EMAIL_RE, RESEND_WINDOW_MS, isValidRecipient } from 'config/doc-email'
 
 export interface EmailBlock {
   status: 400 | 403 | 404 | 422 | 429

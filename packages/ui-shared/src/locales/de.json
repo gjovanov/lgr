@@ -5147,6 +5147,7 @@
     "doneQueued": "{documents} für {recipients} in der Warteschlange: Sie werden gesendet, sobald dieser Server lgrai.app erreicht.",
     "reason": {
       "draft": "Entwurf: wird nicht gesendet",
+      "cancelled": "storniert: wird nicht gesendet",
       "not_found": "kein solches Dokument",
       "forbidden": "Ihre Rolle versendet solche Dokumente nicht",
       "just_sent": "gerade erst an diese Adresse gesendet",
