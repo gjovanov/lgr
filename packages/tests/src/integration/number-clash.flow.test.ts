@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestContact, createTestOrg, createTestProduct, createTestStockLevel, createTestUser, createTestWarehouse } from '../helpers/factories'
+import { createTestContact, createTestOrg, createTestProduct, createTestStockLevel, createTestUser, createTestWarehouse, createTestPerson } from '../helpers/factories'
+import { tokenize } from 'services/biz/auth.service'
 import { captureRejection } from '../helpers/capture-rejection'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
@@ -163,7 +164,8 @@ describe('correcting a number issued twice (AC 51)', () => {
     await Invoice.collection.insertOne(second as any)
     const app = new Elysia().use(createApiApp())
     const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
-    const token = (role: string, permissions: string[]) => (signer as any).decorator.jwt.sign({ id: String(w.admin._id), orgId: w.orgId, role, email: `${role}@clash.test`, username: role, permissions })
+    // FR-27 P3-2: each case is a person of its own whose role holds exactly those permissions.
+    const token = async (role: string, permissions: string[]) => (signer as any).decorator.jwt.sign(await tokenize(await createTestPerson(new mongoose.Types.ObjectId(w.orgId), { role, permissions })))
     const call = async (method: string, path: string, t: string) => {
       const res = await app.handle(new Request(`http://localhost/api${path}`, { method, headers: { authorization: `Bearer ${t}`, 'content-type': 'application/json' }, body: method === 'POST' ? '{}' : undefined }))
       return { status: res.status, json: await res.json().catch(() => null) as any }
