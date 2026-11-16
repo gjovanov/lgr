@@ -225,6 +225,13 @@ describe('GET /invoicing/internal-orders/:id/export', () => {
     expect(res.headers.get('content-type')).toBe('application/pdf')
     expect(res.headers.get('content-disposition')).toBe('attachment; filename="ORDI-2026-00042.pdf"')
     expect(isPdf(Buffer.from(await res.arrayBuffer()))).toBe(true)
+
+    // A language there is no page for, one named twice, none named: the sheet all the same.
+    for (const query of ['?locale=xx', '?locale=bg&locale=de', '']) {
+      const odd = await w.raw(`/invoicing/internal-orders/${ordi._id}/export${query}`)
+      expect({ query, status: odd.status }).toEqual({ query, status: 200 })
+      expect(isPdf(Buffer.from(await odd.arrayBuffer()))).toBe(true)
+    }
   }, 120_000)
 
   it('nobody signed in: 401; an id that is not this org\'s order: 404', async () => {
