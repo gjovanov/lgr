@@ -132,7 +132,7 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
 
 ### 2.4 A request id on three creates
 
-- `Order` and `InternalOrder` already have `createdFrom { source, requestId }` and its sparse unique index. The forms send `source: 'form'` and a fresh id per form instance.
+- `Order` and `InternalOrder` already have `createdFrom { source, requestId }` and its partial unique index. The source list, which holds `products` today, gains `form`, and the forms send it with a fresh id per form instance.
 - `StockMovement` gains an optional `requestId` and a partial unique index on `{ orgId, requestId }`.
 - A repeated request answers with the document the first one made, in the create's own shape.
 - A caller that sends no id behaves as today: the importers and the skills are not touched.
@@ -156,7 +156,7 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
 
 ### 2.7 Lookups, start-up, limits, ticks
 
-- **A lookup has three outcomes**: found, not there, failed. Only the first two are remembered. While it fails, the request is answered 503 (`lookup_unavailable`), which the SPA treats as "try again" and never as a sign-out. The rule lives with the shared session rules, so every auth plugin behaves alike.
+- **A lookup has three outcomes**: found, not there, failed. Only the first two are remembered. While it fails, the request is answered 503 (`session_check_unavailable`), which the SPA treats as "try again" and never as a sign-out. The rule lives with the shared session rules, so every auth plugin behaves alike. The code is a new one: `lookup_unavailable` exists and means something else (a tax-number check this server cannot make).
 - **Indexes.** After connect, every model's index build is awaited and each failure is logged with the model, the index and the reason, and shown in health. The guard indexes are listed in one place in `db`. Later, index builds move into `packages/migrations` and production runs with `autoIndex: false`.
 - **Time limits.** One default for the queries of a request. Jobs, exports, backups and migrations name their own, higher one. A request that hits the limit answers 503 (`query_timeout`).
   - ⚠ Order: the lookups first. A time limit makes "the read failed" more frequent under load, and a lookup that remembers a failure would then turn load into sign-outs.
@@ -230,7 +230,7 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
 
 **FR-29.23 — A lookup that fails is not an answer (MUST).**
 - `identityStillValid` and `accessModelOf` tell "not there" from "the read failed". A failed read is never remembered.
-- While the read fails, the request is answered 503 with `lookup_unavailable`. The SPA shows "try again" and keeps the session.
+- While the read fails, the request is answered 503 with `session_check_unavailable`. The SPA shows "try again" and keeps the session.
 - "Not there" and "inactive" end the session exactly as today, and a positive answer is remembered exactly as long as today: nothing here lengthens a session.
 - Tests: a read that throws once, then succeeds, costs one 503 and no sign-out; a person who is gone is signed out; both lookups.
 
@@ -312,7 +312,7 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
 - **Audit** (`audit-entry-shape.flow`): the sixteen actions, the five system entries, a write that fails.
 - **Lookups** (unit): §3.6's cases for both lookups.
 - **Indexes** (`index-verification.flow`), **registry** (unit: a slow tick, a `one` job on two registries).
-- **Guards, unmodified**: `tenant-isolation.flow`, `route-permission.flow`, `read-permission.flow`, `bill-with-update.flow`, `invoice-stock-validation.flow`, `order-reservations.flow`, `internal-order.flow`, `pos-transaction.flow`, `unit/replication-meta.test.ts`.
+- **Guards, unmodified**: `tenant-isolation.flow`, `route-permission.flow`, `read-permission.flow`, `bill-with-update.flow`, `invoice-stock-validation.flow`, `order-reservations.flow`, `internal-order.flow`, the till's suites (`cash-register-*.flow`, `pos-*.flow`), `unit/replication-meta.test.ts`.
 
 ## 7. Acceptance criteria
 

@@ -78,7 +78,7 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
 - `buildSearchFilter` (`services/src/biz/search.utils.ts`) builds, per keyword, an unanchored pattern over five lowered fields. No index helps, so every search reads all 23 050 products: 65 to 390 ms, whether it finds anything or not. Each search runs twice, for the page and for the count.
 - Measured with one combined lowered field and an index on `{ orgId, searchLower }`: 19 to 34 ms in every case, a search without a match included, because the pattern is tested on the index keys and only matches are fetched. The planner preferred another index until it was hinted.
 - A type-ahead does not show a total. Fetching one row more than the page, without the count, took 8 to 11 ms.
-- The stock-levels list (`stock-level.controller.ts`) searches with a case-insensitive pattern and not through the lowered mirrors, which is the path the repository left because of Cyrillic.
+- The stock-levels list (`stock-level.controller.ts`) calls the same builder without the lowered mirrors, so it searches with a case-insensitive pattern, which is the path the repository left because of Cyrillic. It then loads every matching product whole to take its id.
 
 ### 1.4 A report and two dashboards (P6, P9, P14)
 
@@ -179,7 +179,7 @@ Production's sign-in page, anonymous, over HTTP/2 with brotli: 22 requests, 843 
 
 **FR-30.3 — The contact ledger's index (MUST).** The ledger of one contact reads documents of that contact only (`explain`), and answers within 20 ms on the fixture.
 
-**FR-30.4 — Text indexes nothing reads are dropped (MUST).** A migration drops the seven text indexes and the schema lines go with it. The unused `hasTextIndex` option is removed. The `$text` query in the test-only DAO goes with that DAO ([FR-32](FR-32-code-health.md).9).
+**FR-30.4 — Text indexes nothing reads are dropped (MUST).** A migration drops the seven text indexes and the schema lines go with it. The `hasTextIndex` option of the search builder, which four callers pass and the builder never reads, is removed with them. The `$text` query in the test-only DAO goes with that DAO ([FR-32](FR-32-code-health.md).9).
 
 **FR-30.5 — The index set is reviewed against use (SHOULD).** After a week with FR-30.1 to .4 on production, `$indexStats` is read per collection (counters only). An index with no use since the process started is listed with its size, and dropped in a second migration unless a reason is written beside it.
 
@@ -209,7 +209,7 @@ Production's sign-in page, anonymous, over HTTP/2 with brotli: 22 requests, 843 
 
 **FR-30.12 — A type-ahead does not count (MUST).** The product and contact type-aheads make one query per keystroke that is sent. Lists keep their total.
 
-**FR-30.13 — The stock-level search goes through the builder (MUST).** It uses the lowered mirrors like every other search, and finds Cyrillic regardless of case.
+**FR-30.13 — The stock-level search uses the lowered mirrors (MUST).** It searches the way the Products list does, finds Cyrillic regardless of case, and reads the matching products' ids, not the products.
 
 ### 3.4 Reports and dashboards (slice D)
 
@@ -293,7 +293,7 @@ Production's sign-in page, anonymous, over HTTP/2 with brotli: 22 requests, 843 
 **Rollback.** A: an index that hurts is dropped by name; the text indexes can be declared again. B: `fields=list` and the ceiling are each one revert. C: the search falls back to today's builder by a switch, and the field is harmless. D, E, F: revert the PR. G: each requirement reverts alone; the icon subset can be replaced by the whole font in one line.
 
 **Risks.**
-- *An index slows writes.* Seven text indexes go while six narrow ones arrive, and FR-30.5 reviews the rest.
+- *An index slows writes.* Seven text indexes go and seven arrive (five for the lists, the ledger's partial one, the search field's), and FR-30.5 reviews the rest.
 - *A caller that needs whole documents gets rows.* `fields=list` is opt-in (D-1).
 - *A cut answer is taken for the whole.* `truncated` says so, and the two scripts that asked for everything are changed in the same PR.
 - *An icon that only exists in data renders blank.* The allow-list, the test, and a walk over every module.

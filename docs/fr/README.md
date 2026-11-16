@@ -84,7 +84,7 @@ Each FR's §0 maps its findings to requirement numbers.
 1. FR-32.14, and FR-32 slice A (the gates): every later change is safer with them.
 2. FR-29 slices A and B: stock that moves twice is the costliest thing found.
 3. FR-31 slices A1 to A3: lost edits, a wrong article on a line, a failure that looks like a draft.
-4. FR-30 slice A: five indexes, the cheapest speed-up in the batch.
+4. FR-30 slice A: the list indexes, the cheapest speed-up in the batch.
 5. The rest by slice, as each FR's §5 orders it.
 
 **Checked and found sound**
