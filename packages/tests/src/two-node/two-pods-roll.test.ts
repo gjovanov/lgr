@@ -4,7 +4,8 @@ import jwt from '@elysiajs/jwt'
 import { PERMISSIONS } from 'config/constants'
 import { mongoose } from 'db/connection'
 import { Invoice } from 'db/models'
-import { createTestContact, createTestFiscalDevice, createTestOrg, createTestProduct, createTestStockLevel, createTestWarehouse } from '../helpers/factories'
+import { createTestContact, createTestFiscalDevice, createTestOrg, createTestProduct, createTestStockLevel, createTestWarehouse, createTestUser } from '../helpers/factories'
+import { tokenize } from 'services/biz/auth.service'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { IslResponseCollector } from 'ui-shared/composables/fiscalIslResponse'
 import { startTwoPods, type Node, type TwoPods } from './harness'
@@ -137,10 +138,10 @@ describe.skipIf(!enabled)('a device whose holder moves between pods (FR-23, FR-2
     warehouseId = String(wh._id)
     contactId = String((await createTestContact(org._id, { companyName: 'Клиент ООД', type: 'customer' } as any))._id)
     const signer = new Elysia().use(jwt({ name: 'jwt', secret: pods.jwtSecret })) as any
-    token = await signer.decorator.jwt.sign({
-      id: '000000000000000000000001', orgId, role: 'admin', firstName: 'Ana', lastName: 'Till',
-      permissions: [...PERMISSIONS], ownRecordsModules: [], operatorCode: '0001',
-    })
+    // FR-27 P3-2: the role decides, so the till's cashier is a real person with the Administrator role, as sign-in
+    // issues their session (a made-up id with claims written over it has no role and is refused).
+    const cashier = await createTestUser(org._id, { role: 'admin', firstName: 'Ana', lastName: 'Till', operatorCode: '0001' } as any)
+    token = await signer.decorator.jwt.sign(await tokenize(cashier))
     holder = pods.a
     spare = pods.b
     till = await openBridge(holder, 'till-tab-1')
