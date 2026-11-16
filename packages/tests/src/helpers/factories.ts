@@ -134,7 +134,8 @@ export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<I
   // by 0015's own code, scoped to the org. A test that passes `roleId` keeps it. Behaviour is unchanged while the org
   // is on `legacy`; once the role decides everywhere (P3-2), the role is what the test's person may do.
   if (!overrides.roleId) {
-    await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: { orgId } })
+    // ⚠ As an ObjectId: tests pass the org's id as a string too, and a string filter matches no stored row.
+    await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: { orgId: new Types.ObjectId(String(orgId)) } })
     const roleId = (await User.findById(user._id, { roleId: 1 }).lean().exec() as any)?.roleId
     if (roleId) user.roleId = roleId
   }
