@@ -1,10 +1,16 @@
 import type { RepositoryRegistry } from 'dal'
 import { DuplicateError } from 'dal'
 import type { IStockMovement } from 'dal/entities'
+import type { CostingMethod } from 'config'
+import type { ClientSession } from 'mongoose'
+import { mongoose } from 'db/connection'
 import { StockLevel, StockMovement } from 'db/models'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
-import { getEffectiveCostingMethod, createCostLayers, consumeCostLayers, type ConsumptionResult } from './costing.service.js'
+import {
+  getEffectiveCostingMethod, createCostLayers, consumeCostLayers, costingOfArticles, StockBookingRefusedError,
+  type ArticleCosting, type ConsumptionResult,
+} from './costing.service.js'
 import { eventBus } from '../events/event-bus.js'
 import { externalWarehouseIds } from './external-warehouses.js'
 
@@ -15,7 +21,16 @@ export interface ConfirmMovementOptions {
    * its own: a second one would hold the same goods twice (#276).
    */
   layersRestored?: Set<string>
+  /**
+   * The caller's transaction (FR-29.3): the booking joins it and starts none of its own. Its claim, its
+   * levels, its layers and its status are then the caller's to commit or abort, and so is
+   * `stock.movement.confirmed`, which the caller sends after its commit (`announceMovementConfirmed`).
+   * ⚠ A caller that catches an error of this booking must abort, never commit what it holds.
+   */
+  session?: ClientSession
 }
+
+export { StockBookingRefusedError } from './costing.service.js'
 
 /**
  * How long a draft's confirm or delete holds it (#448). Long enough for the biggest receipt to book:
@@ -49,18 +64,49 @@ export class MovementClaimedError extends Error {
  * goods, and once drafts could be deleted, a delete in that gap would leave the stock moved by a
  * movement that is gone. Taken atomically; a delete takes the same hold (`movement.controller`).
  */
-async function claimDraftMovement(movementId: string): Promise<void> {
+async function claimDraftMovement(movementId: string, session?: ClientSession): Promise<Date> {
   const now = new Date()
+  const until = new Date(now.getTime() + MOVEMENT_CLAIM_MS)
   const claimed = await StockMovement.findOneAndUpdate(
     { _id: movementId, status: 'draft', ...unclaimedMovement(now) },
-    { $set: { claimedUntil: new Date(now.getTime() + MOVEMENT_CLAIM_MS) } },
-    { projection: { _id: 1 } },
+    { $set: { claimedUntil: until } },
+    { projection: { _id: 1 }, ...(session ? { session } : {}) },
   ).exec()
-  if (claimed) return
-  const current: any = await StockMovement.findById(movementId, { status: 1, movementNumber: 1 }).lean().exec()
+  if (claimed) return until
+  const current: any = await StockMovement.findById(movementId, { status: 1, movementNumber: 1 }, session ? { session } : {}).lean().exec()
   if (!current) throw new Error('Stock movement not found')
   if (current.status !== 'draft') throw new MovementNotDraftError()
   throw new MovementClaimedError(current.movementNumber)
+}
+
+/**
+ * Lets go of this confirm's claim (FR-29.2): only the one it took, on a draft. A claim that lapsed and
+ * was taken by someone else carries another time, and stays theirs.
+ */
+async function releaseClaim(movementId: string, claim: Date): Promise<void> {
+  try {
+    await StockMovement.updateOne({ _id: movementId, status: 'draft', claimedUntil: claim }, { $set: { claimedUntil: null } }).exec()
+  } catch (e) {
+    // The claim then lapses by itself (MOVEMENT_CLAIM_MS); the refusal the caller is about to get matters more.
+    logger.error({ movementId, err: e }, 'A failed confirm could not release its claim')
+  }
+}
+
+/**
+ * The refusal as a person reads it (FR-29.6): the article's name and SKU and the warehouse's name,
+ * read after the booking was rolled back. Never an id: an article or warehouse that cannot be read is
+ * left unnamed.
+ */
+async function nameRefusal(e: StockBookingRefusedError, orgId: string, r: RepositoryRegistry): Promise<StockBookingRefusedError> {
+  try {
+    const [product, warehouse] = await Promise.all([
+      r.products.findByIdInOrg(e.productId, orgId, { select: ['name', 'sku'] }),
+      r.warehouses.findByIdInOrg(e.warehouseId, orgId, { select: ['name'] }),
+    ])
+    return e.named({ product: (product as any)?.name, sku: (product as any)?.sku, warehouse: (warehouse as any)?.name })
+  } catch {
+    return e
+  }
 }
 
 /**
@@ -89,11 +135,84 @@ async function claimDraftMovement(movementId: string): Promise<void> {
  */
 export async function confirmMovement(movementId: string, repos?: RepositoryRegistry, opts?: ConfirmMovementOptions): Promise<IStockMovement> {
   const r = repos ?? getRepos()
-  const movement = await r.stockMovements.findById(movementId)
+  const outer = opts?.session
+  const movement = await r.stockMovements.findById(movementId, outer ? { session: outer } : undefined)
   if (!movement) throw new Error('Stock movement not found')
   if (movement.status !== 'draft') throw new MovementNotDraftError()
-  await claimDraftMovement(movementId)
+  const claim = await claimDraftMovement(movementId, outer)
 
+  let updated: IStockMovement
+  try {
+    // FR-29.1: every level, every cost layer and the status, or none of them. Joined when the caller
+    // is in a transaction of its own (FR-29.3): its commit or its abort decides for both.
+    updated = outer
+      ? await bookMovement(movement, r, opts, outer)
+      : await inBookingTransaction(session => bookMovement(movement, r, opts, session))
+  } catch (e) {
+    // FR-29.2: a confirm that did not complete lets go of the draft before it answers, so the next
+    // one meets the real refusal again and not "is being confirmed". Joined, the caller's abort does.
+    if (!outer) await releaseClaim(movementId, claim)
+    if (e instanceof StockBookingRefusedError) throw await nameRefusal(e, movement.orgId, r)
+    throw e
+  }
+
+  // FR-29.7: the event leaves once the booking is stored, never from inside the transaction. Joined,
+  // the caller announces it after ITS commit.
+  if (!outer) announceMovementConfirmed(updated)
+  logger.info({ movementId, type: movement.type }, 'Stock movement confirmed')
+  return updated
+}
+
+/**
+ * `stock.movement.confirmed` for a booked movement: once, after its commit (FR-29.7). `confirmMovement`
+ * sends it itself unless it joined a caller's transaction; that caller sends it after committing.
+ */
+export function announceMovementConfirmed(movement: IStockMovement): void {
+  eventBus.emit('stock.movement.confirmed', {
+    movementId: String(movement.id),
+    orgId: String(movement.orgId),
+    type: movement.type,
+    lines: (movement.lines ?? []).map((l: any) => ({ productId: l.productId, quantity: l.quantity })),
+  })
+}
+
+/** How many times a booking is tried when a level it creates was created meanwhile by another one. */
+const BOOKING_ATTEMPTS = 3
+
+/**
+ * Runs a booking in a transaction of its own. A level the booking creates may be created by another
+ * booking at the same moment: outside a transaction `adjustStock` then lands on that row, but inside
+ * one the duplicate key has already aborted the transaction, so the whole booking runs again, on the
+ * row that now exists. A write conflict is retried by `withTransaction` itself.
+ */
+async function inBookingTransaction<T>(fn: (session: ClientSession) => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    const session = await mongoose.startSession()
+    try {
+      let out!: T
+      await session.withTransaction(async () => { out = await fn(session) })
+      return out
+    } catch (e) {
+      if (attempt < BOOKING_ATTEMPTS && isLevelRace(e)) continue
+      throw e
+    } finally {
+      await session.endSession()
+    }
+  }
+}
+
+const isLevelRace = (e: any) => e instanceof DuplicateError || e?.code === 11000
+
+/**
+ * The writes of one booking, in `session`: the levels, the cost layers and the movement's status.
+ *
+ * FR-29.5: what it reads does not grow with the lines: the warehouses' external flags, the articles'
+ * costing (`costingOfArticles`, two reads) and, for goods from an external warehouse, what they cost
+ * here (`costsAt`, two). Per line it writes the level (one round trip, two when the level is new) and,
+ * on a layered method, reads and takes the layers.
+ */
+async function bookMovement(movement: IStockMovement, r: RepositoryRegistry, opts: ConfirmMovementOptions | undefined, session: ClientSession): Promise<IStockMovement> {
+  const movementId = String(movement.id)
   const orgId = movement.orgId
   const movementDate = movement.date || new Date()
   const updatedLines: any[] = []
@@ -110,7 +229,11 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
   // every delivery from the other site, so such a line arrives at what the article costs here.
   const costOf = (line: any): number => Number(line.resolvedUnitCost ?? line.unitCost)
   const uncosted = fromExternal && toWarehouseId ? movement.lines.filter(l => !(costOf(l) > 0)).map(l => l.productId) : []
-  const costHere = uncosted.length ? await costsAt(orgId, toWarehouseId!, uncosted, r) : undefined
+  const costHere = uncosted.length ? await costsAt(orgId, toWarehouseId!, uncosted, r, session) : undefined
+
+  // FR-29.5: the org's costing method once and the articles' in one query, not per line.
+  const costing = await costingOfArticles(orgId, movement.lines.map(l => l.productId), r, { session })
+  const booking = (productId: unknown): BookingContext => ({ session, ...costing.get(String(productId)) })
 
   for (const line of movement.lines) {
     const productId = line.productId
@@ -122,7 +245,7 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
       // this only says what a level opened by this movement starts with: no cost known, and not
       // what the goods sold for, which the next sale out of it would read as their cost (FR-25).
       const leavingAt = movement.type === 'dispatch' ? 0 : line.unitCost
-      consumptionResult = await adjustStock(orgId, productId, fromWarehouseId, -line.quantity, leavingAt, r)
+      consumptionResult = await adjustStock(orgId, productId, fromWarehouseId, -line.quantity, leavingAt, r, booking(productId))
     }
 
     // What the goods are worth where they arrive. A return of a sale says so apart, because its `unitCost` is the
@@ -140,10 +263,10 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
 
     // Add stock to destination warehouse
     if (toWarehouseId) {
-      await adjustStock(orgId, productId, toWarehouseId, line.quantity, incomingCost, r)
+      await adjustStock(orgId, productId, toWarehouseId, line.quantity, incomingCost, r, booking(productId))
 
       // For layer-based methods, create cost layers on incoming stock
-      const method = await getEffectiveCostingMethod(orgId, productId, r)
+      const method = costing.get(String(productId))?.method ?? 'wac'
       const restored = opts?.layersRestored?.has(`${String(productId)}|${String(toWarehouseId)}`)
       if (method !== 'wac' && method !== 'standard' && !restored) {
         // A transfer's layer opens at the consumed cost (= incomingCost since #778); a receipt's at the line's
@@ -155,7 +278,7 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
           batchNumber: line.batchNumber,
           expiryDate: line.expiryDate,
           serialNumbers: line.serialNumbers,
-        }, r)
+        }, r, { session })
       }
     }
 
@@ -175,18 +298,8 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
     // An external side leaves the stock fields: completed, they name what moved (see above).
     ...(fromExternal ? { fromWarehouseId: null, externalFromWarehouseId: movement.fromWarehouseId } : {}),
     ...(toExternal ? { toWarehouseId: null, externalToWarehouseId: movement.toWarehouseId } : {}),
-  } as any)
+  } as any, { session })
   if (!updated) throw new Error('Failed to update movement status')
-
-  // Emit event for cross-module journal entry creation (replaces inline createMovementJournalEntry)
-  eventBus.emit('stock.movement.confirmed', {
-    movementId,
-    orgId,
-    type: movement.type,
-    lines: updatedLines.map((l: any) => ({ productId: l.productId, quantity: l.quantity })),
-  })
-
-  logger.info({ movementId, type: movement.type }, 'Stock movement confirmed')
   return updated
 }
 
@@ -196,12 +309,11 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
  * bought at (as a return no dispatch prices, `invoicing.service#costNoDispatchSays`). An article with
  * neither is not in the answer.
  */
-async function costsAt(orgId: string, warehouseId: string, productIds: unknown[], r: RepositoryRegistry): Promise<Map<string, number>> {
+async function costsAt(orgId: string, warehouseId: string, productIds: unknown[], r: RepositoryRegistry, session?: ClientSession): Promise<Map<string, number>> {
   const ids = [...new Set(productIds.map(String))]
-  const [levels, products] = await Promise.all([
-    r.stockLevels.findMany({ orgId, warehouseId, productId: { $in: ids } } as any),
-    r.products.findMany({ orgId, id: { $in: ids } } as any),
-  ])
+  // In order, not at once: both run in the booking's transaction (see `costingOfArticles`).
+  const levels = await r.stockLevels.findMany({ orgId, warehouseId, productId: { $in: ids } } as any, undefined, { select: ['productId', 'avgCost'], session })
+  const products = await r.products.findMany({ orgId, id: { $in: ids } } as any, undefined, { select: ['purchasePrice'], session })
   const cost = new Map<string, number>()
   for (const p of products as any[]) if (Number(p.purchasePrice) > 0) cost.set(String(p.id), Number(p.purchasePrice))
   for (const l of levels as any[]) if (Number(l.avgCost) > 0) cost.set(String(l.productId), Number(l.avgCost))
@@ -215,7 +327,7 @@ async function costsAt(orgId: string, warehouseId: string, productIds: unknown[]
  * a quantity computed from that read loses a movement whenever two land on one level at once: both
  * read 7, both write 8, and both movements still say `completed`.
  */
-function moveLevel(orgId: string, productId: string, warehouseId: string, quantity: number, unitCost: number) {
+function moveLevel(orgId: string, productId: string, warehouseId: string, quantity: number, unitCost: number, session?: ClientSession) {
   const newQuantity = { $add: ['$quantity', quantity] }
   // Weighted average cost (maintained for WAC and as fallback)
   const avgCost = quantity > 0
@@ -230,8 +342,16 @@ function moveLevel(orgId: string, productId: string, warehouseId: string, quanti
   return StockLevel.findOneAndUpdate(
     { orgId, productId, warehouseId } as any,
     [{ $set: { quantity: newQuantity, availableQuantity: { $subtract: [newQuantity, { $ifNull: ['$reservedQuantity', 0] }] }, avgCost } }],
-    { new: false },
+    { new: false, ...(session ? { session } : {}) },
   ).lean().exec() as Promise<{ avgCost: number } | null>
+}
+
+/**
+ * What a booking hands `adjustStock` (FR-29.3, FR-29.5): its transaction, and the article's costing it
+ * read once for every line. A caller that passes no costing gets it read here, as before.
+ */
+export interface BookingContext extends Partial<ArticleCosting> {
+  session?: ClientSession
 }
 
 /**
@@ -245,12 +365,15 @@ export async function adjustStock(
   quantity: number,
   unitCost: number,
   repos?: RepositoryRegistry,
+  ctx: BookingContext = {},
 ): Promise<ConsumptionResult | undefined> {
   const r = repos ?? getRepos()
-  let stockLevel = await moveLevel(orgId, productId, warehouseId, quantity, unitCost)
+  const { session } = ctx
+  let stockLevel = await moveLevel(orgId, productId, warehouseId, quantity, unitCost, session)
 
   if (!stockLevel) {
     try {
+      // A new level: no cost layer here, `confirmMovement` makes those for incoming stock.
       await r.stockLevels.create({
         orgId,
         productId,
@@ -259,20 +382,12 @@ export async function adjustStock(
         reservedQuantity: 0,
         availableQuantity: quantity,
         avgCost: unitCost,
-      } as any)
-
-      // Create cost layer for new incoming stock (layer-based methods)
-      if (quantity > 0) {
-        const method = await getEffectiveCostingMethod(orgId, productId, r)
-        if (method !== 'wac' && method !== 'standard') {
-          // Layers are created by confirmMovement, not here
-          // This function only handles stock level updates
-        }
-      }
+      } as any, { session })
       return undefined
     } catch (err) {
-      // Another movement made the row after this one looked: this one lands on that row.
-      if (!(err instanceof DuplicateError)) throw err
+      // Another movement made the row after this one looked: this one lands on that row. Not inside a
+      // transaction, which the duplicate key has aborted: the booking runs again (`inBookingTransaction`).
+      if (!(err instanceof DuplicateError) || session) throw err
       stockLevel = await moveLevel(orgId, productId, warehouseId, quantity, unitCost)
       if (!stockLevel) throw err
     }
@@ -280,23 +395,26 @@ export async function adjustStock(
 
   // For outgoing stock, consume cost layers if using layer-based method
   if (quantity < 0) {
-    const method = await getEffectiveCostingMethod(orgId, productId, r)
+    const method: CostingMethod = ctx.method ?? await getEffectiveCostingMethod(orgId, productId, r)
     if (method !== 'wac' && method !== 'standard') {
-      const product = await r.products.findById(productId)
       return consumeCostLayers(orgId, productId, warehouseId, Math.abs(quantity), method, r, {
         stockLevel: { avgCost: stockLevel.avgCost },
-        standardCost: product?.standardCost,
+        session,
       })
     }
+    const standardCost = async () => ctx.method
+      ? ctx.standardCost
+      : (await r.products.findById(productId, { select: ['standardCost'], session }))?.standardCost
     // WAC/Standard: return result without layer consumption
     if (method === 'standard') {
-      const product = await r.products.findById(productId)
       return consumeCostLayers(orgId, productId, warehouseId, Math.abs(quantity), method, r, {
-        standardCost: product?.standardCost,
+        standardCost: await standardCost(),
+        session,
       })
     }
     return consumeCostLayers(orgId, productId, warehouseId, Math.abs(quantity), method, r, {
       stockLevel: { avgCost: stockLevel.avgCost },
+      session,
     })
   }
 
