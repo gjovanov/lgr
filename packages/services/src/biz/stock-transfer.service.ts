@@ -79,25 +79,49 @@ export async function checkCrossWarehouseAvailability(
   // fields (the denormalised availableQuantity can be stale on legacy/seeded rows).
   const sellable = (sl: any) => (sl.quantity || 0) - (sl.reservedQuantity || 0)
 
+  // FR-29.5: every level of the demanded articles in one read, in the order the per-line reads had, and
+  // the names below in one read each: the reads do not grow with the lines.
+  const productIds = [...new Set([...demand.values()].map(e => e.productId))]
+  const levels = productIds.length
+    ? await r.stockLevels.findMany({ orgId, productId: { $in: productIds } } as any, undefined, { select: ['productId', 'warehouseId', 'quantity', 'reservedQuantity'] })
+    : []
+  const levelsOf = new Map<string, any[]>()
+  for (const sl of levels as any[]) {
+    const key = String(sl.productId)
+    if (!levelsOf.has(key)) levelsOf.set(key, [])
+    levelsOf.get(key)!.push(sl)
+  }
+  const short = [...demand.values()].filter(entry => {
+    const target = (levelsOf.get(entry.productId) ?? []).find(sl => String(sl.warehouseId) === entry.warehouseId)
+    return (target ? sellable(target) : 0) < entry.quantity
+  })
+  const warehouseIds = new Set<string>()
+  for (const entry of short) {
+    warehouseIds.add(entry.warehouseId)
+    for (const sl of levelsOf.get(entry.productId) ?? []) warehouseIds.add(String(sl.warehouseId))
+  }
+  const [products, warehouses] = short.length
+    ? await Promise.all([
+        r.products.findMany({ orgId, id: { $in: [...new Set(short.map(e => e.productId))] } } as any, undefined, { select: ['name'] }),
+        r.warehouses.findMany({ orgId, id: { $in: [...warehouseIds] } } as any, undefined, { select: ['name'] }),
+      ])
+    : [[], []]
+  const productNames = new Map(products.map(p => [String(p.id), p.name]))
+  const warehouseNames = new Map(warehouses.map(w => [String(w.id), w.name]))
+
   // Check each demand entry
   for (const entry of demand.values()) {
+    const ofProduct = levelsOf.get(entry.productId) ?? []
     // Get stock at target warehouse
-    const targetLevel = await r.stockLevels.findOne({
-      orgId, productId: entry.productId, warehouseId: entry.warehouseId,
-    } as any)
+    const targetLevel = ofProduct.find(sl => String(sl.warehouseId) === entry.warehouseId)
     const available = targetLevel ? sellable(targetLevel) : 0
 
     if (available >= entry.quantity) continue // sufficient
 
     const deficit = entry.quantity - available
 
-    // Get product name
-    const product = await r.products.findById(entry.productId)
-    const productName = product?.name || entry.productId
-
-    // Get target warehouse name
-    const targetWh = await r.warehouses.findById(entry.warehouseId)
-    const warehouseName = targetWh?.name || entry.warehouseId
+    const productName = productNames.get(entry.productId) || entry.productId
+    const warehouseName = warehouseNames.get(entry.warehouseId) || entry.warehouseId
 
     shortfalls.push({
       productId: entry.productId,
@@ -109,23 +133,18 @@ export async function checkCrossWarehouseAvailability(
       deficit,
     })
 
-    // Find stock in other warehouses
-    const allLevels = await r.stockLevels.findMany({
-      orgId, productId: entry.productId,
-    } as any)
-
     const sources: TransferSource[] = []
     let remainingDeficit = deficit
 
-    // Sort by sellable quantity descending (greedy: take from largest first)
-    const otherLevels = allLevels
-      .filter((sl: any) => sl.warehouseId !== entry.warehouseId && sellable(sl) > 0)
+    // Stock in the other warehouses, sorted by sellable quantity descending (greedy: take from largest first)
+    const otherLevels = ofProduct
+      .filter((sl: any) => String(sl.warehouseId) !== entry.warehouseId && sellable(sl) > 0)
       .sort((a: any, b: any) => sellable(b) - sellable(a))
 
     // Include ALL available warehouses so the user can choose which to transfer from.
     // The greedy algorithm pre-fills suggested transferQuantity.
     for (const sl of otherLevels) {
-      const wh = await r.warehouses.findById((sl as any).warehouseId)
+      const whName = warehouseNames.get(String((sl as any).warehouseId))
       let transferQty = 0
       if (remainingDeficit > 0) {
         transferQty = Math.min(sellable(sl), remainingDeficit)
@@ -133,7 +152,7 @@ export async function checkCrossWarehouseAvailability(
       }
       sources.push({
         fromWarehouseId: (sl as any).warehouseId,
-        fromWarehouseName: wh?.name || (sl as any).warehouseId,
+        fromWarehouseName: whName || (sl as any).warehouseId,
         available: sellable(sl),
         transferQuantity: transferQty,
       })
