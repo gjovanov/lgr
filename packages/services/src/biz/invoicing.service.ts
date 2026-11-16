@@ -7,6 +7,7 @@ import { confirmMovement } from './warehouse.service.js'
 import { loadAllocationSupply } from './reservation.service.js'
 import { restoreCostLayers } from './costing.service.js'
 import { createNumberedMovement } from './movement-number.js'
+import { externalWarehouseIds } from './external-warehouses.js'
 import { logger } from '../logger/logger.js'
 
 export async function recordPayment(
@@ -331,7 +332,7 @@ export function unbookableStockMessage(invoice: IInvoice, unresolved: any[]): st
 }
 
 export interface StockBookingRefusal {
-  code: 'stock_line_without_product' | 'stock_line_without_warehouse'
+  code: 'stock_line_without_product' | 'stock_line_without_warehouse' | 'stock_line_external_warehouse'
   message: string
 }
 
@@ -396,6 +397,23 @@ async function stockBooking(invoice: IInvoice): Promise<{ refusal: StockBookingR
           message: `Refusing to book stock for ${invoice.invoiceNumber || invoice.id}: ${stockLines.length} product line(s) carry no warehouseId`,
         },
       }
+    }
+  }
+
+  // ⚠ An external warehouse keeps no stock here (`config/external-warehouse`), and `confirmMovement`
+  // books nothing on one. A line that names one would be issued and never dispatched, or received
+  // and never stocked: the failure of the two cases above, and as silent. Only a transfer names an
+  // external warehouse, and no picker offers one on a document, so this is a warehouse that became
+  // external after the line was written, or an API client.
+  const external = lines.length ? await externalWarehouseIds(invoice.orgId, lines.map(l => l.warehouseId)) : new Set<string>()
+  if (external.size) {
+    const named = lines.filter(l => external.has(String(l.warehouseId)))
+    return {
+      refusal: {
+        code: 'stock_line_external_warehouse',
+        message: `Refusing to book stock for ${invoice.invoiceNumber || invoice.id}: ${named.length} product line(s) name an external warehouse, `
+          + `which keeps no stock here. Choose one of your own warehouses on ${named.length === 1 ? 'that line' : 'those lines'}.`,
+      },
     }
   }
   return { refusal: null, lines }

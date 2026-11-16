@@ -2,13 +2,13 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestContact, createTestOrg, createTestProduct, createTestUser, createTestWarehouse } from '../helpers/factories'
+import { createTestContact, createTestInvoice, createTestOrg, createTestProduct, createTestUser, createTestWarehouse } from '../helpers/factories'
 import { uploadPath, useTempUploadDir } from '../helpers/upload-path'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
-import { CostLayer, DocFile, Identity, PermissionSet, StockLevel, StockMovement, Warehouse } from 'db/models'
+import { CostLayer, DocFile, Identity, Invoice, PermissionSet, StockLevel, StockMovement, Warehouse } from 'db/models'
 import { sessionFor } from 'services/biz/auth.service'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { confirmMovement } from 'services/biz/warehouse.service'
@@ -503,6 +503,44 @@ describe('no other movement names one', () => {
     expect(await resolveWarehouse(w.orgId, 'Main warehouse')).toBe(main)
     expect(await resolveWarehouse(w.orgId, 'Other site')).toBeNull()
     expect(await resolveWarehouse(w.orgId, 'SITE')).toBeNull()
+  }, 60_000)
+
+  it('a sale or a bill whose line names one is refused before it is issued, and stays the draft it was', async () => {
+    const w = await world()
+    await w.stocked(10)
+    const contact = await createTestContact(w.org._id, { type: 'both' } as any)
+    const line = (warehouseId: string) => ({
+      productId: w.bolt._id, description: 'Bolt M8', quantity: 2, unit: 'pcs', unitPrice: 10, discount: 0, taxRate: 20, taxAmount: 4, lineTotal: 24, warehouseId,
+    })
+    const draft = (number: string, direction: string, warehouseId: string) =>
+      createTestInvoice(w.org._id, contact._id, { invoiceNumber: number, direction, lines: [line(warehouseId)] } as any)
+    const asStored = async (doc: any) => {
+      const stored: any = await Invoice.findById(doc._id).lean().exec()
+      return [stored.status, stored.invoiceNumber, await StockMovement.countDocuments({ orgId: w.orgId, invoiceId: doc._id }).exec()]
+    }
+
+    // ⚠ The engine would book nothing on the external warehouse: a sale issued with its goods still on the shelf.
+    const sale = await draft('DRF-INV-1', 'outgoing', w.ids.site)
+    const sent = await w.call('POST', `/invoices/${sale._id}/send`, {})
+    expect(sent.status).toBe(400)
+    expect(sent.json.message).toContain('external warehouse')
+    expect(await asStored(sale)).toEqual(['draft', 'DRF-INV-1', 0])
+
+    // A bill is told before its number is drawn.
+    const bill = await draft('DRF-BILL-1', 'incoming', w.ids.site)
+    const received = await w.call('POST', `/invoices/${bill._id}/receive`, {})
+    expect([received.status, received.json.code]).toEqual([422, 'stock_line_external_warehouse'])
+    expect(await asStored(bill)).toEqual(['draft', 'DRF-BILL-1', 0])
+    expect([await w.stock(), await w.levelsAtSite()]).toEqual([10, 0])
+
+    // On one of our own warehouses both book as they always did.
+    const ownSale = await draft('DRF-INV-2', 'outgoing', w.ids.main)
+    expect((await w.call('POST', `/invoices/${ownSale._id}/send`, {})).status).toBe(200)
+    const ownBill = await draft('DRF-BILL-2', 'incoming', w.ids.main)
+    expect((await w.call('POST', `/invoices/${ownBill._id}/receive`, {})).status).toBe(200)
+    expect((await asStored(ownSale)).slice(0, 3).map((v, i) => (i === 1 ? v !== 'DRF-INV-2' : v))).toEqual(['sent', true, 1])
+    expect((await asStored(ownBill)).slice(0, 3).map((v, i) => (i === 1 ? v !== 'DRF-BILL-2' : v))).toEqual(['received', true, 1])
+    expect([await w.stock(), await w.levelsAtSite()]).toEqual([10, 0])
   }, 60_000)
 
   it('opening stock is not loaded into one', async () => {

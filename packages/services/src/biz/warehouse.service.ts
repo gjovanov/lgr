@@ -78,8 +78,10 @@ async function claimDraftMovement(movementId: string): Promise<void> {
  * remain. A transfer from one is goods arriving from outside (the level takes the line's cost, or,
  * where the line carries none, what the article costs here: `costsAt`), a transfer to one goods
  * leaving. This is the last line of defence, for every path that reaches here
- * without passing a user door (a sale's dispatch, a bill's receipt, an import, a replay): none of
- * them can put stock on an external warehouse. The id then moves to `externalFromWarehouseId` /
+ * without passing a user door (an import, a replay, a count): none of them can put stock on an
+ * external warehouse. A sale's dispatch and a bill's receipt are refused before they get here
+ * (`invoicing.service#stockBooking`), because booking nothing for them is a document issued with
+ * its stock unmoved. The id then moves to `externalFromWarehouseId` /
  * `externalToWarehouseId`, so that on a COMPLETED movement `fromWarehouseId` / `toWarehouseId` name
  * only warehouses whose stock it moved. Every reader that derives stock from movements relies on
  * that, and none of them reads the external pair. The flag is read now: the movement records what

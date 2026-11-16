@@ -1850,8 +1850,23 @@ org; booking the other org's side waits until the two catalogues agree on names.
   completes it, moves that id to `externalFromWarehouseId` / `externalToWarehouseId`. Every reader
   that derives stock from movements relies on it, and none reads the pair. ⚠ It is NOT a refusal in
   `confirmMovement`, which never refuses (see its note): the engine is the last line of defence for
-  what passes no door (a sale's dispatch, a bill's receipt, an import, a replay). A draft keeps the
-  form's choice in the two stock fields.
+  what passes no door (an import, a replay, a count, the legacy POS). A draft keeps the form's choice
+  in the two stock fields.
+- ⚠ **Goods from an external warehouse that say no cost arrive at what the article costs here**
+  (`warehouse.service#costsAt`: the average of its level in the receiving warehouse, so the arrival
+  moves no average; with no level, its purchase price; with neither, zero as before). A role that does
+  not see costs posts `unitCost: 0`, and averaged in at zero every delivery from the other site
+  pulled the average down. The line keeps the `unitCost` it said; `resolvedUnitCost` is what was
+  booked. ⚠ Only for an external From: a transfer between two of our own warehouses still books the
+  destination at the line's `unitCost` under WAC, zero included (older than this feature, not changed
+  here).
+- ⚠ **A sale or a bill never names one.** `invoicing.service#stockBooking` refuses a document whose
+  product line names an external warehouse (`stock_line_external_warehouse`): `/send` answers 400
+  before a number is drawn, `/receive` 422, and the till's sale reports it as its stock error. No
+  picker offers one on a document, so this is a warehouse that became external after the line was
+  written (an order's allocation, a pinned default) or an API client. Booking nothing there would be
+  a document issued with its stock unmoved, which is what the function's two older refusals exist to
+  stop.
 - **Reading the other side**: `fromWarehouseId || externalFromWarehouseId`. `sideIsExternal`
   (`config/external-warehouse`) is the one rule behind `fromExternal` / `toExternal` on the list, on
   `GET /:id` and on the print: booked, the pair says so; a draft, the warehouse as it is now. The
