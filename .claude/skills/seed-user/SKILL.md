@@ -14,6 +14,9 @@ what the register flow does so the account is immediately usable:
 - **role** + a **roleHistory** entry (the role-assignment activity / audit trail)
 - **permissions** from `DEFAULT_ROLE_PERMISSIONS[role]`
 - default **permission sets** seeded (idempotent) and the matching set linked (`ROLE_TO_PERMISSION_SET`)
+- its **FR-27 role** (#529), with exactly that access, as migration 0015 gives it: the built-in role of `--role`, or
+  for a service account (`--permissions`) an imported role named like its set. Without one, `access-model.ts --set roles`
+  refuses the org, and an org on `roles` decides by the role
 
 ## Options
 

@@ -5,6 +5,9 @@
  *   - role + a roleHistory activity entry (the role-assignment audit trail)
  *   - permissions from DEFAULT_ROLE_PERMISSIONS[role]
  *   - default permission sets seeded (idempotent) + the matching set linked
+ *   - its FR-27 role (#529): exactly the access the lines above give, as migration 0015 gives it — the built-in role
+ *     when that is the role's default access, else an imported role per distinct set ("Service: books import"). An org
+ *     on `roles` decides by the role, and `access-model.ts --set roles` refuses an org with a person without one.
  *
  * Idempotent: if a user with the username or email already exists in the org it
  * is reported and left untouched (missing permission-set link is repaired).
@@ -35,15 +38,16 @@
  *   --set-name <n>   the name of that set (default: "Service: <username>")
  *   --execute        perform writes (default: dry-run)
  */
-import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { connectDB, disconnectDB, mongoose } from '../packages/db/src/connection.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { requireUniqueIndexes } from './lib/require-indexes.js'
-import { Identity, Org, User, PermissionSet, Sequence } from '../packages/db/src/models/index.js'
+import { Identity, Org, User, PermissionSet, Role, Sequence } from '../packages/db/src/models/index.js'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, ROLES } from '../packages/config/src/constants.js'
 import { seedDefaultPermissionSets, ROLE_TO_PERMISSION_SET } from '../packages/services/src/biz/permission-set.seed.js'
 import { allocateOperatorCode } from '../packages/services/src/biz/sequence.service.js'
 import { discardIdentity, identityForOperatorJoin } from '../packages/services/src/biz/identity/identity.service.js'
 import { createMongoRepositories } from '../packages/dal-mongo/src/index.js'
+import { rolesFromSets } from '../packages/migrations/src/migrations/0015-roles-from-sets.js'
 
 function parseArgs(argv: string[]) {
   const o: Record<string, string | boolean> = {}
@@ -162,6 +166,15 @@ async function main() {
     if (!person) console.log('  Not linked to a person yet: this address still has users the identity migration has not linked. It will group them.')
     else if (person.created) console.log(`  New person <${person.identity.email}>, password set by an operator (they change it before joining another org).`)
     else console.log(`  Linked to the existing person <${person.identity.email}>. Their password is unchanged; --password was not used.`)
+  }
+
+  // FR-27 (#529): the person's role, from what the lines above gave them. 0015's own code, scoped to this org: it is
+  // idempotent, gives a role only to whoever has none, and only one that grants exactly their access today.
+  if (!user.roleId) {
+    await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: { orgId: org._id } })
+    const given: any = await User.findById(user._id, { roleId: 1 }).lean()
+    const role: any = given?.roleId ? await Role.findById(given.roleId, { name: 1 }).lean() : null
+    console.log(role ? `  role: ${role.name}` : '  ⚠ no role: their access matches no role 0015 can make. Give one in Settings → Roles & access.')
   }
 
   if (setOwner && !org.ownerId) {
