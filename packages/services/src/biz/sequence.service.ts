@@ -1,4 +1,16 @@
+import type { ClientSession } from 'mongoose'
 import { OrgHome, Sequence, User } from 'db/models'
+
+/**
+ * A number drawn inside a transaction (FR-29.11): the counter's write is the transaction's, so an
+ * issue that fails draws none. Two issues at once then meet on the counter, and the second one's
+ * `withTransaction` runs it again after the first commits.
+ */
+export interface SequenceOptions {
+  session?: ClientSession
+}
+
+const inSession = (opts?: SequenceOptions) => (opts?.session ? { session: opts.session } : {})
 
 /**
  * FR-20.51, FR-20.81 (plan step P3-6d): the LEGAL series, whose numbers a customer or the tax
@@ -71,6 +83,7 @@ export async function getNextNumber(
   prefix: string,
   padLength: number = 5,
   year?: number,
+  opts?: SequenceOptions,
 ): Promise<string> {
   const yr = year ?? new Date().getFullYear()
   if (isLegalSeries(prefix)) await assertSeriesOpen(orgId)
@@ -78,7 +91,7 @@ export async function getNextNumber(
   const doc = await Sequence.findOneAndUpdate(
     { orgId, prefix, year: yr },
     { $inc: { lastNumber: 1 } },
-    { upsert: true, returnDocument: 'after' },
+    { upsert: true, returnDocument: 'after', ...inSession(opts) },
   ).exec()
 
   const seq = String(doc!.lastNumber).padStart(padLength, '0')
@@ -113,8 +126,8 @@ export async function setContinuousSeries(orgId: string, prefix: string, on: boo
  * The highest count any row of a series holds, its year-0 row included: where a continuous series
  * stands. (A yearly series' year-0 row holds no count, so for one this is its busiest year's.)
  */
-export async function highestCounter(orgId: string, prefix: string): Promise<number> {
-  const doc: any = await Sequence.findOne({ orgId, prefix }, { lastNumber: 1 }).sort({ lastNumber: -1 }).lean().exec()
+export async function highestCounter(orgId: string, prefix: string, opts?: SequenceOptions): Promise<number> {
+  const doc: any = await Sequence.findOne({ orgId, prefix }, { lastNumber: 1 }, inSession(opts)).sort({ lastNumber: -1 }).lean().exec()
   return Number(doc?.lastNumber ?? 0)
 }
 
@@ -134,18 +147,18 @@ export async function highestCounter(orgId: string, prefix: string): Promise<num
  *     only once that is written, so "the yearly rows stand at or above every number on a document"
  *     holds as it does for a yearly series, and a series switched back to yearly goes on above.
  */
-export async function getNextContinuousNumber(orgId: string, prefix: string, floor: number = 0, year?: number): Promise<number> {
+export async function getNextContinuousNumber(orgId: string, prefix: string, floor: number = 0, year?: number, opts?: SequenceOptions): Promise<number> {
   const yr = year ?? new Date().getFullYear()
   if (isLegalSeries(prefix)) await assertSeriesOpen(orgId)
 
-  await ensureSequenceAtLeast(orgId, prefix, 0, Math.max(floor, await highestCounter(orgId, prefix)))
+  await ensureSequenceAtLeast(orgId, prefix, 0, Math.max(floor, await highestCounter(orgId, prefix, opts)), opts)
   const doc = await Sequence.findOneAndUpdate(
     { orgId, prefix, year: 0 },
     { $inc: { lastNumber: 1 } },
-    { upsert: true, returnDocument: 'after' },
+    { upsert: true, returnDocument: 'after', ...inSession(opts) },
   ).exec()
   const n = doc!.lastNumber
-  await ensureSequenceAtLeast(orgId, prefix, yr, n)
+  await ensureSequenceAtLeast(orgId, prefix, yr, n, opts)
   return n
 }
 
@@ -321,6 +334,7 @@ export async function ensureSequenceAtLeast(
   prefix: string,
   year: number,
   minValue: number,
+  opts?: SequenceOptions,
 ): Promise<void> {
   if (minValue <= 0) return
   // Pipeline-form update lets us express "lastNumber = max(lastNumber, minValue)" atomically.
@@ -336,6 +350,6 @@ export async function ensureSequenceAtLeast(
         },
       },
     ],
-    { upsert: true },
+    { upsert: true, ...inSession(opts) },
   ).exec()
 }
