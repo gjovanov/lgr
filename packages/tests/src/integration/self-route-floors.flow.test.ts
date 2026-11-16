@@ -7,8 +7,9 @@ import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { User } from 'db/models'
-import { accessRuleFor, isCapability } from 'config/access'
+import { accessRuleFor, can, isCapability, type CapabilityId, type Grant } from 'config/access'
 import { tokenize } from 'services/biz/auth.service'
+import { grantOf } from 'services/biz/access/evaluate'
 import { orgRouteRest } from 'services/biz/route-permission'
 
 /**
@@ -19,6 +20,9 @@ import { orgRouteRest } from 'services/biz/route-permission'
  *
  * Over the real route table: every write route whose rule names a floor, with an empty body, as a Seller (none of the
  * floors) and as an Administrator (all of them).
+ *
+ * One floor a Seller does hold: mailing a list's ticked documents is work on their kind, and a Seller works on sales
+ * documents. There the route itself answers the Seller, and the role refused before validation is one that only reads.
  *
  * NOTE: no `.rejects` / `.resolves` (Known Issues).
  */
@@ -31,6 +35,9 @@ const ID = '000000000000000000000001'
 
 interface Floored { method: string; path: string; floor: readonly string[] }
 let floored: Floored[] = []
+let sellerGrant: Grant | null = null
+/** A floor the Seller holds one capability of: it is not refused at that floor. */
+const sellerHolds = (f: Floored) => can(sellerGrant, f.floor as readonly CapabilityId[])
 
 beforeAll(async () => {
   await setupTestDB()
@@ -39,8 +46,12 @@ beforeAll(async () => {
   orgId = String(org._id)
   const seller = await createTestUser(org._id, { role: 'seller', username: 'floor-seller', email: 'seller@self-floors.test' } as any)
   const admin = await createTestUser(org._id, { role: 'admin', username: 'floor-admin', email: 'admin@self-floors.test' } as any)
-  tokens.seller = await (signer as any).decorator.jwt.sign(await tokenize((await User.findById(seller._id).exec())!))
+  const reader = await createTestUser(org._id, { role: 'member', username: 'floor-reader', email: 'reader@self-floors.test' } as any)
+  const sellerClaims = await tokenize((await User.findById(seller._id).exec())!)
+  sellerGrant = grantOf(sellerClaims as any)
+  tokens.seller = await (signer as any).decorator.jwt.sign(sellerClaims)
   tokens.admin = await (signer as any).decorator.jwt.sign(await tokenize((await User.findById(admin._id).exec())!))
+  tokens.reader = await (signer as any).decorator.jwt.sign(await tokenize((await User.findById(reader._id).exec())!))
 
   const seen = new Set<string>()
   for (const r of (createApiApp() as any).routes as { method: string; path: string }[]) {
@@ -82,10 +93,24 @@ describe('S-28: a self route refuses before validating whoever holds none of its
   it('a Seller is refused every one of them with 403, the floor named, never a 422', async () => {
     const wrong: string[] = []
     for (const f of floored) {
-      const r = await call(f.method, f.path, tokens.seller)
-      if (r.status !== 403 || r.json?.code !== 'permission_required') wrong.push(`${f.method} ${f.path}: ${r.status} ${r.json?.code ?? ''}`)
+      // Where the Seller holds the floor, the one refused before validation is a role that only reads.
+      const who = sellerHolds(f) ? 'reader' : 'seller'
+      const r = await call(f.method, f.path, tokens[who]!)
+      if (r.status !== 403 || r.json?.code !== 'permission_required') wrong.push(`${f.method} ${f.path} as ${who}: ${r.status} ${r.json?.code ?? ''}`)
     }
     expect(wrong).toEqual([])
+  })
+
+  it('the only floors a Seller holds are the two that mail documents, and there the route itself answers it', async () => {
+    const held = floored.filter(sellerHolds)
+    expect(held.map(f => `${f.method} ${orgRouteRest(f.path)}`).sort()).toEqual([
+      'POST invoicing/export/email', 'POST invoicing/export/email/preview',
+    ])
+    // An empty body, from a role that may send one: the answer is about the body, never the floor.
+    for (const f of held) {
+      const r = await call(f.method, f.path, tokens.seller)
+      expect([f.path, r.status, r.json?.code === 'permission_required']).toEqual([f.path, 422, false])
+    }
   })
 
   it('an Administrator passes every floor: what answers is the route itself', async () => {
