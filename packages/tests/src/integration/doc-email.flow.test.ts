@@ -522,12 +522,15 @@ describe('supplier orders', () => {
     expect(sent[0].subject).toBe('2 documents — Example Ltd')
     expect(sent[0].attachments.map((a: any) => a.filename)).toEqual(['ORDO-00007-1.pdf', 'ORDO-00007-2.pdf'])
     expect(sent[0].attachments.map(bytesOf)).toEqual(['%PDF ORDO-00007 Alfa Supply supplier', '%PDF ORDO-00007 Beta Supply supplier'])
-    // Printed from the builder the Export button uses: the group's own lines, the supplier variant.
-    expect(printed.map(p => [p.variant, String(p.ctx.group._id), p.ctx.org.name])).toEqual([
-      ['supplier', order.g1, 'Example Ltd'], ['supplier', order.g2, 'Example Ltd'],
+    // Printed from the builder the Export button uses: the group's own lines, the supplier variant. Two sheets are
+    // printed at a time, so which of them reaches the printer first is not this test's to say.
+    const sheetOf = (groupId: string) => printed.find(p => String(p.ctx.group._id) === groupId)
+    expect(printed).toHaveLength(2)
+    expect([order.g1, order.g2].map(g => [sheetOf(g)?.variant, sheetOf(g)?.ctx.org.name])).toEqual([
+      ['supplier', 'Example Ltd'], ['supplier', 'Example Ltd'],
     ])
-    expect(printed[0].ctx.group.lines[0].expectedUnitPrice).toBe(7.5)
-    expect(printed[0].ctx.reservations).toEqual({})
+    expect(sheetOf(order.g1).ctx.group.lines[0].expectedUnitPrice).toBe(7.5)
+    expect(sheetOf(order.g1).ctx.reservations).toEqual({})
     // Logged against the ORDER, each row naming its sheet.
     const logs: any[] = await EmailLog.find({ orgId: w.orgId }).sort({ attachmentNames: 1 }).lean()
     expect(logs.map(l => [l.entityType, String(l.entityId), l.attachmentNames, l.status])).toEqual([
