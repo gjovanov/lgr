@@ -1,6 +1,7 @@
 import { ref, isRef, watch, computed, type Ref } from 'vue'
 import { httpClient } from './useHttpClient'
 import { latestOnly } from './latest-only'
+import { loadFailureOf, type LoadFailure } from './load-failure'
 import { useListQueryState, ALLOWED_PAGE_SIZES } from './useListQueryState'
 import { capsOfSortKey, sortRefusal } from 'config/access'
 import { accessGrant } from '../access/useAccess'
@@ -21,6 +22,8 @@ export interface PaginationState {
   sortOrder: 'asc' | 'desc'
   total: number
   totalPages: number
+  /** FR-31.7: why the last request did not answer with rows (`ListScaffold` says so, with Retry); null when it did. */
+  loadError?: LoadFailure | null
 }
 
 export interface UsePaginatedTableOptions {
@@ -57,6 +60,7 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
     sortOrder: defaultSortOrder,
     total: 0,
     totalPages: 0,
+    loadError: null,
   })
 
   if (options.urlSync) {
@@ -122,7 +126,13 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
         queueMicrotask(() => void fetchItems())
         return
       }
-      throw e
+      // FR-31.7: a list whose request failed or was refused says so, with Retry (`ListScaffold`), and never shows the
+      // "no rows" state. The error used to be thrown into a call nobody awaits, and the list looked empty.
+      items.value = []
+      pagination.value.total = 0
+      pagination.value.totalPages = 0
+      pagination.value.loadError = loadFailureOf(e)
+      return
     }
     // A newer request owns the rows and the spinner.
     if (!answer.latest) return
@@ -130,6 +140,7 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
     items.value = data[entityKey] || data.items || []
     pagination.value.total = data.total ?? 0
     pagination.value.totalPages = data.totalPages ?? 0
+    pagination.value.loadError = null
     loading.value = false
   }
 

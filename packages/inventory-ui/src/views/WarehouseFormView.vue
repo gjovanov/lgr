@@ -4,6 +4,10 @@
     :subtitle="isEdit ? form.name : ''"
     :actions="formActions"
     :loading="loading"
+    :load-error="loadError"
+    :refusal="refusal"
+    @retry="fetchItem"
+    @dismiss-refusal="dismissRefusal"
     back-to="/warehouses"
     :back-label="$t('nav.warehouses')"
   >
@@ -87,6 +91,7 @@ import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 
@@ -97,6 +102,8 @@ const { t } = useI18n()
 const writes = writesInventory(sessionViewer())
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+// FR-31.6 / .8: a record that did not load says so; a refused action stays at the top of the form.
+const { loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal } = useFormFeedback()
 
 const isEdit = computed(() => !!route.params.id)
 const loading = ref(false)
@@ -132,6 +139,7 @@ const formActions = computed<FormAction[]>(() => !writes ? [] : [
 async function fetchItem() {
   if (!isEdit.value) return
   loading.value = true
+  loadStarted()
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse/${route.params.id}`)
     const item = data.warehouse || data
@@ -149,7 +157,7 @@ async function fetchItem() {
       }
     })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    loadFailed(e)
   } finally {
     loading.value = false
   }
@@ -167,15 +175,17 @@ async function handleSubmit() {
       const newId = data.warehouse?._id || data._id
       if (newId) {
         markSaved()
+        succeeded()
         showSuccess(t('common.savedSuccessfully'))
         router.replace({ name: 'inventory.warehouses.edit', params: { id: newId } })
         return
       }
     }
     markSaved()
+    succeeded()
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
-    showError(saveFailure(e))
+    refused(saveFailure(e))
   } finally {
     saving.value = false
   }

@@ -11,14 +11,21 @@ import { isAbort } from './latest-only'
  * i18n of its own, and every view shows `data.message`: the shell registers this once, and a
  * refusal it knows reaches every view in the reader's language.
  */
-let translateRefusal: ((code: string) => string | null) | null = null
+type RefusalTranslator = (code: string, data?: Record<string, unknown>) => string | null
+let translateRefusal: RefusalTranslator | null = null
+
+/**
+ * FR-31.9: the code the translator is asked for when an answer says nothing a person can read (a network failure,
+ * a server error with no message). Its words are the last fallback, in the reader's language.
+ */
+export const UNEXPECTED_ERROR_CODE = 'unexpected_error'
 
 /**
  * Returns the way to take it back. ⚠ That undoes THIS translator only: in the one SPA two shells
  * trade places in one document (the portal's and a module's), and the new one's banner sets its
  * translator before the old one's unmount runs.
  */
-export function setRefusalTranslator(fn: (code: string) => string | null): () => void {
+export function setRefusalTranslator(fn: RefusalTranslator): () => void {
   translateRefusal = fn
   return () => {
     if (translateRefusal === fn) translateRefusal = null
@@ -59,8 +66,10 @@ export function createHttpClient(baseURL = '/api'): AxiosInstance {
     },
     (error) => {
       const data = error.response?.data
-      if (error.response?.status === 409 && translateRefusal && typeof data?.code === 'string') {
-        const said = translateRefusal(data.code)
+      // FR-31.9: a coded refusal the shell knows is said in the reader's language, whatever its status (it was a
+      // 409's only); the server's English sentence is kept for a code the UI does not know.
+      if (translateRefusal && typeof data?.code === 'string') {
+        const said = translateRefusal(data.code, data)
         if (said) error.response.data = { ...data, message: said }
       }
       if (error.response?.status === 401) {
@@ -79,7 +88,9 @@ export function createHttpClient(baseURL = '/api'): AxiosInstance {
       } else if (!error.response || error.response.status >= 500) {
         // Only show snackbar for server errors (5xx) and network failures.
         // 4xx errors are handled by the calling code (forms, views).
-        const message = error.response?.data?.message || error.message || 'An unexpected error occurred'
+        // FR-31.9: the server's own sentence when it sent one; otherwise the shell's words, never the browser's
+        // English ("Network Error"). The English literal is only what a page with no shell yet would show.
+        const message = error.response?.data?.message || translateRefusal?.(UNEXPECTED_ERROR_CODE) || 'Something went wrong. Try again.'
         const { showError } = useSnackbar()
         showError(message)
       }

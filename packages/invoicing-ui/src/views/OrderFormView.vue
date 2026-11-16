@@ -5,6 +5,10 @@
     :status="statusDef"
     :actions="formActions"
     :loading="loading"
+    :load-error="loadError"
+    :refusal="refusal"
+    @retry="loadOrder()"
+    @dismiss-refusal="dismissRefusal"
     back-to="/orders"
     :back-label="$t('nav.externalOrders')"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
@@ -608,6 +612,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import { triggerBlobDownload } from 'ui-shared/composables/useInvoicingExport'
 import { upsertAmountInWords } from 'config/amount-in-words'
 import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/components/EntityFormShell.vue'
@@ -654,6 +659,8 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+// FR-31.6 / .8: a record that did not load says so, with Back and Retry.
+const { loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal } = useFormFeedback()
 const conversion = useConversionFeedback()
 const { formatCurrency } = useCurrency()
 const { uomOptions } = useProductUnits()
@@ -1246,6 +1253,7 @@ async function onSave() {
     if (isEdit.value) {
       await httpClient.put(`${orgUrl()}/invoicing/orders/${route.params.id}`, buildPayload())
       adding.value = null
+      succeeded()
       showSuccess(t('common.savedSuccessfully'))
       markSaved()
       await loadOrder(undefined, { clearStaged: true })
@@ -1253,6 +1261,7 @@ async function onSave() {
       markClean()
     } else {
       const { data } = await httpClient.post(`${orgUrl()}/invoicing/orders`, buildPayload())
+      succeeded()
       showSuccess(t('common.savedSuccessfully'))
       markSaved()
       router.replace({ name: 'invoicing.orders.edit', params: { id: data.order._id } })
@@ -1262,7 +1271,7 @@ async function onSave() {
       markClean()
     }
   } catch (e: any) {
-    showError(reservationErrorMessage(e, t))
+    refused(reservationErrorMessage(e, t))
   } finally {
     saving.value = false
   }
@@ -1424,6 +1433,7 @@ async function exportGroup(group: GroupRow, variant: 'supplier' | 'internal', fo
  * allocation showing neither while the order reloaded, and anything typed in that window was lost.
  */
 async function loadOrder(id?: string, opts: { clearStaged?: boolean } = {}) {
+  loadStarted()
   try {
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/orders/${id || route.params.id}`)
     const o = data.order
@@ -1477,8 +1487,8 @@ async function loadOrder(id?: string, opts: { clearStaged?: boolean } = {}) {
     // slower load beat. Unless reservation changes are still staged (Send keeps them): those are
     // unsaved, and leaving must still ask.
     if (!hasStaged.value) snapshotPending()
-  } catch {
-    showError(t('common.operationFailed'))
+  } catch (e) {
+    loadFailed(e)
   } finally {
     // The save itself succeeded: re-sending its staged creates would reserve twice.
     if (opts.clearStaged) clearStaged()

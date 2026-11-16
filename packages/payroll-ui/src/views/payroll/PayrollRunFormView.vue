@@ -5,6 +5,10 @@
     :status="isEdit && runStatus ? { steps: ['Draft', 'Calculated', 'Approved', 'Paid'], current: runStatus.charAt(0).toUpperCase() + runStatus.slice(1) } : undefined"
     :actions="formActions"
     :loading="loading"
+    :load-error="loadError"
+    :refusal="refusal"
+    @retry="fetchItem"
+    @dismiss-refusal="dismissRefusal"
     back-to="/runs"
     :back-label="$t('payroll.payrollRuns')"
   >
@@ -62,6 +66,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 
@@ -72,6 +77,8 @@ const store = usePayrollStore()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const { showSuccess, showError } = useSnackbar()
+// FR-31.6 / .8: a record that did not load says so; a refused action stays at the top of the form.
+const { loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal } = useFormFeedback()
 
 const isEdit = computed(() => !!route.params.id)
 const loading = ref(false)
@@ -112,6 +119,7 @@ const formActions = computed<FormAction[]>(() => {
 async function fetchItem() {
   if (!isEdit.value) return
   loading.value = true
+  loadStarted()
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/payroll/run/${route.params.id}`)
     const item = data.payrollRun || data
@@ -121,7 +129,7 @@ async function fetchItem() {
     runStatus.value = item.status || ''
     employees.value = item.employees || []
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    loadFailed(e)
   } finally {
     loading.value = false
   }
@@ -138,6 +146,7 @@ async function handleSubmit() {
       const newId = data.payrollRun?._id || data._id
       if (newId) {
         markSaved()
+        succeeded()
         showSuccess(t('common.savedSuccessfully'))
         // The same form stays mounted, so nothing else reads the run's status for the next step.
         await router.replace({ name: 'payroll.runs.edit', params: { id: newId } })
@@ -146,9 +155,10 @@ async function handleSubmit() {
       }
     }
     markSaved()
+    succeeded()
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    refused(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     saving.value = false
   }
@@ -158,9 +168,10 @@ async function calculate() {
   try {
     await store.calculatePayroll(route.params.id as string)
     await fetchItem()
+    succeeded()
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    refused(e?.response?.data?.message || t('common.operationFailed'))
   }
 }
 
@@ -168,9 +179,10 @@ async function approve() {
   try {
     await store.approvePayroll(route.params.id as string)
     await fetchItem()
+    succeeded()
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    refused(e?.response?.data?.message || t('common.operationFailed'))
   }
 }
 

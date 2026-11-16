@@ -4,6 +4,10 @@
     :subtitle="isEdit ? `${form.fromCurrency} / ${form.toCurrency}` : ''"
     :actions="formActions"
     :loading="loading"
+    :load-error="loadError"
+    :refusal="refusal"
+    @retry="loadExchangeRate"
+    @dismiss-refusal="dismissRefusal"
     back-to="/exchange-rates"
     :back-label="$t('accounting.exchangeRates')"
   >
@@ -69,6 +73,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
@@ -79,6 +84,8 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+// FR-31.6 / .8: a record that did not load says so, with Back and Retry.
+const { loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal } = useFormFeedback()
 
 const formRef = ref()
 const loading = ref(false)
@@ -131,16 +138,18 @@ async function handleSubmit() {
       await httpClient.post(`${orgUrl()}/accounting/exchange-rate`, form.value)
     }
     markSaved()
+    succeeded()
     showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'accounting.exchange-rates' })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    refused(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
 }
 
 async function loadExchangeRate() {
+  loadStarted()
   loading.value = true
   try {
     const { data } = await httpClient.get(`${orgUrl()}/accounting/exchange-rate/${route.params.id}`)
@@ -155,7 +164,7 @@ async function loadExchangeRate() {
       }
     })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    loadFailed(e)
   } finally {
     loading.value = false
   }

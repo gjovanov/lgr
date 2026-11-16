@@ -5,8 +5,12 @@
     :actions="formActions"
     :smart-buttons="isEdit ? smartButtons : undefined"
     :loading="loading"
+    :load-error="loadError"
+    :refusal="refusal"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
     back-to="/contacts"
+    @retry="loadContact"
+    @dismiss-refusal="dismissRefusal"
   >
     <v-card>
       <v-card-text>
@@ -186,6 +190,7 @@ import ContactMovementsDialog from '../components/ContactMovementsDialog.vue'
 import ContactUnpaidDialog from '../components/ContactUnpaidDialog.vue'
 import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { buildContactPayload, isValidOptionalEmail } from 'ui-shared/composables/contact-payload'
 import { cleanContactAliases, contactAliasesFit, MAX_CONTACT_ALIASES, MAX_CONTACT_ALIAS_LENGTH } from 'config/contact-aliases'
@@ -197,6 +202,8 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+// FR-31.6 / .8: a contact that did not load says so; a refused save stays at the top of the form.
+const { loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal } = useFormFeedback()
 
 const formRef = ref()
 const loading = ref(false)
@@ -428,10 +435,11 @@ async function handleSubmit() {
       await httpClient.post(`${orgUrl()}/invoicing/contact`, buildContactPayload(form, 'create'))
     }
     markSaved()
+    succeeded()
     showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'invoicing.contacts' })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    refused(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
     loading.value = false
   }
@@ -441,36 +449,42 @@ onMounted(async () => {
   if (tryRestore()) return
   if (isEdit.value) {
     fetchSummary()
-    try {
-      const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/${route.params.id}`)
-      const contact = data.contact || data
-      await markLoaded(() => {
-        Object.assign(form, {
-          companyName: contact.companyName || '',
-          firstName: contact.firstName || '',
-          lastName: contact.lastName || '',
-          type: contact.type || 'customer',
-          email: contact.email || '',
-          phone: contact.phone || '',
-          mobile: contact.mobile || '',
-          taxId: contact.taxId || '',
-          taxNumber: contact.taxNumber || '',
-          vatNumber: contact.vatNumber || '',
-          registrationNumber: contact.registrationNumber || '',
-          paymentTermsDays: contact.paymentTermsDays ?? 30,
-          website: contact.website || '',
-          isActive: contact.isActive ?? true,
-          notes: contact.notes || '',
-          representative: contact.representative || '',
-          addresses: contact.addresses || [],
-          bankDetails: contact.bankDetails || [],
-          tags: contact.tags || [],
-          aliases: contact.aliases || [],
-        })
-      })
-    } catch (err) {
-      console.error('Failed to load contact:', err)
-    }
+    await loadContact()
   }
 })
+
+/** The contact, read into the form; a failure is said by the form, with Back and Retry (FR-31.6). */
+async function loadContact() {
+  loadStarted()
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/${route.params.id}`)
+    const contact = data.contact || data
+    await markLoaded(() => {
+      Object.assign(form, {
+        companyName: contact.companyName || '',
+        firstName: contact.firstName || '',
+        lastName: contact.lastName || '',
+        type: contact.type || 'customer',
+        email: contact.email || '',
+        phone: contact.phone || '',
+        mobile: contact.mobile || '',
+        taxId: contact.taxId || '',
+        taxNumber: contact.taxNumber || '',
+        vatNumber: contact.vatNumber || '',
+        registrationNumber: contact.registrationNumber || '',
+        paymentTermsDays: contact.paymentTermsDays ?? 30,
+        website: contact.website || '',
+        isActive: contact.isActive ?? true,
+        notes: contact.notes || '',
+        representative: contact.representative || '',
+        addresses: contact.addresses || [],
+        bankDetails: contact.bankDetails || [],
+        tags: contact.tags || [],
+        aliases: contact.aliases || [],
+      })
+    })
+  } catch (err) {
+    loadFailed(err)
+  }
+}
 </script>

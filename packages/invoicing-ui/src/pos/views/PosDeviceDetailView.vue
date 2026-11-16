@@ -5,6 +5,10 @@
     :status="!isNew && device.status ? { steps: ['offline', 'online', 'error'].map(s => `pos.device.states.${s}`), current: `pos.device.states.${device.status}` } : undefined"
     :actions="formActions"
     :loading="loading"
+    :load-error="loadError"
+    :refusal="refusal"
+    @retry="fetchDevice"
+    @dismiss-refusal="dismissRefusal"
     back-to="/configuration/devices"
     :back-label="t('nav.devices')"
   >
@@ -412,6 +416,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
@@ -424,6 +429,8 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+// FR-31.6 / .8: a record that did not load says so; a refused action stays at the top of the form.
+const { loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal } = useFormFeedback()
 const fiscalBridge = useFiscalBridge()
 // FR-26 D-8: whoever does not run the devices reads this page, with nothing that acts on a device, Connect
 // included (#493 item 1). A cashier connects the printer from the till's terminal.
@@ -704,6 +711,7 @@ async function fetchWarehouses() {
 async function fetchDevice() {
   if (isNew.value) return
   loading.value = true
+  loadStarted()
   try {
     const { data } = await httpClient.get(`${deviceUrl.value}/${deviceId.value}`)
     const d = data.fiscalDevice || data
@@ -723,7 +731,7 @@ async function fetchDevice() {
     setCapabilities(d)
     clockHeld.value = d.clockHeld ?? null
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('pos.device.loadFailed'))
+    loadFailed(e)
   } finally {
     loading.value = false
   }
@@ -765,6 +773,7 @@ async function handleSave() {
     if (isNew.value) {
       const { data } = await httpClient.post(deviceUrl.value, payload)
       markSaved()
+      succeeded()
       showSuccess(t('pos.device.created'))
       const newId = data.fiscalDevice?._id || data.fiscalDevice?.id || data._id || data.id
       if (newId) {
@@ -773,11 +782,12 @@ async function handleSave() {
     } else {
       await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, payload)
       markSaved()
+      succeeded()
       showSuccess(t('pos.device.saved'))
       await refreshCapabilities()
     }
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('pos.device.saveFailed'))
+    refused(e?.response?.data?.message || t('pos.device.saveFailed'))
   } finally {
     saving.value = false
   }

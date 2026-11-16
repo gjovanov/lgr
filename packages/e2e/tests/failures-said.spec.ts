@@ -1,0 +1,150 @@
+import { test, expect } from '@playwright/test'
+import { loginForApp } from './helpers/login'
+import { apiLogin, apiPost } from './helpers/api'
+
+/**
+ * FR-31.6 to .8 (#796): a failure is said on the screen, and stays.
+ *  - A document that could not be loaded used to look like an empty draft: „Edit Invoice", a Draft chip, an empty
+ *    form and enabled Issue and Save (reproduced with an id that does not exist).
+ *  - A list whose request was refused looked like a list without rows.
+ *  - A refused save was said by a toast that went after five seconds.
+ */
+
+const NOBODY = '0123456789abcdef01234567'
+const loadError = (page: any) => page.getByTestId('form-load-error')
+const saveButtons = (page: any) => page.getByRole('button', { name: /^save$/i })
+
+test.describe('a record that did not load says so (FR-31.6)', () => {
+  test('an invoice id that does not exist: not found, Back and Retry, and no Save or Issue', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto(`/invoicing/invoices/${NOBODY}/edit`)
+    await expect(loadError(page)).toBeVisible({ timeout: 15000 })
+    await expect(loadError(page)).toHaveAttribute('data-failure', 'not_found')
+    await expect(loadError(page)).toContainText('Not found')
+    await expect(page.getByTestId('form-load-error-back')).toBeVisible()
+    await expect(page.getByTestId('form-load-error-retry')).toBeVisible()
+    await expect(saveButtons(page)).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /issue/i })).toHaveCount(0)
+    // No form fields: no party picker, no line table.
+    await expect(page.locator('.form-paper .v-autocomplete')).toHaveCount(0)
+    await expect(page.locator('.v-table')).toHaveCount(0)
+  })
+
+  test('a warehouse that could not be loaded says so, and Retry loads it', async ({ page }) => {
+    const api = await apiLogin()
+    const s = `${Date.now()}`
+    const res = await apiPost(api, '/warehouse/warehouse', { code: `F${s.slice(-6)}`, name: `E2E Склад F ${s}`, type: 'warehouse' })
+    const { warehouse } = await res.json()
+    const id = String(warehouse._id || warehouse.id)
+    await loginForApp(page)
+
+    // The first read fails on the server's side; the next one answers.
+    let failed = false
+    await page.route(`**/warehouse/warehouse/${id}`, async (route) => {
+      if (!failed && route.request().method() === 'GET') {
+        failed = true
+        await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Internal server error (ref 0)' }) })
+        return
+      }
+      await route.continue()
+    })
+    await page.goto(`/inventory/warehouses/${id}/edit`)
+    await expect(loadError(page)).toHaveAttribute('data-failure', 'failed', { timeout: 15000 })
+    await expect(saveButtons(page)).toHaveCount(0)
+
+    await page.getByTestId('form-load-error-retry').click()
+    await expect(loadError(page)).toHaveCount(0)
+    await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(`E2E Склад F ${s}`)
+    await expect(saveButtons(page).first()).toBeVisible()
+  })
+})
+
+test.describe('a list that did not load says so (FR-31.7)', () => {
+  test('a refused movements list shows a sentence and Retry, never "no data"', async ({ page }) => {
+    await loginForApp(page)
+    let refuse = true
+    await page.route('**/warehouse/movement?*', async (route) => {
+      if (refuse) {
+        await route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ message: 'Forbidden' }) })
+        return
+      }
+      await route.continue()
+    })
+    await page.goto('/inventory/movements')
+    const error = page.getByTestId('list-load-error')
+    await expect(error).toBeVisible({ timeout: 15000 })
+    await expect(error).toHaveAttribute('data-failure', 'forbidden')
+    await expect(page.getByText('No data available')).toHaveCount(0)
+
+    refuse = false
+    await page.getByTestId('list-load-error-retry').click()
+    await expect(error).toHaveCount(0)
+  })
+
+  test('a sales invoices list whose request failed says so, with Retry', async ({ page }) => {
+    await loginForApp(page)
+    let fail = true
+    await page.route(/\/api\/org\/[^/]+\/invoices\?/, async (route) => {
+      if (fail && route.request().method() === 'GET') {
+        await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Internal server error (ref 0)' }) })
+        return
+      }
+      await route.continue()
+    })
+    await page.goto('/invoicing/invoices')
+    const error = page.getByTestId('list-load-error')
+    await expect(error).toBeVisible({ timeout: 15000 })
+    await expect(error).toHaveAttribute('data-failure', 'failed')
+    fail = false
+    await page.getByTestId('list-load-error-retry').click()
+    await expect(error).toHaveCount(0)
+  })
+})
+
+test.describe('a refusal stays (FR-31.8)', () => {
+  test('a refused save is said at the top of the form, still there later, and gone after the next save', async ({ page }) => {
+    const api = await apiLogin()
+    const s = `${Date.now()}`
+    const res = await apiPost(api, '/warehouse/warehouse', { code: `R${s.slice(-6)}`, name: `E2E Склад R ${s}`, type: 'warehouse' })
+    const { warehouse } = await res.json()
+    const id = String(warehouse._id || warehouse.id)
+    await loginForApp(page)
+    let refuse = true
+    await page.route(`**/warehouse/warehouse/${id}`, async (route) => {
+      if (refuse && route.request().method() === 'PUT') {
+        await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ message: 'Refused for the test' }) })
+        return
+      }
+      await route.continue()
+    })
+    await page.goto(`/inventory/warehouses/${id}/edit`)
+    const name = page.getByRole('textbox', { name: 'Name', exact: true })
+    await expect(name).toHaveValue(`E2E Склад R ${s}`, { timeout: 15000 })
+    await name.fill(`E2E Склад R ${s} renamed`)
+    await saveButtons(page).first().click()
+    const refusal = page.getByTestId('form-refusal')
+    await expect(refusal).toContainText('Refused for the test')
+    // A toast went after five seconds; the refusal is still on the form after six.
+    await page.waitForTimeout(6000)
+    await expect(refusal).toContainText('Refused for the test')
+
+    refuse = false
+    await saveButtons(page).first().click()
+    await expect(refusal).toHaveCount(0)
+  })
+
+  test('an error message outside a form stays until it is closed', async ({ page }) => {
+    await loginForApp(page)
+    // A server error on a list: the client says it on the message line (5xx).
+    await page.route('**/warehouse/warehouse?*', async (route) => {
+      await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Internal server error (ref 1)' }) })
+    })
+    await page.goto('/inventory/warehouses')
+    const message = page.locator('.v-snackbar--active').filter({ hasText: 'Internal server error (ref 1)' })
+    await expect(message).toBeVisible({ timeout: 15000 })
+    await page.waitForTimeout(6000)
+    await expect(message).toBeVisible()
+    await message.getByRole('button', { name: /close/i }).click()
+    await expect(message).toHaveCount(0)
+  })
+})

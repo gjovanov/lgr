@@ -17,7 +17,8 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient, setRefusalTranslator } from 'ui-shared/composables/useHttpClient'
+import { httpClient, setRefusalTranslator, UNEXPECTED_ERROR_CODE } from 'ui-shared/composables/useHttpClient'
+import { STOCK_REFUSAL_CODES } from 'ui-shared/composables/stock-refusals'
 import { onHomeChanged } from 'ui-shared/composables/useHomeChanged'
 
 /**
@@ -74,7 +75,17 @@ watch(() => props.orgId, id => {
 }, { immediate: true })
 
 const REFUSALS: Record<string, string> = { org_home_elsewhere: 'home.writeRefused', series_frozen: 'home.seriesFrozen' }
-const stopTranslating = setRefusalTranslator(code => (REFUSALS[code] ? t(REFUSALS[code]) : null))
+/**
+ * The shell's words for a coded refusal (FR-31.9): the home's, the stock refusals' (`warehouse.refusals.*`, with what
+ * the refusal names), and the last fallback for an answer that says nothing a person can read. Any other code keeps
+ * the server's sentence.
+ */
+const stopTranslating = setRefusalTranslator((code, data) => {
+  if (REFUSALS[code]) return t(REFUSALS[code])
+  if (code === UNEXPECTED_ERROR_CODE) return t('common.unexpectedError')
+  if ((STOCK_REFUSAL_CODES as readonly string[]).includes(code)) return t(`warehouse.refusals.${code}`, data ?? {})
+  return null
+})
 // A page that moved the org, or reopened its numbering, says so: look again now.
 const stopListening = onHomeChanged(() => void load(props.orgId))
 onUnmounted(() => {
