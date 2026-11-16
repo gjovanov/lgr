@@ -58,6 +58,8 @@
     </template>
     <template #item.actions="{ item }">
       <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'invoicing.internalOrders.edit', params: { id: item._id } }" :title="$t('common.edit')" :aria-label="$t('common.edit')" />
+      <!-- The order's sheet (PDF). Every row has it, so it stands before the actions only a draft has. -->
+      <v-btn v-cap="'sales-docs.export'" icon="mdi-printer" size="small" variant="text" :loading="printingId === item._id" :title="$t('common.print')" :aria-label="$t('common.print')" data-testid="print-order-row" @click="printOrder(item)" />
       <v-btn v-if="item.status === 'draft'" icon="mdi-check" size="small" variant="text" color="primary" :title="$t('invoicing.confirmOrder')" :aria-label="$t('invoicing.confirmOrder')" @click="confirmOrder(item)" />
       <v-btn v-cap="'orders.delete'" v-if="item.status === 'draft'" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" :aria-label="$t('common.delete')" @click="confirmDelete(item)" />
     </template>
@@ -91,6 +93,7 @@ import StatusChip from 'ui-shared/components/StatusChip'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import StatusMultiselect from 'ui-shared/components/StatusMultiselect.vue'
+import { useCustomerOrderPrint } from '../composables/useCustomerOrderPrint'
 
 interface Item {
   _id: string
@@ -111,6 +114,7 @@ interface Item {
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+const { printingId, printOrder } = useCustomerOrderPrint()
 
 const { search, debouncedSearch } = useSearchDebounce()
 const deleteDialog = ref(false)

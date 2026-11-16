@@ -586,6 +586,8 @@ import PriceSelectButton from 'ui-shared/components/PriceSelectButton'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
 import { useConversionFeedback } from '../composables/useConversionFeedback'
+import { useCustomerOrderPrint } from '../composables/useCustomerOrderPrint'
+import { COLLAPSE } from '../composables/document-form/form-actions'
 import ReservationQuantityDialog from '../components/ReservationQuantityDialog.vue'
 import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -1061,11 +1063,15 @@ const statusDef = computed<StatusDef | undefined>(() => ({
 }))
 
 const saving = ref(false)
+const { printingId, printOrder } = useCustomerOrderPrint()
 const formActions = computed<FormAction[]>(() => [
   { label: t('common.save'), icon: 'mdi-content-save', handler: onSave, loading: saving.value, show: !readonly.value && ['draft', 'confirmed'].includes(orderStatus.value), cap: isEdit.value ? ['orders.create', 'orders.edit'] : 'orders.create' },
   { label: t('invoicing.confirmOrder'), icon: 'mdi-check', color: 'success', handler: confirmOrder, show: isEdit.value && orderStatus.value === 'draft', cap: ['orders.create', 'orders.edit'] },
   { label: t('invoicing.convertToInvoice'), icon: 'mdi-swap-horizontal', color: 'info', handler: convertOrder, show: isEdit.value && ['confirmed', 'partially_delivered', 'delivered'].includes(orderStatus.value), cap: 'sales-docs.create' },
   { label: t('invoicing.completeOrder'), icon: 'mdi-check-all', variant: 'outlined', handler: completeOrder, show: isEdit.value && ['confirmed', 'partially_delivered', 'delivered'].includes(orderStatus.value), cap: ['orders.create', 'orders.edit'] },
+  // The order's sheet for the client: any saved order, in any status, to whoever may export (the route's own gate).
+  // After the order's own steps, as on a document; the one label given up where the bar would otherwise wrap.
+  { key: 'print', label: t('common.print'), icon: 'mdi-printer', color: '', variant: 'outlined', handler: printSheet, loading: printingId.value !== '', show: isEdit.value, cap: 'sales-docs.export', testId: 'print-order', collapse: COLLAPSE.print },
   { label: t('invoicing.cancelOrder'), icon: 'mdi-cancel', color: 'error', variant: 'outlined', handler: cancelOrder, show: isEdit.value && ['draft', 'confirmed'].includes(orderStatus.value), cap: ['orders.create', 'orders.edit'] },
   { label: t('common.delete'), icon: 'mdi-delete', color: 'error', variant: 'text', handler: deleteOrder, show: isEdit.value && orderStatus.value === 'draft', cap: 'orders.delete' },
 ])
@@ -1192,6 +1198,13 @@ async function doAction(path: string, successKey: string, opts: { onError?: (mes
 }
 async function confirmOrder() {
   if (await saveIfNeeded()) await doAction('confirm', 'invoicing.orderConfirmed')
+}
+
+// ── „Печат": the order's sheet ──
+/** The sheet prints what is stored, so an unsaved edit is saved first, as the documents' „Печат" does. */
+async function printSheet() {
+  if (!(await saveIfNeeded())) return
+  await printOrder({ _id: route.params.id as string, number: orderNumber.value })
 }
 
 // ── FR-22.41: Complete and Cancel say what they release before they do it ──
