@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 // Import-pure modules: this file never boots Mongoose.
 import {
-  EMAIL_RE, MAX_DOCS_PER_MAIL, MAX_SELECTION, NO_PARTNER, SINGLE_ADDRESS,
+  DOC_EMAIL_BLOCKS, DOC_EMAIL_SKIPS, EMAIL_RE, MAX_DOCS_PER_MAIL, MAX_SELECTION, NO_PARTNER, RESEND_WINDOW_MS, SINGLE_ADDRESS,
   chunkDocuments, groupByPartner, idsThatWent, isValidRecipient, planByPartner, planForOneAddress, planTotals, sendableRows, wentOut,
   type DocEmailPreviewRow, type DocEmailResult,
 } from 'config/doc-email'
@@ -30,6 +30,13 @@ describe('the limits and the address pattern', () => {
     expect(MAX_SELECTION).toBe(100)
   })
 
+  it('why a document does not go: a cancelled movement after a draft, and the double click only once there is an address', () => {
+    expect([...DOC_EMAIL_BLOCKS]).toEqual(['not_found', 'forbidden', 'draft', 'cancelled'])
+    expect([...DOC_EMAIL_SKIPS]).toEqual(['not_found', 'forbidden', 'draft', 'cancelled', 'just_sent'])
+    // A minute: the same document to the same address again inside it is a double click.
+    expect(RESEND_WINDOW_MS).toBe(60_000)
+  })
+
   it('an address is anything with one @ and a dot after it, trimmed', () => {
     expect(isValidRecipient('  someone@example.com ')).toBe(true)
     expect(EMAIL_RE.test('first.last+tag@sub.example.co.uk')).toBe(true)
@@ -42,7 +49,7 @@ describe('the limits and the address pattern', () => {
 describe('to the customer or supplier', () => {
   const rows = [
     row('1', ALFA), row('2', BETA), row('3', ALFA), row('4'),
-    row('5', ALFA, { blocked: 'draft' }), row('6', undefined, { blocked: 'not_found' }),
+    row('5', ALFA, { blocked: 'draft' }), row('6', undefined, { blocked: 'not_found' }), row('7', BETA, { blocked: 'cancelled' }),
   ]
 
   it('a line per partner in the order first ticked, the partner-less documents last, the blocked ones in none', () => {

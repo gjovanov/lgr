@@ -76,6 +76,7 @@ import { productController } from 'warehouse-api/src/controllers/product.control
 import { productSupplierController, productSupplierRecordController } from 'warehouse-api/src/controllers/product-supplier.controller.js'
 import { warehouseController } from 'warehouse-api/src/controllers/warehouse.controller.js'
 import { movementController } from 'warehouse-api/src/controllers/movement.controller.js'
+import { movementEmailController } from 'warehouse-api/src/controllers/movement-email.controller.js'
 import { openingStockController } from 'warehouse-api/src/controllers/opening-stock.controller.js'
 import { stockLevelController } from 'warehouse-api/src/controllers/stock-level.controller.js'
 import { inventoryCountController } from 'warehouse-api/src/controllers/inventory-count.controller.js'
@@ -283,6 +284,8 @@ export function createApiApp() {
         .use(productSupplierRecordController)
         .use(warehouseController)
         .use(movementController)
+        // The list's ticked movements by e-mail, each as its printed sheet.
+        .use(movementEmailController)
         .use(openingStockController)
         .use(stockLevelController)
         .use(inventoryCountController)

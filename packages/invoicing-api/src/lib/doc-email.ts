@@ -1,21 +1,22 @@
 import { seesCosts } from 'config/access'
 import {
   MAX_DOCS_PER_MAIL, MAX_SELECTION, isValidRecipient,
-  type DocEmailAnswer, type DocEmailBlock, type DocEmailItem, type DocEmailPartner, type DocEmailPreviewAnswer,
-  type DocEmailPreviewRow, type DocEmailResult, type DocEmailSkip,
+  type DocEmailAnswer, type DocEmailBlock, type DocEmailItem, type DocEmailPreviewAnswer, type DocEmailPreviewRow,
 } from 'config/doc-email'
-import { Contact, EmailLog, Invoice, Order, Org } from 'db/models'
+import { Invoice, Order, Org } from 'db/models'
 import { docTitleFor, exportI18n } from 'reporting/i18n'
 import { orderSheetI18n } from 'reporting/order-sheet.i18n'
 import { generateOrderSheetPDF } from 'reporting/pdf/order-sheet.pdf'
 import { grantOf, type AccessCaller } from 'services/biz/access/evaluate'
-import { createAuditEntry } from 'services/biz/audit-log.service'
 import { buildEmailHtml, docEmailHtml, docEmailSubject, type MailedDocument } from 'services/biz/doc-email/body'
-import { emailDocuments, type EmailableDocument, type RenderedDocument } from 'services/biz/doc-email/engine'
-import { mailConfigured } from 'services/biz/email.service'
+import { emailDocuments, type EmailableDocument } from 'services/biz/doc-email/engine'
 import {
-  RESEND_WINDOW_MS, invoiceEmailSkip, mayEmailInvoices, mayEmailOrders, orderEmailAccess, orderEmailSkip,
-} from './email-guards.js'
+  OBJECT_ID, auditMailed, distinct, distinctItems, docEmailResults, failedRender, iso, notConfigured, partnersOf, recentlyMailed,
+  refuse, tooLarge, unknownRow,
+  type DocEmailReply, type DocEmailRow,
+} from 'services/biz/doc-email/request'
+import { mailConfigured } from 'services/biz/email.service'
+import { invoiceEmailSkip, mayEmailInvoices, mayEmailOrders, orderEmailAccess, orderEmailSkip } from './email-guards.js'
 import { renderInvoicePdf } from './invoice-pdf.js'
 import { buildOrderSheetCtx, withoutExpectedPrices } from './order-sheet.js'
 
@@ -29,7 +30,8 @@ import { buildOrderSheetCtx, withoutExpectedPrices } from './order-sheet.js'
  * This file knows the documents: it loads them inside the org, holds each to the session (`lib/email-guards.ts`,
  * the same rule for the preview and the mail), prints through the code the export routes print with, and records
  * what a mailed document owes (an invoice's send history, an audit entry). The mail itself is
- * `services/biz/doc-email`'s, which knows no kind.
+ * `services/biz/doc-email`'s, which knows no kind; what every kind's two routes share (the refusals of a whole
+ * request, the double-click reading, the answer's rows) is `services/biz/doc-email/request.ts`.
  *
  * ⚠ One refusal of a DOCUMENT is one row of the answer, never the request's status: the answer is 200 with a draft
  * `skipped` beside nine `sent`. The request itself is refused only for what is true of all of it.
@@ -40,16 +42,7 @@ export type DocEmailKind = (typeof DOC_EMAIL_KINDS)[number]
 
 type Caller = AccessCaller & { id: string }
 
-export interface DocEmailRefusal {
-  message: string
-  code?: 'selection_too_large' | 'not_configured'
-  /** With `selection_too_large`: how many the route takes. */
-  max?: number
-}
-
-export type DocEmailReply<T> =
-  | { status: 200; body: T }
-  | { status: 400 | 403 | 422 | 503; body: DocEmailRefusal }
+export type { DocEmailRefusal, DocEmailReply } from 'services/biz/doc-email/request'
 
 /**
  * What prints a document. Named so a test can mail without a browser: a render is a fresh Chrome, and the suite's
@@ -60,52 +53,9 @@ export const docEmailRenderers = {
   orderSheet: generateOrderSheetPDF,
 }
 
-const OBJECT_ID = /^[0-9a-f]{24}$/i
-
-function refuse(status: 400 | 403, message: string): DocEmailReply<never> {
-  return { status, body: { message } }
-}
-
-function tooLarge(max: number, what: string): DocEmailReply<never> {
-  return { status: 422, body: { code: 'selection_too_large', max, message: `${what} takes at most ${max} documents` } }
-}
-
-function notConfigured(): DocEmailReply<never> {
-  return { status: 503, body: { code: 'not_configured', message: 'Email is not configured on this server' } }
-}
-
 /** May this session e-mail any document of the kind at all: the request's 403. */
 export function mayEmailKind(kind: DocEmailKind, user: AccessCaller | null | undefined): boolean {
   return kind === 'order' ? mayEmailOrders(orderEmailAccess(user)) : mayEmailInvoices(grantOf(user))
-}
-
-function iso(date: unknown): string | undefined {
-  if (!date) return undefined
-  const d = new Date(date as any)
-  return Number.isNaN(d.getTime()) ? undefined : d.toISOString()
-}
-
-/** The ids asked for, once each, in the order asked. */
-function distinct(ids: readonly unknown[]): string[] {
-  return [...new Set(ids.map(id => String(id ?? '').trim()).filter(Boolean))]
-}
-
-/** A document's customer or supplier, as the dialog addresses it. */
-async function partnersOf(orgId: string, contactIds: readonly unknown[]): Promise<Map<string, DocEmailPartner>> {
-  const ids = distinct(contactIds).filter(id => OBJECT_ID.test(id))
-  const contacts: any[] = ids.length
-    ? await Contact.find({ orgId, _id: { $in: ids } } as any, { companyName: 1, firstName: 1, lastName: 1, email: 1 }).lean().exec()
-    : []
-  return new Map(contacts.map((c) => {
-    const email = String(c.email ?? '').trim()
-    const name = c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || ''
-    return [String(c._id), { id: String(c._id), name, ...(email ? { email } : {}) }]
-  }))
-}
-
-/** A row that says nothing but that it does not go: see `DocEmailPreviewRow`. */
-function unknownRow(id: string): DocEmailPreviewRow {
-  return { id, number: '', docType: '', blocked: 'not_found' }
 }
 
 // ── the invoice collection ────────────────────────────────────────────────────
@@ -220,12 +170,7 @@ interface MailDoc extends EmailableDocument {
 }
 
 /** One item asked for: a document to mail, or why it is left out. */
-interface Row {
-  item: DocEmailItem
-  number: string
-  skip?: DocEmailSkip
-  document?: MailDoc
-}
+type Row = DocEmailRow<MailDoc>
 
 interface MailContext {
   orgId: string
@@ -233,21 +178,6 @@ interface MailContext {
   to: string
   locale: string
   columns?: string[]
-}
-
-/** The documents of the kind that went, or wait, to this address inside the double-click window. */
-async function recentlyMailed(ctx: MailContext, entityType: string, ids: readonly string[]): Promise<any[]> {
-  const valid = ids.filter(id => OBJECT_ID.test(id))
-  if (!valid.length) return []
-  // A FAILED attempt is no block: the failure is why the person asks again. One still QUEUED on a master is.
-  return EmailLog.find({
-    orgId: ctx.orgId, entityType, entityId: { $in: valid }, to: ctx.to, status: { $in: ['sent', 'queued'] },
-    createdAt: { $gte: new Date(Date.now() - RESEND_WINDOW_MS) },
-  } as any, { entityId: 1, attachmentNames: 1 }).lean().exec()
-}
-
-function failedRender(r: { message: string; detail?: string }): RenderedDocument {
-  return { ok: false, message: r.detail ? `${r.message} (${r.detail})` : r.message }
 }
 
 async function invoiceRows(ctx: MailContext, items: DocEmailItem[]): Promise<Row[]> {
@@ -328,21 +258,6 @@ async function orderRows(ctx: MailContext, items: DocEmailItem[]): Promise<Row[]
   })
 }
 
-/** An item names one document: an id and, for an order, its group. Each once, in the order asked. */
-function distinctItems(items: readonly DocEmailItem[]): DocEmailItem[] {
-  const seen = new Set<string>()
-  const out: DocEmailItem[] = []
-  for (const raw of items) {
-    const id = String(raw?.id ?? '').trim()
-    const groupId = String(raw?.groupId ?? '').trim()
-    const key = `${id.toLowerCase()}:${groupId.toLowerCase()}`
-    if (!id || seen.has(key)) continue
-    seen.add(key)
-    out.push({ id, ...(groupId ? { groupId } : {}) })
-  }
-  return out
-}
-
 /**
  * Up to ten documents to ONE address, in as few mails as fit (`services/biz/doc-email`). The dialog asks once per
  * recipient, and once more per ten documents.
@@ -403,18 +318,7 @@ export async function sendDocEmail(input: {
   // Unreachable while `mailConfigured()` stands; kept so a mail service that changes its mind is never a 200.
   if (outcome.notConfigured && !outcome.mails) return notConfigured()
 
-  const outcomes = new Map(outcome.results.map(r => [r.document, r]))
-  const results: DocEmailResult[] = rows.map((row): DocEmailResult => {
-    const base = { id: row.item.id, ...(row.item.groupId ? { groupId: row.item.groupId } : {}), number: row.number }
-    const done = row.document ? outcomes.get(row.document) : undefined
-    if (!done) return { ...base, status: 'skipped', reason: row.skip ?? 'not_found' }
-    return {
-      ...base,
-      status: done.status,
-      ...(done.reason ? { reason: done.reason } : {}),
-      ...(done.message ? { message: done.message } : {}),
-    }
-  })
+  const results = docEmailResults(rows, outcome)
 
   // Only a mail that LEFT updates a document's send history. A queued invoice's is the outbox worker's, when
   // lgrai.app has sent it (`relay/outbox-worker.ts`).
@@ -425,18 +329,7 @@ export async function sendDocEmail(input: {
       { $addToSet: { emailedTo: to }, $set: { lastEmailedAt: new Date() } },
     )
   }
-  for (const done of outcome.results) {
-    if (done.status === 'failed') continue
-    createAuditEntry({
-      orgId,
-      userId: user.id,
-      action: 'email',
-      module: 'invoicing',
-      entityType: done.document.entityType,
-      entityId: done.document.entityId,
-      entityName: done.document.number,
-    })
-  }
+  auditMailed({ orgId, userId: user.id, module: 'invoicing' }, outcome)
 
   return { status: 200, body: { to, mails: outcome.mails, queued: outcome.queued, results } }
 }

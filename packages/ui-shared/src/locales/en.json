@@ -5147,6 +5147,7 @@
     "doneQueued": "Queued {documents} for {recipients}: they leave when this server reaches lgrai.app.",
     "reason": {
       "draft": "draft: not sent",
+      "cancelled": "cancelled: not sent",
       "not_found": "no such document",
       "forbidden": "your role does not send this kind of document",
       "just_sent": "sent to this address a moment ago",
