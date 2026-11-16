@@ -15,5 +15,11 @@ export function useDocEmailAccess() {
     /** The supplier orders: what a sheet's export takes, and the work on orders (`mayEmailOrders`). */
     orders: (): boolean =>
       access.can(['orders.view', 'orders.browse', 'orders.lookup']) && access.can('sales-docs.export') && access.can(['orders.create', 'orders.edit']),
+    /**
+     * The customer orders (`mayEmailInternalOrders`): as the supplier orders', but read by `orders.view` alone, which
+     * is all that reaches a customer order's sheet. `unit/doc-email-access` holds this to the server's rule.
+     */
+    internalOrders: (): boolean =>
+      access.can('orders.view') && access.can('sales-docs.export') && access.can(['orders.create', 'orders.edit']),
   }
 }
