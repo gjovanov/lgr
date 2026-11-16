@@ -4,10 +4,8 @@ import {
 } from 'config/access'
 import { Org, PermissionSet, Role, User } from 'db/models'
 import { createAuditEntry, recordAuditEntry } from '../audit-log.service'
-import { endSessionsOf } from '../permission-set.service'
 import { grantOf, type AccessCaller } from './evaluate'
 import { forgetMember, forgetRole } from './live'
-import { accessModelOf } from './shadow'
 
 /**
  * FR-27.3, FR-27.8 (#529) — roles: create, copy, edit, delete, and give one to a person. The one place that writes
@@ -117,13 +115,6 @@ async function writeProjection(orgId: string, role: any, grant: Grant): Promise<
 /** Every person on the role, given its projection: their legacy key and its set. */
 async function projectOntoPeople(orgId: string, role: any): Promise<void> {
   await User.updateMany({ orgId, roleId: role._id }, { $set: legacyFieldsOf(role) }).exec()
-}
-
-/** On the legacy model a person's claims are their token's: the sessions of the people on the role end (FR-26.9.4). */
-async function endSessionsOnLegacy(orgId: string, userIds: unknown[]): Promise<void> {
-  if ((await accessModelOf(orgId)) === 'roles') return
-  const people = await User.find({ orgId, _id: { $in: userIds } }, { identityId: 1 }).lean().exec()
-  for (const p of people) await endSessionsOf((p as any).identityId)
 }
 
 export interface RoleView {
@@ -297,10 +288,6 @@ async function applyRoleUpdate(
   ).lean().exec()
   forgetRole(role._id)
   await projectOntoPeople(orgId, updated)
-  if (input.caps !== undefined) {
-    const people = (await User.find({ orgId, roleId: role._id }, { _id: 1 }).lean().exec()).map(p => p._id)
-    await endSessionsOnLegacy(orgId, people)
-  }
   const entry = { orgId, userId: audit.userId, action: 'update', module: 'admin', entityType: 'role', entityId: String(role._id), entityName: String(updated!.name), changes: [{ field: 'caps', oldValue: capsOf(before), newValue: capsOf(after) }] }
   // A script exits once this returns: its row is written before, and says where it came from.
   if (audit.via) await recordAuditEntry({ ...entry, via: audit.via })
@@ -469,7 +456,6 @@ export async function assignRole(actor: Actor, orgId: string, userId: string, ro
 
   await User.updateOne({ _id: person._id, orgId }, { $set: { roleId: role._id, roleHistory: history, ...legacyFieldsOf(ready) } }).exec()
   forgetMember(person._id)
-  await endSessionsOnLegacy(orgId, [person._id])
   createAuditEntry({
     orgId, userId: actor.id, action: 'update', module: 'admin', entityType: 'user', entityId: String(person._id), entityName: person.username,
     changes: [

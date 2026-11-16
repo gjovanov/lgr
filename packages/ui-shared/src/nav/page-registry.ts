@@ -1,5 +1,5 @@
 import { FISCAL_ADMIN_ROLES, PERMISSIONS, holdsArea, type Area } from 'config/constants'
-import { PAGE_ACCESS, can, canOpen, compileLegacy, grantHoldsArea, type CapabilityId, type Grant } from 'config/access'
+import { PAGE_ACCESS, can, canOpen, grantHoldsArea, type CapabilityId, type Grant } from 'config/access'
 
 /**
  * Cross-app registry of the favouritable PAGES/functions surfaced by the global top-bar ★ menu.
@@ -276,9 +276,14 @@ export interface PageViewer {
   landing?: string
 }
 
-/** FR-27 (#529): the viewer's grant: its role's, live, else its claims compiled as the server compiles them. */
+const NO_GRANT: Grant = Object.freeze({ caps: new Set() }) as Grant
+
+/**
+ * FR-27 (#529): the viewer's grant, its role's, live (`/auth/me`). Since P3-2 every org answers one: a viewer
+ * without it (not answered yet, or no role) holds nothing, rather than its token's claims compiled.
+ */
 export function grantOfViewer(who: PageViewer | null | undefined): Grant {
-  return who?.grant ?? compileLegacy(who)
+  return who?.grant ?? NO_GRANT
 }
 
 /**
@@ -289,7 +294,7 @@ export function grantOfViewer(who: PageViewer | null | undefined): Grant {
  */
 export function viewerHoldsArea(who: PageViewer | null | undefined, area: Area): boolean {
   if (!who) return false
-  return who.grant ? grantHoldsArea(who.grant, area) : holdsArea(who, area)
+  return grantHoldsArea(grantOfViewer(who), area)
 }
 
 /**

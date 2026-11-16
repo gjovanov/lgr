@@ -1,7 +1,6 @@
 import { grantOfRole, type Grant } from 'config/access'
 import { mongoose } from 'db/connection'
 import { Role, User } from 'db/models'
-import { accessModelOf } from './shadow'
 
 /**
  * FR-27.5 (#529) — an org on `roles`: each request's grant comes from the person's role, read live.
@@ -84,11 +83,10 @@ export interface LiveSession {
 }
 
 /**
- * The person's role in an org on `roles`, or null: an org on another model, no role, or a role that is gone.
+ * The person's role, or null: no role, or a role that is gone. Every org since FR-27 P3-2 (`access.model` is no longer read).
  */
 export async function liveRoleOf(user: LiveSession): Promise<LiveRole | null> {
   if (!user?.orgId || !user.id || mongoose.connection.readyState !== 1) return null
-  if ((await accessModelOf(user.orgId)) !== 'roles') return null
   const roleId = await roleIdOf(user.id, user.orgId)
   return roleId ? roleById(roleId, user.orgId) : null
 }

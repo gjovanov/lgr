@@ -4,6 +4,7 @@ import { homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
 import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS, type Area, type Role } from 'config/constants'
 import { legacyClaimsOf, type LegacySet } from 'config/access'
 import { liveRoleOf } from './access/live'
+import { NO_ROLE_MESSAGE } from './access/evaluate'
 import { config, nodeRole } from 'config'
 import { logger } from '../logger/logger.js'
 import { inviteSetFor } from './permission-set.service.js'
@@ -434,7 +435,7 @@ export async function resendActivation(email: string): Promise<void> {
  * Why a sign-in was refused. `invalid_credentials` is the ONLY answer anyone gets without the
  * password; the other two are said only to someone who has just proven it.
  */
-export type LoginRefusal = 'invalid_credentials' | 'not_activated' | 'disabled' | 'ambiguous_login'
+export type LoginRefusal = 'invalid_credentials' | 'not_activated' | 'disabled' | 'ambiguous_login' | 'no_role'
 
 /** Several people sign in with this username; the UI asks for an email or an org instead. */
 export const AMBIGUOUS_LOGIN = 'Several accounts use this username. Sign in with your email address, or choose the organization.'
@@ -557,6 +558,8 @@ async function loginAsPerson(input: LoginInput): Promise<LoginResult> {
 
 /** The session for one membership: its claims, the person's landing preference, the timestamps. Every sign-in that lands in an org goes through here (password, OAuth). */
 export async function landInOrg(member: IUser, identity: IIdentity | null, org: IOrg, memberships?: Membership[]): Promise<LoginResult> {
+  // FR-27 P3-2: the role decides every request, so a membership without one is told so here, not by a 403 on each page.
+  if (!member.roleId) throw new LoginRefusedError('no_role', NO_ROLE_MESSAGE)
   member.lastLoginAt = new Date()
   await member.save()
   if (identity) {
