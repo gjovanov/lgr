@@ -114,12 +114,15 @@ export interface MapMovementResult {
 /**
  * Resolve the store printed on a note to one of our warehouses. Matched on the full value
  * and on the leaf after a colon, because the exports print `ОБЕКТИ:СКЛАД - 1`.
+ *
+ * ⚠ One of OUR warehouses: an external one (another site's, named here for transfers) is never the
+ * answer, even under the same name. The note books stock, and an external warehouse keeps none.
  */
 export async function resolveWarehouse(orgId: string, printed?: string | null): Promise<string | null> {
   const raw = clean(printed)
   if (!raw || /всички\s+складове/i.test(raw)) return null
   const candidates = [raw, storeLeaf(raw)].map(s => s.toLocaleLowerCase('bg'))
-  const all: any[] = await Warehouse.find({ orgId, isActive: { $ne: false } } as any, { name: 1, code: 1 }).lean()
+  const all: any[] = await Warehouse.find({ orgId, isActive: { $ne: false }, isExternal: { $ne: true } } as any, { name: 1, code: 1 }).lean()
   const hit = all.find(w =>
     candidates.includes(String(w.name || '').toLocaleLowerCase('bg'))
     || candidates.includes(String(w.code || '').toLocaleLowerCase('bg')),

@@ -77,16 +77,19 @@ async function baseCurrencyOf(orgId: string): Promise<string> {
   return org?.settings?.baseCurrency || 'EUR'
 }
 
-/** The warehouse a row's allocation goes to unless the dialog says otherwise: the chosen one, else the organization's default. */
+/**
+ * The warehouse a row's allocation goes to unless the dialog says otherwise: the chosen one, else the organization's
+ * default, else its first. The fallbacks skip an external warehouse: goods ordered arrive where stock is kept.
+ */
 async function defaultWarehouseId(orgId: string, chosen?: string): Promise<string | undefined> {
   if (chosen) {
     const wh: any = OBJECT_ID.test(chosen) ? await Warehouse.findOne({ _id: chosen, orgId } as any, { _id: 1 }).lean().exec() : null
     if (!wh) throw new OrdersFromProductsError(422, 'Warehouse not found', { code: 'warehouse_not_found' })
     return String(wh._id)
   }
-  const dflt: any = await Warehouse.findOne({ orgId, isDefault: true, isActive: { $ne: false } } as any, { _id: 1 }).lean().exec()
+  const dflt: any = await Warehouse.findOne({ orgId, isDefault: true, isActive: { $ne: false }, isExternal: { $ne: true } } as any, { _id: 1 }).lean().exec()
   if (dflt) return String(dflt._id)
-  const first: any = await Warehouse.findOne({ orgId, isActive: { $ne: false } } as any, { _id: 1 }).sort({ createdAt: 1, _id: 1 }).lean().exec()
+  const first: any = await Warehouse.findOne({ orgId, isActive: { $ne: false }, isExternal: { $ne: true } } as any, { _id: 1 }).sort({ createdAt: 1, _id: 1 }).lean().exec()
   return first ? String(first._id) : undefined
 }
 

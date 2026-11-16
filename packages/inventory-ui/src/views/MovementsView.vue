@@ -28,7 +28,8 @@
             <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusItems" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
-            <v-select v-model="warehouseIdFilter" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" clearable hide-details density="compact" />
+            <!-- An external warehouse is offered too: the transfers that name it are found by it. -->
+            <v-select v-model="warehouseIdFilter" :label="$t('warehouse.warehouse')" :items="warehouseFilterItems" item-title="name" item-value="_id" clearable hide-details density="compact" />
           </v-col>
           <v-col cols="12" md="2">
             <DateField v-model="dateFrom" :label="$t('invoicing.dateFrom')" hide-details density="compact" />
@@ -104,6 +105,15 @@
           <template #item.type="{ item }">
             <v-chip size="small" label :color="typeColor(item.type)">{{ typeLabel(item.type) }}</v-chip>
           </template>
+          <!-- An external side is another site's warehouse: the movement books nothing there, and says so. -->
+          <template #item.fromWarehouseName="{ item }">
+            {{ item.fromWarehouseName }}
+            <v-chip v-if="item.fromExternal" size="x-small" label color="info" variant="tonal" class="ml-1" data-testid="movement-external-side">{{ $t('warehouse.external') }}</v-chip>
+          </template>
+          <template #item.toWarehouseName="{ item }">
+            {{ item.toWarehouseName }}
+            <v-chip v-if="item.toExternal" size="x-small" label color="info" variant="tonal" class="ml-1" data-testid="movement-external-side">{{ $t('warehouse.external') }}</v-chip>
+          </template>
           <template #item.contactName="{ item }">
             <entity-link v-if="item.contactId" :label="item.contactName || ''" :href="`/invoicing/contacts/${item.contactId}/edit`" />
             <span v-else>{{ item.contactName }}</span>
@@ -142,10 +152,15 @@
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total || 0) }}</template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
-            <v-btn v-if="writesMovement(item)" icon="mdi-check" size="small" variant="text" color="success" :title="$t('warehouse.confirm')" data-testid="movement-confirm" @click="confirmMovement(item)" />
-            <!-- #448: a draft saved by mistake can go. The API refuses one another document names. -->
-            <v-btn v-if="writesMovement(item)" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" data-testid="movement-delete" @click="askDelete(item)" />
+            <!-- One row of icons: with Print beside View, a row no longer fits them wrapped in the column's width. -->
+            <div class="d-flex flex-nowrap">
+              <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
+              <!-- The movement as a document, for whoever may read it: it goes with the goods and carries no price. -->
+              <v-btn icon="mdi-printer" size="small" variant="text" :title="$t('common.print')" :loading="printing === item._id" data-testid="movement-print" @click="printMovement(item)" />
+              <v-btn v-if="writesMovement(item)" icon="mdi-check" size="small" variant="text" color="success" :title="$t('warehouse.confirm')" data-testid="movement-confirm" @click="confirmMovement(item)" />
+              <!-- #448: a draft saved by mistake can go. The API refuses one another document names. -->
+              <v-btn v-if="writesMovement(item)" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" data-testid="movement-delete" @click="askDelete(item)" />
+            </div>
           </template>
         </v-data-table-server>
       </v-card-text>
@@ -181,7 +196,7 @@
           :org-url="appStore.orgUrl()"
           :base-currency="baseCurrency"
           :locale-code="localeCode"
-          :warehouses="warehouses"
+          :warehouses="stockWarehouses"
         />
       </v-card-text>
     </v-card>
@@ -236,9 +251,10 @@ import { appHref } from 'ui-shared/nav/navigate'
 import { isTransferOnly } from 'ui-shared/nav/page-registry'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { useAccess } from 'ui-shared/access/useAccess'
+import { useMovementPrint } from '../composables/useMovementPrint'
 
-interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string; bill?: { id: string; number: string }; sale?: { id: string; number: string } }
-interface Warehouse { _id: string; name: string }
+interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; fromExternal?: boolean; toExternal?: boolean; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string; bill?: { id: string; number: string }; sale?: { id: string; number: string } }
+interface Warehouse { _id: string; name: string; isExternal?: boolean }
 interface Contact { _id: string; name: string; companyName?: string; firstName?: string; lastName?: string }
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -257,6 +273,14 @@ const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
 
 const warehouses = ref<Warehouse[]>([])
+/** The filter's choices: every warehouse a movement can name, an external one said to be one. */
+const warehouseFilterItems = computed(() => warehouses.value.map(w => ({
+  _id: w._id,
+  name: w.isExternal ? t('warehouse.externalName', { name: w.name }) : w.name,
+})))
+/** The warehouses that keep stock: the only ones a product's ledger has rows for. */
+const stockWarehouses = computed(() => warehouses.value.filter(w => !w.isExternal))
+const { printing, printMovement } = useMovementPrint()
 const contacts = ref<Contact[]>([])
 const { search, debouncedSearch } = useSearchDebounce()
 const typeFilter = ref<string | null>(null)
@@ -461,7 +485,12 @@ async function doDelete() {
 }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
+  // ⚠ `external: 'include'`: unasked, the route answers only the warehouses that keep stock. And every
+  // one of them: the route's own page size is 10, which left the eleventh warehouse out of the filter.
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000, external: 'include' } })
+    warehouses.value = data.warehouses || []
+  } catch { /* */ }
 }
 
 function contactDisplayName(c: any): string {

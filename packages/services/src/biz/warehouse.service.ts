@@ -6,6 +6,7 @@ import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 import { getEffectiveCostingMethod, createCostLayers, consumeCostLayers, type ConsumptionResult } from './costing.service.js'
 import { eventBus } from '../events/event-bus.js'
+import { externalWarehouseIds } from './external-warehouses.js'
 
 export interface ConfirmMovementOptions {
   /**
@@ -71,6 +72,20 @@ async function claimDraftMovement(movementId: string): Promise<void> {
  * what a site really applied, and refusing it there would drop goods that moved. Callers also
  * reach it late: `/receive` has written the bill as received by then, so a refusal here would
  * strand a received bill with no stock.
+ *
+ * ⚠ An external warehouse keeps no stock in this org (`Warehouse.isExternal`), so a side that names
+ * one is booked as if it named none: no level, no cost layer, and the costs read the sides that
+ * remain. A transfer from one is goods arriving from outside (the level takes the line's cost, or,
+ * where the line carries none, what the article costs here: `costsAt`), a transfer to one goods
+ * leaving. This is the last line of defence, for every path that reaches here
+ * without passing a user door (an import, a replay, a count): none of them can put stock on an
+ * external warehouse. A sale's dispatch and a bill's receipt are refused before they get here
+ * (`invoicing.service#stockBooking`), because booking nothing for them is a document issued with
+ * its stock unmoved. The id then moves to `externalFromWarehouseId` /
+ * `externalToWarehouseId`, so that on a COMPLETED movement `fromWarehouseId` / `toWarehouseId` name
+ * only warehouses whose stock it moved. Every reader that derives stock from movements relies on
+ * that, and none of them reads the external pair. The flag is read now: the movement records what
+ * was true when it was confirmed.
  */
 export async function confirmMovement(movementId: string, repos?: RepositoryRegistry, opts?: ConfirmMovementOptions): Promise<IStockMovement> {
   const r = repos ?? getRepos()
@@ -83,35 +98,50 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
   const movementDate = movement.date || new Date()
   const updatedLines: any[] = []
 
+  // The sides this movement books: its two warehouses, less any that is external now.
+  const external = await externalWarehouseIds(orgId, [movement.fromWarehouseId, movement.toWarehouseId])
+  const fromExternal = !!movement.fromWarehouseId && external.has(String(movement.fromWarehouseId))
+  const toExternal = !!movement.toWarehouseId && external.has(String(movement.toWarehouseId))
+  const fromWarehouseId = fromExternal ? undefined : movement.fromWarehouseId
+  const toWarehouseId = toExternal ? undefined : movement.toWarehouseId
+
+  // ⚠ Goods from an external warehouse arrive at the line's cost, and a line may carry none: a role that
+  // does not see costs has none to send. Booked at zero they would pull the level's average down with
+  // every delivery from the other site, so such a line arrives at what the article costs here.
+  const costOf = (line: any): number => Number(line.resolvedUnitCost ?? line.unitCost)
+  const uncosted = fromExternal && toWarehouseId ? movement.lines.filter(l => !(costOf(l) > 0)).map(l => l.productId) : []
+  const costHere = uncosted.length ? await costsAt(orgId, toWarehouseId!, uncosted, r) : undefined
+
   for (const line of movement.lines) {
     const productId = line.productId
     let consumptionResult: ConsumptionResult | undefined
 
     // Reduce stock from source warehouse
-    if (movement.fromWarehouseId) {
+    if (fromWarehouseId) {
       // ⚠ A dispatch's `unitCost` is the sale price. What leaves a level never moves its average, so
       // this only says what a level opened by this movement starts with: no cost known, and not
       // what the goods sold for, which the next sale out of it would read as their cost (FR-25).
       const leavingAt = movement.type === 'dispatch' ? 0 : line.unitCost
-      consumptionResult = await adjustStock(orgId, productId, movement.fromWarehouseId, -line.quantity, leavingAt, r)
+      consumptionResult = await adjustStock(orgId, productId, fromWarehouseId, -line.quantity, leavingAt, r)
     }
 
     // What the goods are worth where they arrive. A return of a sale says so apart, because its `unitCost` is the
     // document's price, as on every invoice-born line (`createInvoiceStockMovement`). What leaves a warehouse on
     // the way here is worth what it consumes.
-    const incomingCost = (movement.fromWarehouseId ? undefined : (line as any).resolvedUnitCost) ?? line.unitCost
+    let incomingCost = (fromWarehouseId ? undefined : (line as any).resolvedUnitCost) ?? line.unitCost
+    if (costHere && !(incomingCost > 0)) incomingCost = costHere.get(String(productId)) ?? incomingCost
 
     // Add stock to destination warehouse
-    if (movement.toWarehouseId) {
-      await adjustStock(orgId, productId, movement.toWarehouseId, line.quantity, incomingCost, r)
+    if (toWarehouseId) {
+      await adjustStock(orgId, productId, toWarehouseId, line.quantity, incomingCost, r)
 
       // For layer-based methods, create cost layers on incoming stock
       const method = await getEffectiveCostingMethod(orgId, productId, r)
-      const restored = opts?.layersRestored?.has(`${String(productId)}|${String(movement.toWarehouseId)}`)
+      const restored = opts?.layersRestored?.has(`${String(productId)}|${String(toWarehouseId)}`)
       if (method !== 'wac' && method !== 'standard' && !restored) {
         // For transfers, use the consumed cost; for receipts, use the line cost
         const layerCost = consumptionResult?.weightedUnitCost ?? incomingCost
-        await createCostLayers(orgId, movement.toWarehouseId, movementId, movement.movementNumber, movementDate, {
+        await createCostLayers(orgId, toWarehouseId, movementId, movement.movementNumber, movementDate, {
           productId,
           quantity: line.quantity,
           unitCost: layerCost,
@@ -135,6 +165,9 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
     status: 'completed',
     lines: updatedLines,
     claimedUntil: null,
+    // An external side leaves the stock fields: completed, they name what moved (see above).
+    ...(fromExternal ? { fromWarehouseId: null, externalFromWarehouseId: movement.fromWarehouseId } : {}),
+    ...(toExternal ? { toWarehouseId: null, externalToWarehouseId: movement.toWarehouseId } : {}),
   } as any)
   if (!updated) throw new Error('Failed to update movement status')
 
@@ -148,6 +181,24 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
 
   logger.info({ movementId, type: movement.type }, 'Stock movement confirmed')
   return updated
+}
+
+/**
+ * What each of these articles costs in a warehouse, for goods that arrive saying nothing of their own:
+ * today's average of its level there, so their arrival moves no average, then what the article is
+ * bought at (as a return no dispatch prices, `invoicing.service#costNoDispatchSays`). An article with
+ * neither is not in the answer.
+ */
+async function costsAt(orgId: string, warehouseId: string, productIds: unknown[], r: RepositoryRegistry): Promise<Map<string, number>> {
+  const ids = [...new Set(productIds.map(String))]
+  const [levels, products] = await Promise.all([
+    r.stockLevels.findMany({ orgId, warehouseId, productId: { $in: ids } } as any),
+    r.products.findMany({ orgId, id: { $in: ids } } as any),
+  ])
+  const cost = new Map<string, number>()
+  for (const p of products as any[]) if (Number(p.purchasePrice) > 0) cost.set(String(p.id), Number(p.purchasePrice))
+  for (const l of levels as any[]) if (Number(l.avgCost) > 0) cost.set(String(l.productId), Number(l.avgCost))
+  return cost
 }
 
 /**

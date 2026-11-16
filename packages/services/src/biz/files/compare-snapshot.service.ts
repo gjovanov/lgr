@@ -185,7 +185,8 @@ export async function compareSnapshot(
   const ws = wb.getWorksheet(1)!
   const { byName, total: snapshotRows, unmapped, absent } = readSnapshot(buffer, ws)
 
-  const whs = await Warehouse.find({ orgId }).lean()
+  // A snapshot is compared with a warehouse that keeps stock: an external one holds none.
+  const whs = await Warehouse.find({ orgId, isExternal: { $ne: true } }).lean()
   const wh = (opts.warehouseCode ? whs.find((w: any) => w.code === opts.warehouseCode) : whs.find((w: any) => (w as any).isDefault)) || whs[0]
   const products = await Product.find({ orgId }).select('name sku purchasePrice sellingPrice priceTiers isActive').lean()
   const levels = wh ? await StockLevel.find({ orgId, warehouseId: (wh as any)._id }).select('productId quantity').lean() : []

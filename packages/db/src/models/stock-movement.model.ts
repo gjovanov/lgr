@@ -33,6 +33,14 @@ export interface IStockMovement extends Document {
   date: Date
   fromWarehouseId?: Types.ObjectId
   toWarehouseId?: Types.ObjectId
+  /**
+   * The external warehouse a COMPLETED movement named as its From or To (`Warehouse.isExternal`). No stock moved on
+   * that side, so `confirmMovement` takes its id out of `fromWarehouseId` / `toWarehouseId` and keeps it here: on a
+   * completed movement those two name only warehouses whose stock it moved, which is what every reader that derives
+   * stock from movements relies on. A draft keeps what the form chose in the two stock fields.
+   */
+  externalFromWarehouseId?: Types.ObjectId
+  externalToWarehouseId?: Types.ObjectId
   contactId?: Types.ObjectId
   invoiceId?: Types.ObjectId
   productionOrderId?: Types.ObjectId
@@ -80,6 +88,8 @@ const stockMovementSchema = new Schema<IStockMovement>(
     date: { type: Date, default: Date.now },
     fromWarehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },
     toWarehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },
+    externalFromWarehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },
+    externalToWarehouseId: { type: Schema.Types.ObjectId, ref: 'Warehouse' },
     contactId: { type: Schema.Types.ObjectId, ref: 'Contact' },
     invoiceId: { type: Schema.Types.ObjectId, ref: 'Invoice' },
     productionOrderId: { type: Schema.Types.ObjectId, ref: 'ProductionOrder' },

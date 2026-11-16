@@ -119,9 +119,9 @@ async function tillDaysFor(orgId: string, docs: any[]): Promise<Map<string, Till
   return out
 }
 
-/** The org's default (movement) warehouse id, resolved once and reused across a batch. */
+/** The org's default (movement) warehouse id, resolved once and reused across a batch. Never an external one: it keeps no stock. */
 async function resolveDefaultWarehouseId(orgId: string): Promise<string | undefined> {
-  const whs: any[] = await Warehouse.find({ orgId, isActive: { $ne: false } }).select('_id isDefault').lean()
+  const whs: any[] = await Warehouse.find({ orgId, isActive: { $ne: false }, isExternal: { $ne: true } }).select('_id isDefault').lean()
   const def = whs.find((w) => w.isDefault) || whs[0]
   return def ? String(def._id) : undefined
 }

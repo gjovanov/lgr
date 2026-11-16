@@ -131,8 +131,9 @@ export async function reconcileDocFile(orgId: string, userId: string, docFileId:
 
   // 4) book ONE compensating movement per direction (receipt for +Δ, adjustment for −Δ), verify each.
   //    Land it in the SAME warehouse the document's own movements touch (so per-warehouse stock stays
-  //    consistent, not just the global total), falling back to the org default.
-  const whs: any[] = await Warehouse.find({ orgId }).lean()
+  //    consistent, not just the global total), falling back to the org default. Never an external
+  //    warehouse: it keeps no stock, and a completed movement names none in these two fields.
+  const whs: any[] = await Warehouse.find({ orgId, isExternal: { $ne: true } }).lean()
   const docWhId = newMovs.map((m: any) => m?.toWarehouseId || m?.fromWarehouseId).find(Boolean)
   const wh = (docWhId && whs.find(w => String(w._id) === String(docWhId))) || whs.find(w => w.isDefault) || whs[0]
   if (!wh) throw new Error('Org has no warehouse')
