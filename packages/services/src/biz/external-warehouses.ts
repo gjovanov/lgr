@@ -1,4 +1,5 @@
-import { StockLevel, Warehouse } from 'db/models'
+import { FiscalDevice, InternalOrder, InventoryCount, Order, POSSession, Reservation, StockLevel, Warehouse, Workstation } from 'db/models'
+import type { WarehouseUse } from 'config/external-warehouse'
 
 /**
  * What the database knows about external warehouses (`config/external-warehouse` holds the rules).
@@ -47,4 +48,31 @@ export async function articlesHeldAt(orgId: unknown, warehouseId: unknown): Prom
     warehouseId,
     $or: [{ quantity: { $ne: 0 } }, { reservedQuantity: { $gt: 0 } }],
   } as any).exec()
+}
+
+/**
+ * What live still names a warehouse, counted per kind (`config/external-warehouse#WAREHOUSE_USES`): the
+ * second thing that stops it becoming external (#779). One count per collection, all at once.
+ *
+ * Live means: a device or workstation not switched off; a till session not closed; a count in progress;
+ * an active reservation; a supplier order not yet received, whose header or any allocation names it;
+ * a customer order not yet delivered whose preferred warehouse it is. A draft movement is not here: its
+ * confirm reads the flag as it is then, and the movement doors refuse it (#776).
+ */
+export async function liveUsesOf(orgId: unknown, warehouseId: unknown): Promise<Record<WarehouseUse, number>> {
+  const at = { orgId, warehouseId } as any
+  const [fiscalDevices, workstations, tillSessions, counts, reservations, supplierOrders, customerOrders] = await Promise.all([
+    FiscalDevice.countDocuments({ ...at, isActive: { $ne: false } }).exec(),
+    Workstation.countDocuments({ ...at, isActive: { $ne: false } }).exec(),
+    POSSession.countDocuments({ ...at, status: { $ne: 'closed' } }).exec(),
+    InventoryCount.countDocuments({ ...at, status: 'in_progress' }).exec(),
+    Reservation.countDocuments({ ...at, status: 'active' }).exec(),
+    Order.countDocuments({
+      orgId,
+      status: { $in: ['draft', 'sent', 'partially_received'] },
+      $or: [{ warehouseId }, { 'supplierGroups.lines.allocations.warehouseId': warehouseId }],
+    } as any).exec(),
+    InternalOrder.countDocuments({ ...at, status: { $in: ['draft', 'confirmed', 'partially_delivered'] } }).exec(),
+  ])
+  return { fiscalDevices, workstations, tillSessions, counts, reservations, supplierOrders, customerOrders }
 }

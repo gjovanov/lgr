@@ -3,8 +3,8 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
-import { becomesExternal, externalScope, externalWarehouseRefusal, flagsAfterSave, holdsStockRefusal } from 'config/external-warehouse'
-import { articlesHeldAt } from 'services/biz/external-warehouses'
+import { becomesExternal, externalScope, externalWarehouseRefusal, flagsAfterSave, holdsStockRefusal, inUseRefusal } from 'config/external-warehouse'
+import { articlesHeldAt, liveUsesOf } from 'services/biz/external-warehouses'
 
 export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/warehouse' })
   .use(AppAuthService)
@@ -114,10 +114,13 @@ export const warehouseController = new Elysia({ prefix: '/org/:orgId/warehouse/w
       const next = flagsAfterSave(existing, body)
       const misfit = externalWarehouseRefusal(next)
       if (misfit) return status(422, misfit)
-      // Becoming external is the one change that needs it empty; the way back is always open.
+      // Becoming external is the one change that needs it empty, and named by nothing live (#779);
+      // the way back is always open.
       if (becomesExternal(existing, next)) {
         const holds = holdsStockRefusal(await articlesHeldAt(orgId, id))
         if (holds) return status(422, holds)
+        const inUse = inUseRefusal(await liveUsesOf(orgId, id))
+        if (inUse) return status(422, inUse)
       }
 
       const warehouse = await r.warehouses.updateInOrg(id, orgId, body as any)

@@ -8,7 +8,7 @@ import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
-import { CostLayer, DocFile, Identity, Invoice, PermissionSet, StockLevel, StockMovement, Warehouse } from 'db/models'
+import { CostLayer, DocFile, FiscalDevice, Identity, InternalOrder, InventoryCount, Invoice, Order, PermissionSet, POSSession, Reservation, StockLevel, StockMovement, Warehouse, Workstation } from 'db/models'
 import { sessionFor } from 'services/biz/auth.service'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { confirmMovement } from 'services/biz/warehouse.service'
@@ -198,6 +198,67 @@ describe('the flag', () => {
     // The default warehouse holding goods: the answer is about the default, which is what to change first.
     expect((await w.call('PUT', `/warehouse/warehouse/${w.ids.main}`, { isExternal: true })).json.code).toBe('external_default')
     expect((await w.call('PUT', `/warehouse/warehouse/${w.ids.main}`, { isDefault: false, isExternal: true })).json.code).toBe('warehouse_holds_stock')
+  }, 60_000)
+
+  it('an empty warehouse that something live still names does not become external, and is told what (#779)', async () => {
+    const w = await world()
+    const at = w.second._id
+    const elsewhere = w.main._id
+    const base = { orgId: w.org._id }
+    // Only the fields the count reads, and a number of its own for each kind's unique index: what each
+    // document is otherwise made of is not this test's.
+    let n = 0
+    const put = (model: any, doc: Record<string, unknown>) => {
+      const no = `T-${++n}`
+      return model.collection.insertOne({ ...base, deviceNumber: no, code: no, reservationNumber: no, orderNumber: no, ...doc }).then((r: any) => r.insertedId)
+    }
+    const live = {
+      device: await put(FiscalDevice, { warehouseId: at, isActive: true }),
+      workstation: await put(Workstation, { warehouseId: at, isActive: true }),
+      session: await put(POSSession, { warehouseId: at, status: 'open' }),
+      count: await put(InventoryCount, { warehouseId: at, status: 'in_progress' }),
+      reservation: await put(Reservation, { warehouseId: at, status: 'active' }),
+      // Named by an allocation only: the order's own warehouse is another one.
+      supplierOrder: await put(Order, { warehouseId: elsewhere, status: 'sent', supplierGroups: [{ lines: [{ allocations: [{ warehouseId: elsewhere }, { warehouseId: at }] }] }] }),
+      customerOrder: await put(InternalOrder, { warehouseId: at, status: 'confirmed' }),
+    }
+    // What is finished, switched off or names another warehouse counts for nothing.
+    await put(FiscalDevice, { warehouseId: at, isActive: false })
+    await put(POSSession, { warehouseId: at, status: 'closed' })
+    await put(InventoryCount, { warehouseId: at, status: 'completed' })
+    await put(Reservation, { warehouseId: at, status: 'fulfilled' })
+    await put(Order, { warehouseId: at, status: 'received', supplierGroups: [] })
+    await put(InternalOrder, { warehouseId: at, status: 'delivered' })
+    await put(InternalOrder, { warehouseId: elsewhere, status: 'confirmed' })
+    await put(Reservation, { warehouseId: at, status: 'active', orgId: oid() })
+
+    const refused = await w.call('PUT', `/warehouse/warehouse/${w.ids.second}`, { isExternal: true })
+    expect([refused.status, refused.json.code]).toEqual([422, 'warehouse_in_use'])
+    expect(refused.json.uses).toEqual({ fiscalDevices: 1, workstations: 1, tillSessions: 1, counts: 1, reservations: 1, supplierOrders: 1, customerOrders: 1 })
+    expect(refused.json.message).toContain('1 open till session')
+    expect(!!(await Warehouse.findById(at).lean().exec() as any).isExternal).toBe(false)
+
+    // Each one finished, one at a time: the answer names only what is left.
+    const finish: [any, any, Record<string, unknown>][] = [
+      [FiscalDevice, live.device, { isActive: false }],
+      [Workstation, live.workstation, { isActive: false }],
+      [POSSession, live.session, { status: 'closed' }],
+      [InventoryCount, live.count, { status: 'cancelled' }],
+      [Reservation, live.reservation, { status: 'cancelled' }],
+      [Order, live.supplierOrder, { status: 'completed' }],
+    ]
+    for (const [model, id, set] of finish) {
+      await model.collection.updateOne({ _id: id }, { $set: set })
+      const res = await w.call('PUT', `/warehouse/warehouse/${w.ids.second}`, { isExternal: true })
+      expect([res.status, res.json.code]).toEqual([422, 'warehouse_in_use'])
+    }
+    expect((await w.call('PUT', `/warehouse/warehouse/${w.ids.second}`, { isExternal: true })).json.uses).toEqual({ customerOrders: 1 })
+
+    await InternalOrder.collection.updateOne({ _id: live.customerOrder }, { $set: { status: 'completed' } })
+    expect((await w.call('PUT', `/warehouse/warehouse/${w.ids.second}`, { isExternal: true })).status).toBe(200)
+    // The way back asks nothing, live documents or not.
+    await Reservation.collection.updateOne({ _id: live.reservation }, { $set: { status: 'active' } })
+    expect((await w.call('PUT', `/warehouse/warehouse/${w.ids.second}`, { isExternal: false })).status).toBe(200)
   }, 60_000)
 
   it('the list answers the warehouses that keep stock, unless asked for the others', async () => {
@@ -587,6 +648,43 @@ describe('the engine books nothing on one, whatever reaches it', () => {
 
     expect(await StockLevel.countDocuments({ orgId: w.orgId }).exec()).toBe(0)
     expect(await CostLayer.countDocuments({ orgId: w.orgId }).exec()).toBe(0)
+  }, 60_000)
+
+  it('between our own warehouses the goods arrive at what they cost where they left, whatever the line says (#778)', async () => {
+    const w = await world()
+    await w.stocked(4, 5, w.main)
+    await w.stocked(10, 5, w.second)
+
+    // The issue's case: a line left at 0. The article cost 5.00 on both sides before, and still does.
+    const zero = await w.transferred({ fromWarehouseId: w.ids.main, toWarehouseId: w.ids.second }, 4, 0)
+    const there = await w.level(w.second)
+    expect([there.quantity, there.avgCost]).toEqual([14, 5])
+    expect([(await w.load(zero)).lines[0].unitCost, (await w.load(zero)).lines[0].resolvedUnitCost]).toEqual([0, 5])
+
+    // And the other way: a cost typed above the source's raises nothing.
+    await w.stocked(6, 8, w.main)
+    await w.transferred({ fromWarehouseId: w.ids.main, toWarehouseId: w.ids.second }, 2, 99)
+    const after = await w.level(w.second)
+    expect([after.quantity, after.avgCost]).toEqual([16, 5.375]) // (14 × 5 + 2 × 8) / 16
+    expect((await w.level(w.main)).avgCost).toBe(8)
+  }, 60_000)
+
+  it('a layer-costed article between our own warehouses: the level and the layer both take the consumed cost (#778)', async () => {
+    const w = await world()
+    const rod = await createTestProduct(w.org._id, { sku: 'PRD-0003', name: 'Threaded rod', costingMethod: 'fifo' } as any)
+    const book = async (type: string, sides: Record<string, unknown>, quantity: number, unitCost: number) => {
+      const res = await w.call('POST', '/warehouse/movement', w.movement(type, sides, quantity, unitCost, rod))
+      expect(res.status).toBe(200)
+      expect((await w.confirm(w.idOf(res))).status).toBe(200)
+    }
+    await book('receipt', { toWarehouseId: w.ids.main }, 3, 4)
+    await book('receipt', { toWarehouseId: w.ids.main }, 3, 6)
+    await book('transfer', { fromWarehouseId: w.ids.main, toWarehouseId: w.ids.second }, 4, 0)
+
+    const there = await w.level(w.second, rod)
+    expect([there.quantity, there.avgCost]).toEqual([4, 4.5]) // 3 × 4 + 1 × 6, FIFO
+    const layers = await CostLayer.find({ orgId: w.orgId, productId: rod._id, warehouseId: w.second._id }).lean().exec() as any[]
+    expect(layers.map(l => [l.unitCost, l.remainingQuantity])).toEqual([[4.5, 4]])
   }, 60_000)
 
   it('a movement between our own warehouses is booked as it always was', async () => {
