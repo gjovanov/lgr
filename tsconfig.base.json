@@ -8,17 +8,16 @@
   // A package's own tsconfig.json says only what is its own: the runtime's types (`bun` for the
   // server, the DOM for a UI module) and what it includes.
   //
-  // ⚠ These files are READ by the builds, not only by the check: Vite's esbuild takes
-  // `useDefineForClassFields` (and a few others) from the tsconfig.json nearest each file. With
-  // `target: ESNext` it defaults to true, and the web build then emitted the class fields of the
-  // fiscal frame reader (`ui-shared/src/composables/fiscalIslResponse.ts`) as defineProperty calls
-  // before the constructor ran, where before these files existed they were assignments after it.
-  // (The Dockerfile's `web` stage is given these root files for the same reason.)
-  // It is pinned to what the build did without them, so adding a type-check changes no byte the
-  // SPA or the server package ships: the web dist was compared file by file, hashes aside, and
-  // the server package's `app/` is identical. Changing it is a behaviour change of its own.
+  // ⚠ These files are READ by the builds, not only by the check: Bun and Vite's esbuild both take
+  // `useDefineForClassFields` from the tsconfig.json nearest each file, and before these files
+  // existed the two did OPPOSITE things with a class field. Bun kept it a class field (`seq = …`),
+  // Vite made it an assignment in the constructor. Each preset keeps what its builder did:
+  // nothing is set here, so Bun's packages keep `target: ESNext`'s default (define, as Bun did),
+  // and `tsconfig.dom.json` pins `false` for Vite's. Set here, `false` turned the server's class
+  // fields into assignments, and Bun.build did not even do it every time (the server package's
+  // reproducibility check caught two builds of one commit that differed). Changing either is a
+  // behaviour change of its own.
   "compilerOptions": {
-    "useDefineForClassFields": false,
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",

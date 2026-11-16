@@ -73,8 +73,16 @@ describe('every package can be type-checked (FR-32.1)', () => {
     const { options } = ts.parseJsonConfigFileContent(readConfig(join(ROOT, 'tsconfig.base.json')), ts.sys, ROOT)
     expect(options.strict).toBe(true)
     expect(options.noEmit).toBe(true)
-    // Read by Vite's esbuild, not only by the check: see the base's comment.
-    expect(options.useDefineForClassFields).toBe(false)
+  })
+
+  // Read by the builders, not only by the check (see tsconfig.base.json): each preset keeps how
+  // its builder emitted a class field before these files existed. Bun kept the field; Vite made
+  // it an assignment.
+  it('the server\'s packages leave class fields as Bun built them, the browser\'s as Vite did', () => {
+    const optionsOf = (file: string) => ts.parseJsonConfigFileContent(readConfig(join(ROOT, file)), ts.sys, ROOT).options
+    expect(optionsOf('tsconfig.base.json').useDefineForClassFields).toBeUndefined()
+    expect(optionsOf('tsconfig.server.json').useDefineForClassFields).toBeUndefined()
+    expect(optionsOf('tsconfig.dom.json').useDefineForClassFields).toBe(false)
   })
 })
 
