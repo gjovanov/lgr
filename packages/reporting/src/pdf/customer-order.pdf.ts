@@ -1,4 +1,4 @@
-import { markdownToPdf } from './base.pdf.js'
+import { markdownToPdf, mdText } from './base.pdf.js'
 import { customerOrderI18n, type CustomerOrderCtx, type CustomerOrderI18n, type CustomerOrderParty } from '../customer-order.i18n.js'
 import { unitLabel } from '../unit.i18n.js'
 
@@ -25,19 +25,10 @@ function titleOf(status: string, t: CustomerOrderI18n): string {
 }
 
 /**
- * A stored value as literal text on ONE markdown line: its markup is shown, not obeyed (the page
- * is rendered by a browser), its markdown is not read as markdown, a `|` does not end a table
- * cell, and a line break of its own becomes a `<br>`.
+ * A stored value as literal text on ONE markdown line: the renderer's own rule for typed text
+ * (`mdText`), which every markdown-built form prints through.
  */
-function plain(value: unknown): string {
-  return String(value ?? '')
-    .trim()
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/[\\`*_[\]~|]/g, '\\$&')
-    .replace(/\s*(?:\r\n|\r|\n)\s*/g, '<br>')
-}
+const plain = mdText
 
 /** dd.mm.yyyy of the calendar day a date was stored as (UTC, the day the screens show). '' for none. */
 function day(value: unknown): string {

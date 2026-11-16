@@ -1699,8 +1699,8 @@ An ORDI had no printed form: nothing to hand a client, nothing an e-mail could a
   `unit/customer-order-sheet.test.ts` fails when a money word or one of the order's figures reaches it.
 - A draft shows **no number** (FR-22.18: its `DRF-` number goes on confirm). The file is still named
   `<orderNumber>.pdf`.
-- ⚠ **Stored text is printed as text.** The page is rendered by a browser, so `plain()` escapes markup,
-  markdown and `|` in a name, a description or a note. A new field goes through it.
+- ⚠ **Stored text is printed as text**: every name, description and note goes through the renderer's
+  `mdText` (see „A printed page runs nothing and fetches nothing"). A new field goes through it.
 - **One function**: `renderInternalOrderPdf(orgId, orderId, { locale })` in
   `invoicing-api/src/lib/internal-order-pdf.ts`, with `renderInvoicePdf`'s result shape
   (`{ok, buffer, filename, order}` or `{ok: false, status: 404 | 503, message, detail?}`). The route calls
