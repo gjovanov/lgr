@@ -1681,6 +1681,40 @@ ORDI (InternalOrder, client demand)          ORDO (Order, supplier supply)
 - **UI** (labels renamed 2026-10-25, see the next section: Internal → **Incoming**, External → **Outgoing**): nav group "Orders" → Internal Orders (`/internal-orders`, InternalOrdersView + InternalOrderFormView with coverage chips, Reserve-from-stock, Cover-shortages dialog (free stock / incoming / preempt with confirm), Generate-external dialog with supplier hints), External Orders (`/orders` — paths/route names unchanged for e2e; OrderFormView: allocation editor + read-only RES panel + per-allocation Reserve-for-client dialog; convert dialog fed by linked RES), Reservations (`/reservations`, ReservationsView with source/late/shortage indicators + cancel). Sequences page groups: order/internal_order/reservation. i18n ×4 (en/bg/de/mk): nav keys, `invoicing.status.{confirmed,partially_delivered,delivered,active,fulfilled}`, priority/coverage/preempt blocks.
 - **Tests**: `order-reservations.flow` (7-case behavioral contract over RES docs), `order-import.flow`, `order-sheet-export`, `reservation-migration.flow` (preserved ids, upsert refresh, hold parity, strip), `internal-order.flow` (budgeted exemption incl. N-lines-one-RES, delivered statuses, void-after-complete no zombie hold, cascades), `reservation-preempt.flow` (partial/concurrent preempt, suggestions ranking, generate-external rollback, cross-WH exemption).
 
+## Orders: the customer order prints (2026-11-16)
+
+An ORDI had no printed form: nothing to hand a client, nothing an e-mail could attach.
+
+- **The sheet** — `reporting/pdf/customer-order.pdf.ts` + `customer-order.i18n.ts` (en/bg/de/mk), in the
+  supplier sheet's family (markdown through `markdownToPdf`; `buildCustomerOrderMarkdown` is exported so
+  the layout is tested without a browser). The title says where the order stands: confirmed and later
+  „ПОТВЪРЖДЕНИЕ НА ПОРЪЧКА", a draft „ПОРЪЧКА (ЧЕРНОВА)", a cancelled one „ПОРЪЧКА (ОТКАЗАНА)"; a
+  status it does not know is never called a confirmation. Then the number, the date and the requested
+  delivery date; the supplier (the org) and the customer (the contact); the lines as № / article / SKU /
+  quantity / unit, a line's own words before the catalogue's; the notes, cut at 500 characters; the
+  terms; the "generated on" foot, on the org's own day.
+- ⚠ **No price, no amount, no total, on purpose.** A line's `expectedUnitPrice` is an indication unless
+  it is pinned, and the invoice may charge the client's own price: a figure on a confirmation is read as
+  agreed. It also leaves nothing to redact, so every role gets the same page.
+  `unit/customer-order-sheet.test.ts` fails when a money word or one of the order's figures reaches it.
+- A draft shows **no number** (FR-22.18: its `DRF-` number goes on confirm). The file is still named
+  `<orderNumber>.pdf`.
+- ⚠ **Stored text is printed as text.** The page is rendered by a browser, so `plain()` escapes markup,
+  markdown and `|` in a name, a description or a note. A new field goes through it.
+- **One function**: `renderInternalOrderPdf(orgId, orderId, { locale })` in
+  `invoicing-api/src/lib/internal-order-pdf.ts`, with `renderInvoicePdf`'s result shape
+  (`{ok, buffer, filename, order}` or `{ok: false, status: 404 | 503, message, detail?}`). The route calls
+  it, and so does anything else that sends the sheet. Every read names the org (the contact and the
+  articles too), a malformed id is 404, and it writes nothing.
+- **Route** `GET /org/:orgId/invoicing/internal-orders/:id/export?locale=`. Its gate is `canExport`
+  (`sales-docs.export`) ON TOP of the order's read rule (`orders.view`). Both route tables resolve it by
+  the existing `invoicing/internal-orders` prefix: no row was added.
+- **UI**: „Печат" on the form (`print-order`; an edit not saved yet is saved first, as Confirm does) and
+  in every row of the list (`print-order-row`). Both show to `sales-docs.export` and download through
+  `useCustomerOrderPrint` → `downloadAsSession`, in the user's language. No new i18n key.
+- **Tests**: `unit/customer-order-sheet`, `integration/internal-order-print.flow`,
+  `e2e/customer-order-print.spec` (in the `invoicing-inventory` project).
+
 ## Orders: client reservations where the order is (2026-10-25, #203)
 
 - **Names.** In all four UI languages the ORDI is an **incoming order** (bg „Входяща поръчка", de
