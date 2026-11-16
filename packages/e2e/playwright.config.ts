@@ -91,7 +91,7 @@ export default defineConfig({
     {
       name: 'accounting',
       use: { ...devices['Desktop Chrome'], baseURL },
-      testMatch: ['accounting.spec.ts', 'accounting-crud.spec.ts'],
+      testMatch: ['accounting.spec.ts', 'accounting-crud.spec.ts', 'fixed-asset-form.spec.ts', 'journal-entry-document.spec.ts'],
     },
     {
       name: 'invoicing-inventory',
