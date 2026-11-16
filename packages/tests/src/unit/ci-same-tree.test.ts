@@ -34,7 +34,7 @@ function stepsOf(job: string): Step[] {
 const conditionOf = (s: Step) => s.lines.map(l => /^        if: (.*)$/.exec(l)?.[1]).find(Boolean) ?? ''
 
 describe('a job whose tree already passed does nothing, and says so', () => {
-  for (const [job, lane] of [['test-shard', 'test'], ['build', 'build']] as const) {
+  for (const [job, lane] of [['test-shard', 'test'], ['build', 'build'], ['typecheck', 'typecheck']] as const) {
     const steps = stepsOf(job)
     const at = steps.findIndex(s => s.lines.some(l => l.trim() === 'id: same'))
 
@@ -73,9 +73,9 @@ describe('a job whose tree already passed does nothing, and says so', () => {
     })
   }
 
-  it('the two lanes have markers of their own', () => {
+  it('each lane has markers of its own', () => {
     const lanes = [...text.matchAll(/^\s+lane: (\S+)$/gm)].map(m => m[1])
-    expect(lanes.sort()).toEqual(['build', 'test'])
+    expect(lanes.sort()).toEqual(['build', 'test', 'typecheck'])
   })
 
   it('the workflow may list artifacts, which is how a marker is found', () => {

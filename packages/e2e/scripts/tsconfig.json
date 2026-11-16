@@ -22,18 +22,11 @@
   // with each other across files: "Cannot redeclare block-scoped variable".
   // Forcing module semantics gives each file its own scope, which is what Bun
   // actually gives them at run time.
+  "extends": "../../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
     "moduleDetection": "force",
     "types": ["bun"],
-    "lib": ["ESNext", "DOM"],
-    "strict": true,
-    "noEmit": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true
+    "lib": ["ESNext", "DOM"]
   },
   "include": ["**/*.ts"]
 }

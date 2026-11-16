@@ -127,6 +127,25 @@ describe('the SPA is built from the packages the `web` stage is given', () => {
     expect(cut).toContain('cp -a scripts/check-web-bundle.ts /ui/scripts/')
   })
 
+  // FR-32.1: each package's tsconfig.json extends a file at the root, and Vite's esbuild reads the
+  // chain (`useDefineForClassFields` decides how a class field is emitted). Without them in the
+  // stage the build fails on a base it cannot find, or, worse, builds with other settings.
+  it('the root tsconfig files that the given packages extend go with them', () => {
+    const copied = (/cp -a (tsconfig[^/]+?) \/ui\//.exec(cut)?.[1] ?? '').split(/\s+/).filter(Boolean)
+    const needed = new Set<string>()
+    for (const pkg of given) {
+      let path = join(packagesDir, pkg, 'tsconfig.json')
+      while (existsSync(path)) {
+        const ext = /"extends":\s*"([^"]+)"/.exec(readFileSync(path, 'utf8'))?.[1]
+        if (!ext) break
+        path = resolve(dirname(path), ext)
+        if (dirname(path) === ROOT) needed.add(relative(ROOT, path))
+      }
+    }
+    expect(needed.size).toBeGreaterThan(0)
+    expect(copied.sort()).toEqual([...needed].sort())
+  })
+
   it('no file of those packages imports from a package outside them', () => {
     // A workspace package is imported by its NAME (`services/biz/…`) or by a relative path.
     const nameToDir = new Map<string, string>()
