@@ -1,0 +1,18 @@
+{
+  // FR-32.1: what a package that runs in the browser adds to the base, the DOM. Checked with
+  // `vue-tsc`, which reads the `.vue` files `tsc` cannot.
+  //
+  // ⚠ `useDefineForClassFields: false` is for the BUILD, not the check: Vite's esbuild reads it.
+  // With `target: ESNext` it would default to true, and the web build then emitted the class
+  // fields of the fiscal frame reader (`ui-shared/src/composables/fiscalIslResponse.ts`) as
+  // defineProperty calls before the constructor body, where before these files existed they were
+  // assignments in it. Pinned to what the build did, the web dist is the same file for file
+  // (hashes and build id aside). The Dockerfile's `web` stage is given the root tsconfig files
+  // for the same reason. See tsconfig.base.json for why the server's packages do not set it.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "preserve",
+    "useDefineForClassFields": false
+  }
+}

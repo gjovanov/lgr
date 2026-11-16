@@ -1,0 +1,7 @@
+{
+  // FR-32.1: what a package that runs on the server adds to the base, Bun's globals.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["bun"]
+  }
+}
