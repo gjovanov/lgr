@@ -18,7 +18,8 @@
  *
  * Why a baseline, and how it is keyed: `scripts/lib/typecheck-baseline.ts`.
  */
-import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   compareCounts, countDiagnostics, parseBaseline, parseDiagnostics, rewriteBaseline, serializeCounts, totalOf,
@@ -54,12 +55,24 @@ interface Result {
 
 async function run(program: Program): Promise<Result> {
   const started = performance.now()
-  const proc = Bun.spawn([process.execPath, ENTRY[program.compiler](), '--noEmit', '--pretty', 'false', '-p', program.project], {
-    cwd: ROOT,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+  // ⚠ The compiler's output goes to a FILE, never a pipe. A process that exits while its output
+  // is still draining into a pipe loses the rest on Linux (Windows pipe writes block, so it never
+  // shows there): the linter's first CI run read 64 KB of its report. Here a lost tail would be
+  // errors that look fixed.
+  const dir = mkdtempSync(join(tmpdir(), 'lgr-typecheck-'))
+  const out = join(dir, 'out.txt')
+  let stdout: string, stderr: string, code: number
+  try {
+    const proc = Bun.spawn([process.execPath, ENTRY[program.compiler](), '--noEmit', '--pretty', 'false', '-p', program.project], {
+      cwd: ROOT,
+      stdout: Bun.file(out),
+      stderr: 'pipe',
+    })
+    ;[stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+    stdout = readFileSync(out, 'utf8')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
   const diagnostics = parseDiagnostics(stdout + '\n' + stderr, ROOT)
   // 0: clean. 1 or 2: it printed errors. Anything else, or a failure that printed none, is the
   // compiler itself failing, and never a pass.
