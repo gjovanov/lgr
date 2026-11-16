@@ -1886,6 +1886,9 @@ org; booking the other org's side waits until the two catalogues agree on names.
   total: a line's `unitCost` is a cost not every role sees (on a sale's dispatch, the sale price),
   and the sheet leaves the org. UI: Print on the movement form and on each row of the list
   (`inventory-ui/composables/useMovementPrint.ts`), downloaded as the tab's session.
+- **By e-mail**: the movements list mails its ticked movements, each as this sheet (kind `movement`
+  in „A list's ticked documents by e-mail"). Transfers open the dialog on „До един адрес": the
+  colleagues of the other site. A draft and a cancelled movement are not mailed.
 - **Screens**: `WarehouseFormView` (the switch; Default and External exclude each other),
   `WarehousesView` and `MovementsView` (a chip; the filter lists external ones marked),
   `MovementFormView` (an external warehouse is offered on a transfer only and is cleared when the
@@ -2323,9 +2326,10 @@ in LGR while the device still had it open.
 
 ## A list's ticked documents by e-mail (2026-11-16)
 
-Five lists tick rows and mail them: sales documents, proformas, offers and bills (kind `invoice`:
-any document of the invoice collection) and supplier orders (kind `order`: one sheet per supplier
-group). Stock movements are not on it yet; the dialog, the composable and the engine take a kind
+Six lists tick rows and mail them: sales documents, proformas, offers and bills (kind `invoice`:
+any document of the invoice collection), supplier orders (kind `order`: one sheet per supplier
+group) and stock movements (kind `movement`: each as its printed sheet, by the warehouse API's own
+two routes, see its bullet below). The dialog, the composable and the engine take a kind
 as a name and two routes. Customer orders (`InternalOrder`) have no printed form and are left out.
 FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is untouched.
 
@@ -2381,10 +2385,46 @@ FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is untouched.
     401, 403 and 409 stop the rest** (`stopsTheBatch`); any other failure is that recipient's.
   - Everything asked went → the dialog closes with a snackbar; otherwise it stays on the results.
     Either way only what went leaves the selection (an order, when every sheet of it went).
-- **Another kind** (a stock movement's document) brings: two routes speaking `config/doc-email`'s
-  types; its own loading and rules, handing `emailDocuments` an `EmailableDocument` with a
-  `render` per document; a row for each route in BOTH route tables (`config/access/routes.ts`,
-  `services/biz/route-permission.ts`); and on its list
+- **Stock movements** (kind `movement`, the movements list): each ticked movement as its printed
+  sheet. `warehouse-api/controllers/movement-email.controller.ts`, everything the two routes
+  decide in `lib/movement-email.ts`.
+  - `POST /org/:orgId/warehouse/movement/email/preview { kind: 'movement', ids }` and
+    `POST /org/:orgId/warehouse/movement/email { kind: 'movement', to, items: [{ id }], subject?,
+    message?, locale? }`: the answers, the caps and the refusal order of the invoicing pair. A
+    row's `docType` is the movement's type, its `partner` the movement's contact. ⚠ A transfer
+    names no contact, so ticked transfers open the dialog on „До един адрес": that is how a
+    transfer to or from an external warehouse reaches the people of the other site.
+  - **Who mails what** is `lib/movement-email-guards.ts#movementEmailSkip`, for the preview and
+    the mail alike. The request: a session that works on movements (`movements.create|edit|delete`)
+    or writes a Seller's transfers (`movements.create:transfer`, FR-26.7). That is the rule both
+    route tables already reach every `warehouse/movement` write by, so NO row was added to
+    either. Per movement, in this order: one the session does not read is `not_found`; a
+    transfer-only session mails transfers, and any other type is `forbidden`
+    (`lib/movement-access.ts#writesTransfersOnly`, the one rule the movement controller writes
+    by); a `draft` is `draft`; a cancelled one is **`cancelled`**, a block reason this kind
+    added (it moved nothing, so its sheet says nothing true); `confirmed` and `completed` go.
+  - The file is `renderStockMovementPdf`'s (`<movementNumber>.pdf`, no price on it), the mail
+    names each movement by its type word (`reporting/stock-movement.i18n.ts`), `entityType:
+    'stock_movement'`, audit module `warehouse`. ⚠ A movement keeps no `emailedTo` history, so the
+    outbox worker needed NO branch: a master's queued mail settles its `EmailLog` rows by
+    `outboxId` like any other.
+  - UI: `inventory-ui/views/MovementsView.vue` places its own table, so it carries the tick
+    column (`show-select`, the ids) and `<BatchEmailBar kind="movement" …>` itself.
+    `composables/movement-email-access.ts` names the server's capabilities again (the UI cannot
+    import the warehouse API) and `unit/movement-email-access` holds the two together. ⚠ With the
+    tick column the list is `list-fit` (`ui-shared/styles/list-fit.css`, the rules
+    `ListScaffold`'s `fit` uses): its two warehouses and its contact are clipped at 9em and 10em,
+    a row's icons are the size of a row menu, and the title row wraps, which is what keeps a
+    390 px page from scrolling sideways.
+- **What every kind's two routes share** is `services/biz/doc-email/request.ts`: the three
+  whole-request refusals, `distinctItems`, `partnersOf`, `recentlyMailed` (the 60 s window,
+  `RESEND_WINDOW_MS` in `config/doc-email`), `docEmailResults`, `auditMailed`.
+- **Another kind** (the movement kind is the model) brings: two routes speaking
+  `config/doc-email`'s types; its own loading and rules, handing `emailDocuments` an
+  `EmailableDocument` with a `render` per document; the right rule for each route in BOTH route
+  tables (`config/access/routes.ts`, `services/biz/route-permission.ts`), by a row of its own
+  or by a prefix row that already reaches it, shown over the real route table (a role that only
+  reads posts `{}` and gets 403, never 422); and on its list
   `<BatchEmailBar v-model:selected kind org-url preview-path email-path :may-email>`. A reason the
   catalogue does not know needs a `docEmail.reason.<code>` key ×4, or it reads as its code.
 - ⚠ The outbox worker settles the send history of `invoice` entities only. A kind with a history
@@ -2394,12 +2434,16 @@ FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is untouched.
   its dialog is told at once (409 `org_home_elsewhere`) instead of after the form is filled in.
 - ⚠ `lib/doc-email.ts#docEmailRenderers` is the seam a test swaps to mail without a browser: a
   render is a fresh Chrome, and the suites ask who gets which file, not what the file looks like.
+  The movement kind's is `lib/movement-email.ts#movementEmailRenderers`.
 - ⚠ Never "send" in a route or a handler name here either: `POST /invoices/:id/send` ISSUES.
 - ⚠ No mail leaves the e2e (`batch-email.spec.ts`): the mail request is answered by `page.route`,
   and the one case that needs the server's own 503 first asks, with a draft that is never mailed,
   whether the server can mail, and is skipped where it can.
 - Tests: `unit/doc-email`, `unit/doc-email-guards`, `unit/batch-email`,
   `integration/doc-email-engine`, `integration/doc-email.flow`, `e2e/tests/batch-email.spec.ts`.
+  The movement kind: `unit/movement-email-guards`, `unit/movement-email-access`,
+  `integration/movement-email.flow`, `e2e/tests/movement-email.spec.ts` (the Bulgarian UI; its
+  mail request is answered by `page.route` too, and it holds the list's fit at 1366 and 390 px).
 
 ## FR-06 P2 — the rest of the report catalog (2026-08-26)
 
@@ -2879,6 +2923,9 @@ it prints, and the sheet lost its „Общо без ДДС" box.
   `useGridColumns` knows `defaultHidden` (the cog shows it again; `shown` in the saved pref). With
   the widest rows (a 60-character name, a partly paid note, a converted proforma) the bg tables need
   1135 / 1143 of 1300 px; de shortened two labels to fit. Measure before adding a column.
+  The rules are `ui-shared/styles/list-fit.css` (class `list-fit`, loaded by the Vuetify plugin):
+  `ListScaffold` puts the class on its card, and a list with a table of its own (the stock
+  movements, 2026-11-16) carries it itself.
 - **Partner picker** (FR-22.25): `GET /invoicing/contact?prefer=customer|supplier` (without
   `sortBy`) answers the side's partners of the last 365 days' documents, most recent first, then the
   rest of that side, then everyone else (`services/biz/contact-picker.service.ts`). Recency is the
