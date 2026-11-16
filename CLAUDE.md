@@ -43,6 +43,8 @@ bun run tauri:build          # Build Tauri app
 bun run test                 # All integration tests (mongodb-memory-server)
 bun test packages/tests/src/integration/auth.flow.test.ts  # Single test file
 bun run test:e2e             # Playwright E2E tests
+bun packages/tests/src/with-test-mongo.ts bun packages/e2e/scripts/nightly.ts --grep @smoke --retries=0
+                             # The PR smoke (FR-32.6, e2e-smoke.yml): the five `@smoke` tests, on a pull request touching the UI
 cd packages/e2e && bunx playwright test tests/warehouse.spec.ts  # Single E2E file
 
 # Infrastructure

@@ -68,7 +68,7 @@ test.describe('Document form: one list of actions, under the title and at the fo
     }
   })
 
-  test('an issued sales invoice keeps Save under its title; the bars stay the same list', async ({ page }) => {
+  test('an issued sales invoice keeps Save under its title; the bars stay the same list', { tag: '@smoke' }, async ({ page }) => {
     const invoice = await issuedInvoice()
     await loginForApp(page)
     await page.goto(`/invoicing/invoices/${invoice.id}/edit`)

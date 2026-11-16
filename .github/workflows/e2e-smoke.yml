@@ -1,0 +1,144 @@
+name: e2e smoke
+
+# FR-32.6 (#797): a few minutes of the browser suite on every pull request that touches the UI.
+# The whole suite runs at night (`e2e-nightly.yml`), so a regression only a browser shows (a guard a
+# save switches off, a search answer that arrives late) used to be seen the morning after it was on
+# master.
+#
+# The smoke is the tests tagged `@smoke` in packages/e2e/tests, five of them (D-2), on the night's own
+# rig (`packages/e2e/scripts/nightly.ts`): sign in; open a list; open a document; edit a form, save
+# it, edit again and leave; find an article in a line. `unit/e2e-smoke.test.ts` holds the list.
+# - ⚠ No retries. A smoke test that needs one is a failure of the smoke, not a pass: a test that is
+#   flaky here is a test nobody can trust to say "red" on a pull request.
+# - Its budget is five minutes (D-2), as the step's limit: Playwright and the server it tests.
+#
+# Which pull requests: those that change a UI package (`*-ui`, `ui-shared`, `ui-shell`, `web`) or the
+# e2e package. The job runs on every pull request and decides in its first step, rather than through
+# an `on.paths` filter, so that the check exists on every pull request. A check that is required and
+# never reported holds a pull request for ever; this one, on a pull request that touches no UI path,
+# reports a pass in seconds and runs nothing.
+
+on:
+  pull_request:
+
+concurrency:
+  group: e2e-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  smoke:
+    name: e2e smoke (playwright)
+    # Same routing as `ci.yml`: a pull request from a fork never runs on our hosts.
+    runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-24.04"' || vars.LGR_LINUX_RUNNER || '"ubuntu-24.04"') }}
+    timeout-minutes: 20
+    steps:
+      # The pull request's files, from the API: nothing to check out to know them.
+      # ⚠ curl and jq, never the gh CLI: the self-hosted runner image has no gh (see ci.yml's
+      # same-tree action). A failed lookup runs the smoke: when it cannot tell, it checks.
+      - name: Does this pull request touch the UI?
+        id: ui
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          files=""
+          page=1
+          while :; do
+            if ! batch="$(curl -fsS --max-time 30 --retry 2 \
+                  -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' \
+                  "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100&page=$page" \
+                  | jq -r '.[] | .filename, (.previous_filename // empty)')"; then
+              echo "::warning::could not list the pull request's files: the smoke runs"
+              echo "touched=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            [ -n "$batch" ] || break
+            files+="$batch"$'\n'
+            page=$((page + 1))
+          done
+          ui="$(printf '%s' "$files" | grep -E '^packages/([a-z0-9-]+-ui|ui-shared|ui-shell|web|e2e)/' || true)"
+          if [ -n "$ui" ]; then
+            echo "touched=true" >> "$GITHUB_OUTPUT"
+            echo "The UI paths it changes:"
+            printf '%s\n' "$ui" | head -20
+          else
+            echo "touched=false" >> "$GITHUB_OUTPUT"
+            echo "No UI package and no e2e file changed: the smoke does not run."
+            echo "### e2e smoke: not run" >> "$GITHUB_STEP_SUMMARY"
+            echo "This pull request changes no UI package and no e2e file." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The same step as `ci.yml`'s, for the same reason: the runners' /tmp is a 3 GB tmpfs.
+      - name: Clear test databases an interrupted run left in /tmp
+        if: steps.ui.outputs.touched == 'true' && runner.environment == 'self-hosted'
+        shell: bash
+        run: |
+          inuse=$(ps -eo args | grep -o -- '--dbpath /tmp/mongo-mem-[^ ]*' | sed 's|--dbpath ||' | sort -u || true)
+          for d in /tmp/mongo-mem-*; do
+            [ -e "$d" ] || continue
+            printf '%s\n' "$inuse" | grep -qx -- "$d" || rm -rf -- "$d"
+          done
+          find /tmp -mindepth 1 -maxdepth 1 -name 'lgr-*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+          df -h /tmp | tail -1
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: steps.ui.outputs.touched == 'true'
+
+      - name: Install Bun
+        if: steps.ui.outputs.touched == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+
+      # ⚠ Playwright spawns its workers with `process.execPath`: with no Node on PATH, which is the
+      # mars runner image, every worker dies with code=143 (as in e2e-nightly.yml).
+      - name: Install Node (Playwright's workers need it)
+        if: steps.ui.outputs.touched == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - name: Pin mongodb-memory-server's download directory
+        if: steps.ui.outputs.touched == 'true'
+        run: echo "MONGOMS_DOWNLOAD_DIR=$HOME/.cache/mongodb-binaries" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        if: steps.ui.outputs.touched == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Build the UIs
+        if: steps.ui.outputs.touched == 'true'
+        run: bun run build
+
+      - name: Install Playwright's browser
+        if: steps.ui.outputs.touched == 'true'
+        working-directory: packages/e2e
+        run: bunx playwright install --with-deps chromium --only-shell
+
+      # The budget (D-2): seed, server and the five tests.
+      - name: Run the smoke
+        if: steps.ui.outputs.touched == 'true'
+        timeout-minutes: 5
+        run: bun packages/tests/src/with-test-mongo.ts bun packages/e2e/scripts/nightly.ts --grep @smoke --retries=0
+        env:
+          # Chrome's sandbox needs user namespaces this runner's AppArmor refuses, as in `ci.yml`.
+          PDF_CHROME_NO_SANDBOX: '1'
+
+      - name: Upload the report
+        if: failure() && steps.ui.outputs.touched == 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-smoke-report
+          path: |
+            packages/e2e/playwright-report/
+            packages/e2e/test-results/
+          retention-days: 7
+          if-no-files-found: ignore

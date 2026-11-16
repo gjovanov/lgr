@@ -18,7 +18,7 @@ test.use({ viewport: { width: 1280, height: 1200 } })
 
 test.describe('Invoicing Product Autocomplete', () => {
   // The other half of the pin: a price nobody typed goes on resolving. Pinned, tiers stop working.
-  test('a resolved price follows the quantity, a focus on the field changing nothing', async ({ page }) => {
+  test('a resolved price follows the quantity, a focus on the field changing nothing', { tag: '@smoke' }, async ({ page }) => {
     const sku = `E2E-TIER-${Date.now()}`
     const created = await apiPost(await apiLogin(), '/warehouse/product', {
       sku, name: `Tiered ${sku}`, category: 'Test', type: 'goods', unit: 'pcs', sellingPrice: 10, taxRate: 20,

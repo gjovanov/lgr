@@ -5,7 +5,7 @@ import { rowAction, rowsWithStatus } from './helpers/row-actions'
 import { lineUnitPrice, expectWarehouseSelector } from './helpers/document-form'
 
 test.describe('Invoicing', () => {
-  test('should navigate to sales invoices and verify data table renders', async ({ page }) => {
+  test('should navigate to sales invoices and verify data table renders', { tag: '@smoke' }, async ({ page }) => {
     await loginForApp(page)
     await page.goto('/invoicing/invoices')
 
