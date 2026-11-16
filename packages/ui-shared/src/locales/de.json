@@ -2618,6 +2618,16 @@
     "externalWarehouseHint": "Das Lager eines anderen Standorts. Hier wird dafür kein Bestand geführt: Eine Umlagerung dorthin oder von dort ändert nur Ihr eigenes Lager, und ihr Beleg kann an die Kollegen dort gehen.",
     "externalNotDefault": "Ein externes Lager führt hier keinen Bestand und kann deshalb nicht das Standardlager sein.",
     "externalHoldsStock": "Artikel mit Bestand oder Reservierung in diesem Lager: {articles}. Ein externes Lager führt keinen Bestand: Lagern Sie die Ware zuerst um oder buchen Sie sie aus.",
+    "externalInUse": "Das Lager wird noch verwendet: {uses}. Ein externes Lager führt keinen Bestand, sie würden also nichts bewegen: Schließen Sie sie zuerst ab oder ordnen Sie sie einem anderen Lager zu.",
+    "inUse": {
+      "fiscalDevices": "{n} Fiskalgerät | {n} Fiskalgeräte",
+      "workstations": "{n} Arbeitsplatz | {n} Arbeitsplätze",
+      "tillSessions": "{n} offene Kassensitzung | {n} offene Kassensitzungen",
+      "counts": "{n} laufende Inventur | {n} laufende Inventuren",
+      "reservations": "{n} aktive Reservierung | {n} aktive Reservierungen",
+      "supplierOrders": "{n} offene Lieferantenbestellung | {n} offene Lieferantenbestellungen",
+      "customerOrders": "{n} offene Kundenbestellung | {n} offene Kundenbestellungen"
+    },
     "externalName": "{name} (extern)",
     "externalTransferOut": "„{warehouse}“ ist ein externes Lager: Die Ware verlässt Ihr Lager, und dort wird kein Bestand gebucht.",
     "externalTransferIn": "„{warehouse}“ ist ein externes Lager: Die Ware geht in Ihr Lager ein, und dort wird kein Bestand abgebucht.",

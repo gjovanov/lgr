@@ -2618,6 +2618,16 @@
     "externalWarehouseHint": "Another site's warehouse. No stock is kept for it here: a transfer to or from it changes only your own warehouse, and its document can go to the people there.",
     "externalNotDefault": "An external warehouse keeps no stock here, so it cannot be the default warehouse.",
     "externalHoldsStock": "Articles with stock or a reservation in this warehouse: {articles}. An external warehouse keeps none: move the goods out or write them off first.",
+    "externalInUse": "Still used by {uses}. An external warehouse keeps no stock, so they would move none: finish them or move them to another warehouse first.",
+    "inUse": {
+      "fiscalDevices": "{n} fiscal device | {n} fiscal devices",
+      "workstations": "{n} workstation | {n} workstations",
+      "tillSessions": "{n} open till session | {n} open till sessions",
+      "counts": "{n} count in progress | {n} counts in progress",
+      "reservations": "{n} active reservation | {n} active reservations",
+      "supplierOrders": "{n} open supplier order | {n} open supplier orders",
+      "customerOrders": "{n} open customer order | {n} open customer orders"
+    },
     "externalName": "{name} (external)",
     "externalTransferOut": "„{warehouse}“ is an external warehouse: the goods leave your warehouse, and no stock is booked there.",
     "externalTransferIn": "„{warehouse}“ is an external warehouse: the goods arrive in your warehouse, and nothing is taken from stock there.",

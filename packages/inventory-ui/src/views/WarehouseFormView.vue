@@ -180,12 +180,16 @@ async function handleSubmit() {
 }
 
 /**
- * Why the save was refused. The two refusals of the external flag (`config/external-warehouse`) are
- * said in the user's language; anything else says what the server said.
+ * Why the save was refused. The refusals of the external flag (`config/external-warehouse`) are said
+ * in the user's language; anything else says what the server said.
  */
 function saveFailure(e: any): string {
   const body = e?.response?.data
   if (body?.code === 'warehouse_holds_stock') return t('warehouse.externalHoldsStock', { articles: body.articles })
+  if (body?.code === 'warehouse_in_use') {
+    const uses = Object.entries(body.uses || {}) as [string, number][]
+    return t('warehouse.externalInUse', { uses: uses.map(([kind, n]) => t(`warehouse.inUse.${kind}`, { n }, n)).join(', ') })
+  }
   if (body?.code === 'external_default') return t('warehouse.externalNotDefault')
   return body?.message || t('common.operationFailed')
 }

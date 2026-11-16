@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import {
-  becomesExternal, externalScope, externalWarehouseRefusal, flagsAfterSave, holdsStockRefusal, sideIsExternal,
+  becomesExternal, externalScope, externalWarehouseRefusal, flagsAfterSave, holdsStockRefusal, inUseRefusal, sideIsExternal, WAREHOUSE_USES,
 } from 'config/external-warehouse'
 import { externalSides, movementWarehouseRefusal, namesExternalWarehouses } from 'config/movement-warehouses'
 
@@ -143,5 +143,20 @@ describe('which side of a movement is external, as the screens and the print say
   it('a side that names nothing is not external', () => {
     expect(sideIsExternal({ status: 'draft' }, undefined, undefined, true)).toBe(false)
     expect(sideIsExternal({ status: 'completed' }, null, null, true)).toBe(false)
+  })
+})
+
+describe('what still names a warehouse (#779)', () => {
+  it('nothing live: no refusal', () => {
+    expect(inUseRefusal({})).toBeNull()
+    expect(inUseRefusal(Object.fromEntries(WAREHOUSE_USES.map(k => [k, 0])))).toBeNull()
+  })
+
+  it('names only the kinds above zero, in a fixed order, singular and plural', () => {
+    const refusal = inUseRefusal({ customerOrders: 2, fiscalDevices: 1, counts: 0 })
+    expect(refusal?.code).toBe('warehouse_in_use')
+    expect(refusal?.uses).toEqual({ fiscalDevices: 1, customerOrders: 2 })
+    expect(Object.keys(refusal!.uses!)).toEqual(['fiscalDevices', 'customerOrders'])
+    expect(refusal?.message).toContain('1 fiscal device, 2 open customer orders:')
   })
 })

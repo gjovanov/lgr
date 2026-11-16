@@ -89,6 +89,10 @@ export interface IStockMovement extends TenantEntity {
 - **User** (createdBy) -- user who created the movement
 - **InventoryCount** -- adjustment movements are auto-created when completing inventory counts with variances
 
+## Costs between two of the org's own warehouses
+
+A movement that books both sides (a transfer between two warehouses that keep stock) moves goods that are already valued (#778). On confirm the goods arrive at what they cost where they left: the source level's average for a weighted-average article, the cost of the layers consumed for FIFO/LIFO/FEFO, the standard cost for a standard one. The line's `unitCost` is only what the form showed; `resolvedUnitCost` records what was booked. The org's stock value is the same before and after. Only a source with no level to consume from (the goods went below zero there) falls back to the line's cost.
+
 ## External warehouses
 
 A warehouse marked `isExternal` (see [Warehouse](warehouse.md)) is another site's: it keeps no stock in this org.

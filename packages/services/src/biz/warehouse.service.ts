@@ -128,7 +128,14 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
     // What the goods are worth where they arrive. A return of a sale says so apart, because its `unitCost` is the
     // document's price, as on every invoice-born line (`createInvoiceStockMovement`). What leaves a warehouse on
     // the way here is worth what it consumes.
-    let incomingCost = (fromWarehouseId ? undefined : (line as any).resolvedUnitCost) ?? line.unitCost
+    //
+    // ⚠ Between two of our own warehouses (#778) the goods are already valued: they arrive at what they
+    // cost where they left (the source level's average, or the layers they consumed), and the line's
+    // `unitCost` is only what the form showed. Taken from the line, a cost left at 0, edited, or sent by
+    // an API client changed the org's stock value with nothing bought or sold. Only a source with no
+    // level to consume from (the goods went below zero there) falls back to the line.
+    const consumedAtSource = fromWarehouseId && toWarehouseId ? consumptionResult?.weightedUnitCost : undefined
+    let incomingCost = consumedAtSource ?? (fromWarehouseId ? undefined : (line as any).resolvedUnitCost) ?? line.unitCost
     if (costHere && !(incomingCost > 0)) incomingCost = costHere.get(String(productId)) ?? incomingCost
 
     // Add stock to destination warehouse
@@ -139,7 +146,7 @@ export async function confirmMovement(movementId: string, repos?: RepositoryRegi
       const method = await getEffectiveCostingMethod(orgId, productId, r)
       const restored = opts?.layersRestored?.has(`${String(productId)}|${String(toWarehouseId)}`)
       if (method !== 'wac' && method !== 'standard' && !restored) {
-        // For transfers, use the consumed cost; for receipts, use the line cost
+        // A transfer's layer opens at the consumed cost (= incomingCost since #778); a receipt's at the line's
         const layerCost = consumptionResult?.weightedUnitCost ?? incomingCost
         await createCostLayers(orgId, toWarehouseId, movementId, movement.movementNumber, movementDate, {
           productId,
