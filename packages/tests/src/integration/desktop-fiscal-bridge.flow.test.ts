@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup.js'
 import {
   createTestOrg,
-  createTestUser,
+  createTestPerson,
   createTestWarehouse,
   createTestFiscalDevice,
 } from '../helpers/factories.js'
@@ -97,9 +97,14 @@ async function seedDesktop(opts: { assign?: boolean; pin?: boolean } = {}) {
   return { org, wh, device, desktop, token }
 }
 
-/** A cashier's browser token, for the "may a browser take a desktop device" cases. */
+/**
+ * A cashier's browser token, for the "may a browser take a desktop device" cases.
+ *
+ * FR-27 P3-2 (#529): the role decides, never the token's claims, so the person holds a role with exactly these
+ * permissions (`createTestPerson`). A bare `createTestUser` is a `member`, whose built-in role sells at the till.
+ */
 async function userToken(orgId: any, permissions: string[]) {
-  const user = await createTestUser(orgId, { permissions } as any)
+  const user = await createTestPerson(orgId, { permissions })
   const token = await signer.sign({
     id: String(user._id),
     email: user.email,
