@@ -25,6 +25,8 @@ import {
 import { orderCoverage } from 'config/order-coverage'
 import { linePricePinned, pinnedPriceOf } from 'config/order-line-price'
 import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
+import { canExport } from '../lib/export-access.js'
+import { renderInternalOrderPdf } from '../lib/internal-order-pdf.js'
 
 // ── numbering ─────────────────────────────────────────────────────────────────
 // Internal orders: issued ORDI-YYYY-NNNNN (key INTERNAL_ORDER), drafts
@@ -602,4 +604,17 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
     createAuditEntry({ orgId, userId: user.id, action: 'convert', module: 'invoicing', entityType: 'internal_order', entityId: id, entityName: ordi.orderNumber, changes: { invoice: { to: invoice.invoiceNumber } } })
     createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id || String(invoice._id), entityName: invoice.invoiceNumber })
     return conversionAnswer(grantOf(user as any), invoice, plan.waiting)
+  }, { isSignIn: true })
+  // The order as its printed sheet (PDF), in `?locale=`: what the client is handed or sent. The gate is the supplier
+  // order sheet's (`canExport`), on top of what reading an order here takes. The sheet carries no price
+  // (`reporting/pdf/customer-order.pdf`), so no role's answer differs.
+  .get('/:id/export', async ({ params: { orgId, id }, query, user, status, set }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    if (!canExport(user)) return status(403, { message: 'Forbidden' })
+
+    const result = await renderInternalOrderPdf(orgId, id, { locale: (query.locale as string) || undefined })
+    if (!result.ok) return status(result.status, { message: result.message, ...(result.detail ? { detail: result.detail } : {}) })
+    set.headers['content-type'] = 'application/pdf'
+    set.headers['content-disposition'] = `attachment; filename="${result.filename}"`
+    return new Response(result.buffer)
   }, { isSignIn: true })
