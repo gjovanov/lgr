@@ -1704,7 +1704,8 @@ An ORDI had no printed form: nothing to hand a client, nothing an e-mail could a
 - **One function**: `renderInternalOrderPdf(orgId, orderId, { locale })` in
   `invoicing-api/src/lib/internal-order-pdf.ts`, with `renderInvoicePdf`'s result shape
   (`{ok, buffer, filename, order}` or `{ok: false, status: 404 | 503, message, detail?}`). The route calls
-  it, and so does anything else that sends the sheet. Every read names the org (the contact and the
+  it, and so does the mail of the list's ticked orders (kind `internal-order`, „A list's ticked
+  documents by e-mail"). Every read names the org (the contact and the
   articles too), a malformed id is 404, and it writes nothing.
 - **Route** `GET /org/:orgId/invoicing/internal-orders/:id/export?locale=`. Its gate is `canExport`
   (`sales-docs.export`) ON TOP of the order's read rule (`orders.view`). Both route tables resolve it by
@@ -2360,12 +2361,12 @@ in LGR while the device still had it open.
 
 ## A list's ticked documents by e-mail (2026-11-16)
 
-Six lists tick rows and mail them: sales documents, proformas, offers and bills (kind `invoice`:
+Seven lists tick rows and mail them: sales documents, proformas, offers and bills (kind `invoice`:
 any document of the invoice collection), supplier orders (kind `order`: one sheet per supplier
-group) and stock movements (kind `movement`: each as its printed sheet, by the warehouse API's own
-two routes, see its bullet below). The dialog, the composable and the engine take a kind
-as a name and two routes. Customer orders (`InternalOrder`) have no printed form and are left out.
-FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is untouched.
+group), customer orders (kind `internal-order`: the order's one sheet, see its bullet below) and
+stock movements (kind `movement`: each as its printed sheet, by the warehouse API's own two
+routes, see its bullet below). The dialog, the composable and the engine take a kind as a name and
+two routes. FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is untouched.
 
 - **Two routes**: `invoicing-api/controllers/doc-email.controller.ts`, everything they decide in
   `lib/doc-email.ts`. The wire types and the dialog's planning are **`config/doc-email`**
@@ -2382,7 +2383,8 @@ FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is untouched.
   it, in this order: 403 (the session mails no document of the kind) → 400 (no valid address, no
   items, an unknown column) → 422 `selection_too_large` → **503 `not_configured`, before a single
   PDF is printed**.
-- **Who mails what** is `lib/email-guards.ts` (`invoiceEmailSkip`, `orderEmailSkip`), and the SAME
+- **Who mails what** is `lib/email-guards.ts` (`invoiceEmailSkip`, `orderEmailSkip`,
+  `internalOrderEmailSkip`), and the SAME
   function decides the preview and the mail, so the two cannot disagree. A document of the invoice
   collection goes when the session WORKS on its kind (`writesKind(grant, kind, 'edit')`, FR-27.6);
   one of a kind it does not read is `not_found`, exactly like an id that names nothing. Only a
@@ -2419,6 +2421,30 @@ FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is untouched.
     401, 403 and 409 stop the rest** (`stopsTheBatch`); any other failure is that recipient's.
   - Everything asked went → the dialog closes with a snackbar; otherwise it stays on the results.
     Either way only what went leaves the selection (an order, when every sheet of it went).
+- **Customer orders** (kind `internal-order`, the customer orders list): each ticked order as the
+  sheet its Print button downloads (`renderInternalOrderPdf`, no price on it), on the invoicing
+  pair of routes. An item is the order's id; a `groupId` beside it is not read. In
+  `lib/doc-email.ts` a kind is an entry of `PREVIEW_ROWS` and of `MAIL_ROWS`: one without both
+  does not compile.
+  - **Who mails what** is `internalOrderEmailSkip`, for the preview and the mail alike. The
+    request takes what the sheet's export takes (`orders.view`, `sales-docs.export`) AND the work
+    on orders (`orders.create|edit`): a role that only reads prints a sheet and mails none. ⚠ Its
+    own access function, never the supplier order's: a customer order is read by `orders.view`
+    alone. Per order: an id that names none in this org is `not_found`; a `draft` is held back
+    (its sheet shows no number). ⚠ **A cancelled order GOES**, as every status but `draft`
+    does: its sheet's title says it is cancelled, and telling the client so is a use. The
+    `cancelled` reason stays a stock movement's.
+  - A row's `docType` is `internal_order` and its `partner` the order's contact, so the dialog
+    opens on „До клиента / доставчика" with a line per client. The mail names an order as its
+    sheet is titled, in sentence case (`customerOrderDocName`: „Потвърждение на поръчка",
+    „Поръчка (отказана)"), and states no total. `entityType: 'internal_order'`, audit module
+    `invoicing`. An order keeps no send history, so the outbox worker needed no branch.
+  - UI: `invoicing-ui/views/InternalOrdersView.vue` is a `fit`, `selectable` `ListScaffold` with
+    `<DocEmailBar kind="internal-order">`; the button shows to
+    `useDocEmailAccess().internalOrders()`, which `unit/doc-email-access` holds to the server's
+    rule. ⚠ The list has nine columns beside its tick: the client's name is clipped at 9em (whole
+    in its `title`) and a row's icons sit in one unwrapped row, which is what keeps a draft's row
+    (four icons) one line at 1366 px.
 - **Stock movements** (kind `movement`, the movements list): each ticked movement as its printed
   sheet. `warehouse-api/controllers/movement-email.controller.ts`, everything the two routes
   decide in `lib/movement-email.ts`.
@@ -2478,6 +2504,9 @@ FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is untouched.
   The movement kind: `unit/movement-email-guards`, `unit/movement-email-access`,
   `integration/movement-email.flow`, `e2e/tests/movement-email.spec.ts` (the Bulgarian UI; its
   mail request is answered by `page.route` too, and it holds the list's fit at 1366 and 390 px).
+  The customer-order kind: `unit/doc-email-guards` and `unit/doc-email-access` (its rule, on the
+  server and in the UI), `integration/customer-order-email.flow`,
+  `e2e/tests/customer-order-email.spec.ts` (the same walk on the customer orders list).
 
 ## FR-06 P2 — the rest of the report catalog (2026-08-26)
 
