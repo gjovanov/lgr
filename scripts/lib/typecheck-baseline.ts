@@ -113,14 +113,17 @@ export function serializeCounts(counts: Counts): string {
   return JSON.stringify(sortCounts(counts), null, 2) + '\n'
 }
 
-/** A committed baseline, checked for shape: file → `TSnnnn` → a positive whole number. */
-export function parseBaseline(text: string): Counts {
+/** A type error's key. The linter's baseline uses the same shape with rule names (`scripts/lint.ts`). */
+export const TS_CODE = /^TS\d+$/
+
+/** A committed baseline, checked for shape: file → key (`TSnnnn`, or a rule) → a positive whole number. */
+export function parseBaseline(text: string, key: RegExp = TS_CODE): Counts {
   const data = JSON.parse(text) as unknown
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('a baseline is an object of files')
   for (const [file, byCode] of Object.entries(data as Record<string, unknown>)) {
     if (!byCode || typeof byCode !== 'object' || Array.isArray(byCode)) throw new Error(`${file}: not an object of error codes`)
     for (const [code, n] of Object.entries(byCode as Record<string, unknown>)) {
-      if (!/^TS\d+$/.test(code)) throw new Error(`${file}: "${code}" is not an error code`)
+      if (!key.test(code)) throw new Error(`${file}: "${code}" is not a key of this baseline`)
       if (!Number.isInteger(n) || (n as number) < 1) throw new Error(`${file}: ${code} is not a positive count`)
     }
   }
