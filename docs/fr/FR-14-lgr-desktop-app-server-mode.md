@@ -1245,3 +1245,39 @@ Published 2026-11-09 23:22 UTC from draft 439313648 (its `target_commitish` was 
 - Through `/api/desktop/download/0.1.12`, the page answers 200, and the MSI, the Windows installer and its `.sig` come back with the release's own sha256 digests.
 
 **What the 72 h soak adds.** The FR-20 soak (lgr-deploy#65) started at 23:22 UTC on these tills, beside a Windows master that moves from 0.1.10 to 0.1.11 at 36 h: the same update that left soak-t2's till printing nothing. #591 closes on that run's verdict.
+
+
+#### desktop-v0.1.13 (2026-11-16), against the hub's v20261116-7210a72c57ed
+
+**What changed:** two fixes in the shell's presence link, each found by an FR-20 field lane, and one line of its page.
+
+- **#736 (#735): presence reads a starting server's 502 as "not answering".** When a master restarts, its front answers before its API does, with a 502. Presence took that for a refused credential, showed "Signed out" and tried again a minute later, while the fiscal bridge was back within seconds. An answer that names no code is never the API turning the desktop down, so it is now "the server did not answer" and is retried on presence's backoff. `desktop_revoked`, `desktop_outdated` and any code the server sends stay refusals.
+- **#742 (#741): a presence link that worked starts its backoff over.** The count of failed tries went back to zero only on a Close frame, and a server that stops reaches a till as a read error. So the wait before the first retry grew with every outage the app had seen, up to a minute, however short the restart. Now a session that authenticated starts the count over, and the first retry comes 2 s after the loss.
+- **#765:** the shell's page asks page translators to leave it alone (`translate="no"`), as every LGR page now does.
+
+`packages/desktop` holds nothing else since 0.1.12 (`presence.rs`). The shell's own pages are built with vue-i18n 11 (18c935b1) and with the shared plugins as they stood at `cb7d18c5`.
+
+**How it was found.**
+- #735: the FR-20 soak trial that proved #590 (2026-11-13). A Windows master updated from 0.1.12 to 0.1.13 was away for 7 s. Both tills' bridges registered again 8 s after the stop, and both tills' presence 65 s after it.
+- #741: the shop lane on a build with #736 (2026-11-13), which restarts its master many times. Presence was away 2.6 s, 7.6 s and 8.1 s on three restarts in a row, then 60 s on one that the bridge was over in 2.6 s.
+
+**Lanes:** the FR-14 desk lanes and the FR-20 shop lanes (23 checks), on LGR's own Windows 11 golden. They ran against the signed draft's own bytes (draft 446795926, run 43834634090, from `cb7d18c5`), staged on the build host and checked against GitHub's digests, beside the published server 0.1.12. Harness `599451d` (lgr-deploy master with #87 and #89). All eight lanes were green on their first run.
+- `shop-ubuntu` 23/23, `shop-win11` 23/23, `shop-ubuntu-nomcast` 22 PASS with its `rediscover` NA, `shop-win10` 23/23.
+- The desk lanes, cell for cell as on 0.1.12: code 12/0/7, key 11/0/8, msi/admin 13/0/6, ubuntu 3/0/16. `clock-skew` passed on the three Windows cells with the guest 180 min out.
+- **Presence, from the four tills' own logs:** 55 outages and no refusal line. After a session that had authenticated, the first retry came 2 s after the loss: on the two Windows masters 11 restarts read 2.1 to 4.1 s, and 2 read 9.6 s, level with the fiscal bridge. The count did not carry over: right after an outage of 62 s, the next restart read 2.6 s on one master and 3.1 s on the other. The 11 outages that took longer than 45 s are masters that were themselves away: a Linux master in these lanes serves again 30 to 60 s after a start, and `snapshot-revert` powers the master off twice. In three of those, presence came back 25 to 55 s after the bridge. That is #767, which is open. The whole reading is on #741.
+- `clock-push` held its three-day skew to the end on all four shops, the two Windows masters included (lgr-deploy#87). So AC 58's "the server clock is off" refusal is proven on a Windows 10 master too.
+
+**The candidate was built four times.** A change under the shell's paths before the gate means a rebuild: #765 (the page) and #768 (the smoke test below, so that the tagged commit carries it) on 2026-11-15, and #776 (one workspace line of the lockfile) on 2026-11-16. No lane ran a withdrawn draft.
+
+**Desktop CI's smoke lost two races of its own on the way**, both in its `revocation` case and neither in the shell.
+- #768: the stub hub pushes the notice down the presence socket, and on a slow runner presence was still in its backoff after the outage of the case before. The case now waits for the socket.
+- #788: the case asked `--status-json` the instant the shell said it was revoked. Saying so comes first by design (say so, stop the bridge, delete the key), so the record could still read `registered`. The tag's own run hit this, as the list below says. The case now asks until the state has changed.
+
+Published 2026-11-16 18:32 UTC from draft 446795926 (its `target_commitish` was `cb7d18c5`, the tested commit).
+- Its tag's run built nothing (run 43929807057): `build` and `release` were skipped, because the release was already published.
+- All 14 asset digests are the draft's, and they equal the files the lanes ran, hashed on the build host before and after.
+- Desktop CI on the tag (run 43929807074) was red on its first attempt and green on a re-run of the failed job, on the same build: the race #788 fixes. The same commit had been green that morning (run 43834638597).
+- Offered to the fleet by lgr-deploy `6fa81f9` (`DESKTOP_RELEASE_VERSION` 0.1.13). ArgoCD is Synced and Healthy, and both new pods read it.
+- Through `/api/desktop/download/0.1.13`, the page answers 200, and the MSI, the Windows installer and its `.sig` come back with the release's own sha256 digests.
+
+**What the second 72 h soak adds.** Its window (2026-11-13 to 2026-11-16) ran one till on desktop 0.1.12 and one on a build with #736, beside a Windows master updated from 0.1.12 to 0.1.13 at 36 h. At that update the till on 0.1.12 logged the refusal and was away 71 s, and the till with #736 logged none and was back in 17 s. That is #735's field proof.
