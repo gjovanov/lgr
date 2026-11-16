@@ -9,7 +9,9 @@ import { Elysia, t } from 'elysia'
 import { seesOrders } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
-import { createInvoiceStockMovement, reverseInvoiceStockMovement, stockBookingRefusal, validateStockAvailability } from 'services/biz/invoicing.service'
+import { reverseInvoiceStockMovement, stockBookingRefusal, validateStockAvailability } from 'services/biz/invoicing.service'
+import { issueDocument, IssueLostError, IssueStockError } from 'services/biz/issue-document.service'
+import { MovementClaimedError, StockBookingRefusedError } from 'services/biz/warehouse.service'
 import { syncOrderForInvoice } from 'services/biz/reservation.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
@@ -18,7 +20,7 @@ import { eventBus } from 'services/events/event-bus'
 import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
-import { Invoice, Org, POSSession, Reservation, StockMovement } from 'db/models'
+import { Invoice, Org, POSSession, Reservation } from 'db/models'
 import { assertJoinedSaleTender, assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, finishInterruptedDocuments, noOpenSession, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
 import {
   keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt,
@@ -327,6 +329,19 @@ function statusEntry(toStatus: string, fromStatus?: string, userId?: string, rea
     changedBy: userId,
     reason,
   }
+}
+
+/**
+ * How an issue whose booking failed is answered (FR-29.8, FR-29.32): a cost-layer refusal as the 422
+ * with its code and names (FR-29.6), a movement being confirmed from the list as its 409, anything
+ * else as `/send` always answered a booking that failed. `/receive` passes `null` for that last one:
+ * it never caught one, and the error goes on to the handler as before.
+ */
+function stockFailureAnswer(e: IssueStockError, otherwise: number | null): [number, Record<string, unknown>] | null {
+  const failure = e.failure
+  if (failure instanceof StockBookingRefusedError) return [422, failure.toBody()]
+  if (failure instanceof MovementClaimedError) return [409, { code: failure.code, message: failure.message }]
+  return otherwise === null ? null : [otherwise, { message: failure?.message ?? String(failure) }]
 }
 
 // Produce a viewable history when legacy rows have no statusHistory yet, using
@@ -1805,35 +1820,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }
     }
 
-    // A crashed issue may already have dispatched: its movement carries this invoice's id.
-    if (!(await StockMovement.exists({ orgId, invoiceId: id }).exec())) {
-      try {
-        await createInvoiceStockMovement(invoice, user.id)
-      } catch (e: any) {
-        await release()
-        return status(400, { message: e.message })
-      }
-    }
-
-    // Allocate the issued invoice number from the type-appropriate counter and replace the
-    // draft number on the document. Persist the previous draft number for audit history.
-    const draftNumber = (invoice as any).invoiceNumber
-    const issuedNumber = await getNextInvoiceNumber(orgId, invoice.direction as string, invoice.type as string)
-
-    const history = [...((invoice as any).statusHistory || []), statusEntry(newStatus, invoice.status, user.id)]
-    const numberHistory = [
-      ...((invoice as any).numberHistory || []),
-      { number: issuedNumber, allocatedAt: new Date(), status: newStatus },
-    ]
-    const updateData: any = {
-      status: newStatus,
-      sentAt: new Date(),
-      statusHistory: history,
-      invoiceNumber: issuedNumber,
-      draftNumber,
-      numberHistory,
-      'issue.completedAt': new Date(),
-    }
+    // FR-29.8: the stock, the issued number and the status in one transaction (`issueDocument`). What an earlier
+    // attempt left is finished there: a completed movement of this document stands, a draft one is booked afresh,
+    // never skipped (FR-29.9). The number is drawn last, so an issue that fails draws none (FR-29.11).
+    const updateData: any = { 'issue.completedAt': new Date() }
     // ⚠ FR-23: what will print keeps its claim past this write, because nothing else stands on the document
     // until its receipt does: an edit in that gap rang one amount and booked another. `printAtIssue` lets
     // go of it. What prints nothing, an invoice for a cash sale and a quote among them, is done here.
@@ -1843,7 +1833,24 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (forCashSale) Object.assign(updateData, await issueFieldsFor(orgId, invoice))
     // FR-23: in the issue's own write, so whatever happens to its receipt the fact stands.
     if (counter?.tender.method === 'cash_on_delivery') updateData.deliveryReceiptOwed = true
-    const updated = await r.invoices.updateInOrg(id, orgId, updateData)
+    let issued: Awaited<ReturnType<typeof issueDocument>>
+    try {
+      issued = await issueDocument({
+        orgId, invoice, userId: user.id, status: newStatus,
+        heldBy: { 'issue.leaseUntil': (claimed as any).issue?.leaseUntil },
+        fields: updateData,
+      })
+    } catch (e: any) {
+      await release()
+      if (e instanceof IssueStockError) {
+        const [code, answer] = stockFailureAnswer(e, 400)!
+        return status(code, answer)
+      }
+      // The lease lapsed under a long issue and another request took the draft: it is theirs to finish.
+      if (e instanceof IssueLostError) return status(409, await holderOf(orgId, id, () => ({ ...DOCUMENT_CHANGED })))
+      throw e
+    }
+    const { invoice: updated, issuedNumber, draftNumber } = issued
 
     // ORD-linked documents: re-derive the order's reservation/receipt state
     // (dispatch consumes holds; incoming bills book receipts).
@@ -1900,34 +1907,49 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     const overlap = await receiptsOverlapping(orgId, invoice)
     if (overlap && !body?.acknowledgeOverlap) return status(409, receiptOverlapRefusal(invoice, overlap))
 
-    // Allocate the issued BILL-* number, preserve the prior draft number for audit history.
     const draftNumber = (invoice as any).invoiceNumber
-    const issuedNumber = await getNextInvoiceNumber(orgId, 'incoming', invoice.type as string)
-    const history = [...((invoice as any).statusHistory || []), statusEntry('received', invoice.status, user.id)]
-    const numberHistory = [
-      ...((invoice as any).numberHistory || []),
-      { number: issuedNumber, allocatedAt: new Date(), status: 'received' },
-    ]
     /**
-     * ⚠ Out of draft once. Two Receives can both pass the check above, and each would book the goods
-     * and draw a number. Exactly one takes the bill here, and the other books nothing; an issue under
-     * way on `/send` holds the draft as well, and so does a void's or a delete's claim (`unclaimedDraft`; a
-     * lease that lapsed is a crash, and holds nothing). The number the loser drew is a gap in an internal
-     * series, and is accepted: drawing it after this write would leave a received bill with no number if
-     * the request died in between.
+     * ⚠ One Receive at a time. Two can both pass the check above, and each would book the goods and draw
+     * a number. Exactly one takes the bill's issue lease here (`/send`'s), and the other books nothing; an
+     * issue under way on `/send` holds the draft as well, and so does a void's or a delete's claim
+     * (`unclaimedDraft`; a lease that lapsed is a crash, and holds nothing).
+     *
+     * FR-29.10: the bill leaves draft in the transaction that books its goods and draws its number
+     * (`issueDocument`). It used to be written as received first and booked after, so a booking that
+     * failed left a received bill with none or part of its stock, and no route could retry it. Now it is
+     * the draft it was, with its draft number and no number drawn, and Receive works again.
      */
     const now = new Date()
+    const leaseUntil = new Date(now.getTime() + LEASE_MS)
     const taken = await Invoice.findOneAndUpdate(
       { _id: id, orgId, ...unclaimedDraft(now) },
-      { $set: { status: 'received', sentAt: now, statusHistory: history, invoiceNumber: issuedNumber, draftNumber, numberHistory } },
+      { $set: { issue: { leaseUntil } } },
     ).exec()
     if (!taken) {
       if (isBeingVoided(await Invoice.findOne({ _id: id, orgId }, { voidingUntil: 1 }).lean().exec() as any)) return status(409, { ...DOCUMENT_CLAIMED })
       return status(409, { code: 'bill_not_draft', message: `${draftNumber} is no longer a draft: another request is receiving or issuing it` })
     }
-    const updated = await r.invoices.findOne({ id, orgId } as any)
-
-    await createInvoiceStockMovement(updated || invoice, user.id)
+    let issued: Awaited<ReturnType<typeof issueDocument>>
+    try {
+      issued = await issueDocument({
+        orgId, invoice, userId: user.id, status: 'received',
+        heldBy: { 'issue.leaseUntil': leaseUntil },
+        fields: { 'issue.leaseUntil': null, 'issue.completedAt': new Date() },
+      })
+    } catch (e: any) {
+      await Invoice.updateOne({ _id: id, orgId, status: 'draft', 'issue.leaseUntil': leaseUntil }, { $unset: { issue: 1 } }).exec()
+      if (e instanceof IssueStockError) {
+        const answer = stockFailureAnswer(e, null)
+        if (answer) return status(answer[0], answer[1])
+        throw e.failure
+      }
+      if (e instanceof IssueLostError) {
+        if (isBeingVoided(await Invoice.findOne({ _id: id, orgId }, { voidingUntil: 1 }).lean().exec() as any)) return status(409, { ...DOCUMENT_CLAIMED })
+        return status(409, { code: 'bill_not_draft', message: `${draftNumber} is no longer a draft: another request is receiving or issuing it` })
+      }
+      throw e
+    }
+    const { invoice: updated, issuedNumber } = issued
 
     // ORD-linked bills: book the receipt onto the order (receivedQuantity, status, holds).
     await syncOrderForInvoice(orgId, updated || invoice, user.id)

@@ -360,4 +360,34 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
 
 ## 11. Build log
 
-Nothing is built yet.
+- **Slice A** (branch `feat/794-a-atomic-booking`, on FR-32.14's `select` / `session`):
+  - FR-29.1, .2, .3, .7 are built. `confirmMovement` books in one transaction and releases its claim
+    when it fails. `{ session }` joins a caller's transaction, and the caller sends the event after
+    its commit (`announceMovementConfirmed`).
+  - FR-29.6 is built: `StockBookingRefusedError`, a 422 `no_cost_layer` / `insufficient_cost_layers`
+    with the names, on every route (`spaErrorHandler`), in four languages
+    (`warehouse.refusals.*`).
+  - FR-29.5 is built for the booking (`costingOfArticles`), the transfer pre-flight
+    (`checkCrossWarehouseAvailability`) and a count completed without variance (one `updateMany`).
+    A count with variance books through `confirmMovement`.
+  - D-1: the explicit parameter.
+  - FR-29.4 / D-2: one transaction. On the Windows test fixture a 1000-line receipt booked in 7 to
+    16 s, against the 60 s limit. **Open:** the count of production's largest movement by lines
+    needs production access, so it was not read here. Chunks are not built.
+  - Found on the way: two operations at once on a transaction's session (`Promise.all`) made
+    `withTransaction` run the whole booking again. Reads in a booking are now made one after the other.
+- **Slice B** (branch `feat/794-b-issue-service`, on slice A):
+  - FR-29.8 is built: `issueDocument` is used by `/send` and `/receive`, and the number block exists
+    once.
+    - Each route keeps its claim. `/receive` now takes `/send`'s issue lease instead of writing the
+      status first.
+    - Paths, bodies and refusal codes are unchanged. A cost-layer refusal is the 422 of FR-29.6;
+      on `/send` it was a 400.
+  - FR-29.9: `createInvoiceStockMovement({ resume })`. Per warehouse, a completed movement stands,
+    and a draft one is removed and booked afresh. A draft somebody is confirming from the list
+    right now refuses the issue (409 `movement_busy`).
+  - FR-29.10, FR-29.11 (D-3) are built: the number is drawn last, inside the transaction, through
+    `getNextInvoiceNumber`'s `session`. `inTransaction` (`services/biz/transaction.ts`) runs the
+    issue again after a taken movement number or a level created at the same moment.
+  - FR-29.12: `scripts/count-issue-leftovers.ts` is read-only, native driver, counts per org, and
+    `--list` for the owner. **Open:** running it on production is the owner's.

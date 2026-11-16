@@ -1,11 +1,12 @@
 import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, ROLES, type Role } from '../constants'
-import type { Grant } from './grant'
-import { compileLegacy, type LegacyClaims } from './legacy'
+import { ALL, type Grant } from './grant'
+import type { LegacyClaims } from './legacy'
+import { TEMPLATE_CAPS } from './template-caps'
 
 /**
  * FR-27.3 (#529) — the built-in roles: the ten legacy roles, under the same names and with the same access. A
- * template's grant is what its legacy role's defaults compile to (`compileLegacy`), so it equals today's by
- * construction, and it follows the catalogue when a release adds capabilities. `admin` is the Administrator: `*`.
+ * template's grant is data since Phase 3 (P3-4, `template-caps.ts`): what its legacy role's defaults compiled to on
+ * 2026-11-16, pinned against them until the legacy model goes. `admin` is the Administrator: `*`.
  *
  * The names are the system permission sets' where a role has one (`ROLE_PERMISSION_SET_NAMES`), so a person sees
  * the name they knew. `sales` and `hr_manager`, which had no set, get one here (FR-27.3).
@@ -63,10 +64,11 @@ export const TEMPLATE_WITHHOLDS: Readonly<Partial<Record<Role, readonly string[]
   sales_consultant: ['products.costs', 'products.price:wholesale', 'products.price:0'],
 }
 
-/** A template's grant, today's access of its legacy role. */
+/** A template's grant (`template-caps.ts`): its legacy role's access, as data. */
 export function templateGrant(key: string): Grant {
-  const t = templateOf(key)
-  return t ? compileLegacy(t.legacy) : { caps: new Set() }
+  const caps = TEMPLATE_CAPS[key]
+  if (caps === '*') return ALL
+  return { caps: new Set(caps ?? []) }
 }
 
 /** What a role made from the template starts with: its grant, less what it withholds (FR-27.11.B, D-11, D-12). */

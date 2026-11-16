@@ -1,20 +1,48 @@
-import type { Model } from 'mongoose'
-import type { BaseEntity, Filter, SortSpec, PageRequest, PageResult, AggregateStage } from 'dal'
+import type { ClientSession, Model } from 'mongoose'
+import type { BaseEntity, Filter, SortSpec, PageRequest, PageResult, AggregateStage, Projection, ReadOptions, SessionOptions } from 'dal'
 import type { IBatchRepository } from 'dal'
 import { DuplicateError, ValidationError } from 'dal'
 import { toEntity, toDocument } from './entity-mapper.js'
 import { translateFilter } from './filter-translator.js'
 
 /**
+ * A DAL projection as Mongoose takes it. `id` is the document's `_id`, which Mongo returns unless it
+ * is excluded by name, so `['name']` still answers with the entity's `id`.
+ */
+export function toProjection(select: Projection | undefined): Record<string, 0 | 1> | undefined {
+  if (!select) return undefined
+  const entries: [string, 0 | 1][] = Array.isArray(select)
+    ? (select as readonly string[]).map(f => [f, 1])
+    : Object.entries(select as Record<string, 0 | 1>)
+  if (!entries.length) return undefined
+  return Object.fromEntries(entries.map(([f, v]) => [f === 'id' ? '_id' : f, v]))
+}
+
+/** The caller's session as the driver takes it, or none. */
+export function sessionOf(opts: SessionOptions | undefined): ClientSession | undefined {
+  return (opts?.session as ClientSession | undefined) ?? undefined
+}
+
+/** Options for a Mongoose call, with the session only when there is one: a call without is unchanged. */
+export function withSession<O extends Record<string, unknown>>(opts: SessionOptions | undefined, rest?: O): O & { session?: ClientSession } {
+  const session = sessionOf(opts)
+  const base = (rest ?? {}) as O
+  return session ? { ...base, session } : base
+}
+
+/**
  * MongoDB/Mongoose implementation of IBatchRepository.
  * Wraps a Mongoose Model and translates between DAL entities and Mongoose documents.
+ *
+ * FR-32.14: every method takes `session` and hands it to EVERY operation it makes (a page's count
+ * included), and the reads that return documents take `select`.
  */
 export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T> {
   constructor(protected model: Model<any>) {}
 
-  async findById(id: string): Promise<T | null> {
+  async findById(id: string, opts?: ReadOptions): Promise<T | null> {
     try {
-      const doc = await this.model.findById(id).lean().exec()
+      const doc = await this.model.findById(id, toProjection(opts?.select), withSession(opts)).lean().exec()
       return doc ? toEntity<T>(doc) : null
     } catch (err: any) {
       if (err.name === 'CastError') return null
@@ -22,14 +50,15 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     }
   }
 
-  async findOne(filter: Filter<T>): Promise<T | null> {
+  async findOne(filter: Filter<T>, opts?: ReadOptions): Promise<T | null> {
     const mongoFilter = translateFilter(filter)
-    const doc = await this.model.findOne(mongoFilter).lean().exec()
+    const doc = await this.model.findOne(mongoFilter, toProjection(opts?.select), withSession(opts)).lean().exec()
     return doc ? toEntity<T>(doc) : null
   }
 
-  async findAll(filter: Filter<T>, page?: PageRequest): Promise<PageResult<T>> {
+  async findAll(filter: Filter<T>, page?: PageRequest, opts?: ReadOptions): Promise<PageResult<T>> {
     const mongoFilter = translateFilter(filter)
+    const projection = toProjection(opts?.select)
     const sort = page?.sort ?? { createdAt: -1 }
     const size = page?.size ?? 10
     const pageNum = page?.page ?? 0
@@ -37,7 +66,7 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     if (size <= 0) {
       // size <= 0 means "all items, no pagination". Hard backstop at 100k for sanity.
       const MAX_ROWS = 100_000
-      const docs = await this.model.find(mongoFilter).sort(sort).limit(MAX_ROWS).lean().exec()
+      const docs = await this.model.find(mongoFilter, projection, withSession(opts)).sort(sort).limit(MAX_ROWS).lean().exec()
       if (docs.length >= MAX_ROWS) {
         // Surface as a soft warning; clients asking for "all" on huge collections should paginate.
         console.warn(`[dal-mongo] findAll on ${this.model.modelName} returned ${MAX_ROWS}+ rows — consider pagination`)
@@ -53,8 +82,8 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
 
     const skip = pageNum * size
     const [docs, total] = await Promise.all([
-      this.model.find(mongoFilter).sort(sort).skip(skip).limit(size).lean().exec(),
-      this.model.countDocuments(mongoFilter).exec(),
+      this.model.find(mongoFilter, projection, withSession(opts)).sort(sort).skip(skip).limit(size).lean().exec(),
+      this.model.countDocuments(mongoFilter, withSession(opts)).exec(),
     ])
 
     return {
@@ -66,16 +95,19 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     }
   }
 
-  async findMany(filter: Filter<T>, sort: SortSpec = { createdAt: -1 }): Promise<T[]> {
+  async findMany(filter: Filter<T>, sort: SortSpec = { createdAt: -1 }, opts?: ReadOptions): Promise<T[]> {
     const mongoFilter = translateFilter(filter)
-    const docs = await this.model.find(mongoFilter).sort(sort).lean().exec()
+    const docs = await this.model.find(mongoFilter, toProjection(opts?.select), withSession(opts)).sort(sort).lean().exec()
     return docs.map(d => toEntity<T>(d))
   }
 
-  async create(data: Omit<T, 'id' | 'createdAt' | 'updatedAt'>): Promise<T> {
+  async create(data: Omit<T, 'id' | 'createdAt' | 'updatedAt'>, opts?: SessionOptions): Promise<T> {
     try {
       const mongoData = toDocument(data)
-      const doc = await this.model.create(mongoData)
+      const session = sessionOf(opts)
+      // ⚠ `Model.create` reads options only after an ARRAY of documents: `create(doc, { session })`
+      // would take the options for a second document.
+      const doc = session ? (await this.model.create([mongoData], { session }))[0] : await this.model.create(mongoData)
       return toEntity<T>(doc.toObject())
     } catch (err: any) {
       if (err.code === 11000) {
@@ -89,10 +121,10 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     }
   }
 
-  async update(id: string, data: Partial<T>): Promise<T | null> {
+  async update(id: string, data: Partial<T>, opts?: SessionOptions): Promise<T | null> {
     try {
       const mongoData = toDocument(data)
-      const doc = await this.model.findByIdAndUpdate(id, mongoData, { new: true }).lean().exec()
+      const doc = await this.model.findByIdAndUpdate(id, mongoData, withSession(opts, { new: true })).lean().exec()
       return doc ? toEntity<T>(doc) : null
     } catch (err: any) {
       if (err.name === 'CastError') return null
@@ -100,9 +132,9 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     }
   }
 
-  async delete(id: string): Promise<boolean> {
+  async delete(id: string, opts?: SessionOptions): Promise<boolean> {
     try {
-      const result = await this.model.findByIdAndDelete(id).exec()
+      const result = await this.model.findByIdAndDelete(id, withSession(opts)).exec()
       return result !== null
     } catch (err: any) {
       if (err.name === 'CastError') return false
@@ -115,10 +147,10 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
   // ⚠ The filter is {_id, orgId}, never "load by id, then compare orgId": the write must not be
   // able to land on another org's document even between a check and the write.
 
-  async findByIdInOrg(id: string, orgId: string): Promise<T | null> {
+  async findByIdInOrg(id: string, orgId: string, opts?: ReadOptions): Promise<T | null> {
     if (!orgId) return null
     try {
-      const doc = await this.model.findOne({ _id: id, orgId }).lean().exec()
+      const doc = await this.model.findOne({ _id: id, orgId }, toProjection(opts?.select), withSession(opts)).lean().exec()
       return doc ? toEntity<T>(doc) : null
     } catch (err: any) {
       if (err.name === 'CastError') return null
@@ -126,7 +158,7 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     }
   }
 
-  async updateInOrg(id: string, orgId: string, data: Partial<T>, where: Record<string, unknown> = {}, opts: { validate?: boolean; unset?: string[] } = {}): Promise<T | null> {
+  async updateInOrg(id: string, orgId: string, data: Partial<T>, where: Record<string, unknown> = {}, opts: { validate?: boolean; unset?: string[] } & SessionOptions = {}): Promise<T | null> {
     if (!orgId) return null
     // ⚠ The body is DATA, never an update document. Passed through as one, `{"$set": {"orgId": B}}`
     // re-parents the document past the `orgId` strip below (and `$unset` / `$rename` likewise),
@@ -144,7 +176,7 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
       for (const k of unset) delete rest[k]
       const mongoData: Record<string, unknown> = { $set: toDocument(rest) }
       if (unset.length) mongoData.$unset = Object.fromEntries(unset.map(k => [k, 1]))
-      const doc = await this.model.findOneAndUpdate({ ...where, _id: id, orgId }, mongoData, { new: true, ...(opts.validate ? { runValidators: true } : {}) }).lean().exec()
+      const doc = await this.model.findOneAndUpdate({ ...where, _id: id, orgId }, mongoData, withSession(opts, { new: true, ...(opts.validate ? { runValidators: true } : {}) })).lean().exec()
       return doc ? toEntity<T>(doc) : null
     } catch (err: any) {
       if (err.name === 'CastError') return null
@@ -152,10 +184,10 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     }
   }
 
-  async deleteInOrg(id: string, orgId: string, where: Record<string, unknown> = {}): Promise<boolean> {
+  async deleteInOrg(id: string, orgId: string, where: Record<string, unknown> = {}, opts?: SessionOptions): Promise<boolean> {
     if (!orgId) return false
     try {
-      const result = await this.model.findOneAndDelete({ ...where, _id: id, orgId }).exec()
+      const result = await this.model.findOneAndDelete({ ...where, _id: id, orgId }, withSession(opts)).exec()
       return result !== null
     } catch (err: any) {
       if (err.name === 'CastError') return false
@@ -163,19 +195,19 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     }
   }
 
-  async findOneAndUpdate(filter: Filter<T>, data: Partial<T>): Promise<T | null> {
+  async findOneAndUpdate(filter: Filter<T>, data: Partial<T>, opts?: SessionOptions): Promise<T | null> {
     const mongoFilter = translateFilter(filter)
     const mongoData = toDocument(data)
-    const doc = await this.model.findOneAndUpdate(mongoFilter, mongoData, { new: true }).lean().exec()
+    const doc = await this.model.findOneAndUpdate(mongoFilter, mongoData, withSession(opts, { new: true })).lean().exec()
     return doc ? toEntity<T>(doc) : null
   }
 
-  async count(filter: Filter<T>): Promise<number> {
+  async count(filter: Filter<T>, opts?: SessionOptions): Promise<number> {
     const mongoFilter = translateFilter(filter)
-    return this.model.countDocuments(mongoFilter).exec()
+    return this.model.countDocuments(mongoFilter, withSession(opts)).exec()
   }
 
-  async aggregate<R = any>(pipeline: AggregateStage[]): Promise<R[]> {
+  async aggregate<R = any>(pipeline: AggregateStage[], opts?: SessionOptions): Promise<R[]> {
     // Pass through to Mongoose aggregate — the pipeline format is compatible
     // with MongoDB's native pipeline format for basic stages
     const mongoPipeline = pipeline.map(stage => {
@@ -184,27 +216,27 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
       }
       return stage
     })
-    return this.model.aggregate(mongoPipeline).exec()
+    return this.model.aggregate(mongoPipeline).session(sessionOf(opts) ?? null).exec()
   }
 
   // ── Batch operations ──
 
-  async createMany(data: Omit<T, 'id' | 'createdAt' | 'updatedAt'>[]): Promise<T[]> {
+  async createMany(data: Omit<T, 'id' | 'createdAt' | 'updatedAt'>[], opts?: SessionOptions): Promise<T[]> {
     const mongoDocs = data.map(d => toDocument(d))
-    const docs = await this.model.insertMany(mongoDocs)
+    const docs = await this.model.insertMany(mongoDocs, withSession(opts))
     return docs.map(d => toEntity<T>(d.toObject()))
   }
 
-  async updateMany(filter: Filter<T>, data: Partial<T>): Promise<number> {
+  async updateMany(filter: Filter<T>, data: Partial<T>, opts?: SessionOptions): Promise<number> {
     const mongoFilter = translateFilter(filter)
     const mongoData = toDocument(data)
-    const result = await this.model.updateMany(mongoFilter, mongoData).exec()
+    const result = await this.model.updateMany(mongoFilter, mongoData, withSession(opts)).exec()
     return result.modifiedCount
   }
 
-  async deleteMany(filter: Filter<T>): Promise<number> {
+  async deleteMany(filter: Filter<T>, opts?: SessionOptions): Promise<number> {
     const mongoFilter = translateFilter(filter)
-    const result = await this.model.deleteMany(mongoFilter).exec()
+    const result = await this.model.deleteMany(mongoFilter, withSession(opts)).exec()
     return result.deletedCount
   }
 }

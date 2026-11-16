@@ -40,7 +40,6 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     successKey: 'common.savedSuccessfully',
 
     partyRole: 'customer',
-    partyPicker: 'create',
     partyRequired: true,
     partyLabelKey: 'invoicing.client',
     captureBillingAddress: true,
@@ -110,7 +109,6 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     successKey: 'common.savedSuccessfully',
 
     partyRole: 'supplier',
-    partyPicker: 'plain',
     partyRequired: true,
     partyLabelKey: 'invoicing.supplier',
     contactFetchParams: { type: 'supplier' },
@@ -184,7 +182,6 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     successKey: 'common.savedSuccessfully',
 
     partyRole: 'customer',
-    partyPicker: 'plain',
     partyRequired: true,
     partyLabelKey: 'invoicing.client',
     captureBillingAddress: false,
@@ -258,7 +255,6 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     successKey: 'common.savedSuccessfully',
 
     partyRole: 'customer',
-    partyPicker: 'plain',
     partyRequired: true,
     partyLabelKey: 'invoicing.client',
     captureBillingAddress: false,
@@ -331,7 +327,6 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     successKey: 'common.savedSuccessfully',
 
     partyRole: 'customer',
-    partyPicker: 'create',
     partyRequired: true,
     partyLabelKey: 'invoicing.client',
     captureBillingAddress: false,
@@ -403,7 +398,6 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     successKey: 'common.savedSuccessfully',
 
     partyRole: 'customer',
-    partyPicker: 'create',
     partyRequired: true,
     partyLabelKey: 'invoicing.client',
     captureBillingAddress: false,
@@ -477,7 +471,6 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     successKey: 'common.savedSuccessfully',
 
     partyRole: 'supplier',
-    partyPicker: 'plain',
     partyRequired: true,
     partyLabelKey: 'invoicing.supplier',
     contactFetchParams: { type: 'supplier' },
@@ -549,7 +542,6 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     successKey: 'common.savedSuccessfully',
 
     partyRole: 'supplier',
-    partyPicker: 'plain',
     partyRequired: true,
     partyLabelKey: 'invoicing.supplier',
     contactFetchParams: { type: 'supplier' },
@@ -620,7 +612,6 @@ export const DOCUMENT_CONFIGS: Record<DocType, DocumentTypeConfig> = {
     successKey: 'invoicing.cashSaleCreated',
 
     partyRole: 'customer',
-    partyPicker: 'create',
     partyRequired: false,
     partyLabelKey: 'invoicing.client',
     captureBillingAddress: false,

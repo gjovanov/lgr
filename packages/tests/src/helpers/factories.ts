@@ -34,6 +34,7 @@ import {
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
 import { DEFAULT_ROLE_PERMISSIONS, MODULES } from 'config/constants'
+import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 
 const objectId = () => new Types.ObjectId()
 let warehouseCounter = 0
@@ -127,7 +128,18 @@ export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<I
     isActive: true,
     permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || [],
   }
-  return User.create({ ...defaults, ...overrides }) as Promise<IUser>
+  const user = await User.create({ ...defaults, ...overrides })
+  // FR-27 Phase 3, P3-4 (#529): every person has a role, as production does since 0015 and `seed-user` since #790:
+  // exactly the access their legacy fields give (the built-in role of `role`, or an imported one for other claims),
+  // by 0015's own code, scoped to the org. A test that passes `roleId` keeps it. Behaviour is unchanged while the org
+  // is on `legacy`; once the role decides everywhere (P3-2), the role is what the test's person may do.
+  if (!overrides.roleId) {
+    // ⚠ As an ObjectId: tests pass the org's id as a string too, and a string filter matches no stored row.
+    await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: { orgId: new Types.ObjectId(String(orgId)) } })
+    const roleId = (await User.findById(user._id, { roleId: 1 }).lean().exec() as any)?.roleId
+    if (roleId) user.roleId = roleId
+  }
+  return user as IUser
 }
 
 // Account codes are unique per org. A random 4-digit code collided now and then (two draws in one

@@ -163,6 +163,12 @@ export function spaErrorHandler(given?: OneSpaShell | Record<string, never> | nu
       set.status = 422
       return { code: 'server_owned_field', message: err.message, path: err.path }
     }
+    // FR-29.6: a booking the cost layers cannot carry (`services/biz/costing.service.ts`), on whichever
+    // route booked it: its code, the article and the warehouse by name. It was a 500 naming two ids.
+    if (err?.name === 'StockBookingRefusedError' && typeof err.toBody === 'function') {
+      set.status = 422
+      return err.toBody()
+    }
     // FR-20.81 (P3-6d): a legal number asked for while the series wait for the site's last numbers.
     if (err?.name === 'SeriesFrozenError') {
       set.status = 409
