@@ -46,6 +46,11 @@ already silently stripped; a new block must be added there), and the DAO does
 `findByIdAndUpdate` — **a partial `settings` object replaces the whole subdocument**
 (the UI compensates by always sending the full block, `OrganizationView.vue:389-415`).
 
+> **No longer so.** The route now writes each setting sent to its own path
+> (`services/biz/org-settings-update.ts`), so a save changes what it names and nothing else.
+> Sending "the full block" never was enough: the page has no control for the Backups section
+> or for the server's own, so each save of the page removed them from the stored block.
+
 **Settings UI**: `portal-ui/src/views/settings/OrganizationView.vue` — one form of 9
 cards; a new card slots at line 225 (between Modules and the read-only Subscription),
 with matching edits in the `form` reactive (`:378`), `save()` payload (`:399-414`) and
@@ -146,7 +151,8 @@ templating engine**. An EmailLog-based resend guard exists as precedent (`:824-8
   from `GET /org/:orgId/user?size=0`), section checkboxes, plus a **„Send test now"**
   button and a read-only „last run" line (status + timestamp + per-recipient outcome from
   FR-11.6). Wire the three sibling edits (form/save/hydrate) — remember the save payload
-  must carry the **full** settings block (subdocument-replacement semantics, §1).
+  must carry the **full** settings block (subdocument-replacement semantics, §1; no longer
+  so, see the note there).
 - **FR-11.3 (MUST — security rider)** The recipients picker sits on
   `GET /org/:orgId/user`, which currently returns **password hashes**. Add a projection
   (mirror `findByIdSafe`) excluding `password` (and `oauthProviders` tokens if present)
