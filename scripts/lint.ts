@@ -20,7 +20,8 @@
  * ⚠ oxlint runs under Bun (`bun <its entry>`), never through `node_modules/.bin`: that is a
  * `#!/usr/bin/env node` script, and the self-hosted CI runner has no Node.
  */
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { gate } from './lib/baseline-gate'
 import type { Diagnostic } from './lib/typecheck-baseline'
@@ -57,19 +58,31 @@ export function lintDiagnostics(report: OxlintReport): Diagnostic[] {
 async function main() {
   const update = process.argv.includes('--update')
   const started = performance.now()
-  const proc = Bun.spawn([process.execPath, join(ROOT, 'node_modules', 'oxlint', 'bin', 'oxlint'), '--type-aware', '--format', 'json', 'packages'], {
-    cwd: ROOT,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+  // ⚠ The report goes to a FILE, never a pipe. On Linux oxlint's launcher exits before a large
+  // report has drained into a pipe, and the first CI run read 64 KB of a 900 KB report: "no
+  // report", on a runner, while Windows (whose pipe writes block) read it whole.
+  const dir = mkdtempSync(join(tmpdir(), 'lgr-lint-'))
+  const out = join(dir, 'report.json')
+  let stdout: string, stderr: string, code: number
+  try {
+    const proc = Bun.spawn([process.execPath, join(ROOT, 'node_modules', 'oxlint', 'bin', 'oxlint'), '--type-aware', '--format', 'json', 'packages'], {
+      cwd: ROOT,
+      stdout: Bun.file(out),
+      stderr: 'pipe',
+    })
+    ;[stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited])
+    stdout = readFileSync(out, 'utf8')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
   let report: OxlintReport
   try {
     report = JSON.parse(stdout)
   } catch {
     // Not a report: oxlint itself failed (a broken config, a plugin that does not load). Never a pass.
-    console.error(stdout + stderr)
-    throw new Error(`oxlint exited ${code} without a report`)
+    const shown = stdout.length > 4000 ? `${stdout.slice(0, 2000)}\n…\n${stdout.slice(-2000)}` : stdout
+    console.error(`${shown}\n${stderr}`)
+    throw new Error(`oxlint exited ${code} without a report (${stdout.length} characters of output)`)
   }
   const diagnostics = lintDiagnostics(report)
   const seconds = (performance.now() - started) / 1000
