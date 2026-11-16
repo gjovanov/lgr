@@ -569,14 +569,14 @@ export async function createInvoiceStockMovement(invoice: IInvoice, userId: stri
   if (opts?.resume) {
     const sideOf = (m: any) => String(stockSide === 'from' ? m.fromWarehouseId : m.toWarehouseId)
     const left: any[] = await r.stockMovements.findMany({ orgId, invoiceId: invoice.id, type: movementType } as any, undefined, { session })
-    const booked = new Set(left.filter(isBooked).map(sideOf))
+    const standing = new Set(left.filter(isBooked).map(sideOf))
     for (const draft of left.filter(m => m.status === 'draft')) {
       // Removed only while nobody confirms it from the movements list: that one is let finish.
       const gone = await StockMovement.deleteOne({ _id: draft.id, orgId, status: 'draft', ...unclaimedMovement() } as any, session ? { session } : {}).exec()
       if (!gone.deletedCount) throw new MovementClaimedError(draft.movementNumber)
       logger.info({ invoiceId: invoice.id, movementId: draft.id }, 'Draft movement an earlier issue left: removed, booked again')
     }
-    for (const warehouseId of booked) byWarehouse.delete(warehouseId)
+    for (const warehouseId of standing) byWarehouse.delete(warehouseId)
     if (!byWarehouse.size) return []
   }
   const linesToBook = [...byWarehouse.values()].flat()
