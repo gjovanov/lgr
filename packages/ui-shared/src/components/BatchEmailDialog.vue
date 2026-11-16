@@ -140,8 +140,8 @@
         </div>
       </v-card-text>
 
-      <v-card-actions class="px-4 pb-3">
-        <span v-if="footNote" class="text-body-2" :class="footNote.error ? 'text-error' : 'text-medium-emphasis'" data-testid="batch-email-note">
+      <v-card-actions class="px-4 pb-3 flex-wrap">
+        <span v-if="footNote" class="batch-email-note text-body-2" :class="footNote.error ? 'text-error' : 'text-medium-emphasis'" data-testid="batch-email-note">
           {{ footNote.text }}
         </span>
         <v-spacer />
@@ -168,6 +168,7 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useDisplay } from 'vuetify'
 import {
   DOC_EMAIL_BLOCKS, MAX_DOCS_PER_MAIL, wentOut, type DocEmailPreviewRow, type DocEmailRecipientGroup, type DocEmailResult,
 } from 'config/doc-email'
@@ -218,6 +219,7 @@ const emit = defineEmits<{
 
 const { t, te } = useI18n()
 const { showSuccess } = useSnackbar()
+const { xs } = useDisplay()
 
 const {
   phase, loadFailed, loadError, sendable, blocked, groups, hasPartner,
@@ -276,9 +278,10 @@ const blockedByReason = computed(() => DOC_EMAIL_BLOCKS
   })
   .filter(b => b.count > 0))
 
+/** On a phone the button says the verb alone: the counts do not fit it, and the lines above carry them. */
 const sendLabel = computed(() => {
   const { documents, recipients } = totals.value
-  if (!documents) return t('docEmail.send')
+  if (!documents || xs.value) return t('docEmail.send')
   return t('docEmail.sendN', { documents: t('docEmail.nDocuments', documents), recipients: t('docEmail.nRecipients', recipients) })
 })
 
@@ -356,5 +359,25 @@ async function submit() {
 .batch-email-line__to {
   flex: 0 0 320px;
   max-width: 55%;
+}
+/* A phone: the address under its partner at full width, so it can be read and typed; the note on a line of its own,
+   so Cancel and the button both stay on the screen. */
+@media (max-width: 599.98px) {
+  .batch-email-line {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+  .batch-email-line__who {
+    flex: 0 0 auto;
+  }
+  .batch-email-line__to {
+    flex: 0 0 auto;
+    max-width: none;
+  }
+  .batch-email-note {
+    flex: 1 1 100%;
+    margin-bottom: 4px;
+  }
 }
 </style>
