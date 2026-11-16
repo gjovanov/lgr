@@ -1851,6 +1851,28 @@ An ORDI had no printed form: nothing to hand a client, nothing an e-mail could a
 
 Routes: `/inventory/products/:id/:tab` where `tab ∈ {edit|pricing|settings|stock|ledger|movements|levels}`. `/products/:id` redirects to `/edit`, `/products/new` to `/new/edit`. Shared `ProductTabBar.vue` component at top of both ProductFormView and ProductStockView navigates between siblings via named routes (works in both inventory-ui and desktop-ui). `new` mode disables stock/ledger/movements/levels tabs with "save first" tooltip.
 
+## A stock booking is one transaction (FR-29 A, #794)
+
+`confirmMovement` (`services/biz/warehouse.service.ts`) stores a movement's levels, cost layers and
+`completed` together or not at all. Before, a line that failed kept what the lines before it had moved,
+and each retry moved them again.
+- The claim (`claimedUntil`) is still taken OUTSIDE the transaction, so a second confirm is told at
+  once (409 `movement_busy`). A confirm that fails releases its own claim before it answers.
+- **`{ session }` joins the caller's transaction** and starts none. The caller then commits or aborts
+  both, and sends `stock.movement.confirmed` itself AFTER its commit (`announceMovementConfirmed`).
+  ⚠ A caller that catches the booking's error must abort, never commit.
+- ⚠ **Every write of the booking carries the session**: `adjustStock`, `moveLevel`, `createCostLayers`,
+  `consumeCostLayers`, `restoreCostLayers` take it. A write without it commits at once, outside the
+  booking. `movement-confirm-atomic.flow` reads the driver's own calls and fails on one.
+- ⚠ **Never two operations at once on a transaction's session** (`Promise.all`). Both try to start
+  the transaction, and `withTransaction` runs the whole booking again.
+- A duplicate key inside a transaction aborts it, so a level two bookings create at the same moment
+  makes the booking run again (`inBookingTransaction`), not `adjustStock`'s land-on-the-row fallback.
+- A cost-layer refusal is `StockBookingRefusedError`: 422 `no_cost_layer` / `insufficient_cost_layers`,
+  with the article's name and SKU and the warehouse's name, on every route (`spaErrorHandler`). It
+  was a 500 naming two ids.
+- The repository methods take `{ select, session }` as their last argument (FR-32.14).
+
 ## External warehouse (2026-11-16)
 
 The owner's ask: a warehouse can be marked **external**: another site's warehouse, named in this org

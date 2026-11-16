@@ -1,6 +1,6 @@
 /**
  * Why the API refused a movement, a bill made from receipts or a bill's receiving, in the user's language (#168),
- * and an invoice made from stock notes (FR-22.61, #725).
+ * and an invoice made from stock notes (FR-22.61, #725), and a booking the cost layers cannot carry (FR-29.6).
  *
  * The services answer in English with a `code`, and whatever the refusal names beside it
  * (`movementNumber`). The screens that show one of these codes show this sentence; any other refusal
@@ -42,6 +42,9 @@ export const STOCK_REFUSAL_CODES = [
   'invoice_already_linked',
   'nothing_to_invoice',
   'dispatch_quantity_mismatch',
+  // FR-29.6: a booking the cost layers cannot carry, with the article and the warehouse by name.
+  'no_cost_layer',
+  'insufficient_cost_layers',
 ] as const
 
 type Translate = (key: string, params?: Record<string, unknown>) => string

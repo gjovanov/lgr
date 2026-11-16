@@ -236,12 +236,11 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
         await confirmMovement(movement.id, r)
         adjustmentMovementId = movement.id
       } else {
-        // No variance — update lastCountDate on stock levels
-        for (const line of doc.lines) {
-          const sl = await r.stockLevels.findOne({ orgId, productId: line.productId, warehouseId: doc.warehouseId } as any)
-          if (sl) {
-            await r.stockLevels.update(sl.id, { lastCountDate: new Date() } as any)
-          }
+        // No variance — update lastCountDate on stock levels: one write for the count, not a read and a
+        // write per line (FR-29.5).
+        const counted = [...new Set((doc.lines ?? []).map((l: any) => String(l.productId)).filter(Boolean))]
+        if (counted.length) {
+          await r.stockLevels.updateMany({ orgId, warehouseId: doc.warehouseId, productId: { $in: counted } } as any, { lastCountDate: new Date() } as any)
         }
       }
 

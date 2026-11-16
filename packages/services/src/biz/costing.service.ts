@@ -1,6 +1,7 @@
-import type { RepositoryRegistry } from 'dal'
+import type { DalSession, RepositoryRegistry } from 'dal'
 import type { ICostLayer } from 'dal/entities'
 import type { CostingMethod } from 'config'
+import type { ClientSession } from 'mongoose'
 import { CostLayer } from 'db/models'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
@@ -17,6 +18,89 @@ export interface ConsumptionResult {
   totalCost: number
   weightedUnitCost: number
   costingMethod: CostingMethod
+}
+
+export type StockBookingRefusalCode = 'no_cost_layer' | 'insufficient_cost_layers'
+
+/**
+ * A booking the cost layers cannot carry (FR-29.6): an article on a layered method (FIFO, LIFO, FEFO)
+ * leaves a warehouse whose layers hold none of it, or less than leaves.
+ *
+ * Thrown by `consumeCostLayers` with the ids; `confirmMovement` names the article (name, SKU) and the
+ * warehouse before it answers (`nameRefusal`), so no message a person reads carries a database id.
+ * Answered 422 with its `code` by the API's error handler (`spa-fallback.ts`), on every route that books.
+ * It used to be a plain `Error` naming two ids, answered 500.
+ */
+export class StockBookingRefusedError extends Error {
+  override readonly name = 'StockBookingRefusedError'
+  product?: string
+  sku?: string
+  warehouse?: string
+
+  constructor(
+    readonly code: StockBookingRefusalCode,
+    readonly productId: string,
+    readonly warehouseId: string,
+    readonly needed: number,
+    readonly available: number,
+  ) {
+    super('')
+    this.message = this.describe()
+  }
+
+  /** Puts the names in, and the sentence with them. */
+  named(names: { product?: string; sku?: string; warehouse?: string }): this {
+    this.product = names.product
+    this.sku = names.sku
+    this.warehouse = names.warehouse
+    this.message = this.describe()
+    return this
+  }
+
+  private describe(): string {
+    const article = this.product ? `"${this.product}"${this.sku ? ` (SKU ${this.sku})` : ''}` : 'the article'
+    const where = this.warehouse ? `in ${this.warehouse}` : 'in this warehouse'
+    // The openings are the old messages' own, so what read them still finds them.
+    return this.code === 'no_cost_layer'
+      ? `No cost layers available for ${article} ${where}: it cannot be booked out at a cost.`
+      : `Insufficient cost layers for ${article} ${where}: they hold ${this.available}, and ${this.needed} is to be booked out.`
+  }
+
+  /** The 422's body: the code and what the screens word it with (`warehouse.refusals.*`). */
+  toBody() {
+    return { code: this.code, message: this.message, product: this.product, sku: this.sku, warehouse: this.warehouse, needed: this.needed, available: this.available }
+  }
+}
+
+/** What a booking knows of an article's costing before it moves anything (FR-29.5). */
+export interface ArticleCosting {
+  method: CostingMethod
+  standardCost?: number
+}
+
+/**
+ * The costing of every article of a booking, in two reads whatever the number of lines: the org's
+ * default once, the articles' own methods and standard costs in one query. Same rule as
+ * `getEffectiveCostingMethod`: the article's method, else the org's default, else WAC.
+ */
+export async function costingOfArticles(
+  orgId: string,
+  productIds: unknown[],
+  repos?: RepositoryRegistry,
+  opts?: { session?: DalSession },
+): Promise<Map<string, ArticleCosting>> {
+  const r = repos ?? getRepos()
+  const ids = [...new Set(productIds.filter(Boolean).map(String))]
+  // ⚠ One after the other, never `Promise.all`: operations of one transaction run serially. Two at once
+  // on its session both try to start it, and the loser makes `withTransaction` run the booking again.
+  const products = ids.length ? await r.products.findMany({ orgId, id: { $in: ids } } as any, undefined, { select: ['costingMethod', 'standardCost'], session: opts?.session }) : []
+  const org = await r.orgs.findOne({ id: orgId } as any, { select: ['settings.inventory.defaultCostingMethod'], session: opts?.session })
+  const orgDefault = ((org as any)?.settings?.inventory?.defaultCostingMethod || 'wac') as CostingMethod
+  const byId = new Map(products.map(p => [String(p.id), p]))
+  return new Map(ids.map(id => {
+    const p: any = byId.get(id)
+    return [id, { method: (p?.costingMethod || orgDefault) as CostingMethod, standardCost: p?.standardCost }]
+  }))
 }
 
 /**
@@ -52,6 +136,7 @@ export async function createCostLayers(
   movementDate: Date,
   line: { productId: string; quantity: number; unitCost: number; batchNumber?: string; expiryDate?: Date; serialNumbers?: string[] },
   repos?: RepositoryRegistry,
+  opts?: { session?: DalSession },
 ): Promise<ICostLayer[]> {
   const r = repos ?? getRepos()
 
@@ -69,7 +154,7 @@ export async function createCostLayers(
     sourceMovementNumber: movementNumber,
     receivedAt: movementDate,
     isExhausted: false,
-  } as any)
+  } as any, { session: opts?.session })
 
   logger.info({ orgId, productId: line.productId, warehouseId, layerId: layer.id, qty: line.quantity, cost: line.unitCost }, 'Cost layer created')
 
@@ -84,11 +169,12 @@ export async function createCostLayers(
  * take 3, both write 7, and the layer still holds goods that have left. A `$gte` guard in the filter
  * does not stop that on its own, because both writes pass it.
  */
-function takeFromLayer(orgId: string, layerId: string, quantity: number) {
+function takeFromLayer(orgId: string, layerId: string, quantity: number, session?: ClientSession) {
   const remaining = { $subtract: ['$remainingQuantity', quantity] }
   return CostLayer.findOneAndUpdate(
     { _id: layerId, orgId, remainingQuantity: { $gte: quantity } } as any,
     [{ $set: { remainingQuantity: remaining, isExhausted: { $lte: [remaining, 0] } } }],
+    session ? { session } : {},
   ).lean().exec()
 }
 
@@ -103,9 +189,11 @@ export async function consumeCostLayers(
   quantity: number,
   method: CostingMethod,
   repos?: RepositoryRegistry,
-  options?: { stockLevel?: { avgCost: number }; standardCost?: number },
+  options?: { stockLevel?: { avgCost: number }; standardCost?: number; session?: DalSession },
 ): Promise<ConsumptionResult> {
   const r = repos ?? getRepos()
+  // FR-29.3: inside a booking's transaction, every read and write of the layers carries it.
+  const session = options?.session as ClientSession | undefined
 
   // WAC: no layer consumption — use StockLevel.avgCost
   if (method === 'wac') {
@@ -136,10 +224,11 @@ export async function consumeCostLayers(
   const layers = await r.costLayers.findMany(
     { orgId, productId, warehouseId, isExhausted: false } as any,
     { [sortKey]: sortOrder },
+    { session },
   )
 
   if (!layers.length) {
-    throw new Error(`No cost layers available for product ${productId} in warehouse ${warehouseId}`)
+    throw new StockBookingRefusedError('no_cost_layer', String(productId), String(warehouseId), quantity, 0)
   }
 
   let remaining = quantity
@@ -152,7 +241,7 @@ export async function consumeCostLayers(
     let available = layer.remainingQuantity
     while (remaining > 0 && available > 0) {
       const consume = Math.min(remaining, available)
-      if (await takeFromLayer(orgId, layer.id, consume)) {
+      if (await takeFromLayer(orgId, layer.id, consume, session)) {
         const cost = consume * layer.unitCost
         allocations.push({
           costLayerId: layer.id,
@@ -166,15 +255,17 @@ export async function consumeCostLayers(
       }
       // Another dispatch took from this layer after it was read: take what it holds now, and go on
       // to the next layer for the rest.
-      const now: any = await CostLayer.findOne({ _id: layer.id, orgId } as any, { remainingQuantity: 1, isExhausted: 1 }).lean().exec()
+      const now: any = await CostLayer.findOne({ _id: layer.id, orgId } as any, { remainingQuantity: 1, isExhausted: 1 }, session ? { session } : {}).lean().exec()
       available = now && !now.isExhausted ? now.remainingQuantity : 0
     }
   }
 
   if (remaining > 0) {
-    // All or nothing: a dispatch the layers cannot cover must not keep what it took from them.
-    await restoreCostLayers(allocations)
-    throw new Error(`Insufficient cost layers: need ${quantity} but only ${quantity - remaining} available for product ${productId}`)
+    // All or nothing: a dispatch the layers cannot cover must not keep what it took from them. Inside a
+    // transaction its abort undoes them too; restored through the session all the same, since a write
+    // outside it would wait on the very layers the transaction holds.
+    await restoreCostLayers(allocations, r, { session })
+    throw new StockBookingRefusedError('insufficient_cost_layers', String(productId), String(warehouseId), quantity, quantity - remaining)
   }
 
   const weightedUnitCost = quantity > 0 ? totalCost / quantity : 0
@@ -190,13 +281,16 @@ export async function consumeCostLayers(
 export async function restoreCostLayers(
   allocations: CostAllocationResult[],
   _repos?: RepositoryRegistry,
+  opts?: { session?: DalSession },
 ): Promise<void> {
+  const session = opts?.session as ClientSession | undefined
   for (const alloc of allocations) {
     // One write, like `takeFromLayer`: adding to a remainder read a moment earlier would undo a
     // dispatch that took from the layer in between.
     await CostLayer.updateOne(
       { _id: alloc.costLayerId } as any,
       { $inc: { remainingQuantity: alloc.quantity }, $set: { isExhausted: false } },
+      session ? { session } : {},
     ).exec()
   }
 }
