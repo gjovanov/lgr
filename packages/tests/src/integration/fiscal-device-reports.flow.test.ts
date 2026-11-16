@@ -14,6 +14,7 @@ import { config } from 'config'
 import { PERMISSIONS } from 'config/constants'
 import { AuditLog, FiscalDevice } from 'db/models'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
+import { tokenize } from 'services/biz/auth.service'
 import { createTestOrg, createTestUser, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
 import { getRepos } from 'services/context'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
@@ -39,9 +40,14 @@ afterEach(async () => {
 }, 30_000)
 
 const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
-const USER_ID = '000000000000000000000001'
-const token = (orgId: string, role: string) =>
-  (signer as any).decorator.jwt.sign({ id: USER_ID, orgId, role, permissions: [...PERMISSIONS], ownRecordsModules: [] })
+/**
+ * A session of a person holding the built-in role of that key, as sign-in issues it. FR-27 P3-2: the role decides, so
+ * the caller is a real person with a role, never a made-up id with claims written over it.
+ */
+const token = async (orgId: string, role: string) => {
+  const person = await createTestUser(orgId as any, { role } as any)
+  return (signer as any).decorator.jwt.sign(await tokenize(person))
+}
 
 type Role = 'admin' | 'manager' | 'warehouse_manager' | 'member'
 
