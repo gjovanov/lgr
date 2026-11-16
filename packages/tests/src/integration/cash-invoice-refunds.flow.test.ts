@@ -74,6 +74,19 @@ function justAfter(at: (update: any) => boolean, meanwhile: () => Promise<unknow
   ;(Invoice as any).findOneAndUpdate = function (filter: any, update: any, ...rest: any[]) {
     if (done || !at(update)) return (real as any).call(Invoice, filter, update, ...rest)
     done = true
+    // FR-29.8: a write made inside a transaction (the issue's status, `issueDocument`) has landed once that
+    // transaction commits: `meanwhile` runs then, as another request would meet it.
+    const session = rest.find(o => o?.session)?.session
+    if (session) {
+      const commit = session.commitTransaction.bind(session)
+      session.commitTransaction = async (...args: any[]) => {
+        const out = await commit(...args)
+        session.commitTransaction = commit
+        await meanwhile()
+        return out
+      }
+      return (real as any).call(Invoice, filter, update, ...rest)
+    }
     const chain = {
       lean: () => chain,
       exec: async () => { const written = await (real as any).call(Invoice, filter, update, ...rest).lean().exec(); await meanwhile(); return written },
