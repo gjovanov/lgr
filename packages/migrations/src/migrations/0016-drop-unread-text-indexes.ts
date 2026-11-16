@@ -23,7 +23,7 @@ export const dropUnreadTextIndexes: Migration = {
   id: '0016-drop-unread-text-indexes',
   description: 'Drop the seven text indexes nothing reads; every write kept them up (FR-30.4)',
   async up({ db, log }) {
-    const present = new Set((await db.listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name))
+    const present = new Set((await db.listCollections({}, { nameOnly: true }).toArray()).map((c: { name: string }) => c.name))
     for (const name of TEXT_INDEX_COLLECTIONS) {
       if (!present.has(name)) continue
       const collection = db.collection(name)
