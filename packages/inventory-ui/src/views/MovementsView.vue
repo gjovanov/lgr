@@ -255,6 +255,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { sortableHeaders } from 'config/list-sorts'
+import { latestOnly } from 'ui-shared/composables/latest-only'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -463,21 +464,30 @@ function statusColor(s: string) { return ({ draft: 'grey', confirmed: 'info', co
 watch(productSearchQuery, (q) => {
   if (productDebounceTimer) clearTimeout(productDebounceTimer)
   if (!q || q.length < 2) {
+    productLookup.cancel()
+    productSearchLoading.value = false
     productSearchResults.value = [...selectedProducts.value]
     return
   }
   productDebounceTimer = setTimeout(async () => {
     productSearchLoading.value = true
     try {
-      const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product`, { params: { search: q, size: 10 } })
-      const results = (data.products || []).map((p: any) => ({ ...p, displayName: `${p.name} (${p.sku})` }))
+      const answer = await productLookup(q)
+      // FR-31.4: a slow answer to an earlier word is dropped; the newer search owns the list and the spinner.
+      if (!answer.latest) return
+      const results = (answer.value.products || []).map((p: any) => ({ ...p, displayName: `${p.name} (${p.sku})` }))
       // Merge with already selected products to keep them in the list
       const selectedIds = new Set(selectedProducts.value.map(p => p._id))
       productSearchResults.value = [...selectedProducts.value, ...results.filter((r: any) => !selectedIds.has(r._id))]
-    } catch { /* */ } finally {
+      productSearchLoading.value = false
+    } catch {
       productSearchLoading.value = false
     }
   }, 300)
+})
+const productLookup = latestOnly(async (signal, q: string) => {
+  const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product`, { params: { search: q, size: 10 }, signal })
+  return data
 })
 
 watch(selectedProducts, (prods) => {

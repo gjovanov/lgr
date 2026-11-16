@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { httpClient } from './useHttpClient'
+import { latestOnly } from './latest-only'
 
 /**
  * A contact picker's list, searched on the server (FR-22.6).
@@ -60,8 +61,8 @@ export function useContactSearch(opts: ContactSearchOptions) {
   const contacts = ref<SearchedContact[]>([])
   const loading = ref(false)
   let timer: ReturnType<typeof setTimeout> | null = null
-  // A slower answer to an older query must never replace the answer to a newer one.
-  let latest = 0
+  // A slower answer to an older query must never replace the answer to a newer one (FR-31.4).
+  const request = latestOnly((signal, url: string, params: Record<string, string | number>) => httpClient.get(url, { params, signal }))
 
   function selectedIds(): string[] {
     return [...new Set((opts.selected?.() ?? []).filter((id): id is string => !!id).map(String))]
@@ -69,7 +70,6 @@ export function useContactSearch(opts: ContactSearchOptions) {
 
   /** One page of contacts matching `text` (all of them when empty). */
   async function search(text?: string | null): Promise<void> {
-    const mine = ++latest
     loading.value = true
     try {
       const params: Record<string, string | number> = { size: opts.size ?? 20 }
@@ -81,17 +81,19 @@ export function useContactSearch(opts: ContactSearchOptions) {
       }
       const q = (text ?? '').trim()
       if (q) params.search = q
-      const { data } = await httpClient.get(`${opts.orgUrl()}/invoicing/contact`, { params })
-      if (mine !== latest) return
+      const answer = await request(`${opts.orgUrl()}/invoicing/contact`, params)
+      // A newer search owns the list and the spinner.
+      if (!answer.latest) return
+      const { data } = answer.value
       const found = ((data?.contacts ?? []) as any[]).map(normalise)
       const ids = new Set(found.map(c => c._id))
       const selected = new Set(selectedIds())
       const kept = contacts.value.filter(c => selected.has(c._id) && !ids.has(c._id))
       contacts.value = [...kept, ...found]
+      loading.value = false
     } catch {
       // Keep what is shown: a failed search must not empty a field the user is filling in.
-    } finally {
-      if (mine === latest) loading.value = false
+      loading.value = false
     }
   }
 

@@ -48,6 +48,8 @@
     "./composables/usePriceResolver": "./src/composables/usePriceResolver.ts",
     "./composables/useContactLedger": "./src/composables/useContactLedger.ts",
     "./composables/useSearchDebounce": "./src/composables/useSearchDebounce.ts",
+    "./composables/latest-only": "./src/composables/latest-only.ts",
+    "./composables/price-lookups": "./src/composables/price-lookups.ts",
     "./components/ContactLedgerDialog": "./src/components/ContactLedgerDialog.vue",
     "./components/ContactLedgerDialog.vue": "./src/components/ContactLedgerDialog.vue",
     "./components/LedgerMovementLinks": "./src/components/LedgerMovementLinks.vue",

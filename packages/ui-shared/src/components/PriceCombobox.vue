@@ -44,11 +44,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { VCombobox, VSelect } from 'vuetify/components'
 import { fetchPriceOptions, formatPriceItem, priceOptionLabel, type PriceOption } from '../composables/usePriceOptions'
 import { parseTypedPrice } from '../composables/price-precision'
+import { latestOnly } from '../composables/latest-only'
+import { PRICE_LOOKUP_DELAY_MS, waitingPriceLookup } from '../composables/price-lookups'
 
 const props = withDefaults(defineProps<{
   modelValue: number
@@ -140,26 +142,56 @@ function typeColor(type?: string) {
   }
 }
 
+/**
+ * FR-31.4: the prices of the latest question only. A slow answer for a quantity already replaced used to set the
+ * line's price after the answer for the quantity on the screen.
+ */
+const lookup = latestOnly((signal, orgUrl: string, productId: string, contactId: string | undefined, quantity: number | undefined, all: boolean) =>
+  fetchPriceOptions(orgUrl, productId, contactId, quantity, all, signal))
+
 async function loadOptions() {
   if (!props.productId) {
+    lookup.cancel()
+    loading.value = false
     options.value = []
     return
   }
   loading.value = true
-  try {
-    const result = await fetchPriceOptions(props.orgUrl, props.productId, props.contactId, props.quantity, props.all)
-    options.value = result.options
-    resolvedKey.value = result.resolvedKey
+  const answer = await lookup(props.orgUrl, props.productId, props.contactId, props.quantity, props.all)
+  // A newer lookup owns the options and the spinner.
+  if (!answer.latest) return
+  options.value = answer.value.options
+  resolvedKey.value = answer.value.resolvedKey
+  loading.value = false
 
-    // Auto-select the resolved option and emit its price
-    await nextTick()
-    autoSelectResolved()
-  } catch {
-    options.value = []
-  } finally {
-    loading.value = false
-  }
+  // Auto-select the resolved option and emit its price
+  await nextTick()
+  autoSelectResolved()
 }
+
+/**
+ * FR-31.5: the quantity's lookup waits for the typing to stop, so a three-digit quantity makes one lookup. While it
+ * waits, leaving the quantity field or saving runs it at once (`flushPriceLookups`): the line never carries the price
+ * of a quantity that was already replaced.
+ */
+let quantityTimer: ReturnType<typeof setTimeout> | null = null
+let stopWaiting: (() => void) | null = null
+function lookupNow(): Promise<void> {
+  if (quantityTimer) { clearTimeout(quantityTimer); quantityTimer = null }
+  stopWaiting?.()
+  stopWaiting = null
+  return loadOptions()
+}
+function lookupAfterTyping() {
+  if (quantityTimer) clearTimeout(quantityTimer)
+  quantityTimer = setTimeout(() => { void lookupNow() }, PRICE_LOOKUP_DELAY_MS)
+  if (!stopWaiting) stopWaiting = waitingPriceLookup(lookupNow)
+}
+onBeforeUnmount(() => {
+  if (quantityTimer) clearTimeout(quantityTimer)
+  stopWaiting?.()
+  lookup.cancel()
+})
 
 /**
  * Build the full price explanation chain: always starts with selling price,
@@ -251,7 +283,7 @@ function onValueChange(val: any) {
 watch(() => props.productId, loadOptions)
 watch(() => props.contactId, loadOptions)
 watch(() => props.all, loadOptions)
-watch(() => props.quantity, loadOptions, { flush: 'post' })
+watch(() => props.quantity, lookupAfterTyping, { flush: 'post' })
 
 onMounted(loadOptions)
 </script>

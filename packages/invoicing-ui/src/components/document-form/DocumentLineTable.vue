@@ -181,7 +181,8 @@
           <template v-for="col in lineCells" :key="col.key">
           <td v-if="col.key === 'qty'">
             <!-- the column width (catalog) fits 5-digit quantities plus the number-input spinner -->
-            <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" />
+            <!-- FR-31.5: the price follows the quantity once the typing stops; leaving the field looks it up at once. -->
+            <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" @blur="flushPriceLookups" />
           </td>
           <td v-else-if="col.key === 'unit'">
             <!-- Owner, 2026-11-12: on an outgoing document the unit is the article's once the line has one. -->
@@ -308,6 +309,7 @@ import GRColumnPickerDialog from 'ui-shared/components/GRColumnPickerDialog.vue'
 import QuickProductDialog from 'ui-shared/components/QuickProductDialog.vue'
 import { computed, ref } from 'vue'
 import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
+import { flushPriceLookups } from 'ui-shared/composables/price-lookups'
 import { useAccess } from 'ui-shared/access/useAccess'
 
 const props = defineProps<{

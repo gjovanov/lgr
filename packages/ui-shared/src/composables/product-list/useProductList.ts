@@ -4,6 +4,7 @@ import { hasNoReorderLevels, reorderPosition, toOrderQuantity } from 'config/reo
 import { accessGrant, useAccess } from '../../access/useAccess'
 import { liveAccessVersion } from '../../access/live-grant'
 import { httpClient } from '../useHttpClient'
+import { latestOnly } from '../latest-only'
 import { contactTitle, useContactSearch } from '../useContactSearch'
 import { useListQueryState } from '../useListQueryState'
 import { useSearchDebounce } from '../useSearchDebounce'
@@ -203,8 +204,10 @@ export function useProductList(opts: UseProductListOptions) {
   /**
    * One request in flight per set of parameters, and only the newest answer counts. A table asks for its page
    * when it mounts (Vuetify's first `update:options`) and its owner asks for it when it opens; those are one
-   * request, not two (FR-28.29 counts them). A slower answer for earlier filters never overwrites the current one.
+   * request, not two (FR-28.29 counts them). A slower answer for earlier filters never overwrites the current one:
+   * `latestOnly` drops it, its error with it, and aborts its request (FR-31.4).
    */
+  const request = latestOnly((signal, endpoint: string, params: Record<string, any>) => httpClient.get(endpoint, { params, signal }))
   let requestSeq = 0
   let inFlight: Promise<void> | null = null
   let inFlightKey = ''
@@ -231,23 +234,27 @@ export function useProductList(opts: UseProductListOptions) {
     loading.value = true
     const run = (async () => {
       try {
-        const { data } = await httpClient.get(endpoint, { params })
-        if (mine !== requestSeq) return
+        const answer = await request(endpoint, params)
+        // A newer request owns the rows and the spinner (FR-31.4).
+        if (!answer.latest) return
+        const { data } = answer.value
         const rows: any[] = data.products || data.items || []
         items.value = source === 'till' ? rows.map(tillRow) : rows
         pagination.value.total = data.total ?? 0
         pagination.value.totalPages = data.totalPages ?? 0
+        loading.value = false
       } catch (e: any) {
+        // Only the latest request's error reaches here: an earlier one's is dropped by `latestOnly`.
+        loading.value = false
         // FR-27.11.C.3 / D: the server refused a sort on a price the role does not see (an old URL, read before the
         // tab had the role's live grant): the list opens on its default sort instead of failing.
-        if (mine === requestSeq && refusedSort(e, pagination.value.sortBy, defaultSortBy)) {
+        if (refusedSort(e, pagination.value.sortBy, defaultSortBy)) {
           pagination.value.sortBy = defaultSortBy
           queueMicrotask(() => void fetchItems())
           return
         }
         throw e
       } finally {
-        if (mine === requestSeq) loading.value = false
         // Only the request that is still THE one in flight clears the marker (a newer one has replaced it).
         if (inFlightSeq === mine) { inFlight = null; inFlightKey = '' }
       }

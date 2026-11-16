@@ -56,6 +56,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { numberFormat } from '../composables/number-display'
+import { latestOnly } from '../composables/latest-only'
 import { useAccess } from '../access/useAccess'
 import { useI18n } from 'vue-i18n'
 import {
@@ -208,6 +209,9 @@ watch(() => props.initialProduct, (p) => syncFromInitial(p))
 watch(searchQuery, (q) => {
   if (debounceTimer) clearTimeout(debounceTimer)
   if (!q || q.length < SEARCH_MIN_CHARS) {
+    // A search still on its way answers a question nobody asks any more.
+    search.cancel()
+    loading.value = false
     products.value = selectedProduct.value ? [selectedProduct.value] : []
     total.value = 0
     return
@@ -215,18 +219,25 @@ watch(searchQuery, (q) => {
   debounceTimer = setTimeout(() => fetchProducts(q), SEARCH_DEBOUNCE_MS)
 })
 
+/** FR-31.4: only the answer to the latest search reaches the list; a slow earlier one is dropped. */
+const search = latestOnly((signal, orgUrl: string, query: string) => searchProductHits(orgUrl, query, signal))
+onBeforeUnmount(() => search.cancel())
+
 async function fetchProducts(query: string) {
   loading.value = true
   try {
-    const found = await searchProductHits(props.orgUrl, query)
-    products.value = found.products.map((p: any) => ({
+    const answer = await search(props.orgUrl, query)
+    // A newer search owns the list and the spinner.
+    if (!answer.latest) return
+    products.value = answer.value.products.map((p: any) => ({
       ...p,
       displayName: `${p.name} (${p.sku})`,
     }))
-    total.value = found.total
+    total.value = answer.value.total
     answeredFor.value = query.trim()
     void loadStockOfHits(query.trim())
-  } catch { /* */ } finally {
+    loading.value = false
+  } catch {
     loading.value = false
   }
 }

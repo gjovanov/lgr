@@ -86,8 +86,8 @@ export interface HitSearchResult {
  * otherwise, and the inline search used to be the one that listed deactivated ones too — so "Show all 13 results"
  * could open a dialog of 12. A deactivated article is one Status change away in Details.
  */
-export async function searchProductHits(orgUrl: string, text: string): Promise<HitSearchResult> {
-  const { data } = await httpClient.get(`${orgUrl}/warehouse/product`, { params: { search: text, size: SEARCH_HITS, isActive: "true" } })
+export async function searchProductHits(orgUrl: string, text: string, signal?: AbortSignal): Promise<HitSearchResult> {
+  const { data } = await httpClient.get(`${orgUrl}/warehouse/product`, { params: { search: text, size: SEARCH_HITS, isActive: "true" }, signal })
   const products: any[] = data.products || []
   return { products, total: Number(data.total) || products.length }
 }
