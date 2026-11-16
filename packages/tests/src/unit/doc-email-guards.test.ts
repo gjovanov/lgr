@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'bun:test'
 // Import-pure module (no db/models): this file must never boot Mongoose, as `email-guards.test.ts`.
 import {
-  EMAIL_RE, RESEND_WINDOW_MS, emailRequestBlock, invoiceEmailSkip, isValidRecipient, mayEmailInvoices, mayEmailOrders, orderEmailAccess,
-  orderEmailSkip,
+  EMAIL_RE, RESEND_WINDOW_MS, emailRequestBlock, internalOrderEmailAccess, internalOrderEmailSkip, invoiceEmailSkip, isValidRecipient,
+  mayEmailInternalOrders, mayEmailInvoices, mayEmailOrders, orderEmailAccess, orderEmailSkip,
 } from 'invoicing-api/src/lib/email-guards'
 import * as docEmail from 'config/doc-email'
-import { compileLegacy, type CapabilityId, type Grant } from 'config/access'
-import { DEFAULT_ROLE_PERMISSIONS, ROLES, type Role } from 'config/constants'
+import { accessRuleFor, compileLegacy, type CapabilityId, type Grant } from 'config/access'
+import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, ROLES, type Role } from 'config/constants'
 
 /**
  * Which of a list's ticked documents go by e-mail (2026-11-16): the rule per document.
@@ -169,5 +169,96 @@ describe('a supplier order\'s sheet', () => {
     expect(mayEmailOrders(access('manager'))).toBe(true)
     expect(mayEmailOrders(access('member'))).toBe(false)
     expect(mayEmailOrders(access('nra_auditor'))).toBe(false)
+  })
+})
+
+describe('a customer order\'s sheet', () => {
+  const user = (...c: string[]) => ({ role: 'member', permissions: [], access: caps(...c) })
+  const ALL = internalOrderEmailAccess(user('orders.view', 'orders.edit', 'sales-docs.export'))
+  const order = { status: 'confirmed' }
+  // The sessions that mail none: each lacks one of the three things the request takes.
+  const readOnly = internalOrderEmailAccess(user('orders.view', 'sales-docs.export'))
+  const noExport = internalOrderEmailAccess(user('orders.view', 'orders.create', 'orders.edit'))
+  const noRead = internalOrderEmailAccess(user('orders.create', 'orders.edit', 'sales-docs.export'))
+
+  it('takes what the sheet\'s export takes, and the work on orders that mailing is', () => {
+    expect(ALL).toEqual({ reads: true, exports: true, writes: true })
+    expect(mayEmailInternalOrders(ALL)).toBe(true)
+    expect(mayEmailInternalOrders(internalOrderEmailAccess(user('orders.view', 'orders.create', 'sales-docs.export')))).toBe(true)
+    expect(mayEmailInternalOrders(internalOrderEmailAccess({ role: 'admin', permissions: [], access: { all: true } }))).toBe(true)
+    // The read asked is the one the sheet's export route is reached by, and no other.
+    const rule = accessRuleFor('GET', 'invoicing/internal-orders/:id/export') as { anyOf?: readonly string[] }
+    expect(rule.anyOf).toEqual(['orders.view'])
+  })
+
+  it('is read by orders.view alone: the page-less reads that reach a SUPPLIER order do not reach it', () => {
+    for (const read of ['orders.browse', 'orders.lookup']) {
+      const who = user(read, 'orders.edit', 'sales-docs.export')
+      expect(internalOrderEmailAccess(who), read).toEqual({ reads: false, exports: true, writes: true })
+      expect(mayEmailInternalOrders(internalOrderEmailAccess(who)), read).toBe(false)
+      // The supplier orders' rule is as it was: neither kind was widened or narrowed to the other.
+      expect(mayEmailOrders(orderEmailAccess(who)), read).toBe(true)
+    }
+  })
+
+  it('a role that reads and does not write, and one that writes and may not export, mail none', () => {
+    expect(readOnly).toEqual({ reads: true, exports: true, writes: false })
+    expect(noExport).toEqual({ reads: true, exports: false, writes: true })
+    expect(noRead).toEqual({ reads: false, exports: true, writes: true })
+    expect([readOnly, noExport, noRead].map(mayEmailInternalOrders)).toEqual([false, false, false])
+    // Deleting an order is not the work mailing is; nobody signed in holds nothing.
+    expect(mayEmailInternalOrders(internalOrderEmailAccess(user('orders.view', 'orders.delete', 'sales-docs.export')))).toBe(false)
+    expect(internalOrderEmailAccess(null)).toEqual({ reads: false, exports: false, writes: false })
+    expect(mayEmailInternalOrders(internalOrderEmailAccess(undefined))).toBe(false)
+    for (const access of [readOnly, noExport, noRead]) {
+      // Forbidden before anything is said about the order: whether it exists is not this session's to learn.
+      expect(internalOrderEmailSkip({ access, order })).toBe('forbidden')
+      expect(internalOrderEmailSkip({ access, order: null })).toBe('forbidden')
+      expect(internalOrderEmailSkip({ access, order: { status: 'draft' } })).toBe('forbidden')
+    }
+  })
+
+  it('no such order in this org is not found', () => {
+    expect(internalOrderEmailSkip({ access: ALL, order: null })).toBe('not_found')
+    expect(internalOrderEmailSkip({ access: ALL, order: undefined })).toBe('not_found')
+  })
+
+  it('a draft does not go: it has no number yet, and its sheet says so', () => {
+    expect(internalOrderEmailSkip({ access: ALL, order: { status: 'draft' } })).toBe('draft')
+  })
+
+  it('every other status goes, and a CANCELLED order with them', () => {
+    for (const status of ['confirmed', 'partially_delivered', 'delivered', 'completed', 'cancelled']) {
+      expect(internalOrderEmailSkip({ access: ALL, order: { status } }), status).toBeNull()
+    }
+    // ⚠ Not to be "aligned" with the stock movements, which skip a cancelled one (`movementEmailSkip`): a cancelled
+    // movement moved nothing, so its sheet says nothing true. A cancelled ORDER's sheet is titled as cancelled, and
+    // telling the client so is what the mail is for. The reason `cancelled` is never an order's.
+    expect(docEmail.DOC_EMAIL_BLOCKS).toContain('cancelled')
+    expect(internalOrderEmailSkip({ access: ALL, order: { status: 'cancelled' } })).not.toBe('cancelled')
+    expect(internalOrderEmailSkip({ access: ALL, order: { status: 'cancelled' }, recentSend: true })).toBe('just_sent')
+  })
+
+  it('the reasons in their sequence: forbidden, not found, a draft, and the double-click window last', () => {
+    expect(internalOrderEmailSkip({ access: ALL, order, recentSend: true })).toBe('just_sent')
+    // Each earlier reason wins over the ones after it.
+    expect(internalOrderEmailSkip({ access: ALL, order: { status: 'draft' }, recentSend: true })).toBe('draft')
+    expect(internalOrderEmailSkip({ access: ALL, order: null, recentSend: true })).toBe('not_found')
+    expect(internalOrderEmailSkip({ access: readOnly, order: null, recentSend: true })).toBe('forbidden')
+    expect(internalOrderEmailSkip({ access: noExport, order: { status: 'draft' }, recentSend: true })).toBe('forbidden')
+    expect(internalOrderEmailSkip({ access: noRead, order, recentSend: true })).toBe('forbidden')
+  })
+
+  it('by role, on the legacy model: the roles that work on orders and may print, and no read-only one', () => {
+    // A session of a role as its token is issued today: the role's default permissions, and its areas where it has them.
+    const access = (role: Role) => internalOrderEmailAccess({
+      role, permissions: [...DEFAULT_ROLE_PERMISSIONS[role]], ...(DEFAULT_ROLE_AREAS[role] ? { areas: DEFAULT_ROLE_AREAS[role] } : {}),
+    } as any)
+    const may = ROLES.filter(role => mayEmailInternalOrders(access(role)))
+    expect([...may].sort()).toEqual(['accountant', 'admin', 'manager', 'sales', 'sales_consultant'])
+    // The read-only roles print the sheet and mail none: they read and export, and do not write.
+    for (const role of ['member', 'nra_auditor'] as Role[]) expect(access(role), role).toEqual({ reads: true, exports: true, writes: false })
+    // A Seller makes sales documents, and reads no customer order.
+    expect(access('seller')).toEqual({ reads: false, exports: true, writes: false })
   })
 })

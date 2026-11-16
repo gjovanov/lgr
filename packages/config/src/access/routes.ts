@@ -35,7 +35,8 @@ const self = (why: string, floor?: readonly Cap[]): AccessRule => (floor ? { sel
 const DEVICE_WRITES: readonly Cap[] = ['devices.edit', 'devices.report', 'devices.z-report', 'devices.sync-time', 'devices.name-payments']
 /**
  * Mailing a list's ticked documents is work on their kind, and the kind is in the body: a sales document, a quote, a
- * bill or a supplier order (`invoicing-api/lib/email-guards.ts`). A session holding none of these mails none.
+ * bill, a supplier order or a customer order (`invoicing-api/lib/email-guards.ts`; both orders are the `orders`
+ * work). A session holding none of these mails none.
  */
 const DOC_EMAIL_WORK: readonly Cap[] = [
   'sales-docs.create', 'sales-docs.edit', 'proforma.create', 'proforma.edit', 'bills.create', 'bills.edit', 'orders.create', 'orders.edit',
@@ -281,8 +282,8 @@ export const EXACT_WRITES: ReadonlyMap<string, AccessRule> = new Map([
   ['POST invoicing/export/:id/email', self('canWrite, and outgoing issued documents only')],
   // Several documents at once (2026-11-16). The request is refused only when the session may mail none of the
   // body's kind; each document is then a row of the answer, decided by the same rule in the preview and the mail.
-  ['POST invoicing/export/email/preview', self("mayEmailKind for the body's kind, then invoiceEmailSkip or orderEmailSkip per document", DOC_EMAIL_WORK)],
-  ['POST invoicing/export/email', self("mayEmailKind for the body's kind, then invoiceEmailSkip or orderEmailSkip per document", DOC_EMAIL_WORK)],
+  ['POST invoicing/export/email/preview', self("mayEmailKind for the body's kind, then invoiceEmailSkip, orderEmailSkip or internalOrderEmailSkip per document", DOC_EMAIL_WORK)],
+  ['POST invoicing/export/email', self("mayEmailKind for the body's kind, then invoiceEmailSkip, orderEmailSkip or internalOrderEmailSkip per document", DOC_EMAIL_WORK)],
   ['POST invoicing/stock-availability/check', any('stock-availability.check')],
   // FR-21.18, FR-23: the journal's storno and its settle. The route also requires a storno role.
   ['POST cash-register/documents/:id/storno', any('till.sell', 'sales-docs.edit')],

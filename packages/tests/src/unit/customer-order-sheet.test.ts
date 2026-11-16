@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { buildCustomerOrderMarkdown, CUSTOMER_ORDER_NOTE_MAX } from 'reporting/pdf/customer-order.pdf'
+import { buildCustomerOrderMarkdown, customerOrderDocName, CUSTOMER_ORDER_NOTE_MAX } from 'reporting/pdf/customer-order.pdf'
 import { customerOrderI18n, type CustomerOrderCtx } from 'reporting/customer-order.i18n'
 import { pageHtml } from 'reporting/pdf/base.pdf'
 
@@ -74,6 +74,40 @@ describe('the customer order sheet: its title', () => {
     expect(titles('bg-BG')[0]).toBe('# ПОТВЪРЖДЕНИЕ НА ПОРЪЧКА')
     expect(titles('fr')[0]).toBe('# ORDER CONFIRMATION')
     expect(title(md({}, { locale: undefined }))).toBe('# ORDER CONFIRMATION')
+  })
+})
+
+describe('the customer order sheet: what a mail calls it', () => {
+  /** The statuses of an order a client is sent: every one but a draft. */
+  const SENT = ['confirmed', 'partially_delivered', 'delivered', 'completed', 'cancelled']
+
+  it('the title for where the order stands, in sentence case, in each language', () => {
+    const names = (locale: string) => ['confirmed', 'cancelled'].map((status) => customerOrderDocName(status, locale))
+    expect(names('bg')).toEqual(['Потвърждение на поръчка', 'Поръчка (отказана)'])
+    expect(names('en')).toEqual(['Order confirmation', 'Order (cancelled)'])
+    // German writes a noun with a capital: both titles of a sent order hold one noun, at their start.
+    expect(names('de')).toEqual(['Auftragsbestätigung', 'Auftrag (storniert)'])
+    expect(names('mk')).toEqual(['Потврда на нарачка', 'Нарачка (откажана)'])
+    expect(customerOrderDocName('delivered', 'bg-BG')).toBe('Потвърждение на поръчка')
+    expect(customerOrderDocName('completed', 'fr')).toBe('Order confirmation')
+    expect(customerOrderDocName('completed')).toBe('Order confirmation')
+  })
+
+  it('is the sheet\'s own title, word for word: nothing is worded a second time', () => {
+    for (const locale of ['en', 'bg', 'de', 'mk']) {
+      for (const status of SENT) {
+        const name = customerOrderDocName(status, locale)
+        expect({ locale, status, title: `# ${name.toUpperCase()}` }).toEqual({ locale, status, title: title(md({ status }, { locale }))! })
+        // One capital, at the start: a subject line does not shout.
+        expect(name).toBe(name.charAt(0) + name.slice(1).toLowerCase())
+        expect(name.charAt(0)).toBe(name.charAt(0).toUpperCase())
+      }
+    }
+  })
+
+  it('a status it does not know is never called a confirmation, as on the sheet', () => {
+    expect(customerOrderDocName('on_hold', 'en')).toBe('Order (draft)')
+    expect(customerOrderDocName(undefined, 'en')).toBe('Order (draft)')
   })
 })
 
