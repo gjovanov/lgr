@@ -29,9 +29,16 @@ Each PR keeps `bun run test`, `build`, `check:web` and the FR-27 walks green
 (`e2e/field-walk-roles`, `field-walk-blank-roles`, `field-walk-fr27-11`).
 
 ### P3-1 · Every org to roles (ops, small code)
-- `scripts/access-model.ts --all --set roles`: org by org, only where the 7-day report is 0 and every person has a
-  role; prints what it skipped and why. Audited (#676).
-- Run on production after the stores (G1). **Rollback:** `--set legacy` per org, at once, no deploy.
+- `scripts/access-model.ts --all`, in **two steps**, because an org on `legacy` counts no differences (`shadow.ts`
+  compares on `shadow` and `roles` only), so its "0" proves nothing (found 2026-11-16):
+  - `--all --set shadow`: each org on `legacy` gets a role for anyone without one, with exactly their access
+    (migration 0015's own `up`, scoped to the org), then moves to `shadow`. Nobody's access changes.
+  - `--all --set roles [--min-days 1]`: each org on `shadow` moves once it has been there `--min-days`, with no
+    difference since it moved (its audit entry says when) and nobody without a role.
+  - A dry run unless `--execute`; it prints what it moves and what it skips, with why (`scripts/lib/access-advance.ts`).
+    Every move is audited (#676). `--org <slug> --give-roles` does the role step for one org.
+- Run on production after the stores (G1): 2026-11-16 the stores and `test-regal-pz` are on `roles`, 84 orgs on
+  `legacy`. **Rollback:** `--set legacy` per org, at once, no deploy.
 
 ### P3-2 · The evaluator decides everywhere
 - `decideAccess` asks `accessRefusal` for every session. The legacy branch (`permissionRefusal`), `areaRefusal`
