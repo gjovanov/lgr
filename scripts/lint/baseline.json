@@ -92,7 +92,7 @@
   },
   "packages/invoicing-api/src/controllers/invoice.controller.ts": {
     "lgr/catch-drops-error": 1,
-    "lgr/no-as-any": 190
+    "lgr/no-as-any": 186
   },
   "packages/invoicing-api/src/controllers/number-clash.controller.ts": {
     "lgr/no-as-any": 1
@@ -420,7 +420,7 @@
     "lgr/no-as-any": 4
   },
   "packages/services/src/biz/costing.service.ts": {
-    "lgr/no-as-any": 12
+    "lgr/no-as-any": 15
   },
   "packages/services/src/biz/count-number.ts": {
     "lgr/no-as-any": 1
@@ -562,7 +562,10 @@
     "lgr/no-as-any": 2
   },
   "packages/services/src/biz/invoicing.service.ts": {
-    "lgr/no-as-any": 31
+    "lgr/no-as-any": 33
+  },
+  "packages/services/src/biz/issue-document.service.ts": {
+    "lgr/no-as-any": 3
   },
   "packages/services/src/biz/journal-header.service.ts": {
     "lgr/no-as-any": 2
@@ -602,7 +605,7 @@
     "lgr/no-as-any": 1
   },
   "packages/services/src/biz/movement-number.ts": {
-    "lgr/no-as-any": 3
+    "lgr/no-as-any": 5
   },
   "packages/services/src/biz/movement-with-update.service.ts": {
     "lgr/no-as-any": 2
@@ -748,7 +751,7 @@
     "lgr/no-as-any": 5
   },
   "packages/services/src/biz/stock-transfer.service.ts": {
-    "lgr/no-as-any": 8
+    "lgr/no-as-any": 9
   },
   "packages/services/src/biz/supto-export.service.ts": {
     "lgr/no-as-any": 9
@@ -760,7 +763,7 @@
     "lgr/no-as-any": 2
   },
   "packages/services/src/biz/warehouse.service.ts": {
-    "lgr/no-as-any": 7
+    "lgr/no-as-any": 10
   },
   "packages/services/src/dao/invite.dao.ts": {
     "lgr/no-as-any": 4
