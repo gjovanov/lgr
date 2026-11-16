@@ -1,9 +1,11 @@
 <template>
   <v-container fluid>
-    <div class="d-flex align-center mb-4">
+    <!-- The title and its buttons wrap, as on a `ListScaffold` page: on a phone the buttons go under the title, and
+         among themselves, where one row of them was wider than the screen and the whole page scrolled sideways. -->
+    <div class="d-flex align-center mb-4 ga-2 flex-wrap" data-testid="movements-header">
       <h1 class="text-h5">{{ $t('nav.stockMovements') }}</h1>
       <v-spacer />
-      <div class="d-flex align-center ga-2">
+      <div class="d-flex align-center ga-2 flex-wrap justify-end">
         <ViewSwitcher v-model="displayMode" :views="['list', 'kanban']" class="mr-2" />
         <export-menu @export="onExport" />
         <!-- FR-26: an import writes receipts (`movements.create`); a transfer-only or read-only session imports nothing. -->
@@ -88,9 +90,26 @@
       </v-card-text>
     </v-card>
 
-    <v-card v-if="(viewMode === 'movements' || selectedProducts.length !== 1) && displayMode === 'list'">
+    <!-- `list-fit` (FR-22.23): a row is one line and the gutters are 8 px, so the list fits 1366 px with its tick
+         column. The names that can run long are clipped, the whole name in their `title`. -->
+    <v-card v-if="(viewMode === 'movements' || selectedProducts.length !== 1) && displayMode === 'list'" class="list-fit">
       <v-card-text>
+        <!-- The ticked movements by e-mail, each as its printed sheet: to its contact, or all to one address, which is
+             how a transfer reaches the people of the other site. The shared bar and dialog, told the warehouse's two routes. -->
+        <BatchEmailBar
+          v-model:selected="ticked"
+          kind="movement"
+          :org-url="appStore.orgUrl()"
+          preview-path="/warehouse/movement/email/preview"
+          email-path="/warehouse/movement/email"
+          :may-email="mailsTicked"
+          :org-name="appStore.currentOrg?.name"
+          :locale="appStore.locale"
+        />
+        <!-- `item-value` makes a tick the movement's ID, never the row: it holds across pages, sorts and filters. -->
         <v-data-table-server
+          show-select
+          :model-value="ticked"
           :headers="headers"
           :items="items"
           :items-length="pagination.total"
@@ -98,6 +117,7 @@
           :page="pagination.page + 1"
           :items-per-page="pagination.size"
           @update:options="onUpdateOptions"
+          @update:model-value="onTicked"
           item-value="_id"
           hover
         >
@@ -107,16 +127,16 @@
           </template>
           <!-- An external side is another site's warehouse: the movement books nothing there, and says so. -->
           <template #item.fromWarehouseName="{ item }">
-            {{ item.fromWarehouseName }}
+            <span class="cell-clip movement-warehouse" :title="item.fromWarehouseName">{{ item.fromWarehouseName }}</span>
             <v-chip v-if="item.fromExternal" size="x-small" label color="info" variant="tonal" class="ml-1" data-testid="movement-external-side">{{ $t('warehouse.external') }}</v-chip>
           </template>
           <template #item.toWarehouseName="{ item }">
-            {{ item.toWarehouseName }}
+            <span class="cell-clip movement-warehouse" :title="item.toWarehouseName">{{ item.toWarehouseName }}</span>
             <v-chip v-if="item.toExternal" size="x-small" label color="info" variant="tonal" class="ml-1" data-testid="movement-external-side">{{ $t('warehouse.external') }}</v-chip>
           </template>
           <template #item.contactName="{ item }">
-            <entity-link v-if="item.contactId" :label="item.contactName || ''" :href="`/invoicing/contacts/${item.contactId}/edit`" />
-            <span v-else>{{ item.contactName }}</span>
+            <entity-link v-if="item.contactId" class="cell-clip movement-contact" :title="item.contactName" :label="item.contactName || ''" :href="`/invoicing/contacts/${item.contactId}/edit`" />
+            <span v-else class="cell-clip movement-contact" :title="item.contactName">{{ item.contactName }}</span>
           </template>
           <template #item.status="{ item }">
             <StatusChip :status="item.status" :color-fn="statusColor" />
@@ -152,14 +172,16 @@
           </template>
           <template #item.total="{ item }">{{ fmtCurrency(item.total || 0) }}</template>
           <template #item.actions="{ item }">
-            <!-- One row of icons: with Print beside View, a row no longer fits them wrapped in the column's width. -->
+            <!-- One row of icons: with Print beside View, a row no longer fits them wrapped in the column's width.
+                 Each is the size of a document list's row menu (`RowActionsMenu`): a draft's four take the room
+                 the tick column needs, and a row stays as tall as its one line of text. -->
             <div class="d-flex flex-nowrap">
-              <v-btn icon="mdi-eye" size="small" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
+              <v-btn icon="mdi-eye" size="small" density="comfortable" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
               <!-- The movement as a document, for whoever may read it: it goes with the goods and carries no price. -->
-              <v-btn icon="mdi-printer" size="small" variant="text" :title="$t('common.print')" :loading="printing === item._id" data-testid="movement-print" @click="printMovement(item)" />
-              <v-btn v-if="writesMovement(item)" icon="mdi-check" size="small" variant="text" color="success" :title="$t('warehouse.confirm')" data-testid="movement-confirm" @click="confirmMovement(item)" />
+              <v-btn icon="mdi-printer" size="small" density="comfortable" variant="text" :title="$t('common.print')" :loading="printing === item._id" data-testid="movement-print" @click="printMovement(item)" />
+              <v-btn v-if="writesMovement(item)" icon="mdi-check" size="small" density="comfortable" variant="text" color="success" :title="$t('warehouse.confirm')" data-testid="movement-confirm" @click="confirmMovement(item)" />
               <!-- #448: a draft saved by mistake can go. The API refuses one another document names. -->
-              <v-btn v-if="writesMovement(item)" icon="mdi-delete" size="small" variant="text" color="error" :title="$t('common.delete')" data-testid="movement-delete" @click="askDelete(item)" />
+              <v-btn v-if="writesMovement(item)" icon="mdi-delete" size="small" density="comfortable" variant="text" color="error" :title="$t('common.delete')" data-testid="movement-delete" @click="askDelete(item)" />
             </div>
           </template>
         </v-data-table-server>
@@ -245,6 +267,7 @@ import DateField from 'ui-shared/components/DateField.vue'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher.vue'
 import KanbanBoard from 'ui-shared/components/KanbanBoard.vue'
 import DocImportDialog from 'ui-shared/components/DocImportDialog.vue'
+import BatchEmailBar from 'ui-shared/components/BatchEmailBar.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import { useProductTypes } from 'ui-shared/composables/useProductTypes'
 import { appHref } from 'ui-shared/nav/navigate'
@@ -252,6 +275,7 @@ import { isTransferOnly } from 'ui-shared/nav/page-registry'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { useAccess } from 'ui-shared/access/useAccess'
 import { useMovementPrint } from '../composables/useMovementPrint'
+import { mailsMovements } from '../composables/movement-email-access'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; fromExternal?: boolean; toExternal?: boolean; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string; bill?: { id: string; number: string }; sale?: { id: string; number: string } }
 interface Warehouse { _id: string; name: string; isExternal?: boolean }
@@ -268,6 +292,15 @@ const { formatCurrency } = useCurrency()
 const transferOnly = isTransferOnly(sessionViewer())
 function writesMovement(item: { status: string; type: string }): boolean {
   return item.status === 'draft' && (!transferOnly || item.type === 'transfer')
+}
+
+// The ticked rows by e-mail: their ids, so a tick holds across pages, sorts and filters. Every role ticks and
+// clears; the button is for a role the request would not answer 403 (`movement-email-access`), and follows the
+// role when it is edited, as the Total column does.
+const ticked = ref<string[]>([])
+const mailsTicked = computed(mailsMovements)
+function onTicked(ids: unknown) {
+  ticked.value = (Array.isArray(ids) ? ids : []).map(String)
 }
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
@@ -472,8 +505,11 @@ async function doDelete() {
   if (!deleteTarget.value) return
   deleting.value = true
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/warehouse/movement/${deleteTarget.value._id}`)
+    const gone = deleteTarget.value._id
+    await httpClient.delete(`${appStore.orgUrl()}/warehouse/movement/${gone}`)
     deleteDialog.value = false
+    // A deleted draft is no longer ticked: the bar would count a movement that is not there.
+    ticked.value = ticked.value.filter(id => id !== gone)
     await fetchItems()
     showSuccess(t('common.deletedSuccessfully'))
   } catch (e: any) {
@@ -514,3 +550,14 @@ async function fetchCategories() {
 
 onMounted(() => { fetchItems(); fetchWarehouses(); fetchContacts(); fetchCategories() })
 </script>
+
+<style scoped>
+/* A row names two warehouses and a contact, where a document list names one partner: each is clipped sooner than
+   `list-fit`'s 12em, so that the three fit 1366 px beside a draft's four icons and a status with its mark. */
+.movement-warehouse {
+  --cell-clip: 9em;
+}
+.movement-contact {
+  --cell-clip: 10em;
+}
+</style>

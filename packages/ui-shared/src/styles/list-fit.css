@@ -1,0 +1,28 @@
+/*
+ * FR-22.23 (`.list-fit`): a list that fits a 1366 px laptop. A document list's row of icons ran past
+ * the table's edge there and its rows wrapped to several lines. One line per row, an 8 px gutter
+ * instead of 16.
+ *
+ * A cell that can run long (a partner's name, a warehouse's) marks its content `cell-clip`: it is cut
+ * short with an ellipsis past 12em (`--cell-clip` sets another width), the whole text in its `title`.
+ *
+ * The class goes on whatever holds the table: `ListScaffold` puts it on its card (`fit`), and a list
+ * that places its own table (the stock movements) puts it there itself.
+ *
+ * ⚠ One line per row holds while the page's widest cells fit side by side. Past that the TABLE scrolls
+ * inside its own box, never the page, and a row is still one line.
+ */
+.list-fit .v-table > .v-table__wrapper > table > tbody > tr > td,
+.list-fit .v-table > .v-table__wrapper > table > thead > tr > th {
+  padding-inline: 8px;
+}
+.list-fit .v-table > .v-table__wrapper > table > tbody > tr > td {
+  white-space: nowrap;
+}
+.list-fit .cell-clip {
+  display: inline-block;
+  max-width: var(--cell-clip, 12em);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}

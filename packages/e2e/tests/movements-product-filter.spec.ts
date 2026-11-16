@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
+import { columnValues } from './helpers/table'
 
 test.describe('Movements Product Filtering', () => {
   test('should display ProductSearch filter on movements page', async ({ page }) => {
@@ -103,11 +104,11 @@ test.describe('Movements — the Products list\'s search and filters', () => {
     await page.getByRole('textbox', { name: 'Search products', exact: true }).fill(String(ts))
     await expect(table.locator('tbody tr')).toHaveCount(2, { timeout: 10000 })
     const header = table.locator('thead th').filter({ hasText: /^#$/ })
+    // The numbers are the cells under „#", wherever that column stands: the tick column is before it.
+    const numbersShown = () => columnValues(table, '#')
     await header.click()
-    await expect.poll(async () => (await table.locator('tbody tr td:first-child').allTextContents()).map((s) => s.trim()))
-      .toEqual([numbers.rod, numbers.washer])
+    await expect.poll(numbersShown).toEqual([numbers.rod, numbers.washer])
     await header.click()
-    await expect.poll(async () => (await table.locator('tbody tr td:first-child').allTextContents()).map((s) => s.trim()))
-      .toEqual([numbers.washer, numbers.rod])
+    await expect.poll(numbersShown).toEqual([numbers.washer, numbers.rod])
   })
 })
