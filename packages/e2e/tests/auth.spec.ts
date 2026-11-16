@@ -16,7 +16,7 @@ test.describe('Authentication', () => {
     await expect(page.getByRole('textbox', { name: /organization/i })).toBeVisible()
   })
 
-  test('should login by email and land in the only org', async ({ page }) => {
+  test('should login by email and land in the only org', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/auth/login', { waitUntil: 'networkidle' })
 
     // Seeded credentials: admin@acme.com / test123, a member of acme-corp only

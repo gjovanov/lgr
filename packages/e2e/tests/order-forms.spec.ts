@@ -99,7 +99,7 @@ test.describe('An untouched order form is not „unsaved changes" (FR-22.13)', (
     await expect(leaveDialog(page)).toHaveCount(0)
   })
 
-  test('an edit after a save is unsaved again, and leaving asks (FR-22.16)', async ({ page }) => {
+  test('an edit after a save is unsaved again, and leaving asks (FR-22.16)', { tag: '@smoke' }, async ({ page }) => {
     const api = await session()
     const w = await world(api)
     const ordi = await clientOrder(api, w, 2)
