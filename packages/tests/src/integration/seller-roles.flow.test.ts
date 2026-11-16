@@ -8,7 +8,7 @@ import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { APP_IDS, DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { mongoose } from 'db/connection'
-import { Identity, PermissionSet, User, type IUser } from 'db/models'
+import { Identity, PermissionSet, User, type IUser, Role } from 'db/models'
 import { sessionFor, tokenize } from 'services/biz/auth.service'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { createPermissionSet, updatePermissionSet } from 'services/biz/permission-set.service'
@@ -211,7 +211,8 @@ describe('order links (orders)', () => {
   it('the order routes are the Sales Consultant\'s, not the Seller\'s', async () => {
     for (const rest of ['/invoicing/orders', '/invoicing/internal-orders', '/invoicing/reservations']) {
       const seller = await request('GET', rest, tokens.seller)
-      expect({ rest, status: seller.status, code: seller.json?.code }).toEqual({ rest, status: 403, code: 'area_required' })
+      // FR-27 P3-2: refused by the role (an area is the legacy model's).
+      expect({ rest, status: seller.status, code: seller.json?.code }).toEqual({ rest, status: 403, code: 'permission_required' })
       expect({ rest, status: (await request('GET', rest, tokens.sales_consultant)).status }).toEqual({ rest, status: 200 })
     }
     // `sales`, an existing role, is unchanged.
@@ -475,10 +476,11 @@ describe('assigning a role takes effect (FR-26.9)', () => {
     const after = await User.findById(user._id).lean()
     const seller = await PermissionSet.findOne({ orgId, name: 'Seller' }).lean()
     expect(after!.permissionSetIds!.map(String).sort()).toEqual([String(custom._id), String(seller!._id)].sort())
-    // ⚠ The custom set has no areas, so it is unrestricted and wins (§2.5): the Users screen warns of it.
-    expect('areas' in (await tokenize(after as any))).toBe(false)
-    await User.updateOne({ _id: user._id }, { permissionSetIds: [seller!._id] })
-    expect((await tokenize((await User.findById(user._id).lean()) as any)).areas).toEqual([])
+    // FR-27 P3-2: the role decides, so the change moves the person to the role with exactly their new access, as 0015
+    // gives one: here the Seller's set and the custom one, so an imported role standing for `seller`, never the old one.
+    const role: any = await Role.findById(after!.roleId).lean()
+    expect([role.legacy?.role, role.isBuiltin]).toEqual(['seller', false])
+    expect((await tokenize(after as any)).role).toBe('seller')
     // The session issued before the change is over.
     expect((await request('GET', '/apps', token)).status).toBe(401)
   })

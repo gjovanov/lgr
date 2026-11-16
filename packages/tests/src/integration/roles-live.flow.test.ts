@@ -91,23 +91,20 @@ describe('FR-27.5: an org on roles', () => {
     expect((await request('GET', '/accounting/journal', tokens.accountant)).status).toBe(200)
   })
 
-  it('an edit of a role reaches its people, and where a release that reads no roles would answer otherwise, it is counted', async () => {
+  it('an edit of a role reaches its people', async () => {
     const seller = await roleOf('seller')
     await Role.updateOne({ _id: seller._id }, { $set: { edited: true, caps: ['sales-docs.view', 'payments.view'] }, $inc: { version: 1 } }).exec()
     forgetRole(seller._id)
     const r = await request('GET', '/invoicing/payment-order', tokens.seller)
     expect(r.status).toBe(200)
     expect(r.version).toBe(`${seller._id}:2`)
-    await new Promise(res => setTimeout(res, 50))
-    await flushShadowDiffs()
-    const diff: any = await AccessShadowDiff.findOne({ org: org._id, route: '/api/org/:orgId/invoicing/payment-order' }).lean().exec()
-    expect(diff).toMatchObject({ legacy: 'refuse', evaluator: 'allow', role: 'seller' })
+    // FR-27 P3-2: shadow mode no longer runs, so nothing is counted beside the role's answer.
   })
 
-  it('back on legacy, the token decides again', async () => {
+  it('FR-27 P3-2: the access model is no longer read: back on legacy, the role still decides', async () => {
     await model('legacy')
     const r = await request('GET', '/invoicing/payment-order', tokens.seller)
-    expect(r.status).toBe(403)
-    expect(r.version).toBeNull()
+    expect(r.status).toBe(200)
+    expect(r.version).toBe(`${(await roleOf('seller'))._id}:2`)
   })
 })

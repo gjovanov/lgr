@@ -8,6 +8,9 @@ import { DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { endSessionsOf, setsForRole } from 'services/biz/permission-set.service'
 import { RoleRefusal, assertAssignable, assertNotLastAdministrator, assignRole, giveStartingRole, startingRoleOf } from 'services/biz/access/role.service'
+import { forgetMember } from 'services/biz/access/live'
+import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
+import { mongoose } from 'db/connection'
 
 import { allocateOperatorCode } from 'services/biz/sequence.service'
 import {
@@ -287,6 +290,14 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
 
       const updated = await userDao.updateInOrg(userId, orgId, updateData)
       if (!updated) return status(404, { message: 'User not found' })
+      // FR-27 P3-2: the role decides, so a change of the legacy role, sets or permissions moves the person to the role
+      // with exactly their new access, as migration 0015 gives one (the built-in role of the key, or an imported one).
+      // Without this the old screen would save and change nothing. P3-3 takes the legacy controls away.
+      if (grantChanged) {
+        await User.updateOne({ _id: userId, orgId }, { $unset: { roleId: 1 } }).exec()
+        await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: { orgId: new mongoose.Types.ObjectId(orgId) } })
+        forgetMember(userId)
+      }
       if (body.isActive === true && existing.isActive === false) await adminActivated(existing, orgId)
       // What the person may do changed, or they may do nothing here any more: the sessions they hold end.
       if (grantChanged || switchedOff) await endSessionsOf(existing.identityId)
