@@ -230,7 +230,9 @@ Still planned: the `АМ` link that fills the book schedule (§4.2), and the e2e
 - Grid: add `taxCategory`, `taxDepreciationRate`, `inServiceDate` (hidden by default); filter by tax category.
 - Validation: rate × years ≈ 100 hint when they disagree (the source always agrees).
 - i18n: `accounting.fixedAsset.tax.*`, `accounting.fixedAsset.properties`, `accounting.fixedAsset.schedule.*`.
-- e2e later: an asset saves its tax side; the tax schedule shows a row per year.
+- e2e: `fixed-asset-form.spec.ts` (an asset kept in LGR saves its book and tax sides, opens again as saved and keeps an
+  edit; the tax schedule shows a row per year; the register finds it by code, tax category and origin). Later: an
+  imported asset opens read-only, which needs an org that keeps books in the e2e database.
 
 ### 3.5 Contacts — `Contact.representative`
 
@@ -248,7 +250,9 @@ bound and the trim on the server (`config/party-identity`).
 - Grid: an optional `representative` column, hidden by default; included in search.
 - i18n: `invoicing.representative` (built), `invoicing.moveRepresentative`. Not under `invoicing.contact.*`: that key is
   a string ("Contact"), and a key cannot be a string and a block at once.
-- e2e later: typing a representative saves and reprints on the invoice; the move action empties the notes line.
+- e2e: `contact-representative.spec.ts` (a representative typed saves trimmed and the list finds the contact by it; the
+  move action takes only that notes line, can be undone, and stores nothing until the save). Later: the representative
+  on a printed invoice.
 
 ### 3.6 Journal entries — the document header
 
@@ -273,8 +277,10 @@ bound and the trim on the server (`config/party-identity`).
   sends is dropped; this step adds the header to their body schemas, refused (422) on an imported entry.
 - i18n: `accounting.journalEntry.document.*`, `accounting.journalEntry.payment.*`, `accounting.journalEntry.vat.*`,
   `accounting.journalEntry.links.*`, `accounting.paymentCodes.*`.
-- e2e later: an imported entry shows its header and refuses edits; the unpaid filter lists a part-paid invoice; a link
-  opens its document.
+- e2e: `journal-entry-document.spec.ts` (an entry made in LGR saves its document, payment, VAT and a link, and opens
+  again with them; a notice without the invoice it corrects is refused in the form; an emptied field is removed; the
+  journal's filters). Later: an imported entry shows its header and refuses edits; the unpaid filter lists a part-paid
+  invoice; a link opens its document. These need an org that keeps books in the e2e database.
 
 ### 3.7 The company — `Org`
 
@@ -290,7 +296,8 @@ for byte as before (`unit/print-party-identity.test.ts` pins the hashes).
 - Print: invoice and companion forms print `placeOfIssue` where they print the place of transaction, and the issuer's
   `representative` under its name.
 - i18n: `settings.representative`, `settings.placeOfIssue`, `settings.activityCode`.
-- e2e later: the three save and survive a reload; a new invoice prints them.
+- e2e: `org-settings-save.spec.ts` (the three save trimmed and survive a reload; one cleared is removed; an activity
+  code that is not one is refused in the form). Later: a new invoice prints them.
 
 ### 3.8 The VAT register — `VatRegisterEntry`
 
