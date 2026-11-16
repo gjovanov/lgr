@@ -3,7 +3,7 @@ import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { register } from 'services/biz/auth.service'
 import { inviteDao } from 'services/dao/invite.dao'
-import { Invite, User, Notification } from 'db/models'
+import { Invite, User, Notification, Role } from 'db/models'
 import { createTestOrg, createTestUser, createTestInvite, createTestNotification } from '../helpers/factories'
 import { paginateQuery } from 'services/utils/pagination'
 
@@ -152,6 +152,34 @@ describe('Invite Flow', () => {
     // Verify invite use count incremented
     const updated = await inviteDao.findByCode(invite.code)
     expect(updated!.useCount).toBe(1)
+
+    // FR-27 P3-2 (#529): the role decides at sign-in, so the invitee holds one: the built-in role of the invite's.
+    const member: any = await Role.findOne({ orgId: org._id, isBuiltin: true, templateKey: 'member' }).lean()
+    const stored: any = await User.findById(result.user._id).lean()
+    expect(String(stored.roleId)).toBe(String(member._id))
+  })
+
+  it('gives the role the invite names, when it names one (FR-27 P3-2, #529)', async () => {
+    const { org, user } = await registerAdmin()
+    const accountant: any = await Role.findOne({ orgId: org._id, isBuiltin: true, templateKey: 'accountant' }).lean()
+    const invite = await inviteDao.createInvite({
+      orgId: String(org._id),
+      inviterId: String(user._id),
+      assignRole: 'accountant',
+      assignRoleId: String(accountant._id),
+    } as any)
+
+    const result = await register({
+      email: 'counter@test.com',
+      username: 'counter',
+      password: 'newpass123',
+      firstName: 'Count',
+      lastName: 'Er',
+      inviteCode: invite.code,
+    })
+
+    const stored: any = await User.findById(result.user._id).lean()
+    expect(String(stored.roleId)).toBe(String(accountant._id))
   })
 
   it('should reject registration with targeted invite if email mismatches', async () => {

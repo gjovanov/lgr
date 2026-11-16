@@ -140,14 +140,17 @@ describe('FR-27.4: an invitation names a role', () => {
     expect(joined.permissionSetIds.map(String)).toEqual([String(set._id)])
   })
 
-  it('an org whose system set was edited: the person keeps that set and has no role yet, so nobody\'s access changes', async () => {
+  it('an org whose system set was edited: the person still joins on the built-in role, which decides (FR-27 P3-2)', async () => {
+    // Since P3-2 sign-in refuses a membership without a role, so "no role yet, the edited set decides" would be a
+    // person who can never sign in. They start on the built-in Accountant, and what it grants is what they may do.
     await PermissionSet.updateOne({ orgId: org._id, name: 'Accountant', isSystem: true }, { $addToSet: { permissions: 'payroll.read' } }).exec()
     await call('POST', `/org/${orgId}/invite`, adminToken, { targetEmail: 'edited@onboarding.test', assignRole: 'accountant' })
     const invite: any = await Invite.findOne({ orgId: org._id, targetEmail: 'edited@onboarding.test' }).lean().exec()
     const { member } = await joinOrgByInvite((await person('edited@onboarding.test'))._id, invite.code)
     const joined: any = await User.findById(member._id).lean().exec()
-    expect(joined.roleId).toBeUndefined()
-    expect((await legacyGrantOf(joined) as any).caps.has('payroll-runs.view')).toBe(true)
+    const accountant: any = await Role.findOne({ orgId: org._id, templateKey: 'accountant' }).lean().exec()
+    expect(String(joined.roleId)).toBe(String(accountant._id))
+    expect(grantOfRole(accountant).caps.has('payroll-runs.view')).toBe(false)
   })
 
   it('a role beyond the inviter is refused (FR-27.8)', async () => {

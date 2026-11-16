@@ -372,7 +372,7 @@ export async function seedBuiltinRoles(orgId: unknown): Promise<void> {
 /** Where a person's first role came from: chosen (named, or the org's default) or read off their legacy role. */
 export interface StartingRole {
   role: any
-  /** Chosen by an admin: it is written onto the person. Otherwise it is theirs only when it grants what they hold. */
+  /** Chosen by an admin: it is written onto the person. Otherwise its projection is written only where it differs from what they hold. */
   chosen: boolean
 }
 
@@ -408,17 +408,17 @@ async function legacyGrantOf(orgId: unknown, person: any): Promise<Grant> {
  * hold to FR-27.8, which was asked of whoever made the invite or the member.
  *
  * - A chosen role is written onto both models, as `assignRole` does.
- * - A role read off the legacy role is recorded only when it grants exactly what the person's legacy fields do, and
- *   those are left as they are. So a member joining an org whose Seller set was edited keeps that set's access, and
- *   no org changes anyone's access before it moves to `roles` (Phase 1). Otherwise they have no role yet, and their
- *   claims decide, as for anyone the migration left without one.
+ * - A role read off the legacy role is recorded alone when it grants exactly what the person's legacy fields do, and
+ *   those are left as they are.
+ * - Otherwise (the org edited that role's system set) it is written as a chosen one is. FR-27 P3-2 (#529): the role
+ *   decides every session, and sign-in refuses a membership without one, so "no role yet, their claims decide" is
+ *   no longer a way to join: the person starts on the built-in role their invite or create named.
  */
 export async function giveStartingRole(orgId: unknown, userId: unknown, start: StartingRole | null): Promise<void> {
   if (!start) return
   const person: any = await User.findOne({ _id: userId, orgId }).lean().exec()
   if (!person || person.roleId) return
-  if (!start.chosen) {
-    if (!sameGrant(grantOfRole(start.role), await legacyGrantOf(orgId, person))) return
+  if (!start.chosen && sameGrant(grantOfRole(start.role), await legacyGrantOf(orgId, person))) {
     await User.updateOne({ _id: userId, orgId, roleId: { $exists: false } }, { $set: { roleId: start.role._id, 'roleHistory.0.roleName': start.role.name } }).exec()
   } else {
     const ready = await ensureProjection(String(orgId), start.role)
