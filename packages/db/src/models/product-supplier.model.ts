@@ -18,8 +18,8 @@ import { replicate } from '../replication/declare.js'
  *   preferred. Setting another supplier preferred clears the previous one first, so there is never a moment with
  *   two (and, between the two writes, a moment with none, which falls back to the last purchase as before).
  * - `supplierSkuLower` is the Cyrillic-safe mirror of `supplierSku` that the product search matches (FR-28.10).
- *   `loweredFieldsPlugin` keeps it; the service sets it in the same write as well, because an unset of the code
- *   is an operator the plugin does not see.
+ *   `loweredFieldsPlugin` keeps it, an unset of the code included (#759). The service names the mirror in the
+ *   same write as well, which says the same thing twice and is harmless.
  * - Replication class R, like every document of an org: the whole row travels (`db/replication/declare.ts`).
  */
 export interface IProductSupplier extends Document {
