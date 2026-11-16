@@ -31,6 +31,8 @@ bun run dev                  # Unified API (4001) + the web app's Vite server (4
 bun run start                # Production: unified API (4001) serving the built web app
 bun run build                # Build the web app (packages/web: the portal + every module) and desktop-ui
 bun run check:web            # The web app's bundle budget (FR-24.15)
+bun run typecheck            # tsc + vue-tsc against scripts/typecheck/*.baseline.json (FR-32.2); CI's `typecheck` job.
+                             # A new error fails; so does a fixed one until `bun run typecheck --update` shrinks the baseline
 bun run seed                 # Seed database (Acme Corp + Beta Inc)
 bun run migrate              # Apply pending versioned migrations (--status lists them; FR-20.19)
 

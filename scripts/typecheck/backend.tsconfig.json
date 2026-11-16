@@ -1,0 +1,26 @@
+{
+  // FR-32.2: the server's packages as ONE program, the way `scripts/typecheck.ts` checks them.
+  // One program because the packages import each other's sources: checked one by one, `services`
+  // would be read again for every package above it. Each package's own tsconfig.json has the same
+  // options (`tsconfig.server.json`), for the editor and `bunx tsc --noEmit -p packages/<name>`.
+  // `unit/typecheck-config.test.ts` holds this list to the packages.
+  "extends": "../../tsconfig.server.json",
+  "include": [
+    "../../packages/accounting-api/src/**/*.ts",
+    "../../packages/config/src/**/*.ts",
+    "../../packages/dal/src/**/*.ts",
+    "../../packages/dal-mongo/src/**/*.ts",
+    "../../packages/db/src/**/*.ts",
+    "../../packages/files-api/src/**/*.ts",
+    "../../packages/fiscal/src/**/*.ts",
+    "../../packages/invoicing-api/src/**/*.ts",
+    "../../packages/migrations/src/**/*.ts",
+    "../../packages/ocr-server/src/**/*.ts",
+    "../../packages/payroll-api/src/**/*.ts",
+    "../../packages/portal-api/src/**/*.ts",
+    "../../packages/reporting/src/**/*.ts",
+    "../../packages/reports-api/src/**/*.ts",
+    "../../packages/services/src/**/*.ts",
+    "../../packages/warehouse-api/src/**/*.ts"
+  ]
+}

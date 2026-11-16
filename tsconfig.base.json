@@ -1,0 +1,35 @@
+{
+  // FR-32.1 (#797): the one strict base every package's tsconfig.json extends.
+  //
+  // ⚠ Nothing compiles with these files. Bun runs the sources and Vite strips the types, so a
+  // type error never stopped anything until `scripts/typecheck.ts` (the CI job `typecheck`)
+  // started reading them. They exist for that check and for the editor: `noEmit` throughout.
+  //
+  // A package's own tsconfig.json says only what is its own: the runtime's types (`bun` for the
+  // server, the DOM for a UI module) and what it includes.
+  //
+  // ⚠ These files are READ by the builds, not only by the check: Vite's esbuild takes
+  // `useDefineForClassFields` (and a few others) from the tsconfig.json nearest each file. With
+  // `target: ESNext` it defaults to true, and the web build then emitted the class fields of the
+  // fiscal frame reader (`ui-shared/src/composables/fiscalIslResponse.ts`) as defineProperty calls
+  // before the constructor ran, where before these files existed they were assignments after it.
+  // (The Dockerfile's `web` stage is given these root files for the same reason.)
+  // It is pinned to what the build did without them, so adding a type-check changes no byte the
+  // SPA or the server package ships: the web dist was compared file by file, hashes aside, and
+  // the server package's `app/` is identical. Changing it is a behaviour change of its own.
+  "compilerOptions": {
+    "useDefineForClassFields": false,
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext"],
+    "types": [],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}

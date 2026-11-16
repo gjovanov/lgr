@@ -55,6 +55,8 @@ RUN echo "OS packages as of ${OS_REFRESH}" \
 #               none anywhere else), and unit/image-layers.test.ts fails when a UI file starts
 #               importing from outside them. Such a build would fail here, loudly, never go stale:
 #               the other packages exist in the `web` stage as a package.json and nothing else.
+#               With them go the root tsconfig files their tsconfig.json extend (FR-32.1): Vite
+#               reads them (`useDefineForClassFields`), and a missing base fails the build.
 FROM base AS src
 COPY . /src
 RUN cd /src \
@@ -62,6 +64,7 @@ RUN cd /src \
   && cp --parents package.json bun.lock packages/*/package.json /manifests/ \
   && bun scripts/install-manifests.ts /manifests \
   && cp -a --parents packages/web packages/config packages/ui-* packages/*-ui /ui/ \
+  && cp -a tsconfig.base.json tsconfig.server.json tsconfig.dom.json /ui/ \
   && cp -a scripts/check-web-bundle.ts /ui/scripts/
 
 # ── Dependencies ──

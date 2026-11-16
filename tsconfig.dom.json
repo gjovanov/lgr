@@ -1,0 +1,9 @@
+{
+  // FR-32.1: what a package that runs in the browser adds to the base, the DOM. Checked with
+  // `vue-tsc`, which reads the `.vue` files `tsc` cannot.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "preserve"
+  }
+}
