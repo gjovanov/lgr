@@ -1,5 +1,5 @@
 import type { IPayslip, IEmployee, IOrg } from 'db/models'
-import { markdownToPdf, buildHeader } from './base.pdf.js'
+import { markdownToPdf, buildHeader, mdText } from './base.pdf.js'
 
 export async function generatePayslipPDF(
   payslip: IPayslip,
@@ -16,12 +16,12 @@ export async function generatePayslipPDF(
   md += `## Employee Details\n\n`
   md += `| | |\n`
   md += `|---|---|\n`
-  md += `| **Name** | ${[employee.firstName, employee.middleName, employee.lastName].filter(Boolean).join(' ')} |\n`
-  md += `| **Employee #** | ${employee.employeeNumber} |\n`
-  md += `| **Department** | ${employee.department} |\n`
-  md += `| **Position** | ${employee.position} |\n`
-  md += `| **Employment Type** | ${employee.employmentType} |\n`
-  if (employee.taxId) md += `| **Tax ID** | ${employee.taxId} |\n`
+  md += `| **Name** | ${mdText([employee.firstName, employee.middleName, employee.lastName].filter(Boolean).join(' '))} |\n`
+  md += `| **Employee #** | ${mdText(employee.employeeNumber)} |\n`
+  md += `| **Department** | ${mdText(employee.department)} |\n`
+  md += `| **Position** | ${mdText(employee.position)} |\n`
+  md += `| **Employment Type** | ${mdText(employee.employmentType)} |\n`
+  if (employee.taxId) md += `| **Tax ID** | ${mdText(employee.taxId)} |\n`
 
   md += `\n---\n\n`
 
@@ -35,7 +35,7 @@ export async function generatePayslipPDF(
     if (earning.hours && earning.rate) {
       detail += ` (${earning.hours}h x ${earning.rate.toFixed(2)})`
     }
-    md += `| ${earning.type} | ${detail} | ${earning.amount.toFixed(2)} |\n`
+    md += `| ${mdText(earning.type)} | ${mdText(detail)} | ${earning.amount.toFixed(2)} |\n`
   }
 
   md += `| | **Gross Pay** | **${payslip.grossPay.toFixed(2)}** |\n`
@@ -48,7 +48,7 @@ export async function generatePayslipPDF(
   md += `|------|-------------|-------:|\n`
 
   for (const deduction of payslip.deductions) {
-    md += `| ${deduction.type} | ${deduction.description} | ${deduction.amount.toFixed(2)} |\n`
+    md += `| ${mdText(deduction.type)} | ${mdText(deduction.description)} | ${deduction.amount.toFixed(2)} |\n`
   }
 
   md += `| | **Total Deductions** | **${payslip.totalDeductions.toFixed(2)}** |\n`
@@ -66,9 +66,9 @@ export async function generatePayslipPDF(
   md += `\n`
 
   // Payment info
-  md += `**Payment Method:** ${payslip.paymentMethod}\n\n`
+  md += `**Payment Method:** ${mdText(payslip.paymentMethod)}\n\n`
   if (payslip.paymentReference) {
-    md += `**Reference:** ${payslip.paymentReference}\n\n`
+    md += `**Reference:** ${mdText(payslip.paymentReference)}\n\n`
   }
 
   // Year-to-date

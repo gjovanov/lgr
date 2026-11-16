@@ -61,7 +61,7 @@ export function looksLikePdf(buf: Buffer | undefined): boolean {
   return buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46
 }
 
-/** Page setup shared by both renderers, so the kill switch prints the same page. */
+/** The page setup of every printed document. */
 function pageOptions(options?: MarkdownToPdfOptions) {
   const footerTemplate = options?.footerHtml
     ?? (options?.defaultFooter === false ? undefined : creditFooter(options?.locale))
@@ -90,7 +90,44 @@ function chromeArgs(): string[] {
   return [
     ...(noSandbox ? ['--no-sandbox', '--disable-setuid-sandbox'] : []),
     '--disable-dev-shm-usage',
+    ...NO_NETWORK_ARGS,
   ]
+}
+
+/**
+ * The browser that prints reaches nothing: whatever it would fetch is sent to a proxy that is not
+ * there (port 1 on loopback, where nothing listens), and `<-loopback>` takes away the exception
+ * Chrome otherwise makes for this machine's own addresses. See `lockPage`, which this backs up.
+ */
+const NO_NETWORK_ARGS = ['--proxy-server=http://127.0.0.1:1', '--proxy-bypass-list=<-loopback>']
+
+/**
+ * A page being printed runs no script and fetches nothing.
+ *
+ * Every form is built from text people typed (a name, a note, an article), and a browser obeys
+ * markup wherever it finds it. The builders print such text as text (`escHtml`, `mdText`); this
+ * is the lock behind them, for the place one of them does not. Three parts, each closing what the
+ * others leave open, measured 2026-11-16 with one page that tried everything:
+ *   - no script: neither a script element nor an `on…` attribute runs;
+ *   - every request the page makes is cancelled unless it is a `data:` URL, which is how a form
+ *     carries its letterhead. Cancelled as `aborted`, so that a page trying to send itself
+ *     elsewhere (a `refresh`) stays where it is: any other reason puts Chrome's error page in
+ *     place of the document;
+ *   - `NO_NETWORK_ARGS`, because a `<link rel="prefetch">` is fetched by the browser itself and
+ *     never passes the page's interception.
+ *
+ * Puppeteer's own calls (`evaluate`, `addStyleTag`) go through the debugger, which none of the
+ * three touches.
+ */
+async function lockPage(page: any): Promise<void> {
+  await page.setJavaScriptEnabled(false)
+  await page.setRequestInterception(true)
+  page.on('request', (request: any) => {
+    if (request.isInterceptResolutionHandled()) return
+    const settled = request.url().startsWith('data:') ? request.continue() : request.abort('aborted')
+    // The page may be gone by the time Chrome hears the answer.
+    settled.catch(() => {})
+  })
 }
 
 /**
@@ -233,10 +270,11 @@ async function withRenderedPage<T>(
   try {
     const render = (async () => {
       const page = await browser.newPage()
-      // `load` fires once every image in the page has loaded, so a tenant logo given as an
-      // absolute URL is there before printing. `networkidle0` added nothing for a page that
-      // fetches nothing else, and cost nearly two seconds a render waiting out a quiet period
-      // after the page had settled (median 2.76 s against 0.93 s, same page, same Chrome).
+      await lockPage(page)
+      // `load` fires once every image in the page has loaded (each is inline, see `lockPage`).
+      // `networkidle0` added nothing for a page that fetches nothing, and cost nearly two seconds
+      // a render waiting out a quiet period after the page had settled (median 2.76 s against
+      // 0.93 s, same page, same Chrome).
       await page.setContent(html, { waitUntil: 'load' })
       for (const css of defaultStylesheets()) await page.addStyleTag({ content: css })
       if (options?.css) await page.addStyleTag({ content: options.css })
@@ -267,24 +305,11 @@ async function closeOrKill(browser: any): Promise<void> {
   if (!closed && proc && proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL')
 }
 
-/** The previous renderer, kept for one release behind `PDF_RENDERER=md-to-pdf`. */
-async function renderWithMdToPdf(content: string, options?: MarkdownToPdfOptions): Promise<Buffer | undefined> {
-  const { mdToPdf } = await import('md-to-pdf')
-  const result = await mdToPdf({ content }, {
-    ...(options?.css ? { css: options.css } : {}),
-    pdf_options: pageOptions(options),
-    // Required when the process runs as root inside the container image.
-    // Puppeteer's Chromium refuses to launch without a sandbox unless opted out.
-    launch_options: {
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    },
-  })
-  return result?.content
-}
-
 /**
- * The page md-to-pdf hands Chrome (its `as_html`). Exported for the parity test only; it goes
- * when the kill switch does.
+ * The page md-to-pdf handed Chrome (its `as_html`): the reference of the parity test, and the
+ * only use left of the previous renderer. It printed pages unlocked (see `lockPage`), so the
+ * `PDF_RENDERER=md-to-pdf` switch that brought it back is gone. ⚠ Test fixtures only: never hand
+ * this anything a person typed.
  */
 export async function mdToPdfPageDom(content: string, options?: MarkdownToPdfOptions): Promise<string> {
   const { mdToPdf } = await import('md-to-pdf')
@@ -294,12 +319,6 @@ export async function mdToPdfPageDom(content: string, options?: MarkdownToPdfOpt
     launch_options: { args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] },
   } as any)
   return String(result?.content ?? '')
-}
-
-async function renderOnce(content: string, options?: MarkdownToPdfOptions): Promise<Buffer | undefined> {
-  return config.pdf.renderer === 'md-to-pdf'
-    ? renderWithMdToPdf(content, options)
-    : renderInProcess(content, options)
 }
 
 /**
@@ -316,7 +335,7 @@ export async function markdownToPdf(content: string, options?: MarkdownToPdfOpti
   let lastErr: unknown
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      last = await renderOnce(content, options)
+      last = await renderInProcess(content, options)
       if (looksLikePdf(last)) return last
     } catch (err) {
       lastErr = err
@@ -339,6 +358,18 @@ export function escHtml(s: unknown): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
+}
+
+/**
+ * A stored value as literal text on ONE line of a markdown-built document (the order sheets, the
+ * payslip, the statements): its markup is shown, not obeyed, its markdown is not read as markdown
+ * (a `[` opens no link and no image, a `*` no emphasis), a `|` does not end a table cell, and a
+ * line break of its own becomes a `<br>`.
+ */
+export function mdText(value: unknown): string {
+  return escHtml(String(value ?? '').trim())
+    .replace(/[\\`*_[\]~|]/g, '\\$&')
+    .replace(/\s*(?:\r\n|\r|\n)\s*/g, '<br>')
 }
 
 /** dd.mm.yyyy, as on the legacy printed forms. Empty for missing/invalid dates. */
@@ -368,8 +399,8 @@ export function flattenHtml(html: string): string {
 
 export function buildHeader(title: string, orgName: string, period?: string): string {
   let md = `# ${title}\n\n`
-  md += `**Organization:** ${orgName}\n\n`
-  if (period) md += `**Period:** ${period}\n\n`
+  md += `**Organization:** ${mdText(orgName)}\n\n`
+  if (period) md += `**Period:** ${mdText(period)}\n\n`
   md += `**Generated:** ${new Date().toLocaleDateString()}\n\n---\n\n`
   return md
 }

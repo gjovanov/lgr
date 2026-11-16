@@ -57,7 +57,7 @@ packages/
   config/              → Shared config (env vars) + constants (roles, permissions, modules, enums, APP_REGISTRY)
   db/                  → Mongoose models (71) + tenant plugin + connection management
   services/            → Business logic (biz/), DAOs (dao/), background tasks, events, mixins, logger
-  reporting/           → Excel (ExcelJS) + PDF (md-to-pdf) export generators
+  reporting/           → Excel (ExcelJS) + PDF (HTML or markdown, printed by Chrome) export generators
   fiscal/              → Fiscal printer abstraction (IFiscalPrinter, Datecs protocol, device manager, NTP sync, VAT groups)
 
   # ── DAL (Data Abstraction Layer) ──
@@ -4200,6 +4200,40 @@ Desktops pin a master's own CA (FR-20.31), so it is never replaced silently.
 - A connection kept from before the switch, or a TLS session resumed from one, still carries the
   old certificate, legitimately: only that master holds the session. A probe of the old CA must
   make a full handshake (a fresh client) to see it refused.
+
+## A printed page runs nothing and fetches nothing (2026-11-16)
+
+Every printed form is built from text people typed (a name, an article, a note), and Chrome obeys
+markup wherever it finds it. Two locks, both in `packages/reporting/src/pdf/`:
+
+- **The builders print typed text as text.** HTML-built forms use `escHtml`. Markdown-built ones
+  (the order sheets, the payslip, the statements) use **`mdText`**, which also keeps the text from
+  being read as markdown (`![…](…)` is an image to the parser) and turns its own line breaks into
+  `<br>`.
+  - ⚠ A new builder never interpolates a stored value bare.
+  - ⚠ A stored value never goes into an attribute. The letterhead is the one that does, and
+    `resolveLogo` lets through only an inline PNG, JPEG or WebP (`data:image/…;base64,`); anything
+    else (an address, a path, other data) prints the bundled logo. `Org.logo` is free text an
+    admin can set, so the pattern is what keeps it inside its attribute.
+- **`lockPage` (`base.pdf.ts`) stands behind them**, for the place a builder forgets:
+  - no script runs, neither a script element nor an `on…` attribute;
+  - every request the page makes is cancelled unless it is a `data:` URL. Cancelled as `aborted`:
+    any other reason puts Chrome's error page in place of a document that tried to send itself
+    elsewhere;
+  - Chrome is started with a proxy that is not there (`NO_NETWORK_ARGS`), because a
+    `<link rel="prefetch">` is fetched by the browser itself and never passes the page's
+    interception.
+  So a form carries everything inline: a remote image, font or stylesheet never loads.
+- ⚠ **A locked page fires no timer** (`setTimeout`, `requestAnimationFrame`): an expression given
+  to `evaluateRenderedPage` that waits on one never settles. Wait on an animation's `finished`.
+- The previous renderer and its `PDF_RENDERER=md-to-pdf` switch are gone (it printed pages
+  unlocked). `md-to-pdf` remains only as the parity test's reference page.
+- Proven in the production image and with the masters' `chrome-headless-shell`, not only here:
+  the same hostile page, nothing run, nothing requested, render time unchanged.
+- Tests: `unit/pdf-page-lock.test.ts` (one page that tries every way against a listener that
+  counts; the sheets through the markdown parser; the letterhead). ⚠ A stalled render can no
+  longer be made with a server that never answers, so `pdf-render-deadline.test.ts` awaits a
+  promise the page never settles.
 
 ## A master prints with its own Chrome (2026-10-25, FR-20.25)
 

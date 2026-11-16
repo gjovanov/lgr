@@ -19,8 +19,8 @@ export const MANIFEST = 'server-manifest.json'
  * - mongodb's optional peer modules. The driver requires each inside a try/catch and does
  *   without, so a package carries none of them: no native code from a dependency's optional
  *   extras.
- * - `md-to-pdf`, the previous PDF renderer, behind the cloud's `PDF_RENDERER=md-to-pdf` kill
- *   switch only (P0a-2), and loaded by a dynamic `import()`. ⚠ Bundled, its
+ * - `md-to-pdf`, the previous PDF renderer: only the parity test's reference now (the
+ *   `PDF_RENDERER=md-to-pdf` switch is gone), and loaded by a dynamic `import()`. ⚠ Bundled, its
  *   `require.resolve("highlight.js")` was SOMETIMES compiled to the build machine's absolute
  *   path (`/home/runner/work/lgr/lgr/node_modules/.bun/highlight.js@…`) and sometimes left as
  *   is. The same commit then built different bytes (CI's reproducibility check, twice on

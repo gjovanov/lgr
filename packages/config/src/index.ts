@@ -546,13 +546,13 @@ export const config = {
      */
     auto: process.env.MIGRATIONS_AUTO === 'true',
   },
+  /**
+   * FR-20.25 (P0a-2) — documents render in-process: the HTML goes to Chrome with `setContent`,
+   * and nothing listens on a socket but Chrome's own DevTools port on loopback. The previous
+   * renderer (`PDF_RENDERER=md-to-pdf`, a kill switch kept for one release) is gone: it printed
+   * a page that could run script and fetch (`lockPage` in `reporting/pdf/base.pdf.ts`).
+   */
   pdf: {
-    /**
-     * FR-20.25 (P0a-2) — `chrome` renders in-process: the HTML goes to Chrome with `setContent`,
-     * Chrome is driven over a pipe, and nothing listens on a socket. `md-to-pdf` is the previous
-     * renderer, kept for ONE release as the kill switch should a document print differently.
-     */
-    renderer: (process.env.PDF_RENDERER === 'md-to-pdf' ? 'md-to-pdf' : 'chrome') as 'chrome' | 'md-to-pdf',
     /** The Chrome to drive. Unset → Puppeteer's own (its cache), as before. */
     chromePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     /**

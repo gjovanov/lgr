@@ -70,11 +70,13 @@ describe('printed invoice form', () => {
     expect(html.indexOf('org-logo')).toBeLessThan(html.indexOf('doc-title'))
   })
 
-  it("uses the org's own logo when it is something the renderer can load", () => {
-    expect(build({}, { logo: 'https://cdn.example.com/acme.png' }))
-      .toContain('<img class="org-logo" src="https://cdn.example.com/acme.png"')
+  it("uses the org's own logo when it is an inline image", () => {
     expect(build({}, { logo: 'data:image/png;base64,AAAA' }))
       .toContain('<img class="org-logo" src="data:image/png;base64,AAAA"')
+    // An address on the network is not loaded (a printed page fetches nothing): the bundle prints.
+    const remote = build({}, { logo: 'https://cdn.example.com/acme.png' })
+    expect(remote).toContain('<img class="org-logo" src="data:image/png;base64,')
+    expect(remote).not.toContain('cdn.example.com')
     // A storage key or relative path is not renderable on its own — fall back to the bundle.
     expect(build({}, { logo: 'uploads/acme.png' }))
       .toContain('<img class="org-logo" src="data:image/png;base64,')
