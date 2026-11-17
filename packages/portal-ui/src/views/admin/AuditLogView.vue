@@ -171,6 +171,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime as dateTime } from 'ui-shared/format'
 import { ref, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAdminStore } from '../../store/admin.store'
@@ -261,7 +262,7 @@ function onUpdateOptions(opts: any) {
 }
 
 function formatDateTime(date: string) {
-  return date ? new Date(date).toLocaleString() : ''
+  return date ? dateTime(date) : ''
 }
 
 /** FR-20.48: where an entry made on the org's own server came from. */

@@ -8,6 +8,7 @@
     "./composables/idempotency": "./src/composables/idempotency.ts",
     "./composables/useSnackbar": "./src/composables/useSnackbar.ts",
     "./composables/useCurrency": "./src/composables/useCurrency.ts",
+    "./format": "./src/format/format.ts",
     "./composables/usePaginatedTable": "./src/composables/usePaginatedTable.ts",
     "./composables/useListQueryState": "./src/composables/useListQueryState.ts",
     "./composables/list-query-memory": "./src/composables/list-query-memory.ts",

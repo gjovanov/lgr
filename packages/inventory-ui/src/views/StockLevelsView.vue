@@ -86,6 +86,7 @@
 </template>
 
 <script setup lang="ts">
+import { intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useAccess } from 'ui-shared/access/useAccess'
 import { useI18n } from 'vue-i18n'
@@ -109,7 +110,7 @@ const seesCosts = computed(() => useAccess().can('products.costs'))
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 const warehouses = ref<Warehouse[]>([])
 const { search, debouncedSearch } = useSearchDebounce()

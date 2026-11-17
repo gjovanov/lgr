@@ -603,6 +603,7 @@
 </template>
 
 <script setup lang="ts">
+import { intlLocale } from 'ui-shared/format'
 import { ref, reactive, computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -676,7 +677,7 @@ const documentNumber = computed(() => orderNumber.value || peekedNumber.value)
 const readonly = computed(() => ['completed', 'cancelled'].includes(orderStatus.value))
 
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => (({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 const currencyOptions = computed(() => [...new Set([baseCurrency.value, 'EUR', 'BGN', 'USD', 'GBP'])])
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
@@ -1191,8 +1192,8 @@ const { markSaved, markClean, tryRestore, snapshot: snapshotPending } = usePendi
   // What is open is the tree's own state, not the form's: opening a row is looking, not editing.
   getFormData: () => JSON.parse(JSON.stringify({ ...form, _stagedReservations: staged })),
   getPreviewFields: () => [
-    { label: 'Date', value: form.issueDate || '' },
-    { label: 'Suppliers', value: String(form.supplierGroups.length) },
+    { label: t('common.date'), value: form.issueDate || '' },
+    { label: t('invoicing.suppliers'), value: String(form.supplierGroups.length) },
   ],
   setFormData: (data) => {
     const { _stagedReservations, ...rest } = data as any

@@ -629,8 +629,8 @@ const { markSaved, markLoaded, tryRestore, snapshot } = usePendingChanges({
   // let it go without a word), and edits kept for later came back with an empty tier table.
   getFormData: () => ({ ...form, priceEntries: priceEntries.value, priceTiers: priceTiers.value }),
   getPreviewFields: () => [
-    { label: 'SKU', value: form.sku },
-    { label: 'Name', value: form.name },
+    { label: t('warehouse.sku'), value: form.sku },
+    { label: t('common.name'), value: form.name },
   ],
   setFormData: (data) => {
     const { priceEntries: pe, priceTiers: pt, ...rest } = data

@@ -102,6 +102,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from 'ui-shared/format'
 import { goTo } from 'ui-shared/nav/navigate'
 import { accessSettled, settleAccess } from 'ui-shared/access/live-grant'
 import { PORTAL_PAGES, canOpenPage, startPage } from 'ui-shared/nav/page-registry'
@@ -176,7 +177,7 @@ function actionColor(action: string): string {
 
 function fmtTime(ts?: string): string {
   if (!ts) return ''
-  try { return new Date(ts).toLocaleString(loc.value) } catch { return ts }
+  try { return formatDateTime(ts) } catch { return ts }
 }
 
 // Domain UIs are separate SPAs served at their own path → hard navigate.

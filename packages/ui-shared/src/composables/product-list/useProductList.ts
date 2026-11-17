@@ -1,5 +1,5 @@
+import { formatDate, formatNumber } from '../../format/format'
 import { computed, nextTick, reactive, ref, watch } from 'vue'
-import { numberFormat } from '../number-display'
 import { hasNoReorderLevels, reorderPosition, toOrderQuantity } from 'config/reorder-quantity'
 import { accessGrant, useAccess } from '../../access/useAccess'
 import { liveAccessVersion } from '../../access/live-grant'
@@ -59,7 +59,7 @@ const SUPPLIER_CALL_SIZE = 100
 export interface UseProductListOptions {
   orgUrl: () => string
   baseCurrency: () => string
-  /** A BCP 47 tag (`en-US`), for dates, quantities and prices. */
+  /** A formatting locale (`intlLocale` of ui-shared/format), for dates, quantities and prices. */
   locale: () => string
   /** `till`: the cash register's catalog (active articles, the session warehouse's stock). */
   source?: 'products' | 'till'
@@ -447,8 +447,8 @@ export function useProductList(opts: UseProductListOptions) {
 
   // ── what a cell says ──
   const fmtPrice = (amount: number, currency?: string) => formatUnitPrice(amount, currency || opts.baseCurrency() || 'EUR', opts.locale())
-  const fmtDate = (iso?: string) => (iso ? new Date(iso).toLocaleDateString(opts.locale()) : '')
-  const fmtQty = (n: number) => numberFormat(opts.locale(), { maximumFractionDigits: 3 }).format(n || 0)
+  const fmtDate = (iso?: string) => (iso ? formatDate(iso, { lang: opts.locale() }) : '')
+  const fmtQty = (n: number) => formatNumber(n || 0, { lang: opts.locale(), maxDecimals: 3 })
   const stockFor = (id: string): StockBadge[] => (stockMap.value[id] || []).filter((s) => (s.quantity || 0) !== 0)
   const supplyFor = (id: string): SupplyTotals => supplyMap.value[id] || NO_SUPPLY
   const factsOf = (id: string): SupplierFact[] => supplierMap.value[id] || []

@@ -21,7 +21,7 @@
           data-testid="contact-movements"
           @update:options="onUpdateOptions"
         >
-          <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+          <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
           <template #item.number="{ item }">
             <entity-link :label="item.number || ''" :href="opens ? `/inventory/movements/${item._id || item.id}` : undefined" />
           </template>
@@ -42,6 +42,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'

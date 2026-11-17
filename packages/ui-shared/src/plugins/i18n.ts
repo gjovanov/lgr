@@ -1,5 +1,6 @@
 import { createI18n, type I18n } from 'vue-i18n'
 import en from '../locales/en.json'
+import { setFormatLanguage } from '../format/format'
 import vuetifyEn from 'vuetify/lib/locale/en.js'
 import vuetifyDe from 'vuetify/lib/locale/de.js'
 import vuetifyBg from 'vuetify/lib/locale/bg.js'
@@ -113,6 +114,8 @@ export function initialLocale(): string {
  */
 export function declareLanguage(locale: string): void {
   if (typeof document !== 'undefined') document.documentElement.lang = locale
+  // FR-31.13: numbers, money and dates follow the language too (`ui-shared/format`).
+  setFormatLanguage(locale)
 }
 
 // Default singleton for backward compatibility

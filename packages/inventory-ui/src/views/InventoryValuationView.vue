@@ -87,8 +87,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatNumber, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted, watch } from 'vue'
-import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -104,7 +104,7 @@ const appStore = useAppStore()
 const seesCosts = computed(() => useAccess().can('products.costs'))
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 const loading = ref(false)
 const items = ref<any[]>([])
@@ -125,7 +125,7 @@ const unitAggregation = computed(() => {
 })
 
 function fmtCurrency(val: number) { return formatCurrency(val, baseCurrency.value, localeCode.value) }
-function fmtQty(val: number) { return numberFormat(localeCode.value, { maximumFractionDigits: 2 }).format(val) }
+function fmtQty(val: number) { return formatNumber(val, { lang: localeCode.value, maxDecimals: 2 }) }
 
 function costingLabel(method: string) {
   const labels: Record<string, string> = {

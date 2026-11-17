@@ -49,7 +49,7 @@
       <entity-link :label="item.entryNumber" :to="{ name: 'accounting.journal-entry-edit', params: { id: item._id } }" />
     </template>
     <template #item.date="{ item }">
-      {{ item.date?.split('T')[0] }}
+      {{ formatDate(item.date) }}
     </template>
     <template #item.status="{ item }">
       <v-chip size="small" :color="statusColor(item.status)">
@@ -289,6 +289,7 @@
 
 <script setup lang="ts">
 import { rowKey } from 'ui-shared/composables/row-key'
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -314,8 +315,7 @@ const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
-  const map: Record<string, string> = { en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' }
-  return map[appStore.locale] || 'en-US'
+  return intlLocale(appStore.locale)
 })
 
 const { search, debouncedSearch } = useSearchDebounce()

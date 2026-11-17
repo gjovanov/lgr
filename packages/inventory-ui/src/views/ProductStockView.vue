@@ -31,7 +31,7 @@
               <template #item.incoming="{ item }">
                 <span v-if="item.incoming > 0" class="text-info font-weight-medium">{{ item.incoming }}</span>
                 <span v-else class="text-medium-emphasis">0</span>
-                <div v-if="item.expectedDate" class="text-caption text-medium-emphasis">{{ String(item.expectedDate).slice(0, 10) }}</div>
+                <div v-if="item.expectedDate" class="text-caption text-medium-emphasis">{{ formatDate(item.expectedDate) }}</div>
                 <div v-if="item.planned > 0" class="text-caption text-medium-emphasis">+{{ item.planned }} {{ $t('warehouse.supply.planned') }}</div>
               </template>
               <template #item.reservedIncoming="{ item }">
@@ -64,7 +64,7 @@
                     </td>
                     <td>{{ row.supplierName }}</td>
                     <td>{{ row.warehouseName }}</td>
-                    <td class="text-no-wrap">{{ row.expectedDate ? String(row.expectedDate).slice(0, 10) : '—' }}</td>
+                    <td class="text-no-wrap">{{ row.expectedDate ? formatDate(row.expectedDate) : '—' }}</td>
                     <td class="text-end">{{ row.ordered }}</td>
                     <td class="text-end">{{ row.received }}</td>
                     <td class="text-end font-weight-medium">{{ row.outstanding }}</td>
@@ -185,7 +185,7 @@
               hover
               density="compact"
             >
-              <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+              <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
               <template #item.documentRef="{ item }">
                 <entity-link :label="item.documentRef || ''" :href="documentHref(item)" />
               </template>
@@ -269,7 +269,7 @@
               <template #item.movementNumber="{ item }">
                 <entity-link :label="item.movementNumber" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
               </template>
-              <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+              <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
               <template #item.type="{ item }">
                 <v-chip size="x-small" label :color="eventColor(item.type)">{{ eventLabel(item.type) }}</v-chip>
               </template>
@@ -312,7 +312,7 @@
                 <v-chip size="x-small" :color="item.status === 'completed' ? 'success' : item.status === 'in_progress' ? 'info' : 'warning'">{{ item.status }}</v-chip>
               </template>
               <!-- The model's field is `date` — `countDate` never existed and rendered blank. -->
-              <template #item.date="{ item }">{{ item.date?.split('T')[0] || '' }}</template>
+              <template #item.date="{ item }">{{ formatDate(item.date) || '' }}</template>
               <template #item.productVariance="{ item }">
                 <span v-if="item.productVariance !== undefined" :class="item.productVariance > 0 ? 'text-success' : item.productVariance < 0 ? 'text-error' : ''">
                   {{ item.productVariance > 0 ? '+' : '' }}{{ item.productVariance }}
@@ -333,6 +333,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -354,7 +355,7 @@ const seesCosts = computed(() => useAccess().can('products.costs'))
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 const productId = computed(() => route.params.id as string)
 const product = ref<any>(null)

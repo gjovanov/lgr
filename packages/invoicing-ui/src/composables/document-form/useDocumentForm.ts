@@ -1,3 +1,4 @@
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { tierLabel } from 'config/price-tiers'
@@ -141,7 +142,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const defaultVatRate = computed(() => appStore.currentOrg?.settings?.taxConfig?.defaultVatRate ?? 0)
   const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
   const localeCode = computed(
-    () => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[appStore.locale] || 'en-US',
+    () => intlLocale(appStore.locale),
   )
 
   const isEdit = computed(() => !!route.params.id)
@@ -339,8 +340,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     icon: config.pendingIcon,
     getFormData: () => ({ ...form, lines: [...form.lines] }),
     getPreviewFields: () => [
-      { label: 'Date', value: form.issueDate || '' },
-      { label: 'Currency', value: form.currency || '' },
+      { label: t('common.date'), value: form.issueDate || '' },
+      { label: t('common.currency'), value: form.currency || '' },
     ],
     setFormData: (data) => {
       Object.assign(form, data)
@@ -845,7 +846,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   function setLastPrice(line: Line, lp: { price: number; invoiceNumber: string; issueDate: string }) {
-    const date = lp.issueDate ? new Date(lp.issueDate).toLocaleDateString(localeCode.value) : ''
+    const date = lp.issueDate ? formatDate(lp.issueDate) : ''
     setChosenPrice(line, { type: 'contact', name: t('invoicing.lastPrice.step', { number: lp.invoiceNumber, date }), price: lp.price })
   }
 

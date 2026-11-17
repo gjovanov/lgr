@@ -58,7 +58,7 @@
               data-testid="ledger-note-tick"
             />
           </template>
-          <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+          <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
           <template #item.documentNumber="{ item }">
             <entity-link v-if="item.documentId && !isMovementRow(item)" :label="item.documentNumber || ''" :href="documentHref(item)" />
             <span v-else>{{ item.documentNumber }}</span>
@@ -115,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from '../format/format'
 import { ref, computed, watch } from 'vue'
 import { isMovementRow, useContactLedger, type ContactLedgerEntry } from '../composables/useContactLedger'
 import EntityLink from './EntityLink.vue'

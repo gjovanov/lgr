@@ -126,7 +126,7 @@
           <template v-if="pagination.loadError" #no-data>
             <ListLoadError :failure="pagination.loadError" @retry="fetchItems" />
           </template>
-          <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+          <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
           <template #item.type="{ item }">
             <v-chip size="small" label :color="typeColor(item.type)">{{ typeLabel(item.type) }}</v-chip>
           </template>
@@ -205,7 +205,7 @@
           <span class="font-weight-bold text-body-2">{{ item.number || item._id.slice(-6) }}</span>
           <v-chip size="x-small" label :color="typeColor(item.type)">{{ typeLabel(item.type) }}</v-chip>
           <span v-if="item.contactName" class="text-caption">{{ item.contactName }}</span>
-          <span class="text-caption text-medium-emphasis">{{ item.date?.split('T')[0] }}</span>
+          <span class="text-caption text-medium-emphasis">{{ formatDate(item.date) }}</span>
           <span v-if="seesCosts" class="text-body-2 font-weight-medium" data-cap="products.costs">{{ fmtCurrency(item.total || 0) }}</span>
         </div>
       </template>
@@ -253,6 +253,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
@@ -312,7 +313,7 @@ function onTicked(ids: unknown) {
   ticked.value = (Array.isArray(ids) ? ids : []).map(String)
 }
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 const warehouses = ref<Warehouse[]>([])
 /** The filter's choices: every warehouse a movement can name, an external one said to be one. */

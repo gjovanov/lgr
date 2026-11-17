@@ -105,7 +105,7 @@
         {{ taxCategoryRoman(item.taxCategory) ?? '' }}
       </template>
       <template #item.taxDepreciationRate="{ item }">
-        {{ typeof item.taxDepreciationRate === 'number' ? `${item.taxDepreciationRate.toLocaleString(localeCode)} %` : '' }}
+        {{ typeof item.taxDepreciationRate === 'number' ? `${formatNumber(item.taxDepreciationRate, { maxDecimals: 3 })} %` : '' }}
       </template>
       <template #item.inServiceDate="{ item }">
         {{ dayOf(item.inServiceDate) ?? '' }}
@@ -137,6 +137,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatNumber, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -179,8 +180,7 @@ const { showSuccess, showError } = useSnackbar()
 
 const orgCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
-  const map: Record<string, string> = { en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' }
-  return map[appStore.locale] || 'en-US'
+  return intlLocale(appStore.locale)
 })
 /** Each asset in its own currency: an asset of the books written off before the euro is in lev. */
 const money = (n: unknown, item: FixedAssetRow) => (typeof n === 'number' ? formatCurrency(n, assetCurrency(item, orgCurrency.value), localeCode.value) : '')

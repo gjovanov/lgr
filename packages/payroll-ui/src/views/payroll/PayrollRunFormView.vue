@@ -95,8 +95,8 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   icon: 'mdi-calculator',
   getFormData: () => ({ ...form.value }),
   getPreviewFields: () => [
-    { label: 'Name', value: form.value.name || '' },
-    { label: 'Period', value: form.value.periodStart || '' },
+    { label: t('common.name'), value: form.value.name || '' },
+    { label: t('payroll.period'), value: form.value.periodStart || '' },
   ],
   setFormData: (data) => { form.value = { ...form.value, ...data } },
   isEdit: () => isEdit.value,

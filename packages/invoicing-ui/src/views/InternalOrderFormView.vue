@@ -463,7 +463,7 @@
                 <v-chip size="x-small" variant="tonal">{{ sugLookup.warehouses?.[inc.warehouseId] || '' }}</v-chip>
                 <span class="text-caption">
                   {{ inc.unreserved }}
-                  <template v-if="inc.expectedDate"> · {{ inc.expectedDate.split('T')[0] }}</template>
+                  <template v-if="inc.expectedDate"> · {{ formatDate(inc.expectedDate) }}</template>
                 </span>
                 <v-icon v-if="inc.late" size="14" color="error" :title="$t('invoicing.lateDelivery')">mdi-clock-alert-outline</v-icon>
                 <v-text-field v-model.number="inc._qty" type="number" min="0" density="compact" variant="underlined" hide-details style="max-width: 100px" />
@@ -481,7 +481,7 @@
                 <span class="text-caption">
                   {{ sugLookup.contacts?.[p.contactId] || '' }}
                   <template v-if="p.internalOrderNumber"> · {{ p.internalOrderNumber }}</template>
-                  <template v-if="p.requestedDeliveryDate"> · {{ p.requestedDeliveryDate.split('T')[0] }}</template>
+                  <template v-if="p.requestedDeliveryDate"> · {{ formatDate(p.requestedDeliveryDate) }}</template>
                   · {{ $t('invoicing.releasableQty') }}: {{ p.releasable }}
                 </span>
                 <v-text-field v-model.number="p._qty" type="number" min="0" density="compact" variant="underlined" hide-details style="max-width: 100px" />
@@ -570,6 +570,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -658,7 +659,7 @@ const readonly = computed(() => ['completed', 'cancelled', 'delivered'].includes
 const canReserve = computed(() => ['confirmed', 'partially_delivered'].includes(orderStatus.value))
 
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => (({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
@@ -1091,8 +1092,8 @@ const { markSaved, markClean, tryRestore, isDirty, snapshot: snapshotPending } =
   icon: 'mdi-account-clock-outline',
   getFormData: () => JSON.parse(JSON.stringify(form)),
   getPreviewFields: () => [
-    { label: 'Date', value: form.issueDate || '' },
-    { label: 'Lines', value: String(form.lines.length) },
+    { label: t('common.date'), value: form.issueDate || '' },
+    { label: t('invoicing.lineItems'), value: String(form.lines.length) },
   ],
   setFormData: (data) => Object.assign(form, data),
   isEdit: () => isEdit.value,

@@ -145,7 +145,7 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   entityType: 'priceList',
   icon: 'mdi-tag-multiple',
   getFormData: () => ({ ...form.value }),
-  getPreviewFields: () => [{ label: 'Name', value: form.value.name }],
+  getPreviewFields: () => [{ label: t('common.name'), value: form.value.name }],
   setFormData: (data) => { form.value = { ...form.value, ...data } },
   isEdit: () => isEdit.value,
   entityId: () => route.params.id as string,

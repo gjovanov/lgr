@@ -85,6 +85,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -115,7 +116,7 @@ const headers = computed(() => [
   { title: '', key: 'actions', sortable: false, align: 'end' as const },
 ])
 
-const day = (v?: string | null) => (v ? new Date(v).toLocaleDateString(locale.value) : '—')
+const day = (v?: string | null) => (v ? formatDate(v) : '—')
 const message = (e: any) => e?.response?.data?.message || e?.message || t('common.operationFailed')
 
 async function load() {

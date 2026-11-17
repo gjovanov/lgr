@@ -205,8 +205,8 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   icon: 'mdi-book-open-variant',
   getFormData: () => ({ ...form.value }),
   getPreviewFields: () => [
-    { label: 'Code', value: form.value.code || '' },
-    { label: 'Name', value: form.value.name || '' },
+    { label: t('common.code'), value: form.value.code || '' },
+    { label: t('common.name'), value: form.value.name || '' },
   ],
   setFormData: (data) => { form.value = { ...form.value, ...data } },
   isEdit: () => isEdit.value,

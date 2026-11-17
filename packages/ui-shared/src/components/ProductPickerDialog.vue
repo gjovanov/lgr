@@ -102,6 +102,7 @@
 </template>
 
 <script setup lang="ts">
+import { intlLocale } from '../format/format'
 import { computed, nextTick, ref, toRef, watch } from 'vue'
 import { useGridColumns } from '../composables/useGridColumns'
 import { useProductList } from '../composables/product-list/useProductList'
@@ -127,7 +128,7 @@ const props = withDefaults(defineProps<{
   modelValue: boolean
   orgUrl: string
   baseCurrency?: string
-  /** A BCP 47 tag (`en-US`). */
+  /** A formatting locale (`intlLocale` of ui-shared/format); nothing means the app language. */
   locale?: string
   /** A tick column and "Add N articles": the screen takes several at once (FR-28.28). */
   multiple?: boolean
@@ -154,7 +155,7 @@ const emit = defineEmits<{
 const list = useProductList({
   orgUrl: () => props.orgUrl,
   baseCurrency: () => props.baseCurrency || 'EUR',
-  locale: () => props.locale || 'en-US',
+  locale: () => props.locale || intlLocale(),
   source: props.source,
   // It opens sorted by name, as the inline search does, and lists active articles.
   defaultSize: 25,

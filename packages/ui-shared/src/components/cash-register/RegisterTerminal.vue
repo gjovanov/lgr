@@ -191,8 +191,8 @@
 
 <script setup lang="ts">
 import { rowKey } from '../../composables/row-key'
+import { formatMoney, intlLocale } from '../../format/format'
 import { computed, nextTick, onMounted, ref, toRaw, watch, type ComponentPublicInstance } from 'vue'
-import { numberFormat } from '../../composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
 import { httpClient } from '../../composables/useHttpClient'
@@ -264,7 +264,7 @@ const emit = defineEmits<{
 const { t, locale } = useI18n()
 
 /** The app's language as a BCP 47 tag, for the figures the dialog prints. */
-const localeTag = computed(() => ({ en: 'en-US', bg: 'bg-BG', de: 'de-DE', mk: 'mk-MK' } as Record<string, string>)[String(locale.value)] || 'en-US')
+const localeTag = computed(() => intlLocale(String(locale.value)))
 
 // ── FR-28.25: Details ──
 const detailsOpen = ref(false)
@@ -352,7 +352,7 @@ function onQuantityTyped(idx: number, typed: string) {
 }
 
 function fmt(n: number, decimals = 2) {
-  return numberFormat(undefined, { style: 'currency', currency: props.currency || 'EUR', minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n || 0)
+  return formatMoney(n || 0, props.currency || 'EUR', { decimals })
 }
 
 /**

@@ -54,8 +54,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatNumber, intlLocale } from '../format/format'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { numberFormat } from '../composables/number-display'
 import { latestOnly } from '../composables/latest-only'
 import { useAccess } from '../access/useAccess'
 import { useI18n } from 'vue-i18n'
@@ -85,7 +85,7 @@ const props = defineProps<{
   /** The warehouse whose stock the hits show; none: the sum over the warehouses. */
   stockWarehouseId?: string | null
   baseCurrency?: string
-  /** A BCP 47 tag (`en-US`). */
+  /** A formatting locale (`intlLocale` of ui-shared/format); nothing means the app language. */
   locale?: string
 }>()
 
@@ -139,8 +139,8 @@ function showAllResults() {
 }
 
 // ── FR-28.24: the hit's second line — SKU · unit · stock · price ──
-const resolvedLocale = computed(() => props.locale || 'en-US')
-const fmtQty = (n: number) => numberFormat(resolvedLocale.value, { maximumFractionDigits: 3 }).format(n || 0)
+const resolvedLocale = computed(() => props.locale || intlLocale())
+const fmtQty = (n: number) => formatNumber(n || 0, { lang: resolvedLocale.value, maxDecimals: 3 })
 // FR-27.11.D: a price the role does not see is no price to show: the purchase price needs the cost figures, the selling
 // price its level.
 const access = useAccess()

@@ -44,6 +44,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatNumber, priceDecimals } from '../format/format'
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { VCombobox, VSelect } from 'vuetify/components'
@@ -112,12 +113,12 @@ const currentDisplay = computed(() => {
   return match || (props.modelValue != null ? String(props.modelValue) : '')
 })
 
-// Closed-state text: the price only, always 5 decimals (1 → "1.00000"), no name.
+// Closed-state text: the price only, no name; two decimals, more only when the price has more, up to five (FR-31 D-5).
 const displayNumber = computed(() => {
   if (props.modelValue == null || props.modelValue === ('' as any)) return ''
   const n = Number(props.modelValue)
   if (Number.isNaN(n)) return String(props.modelValue)
-  return n.toLocaleString('en-US', { minimumFractionDigits: 5, maximumFractionDigits: 5, useGrouping: false })
+  return formatNumber(n, { decimals: priceDecimals(n), grouping: false })
 })
 
 function typeIcon(type?: string) {
@@ -272,6 +273,7 @@ function onValueChange(val: any) {
     const base = options.value.find(o => o.type === 'base')
     const steps: { type: string; label: string; price: number }[] = []
     if (base) steps.push({ type: 'base', label: base.name, price: base.price })
+    // The label is the stored trail's marker, never read: the trail shows an override step as `pricing.manualOverride`.
     steps.push({ type: 'override', label: 'Manual override', price })
     emit('update:priceExplanation', steps)
   }

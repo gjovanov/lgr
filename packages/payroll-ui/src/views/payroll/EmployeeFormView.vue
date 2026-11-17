@@ -149,8 +149,8 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   icon: 'mdi-account',
   getFormData: () => ({ ...form }),
   getPreviewFields: () => [
-    { label: 'Name', value: form.firstName + ' ' + form.lastName },
-    { label: 'Number', value: form.employeeNumber || '' },
+    { label: t('common.name'), value: form.firstName + ' ' + form.lastName },
+    { label: t('payroll.employeeNumber'), value: form.employeeNumber || '' },
   ],
   setFormData: (data) => Object.assign(form, data),
   isEdit: () => isEdit.value,

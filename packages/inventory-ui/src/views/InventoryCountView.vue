@@ -35,7 +35,7 @@
           <template v-if="pagination.loadError" #no-data>
             <ListLoadError :failure="pagination.loadError" @retry="fetchItems" />
           </template>
-          <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+          <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
           <template #item.type="{ item }">
             <v-chip size="small" label>{{ $t(`warehouse.countType.${item.type || 'full'}`) }}</v-chip>
           </template>
@@ -59,6 +59,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'

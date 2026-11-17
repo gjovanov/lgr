@@ -84,7 +84,7 @@
                 @click="toggleItem(txn)"
               >
                 <v-list-item-title>{{ txn.description }}</v-list-item-title>
-                <v-list-item-subtitle>{{ txn.date?.split('T')[0] }}<span v-if="txn.bankReference"> · {{ txn.bankReference }}</span></v-list-item-subtitle>
+                <v-list-item-subtitle>{{ formatDate(txn.date) }}<span v-if="txn.bankReference"> · {{ txn.bankReference }}</span></v-list-item-subtitle>
                 <template #prepend>
                   <v-checkbox-btn
                     :model-value="txn.selected"
@@ -122,7 +122,7 @@
                 @click="toggleItem(txn)"
               >
                 <v-list-item-title>{{ txn.description }}</v-list-item-title>
-                <v-list-item-subtitle>{{ txn.date?.split('T')[0] }}<span v-if="txn.reference"> · {{ txn.reference }}</span></v-list-item-subtitle>
+                <v-list-item-subtitle>{{ formatDate(txn.date) }}<span v-if="txn.reference"> · {{ txn.reference }}</span></v-list-item-subtitle>
                 <template #prepend>
                   <v-checkbox-btn
                     :model-value="txn.selected"
@@ -221,6 +221,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
@@ -247,8 +248,7 @@ const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
-  const map: Record<string, string> = { en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }
-  return map[appStore.locale] || 'en-US'
+  return intlLocale(appStore.locale)
 })
 
 const selectedBankAccount = ref('')

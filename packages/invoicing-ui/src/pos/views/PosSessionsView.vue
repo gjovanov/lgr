@@ -239,6 +239,7 @@
 </template>
 
 <script setup lang="ts">
+import { dayInZone, formatDateTime as dateTime, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
@@ -260,7 +261,7 @@ const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const { showSuccess, showError } = useSnackbar()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 const statusFilter = ref<string | null>(null)
 const dateFrom = ref<string | null>(null)
@@ -425,15 +426,11 @@ function reportChoices(item: any): { kind: ReportKind; label: string }[] {
 
 /** The calendar day of an instant on the org's clock, else this browser's, as a date field holds it. */
 function orgDay(at: string | Date): string {
-  const parts = (timeZone?: string) => new Intl.DateTimeFormat('en-GB', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(at))
-  let found: Intl.DateTimeFormatPart[]
   try {
-    found = parts((appStore.currentOrg as any)?.settings?.timezone || undefined)
+    return dayInZone(at, (appStore.currentOrg as any)?.settings?.timezone || undefined)
   } catch {
-    found = parts() // a zone the browser does not know
+    return dayInZone(at) // a zone the browser does not know
   }
-  const part = (type: string) => found.find(p => p.type === type)?.value
-  return `${part('year')}-${part('month')}-${part('day')}`
 }
 
 /** Prefilled from the session: its days, its Z-report. */
@@ -478,7 +475,7 @@ function fmtCurrency(amount: number, currency?: string) {
 function formatDateTime(dateStr: string) {
   if (!dateStr) return '-'
   const d = new Date(dateStr)
-  return d.toLocaleString()
+  return dateTime(d)
 }
 
 function statusColor(s: string) {

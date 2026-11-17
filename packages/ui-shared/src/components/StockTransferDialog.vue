@@ -16,7 +16,7 @@
           <div class="d-flex justify-space-between align-center mb-2">
             <span class="text-subtitle-2 font-weight-bold">{{ proposal.productName }} → {{ proposal.toWarehouseName }}</span>
             <v-chip size="small" :color="proposalCovered(pi) ? 'success' : 'error'" label>
-              {{ proposalCovered(pi) ? 'Covered' : `Short by ${proposalDeficit(pi)}` }}
+              {{ proposalCovered(pi) ? $t('invoicing.transfer.covered') : $t('invoicing.transfer.shortBy', { n: proposalDeficit(pi) }) }}
             </v-chip>
           </div>
 
@@ -24,8 +24,8 @@
             <thead>
               <tr>
                 <th>{{ $t('invoicing.selectSourceWarehouse') }}</th>
-                <th class="text-end" style="width:100px">Available</th>
-                <th class="text-end" style="width:140px">Transfer Qty</th>
+                <th class="text-end" style="width:100px">{{ $t('invoicing.transfer.available') }}</th>
+                <th class="text-end" style="width:140px">{{ $t('invoicing.transfer.quantity') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -49,13 +49,13 @@
           </v-table>
 
           <div class="d-flex justify-space-between mt-2 text-body-2">
-            <span>Needed: <strong>{{ shortfalls[pi]?.deficit }}</strong></span>
-            <span>Total transfer: <strong>{{ proposalTotal(pi) }}</strong></span>
+            <span>{{ $t('invoicing.transfer.needed') }}: <strong>{{ shortfalls[pi]?.deficit }}</strong></span>
+            <span>{{ $t('invoicing.transfer.total') }}: <strong>{{ proposalTotal(pi) }}</strong></span>
           </div>
         </div>
 
         <v-alert v-if="!allCovered" type="error" variant="tonal" density="compact">
-          Some products are not fully covered. Adjust transfer quantities to proceed.
+          {{ $t('invoicing.transfer.notCovered') }}
         </v-alert>
       </v-card-text>
 
