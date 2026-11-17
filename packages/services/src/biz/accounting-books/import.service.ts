@@ -195,11 +195,11 @@ async function storedAnalytics(orgId: string): Promise<AnalyticMap> {
   return new Map(rows.map(a => [a.path, { id: a._id, ...(a.contactId ? { contactId: String(a.contactId) } : {}), ...(a.unit ? { unit: a.unit } : {}) }]))
 }
 
-const CONTACT_TYPE: Partial<Record<AnalyticKind, 'customer' | 'supplier' | 'both'>> = { customer: 'customer', supplier: 'supplier', partner: 'both' }
+export const CONTACT_TYPE: Partial<Record<AnalyticKind, 'customer' | 'supplier' | 'both'>> = { customer: 'customer', supplier: 'supplier', partner: 'both' }
 
 const kindOfPath = (path: string): AnalyticKind => analyticRootDef(rootOfPath(path))?.kind ?? 'other'
 
-function newContact(orgId: string, type: string, item: AnalyticItem) {
+export function newContact(orgId: string, type: string, item: AnalyticItem) {
   const companyName = item.path.slice(item.path.indexOf(':') + 1).trim()
   const street = item.address || item.city
   return {

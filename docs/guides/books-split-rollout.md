@@ -212,6 +212,32 @@ exactly as they were, and points the books back. A second run finds no pair.
 (the nightly's) reports the re-pointed entries as `changed`, once, and writes them as they already are.
 Take step 7's "unchanged" proof after that import, not between the repair and it.
 
+The first import also looked a partner up by a number typed to fill the box. The books give one to a
+partner abroad, several partners share it, and each of them was linked to the one contact of the store
+that held it: another partner's. Its journal lines carry that contact, so that contact's ledger shows
+their entries. Today such a partner is found by its name, but a link once stored is not looked at
+again, so those need a repair of their own, run the same way and under the same conditions:
+
+```bash
+bun scripts/relink-books-filler-links.ts --org <org>                                   # dry run: counts only
+bun scripts/relink-books-filler-links.ts --org <org> --execute --expect <wrong> [--out <dir>]
+```
+
+A link is **wrong** when all three hold: today's rule does not make it; the partner's ЕИК (else its VAT
+number), as written, is no number and the contact holds it; and the contact is rightly another
+partner's, that is, some other analytic is linked to it and today's rule agrees. The last is what leaves
+alone a contact someone renamed, or whose number someone retyped, since: those are only counted. Each
+wrong link gets what a fresh import gives the partner today:
+
+- the contact found by its own number, or by its name;
+- none is found and the org's entries book on it: the Contact a journal month makes for it;
+- none is found and nothing books on it: the link is removed.
+
+The analytic and every journal line of the org on it that carries the wrong contact change together. No
+contact is changed or deleted. It writes its manifest first, `--undo <manifest>` takes a run back (a
+contact the run made goes when nothing names it by then), a second run finds nothing wrong, and the next
+import reports the re-pointed entries as `changed`, once.
+
 ### Step 7: the proofs
 
 Counts only, as everywhere in FR-25.
