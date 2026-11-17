@@ -1,8 +1,12 @@
 import { nodeRole } from 'config'
-import { AuditLog, Desktop, User } from 'db/models'
+import {
+  Account, AuditLog, Contact, Desktop, Employee, InternalOrder, Invoice, JournalEntry, Order, POSSession, Product, Reservation, StockMovement,
+  User, Warehouse,
+} from 'db/models'
 import { mongoose } from 'db/connection'
 import { currentRequest } from 'db/home/request-context'
-import { getRepos } from '../context.js'
+import { logger } from '../logger/logger.js'
+import { buildSearchFilter } from './search.utils.js'
 import { capsOfSortKey, seesCosts, seesEveryPrice, seesLevel, type Grant } from 'config/access'
 
 /** Records whose `lines` carry a cost (`unitCost`, `varianceCost`, an order's expected price). */
@@ -26,9 +30,29 @@ const { Types } = mongoose
 
 const SENSITIVE_FIELDS = new Set(['password', 'token', 'secret', 'apiKey', 'creditCard', 'oauthProviders'])
 
+/** One changed field, as an entry stores it. */
+export interface AuditChange { field: string; oldValue: unknown; newValue: unknown }
+
+/**
+ * FR-29.19: what changed, as a caller may say it: the stored array, or a map of the fields it names to their old and
+ * new values (`{ invoiceNumber: { from, to } }`). Both are stored as the array. Any other shape does not compile.
+ */
+export type AuditChanges = AuditChange[] | Record<string, { from?: unknown; to?: unknown }>
+
+/**
+ * FR-29.20: who made the entry when it is not a person: the system, naming the job or the event that wrote it
+ * (`invoice.posted`, `backup`). The audit page shows "System".
+ */
+export interface AuditActor { kind: 'system'; name: string }
+
+/** The system as the actor of an entry, named by its job or event. */
+export const systemActor = (name: string): AuditActor => ({ kind: 'system', name })
+
 export interface AuditEntry {
   orgId: string
-  userId: string
+  /** The person who acted. Absent for the system (`actor`) and a sys-admin script (`via: 'scripts/…'`). */
+  userId?: string
+  actor?: AuditActor
   operatorCode?: string
   action: string
   module: string
@@ -37,11 +61,37 @@ export interface AuditEntry {
   entityName?: string
   unpNumber?: string
   correlationId?: string
-  changes?: { field: string; oldValue: any; newValue: any }[]
+  changes?: AuditChanges
   ipAddress?: string
   userAgent?: string
   /** FR-20.48: where it came from, when the request context cannot say (a socket's own event). */
   via?: string
+}
+
+/** FR-29.19: the changes as an entry stores them, whichever shape the caller used. */
+export function changesOf(changes: AuditChanges | undefined): AuditChange[] | undefined {
+  if (!changes) return undefined
+  if (Array.isArray(changes)) return changes
+  return Object.entries(changes).map(([field, c]) => ({ field, oldValue: c?.from ?? null, newValue: c?.to ?? null }))
+}
+
+/** FR-29.21: audit writes that failed since this process started, for health. */
+const failures = { count: 0, lastAt: undefined as Date | undefined }
+export function auditHealth(): { writeFailures: number; lastFailureAt?: Date } {
+  return { writeFailures: failures.count, ...(failures.lastAt ? { lastFailureAt: failures.lastAt } : {}) }
+}
+
+/**
+ * FR-29.21 (D-6): a failed audit write is loud, and the action it belongs to still succeeds. Logged at error level with
+ * what was being recorded (never its values) and counted for health.
+ */
+function auditWriteFailed(entry: AuditEntry, err: unknown): void {
+  failures.count++
+  failures.lastAt = new Date()
+  logger.error(
+    { module: entry.module, action: entry.action, entityType: entry.entityType, entityId: String(entry.entityId ?? ''), error: err instanceof Error ? err.message : String(err) },
+    'Audit log write failed',
+  )
 }
 
 export interface AuditQueryOptions {
@@ -75,11 +125,9 @@ function idOrString(v: unknown): Types.ObjectId | string | undefined {
  */
 export function createAuditEntry(entry: AuditEntry): void {
   try {
-    AuditLog.create(auditDoc(entry)).catch((err) => {
-      console.warn('Audit log write failed:', err.message)
-    })
-  } catch (err: any) {
-    console.warn('Audit log write failed:', err?.message)
+    AuditLog.create(auditDoc(entry)).catch((err: unknown) => auditWriteFailed(entry, err))
+  } catch (err) {
+    auditWriteFailed(entry, err)
   }
 }
 
@@ -91,17 +139,21 @@ export async function recordAuditEntry(entry: AuditEntry): Promise<boolean> {
   try {
     await AuditLog.create(auditDoc(entry))
     return true
-  } catch (err: any) {
-    console.warn('Audit log write failed:', err?.message)
+  } catch (err) {
+    auditWriteFailed(entry, err)
     return false
   }
 }
 
 function auditDoc(entry: AuditEntry) {
+  // FR-29.20: `userId: 'system'` is how the handlers used to say it, and the cast threw, so the entry was never written.
+  const actor = entry.actor ?? (entry.userId === 'system' ? systemActor(entry.action) : undefined)
   return {
     orgId: new Types.ObjectId(entry.orgId),
-    // A script's entry has no person (`via: 'scripts/…'`): an empty id is no id, never a cast that throws.
-    userId: entry.userId ? new Types.ObjectId(entry.userId) : undefined,
+    // A script's entry has no person (`via: 'scripts/…'`), nor does the system's: an empty id is no id, never a cast
+    // that throws.
+    userId: entry.userId && !actor ? new Types.ObjectId(entry.userId) : undefined,
+    ...(actor ? { actor } : {}),
     operatorCode: entry.operatorCode,
     action: entry.action,
     module: entry.module,
@@ -110,7 +162,7 @@ function auditDoc(entry: AuditEntry) {
     entityName: entry.entityName,
     unpNumber: entry.unpNumber,
     correlationId: entry.correlationId ? idOrString(entry.correlationId) : undefined,
-    changes: entry.changes,
+    changes: changesOf(entry.changes),
     ipAddress: entry.ipAddress,
     userAgent: entry.userAgent,
     via: viaOf(entry),
@@ -128,6 +180,14 @@ function viaOf(entry: AuditEntry): string | undefined {
   const via = currentRequest()?.via
   if (via) return via
   return nodeRole() === 'master' ? 'loopback' : undefined
+}
+
+/** Who an entry names: the person, or "System" for the system's own (FR-29.20), or the script that wrote it. */
+function actorNameOf(d: any): string {
+  if (d.actor?.kind === 'system') return 'System'
+  return d.userId?.firstName
+    ? `${d.userId.firstName} ${d.userId.lastName || ''}`.trim()
+    : d.userId?.email || d.userId?.username || (d.userId ? String(d.userId) : String(d.via ?? ''))
 }
 
 /** The desktops a page of entries names (`lan:<desktopId>`), by id, with their names. */
@@ -232,9 +292,9 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
   const logs = docs.map((d: any) => ({
     _id: String(d._id),
     userId: d.userId?._id ? String(d.userId._id) : d.userId ? String(d.userId) : null,
-    userName: d.userId?.firstName
-      ? `${d.userId.firstName} ${d.userId.lastName || ''}`.trim()
-      : d.userId?.email || d.userId?.username || (d.userId ? String(d.userId) : String(d.via ?? '')),
+    userName: actorNameOf(d),
+    // FR-29.20: the system's entry, and the job or event that wrote it; the page shows "System".
+    ...(d.actor?.kind === 'system' ? { system: true, systemName: d.actor.name } : {}),
     operatorCode: d.operatorCode,
     action: d.action,
     module: d.module,
@@ -263,63 +323,54 @@ export async function queryDistinctFilters(orgId: string) {
     AuditLog.distinct('action', filter).exec(),
     AuditLog.distinct('entityType', filter).exec(),
   ])
-  return { modules: modules.sort(), actions: actions.sort(), entityTypes: entityTypes.sort() }
+  // FR-29.22: the types the entity search can search; the page offers the search for those only.
+  return { modules: modules.sort(), actions: actions.sort(), entityTypes: entityTypes.sort(), searchableEntityTypes: [...SEARCHABLE_ENTITY_TYPES] }
 }
 
 /**
- * Search entities by type for autocomplete.
+ * FR-29.22: the entity types the audit page can search, each by the fields its documents are known by. A type not here
+ * is not offered (`/audit-logs/filters` answers `searchableEntityTypes`): the four the search used to offer without a
+ * repository behind them (department, lead, deal, pipeline) returned nothing.
+ */
+const ENTITY_SEARCH: Record<string, { model: () => any; label: string; fields: string[]; lowered?: Record<string, string> }> = {
+  product: { model: () => Product, label: 'name', fields: ['name', 'sku'], lowered: { name: 'nameLower', sku: 'skuLower' } },
+  warehouse: { model: () => Warehouse, label: 'name', fields: ['name', 'code'], lowered: { name: 'nameLower', code: 'codeLower' } },
+  contact: {
+    model: () => Contact, label: 'companyName', fields: ['companyName', 'firstName', 'lastName'],
+    lowered: { companyName: 'companyNameLower', firstName: 'firstNameLower', lastName: 'lastNameLower' },
+  },
+  invoice: { model: () => Invoice, label: 'invoiceNumber', fields: ['invoiceNumber'] },
+  account: { model: () => Account, label: 'name', fields: ['code', 'name'] },
+  employee: { model: () => Employee, label: 'firstName', fields: ['firstName', 'lastName'] },
+  stock_movement: { model: () => StockMovement, label: 'movementNumber', fields: ['movementNumber'] },
+  journal_entry: { model: () => JournalEntry, label: 'entryNumber', fields: ['entryNumber'] },
+  order: { model: () => Order, label: 'orderNumber', fields: ['orderNumber'] },
+  internal_order: { model: () => InternalOrder, label: 'orderNumber', fields: ['orderNumber'] },
+  reservation: { model: () => Reservation, label: 'reservationNumber', fields: ['reservationNumber'] },
+  pos_session: { model: () => POSSession, label: 'sessionNumber', fields: ['sessionNumber'] },
+}
+
+/** FR-29.22: the entity types `searchEntitiesByType` searches. */
+export const SEARCHABLE_ENTITY_TYPES: readonly string[] = Object.keys(ENTITY_SEARCH)
+
+/**
+ * Search entities by type for autocomplete. The keyword goes through `buildSearchFilter`, as every other search does:
+ * escaped, so a keyword of pattern characters finds the rows that contain those characters and nothing else.
  */
 export async function searchEntitiesByType(orgId: string, entityType: string, query: string, limit = 10) {
-  const r = getRepos()
-  const filter: any = { orgId }
-  if (query) filter.name = { $regex: query, $options: 'i' }
-
-  const config: Record<string, { repo: any; labelField: string; searchField: string }> = {
-    product: { repo: r.products, labelField: 'name', searchField: 'name' },
-    warehouse: { repo: r.warehouses, labelField: 'name', searchField: 'name' },
-    invoice: { repo: r.invoices, labelField: 'invoiceNumber', searchField: 'invoiceNumber' },
-    contact: { repo: r.contacts, labelField: 'companyName', searchField: 'companyName' },
-    account: { repo: r.accounts, labelField: 'name', searchField: 'name' },
-    employee: { repo: r.employees, labelField: 'firstName', searchField: 'firstName' },
-    department: { repo: r.departments, labelField: 'name', searchField: 'name' },
-    lead: { repo: r.leads, labelField: 'companyName', searchField: 'companyName' },
-    deal: { repo: r.deals, labelField: 'name', searchField: 'name' },
-    pipeline: { repo: r.pipelines, labelField: 'name', searchField: 'name' },
-  }
-
-  const cfg = config[entityType]
+  const cfg = ENTITY_SEARCH[entityType]
   if (!cfg) return []
-
-  // Override search field for non-name entities
-  if (query && cfg.searchField !== 'name') {
-    delete filter.name
-    filter[cfg.searchField] = { $regex: query, $options: 'i' }
-  }
-
-  try {
-    const result = await cfg.repo.findAll(filter, { page: 0, size: limit, sort: { [cfg.labelField]: 1 } })
-    return result.items.map((item: any) => ({
-      id: item.id || item._id,
-      label: item[cfg.labelField] || item.name || item.id,
-    }))
-  } catch {
-    return []
-  }
+  const filter = { orgId: new Types.ObjectId(orgId), ...(query ? buildSearchFilter(query, cfg.fields, cfg.lowered ? { lowered: cfg.lowered } : undefined) : {}) }
+  const rows: any[] = await cfg.model().find(filter, { [cfg.label]: 1 }).sort({ [cfg.label]: 1 }).limit(limit).lean().exec()
+  return rows.map(r => ({ id: String(r._id), label: String(r[cfg.label] ?? r._id) }))
 }
 
 /**
  * Search users for autocomplete.
  */
 export async function searchUsers(orgId: string, query: string, limit = 10) {
-  const filter: any = { orgId: new Types.ObjectId(orgId) }
-  if (query) {
-    filter.$or = [
-      { firstName: { $regex: query, $options: 'i' } },
-      { lastName: { $regex: query, $options: 'i' } },
-      { email: { $regex: query, $options: 'i' } },
-      { username: { $regex: query, $options: 'i' } },
-    ]
-  }
+  // FR-29.22: the keyword escaped by the shared builder, as every other search.
+  const filter = { orgId: new Types.ObjectId(orgId), ...(query ? buildSearchFilter(query, ['firstName', 'lastName', 'email', 'username']) : {}) }
 
   const docs = await User.find(filter).select('firstName lastName email username').limit(limit).lean().exec()
   return docs.map((d: any) => ({
@@ -351,9 +402,9 @@ export async function queryByCorrelationId(orgId: string, correlationId: string,
   return docs.map((d: any) => ({
     _id: String(d._id),
     userId: d.userId?._id ? String(d.userId._id) : d.userId ? String(d.userId) : null,
-    userName: d.userId?.firstName
-      ? `${d.userId.firstName} ${d.userId.lastName || ''}`.trim()
-      : d.userId?.email || d.userId?.username || (d.userId ? String(d.userId) : String(d.via ?? '')),
+    userName: actorNameOf(d),
+    // FR-29.20: the system's entry, and the job or event that wrote it; the page shows "System".
+    ...(d.actor?.kind === 'system' ? { system: true, systemName: d.actor.name } : {}),
     action: d.action,
     module: d.module,
     entityType: d.entityType,

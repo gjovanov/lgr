@@ -441,3 +441,21 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     moment) race to open the period, and the loser's entry was lost. It is now retried by the drain.
   - Tests: `integration/posting-exactly-once.flow` (13). `cash-invoice-receipts.flow`'s ledger block: a hold moved to
     the entry's write, and a second event for one receipt now posts nothing (FR-29.14) where it posted a second entry.
+- **Slice E** (branch `feat/794-fr29-e-audit`, on slice D):
+  - FR-29.19 is built. `createAuditEntry`'s `changes` is `AuditChanges`: the array, or a map `{ field: { from, to } }`,
+    stored as the array (`changesOf`). The sixteen call sites are unchanged and now type-check (the backend baseline
+    shrank by their sixteen errors). No row that exists is rewritten.
+  - FR-29.20 is built. `AuditLog.actor { kind: 'system', name }`; `userId` is required unless the entry is the
+    system's or a script's. `systemActor(name)`; `userId: 'system'` is still read as the system. The four posting
+    entries (slice D folded the payment handler's two into one) name their event. The backup scheduler's nightly run
+    still writes no row (the digest carries it); its comment no longer says it cannot. The audit page and the record's
+    notes panel (its history) show "System" (`admin.systemActor`, four languages), with the job's name on hover;
+    the API answers `system: true, systemName`.
+  - FR-29.21 (D-6): a failed write is logged at error level through the structured logger (module, action, entity
+    type and id, never values) and counted (`auditHealth()`), in the sys-admin health and a master's status. The action
+    still succeeds.
+  - FR-29.22: the entity search searches twelve types by the fields their records are known by (`ENTITY_SEARCH`),
+    through `buildSearchFilter`; department, lead, deal and pipeline are gone. `/audit-logs/filters` answers
+    `searchableEntityTypes`, and the page offers the object search for those only. The user search is escaped too.
+  - Tests: `integration/audit-entry-shape.flow` (the sixteen shapes, issue / receive / order send / customer order
+    confirm read back, the system rows, a failed write, the entity search).

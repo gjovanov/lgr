@@ -5,7 +5,13 @@ import { replicate } from '../replication/declare.js'
 export interface IAuditLog extends Document {
   _id: Types.ObjectId
   orgId: Types.ObjectId
-  userId: Types.ObjectId
+  /** The person; absent on the system's entry (`actor`) and a sys-admin script's (`via`). */
+  userId?: Types.ObjectId
+  /**
+   * FR-29.20: an entry the system wrote, a job's or an event's, with its name (`invoice.posted`, `backup`). Rows from
+   * before it carry none and are read as a person's, as they always were.
+   */
+  actor?: { kind: 'system'; name: string }
   operatorCode?: string
   action: string
   module: string
@@ -31,7 +37,12 @@ export const isScriptVia = (via: unknown): boolean => typeof via === 'string' &&
 const auditLogSchema = new Schema<IAuditLog>({
   // Who: a person, always, but for a sys-admin script run on the server (`via: 'scripts/<name>.ts'`), which acts as
   // nobody in the org (FR-27: `access-model.ts`, `restore-administrator.ts`). `via` names it instead.
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: function (this: any) { return !isScriptVia(this?.via) } },
+  // FR-29.20: or the system, which names its job or event in `actor` instead.
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: function (this: any) { return !isScriptVia(this?.via) && this?.actor?.kind !== 'system' } },
+  actor: {
+    type: new Schema({ kind: { type: String, enum: ['system'], required: true }, name: { type: String, required: true } }, { _id: false }),
+    required: false,
+  },
   operatorCode: String,
   action: { type: String, required: true },
   module: { type: String, required: true },

@@ -1278,7 +1278,8 @@
       "loopback": "the server itself",
       "desktop": "the desktop {name}",
       "lan": "the shop's network"
-    }
+    },
+    "systemActor": "System"
   },
   "validation": {
     "required": "This field is required",

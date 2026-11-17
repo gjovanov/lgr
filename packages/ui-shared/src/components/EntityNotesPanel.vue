@@ -47,7 +47,7 @@
       >
         <div class="timeline-entry">
           <div class="d-flex align-center ga-1 mb-1">
-            <span class="text-caption font-weight-medium">{{ entry.userName || 'System' }}</span>
+            <span class="text-caption font-weight-medium">{{ entry.system || !entry.userName ? $t('admin.systemActor') : entry.userName }}</span>
             <span class="text-caption text-medium-emphasis">{{ formatRelativeTime(entry.timestamp) }}</span>
           </div>
           <div v-if="entry.type === 'note'" class="text-body-2">{{ entry.text }}</div>
@@ -75,6 +75,8 @@ interface NoteEntry {
   text?: string
   action?: string
   userName?: string
+  /** FR-29.20: an entry the system wrote (a job, an event). */
+  system?: boolean
   timestamp: Date
   changes?: { field: string; oldValue: any; newValue: any }[]
 }
@@ -110,6 +112,7 @@ async function fetchEntries() {
       text: log.action === 'note' ? log.changes?.[0]?.newValue : undefined,
       action: log.action,
       userName: log.userName || log.userId,
+      system: !!log.system,
       timestamp: new Date(log.timestamp || log.createdAt),
       changes: log.changes?.filter((c: any) => c.field !== 'note'),
     }))
