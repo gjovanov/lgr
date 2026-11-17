@@ -77,11 +77,15 @@ export const idpController = new Elysia({ prefix: '/idp' })
 
 export const idpSignInController = new Elysia({ prefix: '/auth/idp' })
   .use(AuthService)
+  /**
+   * Whether this server offers "Sign in with LGR": a master, linked, with a fresh node token. FR-30.27: everywhere else
+   * the answer is `{ enabled: false }`, 200. It was a 404 on every visit to the sign-in page, which the browser logs as
+   * a failed request. Declared before the hook below, which keeps the redeem to a master.
+   */
+  .get('/config', () => idpConfig())
   .onBeforeHandle(({ status }) => {
     if (nodeRole() !== 'master') return status(404, NOT_FOUND)
   })
-  /** Whether this master offers "Sign in with LGR": linked, with a fresh node token. */
-  .get('/config', () => idpConfig())
   .post(
     '/redeem',
     async ({ body, jwt, cookie, status }: any) => {

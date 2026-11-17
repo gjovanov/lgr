@@ -1,4 +1,6 @@
 import staticPlugin from '@elysiajs/static'
+import { Elysia } from 'elysia'
+import { resolve, sep } from 'node:path'
 import { APP_IDS } from 'config/constants'
 import { logger } from 'services/logger'
 import { posRedirect } from './lib/pos-redirect.js'
@@ -71,15 +73,69 @@ export function isModulePath(pathname: string): boolean {
   return APP_IDS.some(m => pathname === `/${m}` || pathname.startsWith(`/${m}/`))
 }
 
-/** The SPA's built files, mounted under a prefix. */
-export function uiStaticPlugin(ui: { assets: string; prefix: string }, opts: { alwaysStatic?: boolean } = {}) {
-  return staticPlugin({
+/** FR-30.24: what a file whose name carries a content hash is served with. Never `index.html` (no-store, below). */
+export const IMMUTABLE = 'public, max-age=31536000, immutable'
+
+/**
+ * Whether a built file's name carries Vite's content hash (`index-D5rzSlo0.js`): eight characters of base64url after
+ * the last dash. A word that happens to be eight lowercase letters (`app-settings.js`) is not taken for one; a hash
+ * that happens to be all lowercase is then served as an unhashed file is, which only costs a revalidation.
+ */
+export function isHashedAsset(pathname: string): boolean {
+  const m = /-([A-Za-z0-9_-]{8})\.[a-z0-9]+$/.exec(pathname)
+  return !!m && /[A-Z0-9_]/.test(m[1]!)
+}
+
+/**
+ * FR-30.26: the build's precompressed copy of a file (`<file>.br`, `<file>.gz`, `packages/web/scripts/compress-assets.ts`), when
+ * the browser accepts it. Behind the cloud's ingress it compresses anyway; an on-prem master has no ingress, and served
+ * every file as it is.
+ */
+async function precompressed(assets: string, rel: string, accept: string | null): Promise<{ path: string; encoding: string } | null> {
+  if (!accept) return null
+  const root = resolve(assets)
+  const file = resolve(root, '.' + rel)
+  if (!file.startsWith(root + sep)) return null
+  for (const [encoding, ext] of [['br', '.br'], ['gzip', '.gz']] as const) {
+    if (!new RegExp(`\\b${encoding}\\b`).test(accept)) continue
+    if (await Bun.file(file + ext).exists()) return { path: file + ext, encoding }
+  }
+  return null
+}
+
+/**
+ * The SPA's built files, mounted under a prefix.
+ *
+ * FR-30.24: a file whose name carries its content hash is served `immutable` for a year (it was the static plugin's
+ * `max-age=86400`), and its precompressed copy when the browser takes one (FR-30.26). Any other file keeps the plugin's
+ * default; the shell is the fallback's, `no-store`.
+ */
+export async function uiStaticPlugin(ui: { assets: string; prefix: string }, opts: { alwaysStatic?: boolean } = {}) {
+  const files = await staticPlugin({
     assets: ui.assets,
     prefix: ui.prefix || '',
     // The shell is served by the fallback below, with no-store; a static `/` would let it be cached.
     indexHTML: false,
     ...opts,
   })
+  const prefix = ui.prefix || ''
+  return new Elysia({ name: 'ui-static', seed: prefix })
+    // Before the files' routes, which it then applies to: a hook applies to the routes registered after it.
+    .onAfterHandle({ as: 'global' }, async ({ request, response }) => {
+      if (!(response instanceof Response) || response.status !== 200) return
+      const path = new URL(request.url).pathname
+      if (!path.startsWith(`${prefix}/`) || !isHashedAsset(path)) return
+      const headers = new Headers(response.headers)
+      headers.set('cache-control', IMMUTABLE)
+      const packed = await precompressed(ui.assets, decodeURIComponent(path.slice(prefix.length)), request.headers.get('accept-encoding'))
+      if (!packed) return new Response(response.body, { status: 200, headers })
+      headers.set('content-encoding', packed.encoding)
+      headers.set('vary', 'accept-encoding')
+      headers.delete('content-length')
+      headers.delete('etag')
+      return new Response(Bun.file(packed.path), { status: 200, headers })
+    })
+    .use(files)
 }
 
 /**

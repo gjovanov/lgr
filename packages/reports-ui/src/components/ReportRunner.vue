@@ -153,6 +153,7 @@
         </div>
 
         <GridColumnPickerDialog
+          v-if="colDialogOpen"
           v-model="colDialogOpen"
           :entries="colEntries"
           @toggle="toggleCol"
@@ -279,7 +280,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, defineAsyncComponent } from 'vue'
 import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -287,7 +288,8 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useListQueryState, type QueryParamDef } from 'ui-shared/composables/useListQueryState'
 import { useGridColumns } from 'ui-shared/composables/useGridColumns'
 import { decodeBlobError } from 'ui-shared/composables/useInvoicingExport'
-import GridColumnPickerDialog from 'ui-shared/components/GridColumnPickerDialog.vue'
+// FR-30.23: the drag library comes with the picker, when it opens, and not with the screen.
+const GridColumnPickerDialog = defineAsyncComponent(() => import('ui-shared/components/GridColumnPickerDialog.vue'))
 import DateField from 'ui-shared/components/DateField.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import EmptyState from 'ui-shared/components/EmptyState.vue'

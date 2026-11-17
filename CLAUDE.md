@@ -964,11 +964,18 @@ part of that module ("The till lives in Invoicing" below); Phase 1 made every mo
   - ⚠ **Two shells trade places in one document** in the one SPA: the portal's layout and `ModuleLayout`. The new
     one renders before the old one's unmount runs, so a shell-wide slot is set by a setter that returns its own
     undo, never cleared with `null` (`setRefusalTranslator`).
-  - Budget (FR-24.15): `bun run check:web` (CI and the Dockerfile): first-load JS ≤ 360 KB gzipped, no view in
-    the entry, the fiscal bridge in one chunk. Read the bridge's status from `fiscalBridgeStatus`, never by
-    importing `useFiscalBridge` into the shell's first load.
-  - ⚠ **Only English is in the first load**; mk/de/bg load on demand (`plugins/i18n#loadLocale`), and every SPA
-    mounts after `whenI18nReady()`. Change a language with `loadLocale`, never by setting `locale.value`.
+  - Budget (FR-24.15, FR-30.25): `bun run check:web` (CI and the Dockerfile): first-load JS ≤ 360 KB gzipped, styles
+    ≤ 60 KB gzipped, fonts ≤ 40 KB, 450 KB in all; no view in the entry, the fiscal bridge in one chunk. Read the
+    bridge's status from `fiscalBridgeStatus`, never by importing `useFiscalBridge` into the shell's first load.
+  - ⚠ **No catalogue is in the first load** (FR-30.22): the session's language loads on demand, English too
+    (`plugins/i18n#loadLocale`), and every SPA mounts after `whenI18nReady()`. Change a language with `loadLocale`,
+    never by setting `locale.value`.
+  - ⚠ **The icon font is a subset** (FR-30.21): `ui-shared/src/styles/icons/`, written by
+    `bun scripts/build-icon-subset.ts` from the `mdi-…` names the sources use. A new icon name fails
+    `unit/icon-subset.test.ts` until that script has run and its three files are committed.
+  - A column picker (the drag library) is an async component mounted when it opens (FR-30.23). Hashed files are served
+    `immutable` for a year, and their `.br`/`.gz` copies (written by the web build) to a browser that takes them
+    (FR-30.24/.26, `spa-fallback.ts#uiStaticPlugin`).
 
 ## Ready for several pods (FR-24 Phase 5, #402)
 
