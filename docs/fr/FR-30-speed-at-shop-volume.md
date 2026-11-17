@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-16. Slice A built (FR-30.1 to .4, §11). The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-16. Slices A (FR-30.1 to .4) and B (FR-30.6 to .10) built, §11. The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | FR-05 and FR-22 (`ListScaffold`, `usePaginatedTable`, grid state in the URL, the click-budget walks), FR-28 (the product search, its explain test and request-count test), FR-06 (the reports registry), FR-24 (one SPA, `scripts/check-web-bundle.ts`), the lowered search mirrors (`db/src/plugins/lowered-fields.plugin.ts`) |
 | **Touches** | `db` (indexes on `Product`, `Invoice`, `StockLevel`, `StockMovement`; the lowered-fields plugin), `packages/migrations` (dropping indexes), `dal-mongo` and `services` (pagination, search, the stock-levels report, the contact ledger, dashboards), `invoicing-api` and `warehouse-api` (list endpoints), `reporting` (PDF), `ui-shared` (the list engine, the icon set, locales), `invoicing-ui` and `inventory-ui` (document open, the count form), `portal-api` (static files, two small endpoints), `packages/server` (the on-prem master's static files) |
 | **Tracking** | [gjovanov/lgr#795](https://github.com/gjovanov/lgr/issues/795) |
@@ -405,7 +405,7 @@ The demo organization is small, so production proves that nothing changed, and t
 | 100 invoice rows of 12 lines (`list-projection.flow`, `LGR_PERF=1`) | 561.2 KB | 88.6 KB with `fields=list` (budget 120 KB) |
 | Opening a list (15 lists, full load and move) | 1 request each (since FR-31.4) | 1 |
 | "All" on a list of 1 100 contacts | 1 100 whole documents | 1 000 rows, `truncated: true`, `total: 1100` |
-| Opening a saved 3-line / 30-line invoice | the document read twice, an article and a set of price options per line (70 for 30 lines in the audit) | see the PR: the same count for 3 and 30 lines, the document read once |
+| Opening a saved 3-line / 30-line invoice | the document read twice, an article and a set of price options per line (70 for 30 lines in the audit) | 3 API requests for either, moving to it inside the app (the document once, the contact picker, the warehouses) |
 
 **Tests.** `integration/list-projection.flow.test.ts` (the keys of a row with and without `fields=list` on every list, the size of 100 rows, the ceiling, the lean "all", the chart, the contact's figures, a document's line names); `unit/list-rows.test.ts` (the ceiling's arithmetic, the size control, the hand-over); `e2e/list-requests.spec.ts` (the list walk's request count, `fields=list` on the wire, a 3-line and a 30-line invoice opened with the same number of requests and the document read once, a line's options asked for when its price is opened, a bookmarked "All", "All" offered within the ceiling only).
 

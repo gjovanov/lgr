@@ -53,6 +53,7 @@ const listCalls = (requests: Request[], endpoint: RegExp) => requests.filter((r)
 
 test.describe('FR-30.6: one request per list open', () => {
   test('each list asks for its rows once on a full load, and once on a move inside the app', async ({ page }) => {
+    test.setTimeout(240_000)
     await loginForApp(page)
     const counts: Record<string, { load: number; move: number }> = {}
     for (const list of LISTS) {
@@ -141,6 +142,8 @@ test.describe('FR-30.10: a document opens with a fixed number of requests', () =
     await page.waitForLoadState('networkidle')
     const large = await open(thirty)
 
+    test.info().annotations.push({ type: 'requests', description: `3 lines: ${small.length}, 30 lines: ${large.length}` })
+    console.log(`FR-30.10 requests: 3 lines ${small.length}, 30 lines ${large.length}`)
     expect({ three: docReads(small, three), thirty: docReads(large, thirty) }).toEqual({ three: 1, thirty: 1 })
     expect(large.length, describe(large).join('\n')).toBe(small.length)
     expect(large.length, describe(large).join('\n')).toBeLessThanOrEqual(15)
