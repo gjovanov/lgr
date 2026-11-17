@@ -13,7 +13,7 @@
  * `GET /org/:orgId/reports/catalog`, which returns `ReportMeta[]` — this file's shape,
  * mirrored (deliberately, not imported) in `reports-ui/src/types/report.ts`.
  */
-import { can as grantCan, compileLegacy, seesCosts, type CapabilityId, type Grant } from 'config/access'
+import { NOTHING, can as grantCan, seesCosts, type CapabilityId, type Grant } from 'config/access'
 
 export const REPORT_CATEGORIES = ['sales', 'purchase', 'receivables', 'inventory', 'accounting', 'fiscal'] as const
 export type ReportCategory = (typeof REPORT_CATEGORIES)[number]
@@ -352,7 +352,7 @@ export function canAccessReport(entry: ReportEntry, user: ReportCaller | null | 
 
 /** The caller's grant: its role's, live, as the server decides by (a hand-built caller of a test: its claims compiled). */
 function callerGrant(user: ReportCaller): Grant {
-  return ((user as any).access as Grant | undefined) ?? compileLegacy(user as any)
+  return ((user as any).access as Grant | undefined) ?? NOTHING
 }
 
 /**

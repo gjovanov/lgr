@@ -14,7 +14,6 @@ export type {
 } from './core.js'
 
 // Permission Sets
-export type { IPermissionSet, IOwnRecordsConfig } from './permission-set.js'
 
 // Accounting
 export type {

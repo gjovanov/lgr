@@ -1,6 +1,6 @@
 import { isCapability, type CapabilityId } from './catalogue'
 import { ALL, type Grant } from './grant'
-import { compileLegacy, type LegacyClaims } from './legacy'
+import type { LegacyClaims } from './legacy'
 import { templateGrant } from './templates'
 
 /**
@@ -56,6 +56,3 @@ export function legacyKeyOf(claims: Required<Pick<LegacyClaims, 'role'>> & { per
   const areas = Array.isArray(claims.areas) ? [...claims.areas].sort().join(',') : '*'
   return `${claims.role}|${[...claims.permissions].sort().join(',')}|${areas}`
 }
-
-/** The grant those claims compile to: what the person may do today. */
-export const grantOfClaims = (claims: LegacyClaims): Grant => compileLegacy(claims)

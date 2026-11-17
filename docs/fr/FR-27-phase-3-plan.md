@@ -131,6 +131,64 @@ Each PR keeps `bun run test`, `build`, `check:web` and the FR-27 walks green
   `legacy.ts`'s own test import it.
 - `DEFAULT_ROLE_PERMISSIONS`: kept only if P3-4 left a reader. The goal is none.
 
+**Done (draft PR, stacked on P3-5 / #824):**
+- **Deleted.**
+  - From `config/constants`: `AREAS` / `Area`, `holdsArea`, `mergeAreas`, `DEFAULT_ROLE_AREAS`, `ROLE_PERMISSION_SET_NAMES`
+    and `FISCAL_ADMIN_ROLES`. The device pages and routes ask `devices.*`, which the built-in Administrator, Manager and
+    Warehouse Manager hold, as the list said.
+  - From `route-permission.ts`: the legacy rule lists (`EXACT_*` / `PREFIX_*_RULES`, `readRuleFor`, `writeRuleFor`),
+    `AREA_PREFIXES` / `areaRefusal`, `writeRefusal` / `readRefusal` and `permissionRefusal`. It keeps `orgRouteRest`, the
+    PIN scope, `holdsPersonal` and `auditReadScope`, which ask the session's grant and nothing else.
+  - The evaluator: `grantOf` is the role's grant or nothing (no `compileLegacy` fallback, no memo). `AccessCaller` no
+    longer extends the legacy claims. `seesBills` / `seesOrders` ask the partition's capabilities alone.
+  - `page-registry`: `PageDef.need` / `roles` / `alsoNeed` / `area`, `legacyCanOpenPage`, `viewerHoldsArea` and the
+    claims fallback of `grantOfViewer`. The two area-wide gates left are `holdsPortal` (`PORTAL_CAPS`: the capabilities
+    FR-26's `portal` area was made of) and `exportsCatalog` (`products.export`).
+  - `config/access/projection.ts` (`projectGrant`) and `roles.ts#grantOfClaims`: P3-5 stopped writing projections.
+  - "Own records only": `scoped-repos.ts`, `scoped-repository.ts`, `record-scope.config.ts` (no caller since P3-5).
+  - Shadow mode: `services/biz/access/shadow.ts`, the `AccessShadowDiff` model (its collection keeps its 30-day TTL
+    and empties itself), `access-differential.flow` and `access-shadow.flow`.
+  - Permission sets: the model, `permission-set.controller` (`/permission-sets/*` now 404; the SPA path still
+    redirects to Roles & access), `permission-set.service` / `.seed` / `.migration`, the DAL entity and repository, the
+    seeding of a new org's sets (`provisionNewOrg`), the org-clone's set matching, and the two set backfills
+    (`scripts/backfill-member-payroll-read.ts`, `scripts/backfill-reports-permissions.ts`). `endSessionsOf` moved to
+    `identity/session.service.ts`. A role's "Role · <name>" set from before P3-5 is no longer deleted with it.
+  - The client: `STORNO_ROLES` and the role-key actor of `canStorno*` (a grant only); `compileLegacy` in
+    `useAccess`, `storno.ts` and `report-registry.types`.
+  - The dead read rule `warehouse/bulk-pricing` (no GET route), which the capability coverage test found.
+  - The App Hub's legacy tiles (`app-hub.service`: `role === 'admin'`, the token's permissions against `APP_REGISTRY`):
+    `getAvailableApps(orgId, grant)` gives the apps the role opens, nothing without a grant.
+  - The legacy-key fallbacks for a person without a role: `administratorFilter`, `setup-facts` (a master's admins),
+    the test-org copy's admins (`membershipAccess`) and `scripts/register-docs-in-pv.ts`. Such a person is no
+    Administrator; since P3-2 they cannot sign in either.
+- **Kept, and why.**
+  - ⚠ **`config/access/legacy.ts`, frozen.** 0015 imports `compileLegacy`, `legacyClaimsOf`, `LEGACY_BRIDGE` through
+    `config/access`. To delete FR-26's tables from `constants` without changing what 0015 does, the areas (`AREAS`,
+    `LEGACY_ROLE_AREAS`, `mergeAreas`, `AREA_OF`) moved into legacy.ts as module-private copies, byte for byte the
+    same rules; `compileLegacy` of every template's `legacy` claims still equals the template (pinned).
+    `unit/access-legacy-frozen.test.ts` pins its SHA-256 and that nothing outside `packages/migrations/` names it but
+    the barrel, `templates.ts` / `roles.ts` (what 0015 reads through), its own test, 0015's own test
+    (`roles-migration.flow`) and the client ratchet that forbids it (`access-client-grants`).
+  - `DEFAULT_ROLE_PERMISSIONS`: P3-4/P3-5 left readers, all frozen: legacy.ts, the templates' `legacy` claims (0015) and
+    test fixtures. Nothing decides by it.
+  - **The schema fields** `User.role` / `permissions` / `permissionSetIds` and `Invite.assignRole`, and `Role.legacy` /
+    `needsRelease`: no default since P3-5, read by nothing that decides (display only: `roleDisplaysOf` falls back to
+    a membership's legacy key). Removing a path changes nothing at runtime, so they go with 0018, which drops the
+    archive, rather than split the one-way step between two PRs. 0017 (#820) reads and archives them through the
+    driver, as it reads `permissionsets`: it needs neither the paths nor the model. The `ref: 'PermissionSet'` went.
+  - `scripts/access-model.ts`: `--org` lists who has no role, `--give-roles` is 0015's own `up` for the people from
+    before roles, `--all` lists the orgs with someone without one. `--set`, `--report`, `--days`, `--min-days` and
+    `--execute` are refused, saying why; `scripts/lib/access-advance.ts` went. `Org.settings.access.model` is read by
+    nothing.
+  - `scripts/seed-user.ts --permissions` is refused, naming `--caps` (`accounting.import` was `--caps books-import.run`);
+    the skills and the books guide say so.
+- **Tests.** `route-permission.flow` and `read-permission.flow` hold every route to the capability rules
+  (`config/access/routes.ts`): coverage both ways, a read-only built-in role refused every write it holds none of, every
+  built-in role reaching what its apps read (`appsOpenedBy`), and the parts FR-26 carved out refused to the Seller and the
+  Sales Consultant and nobody else. The suites that stated a person as legacy claims state a grant (`templateGrant(key)`,
+  capabilities, or `tests/helpers/permission-caps.ts`, the old permissions' capabilities frozen as a fixture). The
+  factory's `createTestPerson` writes its set through the driver, which 0015 reads.
+
 ### P3-7 · The data contract (one-way)
 - Migration 0016: the legacy fields move to an archive and are unset:
   - `User.permissions`, `permissionSetIds` and the legacy `role` go to `User.legacyArchive`;

@@ -192,6 +192,19 @@ export function forgetIdentity(iid: unknown): void {
 }
 
 /**
+ * FR-26.9.4: a change of what a person may do ends every session they hold, within the minute
+ * `identityStillValid` caches for, as a password change does. ⚠ The counter is the person's, so
+ * this signs them out of every org (D-10). A membership linked to no person carries no `tv`: its
+ * sessions run out on their own (24 h). (In `permission-set.service.ts` until FR-27 P3-6.)
+ */
+export async function endSessionsOf(identityId: unknown): Promise<boolean> {
+  if (!identityId) return false
+  await Identity.updateOne({ _id: identityId }, { $inc: { tokenVersion: 1 } }).exec()
+  forgetIdentity(identityId)
+  return true
+}
+
+/**
  * A session is one membership's (`id`), and it is live only while that membership is not switched off.
  *
  * The two routes that switch a member off end the person's sessions themselves (`endSessionsOf`). This is for

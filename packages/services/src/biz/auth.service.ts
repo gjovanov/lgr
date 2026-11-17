@@ -9,7 +9,6 @@ import { logger } from '../logger/logger.js'
 import { inviteDao } from '../dao/invite.dao.js'
 import { codeDao } from '../dao/code.dao.js'
 import { sendEmail } from './email.service.js'
-import { seedDefaultPermissionSets } from './permission-set.seed.js'
 import { allocateOperatorCode } from './sequence.service.js'
 import { IdentityError, createIdentity, discardIdentity, emailInUse, normalizeEmail } from './identity/identity.service.js'
 import {
@@ -133,10 +132,8 @@ export async function provisionNewOrg(org: IOrg, admin: IUser): Promise<void> {
     ),
   )
 
-  await seedDefaultPermissionSets(String(org._id))
-
-  // FR-27.3: the ten built-in roles, and the founder the Administrator. FR-27 P3-5 (#529): the role alone; the
-  // founder is no longer put on the Administrator permission set.
+  // FR-27.3: the ten built-in roles, and the founder the Administrator. FR-27 P3-5 (#529): the role alone. FR-27 P3-6:
+  // a new org gets no permission sets at all.
   await seedBuiltinRoles(org._id)
   await giveStartingRole(org._id, admin._id, await startingRoleOf(org._id, { legacyRole: 'admin' }))
 }

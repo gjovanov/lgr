@@ -1,17 +1,14 @@
-import { accessRuleFor, can as grantCan, compileLegacy, sortRefusal as fieldSortRefusal, type CapabilityId, type Grant, type LegacyClaims } from 'config/access'
+import { NOTHING, accessRuleFor, can as grantCan, sortRefusal as fieldSortRefusal, type CapabilityId, type Grant } from 'config/access'
 import { orgRouteRest, pinScopeRefusal } from '../route-permission'
 
 /**
- * FR-27.2 — the one evaluator (#529).
- *
- * Phase 0: a session's grant is compiled from its token's legacy claims (`compileLegacy`), so it decides exactly
- * what `route-permission.ts#permissionRefusal` decides. It runs beside it in shadow (`./shadow.ts`), and the
- * controllers' own checks move onto `can()` slice by slice. Phase 1 resolves the grant from the person's role.
+ * FR-27.2 — the one evaluator (#529). A session's grant is its role's, read live (`./live.ts#attachAccess`); the
+ * legacy claims, their compiler and shadow mode are gone (FR-27 P3-6).
  *
  * Import-pure apart from config: no Elysia, no database.
  */
 
-export interface AccessCaller extends LegacyClaims {
+export interface AccessCaller {
   /** The session's person and org. FR-27 P3-5 (#529): a session carries these and its grant, no legacy claims. */
   id?: string
   orgId?: string
@@ -20,22 +17,9 @@ export interface AccessCaller extends LegacyClaims {
   readonly access?: Grant
 }
 
-const MAX_MEMO = 5_000
-const memo = new Map<string, Grant>()
-
-/** The grant a session's claims compile to, memoised: the auth plugins ask on every request. */
+/** The session's grant: its role's, attached by the auth plugins. A session without one holds nothing. */
 export function grantOf(user: AccessCaller | null | undefined): Grant {
-  if (!user) return compileLegacy(null)
-  // An org on `roles`: the role's grant, read live. Otherwise what the token's claims compile to.
-  if (user.access) return user.access
-  const key = `${user.role ?? ''}|${(user.permissions ?? []).join(',')}|${Array.isArray(user.areas) ? user.areas.join(',') : '*'}`
-  let grant = memo.get(key)
-  if (!grant) {
-    if (memo.size >= MAX_MEMO) memo.clear()
-    grant = compileLegacy(user)
-    memo.set(key, grant)
-  }
-  return grant
+  return user?.access ?? NOTHING
 }
 
 /** May this session do this? The one question controllers ask (FR-27.2). */
@@ -52,8 +36,7 @@ export type AccessRefusal =
 export const NO_ROLE_MESSAGE = 'You have no role in this organization. An administrator gives you one in Settings → Roles & access (or `bun scripts/restore-administrator.ts` when nobody can).'
 
 /**
- * Why this session may not make this request, or null when it may. The same exemptions as `permissionRefusal`:
- * routes outside an org, a request without a caller (the 401 is the auth plugin's) and an OPTIONS preflight.
+ * Why this session may not make this request, or null when it may. Never refused here: routes outside an org, a request without a caller (the 401 is the auth plugin's) and an OPTIONS preflight.
  * A PIN session's scope first, unchanged (FR-20.40).
  */
 export function accessRefusal(user: AccessCaller | null | undefined, method: string, route: string): AccessRefusal | null {
@@ -74,7 +57,7 @@ export function accessRefusal(user: AccessCaller | null | undefined, method: str
 
 /**
  * FR-27.11.C.3: a list sorted by a figure the session's role does not see is refused, on every route, by the auth
- * plugins (so no list route can forget it). The legacy model grants every level: only a role is ever refused.
+ * plugins (so no list route can forget it).
  */
 export function sortAccessRefusal(user: AccessCaller | null | undefined, url: string) {
   if (!user) return null
@@ -86,7 +69,7 @@ export function sortAccessRefusal(user: AccessCaller | null | undefined, url: st
 /**
  * S-28's order for a route whose controller decides (`self`): a caller holding none of the rule's `floor` is refused
  * here, before the body is validated, so it never learns the body's shape from a 422. Asked of the session's grant,
- * the one the controllers' `can()` asks, in either model. Null where the rule names no floor.
+ * the one the controllers' `can()` asks. Null where the rule names no floor.
  */
 export function floorRefusal(user: AccessCaller | null | undefined, method: string, route: string): AccessRefusal | null {
   if (!user || method.toUpperCase() === 'OPTIONS') return null

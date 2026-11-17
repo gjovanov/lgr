@@ -16,15 +16,11 @@ export interface AppInfo {
 }
 
 /**
- * The apps a session's permissions open. `role: 'admin'` opens every app (FR-26.2): the server
- * refuses an admin no read and no write, and `canOpenPage` opens every page for one, so an admin
- * on a set that lacks an app's permission must not lose the tile while keeping its pages.
- *
- * FR-27.5 (#529): where a role decides (`who.grant`, an org on `roles`), the apps whose pages the live role
- * opens (`appsOpenedBy`), not the token's permissions: those are its legacy projection, which leaves out a
- * permission the role holds only part of and changes only at the next sign-in.
+ * The apps a session's role opens: those whose pages its grant opens (`appsOpenedBy`, FR-27.5), read live, so an edit
+ * of the role reaches the tiles with no sign-out. The Administrator every app. FR-27 P3-6 (#529): the legacy answer
+ * (the token's permissions against `APP_REGISTRY`, every app for `role: 'admin'`) is gone; no grant, no app.
  */
-export async function getAvailableApps(orgId: string, userPermissions: string[], userId?: string, repos?: RepositoryRegistry, who?: { role?: string; grant?: Grant }): Promise<AppInfo[]> {
+export async function getAvailableApps(orgId: string, grant: Grant | null | undefined, userId?: string, repos?: RepositoryRegistry): Promise<AppInfo[]> {
   const r = repos ?? getRepos()
 
   let enabledApps = await r.orgApps.findMany({ orgId })
@@ -53,15 +49,10 @@ export async function getAvailableApps(orgId: string, userPermissions: string[],
   }
 
   const enabledAppIds = new Set(enabledApps.map(a => (a as any).appId))
-  const byRole = who?.grant ? new Set<string>(appsOpenedBy(who.grant)) : null
+  const opened = new Set<string>(appsOpenedBy(grant ?? null))
 
   return APP_IDS
-    .filter(appId => {
-      if (byRole) return byRole.has(appId)
-      if (who?.role === 'admin') return true
-      const reg = APP_REGISTRY[appId]
-      return [reg.requiredPermission, ...(reg.alsoOpenedBy ?? [])].some(p => userPermissions.includes(p))
-    })
+    .filter(appId => opened.has(appId))
     .map(appId => ({
       id: appId,
       ...APP_REGISTRY[appId],

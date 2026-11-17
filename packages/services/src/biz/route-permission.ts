@@ -1,263 +1,19 @@
-import { holdsArea, type Area, type Permission } from 'config/constants'
-import { can, compileLegacy, type CapabilityId, type Grant } from 'config/access'
+import { NOTHING, can, type CapabilityId, type Grant } from 'config/access'
 
 /**
- * What a write needs, by route (S-28).
+ * What an org route needs is `config/access/routes.ts`, asked by `access/evaluate.ts#accessRefusal` (FR-27.2). This
+ * module keeps what is not a route rule: an org route's path (`orgRouteRest`), a PIN session's scope (FR-20.40), and
+ * the two questions a controller asks of a session's grant here (`holdsPersonal`, `auditReadScope`).
  *
- * Until this module a role's permissions were enforced by the UI alone. Every route checked the
- * session, the org in the URL (#41) and the home (FR-20.4), and the accounting, invoicing, payroll
- * and warehouse controllers checked nothing more: a `member` or an `nra_auditor`, read-only by
- * design, could post journal entries, payroll runs and stock movements through the API.
- *
- * Every write under `/api/org/:orgId` resolves here to one of:
- *   - `need`: the caller must hold one of these permissions;
- *   - `self`: the controller guards the route itself, and the reason says how;
- *   - `member`: any member of the org may, and the reason says why.
- *
- * The auth plugins enforce `need` before the body is validated (`writeRefusal`), so a caller
- * without the permission learns nothing about the route's schema either. A write that resolves to
- * nothing is refused. `route-permission.flow.test.ts` walks the real route table and fails on such
- * a route, so a new controller cannot ship without a decision here.
+ * FR-27 P3-6 (#529): the legacy rule lists (`EXACT_*` / `PREFIX_*_RULES`, by permission), FR-26's area prefixes and
+ * `permissionRefusal` are gone with the legacy model. `route-permission.flow` and `read-permission.flow` hold every
+ * route to a capability rule instead.
  *
  * Import-pure: no Elysia, no database.
  */
-export type WriteRule =
-  | { readonly need: readonly Permission[] }
-  | { readonly self: string }
-  | { readonly member: string }
 
 const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 const ORG_PREFIX = '/api/org/:orgId/'
-
-/** `METHOD rest`, where `rest` is the route after `/api/org/:orgId/` with no trailing slash. */
-export const EXACT_WRITE_RULES: ReadonlyMap<string, WriteRule> = new Map<string, WriteRule>([
-  // The permission named for the step, where one exists.
-  ['POST accounting/journal/:id/post', { need: ['accounting.post'] }],
-  ['POST accounting/journal/:id/void', { need: ['accounting.post'] }],
-  // FR-25 R2: LGR produces the files and records who filed them; `accounting.write` opens neither.
-  ['POST accounting/vat/:period/generate', { need: ['accounting.file'] }],
-  ['POST accounting/vat/:period/mark-filed', { need: ['accounting.file'] }],
-  // FR-25 §5: `accounting/import/*` answers what it would change, and writes on `dryRun: false`.
-  ['POST accounting/import/chart', { need: ['accounting.import'] }],
-  ['POST accounting/import/analytics', { need: ['accounting.import'] }],
-  ['POST accounting/import/opening', { need: ['accounting.import'] }],
-  ['POST accounting/import/journal', { need: ['accounting.import'] }],
-  ['POST accounting/import/finish', { need: ['accounting.import'] }],
-  ['POST payroll/run/:id/approve', { need: ['payroll.approve'] }],
-  // FR-25 §3.12: reading a value out of the sealed record, audit-logged by the route.
-  ['POST payroll/employee/:id/reveal', { need: ['payroll.personal'] }],
-  ['POST payroll/run/:id/reveal', { need: ['payroll.personal'] }],
-  ['POST payroll/run/:id/declaration', { need: ['payroll.personal'] }],
-  ['POST payroll/contract/:id/reveal', { need: ['payroll.personal'] }],
-  ['POST payroll/absence/:id/reveal', { need: ['payroll.personal'] }],
-  ['POST payroll/payslip/:id/reveal', { need: ['payroll.personal'] }],
-  // FR-25 §5.1: an import also needs `payroll.personal`, which the controller checks on top.
-  ['POST payroll/import/employees', { need: ['payroll.import'] }],
-  ['POST payroll/import/contracts', { need: ['payroll.import'] }],
-  ['POST payroll/import/months', { need: ['payroll.import'] }],
-
-  // Reads sent as POSTs (`route-class.ts#READ_ONLY_WRITES`) and writes that decide for themselves.
-  ['POST reports/:id/run', { self: 'canAccessReport: the report\'s own permission and roles; 404 for a report the caller may not see' }],
-  ['POST reports/:id/export', { self: 'canExportReport, on top of canAccessReport' }],
-  ['POST invoicing/export/list', { self: 'canExport' }],
-  ['POST invoicing/export/kind/:kind', { self: 'canExport' }],
-  ['POST invoicing/export/:id/email', { self: 'canWrite, and outgoing issued documents only' }],
-  // Several documents at once (2026-11-16): a session that may mail none of the body's kind is 403, and each
-  // document is then a row of the answer (`invoicing-api/lib/email-guards.ts`).
-  ['POST invoicing/export/email/preview', { self: "mayEmailKind for the body's kind, then invoiceEmailSkip, orderEmailSkip or internalOrderEmailSkip per document" }],
-  ['POST invoicing/export/email', { self: "mayEmailKind for the body's kind, then invoiceEmailSkip, orderEmailSkip or internalOrderEmailSkip per document" }],
-  ['POST invoicing/stock-availability/check', { need: ['invoicing.read', 'inventory.read'] }],
-  // FR-21.18: the journal's storno, from invoicing's /cash-sales. The route also requires a storno
-  // role (admin, manager, warehouse_manager), as the till's does.
-  ['POST cash-register/documents/:id/storno', { need: ['pos.write', 'invoicing.write'] }],
-  // FR-23: a person says whether a receipt nothing could prove printed. The storno's roles too.
-  ['POST cash-register/documents/:id/settle', { need: ['pos.write', 'invoicing.write'] }],
-  // A device's reports, from POS Sessions: the device page's roles (a cashier holds `pos.write` and
-  // prints none; a warehouse manager runs the devices and holds no `pos.write`).
-  ['POST trade/pos/session/:id/device-report', { self: 'FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager' }],
-  ['POST doc-import/extract', { need: ['invoicing.write', 'inventory.write'] }],
-  ['POST doc-import/analyze', { self: 'PERMISSION_BY_TARGET: the write permission of the surface imported into' }],
-  ['POST doc-import/commit', { self: 'PERMISSION_BY_TARGET: the write permission of the surface imported into' }],
-  ['POST doc-import/convert', { self: 'PERMISSION_BY_TARGET: the write permission of the surface imported into' }],
-
-  // Shared vocabulary on products and contacts.
-  ['POST tags', { need: ['invoicing.write', 'inventory.write'] }],
-  ['PUT tags/:id', { need: ['invoicing.write', 'inventory.write'] }],
-  ['DELETE tags/:id', { need: ['invoicing.write', 'inventory.write'] }],
-
-  // What every member does for themselves.
-  ['POST audit-logs', { member: 'a note on a record, attributed to its author; the controller accepts action `note` and nothing else' }],
-  ['PUT notification/:id/read', { member: 'the caller\'s own notifications only (filtered on userId)' }],
-  ['PUT notification/read-all', { member: 'the caller\'s own notifications only (filtered on userId)' }],
-  ['POST file', { member: 'records the metadata of an upload; the row is the caller\'s own org\'s' }],
-  // No UI removes a File row; it is housekeeping, and the row is evidence of what was uploaded.
-  ['DELETE file/:id', { need: ['admin.settings'] }],
-
-  // The org itself.
-  ['PUT ', { self: 'admin role (org.controller)' }],
-])
-
-/** Route prefixes (after `/api/org/:orgId/`), longest first where they nest. */
-export const PREFIX_WRITE_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
-  ['accounting', { need: ['accounting.write'] }],
-  ['invoices', { need: ['invoicing.write'] }],
-  // Includes `stock-availability/create-transfers`: the invoice form moves stock between
-  // warehouses before it sells, and `sales` holds invoicing.write but not inventory.write.
-  ['invoicing', { need: ['invoicing.write'] }],
-  ['bills/import', { need: ['invoicing.write'] }],
-  // FR-26.7: a transfer-only session writes movements too. The controller holds it to transfers.
-  ['warehouse/movement', { need: ['inventory.write', 'inventory.transfer'] }],
-  ['warehouse', { need: ['inventory.write'] }],
-  ['payroll', { need: ['payroll.write'] }],
-  ['trade/pos', { need: ['pos.write'] }],
-  ['pos', { need: ['pos.write'] }],
-  ['files', { self: 'files-api: admin, or admin.settings; booking, undoing, reconciling or analysing a document also takes the write permission of what it books (booksRefusal)' }],
-  ['fiscal', { self: 'FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager' }],
-  ['user', { self: 'admin role (S-21)' }],
-  ['invite', { self: 'admin role' }],
-  // Writing a set is assigning access, as `PUT user` is: the sets are READ under admin.settings too (below).
-  ['permission-sets', { self: 'admin role' }],
-  // FR-27.8: role.service holds every write: roles.edit, nothing beyond the actor's own grant.
-  ['roles', { self: 'roles.edit, and FR-27.8 in role.service' }],
-  ['apps', { self: 'admin role' }],
-  ['digest', { self: 'admin role' }],
-  ['backup', { self: 'admin role of this org (guard): its own backups, made, listed, verified and downloaded; restoring, uploading a bundle and the restore history take requireSysAdmin' }],
-  ['desktops', { self: 'admin role, or admin.settings' }],
-  ['nodes', { self: 'admin role, or admin.settings (FR-20.2; global only, 404 on a master)' }],
-  ['moves', { self: 'admin role, or admin.settings (FR-20.79; global only, 404 on a master)' }],
-  ['address', { self: 'admin role, or admin.settings (FR-20.72: asking for the org\x27s address on lgrai.app; global only, 404 on a master)' }],
-  ['server', { self: 'admin role, or admin.settings (FR-20.47: where an inspector reaches the org\x27s server; on the server only, 404 on lgrai.app)' }],
-  ['numbering', { self: 'admin role, or admin.settings (FR-20.51: the last numbers issued at a site; every node)' }],
-  ['integration', { self: 'admin role' }],
-  ['logo', { self: 'admin role' }],
-]
-
-const ACCOUNTING = ['accounting.read', 'accounting.write', 'accounting.post', 'accounting.file'] as const
-const INVENTORY = ['inventory.read', 'inventory.write', 'inventory.adjust', 'inventory.transfer'] as const
-const INVOICING = ['invoicing.read', 'invoicing.write', 'invoicing.send'] as const
-const POS = ['pos.read', 'pos.write'] as const
-const PAYROLL = ['payroll.read', 'payroll.write', 'payroll.approve'] as const
-
-/**
- * What a read needs, by route (S-29), in the same three kinds as a write.
- *
- * Until these rules a role's permissions were enforced on reads by the UI alone, as they had been on
- * writes before S-28: any member of an org read its payroll, its ledgers and its audit trail through
- * the API, including a cashier (`sales`) and the tax inspector's account (`nra_auditor`).
- *
- * A module's reads name every permission of the module, since a role allowed to write it reads it.
- * Reference data that another app reads names that app's module too, and says which app: the
- * invoice form reads products, warehouses and bank accounts, the inventory app reads its suppliers,
- * the cash-sale terminal reads the POS catalog. Those were found by scanning every `*-ui` package
- * for the routes it calls; `read-permission.flow.test.ts` holds each default role to the reads its
- * apps make.
- *
- * Prefixes (after `/api/org/:orgId/`), longest first where they nest; a GET that resolves to nothing
- * is refused, and the flow test fails on it.
- */
-export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
-  ['', { member: 'the org itself, as the app shell shows it (integration tokens are never serialised)' }],
-
-  // Cash orders and payment orders in the invoicing app pick an account and a bank account.
-  ['accounting/account', { need: [...ACCOUNTING, ...INVOICING] }],
-  ['accounting/bank-account', { need: [...ACCOUNTING, ...INVOICING] }],
-  ['accounting', { need: ACCOUNTING }],
-
-  // FR-25 §3.11: these are about one person each, which `payroll.read` is not: it is a run's totals.
-  ['payroll/employee', { need: ['payroll.personal'] }],
-  ['payroll/payslip', { need: ['payroll.personal'] }],
-  ['payroll/timesheet', { need: ['payroll.personal'] }],
-  ['payroll/contract', { need: ['payroll.personal'] }],
-  ['payroll/absence', { need: ['payroll.personal'] }],
-  ['payroll/leave-balance', { need: ['payroll.personal'] }],
-  ['payroll', { need: PAYROLL }],
-
-  // The supplier picker in inventory, the contact pickers of the reports, a POS customer.
-  ['invoicing/contact', { need: [...INVOICING, ...INVENTORY, ...POS] }],
-  // The import dialog (also opened from inventory's movements) offers an ORDO to book against.
-  ['invoicing/orders', { need: [...INVOICING, ...INVENTORY] }],
-  // #203: a product's stock, holds and incoming goods, on the inventory app's product page.
-  ['invoicing/product-supply', { need: [...INVOICING, ...INVENTORY] }],
-  ['invoicing/export', { self: 'canExport' }],
-  ['invoicing/sequences', { self: 'admin or manager: the sequence configuration' }],
-  ['invoicing', { need: INVOICING }],
-  ['invoices', { need: INVOICING }],
-
-  // The invoice form, the cash-sale terminal, the POS terminal and the report pickers.
-  ['warehouse/product-category', { need: [...INVENTORY, ...INVOICING, ...POS] }],
-  ['warehouse/product-ledger', { need: [...INVENTORY, ...INVOICING] }],
-  ['warehouse/product', { need: [...INVENTORY, ...INVOICING, ...POS] }],
-  ['warehouse/warehouse', { need: [...INVENTORY, ...INVOICING, ...POS] }],
-  // A contact's stock movements, opened from the invoicing app.
-  ['warehouse/movement', { need: [...INVENTORY, ...INVOICING] }],
-  ['warehouse', { need: INVENTORY }],
-
-  // The cash-sale terminal in the invoicing app sells from the POS catalog.
-  ['trade/pos/catalog', { need: [...POS, ...INVOICING] }],
-  // FR-21.12: the cash-register journal, invoicing's /cash-sales, is the till's own journal too.
-  ['cash-register', { need: [...POS, ...INVOICING] }],
-  ['trade/pos', { need: POS }],
-  ['pos', { need: POS }],
-  ['pricing', { need: [...INVOICING, ...POS, ...INVENTORY] }],
-
-  ['stats/product', { need: [...INVENTORY, ...INVOICING] }],
-  ['stats', { need: INVOICING }],
-  ['dashboard', { need: [...INVOICING, ...ACCOUNTING, ...INVENTORY] }],
-  ['doc-import', { need: [...INVOICING, ...INVENTORY] }],
-
-  ['audit-logs', { self: 'auditReadScope: the whole trail needs admin.audit; anyone else reads the history of one record, of a module they read' }],
-  ['reports', { self: 'canAccessReport: the catalog lists only what the caller may run' }],
-  ['supto', { self: 'admin or nra_auditor' }],
-  ['fiscal', { member: 'device names and states, for the tills; connection details only for FISCAL_ADMIN_ROLES (sanitizeDevice)' }],
-  ['file', { need: ['admin.settings'] }],
-  ['files', { self: 'files-api: admin, or admin.settings; the archives also for nra_auditor; the diff of a snapshot also takes what reading stock takes (compareRefusal)' }],
-  ['digest', { self: 'admin role (FR-11): admin.settings deliberately does not suffice' }],
-  ['backup', { self: 'admin role of this org (guard): its own backups, made, listed, verified and downloaded; restoring, uploading a bundle and the restore history take requireSysAdmin' }],
-  ['desktops', { self: 'admin role, or admin.settings' }],
-  ['nodes', { self: 'admin role, or admin.settings (FR-20.2; global only, 404 on a master)' }],
-  ['moves', { self: 'admin role, or admin.settings (FR-20.79; global only, 404 on a master)' }],
-  ['address', { self: 'admin role, or admin.settings (FR-20.72: the org\x27s address on lgrai.app; global only, 404 on a master)' }],
-  ['numbering', { self: 'admin role, or admin.settings (FR-20.51: whether legal numbering waits, and the series; every node)' }],
-  ['server', { self: "admin role, or admin.settings (FR-20.98: a master's own status page, 404 on lgrai.app); `here` tells any member only whether to show it" }],
-  ['integration', { self: 'admin role' }],
-  ['invite', { self: 'admin role' }],
-  ['permission-sets', { self: 'admin role, or admin.settings' }],
-  // FR-27.4: the roles screen; role.controller asks roles.view.
-  ['roles', { self: 'roles.view (FR-27.4, role.controller)' }],
-
-  ['apps', { member: 'the app hub, filtered by what the caller may open' }],
-  ['licence', { member: "this server's licence for the org, for the banner and the till (FR-20.55); nothing in it is secret" }],
-  ['home', { member: 'where the org lives and whether it is written here, for the read-only banner (FR-20.75); nothing in it is secret' }],
-  ['notification', { member: "the caller's own notifications only (filtered on userId)" }],
-  ['tags', { member: 'the tag vocabulary products and contacts share' }],
-  ['logo', { member: "the org's logo in the app shell" }],
-  ['user', { member: "colleagues' names and roles, for pickers and assignments; credentials are projected out (FR-11.3)" }],
-]
-
-/** A route a prefix would give too much, checked before the prefixes. */
-export const EXACT_READ_RULES: ReadonlyMap<string, WriteRule> = new Map<string, WriteRule>([
-  // A contact's amounts due and paid: the invoicing app's, not the pickers'.
-  ['invoicing/contact/:id/summary', { need: INVOICING }],
-  // And the documents that sum is made of: the invoicing app reads its documents.
-  ['invoicing/contact/:id/unpaid', { need: INVOICING }],
-  // What the POS Sessions menu offers: the roles of the route it posts to.
-  ['trade/pos/session/:id/device-report', { self: 'FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager' }],
-  // A filing's files name a person: DEKLAR its filer, VIES its declarant's ЕГН. They go to who files
-  // them and who audits them; reading a return's rows and cells stays `accounting.read` (FR-25 D10).
-  ['accounting/vat/:period/file/:name', { need: ['accounting.file', 'admin.audit'] }],
-])
-
-/** The rule for a read route; `undefined` when there is none (refused, and a failing test). */
-export function readRuleFor(route: string): WriteRule | undefined {
-  const rest = orgRouteRest(route)
-  if (rest === null) return undefined
-  const exact = EXACT_READ_RULES.get(rest)
-  if (exact) return exact
-  for (const [prefix, rule] of PREFIX_READ_RULES) {
-    if (prefix === '' ? rest === '' : rest === prefix || rest.startsWith(`${prefix}/`)) return rule
-  }
-  return undefined
-}
 
 /** The part of an org route after `/api/org/:orgId/`, without a trailing slash; null off org routes. */
 export function orgRouteRest(route: string): string | null {
@@ -267,84 +23,19 @@ export function orgRouteRest(route: string): string | null {
   return path.slice(ORG_PREFIX.length).replace(/\/+$/, '')
 }
 
-/** The rule for a write route; `undefined` when there is none (refused, and a failing test). */
-export function writeRuleFor(method: string, route: string): WriteRule | undefined {
-  const rest = orgRouteRest(route)
-  if (rest === null) return undefined
-  const exact = EXACT_WRITE_RULES.get(`${method.toUpperCase()} ${rest}`)
-  if (exact) return exact
-  for (const [prefix, rule] of PREFIX_WRITE_RULES) {
-    if (rest === prefix || rest.startsWith(`${prefix}/`)) return rule
-  }
-  return undefined
-}
-
-/**
- * FR-26 §2.3, FR-26.6: the routes each area carves out of its module, by prefix (after
- * `/api/org/:orgId/`), reads and writes alike. A session whose `areas` claim lacks the area is
- * refused them; a session without the claim, and `admin`, never are.
- *
- * What a kept page needs stays outside on purpose: `invoicing/stock-availability` (the invoice
- * form's transfers), `invoicing/contact` (suppliers on the Contacts page), `pricing` (the invoice
- * form's prices), `warehouse/stock-level` (the product page and the transfer form).
- *
- * The parts no prefix can separate are the controllers' own: incoming documents under `/invoices`
- * (`purchases`), order links on an invoice (`orders`), and a transfer-only session's movements.
- */
-export const AREA_PREFIXES: ReadonlyArray<readonly [string, Area]> = [
-  ['dashboard', 'portal'],
-  ['invoicing/orders', 'orders'],
-  ['invoicing/internal-orders', 'orders'],
-  ['invoicing/reservations', 'orders'],
-  ['bills/import', 'purchases'],
-  ['invoicing/bills', 'purchases'],
-  ['invoicing/payment-order', 'payments'],
-  ['invoicing/cash-order', 'payments'],
-  ['warehouse/price-list', 'pricing'],
-  ['warehouse/bulk-pricing', 'pricing'],
-  ['warehouse/inventory-count', 'stockControl'],
-  ['warehouse/opening-stock', 'stockControl'],
-  ['warehouse/cost-layer/valuation', 'stockControl'],
-]
-
-/** The area an org route belongs to, if any. */
-export function areaForRoute(route: string): Area | undefined {
-  const rest = orgRouteRest(route)
-  if (rest === null) return undefined
-  for (const [prefix, area] of AREA_PREFIXES) {
-    if (rest === prefix || rest.startsWith(`${prefix}/`)) return area
-  }
-  return undefined
-}
-
 interface Caller {
-  /** FR-27 P3-5: a session's person and org, and its role's grant; the legacy claims below are no session's any more. */
+  /** A session's person and org, and its role's grant (FR-27 P3-5). */
   id?: string
   orgId?: string
   access?: Grant
-  role?: string
-  permissions?: readonly string[]
-  /** FR-26: absent = every area. */
-  areas?: readonly string[]
-}
-
-/** Why this session may not reach this route's area, or null. `admin` and a session without the claim always may. */
-export function areaRefusal(
-  user: Caller | null | undefined,
-  route: string,
-): { message: string; code: 'area_required'; area: Area } | null {
-  if (!user) return null
-  const area = areaForRoute(route)
-  if (!area || holdsArea(user, area)) return null
-  return { message: `Not part of your role: ${area}`, code: 'area_required', area }
 }
 
 /**
- * The session's grant, as `access/evaluate.ts#grantOf` reads it (not imported: evaluate imports this file). FR-27 P3-5
- * (#529): the role's, attached by the auth plugins; a session without one (no org session) compiles to nothing.
+ * The session's grant, as `access/evaluate.ts#grantOf` reads it (not imported: evaluate imports this file): the
+ * role's, attached by the auth plugins; a session without one holds nothing.
  */
 function grantOfCaller(user: Caller | null | undefined): Grant {
-  return user?.access ?? compileLegacy(user)
+  return user?.access ?? NOTHING
 }
 
 /**
@@ -354,52 +45,6 @@ function grantOfCaller(user: Caller | null | undefined): Grant {
  */
 export function holdsPersonal(user: Caller): boolean {
   return can(grantOfCaller(user), 'payroll-people.view')
-}
-
-/**
- * Why this caller may not make this request, or null when they may. Reads, routes outside an org,
- * and requests without a caller (the 401 is the auth plugin's) are never refused here.
- *
- * ⚠ `admin` always passes, as in `canWrite`: a permission set that lacked a write would otherwise
- * lock an org's owner out of their own data, with nobody left who could fix the set.
- */
-export function writeRefusal(
-  user: Caller | null | undefined,
-  method: string,
-  route: string,
-): { message: string; code: 'permission_required'; permissions?: readonly string[] } | null {
-  if (!user || READ_METHODS.has(method.toUpperCase())) return null
-  if (orgRouteRest(route) === null) return null
-  if (user.role === 'admin') return null
-  const rule = writeRuleFor(method, route)
-  if (!rule) return { message: 'This route has no permission rule', code: 'permission_required' }
-  if (!('need' in rule)) return null
-  const held = user.permissions ?? []
-  if (rule.need.some(p => held.includes(p))) return null
-  return { message: `Permission required: ${rule.need.join(' or ')}`, code: 'permission_required', permissions: rule.need }
-}
-
-/** The methods a read rule governs. OPTIONS carries no session (a CORS preflight), so it is not one. */
-const GUARDED_READS = new Set(['GET', 'HEAD'])
-
-/**
- * Why this caller may not make this READ, or null when they may (S-29). The same shape and the
- * same exemptions as `writeRefusal`: routes outside an org, requests without a caller, and `admin`.
- */
-export function readRefusal(
-  user: Caller | null | undefined,
-  method: string,
-  route: string,
-): { message: string; code: 'permission_required'; permissions?: readonly string[] } | null {
-  if (!user || !GUARDED_READS.has(method.toUpperCase())) return null
-  if (orgRouteRest(route) === null) return null
-  if (user.role === 'admin') return null
-  const rule = readRuleFor(route)
-  if (!rule) return { message: 'This route has no permission rule', code: 'permission_required' }
-  if (!('need' in rule)) return null
-  const held = user.permissions ?? []
-  if (rule.need.some(p => held.includes(p))) return null
-  return { message: `Permission required: ${rule.need.join(' or ')}`, code: 'permission_required', permissions: rule.need }
 }
 
 /**
@@ -444,20 +89,6 @@ export function pinScopeRefusal(
     return null
   }
   return { message: 'A PIN signs in to the till only. Sign in with your password for the rest.', code: 'pin_session_scope' }
-}
-
-/**
- * The one check the auth plugins run on every request: a PIN session's scope first, then the read
- * rules for a read, else the write rules.
- */
-export function permissionRefusal(
-  user: ScopedCaller | null | undefined,
-  method: string,
-  route: string,
-): { message: string; code: 'permission_required' | 'pin_session_scope' | 'area_required'; permissions?: readonly string[] } | null {
-  return pinScopeRefusal(user, method, route)
-    ?? (READ_METHODS.has(method.toUpperCase()) ? readRefusal(user, method, route) : writeRefusal(user, method, route))
-    ?? (GUARDED_READS.has(method.toUpperCase()) || !READ_METHODS.has(method.toUpperCase()) ? areaRefusal(user, route) : null)
 }
 
 /**

@@ -213,14 +213,6 @@ async function buildOverrides(srcOid: Oid, tgtOid: Oid): Promise<Map<string, str
     if (there) overrides.set(String(u._id), there)
   }
 
-  const sets = model('PermissionSet').collection
-  const byName = new Map<string, string>()
-  for await (const s of sets.find({ orgId: tgtOid }, { projection: { name: 1 } }) as any) byName.set(String(s.name), String(s._id))
-  for await (const s of sets.find({ orgId: srcOid }, { projection: { name: 1 } }) as any) {
-    const there = byName.get(String(s.name))
-    if (there) overrides.set(String(s._id), there)
-  }
-
   // An enabled app is matched by which app it is: the unique key (orgId, appId), and a row the app made by
   // itself when someone opened the hub is the same switch as the real org's.
   const apps = model('OrgApp').collection
@@ -418,12 +410,12 @@ async function copySeedOnly(name: string, ctx: Ctx, shape?: (source: any, copy: 
 
 /**
  * Memberships are copied switched off, except an admin's on the first copy: who may enter the test org is decided there.
- * FR-27 P3-5 (#529): an admin is a person on the source org's Administrator role (`adminRoleIds`); one from before roles,
- * by the legacy key.
+ * FR-27 (#529): an admin is a person on the source org's Administrator role (`adminRoleIds`). P3-6: a person without a
+ * role is no admin (the legacy key decided for one until then).
  */
 function membershipAccess(ctx: Ctx, adminRoleIds: ReadonlySet<string> = new Set()) {
   return (source: any, copy: any) => {
-    const admin = source.roleId ? adminRoleIds.has(String(source.roleId)) : source.role === 'admin'
+    const admin = !!source.roleId && adminRoleIds.has(String(source.roleId))
     const keep = ctx.activateAdmins && admin && source.isActive !== false
     if (!keep && copy.isActive !== false) {
       copy.isActive = false
@@ -508,7 +500,7 @@ export async function cloneOrgData(opts: CloneOptions): Promise<CloneReport> {
     let res: CollectionResult
     try {
       if (name === 'User') res = await copySeedOnly(name, ctx, membershipAccess(ctx, new Set((await Role.find({ orgId: ctx.srcOid, all: true }, { _id: 1 }).lean().exec()).map(r => String(r._id)))))
-      else if (name === 'PermissionSet' || name === 'Role' || name === 'OrgApp') res = await copySeedOnly(name, ctx)
+      else if (name === 'Role' || name === 'OrgApp') res = await copySeedOnly(name, ctx)
       else if (name === 'Sequence') res = await copySequences(ctx)
       else res = await copyOrdinary(name, ctx)
     } catch (e: any) {

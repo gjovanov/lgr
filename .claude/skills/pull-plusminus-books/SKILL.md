@@ -158,7 +158,7 @@ bun .claude/skills/pull-plusminus-books/nightly.ts --check-mail  # SendGrid sand
   a share's closing is not the company's, so the server answers `continuity: null` there. The mail's counts are the group's,
   then a line per org; its document list is the archive's, once. List EVERY org of the split: one left out fails the shares.
 - The account for a split is the same `books-sync` person with a membership in each org of it, each holding only
-  `accounting.import` (`seed-user --org <slug> --email <its address> … --permissions accounting.import`: an existing person
+  `accounting.import` (`seed-user --org <slug> --email <its address> … --caps books-import.run`: an existing person
   is linked, and their password is untouched).
 - 2025 and 2026 only (`BOOKS_NIGHTLY_YEARS`). A later year in the archive is reported, never imported unattended: its first
   import opens the year. Import it by hand once, then add it.
@@ -179,7 +179,7 @@ bun .claude/skills/pull-plusminus-books/nightly.ts --check-mail  # SendGrid sand
 and no area. It was made in regal-acc and, since FR-25 R7, has the same membership in the home and the store org; its
 regal-acc membership is switched off with the rest of that retired org.
 - Every other route answers 403. Checked: contacts, accounts, journal, payroll employees and contracts, VAT.
-- Made with `scripts/seed-user.ts --role member --permissions accounting.import --set-name "Service: books import"`.
+- Made with `scripts/seed-user.ts --role member --caps books-import.run --set-name "Service: books import"`.
 - Its password is only in the main checkout's gitignored `.secrets/lgr-books-sync.env`, beside `BOOKS_NIGHTLY_MAIL_TO`.
 - To revoke it, deactivate the user in every org it has a membership in (the Users screen of each), then remove the task.
 

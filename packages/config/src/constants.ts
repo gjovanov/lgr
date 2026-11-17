@@ -47,13 +47,15 @@ export const CURRENCIES = [
 
 export const SUBSCRIPTION_PLANS = ['free', 'starter', 'professional', 'enterprise'] as const
 
-/** Who runs a fiscal device: its connection, its operators and its reports. */
-export const FISCAL_ADMIN_ROLES: readonly string[] = ['admin', 'manager', 'warehouse_manager']
-
 const SELLER_PERMISSIONS = ['invoicing.read', 'invoicing.write', 'invoicing.send', 'pos.read', 'pos.write', 'inventory.read', 'inventory.transfer'] as const
 
 const MANAGER_GRANTED_BY_NAME: readonly string[] = ['payroll.approve', 'payroll.personal', 'payroll.import', 'accounting.import']
 
+/**
+ * ⚠ FR-27 P3-6 (#529): the LEGACY roles' permissions, frozen. Nothing decides access by them any more: a person's role
+ * does (`config/access`). Read only by `config/access/legacy.ts` and the templates' `legacy` claims, which released
+ * migration 0015 imports, and by test fixtures that still state legacy claims. Never read it in new code.
+ */
 export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   admin: ['admin.users', 'admin.settings', ...PERMISSIONS.filter(p => !p.startsWith('admin.'))],
   // ⚠ Everything but administration, less what is granted by name: one person's pay, reading it and
@@ -68,7 +70,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   // Sells and invoices; reads stock rather than moving it.
   sales: ['invoicing.read', 'invoicing.write', 'invoicing.send', 'inventory.read', 'pos.read', 'pos.write', 'reports.read'],
   // FR-26.3: sells at the counter and on paper, moves stock between warehouses, and sees nothing
-  // else. `DEFAULT_ROLE_AREAS` carves the rest out of the modules these permissions open.
+  // else. Its areas (`config/access/legacy.ts#LEGACY_ROLE_AREAS`) carved the rest out of the modules these opened.
   seller: [...SELLER_PERMISSIONS],
   sales_consultant: [...SELLER_PERMISSIONS],
   // A read-only member may open the Reports app but not carry data out of it.
@@ -77,62 +79,6 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<Role, string[]> = {
   member: ['accounting.read', 'inventory.read', 'invoicing.read', 'reports.read'],
   // The NRA auditor's whole job is pulling the SUPTO tables out — it needs the export right.
   nra_auditor: ['accounting.read', 'inventory.read', 'invoicing.read', 'pos.read', 'admin.audit', 'reports.read', 'reports.export'],
-}
-
-/**
- * The system permission set of each role that has one, by name (`permission-set.seed.ts`). A role
- * change puts the user on it (FR-26.9.1), an invite starts them on it (FR-26.9.2), and the Users
- * screen warns when a user's role and sets disagree (FR-26.9.3).
- */
-export const ROLE_PERMISSION_SET_NAMES: Readonly<Record<string, string>> = {
-  admin: 'Administrator',
-  manager: 'Manager',
-  accountant: 'Accountant',
-  warehouse_manager: 'Warehouse Manager',
-  seller: 'Seller',
-  sales_consultant: 'Sales Consultant',
-  member: 'Member (Read Only)',
-  nra_auditor: 'NRA Auditor (Read Only)',
-}
-
-/**
- * FR-26 §2.3: the parts of a module a permission set can be held to. Areas are layered on the
- * module permissions: a session's `areas` claim, when present, lists the only areas it may open.
- *
- * ⚠ Absent and `[]` mean opposite things. Absent (every set and token from before FR-26, every
- * existing role): unrestricted. `[]`: no area at all. Never default the claim to `[]`.
- */
-export const AREAS = ['portal', 'orders', 'purchases', 'payments', 'pricing', 'stockControl', 'catalogExport'] as const
-export type Area = (typeof AREAS)[number]
-
-/** The areas of a role's users who hold no permission set. Only the FR-26 roles are restricted. */
-export const DEFAULT_ROLE_AREAS: Partial<Record<Role, Area[]>> = {
-  seller: [],
-  sales_consultant: ['orders'],
-}
-
-/**
- * May this session open this area? `admin` always may, as on every other rule, and a session
- * without the claim is unrestricted.
- */
-export function holdsArea(who: { role?: string; areas?: readonly string[] | null } | null | undefined, area: Area): boolean {
-  if (!who) return false
-  if (who.role === 'admin') return true
-  return !Array.isArray(who.areas) || who.areas.includes(area)
-}
-
-/**
- * The claim several permission sets give, most permissive wins (as `ownRecordsOnly`): an
- * `isAdmin` set or any set without `areas` means no claim; otherwise the union of their lists.
- */
-export function mergeAreas(sets: ReadonlyArray<{ isAdmin?: boolean; areas?: readonly string[] | null }>): Area[] | undefined {
-  if (!sets.length) return undefined
-  const union = new Set<Area>()
-  for (const s of sets) {
-    if (s.isAdmin || !Array.isArray(s.areas)) return undefined
-    for (const a of s.areas) if ((AREAS as readonly string[]).includes(a)) union.add(a as Area)
-  }
-  return AREAS.filter(a => union.has(a))
 }
 
 export const ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'revenue', 'expense'] as const

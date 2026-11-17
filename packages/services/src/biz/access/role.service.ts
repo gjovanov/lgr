@@ -2,7 +2,7 @@ import {
   CAPABILITIES, PAGE_ACCESS, ROLE_TEMPLATES, TEMPLATE_WITHHOLDS, canOpen, grantOfRole, isCapability, templateDefaults,
   unknownCaps, withImplied, type CapabilityId, type Grant,
 } from 'config/access'
-import { Org, PermissionSet, Role, User, type IRoleHistoryEntry } from 'db/models'
+import { Org, Role, User, type IRoleHistoryEntry } from 'db/models'
 import { mongoose } from 'db/connection'
 import { createAuditEntry, recordAuditEntry } from '../audit-log.service'
 import { grantOf, type AccessCaller } from './evaluate'
@@ -81,13 +81,12 @@ async function administratorRoleIds(orgId: string): Promise<string[]> {
 }
 
 /**
- * The filter for an org's Administrators: their role is (`all`), or (a person from before roles, no role yet) their
- * legacy key is `admin`. FR-27 P3-5: a person given a role since carries no legacy key, so a query on `role: 'admin'`
- * alone misses them (scripts that act as "the org's first admin" use this).
+ * The filter for an org's Administrators: their role is (`all`). Scripts that act as "the org's first admin" use this.
+ * FR-27 P3-6: a person without a role is no Administrator (the legacy key `admin` counted for one until then).
  */
 export async function administratorFilter(orgId: unknown): Promise<Record<string, unknown>> {
   const adminRoles = await administratorRoleIds(String(orgId))
-  return { orgId, $or: [{ roleId: { $in: adminRoles } }, { roleId: { $exists: false }, role: 'admin' }] }
+  return { orgId, roleId: { $in: adminRoles } }
 }
 
 /** The active people of an org who are an Administrator (`administratorFilter`). */
@@ -316,8 +315,8 @@ export async function deleteRole(actor: Actor, orgId: string, roleId: string): P
   if (role.isBuiltin) refuse(409, 'builtin_role', 'A built-in role cannot be deleted.')
   if (await User.exists({ orgId, roleId: role._id }).exec()) refuse(409, 'role_in_use', 'Give its people another role first.')
   await Role.deleteOne({ _id: role._id, orgId }).exec()
-  // A role from before FR-27 P3-5 may carry the system set of its projection: it goes with the role.
-  if (role.legacy?.setId) await PermissionSet.deleteOne({ _id: role.legacy.setId, orgId }).exec()
+  // A role from before FR-27 P3-5 may name the system set of its projection: nothing reads sets since P3-6, and
+  // migration 0017 archives them with the rest (#820).
   forgetRole(role._id)
   createAuditEntry({ orgId, userId: actor.id, action: 'delete', module: 'admin', entityType: 'role', entityId: roleId, entityName: role.name, changes: [{ field: 'caps', oldValue: capsOf(grantOfRole(role)), newValue: [] }] })
 }

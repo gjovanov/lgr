@@ -200,7 +200,7 @@ const { actionsFor } = useProductDocActions()
 // FR-26.8.7: without `inventory.write` (a Seller) the page reads, and offers no New, Save or Delete.
 const writes = writesInventory(sessionViewer())
 // FR-31.11 (D-2): no Export until an export of the catalogue exists (FR-28 §10). The menu it had did nothing; when it
-// comes, it is for `products.export` (`viewerHoldsArea(sessionViewer(), 'catalogExport')`).
+// comes, it is for `products.export` (`page-registry#exportsCatalog`).
 
 function stockTab(item: ProductRow) { return { name: 'inventory.products.stock', params: { id: item._id, tab: 'stock' } } }
 

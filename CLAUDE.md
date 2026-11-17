@@ -137,19 +137,19 @@ Every data model uses `tenantPlugin`, which adds an indexed, required `orgId` fi
 
 All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is where tenancy is enforced**. `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) is registered as a `beforeHandle` hook by `AuthService` and by `AppAuthService` (`services/http/app-auth.service.ts`, one copy since FR-24.30, re-exported by each `*-api`), so every authenticated route whose path carries `:orgId` rejects a caller whose JWT names a different org with **403**. It is applied by default — there is nothing for a new controller to opt into, and no exception list (gjovanov/lgr#41). The property is asserted over the real route table by `packages/tests/src/integration/tenant-isolation.flow.test.ts`.
 
-**A write needs the permission its route names** (S-28). Every non-GET route under `/api/org/:orgId` resolves to a rule in `packages/services/src/biz/route-permission.ts`: the permission(s) it needs (`invoicing.write`, `accounting.post`, …), `self` (the controller guards itself, e.g. `canAccessReport`, admin-only routes) or `member` (any member, e.g. a note). The two auth plugins (`AuthService`, `AppAuthService`) enforce it in a **transform** hook, so a caller without the permission gets 403 before the body is validated; `admin` always passes. ⚠ A new write route fails `route-permission.flow.test.ts` until it has a rule, and is refused at runtime meanwhile. ⚠ The refusal is THROWN (a transform hook cannot return one), and `spaErrorHandler` passes a thrown status through; anything else it is handed becomes a 500.
+**A write needs the capability its route names** (S-28, FR-27.2). Every non-GET route under `/api/org/:orgId` resolves to a rule in `packages/config/src/access/routes.ts`: the capabilities it needs (`anyOf`: `sales-docs.create`, `journal.post`, …), `self` (the controller guards itself, e.g. `canAccessReport`; its `floor` is refused first) or `member` (any member, e.g. a note). The two auth plugins (`AuthService`, `AppAuthService`) enforce it in a **transform** hook (`access/evaluate.ts#decideAccess`, on the person's role), so a caller without it gets 403 before the body is validated; the Administrator (`grant.all`) always passes. (FR-27 P3-6: the legacy permission rules of `route-permission.ts` and `permissionRefusal` are gone.) ⚠ A new write route fails `route-permission.flow.test.ts` until it has a rule, and is refused at runtime meanwhile. ⚠ The refusal is THROWN (a transform hook cannot return one), and `spaErrorHandler` passes a thrown status through; anything else it is handed becomes a 500.
 
 **A 500 says only what `portal-api/src/lib/server-error.ts` lets through** (S-12). The server's own words pass (`throw new Error('Insufficient stock for …')`, and every class of ours), and the UI shows them. The machinery's never do: the runtime's (`TypeError`…), Mongoose's and the driver's, the OS's (`ENOENT`…), and any message quoting a server path become `Internal server error (ref <10 hex>)`. A schema rejection and a duplicate key are said as field names. Every 500 carries `ref`, and the log line has the same `ref` with the method, path and whole error: find a user's report by it. ⚠ To tell a person something, throw an `Error` written for them; a driver's or Mongoose's text never reaches them. ⚠ A controller that catches and answers `status(500, { message: e.message })` itself bypasses all of this: rethrow instead.
 
 **No answer carries a secret** (S-14). `no-secrets-in-responses.flow.test.ts` puts a marker in every secret-looking field of every model (a password, a verifier, a token or its hash, an OAuth link's provider tokens) and calls every route as an admin: a route that answers with one fails it. A user leaves the server through `USER_PUBLIC_PROJECTION` / `publicUser` (`services/dao/user.dao.ts`). ⚠ `User.password` is deliberately NOT `select: false`: backups, org moves and FR-20's replication read `User` through Mongoose and must carry the hash. **An anonymous caller gets 401 before validation** (S-15): all four auth plugins refuse in their transform hook, so a route's schema is never described to someone without a credential; a new auth plugin needs the same. **A password a person sets has at least 12 characters** (S-09): a body field named like a password either sets one with `minLength: 12` or is listed in `password-minimum.flow.test.ts` as only proving one.
 
-**So does a read** (S-29). Every GET under an org resolves to a rule in `PREFIX_READ_RULES`, the same three kinds, enforced by the same hook (`permissionRefusal`).
+**So does a read** (S-29). Every GET under an org resolves to a read rule in `config/access/routes.ts` (`READ_PREFIXES`, `EXACT_READS`), the same three kinds, enforced by the same hook.
 
 **A document names records of its own org only** (S-35). `db/plugins/reference-guard.ts`, installed by `tenantPlugin` beside the home guard, reads the reference fields from the schemas (`ref:`) and refuses a write made inside a request whose NEW references name a record of another org: 422 `{ code: 'foreign_reference', path }`. It sees create/save, insertMany, the update queries (`$set` on dotted paths, `$setOnInsert`, `$push`, `$addToSet`, plain fields) and bulkWrite, and a saved document only in the paths the save changes. ⚠ An id that names NO record passes: old documents keep references to deleted records (many on production), and a transaction may name what it created a moment ago. ⚠ It is off outside a request (scripts, migrations and the test-org copy job write as trusted code), and raw driver writes pass, as with the home guard. The views that resolve a stored id (a list's contact names, an invoice's contact) filter by the org too: `foreign-references.flow.test.ts` tests each side alone, and fails on a controller `findMany({ id: { $in } })` that names no org.
-- A module's reads accept any permission of that module (`payroll.read`, `.write` or `.approve`), since a role that writes it reads it.
-- Reference data that another app reads also accepts that app's module, and its comment names the app. For example, the invoicing app's cash and payment orders read `accounting/account` and `accounting/bank-account`, and the inventory app's supplier picker reads `invoicing/contact`.
-- ⚠ A new GET route fails `read-permission.flow.test.ts` until it has a rule. When an app starts reading another module's route, widen the rule and add the read to the test's `APP_READS`, the test that holds each default role to what its apps read.
-- The audit trail is `admin.audit`'s (`auditReadScope`). Anyone else reads the history of ONE record (`entityType` + `entityId`), and only entries of modules they read: that is what the history and notes panels need.
+- A feature's reads accept its `view`, `browse` and `lookup`, since a role that works on it reads it.
+- Reference data that another app reads also accepts that app's capability, and its comment names the app. For example, the invoicing app's cash and payment orders read `accounting/account` and `accounting/bank-account`, and the inventory app's supplier picker reads `invoicing/contact`.
+- ⚠ A new GET route fails `read-permission.flow.test.ts` until it has a rule. When an app starts reading another module's route, widen the rule and add the read to the test's `APP_READS`, the test that holds each built-in role to what its apps read.
+- The audit trail is `audit-log.view`'s (`auditReadScope`). Anyone else reads the history of ONE record (`entityType` + `entityId`), and only entries of modules they read: that is what the history and notes panels need.
 - An org is never serialised with its integration fields' tokens: `orgForClient` / `settingsForClient` on `GET /org/:orgId` and `/auth/me`.
 
 ⚠ **The guard checks the URL's `:orgId`, not the id after it.** A route that takes a document id
@@ -3131,10 +3131,9 @@ stay in `invoicing-ui/src/pos/`, the routes are in `invoicing-ui/src/manifest.ts
   terminal needs `pos.write`, sessions and devices `pos.read | pos.write`, the journal either side.
 - ⚠ **`canOpenPage` is the one rule for who may open what.** ★, „+ Нов", the menu, `tillRedirect`, the
   PIN's landing and the org switch's all ask it. `module-manifests.test.ts` is the table: each kind of
-  person, every page, on the real router. It mirrors the server: a page of the app opens for every
-  `invoicing.*`, as the server reads it (`APP_NAV_META.invoicing.reads`); Orders and Contacts for
-  `inventory.*` too, which the server reads them for; Devices for `FISCAL_ADMIN_ROLES` as well
-  (`PageDef.roles`), since the server's rule there is a role. Writes stay the server's.
+  person, every page, on the real router. It mirrors the server: a page opens for the capabilities
+  `config/access/pages.ts#PAGE_ACCESS` names (FR-27.2; the legacy `PageDef.need`/`roles`/`area` are gone
+  since P3-6), Devices for `devices.*` as well. Writes stay the server's.
 - **The Invoicing tile follows the journal**, which the whole app reads: `page-registry.test.ts` holds
   `APP_REGISTRY.invoicing.alsoOpenedBy` to it. A page opened by another right earns no tile, because
   the app's home would refuse them.
@@ -3907,16 +3906,13 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 - The gate: `bun run scripts/compare-vat-files.ts --dir <nap/vat dir>`. The import: `bun run scripts/import-vat-files.ts --org <slug> --dir <nap/vat dir> [--execute]`, dry run by default. Both print months and counts, never an amount, a partner or a document number.
 - The golden files in `packages/tests/src/fixtures/vat-files/` are made up, and `binary` in `.gitattributes`: CRLF is part of the format. So a diff does not show them, and a public scan has to read them itself.
 
-## Seller and Sales Consultant: areas (2026-11-03, FR-26, #493)
+## Seller and Sales Consultant (2026-11-03, FR-26, #493)
 
-Spec: `docs/fr/FR-26-seller-and-sales-consultant-roles.md`. Roles `seller` („Продавач") and `sales_consultant` („Търговски консултант"): invoicing, the till, inventory read and `inventory.transfer`, and **areas** carving parts out of those modules.
-- **Areas** (`config/constants#AREAS`: `portal orders purchases payments pricing stockControl catalogExport`) are a claim on the session, `areas?: Area[]`, merged from the sets (`mergeAreas`) or the role (`DEFAULT_ROLE_AREAS`, the two new roles only). `holdsArea` is the one test, server and UI.
-  - ⚠ **Absent and `[]` mean opposite things.** Absent: unrestricted (every existing set, role and token). `[]`: none. The model path is `default: undefined`, the set API takes `areas: null` for "every area" (`$unset`), and `sessionViewer` passes the claim only when the token carries a list.
-  - Merge: an `isAdmin` set or any set without `areas` wins (unrestricted), else the union. So a custom set without areas makes a Seller unrestricted; the Users screen warns when role and sets disagree.
-- **Server.** `route-permission.ts#AREA_PREFIXES` refuses whole prefixes (`area_required`, reads and writes), `admin` exempt. What no prefix can say is the controllers': an incoming document under `/invoices` is 404 by id and absent from the list, summary, exports, ledger and aging (`purchases`, now `bills.view`: FR-27.6 partitions, below); an invoice adds or changes no order link (`orders`, existing links round-trip); `product-supply` names no order (`orders`). `reports/*` needs `reports.read` on top of `canAccessReport`. A movement write takes `inventory.write` or `inventory.transfer`, and the controller holds a transfer-only caller to transfers with both warehouses (`movement.controller#transferRefusal`).
-- **UI.** `PageDef.area` and `canOpenPage`; the inventory menu goes through `withPageRules` (`ui-shell/module.ts`). A session without `portal` has no Portal tile and lands in its first app (`portalGuard`, `landingWithoutPortal`). `isTransferOnly` gives the movement form Transfer only; `writesInventory` makes Products, Categories and Warehouses read-only. Sequences is admin and manager only, as the server always was.
-- **Assigning a role takes effect** (FR-26.9): a role change swaps the user's SYSTEM sets for the role's (`setsForRole`, custom sets stay), an invite starts on the role's set (`inviteSetFor`; a restricted role whose set the org lacks gets none, never the default set), and a change of role, sets or own permissions bumps the person's `tokenVersion` (`endSessionsOf`): every session of theirs, in every org, ends within the minute.
-- **Migration `0014-seller-permission-sets`** seeds both system sets in every org. A set of either name somebody made is reported and left alone, never adopted. Rollback: move every Seller and Sales Consultant to another role first; the previous release rejects the names and ignores `areas`.
+Spec: `docs/fr/FR-26-seller-and-sales-consultant-roles.md`. Roles `seller` („Продавач") and `sales_consultant` („Търговски консултант"): invoicing, the till, inventory read and transfers, and nothing of Orders (the Sales Consultant keeps them), bills, payments, prices, stock control, the catalog's export or the Portal.
+- ⚠ **FR-27 P3-6 (#529): FR-26's areas are gone** (`AREAS`, `holdsArea`, `mergeAreas`, `DEFAULT_ROLE_AREAS`, `route-permission.ts#AREA_PREFIXES`, `PageDef.area`, the `areas` claim). What they carved out is what the two built-in roles' capabilities leave out (`config/access/template-caps.ts`), and the route rules (`config/access/routes.ts`) and page rules (`PAGE_ACCESS`) refuse it as for any role. The areas live on only in `config/access/legacy.ts`, frozen for migration 0015.
+- **Server.** What no prefix can say is the controllers', by capability: an incoming document under `/invoices` is 404 by id and absent from the list, summary, exports, ledger and aging (`bills.view`, FR-27.6 partitions, below); an invoice adds or changes no order link (`orders.*`); `product-supply` names no order (`seesOrders`). A movement write takes `movements.create` or `movements.create:transfer`, and the controller holds a transfer-only caller to transfers with both warehouses (`movement.controller#transferRefusal`).
+- **UI.** A session without the portal (`page-registry#holdsPortal`, `PORTAL_CAPS`) has no Portal tile and lands in its first app (`portalGuard`, `landingWithoutPortal`). The Products list's export is `exportsCatalog` (`products.export`). `isTransferOnly` gives the movement form Transfer only; `writesInventory` makes Products, Categories and Warehouses read-only.
+- **Migration `0014-seller-permission-sets`** seeded both system sets in every org (released; it writes through the driver). Sets have no model since P3-6, and migration 0017 (#820) archives them.
 
 ## One access model: Phase 0 (FR-27, #529)
 
@@ -3932,13 +3928,18 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - `accessRefusal(user, method, route)`, with the PIN scope first, unchanged;
   - `can(user, cap)`, which controllers move onto slice by slice (Phase 0 PRs 2–5);
   - `grantOf(user)`, memoised per claims.
-- **Phase 0 decides nothing new.** `route-permission.ts#permissionRefusal` still decides every request.
-  - ⚠ **`integration/access-differential.flow.test.ts`** holds the evaluator to its answer on every org route of `createApiApp()`, and `canOpen` to `canOpenPage` on every page. It covers every role × no, each single, default and an unknown permission × areas absent, `[]`, each alone, all × PIN.
-  - Single permissions suffice: today's rules are any-of, and the grant is a union. A change to the catalogue, bridge, routes or pages that moves any answer fails it.
-  - A new route needs a rule in BOTH `route-permission.ts` and `config/access/routes.ts` until Phase 0's last step.
-- **Shadow mode** (FR-27 §4). `Org.settings.access.model`: unset = `legacy`, or `shadow`; `roles` is Phase 1 and the script refuses it.
-  - In `shadow` both auth plugins call `shadowAccess`, which never waits. Every answer the evaluator would give differently is counted in `access_shadow_diffs` (`AccessShadowDiff`, class N, field `org` not `orgId`, a 30-day TTL, counts only).
-  - Switch and read it with `scripts/access-model.ts --org <slug> [--set legacy|shadow] [--days N]`, on the org's home. Pods cache the model for a minute.
+- **The role decides every request** (P3-2), and since P3-6 nothing else exists to decide: the legacy route rules,
+  `permissionRefusal`, `legacyCanOpenPage`, the areas, `ownRecordsOnly`/`scopedRepos`, `FISCAL_ADMIN_ROLES`, permission
+  sets (model, controller, service, seed) and shadow mode (`shadow.ts`, `AccessShadowDiff`, the differential test) are
+  deleted. A new route needs a rule in `config/access/routes.ts` alone.
+  - ⚠ **`config/access/legacy.ts` is FROZEN** (`compileLegacy`, `legacyClaimsOf`, `LEGACY_BRIDGE`): released migration
+    0015 imports it. `unit/access-legacy-frozen.test.ts` pins its checksum and that nothing outside `packages/migrations/`
+    (and the access files 0015 reads it through) names it. Tests name an access by capabilities, a built-in role by
+    `templateGrant(key)`, or a legacy permission's old capabilities by `tests/helpers/permission-caps.ts`.
+  - `DEFAULT_ROLE_PERMISSIONS` stays in `config/constants`, frozen: legacy.ts and the templates' `legacy` claims (0015)
+    read it, and test fixtures. Nothing decides by it.
+  - `scripts/access-model.ts` lists who has no role and gives the people from before roles theirs (`--give-roles`,
+    0015's own `up`); `--set`/`--report` are refused. `Org.settings.access.model` is read by nothing.
 - **Client.** `ui-shared/access/useAccess` gives `can()` and `canOpen()` on the same grant, compiled from the tab's token as `sessionViewer` reads it.
 - **#493 items 2–5 ride on it (FR-27 D-8): capabilities, not areas.** A session whose claim carries an `areas` list, the Seller and the Sales Consultant, does not get these (`legacy.ts#NOT_WITH_AN_AREAS_LIST`):
   - `sales-docs.totals` and `bills.totals`: the strip, and `GET invoices/summary`, which answers 403 `capability_required`;
@@ -3955,15 +3956,13 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     `readableDirection`; a create of a kind it does not make is refused before anything is written. The exports,
     contact ledger and card, aging, stats, movements' bill links read `seesBills` and the import's bill target
     `bills.create`, where they read the `purchases` area.
-  - ⚠ **Where another app's session reaches it, `services/biz/access/partition.ts#seesBills` / `seesOrders`**: on the
-    legacy model FR-26's area, as before (an absent `areas` list holds it whatever the permissions: a warehouse
-    manager, with no invoicing permission, is told of the bill that holds a receipt), on a role the partition's
-    capabilities. `bills.view` alone is NOT the area there: legacy grants it only with an invoicing permission.
-    `product-supply` and the invoice's order links read `seesOrders`. The invoice controller's own routes, which only
-    invoicing sessions reach, read the grant (`unit/access-legacy-gates.test.ts` proves both).
+  - ⚠ **Where another app's session reaches it, `services/biz/access/partition.ts#seesBills` / `seesOrders`**: the
+    partition's capabilities (`bills.view`; `orders.view|browse|lookup`). FR-27 P3-6 removed their legacy branch
+    (FR-26's area, under which a warehouse manager was told of the bill behind a receipt); no session took it since
+    P3-2. `product-supply` and the invoice's order links read `seesOrders`.
   - Route rules: `invoices` reads take any kind's `view`, writes any kind's work; the controller does the rest.
   - ⚠ Legacy grants the three together from the invoicing permissions, and an `areas` list without `purchases`
-    takes `bills` away, so nobody's answer changes (`access-differential`). A grant that reads every kind and works
+    takes `bills` away, so nobody's answer changed. A grant that reads every kind and works
     on every kind costs no query.
 
 ## One access model: Phase 1, roles (FR-27, #529)
@@ -3981,7 +3980,7 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - Both auth plugins call `attachAccess` (`services/biz/access/live.ts`). It reads the person's role live, membership and role each cached 60 s per process (`forgetMember`, `forgetRole` in the writing process), through the driver, not the models: the query budgets count only a request's own queries.
   - The session gets the role's grant (`user.access`, non-enumerable, never serialised), and nothing else of the legacy model (P3-5).
   - Responses carry `x-access-version: <roleId>:<version>`.
-  - `decideAccess` decides by the evaluator. `shadowAccess` asks the legacy rules on the projection beside it and counts where they differ.
+  - `decideAccess` decides by the evaluator. (Shadow mode, which counted where the legacy rules differed, is gone: P3-6.)
   - Sign-in issues `rid`/`rv`, and answers the grant (`access`, as `/auth/me`; `live.ts#accessAnswerFor`).
   - A person with no role keeps their token's claims. Back to `legacy` at any time.
 - **Roles API** (`portal-api/.../role.controller.ts`; `GET/POST /roles`, `GET/PUT/DELETE /roles/:id`; a person's role through `PUT /user/:id` `roleId`).
@@ -4154,9 +4153,9 @@ the rules); daily job: CronJob `lgr-org-sync` in lgr-deploy (04:30 Europe/Sofia)
   desktops, invites, mail logs, inboxes, credentials. A model added to the app must be listed there or in the test's
   `CARRIED`, or the test fails: copied by default would be a leak by default.
 - **People are access, not data.** Matched by identity (an existing membership is reused, so the documents its person
-  made name it), a permission set or a role by name, an enabled app by app (the app creates those rows itself the
+  made name it), a role by name, an enabled app by app (the app creates those rows itself the
   first time anyone opens the hub, so a copy made after a reset finds them there); a membership the copy adds is switched off (an admin's stays on for the
-  first copy, `--activate-admins`). A reset keeps people, permission sets, invites, desktops and fiscal devices.
+  first copy, `--activate-admins`). A reset keeps people, roles, invites, desktops and fiscal devices.
 - **Source wins** on a document both orgs hold; a tester's edit of a copied document is overwritten at the next run,
   documents only the test org holds are never touched, a deletion in the real org is not propagated, numbering is
   `max(copy, real)`, and a unique-index clash is a counted `clash`, not a failure.
@@ -4356,7 +4355,7 @@ master**, but the `/methods` probe, which says no (`portal-api/src/controllers/l
   and the PIN is not checked. Every attempt costs one argon2 verify, decoy included, as `login()`
   does.
 - ⚠ **A PIN session (`amr: ['pin']`, 12 h) reaches the till only** (`pinScopeRefusal`, first in
-  `permissionRefusal`, so `admin` too): the POS routes, the shell's `me`/`logout`, and the PIN pad
+  `accessRefusal`, so the Administrator too): the POS routes, the shell's `me`/`logout`, and the PIN pad
   itself (the next operator signs in over the last one's session). Inside them the role still
   counts, so a manager's PIN authorises a storno. A new route the POS terminal calls must be added
   to `PIN_SCOPE_ORG`, or a till breaks on it. ⚠ Keep `/auth/switch` out: it would mint a FULL
