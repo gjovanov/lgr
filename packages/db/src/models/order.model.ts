@@ -84,8 +84,8 @@ export interface IOrder extends Document {
   tags?: string[]
   draftNumber?: string
   numberHistory?: Array<{ number: string; allocatedAt: Date; status: string }>
-  /** FR-28.17 / .18: where a draft came from, and the request that made it (the idempotency key). */
-  createdFrom?: { source: 'products'; requestId: string }
+  /** FR-28.17 / .18, FR-29.13: where a draft came from (the Products list or the order form), and the request that made it. */
+  createdFrom?: { source: 'products' | 'form'; requestId: string }
   /** FR-28.17: the requests that added lines to this draft from the Products list, so a replay adds nothing twice. */
   appendedRequestIds?: string[]
   createdBy: Types.ObjectId
@@ -176,7 +176,7 @@ const orderSchema = new Schema<IOrder>(
      * (`{ orgId, createdFrom.requestId }` is unique among the documents that carry one).
      */
     createdFrom: {
-      type: new Schema({ source: { type: String, enum: ['products'], required: true }, requestId: { type: String, required: true } }, { _id: false }),
+      type: new Schema({ source: { type: String, enum: ['products', 'form'], required: true }, requestId: { type: String, required: true } }, { _id: false }),
       required: false,
     },
     appendedRequestIds: { type: [String], default: undefined },

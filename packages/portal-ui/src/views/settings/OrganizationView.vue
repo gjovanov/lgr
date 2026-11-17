@@ -518,6 +518,8 @@ const modulesList = [
   { key: 'crm', label: t('nav.crm') },
   { key: 'erp', label: t('nav.erp') },
 ]
+/** The org's modules as they are stored, which may name ones this page has no switch for. */
+let storedModules: string[] = []
 
 const form = reactive({
   name: '',
@@ -641,9 +643,13 @@ async function save() {
   if (!valid) return
   saving.value = true
   try {
-    const enabledModules = Object.entries(form.modules)
-      .filter(([, v]) => v)
-      .map(([k]) => k)
+    // The list is stored whole, so it goes back with the modules this page has no switch for: in their stored order,
+    // a listed one that was switched off left out, one switched on added at the end.
+    const listed = modulesList.map(m => m.key)
+    const enabledModules = [
+      ...storedModules.filter(k => !listed.includes(k) || form.modules[k]),
+      ...listed.filter(k => form.modules[k] && !storedModules.includes(k)),
+    ]
 
     const payload = {
       name: form.name,
@@ -678,12 +684,13 @@ async function save() {
         payroll: {
           payFrequency: form.payrollCycle,
         },
-        // FR-11.1 (#21). The whole block goes every time: `findByIdAndUpdate` REPLACES the
-        // settings subdocument, so a partial send silently drops whatever it omits.
+        // FR-11.1 (#21). The route writes each value sent to its own path, so the sections this page has no
+        // switch for (Backups, the server's own) stay as they are stored.
         dailyDigest: {
           enabled: form.digestEnabled,
           hour: form.digestHour,
-          locale: form.digestLocale || undefined,
+          // `''` is "the org's language": sent, the route removes the digest's own. Left out, it would keep it.
+          locale: form.digestLocale,
           recipients: form.digestRecipients.map(id => ({ userId: id })),
           sections: { ...form.digestSections },
         },
@@ -691,6 +698,7 @@ async function save() {
     }
 
     await store.saveOrganization(payload)
+    storedModules = enabledModules
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
@@ -733,9 +741,9 @@ onMounted(async () => {
     form.subscription = org.subscription || null
 
     // Build modules toggle map
-    const enabledModules = org.settings?.modules || []
+    storedModules = [...(org.settings?.modules || [])]
     for (const mod of modulesList) {
-      form.modules[mod.key] = enabledModules.includes(mod.key)
+      form.modules[mod.key] = storedModules.includes(mod.key)
     }
 
     // FR-11 (#21) — daily digest. Sections default ON: a digest nobody tuned should be the

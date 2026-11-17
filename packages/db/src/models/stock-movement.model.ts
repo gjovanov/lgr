@@ -70,6 +70,11 @@ export interface IStockMovement extends Document {
    */
   reversedBy?: Types.ObjectId
   reversedAt?: Date
+  /**
+   * FR-29.13: the `Idempotency-Key` of the request that created this movement (the movement form sends one), so a
+   * second request with it is answered with this movement instead of making another. Absent on every other movement.
+   */
+  requestId?: string
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -129,6 +134,7 @@ const stockMovementSchema = new Schema<IStockMovement>(
     recordOnly: Boolean,
     reversedBy: { type: Schema.Types.ObjectId, ref: 'StockMovement' },
     reversedAt: Date,
+    requestId: { type: String },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true },
@@ -153,6 +159,12 @@ stockMovementSchema.index({ orgId: 1, reference: 1 })
 // (the grid's default), each a page read off the index.
 stockMovementSchema.index({ orgId: 1, date: -1 })
 stockMovementSchema.index({ orgId: 1, createdAt: -1 })
+// FR-29.13: one movement per request. PARTIAL, not sparse: `orgId` is on every movement, so a sparse compound index
+// would hold each one without an id under a null `requestId` and refuse the second.
+stockMovementSchema.index(
+  { orgId: 1, requestId: 1 },
+  { unique: true, partialFilterExpression: { requestId: { $type: 'string' } } },
+)
 
 replicate(stockMovementSchema, { class: 'R' })
 

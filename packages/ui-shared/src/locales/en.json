@@ -1003,7 +1003,8 @@
     "postalCode": "Postal Code",
     "probationEndDate": "Probation End Date",
     "state": "State / Province",
-    "street": "Street"
+    "street": "Street",
+    "searchEmployee": "Type to search an employee"
   },
   "hr": {
     "departments": "Departments",
@@ -1982,7 +1983,11 @@
       "link": "Link to the dispatch",
       "issueAnyway": "Other goods: issue anyway",
       "notIssued": "it may be for goods a dispatch already delivered, and the question was not answered"
-    }
+    },
+    "lineRefusal": {
+      "short": "Not enough stock: {available} available, {requested} needed"
+    },
+    "searchInvoiceNumber": "Search by number"
   },
   "pos": {
     "cartEmpty": "Cart is empty",

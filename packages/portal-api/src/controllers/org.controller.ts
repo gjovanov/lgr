@@ -3,6 +3,7 @@ import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { orgDao } from 'services/dao/org.dao'
 import { createAuditEntry } from 'services/biz/audit-log.service'
+import { orgSettingsUpdate } from 'services/biz/org-settings-update'
 import { orgForClient } from 'db/models'
 import {
   ACTIVITY_CODE_PATTERN, MAX_ACTIVITY_CODE_LENGTH, MAX_PLACE_OF_ISSUE_LENGTH, MAX_REPRESENTATIVE_LENGTH,
@@ -34,23 +35,23 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!can(user, 'org-settings.edit')) return status(403, { message: 'Admin only' })
 
-      // Each settings block sent replaces that block, and only that one. A whole `settings` in the
-      // update replaced every block the page never sends — the org's time zone (the digest's days,
-      // the cash register's) and the cash register's switches among them.
-      // ⚠ Payroll's block goes field by field: a page that saves `payFrequency` must not take
-      // `engine` with it, which would put a Bulgarian org's next run on the generic calculation.
+      // ⚠ A setting sent is written to its own path, and nothing else of its block is touched
+      // (`orgSettingsUpdate` says why). A whole `settings` in the update replaced every block the page
+      // never sends, the org's time zone among them; a whole block replaced every key of it the page
+      // does not show: the default VAT rate, the accounts stock entries post to, the digest's Backups
+      // section, and payroll's `engine`, without which a Bulgarian org's next run is the generic one.
       const { settings, ...given } = body as any
-      const { payroll, ...blocks } = settings ?? {}
+      const written = orgSettingsUpdate(settings)
       // FR-25a: the company's three fields are stored trimmed, and one sent empty is cleared, so the company reads
       // exactly like one that never set it (its documents print as before). One not sent keeps what is stored.
       const identity = orgIdentityUpdate(given)
       const fields = Object.fromEntries(Object.entries(given).filter(([k]) => !(ORG_IDENTITY_FIELDS as readonly string[]).includes(k)))
+      const unset = [...identity.unset, ...written.unset]
       const org = await orgDao.update(orgId, {
         ...fields,
         ...identity.set,
-        ...Object.fromEntries(Object.entries(blocks).map(([k, v]) => [`settings.${k}`, v])),
-        ...Object.fromEntries(Object.entries(payroll ?? {}).map(([k, v]) => [`settings.payroll.${k}`, v])),
-        ...(identity.unset.length ? { $unset: Object.fromEntries(identity.unset.map(f => [f, 1])) } : {}),
+        ...written.set,
+        ...(unset.length ? { $unset: Object.fromEntries(unset.map(f => [f, 1])) } : {}),
       })
       if (!org) return status(404, { message: 'Organization not found' })
 

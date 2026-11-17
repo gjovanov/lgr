@@ -23,6 +23,8 @@ export interface CreateMovementInput {
   }>
   totalAmount: number
   notes?: string
+  /** FR-29.13: the request's id; a second create with it is refused by the index and answered by the route. */
+  requestId?: string
   createdBy: string
 }
 
@@ -70,6 +72,7 @@ export async function createMovementWithProductUpdates(
         lines: movement.lines,
         totalAmount: movement.totalAmount,
         notes: movement.notes,
+        ...(movement.requestId ? { requestId: movement.requestId } : {}),
         createdBy: movement.createdBy,
       })
       await doc.save({ session })

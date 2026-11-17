@@ -513,7 +513,7 @@
     "lgr/no-as-any": 2
   },
   "packages/services/src/biz/files/doc-store.service.ts": {
-    "lgr/no-as-any": 6
+    "lgr/no-as-any": 5
   },
   "packages/services/src/biz/fiscal-presence.service.ts": {
     "lgr/no-as-any": 1

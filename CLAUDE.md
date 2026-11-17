@@ -2938,6 +2938,9 @@ prints: „One list of actions for a document's two bars" below.
     `refusal` is an alert at the top of the form until `@dismiss-refusal` or the next success. A form gets both from
     `useFormFeedback()`; `refused()` says it on the message line too (where it was said before), and `succeeded()`
     withdraws it from both, so a success never waits behind a refusal that is no longer true. ⚠ A load that swallows its error (the document form's did) looks like an empty draft.
+  - A refused issue also marks the LINES it is about (`useDocumentForm#lineRefusalOf`, `data-testid="line-refusal"`):
+    the stock check's shortfalls by article and warehouse, a cost-layer refusal by the article's name (a refusal carries
+    no id). The mark goes with the alert, and from a line whose article, warehouse or quantity changed since.
   - A list on `usePaginatedTable` / `useProductList` never throws a failed request any more: it puts it in
     `pagination.loadError`, and `ListScaffold` (or `ListLoadError` in a table of its own) says it with Retry, never "no
     data". An error on the message line (`useSnackbar`) stays until closed, and messages queue.

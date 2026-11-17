@@ -34,6 +34,8 @@ export default defineConfig({
         'audit-log.spec.ts',
         'digest.spec.ts',
         'backup.spec.ts',
+        // Settings → Organization, saved: the company's own fields, and that nothing else changes.
+        'org-settings-save.spec.ts',
         // FR-06 (#14): grouped with portal because it exercises the App Hub tile and the
         // cross-SPA redirects out of invoicing, not the invoicing grids themselves.
         'reports.spec.ts',

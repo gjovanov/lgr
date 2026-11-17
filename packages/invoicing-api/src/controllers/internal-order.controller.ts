@@ -23,6 +23,8 @@ import {
   OrdersFromProductsError, checkOrderReferences, createCustomerOrderFromProducts, customerOrderRefs,
 } from 'services/biz/orders-from-products.service'
 import { orderCoverage } from 'config/order-coverage'
+import { isRequestIdTaken, readCreateRequestId } from 'services/biz/create-request-id'
+import { IdempotencyError } from 'services/biz/hot-path-key'
 import { linePricePinned, pinnedPriceOf } from 'config/order-line-price'
 import { buildConversionInvoice, planConversion, ConversionError, type ConversionItem, type ConversionPlan } from '../lib/reservation-convert.js'
 import { canExport } from '../lib/export-access.js'
@@ -250,8 +252,20 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, status }) => {
+    async ({ params: { orgId }, body, user, status, headers }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+      // FR-29.13: the form's request id (`Idempotency-Key`). A request repeated with it is answered with the order the
+      // first one made, and nothing is made again.
+      let requestId: string | undefined
+      try {
+        requestId = readCreateRequestId(headers)
+      } catch (e) {
+        if (e instanceof IdempotencyError) return status(400, { code: e.code, message: e.message })
+        throw e
+      }
+      const made = async () => (requestId ? InternalOrder.findOne({ orgId, 'createdFrom.requestId': requestId }).exec() : null)
+      const first = await made()
+      if (first) return { internalOrder: first, replayed: true }
       // FR-28.20: the client, the articles and the preferred warehouse are one of THIS organization's (the rule of the
       // Products list's create): a customer or both contact, active.
       try { await checkOrderReferences(orgId, customerOrderRefs(body)) } catch (e) {
@@ -285,10 +299,14 @@ export const internalOrderController = new Elysia({ prefix: '/org/:orgId/invoici
             notes: body.notes,
             terms: body.terms,
             tags: body.tags || [],
+            ...(requestId ? { createdFrom: { source: 'form', requestId } } : {}),
             createdBy: user.id,
           } as any)
           break
         } catch (e: any) {
+          // The same request at the same moment: the one that saved first made the order.
+          const won = isRequestIdTaken(e) ? await made() : null
+          if (won) return { internalOrder: won, replayed: true }
           lastErr = e
           if (e?.code !== 11000) throw e
         }

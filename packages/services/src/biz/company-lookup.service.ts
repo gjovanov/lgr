@@ -149,7 +149,7 @@ export async function lookupBulgaria(eik: string): Promise<CompanyInfo> {
       isValid: !!companyName,
     }
   } catch (err) {
-    logger.error('eik.bg lookup failed:', err)
+    logger.error({ err }, 'eik.bg lookup failed')
     return { ...EMPTY }
   }
 }
@@ -241,7 +241,7 @@ export async function lookupEU(vatNumber: string): Promise<CompanyInfo> {
       isValid: isConfirmed,
     }
   } catch (err) {
-    logger.error('verifyvat.com lookup failed:', err)
+    logger.error({ err }, 'verifyvat.com lookup failed')
     return { ...EMPTY }
   }
 }

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { loadFailureOf } from 'ui-shared/composables/load-failure'
 import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { shortageMatches, shortageQuantity, shortagesOfCheck, shortagesOfRefusal } from '../../../invoicing-ui/src/composables/document-issue'
 
 // FR-31.6 to .9 (#796): a failure is said on the screen, says what it is, and stays.
 
@@ -115,5 +116,45 @@ describe('the message line (FR-31.8)', () => {
     showSnackbar('Refused', 'error', 5000)
     expect(snackbar.timeout).toBe(-1)
     hideSnackbar()
+  })
+})
+
+describe('a refusal about a line is marked on it (FR-31.8)', () => {
+  const lines = [
+    { description: 'A service', quantity: 1 },
+    { productId: 'p1', warehouseId: 'w1', description: 'Болт М8', quantity: 600 },
+    { productId: 'p1', warehouseId: 'w2', description: 'Болт М8', quantity: 5 },
+    { productId: 'p1', warehouseId: 'w1', description: 'Болт М8', quantity: 400 },
+  ]
+
+  it('a shortfall of the stock check is about its article in its warehouse, on every such line', () => {
+    const [s] = shortagesOfCheck([{ productId: 'p1', warehouseId: 'w1', requested: 1000, available: 3, productName: 'Болт М8' }])
+    expect(s).toEqual({ productId: 'p1', warehouseId: 'w1', requested: 1000, available: 3 })
+    expect(lines.map(l => shortageMatches(s, l))).toEqual([false, true, false, true])
+    expect(shortageQuantity(s, lines)).toBe(1000)
+    // A changed quantity on one of them: the sum is no longer what was refused.
+    expect(shortageQuantity(s, [...lines.slice(0, 3), { ...lines[3], quantity: 1 }])).toBe(601)
+  })
+
+  it('a cost-layer refusal names the article, never an id, and is matched by that name', () => {
+    const e = { response: { status: 422, data: { code: 'insufficient_cost_layers', product: 'Болт М8', sku: 'B8', warehouse: 'Main', needed: 5, available: 2 } } }
+    const [s] = shortagesOfRefusal(e)
+    expect(s).toEqual({ product: 'Болт М8', requested: 5, available: 2 })
+    expect(lines.map(l => shortageMatches(s, l))).toEqual([false, true, true, true])
+  })
+
+  it('any other refusal is about no line', () => {
+    expect(shortagesOfRefusal({ response: { status: 409, data: { code: 'invoice_not_draft', message: 'x' } } })).toEqual([])
+    expect(shortagesOfRefusal({ response: { status: 500, data: { message: 'Internal server error (ref 0)' } } })).toEqual([])
+    expect(shortagesOfRefusal(new Error('Network Error'))).toEqual([])
+    expect(shortagesOfCheck(undefined)).toEqual([])
+  })
+
+  it('the line says it in all four languages', () => {
+    for (const lang of ['en', 'bg', 'de', 'mk']) {
+      const cat = JSON.parse(readFileSync(join(import.meta.dir, '../../../ui-shared/src/locales', `${lang}.json`), 'utf8'))
+      expect(cat.invoicing.lineRefusal.short).toContain('{available}')
+      expect(cat.invoicing.lineRefusal.short).toContain('{requested}')
+    }
   })
 })

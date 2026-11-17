@@ -10,10 +10,10 @@ import { createAuditEntry } from 'services/biz/audit-log.service'
  * FR-13.55 (#24) — connecting Google Drive, without going through the org settings PUT.
  *
  * **Why a dedicated pair of endpoints exists.** `PUT /org/:orgId` whitelists the settings
- * sub-object and already drops `integrations` (FR-11 §1), and a partial `settings` object
- * REPLACES the whole subdocument because the update is a `findByIdAndUpdate`. So a Drive
- * connection written through the ordinary settings route would either vanish silently or take
- * the rest of `settings` with it. These two routes write the one nested path and nothing else.
+ * sub-object and already drops `integrations` (FR-11 §1), so a Drive connection written through
+ * the ordinary settings route would vanish silently. (When this was written that route also
+ * replaced a block it was sent part of; it writes each value to its own path now.) These two
+ * routes write the one nested path and nothing else.
  *
  * **⚠ The refresh token is returned ONCE and is never persisted here.** That is the whole
  * point of the design decision recorded on the issue: `orgs` is inside every backup bundle,

@@ -1003,7 +1003,8 @@
     "postalCode": "Postleitzahl",
     "probationEndDate": "Ende der Probezeit",
     "state": "Bundesland / Provinz",
-    "street": "Straße"
+    "street": "Straße",
+    "searchEmployee": "Tippen, um einen Mitarbeiter zu suchen"
   },
   "hr": {
     "departments": "Abteilungen",
@@ -2552,7 +2553,11 @@
       "link": "Mit dem Warenausgang verknüpfen",
       "issueAnyway": "Andere Ware: trotzdem ausstellen",
       "notIssued": "sie betrifft vielleicht Ware, die ein Warenausgang schon geliefert hat, und die Frage blieb unbeantwortet"
-    }
+    },
+    "lineRefusal": {
+      "short": "Nicht genug Bestand: {available} verfügbar, {requested} benötigt"
+    },
+    "searchInvoiceNumber": "Nach Nummer suchen"
   },
   "warehouse": {
     "sku": "Artikelnr.",

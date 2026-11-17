@@ -33,7 +33,7 @@ export const decode1251 = (b: Uint8Array) => cp1251.decode(b)
 /** Every record of a gzip dump, in order. Rejects on a truncated stream or one that does not end on a whole record. */
 export function walkDump(gz: Buffer, onRec: (r: DumpRecord) => void): Promise<{ records: number; bytes: number }> {
   return new Promise((ok, fail) => {
-    let pend = Buffer.alloc(0), records = 0, bytes = 0
+    let pend: Buffer = Buffer.alloc(0), records = 0, bytes = 0
     const z = createGunzip()
     z.on('data', (chunk: Buffer) => {
       bytes += chunk.length
