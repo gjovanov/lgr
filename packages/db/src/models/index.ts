@@ -142,3 +142,4 @@ export { FencedImportItem, FENCED_IMPORT_OUTCOMES, type IFencedImportItem, type 
 
 // Infrastructure
 export { Sequence, type ISequence } from './sequence.model.js'
+export { SchedulerLease, type ISchedulerLease } from './scheduler-lease.model.js'

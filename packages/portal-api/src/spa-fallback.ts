@@ -3,6 +3,7 @@ import { APP_IDS } from 'config/constants'
 import { logger } from 'services/logger'
 import { posRedirect } from './lib/pos-redirect.js'
 import { errorRef, serverErrorMessage } from './lib/server-error.js'
+import { isQueryTimeout } from 'db/plugins/query-time-limit'
 
 /**
  * Serving the built SPAs from the API process: their files, and their shell for every browser
@@ -173,6 +174,18 @@ export function spaErrorHandler(given?: OneSpaShell | Record<string, never> | nu
     if (err?.name === 'SeriesFrozenError') {
       set.status = 409
       return { code: 'series_frozen', message: err.message }
+    }
+    // FR-29.23: the session could not be checked (its lookup failed): try again, never a sign-out (a 401 would be).
+    if (err?.name === 'SessionCheckUnavailableError') {
+      set.status = 503
+      return { code: 'session_check_unavailable', message: err.message }
+    }
+    // FR-29.26: a query that ran past the request's time limit (`db/plugins/query-time-limit.ts`). Logged with the route and the
+    // shape of what it asked, never its values.
+    if (isQueryTimeout(err)) {
+      logger.warn({ method: request.method, path: new URL(request.url).pathname, shape: err?.queryShape }, 'A query ran past its time limit')
+      set.status = 503
+      return { code: 'query_timeout', message: 'This took too long and was stopped. Try again, or narrow what you asked for.' }
     }
     if (code === 'NOT_FOUND') {
       const url = new URL(request.url)

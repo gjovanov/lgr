@@ -55,7 +55,7 @@ import { logger } from 'services/logger'
 import { randomUUID } from 'crypto'
 import { verifyToken } from '../auth/verify-token.js'
 import { attachAccess } from 'services/biz/access/live'
-import { liveSessionUser } from 'services/biz/identity/session.service'
+import { SessionCheckUnavailableError, liveSessionUser } from 'services/biz/identity/session.service'
 import { can, grantOf } from 'services/biz/access/evaluate'
 import type { Grant } from 'config/access'
 import {
@@ -296,7 +296,17 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
   // A token naming a person (`iid`) is revoked by a password change or reset, here as in every auth plugin
   // (`liveSessionUser`): a signature alone is not a live session.
   const verified = await verifyToken(msg.token)
-  const payload = verified ? await liveSessionUser(verified) : null
+  let payload: Awaited<ReturnType<typeof verifyToken>> | null = null
+  try {
+    payload = verified ? await liveSessionUser(verified) : null
+  } catch (e) {
+    // FR-29.23: the session could not be checked just now. Not a refusal of the person: the bridge is told to try
+    // again, and its socket is closed as any socket that is not let in, so it reconnects.
+    if (!(e instanceof SessionCheckUnavailableError)) throw e
+    refuse(ws, e.message, e.code)
+    closeSocket(ws, e.code)
+    return null
+  }
   if (!payload) {
     refuse(ws, 'A signed-in session is required to bridge a fiscal device.', 'unauthenticated')
     closeSocket(ws, 'unauthenticated')

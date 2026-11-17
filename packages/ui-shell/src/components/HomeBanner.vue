@@ -74,7 +74,13 @@ watch(() => props.orgId, id => {
   if (id) timer = setInterval(() => void load(id), 120_000)
 }, { immediate: true })
 
-const REFUSALS: Record<string, string> = { org_home_elsewhere: 'home.writeRefused', series_frozen: 'home.seriesFrozen' }
+const REFUSALS: Record<string, string> = {
+  org_home_elsewhere: 'home.writeRefused',
+  series_frozen: 'home.seriesFrozen',
+  // FR-29.23, FR-29.26: "try again", never a sign-out.
+  session_check_unavailable: 'common.sessionCheckUnavailable',
+  query_timeout: 'common.queryTimeout',
+}
 /**
  * The shell's words for a coded refusal (FR-31.9): the home's, the stock refusals' (`warehouse.refusals.*`, with what
  * the refusal names), and the last fallback for an answer that says nothing a person can read. Any other code keeps

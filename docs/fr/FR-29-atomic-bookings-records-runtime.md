@@ -459,3 +459,30 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     `searchableEntityTypes`, and the page offers the object search for those only. The user search is escaped too.
   - Tests: `integration/audit-entry-shape.flow` (the sixteen shapes, issue / receive / order send / customer order
     confirm read back, the system rows, a failed write, the entity search).
+- **Slice F** (branch `feat/794-fr29-f-runtime`, on slice E):
+  - FR-29.23: `identityStillValid` has three outcomes. A read that throws is `SessionCheckUnavailableError` (503
+    `session_check_unavailable`, `spaErrorHandler`), never remembered; the SPA says "try again" in four languages
+    (`common.sessionCheckUnavailable`, through the refusal translator) and keeps the session. The two sockets refuse
+    without deciding anything. `membershipSwitchedOff` already decided nothing on a failed read. **Open:**
+    `accessModelOf` (`services/biz/access/shadow.ts`) still remembers a failed read as `legacy` for a minute: the file is
+    FR-27's, and who changes it is the main session's decision.
+  - FR-29.24: `db/indexes/verify.ts` awaits every model's build (`Model.init()`) after start and looks for each declared
+    index in its collection; what is missing is logged with the model, the index and the reason, and is in the
+    sys-admin health (`GET /api/admin/nodes/health` → `indexes`) and a master's status.
+  - FR-29.25 (D-7), part: the guard indexes are listed with what each guards in `db/indexes/guard-indexes.ts`; a
+    missing guard is logged at error level and flagged in health. **Not built:** the mail to the system administrator,
+    and moving index builds to `packages/migrations` with `autoIndex: false` (a release of its own: a first run on
+    production must be read first, §4).
+  - FR-29.26 (D-8): `db/plugins/query-time-limit.ts`, on every tenant model: a request's reads (find, findOne, count,
+    distinct, aggregate) get 20 s, an export's or a report's 120 s; nothing outside an open request (jobs, backups,
+    migrations, the work a request leaves behind). `QUERY_TIME_LIMIT_MODE=log` is the default (D-8's first week: what
+    would be cut is logged with the route and the filter's shape); `enforce` sets `maxTimeMS`, and a request that hits
+    it answers 503 `query_timeout`. Raw driver calls are not covered.
+  - FR-29.27: the registry skips a tick while the previous one of the same job runs in the process (logged, counted).
+    Every job says `where`; a `one` job runs under a `SchedulerLease` (`scheduler_leases`, class N, no org), taken by a
+    conditional write and renewed each tick. The table of the 21 jobs is in the PR.
+  - FR-29.28: the task store forgets a finished task after 10 minutes; the three task routes fall back to the
+    `BackgroundTask` row, as they did.
+  - FR-29.29: limits counted in memory: the tunnel edge's anonymous rate limit (`portal-api/src/tunnel/edge.ts`), per
+    process, on a master, which runs one. The sign-in throttle and the desktop codes count in the database.
+  - FR-29.30 (MAY) is not built. FR-29.31 is the main session's measurement after the rollout.

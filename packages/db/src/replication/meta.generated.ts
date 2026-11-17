@@ -99,6 +99,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   Reservation: { collection: 'reservations', class: 'R', orgPath: 'orgId' },
   RestoreRun: { collection: 'restoreruns', class: 'N', orgPath: 'orgId' },
   Role: { collection: 'roles', class: 'R', orgPath: 'orgId' },
+  SchedulerLease: { collection: 'scheduler_leases', class: 'N', orgPath: null },
   Sequence: { collection: 'sequences', class: 'R', orgPath: 'orgId' },
   ServerNode: { collection: 'nodes', class: 'N', orgPath: null },
   StockLevel: { collection: 'stocklevels', class: 'R', orgPath: 'orgId' },

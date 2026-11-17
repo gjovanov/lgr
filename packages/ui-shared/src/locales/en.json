@@ -480,7 +480,9 @@
       "forbidden": "Your role may not see this list.",
       "failed": "The list could not be loaded. Try again in a moment."
     },
-    "exportInReport": "Opens this list's report, which exports to Excel and PDF"
+    "exportInReport": "Opens this list's report, which exports to Excel and PDF",
+    "sessionCheckUnavailable": "The session could not be checked just now. You are still signed in: try again in a moment.",
+    "queryTimeout": "This took too long and was stopped. Try again, or narrow what you asked for."
   },
   "export": {
     "aggregated": "Aggregate by product",

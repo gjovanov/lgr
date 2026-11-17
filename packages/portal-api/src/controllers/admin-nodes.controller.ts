@@ -8,6 +8,7 @@ import { alarmsOfNodes } from 'services/biz/node/node-alarms'
 import { HomeHoldError, heldHomes, holdAfterRestore, releaseHold } from 'services/biz/home/home-hold.service'
 import { postingHealth } from 'services/biz/postings/posting.service'
 import { auditHealth } from 'services/biz/audit-log.service'
+import { lastIndexReport } from 'db/indexes/verify'
 import { schedulerHealth } from 'services/scheduler/registry'
 
 /**
@@ -88,7 +89,9 @@ export const adminNodesController = new Elysia({ prefix: '/admin/nodes' })
         postings: await postingHealth(),
         // FR-29.21: audit writes that failed in this process.
         audit: auditHealth(),
-        schedulers: schedulerHealth().map(s => ({ name: s.name, state: s.state, lastOkAt: s.lastOkAt, failures: s.failures, lastError: s.lastError })),
+        // FR-29.24/.25: the declared indexes that did not build at start, guard indexes flagged.
+        indexes: lastIndexReport(),
+        schedulers: schedulerHealth().map(s => ({ name: s.name, where: s.where, state: s.state, lastOkAt: s.lastOkAt, failures: s.failures, skippedOverlap: s.skippedOverlap, skippedLease: s.skippedLease, lastError: s.lastError })),
       }
     },
     { isSignIn: true },

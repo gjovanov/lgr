@@ -175,10 +175,36 @@ const REVOCATION_TTL_MS = 60_000
 const MAX_CACHED = 10_000
 const live = new Map<string, { at: number; isActive: boolean; tokenVersion: number }>()
 
+/**
+ * FR-29.23: the lookup a session's check needs could not be made (the database did not answer). Not an answer: the
+ * request is told to try again (503 `session_check_unavailable`, `spaErrorHandler`), and the session is kept.
+ */
+export class SessionCheckUnavailableError extends Error {
+  readonly code = 'session_check_unavailable'
+  readonly statusCode = 503
+  constructor(readonly cause?: unknown) {
+    super('The session could not be checked just now. Try again in a moment.')
+    this.name = 'SessionCheckUnavailableError'
+  }
+}
+
+/**
+ * FR-29.23: a lookup has three outcomes, found, not there and failed, and only the first two are remembered. A person
+ * who is gone or switched off is signed out as before, and a positive answer is kept as long as before; a read that
+ * failed throws `SessionCheckUnavailableError` and is asked again on the next request. It used to be remembered for
+ * a minute as a person who is gone, so a database that stuttered signed everybody out.
+ */
 export async function identityStillValid(iid: string, tv: unknown): Promise<boolean> {
   let entry = live.get(iid)
   if (!entry || Date.now() - entry.at > REVOCATION_TTL_MS) {
-    const doc = await Identity.findById(iid, { isActive: 1, tokenVersion: 1 }).lean().exec().catch(() => null)
+    let doc: { isActive?: boolean; tokenVersion?: number } | null
+    try {
+      doc = await Identity.findById(iid, { isActive: 1, tokenVersion: 1 }).lean().exec()
+    } catch (e) {
+      // An id that is no id is a person who is not there, not a read that failed.
+      if ((e as { name?: string })?.name === 'CastError') doc = null
+      else throw new SessionCheckUnavailableError(e)
+    }
     if (live.size >= MAX_CACHED) live.clear()
     entry = { at: Date.now(), isActive: !!doc?.isActive, tokenVersion: doc ? (doc.tokenVersion ?? 0) : -1 }
     live.set(iid, entry)
