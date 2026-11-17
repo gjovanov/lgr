@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { AnObject } from 'services/http/body-schemas'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
@@ -139,10 +140,10 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         costingMethod: t.Optional(t.Union([t.Literal('wac'), t.Literal('fifo'), t.Literal('lifo'), t.Literal('fefo'), t.Literal('standard'), t.Null()])),
         standardCost: t.Optional(t.Union([t.Number(), t.Null()])),
         categoryId: t.Optional(t.Union([t.String(), t.Null()])),
-        customPrices: t.Optional(t.Array(t.Any())),
-        tagPrices: t.Optional(t.Array(t.Any())),
-        categoryPrices: t.Optional(t.Array(t.Any())),
-        priceTiers: t.Optional(t.Array(t.Any())),
+        customPrices: t.Optional(t.Array(AnObject)),
+        tagPrices: t.Optional(t.Array(AnObject)),
+        categoryPrices: t.Optional(t.Array(AnObject)),
+        priceTiers: t.Optional(t.Array(AnObject)),
       }),
     },
   )
@@ -243,10 +244,10 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
         standardCost: t.Optional(t.Number()),
         isActive: t.Optional(t.Boolean()),
         categoryId: t.Optional(t.Union([t.String(), t.Null()])),
-        customPrices: t.Optional(t.Array(t.Any())),
-        tagPrices: t.Optional(t.Array(t.Any())),
-        categoryPrices: t.Optional(t.Array(t.Any())),
-        priceTiers: t.Optional(t.Array(t.Any())),
+        customPrices: t.Optional(t.Array(AnObject)),
+        tagPrices: t.Optional(t.Array(AnObject)),
+        categoryPrices: t.Optional(t.Array(AnObject)),
+        priceTiers: t.Optional(t.Array(AnObject)),
       }),
     },
   )

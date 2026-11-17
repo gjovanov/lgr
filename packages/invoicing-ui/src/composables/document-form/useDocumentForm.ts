@@ -4,6 +4,7 @@ import { tierLabel } from 'config/price-tiers'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { reportError } from 'ui-shared/composables/report-error'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { flushPriceLookups } from 'ui-shared/composables/price-lookups'
 import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
@@ -802,7 +803,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       // Back to automatic: every line resolves its own price again, as on a contact change.
       form.lines.forEach((l, i) => {
         l.pricePinned = false
-        if (l.productId) resolvePriceForLine(i)
+        if (l.productId) void resolvePriceForLine(i) // it keeps the line's price on a failure
       })
       return
     }
@@ -962,7 +963,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product-category`, { params: { size: 0 } })
       grCategories.value = data.productCategories || []
-    } catch { /* */ }
+    } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
   }
 
   /**
@@ -979,7 +980,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   // lines that name a product and stage nothing yet, and load the category options.
   watch(grColumnsVisible, async (on) => {
     if (!on) return
-    if (!grCategories.value.length) fetchGRCategories()
+    if (!grCategories.value.length) void fetchGRCategories() // reference data, never rejects
     await seedUnseededLines()
   })
 
@@ -1024,7 +1025,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     priceOptionsCache.clear()
     if (config.reResolveOnChange || docPriceKey.value || useLastPrice.value) void reResolveLinePrices()
     // Narrow the related-invoice candidates to the newly chosen contact.
-    if (config.showRelatedInvoice) fetchInvoices()
+    if (config.showRelatedInvoice) void fetchInvoices() // reference data, never rejects
   }
 
   function onContactCreated(contact: any) {
@@ -1053,9 +1054,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
             // The doc-level tax-rate / warehouse controls show what the copied lines carry.
             syncDocLevelFromLines()
           }
-        } catch {
-          /* */
-        }
+        } catch (e) { reportError(e) }
       },
     )
   }
@@ -1580,7 +1579,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       if (created) payMethodMemory?.write(form.paymentMethod || '')
       if (!persistOpts.quiet) showSuccess(t(config.successKey))
       if (!staysOnSave) {
-        router.push({ name: config.listRouteName })
+        void router.push({ name: config.listRouteName })
         return id
       }
       if (String(route.params.id || '') !== id) {
@@ -1774,7 +1773,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   function openNote(type: 'credit_note' | 'debit_note') {
     const id = route.params.id
     if (!id) return
-    router.push({
+    void router.push({
       name: config.direction === 'incoming' ? 'invoicing.purchases.new' : 'invoicing.sales.new',
       query: { type, relatedInvoiceId: String(id) },
     })
@@ -1827,9 +1826,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       contacts.value = data.contacts || []
       // A filtered result may drop the currently selected contact — keep it resolvable.
       if (form.contactId) await ensureSelectedContactLoaded(form.contactId)
-    } catch {
-      /* */
-    } finally {
+    } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
       loadingContacts.value = false
     }
   }
@@ -1876,9 +1873,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       // The endpoint paginates with size=10 by default — request all for the per-line DDL.
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } })
       warehouses.value = data.warehouses || []
-    } catch {
-      /* */
-    }
+    } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
   }
 
   /**
@@ -1900,9 +1895,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       invoices.value = data.invoices || []
       // A filtered result may drop the currently selected invoice — keep it resolvable.
       if (form.relatedInvoiceId) await ensureSelectedRelatedInvoiceLoaded(form.relatedInvoiceId)
-    } catch {
-      /* */
-    }
+    } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
   }
 
   let relatedSearchTimer: ReturnType<typeof setTimeout> | null = null
@@ -1919,9 +1912,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${id}`)
       if (data.invoice) invoices.value = [data.invoice, ...invoices.value]
-    } catch {
-      /* */
-    }
+    } catch { /* The list keeps what it had: the picked id stays on the form. */ }
   }
 
   async function fetchPeekedNumber() {
@@ -2055,7 +2046,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
           null
         if (candidate) onDocWarehouseChange(candidate)
         else seedPlaceOfDeal()
-        fetchPeekedNumber()
+        void fetchPeekedNumber() // a preview, never rejects
         // FR-22.26: how this user last paid a document of this type.
         const method = rememberedPaymentMethod()
         if (method !== null) form.paymentMethod = method

@@ -5,7 +5,7 @@
         <v-icon class="mr-2">mdi-book-open-variant</v-icon>
         {{ $t('invoicing.contactLedger') }}
         <v-spacer />
-        <v-btn icon="mdi-close" variant="text" size="small" @click="$emit('update:modelValue', false)" />
+        <v-btn :aria-label="$t('common.close')" :title="$t('common.close')" icon="mdi-close" variant="text" size="small" @click="$emit('update:modelValue', false)" />
       </v-card-title>
 
       <v-card-text>

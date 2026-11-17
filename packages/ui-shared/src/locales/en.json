@@ -5444,5 +5444,11 @@
       "previewNone": "No page: the person sees their account only.",
       "portal": "Portal"
     }
+  },
+  "shell": {
+    "apps": "Apps",
+    "portal": "Portal",
+    "theme": "Light or dark theme",
+    "menu": "Menu"
   }
 }

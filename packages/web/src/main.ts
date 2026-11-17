@@ -9,7 +9,7 @@ const app = createApp(App)
 registerPlugins(app, { router })
 watchBuild()
 installChunkRecovery(router)
-whenI18nReady().then(() => {
+void whenI18nReady().then(() => {
   app.mount('#app')
   // FR-24.14: the entry loaded; index.html's bounded retry starts over on the next failure.
   try { sessionStorage.removeItem('lgr_boot_retry') } catch { /* nothing was counted there either */ }

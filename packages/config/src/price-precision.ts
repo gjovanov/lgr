@@ -12,6 +12,9 @@
 /** Decimal places of a unit price: the selling price, the purchase price, a tier's price. */
 export const PRICE_DECIMALS = 4
 
+/** Decimal places a line's quantity keeps, as typed into a line grid (FR-31.16): a kilogram to the gram. */
+export const QTY_DECIMALS = 3
+
 /** Decimal places of a margin over the purchase price. */
 export const PERCENT_DECIMALS = 3
 
