@@ -5412,5 +5412,11 @@
       "previewNone": "Keine Seite: die Person sieht nur ihr Konto.",
       "portal": "Portal"
     }
+  },
+  "shell": {
+    "apps": "Apps",
+    "portal": "Portal",
+    "theme": "Helles oder dunkles Design",
+    "menu": "Menü"
   }
 }

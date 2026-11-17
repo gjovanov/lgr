@@ -34,7 +34,7 @@
       </template>
       <template #item.actions="{ item }">
         <!-- FR-31.11: no PDF button until a payslip prints: the one here did nothing (no route makes a payslip's PDF). -->
-        <v-btn icon="mdi-eye" size="small" variant="text" @click="viewDetail(item)" />
+        <v-btn :aria-label="$t('common.view')" :title="$t('common.view')" icon="mdi-eye" size="small" variant="text" @click="viewDetail(item)" />
       </template>
     </v-data-table-server>
 

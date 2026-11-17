@@ -1,7 +1,7 @@
 <template>
   <v-container fluid>
     <div class="d-flex align-center flex-wrap ga-2 mb-4">
-      <v-btn icon variant="text" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
+      <v-btn icon variant="text" :aria-label="$t('common.back')" :title="$t('common.back')" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
       <h1 class="text-h5 ml-2">{{ $t('warehouse.productStock') }}: {{ product?.name || '' }}</h1>
       <v-spacer />
       <!-- FR-22.47: the same actions as on the article's other tabs. -->

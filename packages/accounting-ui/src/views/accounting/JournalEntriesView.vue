@@ -230,7 +230,7 @@
                     />
                   </td>
                   <td>
-                    <v-btn
+                    <v-btn :aria-label="$t('common.close')" :title="$t('common.close')"
                       icon="mdi-close"
                       size="x-small"
                       variant="text"
