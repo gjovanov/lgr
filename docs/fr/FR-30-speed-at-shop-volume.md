@@ -410,3 +410,23 @@ The demo organization is small, so production proves that nothing changed, and t
 **Tests.** `integration/list-projection.flow.test.ts` (the keys of a row with and without `fields=list` on every list, the size of 100 rows, the ceiling, the lean "all", the chart, the contact's figures, a document's line names); `unit/list-rows.test.ts` (the ceiling's arithmetic, the size control, the hand-over); `e2e/list-requests.spec.ts` (the list walk's request count, `fields=list` on the wire, a 3-line and a 30-line invoice opened with the same number of requests and the document read once, a line's options asked for when its price is opened, a bookmarked "All", "All" offered within the ceiling only).
 
 **Decisions.** "No price tiers" (FR-30.7) is read as "no price slot's filters": the Products grid shows each slot's price in a column of its own (FR-22.44), so a row keeps the slot's name and price. A remembered "All" is read as 100 and not refetched as "All" once the total is known: §4 says it is read as the largest option.
+
+### Slice E (FR-30.17), 2026-11-17
+
+**What was built** (`inventory-ui/src/views/InventoryCountFormView.vue`).
+- The lines are a virtual table above 200 rows (`v-data-table-virtual`: only the rows in view are drawn), a plain table of all rows below, both keyed by the article. The count's levels come through the stock levels' lean "all" (`fields=count`, slice B): the article's id, name, SKU and unit, its quantity and average cost.
+- A search box (name or SKU, every word), and two filters: "Not counted yet" (no quantity typed for the article since the form opened; on a saved count, the lines that differ from the system count are taken as counted) and "With a difference". The shown and total line counts beside them.
+- The counted-quantity column is keyed `qty`, not `countedQuantity`: the table reads every row's value of each column's key, and a typed quantity made it read all the rows again on each keystroke (167 ms a keystroke at 25 000 rows, 33 ms after).
+- What Save sends is what the plain table sent (the same keys, every line).
+
+**Measured** (`e2e/count-form-scale.spec.ts`: 25 000 levels given to the browser, a developer laptop, Chromium at 1280×720).
+
+| | Before (the audit, 23 040 levels) | After (25 000) | Budget |
+|---|---|---|---|
+| First rows after "Load products" | 190 s | 414 ms | 3 s |
+| DOM nodes | 438 104 | 706 | 10 000 |
+| A keystroke painted | 7.3 s | 33 ms (median of 5, Playwright's round trip included) | 100 ms |
+
+FR-30.18 (lines held by the server) is not needed: the budget is met in the browser.
+
+**Tests.** `e2e/count-form-scale.spec.ts`: the three budgets, a search by name and by SKU, a quantity typed into a found row that stays with its article through the filters, both filters' counts, and the saved payload (25 000 lines, the plain table's keys, the typed figures). `e2e/inventory-count.spec.ts` unchanged.

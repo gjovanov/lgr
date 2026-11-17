@@ -2691,6 +2691,12 @@
     "addItem": "Додади Ставка",
     "deletePriceListConfirm": "Дали сте сигурни дека сакате да го избришете овој ценовник?",
     "countItems": "Ставки за Попис",
+    "countSearch": "Барај артикл по име или шифра",
+    "countFilter": {
+      "all": "Сите",
+      "notCounted": "Непребројани",
+      "difference": "Со разлика"
+    },
     "systemQty": "Системска Кол.",
     "countedQty": "Попишана Кол.",
     "variance": "Разлика",
