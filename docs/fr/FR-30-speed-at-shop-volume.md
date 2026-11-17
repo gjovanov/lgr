@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-16. Slices A (FR-30.1 to .4), B (FR-30.6 to .10) and G (FR-30.21 to .27) built, §11. The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-16. Slices A (FR-30.1 to .4), B (FR-30.6 to .10), F (FR-30.19, .20) and G (FR-30.21 to .27) built, §11. The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | FR-05 and FR-22 (`ListScaffold`, `usePaginatedTable`, grid state in the URL, the click-budget walks), FR-28 (the product search, its explain test and request-count test), FR-06 (the reports registry), FR-24 (one SPA, `scripts/check-web-bundle.ts`), the lowered search mirrors (`db/src/plugins/lowered-fields.plugin.ts`) |
 | **Touches** | `db` (indexes on `Product`, `Invoice`, `StockLevel`, `StockMovement`; the lowered-fields plugin), `packages/migrations` (dropping indexes), `dal-mongo` and `services` (pagination, search, the stock-levels report, the contact ledger, dashboards), `invoicing-api` and `warehouse-api` (list endpoints), `reporting` (PDF), `ui-shared` (the list engine, the icon set, locales), `invoicing-ui` and `inventory-ui` (document open, the count form), `portal-api` (static files, two small endpoints), `packages/server` (the on-prem master's static files) |
 | **Tracking** | [gjovanov/lgr#795](https://github.com/gjovanov/lgr/issues/795) |
@@ -387,6 +387,8 @@ The demo organization is small, so production proves that nothing changed, and t
 
 **Sorts no index serves** (`scan` in the table, held by the test as a list): Products by type, unit, active, minimum, purchase and selling price; documents by status, type, currency, reference, subtotal, tax, total, amount due; Stock levels by quantity; Movements by status and total (and by the three looked-up names, an aggregation). Each still reads the filtered rows, as before. They stay offered: dropping them from the grids, or indexing them, is the owner's call (FR-30.2).
 
+**The id, on every list, for what reads a whole list in pages.** The import and audit tooling (`fetchAll` in nine scripts and skills) sends `page=N&sortBy=_id&sortOrder=asc` until a page adds nothing. It needs an order with no ties: rows whose sort keys are equal can come in another order for another skip, so a page repeats a row and leaves another out, and the reader is not told. Every default sort above has ties. The first version of the table did not declare the id, so those reads would have run on the default sort; the table declares it now (`scan`: read in the id's order through the collection's `_id` index, as before this slice), no grid offers it, and `unit/list-sorts.test.ts` holds every `sortBy` the scripts and skills send to the table.
+
 **Turned off in the grids**, because the server never sorted by them (they are names looked up after the page): the contact on Sales invoices and Bills, the article's SKU and name and the warehouse on Stock levels.
 
 ### Slice B (FR-30.6 to .10), 2026-11-17
@@ -410,6 +412,23 @@ The demo organization is small, so production proves that nothing changed, and t
 **Tests.** `integration/list-projection.flow.test.ts` (the keys of a row with and without `fields=list` on every list, the size of 100 rows, the ceiling, the lean "all", the chart, the contact's figures, a document's line names); `unit/list-rows.test.ts` (the ceiling's arithmetic, the size control, the hand-over); `e2e/list-requests.spec.ts` (the list walk's request count, `fields=list` on the wire, a 3-line and a 30-line invoice opened with the same number of requests and the document read once, a line's options asked for when its price is opened, a bookmarked "All", "All" offered within the ceiling only).
 
 **Decisions.** "No price tiers" (FR-30.7) is read as "no price slot's filters": the Products grid shows each slot's price in a column of its own (FR-22.44), so a row keeps the slot's name and price. A remembered "All" is read as 100 and not refetched as "All" once the total is known: §4 says it is read as the largest option.
+
+### Slice F (FR-30.19, .20), 2026-11-17
+
+**What was built** (`reporting/src/pdf/base.pdf.ts`).
+- **One Chrome per process (FR-30.19, D-7).** The first render starts it; it closes after `PDF_BROWSER_IDLE_MS` (5 minutes) without a render, on a timer that never keeps the process alive. Each render opens a browser context of its own and closes it afterwards, so two renders share no page, storage or cache. A browser that disconnects (a crash, a kill) is forgotten at once, and `markdownToPdf`'s retry starts another.
+- **The guards stay.** The deadline (`PDF_RENDER_TIMEOUT_MS`) now counts from when the render was asked for; a stalled render still fails and its Chrome is killed (`closePdfBrowser`), so the next starts a fresh one; the page lock, the no-network flags, the retry and the empty-PDF check are as they were.
+- **A limit on renders at once (FR-30.20, D-6).** `PDF_RENDER_CONCURRENCY` (2) renders at a time per process; the rest wait for a slot inside their deadline.
+
+**Measured** (a developer laptop, 11 renders of a one-page document in one process, then ten at once).
+
+| | Before (the audit) | After |
+|---|---|---|
+| The first PDF of a process | about 6 s | 767 ms here (the launch) |
+| A PDF after that | 0.8 to 0.9 s, a launch each | 219 ms median, no launch |
+| Ten at once | ten launches | 1.4 s in all, one launch |
+
+**Tests.** `unit/pdf-shared-browser.test.ts`: no launch over ten renders after the first; two renders at once in two contexts, neither the default, both closed after; a browser killed mid-render, and the render beside it still prints through the retry; ten at once all arrive with at most two rendering together; a render waiting for its turn fails at its own deadline. The renderer's own tests (`pdf-render-deadline`, `pdf-page-lock`, `pdf-renderer`) are unchanged.
 
 ### Slice G (FR-30.21 to .27), 2026-11-17
 

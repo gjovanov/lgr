@@ -23,6 +23,11 @@
         </v-col>
       </v-row>
 
+      <!-- FR-32.12 (D-5): the generic run computes no overtime, bonuses or allowances, and says so. -->
+      <v-alert v-if="isEdit && runEngine !== 'bg'" type="info" variant="tonal" density="compact" class="mt-2" data-testid="legacy-not-computed">
+        {{ $t('payroll.legacyNotComputed') }}
+      </v-alert>
+
       <!-- Employees breakdown (edit mode) -->
       <template v-if="isEdit && employees.length">
         <div class="text-subtitle-2 mt-4 mb-2">{{ $t('payroll.employees') }}</div>
@@ -85,6 +90,7 @@ const loading = ref(false)
 const saving = ref(false)
 const formRef = ref()
 const runStatus = ref('')
+const runEngine = ref('')
 const employees = ref<any[]>([])
 
 const form = ref({ _id: '', name: '', periodStart: '', periodEnd: '', currency: 'EUR' })
@@ -127,6 +133,7 @@ async function fetchItem() {
       form.value = { _id: item._id, name: item.name || '', periodStart: item.period?.from?.slice(0, 10) || '', periodEnd: item.period?.to?.slice(0, 10) || '', currency: item.currency || 'EUR' }
     })
     runStatus.value = item.status || ''
+    runEngine.value = item.engine || ''
     employees.value = item.employees || []
   } catch (e: any) {
     loadFailed(e)

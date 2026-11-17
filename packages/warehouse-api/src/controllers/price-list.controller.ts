@@ -8,6 +8,9 @@ import { buildSearchFilter } from 'services/biz/search.utils'
 // A PUT never carries `orgId`: a document does not move between orgs (FR-20.7). `updateInOrg`
 // drops it too; this answers 422 instead of ignoring it. What else a body may not choose (the
 // fields the server sets) is refused in the handlers: `services/biz/server-owned.ts`.
+// FR-32.18 (#797): a create declares its body as an object. Its values are the model's to judge: the document goes
+// through `clientCreate` and the model's validators, and a value the model refuses answers 422 naming the field.
+const createBody = t.Object({}, { additionalProperties: true })
 const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 /** When a price list was switched off: the server says, as `isActive` changes; never the body. */
@@ -46,7 +49,7 @@ export const priceListController = new Elysia({ prefix: '/org/:orgId/warehouse/p
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'price_list', entityId: item.id, entityName: (item as any).name })
 
     return { priceList: item }
-  }, { isSignIn: true })
+  }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
     const r = getRepos()
     const existing = await r.priceLists.findByIdInOrg(params.id, params.orgId)

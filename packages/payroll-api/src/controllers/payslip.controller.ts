@@ -12,6 +12,9 @@ import { lockedAnswer, RECORD_REFUSAL, REVEAL_REASON } from './answers.js'
 // A PUT never carries `orgId`: a document does not move between orgs (FR-20.7). `updateInOrg`
 // drops it too; this answers 422 instead of ignoring it. What else a body may not choose (the
 // fields the server sets) is refused in the handlers: `services/biz/server-owned.ts`.
+// FR-32.18 (#797): a create declares its body as an object. Its values are the model's to judge: the document goes
+// through `clientCreate` and the model's validators, and a value the model refuses answers 422 naming the field.
+const createBody = t.Object({}, { additionalProperties: true })
 const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/payslip' })
@@ -71,7 +74,7 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'payroll', entityType: 'payslip', entityId: item.id, entityName: (item as any).payslipNumber })
 
     return { payslip: payslipView(item) }
-  }, { isSignIn: true })
+  }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
     const r = getRepos()
     const existing = await r.payslips.findByIdInOrg(params.id, params.orgId)

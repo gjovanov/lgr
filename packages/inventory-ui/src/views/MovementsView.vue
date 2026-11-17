@@ -181,7 +181,7 @@
                  Each is the size of a document list's row menu (`RowActionsMenu`): a draft's four take the room
                  the tick column needs, and a row stays as tall as its one line of text. -->
             <div class="d-flex flex-nowrap">
-              <v-btn icon="mdi-eye" size="small" density="comfortable" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
+              <v-btn :aria-label="$t('common.view')" :title="$t('common.view')" icon="mdi-eye" size="small" density="comfortable" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
               <!-- The movement as a document, for whoever may read it: it goes with the goods and carries no price. -->
               <v-btn icon="mdi-printer" size="small" density="comfortable" variant="text" :title="$t('common.print')" :loading="printing === item._id" data-testid="movement-print" @click="printMovement(item)" />
               <v-btn v-if="writesMovement(item)" icon="mdi-check" size="small" density="comfortable" variant="text" color="success" :title="$t('warehouse.confirm')" data-testid="movement-confirm" @click="confirmMovement(item)" />
@@ -558,7 +558,7 @@ async function fetchWarehouses() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000, external: 'include' } })
     warehouses.value = data.warehouses || []
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 function contactDisplayName(c: any): string {
@@ -570,14 +570,14 @@ async function fetchContacts() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`)
     contacts.value = (data.contacts || []).map((c: any) => ({ ...c, name: contactDisplayName(c) }))
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 async function fetchCategories() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category`, { params: { isActive: 'true' } })
     categoryOptions.value = (data.productCategories || []).map((c: { name: string }) => c.name)
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 onMounted(() => { fetchItems(); fetchWarehouses(); fetchContacts(); fetchCategories() })

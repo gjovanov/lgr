@@ -56,7 +56,7 @@
   <!-- Mobile: navigation drawer from top -->
   <div v-else>
     <v-toolbar density="compact" flat class="top-menu-bar">
-      <v-btn icon variant="text" size="small" @click="mobileOpen = !mobileOpen">
+      <v-btn icon variant="text" size="small" :aria-label="$t('shell.menu')" :title="$t('shell.menu')" @click="mobileOpen = !mobileOpen">
         <v-icon>mdi-menu</v-icon>
       </v-btn>
       <span class="text-body-2 text-medium-emphasis ml-1">{{ activeLabel }}</span>

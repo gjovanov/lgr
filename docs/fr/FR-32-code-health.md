@@ -393,6 +393,20 @@ Most of this FR is proven by CI, not in production.
 - **#807** (FR-32.5): oxlint with the four rules, against `scripts/lint/baseline.json` (2 064 at the start). The job is `typecheck + lint (ubuntu)`, about a minute, beside the tests (FR-32.8).
 - **#809** (FR-32.6): the five `@smoke` tests on every pull request that touches a UI package or `e2e`, five minutes, no retries.
 - **FR-32.14** shipped by itself in **#799** (slice C's first requirement).
+- **FR-32.5, the catches** (`feat/797-fr32-a-catches`): the 198 catch blocks that held only a comment were read once.
+  - 139 give a reason that is true, and stay as they are.
+  - 49 gave no reason (`/* */`, `ignore`, `Silent fail`). They now say why the error is dropped. Most are reference lists, where the HTTP client already reports a network failure or a 5xx.
+  - Ten now report their error through `ui-shared/composables/report-error#reportError`. It says a refusal (a 4xx), which the HTTP client leaves to its caller, and it says and logs an error that is not an HTTP answer. The ten:
+    - a note added to a record (`EntityNotesPanel`), which was lost silently, and that panel's history;
+    - a contact's ledger (`useContactLedger`);
+    - a product's stock page (the product, and its levels, movements and counts);
+    - the valuation;
+    - the lines a new count is seeded with;
+    - the lines copied from a related invoice;
+    - a file's versions;
+    - an audit entry's correlated entries.
+  - The 14 empty catches and the 20 floating promises are gone. The lint baseline falls from 2 073 to 2 039.
+  - The 158 `.catch()` handlers that drop their error stay on the baseline, which may only shrink.
 - **FR-32.4, the core packages** (`feat/797-fr32-a-core-typecheck`): the backend baseline falls from 248 to 208. Every error of `dal`, `dal-mongo`, `db` and `fiscal` is fixed, and 37 of `services`' 48. The Stripe webhook reads the period end and an invoice's subscription in both API shapes, the one before 2025-03-31 and the one after (`periodEndOf`, `subscriptionIdOf`, `unit/stripe-webhook-shapes.test.ts`). Left in `services`, each carried by the work that owns its file:
   - `audit-log.service.ts` (5: the four repositories that do not exist, a missing import) and `doc-import/persist.ts` (an audit entry stored without its content): [FR-29](FR-29-atomic-bookings-records-runtime.md) §1.5 and .22;
   - `access/evaluate.ts`, `access/role.service.ts`, `biz/auth.service.ts` and `dao/user.dao.ts` (5): files FR-27's open pull requests change;
@@ -412,3 +426,33 @@ Most of this FR is proven by CI, not in production.
     - `movement-number`, `product-ledger` and `warehouse.flow` number their fixtures through `biz/movement-number#nextMovementNumber`, which the deleted DAO method called;
     - `tasks-ws.flow` lost the `notification` assertions;
     - `module-manifests` asserts that no route carries a breadcrumb.
+
+### Slice B, the open items
+
+- **FR-32.11, .12** (`feat/797-fr32-b-file-delete`):
+  - **Deleting a file deletes its bytes.** `DELETE /org/:orgId/file/:id` removes the stored object after the row (`services/biz/files/file-removal.service.ts`).
+    - Bytes another `File` row or a `DocFile` still names stay, in either the relative or the old absolute form.
+    - A file already gone, another provider's key and a path outside the org are left alone.
+    - A removal that fails is logged and leaves a `NodeState` marker (`file-removal:<hash>`, node state: the bytes are this node's). The retention tick retries it (`fileRemovalsRetried`).
+    - `integration/file-delete.flow.test.ts` deletes a file and looks for the object, and makes a removal fail, then lets the tick finish it.
+    - Files whose row was deleted before this are not touched: §4 leaves counting and removing them to the owner.
+  - **Payroll says what it computes** (D-5).
+    - The generic run's gross is the base salary, with no overtime, bonus or allowance figure computed beside it.
+    - Its form and its payslips say so (`payroll.legacyNotComputed`, four languages).
+    - The four payroll lists' Export and the payslip's PDF button did nothing. They are removed and filed as #830.
+    - The three TODOs left in the source are FR-25 §7.5's, and `unit/payroll-says-what-it-computes.test.ts` fails on a TODO that names no issue or spec item.
+
+### Slice D
+
+- **FR-32.18, .19, .20** (`feat/797-fr32-d-body-schemas`):
+  - **A value the model refuses answers 422 with its fields** (`code: 'invalid_fields'`, `fields`, the message S-12 already wrote). That covers a create whose document the model refuses and an edit that runs the validators (`updateInOrg(…, { validate: true })`, #685). It was a 500 that named them. This is the one answer FR-32.27 lets change.
+  - **Every write route that reads a body declares it.**
+    - The eleven creates that store the body as the document (`clientCreate`) declare it as an object; their values stay the model's to judge.
+    - `POST /invoices/:id/send` declares its two optional fields. `acknowledgeOverlap` takes any value, as before: only `true` answers the question, and anything else is asked again (409), which the overlap suites pin.
+    - The 16 arrays declared as "anything" now declare their elements as objects (`services/http/body-schemas#AnObject`), without naming fields, because a schema is a whitelist.
+  - **`unit/write-route-bodies.test.ts`** reads the real route table.
+    - A POST, PUT or PATCH with no body schema fails unless it is on `READS_NO_BODY` with its reason.
+    - A listed route, or a DELETE, whose handler takes `body` fails.
+    - So does an array whose elements are "anything".
+    - The six multipart uploads are on the list: each reads its files from the form itself.
+  - **The four screens of #675** were closed before this FR was written, by #685 (fixed assets, exchange rates, timesheets) and #686 (bank reconciliation). Their tests are `integration/form-payloads` and the reconciliation suite.
