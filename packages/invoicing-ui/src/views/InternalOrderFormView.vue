@@ -1502,8 +1502,8 @@ async function loadOrder(id?: string) {
     if (form.contactId && contactNames.value[form.contactId] && !clientOptions.value.some((c: any) => c._id === form.contactId)) {
       clientOptions.value = [{ _id: form.contactId, companyName: contactNames.value[form.contactId] }, ...clientOptions.value]
     }
-    // FR-22.13: what was just loaded is the clean state. The composable's own snapshot runs on a
-    // 500 ms timer from mount, so a slower load counted as an edit, and so did every reload after
+    // FR-22.13: what was just loaded is the clean state. The composable's own snapshot ran on a
+    // 500 ms timer from mount (until FR-31.2), so a slower load counted as an edit, and so did every reload after
     // Confirm, Complete or Convert: leaving an untouched order asked to keep „Незапазени промени".
     snapshotPending()
   } catch {

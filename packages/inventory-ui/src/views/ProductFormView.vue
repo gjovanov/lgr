@@ -340,7 +340,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { writesInventory } from 'ui-shared/nav/page-registry'
@@ -613,7 +613,7 @@ watch(() => form.categoryId, (id, old) => {
   }
 })
 
-const { markSaved, markClean, tryRestore, snapshot } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore, snapshot } = usePendingChanges({
   appId: 'inventory',
   entityType: 'product',
   icon: 'mdi-package-variant',
@@ -850,17 +850,14 @@ async function handleSubmit() {
 
     if (isEdit.value) {
       const { data } = await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)
+      // The form stays open on what it saved, on the current tab: an edit from here is unsaved again (FR-31.1).
       markSaved()
       keepStored(data?.product)
-      // The form stays open on what it saved, on the current tab: an edit from here is unsaved again. `markSaved`
-      // alone let every later edit go without a word.
-      markClean()
       showSuccess(t('common.savedSuccessfully'))
     } else {
       const { data } = await httpClient.post(`${orgUrl()}/warehouse/product`, payload)
-      markSaved()
       // The new article opens as itself in this same form: what is edited there is unsaved again.
-      markClean()
+      markSaved()
       showSuccess(t('common.savedSuccessfully'))
       const newId = data?.product?._id || data?._id
       if (newId) router.push({ name: 'inventory.products.edit', params: { id: newId, tab: urlTab.value } })
@@ -898,36 +895,38 @@ onMounted(async () => {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
       const p = data.product || data
-      Object.assign(form, {
-        sku: p.sku || '', name: p.name || '', tariffCode: p.tariffCode || '', type: p.type || 'goods', category: p.category || '',
-        categoryId: p.categoryId || null,
-        unit: p.unit || 'pcs', barcode: p.barcode || '', description: p.description || '',
-        isActive: p.isActive ?? true, purchasePrice: p.purchasePrice || 0, sellingPrice: p.sellingPrice || 0, taxRate: p.taxRate || 0,
-        trackInventory: p.trackInventory ?? true, minStockLevel: p.minStockLevel || 0,
-        maxStockLevel: p.maxStockLevel || 0,
-        costingMethod: p.costingMethod || null,
-        standardCost: p.standardCost || 0,
-        tags: p.tags || [],
+      // The clean state is the loaded article, taken once the field watchers have run (FR-22.13, FR-31.2).
+      await markLoaded(() => {
+        Object.assign(form, {
+          sku: p.sku || '', name: p.name || '', tariffCode: p.tariffCode || '', type: p.type || 'goods', category: p.category || '',
+          categoryId: p.categoryId || null,
+          unit: p.unit || 'pcs', barcode: p.barcode || '', description: p.description || '',
+          isActive: p.isActive ?? true, purchasePrice: p.purchasePrice || 0, sellingPrice: p.sellingPrice || 0, taxRate: p.taxRate || 0,
+          trackInventory: p.trackInventory ?? true, minStockLevel: p.minStockLevel || 0,
+          maxStockLevel: p.maxStockLevel || 0,
+          costingMethod: p.costingMethod || null,
+          standardCost: p.standardCost || 0,
+          tags: p.tags || [],
+        })
+        keepStored(p)
+        linkCategoryByName()
+        sellingPricePercent.value = calcPercent(form.sellingPrice)
+        priceEntries.value = mergePriceEntries(p.customPrices || [], p.tagPrices || [])
+        // The article's price tiers; a slot with base-price defaults for every level it lacks.
+        showTiers(p)
       })
-      keepStored(p)
-      linkCategoryByName()
-      sellingPricePercent.value = calcPercent(form.sellingPrice)
-      priceEntries.value = mergePriceEntries(p.customPrices || [], p.tagPrices || [])
-      // The article's price tiers; a slot with base-price defaults for every level it lacks.
-      showTiers(p)
     } catch { /* handle */ }
   } else {
-    // New product: seed the default slots client-side so the table is always full. (This called
-    // `ensureTenTiers`, gone since the 10 → 13 rename, and threw on every new article — FR-22 B-2.)
-    ensureTierSlots()
-    // Empty slots at no purchase price yet: they follow the one typed, as they always did.
-    markFollowers(priceTiers.value, 0)
-    await applyOrgDefaultVat()
+    // What a new article starts with is its clean state.
+    await markLoaded(async () => {
+      // New product: seed the default slots client-side so the table is always full. (This called
+      // `ensureTenTiers`, gone since the 10 → 13 rename, and threw on every new article — FR-22 B-2.)
+      ensureTierSlots()
+      // Empty slots at no purchase price yet: they follow the one typed, as they always did.
+      markFollowers(priceTiers.value, 0)
+      await applyOrgDefaultVat()
+    })
   }
-  // The clean state is the loaded article, taken once the field watchers have run (FR-22.13).
-  // The default snapshot fires 500 ms after mount: a slower load left an untouched form dirty.
-  await nextTick()
-  snapshot()
 })
 
 /**

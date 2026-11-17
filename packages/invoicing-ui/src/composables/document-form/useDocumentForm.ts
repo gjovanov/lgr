@@ -328,7 +328,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   })
 
   // ── pending changes ──
-  const { markSaved, markClean: markCleanPending, isDirty: formDiffersFromStored, tryRestore } = usePendingChanges({
+  const { markSaved, markLoaded, isDirty: formDiffersFromStored, tryRestore } = usePendingChanges({
     appId: 'invoicing',
     entityType: config.pendingEntityType,
     icon: config.pendingIcon,
@@ -1485,11 +1485,13 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       || printNote.value !== storedNotes.printNote
       || companionNote.value !== storedNotes.companionNote
   })
-  /** What the form shows now is what is stored (it was just loaded); an edit from here is unsaved. */
-  function markClean() {
+  /**
+   * What the form shows now is what is stored (it was just loaded); an edit from here is unsaved. The form's own fields
+   * took their clean state in `markLoaded`; the print notes, which live outside it, take theirs here.
+   */
+  function noteLoaded() {
     storedNotes.printNote = printNote.value
     storedNotes.companionNote = companionNote.value
-    markCleanPending()
     cleanTick.value++
   }
 
@@ -1927,54 +1929,55 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)
       const inv = data.invoice
-      invoiceStatus.value = inv.status || 'draft'
-      invoiceNumber.value = inv.invoiceNumber || ''
-      invoiceData.value = inv
-      form.contactId = inv.contactId?._id || inv.contactId || ''
-      // Persisted in `reference`; the legacy key is read first for any document that
-      // predates the fix (it was never actually stored, but costs nothing to honour).
-      form.supplierInvoiceNumber = inv.supplierInvoiceNumber || inv.reference || ''
-      form.relatedInvoiceId = inv.relatedInvoiceId || ''
-      form.issueDate = inv.issueDate?.split('T')[0] || inv.date?.split('T')[0] || ''
-      form.dueDate = inv.dueDate?.split('T')[0] || ''
-      // A proforma's validity is stored as its dueDate (B-11): the model has no validUntil.
-      form.validUntil = config.secondaryDate === 'validUntil' ? form.dueDate : ''
-      form.currency = inv.currency || baseCurrency.value
-      form.exchangeRate = inv.exchangeRate || 1
-      form.paymentMethod = inv.paymentMethod || config.paymentMethodDefault
-      form.notes = inv.notes || ''
-      // The print note is stored with the document, so it comes back on every later print.
-      printNote.value = inv.printNote || ''
-      companionNote.value = inv.companionNote || ''
-      form.terms = inv.terms || ''
-      form.footer = inv.footer || ''
-      form.reason = inv.reason || ''
-      form.preparedBy = inv.preparedBy || ''
-      form.placeOfTransaction = inv.placeOfTransaction || ''
-      form.tags = inv.tags || []
-      if (config.captureBillingAddress) {
-        form.billingAddress = inv.billingAddress
-          ? {
-              street: inv.billingAddress.street || '',
-              city: inv.billingAddress.city || '',
-              state: inv.billingAddress.state || '',
-              postalCode: inv.billingAddress.postalCode || '',
-              country: inv.billingAddress.country || '',
-            }
-          : emptyBillingAddress()
-      }
-      form.lines = (inv.lines || []).map(mapLoadedLine)
-      syncDocLevelFromLines()
-      await ensureSelectedContactLoaded(inv.contactId)
-      if (form.relatedInvoiceId) await ensureSelectedRelatedInvoiceLoaded(form.relatedInvoiceId)
-      // A bill's lines take their product's current values before the clean state is taken:
-      // seeding is loading, not an edit, and must not leave an untouched bill "unsaved".
-      await seedUnseededLines()
-      // What was just loaded is the clean state. The composable's own snapshot runs on a 500 ms
-      // timer from mount, so a slower load used to count as an edit: leaving an untouched
-      // document asked to keep "unsaved changes". After a save that stays on the document
-      // (FR-22.16) this also re-arms the guard the save had stood down.
-      markClean()
+      // What was just loaded is the clean state (FR-22.13, FR-31.2), with whatever it awaits: the contact, a bill's
+      // seeded lines. An edit made while it loaded stays an edit. After a save that stays on the document (FR-22.16)
+      // this is the clean state again.
+      await markLoaded(async () => {
+        invoiceStatus.value = inv.status || 'draft'
+        invoiceNumber.value = inv.invoiceNumber || ''
+        invoiceData.value = inv
+        form.contactId = inv.contactId?._id || inv.contactId || ''
+        // Persisted in `reference`; the legacy key is read first for any document that
+        // predates the fix (it was never actually stored, but costs nothing to honour).
+        form.supplierInvoiceNumber = inv.supplierInvoiceNumber || inv.reference || ''
+        form.relatedInvoiceId = inv.relatedInvoiceId || ''
+        form.issueDate = inv.issueDate?.split('T')[0] || inv.date?.split('T')[0] || ''
+        form.dueDate = inv.dueDate?.split('T')[0] || ''
+        // A proforma's validity is stored as its dueDate (B-11): the model has no validUntil.
+        form.validUntil = config.secondaryDate === 'validUntil' ? form.dueDate : ''
+        form.currency = inv.currency || baseCurrency.value
+        form.exchangeRate = inv.exchangeRate || 1
+        form.paymentMethod = inv.paymentMethod || config.paymentMethodDefault
+        form.notes = inv.notes || ''
+        // The print note is stored with the document, so it comes back on every later print.
+        printNote.value = inv.printNote || ''
+        companionNote.value = inv.companionNote || ''
+        form.terms = inv.terms || ''
+        form.footer = inv.footer || ''
+        form.reason = inv.reason || ''
+        form.preparedBy = inv.preparedBy || ''
+        form.placeOfTransaction = inv.placeOfTransaction || ''
+        form.tags = inv.tags || []
+        if (config.captureBillingAddress) {
+          form.billingAddress = inv.billingAddress
+            ? {
+                street: inv.billingAddress.street || '',
+                city: inv.billingAddress.city || '',
+                state: inv.billingAddress.state || '',
+                postalCode: inv.billingAddress.postalCode || '',
+                country: inv.billingAddress.country || '',
+              }
+            : emptyBillingAddress()
+        }
+        form.lines = (inv.lines || []).map(mapLoadedLine)
+        syncDocLevelFromLines()
+        await ensureSelectedContactLoaded(inv.contactId)
+        if (form.relatedInvoiceId) await ensureSelectedRelatedInvoiceLoaded(form.relatedInvoiceId)
+        // A bill's lines take their product's current values before the clean state is taken:
+        // seeding is loading, not an edit, and must not leave an untouched bill "unsaved".
+        await seedUnseededLines()
+      })
+      noteLoaded()
     } catch {
       /* */
     }
@@ -1993,28 +1996,32 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       return
     }
     if (!isEdit.value) {
-      // Seed doc-level controls: org default VAT rate; user default WH → org default WH.
-      docTaxRate.value = defaultVatRate.value
-      const userWh = userDefaultWarehouseId.value
-      const candidate =
-        (userWh && warehouses.value.some((w) => w._id === userWh) ? userWh : '') ||
-        (warehouses.value as any[]).find((w: any) => w.isDefault)?._id ||
-        null
-      if (candidate) onDocWarehouseChange(candidate)
-      else seedPlaceOfDeal()
-      fetchPeekedNumber()
-      // FR-22.26: how this user last paid a document of this type.
-      const method = rememberedPaymentMethod()
-      if (method !== null) form.paymentMethod = method
-      // FR-22.24: a copy starts as its source; FR-22.21: a note opened from the invoice it
-      // corrects starts as that invoice; FR-22.47: a document opened from an article starts with
-      // it on the first line.
-      const copyOf = String(route.query.copyOf || '')
-      const relatedId = String(route.query.relatedInvoiceId || '')
-      const productId = String(route.query.productId || '')
-      if (copyOf) await prefillFromCopy(copyOf)
-      else if (relatedId && config.relatedInvoiceAutofill) await prefillFromInvoice(relatedId)
-      else if (productId) await prefillFromProduct(productId)
+      // What a new document starts with (its defaults, the copy or the invoice it was opened from) is its clean state,
+      // not an edit (FR-31.2).
+      await markLoaded(async () => {
+        // Seed doc-level controls: org default VAT rate; user default WH → org default WH.
+        docTaxRate.value = defaultVatRate.value
+        const userWh = userDefaultWarehouseId.value
+        const candidate =
+          (userWh && warehouses.value.some((w) => w._id === userWh) ? userWh : '') ||
+          (warehouses.value as any[]).find((w: any) => w.isDefault)?._id ||
+          null
+        if (candidate) onDocWarehouseChange(candidate)
+        else seedPlaceOfDeal()
+        fetchPeekedNumber()
+        // FR-22.26: how this user last paid a document of this type.
+        const method = rememberedPaymentMethod()
+        if (method !== null) form.paymentMethod = method
+        // FR-22.24: a copy starts as its source; FR-22.21: a note opened from the invoice it
+        // corrects starts as that invoice; FR-22.47: a document opened from an article starts with
+        // it on the first line.
+        const copyOf = String(route.query.copyOf || '')
+        const relatedId = String(route.query.relatedInvoiceId || '')
+        const productId = String(route.query.productId || '')
+        if (copyOf) await prefillFromCopy(copyOf)
+        else if (relatedId && config.relatedInvoiceAutofill) await prefillFromInvoice(relatedId)
+        else if (productId) await prefillFromProduct(productId)
+      })
     }
     if (isEdit.value) await loadDocument()
   })

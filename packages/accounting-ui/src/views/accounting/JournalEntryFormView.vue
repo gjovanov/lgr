@@ -254,7 +254,7 @@ const form = reactive({
   lines: [] as Array<{ accountId: string; description: string; debit: number; credit: number }>,
 })
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'accounting',
   entityType: 'journalEntry',
   icon: 'mdi-book-open-page-variant',
@@ -413,18 +413,20 @@ async function loadEntry(id: string) {
     entryNumber.value = existing.entryNumber || ''
     entryStatus.value = existing.status || 'draft'
     entryData.value = existing
-    Object.assign(form, {
-      date: existing.date?.split('T')[0] || '',
-      reference: existing.reference || '',
-      description: existing.description || '',
-      lines: (existing.lines || []).map(l => ({
-        accountId: l.accountId || '',
-        description: l.description || '',
-        debit: l.debit || 0,
-        credit: l.credit || 0,
-      })),
+    await markLoaded(() => {
+      Object.assign(form, {
+        date: existing.date?.split('T')[0] || '',
+        reference: existing.reference || '',
+        description: existing.description || '',
+        lines: (existing.lines || []).map(l => ({
+          accountId: l.accountId || '',
+          description: l.description || '',
+          debit: l.debit || 0,
+          credit: l.credit || 0,
+        })),
+      })
+      header.value = headerFormOf(existing)
     })
-    header.value = headerFormOf(existing)
   } catch (e: any) {
     showError(refusalOf(e))
   } finally {

@@ -68,7 +68,7 @@ const emptyForm = () => ({
 })
 const form = ref(emptyForm())
 
-const { markSaved, tryRestore } = usePendingChanges({
+const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'payroll',
   entityType: 'timesheet',
   icon: 'mdi-clock-outline',
@@ -100,15 +100,17 @@ async function fetchItem() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/payroll/timesheet/${route.params.id}`)
     const item = data.timesheet || data
-    form.value = {
-      _id: item._id,
-      employeeId: item.employeeId || '',
-      date: item.date?.split?.('T')?.[0] || item.date || '',
-      hoursWorked: item.hoursWorked ?? 8,
-      overtimeHours: item.overtimeHours ?? item.overtime ?? 0,
-      type: valueOf(TYPES, item.type, 'regular'),
-      status: valueOf(STATUSES, item.status, 'submitted'),
-    }
+    await markLoaded(() => {
+      form.value = {
+        _id: item._id,
+        employeeId: item.employeeId || '',
+        date: item.date?.split?.('T')?.[0] || item.date || '',
+        hoursWorked: item.hoursWorked ?? 8,
+        overtimeHours: item.overtimeHours ?? item.overtime ?? 0,
+        type: valueOf(TYPES, item.type, 'regular'),
+        status: valueOf(STATUSES, item.status, 'submitted'),
+      }
+    })
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
