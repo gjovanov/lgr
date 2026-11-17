@@ -131,7 +131,7 @@ Each PR keeps `bun run test`, `build`, `check:web` and the FR-27 walks green
   `legacy.ts`'s own test import it.
 - `DEFAULT_ROLE_PERMISSIONS`: kept only if P3-4 left a reader. The goal is none.
 
-**Done (draft PR, stacked on P3-5 / #824):**
+**Done (draft PR #837, stacked on P3-5 / #824):**
 - **Deleted.**
   - From `config/constants`: `AREAS` / `Area`, `holdsArea`, `mergeAreas`, `DEFAULT_ROLE_AREAS`, `ROLE_PERMISSION_SET_NAMES`
     and `FISCAL_ADMIN_ROLES`. The device pages and routes ask `devices.*`, which the built-in Administrator, Manager and
