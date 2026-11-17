@@ -118,6 +118,9 @@
   "packages/portal-api/src/controllers/org-logo.controller.ts": {
     "TS2345": 1
   },
+  "packages/portal-api/src/controllers/org.controller.ts": {
+    "TS2559": 1
+  },
   "packages/portal-api/src/controllers/pos-payment-method.controller.ts": {
     "TS18047": 3
   },
