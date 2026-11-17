@@ -210,7 +210,7 @@ export function useInvoiceLineColumns(
       // `load()` falls back to the legacy key: leave it behind and the old columns come back on
       // the next load, so a reset would not stick.
       localStorage.removeItem(legacyKey())
-    } catch { /* */ }
+    } catch { /* Storage refused (private browsing): there was nothing stored to reset. */ }
     pref.value = defaultPref()
   }
 

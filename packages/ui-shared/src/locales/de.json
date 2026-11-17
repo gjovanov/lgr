@@ -967,6 +967,7 @@
     "default": "Standard"
   },
   "payroll": {
+    "legacyNotComputed": "Überstunden, Prämien und Zulagen werden hier nicht berechnet: das Bruttogehalt ist das Grundgehalt.",
     "timesheetTypes": {
       "regular": "Regulär",
       "overtime": "Überstunden",
@@ -5443,5 +5444,11 @@
       "previewNone": "Keine Seite: die Person sieht nur ihr Konto.",
       "portal": "Portal"
     }
+  },
+  "shell": {
+    "apps": "Apps",
+    "portal": "Portal",
+    "theme": "Helles oder dunkles Design",
+    "menu": "Menü"
   }
 }

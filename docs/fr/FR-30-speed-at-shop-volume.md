@@ -387,6 +387,8 @@ The demo organization is small, so production proves that nothing changed, and t
 
 **Sorts no index serves** (`scan` in the table, held by the test as a list): Products by type, unit, active, minimum, purchase and selling price; documents by status, type, currency, reference, subtotal, tax, total, amount due; Stock levels by quantity; Movements by status and total (and by the three looked-up names, an aggregation). Each still reads the filtered rows, as before. They stay offered: dropping them from the grids, or indexing them, is the owner's call (FR-30.2).
 
+**The id, on every list, for what reads a whole list in pages.** The import and audit tooling (`fetchAll` in nine scripts and skills) sends `page=N&sortBy=_id&sortOrder=asc` until a page adds nothing. It needs an order with no ties: rows whose sort keys are equal can come in another order for another skip, so a page repeats a row and leaves another out, and the reader is not told. Every default sort above has ties. The first version of the table did not declare the id, so those reads would have run on the default sort; the table declares it now (`scan`: read in the id's order through the collection's `_id` index, as before this slice), no grid offers it, and `unit/list-sorts.test.ts` holds every `sortBy` the scripts and skills send to the table.
+
 **Turned off in the grids**, because the server never sorted by them (they are names looked up after the page): the contact on Sales invoices and Bills, the article's SKU and name and the warehouse on Stock levels.
 
 ### Slice B (FR-30.6 to .10), 2026-11-17
@@ -426,3 +428,20 @@ The demo organization is small, so production proves that nothing changed, and t
 | articles read by the joins | one per level | one per row kept (at most the cap + 1) |
 
 **Tests.** `integration/stock-levels-report.flow.test.ts`: the rows, totals and meta equal the old pipeline's (frozen in `helpers/stock-levels-report-legacy.ts`) for twelve parameter sets (none, zero rows, rolled up, below minimum, a warehouse, an article, a category with descendants, combinations) in two outputs; the joins read at most the cap + 1 articles; a category narrows the first stage; the ranking aggregated once for two forms; the cache's lifetime and a failed read not kept; the summary's first stage and its figures with voided and cancelled documents beside them; the stock value read once a minute.
+
+### Slice F (FR-30.19, .20), 2026-11-17
+
+**What was built** (`reporting/src/pdf/base.pdf.ts`).
+- **One Chrome per process (FR-30.19, D-7).** The first render starts it; it closes after `PDF_BROWSER_IDLE_MS` (5 minutes) without a render, on a timer that never keeps the process alive. Each render opens a browser context of its own and closes it afterwards, so two renders share no page, storage or cache. A browser that disconnects (a crash, a kill) is forgotten at once, and `markdownToPdf`'s retry starts another.
+- **The guards stay.** The deadline (`PDF_RENDER_TIMEOUT_MS`) now counts from when the render was asked for; a stalled render still fails and its Chrome is killed (`closePdfBrowser`), so the next starts a fresh one; the page lock, the no-network flags, the retry and the empty-PDF check are as they were.
+- **A limit on renders at once (FR-30.20, D-6).** `PDF_RENDER_CONCURRENCY` (2) renders at a time per process; the rest wait for a slot inside their deadline.
+
+**Measured** (a developer laptop, 11 renders of a one-page document in one process, then ten at once).
+
+| | Before (the audit) | After |
+|---|---|---|
+| The first PDF of a process | about 6 s | 767 ms here (the launch) |
+| A PDF after that | 0.8 to 0.9 s, a launch each | 219 ms median, no launch |
+| Ten at once | ten launches | 1.4 s in all, one launch |
+
+**Tests.** `unit/pdf-shared-browser.test.ts`: no launch over ten renders after the first; two renders at once in two contexts, neither the default, both closed after; a browser killed mid-render, and the render beside it still prints through the retry; ten at once all arrive with at most two rendering together; a render waiting for its turn fails at its own deadline. The renderer's own tests (`pdf-render-deadline`, `pdf-page-lock`, `pdf-renderer`) are unchanged.

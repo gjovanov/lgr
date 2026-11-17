@@ -80,7 +80,9 @@ bun .claude/skills/daily-import/daily.ts grant --org regal-pz
 bun .claude/skills/daily-import/daily.ts grant --org regal-sf
 ```
 
-`grant` signs in and looks at a product and a stock level. It must say the session reads the purchase price, the
+`grant` signs in, asks what the session's role allows (`access` in `/auth/me`: the session names its role and carries
+no claims of its own) and looks at a product and a stock level. It must say the role grants everything (the
+Administrator's), and that the session reads the purchase price, the
 selling price, each tier's margin, the cost tier and the average cost. A `STOP` here ends the run: a session that is
 shown less (a role without cost figures or some price levels) would compare, snapshot and write wrong figures while
 every call succeeds.

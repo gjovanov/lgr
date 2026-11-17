@@ -252,7 +252,7 @@ async function fetchContacts(search?: string) {
     const list = data.contacts || []
     const chosen = contacts.value.find(c => c._id === contactId.value)
     contacts.value = chosen && !list.some((c: any) => c._id === chosen._id) ? [chosen, ...list] : list
-  } catch { /* */ } finally {
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
     loadingContacts.value = false
   }
 }
@@ -274,7 +274,7 @@ async function ensureContactLoaded(id: string) {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact/${id}`)
     if (data.contact) contacts.value = [data.contact, ...contacts.value]
-  } catch { /* */ }
+  } catch { /* The list keeps what it had: the picked id stays on the form. */ }
 }
 
 async function load() {

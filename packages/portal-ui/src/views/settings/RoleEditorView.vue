@@ -1,7 +1,7 @@
 <template>
   <v-container fluid>
     <div class="d-flex align-center mb-2">
-      <v-btn icon="mdi-arrow-left" variant="text" :to="{ name: 'settings.roles' }" class="mr-2" />
+      <v-btn :aria-label="$t('common.back')" :title="$t('common.back')" icon="mdi-arrow-left" variant="text" :to="{ name: 'settings.roles' }" class="mr-2" />
       <h1 class="text-h4">{{ form.name || $t('access.ui.title') }}</h1>
       <v-chip v-if="role?.isBuiltin" size="small" variant="outlined" class="ml-3">{{ $t('access.ui.builtin') }}</v-chip>
       <v-chip v-if="role?.edited" size="small" color="info" variant="tonal" class="ml-1">{{ $t('access.ui.edited') }}</v-chip>

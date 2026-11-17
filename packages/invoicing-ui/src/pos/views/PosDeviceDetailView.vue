@@ -442,7 +442,7 @@ const runs = runsDevices(sessionViewer())
  */
 async function recordStatus(status: 'online' | 'offline' | 'error') {
   if (!runs || isNew.value) return
-  try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status }) } catch {}
+  try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status }) } catch { /* The stored status is a courtesy for the device list; this page shows the live one. */ }
 }
 
 // Watch for device disconnect (USB unplugged / powered off)

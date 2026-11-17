@@ -3,6 +3,7 @@ import { AuthService } from '../auth/auth.service.js'
 import { File } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
 import { normalizeStored } from 'services/biz/files/stored-path'
+import { removeStoredFile } from 'services/biz/files/file-removal.service'
 
 export const fileController = new Elysia({ prefix: '/org/:orgId/file' })
   .use(AuthService)
@@ -76,5 +77,8 @@ export const fileController = new Elysia({ prefix: '/org/:orgId/file' })
     const file = await File.findOneAndDelete({ _id: id, orgId }).exec()
     if (!file) return status(404, { message: 'File not found' })
 
+    // FR-32.11: the bytes go too, after the row. A removal that fails is logged and retried by the retention
+    // tick; the delete itself has happened, and says so.
+    await removeStoredFile(file)
     return { message: 'File deleted' }
   }, { isSignIn: true })

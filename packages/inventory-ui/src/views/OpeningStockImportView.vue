@@ -84,7 +84,7 @@ onMounted(async () => {
     warehouses.value = data.warehouses || data.data || []
     const def = warehouses.value.find((w: any) => w.isDefault) || warehouses.value[0]
     if (def) warehouseId.value = def._id
-  } catch { /* ignore */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 })
 
 async function doImport() {
