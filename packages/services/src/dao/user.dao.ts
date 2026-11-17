@@ -12,12 +12,16 @@ import { BaseDao } from './base.dao.js'
  * ⚠ Not `select: false` on the model: backups, org moves and FR-20's replication read `User` through
  * Mongoose and need the hash, and a field that silently drops out of those is a lockout after a
  * restore. `no-secrets-in-responses.flow.test.ts` sweeps every route instead.
+ *
+ * `legacyArchive` (FR-27 P3-7, migration 0017) is not a secret, but it is the legacy access a person had, kept only
+ * for a hand restore: no screen reads it, so no answer carries it. Not `select: false` for the same reason: a
+ * backup taken in the window must carry it.
  */
-export const USER_PUBLIC_PROJECTION = '-password -oauthProviders.accessToken -oauthProviders.refreshToken'
+export const USER_PUBLIC_PROJECTION = '-password -oauthProviders.accessToken -oauthProviders.refreshToken -legacyArchive'
 
 /** A user document made plain for a response, without what `USER_PUBLIC_PROJECTION` excludes. */
 export function publicUser(doc: Record<string, any>): Record<string, unknown> {
-  const { password: _hash, ...rest } = doc
+  const { password: _hash, legacyArchive: _archive, ...rest } = doc
   if (Array.isArray(rest.oauthProviders)) {
     rest.oauthProviders = rest.oauthProviders.map(({ accessToken: _a, refreshToken: _r, ...link }: any) => link)
   }

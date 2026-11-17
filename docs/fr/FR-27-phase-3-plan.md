@@ -132,12 +132,21 @@ Each PR keeps `bun run test`, `build`, `check:web` and the FR-27 walks green
 - `DEFAULT_ROLE_PERMISSIONS`: kept only if P3-4 left a reader. The goal is none.
 
 ### P3-7 · The data contract (one-way)
-- Migration 0016: the legacy fields move to an archive and are unset:
-  - `User.permissions`, `permissionSetIds` and the legacy `role` go to `User.legacyArchive`;
-  - `Invite.assignRole` goes to `Invite.legacyArchive`;
-  - the `PermissionSet` collection is copied to `permissionsets_archive`.
-  It is idempotent and scoped by `orgFilter`, like every migration.
-- The archive is kept for **one release**, then 0017 drops it (§5).
+- Merges only after P3-5 is **released**: until then the app still writes the fields this moves.
+- Migration **0017** (`0017-legacy-access-archive`; 0016 went to FR-30's text indexes): the legacy fields move to an
+  archive and are unset:
+  - `User.permissions`, `permissionSetIds` and the legacy `role` go to `User.legacyArchive` (with `archivedAt`);
+  - `Invite.assignRole` goes to `Invite.legacyArchive` (with `archivedAt`);
+  - the `permissionsets` collection is copied to `permissionsets_archive` (each set with `archivedAt`). The sets
+    themselves stay: dropping the source is the follow-up's, not this migration's.
+  It is idempotent and scoped by `orgFilter`, like every migration, and has a dry run (`bun run migrate --dry-run`).
+  The archive holds exactly what was there (a missing field stays missing), and no answer carries it
+  (`USER_PUBLIC_PROJECTION`, the invite list).
+- ⚠ The schemas must stop defaulting the legacy fields first (P3-5/P3-6): Mongoose writes a default back on any
+  `save()` of a loaded document, so with `role: { default: 'member' }` an archived person would get `role: 'member'`,
+  `permissions: []` and `permissionSetIds: []` again on their next save, and an invite `assignRole: 'member'`.
+- The archive is kept for **one release**, then **0018** drops it (§5): `legacyArchive` on users and invites,
+  `permissionsets_archive`, and the `permissionsets` collection itself.
 
 ### P3-8 · The grep test (acceptance 2)
 - `unit/access-no-legacy.test.ts` fails on any file outside `config/access/`, `services/biz/access/` and
