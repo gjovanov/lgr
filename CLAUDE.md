@@ -1591,6 +1591,14 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
   `StockMovement { orgId, date }` / `{ orgId, createdAt }`. What is left in a list's time is its `countDocuments`.
 - **No text indexes** (FR-30.4): nothing ran `$text`, and migration `0016` drops them. Search is a pattern over the
   fields or their lowered mirrors (below).
+- **A list answer carries at most 1 000 rows** (FR-30.8, `config/list-rows.ts#LIST_CEILING`): `findAll`,
+  `paginateQuery` and the sorted-page helpers read "All" (`size <= 0`) and any larger size as the ceiling, and a cut
+  answer says `truncated: true` with the real `total`. ⚠ Server code that needs every row uses `findMany`, or passes
+  `unbounded: true` in the page request (the chart of accounts, the count form's `fields=count`): a `findAll` with
+  `size: 0` or `size: 10000` is cut at 1 000 like any list.
+- **Rows, not documents** (FR-30.7): `fields=list` on the invoice, product, contact, stock-level and movement lists
+  leaves out what `LIST_ROW_EXCLUDES` names (an invoice's lines, a slot's filters, the mirrors). The grids and pickers
+  ask (`usePaginatedTable({ listFields: true })`); an answer without it is whole, so scripts and skills are untouched.
 
 ## Cyrillic-Safe Search (2026-04-28)
 

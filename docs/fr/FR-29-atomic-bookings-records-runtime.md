@@ -411,3 +411,33 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     send one id for two documents.
   - Tests: `integration/create-request-id.flow` (each of the four routes: the same id twice, three at once, another
     org, no id, a malformed id; what is stored; a replayed receipt; an order with reservations).
+- **Slice D** (branch `feat/794-fr29-d-postings`):
+  - FR-29.14 is built. `JournalEntry.postingKey`, partial unique index `{ orgId, postingKey }`. The keys and what
+    counts as a posting are listed in `services/biz/postings/posting-rules.ts` (and the handlers' file):
+    `invoice.posted:<invoice>`, `payment.recorded:<invoice>:<payment row | receipt:<receipt>>`,
+    `stock.movement.confirmed:<movement>`, `pos.session.closed:<session>`. A void's reversal carries none.
+    `auto-journal`'s four creates take `{ postingKey }`: an entry that already holds the key is the posting, and a
+    failure is thrown for the job instead of logged and dropped.
+  - FR-29.15 (D-4) is built: `postingjobs` (`PostingJob`, class R, the org's data in a bundle). The job is written in
+    the state change's transaction: the issue (`issueDocument({ owesPosting })`, `/send` only), a booking
+    (`bookMovement`, so every confirm path), a payment (`/payments`, a receipt's `recordPayment`, the settlement rule:
+    each write now in `inTransaction`), a till close (`pos.controller`). `postsEvent` is the one rule of who posts.
+  - FR-29.16: the event still leaves after the commit, and its handler runs the job at once (`settlePosting`). The
+    `postings` scheduler (`POSTINGS_DRAIN_INTERVAL_MS`, 60 s) drains what is queued, every pod, a 2-minute lease per
+    job. Delay 30 s doubling to 6 h; `failed` after 8 attempts. The last error is kept in the server's words, or as a
+    reference for the machinery's (S-12).
+  - FR-29.17 (D-5): the journal entries page shows a banner with the counts when anything is owed or failed, and
+    "Show" lists them with their document and "Try again" (`GET /accounting/journal/postings`,
+    `POST /accounting/journal/postings/:id/retry`; four languages). The daily digest's operations section names the
+    failed ones. Health: see the decision below.
+  - FR-29.18: `scripts/report-unposted.ts`, read-only (native driver), per org that posts: issued documents, bills
+    (apart: `/receive` posts none by design), payments, completed movements and closed till sessions with no entry.
+    Counts; `--list` names them for the owner.
+  - Decision (health): `/api/health` stays as it is: public, polled by desktops, it says nothing and never reads the
+    database (its comment). The counts across orgs are at `GET /api/admin/nodes/health` (a sys-admin, global) and in
+    a master's control-socket `/status` (`postings`). The route sits in an existing controller because each new
+    `.use()` in `api.ts` adds a type-check error the baseline does not allow.
+  - Found on the way: an org's first entries of a fiscal year (an invoice's and its dispatch's, posted at the same
+    moment) race to open the period, and the loser's entry was lost. It is now retried by the drain.
+  - Tests: `integration/posting-exactly-once.flow` (13). `cash-invoice-receipts.flow`'s ledger block: a hold moved to
+    the entry's write, and a second event for one receipt now posts nothing (FR-29.14) where it posted a second entry.

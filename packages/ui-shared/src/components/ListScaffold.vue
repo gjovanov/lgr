@@ -77,7 +77,7 @@
             :loading="loading"
             :page="pagination.page + 1"
             :items-per-page="pagination.size"
-            :items-per-page-options="itemsPerPageOptions"
+            :items-per-page-options="sizeOptions"
             :item-value="itemValue"
             :density="density"
             hover
@@ -134,6 +134,7 @@ import ListLoadError from './ListLoadError.vue'
 const GridColumnPickerDialog = defineAsyncComponent(() => import('./GridColumnPickerDialog.vue'))
 import { useGridColumns } from '../composables/useGridColumns'
 import type { PaginationState } from '../composables/usePaginatedTable'
+import { pageSizeOptions } from '../composables/page-sizes'
 
 interface EmptyDef {
   icon?: string
@@ -201,6 +202,9 @@ const emit = defineEmits<{
   'kpi-click': [kpi: StatCardDef]
   'update:selected': [ids: string[]]
 }>()
+
+/** FR-30.9: "All" only while the list's total is within the ceiling of an answer. */
+const sizeOptions = computed(() => pageSizeOptions(props.itemsPerPageOptions ?? [], props.pagination.total))
 
 /** FR-31.7: ask for the same page again, as the table itself would (`update:options`, which every list binds). */
 function retry() {
