@@ -1617,6 +1617,12 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
 
 ## Cyrillic-Safe Search (2026-04-28)
 
+⚠ **The product search reads one field, `Product.searchLower`** (FR-30.11): the five mirrors joined by U+001F, kept by
+the plugin's `joined` option (`db/plugins/search-field.ts`) on save, `insertMany`, the update queries and `bulkWrite`,
+with an index `{ orgId, searchLower, isActive, _id }` (`findAll`'s `hint`). A raw driver write leaves it unset: the
+search still reads such an article by its mirrors, slower, until migration 0018 or
+`scripts/backfill-product-search-field.ts` fills it. `PRODUCT_SEARCH_FIELD=off` is the switch back to the five fields.
+
 `packages/db/src/plugins/lowered-fields.plugin.ts` maintains `*Lower` mirror fields via Mongoose pre-save / pre-insertMany / pre-(findOneAndUpdate|updateOne|updateMany) hooks (locale='bg'). `buildSearchFilter(search, fields, { lowered: { name: 'nameLower', ... } })` lowercases the keyword and queries the mirrors without `$options:'i'`. Backfill: `bun run scripts/backfill-search-lowercase.ts --execute`. Models with mirrors: Product (name/sku/barcode/description/category), Contact (companyName/firstName/lastName/email/taxId/vatNumber), Warehouse (name/code), ProductCategory (name/description).
 
 ## Draft+Issued Invoice Numbering (2026-04-28)

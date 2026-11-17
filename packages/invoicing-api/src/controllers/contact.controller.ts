@@ -134,14 +134,15 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     // FR-30.7: `fields=list` (the list and the pickers) answers rows, without the notes and the search mirrors.
     const select = listProjection('contacts', query.fields)
     if (prefer && !query.sortBy && size > 0) {
-      const result = await pickerContacts(orgId, filter, prefer, page, size, select)
+      // FR-30.12: a type-ahead (`count=none`) counts nothing.
+      const result = await pickerContacts(orgId, filter, prefer, page, size, select, query.count === 'none' ? { count: false } : {})
       return { contacts: result.items, ...result }
     }
 
     const sortBy = (query.sortBy as string) || 'createdAt'
     const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : ((query.sortOrder as string) === 'asc' ? 1 : -1)
 
-    const result = await r.contacts.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } }, { select })
+    const result = await r.contacts.findAll(filter, { page, size, sort: { [sortBy]: sortOrder }, ...(query.count === 'none' ? { count: false as const } : {}) }, { select })
     return { contacts: result.items, ...result }
   }, { isSignIn: true })
   .post(

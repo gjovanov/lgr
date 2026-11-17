@@ -1,7 +1,8 @@
 import { Elysia } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
-import { buildSearchFilter } from 'services/biz/search.utils'
+import { buildProductSearchFilter } from 'services/biz/search.utils'
+import { productSearchFieldComplete } from 'services/biz/product-search-field'
 import { getProductsSupplyTotals } from 'services/biz/product-supply.service'
 import { grantOf } from 'services/biz/access/evaluate'
 import { redactStockCost } from 'config/access'
@@ -23,8 +24,9 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
     let needProductLookup = false
     if (query.category) { productFilter.category = query.category; needProductLookup = true }
     if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['name', 'sku', 'barcode'])
-      Object.assign(productFilter, searchFilter)
+      // FR-30.13: the Products list's search (its lowered, indexed field, so Cyrillic is found whatever its case), not a
+      // case-insensitive pattern over the name, SKU and barcode.
+      Object.assign(productFilter, buildProductSearchFilter(query.search as string, { complete: await productSearchFieldComplete(orgId) }))
       needProductLookup = true
     }
     if (query.tags) {
@@ -32,7 +34,8 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
       if (tags.length) { productFilter.tags = { $in: tags }; needProductLookup = true }
     }
     if (needProductLookup) {
-      const products = await r.products.findMany(productFilter)
+      // The matching articles' ids, not the articles (FR-30.13).
+      const products = await r.products.findMany(productFilter, undefined, { select: ['id'] })
       filter.productId = { $in: products.map(p => p.id) }
     }
     // FR-28.5: the page's „low stock only" switch is the Products list's „below minimum" — one definition

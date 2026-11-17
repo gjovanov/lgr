@@ -740,7 +740,8 @@ async function fetchContacts(pool: 'supplier' | 'client', search?: string) {
   loadingContacts.value = true
   try {
     // FR-30.7: the picker's rows, not whole contacts.
-    const params: Record<string, any> = { size: 20, fields: 'list' }
+    // FR-30.12: a type-ahead shows no total, so nothing is counted.
+    const params: Record<string, any> = { size: 20, fields: 'list', count: 'none' }
     if (pool === 'supplier') params.type = 'supplier'
     if (search) params.search = search
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params })

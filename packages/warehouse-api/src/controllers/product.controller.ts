@@ -12,6 +12,7 @@ import { keepStoredCosts, redactProduct, redactProducts } from 'config/access'
 import { PRODUCT_TARIFF_CODE_MAX } from 'config/constants'
 import { LIST_SORTS, chooseListSort } from 'config/list-sorts'
 import { listProjection } from 'config/list-rows'
+import { PRODUCT_SEARCH_INDEX } from 'services/biz/search.utils'
 
 /** What an article is (`PRODUCT_TYPES`). One list for the create and the update route. */
 const PRODUCT_TYPE = t.Union([
@@ -20,6 +21,19 @@ const PRODUCT_TYPE = t.Union([
   t.Literal('raw_material'),
   t.Literal('finished_product'),
 ])
+
+/** The filter fields of the Products list's plain query: the org, and the active switch (FR-22.48). */
+const PLAIN_LIST_FIELDS = new Set(['orgId', 'isActive'])
+
+/**
+ * FR-30.2: the index a declared sort is served by, for a query that filters on nothing but the org and the active
+ * switch. Any other filter (a category, a tag, an id list) is left to the planner, which may read a narrower index.
+ */
+function sortIndexOf(key: string, filter: Record<string, unknown>): string | undefined {
+  const served = LIST_SORTS.products.keys[key]?.served
+  if (!served || !('index' in served)) return undefined
+  return Object.keys(filter).every((f) => PLAIN_LIST_FIELDS.has(f)) ? served.index : undefined
+}
 
 export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/product' })
   .use(AppAuthService)
@@ -47,11 +61,24 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     const plain = LIST_SORTS.products.keys[chosen.key] ? chosen : chooseListSort('products', undefined, undefined)
     // FR-30.7: `fields=list` (the grid, the pickers) answers rows: a slot's name and price, not its filters.
     const select = listProjection('products', query.fields)
+    const sortIndex = sortIndexOf(plain.key, filter as Record<string, unknown>)
     const result = tier
       ? await findProductsByTierPrice(r.products, filter, tier, sortOrder, page, size, select)
       : stockColumn
         ? await findProductsByStockColumn(r.products, orgId, filter, stockColumn, (query.warehouseId as string) || undefined, sortOrder, page, size, select)
-        : await r.products.findAll(filter, { page, size, sort: { [plain.field]: plain.order } }, { select })
+        : await r.products.findAll(
+          filter,
+          // FR-30.12: a type-ahead reads one row more than it shows: `count=none` counts nothing, `count=when-more` only
+          // when more follow (the line search's "Show all N results").
+          { page, size, sort: { [plain.field]: plain.order }, ...(query.count === 'none' ? { count: false as const } : query.count === 'when-more' ? { count: 'when-more' as const } : {}) },
+          // FR-30.11: a search reads the search field's index, which the planner passed over for the sort's. Only when the
+          // search reads that field alone (`indexedSearch`): a supplier's code or an article without the field is read
+          // from documents, which those keys cannot answer.
+          // FR-30.2: the plain list (the org and the active switch, no other filter) reads the page through the index
+          // its sort declares. The search index answers "active" from its keys too, so the planner may pick it (or keep
+          // it cached for this shape) and sort every active article in memory.
+          { select, ...(resolved.indexedSearch ? { hint: PRODUCT_SEARCH_INDEX } : sortIndex ? { index: sortIndex } : {}) },
+        )
     // FR-27.6: the cost figures only for a role that holds `products.costs`; absent, not blanked.
     const items = redactProducts(grantOf(user as any), result.items as any[])
     return { ...result, products: items, items }
