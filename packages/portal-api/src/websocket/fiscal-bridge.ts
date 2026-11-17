@@ -993,10 +993,10 @@ export function setupFiscalBridgeWS(app: any): void {
       handleOpen(ws)
     },
     message(ws: any, message: any) {
-      handleMessage(ws, message)
+      handleMessage(ws, message).catch((err: unknown) => logger.error({ err }, 'fiscal bridge: a message failed'))
     },
     close(ws: any) {
-      handleClose(ws)
+      handleClose(ws).catch((err: unknown) => logger.error({ err }, 'fiscal bridge: a close failed'))
     },
   })
 

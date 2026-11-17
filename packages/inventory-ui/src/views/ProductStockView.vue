@@ -338,6 +338,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { reportError } from 'ui-shared/composables/report-error'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { appHref } from 'ui-shared/nav/navigate'
@@ -535,14 +536,14 @@ async function fetchProduct() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${productId.value}`)
     product.value = data.product || data
-  } catch { /* */ }
+  } catch (e) { reportError(e) }
 }
 
 async function fetchWarehouses() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`)
     warehouses.value = data.warehouses || []
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 async function fetchStockData() {
@@ -557,7 +558,7 @@ async function fetchStockData() {
     stockLevels.value = levelsRes.data.stockLevels || []
     stockMovements.value = movementsRes.data.stockMovements || []
     stockCounts.value = countsRes.data.inventoryCounts || []
-  } catch { /* */ }
+  } catch (e) { reportError(e) }
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/product-supply/${productId.value}`)
     supply.value = data.supply
@@ -630,7 +631,7 @@ watch(contactSearch, (q) => {
         ...c,
         displayName: c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || c._id,
       }))
-    } catch { /* */ } finally {
+    } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
       contactLoading.value = false
     }
   }, 300)

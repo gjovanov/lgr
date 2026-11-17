@@ -297,7 +297,7 @@ function loadSidebarPref(): boolean {
 
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
-  try { localStorage.setItem(SIDEBAR_PREF_KEY, String(sidebarCollapsed.value)) } catch { /* ignore */ }
+  try { localStorage.setItem(SIDEBAR_PREF_KEY, String(sidebarCollapsed.value)) } catch { /* Storage refused (private browsing): the sidebar opens as it always does. */ }
 }
 
 // A record that did not load offers nothing to do with it: no Save, Issue, Delete or Print, and no shortcut.

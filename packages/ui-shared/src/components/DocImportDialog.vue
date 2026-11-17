@@ -681,7 +681,7 @@ async function fetchOrders(search?: string) {
     const current = orderOptions.value.find((o) => o._id === orderId.value)
     if (current && !items.some((o: any) => o._id === current._id)) items.push(current)
     orderOptions.value = items
-  } catch { /* ignore */ } finally {
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
     loadingOrders.value = false
   }
 }

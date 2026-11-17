@@ -434,6 +434,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { reportError } from 'ui-shared/composables/report-error'
 import { downloadAsSession } from 'ui-shared/composables/useSessionDownload'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import HubPageHeader from 'ui-shell/components/HubPageHeader'
@@ -823,7 +824,7 @@ const activeDoc = ref<any>(null)
 const versionData = ref<any>(null)
 async function openVersions(item: any) {
   activeDoc.value = item; versionsOpen.value = true; versionData.value = null
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/files/${item._id}/versions`); versionData.value = data } catch { /* ignore */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/files/${item._id}/versions`); versionData.value = data } catch (e) { reportError(e) }
 }
 
 onMounted(async () => {

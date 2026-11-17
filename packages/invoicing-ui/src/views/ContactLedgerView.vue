@@ -167,7 +167,7 @@ async function fetchContactName() {
     const { data } = await httpClient.get(`${orgUrl.value}/invoicing/contact/${contactId.value}`)
     const c = data.contact || data
     contactName.value = c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || ''
-  } catch { /* */ }
+  } catch { /* The ledger shows without the name in its title; the HTTP client says a network failure or a 5xx. */ }
 }
 
 onMounted(async () => {
