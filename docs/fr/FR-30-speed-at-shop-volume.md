@@ -388,3 +388,7 @@ The demo organization is small, so production proves that nothing changed, and t
 **Sorts no index serves** (`scan` in the table, held by the test as a list): Products by type, unit, active, minimum, purchase and selling price; documents by status, type, currency, reference, subtotal, tax, total, amount due; Stock levels by quantity; Movements by status and total (and by the three looked-up names, an aggregation). Each still reads the filtered rows, as before. They stay offered: dropping them from the grids, or indexing them, is the owner's call (FR-30.2).
 
 **Turned off in the grids**, because the server never sorted by them (they are names looked up after the page): the contact on Sales invoices and Bills, the article's SKU and name and the warehouse on Stock levels.
+
+### FR-30.5 (draft), prepared 2026-11-17, due on or after 2026-11-23
+
+`scripts/index-usage.ts` reads `$indexStats` and the index sizes per collection (counters only, on the primary) and lists the indexes with no use since the member started. Migration `0019-drop-unused-indexes` drops what the production reading puts in its `UNUSED_INDEXES`, and `KEPT` names any unused index kept with its reason; the schemas lose the same declarations in the same pull request. Both lists are empty until the reading, a week after slice A was deployed. Its number is the next free one when it merges.

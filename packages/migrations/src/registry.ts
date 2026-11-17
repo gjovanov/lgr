@@ -16,6 +16,7 @@ import { accountingFilePermission } from './migrations/0013-accounting-file-perm
 import { sellerPermissionSets } from './migrations/0014-seller-permission-sets.js'
 import { rolesFromSets } from './migrations/0015-roles-from-sets.js'
 import { dropUnreadTextIndexes } from './migrations/0016-drop-unread-text-indexes.js'
+import { dropUnusedIndexes } from './migrations/0019-drop-unused-indexes.js'
 import FINGERPRINTS from './fingerprints.json' with { type: 'json' }
 
 /**
@@ -45,6 +46,7 @@ export const RELEASED: Migration[] = [
   sellerPermissionSets,
   rolesFromSets,
   dropUnreadTextIndexes,
+  dropUnusedIndexes,
 ]
 
 /** {@link RELEASED}, each carrying its file's fingerprint, which the runner checksums. */
