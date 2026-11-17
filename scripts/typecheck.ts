@@ -16,15 +16,14 @@
  * ⚠ The compilers run under Bun (`bun <their entry file>`), never through `node_modules/.bin`:
  * those are `#!/usr/bin/env node` scripts, and the self-hosted CI runner has no Node.
  *
- * Why a baseline, and how it is keyed: `scripts/lib/typecheck-baseline.ts`.
+ * Why a baseline, and how it is keyed: `scripts/lib/typecheck-baseline.ts`. The linter
+ * (`scripts/lint.ts`) runs its findings through the same gate (`scripts/lib/baseline-gate.ts`).
  */
-import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import {
-  compareCounts, countDiagnostics, parseBaseline, parseDiagnostics, rewriteBaseline, serializeCounts, totalOf,
-  type Change, type Counts, type Diagnostic,
-} from './lib/typecheck-baseline'
+import { parseDiagnostics, TS_CODE, type Diagnostic } from './lib/typecheck-baseline'
+import { gate } from './lib/baseline-gate'
 
 const ROOT = resolve(import.meta.dir, '..')
 
@@ -83,26 +82,6 @@ async function run(program: Program): Promise<Result> {
   return { program, diagnostics, seconds: (performance.now() - started) / 1000 }
 }
 
-function readBaseline(name: string): Counts {
-  const path = baselinePath(name)
-  return existsSync(path) ? parseBaseline(readFileSync(path, 'utf8')) : {}
-}
-
-const annotate = process.env.GITHUB_ACTIONS === 'true'
-const escape = (s: string) => s.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
-
-function explainAdded(name: string, added: Change[], diagnostics: Diagnostic[]) {
-  console.log(`\n${name}: ${added.length} new or grown (file, code):`)
-  for (const a of added) {
-    console.log(`  ${a.file}  ${a.code}: baseline ${a.was}, now ${a.now}`)
-    // The baseline has no lines, so which of them is the new one cannot be told: all are shown.
-    for (const d of diagnostics.filter(x => x.file === a.file && x.code === a.code)) {
-      console.log(`    ${d.file}(${d.line},${d.col}): ${d.message}`)
-      if (annotate) console.log(`::error file=${d.file},line=${d.line},col=${d.col},title=${d.code}::${escape(d.message)}`)
-    }
-  }
-}
-
 async function main() {
   const args = process.argv.slice(2)
   const update = args.includes('--update')
@@ -118,45 +97,17 @@ async function main() {
   const summary: string[] = ['| program | errors | baseline | took |', '|---|---:|---:|---:|']
 
   for (const { program, diagnostics, seconds } of results) {
-    const baseline = readBaseline(program.name)
-    const current = countDiagnostics(diagnostics)
-    const { added, fixed } = compareCounts(baseline, current)
-    console.log(`${program.name}: ${totalOf(current)} errors, baseline ${totalOf(baseline)} (${program.compiler}, ${seconds.toFixed(0)} s)`)
-    summary.push(`| ${program.name} | ${totalOf(current)} | ${totalOf(baseline)} | ${seconds.toFixed(0)} s |`)
-
-    if (update) {
-      // The first baseline of a program is what it reports: there is nothing for it to shrink from.
-      if (!existsSync(baselinePath(program.name))) {
-        writeFileSync(baselinePath(program.name), serializeCounts(current))
-        console.log(`${program.name}: first baseline written, ${totalOf(current)} errors`)
-        continue
-      }
-      const next = rewriteBaseline(baseline, current)
-      if (!next.ok) {
-        failed = true
-        console.log(`${program.name}: the baseline is NOT rewritten: it may only get shorter, and these are new.`)
-        console.log('  Fix them. (A file that was moved or renamed takes its errors with it: they count as new under its new name.)')
-        explainAdded(program.name, next.added, diagnostics)
-      } else if (fixed.length) {
-        writeFileSync(baselinePath(program.name), serializeCounts(next.baseline))
-        console.log(`${program.name}: baseline rewritten, ${totalOf(baseline)} -> ${totalOf(next.baseline)}`)
-      } else {
-        console.log(`${program.name}: the baseline is current`)
-      }
-      continue
-    }
-
-    if (added.length) {
-      failed = true
-      explainAdded(program.name, added, diagnostics)
-    }
-    if (fixed.length) {
-      failed = true
-      console.log(`\n${program.name}: ${fixed.length} (file, code) have fewer errors than the baseline says. Well done:`)
-      for (const f of fixed) console.log(`  ${f.file}  ${f.code}: baseline ${f.was}, now ${f.now}`)
-      console.log('  Shrink the baseline with `bun run typecheck --update` and commit it, so they cannot come back unseen.')
-      if (annotate) console.log(`::error title=typecheck baseline::${program.name}: errors were fixed; run \`bun run typecheck --update\` and commit the baseline`)
-    }
+    const r = gate({
+      name: program.name,
+      diagnostics,
+      baselinePath: baselinePath(program.name),
+      key: TS_CODE,
+      update,
+      updateCommand: 'bun run typecheck --update',
+    })
+    console.log(`${program.name}: ${r.current} errors, baseline ${r.baseline} (${program.compiler}, ${seconds.toFixed(0)} s)`)
+    summary.push(`| ${program.name} | ${r.current} | ${r.baseline} | ${seconds.toFixed(0)} s |`)
+    failed ||= r.failed
   }
 
   const total = results.reduce((n, r) => n + r.diagnostics.length, 0)

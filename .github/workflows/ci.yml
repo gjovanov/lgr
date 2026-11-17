@@ -513,8 +513,10 @@ jobs:
   # reached master unless a test happened to run into it.
   # A job of its own, beside the suite and the builds rather than before them (FR-32.8): it needs
   # no database and no build, and the three compilers run side by side in it.
+  # The linter (FR-32.5) runs in this job too: one job for both, as FR-32 §4 has it, and its
+  # floating-promise rule reads the same tsconfig files.
   typecheck:
-    name: typecheck (ubuntu)
+    name: typecheck + lint (ubuntu)
     # The routing the header describes.
     runs-on: ${{ fromJSON(github.event.pull_request.head.repo.fork && '"ubuntu-24.04"' || vars.LGR_LINUX_RUNNER || '"ubuntu-24.04"') }}
     timeout-minutes: 15
@@ -547,6 +549,14 @@ jobs:
       - name: Install dependencies
         if: steps.same.outputs.skip != 'true'
         run: bun install --frozen-lockfile
+
+      # FR-32.5: oxlint with four rules (an empty catch, a `.catch()` that takes no error, a new
+      # `as any` in the API packages and `services`, a floating promise), against
+      # scripts/lint/baseline.json under the same rules as the type-check's. About ten seconds,
+      # so it goes first.
+      - name: Lint against the baseline
+        if: steps.same.outputs.skip != 'true'
+        run: bun run lint
 
       # A new (file, error code), or a count that grew, fails. So does a count that fell: the
       # baseline is then rewritten with `bun run typecheck --update` and committed, which is how

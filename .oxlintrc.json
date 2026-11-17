@@ -1,0 +1,41 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript"],
+  "jsPlugins": ["./scripts/lint/lgr-plugin.js"],
+  "categories": {
+    "correctness": "off",
+    "suspicious": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off",
+    "nursery": "off"
+  },
+  "rules": {
+    "lgr/no-empty-catch": "error",
+    "lgr/catch-drops-error": "error",
+    "typescript/no-floating-promises": "error"
+  },
+  "overrides": [
+    {
+      "files": ["packages/*-api/src/**", "packages/services/src/**"],
+      "rules": {
+        "lgr/no-as-any": "error"
+      }
+    }
+  ],
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "packages/tests/**",
+    "packages/e2e/**",
+    "packages/ocr-server/tests/**",
+    "packages/desktop/**",
+    "packages/server/**",
+    "packages/migrations/src/migrations/**",
+    "scripts/**",
+    "infra/**",
+    "deploy/**",
+    "docs/**"
+  ]
+}

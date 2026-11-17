@@ -1,0 +1,858 @@
+{
+  "packages/accounting-api/src/controllers/account.controller.ts": {
+    "lgr/no-as-any": 16
+  },
+  "packages/accounting-api/src/controllers/analytic.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/accounting-api/src/controllers/bank-account.controller.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/accounting-api/src/controllers/exchange-rate.controller.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 11
+  },
+  "packages/accounting-api/src/controllers/fiscal-period.controller.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/accounting-api/src/controllers/fiscal-position.controller.ts": {
+    "lgr/no-as-any": 8
+  },
+  "packages/accounting-api/src/controllers/fiscal-year.controller.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/accounting-api/src/controllers/fixed-asset.controller.ts": {
+    "lgr/no-as-any": 11
+  },
+  "packages/accounting-api/src/controllers/journal-config.controller.ts": {
+    "lgr/no-as-any": 8
+  },
+  "packages/accounting-api/src/controllers/journal.controller.ts": {
+    "lgr/no-as-any": 22
+  },
+  "packages/accounting-api/src/controllers/payment-term.controller.ts": {
+    "lgr/no-as-any": 8
+  },
+  "packages/accounting-api/src/controllers/reconciliation.controller.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/accounting-api/src/controllers/tax-return.controller.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/accounting-api/src/controllers/vat.controller.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/accounting-ui/src/views/accounting/AnalyticFormView.vue": {
+    "lgr/catch-drops-error": 3
+  },
+  "packages/db/src/connection.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/desktop-ui/src/App.vue": {
+    "lgr/catch-drops-error": 3
+  },
+  "packages/files-api/src/controllers/file.controller.ts": {
+    "lgr/no-as-any": 11
+  },
+  "packages/fiscal/src/eltrade.ts": {
+    "lgr/catch-drops-error": 6
+  },
+  "packages/fiscal/src/ws-tremol-printer.ts": {
+    "lgr/no-empty-catch": 1
+  },
+  "packages/invoicing-api/src/controllers/aging-report.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/invoicing-api/src/controllers/bill-import.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/invoicing-api/src/controllers/cash-order.controller.ts": {
+    "lgr/no-as-any": 22
+  },
+  "packages/invoicing-api/src/controllers/contact-ledger.controller.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/invoicing-api/src/controllers/contact.controller.ts": {
+    "lgr/no-as-any": 22
+  },
+  "packages/invoicing-api/src/controllers/dispatch-invoice.controller.ts": {
+    "lgr/no-as-any": 6
+  },
+  "packages/invoicing-api/src/controllers/doc-email.controller.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/invoicing-api/src/controllers/doc-import.controller.ts": {
+    "lgr/no-as-any": 6
+  },
+  "packages/invoicing-api/src/controllers/internal-order.controller.ts": {
+    "lgr/no-as-any": 33
+  },
+  "packages/invoicing-api/src/controllers/invoice-export.controller.ts": {
+    "lgr/no-as-any": 51
+  },
+  "packages/invoicing-api/src/controllers/invoice.controller.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 186
+  },
+  "packages/invoicing-api/src/controllers/number-clash.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/invoicing-api/src/controllers/order.controller.ts": {
+    "lgr/no-as-any": 44
+  },
+  "packages/invoicing-api/src/controllers/payment-order.controller.ts": {
+    "lgr/no-as-any": 20
+  },
+  "packages/invoicing-api/src/controllers/pos.controller.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 31
+  },
+  "packages/invoicing-api/src/controllers/product-supply.controller.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/invoicing-api/src/controllers/reservation.controller.ts": {
+    "lgr/no-as-any": 44
+  },
+  "packages/invoicing-api/src/controllers/stats.controller.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/invoicing-api/src/lib/cash-register-till.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 10
+  },
+  "packages/invoicing-api/src/lib/counter-refund.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/invoicing-api/src/lib/doc-email.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/invoicing-api/src/lib/internal-order-pdf.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/invoicing-api/src/lib/invoice-pdf.ts": {
+    "lgr/no-as-any": 9
+  },
+  "packages/invoicing-api/src/lib/order-sheet.ts": {
+    "lgr/no-as-any": 18
+  },
+  "packages/invoicing-api/src/lib/reservation-convert.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/invoicing-ui/src/composables/document-form/useDocumentForm.ts": {
+    "typescript/no-floating-promises": 6
+  },
+  "packages/invoicing-ui/src/pos/composables/useTillPin.ts": {
+    "lgr/catch-drops-error": 2
+  },
+  "packages/invoicing-ui/src/pos/till-rules.ts": {
+    "typescript/no-floating-promises": 1
+  },
+  "packages/invoicing-ui/src/pos/views/PosDeviceDetailView.vue": {
+    "lgr/no-empty-catch": 1
+  },
+  "packages/invoicing-ui/src/pos/views/PosTerminalView.vue": {
+    "lgr/no-empty-catch": 2
+  },
+  "packages/migrations/src/cli.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/payroll-api/src/controllers/contract.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/payroll-api/src/controllers/employee.controller.ts": {
+    "lgr/no-as-any": 11
+  },
+  "packages/payroll-api/src/controllers/import.controller.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/payroll-api/src/controllers/payslip.controller.ts": {
+    "lgr/no-as-any": 8
+  },
+  "packages/payroll-api/src/controllers/run.controller.ts": {
+    "lgr/catch-drops-error": 2,
+    "lgr/no-as-any": 14
+  },
+  "packages/payroll-api/src/controllers/timesheet.controller.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/portal-api/src/auth/verify-token.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/portal-api/src/controllers/address.controller.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/portal-api/src/controllers/admin-licences.controller.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/portal-api/src/controllers/admin-nodes.controller.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/portal-api/src/controllers/app-hub.controller.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/portal-api/src/controllers/audit-log.controller.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/portal-api/src/controllers/auth.controller.ts": {
+    "lgr/catch-drops-error": 4,
+    "lgr/no-as-any": 17
+  },
+  "packages/portal-api/src/controllers/backup.controller.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/portal-api/src/controllers/dashboard.controller.ts": {
+    "lgr/catch-drops-error": 6,
+    "lgr/no-as-any": 5
+  },
+  "packages/portal-api/src/controllers/desktop-v1.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/portal-api/src/controllers/desktop.controller.ts": {
+    "lgr/no-as-any": 12
+  },
+  "packages/portal-api/src/controllers/digest.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/portal-api/src/controllers/fiscal-device.controller.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 35
+  },
+  "packages/portal-api/src/controllers/idp.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/portal-api/src/controllers/integrations.controller.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/portal-api/src/controllers/invite.controller.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/portal-api/src/controllers/local-auth.controller.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/portal-api/src/controllers/node-v1.controller.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 5
+  },
+  "packages/portal-api/src/controllers/node.controller.ts": {
+    "lgr/catch-drops-error": 3,
+    "lgr/no-as-any": 2
+  },
+  "packages/portal-api/src/controllers/oauth.controller.ts": {
+    "lgr/no-as-any": 9
+  },
+  "packages/portal-api/src/controllers/onprem-credentials.controller.ts": {
+    "lgr/catch-drops-error": 3
+  },
+  "packages/portal-api/src/controllers/org.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/portal-api/src/controllers/pos-payment-method.controller.ts": {
+    "lgr/no-as-any": 8
+  },
+  "packages/portal-api/src/controllers/role.controller.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/portal-api/src/controllers/server-status.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/portal-api/src/controllers/supto-export.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/portal-api/src/controllers/user.controller.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/portal-api/src/front/control-socket.ts": {
+    "lgr/catch-drops-error": 2,
+    "typescript/no-floating-promises": 1
+  },
+  "packages/portal-api/src/lib/server-error.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/portal-api/src/tunnel/forward.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/portal-api/src/tunnel/router.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/portal-api/src/tunnel/streams.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/portal-api/src/unified.ts": {
+    "lgr/catch-drops-error": 5,
+    "lgr/no-as-any": 9
+  },
+  "packages/portal-api/src/websocket/desktop.ts": {
+    "lgr/no-as-any": 1,
+    "typescript/no-floating-promises": 1
+  },
+  "packages/portal-api/src/websocket/fiscal-bridge.ts": {
+    "lgr/catch-drops-error": 2,
+    "lgr/no-as-any": 1,
+    "typescript/no-floating-promises": 2
+  },
+  "packages/portal-api/src/websocket/uplink.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 6
+  },
+  "packages/portal-ui/src/views/auth/LoginView.vue": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/portal-ui/src/views/settings/ServerStatusView.vue": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/reporting/src/pdf/base.pdf.ts": {
+    "lgr/catch-drops-error": 2
+  },
+  "packages/reports-api/src/controllers/report.controller.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/reports-ui/src/components/ReportRunner.vue": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/reports-ui/src/components/ReportingTabGrid.vue": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/reports-ui/src/views/SuptoTableView.vue": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/services/src/biz/access/evaluate.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/access/live.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/access/partition.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/access/role.service.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/access/shadow.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/accounting-books/analytics.service.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/accounting-books/import.service.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/accounting-books/plusminus-archive.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/services/src/biz/accounting.service.ts": {
+    "lgr/no-as-any": 11
+  },
+  "packages/services/src/biz/address/org-address.service.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/app-hub.service.ts": {
+    "lgr/no-as-any": 10
+  },
+  "packages/services/src/biz/archive/archive.service.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/services/src/biz/audit-log.service.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/auth.service.ts": {
+    "lgr/catch-drops-error": 4
+  },
+  "packages/services/src/biz/auto-journal.service.ts": {
+    "lgr/no-as-any": 12
+  },
+  "packages/services/src/biz/backup/backup-restore.service.ts": {
+    "lgr/no-as-any": 8
+  },
+  "packages/services/src/biz/backup/backup-runner.service.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/backup/s3-client.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/bill-stock-receipt.service.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/services/src/biz/bulk-pricing.service.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/services/src/biz/cash-register/copy-org.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/cash-register/freeze-check.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/cash-register/opening-float.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/services/src/biz/cash-register/payment-receipt.service.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/cash-register/pos-union.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/cash-register/register.service.ts": {
+    "lgr/catch-drops-error": 11,
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/cash-register/settle.service.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/services/src/biz/cash-sale-invoice.service.ts": {
+    "lgr/no-as-any": 42
+  },
+  "packages/services/src/biz/cash-settlement.service.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/cloud-storage.service.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/company-lookup.service.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/contact-ledger.service.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/contact-picker.service.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/costing.service.ts": {
+    "lgr/no-as-any": 15
+  },
+  "packages/services/src/biz/count-number.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/currency.service.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/desktop/desktop.service.ts": {
+    "lgr/no-as-any": 11
+  },
+  "packages/services/src/biz/desktop/release-cache.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/digest/daily-digest.render.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/digest/daily-digest.service.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/services/src/biz/digest/daily-digest.types.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/digest/digest-runner.service.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/services/src/biz/dispatch-invoice.service.ts": {
+    "lgr/no-as-any": 19
+  },
+  "packages/services/src/biz/doc-email/request.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/services/src/biz/doc-import/analyze.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/doc-import/commit.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/services/src/biz/doc-import/conversion.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/doc-import/dedupe.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/services/src/biz/doc-import/local-extract.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/services/src/biz/doc-import/map-invoice.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/doc-import/map-movement.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/doc-import/matching.ts": {
+    "lgr/catch-drops-error": 2,
+    "lgr/no-as-any": 17
+  },
+  "packages/services/src/biz/doc-import/ocr-client.ts": {
+    "lgr/catch-drops-error": 2,
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/doc-import/persist-movement.ts": {
+    "lgr/no-as-any": 9
+  },
+  "packages/services/src/biz/doc-import/persist.ts": {
+    "lgr/no-as-any": 6
+  },
+  "packages/services/src/biz/doc-import/target-access.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/services/src/biz/doc-import/till-overlap.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/doc-import/xlsx.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/email.service.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/external-warehouses.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/files/compare-snapshot.service.ts": {
+    "lgr/no-as-any": 12
+  },
+  "packages/services/src/biz/files/doc-delete.service.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 9
+  },
+  "packages/services/src/biz/files/doc-pipeline.service.ts": {
+    "lgr/no-as-any": 18
+  },
+  "packages/services/src/biz/files/doc-reconcile.service.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/files/doc-store.service.ts": {
+    "lgr/no-as-any": 6
+  },
+  "packages/services/src/biz/fiscal-presence.service.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/home/home-status.service.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/home/legal-mark.service.ts": {
+    "lgr/catch-drops-error": 2
+  },
+  "packages/services/src/biz/home/series-lock.service.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/services/src/biz/hot-path-key.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/identity/account.service.ts": {
+    "lgr/catch-drops-error": 4,
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/identity/identity-migration.service.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/services/src/biz/identity/local-credentials.service.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/services/src/biz/identity/onprem-credentials.service.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/services/src/biz/identity/session.service.ts": {
+    "lgr/catch-drops-error": 2
+  },
+  "packages/services/src/biz/idp/idp-signin.service.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/services/src/biz/inventory-count-pricing.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/invoice-payment.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/invoice-with-update.service.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/invoicing.service.ts": {
+    "lgr/no-as-any": 33
+  },
+  "packages/services/src/biz/issue-document.service.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/services/src/biz/journal-header.service.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/member-payroll-read.backfill.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/move/fenced-export.service.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/services/src/biz/move/fenced-import.service.ts": {
+    "lgr/no-as-any": 17
+  },
+  "packages/services/src/biz/move/home-digest.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/move/kept-import.service.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/move/move-back.service.ts": {
+    "lgr/catch-drops-error": 3,
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/move/move-bundle.ts": {
+    "lgr/no-as-any": 11
+  },
+  "packages/services/src/biz/move/move-worker.service.ts": {
+    "lgr/catch-drops-error": 14,
+    "lgr/no-as-any": 13
+  },
+  "packages/services/src/biz/move/move.service.ts": {
+    "lgr/catch-drops-error": 9,
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/move/reseed.service.ts": {
+    "lgr/catch-drops-error": 4,
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/movement-number.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/services/src/biz/movement-with-update.service.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/node/node-alarms.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/node/node.service.ts": {
+    "lgr/no-as-any": 10
+  },
+  "packages/services/src/biz/node/setup-facts.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/number-clash.service.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/oauth.service.ts": {
+    "lgr/catch-drops-error": 4,
+    "lgr/no-as-any": 9
+  },
+  "packages/services/src/biz/order-reservations.service.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/services/src/biz/orders-from-products.service.ts": {
+    "lgr/no-as-any": 24
+  },
+  "packages/services/src/biz/org-clone/clone.service.ts": {
+    "lgr/no-as-any": 16
+  },
+  "packages/services/src/biz/outbound-fetch.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/services/src/biz/payroll.service.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/services/src/biz/permission-set.migration.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/services/src/biz/permission-set.seed.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/personal-data/employee-personal.ts": {
+    "lgr/no-as-any": 8
+  },
+  "packages/services/src/biz/pricing.service.ts": {
+    "lgr/no-as-any": 12
+  },
+  "packages/services/src/biz/product-ledger.service.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/services/src/biz/product-list-filter.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/product-list-query.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/product-stock-filter.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/product-stock-sort.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/product-suppliers.service.ts": {
+    "lgr/no-as-any": 8
+  },
+  "packages/services/src/biz/product-supply.service.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/services/src/biz/product-update.service.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/purchase-price-from-tier2.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/quick-product.service.ts": {
+    "lgr/no-as-any": 9
+  },
+  "packages/services/src/biz/receipt-bill.service.ts": {
+    "lgr/no-as-any": 22
+  },
+  "packages/services/src/biz/recorded-suppliers.service.ts": {
+    "lgr/no-as-any": 17
+  },
+  "packages/services/src/biz/relay/outbox-worker.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/services/src/biz/replication/apply.ts": {
+    "lgr/catch-drops-error": 2
+  },
+  "packages/services/src/biz/replication/blob-source.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/services/src/biz/replication/capture.ts": {
+    "lgr/catch-drops-error": 3,
+    "lgr/no-as-any": 16
+  },
+  "packages/services/src/biz/replication/control.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/replication/engine.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/replication/mirror-blobs.ts": {
+    "lgr/catch-drops-error": 10,
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/replication/pages.ts": {
+    "lgr/no-as-any": 11
+  },
+  "packages/services/src/biz/replication/reconcile.ts": {
+    "lgr/no-as-any": 6
+  },
+  "packages/services/src/biz/report-registry.types.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/biz/reservation-ops.service.ts": {
+    "lgr/no-as-any": 58
+  },
+  "packages/services/src/biz/reservation.service.ts": {
+    "lgr/no-as-any": 45
+  },
+  "packages/services/src/biz/sale-counting.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/services/src/biz/sales-lines.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/services/src/biz/scoped-repos.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/scoped-repository.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/sequence.service.ts": {
+    "lgr/no-as-any": 6
+  },
+  "packages/services/src/biz/sorted-page.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/stock-movement-document.service.ts": {
+    "lgr/no-as-any": 5
+  },
+  "packages/services/src/biz/stock-transfer.service.ts": {
+    "lgr/no-as-any": 9
+  },
+  "packages/services/src/biz/supto-export.service.ts": {
+    "lgr/no-as-any": 9
+  },
+  "packages/services/src/biz/tag.service.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/vat-files/vat-return.service.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/services/src/biz/warehouse.service.ts": {
+    "lgr/no-as-any": 10
+  },
+  "packages/services/src/dao/invite.dao.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/services/src/dao/org-app.dao.ts": {
+    "lgr/no-as-any": 3
+  },
+  "packages/services/src/events/handlers.ts": {
+    "lgr/no-as-any": 9
+  },
+  "packages/services/src/logger/logger.ts": {
+    "lgr/no-empty-catch": 1
+  },
+  "packages/ui-shared/src/access/live-grant.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/ui-shared/src/composables/useContactLedger.ts": {
+    "typescript/no-floating-promises": 2
+  },
+  "packages/ui-shared/src/composables/useFiscalBridge.ts": {
+    "lgr/catch-drops-error": 2,
+    "lgr/no-empty-catch": 9,
+    "typescript/no-floating-promises": 2
+  },
+  "packages/ui-shared/src/composables/usePaginatedTable.ts": {
+    "typescript/no-floating-promises": 3
+  },
+  "packages/ui-shared/src/composables/usePendingChanges.ts": {
+    "typescript/no-floating-promises": 1
+  },
+  "packages/ui-shared/src/plugins/index.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/ui-shared/src/session/session.ts": {
+    "lgr/catch-drops-error": 1
+  },
+  "packages/warehouse-api/src/controllers/inventory-count.controller.ts": {
+    "lgr/catch-drops-error": 1,
+    "lgr/no-as-any": 29
+  },
+  "packages/warehouse-api/src/controllers/movement-email.controller.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/warehouse-api/src/controllers/movement.controller.ts": {
+    "lgr/no-as-any": 47
+  },
+  "packages/warehouse-api/src/controllers/opening-stock.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/warehouse-api/src/controllers/operation-type.controller.ts": {
+    "lgr/no-as-any": 8
+  },
+  "packages/warehouse-api/src/controllers/price-list.controller.ts": {
+    "lgr/no-as-any": 9
+  },
+  "packages/warehouse-api/src/controllers/pricing.controller.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/warehouse-api/src/controllers/product-category.controller.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/warehouse-api/src/controllers/product-ledger.controller.ts": {
+    "lgr/no-as-any": 4
+  },
+  "packages/warehouse-api/src/controllers/product-supplier.controller.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/warehouse-api/src/controllers/product.controller.ts": {
+    "lgr/no-as-any": 25
+  },
+  "packages/warehouse-api/src/controllers/stock-level.controller.ts": {
+    "lgr/no-as-any": 7
+  },
+  "packages/warehouse-api/src/controllers/stock-location.controller.ts": {
+    "lgr/no-as-any": 8
+  },
+  "packages/warehouse-api/src/controllers/stock-lot.controller.ts": {
+    "lgr/no-as-any": 8
+  },
+  "packages/warehouse-api/src/controllers/warehouse.controller.ts": {
+    "lgr/no-as-any": 15
+  },
+  "packages/warehouse-api/src/lib/movement-email.ts": {
+    "lgr/no-as-any": 1
+  },
+  "packages/warehouse-api/src/lib/opening-stock.ts": {
+    "lgr/no-as-any": 2
+  },
+  "packages/web/src/main.ts": {
+    "typescript/no-floating-promises": 1
+  }
+}
