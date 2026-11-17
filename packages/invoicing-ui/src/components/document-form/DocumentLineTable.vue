@@ -153,7 +153,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(line, idx) in form.lines" :key="idx" :class="{ 'line-refused': !!lineRefusalOf(line) }">
+        <tr v-for="(line, idx) in form.lines" :key="rowKey(line)" :class="{ 'line-refused': !!lineRefusalOf(line) }">
           <td class="line-no text-medium-emphasis">{{ idx + 1 }}</td>
           <td>
             <!-- From the top: the button stays beside the field, not beside the field and its chip. -->
@@ -299,6 +299,7 @@
 </template>
 
 <script setup lang="ts">
+import { rowKey } from 'ui-shared/composables/row-key'
 import ProductLineDescription from '../ProductLineDescription.vue'
 import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'

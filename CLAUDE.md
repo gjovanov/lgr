@@ -2944,6 +2944,9 @@ prints: „One list of actions for a document's two bars" below.
   - A refused issue also marks the LINES it is about (`useDocumentForm#lineRefusalOf`, `data-testid="line-refusal"`):
     the stock check's shortfalls by article and warehouse, a cost-layer refusal by the article's name (a refusal carries
     no id). The mark goes with the alert, and from a line whose article, warehouse or quantity changed since.
+  - **A line grid keys its rows by the line** (FR-31.12): `:key="rowKey(line)"` (`ui-shared/composables/row-key.ts`, a
+    `WeakMap` on the line object, never a field on it), never by position: removing a row gave the rows below it to
+    other lines, with their open menus, typed text and focus, and made them load again.
   - A list on `usePaginatedTable` / `useProductList` never throws a failed request any more: it puts it in
     `pagination.loadError`, and `ListScaffold` (or `ListLoadError` in a table of its own) says it with Retry, never "no
     data". An error on the message line (`useSnackbar`) stays until closed, and messages queue.

@@ -171,6 +171,7 @@
     "./components/product-list/OrderFromProductsDialog.vue": "./src/components/product-list/OrderFromProductsDialog.vue",
     "./composables/useGridColumns": "./src/composables/useGridColumns.ts",
     "./composables/useStorageIdentity": "./src/composables/useStorageIdentity.ts",
+    "./composables/row-key": "./src/composables/row-key.ts",
     "./composables/useUserDefaults": "./src/composables/useUserDefaults.ts",
     "./composables/useGridNavigation": "./src/composables/useGridNavigation.ts",
     "./composables/useProductSearchMenu": "./src/composables/useProductSearchMenu.ts",
