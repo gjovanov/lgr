@@ -156,7 +156,7 @@ export function usePendingChanges(config: PendingChangesConfig) {
     restoredEntryId = restoreId
     // Remove the restore query param silently
     const { restore: _, ...rest } = route.query
-    router.replace({ ...route, query: rest })
+    void router.replace({ ...route, query: rest }) // a failed navigation only leaves the query in the address
     // Re-snapshot after restore so navigating away without further changes won't re-capture
     setTimeout(() => snapshot(), 0)
     return true

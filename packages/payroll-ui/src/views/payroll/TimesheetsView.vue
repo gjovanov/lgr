@@ -47,7 +47,7 @@
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
       <template #item.actions="{ item }">
-        <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'payroll.timesheets.edit', params: { id: item._id } }" />
+        <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" :to="{ name: 'payroll.timesheets.edit', params: { id: item._id } }" />
       </template>
     </v-data-table-server>
 

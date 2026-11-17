@@ -13,6 +13,7 @@
  * fallback.
  */
 import { Elysia, t } from 'elysia'
+import { AnObject } from 'services/http/body-schemas'
 import { createHash } from 'node:crypto'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { config } from 'config'
@@ -293,7 +294,7 @@ export const docImportController = new Elysia({ prefix: '/org/:orgId/doc-import'
         items: t.Array(t.Object({
           fileId: t.Optional(t.String()),
           mapped: t.Any(),
-          extraMovements: t.Optional(t.Array(t.Any())),
+          extraMovements: t.Optional(t.Array(AnObject)),
           options: t.Optional(t.Object({
             convert: t.Optional(t.Boolean()),
             adjustStock: t.Optional(t.Boolean()),

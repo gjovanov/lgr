@@ -130,11 +130,11 @@
                   <v-btn icon="mdi-minus" size="x-small" variant="text" :aria-label="$t('pos.decreaseQty')" @click="setQuantity(idx, Number(line.quantity || 0) - 1)" />
                   <!-- #145: a large quantity is typed, not clicked. A pick leaves the cursor here (`pick`);
                        Enter hands it back to the search, and the move away commits what was typed. -->
-                  <v-text-field
+                  <DecimalField
                     :key="qtyResets[idx] || 0"
                     :model-value="line.quantity"
-                    type="number"
-                    inputmode="decimal"
+                    :decimals="QTY_DECIMALS"
+                    :min-decimals="0"
                     min="0"
                     hide-details
                     density="compact"
@@ -191,6 +191,8 @@
 
 <script setup lang="ts">
 import { rowKey } from '../../composables/row-key'
+import DecimalField from '../DecimalField.vue'
+import { QTY_DECIMALS } from '../../composables/price-precision'
 import { computed, nextTick, onMounted, ref, toRaw, watch, type ComponentPublicInstance } from 'vue'
 import { numberFormat } from '../../composables/number-display'
 import { useI18n } from 'vue-i18n'

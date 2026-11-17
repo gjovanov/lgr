@@ -42,7 +42,7 @@
           </template>
           <template #item.actions="{ item }">
             <v-btn :icon="writes ? 'mdi-pencil' : 'mdi-eye'" size="small" variant="text" :to="{ name: 'inventory.categories.edit', params: { id: item._id } }" />
-            <v-btn v-if="writes" icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
+            <v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" v-if="writes" icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>

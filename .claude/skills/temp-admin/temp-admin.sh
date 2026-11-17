@@ -73,7 +73,7 @@ create)
     s=$(login_status "\"orgSlug\":\"$o\",\"username\":\"$user\""); echo "sign-in $o: $s"; [[ $s == 200 ]] || bad=1
   done
   ((bad)) && { echo "FAILED: the account does not sign in everywhere. Drop it (temp-admin.sh drop $tag ${orgs[*]}) and start again with a new tag."; exit 1; }
-  echo "CREATED $user in: ${orgs[*]}. Prove what its session sees before using it (daily-import: grant-check.ts)."
+  echo "CREATED $user in: ${orgs[*]}. Prove what its session sees before using it: bun .claude/skills/daily-import/daily.ts grant --org <org> --session $tag"
   ;;
 
 drop)

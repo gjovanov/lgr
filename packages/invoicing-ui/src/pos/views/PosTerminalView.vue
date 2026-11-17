@@ -274,7 +274,7 @@ watch(() => fiscalBridge.status.value, async (val) => {
       const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, { params: { isActive: 'true' } })
       const dev = (data.fiscalDevices || []).find((d: any) => d.connectionType === 'browser')
       if (dev) await httpClient.put(`${orgUrl()}/fiscal/device/${dev._id || dev.id}`, { status: 'error' })
-    } catch {}
+    } catch { /* The device's status is a courtesy for the device list; the till already says it lost the printer. */ }
   }
   if (val === 'connected' && fiscalBridge.deviceNumber.value) {
     showSuccess(t('pos.printerConnected'))
@@ -283,7 +283,7 @@ watch(() => fiscalBridge.status.value, async (val) => {
       const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, { params: { isActive: 'true' } })
       const dev = (data.fiscalDevices || []).find((d: any) => d.connectionType === 'browser')
       if (dev) await httpClient.put(`${orgUrl()}/fiscal/device/${dev._id || dev.id}`, { status: 'online' })
-    } catch {}
+    } catch { /* The device's status is a courtesy for the device list; the till already says it has the printer. */ }
   }
 })
 // #145: mobile and voucher are no longer offered at the till; the server still accepts them, so

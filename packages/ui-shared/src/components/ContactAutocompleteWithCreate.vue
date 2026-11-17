@@ -29,7 +29,7 @@
         <v-toolbar color="surface" flat density="compact">
           <v-toolbar-title class="text-body-1 font-weight-bold">{{ $t('invoicing.createContact') }}</v-toolbar-title>
           <v-spacer />
-          <v-btn icon="mdi-close" variant="text" size="small" @click="createDialog = false" />
+          <v-btn :aria-label="$t('common.close')" :title="$t('common.close')" icon="mdi-close" variant="text" size="small" @click="createDialog = false" />
         </v-toolbar>
         <v-card-text class="pa-4">
           <v-form ref="createFormRef">

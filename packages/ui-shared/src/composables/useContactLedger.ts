@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from './useHttpClient'
+import { reportError } from './report-error'
 import { useSearchDebounce } from './useSearchDebounce'
 
 /** A stock movement as a ledger row names it. */
@@ -125,7 +126,7 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
       entries.value = data.entries || []
       total.value = data.total || 0
       summary.value = data.summary || { totalSales: 0, totalPurchases: 0, balance: 0 }
-    } catch { /* */ } finally {
+    } catch (e) { reportError(e) } finally {
       loading.value = false
     }
   }
@@ -133,7 +134,7 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
   function onUpdateOptions(opts: any) {
     page.value = (opts.page || 1) - 1
     pageSize.value = opts.itemsPerPage || 25
-    fetchLedger()
+    void fetchLedger() // it reports its own failure
   }
 
   function resetFilters() {
@@ -145,7 +146,7 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
     productQuery.value = ''
     numberQuery.value = ''
     page.value = 0
-    fetchLedger()
+    void fetchLedger() // it reports its own failure
   }
 
   return {
