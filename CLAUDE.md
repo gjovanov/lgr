@@ -2948,6 +2948,13 @@ prints: „One list of actions for a document's two bars" below.
   - **A line grid keys its rows by the line** (FR-31.12): `:key="rowKey(line)"` (`ui-shared/composables/row-key.ts`, a
     `WeakMap` on the line object, never a field on it), never by position: removing a row gave the rows below it to
     other lines, with their open menus, typed text and focus, and made them load again.
+  - **One formatter** (FR-31.13): money, numbers and dates go through `ui-shared/format` (`formatMoney`,
+    `formatNumber`, `formatDate` / `formatDateTime`, `formatPrice`, `intlLocale()`), in the app's language
+    (`declareLanguage` sets it). ⚠ No UI file names a formatting locale (`'bg-BG'`) or calls `toLocale*`, `Intl.*Format`
+    or `numberFormat(` outside `ui-shared/src/format/`: `unit/one-formatter.test.ts` fails, with an empty allow-list.
+    Dates are `dd.MM.yyyy` (bg, de, mk) and `dd/MM/yyyy` (en); a list shows `formatDate(x)`, never `x.split('T')[0]`.
+  - **No English labels** (FR-31.15): a Pending Changes label is the field's own key (`t('common.name')`);
+    `unit/pending-labels.test.ts` fails on a literal, and `e2e/bg-walk.spec.ts` reads ten daily screens in Bulgarian.
   - A list on `usePaginatedTable` / `useProductList` never throws a failed request any more: it puts it in
     `pagination.loadError`, and `ListScaffold` (or `ListLoadError` in a table of its own) says it with Retry, never "no
     data". An error on the message line (`useSnackbar`) stays until closed, and messages queue.
