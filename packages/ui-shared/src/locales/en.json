@@ -1003,7 +1003,8 @@
     "postalCode": "Postal Code",
     "probationEndDate": "Probation End Date",
     "state": "State / Province",
-    "street": "Street"
+    "street": "Street",
+    "searchEmployee": "Type to search an employee"
   },
   "hr": {
     "departments": "Departments",
@@ -1985,7 +1986,8 @@
     },
     "lineRefusal": {
       "short": "Not enough stock: {available} available, {requested} needed"
-    }
+    },
+    "searchInvoiceNumber": "Search by number"
   },
   "pos": {
     "cartEmpty": "Cart is empty",

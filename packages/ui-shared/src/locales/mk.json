@@ -1003,7 +1003,8 @@
     "postalCode": "Поштенски Број",
     "probationEndDate": "Датум на Крај на Пробен Период",
     "state": "Држава / Провинција",
-    "street": "Улица"
+    "street": "Улица",
+    "searchEmployee": "Пишете за да пребарате вработен"
   },
   "hr": {
     "departments": "Одделенија",
@@ -2555,7 +2556,8 @@
     },
     "lineRefusal": {
       "short": "Недоволна залиха: достапни {available}, потребни {requested}"
-    }
+    },
+    "searchInvoiceNumber": "Пребарај по број"
   },
   "warehouse": {
     "sku": "Шифра",
