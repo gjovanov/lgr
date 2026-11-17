@@ -441,3 +441,28 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     moment) race to open the period, and the loser's entry was lost. It is now retried by the drain.
   - Tests: `integration/posting-exactly-once.flow` (13). `cash-invoice-receipts.flow`'s ledger block: a hold moved to
     the entry's write, and a second event for one receipt now posts nothing (FR-29.14) where it posted a second entry.
+- **Slice E** (branch `feat/794-fr29-e-audit`):
+  - FR-29.19 is built. `createAuditEntry`'s `changes` is `AuditChanges`: the array, or a map `{ field: { from, to } }`,
+    stored as the array (`changesOf`). The sixteen call sites are unchanged and now type-check (the backend baseline
+    shrank by their sixteen errors). No row that exists is rewritten.
+  - FR-29.20 is built. `AuditLog.actor { kind: 'system', name }`; `userId` is required unless the entry is the
+    system's or a script's. `systemActor(name)`; `userId: 'system'` is still read as the system. The four posting
+    entries (slice D folded the payment handler's two into one) name their event. The backup scheduler's nightly run
+    still writes no row (the digest carries it); its comment no longer says it cannot. The audit page and the record's
+    notes panel (its history) show "System" (`admin.systemActor`, four languages), with the job's name on hover,
+    and so does the dashboard's recent activity; the API answers `system: true, systemName`. No export lists audit
+    rows; the daily digest's "edited after issue" reads the API's `userName`, which is "System".
+  - FR-29.21 (D-6): a failed write is logged at error level through the structured logger (module, action, entity
+    type and id, never values) and counted (`auditHealth()`), in the sys-admin health and a master's status. The action
+    still succeeds.
+  - FR-29.22: the entity search searches twelve types by the fields their records are known by (`ENTITY_SEARCH`),
+    through `buildSearchFilter`; department, lead, deal and pipeline are gone. `/audit-logs/filters` answers
+    `searchableEntityTypes`, and the page offers the object search for those only. The user search is escaped too.
+  - Tests: `integration/audit-entry-shape.flow` (the sixteen shapes, issue / receive / order send / customer order
+    confirm read back, the system rows, a failed write, the entity search).
+  - Decision (FR-29.19's test): the sixteen shapes are stored through `recordAuditEntry` exactly as their call sites
+    write them, and four of the actions (issue, receive, a supplier order's send, a customer order's confirm) are
+    performed through their routes and read back. The other twelve need a reservation, an import or a conversion each;
+    they pass the same map through the same function.
+  - Decision (FR-29.21's health): as slice D's, the count is in the sys-admin health (`GET /api/admin/nodes/health`,
+    `audit`) and a master's `/status`, not in the public `/api/health`. It counts this process's failures since start.

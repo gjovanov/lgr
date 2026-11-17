@@ -81,7 +81,7 @@
                 <v-chip size="x-small" label :color="actionColor(a.action)" variant="tonal" class="me-2">{{ a.action }}</v-chip>
               </template>
               <v-list-item-title class="text-body-2">{{ a.entityName || a.entityType }}</v-list-item-title>
-              <v-list-item-subtitle>{{ a.userName }} · {{ fmtTime(a.timestamp) }}</v-list-item-subtitle>
+              <v-list-item-subtitle>{{ a.system ? t('admin.systemActor') : a.userName }} · {{ fmtTime(a.timestamp) }}</v-list-item-subtitle>
             </v-list-item>
           </v-list>
         </v-card>
@@ -120,6 +120,8 @@ import { useAppStore } from '../../store/app.store'
 interface ActivityRow {
   _id: string
   userName: string
+  /** FR-29.20: an entry the system wrote (a job, an event); shown as "System". */
+  system?: boolean
   action: string
   module: string
   entityType: string

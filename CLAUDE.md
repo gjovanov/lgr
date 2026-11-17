@@ -1941,6 +1941,21 @@ and each retry moved them again.
   - `scripts/count-issue-leftovers.ts` (read-only, native driver) counts what older releases left: documents issued
     with a draft movement, drafts with a booked one.
 
+## The audit trail (FR-29 E, #794)
+
+`services/biz/audit-log.service.ts`. No row that exists is rewritten.
+- `changes` is `AuditChanges`: the stored array `{ field, oldValue, newValue }[]`, or a map
+  `{ field: { from, to } }`, stored as the array (`changesOf`). Any other shape does not type-check. Before, Mongoose
+  cast a map to one element with no fields.
+- **The system is an actor**: `actor: systemActor('<event or job>')` and no `userId` (`AuditLog.actor { kind:
+  'system', name }`). ⚠ Never `userId: 'system'`: it used to throw in the cast and write nothing (it is still read as
+  the system). The audit page, the notes panel and the dashboard show "System" (`admin.systemActor`); the API
+  answers `system: true, systemName`.
+- **A failed write is loud** (D-6): logged at error level (module, action, entity type and id, never values) and
+  counted (`auditHealth()`, in `GET /api/admin/nodes/health` and a master's `/status`). The action still succeeds.
+- The entity search (`ENTITY_SEARCH`, `SEARCHABLE_ENTITY_TYPES`) offers only the types it searches, through
+  `buildSearchFilter`; `/audit-logs/filters` answers `searchableEntityTypes`.
+
 ## External warehouse (2026-11-16)
 
 The owner's ask: a warehouse can be marked **external**: another site's warehouse, named in this org
