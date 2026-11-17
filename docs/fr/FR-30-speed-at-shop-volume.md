@@ -432,3 +432,20 @@ The demo organization is small, so production proves that nothing changed, and t
 **Tests.** `integration/product-search-field.flow.test.ts`: the two builders over one fixture for 36 keywords (Cyrillic, Latin, mixed case, look-alike letters, digits, several words, punctuation, none) give the same ids; no keyword bridges two parts; the profiler on the route (the matches read from the keys, no article for a search without a match, the page by id); the field on create, `insertMany`, `findOneAndUpdate`, `updateOne`, `updateMany` whose filter the update moves, `$unset`, `bulkWrite` in a transaction; an article without the field still found; the backfill's dry run and two runs; migration 0018 twice; the switch; the type-ahead modes; the stock-level search.
 
 **Decisions.** FR-30.12 says one query per keystroke. The line search keeps its "Show all N results", so when more than ten match it also counts, from the index keys (no article read). The search is not given its index when a keyword also finds articles by a supplier's code (FR-28.10): that branch is answered by `_id`, which those keys cannot.
+
+### Slice F (FR-30.19, .20), 2026-11-17
+
+**What was built** (`reporting/src/pdf/base.pdf.ts`).
+- **One Chrome per process (FR-30.19, D-7).** The first render starts it; it closes after `PDF_BROWSER_IDLE_MS` (5 minutes) without a render, on a timer that never keeps the process alive. Each render opens a browser context of its own and closes it afterwards, so two renders share no page, storage or cache. A browser that disconnects (a crash, a kill) is forgotten at once, and `markdownToPdf`'s retry starts another.
+- **The guards stay.** The deadline (`PDF_RENDER_TIMEOUT_MS`) now counts from when the render was asked for; a stalled render still fails and its Chrome is killed (`closePdfBrowser`), so the next starts a fresh one; the page lock, the no-network flags, the retry and the empty-PDF check are as they were.
+- **A limit on renders at once (FR-30.20, D-6).** `PDF_RENDER_CONCURRENCY` (2) renders at a time per process; the rest wait for a slot inside their deadline.
+
+**Measured** (a developer laptop, 11 renders of a one-page document in one process, then ten at once).
+
+| | Before (the audit) | After |
+|---|---|---|
+| The first PDF of a process | about 6 s | 767 ms here (the launch) |
+| A PDF after that | 0.8 to 0.9 s, a launch each | 219 ms median, no launch |
+| Ten at once | ten launches | 1.4 s in all, one launch |
+
+**Tests.** `unit/pdf-shared-browser.test.ts`: no launch over ten renders after the first; two renders at once in two contexts, neither the default, both closed after; a browser killed mid-render, and the render beside it still prints through the retry; ten at once all arrive with at most two rendering together; a render waiting for its turn fails at its own deadline. The renderer's own tests (`pdf-render-deadline`, `pdf-page-lock`, `pdf-renderer`) are unchanged.

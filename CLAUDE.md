@@ -1593,6 +1593,10 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
   leaves out what `LIST_ROW_EXCLUDES` names (an invoice's lines, a slot's filters, the mirrors). The grids and pickers
   ask (`usePaginatedTable({ listFields: true })`); an answer without it is whole, so scripts and skills are untouched.
 
+- **One Chrome per process for PDFs** (FR-30.19/.20, `reporting/pdf/base.pdf.ts`): started by the first render, closed
+  after `PDF_BROWSER_IDLE_MS` idle, a browser context per render, at most `PDF_RENDER_CONCURRENCY` (2) renders at once.
+  A stalled render still kills it (`closePdfBrowser`), and the retry starts another.
+
 ## Cyrillic-Safe Search (2026-04-28)
 
 ⚠ **The product search reads one field, `Product.searchLower`** (FR-30.11): the five mirrors joined by U+001F, kept by
