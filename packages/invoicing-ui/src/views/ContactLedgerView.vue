@@ -1,7 +1,7 @@
 <template>
   <v-container fluid>
     <div class="d-flex align-center mb-4">
-      <v-btn icon variant="text" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
+      <v-btn icon variant="text" :aria-label="$t('common.back')" :title="$t('common.back')" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
       <h1 class="text-h5 ml-2">{{ $t('invoicing.contactLedger') }}: {{ contactName }}</h1>
     </div>
 
@@ -167,7 +167,7 @@ async function fetchContactName() {
     const { data } = await httpClient.get(`${orgUrl.value}/invoicing/contact/${contactId.value}`)
     const c = data.contact || data
     contactName.value = c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || ''
-  } catch { /* */ }
+  } catch { /* The ledger shows without the name in its title; the HTTP client says a network failure or a 5xx. */ }
 }
 
 onMounted(async () => {

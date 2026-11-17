@@ -291,7 +291,7 @@ export function setupDesktopWS(app: any): void {
   app.ws('/ws/desktop', {
     open(ws: any) { handleDesktopOpen(ws) },
     message(ws: any, message: any) { void handleDesktopMessage(ws, message) },
-    close(ws: any) { handleDesktopClose(ws) },
+    close(ws: any) { handleDesktopClose(ws)?.catch((err: unknown) => logger.error({ err }, 'desktop socket: a close failed')) },
   })
   if (!ticker) {
     ticker = setInterval(tickDesktops, DESKTOP_TICK_MS)

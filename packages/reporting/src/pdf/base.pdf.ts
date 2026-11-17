@@ -222,6 +222,14 @@ export async function renderedPageDom(content: string, options?: MarkdownToPdfOp
 }
 
 /**
+ * Run `use` on the page exactly as Chrome is about to print it, in the render's own context, under the render's
+ * deadline and its share of the render limit. Exported for the tests of FR-30.19 and .20.
+ */
+export async function onRenderedPage<T>(content: string, options: MarkdownToPdfOptions | undefined, use: (page: any) => Promise<T>): Promise<T> {
+  return withRenderedPage(content, options, use)
+}
+
+/**
  * Evaluate a script expression in the page exactly as Chrome is about to print it, every
  * stylesheet applied. Exported for the layout tests, which measure where the text lands.
  */
@@ -234,26 +242,27 @@ export async function evaluateRenderedPage<T = unknown>(
 }
 
 /**
- * One render, with a deadline (`config.pdf.renderTimeoutMs`).
+ * FR-30.19: one Chrome per process, started by the first render and closed after `config.pdf.browserIdleMs` without
+ * one (D-7). Every PDF used to launch its own: 0.8 to 0.9 s a render warm, about 6 s the first. Each render gets a
+ * browser context of its own (its own pages, storage and cache), closed after it, so two renders share nothing.
  *
- * ⚠ Without one, a render that stalls waits forever. Puppeteer allows each CDP command three
- * minutes, and nothing bounds `document.fonts.ready` or the close. On CI (Linux, over the pipe)
- * the third render in a row hung until the test runner killed the process, twice on 2026-10-23.
- * In production that would be a request that never answers, and a Chrome left behind each
- * time. A stalled attempt now fails, its Chrome is killed, and `markdownToPdf` retries with a
- * fresh browser.
+ * A browser that dies (a crash, the kill of a stalled render) is forgotten at once: the renders it held fail into
+ * `markdownToPdf`'s retry, whose next attempt starts a new one.
  */
-async function withRenderedPage<T>(
-  content: string,
-  options: MarkdownToPdfOptions | undefined,
-  use: (page: any) => Promise<T>,
-): Promise<T> {
+interface SharedBrowser { browser: Promise<any>; idle?: ReturnType<typeof setTimeout> }
+let shared: SharedBrowser | null = null
+let rendering = 0
+let launches = 0
+
+/** How many Chromes this process has started (the test counts them over ten renders). */
+export function pdfBrowserLaunches(): number {
+  return launches
+}
+
+async function launchBrowser(deadlineMs: number): Promise<any> {
   const puppeteer = (await import('puppeteer')).default
-  const html = await pageHtml(content)
-  const deadlineMs = config.pdf.renderTimeoutMs
-  let browser
   try {
-    browser = await puppeteer.launch({
+    return await puppeteer.launch({
       pipe: CHROME_OVER_PIPE,
       ...(config.pdf.chromePath ? { executablePath: config.pdf.chromePath } : {}),
       args: chromeArgs(),
@@ -266,10 +275,112 @@ async function withRenderedPage<T>(
       ? `Chrome could not start its sandbox (${msg}). Run as a user the kernel allows to, or set PDF_CHROME_NO_SANDBOX=1.`
       : msg)
   }
+}
+
+/** The process's Chrome, started when there is none. */
+function sharedBrowser(deadlineMs: number): Promise<any> {
+  if (shared) {
+    if (shared.idle) clearTimeout(shared.idle)
+    shared.idle = undefined
+    return shared.browser
+  }
+  launches++
+  const entry: SharedBrowser = { browser: launchBrowser(deadlineMs) }
+  shared = entry
+  entry.browser.then(
+    (b) => b.on?.('disconnected', () => { if (shared === entry) shared = null }),
+    () => { if (shared === entry) shared = null },
+  )
+  return entry.browser
+}
+
+/** Close the process's Chrome now (a stalled render, the server stopping), and forget it. */
+export async function closePdfBrowser(): Promise<void> {
+  const entry = shared
+  shared = null
+  if (!entry) return
+  if (entry.idle) clearTimeout(entry.idle)
+  const browser = await entry.browser.catch(() => /* the launch failed, so there is nothing to close; its render already failed with the error */ null)
+  if (browser) await closeOrKill(browser)
+}
+
+/** With no render left, the browser closes after its idle time. The timer never keeps the process alive. */
+function armIdle(): void {
+  if (rendering > 0 || !shared || shared.idle) return
+  const entry = shared
+  entry.idle = setTimeout(() => {
+    if (shared === entry && rendering === 0) void closePdfBrowser()
+  }, config.pdf.browserIdleMs)
+  ;(entry.idle as any).unref?.()
+}
+
+/**
+ * FR-30.20 (D-6): at most `config.pdf.concurrency` renders at once in a process. A render past that waits for a slot,
+ * inside the deadline it already has: one still waiting at its deadline fails as a stalled render does. Nothing used
+ * to limit them (the batch e-mail limited itself to two).
+ */
+const waiting: Array<() => void> = []
+let running = 0
+let peak = 0
+
+/** The most renders that ran at once in this process (the test reads it). */
+export function pdfRendersPeak(): number {
+  return peak
+}
+
+async function renderSlot(deadlineAt: number, deadlineMs: number): Promise<() => void> {
+  if (running < Math.max(1, config.pdf.concurrency)) {
+    running++
+  } else {
+    await new Promise<void>((resolve, reject) => {
+      const wake = () => { clearTimeout(timer); resolve() }
+      const timer = setTimeout(() => {
+        const at = waiting.indexOf(wake)
+        if (at >= 0) waiting.splice(at, 1)
+        reject(new Error(`PDF render did not finish within ${deadlineMs} ms`))
+      }, Math.max(0, deadlineAt - Date.now()))
+      waiting.push(wake)
+    })
+    // A slot handed over by its last holder: `running` still counts it.
+  }
+  peak = Math.max(peak, running)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const next = waiting.shift()
+    if (next) next()
+    else running--
+  }
+}
+
+/**
+ * One render, with a deadline (`config.pdf.renderTimeoutMs`), on the process's Chrome, in a context of its own.
+ *
+ * ⚠ Without a deadline, a render that stalls waits forever. Puppeteer allows each CDP command three
+ * minutes, and nothing bounds `document.fonts.ready` or the close. On CI (Linux, over the pipe)
+ * the third render in a row hung until the test runner killed the process, twice on 2026-10-23.
+ * In production that would be a request that never answers, and a Chrome left behind each
+ * time. A stalled attempt now fails, the Chrome is killed (a stall is a Chrome not to trust), and
+ * `markdownToPdf` retries with a fresh browser.
+ */
+async function withRenderedPage<T>(
+  content: string,
+  options: MarkdownToPdfOptions | undefined,
+  use: (page: any) => Promise<T>,
+): Promise<T> {
+  const html = await pageHtml(content)
+  const deadlineMs = config.pdf.renderTimeoutMs
+  const deadlineAt = Date.now() + deadlineMs
+  const release = await renderSlot(deadlineAt, deadlineMs)
+  rendering++
+  let context: any
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const render = (async () => {
-      const page = await browser.newPage()
+      const browser = await sharedBrowser(deadlineMs)
+      context = await browser.createBrowserContext()
+      const page = await context.newPage()
       await lockPage(page)
       // `load` fires once every image in the page has loaded (each is inline, see `lockPage`).
       // `networkidle0` added nothing for a page that fetches nothing, and cost nearly two seconds
@@ -284,13 +395,32 @@ async function withRenderedPage<T>(
     // An abandoned render still settles later, against a browser that is gone.
     render.catch(() => {})
     const stalled = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`PDF render did not finish within ${deadlineMs} ms`)), deadlineMs)
+      timer = setTimeout(() => reject(new Error(`PDF render did not finish within ${deadlineMs} ms`)), Math.max(0, deadlineAt - Date.now()))
     })
-    return await Promise.race([render, stalled])
+    try {
+      return await Promise.race([render, stalled])
+    } catch (err) {
+      // A stalled render: its Chrome is killed, and the next render starts another.
+      if (String((err as any)?.message || '').includes('did not finish within')) await closePdfBrowser()
+      throw err
+    }
   } finally {
     clearTimeout(timer)
-    await closeOrKill(browser)
+    if (context) await closeContext(context)
+    rendering--
+    release()
+    armIdle()
   }
+}
+
+/** Close a render's context, never waiting on one that does not answer. */
+async function closeContext(context: any): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([
+    context.close().catch(() => { /* its browser is gone (a crash, a kill), and the context with it */ }),
+    new Promise<void>(resolve => { timer = setTimeout(resolve, 5_000) }),
+  ])
+  clearTimeout(timer)
 }
 
 /** Close the browser, but never wait on one that does not answer: kill it instead. */
@@ -311,9 +441,9 @@ async function closeOrKill(browser: any): Promise<void> {
 /**
  * Render markdown to a PDF, verifying the result is actually a document.
  *
- * Every render launches its own Chromium; when several run in one process a launch can fail in
- * a way that yields a header-only buffer rather than an error (seen with md-to-pdf). Retrying
- * gets a fresh browser and clears it. A run that still can't produce a document throws — an
+ * A render can fail in a way that yields a header-only buffer rather than an error (seen with
+ * md-to-pdf), or because the process's Chrome died under it. Retrying clears it: a dead Chrome is
+ * forgotten, and the next attempt starts another. A run that still can't produce a document throws — an
  * export endpoint returning 500 is recoverable, a 9-byte download that silently opens to
  * nothing is not.
  */

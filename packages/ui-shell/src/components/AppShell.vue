@@ -21,7 +21,7 @@
     </v-navigation-drawer>
 
     <v-app-bar flat :border="0" class="app-bar-aligned">
-      <v-app-bar-nav-icon v-if="layout === 'sidebar'" @click="mobile ? (mobileDrawerOpen = !mobileDrawerOpen) : $emit('toggle-drawer')" />
+      <v-app-bar-nav-icon v-if="layout === 'sidebar'" :aria-label="$t('shell.menu')" :title="$t('shell.menu')" @click="mobile ? (mobileDrawerOpen = !mobileDrawerOpen) : $emit('toggle-drawer')" />
       <!-- The person's orgs: switching moves THIS tab only (multi-org sign-in). -->
       <OrgSwitcher v-if="org" :org="org" :mobile="mobile" />
 

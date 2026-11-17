@@ -210,7 +210,7 @@ async function resume(currentOrgId: string): Promise<boolean> {
     selectedBaudRate.value = r.baudRate || selectedBaudRate.value
     serialPort = candidates[0]
     await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
-    try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch {}
+    try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch { /* some ports don't support setSignals */ }
     reader = serialPort.readable.getReader()
     writer = serialPort.writable.getWriter()
     serialPort.addEventListener('disconnect', handlePortDisconnect)
@@ -253,7 +253,7 @@ if (isSupported) {
 
       serialPort = targetPort
       await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
-      try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch {}
+      try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch { /* some ports don't support setSignals */ }
       reader = serialPort.readable.getReader()
       writer = serialPort.writable.getWriter()
       serialPort.addEventListener('disconnect', handlePortDisconnect)
@@ -273,9 +273,9 @@ if (isSupported) {
       }
       // Clean up partial state
       if (serialPort) {
-        try { if (reader) { reader.releaseLock(); reader = null } } catch {}
-        try { if (writer) { writer.releaseLock(); writer = null } } catch {}
-        try { await serialPort.close() } catch {}
+        try { if (reader) { reader.releaseLock(); reader = null } } catch { /* already released: the close goes on */ }
+        try { if (writer) { writer.releaseLock(); writer = null } } catch { /* already released: the close goes on */ }
+        try { await serialPort.close() } catch { /* already closed: the close goes on */ }
         serialPort = null
       }
     }
@@ -478,11 +478,11 @@ async function connect(orgId: string, devNumber: string, warehouseId?: string, o
  */
 async function reopenSerialPort(): Promise<void> {
   try {
-    if (reader) { try { reader.releaseLock() } catch {} }
-    if (writer) { try { writer.releaseLock() } catch {} }
+    if (reader) { try { reader.releaseLock() } catch { /* already released: the reopen goes on */ } }
+    if (writer) { try { writer.releaseLock() } catch { /* already released: the reopen goes on */ } }
     await serialPort.close()
     await serialPort.open({ baudRate: selectedBaudRate.value, dataBits: 8, parity: 'none', stopBits: 1 })
-    try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch {}
+    try { await serialPort.setSignals({ dataTerminalReady: true, requestToSend: true }) } catch { /* some ports don't support setSignals */ }
     reader = serialPort.readable.getReader()
     writer = serialPort.writable.getWriter()
   } catch {
@@ -522,7 +522,7 @@ async function relayIslCommand(commandId: string, frameBase64: string, timeoutMs
       clearTimeout(timer)
       timer = setTimeout(() => {
         timedOut = true
-        if (reader) reader.cancel()
+        if (reader) reader.cancel().catch((e: unknown) => console.warn('[fiscal bridge] cancel after a timeout failed', e))
       }, Math.max(1, Math.min(ms, deadline - Date.now())))
     }
     arm(long ? budget : ISL_FIRST_BYTE_MS)
@@ -591,7 +591,7 @@ async function relayCommand(commandId: string, frameBase64: string, protocol?: s
     let timedOut = false
     const readTimeout = setTimeout(() => {
       timedOut = true
-      if (reader) reader.cancel()
+      if (reader) reader.cancel().catch((e: unknown) => console.warn('[fiscal bridge] cancel after a timeout failed', e))
     }, 30000)
 
     while (true) {
@@ -658,7 +658,7 @@ function handlePortDisconnect() {
   portDisconnecting = true
   status.value = 'error'
   errorMessage.value = 'Fiscal device disconnected (USB unplugged or powered off)'
-  try { if (ws) { ws.close(); ws = null } } catch {}
+  try { if (ws) { ws.close(); ws = null } } catch { /* a socket already closed throws, and the disconnect goes on */ }
   // Reset flag after a tick so future ws.onclose works normally
   setTimeout(() => { portDisconnecting = false }, 100)
 }
@@ -676,10 +676,10 @@ async function disconnect() {
     if (reader) { reader.releaseLock(); reader = null }
     if (writer) { writer.releaseLock(); writer = null }
     if (serialPort) { await serialPort.close(); serialPort = null }
-  } catch { /* best-effort */ }
+  } catch { /* Teardown: a port or a reader already closed throws here, and the teardown goes on. */ }
   try {
     if (ws) { ws.close(); ws = null }
-  } catch { /* best-effort */ }
+  } catch { /* Teardown: a socket already closed throws here, and the teardown goes on. */ }
   status.value = 'disconnected'
   deviceNumber.value = ''
   manufacturer.value = ''

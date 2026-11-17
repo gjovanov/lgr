@@ -332,11 +332,11 @@ export async function getVersions(orgId: string, docFileId: string) {
   if (await readsByContent(orgId)) return { current: { name: doc.originalName, path: doc.currentPath, version: doc.version }, versions: await mirroredVersions(orgId, doc) }
   const vdir = containedJoin(dateDir(orgId, doc.docDate), 'versions')
   let files: string[] = []
-  try { files = await readdir(vdir) } catch { /* none yet */ }
+  try { files = await readdir(vdir) } catch { /* No versions folder: the file has no earlier version. */ }
   const base = doc.originalName.replace(/\.[^.]+$/, '')
   const versions = []
   for (const f of files.filter(f => f.startsWith(base + '_'))) {
-    try { const s = await stat(containedJoin(vdir, f)); versions.push({ name: f, size: s.size, archivedAt: s.mtime }) } catch { /* skip */ }
+    try { const s = await stat(containedJoin(vdir, f)); versions.push({ name: f, size: s.size, archivedAt: s.mtime }) } catch { /* A version removed meanwhile is not listed. */ }
   }
   versions.sort((a, b) => +new Date(b.archivedAt) - +new Date(a.archivedAt))
   return { current: { name: doc.originalName, path: doc.currentPath, version: doc.version }, versions }

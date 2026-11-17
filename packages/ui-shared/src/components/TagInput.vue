@@ -67,7 +67,7 @@ async function fetchTags(query: string) {
   try {
     const { data } = await httpClient.get(`${props.orgUrl}/tags`, { params: { type: props.type, search: query } })
     suggestions.value = (data.tags || []).map((t: any) => t.value)
-  } catch { /* */ } finally {
+  } catch { /* Suggestions only: a tag can still be typed, and the HTTP client says a network failure or a 5xx. */ } finally {
     loading.value = false
   }
 }

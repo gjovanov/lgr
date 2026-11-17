@@ -62,7 +62,7 @@
           <v-chip v-if="item.ephemeral" size="x-small" variant="tonal" color="info">
             {{ $t('desktops.ephemeral') }}
           </v-chip>
-          <v-btn icon size="x-small" variant="text" @click="copy(item.id)">
+          <v-btn icon size="x-small" variant="text" :aria-label="$t('common.copy')" :title="$t('common.copy')" @click="copy(item.id)">
             <v-icon size="small">mdi-content-copy</v-icon>
           </v-btn>
         </div>

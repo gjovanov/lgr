@@ -7,6 +7,7 @@
     "./composables/useNodeAlarms": "./src/composables/useNodeAlarms.ts",
     "./composables/idempotency": "./src/composables/idempotency.ts",
     "./composables/useSnackbar": "./src/composables/useSnackbar.ts",
+    "./composables/report-error": "./src/composables/report-error.ts",
     "./composables/useCurrency": "./src/composables/useCurrency.ts",
     "./composables/usePaginatedTable": "./src/composables/usePaginatedTable.ts",
     "./composables/useListQueryState": "./src/composables/useListQueryState.ts",
