@@ -59,17 +59,11 @@
   "packages/reports-ui/src/views/SuptoTableView.vue": {
     "TS2322": 3
   },
-  "packages/ui-shared/src/components/AuditLogPanel.vue": {
-    "TS2339": 1
-  },
   "packages/ui-shared/src/components/CurrencyInput.vue": {
     "TS2322": 1
   },
   "packages/ui-shared/src/components/DocImportDialog.vue": {
     "TS2339": 2
-  },
-  "packages/ui-shared/src/components/FileUpload.vue": {
-    "TS2322": 1
   },
   "packages/ui-shared/src/components/cash-register/CashRegisterJournal.vue": {
     "TS2322": 2

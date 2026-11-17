@@ -20,7 +20,6 @@
     "./components/NotAvailable": "./src/components/NotAvailable.vue",
     "./components/NotAvailable.vue": "./src/components/NotAvailable.vue",
     "./components/TopMenuBar": "./src/components/TopMenuBar.vue",
-    "./components/AppBreadcrumb": "./src/components/AppBreadcrumb.vue",
     "./components/HubPageHeader": "./src/components/HubPageHeader.vue",
     "./components/FavoriteTiles": "./src/components/FavoriteTiles.vue",
     "./components/NewDocumentMenu": "./src/components/NewDocumentMenu.vue",

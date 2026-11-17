@@ -27,7 +27,7 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
     const org = await orgDao.findById(orgId)
     if (!org) return status(404, { message: 'Organization not found' })
 
-    return { org: orgForClient(org.toJSON()) }
+    return { org: orgForClient(org) }
   }, { isSignIn: true })
   .put(
     '/',
