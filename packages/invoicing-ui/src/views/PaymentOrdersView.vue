@@ -89,7 +89,18 @@
           <v-form ref="formRef">
             <v-row>
               <v-col cols="12" md="6">
-                <v-autocomplete v-model="form.contactId" :label="$t('invoicing.contact')" :items="contacts" item-title="companyName" item-value="_id" :rules="[rules.required]" />
+                <!-- FR-31.10: searched on the server; it offered the ten newest contacts and nothing else. -->
+                <ContactAutocompleteWithCreate
+                  v-model="form.contactId"
+                  :contacts="contactPicker.contacts.value"
+                  :loading="contactPicker.loading.value"
+                  :label="$t('invoicing.contact')"
+                  :org-url="appStore.orgUrl()"
+                  required
+                  data-testid="payment-order-contact"
+                  @update:search="contactPicker.onSearch"
+                  @contact-created="contactPicker.add"
+                />
               </v-col>
               <v-col cols="12" md="6">
                 <v-select v-model="form.type" :label="$t('common.type')" :items="typeOptions" :rules="[rules.required]" />
@@ -113,17 +124,32 @@
             </v-row>
 
             <!-- Select invoices to pay -->
-            <div class="mt-4 mb-2">
+            <!-- FR-31.10: the chosen contact's unpaid invoices, searched by number on the server. It listed the ten
+                 newest unpaid invoices of anybody, whoever the order was for. -->
+            <div class="mt-4 mb-2 d-flex align-center ga-4">
               <span class="text-subtitle-2">{{ $t('invoicing.invoicesToPay') }}</span>
+              <v-text-field
+                v-model="invoiceSearch"
+                :placeholder="$t('invoicing.searchInvoiceNumber')"
+                prepend-inner-icon="mdi-magnify"
+                density="compact"
+                variant="underlined"
+                hide-details
+                clearable
+                style="max-width: 260px"
+                data-testid="payment-order-invoice-search"
+              />
             </div>
             <v-data-table
               v-model="form.invoiceIds"
               :headers="invoiceHeaders"
               :items="unpaidInvoices"
+              :loading="unpaidLoading"
               item-value="_id"
               show-select
               density="compact"
               :items-per-page="5"
+              data-testid="payment-order-invoices"
             >
               <template #item.total="{ item }">{{ fmtCurrency(item.total) }}</template>
             </v-data-table>
@@ -142,7 +168,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -160,9 +186,11 @@ import StatusChip from 'ui-shared/components/StatusChip'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
 import { useDialogPendingChanges } from 'ui-shared/composables/useDialogPendingChanges'
+import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
+import { useContactSearch } from 'ui-shared/composables/useContactSearch'
+import { latestOnly } from 'ui-shared/composables/latest-only'
 
 interface Item { _id: string; number: string; type: string; contactName: string; contactId?: string; bankAccountId?: string; bankAccountName?: string; date: string; amount: number; status: string; reference?: string; description?: string; invoiceIds?: string[] }
-interface Contact { _id: string; companyName: string }
 interface BankAccount { _id: string; name: string; iban?: string; accountNumber: string }
 interface Invoice { _id: string; number: string; contactName: string; total: number; status: string }
 
@@ -175,9 +203,12 @@ const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[app
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
-const contacts = ref<Contact[]>([])
 const bankAccounts = ref<BankAccount[]>([])
 const unpaidInvoices = ref<Invoice[]>([])
+const unpaidLoading = ref(false)
+const invoiceSearch = ref<string | null>('')
+/** How many unpaid invoices one search lists. */
+const UNPAID_PAGE = 50
 const dialog = ref(false)
 const editing = ref(false)
 const formRef = ref()
@@ -223,6 +254,9 @@ const emptyForm = () => ({
   amount: 0, reference: '', description: '', invoiceIds: [] as string[],
 })
 const form = ref(emptyForm())
+
+// FR-31.10: the contact picker searches the server, and the order's own contact stays resolvable.
+const contactPicker = useContactSearch({ orgUrl: () => appStore.orgUrl(), selected: () => [form.value.contactId] })
 
 const { markSaved } = useDialogPendingChanges({
   appId: 'invoicing',
@@ -325,17 +359,52 @@ async function execute(item: Item) {
   } finally { loading.value = false }
 }
 
-async function fetchContacts() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`); contacts.value = data.contacts || [] } catch { /* */ }
-}
-
 async function fetchBankAccounts() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/bank-account`); bankAccounts.value = data.bankAccounts || [] } catch { /* */ }
+  // Every bank account (`size: 0`), not the API's first page of ten (FR-31.10).
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/bank-account`, { params: { size: 0 } }); bankAccounts.value = data.bankAccounts || [] } catch { /* */ }
 }
 
+/**
+ * The unpaid invoices the order may pay: the chosen contact's, searched by number on the server, the newest first
+ * (FR-31.10). Those the order already names stay listed, so a saved order shows what it pays.
+ */
+const unpaidRequest = latestOnly((signal, params: Record<string, string | number>) =>
+  httpClient.get(`${appStore.orgUrl()}/invoices`, { params, signal }))
 async function fetchUnpaidInvoices() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/invoices`, { params: { status: 'sent,partially_paid,overdue' } }); unpaidInvoices.value = data.invoices || [] } catch { /* */ }
+  unpaidLoading.value = true
+  try {
+    const params: Record<string, string | number> = { status: 'sent,partially_paid,overdue', size: UNPAID_PAGE }
+    if (form.value.contactId) params.contactId = form.value.contactId
+    const q = (invoiceSearch.value || '').trim()
+    if (q) params.search = q
+    const answer = await unpaidRequest(params)
+    if (!answer.latest) return
+    const found: Invoice[] = (answer.value.data?.invoices || []).map((i: any) => ({ ...i, _id: String(i._id || i.id) }))
+    const ids = new Set(found.map(i => i._id))
+    const chosen = new Set(form.value.invoiceIds || [])
+    const kept = unpaidInvoices.value.filter(i => chosen.has(i._id) && !ids.has(i._id))
+    unpaidInvoices.value = [...kept, ...found]
+    unpaidLoading.value = false
+  } catch {
+    // A failed or replaced search keeps what is shown.
+    unpaidLoading.value = false
+  }
 }
+let unpaidTimer: ReturnType<typeof setTimeout> | null = null
+watch(invoiceSearch, () => {
+  if (unpaidTimer) clearTimeout(unpaidTimer)
+  unpaidTimer = setTimeout(() => { void fetchUnpaidInvoices() }, 300)
+})
+watch(() => form.value.contactId, () => {
+  void fetchUnpaidInvoices()
+  void contactPicker.ensureSelected()
+})
+watch(dialog, (open) => {
+  if (!open) return
+  invoiceSearch.value = ''
+  void contactPicker.search()
+  void fetchUnpaidInvoices()
+})
 
-onMounted(() => { fetchItems(); fetchContacts(); fetchBankAccounts(); fetchUnpaidInvoices() })
+onMounted(() => { fetchItems(); fetchBankAccounts() })
 </script>

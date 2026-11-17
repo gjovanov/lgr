@@ -1003,7 +1003,8 @@
     "postalCode": "Пощенски код",
     "probationEndDate": "Дата на край на изпитателен срок",
     "state": "Щат / Област",
-    "street": "Улица"
+    "street": "Улица",
+    "searchEmployee": "Пишете, за да търсите служител"
   },
   "hr": {
     "departments": "Отдели",
@@ -1985,7 +1986,8 @@
     },
     "lineRefusal": {
       "short": "Недостатъчна наличност: налични {available}, нужни {requested}"
-    }
+    },
+    "searchInvoiceNumber": "Търсене по номер"
   },
   "pos": {
     "cartEmpty": "Кошницата е празна",

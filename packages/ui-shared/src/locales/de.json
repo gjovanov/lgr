@@ -1003,7 +1003,8 @@
     "postalCode": "Postleitzahl",
     "probationEndDate": "Ende der Probezeit",
     "state": "Bundesland / Provinz",
-    "street": "Straße"
+    "street": "Straße",
+    "searchEmployee": "Tippen, um einen Mitarbeiter zu suchen"
   },
   "hr": {
     "departments": "Abteilungen",
@@ -2555,7 +2556,8 @@
     },
     "lineRefusal": {
       "short": "Nicht genug Bestand: {available} verfügbar, {requested} benötigt"
-    }
+    },
+    "searchInvoiceNumber": "Nach Nummer suchen"
   },
   "warehouse": {
     "sku": "Artikelnr.",
