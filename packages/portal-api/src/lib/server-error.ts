@@ -102,6 +102,15 @@ function schemaMessage(err: any): string {
 }
 
 /**
+ * FR-32.18 (#797): a value the model refused is the caller's mistake, said as one: 422, the fields named. Until then
+ * it was a 500 that named them (S-12). `null` for anything that is not Mongoose's schema rejection.
+ */
+export function schemaRejection(err: unknown): { code: 'invalid_fields'; message: string; fields: string[] } | null {
+  if (!isSchemaRejection(err)) return null
+  return { code: 'invalid_fields', message: schemaMessage(err), fields: Object.keys((err as { errors: Record<string, unknown> }).errors) }
+}
+
+/**
  * Is this the machinery's error rather than the server's own words? Anything that is not an
  * `Error` at all counts as one: nothing in this codebase throws a bare value on purpose.
  */

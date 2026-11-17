@@ -21,6 +21,9 @@ async function getNextOrderNumber(orgId: string): Promise<string> {
 // A PUT never carries `orgId`: a document does not move between orgs (FR-20.7). `updateInOrg`
 // drops it too; this answers 422 instead of ignoring it. What else a body may not choose (the
 // fields the server sets) is refused in the handlers: `services/biz/server-owned.ts`.
+// FR-32.18 (#797): a create declares its body as an object. Its values are the model's to judge: the document goes
+// through `clientCreate` and the model's validators, and a value the model refuses answers 422 naming the field.
+const createBody = t.Object({}, { additionalProperties: true })
 const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/cash-order' })
@@ -91,7 +94,7 @@ export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/c
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'cash_order', entityId: item.id, entityName: orderNumber })
 
     return { cashOrder: item }
-  }, { isSignIn: true })
+  }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
     const r = getRepos()
     const existing = await r.cashOrders.findByIdInOrg(params.id, params.orgId)

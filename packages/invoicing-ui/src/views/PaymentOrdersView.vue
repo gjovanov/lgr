@@ -361,7 +361,7 @@ async function execute(item: Item) {
 
 async function fetchBankAccounts() {
   // Every bank account (`size: 0`), not the API's first page of ten (FR-31.10).
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/bank-account`, { params: { size: 0 } }); bankAccounts.value = data.bankAccounts || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/bank-account`, { params: { size: 0 } }); bankAccounts.value = data.bankAccounts || [] } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 /**

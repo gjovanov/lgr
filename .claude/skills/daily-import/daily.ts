@@ -42,9 +42,9 @@ import { dirname, join, resolve } from 'node:path'
 import { getOrg } from '../pull-plusminus-api/orgs'
 import { loadStoresEnv } from '../pull-plusminus-api/stores-env'
 import {
-  diffPulls, docFiles, finding, gateAuditAfter, gateAuditBefore, gateBooked, gateCompare, gateDry, gateHistory, gatePredict,
+  diffPulls, docFiles, finding, gateAuditAfter, gateAuditBefore, gateBooked, gateCompare, gateDry, gateGrantReads, gateGrantSession, gateHistory, gatePredict,
   gatePrices, gateSameDay, gateScan, newOutsideDay, numberGaps, parseAudit, parseCompare, parseContactsLog, parseInvoicesLog, parseMovesLog, parsePredict,
-  parsePriceDiff, parsePull, parseReceiptsLog, parseTillLog, sameDay, scanDay, unread, DOC_FILE, FAMILIES, type Family, type Finding,
+  parsePriceDiff, parsePull, parseReceiptsLog, parseTillLog, sameDay, scanDay, sessionOrgId, unread, DOC_FILE, FAMILIES, type Family, type Finding,
 } from '../../../scripts/lib/daily-import'
 
 // ── What the import knows about each org, beyond what the puller knows ──────────────────────────────────────────────
@@ -297,29 +297,12 @@ async function grant(c: Ctx): Promise<Finding[]> {
   }
   const auth = { headers: { authorization: `Bearer ${token}` } }
   const me = await json('/api/auth/me', auth)
-  const orgId = me.body?.org?.id ?? me.body?.user?.orgId
-  if (me.status !== 200 || !orgId) return [finding('stop', `/auth/me answered ${me.status}`)]
-  const out: Finding[] = []
-  const access = me.body.access
-  if (access && !access.all) out.push(finding('stop', `this session's role is not the full grant (${access.caps?.length ?? '?'} capabilities, role "${access.role?.name ?? '?'}"): it may be shown less than the records hold`))
-  else out.push(finding(me.body.user?.role === 'admin' ? 'ok' : 'stop', `signed in to ${c.org} as role "${me.body.user?.role}"; ${access ? 'its role grants everything' : "the token's claims decide"}`))
+  const session = gateGrantSession(c.org, me)
+  const orgId = sessionOrgId(me)
+  if (me.status !== 200 || !orgId) return session
   const products = await json(`/api/org/${orgId}/warehouse/product?page=0&size=20`, auth)
-  const list: any[] = products.body.products ?? []
-  const tiered = list.find(p => Array.isArray(p.priceTiers) && p.priceTiers.length)
   const levels = await json(`/api/org/${orgId}/warehouse/stock-level?page=0&size=5`, auth)
-  const level = (levels.body.stockLevels ?? [])[0]
-  const reads: Record<string, boolean> = {
-    'the purchase price': list.length > 0 && list.every(p => 'purchasePrice' in p),
-    'the selling price': list.length > 0 && list.every(p => 'sellingPrice' in p),
-    "each tier's margin": !!tiered && tiered.priceTiers.every((t: any) => 'percent' in t),
-    'the cost tier': !!tiered && tiered.priceTiers.some((t: any) => String(t.name).replace(/\s+/g, '') === 'Доставнацена'),
-    'the average cost': !!level && 'avgCost' in level,
-  }
-  const blind = Object.entries(reads).filter(([, ok]) => !ok).map(([what]) => what)
-  if (products.status !== 200 || levels.status !== 200) out.push(finding('stop', `the product list answered ${products.status}, the stock levels ${levels.status}`))
-  else if (blind.length) out.push(finding('stop', `this session does not see ${blind.join(', ')}: a read that is shown less makes a wrong write`))
-  else out.push(finding('ok', `it reads everything: ${Object.keys(reads).join(', ')} (${products.body.total ?? '?'} products)`))
-  return out
+  return [...session, ...gateGrantReads(products, levels)]
 }
 
 function pull(c: Ctx): Finding[] {

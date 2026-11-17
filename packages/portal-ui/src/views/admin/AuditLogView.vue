@@ -176,6 +176,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAdminStore } from '../../store/admin.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { reportError } from 'ui-shared/composables/report-error'
 import { useAppStore } from '../../store/app.store'
 
 const { t } = useI18n()
@@ -222,7 +223,7 @@ function onUserSearch(q: string) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/audit-logs/search-users`, { params: { q } })
       userResults.value = data.results || []
-    } catch { /* */ } finally { searchingUsers.value = false }
+    } catch { /* A search helper: the filter stays empty, and the HTTP client says a network failure or a 5xx. */ } finally { searchingUsers.value = false }
   }, 300)
 }
 
@@ -235,7 +236,7 @@ function onEntitySearch(q: string) {
     try {
       const { data } = await httpClient.get(`${orgUrl()}/audit-logs/search-entities`, { params: { entityType: filters.entityTypes[0], q } })
       entityResults.value = data.results || []
-    } catch { /* */ } finally { searchingEntities.value = false }
+    } catch { /* A search helper: the filter stays empty, and the HTTP client says a network failure or a 5xx. */ } finally { searchingEntities.value = false }
   }, 300)
 }
 
@@ -300,7 +301,7 @@ async function fetchFilterOptions() {
     filterOptions.modules = data.modules || []
     filterOptions.actions = data.actions || []
     filterOptions.entityTypes = data.entityTypes || []
-  } catch { /* */ }
+  } catch { /* The filters offer nothing; the log itself still loads, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 // Entity URL mapping for clickable links.
@@ -354,7 +355,7 @@ async function fetchCorrelated(correlationId: string) {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/audit-logs/correlation/${correlationId}`)
     correlatedCache.value[correlationId] = (data.entries || []).filter((e: any) => e.action !== 'bulk_price_adjust')
-  } catch { /* */ } finally {
+  } catch (e) { reportError(e) } finally {
     loadingCorrelated.value[correlationId] = false
   }
 }

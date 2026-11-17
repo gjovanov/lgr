@@ -491,7 +491,7 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
       const info = await this.transport.sendCommand(TREMOL_CMD.READ_RECEIPT_INFO)
       const parts = info.split(';')
       receiptNumber = parts[0] || 'unknown'
-    } catch { /* best-effort */ }
+    } catch { /* The receipt is printed: its number is read for the record only, and "unknown" says it was not. */ }
 
     const result: FiscalReceiptResult = {
       fiscalReceiptNumber: receiptNumber,
@@ -542,7 +542,7 @@ export class TremolFiscalPrinter implements IFiscalPrinter {
       try {
         const info = await this.transport.sendCommand(TREMOL_CMD.READ_RECEIPT_INFO)
         receiptNumber = info.split(';')[0] || 'unknown'
-      } catch { /* best-effort */ }
+      } catch { /* The receipt is printed: its number is read for the record only, and "unknown" says it was not. */ }
 
       const result: FiscalStornoResult = { fiscalReceiptNumber: receiptNumber, dateTime: new Date() }
       logger.info({ deviceId: this.deviceId, receiptNumber, reason }, 'Tremol storno receipt printed')

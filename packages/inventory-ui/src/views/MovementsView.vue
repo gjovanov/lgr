@@ -559,7 +559,7 @@ async function fetchWarehouses() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000, external: 'include' } })
     warehouses.value = data.warehouses || []
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 function contactDisplayName(c: any): string {
@@ -571,14 +571,14 @@ async function fetchContacts() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`)
     contacts.value = (data.contacts || []).map((c: any) => ({ ...c, name: contactDisplayName(c) }))
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 async function fetchCategories() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category`, { params: { isActive: 'true' } })
     categoryOptions.value = (data.productCategories || []).map((c: { name: string }) => c.name)
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 onMounted(() => { fetchItems(); fetchWarehouses(); fetchContacts(); fetchCategories() })

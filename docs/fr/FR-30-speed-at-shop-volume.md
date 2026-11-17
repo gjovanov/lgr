@@ -387,6 +387,8 @@ The demo organization is small, so production proves that nothing changed, and t
 
 **Sorts no index serves** (`scan` in the table, held by the test as a list): Products by type, unit, active, minimum, purchase and selling price; documents by status, type, currency, reference, subtotal, tax, total, amount due; Stock levels by quantity; Movements by status and total (and by the three looked-up names, an aggregation). Each still reads the filtered rows, as before. They stay offered: dropping them from the grids, or indexing them, is the owner's call (FR-30.2).
 
+**The id, on every list, for what reads a whole list in pages.** The import and audit tooling (`fetchAll` in nine scripts and skills) sends `page=N&sortBy=_id&sortOrder=asc` until a page adds nothing. It needs an order with no ties: rows whose sort keys are equal can come in another order for another skip, so a page repeats a row and leaves another out, and the reader is not told. Every default sort above has ties. The first version of the table did not declare the id, so those reads would have run on the default sort; the table declares it now (`scan`: read in the id's order through the collection's `_id` index, as before this slice), no grid offers it, and `unit/list-sorts.test.ts` holds every `sortBy` the scripts and skills send to the table.
+
 **Turned off in the grids**, because the server never sorted by them (they are names looked up after the page): the contact on Sales invoices and Bills, the article's SKU and name and the warehouse on Stock levels.
 
 ### Slice B (FR-30.6 to .10), 2026-11-17

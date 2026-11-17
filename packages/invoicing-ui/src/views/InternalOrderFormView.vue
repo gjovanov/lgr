@@ -572,6 +572,7 @@
 
 <script setup lang="ts">
 import { formatDate, intlLocale } from 'ui-shared/format'
+import { askConfirm } from 'ui-shared/composables/confirm'
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -814,7 +815,7 @@ async function fetchContacts(pool: 'client' | 'supplier', search?: string) {
     if (pool === 'client') clientOptions.value = merged
     else supplierOptions.value = merged
     for (const c of items) contactNames.value[c._id] = c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ')
-  } catch { /* */ } finally {
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
     loadingContacts.value = false
   }
 }
@@ -823,7 +824,7 @@ async function fetchWarehouses() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } })
     warehouses.value = data.warehouses || []
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 function warehouseName(id: string) { return warehouses.value.find((w) => w._id === String(id))?.name || '—' }
 
@@ -1279,7 +1280,7 @@ async function convertOrder() {
 }
 
 async function deleteOrder() {
-  if (!confirm(t('invoicing.deleteInternalOrderConfirm'))) return
+  if (!(await askConfirm({ text: t('invoicing.deleteInternalOrderConfirm'), confirm: t('common.delete'), danger: true }))) return
   try {
     await httpClient.delete(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`)
     showSuccess(t('common.deletedSuccessfully'))
@@ -1400,8 +1401,8 @@ function reserveFromOrder(line: any, inc: any) {
     allocationId: inc.allocationId,
   }))
 }
-function preempt(line: any, p: any) {
-  if (!confirm(t('invoicing.preemptConfirm', { number: p.reservationNumber }))) return
+async function preempt(line: any, p: any) {
+  if (!(await askConfirm({ text: t('invoicing.preemptConfirm', { number: p.reservationNumber }), confirm: t('invoicing.preempt') }))) return
   return coverAction(() => httpClient.post(`${orgUrl()}/invoicing/reservations/${p.reservationId}/preempt`, {
     internalOrderId: route.params.id,
     internalOrderLineId: line.lineId,
@@ -1547,7 +1548,7 @@ async function fetchPeekedNumber() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/internal-orders/peek-next`)
     peekedNumber.value = data.next || ''
-  } catch { /* */ }
+  } catch { /* A preview only: the number is drawn on save. */ }
 }
 
 onMounted(async () => {

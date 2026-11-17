@@ -69,6 +69,7 @@
 import { formatDate } from '../format/format'
 import { ref, onMounted, watch } from 'vue'
 import { httpClient } from '../composables/useHttpClient.js'
+import { reportError } from '../composables/report-error.js'
 
 interface NoteEntry {
   id: string
@@ -115,9 +116,7 @@ async function fetchEntries() {
       changes: log.changes?.filter((c: any) => c.field !== 'note'),
     }))
     entries.value = logs
-  } catch {
-    // Silently fail — audit log might not have entries
-  } finally {
+  } catch (e) { reportError(e) } finally {
     loading.value = false
   }
 }
@@ -135,9 +134,7 @@ async function submitNote() {
     })
     newNote.value = ''
     await fetchEntries()
-  } catch {
-    // Silent fail
-  } finally {
+  } catch (e) { reportError(e) } finally {
     saving.value = false
   }
 }
