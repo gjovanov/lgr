@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
-import { ROLE_TEMPLATES, can, isCapability, projectGrant, seesCosts, templateGrant, type CapabilityId, type Grant } from 'config/access'
+import { ROLE_TEMPLATES, can, isCapability, seesCosts, templateGrant, type CapabilityId, type Grant } from 'config/access'
 import { REPORT_REGISTRY, reportById } from 'services/biz/report-registry'
 import { canAccessReport, canExportReport } from 'services/biz/report-registry.types'
 
@@ -13,7 +12,7 @@ import { canAccessReport, canExportReport } from 'services/biz/report-registry.t
  */
 
 const caps = (...c: string[]): Grant => ({ caps: new Set(c as CapabilityId[]) })
-const onRoles = (grant: Grant) => ({ ...(grant.all ? { role: 'admin', permissions: [] } : projectGrant(grant).legacy), access: grant })
+const onRoles = (grant: Grant) => ({ id: 'u', access: grant })
 const report = (id: string) => reportById(id)!
 
 describe('every report names what it shows', () => {
@@ -47,8 +46,8 @@ describe('an org on roles: the role decides', () => {
     const bookkeeper = { role: 'member', permissions: [] as string[], access: caps('ledgers.view') }
     expect(canAccessReport(report('accounting-trial-balance'), bookkeeper)).toBe(true)
     expect(canAccessReport(report('accounting-chronology'), bookkeeper)).toBe(false)
-    // The same token without a role: its claims decide, and they carry no `accounting.read`.
-    expect(canAccessReport(report('accounting-trial-balance'), { role: 'member', permissions: [] })).toBe(false)
+    // A session without a role reads nothing.
+    expect(canAccessReport(report('accounting-trial-balance'), { id: 'u' } as any)).toBe(false)
   })
 
   it('a role without bills reads no purchase register, whatever its invoicing reads (FR-27.6)', () => {
@@ -68,18 +67,15 @@ describe('an org on roles: the role decides', () => {
   })
 })
 
-describe('FR-27 P3-5: a caller stated as legacy claims is read as its grant (no session carries claims any more)', () => {
-  const legacy = (role: string) => ({ role, permissions: [...(DEFAULT_ROLE_PERMISSIONS as any)[role]] })
+describe('the built-in roles: the report capability decides, never a permission or a role list (FR-27 P3-6)', () => {
+  const of = (role: string) => onRoles(templateGrant(role))
 
-  it("the report's capability decides, on what the claims compile to; never the permission or the role list", () => {
-    expect(canAccessReport(report('accounting-trial-balance'), legacy('accountant'))).toBe(true)
-    expect(canAccessReport(report('accounting-trial-balance'), legacy('warehouse_manager'))).toBe(false)
+  it('the books to the accountant, SUPTO to the NRA auditor and the Administrator', () => {
+    expect(canAccessReport(report('accounting-trial-balance'), of('accountant'))).toBe(true)
+    expect(canAccessReport(report('accounting-trial-balance'), of('warehouse_manager'))).toBe(false)
     const fiscal = REPORT_REGISTRY.find(e => e.category === 'fiscal')!
-    expect(canAccessReport(fiscal, legacy('nra_auditor'))).toBe(true)
-    expect(canAccessReport(fiscal, legacy('accountant'))).toBe(false)
-    expect(canAccessReport(fiscal, { role: 'admin', permissions: [] })).toBe(true)
-    // `invoicing.write` reads the sales documents (`sales-docs.view`), so the report shows to it now: the capability, as
-    // a role holding it is asked. The legacy rule asked the exact `invoicing.read`.
-    expect(canAccessReport(report('sales-documents'), { role: 'member', permissions: ['invoicing.write'] })).toBe(true)
+    expect(canAccessReport(fiscal, of('nra_auditor'))).toBe(true)
+    expect(canAccessReport(fiscal, of('accountant'))).toBe(false)
+    expect(canAccessReport(fiscal, of('admin'))).toBe(true)
   })
 })

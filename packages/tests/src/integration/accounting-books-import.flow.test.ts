@@ -22,6 +22,7 @@ import { mongoose } from 'db/connection'
 import { compareJournalAccounts, compareJournalAnalytics } from 'services/biz/accounting-books/compare'
 import { REPORT_REGISTRY, listReportsFor, reportById } from 'services/biz/report-registry'
 import type { ImportDocument, JournalBody } from 'services/biz/accounting-books/import.types'
+import { capsOfPermissions } from '../helpers/permission-caps'
 import { createApiApp } from '../../../portal-api/src/api.js'
 
 /**
@@ -993,7 +994,8 @@ describe('the books, read back', () => {
 
     it('each is in the catalog for who reads accounting, and only for them', () => {
       const ids = ['accounting-trial-balance', 'accounting-analytic-balance', 'accounting-main-book', 'accounting-chronology', 'accounting-documents']
-      const seen = (permissions: string[]) => listReportsFor({ permissions, role: 'member' }).map(r => r.id)
+      // A role holding what each legacy permission gave (FR-27 P3-6: the grant decides).
+      const seen = (permissions: string[]) => listReportsFor({ access: capsOfPermissions(...permissions) } as any).map(r => r.id)
       expect(seen(['accounting.read'])).toEqual(expect.arrayContaining(ids))
       for (const id of ids) expect(seen(['invoicing.read'])).not.toContain(id)
       for (const id of ids) expect(reportById(id)!.category).toBe('accounting')

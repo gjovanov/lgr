@@ -4,7 +4,7 @@ import { apiLogin, apiGet, apiPost } from './helpers/api'
 import { closeTillSession, createBackOfficeCashSale, openTillSession, ringTillSale } from './helpers/cash-register'
 import { BETA, signInAsMultiInAcme, switchTo } from './helpers/org-switcher'
 import { openNavDrawer } from './helpers/nav'
-import { compileLegacy } from '../../config/src/access'
+import { capsOfPermissions } from '../../tests/src/helpers/permission-caps'
 
 const API = process.env.BASE_URL || 'http://localhost:4001'
 const PASSWORD = 'e2e-test-pw-12345'
@@ -28,7 +28,7 @@ const username = `till-only-${Date.now()}`
  */
 async function userWith(name: string, permissions: string[]) {
   const admin = await apiLogin()
-  const grant = compileLegacy({ role: 'member', permissions })
+  const grant = capsOfPermissions(...permissions)
   const caps = grant.all ? [] : [...grant.caps]
   const made = await apiPost(admin, '/roles', { name: `Role of ${name}`, caps })
   expect(made.ok, `create the role → ${made.status}`).toBe(true)

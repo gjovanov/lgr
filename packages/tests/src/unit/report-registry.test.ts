@@ -16,6 +16,7 @@ import {
   type ReportEntry,
   type ReportMeta,
 } from 'services/biz/report-registry.types'
+import { ALL } from 'config/access'
 
 /**
  * FR-6.6/6.7 — the registry's guarantees, tested against hand-built entries so no real
@@ -131,7 +132,7 @@ describe('canAccessReport', () => {
   })
 
   it('lets admin through without the explicit permission', () => {
-    expect(canAccessReport(entry({ permission: 'inventory.read' }), { role: 'admin', permissions: [] })).toBe(true)
+    expect(canAccessReport(entry({ permission: 'inventory.read' }), { access: ALL })).toBe(true)
   })
 
   it('the SUPTO case: its own capability, which a manager reading every module does not hold', () => {

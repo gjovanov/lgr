@@ -1,8 +1,6 @@
 import { describe, it, expect } from 'bun:test'
-import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, ROLES, ROLE_PERMISSION_SET_NAMES, type Role } from 'config/constants'
-import {
-  ROLE_TEMPLATES, can, compileLegacy, grantOfRole, legacyClaimsOf, legacyKeyOf, sameGrant, templateGrant, unknownCaps,
-} from 'config/access'
+import { ROLES } from 'config/constants'
+import { ROLE_TEMPLATES, can, grantOfRole, legacyKeyOf, sameGrant, templateGrant, unknownCaps } from 'config/access'
 
 /**
  * FR-27.3 (#529) — the built-in roles grant today's access of their legacy role, and a stored role grants what it
@@ -13,17 +11,23 @@ describe('the built-in templates', () => {
   it('one per legacy role, under the names people know', () => {
     expect(ROLE_TEMPLATES.map(t => t.key)).toEqual([...ROLES])
     expect(new Set(ROLE_TEMPLATES.map(t => t.name)).size).toBe(ROLES.length)
-    for (const [role, name] of Object.entries(ROLE_PERMISSION_SET_NAMES)) {
-      expect({ role, name: ROLE_TEMPLATES.find(t => t.key === role)?.name }).toEqual({ role, name })
-    }
+    // The system permission sets' names, which people knew (`ROLE_PERMISSION_SET_NAMES` until FR-27 P3-6).
+    expect(Object.fromEntries(ROLE_TEMPLATES.map(t => [t.key, t.name]))).toMatchObject({
+      admin: 'Administrator', manager: 'Manager', accountant: 'Accountant', warehouse_manager: 'Warehouse Manager',
+      seller: 'Seller', sales_consultant: 'Sales Consultant', member: 'Member (Read Only)', nra_auditor: 'NRA Auditor (Read Only)',
+    })
+  })
+  // What each grants against its legacy role's defaults: `unit/access-legacy-frozen.test.ts` (FR-27 P3-6).
+
+  it('the NRA auditor reads, exports and reads the audit log, and works on nothing', () => {
+    const g = templateGrant('nra_auditor') as { caps: Set<string> }
+    expect(can(g, ['audit-log.view', 'reports.export', 'supto.view'])).toBe(true)
+    expect([...g.caps].filter(c => /\.(create|edit|delete|post|sell|approve)$/.test(c))).toEqual([])
   })
 
-  it("each grants exactly what its role's defaults give today", () => {
-    for (const role of ROLES) {
-      const areas = DEFAULT_ROLE_AREAS[role as Role]
-      const today = compileLegacy({ role, permissions: DEFAULT_ROLE_PERMISSIONS[role], ...(areas ? { areas } : {}) })
-      expect({ role, same: sameGrant(templateGrant(role), today) }).toEqual({ role, same: true })
-    }
+  it('FR-25 §3.11: a member reads no payroll; the roles whose job it is do', () => {
+    expect(can(templateGrant('member'), ['payroll-runs.view', 'payroll-people.view'])).toBe(false)
+    expect(can(templateGrant('hr_manager'), 'payroll-people.view')).toBe(true)
   })
 
   it('the Administrator holds everything', () => {
@@ -50,22 +54,7 @@ describe('a stored role', () => {
   })
 })
 
-describe('legacyClaimsOf: what tokenize() reads', () => {
-  it('no set: the role defaults, the own list on top, the role areas', () => {
-    expect(legacyClaimsOf({ role: 'member', permissions: ['inventory.write'] }, [])).toMatchObject({
-      role: 'member', permissions: [...DEFAULT_ROLE_PERMISSIONS.member, 'inventory.write'],
-    })
-    expect(legacyClaimsOf({ role: 'seller' }, []).areas).toEqual([])
-    expect(legacyClaimsOf({ role: 'member' }, []).areas).toBeUndefined()
-  })
-
-  it('sets: their union, every permission for an admin set, the areas merged', () => {
-    expect(legacyClaimsOf({ role: 'member', permissions: ['payroll.read'] }, [{ permissions: ['invoicing.read'] }, { permissions: ['pos.read'] }]).permissions).toEqual(['invoicing.read', 'pos.read'])
-    expect(legacyClaimsOf({ role: 'member' }, [{ permissions: [], isAdmin: true }]).permissions).toEqual([...PERMISSIONS])
-    expect(legacyClaimsOf({ role: 'member' }, [{ areas: [] }, { areas: ['orders'] }]).areas).toEqual(['orders'])
-    expect(legacyClaimsOf({ role: 'member' }, [{ areas: [] }, {}]).areas).toBeUndefined()
-  })
-
+describe("0015's key for an imported role", () => {
   it('legacyKeyOf: the same access, the same key, whatever the order', () => {
     expect(legacyKeyOf({ role: 'member', permissions: ['b', 'a'] })).toBe(legacyKeyOf({ role: 'member', permissions: ['a', 'b'] }))
     expect(legacyKeyOf({ role: 'member', permissions: [], areas: [] })).not.toBe(legacyKeyOf({ role: 'member', permissions: [] }))

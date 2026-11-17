@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'bun:test'
 import {
-  CAPABILITIES, CUSTOMER_PRICE_LABEL, PRICE_LEVELS, PRICE_LEVEL_CAPS, capOfTier, compileLegacy, keepStoredPrices,
-  capsOfSortKey, hiddenPricesOf, redactPriceOptions, redactProduct, redactResolution, sameGrant, sortRefusal, templateDefaults, templateGrant, templateOf, withImplied, type CapabilityId,
+  CAPABILITIES, CUSTOMER_PRICE_LABEL, PRICE_LEVELS, PRICE_LEVEL_CAPS, capOfTier, keepStoredPrices,
+  capsOfSortKey, hiddenPricesOf, redactPriceOptions, redactProduct, redactResolution, sortRefusal, templateDefaults, templateGrant, withImplied, type CapabilityId,
 } from 'config/access'
-import { DEFAULT_ROLE_PERMISSIONS, PRICE_TIERS, ROLES } from 'config/constants'
+import { PRICE_TIERS, ROLES } from 'config/constants'
 
 /**
  * FR-27.11 (#529, owner 2026-11-10) — price visibility per role: a role carries the price levels it may see, and the
@@ -41,9 +41,9 @@ describe('A. the levels', () => {
     expect(capOfTier('Цена за Иван')).toBe('products.price:other')
   })
 
-  it('legacy grants every level wherever it reads products: nobody loses a price', () => {
+  it('every built-in role grants every level wherever it reads products: nobody lost a price', () => {
     for (const role of ROLES) {
-      const g = compileLegacy({ role, permissions: [...(DEFAULT_ROLE_PERMISSIONS[role] ?? [])] })
+      const g = templateGrant(role)
       const readsProducts = g.all || ['products.view', 'products.lookup', 'sales-docs.view', 'till.view'].some(c => (g.caps as Set<string>).has(c))
       if (readsProducts) expect({ role, all: PRICE_LEVEL_CAPS.every(c => g.all || g.caps.has(c)) }).toEqual({ role, all: true })
     }
@@ -76,8 +76,7 @@ describe('B. the templates (D-11, D-12)', () => {
     }
   })
 
-  it("the template itself stays the legacy role's access: an unedited built-in and migration 0015 change nobody", () => {
-    expect(sameGrant(templateGrant('seller'), compileLegacy(templateOf('seller')!.legacy))).toBe(true)
+  it("the template itself stays the legacy role's access (pinned in `access-legacy-frozen`): the costs with it", () => {
     expect((templateGrant('seller') as any).caps.has('products.costs')).toBe(true)
   })
 })
@@ -182,7 +181,7 @@ describe('C.3 the levels a sort key reads', () => {
     expect(sortRefusal(regalPz, 'tier_1')).toBeNull()
     expect(sortRefusal(regalPz, 'name')).toBeNull()
     expect(sortRefusal({ all: true }, 'purchasePrice')).toBeNull()
-    expect(sortRefusal(compileLegacy({ role: 'member', permissions: ['inventory.read'] }), 'purchasePrice')).toBeNull()
+    expect(sortRefusal(templateGrant('member'), 'purchasePrice')).toBeNull()
   })
 })
 

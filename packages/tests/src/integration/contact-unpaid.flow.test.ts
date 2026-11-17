@@ -8,10 +8,8 @@ import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { UNPAID_LIST_MAX } from '../../../invoicing-api/src/controllers/contact.controller.js'
 import { config } from 'config'
 import { EXACT_READS, accessRuleFor } from 'config/access'
-import { Identity, PermissionSet, type IUser } from 'db/models'
+import { Identity, type IUser } from 'db/models'
 import { sessionFor } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
-import { EXACT_READ_RULES } from 'services/biz/route-permission'
 
 /**
  * The documents behind the contact form's Open Balance button (`GET /invoicing/contact/:id/unpaid`).
@@ -46,7 +44,7 @@ async function request(path: string, token?: string) {
 async function member(role: string, setName?: string): Promise<string> {
   const email = `${role}-${Math.random().toString(36).slice(2, 8)}@unpaid.test`
   const identity = await Identity.create({ email, firstName: 'U', lastName: role, isActive: true, passwordSetBy: 'self', password: await Bun.password.hash('test123') } as any)
-  const set = setName ? await PermissionSet.findOne({ orgId, name: setName }).lean() : null
+  const set = null as { _id: unknown } | null // FR-27 P3-6: no permission sets; the person holds the built-in role of their key
   const user: IUser = await createTestUser(org._id, { role, email, identityId: identity._id, ...(set ? { permissionSetIds: [set._id] } : {}) } as any)
   return sign(await sessionFor(user, identity))
 }
@@ -64,7 +62,6 @@ beforeAll(async () => {
   app = new Elysia().onError(spaErrorHandler({}) as any).use(createApiApp()) as any
   org = await createTestOrg()
   orgId = String(org._id)
-  await seedDefaultPermissionSets(orgId)
   contactId = String((await createTestContact(org._id))._id)
 
   // What owes, written in another order than it is due.
@@ -160,10 +157,8 @@ describe("the documents behind a contact's Open Balance", () => {
     expect(refused.status).toBe(403)
     expect(JSON.stringify(refused.json)).not.toContain('INV-')
     expect((await request(`/invoicing/contact/${contactId}/unpaid`)).status).toBe(401)
-    // Both tables name it: left to the contact routes' prefix, the pickers' roles would read it. By permissions it
-    // is the summary's rule; by capabilities the documents' own, as the ledger behind the Invoices button asks.
-    expect(EXACT_READ_RULES.get('invoicing/contact/:id/unpaid')).toBeDefined()
-    expect(JSON.stringify(EXACT_READ_RULES.get('invoicing/contact/:id/unpaid'))).toBe(JSON.stringify(EXACT_READ_RULES.get('invoicing/contact/:id/summary')))
+    // The table names it: left to the contact routes' prefix, the pickers' roles would read it. It is the documents'
+    // own capability, as the ledger behind the Invoices button asks.
     expect(EXACT_READS.get('invoicing/contact/:id/unpaid')).toEqual({ anyOf: ['sales-docs.view'] })
     expect(accessRuleFor('GET', 'invoicing/contact-ledger/:contactId')).toEqual({ anyOf: ['sales-docs.view'] })
   })

@@ -7,12 +7,10 @@ import { join } from 'path'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
 import { forgetAllHomes, homeNewOrg } from 'db/home/home'
-import { AuditLog, EmailLog, Identity, Org, Outbox, PermissionSet, StockLevel, StockMovement } from 'db/models'
-import type { CapabilityId, Grant } from 'config/access'
-import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import { AuditLog, EmailLog, Identity, Org, Outbox, StockLevel, StockMovement } from 'db/models'
+import { templateGrant, type CapabilityId, type Grant } from 'config/access'
 import { MAX_DOCS_PER_MAIL, MAX_SELECTION, chunkDocuments, groupByPartner, planForOneAddress } from 'config/doc-email'
 import { sessionFor } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { drainOne } from 'services/biz/relay/outbox-worker'
 import { renderStockMovementPdf } from 'services/biz/stock-movement-document.service'
 import { MOVEMENT_ENTITY, emailMovements, movementEmailRenderers, previewMovementEmail } from 'warehouse-api/src/lib/movement-email'
@@ -130,7 +128,7 @@ async function auditOf(orgId: string, want: number): Promise<any[]> {
 async function member(org: any, role: string, setName?: string) {
   const email = `${role}-${Math.random().toString(36).slice(2, 8)}@mvmail.test`
   const identity = await Identity.create({ email, firstName: 'F', lastName: role, isActive: true, passwordSetBy: 'self', password: passwordHash } as any)
-  const set = setName ? await PermissionSet.findOne({ orgId: org._id, name: setName }).lean() : null
+  const set = null as { _id: unknown } | null // FR-27 P3-6: no permission sets; the person holds the built-in role of their key
   const user = await createTestUser(org._id, { role, email, identityId: identity._id, ...(set ? { permissionSetIds: [set._id] } : {}) } as any)
   return { user, token: await sign(await sessionFor(user, identity)) }
 }
@@ -142,7 +140,7 @@ async function world() {
   await Org.updateOne({ _id: org._id }, { $set: { email: 'office@example.test' } })
   const orgId = String(org._id)
   const admin = await createTestUser(org._id, { role: 'admin' } as any)
-  const user = { id: String(admin._id), role: 'admin', permissions: [...DEFAULT_ROLE_PERMISSIONS.admin] }
+  const user = { id: String(admin._id), access: templateGrant('admin') }
   const main = await createTestWarehouse(org._id, { name: 'Main warehouse', code: 'MAIN', isDefault: true } as any)
   const second = await createTestWarehouse(org._id, { name: 'Second warehouse', code: 'SECOND' } as any)
   const site = await createTestWarehouse(org._id, { name: 'Other site', code: 'SITE', isExternal: true } as any)
@@ -483,8 +481,8 @@ describe('who mails which movement', () => {
     const sellers = [
       // An org on `roles`: the Seller's part of the movements.
       w.holding('movements.lookup', 'movements.create:transfer'),
-      // The legacy model: the Seller's token, as it compiles (FR-26.7).
-      { id: w.user.id, role: 'seller', permissions: [...DEFAULT_ROLE_PERMISSIONS.seller], areas: [...(DEFAULT_ROLE_AREAS.seller ?? [])] },
+      // The built-in Seller (FR-26.7).
+      { id: w.user.id, access: templateGrant('seller') },
     ]
 
     for (const [i, seller] of sellers.entries()) {
@@ -532,8 +530,8 @@ describe('who mails which movement', () => {
     const readers = [
       w.holding('movements.view', 'movements.lookup'),
       w.holding('sales-docs.view', 'sales-docs.edit'),
-      { id: w.user.id, role: 'member', permissions: [...DEFAULT_ROLE_PERMISSIONS.member] },
-      { id: w.user.id, role: 'accountant', permissions: [...DEFAULT_ROLE_PERMISSIONS.accountant] },
+      { id: w.user.id, access: templateGrant('member') },
+      { id: w.user.id, access: templateGrant('accountant') },
     ]
     for (const reader of readers) {
       expect((await w.preview([transfer.id], reader)).status).toBe(403)
@@ -800,7 +798,6 @@ describe('the two routes, in the whole route table', () => {
     const sent = fakeSendGrid()
     fakePrinting()
     const w = await world()
-    await seedDefaultPermissionSets(w.orgId)
     const seller = await member(w.org, 'seller', 'Seller')
     const keeper = await member(w.org, 'warehouse_manager')
     const call = caller(w)

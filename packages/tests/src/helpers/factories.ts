@@ -30,7 +30,6 @@ import {
   Invite, type IInvite,
   Tag, type ITag,
   FiscalDevice, type IFiscalDevice,
-  PermissionSet,
 } from 'db/models'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
@@ -160,6 +159,7 @@ export async function roleKeyOf(userId: unknown): Promise<string | undefined> {
  * Since the role decides every request, a token's own `permissions` decide nothing: a test can no longer sign one
  * person with other claims written over. This makes a person of their own instead: a set holding the claims (absent
  * `areas` = every area, `[]` = none), and the role 0015 makes of it, an imported one with exactly that access.
+ * (The legacy claims are the fixture's words for an access: the released migration turns them into the role.)
  */
 export async function createTestPerson(
   orgId: Types.ObjectId,
@@ -167,11 +167,13 @@ export async function createTestPerson(
   overrides: Partial<IUser> = {},
 ): Promise<IUser> {
   const role = claims.role ?? 'member'
-  const set = await PermissionSet.create({
-    orgId, name: `Test access ${uniqueTs()}`, permissions: claims.permissions ?? [], isAdmin: false, isDefault: false, isSystem: false,
-    ...(claims.areas ? { areas: claims.areas } : {}),
-  } as any)
-  return createTestUser(orgId, { role, permissions: claims.permissions ?? [], permissionSetIds: [set._id], ...overrides } as any)
+  // FR-27 P3-6: permission sets have no model; 0015 reads them through the driver, so the set is written that way.
+  const setId = new Types.ObjectId()
+  await mongoose.connection.db!.collection('permissionsets').insertOne({
+    _id: setId, orgId: new Types.ObjectId(String(orgId)), name: `Test access ${uniqueTs()}`, permissions: claims.permissions ?? [],
+    isAdmin: false, isDefault: false, isSystem: false, ...(claims.areas ? { areas: claims.areas } : {}),
+  })
+  return createTestUser(orgId, { role, permissions: claims.permissions ?? [], permissionSetIds: [setId], ...overrides } as any)
 }
 
 // Account codes are unique per org. A random 4-digit code collided now and then (two draws in one

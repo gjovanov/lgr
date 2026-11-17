@@ -9,7 +9,8 @@ import { posController } from 'invoicing-api/src/controllers/pos.controller'
 import { Product } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
-import { pinScopeRefusal, readRuleFor } from 'services/biz/route-permission'
+import { orgRouteRest, pinScopeRefusal } from 'services/biz/route-permission'
+import { accessRuleFor } from 'config/access'
 
 /**
  * FR-22.55 — Enter in a terminal's search adds the article whose barcode or SKU is the code.
@@ -208,7 +209,7 @@ describe('who reaches it', () => {
   })
 
   it('the till’s cashier and the back office’s accountant, as the grid; nobody else', async () => {
-    expect(readRuleFor(LOOKUP_ROUTE)).toEqual(readRuleFor('/api/org/:orgId/trade/pos/catalog'))
+    expect(accessRuleFor('GET', orgRouteRest(LOOKUP_ROUTE)!)).toEqual(accessRuleFor('GET', 'trade/pos/catalog'))
     expect((await lookup('LK-B8', {}, tokens.sales)).product?.productId).toBe(ids.bolt8)
     expect((await lookup('LK-B8', {}, tokens.accountant)).product?.productId).toBe(ids.bolt8)
     for (const role of ['hr_manager', 'warehouse_manager']) {

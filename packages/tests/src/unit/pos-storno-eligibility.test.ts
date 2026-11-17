@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'bun:test'
-import { canPickPart, canStornoTransaction, canStornoJournalRow, STORNO_ROLES } from '../../../invoicing-ui/src/pos/composables/storno'
+import { canPickPart, canStornoTransaction, canStornoJournalRow } from '../../../invoicing-ui/src/pos/composables/storno'
+import { templateGrant, type Grant } from 'config/access'
+
+/** A built-in role's grant (FR-27 P3-6: a role key is no actor any more). */
+const as = (role: string | undefined): Grant | undefined => (role ? templateGrant(role) : undefined)
 
 /**
  * #145 — the STORNO button must never be offered where the server would refuse it
@@ -27,33 +31,33 @@ describe('canPickPart: what the storno dialog offers beside all of it (the reade
 
 describe('canStornoTransaction', () => {
   it('offers storno on a completed sale to the roles the server accepts', () => {
-    for (const role of STORNO_ROLES) {
-      expect(canStornoTransaction({ type: 'sale', status: 'completed' }, role), role).toBe(true)
+    for (const role of ['admin', 'manager']) {
+      expect(canStornoTransaction({ type: 'sale', status: 'completed' }, as(role)), role).toBe(true)
     }
   })
 
   it('never to a cashier or a read-only role', () => {
     for (const role of ['member', 'accountant', 'nra_auditor', 'cashier', '', undefined]) {
-      expect(canStornoTransaction({ type: 'sale', status: 'completed' }, role as any), String(role)).toBe(false)
+      expect(canStornoTransaction({ type: 'sale', status: 'completed' }, as(role)), String(role)).toBe(false)
     }
   })
 
   it('never on a storno, a cancelled (already reversed) sale, or nothing', () => {
-    expect(canStornoTransaction({ type: 'storno', status: 'completed' }, 'admin')).toBe(false)
-    expect(canStornoTransaction({ type: 'sale', status: 'cancelled' }, 'admin')).toBe(false)
-    expect(canStornoTransaction(null, 'admin')).toBe(false)
+    expect(canStornoTransaction({ type: 'storno', status: 'completed' }, as('admin'))).toBe(false)
+    expect(canStornoTransaction({ type: 'sale', status: 'cancelled' }, as('admin'))).toBe(false)
+    expect(canStornoTransaction(null, as('admin'))).toBe(false)
     // FR-23: a fiscal receipt nothing can prove: a person settles it first, and the server refuses until then.
-    expect(canStornoTransaction({ type: 'sale', status: 'completed', isFiscal: true, fiscal: { state: 'unknown' } }, 'admin')).toBe(false)
-    expect(canStornoTransaction({ type: 'sale', status: 'completed', isFiscal: false, fiscal: { state: 'unknown' } }, 'admin')).toBe(true)
-    expect(canStornoJournalRow({ kind: 'sale', status: 'inDoubt', origin: 'pos' }, 'admin')).toBe(false)
+    expect(canStornoTransaction({ type: 'sale', status: 'completed', isFiscal: true, fiscal: { state: 'unknown' } }, as('admin'))).toBe(false)
+    expect(canStornoTransaction({ type: 'sale', status: 'completed', isFiscal: false, fiscal: { state: 'unknown' } }, as('admin'))).toBe(true)
+    expect(canStornoJournalRow({ kind: 'sale', status: 'inDoubt', origin: 'pos' }, as('admin'))).toBe(false)
   })
 
   it('FR-23 R3: what is left of a partly stornoed sale can go back too, but not once it is invoiced or all back', () => {
-    expect(canStornoJournalRow({ kind: 'sale', status: 'partial', origin: 'pos' }, 'admin')).toBe(true)
-    expect(canStornoJournalRow({ kind: 'sale', status: 'partial', origin: 'backoffice' }, 'manager')).toBe(true)
-    expect(canStornoJournalRow({ kind: 'sale', status: 'partial', origin: 'pos', invoicingState: 'full' }, 'admin')).toBe(false)
-    expect(canStornoJournalRow({ kind: 'sale', status: 'stornoed', origin: 'pos' }, 'admin')).toBe(false)
-    expect(canStornoJournalRow({ kind: 'sale', status: 'partial', origin: 'import' }, 'admin')).toBe(false)
+    expect(canStornoJournalRow({ kind: 'sale', status: 'partial', origin: 'pos' }, as('admin'))).toBe(true)
+    expect(canStornoJournalRow({ kind: 'sale', status: 'partial', origin: 'backoffice' }, as('manager'))).toBe(true)
+    expect(canStornoJournalRow({ kind: 'sale', status: 'partial', origin: 'pos', invoicingState: 'full' }, as('admin'))).toBe(false)
+    expect(canStornoJournalRow({ kind: 'sale', status: 'stornoed', origin: 'pos' }, as('admin'))).toBe(false)
+    expect(canStornoJournalRow({ kind: 'sale', status: 'partial', origin: 'import' }, as('admin'))).toBe(false)
   })
 })
 
@@ -62,15 +66,15 @@ describe('canStornoJournalRow (FR-21 §3.5)', () => {
 
   it('a till sale or a back-office sale, from either store', () => {
     for (const r of [row(), row({ store: 'pos', invoicingState: undefined }), row({ origin: 'backoffice' })]) {
-      expect(canStornoJournalRow(r, 'manager'), JSON.stringify(r)).toBe(true)
+      expect(canStornoJournalRow(r, as('manager')), JSON.stringify(r)).toBe(true)
     }
   })
 
   it('not an imported day, an invoiced sale, a storno, a stornoed sale, or for a cashier', () => {
-    expect(canStornoJournalRow(row({ origin: 'import' }), 'admin')).toBe(false)
-    expect(canStornoJournalRow(row({ invoicingState: 'partial' }), 'admin')).toBe(false)
-    expect(canStornoJournalRow(row({ kind: 'storno' }), 'admin')).toBe(false)
-    expect(canStornoJournalRow(row({ status: 'stornoed' }), 'admin')).toBe(false)
-    expect(canStornoJournalRow(row(), 'sales')).toBe(false)
+    expect(canStornoJournalRow(row({ origin: 'import' }), as('admin'))).toBe(false)
+    expect(canStornoJournalRow(row({ invoicingState: 'partial' }), as('admin'))).toBe(false)
+    expect(canStornoJournalRow(row({ kind: 'storno' }), as('admin'))).toBe(false)
+    expect(canStornoJournalRow(row({ status: 'stornoed' }), as('admin'))).toBe(false)
+    expect(canStornoJournalRow(row(), as('sales'))).toBe(false)
   })
 })

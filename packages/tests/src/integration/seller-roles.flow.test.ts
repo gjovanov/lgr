@@ -2,17 +2,17 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
-import { createTestContact, createTestInvite, createTestInvoice, createTestOrg, createTestProduct, createTestStockMovement, createTestUser, createTestWarehouse } from '../helpers/factories'
+import { createTestContact, createTestInvite, createTestInvoice, createTestOrg, createTestPerson, createTestProduct, createTestStockMovement, createTestUser, createTestWarehouse } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { APP_IDS } from 'config/constants'
-import { can, grantHoldsArea, grantOfRole } from 'config/access'
+import { ALL, can, grantOfRole } from 'config/access'
+import { PORTAL_CAPS } from 'ui-shared/nav/page-registry'
+import type { Grant } from 'config/access'
 import { mongoose } from 'db/connection'
-import { Identity, PermissionSet, User, type IUser, Role } from 'db/models'
+import { Identity, User, type IUser, Role } from 'db/models'
 import { sessionFor, tokenize } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
-import { createPermissionSet, updatePermissionSet } from 'services/biz/permission-set.service'
 import { getAvailableApps } from 'services/biz/app-hub.service'
 import { getContactLedger } from 'services/biz/contact-ledger.service'
 import { joinOrgByInvite } from 'services/biz/identity/account.service'
@@ -55,12 +55,11 @@ async function request(method: string, path: string, token: string, body?: unkno
   return { status: res.status, json }
 }
 
-/** A member linked to a person, on the role's system set, and their session as sign-in issues it. */
-async function member(role: string, setName?: string): Promise<{ user: IUser; token: string }> {
+/** A member linked to a person, holding the built-in role of this key, and their session as sign-in issues it. */
+async function member(role: string): Promise<{ user: IUser; token: string }> {
   const email = `${role}-${Math.random().toString(36).slice(2, 8)}@fr26.test`
   const identity = await Identity.create({ email, firstName: 'F', lastName: role, isActive: true, passwordSetBy: 'self', password: await Bun.password.hash('test123') } as any)
-  const set = setName ? await PermissionSet.findOne({ orgId, name: setName }).lean() : null
-  const user = await createTestUser(org._id, { role, email, identityId: identity._id, ...(set ? { permissionSetIds: [set._id] } : {}) } as any)
+  const user = await createTestUser(org._id, { role, email, identityId: identity._id } as any)
   const token = await sign(await sessionFor(user, identity))
   return { user, token }
 }
@@ -70,14 +69,13 @@ beforeAll(async () => {
   app = new Elysia().onError(spaErrorHandler({}) as any).use(createApiApp()) as any
   org = await createTestOrg()
   orgId = String(org._id)
-  await seedDefaultPermissionSets(orgId)
   warehouseA = String((await createTestWarehouse(org._id, { name: 'A', code: 'A' } as any))._id)
   warehouseB = String((await createTestWarehouse(org._id, { name: 'B', code: 'B' } as any))._id)
   contactId = String((await createTestContact(org._id))._id)
   billId = String((await createTestInvoice(org._id, contactId as any, { direction: 'incoming', status: 'received', invoiceNumber: 'BILL-1' } as any))._id)
   saleId = String((await createTestInvoice(org._id, contactId as any, { direction: 'outgoing', status: 'sent', invoiceNumber: 'INV-1' } as any))._id)
-  for (const [role, set] of [['seller', 'Seller'], ['sales_consultant', 'Sales Consultant'], ['admin', 'Administrator'], ['sales', undefined]] as const) {
-    const m = await member(role, set)
+  for (const role of ['seller', 'sales_consultant', 'admin', 'sales'] as const) {
+    const m = await member(role)
     people[role] = m.user
     tokens[role] = m.token
   }
@@ -86,6 +84,10 @@ beforeAll(async () => {
 afterAll(async () => {
   await teardownTestDB()
 }, 60_000)
+
+/** FR-26's parts as the role's capabilities (its areas until FR-27 P3-6): the portal's pages, or anything of orders. */
+const holdsPart = (g: Grant, part: 'portal' | 'orders') =>
+  part === 'portal' ? can(g, PORTAL_CAPS) : !!g.all || [...g.caps].some(c => c.startsWith('orders.'))
 
 /** FR-27 P3-5 (#529): what a person's ROLE grants: the token names the role (`rid`) and carries no areas any more. */
 async function roleGrant(user: { _id: unknown }) {
@@ -98,24 +100,12 @@ describe("the role's areas (FR-26 as capabilities; the token carries none, FR-27
   it('a role without sets: the Seller none, the Sales Consultant orders, every other role the portal', async () => {
     const plain = async (role: string) => roleGrant(await createTestUser(org._id, { role } as any))
     const seller = await plain('seller')
-    expect([grantHoldsArea(seller, 'portal'), grantHoldsArea(seller, 'orders')]).toEqual([false, false])
+    expect([holdsPart(seller, 'portal'), holdsPart(seller, 'orders')]).toEqual([false, false])
     const consultant = await plain('sales_consultant')
-    expect([grantHoldsArea(consultant, 'portal'), grantHoldsArea(consultant, 'orders')]).toEqual([false, true])
+    expect([holdsPart(consultant, 'portal'), holdsPart(consultant, 'orders')]).toEqual([false, true])
     for (const role of ['admin', 'manager', 'sales', 'member', 'warehouse_manager']) {
-      expect({ role, portal: grantHoldsArea(await plain(role), 'portal') }).toEqual({ role, portal: true })
+      expect({ role, portal: holdsPart(await plain(role), 'portal') }).toEqual({ role, portal: true })
     }
-  })
-
-  it('sets: the role 0015 gives for them holds their areas: [] none, several their union, an unrestricted or admin set wins', async () => {
-    const ids = async (...names: string[]) => (await PermissionSet.find({ orgId, name: { $in: names } }).lean()).map(s => s._id)
-    const on = async (...names: string[]) => roleGrant(await createTestUser(org._id, { role: 'member', permissionSetIds: await ids(...names) } as any))
-    expect(grantHoldsArea(await on('Seller'), 'portal')).toBe(false)
-    expect(grantHoldsArea(await on('Sales Consultant'), 'orders')).toBe(true)
-    expect(grantHoldsArea(await on('Seller', 'Sales Consultant'), 'orders')).toBe(true)
-    expect(grantHoldsArea(await on('Seller', 'Manager'), 'portal')).toBe(true)
-    expect(grantHoldsArea(await on('Seller', 'Administrator'), 'portal')).toBe(true)
-    expect(grantHoldsArea(await on('Manager'), 'portal')).toBe(true)
-    expect(can(await on('Seller'), 'movements.create:transfer')).toBe(true)
   })
 
   it('every session path names the role, and no areas', async () => {
@@ -123,31 +113,6 @@ describe("the role's areas (FR-26 as capabilities; the token carries none, FR-27
     expect('areas' in claims).toBe(false)
     expect(claims.rid).toBeTruthy()
     expect(typeof claims.iid).toBe('string')
-  })
-})
-
-describe('the model: absent and [] are opposites', () => {
-  it('a set saved without areas reads back without the key', async () => {
-    const created = await createPermissionSet(orgId, { name: `plain-${Date.now()}`, permissions: ['invoicing.read'] })
-    const raw = await mongoose.connection.db!.collection('permissionsets').findOne({ _id: created._id as any })
-    expect(raw && 'areas' in raw).toBe(false)
-    // And a save through the document, which is where Mongoose would add `[]`.
-    const doc = await PermissionSet.findById(created._id)
-    doc!.description = 'touched'
-    await doc!.save()
-    const again = await mongoose.connection.db!.collection('permissionsets').findOne({ _id: created._id as any })
-    expect(again && 'areas' in again).toBe(false)
-  })
-
-  it('null unsets it, a list stores it, and an unknown area is refused', async () => {
-    const created = await createPermissionSet(orgId, { name: `held-${Date.now()}`, permissions: ['invoicing.read'], areas: ['orders'] })
-    expect((created as any).areas).toEqual(['orders'])
-    const none = await updatePermissionSet(String(created._id), orgId, { areas: [] })
-    expect((none as any).areas).toEqual([])
-    const all = await updatePermissionSet(String(created._id), orgId, { areas: null })
-    expect('areas' in (all as any)).toBe(false)
-    const refused = await captureRejection(updatePermissionSet(String(created._id), orgId, { areas: ['everything'] }))
-    expect(String(refused)).toContain('Unknown area')
   })
 })
 
@@ -394,8 +359,11 @@ describe('the reports that read a ledger (purchases)', () => {
   let productId: string
 
   beforeAll(async () => {
-    await createPermissionSet(orgId, { name: 'Reports, no purchases', permissions: ['invoicing.read', 'inventory.read', 'reports.read'], areas: [] })
-    reportsOnly = (await member('member', 'Reports, no purchases')).token
+    // A role holding what those legacy permissions gave with no area: the Reports app and no bill (0015 makes it).
+    const email = `reports-${Math.random().toString(36).slice(2, 8)}@fr26.test`
+    const identity = await Identity.create({ email, firstName: 'R', lastName: 'O', isActive: true, passwordSetBy: 'self', password: await Bun.password.hash('test123') } as any)
+    const user = await createTestPerson(org._id, { role: 'member', permissions: ['invoicing.read', 'inventory.read', 'reports.read'], areas: [] }, { email, identityId: identity._id } as any)
+    reportsOnly = await sign(await sessionFor(user, identity))
     const product = await createTestProduct(org._id, { name: 'Reported bolt' } as any)
     productId = String(product._id)
     await createTestStockMovement(org._id, {
@@ -464,7 +432,7 @@ describe('tags (#493)', () => {
 
 describe('the App Hub', () => {
   it('an admin gets every app, whatever its set says (FR-26.2)', async () => {
-    const apps = await getAvailableApps(orgId, ['invoicing.read'], undefined, undefined, { role: 'admin' })
+    const apps = await getAvailableApps(orgId, ALL)
     expect(apps.map(a => a.id).sort()).toEqual([...APP_IDS].sort())
   })
 
@@ -475,18 +443,18 @@ describe('the App Hub', () => {
 })
 
 describe('assigning a role takes effect (FR-26.9)', () => {
-  it('a legacy role key on PUT /user is the built-in role of that key, live, with the sets left as they were (FR-27 P3-5)', async () => {
-    const custom = await createPermissionSet(orgId, { name: `custom-${Date.now()}`, permissions: ['invoicing.read'] })
-    const admins = await PermissionSet.findOne({ orgId, name: 'Administrator' }).lean()
+  it('a legacy role key on PUT /user is the built-in role of that key, live, with the stored sets left as they were (FR-27 P3-5)', async () => {
+    const admins = new mongoose.Types.ObjectId()
+    const custom = new mongoose.Types.ObjectId()
     const { user, token } = await member('manager')
-    await User.updateOne({ _id: user._id }, { permissionSetIds: [admins!._id, custom._id] })
+    await mongoose.connection.db!.collection('users').updateOne({ _id: user._id as any }, { $set: { permissionSetIds: [admins, custom] } })
     expect((await request('GET', '/apps', token)).status).toBe(200)
 
     const changed = await request('PUT', `/user/${user._id}`, tokens.admin, { role: 'seller' })
     expect(changed.status).toBe(200)
     const after = await User.findById(user._id).lean()
     // Nothing of the legacy model is written: the sets stay, frozen, and decide nothing.
-    expect(after!.permissionSetIds!.map(String).sort()).toEqual([String(admins!._id), String(custom._id)].sort())
+    expect(after!.permissionSetIds!.map(String).sort()).toEqual([String(admins), String(custom)].sort())
     const role: any = await Role.findById(after!.roleId).lean()
     expect([role.templateKey, role.isBuiltin]).toEqual(['seller', true])
     // The role is live: the session issued before the change is the Seller's now, with no sign-out.
@@ -495,7 +463,7 @@ describe('assigning a role takes effect (FR-26.9)', () => {
   })
 
   it('an edit that changes nothing of the grant leaves the sessions alone', async () => {
-    const { user, token } = await member('seller', 'Seller')
+    const { user, token } = await member('seller')
     expect((await request('PUT', `/user/${user._id}`, tokens.admin, { position: 'Counter' })).status).toBe(200)
     expect((await request('GET', '/apps', token)).status).toBe(200)
   })
@@ -511,15 +479,13 @@ describe('assigning a role takes effect (FR-26.9)', () => {
 
   it("an org without the role's set gives none: never the default set, which opens Accounting", async () => {
     const bare = await createTestOrg()
-    await seedDefaultPermissionSets(String(bare._id))
-    await PermissionSet.deleteMany({ orgId: bare._id, name: { $in: ['Seller', 'Sales Consultant'] } })
     const inviter = await createTestUser(bare._id, { role: 'admin' } as any)
     const identity = await Identity.create({ email: `bare-${Date.now()}@fr26.test`, firstName: 'B', lastName: 'R', isActive: true, passwordSetBy: 'self', password: await Bun.password.hash('test123') } as any)
     const invite = await createTestInvite(bare._id, inviter._id as any, { assignRole: 'seller' } as any)
     const { member: joined } = await joinOrgByInvite(identity._id, invite.code)
     expect(joined.permissionSetIds ?? []).toEqual([])
     const grant = await roleGrant(joined)
-    expect(grantHoldsArea(grant, 'portal')).toBe(false)
+    expect(holdsPart(grant, 'portal')).toBe(false)
     expect(can(grant, 'ledgers.view')).toBe(false)
   })
 
@@ -541,7 +507,8 @@ describe('the migration (0014)', () => {
   it('seeds both sets where they are missing, is idempotent, and reports a set somebody made', async () => {
     const db = mongoose.connection.db!
     const target = await createTestOrg()
-    await createPermissionSet(String(target._id), { name: 'Seller', permissions: ['invoicing.read'] })
+    // Sets have no model since FR-27 P3-6: the released migration reads and writes them through the driver.
+    await db.collection('permissionsets').insertOne({ orgId: target._id, name: 'Seller', permissions: ['invoicing.read'], isSystem: false })
     const lines = await sellerPermissionSets.preview!({ db, log: () => {}, orgFilter: { orgId: target._id } })
     expect(lines.join('\n')).toContain('"Seller" exists and is not a system set')
     expect(lines.join('\n')).toContain('seed Sales Consultant')
@@ -549,7 +516,7 @@ describe('the migration (0014)', () => {
     const log: string[] = []
     await sellerPermissionSets.up({ db, log: m => log.push(m), orgFilter: { orgId: target._id } })
     await sellerPermissionSets.up({ db, log: m => log.push(m), orgFilter: { orgId: target._id } })
-    const sets = await PermissionSet.find({ orgId: target._id }).lean()
+    const sets: any[] = await db.collection('permissionsets').find({ orgId: target._id }).toArray()
     const consultant = sets.find(s => s.name === 'Sales Consultant')!
     expect(consultant.isSystem).toBe(true)
     expect(consultant.areas).toEqual(['orders'])

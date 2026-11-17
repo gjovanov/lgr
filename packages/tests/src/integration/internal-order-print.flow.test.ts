@@ -8,7 +8,6 @@ import { customerOrderCtx, renderInternalOrderPdf } from 'invoicing-api/src/lib/
 import { buildCustomerOrderMarkdown } from 'reporting/pdf/customer-order.pdf'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { tokenize } from 'services/biz/auth.service'
-import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
 import { InternalOrder, Org, Role, User } from 'db/models'
 import { config } from 'config'
@@ -93,7 +92,6 @@ async function world(name = 'ПРОБА ООД') {
 /** A member whose role holds exactly `caps` (FR-27), and the token they sign in with. */
 async function memberWith(w: Awaited<ReturnType<typeof world>>, name: string, caps: string[]) {
   await Org.updateOne({ _id: w.org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-  forgetAccessModel(w.orgId)
   const role: any = await Role.create({
     orgId: w.org._id, name, isBuiltin: false, edited: true, version: 1,
     legacy: { role: 'member', permissions: ['invoicing.read'] },

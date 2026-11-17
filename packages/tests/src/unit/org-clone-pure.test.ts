@@ -165,20 +165,19 @@ describe('copying a document without changing what its values are', () => {
 })
 
 describe('what a test copy holds', () => {
-  const tenant = ['Contact', 'Invoice', 'User', 'PermissionSet', 'FiscalDevice', 'File', 'Product', 'Sequence', 'EmailLog']
+  const tenant = ['Contact', 'Invoice', 'User', 'Role', 'FiscalDevice', 'File', 'Product', 'Sequence', 'EmailLog']
 
   it('leaves out what must never leave the real org, and orders people first', () => {
     const cloned = clonedModels(tenant)
-    expect(cloned).toEqual(['Contact', 'Invoice', 'PermissionSet', 'Product', 'Sequence', 'User'])
-    expect(copyOrder(cloned).slice(0, 2)).toEqual(['PermissionSet', 'User'])
-    expect(copyOrder([...cloned, 'Role']).slice(0, 3)).toEqual(['PermissionSet', 'Role', 'User'])
+    expect(cloned).toEqual(['Contact', 'Invoice', 'Product', 'Role', 'Sequence', 'User'])
+    expect(copyOrder(cloned).slice(0, 2)).toEqual(['Role', 'User'])
   })
 
   it('names the file store, the hardware and the credentials as never copied', () => {
     for (const m of ['File', 'DocFile', 'ArchiveUnit', 'FiscalDevice', 'Workstation', 'Desktop', 'Invite', 'OAuthHandoff', 'Code', 'PersonalDataKey']) {
       expect(m in NEVER_CLONED).toBe(true)
     }
-    expect(SEED_ONLY).toEqual(['User', 'PermissionSet', 'Role', 'OrgApp'])
+    expect(SEED_ONLY).toEqual(['User', 'Role', 'OrgApp'])
     // A reset keeps access and hardware, and nothing a copy would replace.
     expect(KEPT_ON_RESET).toContain('User')
     expect(KEPT_ON_RESET).toContain('FiscalDevice')

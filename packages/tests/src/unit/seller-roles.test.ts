@@ -2,57 +2,36 @@ import { describe, it, expect } from 'bun:test'
 import { visibleMenu, type ModuleMenuItem } from '../../../ui-shell/src/module'
 import {
   PAGE_REGISTRY, canOpenPage, isPortalAreaPath, isTransferOnly, landingWithoutPortal, newDocumentMenu, pageById,
-  portalPagesFor, runsDevices, writesInventory, type PageViewer,
+  exportsCatalog, holdsPortal, portalPagesFor, runsDevices, writesInventory, type PageViewer,
 } from 'ui-shared/nav/page-registry'
-import { AREAS, DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, FISCAL_ADMIN_ROLES, holdsArea, mergeAreas, type Role } from 'config/constants'
-import { AREA_PREFIXES, areaForRoute, areaRefusal, permissionRefusal, writeRuleFor } from 'services/biz/route-permission'
+import { ROLES, type Role } from 'config/constants'
+import { ALL, accessRuleFor, templateGrant, type CapabilityId } from 'config/access'
+import { accessRefusal } from 'services/biz/access/evaluate'
 import { manifest as inventory } from '../../../inventory-ui/src/manifest'
 import { manifest as invoicing } from '../../../invoicing-ui/src/manifest'
 
 /**
  * FR-26: what the Seller and the Sales Consultant see (§2.1), as the menus, „+ Нов", the portal
  * and the route rules decide it. The server side over HTTP is `integration/seller-roles.flow`.
+ *
+ * FR-27 P3-6 (#529): each person is their built-in role's grant (`templateGrant`); FR-26's areas are the capabilities
+ * the two roles' templates leave out, so the answers below are the ones the areas gave.
  */
 
-const as = (r: Role): PageViewer => ({ role: r, permissions: DEFAULT_ROLE_PERMISSIONS[r], ...(DEFAULT_ROLE_AREAS[r] ? { areas: DEFAULT_ROLE_AREAS[r] } : {}) })
+const as = (r: Role): PageViewer => ({ grant: templateGrant(r) })
+const admin: PageViewer = { grant: ALL }
+const caps = (...c: CapabilityId[]): PageViewer => ({ grant: { caps: new Set(c) } })
 const seller = as('seller')
 const consultant = as('sales_consultant')
 const entries = (menu: ModuleMenuItem[], who: PageViewer) => visibleMenu(menu, who).flatMap(g => (g.children ?? [g]).filter(c => c.to).map(c => c.to))
 
-describe('the claim: absent and [] are opposites', () => {
-  it('holdsArea: absent opens every area, [] none, a list its own; admin always', () => {
-    for (const area of AREAS) {
-      expect(holdsArea({ role: 'member' }, area)).toBe(true)
-      expect(holdsArea({ role: 'member', areas: [] }, area)).toBe(false)
-      expect(holdsArea({ role: 'admin', areas: [] }, area)).toBe(true)
-    }
-    expect(holdsArea({ role: 'member', areas: ['orders'] }, 'orders')).toBe(true)
-    expect(holdsArea({ role: 'member', areas: ['orders'] }, 'purchases')).toBe(false)
-    expect(holdsArea(null, 'orders')).toBe(false)
-  })
-
-  it('mergeAreas: an admin set or one without areas wins; otherwise the union', () => {
-    expect(mergeAreas([{ areas: [] }])).toEqual([])
-    expect(mergeAreas([{ areas: [] }, { areas: ['orders'] }])).toEqual(['orders'])
-    expect(mergeAreas([{ areas: ['pricing'] }, { areas: ['orders'] }])).toEqual(['orders', 'pricing'])
-    expect(mergeAreas([{ areas: [] }, {}])).toBeUndefined()
-    expect(mergeAreas([{ areas: [] }, { isAdmin: true, areas: [] }])).toBeUndefined()
-    expect(mergeAreas([])).toBeUndefined()
-  })
-
-  it('only the two new roles are held to areas', () => {
-    expect(Object.keys(DEFAULT_ROLE_AREAS).sort()).toEqual(['sales_consultant', 'seller'])
-    for (const role of Object.keys(DEFAULT_ROLE_PERMISSIONS) as Role[]) {
-      if (role === 'seller' || role === 'sales_consultant') continue
-      expect(as(role).areas).toBeUndefined()
-    }
-  })
-
-  it('neither role holds accounting, payroll, reports or admin', () => {
+describe('the two roles', () => {
+  it('neither role holds accounting, payroll, reports or admin; both transfer and write no other movement', () => {
     for (const role of ['seller', 'sales_consultant'] as const) {
-      expect(DEFAULT_ROLE_PERMISSIONS[role].filter(p => /^(accounting|payroll|reports|admin)\./.test(p))).toEqual([])
-      expect(DEFAULT_ROLE_PERMISSIONS[role]).toContain('inventory.transfer')
-      expect(DEFAULT_ROLE_PERMISSIONS[role]).not.toContain('inventory.write')
+      const held = [...templateGrant(role).caps]
+      expect(held.filter(c => /^(accounts|journal|ledgers|vat|payroll-[a-z]+|reports|audit-log|roles|users)\./.test(c))).toEqual([])
+      expect(held).toContain('movements.create:transfer')
+      expect(held).not.toContain('movements.create')
     }
   })
 })
@@ -83,14 +62,16 @@ describe('what both roles view in Invoicing (§2.1)', () => {
   ]
 
   it('each opens every one of them', () => {
-    for (const who of [seller, consultant]) expect({ role: who.role, closed: PAGES.filter(id => !canOpenPage(pageById(id)!, who)) }).toEqual({ role: who.role, closed: [] })
+    for (const [role, who] of [['seller', seller], ['sales_consultant', consultant]] as const) expect({ role, closed: PAGES.filter(id => !canOpenPage(pageById(id)!, who)) }).toEqual({ role, closed: [] })
   })
 
-  it('Devices are read-only to both: the server runs them for FISCAL_ADMIN_ROLES alone (D-8)', () => {
+  it('Devices are read-only to both: the server runs them with devices.edit alone (D-8)', () => {
     expect(runsDevices(seller)).toBe(false)
     expect(runsDevices(consultant)).toBe(false)
     expect(runsDevices(as('sales'))).toBe(false)
-    for (const role of FISCAL_ADMIN_ROLES) expect(runsDevices({ role, permissions: [] })).toBe(true)
+    // The built-in roles that run them (FISCAL_ADMIN_ROLES until FR-27 P3-6), and nobody else.
+    expect(ROLES.filter(r => runsDevices(as(r)))).toEqual(['admin', 'manager', 'warehouse_manager'])
+    expect(runsDevices(caps('devices.edit'))).toBe(true)
     expect(runsDevices(null)).toBe(false)
   })
 
@@ -108,7 +89,7 @@ describe('the inventory menu (FR-26.8.2)', () => {
   it('whoever holds inventory and no areas keeps all of it', () => {
     const all = inventory.menu!.flatMap(g => g.children!.map(c => c.to))
     expect(entries(inventory.menu!, as('warehouse_manager'))).toEqual(all)
-    expect(entries(inventory.menu!, { role: 'admin', permissions: [] })).toEqual(all)
+    expect(entries(inventory.menu!, admin)).toEqual(all)
   })
 })
 
@@ -131,16 +112,17 @@ describe('„+ Нов" (FR-26.8.6)', () => {
 })
 
 describe('★ and the page search', () => {
-  it('a Seller opens no page of Accounting, Payroll, Reports or Files, and none of an area it lacks', () => {
+  it('a Seller opens no page of Accounting, Payroll, Reports or Files, and none of the parts FR-26 carved out', () => {
     const opened = PAGE_REGISTRY.filter(p => canOpenPage(p, seller))
     expect(opened.filter(p => ['accounting', 'payroll', 'reports', 'files'].includes(p.appId))).toEqual([])
-    expect(opened.filter(p => p.area)).toEqual([])
+    const carved = ['/invoicing/orders', '/invoicing/internal-orders', '/invoicing/reservations', '/invoicing/bills', '/invoicing/payment-orders', '/invoicing/cash-orders', '/inventory/stock-levels', '/inventory/inventory-counts', '/inventory/inventory-valuation', '/inventory/opening-stock', '/inventory/price-lists', '/inventory/bulk-pricing']
+    expect(opened.map(p => p.id).filter(id => carved.some(c => id === c || id.startsWith(`${c}/`)))).toEqual([])
   })
 
   it('Sequences is admin and manager only, as the server decides', () => {
     const sequences = pageById('/invoicing/configuration/sequences')!
     expect(canOpenPage(sequences, as('manager'))).toBe(true)
-    expect(canOpenPage(sequences, { role: 'admin', permissions: [] })).toBe(true)
+    expect(canOpenPage(sequences, admin)).toBe(true)
     for (const role of ['sales', 'accountant', 'seller', 'sales_consultant', 'member'] as const) expect(canOpenPage(sequences, as(role))).toBe(false)
   })
 })
@@ -155,8 +137,17 @@ describe('the portal (FR-26.8.4)', () => {
   })
 
   it('a session without the portal that cannot open Products lands in its first app, as before', () => {
-    expect(landingWithoutPortal({ role: 'member', permissions: ['invoicing.read'], areas: [] })).toBe('/invoicing/')
-    expect(landingWithoutPortal({ role: 'member', permissions: [], areas: [] })).toBe('/account')
+    expect(landingWithoutPortal(caps('sales-docs.view'))).toBe('/invoicing/')
+    expect(landingWithoutPortal(caps())).toBe('/account')
+  })
+
+  it('the portal is any capability of its pages, and the catalog export is products.export (FR-26 areas until P3-6)', () => {
+    expect([seller, consultant].map(holdsPortal)).toEqual([false, false])
+    expect(ROLES.filter(r => r !== 'seller' && r !== 'sales_consultant').every(r => holdsPortal(as(r)))).toBe(true)
+    expect(holdsPortal(caps('audit-log.view'))).toBe(true)
+    expect(holdsPortal(caps('sales-docs.view'))).toBe(false)
+    expect([seller, consultant, as('member'), admin].map(exportsCatalog)).toEqual([false, false, true, true])
+    expect(holdsPortal(null)).toBe(false)
   })
 
   it('the paths a session without the portal does not reach', () => {
@@ -169,40 +160,34 @@ describe('transfers only', () => {
   it('who writes transfers only, and who writes the inventory', () => {
     expect(isTransferOnly(seller)).toBe(true)
     expect(isTransferOnly(as('warehouse_manager'))).toBe(false)
-    expect(isTransferOnly({ role: 'admin', permissions: ['inventory.transfer'] })).toBe(false)
+    expect(isTransferOnly(admin)).toBe(false)
     expect(writesInventory(seller)).toBe(false)
     expect(writesInventory(as('warehouse_manager'))).toBe(true)
   })
 
-  it('a movement write needs inventory.write or inventory.transfer; the rest of the warehouse inventory.write', () => {
-    const movement = writeRuleFor('POST', '/api/org/:orgId/warehouse/movement')
-    expect(movement && 'need' in movement ? [...movement.need] : null).toEqual(['inventory.write', 'inventory.transfer'])
-    expect(permissionRefusal(seller, 'POST', '/api/org/:orgId/warehouse/movement')).toBeNull()
-    expect(permissionRefusal(seller, 'POST', '/api/org/:orgId/warehouse/product')?.code).toBe('permission_required')
+  it('a movement write takes a movement capability, a transfer one included; a product write takes products', () => {
+    const movement = accessRuleFor('POST', 'warehouse/movement')
+    expect(movement && 'anyOf' in movement ? [...movement.anyOf] : movement).toEqual(expect.arrayContaining(['movements.create', 'movements.create:transfer']))
+    const user = (who: PageViewer) => ({ id: 'u', orgId: 'o', access: who.grant })
+    expect(accessRefusal(user(seller), 'POST', '/api/org/:orgId/warehouse/movement')).toBeNull()
+    expect(accessRefusal(user(seller), 'POST', '/api/org/:orgId/warehouse/product')?.code).toBe('permission_required')
   })
 })
 
-describe('the route rules (FR-26.6)', () => {
-  it('each area prefix refuses a session without it, reads and writes alike, and nobody else', () => {
-    for (const [prefix, area] of AREA_PREFIXES) {
-      const route = `/api/org/:orgId/${prefix}`
-      expect(areaForRoute(route)).toBe(area)
-      expect(areaRefusal({ role: 'member', areas: [] }, route)?.area).toBe(area)
-      expect(areaRefusal({ role: 'member' }, route)).toBeNull()
-      expect(areaRefusal({ role: 'admin', areas: [] }, route)).toBeNull()
-    }
+describe('the route rules (FR-26.6): the parts carved out, as capabilities', () => {
+  const user = (who: PageViewer) => ({ id: 'u', orgId: 'o', access: who.grant })
+  it('the Sales Consultant reaches the orders and nothing else carved out; the Seller none of them', () => {
+    expect(accessRefusal(user(consultant), 'GET', '/api/org/:orgId/invoicing/orders')).toBeNull()
+    expect(accessRefusal(user(consultant), 'POST', '/api/org/:orgId/invoicing/reservations')).toBeNull()
+    expect(accessRefusal(user(consultant), 'GET', '/api/org/:orgId/invoicing/payment-order')?.code).toBe('permission_required')
+    expect(accessRefusal(user(seller), 'GET', '/api/org/:orgId/invoicing/orders')?.code).toBe('permission_required')
   })
 
-  it('what a kept page needs is under no area', () => {
-    for (const rest of ['invoicing/stock-availability/check', 'invoicing/contact', 'pricing/resolve', 'warehouse/stock-level', 'warehouse/movement', 'invoices', 'apps', 'user', '']) {
-      expect({ rest, area: areaForRoute(`/api/org/:orgId/${rest}`) }).toEqual({ rest, area: undefined })
+  it('what a kept page needs stays open to both', () => {
+    for (const who of [seller, consultant]) {
+      for (const [method, rest] of [['GET', 'invoicing/contact'], ['GET', 'pricing/resolve'], ['GET', 'warehouse/stock-level'], ['GET', 'invoices'], ['POST', 'invoicing/stock-availability/check']] as const) {
+        expect({ rest, refused: accessRefusal(user(who), method, `/api/org/:orgId/${rest}`) }).toEqual({ rest, refused: null })
+      }
     }
-  })
-
-  it('the Sales Consultant reaches the orders and nothing else carved out', () => {
-    expect(permissionRefusal(consultant, 'GET', '/api/org/:orgId/invoicing/orders')).toBeNull()
-    expect(permissionRefusal(consultant, 'POST', '/api/org/:orgId/invoicing/reservations')).toBeNull()
-    expect(permissionRefusal(consultant, 'GET', '/api/org/:orgId/invoicing/payment-order')?.code).toBe('area_required')
-    expect(permissionRefusal(seller, 'GET', '/api/org/:orgId/invoicing/orders')?.code).toBe('area_required')
   })
 })

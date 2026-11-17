@@ -4,7 +4,6 @@ import { createTestOrg, createTestPerson, createTestUser, createTestWarehouse, c
 import { tokenize } from 'services/biz/auth.service'
 import { AuditLog, FiscalDevice, Identity, Org, Role, User } from 'db/models'
 import { forgetIdentity } from 'services/biz/identity/session.service'
-import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
 import { getPrinter, isDeviceConnected } from 'fiscal/fiscal-device.service'
 import { captureRejection } from '../helpers/capture-rejection'
@@ -500,7 +499,6 @@ describe('fiscal bridge — FR-27.5: in an org on roles the live role decides (#
   async function rolesOrg(caps: string[], legacy: { role: string; permissions: string[] }) {
     const { org, device, user } = await seed({ permissions: [] })
     await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-    forgetAccessModel(String(org._id))
     const role: any = await Role.create({ orgId: org._id, name: `Till ${Math.random()}`, isBuiltin: false, edited: true, version: 1, caps, legacy } as any)
     await User.updateOne({ _id: user._id }, { $set: { roleId: role._id } }).exec()
     forgetMember(user._id)

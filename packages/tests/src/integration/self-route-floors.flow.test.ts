@@ -85,7 +85,7 @@ async function call(method: string, path: string, token: string) {
 describe('S-28: a self route refuses before validating whoever holds none of its floor', () => {
   it('finds the floored routes: the devices, people, invites, roles and sets, apps, the digest, the org', () => {
     const prefixes = new Set(floored.map(f => orgRouteRest(f.path)!.split('/')[0]))
-    for (const p of ['fiscal', 'user', 'invite', 'roles', 'permission-sets', 'apps', 'digest']) expect(prefixes.has(p)).toBe(true)
+    for (const p of ['fiscal', 'user', 'invite', 'roles', 'apps', 'digest']) expect(prefixes.has(p)).toBe(true)
     expect(floored.length).toBeGreaterThan(20)
     expect(floored.flatMap(f => f.floor).filter(c => !isCapability(c))).toEqual([])
   })

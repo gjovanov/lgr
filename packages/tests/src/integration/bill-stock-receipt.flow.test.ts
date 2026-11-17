@@ -10,7 +10,6 @@ import { movementController } from 'warehouse-api/src/controllers/movement.contr
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { billStockReceiptSections, stockReceiptCurrency } from 'services/biz/bill-stock-receipt.service'
 import { tokenize } from 'services/biz/auth.service'
-import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
 import { buildStockReceiptHtml } from 'reporting/pdf/stock-receipt.pdf'
 import { Invoice, Org, Product, Role, StockMovement, User } from 'db/models'
@@ -379,7 +378,6 @@ describe('asking the route for a level', () => {
     // The org's people get a role each (FR-27), and this one reads bills and prints them but was not
     // given „Цена на едро" or „Цена 3": as the role editor would save it, with what its pages imply.
     await Org.updateOne({ _id: w.org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-    forgetAccessModel(w.orgId)
     const role: any = await Role.create({
       orgId: w.org._id, name: 'Склад', isBuiltin: false, edited: true, version: 1,
       legacy: { role: 'member', permissions: ['invoicing.read', 'inventory.read'] },

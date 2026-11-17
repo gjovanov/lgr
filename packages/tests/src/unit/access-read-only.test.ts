@@ -5,7 +5,7 @@ import { setSession } from 'ui-shared/session/session'
 import { setLiveAccess } from 'ui-shared/access/live-grant'
 import { capShows, vCap } from 'ui-shared/access/v-cap'
 import { opensTarget } from 'ui-shared/access/page-access'
-import { CAPABILITIES, compileLegacy } from 'config/access'
+import { CAPABILITIES, type CapabilityId } from 'config/access'
 
 /**
  * FR-27.7 (#529) — generic read-only. A role that reads a feature and does not work on it sees its pages without New,
@@ -37,15 +37,20 @@ afterAll(() => {
 
 const token = (claims: Record<string, unknown>) => `h.${btoa(JSON.stringify(claims)).replace(/=+$/, '')}.s`
 const org = { id: 'o1', slug: 'o1', name: 'O1' } as any
-// Reads invoicing, works on nothing: the legacy `member` reading the invoices.
-const reader = { id: 'u1', orgId: 'o1', role: 'member', permissions: ['invoicing.read'], exp: 4102444800 }
-const clerk = { ...reader, id: 'u2', permissions: ['invoicing.read', 'invoicing.write'] }
-/** FR-27 P3-5: a session's grant is its role's, as the sign-in and `/auth/me` say it (here: what those claims compile to). */
-const roleOf = (claims: { role: string; permissions: string[] }) => {
-  const grant = compileLegacy(claims) as { caps: Set<string> }
-  return { all: false, caps: [...grant.caps], role: { id: 'r', name: 'R', version: 'r:1' } }
-}
-const signIn = (claims: typeof reader) => { setSession(token(claims), org); setLiveAccess(roleOf(claims)) }
+// Reads invoicing, works on nothing (what the legacy `invoicing.read` gave), and a clerk who also works on it
+// (`invoicing.write`'s). FR-27 P3-6: the roles' capabilities, written out.
+const READS: CapabilityId[] = [
+  'sales-docs.view', 'sales-docs.totals', 'bills.totals', 'proforma.view', 'bills.view', 'orders.view', 'payments.view', 'contacts.view',
+  'cash-sales.view', 'dashboard.view', 'pricing.read', 'doc-import.read', 'org-settings.view', 'users.view', 'sales-docs.export',
+  'stock-availability.check', 'org.switch',
+]
+const WORK: CapabilityId[] = (['sales-docs', 'proforma', 'bills', 'orders', 'payments', 'contacts'] as const)
+  .flatMap(f => (['create', 'edit', 'delete'] as const).map(a => `${f}.${a}` as CapabilityId))
+const reader = { id: 'u1', orgId: 'o1', exp: 4102444800, caps: READS }
+const clerk = { ...reader, id: 'u2', caps: [...READS, ...WORK, 'sales-docs.import', 'stock-availability.transfer', 'doc-import.extract', 'tags.edit'] as CapabilityId[] }
+/** FR-27 P3-5: a session's grant is its role's, as the sign-in and `/auth/me` say it. */
+const roleOf = (who: typeof reader) => ({ all: false, caps: [...who.caps], role: { id: 'r', name: 'R', version: 'r:1' } })
+const signIn = (who: typeof reader) => { setSession(token({ id: who.id, orgId: who.orgId, exp: who.exp }), org); setLiveAccess(roleOf(who)) }
 
 describe('capShows: the rule of v-cap and a form action\'s cap', () => {
   it('any one of the capabilities; none named shows; an id the catalogue does not know hides', () => {

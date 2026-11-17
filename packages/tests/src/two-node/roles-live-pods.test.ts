@@ -5,7 +5,6 @@ import { mongoose } from 'db/connection'
 import { initServiceContext } from 'services/context'
 import { Org, Role, User } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { startTwoPods, type TwoPods } from './harness'
@@ -67,7 +66,6 @@ describe.skipIf(!enabled)('FR-27.5 on two pods: a role edit reaches every pod wi
     initServiceContext(await createMongoRepositories({ backend: 'mongo' }))
     const org = await createTestOrg({ slug: 'roles-two-pods' } as any)
     orgId = String(org._id)
-    await seedDefaultPermissionSets(orgId)
     for (const [key, role] of [['admin1', 'admin'], ['admin2', 'admin'], ['clerk', 'member']] as const) {
       people[key] = await createTestUser(org._id, { role, username: key, email: `${key}@roles-two-pods.test` } as any)
     }

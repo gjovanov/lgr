@@ -1,13 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { join } from 'node:path'
+import { Types } from 'mongoose'
 import { setupTestDB, teardownTestDB, testDbUri } from '../setup'
-import { AccessShadowDiff, AuditLog, Org, PermissionSet, User } from 'db/models'
+import { Org, User } from 'db/models'
+import { mongoose } from 'db/connection'
 import { createTestOrg, createTestUser } from '../helpers/factories'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 
 /**
- * FR-27 Phase 3, P3-1 (#529) — `access-model.ts --all`, run as a script against the test database: every org one step
- * towards `roles`, legacy → shadow (roles given first, by 0015's own code) → roles after a clean day.
+ * FR-27 P3-6 (#529) — `scripts/access-model.ts`, run as a script against the test database. The legacy model and
+ * shadow mode are gone: it reports who has no role and gives the people from before roles theirs (0015's own `up`),
+ * and refuses the switches it used to make, saying why.
  *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
@@ -22,64 +24,44 @@ async function run(...args: string[]) {
   return { code, out: out + err }
 }
 
-const model = async (slug: string) => ((await Org.findOne({ slug }).lean()) as any)?.settings?.access?.model ?? 'legacy'
-let plain: any, custom: any, done: any
+let plain: any, done: any
 
 beforeAll(async () => {
   await setupTestDB()
   plain = await createTestOrg({ slug: 'all-plain' } as any)
-  custom = await createTestOrg({ slug: 'all-custom' } as any)
-  done = await createTestOrg({ slug: 'all-done', settings: { access: { model: 'roles' } } } as any)
-  for (const org of [plain, custom, done]) await seedDefaultPermissionSets(String(org._id))
-  await createTestUser(plain._id, { role: 'admin', username: 'a1', email: 'a1@all.test' } as any)
-  await createTestUser(plain._id, { role: 'accountant', username: 'a2', email: 'a2@all.test' } as any)
-  // A service account on a set of its own: 0015 gives it an imported role with exactly that.
-  const set = await PermissionSet.create({ orgId: custom._id, name: 'Service: books import', permissions: ['accounting.import'], areas: [], isAdmin: false, isDefault: false, isSystem: false } as any)
-  await createTestUser(custom._id, { role: 'member', username: 'svc', email: 'svc@all.test', permissions: ['accounting.import'], permissionSetIds: [set._id] } as any)
-  // The factory gives every person a role (FR-27 P3-4); these orgs are production's 84 as they were on legacy, before
-  // 0015 gave their newcomers one: nobody has a role, so `--set shadow` is what gives them.
-  await User.updateMany({}, { $unset: { roleId: 1 } }).exec()
+  done = await createTestOrg({ slug: 'all-done' } as any)
+  await createTestUser(done._id, { role: 'admin', username: 'd1', email: 'd1@all.test' } as any)
+  // A person from before roles, as production kept them: legacy fields and no role (raw: nothing writes them now).
+  await mongoose.connection.db!.collection('users').insertOne({
+    _id: new Types.ObjectId(), orgId: plain._id, email: 'a2@all.test', username: 'a2', firstName: 'A', lastName: 'Two',
+    isActive: true, role: 'accountant', roleHistory: [],
+  })
 }, 60_000)
 
 afterAll(async () => { await teardownTestDB() }, 60_000)
 
-describe('access-model --all', () => {
-  it('a dry run moves nothing and says what it would', async () => {
-    const r = await run('--all', '--set', 'shadow')
+describe('access-model (FR-27 P3-6)', () => {
+  it('refuses the switches of the legacy model, saying why, and writes nothing', async () => {
+    for (const a of [['--org', 'all-plain', '--set', 'roles'], ['--all', '--set', 'shadow', '--execute'], ['--org', 'all-plain', '--report']]) {
+      const r = await run(...a)
+      expect(r.code).toBe(1)
+      expect(r.out).toContain('gone with the legacy model (FR-27 P3-6)')
+    }
+    expect(((await Org.findOne({ slug: 'all-plain' }).lean()) as any)?.settings?.access?.model).toBeUndefined()
+  }, 120_000)
+
+  it('--all lists the orgs with someone without a role', async () => {
+    const r = await run('--all')
     expect(r.code).toBe(0)
-    expect(r.out).toContain('DRY RUN')
-    expect(r.out).toContain('would  all-plain: legacy → shadow')
-    expect(r.out).toContain('would  all-custom: legacy → shadow')
-    expect(r.out).toContain('skip  all-done: on roles already')
-    expect([await model('all-plain'), await model('all-custom')]).toEqual(['legacy', 'legacy'])
-    expect(await User.countDocuments({ roleId: { $exists: true } })).toBe(0)
+    expect(r.out).toContain('all-plain: 1 person(s) without a role')
+    expect(r.out).not.toContain('all-done:')
   }, 120_000)
 
-  it('--set roles never moves an org straight from legacy', async () => {
-    const r = await run('--all', '--set', 'roles', '--execute')
-    expect(r.out).toContain('skip  all-plain: on legacy: --set shadow first')
-    expect(await model('all-plain')).toBe('legacy')
-  }, 120_000)
-
-  it('--set shadow gives everyone a role with exactly their access, then moves the org, audited', async () => {
-    const r = await run('--all', '--set', 'shadow', '--execute')
+  it('--give-roles gives the people from before roles theirs, by 0015', async () => {
+    const r = await run('--org', 'all-plain', '--give-roles')
     expect(r.code).toBe(0)
-    expect([await model('all-plain'), await model('all-custom'), await model('all-done')]).toEqual(['shadow', 'shadow', 'roles'])
-    expect(await User.countDocuments({ roleId: { $exists: false } })).toBe(0)
-    expect(await AuditLog.countDocuments({ entityType: 'org', via: 'scripts/access-model.ts' })).toBe(2)
-  }, 120_000)
-
-  it('--set roles waits a day on shadow, then moves only the orgs with no difference', async () => {
-    expect((await run('--all', '--set', 'roles', '--execute')).out).toContain('less than 1')
-    expect(await model('all-plain')).toBe('shadow')
-
-    // A day later, and one difference counted in one of them.
-    await AuditLog.updateMany({ entityType: 'org', via: 'scripts/access-model.ts' }, { $set: { timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) } })
-    await AccessShadowDiff.create({ org: custom._id, day: new Date().toISOString().slice(0, 10), method: 'GET', route: '/x', role: 'member', legacy: 'refuse', evaluator: 'allow', count: 1, lastAt: new Date() } as any)
-
-    const r = await run('--all', '--set', 'roles', '--execute')
-    expect(r.out).toContain('moved all-plain: shadow → roles')
-    expect(r.out).toContain('skip  all-custom: 1 difference(s)')
-    expect([await model('all-plain'), await model('all-custom')]).toEqual(['roles', 'shadow'])
+    expect(r.out).toContain('all-plain: 0 person(s) without a role')
+    const person: any = await User.findOne({ username: 'a2' }).lean().exec()
+    expect(person.roleId).toBeDefined()
   }, 120_000)
 })

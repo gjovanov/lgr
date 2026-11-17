@@ -1,8 +1,8 @@
 import { describe, it, expect, afterAll } from 'bun:test'
 import { setSession } from 'ui-shared/session/session'
 import { setLiveAccess } from 'ui-shared/access/live-grant'
-import { compileLegacy, type CapabilityId, type Grant } from 'config/access'
-import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, ROLES, type Role } from 'config/constants'
+import { templateGrant, type CapabilityId, type Grant } from 'config/access'
+import { ROLES, type Role } from 'config/constants'
 import { internalOrderEmailAccess, mayEmailInternalOrders, mayEmailOrders, orderEmailAccess } from 'invoicing-api/src/lib/email-guards'
 import { useDocEmailAccess } from '../../../invoicing-ui/src/composables/doc-email-access'
 
@@ -39,17 +39,11 @@ afterAll(() => {
 
 const token = (claims: Record<string, unknown>) => `h.${btoa(JSON.stringify(claims)).replace(/=+$/, '')}.s`
 const org = { id: 'o1', slug: 'o1', name: 'O1' } as any
-/** A session of a role as its token is issued today: the role's default permissions, and its areas where it has them. */
-const claimsOf = (role: Role) => ({
-  id: `u-${role}`, orgId: 'o1', role, permissions: [...DEFAULT_ROLE_PERMISSIONS[role]],
-  ...(DEFAULT_ROLE_AREAS[role] ? { areas: DEFAULT_ROLE_AREAS[role] } : {}),
-  exp: 4102444800,
-})
-/** FR-27 P3-5: a session's grant is its role's, as the sign-in answers it (here: what those claims compile to). */
-const liveOf = (claims: Parameters<typeof compileLegacy>[0]) => {
-  const grant = compileLegacy(claims)
-  return { all: !!grant.all, caps: grant.all ? [] : [...grant.caps], role: { id: 'r', name: 'R', version: 'r:1' } }
-}
+/** A session of a built-in role: its token (no claims since FR-27 P3-5) and the session the server decides by. */
+const claimsOf = (role: Role) => ({ id: `u-${role}`, orgId: 'o1', exp: 4102444800 })
+const userOf = (role: Role) => ({ id: `u-${role}`, orgId: 'o1', access: templateGrant(role) })
+/** A session's grant is its role's, as the sign-in answers it. */
+const liveOf = (grant: Grant) => ({ all: !!grant.all, caps: grant.all ? [] : [...grant.caps], role: { id: 'r', name: 'R', version: 'r:1' } })
 const list = useDocEmailAccess()
 /** What the two routes answer a session of exactly this grant, for each kind of order. */
 const served = (access: Grant) => {
@@ -62,13 +56,12 @@ describe('an order list offers the mail by what the two routes are reached by', 
   it('a session of every role is offered it exactly when the server would not answer 403', () => {
     const customer: string[] = []
     for (const role of ROLES) {
-      const claims = claimsOf(role)
-      setSession(token(claims), org)
-      setLiveAccess(liveOf(claims))
+      setSession(token(claimsOf(role)), org)
+      setLiveAccess(liveOf(templateGrant(role)))
       expect({ role, ...offered() }).toEqual({
         role,
-        supplier: mayEmailOrders(orderEmailAccess(claims)),
-        customer: mayEmailInternalOrders(internalOrderEmailAccess(claims)),
+        supplier: mayEmailOrders(orderEmailAccess(userOf(role))),
+        customer: mayEmailInternalOrders(internalOrderEmailAccess(userOf(role))),
       })
       if (list.internalOrders()) customer.push(role)
     }

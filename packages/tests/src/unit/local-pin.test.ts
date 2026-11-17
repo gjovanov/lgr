@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'bun:test'
 import { BACKOFF, backoffDelayMs, pinRuleViolation } from 'services/biz/identity/local-credentials.service'
-import { permissionRefusal, pinScopeRefusal } from 'services/biz/route-permission'
+import { pinScopeRefusal } from 'services/biz/route-permission'
+import { accessRefusal } from 'services/biz/access/evaluate'
+import { ALL, templateGrant } from 'config/access'
 
 /** FR-20.40 (plan step P1-5a): what a till PIN may be, how it slows down, and what its session reaches. */
 
@@ -27,7 +29,7 @@ describe('backing off', () => {
 })
 
 describe("a PIN session's reach", () => {
-  const pin = (role: string) => ({ role, permissions: ['pos.read', 'pos.write', 'payroll.read'], amr: ['pin'] })
+  const pin = (role: string) => ({ id: 'u', access: role === 'admin' ? ALL : templateGrant(role), amr: ['pin'] })
 
   it('is the till', () => {
     for (const [method, route] of [
@@ -43,12 +45,12 @@ describe("a PIN session's reach", () => {
         ['GET', '/api/org/:orgId/payroll/payslip'], ['GET', '/api/org/:orgId/invoices'], ['PUT', '/api/org/:orgId'],
         ['POST', '/api/auth/switch'], ['POST', '/api/auth/password'], ['PUT', '/api/auth/local/pin'],
         ['GET', '/api/org/:orgId/warehouse/product'],
-      ]) expect(permissionRefusal(pin(role), method, route)?.code).toBe('pin_session_scope')
+      ]) expect(accessRefusal(pin(role), method, route)?.code).toBe('pin_session_scope')
     }
   })
 
   it('leaves a password session alone', () => {
-    expect(pinScopeRefusal({ role: 'admin', permissions: [] }, 'GET', '/api/org/:orgId/payroll/payslip')).toBeNull()
-    expect(permissionRefusal({ role: 'admin', permissions: [] }, 'GET', '/api/org/:orgId/payroll/payslip')).toBeNull()
+    expect(pinScopeRefusal({ id: 'u', access: ALL }, 'GET', '/api/org/:orgId/payroll/payslip')).toBeNull()
+    expect(accessRefusal({ id: 'u', access: ALL }, 'GET', '/api/org/:orgId/payroll/payslip')).toBeNull()
   })
 })

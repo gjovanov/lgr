@@ -14,20 +14,27 @@ import {
   type PageViewer,
 } from 'ui-shared/nav/page-registry'
 import { routerPathFor } from 'ui-shared/nav/open-page'
-import { APP_REGISTRY, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, type Role } from 'config/constants'
-import { readRuleFor, writeRuleFor } from 'services/biz/route-permission'
+import { APP_REGISTRY, PERMISSIONS, ROLES, type Role } from 'config/constants'
+import { ALL, PAGE_ACCESS, accessRuleFor, templateGrant, type CapabilityId } from 'config/access'
+import { capsOfPermissions } from '../helpers/permission-caps'
+
+/** Whether a role holding only this capability passes the route's rule (FR-27 P3-6: the capability rules). */
+const routeTakes = (cap: CapabilityId, method: string, route: string) => {
+  const rule = accessRuleFor(method, route.replace('/api/org/:orgId/', ''))
+  return !!rule && (!('anyOf' in rule) || rule.anyOf.includes(cap))
+}
 
 describe('what the portal\'s menu offers: what `canOpenPage` lets them open (D10)', () => {
-  const asRole = (role: Role): PageViewer => ({ role, permissions: DEFAULT_ROLE_PERMISSIONS[role] })
+  const asRole = (role: Role): PageViewer => ({ grant: templateGrant(role) })
   const EVERY = ['/dashboard', '/settings/organization', '/settings/users', '/settings/roles', '/settings/invites', '/settings/desktops', '/settings/servers', '/settings/server', '/settings/billing', '/admin/audit-log']
 
   it('a till-only person is offered none of it', () => {
-    expect(portalPagesFor({ role: 'member', permissions: ['pos.read', 'pos.write'] })).toEqual([])
-    expect(portalPagesFor({ role: 'member', permissions: ['pos.read'] })).toEqual([])
+    expect(portalPagesFor({ grant: capsOfPermissions('pos.read', 'pos.write') })).toEqual([])
+    expect(portalPagesFor({ grant: capsOfPermissions('pos.read') })).toEqual([])
   })
 
   it('a PIN session neither, whatever its role says', () => {
-    expect(portalPagesFor({ role: 'admin', permissions: [...PERMISSIONS], amr: ['pin'] })).toEqual([])
+    expect(portalPagesFor({ grant: ALL, amr: ['pin'] })).toEqual([])
   })
 
   it('nobody signed in, nothing', () => {
@@ -35,7 +42,7 @@ describe('what the portal\'s menu offers: what `canOpenPage` lets them open (D10
   })
 
   it('an admin, all of it, whatever its set says', () => {
-    expect(portalPagesFor({ role: 'admin', permissions: [] })).toEqual(EVERY)
+    expect(portalPagesFor({ grant: ALL })).toEqual(EVERY)
   })
 
   it('someone in on the back office keeps what they read, and is not offered what the server refuses them', () => {
@@ -56,7 +63,7 @@ describe('what the portal\'s menu offers: what `canOpenPage` lets them open (D10
 
   it('a permission that opens a page opens it for whoever holds it', () => {
     // Not the permission sets: writing one is assigning access, which only an admin does.
-    expect(portalPagesFor({ role: 'member', permissions: ['pos.read', 'admin.settings'] })).toEqual(['/settings/organization', '/settings/users', '/settings/desktops', '/settings/servers', '/settings/server'])
+    expect(portalPagesFor({ grant: capsOfPermissions('pos.read', 'admin.settings') })).toEqual(['/settings/organization', '/settings/users', '/settings/desktops', '/settings/servers', '/settings/server'])
   })
 
   it('every page it answers for is a route of the portal', async () => {
@@ -136,7 +143,7 @@ describe('page-registry matchPage — new-document forms', () => {
   })
 })
 
-const role = (r: Role): PageViewer => ({ role: r, permissions: DEFAULT_ROLE_PERMISSIONS[r] })
+const role = (r: Role): PageViewer => ({ grant: templateGrant(r) })
 const page = (id: string) => {
   const p = pageById(id)
   if (!p) throw new Error(`no page ${id}`)
@@ -145,7 +152,7 @@ const page = (id: string) => {
 
 describe('canOpenPage — the permissions ★ and „+ Нов" read (FR-22 §5.8)', () => {
   it('an admin opens everything, whatever its set says', () => {
-    const admin: PageViewer = { role: 'admin', permissions: [] }
+    const admin: PageViewer = { grant: ALL }
     expect(PAGE_REGISTRY.every((p) => canOpenPage(p, admin))).toBe(true)
   })
 
@@ -164,7 +171,7 @@ describe('canOpenPage — the permissions ★ and „+ Нов" read (FR-22 §5.8
   })
 
   it('a PIN session reaches the till and nothing else, even an admin’s', () => {
-    const pin: PageViewer = { role: 'admin', permissions: DEFAULT_ROLE_PERMISSIONS.admin, amr: ['pin'] }
+    const pin: PageViewer = { grant: ALL, amr: ['pin'] }
     for (const id of TILL_PAGES) expect(canOpenPage(page(id), pin), id).toBe(true)
     expect(canOpenPage(page('/invoicing/invoices/new'), pin)).toBe(false)
     expect(canOpenPage(page('/invoicing/invoices'), pin)).toBe(false)
@@ -191,22 +198,20 @@ describe('the till, inside the invoicing app', () => {
 
   it('the journal is read by either side, the sessions and the devices by the till', () => {
     expect(canOpenPage(page('/invoicing/cash-sales'), role('accountant'))).toBe(true)
-    expect(canOpenPage(page('/invoicing/cash-sales'), { role: 'cashier', permissions: ['pos.read'] })).toBe(true)
+    expect(canOpenPage(page('/invoicing/cash-sales'), { grant: capsOfPermissions('pos.read') })).toBe(true)
     expect(canOpenPage(page('/invoicing/cash-register/sessions'), role('accountant'))).toBe(false)
     expect(canOpenPage(page('/invoicing/configuration/devices'), role('accountant'))).toBe(false)
     expect(canOpenPage(page('/invoicing/cash-register/sessions'), role('nra_auditor'))).toBe(true)
   })
 
-  // A page's permissions are the server's, not a guess: whoever is offered it can read it.
-  it('every permission a till page names reads what that page reads', () => {
+  // A page's capabilities are the server's, not a guess: whoever is offered it can read it.
+  it('every capability a till page names reads what that page reads', () => {
     const reads: Record<string, string> = {
       '/invoicing/cash-sales': '/api/org/:orgId/cash-register/documents',
       '/invoicing/cash-register/sessions': '/api/org/:orgId/trade/pos/session',
     }
     for (const [id, route] of Object.entries(reads)) {
-      const rule = readRuleFor(route)
-      expect(rule && 'need' in rule, route).toBe(true)
-      for (const p of page(id).need!) expect((rule as { need: readonly string[] }).need, `${id} ${p}`).toContain(p)
+      for (const c of PAGE_ACCESS[id].anyOf) expect({ id, c, reads: routeTakes(c, 'GET', route) }).toEqual({ id, c, reads: true })
     }
   })
 
@@ -243,18 +248,17 @@ describe('canOpenPage reads an app as the server does', () => {
   it('every invoicing.* opens the invoicing pages, and the app\'s write forms still ask for write', () => {
     for (const held of ['invoicing.read', 'invoicing.write', 'invoicing.send']) {
       for (const id of ['/invoicing/invoices', '/invoicing/contacts', '/invoicing/cash-sales']) {
-        expect({ held, id, opens: canOpenPage(page(id), { role: 'x', permissions: [held] }) }).toEqual({ held, id, opens: true })
+        expect({ held, id, opens: canOpenPage(page(id), { grant: capsOfPermissions(held) }) }).toEqual({ held, id, opens: true })
       }
     }
-    expect(canOpenPage(page('/invoicing/invoices/new'), { role: 'x', permissions: ['invoicing.send'] })).toBe(false)
-    expect(canOpenPage(page('/invoicing/invoices/new'), { role: 'x', permissions: ['invoicing.read'] })).toBe(false)
-    expect(canOpenPage(page('/invoicing/invoices/new'), { role: 'x', permissions: ['invoicing.write'] })).toBe(true)
+    expect(canOpenPage(page('/invoicing/invoices/new'), { grant: capsOfPermissions('invoicing.send') })).toBe(false)
+    expect(canOpenPage(page('/invoicing/invoices/new'), { grant: capsOfPermissions('invoicing.read') })).toBe(false)
+    expect(canOpenPage(page('/invoicing/invoices/new'), { grant: capsOfPermissions('invoicing.write') })).toBe(true)
   })
 
   it('the journal for whoever the server serves it to, and nobody else', () => {
-    expect(readRuleFor('/api/org/:orgId/cash-register/documents')).toEqual({ need: ['pos.read', 'pos.write', 'invoicing.read', 'invoicing.write', 'invoicing.send'] })
     for (const p of PERMISSIONS) {
-      const held = { role: 'x', permissions: [p] }
+      const held = { grant: capsOfPermissions(p) }
       expect({ p, opens: canOpenPage(page('/invoicing/cash-sales'), held) }).toEqual({ p, opens: /^(pos|invoicing)\./.test(p) })
     }
   })
@@ -263,41 +267,41 @@ describe('canOpenPage reads an app as the server does', () => {
 describe('isTillOnly', () => {
   // The server reads the module for any of them, so such a person keeps the back office.
   it('never someone holding any invoicing.*, whichever the server honoured', () => {
-    expect(isTillOnly({ role: 'x', permissions: ['pos.read', 'pos.write', 'invoicing.write', 'invoicing.send'] })).toBe(false)
-    expect(isTillOnly({ role: 'x', permissions: ['pos.write', 'invoicing.send'] })).toBe(false)
-    expect(isTillOnly({ role: 'x', permissions: ['pos.read', 'invoicing.write'] })).toBe(false)
+    expect(isTillOnly({ grant: capsOfPermissions('pos.read', 'pos.write', 'invoicing.write', 'invoicing.send') })).toBe(false)
+    expect(isTillOnly({ grant: capsOfPermissions('pos.write', 'invoicing.send') })).toBe(false)
+    expect(isTillOnly({ grant: capsOfPermissions('pos.read', 'invoicing.write') })).toBe(false)
   })
 
   it('pos.* and nothing that opens another page of the app', () => {
-    expect(isTillOnly({ role: 'cashier', permissions: ['pos.read', 'pos.write'] })).toBe(true)
-    expect(isTillOnly({ role: 'cashier', permissions: ['pos.write'] })).toBe(true)
-    expect(isTillOnly({ role: 'cashier', permissions: ['pos.read', 'reports.read'] })).toBe(true)
+    expect(isTillOnly({ grant: capsOfPermissions('pos.read', 'pos.write') })).toBe(true)
+    expect(isTillOnly({ grant: capsOfPermissions('pos.write') })).toBe(true)
+    expect(isTillOnly({ grant: capsOfPermissions('pos.read', 'reports.read') })).toBe(true)
   })
 
   // The server reads the orders and the contacts for the inventory app too.
   it('never someone holding any inventory.*', () => {
     for (const p of ['inventory.read', 'inventory.write', 'inventory.adjust']) {
-      expect(isTillOnly({ role: 'cashier', permissions: ['pos.read', p] })).toBe(false)
+      expect(isTillOnly({ grant: capsOfPermissions('pos.read', p) })).toBe(false)
     }
   })
 
   it('not with invoicing.read, and not without the till', () => {
-    expect(isTillOnly({ role: 'cashier', permissions: ['pos.read', 'invoicing.read'] })).toBe(false)
-    expect(isTillOnly({ role: 'x', permissions: ['inventory.read'] })).toBe(false)
-    expect(isTillOnly({ role: 'x', permissions: [] })).toBe(false)
+    expect(isTillOnly({ grant: capsOfPermissions('pos.read', 'invoicing.read') })).toBe(false)
+    expect(isTillOnly({ grant: capsOfPermissions('inventory.read') })).toBe(false)
+    expect(isTillOnly({ grant: capsOfPermissions() })).toBe(false)
   })
 
   it('no default role is, so nobody in the field changes today', () => {
-    for (const r of Object.keys(DEFAULT_ROLE_PERMISSIONS) as Role[]) expect(isTillOnly(role(r)), r).toBe(false)
+    for (const r of ROLES) expect(isTillOnly(role(r)), r).toBe(false)
   })
 
   it('a PIN session is, whatever it holds: the server holds it to the till', () => {
-    expect(isTillOnly({ role: 'admin', permissions: DEFAULT_ROLE_PERMISSIONS.admin, amr: ['pin'] })).toBe(true)
-    expect(isTillOnly({ role: 'sales', permissions: DEFAULT_ROLE_PERMISSIONS.sales, amr: ['pin'] })).toBe(true)
+    expect(isTillOnly({ grant: ALL, amr: ['pin'] })).toBe(true)
+    expect(isTillOnly({ grant: templateGrant('sales'), amr: ['pin'] })).toBe(true)
   })
 
   it('an admin is refused nothing, whatever its set says', () => {
-    expect(isTillOnly({ role: 'admin', permissions: ['pos.read'] })).toBe(false)
+    expect(isTillOnly({ grant: ALL })).toBe(false)
   })
 
   it('nobody signed in is not', () => {
@@ -313,12 +317,12 @@ describe('newDocumentMenu — „+ Нов" (FR-22.49)', () => {
       const p = pageById(pageId)
       expect(p, pageId).not.toBeNull()
       expect(p!.path.split('?')[0]).toEndWith('/new')
-      expect(p!.need?.length, pageId).toBeGreaterThan(0)
+      expect(PAGE_ACCESS[pageId]?.anyOf.length, pageId).toBeGreaterThan(0)
     }
   })
 
   it('an admin gets every daily document, grouped', () => {
-    expect(ids({ role: 'admin', permissions: [] })).toEqual([
+    expect(ids({ grant: ALL })).toEqual([
       ['/invoicing/invoices/new', '/invoicing/invoices/new?type=credit_note', '/invoicing/proforma/new', '/invoicing/offer/new'],
       ['/invoicing/cash-sales/new'],
       ['/invoicing/bills/new', '/inventory/movements/new'],
@@ -365,8 +369,7 @@ describe('newDocumentMenu — „+ Нов" (FR-22.49)', () => {
       '/invoicing/reservations/new': '/api/org/:orgId/invoicing/reservations',
     }
     for (const { pageId } of NEW_DOCUMENT_MENU.flat()) {
-      const rule = writeRuleFor('POST', saves[pageId])
-      expect(rule && 'need' in rule ? [...rule.need] : null, pageId).toEqual([...page(pageId).need!])
+      for (const c of PAGE_ACCESS[pageId].anyOf) expect({ pageId, c, saves: routeTakes(c, 'POST', saves[pageId]) }).toEqual({ pageId, c, saves: true })
     }
   })
 })
@@ -388,7 +391,7 @@ describe('APP_NAV_META mirrors APP_REGISTRY', () => {
   // any page: one opened by another right earns no tile, because the app's home would refuse them.
   it('the Invoicing tile opens for exactly the permissions that read its journal', () => {
     const { requiredPermission, alsoOpenedBy } = APP_REGISTRY.invoicing
-    const opens = PERMISSIONS.filter(p => canOpenPage(pageById('/invoicing/cash-sales')!, { role: 'x', permissions: [p] }))
+    const opens = PERMISSIONS.filter(p => canOpenPage(pageById('/invoicing/cash-sales')!, { grant: capsOfPermissions(p) }))
     expect([requiredPermission, ...(alsoOpenedBy ?? [])].sort()).toEqual([...opens].sort())
   })
 })

@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { setupTestDB, teardownTestDB, testDbUri } from '../setup'
-import { Identity, PermissionSet, Role, Sequence, User } from 'db/models'
+import { Identity, Role, Sequence, User } from 'db/models'
+import { mongoose } from 'db/connection'
 import { tokenize } from 'services/biz/auth.service'
 import { createTestOrg } from '../helpers/factories'
 
@@ -29,7 +30,7 @@ async function seedUser(...args: string[]) {
 beforeAll(async () => {
   await setupTestDB()
   // What the app does on start, and the script no longer does: build the indexes.
-  await Promise.all([User, Identity, PermissionSet, Role, Sequence].map(M => M.init()))
+  await Promise.all([User, Identity, Role, Sequence].map(M => M.init()))
   await createTestOrg({ name: 'Service user test', slug: 'service-user-test' } as any)
 }, 60_000)
 
@@ -45,7 +46,7 @@ describe('seed-user --permissions: a service account', () => {
 
     const user: any = await User.findOne({ username: 'books-sync' }).lean()
     expect([user.role, user.permissions, user.permissionSetIds]).toEqual([undefined, undefined, undefined])
-    expect(await PermissionSet.exists({ name: 'Service: books import' })).toBeNull()
+    expect(await mongoose.connection.db!.collection('permissionsets').countDocuments({ name: 'Service: books import' })).toBe(0)
 
     // FR-27 (#529): what `accounting.import` gave a session opening no area, and nothing else.
     const role: any = await Role.findById(user.roleId).lean()

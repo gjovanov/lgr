@@ -1,8 +1,8 @@
 import { describe, it, expect, afterAll } from 'bun:test'
 import { setSession } from 'ui-shared/session/session'
 import { setLiveAccess } from 'ui-shared/access/live-grant'
-import { compileLegacy } from 'config/access'
-import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, ROLES, type Role } from 'config/constants'
+import { templateGrant, type Grant } from 'config/access'
+import { ROLES, type Role } from 'config/constants'
 import { MOVEMENT_EMAIL_WORK, mayEmailMovements } from 'warehouse-api/src/lib/movement-email-guards'
 import { MOVEMENT_EMAIL_CAPS, mailsMovements } from '../../../inventory-ui/src/composables/movement-email-access'
 
@@ -36,17 +36,10 @@ afterAll(() => {
 
 const token = (claims: Record<string, unknown>) => `h.${btoa(JSON.stringify(claims)).replace(/=+$/, '')}.s`
 const org = { id: 'o1', slug: 'o1', name: 'O1' } as any
-/** A session of a role as its token is issued today: the role's default permissions, and its areas where it has them. */
-/** FR-27 P3-5: a session's grant is its role's, as the sign-in answers it (here: what those claims compile to). */
-const liveOf = (claims: Parameters<typeof compileLegacy>[0]) => {
-  const grant = compileLegacy(claims)
-  return { all: !!grant.all, caps: grant.all ? [] : [...grant.caps], role: { id: 'r', name: 'R', version: 'r:1' } }
-}
-const claimsOf = (role: Role) => ({
-  id: `u-${role}`, orgId: 'o1', role, permissions: [...DEFAULT_ROLE_PERMISSIONS[role]],
-  ...(DEFAULT_ROLE_AREAS[role] ? { areas: DEFAULT_ROLE_AREAS[role] } : {}),
-  exp: 4102444800,
-})
+/** A session's grant is its role's, as the sign-in answers it. */
+const liveOf = (grant: Grant) => ({ all: !!grant.all, caps: grant.all ? [] : [...grant.caps], role: { id: 'r', name: 'R', version: 'r:1' } })
+/** A session of a built-in role: its token (no claims since FR-27 P3-5). */
+const claimsOf = (role: Role) => ({ id: `u-${role}`, orgId: 'o1', exp: 4102444800 })
 
 describe('the list asks what the two mail routes are reached by', () => {
   it('the same capabilities as the server\'s guard', () => {
@@ -56,10 +49,9 @@ describe('the list asks what the two mail routes are reached by', () => {
   it('a session of every role is offered the mail exactly when the server would not answer it 403', () => {
     const offered: string[] = []
     for (const role of ROLES) {
-      const claims = claimsOf(role)
-      setSession(token(claims), org)
-      setLiveAccess(liveOf(claims))
-      expect(mailsMovements(), role).toBe(mayEmailMovements(compileLegacy(claims)))
+      setSession(token(claimsOf(role)), org)
+      setLiveAccess(liveOf(templateGrant(role)))
+      expect(mailsMovements(), role).toBe(mayEmailMovements(templateGrant(role)))
       if (mailsMovements()) offered.push(role)
     }
     // Who that is today: the roles that work on movements, and the two that write a Seller's transfers.

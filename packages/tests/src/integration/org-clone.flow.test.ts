@@ -10,7 +10,7 @@ import {
   createTestNotification,
 } from '../helpers/factories'
 import { mongoose } from 'db/connection'
-import { AuditLog, Identity, Invoice, LeaveBalance, Org, OrgApp, OrgLogo, PermissionSet, Product, Role, Sequence, StockLevel, Tag, User } from 'db/models'
+import { AuditLog, Identity, Invoice, LeaveBalance, Org, OrgApp, OrgLogo, Product, Role, Sequence, StockLevel, Tag, User } from 'db/models'
 import { tenantCollections } from 'services/biz/backup/backup-bundle.service'
 import {
   OrgCloneError, assertCloneAllowed, cloneOrgData, compareOrgs, convertToTestOrg, createTestOrgFrom,
@@ -37,7 +37,7 @@ import { contentHash } from 'services/biz/org-clone/canonical'
 
 beforeAll(async () => {
   await setupTestDB()
-  await Promise.all([Identity.init(), User.init(), Invoice.init(), Product.init(), Sequence.init(), PermissionSet.init(), Role.init(), StockLevel.init()])
+  await Promise.all([Identity.init(), User.init(), Invoice.init(), Product.init(), Sequence.init(), Role.init(), StockLevel.init()])
 }, 120_000)
 
 afterAll(async () => {
@@ -82,14 +82,13 @@ async function realShop(label = 'real') {
   const sellerPerson = await person('seller')
   const admin = await createTestUser(org._id, { identityId: adminPerson._id, role: 'admin', username: `admin-${seq}`, email: `admin-${seq}@x.test` } as any)
   const seller = await createTestUser(org._id, { identityId: sellerPerson._id, role: 'seller', username: `seller-${seq}`, email: `seller-${seq}@x.test`, operatorCode: '0002' } as any)
-  const sellerSet = await PermissionSet.create({ orgId: org._id, name: 'Seller', description: 'the counter', permissions: ['invoicing.read'], isSystem: true } as any)
   // The org's built-in Seller (the factory gives every person a role, FR-27 P3-4), as this test wants it.
   const sellerRole: any = await Role.findOneAndUpdate(
     { orgId: org._id, isBuiltin: true, templateKey: 'seller' },
     { $set: { name: 'Seller', caps: [], legacy: { role: 'seller', permissions: [] } } },
     { upsert: true, new: true },
   ).lean()
-  await User.updateOne({ _id: seller._id }, { $set: { permissionSetIds: [sellerSet._id], roleId: sellerRole._id } })
+  await User.updateOne({ _id: seller._id }, { $set: { roleId: sellerRole._id } })
   await Org.updateOne({ _id: org._id }, { $set: { ownerId: admin._id } })
 
   const contact = await createTestContact(org._id)
@@ -153,7 +152,7 @@ async function realShop(label = 'real') {
   await coll('DocFile').insertOne({ orgId: org._id, currentPath: `${org._id}/docs/scan.pdf`, originalName: 'scan.pdf' })
   await coll('ArchiveUnit').insertOne({ orgId: org._id, year: 2025 })
 
-  return { org, id: String(org._id), admin, seller, adminPerson, sellerPerson, wh1, wh2, contact, products, invoices, movement, sellerSet, sellerRole, fileId }
+  return { org, id: String(org._id), admin, seller, adminPerson, sellerPerson, wh1, wh2, contact, products, invoices, movement, sellerRole, fileId }
 }
 type Shop = Awaited<ReturnType<typeof realShop>>
 
@@ -223,7 +222,7 @@ describe('the first copy', () => {
 
     expect(report.totals.errors).toBe(0)
     expect(report.totals.conflicts).toBe(0)
-    for (const m of ['Contact', 'Invoice', 'Product', 'StockLevel', 'StockMovement', 'Warehouse', 'Tag', 'Sequence', 'AuditLog', 'OrgLogo', 'OrgApp', 'PermissionSet', 'Role', 'User']) {
+    for (const m of ['Contact', 'Invoice', 'Product', 'StockLevel', 'StockMovement', 'Warehouse', 'Tag', 'Sequence', 'AuditLog', 'OrgLogo', 'OrgApp', 'Role', 'User']) {
       expect(await countOf(m, id)).toBe(await countOf(m, shop.id))
     }
     expect(await countOf('Product', id)).toBe(3)
@@ -321,9 +320,8 @@ describe('the first copy', () => {
     expect(seller.isActive).toBe(false)
     expect(seller.deactivatedAt).toBeInstanceOf(Date)
     expect(String(seller.identityId)).toBe(String(shop.sellerPerson._id))
-    // Its permission set is the copy's own.
-    const sets: any[] = await docsOf('PermissionSet', id)
-    expect(seller.permissionSetIds.map(String)).toEqual([String(sets.find(s => s.name === 'Seller')._id)])
+    // FR-27 P3-6: permission sets have no model, and a copy carries none.
+    expect(await mongoose.connection.db!.collection('permissionsets').countDocuments({ orgId: new mongoose.Types.ObjectId(id) })).toBe(0)
     // And so is its role (FR-27): the copy's own Seller role, never the real org's.
     const roles: any[] = await docsOf('Role', id)
     expect(String(seller.roleId)).toBe(String(roles.find(r => r.name === 'Seller')._id))
@@ -424,14 +422,13 @@ describe('keeping it up to date', () => {
 })
 
 describe('people the test org already has', () => {
-  it('matches a membership by the person and a permission set by name, so nothing is copied twice and nothing is overwritten', async () => {
+  it('matches a membership by the person and a role by name, so nothing is copied twice and nothing is overwritten', async () => {
     const shop = await realShop()
     // The test org: its own admin is the SAME person as the shop's admin, under another username, and
-    // it has its own Seller set.
+    // it has its own Seller role.
     const target = await createTestOrg({ slug: slugOf('existing'), name: 'Existing' } as any)
     await Org.updateOne({ _id: target._id }, { $set: { 'settings.environment': 'dev' } })
     const own = await createTestUser(target._id, { identityId: shop.adminPerson._id, role: 'admin', username: 'my-own-name', email: `own-${++seq}@x.test` } as any)
-    const ownSet = await PermissionSet.create({ orgId: target._id, name: 'Seller', description: 'theirs', permissions: ['crm.read'], isSystem: true } as any)
     const ownRole: any = await Role.findOneAndUpdate(
       { orgId: target._id, isBuiltin: true, templateKey: 'seller' },
       { $set: { name: 'Seller', caps: ['crm.read'], legacy: { role: 'seller', permissions: [] } } },
@@ -447,7 +444,6 @@ describe('people the test org already has', () => {
     const run = await cloneOrgData({ sourceOrgId: shop.id, targetOrgId: String(target._id), execute: true, activateAdmins: true })
     expect(byName(run, 'User').merged).toBe(1)
     expect(byName(run, 'User').inserted).toBe(1) // only the seller
-    expect(byName(run, 'PermissionSet').merged).toBe(1)
     expect(byName(run, 'Role').merged).toBe(sourceRoles)
     expect(await countOf('Role', String(target._id))).toBe(targetRoles)
     // The enabled app is matched by which app it is: no clash, the test org's own switch stays, the other is added.
@@ -464,12 +460,10 @@ describe('people the test org already has', () => {
     // Documents the shop admin created now name the membership the test org already had.
     const invoice: any = (await docsOf('Invoice', String(target._id))).find((i: any) => i.status === 'sent')
     expect(String(invoice.createdBy)).toBe(String(own._id))
-    // The seller arrives switched off, on the test org's OWN Seller set; that set is as it was.
+    // The seller arrives switched off, on the test org's OWN Seller role; that role is as it was.
     const seller = users.find(u => u.role === 'seller')
     expect(seller.isActive).toBe(false)
-    expect(seller.permissionSetIds.map(String)).toEqual([String(ownSet._id)])
     expect(String(seller.roleId)).toBe(String(ownRole._id))
-    expect(((await PermissionSet.findById(ownSet._id).lean().exec()) as any).permissions).toEqual(['crm.read'])
     expect(((await Role.findById(ownRole._id).lean().exec()) as any).caps).toEqual(['crm.read'])
   })
 })
@@ -529,7 +523,6 @@ describe('emptying a test org before the first copy', () => {
     await createTestFiscalDevice(o._id, wh._id)
     await createTestInvite(o._id, user._id)
     await createTestNotification(o._id, user._id)
-    await PermissionSet.create({ orgId: o._id, name: 'Administrator', description: '', permissions: [], isSystem: true, isAdmin: true } as any)
     await coll('Desktop').insertOne({ orgId: o._id, name: 'Dev laptop', status: 'active' })
     // The org's own operational history: not data, never touched.
     await coll('BackupRun').insertOne({ orgId: o._id, status: 'completed' })
@@ -557,9 +550,9 @@ describe('emptying a test org before the first copy', () => {
     expect(report.deleted.Notification).toBe(1)
     expect(report.deleted.Warehouse).toBe(1)
     for (const m of ['Product', 'Contact', 'Warehouse', 'Notification']) expect(await countOf(m, orgId)).toBe(0)
-    for (const m of ['User', 'FiscalDevice', 'Invite', 'PermissionSet', 'Desktop', 'BackupRun']) expect(await countOf(m, orgId)).toBe(1)
+    for (const m of ['User', 'FiscalDevice', 'Invite', 'Desktop', 'BackupRun']) expect(await countOf(m, orgId)).toBe(1)
     // The people's roles stay with them (FR-27 P3-4: every person has one).
-    expect(Object.keys(report.kept).sort()).toEqual(['Desktop', 'FiscalDevice', 'Invite', 'PermissionSet', 'Role', 'User'])
+    expect(Object.keys(report.kept).sort()).toEqual(['Desktop', 'FiscalDevice', 'Invite', 'Role', 'User'])
 
     // The kept device names a warehouse that no longer exists; the copy relinks it to the one with this code.
     const run = await cloneOrgData({ sourceOrgId: shop.id, targetOrgId: orgId, execute: true, activateAdmins: true, relinkHardwareTo: 'pz' })
@@ -580,7 +573,7 @@ describe('every model with an orgId takes a side', () => {
     'CostLayer', 'Employee', 'EmploymentContract', 'ExchangeRate', 'FiscalPeriod', 'FiscalPosition', 'FiscalYear', 'FixedAsset',
     'InternalOrder', 'InventoryCount', 'Invoice', 'Journal', 'JournalEntry', 'LeaveBalance', 'OperationType', 'Order', 'OrgApp',
     'OrgLogo', 'POSPaymentMethod', 'POSSession', 'POSTransaction', 'PaymentOrder', 'PaymentTerm', 'PayrollElement', 'PayrollRun',
-    'Payslip', 'PermissionSet', 'PriceList', 'Product', 'ProductCategory', 'ProductSupplier', 'Reservation', 'Role', 'Sequence', 'StockLevel',
+    'Payslip', 'PriceList', 'Product', 'ProductCategory', 'ProductSupplier', 'Reservation', 'Role', 'Sequence', 'StockLevel',
     'StockLocation', 'StockLot', 'StockMovement', 'SupplierProductAlias', 'Tag', 'TaxReturn', 'Timesheet', 'User',
     'VatRegisterEntry', 'Warehouse',
   ].sort()

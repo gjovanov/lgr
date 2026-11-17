@@ -9,7 +9,6 @@ import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { AuditLog, Sequence, User } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { continuousSuffixOf, getNextInvoiceNumber, peekNextInvoiceNumber } from 'services/biz/invoice-numbering.service'
 import { continueSeries } from 'services/biz/move/fenced-import.service'
 import { getNextContinuousNumber, highestCounter, isContinuousSeries, setContinuousSeries } from 'services/biz/sequence.service'
@@ -212,7 +211,6 @@ describe('a kept document of a replaced server', () => {
 describe('the sequences page', () => {
   async function signedIn(role: string) {
     const w = await world()
-    await seedDefaultPermissionSets(w.orgId)
     const person = await createTestUser(w.org._id, { role, username: role, email: `${role}@${w.org.slug}.test` } as any)
     const token = await (signer as any).decorator.jwt.sign(await tokenize((await User.findById(person._id).exec())!))
     const call = async (method: string, path: string, body?: unknown) => {

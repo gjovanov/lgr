@@ -9,7 +9,6 @@ import { config } from 'config'
 import { appsOpenedBy, grantOfRole } from 'config/access'
 import { Org, Role, User } from 'db/models'
 import { register, tokenize } from 'services/biz/auth.service'
-import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember } from 'services/biz/access/live'
 
 /**
@@ -58,7 +57,6 @@ beforeAll(async () => {
   adminToken = await sign(r.user._id)
   member = await createTestUser(r.org._id, { role: 'member', username: 'clerk', email: 'clerk@app-hub.test', permissions: ['inventory.read'] } as any)
   await Org.updateOne({ _id: r.org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-  forgetAccessModel(orgId)
 }, 60_000)
 
 afterAll(async () => { await teardownTestDB() }, 60_000)
@@ -91,7 +89,6 @@ describe("FR-27.5: the App Hub shows the role's apps, live", () => {
 
   it('the token carries no permissions (FR-27 P3-5): the role decides, whatever the org\'s old model field says', async () => {
     await Org.updateOne({ _id: orgId }, { $set: { 'settings.access.model': 'legacy' } }).exec()
-    forgetAccessModel(orgId)
     const legacyClerk = await createTestUser(orgId as any, { role: 'member', username: 'legacy-clerk', email: 'legacy@app-hub.test', permissions: ['inventory.read'] } as any)
     const token = await sign(legacyClerk._id)
     const claims = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))

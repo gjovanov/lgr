@@ -5,8 +5,8 @@ import {
   mayEmailInternalOrders, mayEmailInvoices, mayEmailOrders, orderEmailAccess, orderEmailSkip,
 } from 'invoicing-api/src/lib/email-guards'
 import * as docEmail from 'config/doc-email'
-import { accessRuleFor, compileLegacy, type CapabilityId, type Grant } from 'config/access'
-import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, ROLES, type Role } from 'config/constants'
+import { accessRuleFor, templateGrant, type CapabilityId, type Grant } from 'config/access'
+import { ROLES, type Role } from 'config/constants'
 
 /**
  * Which of a list's ticked documents go by e-mail (2026-11-16): the rule per document.
@@ -18,7 +18,8 @@ import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, ROLES, type Role } from '
  */
 
 const caps = (...c: string[]): Grant => ({ caps: new Set(c as CapabilityId[]) })
-const legacy = (role: Role) => compileLegacy({ role, permissions: [...DEFAULT_ROLE_PERMISSIONS[role]] })
+/** A built-in role's grant (FR-27 P3-6: the legacy model is gone; the templates are its access, pinned). */
+const legacy = (role: Role) => templateGrant(role)
 
 const SALES = caps('sales-docs.view', 'sales-docs.edit')
 const invoice = { direction: 'outgoing', type: 'invoice', status: 'sent' }
@@ -105,15 +106,11 @@ describe('a document of the invoice collection', () => {
     expect(mayEmailInvoices(null)).toBe(false)
   })
 
-  it('by role, on the legacy model: the roles the single route lets mail, and no read-only one', () => {
+  it('by built-in role: the roles that write sales documents, and no read-only one', () => {
     const may = ROLES.filter(role => mayEmailInvoices(legacy(role)))
     for (const role of ['admin', 'manager', 'accountant'] as Role[]) expect(may, role).toContain(role)
     for (const role of ['member', 'nra_auditor'] as Role[]) expect(may, role).not.toContain(role)
-    // A role that mails holds the invoicing write, and the other way round.
-    for (const role of ROLES) {
-      const writes = role === 'admin' || DEFAULT_ROLE_PERMISSIONS[role].includes('invoicing.write')
-      expect({ role, may: may.includes(role) }).toEqual({ role, may: writes })
-    }
+    expect([...may].sort()).toEqual(['accountant', 'admin', 'manager', 'sales', 'sales_consultant', 'seller'])
   })
 })
 
@@ -163,8 +160,8 @@ describe('a supplier order\'s sheet', () => {
     expect(orderEmailSkip({ access: ALL, order: null, group, recentSend: true })).toBe('not_found')
   })
 
-  it('by role, on the legacy model: an admin and a manager mail orders, a read-only role none', () => {
-    const access = (role: Role) => orderEmailAccess({ role, permissions: [...DEFAULT_ROLE_PERMISSIONS[role]] })
+  it('by built-in role: an admin and a manager mail orders, a read-only role none', () => {
+    const access = (role: Role) => orderEmailAccess({ id: 'u', access: templateGrant(role) })
     expect(mayEmailOrders(access('admin'))).toBe(true)
     expect(mayEmailOrders(access('manager'))).toBe(true)
     expect(mayEmailOrders(access('member'))).toBe(false)
@@ -249,11 +246,8 @@ describe('a customer order\'s sheet', () => {
     expect(internalOrderEmailSkip({ access: noRead, order, recentSend: true })).toBe('forbidden')
   })
 
-  it('by role, on the legacy model: the roles that work on orders and may print, and no read-only one', () => {
-    // A session of a role as its token is issued today: the role's default permissions, and its areas where it has them.
-    const access = (role: Role) => internalOrderEmailAccess({
-      role, permissions: [...DEFAULT_ROLE_PERMISSIONS[role]], ...(DEFAULT_ROLE_AREAS[role] ? { areas: DEFAULT_ROLE_AREAS[role] } : {}),
-    } as any)
+  it('by built-in role: the roles that work on orders and may print, and no read-only one', () => {
+    const access = (role: Role) => internalOrderEmailAccess({ id: 'u', access: templateGrant(role) } as any)
     const may = ROLES.filter(role => mayEmailInternalOrders(access(role)))
     expect([...may].sort()).toEqual(['accountant', 'admin', 'manager', 'sales', 'sales_consultant'])
     // The read-only roles print the sheet and mail none: they read and export, and do not write.
