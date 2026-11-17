@@ -108,6 +108,7 @@
     </div>
 
     <LineColumnPickerDialog
+      v-if="columnPickerOpen"
       v-model="columnPickerOpen"
       :entries="lineColumnEntries"
       @toggle="toggleCol"
@@ -311,11 +312,12 @@ import { grColumnLabel } from 'ui-shared/composables/useGRColumns'
 import PriceExplainButton from 'ui-shared/components/PriceExplainButton.vue'
 import TaxRateCombobox from 'ui-shared/components/TaxRateCombobox'
 import LineUnitSelect from 'ui-shared/components/LineUnitSelect.vue'
-import LineColumnPickerDialog from 'ui-shared/components/LineColumnPickerDialog.vue'
+// FR-30.23: the drag library comes with the picker, when it opens, and not with the screen.
+const LineColumnPickerDialog = defineAsyncComponent(() => import('ui-shared/components/LineColumnPickerDialog.vue'))
 import GRProductUpdateCell from 'ui-shared/components/GRProductUpdateCell.vue'
 import GRColumnPickerDialog from 'ui-shared/components/GRColumnPickerDialog.vue'
 import QuickProductDialog from 'ui-shared/components/QuickProductDialog.vue'
-import { computed, ref } from 'vue'
+import { computed, ref, defineAsyncComponent } from 'vue'
 import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
 import { flushPriceLookups } from 'ui-shared/composables/price-lookups'
 import { useAccess } from 'ui-shared/access/useAccess'

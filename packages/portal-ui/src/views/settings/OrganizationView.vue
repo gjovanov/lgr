@@ -450,10 +450,12 @@ function setLogoObjectUrl(blob: Blob | null) {
 
 async function loadLogo() {
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/logo`, { responseType: 'blob' })
-    setLogoObjectUrl(data as Blob)
+    const res = await httpClient.get(`${appStore.orgUrl()}/logo`, { responseType: 'blob' })
+    // 204 (FR-30.27): this org prints the bundled letterhead.
+    const blob = res.status === 204 ? null : (res.data as Blob)
+    setLogoObjectUrl(blob && blob.size ? blob : null)
   } catch {
-    // 404 — this org prints the bundled letterhead.
+    // No logo to show.
     setLogoObjectUrl(null)
   }
 }
