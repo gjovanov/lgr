@@ -5,6 +5,8 @@ import { logger } from '../logger/logger.js'
 import { createAuditEntry } from './audit-log.service.js'
 import { voidJournalEntry } from './accounting.service.js'
 import { notBeingVoided } from './invoice-payment.js'
+import { inTransaction } from './transaction.js'
+import { enqueuePosting } from './postings/posting.service.js'
 
 /**
  * A sales invoice paid at the counter — in cash or by card — is paid the moment it is issued.
@@ -171,16 +173,22 @@ async function applySettlement(orgId: string, invoiceId: string, userId: string,
   const statusHistory = status === inv.status
     ? inv.statusHistory || []
     : [...(inv.statusHistory || []), { status, fromStatus: inv.status, changedAt: new Date(), changedBy: userId, reason }]
-  const written = await r.invoices.updateInOrg(invoiceId, orgId, {
-    ...(added || removed ? { payments: next } : {}),
-    amountPaid: paid,
-    amountDue,
-    status,
-    // Paid when the money was taken: the issue date, never the moment this ran. Not settling, that is
-    // on a receipt: a total raised and lowered again is paid once more, and needs a date to say so.
-    paidAt: status !== 'paid' ? null : settles ? (inv.status === 'paid' && inv.paidAt ? inv.paidAt : paymentDate(inv)) : inv.paidAt ?? new Date(),
-    statusHistory,
-  } as any, { 'receiptHolds.0': { $exists: false }, amountPaid: inv.amountPaid ?? null, ...notBeingVoided() })
+  // FR-29.15: the automatic payment this adds, and the journal entry it owes, are stored in one transaction.
+  const addedPaymentId = added > 0 ? String(next[next.length - 1]._id) : undefined
+  const written = await inTransaction(async session => {
+    const w = await r.invoices.updateInOrg(invoiceId, orgId, {
+      ...(added || removed ? { payments: next } : {}),
+      amountPaid: paid,
+      amountDue,
+      status,
+      // Paid when the money was taken: the issue date, never the moment this ran. Not settling, that is
+      // on a receipt: a total raised and lowered again is paid once more, and needs a date to say so.
+      paidAt: status !== 'paid' ? null : settles ? (inv.status === 'paid' && inv.paidAt ? inv.paidAt : paymentDate(inv)) : inv.paidAt ?? new Date(),
+      statusHistory,
+    } as any, { 'receiptHolds.0': { $exists: false }, amountPaid: inv.amountPaid ?? null, ...notBeingVoided() }, { session })
+    if (w && addedPaymentId) await enqueuePosting(orgId, { event: 'payment.recorded', invoiceId, paymentId: addedPaymentId, userId }, { session })
+    return w
+  })
   if (!written) return LOST
   // ⚠ After the write, never before it. A write that lost keeps its row, and a row whose entry was voided
   // has dropped out of the ledger with the document still saying it was paid. It can lose twice while a

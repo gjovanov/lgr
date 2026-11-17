@@ -6,6 +6,7 @@ import { getNextInvoiceNumber } from './invoice-numbering.service.js'
 import { inTransaction } from './transaction.js'
 import { announceMovementConfirmed } from './warehouse.service.js'
 import { notBeingVoided } from './invoice-payment.js'
+import { enqueuePosting } from './postings/posting.service.js'
 
 /**
  * Issuing a document: `/send` (an invoice, a note, a quote, a bill issued there) and `/receive` (a
@@ -62,6 +63,11 @@ export interface IssueRequest {
   fields?: Record<string, unknown>
   /** Migration imports dispatch goods not yet in stock. */
   allowNegative?: boolean
+  /**
+   * FR-29.15: the issue owes the document's journal entry (`invoice.posted`): written with the status, in the same
+   * transaction. The route says so: an invoice for a cash sale and a quote owe none, nor does `/receive`.
+   */
+  owesPosting?: boolean
 }
 
 export interface IssueResult {
@@ -116,6 +122,7 @@ export async function issueDocument(req: IssueRequest): Promise<IssueResult> {
         ...req.fields,
       } as any, { status: 'draft', ...notBeingVoided(), ...req.heldBy }, { session })
       if (!written) throw new IssueLostError(draftNumber)
+      if (req.owesPosting) await enqueuePosting(orgId, { event: 'invoice.posted', invoiceId: id, userId }, { session })
       return { issuedNumber, movements }
     })
   } catch (e) {
