@@ -4,7 +4,8 @@
       <h1 class="text-h5">{{ $t('warehouse.inventoryValuation') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <export-menu @export="onExport" />
+        <!-- FR-31.11: the list's report, which exports to Excel and PDF, on the list's filters. -->
+        <ReportExportButton v-if="seesCosts" report="inventory-valuation" :query="{ warehouseId: warehouseFilter }" />
       </div>
     </div>
 
@@ -92,7 +93,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
-import ExportMenu from 'ui-shared/components/ExportMenu'
+import ReportExportButton from 'ui-shared/components/ReportExportButton.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { useAccess } from 'ui-shared/access/useAccess'
 
@@ -162,7 +163,6 @@ async function fetchWarehouses() {
   try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
 }
 
-function onExport(format: string) { console.log('Export valuation as', format) }
 
 watch(warehouseFilter, fetchValuation)
 onMounted(() => { if (seesCosts.value) fetchValuation(); fetchWarehouses() })

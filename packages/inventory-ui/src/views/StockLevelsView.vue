@@ -4,7 +4,8 @@
       <h1 class="text-h5">{{ $t('nav.stockLevels') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <export-menu @export="onExport" />
+        <!-- FR-31.11: the list's report, which exports to Excel and PDF, on the list's filters. -->
+        <ReportExportButton report="stock-levels" :query="{ warehouseId: warehouseFilter, belowMin: lowStockOnly }" />
       </div>
     </div>
 
@@ -96,7 +97,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { sortableHeaders } from 'config/list-sorts'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
-import ExportMenu from 'ui-shared/components/ExportMenu'
+import ReportExportButton from 'ui-shared/components/ReportExportButton.vue'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 
@@ -160,7 +161,6 @@ const headers = computed(() => sortableHeaders('stockLevels', [
 ]))
 
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
-function onExport(format: string) { console.log('Export stock levels as', format) }
 
 async function fetchWarehouses() {
   try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }

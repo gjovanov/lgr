@@ -479,7 +479,8 @@
       "not_found": "This list could not be found.",
       "forbidden": "Your role may not see this list.",
       "failed": "The list could not be loaded. Try again in a moment."
-    }
+    },
+    "exportInReport": "Opens this list's report, which exports to Excel and PDF"
   },
   "export": {
     "aggregated": "Aggregate by product",

@@ -13,8 +13,6 @@
     @update:options="list.onUpdateOptions"
   >
     <template #actions>
-      <!-- FR-26.8.7: the Export menu only for a session with the catalog's export area. -->
-      <export-menu v-if="exportsCatalog" @export="onExport" />
       <responsive-btn v-if="writes" color="primary" icon="mdi-plus" :to="{ name: 'inventory.products.new', params: { tab: 'edit' } }">{{ $t('common.create') }}</responsive-btn>
     </template>
 
@@ -129,11 +127,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, toRef } from 'vue'
+import { ref, onMounted, toRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
-import { viewerHoldsArea, writesInventory } from 'ui-shared/nav/page-registry'
+import { writesInventory } from 'ui-shared/nav/page-registry'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -146,7 +144,6 @@ import type { ProductRow } from 'ui-shared/composables/product-list/types'
 import ProductFilterBar from 'ui-shared/components/product-list/ProductFilterBar.vue'
 import ProductCell from 'ui-shared/components/product-list/ProductCell.vue'
 import ListScaffold from 'ui-shared/components/ListScaffold'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 import RowActionsMenu, { type RowAction } from 'ui-shared/components/RowActionsMenu.vue'
@@ -202,8 +199,8 @@ const { headers } = useProductColumns({ seesSuppliers: list.seesSuppliers, activ
 const { actionsFor } = useProductDocActions()
 // FR-26.8.7: without `inventory.write` (a Seller) the page reads, and offers no New, Save or Delete.
 const writes = writesInventory(sessionViewer())
-// FR-26.8.7 / FR-27.5: `products.export` on a role, live; the token's `catalogExport` area otherwise.
-const exportsCatalog = computed(() => viewerHoldsArea(sessionViewer(), 'catalogExport'))
+// FR-31.11 (D-2): no Export until an export of the catalogue exists (FR-28 §10). The menu it had did nothing; when it
+// comes, it is for `products.export` (`viewerHoldsArea(sessionViewer(), 'catalogExport')`).
 
 function stockTab(item: ProductRow) { return { name: 'inventory.products.stock', params: { id: item._id, tab: 'stock' } } }
 
@@ -242,7 +239,6 @@ async function doDelete() {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
 }
-function onExport(format: string) { console.log('Export products as', format) }
 
 onMounted(() => list.start())
 </script>

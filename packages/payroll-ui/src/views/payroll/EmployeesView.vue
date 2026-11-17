@@ -4,7 +4,6 @@
       <h1 class="text-h4">{{ $t('payroll.employees') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <ExportMenu @export="handleExport" />
         <responsive-btn v-cap="'payroll-people.edit'" icon="mdi-plus" color="primary" @click="openDialog()">
           {{ $t('common.create') }}
         </responsive-btn>
@@ -161,7 +160,6 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import CurrencyInput from 'ui-shared/components/CurrencyInput'
 import TagInput from 'ui-shared/components/TagInput.vue'
@@ -275,10 +273,6 @@ async function save() {
 function statusColor(status: string) {
   const colors: Record<string, string> = { active: 'success', on_leave: 'warning', terminated: 'error', suspended: 'grey' }
   return colors[status] || 'grey'
-}
-
-function handleExport(format: string) {
-  // TODO: export implementation
 }
 
 onMounted(() => fetchItems())

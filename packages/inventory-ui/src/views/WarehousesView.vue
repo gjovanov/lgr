@@ -4,7 +4,6 @@
       <h1 class="text-h5">{{ $t('nav.warehouses') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <export-menu @export="onExport" />
         <responsive-btn v-if="writes" color="primary" icon="mdi-plus" :to="{ name: 'inventory.warehouses.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
@@ -82,7 +81,6 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 interface IAddress { street: string; city: string; state: string; postalCode: string; country: string }
@@ -140,7 +138,6 @@ async function doDelete() {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   }
 }
-function onExport(format: string) { console.log('Export warehouses as', format) }
 
 onMounted(() => { fetchItems() })
 </script>
