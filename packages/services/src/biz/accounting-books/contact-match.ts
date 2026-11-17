@@ -25,6 +25,10 @@
  * Until this rule, a split compared the numbers as written and by type, and the first import into the
  * stores made a second Contact for a company the store already had. `scripts/relink-books-contacts.ts`
  * points what the books hold of such a contact at the older one, and removes it.
+ *
+ * That import also found a partner by a number typed to fill the box. Several partners share one, so each was
+ * linked to the one contact that held it, another partner's. `scripts/relink-books-filler-links.ts` gives each of
+ * those what the rule above gives it.
  */
 
 export interface ContactIdentity {
