@@ -119,16 +119,13 @@
     "TS2345": 1
   },
   "packages/portal-api/src/controllers/org.controller.ts": {
-    "TS2559": 2
+    "TS2559": 1
   },
   "packages/portal-api/src/controllers/pos-payment-method.controller.ts": {
     "TS18047": 3
   },
   "packages/portal-api/src/controllers/stripe.controller.ts": {
     "TS2345": 1
-  },
-  "packages/portal-api/src/controllers/user.controller.ts": {
-    "TS2322": 1
   },
   "packages/portal-api/src/front/control-socket.ts": {
     "TS2345": 1
@@ -172,17 +169,11 @@
     "TS2339": 4,
     "TS2503": 1
   },
-  "packages/services/src/biz/auth.service.ts": {
-    "TS2322": 1
-  },
   "packages/services/src/biz/doc-import/persist.ts": {
     "TS2353": 1
   },
   "packages/services/src/dao/user.dao.ts": {
     "TS2416": 1
-  },
-  "packages/services/src/dao/warehouse/stock-level.dao.ts": {
-    "TS2352": 1
   },
   "packages/warehouse-api/src/controllers/inventory-count.controller.ts": {
     "TS18047": 5,

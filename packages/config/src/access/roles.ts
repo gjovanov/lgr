@@ -31,6 +31,17 @@ export function unknownCaps(role: RoleLike | null | undefined): string[] {
   return (role?.caps ?? []).filter(c => !isCapability(c))
 }
 
+/**
+ * FR-27 P3-5 (#529): how a person's role is named outside the roles screens (the org menu, the org picker, an
+ * invitation): a built-in role by its template key, which the SPA translates (`settings.roles.<key>`, as it did the
+ * legacy key), any other by its name. Display only: nothing decides by it.
+ */
+export function roleDisplay(role: { isBuiltin?: boolean; templateKey?: string | null; name?: string | null } | null | undefined): string {
+  if (!role) return ''
+  if (role.isBuiltin && role.templateKey) return role.templateKey
+  return role.name ?? ''
+}
+
 /** Whether two grants allow exactly the same. */
 export function sameGrant(a: Grant, b: Grant): boolean {
   if (a.all || b.all) return !!a.all && !!b.all

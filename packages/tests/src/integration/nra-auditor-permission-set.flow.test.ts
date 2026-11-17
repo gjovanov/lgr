@@ -5,7 +5,8 @@ import { tokenize } from 'services/biz/auth.service'
 import { seedDefaultPermissionSets, ROLE_TO_PERMISSION_SET } from 'services/biz/permission-set.seed'
 import { migrateToPermissionSets } from 'services/biz/permission-set.service'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
-import { PermissionSet, User } from 'db/models'
+import { PermissionSet, Role, User } from 'db/models'
+import { can, grantOfRole } from 'config/access'
 import type { Types } from 'mongoose'
 
 /**
@@ -49,9 +50,12 @@ describe('the nra_auditor permission set', () => {
 
     const migrated = await User.findById(auditor._id).exec()
     expect(migrated!.permissionSetIds).toHaveLength(1)
+    // FR-27 P3-5: the token names the auditor's role, and that role decides: it reads, exports reports and reads the
+    // audit log, and works on nothing.
     const claims = await tokenize(migrated!)
-    expect(claims.permissions.filter(p => !p.endsWith('.read') && p !== 'admin.audit' && p !== 'reports.export')).toEqual([])
-    expect(claims.permissions).toContain('admin.audit')
-    expect(claims.permissions).toContain('reports.export')
+    expect('permissions' in claims).toBe(false)
+    const grant = grantOfRole(await Role.findById(claims.rid).lean()) as { caps: Set<string> }
+    expect(can(grant, ['audit-log.view', 'reports.export', 'supto.view'])).toBe(true)
+    expect([...grant.caps].filter(c => /\.(create|edit|delete|post|sell|approve)$/.test(c))).toEqual([])
   })
 })

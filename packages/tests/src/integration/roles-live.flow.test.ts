@@ -73,10 +73,11 @@ describe('FR-27.5: an org on roles', () => {
     expect((await request('GET', '/invoices', tokens.seller)).status).toBe(200)
   })
 
-  it('sign-in in such an org carries the role and its version, and its projection as the claims', async () => {
+  it('sign-in carries the role and its version, and nothing it allows (FR-27 P3-5)', async () => {
     const token = await tokenize((await User.findById(people.seller._id).exec())!)
     const seller = await roleOf('seller')
-    expect(token).toMatchObject({ rid: String(seller._id), rv: 1, role: 'seller', areas: [] })
+    expect(token).toMatchObject({ rid: String(seller._id), rv: 1 })
+    for (const k of ['role', 'permissions', 'areas']) expect(k in token).toBe(false)
   })
 
   it("a change of a person's role reaches the session they are signed in with: no new token, no sign-out", async () => {

@@ -37,6 +37,11 @@ afterAll(() => {
 const token = (claims: Record<string, unknown>) => `h.${btoa(JSON.stringify(claims)).replace(/=+$/, '')}.s`
 const org = { id: 'o1', slug: 'o1', name: 'O1' } as any
 /** A session of a role as its token is issued today: the role's default permissions, and its areas where it has them. */
+/** FR-27 P3-5: a session's grant is its role's, as the sign-in answers it (here: what those claims compile to). */
+const liveOf = (claims: Parameters<typeof compileLegacy>[0]) => {
+  const grant = compileLegacy(claims)
+  return { all: !!grant.all, caps: grant.all ? [] : [...grant.caps], role: { id: 'r', name: 'R', version: 'r:1' } }
+}
 const claimsOf = (role: Role) => ({
   id: `u-${role}`, orgId: 'o1', role, permissions: [...DEFAULT_ROLE_PERMISSIONS[role]],
   ...(DEFAULT_ROLE_AREAS[role] ? { areas: DEFAULT_ROLE_AREAS[role] } : {}),
@@ -53,7 +58,7 @@ describe('the list asks what the two mail routes are reached by', () => {
     for (const role of ROLES) {
       const claims = claimsOf(role)
       setSession(token(claims), org)
-      setLiveAccess(null)
+      setLiveAccess(liveOf(claims))
       expect(mailsMovements(), role).toBe(mayEmailMovements(compileLegacy(claims)))
       if (mailsMovements()) offered.push(role)
     }

@@ -8,6 +8,7 @@ import { config } from 'config'
 import { Identity, Invite, Org, PermissionSet, Role, User } from 'db/models'
 import { register, tokenize } from 'services/biz/auth.service'
 import { joinOrgByInvite } from 'services/biz/identity/account.service'
+import { inviteDao } from 'services/dao/invite.dao'
 import { forgetAccessModel } from 'services/biz/access/shadow'
 import { ROLE_TEMPLATES, compileLegacy, grantOfRole, legacyClaimsOf, sameGrant } from 'config/access'
 
@@ -69,15 +70,15 @@ beforeAll(async () => {
 afterAll(async () => { await teardownTestDB() }, 60_000)
 
 describe('FR-27.3: a new org', () => {
-  it('starts with the built-in roles, and its founder holds the Administrator role, with their legacy fields as they were', async () => {
+  it('starts with the built-in roles, and its founder holds the Administrator role and no legacy fields (FR-27 P3-5)', async () => {
     const builtins = await Role.find({ orgId: org._id, isBuiltin: true }).lean().exec()
     expect(builtins.map((r: any) => r.templateKey).sort()).toEqual(ROLE_TEMPLATES.map(t => t.key).sort())
     const me: any = await User.findById(founder._id).lean().exec()
     const admin: any = builtins.find((r: any) => r.templateKey === 'admin')
     expect(String(me.roleId)).toBe(String(admin._id))
-    expect(me.role).toBe('admin')
-    const adminSet: any = await PermissionSet.findOne({ orgId: org._id, name: 'Administrator' }).lean().exec()
-    expect(me.permissionSetIds.map(String)).toEqual([String(adminSet._id)])
+    expect(me.role).toBeUndefined()
+    expect(me.permissionSetIds).toBeUndefined()
+    expect(me.permissions).toBeUndefined()
   })
 })
 
@@ -104,20 +105,19 @@ describe('FR-27.3: the default role', () => {
 })
 
 describe('FR-27.4: an invitation names a role', () => {
-  it('a role named rides on the invitation with its legacy key, and the person joins holding it', async () => {
+  it('a role named rides on the invitation (no legacy key, FR-27 P3-5), and the person joins holding it', async () => {
     const r = await call('POST', `/org/${orgId}/invite`, adminToken, { targetEmail: 'named@onboarding.test', assignRoleId: String(counter._id) })
     expect(r.status).toBe(200)
     const invite: any = await Invite.findOne({ orgId: org._id, targetEmail: 'named@onboarding.test' }).lean().exec()
     expect(String(invite.assignRoleId)).toBe(String(counter._id))
-    expect(invite.assignRole).toBe(counter.legacy.role)
+    expect(invite.assignRole).toBeUndefined()
 
     const who = await person('named@onboarding.test')
     const { member } = await joinOrgByInvite(who._id, invite.code)
     const joined: any = await User.findById(member._id).lean().exec()
     expect(String(joined.roleId)).toBe(String(counter._id))
-    expect(joined.permissionSetIds.map(String)).toEqual([String(counter.legacy.setId)])
-    // What an older release reads off the person grants what the role does.
-    expect(sameGrant(await legacyGrantOf(joined), grantOfRole(counter))).toBe(true)
+    expect(joined.permissionSetIds).toBeUndefined()
+    expect(joined.role).toBeUndefined()
   })
 
   it('naming neither a role nor a legacy role is the default role', async () => {
@@ -128,24 +128,31 @@ describe('FR-27.4: an invitation names a role', () => {
     expect(String(((await User.findById(member._id).lean().exec()) as any).roleId)).toBe(String(counter._id))
   })
 
-  it('a legacy role named is the built-in role of that name, the person keeping their system set', async () => {
-    await call('POST', `/org/${orgId}/invite`, adminToken, { targetEmail: 'legacy@onboarding.test', assignRole: 'accountant' })
-    const invite: any = await Invite.findOne({ orgId: org._id, targetEmail: 'legacy@onboarding.test' }).lean().exec()
+  it('a legacy role is no longer accepted by the route: 422, nothing stored (FR-27 P3-3, #529)', async () => {
+    const r = await call('POST', `/org/${orgId}/invite`, adminToken, { targetEmail: 'refused@onboarding.test', assignRole: 'accountant' })
+    expect({ status: r.status, code: r.json?.code }).toEqual({ status: 422, code: 'legacy_role_field' })
+    expect(await Invite.countDocuments({ orgId: org._id, targetEmail: 'refused@onboarding.test' })).toBe(0)
+  })
+
+  // An invitation stored before P3-3 names a legacy role only. It keeps working: the built-in role of that name.
+  const storedLegacyInvite = (targetEmail: string, assignRole: string) =>
+    inviteDao.createInvite({ orgId, inviterId: String(founder._id), targetEmail, assignRole })
+
+  it('a stored invitation naming a legacy role is the built-in role of that name, and writes no legacy fields', async () => {
+    const invite: any = await storedLegacyInvite('legacy@onboarding.test', 'accountant')
     expect(invite.assignRoleId).toBeUndefined()
     const { member } = await joinOrgByInvite((await person('legacy@onboarding.test'))._id, invite.code)
     const joined: any = await User.findById(member._id).lean().exec()
     const accountant: any = await Role.findOne({ orgId: org._id, templateKey: 'accountant' }).lean().exec()
     expect(String(joined.roleId)).toBe(String(accountant._id))
-    const set: any = await PermissionSet.findOne({ orgId: org._id, name: 'Accountant', isSystem: true }).lean().exec()
-    expect(joined.permissionSetIds.map(String)).toEqual([String(set._id)])
+    expect(joined.permissionSetIds).toBeUndefined()
   })
 
   it('an org whose system set was edited: the person still joins on the built-in role, which decides (FR-27 P3-2)', async () => {
     // Since P3-2 sign-in refuses a membership without a role, so "no role yet, the edited set decides" would be a
     // person who can never sign in. They start on the built-in Accountant, and what it grants is what they may do.
     await PermissionSet.updateOne({ orgId: org._id, name: 'Accountant', isSystem: true }, { $addToSet: { permissions: 'payroll.read' } }).exec()
-    await call('POST', `/org/${orgId}/invite`, adminToken, { targetEmail: 'edited@onboarding.test', assignRole: 'accountant' })
-    const invite: any = await Invite.findOne({ orgId: org._id, targetEmail: 'edited@onboarding.test' }).lean().exec()
+    const invite: any = await storedLegacyInvite('edited@onboarding.test', 'accountant')
     const { member } = await joinOrgByInvite((await person('edited@onboarding.test'))._id, invite.code)
     const joined: any = await User.findById(member._id).lean().exec()
     const accountant: any = await Role.findOne({ orgId: org._id, templateKey: 'accountant' }).lean().exec()
@@ -167,7 +174,7 @@ describe('FR-27.3: a member an admin creates', () => {
     expect(r.status).toBe(200)
     const made: any = await User.findById(r.json.user._id ?? r.json.user.id).lean().exec()
     expect(String(made.roleId)).toBe(String(counter._id))
-    expect(made.permissionSetIds.map(String)).toEqual([String(counter.legacy.setId)])
+    expect(made.permissionSetIds).toBeUndefined()
   })
 
   it('with a legacy role named, the built-in role of that name', async () => {
@@ -175,7 +182,8 @@ describe('FR-27.3: a member an admin creates', () => {
     const made: any = await User.findById(r.json.user._id ?? r.json.user.id).lean().exec()
     const manager: any = await Role.findOne({ orgId: org._id, templateKey: 'manager' }).lean().exec()
     expect(String(made.roleId)).toBe(String(manager._id))
-    expect(made.role).toBe('manager')
+    // FR-27 P3-5: the key names the built-in role; it is not written.
+    expect(made.role).toBeUndefined()
   })
 })
 

@@ -106,7 +106,7 @@
         <v-card-text>
           <slot name="cart-top" />
           <v-list v-if="lines.length" density="compact">
-            <v-list-item v-for="(line, idx) in lines" :key="idx" :data-testid="`cart-line-${idx}`">
+            <v-list-item v-for="(line, idx) in lines" :key="rowKey(line)" :data-testid="`cart-line-${idx}`">
               <v-list-item-title class="register-line-name">{{ line.name ?? line.description }}</v-list-item-title>
               <v-list-item-subtitle class="d-flex align-center ga-1 flex-wrap">
                 <template v-if="!readonly">
@@ -190,6 +190,7 @@
 </template>
 
 <script setup lang="ts">
+import { rowKey } from '../../composables/row-key'
 import { computed, nextTick, onMounted, ref, toRaw, watch, type ComponentPublicInstance } from 'vue'
 import { numberFormat } from '../../composables/number-display'
 import { useI18n } from 'vue-i18n'

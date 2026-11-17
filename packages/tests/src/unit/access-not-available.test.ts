@@ -84,16 +84,16 @@ describe('pageAt: the page a route shows', () => {
   })
 })
 
-describe('FR-27.7: the legacy model, the claims decide at once', () => {
+describe('FR-27 P3-5: a token from before roles (no `rid`) is settled at once, and its legacy claims open nothing', () => {
   beforeEach(() => {
     setSession(token(clerk), org)
     setLiveAccess(null)
   })
 
-  it('a page the menus offer opens; one they do not is not available, with no question asked', () => {
+  it('no page of the registry opens, with no question asked: only the role grants', () => {
     expect(accessSettled()).toBe(true)
-    expect(pageAccessState('/invoicing/invoices', '').state).toBe('open')
-    expect(pageAccessState('/invoicing/invoices/new', '').state).toBe('open')
+    expect(pageAccessState('/invoicing/invoices', '').state).toBe('blocked')
+    expect(pageAccessState('/invoicing/invoices/new', '').state).toBe('blocked')
     const blocked = pageAccessState('/settings/roles', '')
     expect(blocked.state).toBe('blocked')
     expect(blocked.page?.id).toBe('/settings/roles')
@@ -109,10 +109,10 @@ describe('FR-27.7: the legacy model, the claims decide at once', () => {
 })
 
 describe('FR-27.7: an org on roles waits for the live grant', () => {
-  it('a page the claims open shows at once; one they do not waits, asks once, and then decides', async () => {
+  it('every page waits (FR-27 P3-5: the token says nothing of what the role allows), asks once, and then decides', async () => {
     rolesSession()
     expect(accessSettled()).toBe(false)
-    expect(pageAccessState('/invoicing/invoices', '').state).toBe('open')
+    expect(pageAccessState('/invoicing/invoices', '').state).toBe('waiting')
     expect(pageAccessState('/payroll/employees', '').state).toBe('waiting')
     answer = live(['sales-docs.view', 'payroll-people.view'])
     settleAccess()
@@ -133,7 +133,7 @@ describe('FR-27.7: an org on roles waits for the live grant', () => {
     expect(pageAccessState('/invoicing/invoices/new', '').state).toBe('blocked')
   })
 
-  it('/auth/me failing ends the wait: the claims decide', async () => {
+  it('/auth/me failing ends the wait: nothing is granted', async () => {
     rolesSession()
     setAccessRefetch(async () => { asked++; throw new Error('offline') })
     settleAccess()

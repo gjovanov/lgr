@@ -6,10 +6,9 @@ import { createTestOrg, createTestUser } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
-import { User } from 'db/models'
-import { accessRuleFor, can, isCapability, type CapabilityId, type Grant } from 'config/access'
+import { Role, User } from 'db/models'
+import { accessRuleFor, can, grantOfRole, isCapability, type CapabilityId, type Grant } from 'config/access'
 import { tokenize } from 'services/biz/auth.service'
-import { grantOf } from 'services/biz/access/evaluate'
 import { orgRouteRest } from 'services/biz/route-permission'
 
 /**
@@ -48,7 +47,8 @@ beforeAll(async () => {
   const admin = await createTestUser(org._id, { role: 'admin', username: 'floor-admin', email: 'admin@self-floors.test' } as any)
   const reader = await createTestUser(org._id, { role: 'member', username: 'floor-reader', email: 'reader@self-floors.test' } as any)
   const sellerClaims = await tokenize((await User.findById(seller._id).exec())!)
-  sellerGrant = grantOf(sellerClaims as any)
+  // FR-27 P3-5: the token names the role (`rid`); its grant is the role's.
+  sellerGrant = grantOfRole(await Role.findById((sellerClaims as any).rid).lean())
   tokens.seller = await (signer as any).decorator.jwt.sign(sellerClaims)
   tokens.admin = await (signer as any).decorator.jwt.sign(await tokenize((await User.findById(admin._id).exec())!))
   tokens.reader = await (signer as any).decorator.jwt.sign(await tokenize((await User.findById(reader._id).exec())!))

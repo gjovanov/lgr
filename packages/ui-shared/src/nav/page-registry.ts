@@ -1,5 +1,5 @@
 import { FISCAL_ADMIN_ROLES, PERMISSIONS, holdsArea, type Area } from 'config/constants'
-import { PAGE_ACCESS, can, canOpen, compileLegacy, grantHoldsArea, type CapabilityId, type Grant } from 'config/access'
+import { NOTHING, PAGE_ACCESS, can, canOpen, compileLegacy, grantHoldsArea, type CapabilityId, type Grant } from 'config/access'
 
 /**
  * Cross-app registry of the favouritable PAGES/functions surfaced by the global top-bar ★ menu.
@@ -262,7 +262,11 @@ export function matchPage(pathname: string, search = ''): PageDef | null {
   return best
 }
 
-/** What `canOpenPage` needs to know about the person: the session token's claims. */
+/**
+ * What `canOpenPage` needs to know about the person: the session's grant (`sessionViewer`). FR-27 P3-5: `role`,
+ * `permissions` and `areas` are the legacy claims, which no session carries any more; a viewer stated with them (a
+ * unit test, the differential test's oracle) is compiled as the server compiled them, until P3-6.
+ */
 export interface PageViewer {
   role?: string
   permissions?: readonly string[]
@@ -276,9 +280,13 @@ export interface PageViewer {
   landing?: string
 }
 
-/** FR-27 (#529): the viewer's grant: its role's, live, else its claims compiled as the server compiles them. */
+/**
+ * FR-27 (#529): the viewer's grant: its role's, live. FR-27 P3-5: a session's viewer carries nothing else, so until the
+ * grant is known it holds nothing. A viewer stated as legacy claims (tests) is compiled as the server compiled them.
+ */
 export function grantOfViewer(who: PageViewer | null | undefined): Grant {
-  return who?.grant ?? compileLegacy(who)
+  if (who?.grant) return who.grant
+  return who && (who.role || who.permissions?.length || Array.isArray(who.areas)) ? compileLegacy(who) : NOTHING
 }
 
 /**
@@ -289,7 +297,9 @@ export function grantOfViewer(who: PageViewer | null | undefined): Grant {
  */
 export function viewerHoldsArea(who: PageViewer | null | undefined, area: Area): boolean {
   if (!who) return false
-  return who.grant ? grantHoldsArea(who.grant, area) : holdsArea(who, area)
+  if (who.grant) return grantHoldsArea(who.grant, area)
+  // FR-27 P3-5: a session's viewer without its grant yet holds no area; a viewer stated as legacy claims (tests), as before.
+  return who.role || who.permissions?.length || Array.isArray(who.areas) ? holdsArea(who, area) : false
 }
 
 /**
@@ -343,9 +353,7 @@ export const PORTAL_PAGES: PageDef[] = [
   portalPage('/dashboard', READ_DASHBOARD),
   portalPage('/settings/organization', BACK_OFFICE),
   portalPage('/settings/users', BACK_OFFICE),
-  // Writing a set is assigning access, which is the server's admin role (`permission-set.controller`).
-  portalPage('/settings/permission-sets', []),
-  // FR-27.4: Roles & access, the permission sets' successor; an admin's as theirs.
+  // FR-27.4: Roles & access, the permission sets' successor (P3-3 removed their screen); an admin's as theirs.
   portalPage('/settings/roles', []),
   portalPage('/settings/invites', []),
   portalPage('/settings/desktops', ['admin.settings']),

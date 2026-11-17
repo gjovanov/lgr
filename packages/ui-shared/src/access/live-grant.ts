@@ -3,10 +3,10 @@ import { isCapability, type CapabilityId, type Grant } from 'config/access'
 import { claims } from '../session/session'
 
 /**
- * FR-27.5 (#529) — the session's grant, live, in an org on `roles`.
+ * FR-27.5 (#529) — the session's grant, live.
  *
- * `/auth/me` answers `access` (`{ all, caps, role: { id, name, version } }`) when the person's role decides, and null
- * when the token's claims do. Every org response then carries `x-access-version` (`<roleId>:<version>`), and a new
+ * `/auth/me` and every sign-in answer `access` (`{ all, caps, role: { id, name, version } }`), the person's role; null
+ * for a person with no role. FR-27 P3-5: the token carries no legacy claims, so this is the only grant the SPA has. Every org response then carries `x-access-version` (`<roleId>:<version>`), and a new
  * value means the role was edited or another one given: `useHttpClient` asks `/auth/me` again (`followAccessVersion`),
  * so menus, ★ and „+ Нов" follow within a request, with no sign-out.
  *
@@ -37,7 +37,7 @@ function membership(): string | null {
   return c?.id && c?.orgId ? `${c.id}@${c.orgId}` : null
 }
 
-/** What `/auth/me` said about the session's access; null puts the token's claims back in charge. */
+/** What `/auth/me` or a sign-in said about the session's access; null: the person holds no role, so nothing. */
 export function setLiveAccess(access: LiveAccess | null | undefined): void {
   const who = membership()
   answered.value = who
@@ -56,9 +56,9 @@ export function liveLanding(): string | null {
 }
 
 /**
- * Whether the session's grant is known: its token's claims decide (no `rid`: an org not on `roles`), or `/auth/me`
- * has answered for this membership. Until then a page the claims would not open waits rather than says no: the
- * claims are the role's projection, never more than the role, and may be less.
+ * Whether the session's grant is known: `/auth/me` or the sign-in has answered for this membership. A token with no
+ * `rid` (a session from before roles, an identity-only one) has nothing to wait for. Until then a page waits rather
+ * than says no (FR-27 P3-5: the token says nothing of what the role allows).
  */
 export function accessSettled(): boolean {
   const c = claims()
@@ -79,7 +79,17 @@ export function settleAccess(): void {
     .finally(() => { inFlight = null })
 }
 
-/** The live grant of this tab's session, or null when its claims decide. */
+/**
+ * FR-27 P3-5: resolves once the session's grant is known, asking `/auth/me` when it is not (a page load, a new tab).
+ * The router waits on it before its first decision. Never rejects: a failed `/auth/me` settles with no grant.
+ */
+export function whenAccessSettled(): Promise<void> {
+  if (accessSettled()) return Promise.resolve()
+  settleAccess()
+  return inFlight ?? Promise.resolve()
+}
+
+/** The live grant of this tab's session, or null while it is not known (or the person holds no role). */
 export function liveGrant(): Grant | null {
   const h = held.value
   return h && h.who === membership() ? h.grant : null

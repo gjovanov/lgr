@@ -6,8 +6,8 @@ import { createTestUser } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
-import { APP_IDS, APP_REGISTRY } from 'config/constants'
-import { Org, User } from 'db/models'
+import { appsOpenedBy, grantOfRole } from 'config/access'
+import { Org, Role, User } from 'db/models'
 import { register, tokenize } from 'services/biz/auth.service'
 import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember } from 'services/biz/access/live'
@@ -89,14 +89,16 @@ describe("FR-27.5: the App Hub shows the role's apps, live", () => {
     expect(await tiles(adminToken)).toEqual(['accounting', 'files', 'inventory', 'invoicing', 'payroll', 'reports'])
   })
 
-  it("back on the legacy model, the token's permissions decide, as before", async () => {
+  it('the token carries no permissions (FR-27 P3-5): the role decides, whatever the org\'s old model field says', async () => {
     await Org.updateOne({ _id: orgId }, { $set: { 'settings.access.model': 'legacy' } }).exec()
     forgetAccessModel(orgId)
     const legacyClerk = await createTestUser(orgId as any, { role: 'member', username: 'legacy-clerk', email: 'legacy@app-hub.test', permissions: ['inventory.read'] } as any)
     const token = await sign(legacyClerk._id)
-    const perms: string[] = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).permissions ?? []
-    const expected = APP_IDS.filter(a => [APP_REGISTRY[a].requiredPermission, ...(APP_REGISTRY[a].alsoOpenedBy ?? [])].some(x => perms.includes(x)))
-    expect(expected).toContain('inventory')
-    expect(await tiles(token)).toEqual([...expected].sort())
+    const claims = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    expect(claims.permissions).toBeUndefined()
+    expect(claims.rid).toBeTruthy()
+    const role: any = await Role.findById(claims.rid).lean().exec()
+    expect(await tiles(token)).toEqual([...appsOpenedBy(grantOfRole(role))].sort())
+    expect(await tiles(token)).toContain('inventory')
   })
 })

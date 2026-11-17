@@ -22,7 +22,7 @@ import { getI18n, getVuetify } from '../plugins'
 import { initialLocale, loadLocale } from '../plugins/i18n'
 import { portalHref } from '../nav/navigate'
 import { currentAppId } from '../session/useOrgSession'
-import { setAccessRefetch, setLiveAccess } from '../access/live-grant'
+import { setAccessRefetch, setLiveAccess, type LiveAccess } from '../access/live-grant'
 
 export interface User {
   _id: string
@@ -31,9 +31,7 @@ export interface User {
   email: string
   firstName: string
   lastName: string
-  role: string
   orgId: string
-  permissions: string[]
 }
 
 export interface OrgAddress {
@@ -100,6 +98,8 @@ export interface SignInAnswer {
   org?: Organization
   orgs?: OrgChoice[]
   identity?: Person
+  /** FR-27 P3-5: the role's grant in the org entered (the token carries none). */
+  access?: LiveAccess | null
 }
 
 export const useAppStore = defineStore('app', () => {
@@ -257,6 +257,8 @@ export const useAppStore = defineStore('app', () => {
       return
     }
     setSession(data.token, data.org ?? null)
+    // FR-27 P3-5: the token carries no grant; the sign-in answer says the role's (absent from an older server: asked).
+    if ('access' in data) setLiveAccess(data.access ?? null)
     user.value = data.user ?? null
     currentOrg.value = data.org ?? null
   }
@@ -316,7 +318,7 @@ export const useAppStore = defineStore('app', () => {
   })
 
   function applyProfile(data: any) {
-    // FR-27.5: the session's grant from its role, in an org on `roles` (null: its claims decide).
+    // FR-27.5: the session's grant from its role (null: the person holds no role).
     setLiveAccess(data.access ?? null)
     user.value = data.user
     currentOrg.value = data.org

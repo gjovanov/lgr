@@ -534,10 +534,6 @@
   content: "\F020F";
 }
 
-.mdi-file::before {
-  content: "\F0214";
-}
-
 .mdi-file-certificate-outline::before {
   content: "\F1187";
 }
@@ -610,10 +606,6 @@
   content: "\F102E";
 }
 
-.mdi-file-image::before {
-  content: "\F021F";
-}
-
 .mdi-file-import-outline::before {
   content: "\F102F";
 }
@@ -652,10 +644,6 @@
 
 .mdi-file-upload-outline::before {
   content: "\F0A4E";
-}
-
-.mdi-file-word::before {
-  content: "\F022C";
 }
 
 .mdi-filter-remove-outline::before {

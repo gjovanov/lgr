@@ -4,8 +4,7 @@ import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { PermissionSet, Role, User } from 'db/models'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
-import { tokenize } from 'services/biz/auth.service'
-import { compileLegacy, grantOfRole, sameGrant } from 'config/access'
+import { compileLegacy, grantOfRole, legacyClaimsOf, sameGrant } from 'config/access'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 
 /**
@@ -70,13 +69,17 @@ describe('migration 0015: roles from sets', () => {
     expect(await Role.countDocuments({})).toBe(0)
   })
 
-  it('every person gets a role that grants exactly what their token does', async () => {
+  it('every person gets a role that grants exactly what their legacy fields gave their token', async () => {
     await rolesFromSets.up(ctx())
     for (const key of Object.keys(people)) {
       const role = await roleOf(key)
       expect({ key, role: !!role }).toEqual({ key, role: true })
-      const token = await tokenize((await User.findById(people[key]._id).exec())!)
-      expect({ key, same: sameGrant(grantOfRole(role), compileLegacy(token)) }).toEqual({ key, same: true })
+      // FR-27 P3-5: the token no longer carries the legacy claims; they are read as `tokenize()` read them (its sets in
+      // this org, else the role's defaults), which is the migration's own oracle.
+      const u: any = await User.findById(people[key]._id).lean().exec()
+      const sets = u.permissionSetIds?.length ? await PermissionSet.find({ _id: { $in: u.permissionSetIds }, orgId: u.orgId }).lean().exec() : []
+      const legacy = compileLegacy(legacyClaimsOf(u, sets as any))
+      expect({ key, same: sameGrant(grantOfRole(role), legacy) }).toEqual({ key, same: true })
     }
   })
 

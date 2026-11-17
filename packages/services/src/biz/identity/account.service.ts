@@ -1,8 +1,7 @@
 import { createHash, randomBytes } from 'crypto'
 import { giveStartingRole, startingRoleOf } from '../access/role.service.js'
 import { config } from 'config'
-import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
-import { AuthToken, Identity, Org, PermissionSet, User, type IIdentity, type IOrg, type IUser } from 'db/models'
+import { AuthToken, Identity, Org, User, type IIdentity, type IOrg, type IUser } from 'db/models'
 import { homeNewOrg, homeScope, isHomeHere, unhomeNewOrg } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { inviteDao } from '../../dao/invite.dao.js'
@@ -13,7 +12,6 @@ import { IdentityError } from './identity.service.js'
 import { normalizeEmail } from './email.js'
 import { forgetIdentity, verifyPassword } from './session.service.js'
 import { isLinkedMaster } from '../node/link.js'
-import { inviteSetFor } from '../permission-set.service.js'
 
 /**
  * The person's own account (multi-org sign-in, Phase 4): their password, and the orgs they join or
@@ -169,9 +167,10 @@ export async function joinOrgByInvite(identityId: unknown, code: string): Promis
   const claimed = await inviteDao.incrementUseCount(String(invite._id))
   if (!claimed) throw new IdentityError('invite_invalid')
   try {
-    const member = await createMembership(identity, org, (invite.assignRole || 'member') as Role)
-    // FR-27.3: the invite's role, else the built-in role of its legacy one, else the org's default (no roles yet: none).
-    await giveStartingRole(org._id, member._id, await startingRoleOf(org._id, { roleId: (invite as any).assignRoleId, legacyRole: invite.assignRole || 'member' }))
+    const member = await createMembership(identity, org)
+    // FR-27.3: the invite's role, else (an invitation from before FR-27 P3-5) the built-in role of its legacy key, else
+    // the org's default role, else the built-in Member.
+    await giveStartingRole(org._id, member._id, await startingRoleOf(org._id, { roleId: invite.assignRoleId, legacyRole: invite.assignRole }), invite.inviterId)
     return { member, org }
   } catch (err) {
     await inviteDao.releaseUse(String(invite._id)).catch(() => undefined)
@@ -209,7 +208,7 @@ export async function createOrgForPerson(
   try {
     // FR-20.18: on a master the new org is the master's, before any write for it.
     await homeNewOrg(org._id)
-    member = await createMembership(identity, org, 'admin')
+    member = await createMembership(identity, org)
     await provisionNewOrg(org, member)
     return { member, org }
   } catch (err) {
@@ -222,10 +221,11 @@ export async function createOrgForPerson(
 
 /**
  * A membership for an existing person: their address and names, the operator code a POS receipt
- * is printed under, the start of their role history (Н-18), the org's default permission set, and
- * a username free in that org. Its legacy password copy is the person's own hash.
+ * is printed under, and a username free in that org. Its legacy password copy is the person's own
+ * hash. FR-27 P3-5 (#529): no legacy role, sets or permissions; the caller gives the role
+ * (`giveStartingRole`, which opens the role history, Н-18).
  */
-async function createMembership(identity: IIdentity, org: IOrg, role: Role): Promise<IUser> {
+async function createMembership(identity: IIdentity, org: IOrg): Promise<IUser> {
   const operatorCode = await allocateOperatorCode(String(org._id))
   const hash = identity.password // the legacy per-org copy is the person's own hash
   const member = await User.create({
@@ -237,21 +237,10 @@ async function createMembership(identity: IIdentity, org: IOrg, role: Role): Pro
     middleName: identity.middleName,
     lastName: identity.lastName,
     avatar: identity.avatar,
-    role,
     operatorCode,
     orgId: org._id,
     isActive: true,
-    permissions: DEFAULT_ROLE_PERMISSIONS[role] || DEFAULT_ROLE_PERMISSIONS.member,
-    roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
   })
-  if (role !== 'admin') {
-    // FR-26.9.2: the role's own system set, not the org's default (`inviteSetFor`).
-    const set = await inviteSetFor(org._id, role)
-    if (set) {
-      member.permissionSetIds = [set._id]
-      await member.save()
-    }
-  }
   return member
 }
 

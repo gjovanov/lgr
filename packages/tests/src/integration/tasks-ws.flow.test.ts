@@ -6,7 +6,6 @@ import { taskStore } from 'services/background/task.store'
 import { forgetIdentity } from 'services/biz/identity/session.service'
 import {
   setupWebSocket,
-  sendNotification,
   handleTasksOpen,
   handleTasksMessage,
   handleTasksClose,
@@ -18,7 +17,7 @@ import jwt from '@elysiajs/jwt'
 import { config } from 'config'
 
 /**
- * `/ws/tasks` — background-task progress and notifications (#154).
+ * `/ws/tasks` — background-task progress (#154).
  *
  * ⚠ Until #154 the socket subscribed to whichever user its `?userId=` named, without checking any
  * credential: knowing a user id (an ObjectId, not a secret) was enough to read that user's task
@@ -103,10 +102,8 @@ describe('/ws/tasks authentication (#154)', () => {
     const ws = open({ userId: victim.id })
 
     emitTask(victim.id)
-    sendNotification(victim.id, { title: 'private' })
 
     expect(ws.has('task:update')).toBe(false)
-    expect(ws.has('notification')).toBe(false)
   })
 
   it('answers nothing but an auth until the socket has authenticated', async () => {
@@ -128,13 +125,9 @@ describe('/ws/tasks authentication (#154)', () => {
 
     const mine = emitTask(a.id)
     emitTask(b.id)
-    sendNotification(a.id, { title: 'for A' })
-    sendNotification(b.id, { title: 'for B' })
 
     const updates = ws.sent.filter(m => m.type === 'task:update')
     expect(updates.map(m => m.data.taskId)).toEqual([mine])
-    const notes = ws.sent.filter(m => m.type === 'notification')
-    expect(notes.map(m => m.data.title)).toEqual(['for A'])
 
     await handleTasksMessage(ws, JSON.stringify({ type: 'ping' }))
     expect(ws.has('pong')).toBe(true)

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { setupTestDB, teardownTestDB, testDbUri } from '../setup'
 import { mongoose } from 'db/connection'
 import { Contact, Org, Product, ProductCategory, User, Warehouse } from 'db/models'
+import { roleKeyOf } from '../helpers/factories'
 import { products as genProducts, PRESETS } from '../../../../scripts/lib/fieldtest-data.ts'
 import { exportDenylist, scanDatabase } from '../../../../scripts/data-scan.ts'
 
@@ -57,9 +58,11 @@ describe('seed-fieldtest', () => {
     expect(await ProductCategory.countDocuments({ orgId })).toBe(12)
     expect(await Warehouse.countDocuments({ orgId })).toBe(1)
     const admin: any = await User.findOne({ orgId }).lean()
-    expect(admin).toMatchObject({ username: 'admin', role: 'admin', isActive: true })
+    expect(admin).toMatchObject({ username: 'admin', isActive: true })
     expect(admin.email).toBe('admin@lgr-fieldtest-it.invalid')
-    expect(admin.permissionSetIds?.length).toBe(1)
+    // FR-27 P3-5 (#529): the Administrator role, as a sign-up gives it; no legacy role key or permission set.
+    expect(await roleKeyOf(admin._id)).toBe('admin')
+    expect([admin.role, admin.permissionSetIds]).toEqual([undefined, undefined])
 
     const expected = genProducts(3, PRESETS.small.products).map(p => p._id).sort()
     const stored = (await Product.find({ orgId }).select({ _id: 1 }).lean()).map((p: any) => String(p._id)).sort()

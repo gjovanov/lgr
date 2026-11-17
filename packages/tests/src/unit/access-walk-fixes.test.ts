@@ -38,12 +38,12 @@ describe('an import is decided by what its target needs', () => {
     expect(targetRefusal({ role: 'admin', permissions: [], access: { all: true } as Grant }, 'bill')).toBeNull()
   })
 
-  it('the legacy model: as before', () => {
+  it('FR-27 P3-5: a caller stated as legacy claims is asked the same capabilities, of what the claims compile to', () => {
     const writer = { role: 'member', permissions: ['invoicing.write'] }
     expect(targetRefusal(writer, 'sales_invoice')).toBeNull()
     expect(targetRefusal(writer, 'bill')).toBeNull()
-    expect(targetRefusal(writer, 'movement')).toEqual({ message: 'Permission required: inventory.write' })
-    expect(targetRefusal({ role: 'member', permissions: ['invoicing.write'], areas: ['orders'] }, 'bill')).toMatchObject({ code: 'area_required' })
+    expect(targetRefusal(writer, 'movement')).toMatchObject({ code: 'capability_required', capabilities: ['movements.create'] })
+    expect(targetRefusal({ role: 'member', permissions: ['invoicing.write'], areas: ['orders'] }, 'bill')).toMatchObject({ code: 'capability_required', capabilities: ['bills.create'] })
     expect(targetRefusal({ role: 'seller', permissions: ['invoicing.write'], areas: [] }, 'sales_invoice')).toMatchObject({ code: 'capability_required' })
     expect(targetRefusal({ role: 'member', permissions: ['inventory.write'] }, 'movement')).toBeNull()
   })

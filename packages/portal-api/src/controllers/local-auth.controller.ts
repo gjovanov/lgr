@@ -3,6 +3,8 @@ import { nodeRole } from 'config'
 import { Org } from 'db/models'
 import { DesktopError, loadActiveDesktop, verifyDesktopToken } from 'services/biz/desktop/desktop.service'
 import { sessionFor } from 'services/biz/auth.service'
+import { accessAnswerFor } from 'services/biz/access/live'
+import { roleDisplayOfMember } from 'services/biz/identity/session.service'
 import {
   LocalCredentialError, hasPin, pinSignIn, removePin, setPin, PIN_MAX, PIN_MIN,
 } from 'services/biz/identity/local-credentials.service'
@@ -79,8 +81,10 @@ export const localAuthController = new Elysia({ prefix: '/auth/local' })
         user: session,
         token,
         org: { id: String(org._id), name: org.name, slug: org.slug },
-        orgs: [{ orgId: String(org._id), name: org.name, slug: org.slug, role: session.role, current: true }],
+        orgs: [{ orgId: String(org._id), name: org.name, slug: org.slug, role: await roleDisplayOfMember(user._id), current: true }],
         needsOrgChoice: false,
+        // FR-27 P3-5 (#529): the token carries no grant.
+        access: await accessAnswerFor(session),
       }
     } catch (e) {
       if (!(e instanceof LocalCredentialError)) throw e

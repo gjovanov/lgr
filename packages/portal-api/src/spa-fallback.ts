@@ -109,6 +109,11 @@ async function precompressed(assets: string, rel: string, accept: string | null)
  * FR-30.24: a file whose name carries its content hash is served `immutable` for a year (it was the static plugin's
  * `max-age=86400`), and its precompressed copy when the browser takes one (FR-30.26). Any other file keeps the plugin's
  * default; the shell is the fallback's, `no-store`.
+ *
+ * ⚠ `alwaysStatic` (NODE_ENV=production) registers one route per file, and only while the directory holds at most
+ * `staticLimit` files (the plugin's default 1 024): over it, it registers NOTHING, not even its wildcard, and every
+ * asset answers 404. The `.br`/`.gz` copies tripled the build's text files and crossed it (the server package's boot
+ * test, 2026-11-17). So no limit, and the copies are no routes of their own: they are read by the hook below.
  */
 export async function uiStaticPlugin(ui: { assets: string; prefix: string }, opts: { alwaysStatic?: boolean } = {}) {
   const files = await staticPlugin({
@@ -116,6 +121,8 @@ export async function uiStaticPlugin(ui: { assets: string; prefix: string }, opt
     prefix: ui.prefix || '',
     // The shell is served by the fallback below, with no-store; a static `/` would let it be cached.
     indexHTML: false,
+    staticLimit: Number.POSITIVE_INFINITY,
+    ignorePatterns: ['.DS_Store', '.git', '.env', /\.(br|gz)$/],
     ...opts,
   })
   const prefix = ui.prefix || ''

@@ -78,3 +78,28 @@ for (const alwaysStatic of [true, false]) {
     })
   })
 }
+
+describe('a build of more than 1 024 files, as NODE_ENV=production serves it', () => {
+  // The static plugin's `alwaysStatic` registers nothing over its `staticLimit` (1 024 by default), and every asset
+  // answered 404: the `.br`/`.gz` copies took the web build past it (the server package's boot test, 2026-11-17).
+  let big = ''
+  beforeAll(() => {
+    big = mkdtempSync(join(tmpdir(), 'lgr-static-many-'))
+    mkdirSync(join(big, 'ui'))
+    for (let i = 0; i < 400; i++) writeFileSync(join(big, 'ui', `chunk${i}-D5rzSl${String(i).padStart(3, '0').slice(-2)}.js`), JS)
+    compressDir(join(big, 'ui'))
+  })
+  afterAll(() => {
+    rmSync(big, { recursive: true, force: true })
+  })
+
+  it('still serves each file, and its precompressed copy is no route of its own', async () => {
+    const app = new Elysia().use(await uiStaticPlugin({ assets: join(big, 'ui'), prefix: '/ui' }, { alwaysStatic: true })) as any
+    const name = 'chunk399-D5rzSl99.js'
+    const plain = await app.handle(new Request(`http://localhost/ui/${name}`))
+    expect({ status: plain.status, body: await plain.text() }).toEqual({ status: 200, body: JS })
+    const br = await app.handle(new Request(`http://localhost/ui/${name}`, { headers: { 'accept-encoding': 'br' } }))
+    expect({ status: br.status, encoding: br.headers.get('content-encoding') }).toEqual({ status: 200, encoding: 'br' })
+    expect((await app.handle(new Request(`http://localhost/ui/${name}.br`))).status).toBe(404)
+  })
+})

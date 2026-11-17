@@ -34,7 +34,7 @@
  */
 
 import { mongoose } from 'db/connection'
-import { Org } from 'db/models'
+import { Org, Role } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
 import { logger } from '../../logger/logger.js'
 import { tenantCollections } from '../backup/backup-bundle.service.js'
@@ -416,10 +416,15 @@ async function copySeedOnly(name: string, ctx: Ctx, shape?: (source: any, copy: 
   return res
 }
 
-/** Memberships are copied switched off, except an admin's on the first copy: who may enter the test org is decided there. */
-function membershipAccess(ctx: Ctx) {
+/**
+ * Memberships are copied switched off, except an admin's on the first copy: who may enter the test org is decided there.
+ * FR-27 P3-5 (#529): an admin is a person on the source org's Administrator role (`adminRoleIds`); one from before roles,
+ * by the legacy key.
+ */
+function membershipAccess(ctx: Ctx, adminRoleIds: ReadonlySet<string> = new Set()) {
   return (source: any, copy: any) => {
-    const keep = ctx.activateAdmins && source.role === 'admin' && source.isActive !== false
+    const admin = source.roleId ? adminRoleIds.has(String(source.roleId)) : source.role === 'admin'
+    const keep = ctx.activateAdmins && admin && source.isActive !== false
     if (!keep && copy.isActive !== false) {
       copy.isActive = false
       copy.deactivatedAt = copy.deactivatedAt ?? new Date()
@@ -502,7 +507,7 @@ export async function cloneOrgData(opts: CloneOptions): Promise<CloneReport> {
     const t = Date.now()
     let res: CollectionResult
     try {
-      if (name === 'User') res = await copySeedOnly(name, ctx, membershipAccess(ctx))
+      if (name === 'User') res = await copySeedOnly(name, ctx, membershipAccess(ctx, new Set((await Role.find({ orgId: ctx.srcOid, all: true }, { _id: 1 }).lean().exec()).map(r => String(r._id)))))
       else if (name === 'PermissionSet' || name === 'Role' || name === 'OrgApp') res = await copySeedOnly(name, ctx)
       else if (name === 'Sequence') res = await copySequences(ctx)
       else res = await copyOrdinary(name, ctx)

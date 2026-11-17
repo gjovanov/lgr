@@ -28,6 +28,9 @@ export const ALLOW_LIST: string[] = []
 /** Helper classes of the font, not icons. */
 const HELPERS = /^mdi-(set|\d+px|light|dark|inactive|rotate-\d+|flip-[hv]|spin)$/
 
+/** Names the collector reads that are not icons: the subset's own files (`import '../styles/icons/mdi-subset.css'`). */
+const NOT_ICONS = new Set(['mdi-subset'])
+
 const NAME = /\bmdi-[a-z0-9]+(?:-[a-z0-9]+)*/g
 
 /** The UI's sources: every package's `src`, and the web app's shell. Tests, built output and the generated CSS excluded. */
@@ -57,7 +60,7 @@ export function usedIconNames(): string[] {
   for (const file of sourceFiles()) for (const m of readFileSync(file, 'utf8').matchAll(NAME)) names.add(m[0])
   const vuetifyMdi = Bun.resolveSync('vuetify/lib/iconsets/mdi.js', UI_SHARED)
   for (const m of readFileSync(vuetifyMdi, 'utf8').matchAll(NAME)) names.add(m[0])
-  return [...names].filter((n) => !HELPERS.test(n)).sort()
+  return [...names].filter((n) => !HELPERS.test(n) && !NOT_ICONS.has(n)).sort()
 }
 
 /** The font's own stylesheet: each icon's codepoint, and the helper rules after the last icon. */

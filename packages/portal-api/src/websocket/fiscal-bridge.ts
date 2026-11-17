@@ -56,7 +56,8 @@ import { randomUUID } from 'crypto'
 import { verifyToken } from '../auth/verify-token.js'
 import { attachAccess } from 'services/biz/access/live'
 import { liveSessionUser } from 'services/biz/identity/session.service'
-import { can } from 'services/biz/access/evaluate'
+import { can, grantOf } from 'services/biz/access/evaluate'
+import type { Grant } from 'config/access'
 import {
   DesktopError,
   loadActiveDesktop,
@@ -88,9 +89,6 @@ const COMMAND_TIMEOUT_MARGIN_MS = 15000
  * anonymous. Without this, an unauthenticated socket could sit open forever.
  */
 const AUTH_DEADLINE_MS = 10_000
-
-/** The permission a cashier's browser needs to relay for a device. */
-const BRIDGE_PERMISSION = 'pos.write'
 
 /**
  * Which `FiscalDevice.connectionType` each kind of bridge may serve (FR-14.27).
@@ -129,9 +127,9 @@ type BridgeKind = 'user' | 'desktop'
 /**
  * Who is on the other end of an authenticated socket.
  *
- * ⚠ A **discriminated union**, not one shape with optional fields. A desktop has no
- * `permissions`, and the one rule that reads them — `canTakeOver` — must be unable to be handed a
- * desktop and quietly see `[]`. Narrowing on `kind` is what makes "a desktop can never evict
+ * ⚠ A **discriminated union**, not one shape with optional fields. A desktop holds no role,
+ * and the one rule that reads a person's — `canTakeOver` — must be unable to be handed a
+ * desktop and quietly see `false`. Narrowing on `kind` is what makes "a desktop can never evict
  * anybody" a thing the compiler agrees with rather than an accident of an empty array.
  */
 type BridgePrincipal = UserPrincipal | DesktopPrincipal
@@ -142,7 +140,8 @@ type UserPrincipal = {
   label: string
   userId: string
   orgId: string
-  permissions: string[]
+  /** FR-27 P3-5 (#529): whether the person's role, read live at registration, takes a device over (`canTakeOver`). */
+  takesOver: boolean
   operatorCode?: string
   firstName?: string
   lastName?: string
@@ -321,20 +320,12 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
     return null
   }
 
-  // FR-27.5 (#529): in an org on `roles` the person's role decides, read live as the auth plugins read it
-  // (`attachAccess`): its grant, and its legacy projection as the claims. A role that sells at the till bridges its
-  // printer (`till.sell`, what a sale asks), whether or not its projection holds all of `pos.write`. Elsewhere the
-  // token's claims, exactly as before.
-  const session: any = {
-    id: String(payload.id),
-    orgId,
-    role: payload.role,
-    permissions: Array.isArray(payload.permissions) ? [...payload.permissions] : [],
-    ...(Array.isArray(payload.areas) ? { areas: payload.areas } : {}),
-  }
+  // FR-27.5 (#529): the person's role decides, read live as the auth plugins read it (`attachAccess`). A role that
+  // sells at the till bridges its printer (`till.sell`, what a sale asks). FR-27 P3-5: the token's claims are never
+  // read (it carries none); a person with no role bridges nothing.
+  const session: { id: string; orgId: string; access?: Grant } = { id: String(payload.id), orgId }
   await attachAccess(session)
-  const permissions: string[] = session.permissions ?? []
-  const mayBridge = session.access ? can(session, 'till.sell') : permissions.includes(BRIDGE_PERMISSION)
+  const mayBridge = !!session.access && can(session, 'till.sell')
 
   if (!mayBridge) {
     refuse(ws, 'You do not have permission to connect a fiscal device.', 'forbidden')
@@ -348,7 +339,9 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
     label: name || payload.username || payload.email || 'another user',
     userId: String(payload.id),
     orgId,
-    permissions,
+    // The legacy rule was the `admin.settings` permission, which only the Administrator's projection held: the
+    // Administrator, until the owner names a capability for it (FR-27 P3-5, PR question).
+    takesOver: !!session.access && grantOf(session).all === true,
     operatorCode: payload.operatorCode,
     firstName: payload.firstName,
     lastName: payload.lastName,
@@ -426,13 +419,13 @@ function accept(ws: any, principal: BridgePrincipal): BridgePrincipal {
  * legitimately contend for one anyway — a `desktop` device is pinned to its desktop by the
  * assignment, and by `bridgeDesktopId` when an admin sets one.
  *
- * FR-27.5 (#529): in an org on `roles` a principal's `permissions` are its role's legacy projection, read live at
- * registration, so the rule is the legacy claim's exactly, and follows an edit. Which capability should take a device
- * over is the owner's to name; until then nothing changes but where the answer is read.
+ * FR-27.5 (#529), P3-5: the person's role, read live at registration (`takesOver`): the Administrator, as the legacy
+ * `admin.settings` claim was held by its projection alone. Which capability should take a device over is the owner's
+ * to name.
  */
 function canTakeOver(principal: BridgePrincipal, msg: any): boolean {
   if (principal.kind !== 'user') return false
-  return msg?.takeover === true && principal.permissions.includes('admin.settings')
+  return msg?.takeover === true && principal.takesOver
 }
 
 /**

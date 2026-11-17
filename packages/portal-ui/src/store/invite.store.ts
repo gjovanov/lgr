@@ -8,7 +8,8 @@ export interface Invite {
   code: string
   status: string
   targetEmail?: string
-  assignRole: string
+  assignRole?: string
+  assignRoleId?: string
   maxUses: number
   useCount: number
   expiresAt?: string
@@ -23,7 +24,7 @@ export interface InviteInfo {
   isValid: boolean
   status: string
   targetEmail?: string | null
-  assignRole: string
+  assignRole?: string
 }
 
 export const useInviteStore = defineStore('invite', () => {
@@ -60,7 +61,8 @@ export const useInviteStore = defineStore('invite', () => {
   async function createInvite(payload: {
     targetEmail?: string
     maxUses?: number
-    assignRole?: string
+    /** FR-27 P3-3 (#529): the role, by its id; none is the org's default role. */
+    assignRoleId?: string
     expiresInHours?: number
   }) {
     // `{ invite, link, email? }` (#510). The list held the whole answer, not the invite.

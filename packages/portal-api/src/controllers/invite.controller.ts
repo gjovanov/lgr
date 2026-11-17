@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { RoleRefusal, assertAssignable, defaultRoleOf } from 'services/biz/access/role.service'
-import { Role } from 'db/models'
+import { Role, type IInvite } from 'db/models'
+import { roleDisplay } from 'config/access'
 import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { inviteDao } from 'services/dao/invite.dao'
@@ -11,8 +12,16 @@ import { paginateQuery } from 'services/utils/pagination'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { IdentityError } from 'services/biz/identity/identity.service'
 import { joinOrgByInvite } from 'services/biz/identity/account.service'
-import { inviteUrl, isEmailAddress, isRole, mailInvite } from 'services/biz/invite-email.service'
+import { inviteUrl, isEmailAddress, mailInvite } from 'services/biz/invite-email.service'
 import { BEARER_REQUIRED, NOT_A_PERSON, bearerPresent, callerOf, enterOrg } from '../auth/session-answer.js'
+
+/** The role an invitation gives, for display (`roleDisplay`); one from before FR-27 P3-5 names only its legacy key. */
+async function inviteRoleDisplay(invite: Pick<IInvite, 'orgId' | 'assignRoleId' | 'assignRole'>): Promise<string> {
+  const role = invite.assignRoleId
+    ? await Role.findOne({ _id: invite.assignRoleId, orgId: invite.orgId }, { name: 1, isBuiltin: 1, templateKey: 1 }).lean().exec()
+    : null
+  return role ? roleDisplay(role) : invite.assignRole ?? ''
+}
 
 export const inviteController = new Elysia()
   .use(AuthService)
@@ -39,7 +48,9 @@ export const inviteController = new Elysia()
         isValid: validation.valid,
         status: invite.status,
         targetEmail: invite.targetEmail || null,
-        assignRole: invite.assignRole,
+        // FR-27 P3-5: the role it gives, for display (a built-in by its key, any other by its name); an invitation
+        // from before names only its legacy key.
+        role: await inviteRoleDisplay(invite),
       }
     },
   )
@@ -70,7 +81,8 @@ export const inviteController = new Elysia()
       if (!can(user, 'invites.manage')) return status(403, { message: 'Admin only' })
 
       const filter: Record<string, any> = { orgId }
-      const result = await paginateQuery(Invite, filter, query)
+      // FR-27 P3-7: an invite's `legacyArchive` (migration 0017) is kept for a hand restore, never sent.
+      const result = await paginateQuery(Invite, filter, query, { select: '-legacyArchive' })
       return { invites: result.items, ...result }
     },
     { isSignIn: true },
@@ -88,35 +100,35 @@ export const inviteController = new Elysia()
       if (targetEmail !== undefined && !isEmailAddress(targetEmail)) {
         return status(422, { code: 'invalid_email', message: 'Enter the address the invitation is for' })
       }
-      // #510: a role the system knows. Any string was stored, and the membership was made with it.
-      let assignRole = body.assignRole ?? 'member'
-      if (!isRole(assignRole)) return status(422, { code: 'invalid_role', message: `Unknown role: ${assignRole}` })
-      // FR-27.4: the invite names a role, one the admin may give (FR-27.8). Its legacy key goes with it. Naming neither
-      // a role nor a legacy role is the org's default role (FR-27.3), when this admin may give it.
+      // FR-27 P3-3 (#529): an invitation names a role (`assignRoleId`), one the admin may give (FR-27.8). The legacy
+      // `assignRole` is refused, never dropped: a caller that named one and got 200 would believe the invitee gets it.
+      if (body.assignRole !== undefined) {
+        return status(422, { code: 'legacy_role_field', message: 'Name the role by its id (assignRoleId): a legacy role (assignRole) is no longer accepted.' })
+      }
+      // Naming none is the org's default role (FR-27.3) when this admin may give it, else the built-in Member.
       let assignRoleId = body.assignRoleId
-      if (assignRoleId) {
-        try {
-          await assertAssignable(user as any, orgId, assignRoleId)
-        } catch (e) {
-          if (e instanceof RoleRefusal) return status(e.status, e.body)
-          throw e
-        }
-      } else if (!body.assignRole) {
+      if (!assignRoleId) {
         const fallback = await defaultRoleOf(orgId)
         if (fallback) assignRoleId = await assertAssignable(user as any, orgId, fallback).then(() => fallback, () => undefined)
       }
-      if (assignRoleId) {
-        const role: any = await Role.findOne({ _id: assignRoleId, orgId }, { all: 1, legacy: 1 }).lean().exec()
-        assignRole = role?.all ? 'admin' : role?.legacy?.role ?? assignRole
+      if (!assignRoleId) {
+        const member: any = await Role.findOne({ orgId, isBuiltin: true, templateKey: 'member' }, { _id: 1 }).lean().exec()
+        if (!member) return status(422, { code: 'no_role', message: 'This organization has no role to invite with.' })
+        assignRoleId = String(member._id)
       }
-
+      try {
+        await assertAssignable(user as any, orgId, assignRoleId)
+      } catch (e) {
+        if (e instanceof RoleRefusal) return status(e.status, e.body)
+        throw e
+      }
+      // FR-27 P3-5 (#529): the role alone, by id. Its legacy key (`assignRole`) is no longer written.
       const invite = await inviteDao.createInvite({
         orgId,
         inviterId: user.id,
         targetEmail,
         maxUses: body.maxUses,
-        assignRole,
-        ...(assignRoleId ? { assignRoleId } : {}),
+        assignRoleId,
         expiresInHours: body.expiresInHours,
       })
 
@@ -134,7 +146,8 @@ export const inviteController = new Elysia()
       body: t.Object({
         targetEmail: t.Optional(t.String()),
         maxUses: t.Optional(t.Number()),
-        assignRole: t.Optional(t.String()),
+        // Declared only to be refused (422 `legacy_role_field`): a schema drops what it does not name.
+        assignRole: t.Optional(t.Unknown()),
         assignRoleId: t.Optional(t.String()),
         expiresInHours: t.Optional(t.Number()),
       }),

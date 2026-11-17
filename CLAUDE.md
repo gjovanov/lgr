@@ -61,7 +61,7 @@ packages/
   # ── Shared foundation ──
   config/              → Shared config (env vars) + constants (roles, permissions, modules, enums, APP_REGISTRY)
   db/                  → Mongoose models (71) + tenant plugin + connection management
-  services/            → Business logic (biz/), DAOs (dao/), background tasks, events, mixins, logger
+  services/            → Business logic (biz/), the four DAOs left (dao/: org, user, invite, code), background tasks, events, mixins, logger
   reporting/           → Excel (ExcelJS) + PDF (HTML or markdown, printed by Chrome) export generators
   fiscal/              → Fiscal printer abstraction (IFiscalPrinter, Datecs protocol, device manager, NTP sync, VAT groups)
 
@@ -102,7 +102,8 @@ packages/
 
   # ── Shared UI library ──
   ui-shell/            → AppShell, AppSwitcher, OrgSwitcher (top-bar org menu), NewOrgDialog, OrgSelector, UserMenu, NotificationBell, sidebar
-  ui-shared/           → Shared composables (useHttpClient, useSnackbar, useWebSocket, usePriceResolver), i18n, vuetify plugin, shared components (PriceExplainButton, TagInput, etc.)
+  ui-shared/           → Shared composables (useHttpClient, useSnackbar, …), i18n, vuetify plugin, shared components (PriceExplainButton, TagInput, etc.);
+                         a file nothing imports fails `unit/unimported-shared-files.test.ts` (FR-32.10)
 
   # -- Desktop (a server-mode client, FR-14) --
   desktop-ui/          -> The shell's own pages: Overview, Settings, Onboarding, Logs, Diagnostics
@@ -774,7 +775,9 @@ scans server code and fails on any `fetch(` call without one.
   options object passed first (`{ as: 'global' }`) is registered AS the hook and every request
   throws. Request hooks are always global.
 - Provides `{ isSignIn: true }` macro for route protection
-- JWT payload: `{ id, email, username, firstName, lastName, role, orgId, permissions, operatorCode?, iid?, tv? }`
+- JWT payload: `{ id, email, username, firstName, lastName, orgId, operatorCode?, rid?, rv?, iid?, tv?, amr? }`. ⚠ FR-27 P3-5:
+  no `role`, `permissions` or `areas`: what a person may do is their role, read live on every request (`grantOf`, `can`),
+  and the SPA gets it from the sign-in answer and `/auth/me` (`access`). Never add a reader of the token's legacy claims.
 - Single JWT issued by Portal, validated by all controllers in the same process
 
 There is also `app-auth.service.ts` (verify-only variant) for use if domain APIs run standalone.
@@ -918,7 +921,7 @@ part of that module ("The till lives in Invoicing" below); Phase 1 made every mo
   keys, data), routes, `outside` routes, pendingChanges. A menu entry may carry `when(who)` and a group
   a `divider`; `visibleMenu` applies them, and drops a group or a divider left with nothing to do.
   The one router composes them (`web/src/routes.ts`); every module renders in `ui-shell` `<ModuleLayout>`.
-- ⚠ **Paths in routes, menus, breadcrumbs and back-to are relative to the MODULE** (`/orders`), never
+- ⚠ **Paths in routes, menus and back-to are relative to the MODULE** (`/orders`), never
   to a router base. `inModule(route, to)` adds the path of the module's shell record (`meta.module`).
   `unit/module-manifests.test.ts` resolves every one of them against its module's own routes.
 - ⚠ **Every move goes through `ui-shared/nav/navigate.ts#goTo`**: a router push when the router serves
@@ -1475,7 +1478,8 @@ Nomenclature models use `isActive: boolean` + `deactivatedAt?: Date` instead of 
 - `middleName` — Bulgarian three-part names (from identity document)
 - `operatorCode` — 4-digit fiscal operator code (unique per org, atomic assignment, included in JWT)
 - `position` — job title
-- `roleHistory[]` — `{ role, startDate, endDate, assignedBy, assignedAt }` for audit trail
+- `roleHistory[]` — `{ roleId, roleName, startDate, endDate, assignedBy, assignedAt }` for audit trail (entries from
+  before FR-27 P3-5 name the legacy key, `role`)
 
 ### Startup & Shutdown
 
@@ -2948,6 +2952,9 @@ prints: „One list of actions for a document's two bars" below.
   - A refused issue also marks the LINES it is about (`useDocumentForm#lineRefusalOf`, `data-testid="line-refusal"`):
     the stock check's shortfalls by article and warehouse, a cost-layer refusal by the article's name (a refusal carries
     no id). The mark goes with the alert, and from a line whose article, warehouse or quantity changed since.
+  - **A line grid keys its rows by the line** (FR-31.12): `:key="rowKey(line)"` (`ui-shared/composables/row-key.ts`, a
+    `WeakMap` on the line object, never a field on it), never by position: removing a row gave the rows below it to
+    other lines, with their open menus, typed text and focus, and made them load again.
   - A list on `usePaginatedTable` / `useProductList` never throws a failed request any more: it puts it in
     `pagination.loadError`, and `ListScaffold` (or `ListLoadError` in a table of its own) says it with Retry, never "no
     data". An error on the message line (`useSnackbar`) stays until closed, and messages queue.
@@ -3983,22 +3990,23 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - Nothing reads `roleId` until an org's access model is `roles`.
 - **An org on `roles`** (`scripts/access-model.ts --set roles`; refused while anyone has no role):
   - Both auth plugins call `attachAccess` (`services/biz/access/live.ts`). It reads the person's role live, membership and role each cached 60 s per process (`forgetMember`, `forgetRole` in the writing process), through the driver, not the models: the query budgets count only a request's own queries.
-  - The session gets the role's grant (`user.access`, non-enumerable, never serialised) and its claims from the role's projection, so what still reads claims follows the role.
+  - The session gets the role's grant (`user.access`, non-enumerable, never serialised), and nothing else of the legacy model (P3-5).
   - Responses carry `x-access-version: <roleId>:<version>`.
   - `decideAccess` decides by the evaluator. `shadowAccess` asks the legacy rules on the projection beside it and counts where they differ.
-  - Sign-in issues the projection with `rid`/`rv`.
+  - Sign-in issues `rid`/`rv`, and answers the grant (`access`, as `/auth/me`; `live.ts#accessAnswerFor`).
   - A person with no role keeps their token's claims. Back to `legacy` at any time.
 - **Roles API** (`portal-api/.../role.controller.ts`; `GET/POST /roles`, `GET/PUT/DELETE /roles/:id`; a person's role through `PUT /user/:id` `roleId`).
   - Every write goes through `services/biz/access/role.service.ts`, which holds FR-27.8: managing takes `roles.edit`; not your own role, nor your own assignment; nothing beyond the actor's grant; `*` and `roles.*` an Administrator's only; the Administrator role is fixed; the last active Administrator keeps it and stays active; roles are the org's own; everything audited with caps before and after.
-  - ⚠ Both models are written. A role keeps `projectGrant(grant)` (`config/access/projection.ts`: never more than the role; `needsRelease` when not exact) and a permission set that carries it (`legacy.setId`, "Role · <name>").
-  - A person given a role is put on that set with the projection's role key. A set, not their own `permissions`: without a set, `tokenize()` adds the role's defaults.
+  - ⚠ FR-27 P3-5: only the role model is written. No projection (`legacy`), no `needsRelease`, no "Role · <name>" set,
+    and nothing of the legacy model on a person or an invitation (`role`, `permissions`, `permissionSetIds`,
+    `assignRole`; the schemas have no defaults for them). What a role or person from before holds stays, frozen, until P3-7.
   - On the legacy model, an assignment or a role edit ends the affected people's sessions; on `roles` it is live.
   - `scripts/restore-administrator.ts --org --user [--execute]` gives a locked-out org its Administrator back, audited.
 - **A person's first role** (`startingRoleOf` / `giveStartingRole`): a new org's founder (`provisionNewOrg` seeds the
   ten built-ins, `seedBuiltinRoles`), an invite accepted, a member an admin creates.
   - Chosen: a role named (`assignRoleId` on the invite, `roleId` on the create), or, when neither a role nor a legacy
     role is named, the org's default (`Org.settings.access.defaultRoleId`, `PUT /roles/default`; an invite resolves it
-    when it is made). Written onto both models, as an assignment.
+    when it is made). Written as an assignment: `roleId` and a role history entry (id and name).
   - Read off the legacy role (the built-in of that key): recorded only when it grants exactly what the person's
     legacy fields do, and those are left alone. ⚠ So an org whose system set was edited changes nobody's access: that
     person gets no role yet, and their claims decide.
@@ -4103,9 +4111,11 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
 - **An outgoing article line's unit is its article's** (#724, `withArticleUnits`): the routes write the article's unit
   over any other, except where the stored document already holds the article at that unit. Nothing is refused; the
   importers send the article's unit already. The form locks the field (`DocumentLineTable#unitLocked`).
-- **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
-  null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
-  gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`
+- **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` and every sign-in answer `access`
+  (`{ all, caps, role }`, null for a person with no role). `sessionViewer()` carries it as `grant`, the only grant it has
+  (FR-27 P3-5: the token carries no claims, and a viewer without its grant holds nothing), so every page gate and
+  `useAccess()` follow it, reactively. ⚠ A page load or a new tab learns it before the router's first decision
+  (`web/src/router.ts` awaits `whenAccessSettled`, one `/auth/me`). A response whose `x-access-version` is not the one held asks `/auth/me`
   again, once (`followAccessVersion`, from `useHttpClient`). The grant belongs to one membership (`id@orgId`).
 - **A page whose data needs more than its app** names it: `PAGE_ACCESS[id].alsoAnyOf`, and the same in the legacy
   oracle (`PageDef.alsoNeed`, permissions), which the differential test holds equal. `/reports/aging` and
@@ -4170,7 +4180,7 @@ the rules); daily job: CronJob `lgr-org-sync` in lgr-deploy (04:30 Europe/Sofia)
 - [HIGH] [2026-10-26] **Voiding a DRAFT outgoing invoice books a receipt for goods that never left.** `POST /invoices/:id/void` accepts `draft`, and `reverseInvoiceStockMovement` reverses the lines whether or not a dispatch ever happened: a 4-piece draft voided took stock 10 → 14 (one `receipt` movement). The sales list offered „Анулирай" on drafts ONLY. Found during FR-22 slice 2; the row menu of slice 2b offers Delete on drafts instead, but the route itself needs its own decision (reverse only what the document's movements dispatched, or refuse a draft void). — **Status: RESOLVED 2026-10-26**: `reverseInvoiceStockMovement` reverses nothing for a draft that carries no completed movement. That covers the void route and the Files rollback alike, and leaves issued documents exactly as they were. On prod, one draft void had done it: `regal` DRF-INV-2026-00002, +1,257 units, not corrected. regal-pz and regal-sf had none. Regression test in `invoice-stock-validation.flow`. **Widened 2026-10-27 (#322):** a document of ANY status reverses only a booking it carries (a completed movement with its `invoiceId`). A cash sale imported with `skipStockMovement` keeps no trace of the flag, and 41 invoices of the July 2026 migration never moved stock: on prod 44 issued documents would have put back goods that never left (or, for a bill, taken out goods that never came in).
 - [MEDIUM] [2026-11-03] **A test file run on its own got Bun's 5 s per-test limit** (#490): `bun run test` passes `--timeout 120000`, a bare `bun test <file>` did not. `cash-invoice-receipts.flow` waits out the 30 s idempotency window (`WAIT_MS`) in one test; cut off mid-request, its `afterEach` hung on the request still holding the device, mongodb-memory-server reaped the mongod ("killed 2 dangling processes"), and every later test read as a broken database. — **Status: RESOLVED 2026-11-03**: `setup.ts` calls `setDefaultTimeout(120_000)` (⚠ `bunfig.toml`'s `[test] timeout` is not read by Bun), and that test opens its device gate in a `finally`.
 - [LOW] [2026-03-10, re-checked 2026-11-11] The 12 controllers that store the body as the document (bank-account, exchange-rate, fiscal-period, fiscal-year, fixed-asset, reconciliation, cash-order, payment-order, payslip, timesheet, inventory-count, price-list) no longer take any FIELD: a body cannot move a document (S-25), point it at another org's record (S-35, the reference guard under Multi-Tenancy) or choose a field the server sets (S-36, `services/biz/server-owned.ts`, under Controller Pattern). What is left is the VALUES, inside the caller's own module: a PUT is cast, not validated (Mongoose runs no validators on an update, so an enum field takes any word), and a POST's schema rejection answers 500, not 422. Four screens on these routes cannot save what they show (fixed assets, exchange rates, timesheets, reconciliation: #675). 72 of the 272 write routes declare no body schema; most of the others are actions that read no body. — Status: OPEN
-- [HIGH] [2026-03-10] BaseDao read methods missing .lean() (Mongoose document overhead on all DAO reads) — Status: OPEN
+- [HIGH] [2026-03-10] BaseDao read methods missing .lean() (Mongoose document overhead on all DAO reads) — **Status: RESOLVED 2026-11-17 (FR-32.9)**: the 24 DAO classes only tests imported are gone; the base class's reads are lean for the four left (org, user, invite, sign-in code), which move onto repositories as their controllers are touched.
 - [RESOLVED] [2026-03-10] "N+1 in findBelowMinStock()" — the entry was stale on two counts, verified 2026-08-26 while implementing FR-11: there is no `findBelowMinStock`, the method is `findLowStock` in `services/src/dao/warehouse/product.dao.ts`, and it has been a single batched `$in` query (not a per-product loop) since before this entry was written. Nothing to fix.
 - [RESOLVED] [2026-03-10] N+1 in approvePayroll() — payslips go in one `createMany` since FR-25 R0, and a failed write puts the run back as it was
 - [LOW] [2026-03-10, re-checked 2026-11-10] `bun audit` reports 2 transitive advisories, neither reachable (S-16 in `docs/security/2026-09-21-security-review.md`): `zod` 3.25.76 through `chromium-bidi` and `@scalar/types` (LGR validates requests with TypeBox; the PDF renderer drives Chrome over CDP, not BiDi), and `uuid` 8.3.2 through `exceljs` (the flaw is in `v3`/`v5`/`v6` given a buffer; exceljs calls `v4`). Both wait for their parents to accept the fixed major. The March four (minimatch, immutable) had left the tree; on 2026-11-10 `vue-i18n` went 9.14.5 → 11.4.18 (9.x is end of life; its two advisories need `escapeParameter`, never enabled) and `follow-redirects` 1.16.1 → 1.16.2. ⚠ vue-i18n 11 interprets messages (JIT) on the web too, as the desktop shell already did: every message of the catalogs renders the same text as on 9 (74,236 renderings compared). — Status: OPEN

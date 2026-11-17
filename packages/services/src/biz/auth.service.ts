@@ -1,13 +1,11 @@
-import { Code, Identity, LocalCredential, Org, User, OrgApp, PermissionSet, type IIdentity, type IOrg, type IUser } from 'db/models'
+import { Code, Identity, LocalCredential, Org, User, OrgApp, type IIdentity, type IOrg, type IUser } from 'db/models'
 import { giveStartingRole, seedBuiltinRoles, startingRoleOf } from './access/role.service'
 import { homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
-import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS, type Area, type Role } from 'config/constants'
-import { legacyClaimsOf, type LegacySet } from 'config/access'
+import { MODULES, APP_IDS } from 'config/constants'
 import { liveRoleOf } from './access/live'
 import { NO_ROLE_MESSAGE } from './access/evaluate'
 import { config, nodeRole } from 'config'
 import { logger } from '../logger/logger.js'
-import { inviteSetFor } from './permission-set.service.js'
 import { inviteDao } from '../dao/invite.dao.js'
 import { codeDao } from '../dao/code.dao.js'
 import { sendEmail } from './email.service.js'
@@ -72,17 +70,12 @@ export interface UserTokenized {
   username: string
   firstName: string
   lastName: string
-  role: string
   orgId: string
-  permissions: string[]
-  ownRecordsModules: string[]
-  /**
-   * FR-26 §2.3: the only areas this session opens. ⚠ Absent means unrestricted (every token
-   * issued before FR-26, every existing role); `[]` means none. Never default it to `[]`.
-   */
-  areas?: Area[]
   operatorCode?: string
-  /** FR-27.5: the role and its version, in an org on `roles`. The grant itself is read live, never from here. */
+  /**
+   * FR-27.5: the role and its version. The grant itself is read live, never from here. FR-27 P3-5: the token carries
+   * no `role`, `permissions` or `areas` any more; a token issued before still does, and nothing reads them.
+   */
   rid?: string
   rv?: number
 }
@@ -142,12 +135,8 @@ export async function provisionNewOrg(org: IOrg, admin: IUser): Promise<void> {
 
   await seedDefaultPermissionSets(String(org._id))
 
-  const adminSet = await PermissionSet.findOne({ orgId: org._id, name: 'Administrator' })
-  if (adminSet) {
-    admin.permissionSetIds = [adminSet._id]
-    await admin.save()
-  }
-  // FR-27.3: the ten built-in roles, and the founder the Administrator.
+  // FR-27.3: the ten built-in roles, and the founder the Administrator. FR-27 P3-5 (#529): the role alone; the
+  // founder is no longer put on the Administrator permission set.
   await seedBuiltinRoles(org._id)
   await giveStartingRole(org._id, admin._id, await startingRoleOf(org._id, { legacyRole: 'admin' }))
 }
@@ -175,8 +164,6 @@ export async function register(
 
   let existingOrg: IOrg | null = null
   let invite: Awaited<ReturnType<typeof inviteDao.findByCode>> = null
-  let role = 'admin'
-  let permissions = DEFAULT_ROLE_PERMISSIONS.admin
 
   // Everything that can refuse is checked before anything is written.
   if (input.inviteCode) {
@@ -199,8 +186,6 @@ export async function register(
       throw new Error('This username is already taken in this organization')
     }
 
-    role = invite.assignRole || 'member'
-    permissions = DEFAULT_ROLE_PERMISSIONS[role as Role] || DEFAULT_ROLE_PERMISSIONS.member
   } else {
     // Normal registration: create new org
     if (!input.orgName || !input.orgSlug) throw new Error('Organization name and slug are required')
@@ -257,26 +242,18 @@ export async function register(
       firstName: input.firstName,
       middleName: input.middleName,
       lastName: input.lastName,
-      role,
       operatorCode,
       orgId: org._id,
       isActive: active,
-      permissions,
-      roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
     })
 
+    // FR-27 P3-5 (#529): no legacy role, sets or permissions; the role alone, with its history entry.
     if (!invite) {
       await provisionNewOrg(org, user)
     } else {
-      // An invite's registration starts on the role's system set, else on the role's defaults (FR-26.9.2).
-      const set = await inviteSetFor(org._id, role)
-      if (set) {
-        user.permissionSetIds = [set._id]
-        await user.save()
-      }
-      // FR-27 P3-2 (#529): and the invite's role, as joining by invite gives it (`joinOrgByInvite`): with no role,
-      // sign-in refuses the membership.
-      await giveStartingRole(org._id, user._id, await startingRoleOf(org._id, { roleId: invite?.assignRoleId, legacyRole: role }))
+      // FR-27 P3-2: the invite's role, as joining by invite gives it (`joinOrgByInvite`): with no role, sign-in refuses
+      // the membership. An invitation from before P3-5 names only its legacy key.
+      await giveStartingRole(org._id, user._id, await startingRoleOf(org._id, { roleId: invite.assignRoleId, legacyRole: invite.assignRole }), invite.inviterId)
     }
   } catch (err) {
     // Leave no half-registered person behind: they could not register again with this address.
@@ -592,76 +569,18 @@ export async function sessionFor(member: IUser, identity?: Pick<IIdentity, '_id'
 }
 
 export async function tokenize(user: IUser): Promise<UserTokenized> {
-  // FR-27.5: an org on `roles` signs its people in with their role's projection, for what still reads claims (the
-  // SPA's menus until P1-5, FR-26's area checks, a master on an older release). Every request reads the role live.
+  // FR-27 P3-5 (#529): the token names the person, their org and their role (`rid`/`rv`), never what the role
+  // allows. Every request reads the role live (`access/live.ts#attachAccess`), and the SPA reads its grant from the
+  // sign-in answer and `/auth/me`. The legacy claims (`role`, `permissions`, `areas`) are no longer issued.
   const role = await liveRoleOf({ id: String(user._id), orgId: String(user.orgId) })
-  if (role?.legacy) {
-    // ⚠ Not the membership's own areas: absent in the projection means every area.
-    const { areas: _membershipAreas, ...identity } = claimsToken(user, [])
-    return {
-      ...identity,
-      role: role.legacy.role,
-      permissions: [...role.legacy.permissions],
-      ownRecordsModules: [],
-      ...(Array.isArray(role.legacy.areas) ? { areas: [...role.legacy.areas] as Area[] } : {}),
-      rid: String(role._id),
-      rv: role.version ?? 1,
-    }
-  }
-  // If user has permission sets, compute permissions from them
-  if (user.permissionSetIds?.length) {
-    /**
-     * ⚠ Scoped to the user's OWN org. This looked sets up by `_id` alone, so whichever org
-     * owned the id got to decide what this user may do — the grant that answers "what can you
-     * do" was the one lookup in the codebase resolved without a tenant filter, while
-     * `isForeignOrg` carefully guards "whose data may you ask for". Found live in the dev
-     * database: an acme-corp user carrying another org's `Administrator` set (`isAdmin`, i.e.
-     * every permission).
-     *
-     * A set from another org is now simply not found, and a `permissionSetIds` that resolves
-     * to NOTHING falls through to the role-based branch below rather than returning an empty
-     * permission list — a scoping fix must not log people out of their own permissions.
-     */
-    const sets = await PermissionSet.find({
-      _id: { $in: user.permissionSetIds },
-      orgId: user.orgId,
-    }).lean()
-
-    if (sets.length < user.permissionSetIds.length) {
-      logger.warn(
-        {
-          userId: String(user._id),
-          orgId: String(user.orgId),
-          assigned: user.permissionSetIds.length,
-          resolved: sets.length,
-        },
-        'User references permission sets that do not belong to their org — ignoring them',
-      )
-    }
-
-    return claimsToken(user, sets)
-  }
-
-  return claimsToken(user, [])
-}
-
-/**
- * The token of a membership, given the sets of its org that it names (none: its role's defaults). What it may do is
- * `config/access#legacyClaimsOf`, the one function FR-27's migration reads a person by too (#529).
- */
-function claimsToken(user: IUser, sets: readonly LegacySet[]): UserTokenized {
-  const claims = legacyClaimsOf(user, sets)
   return {
     id: String(user._id),
     email: user.email,
     username: user.username,
     firstName: user.firstName,
     lastName: user.lastName,
-    role: user.role,
     orgId: String(user.orgId),
-    permissions: claims.permissions,
-    ownRecordsModules: claims.ownRecordsModules,
-    ...(claims.areas ? { areas: claims.areas } : {}),
-    operatorCode: user.operatorCode,
+    ...(user.operatorCode ? { operatorCode: user.operatorCode } : {}),
+    ...(role ? { rid: String(role._id), rv: role.version ?? 1 } : {}),
   }
 }

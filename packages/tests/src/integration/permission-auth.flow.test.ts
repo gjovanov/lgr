@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser } from '../helpers/factories'
+import { createTestOrg, createTestUser, roleKeyOf } from '../helpers/factories'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } from 'config/constants'
 import { register, tokenize } from 'services/biz/auth.service'
 import { getPermissionSet, deletePermissionSet, computeEffectivePermissions } from 'services/biz/permission-set.service'
-import { User, Role } from 'db/models'
+import { PermissionSet, User, Role } from 'db/models'
+import { grantOfRole } from 'config/access'
 
 beforeAll(async () => {
   await setupTestDB()
@@ -30,19 +31,13 @@ describe('Permission & Auth: Role-Based Access Control', () => {
       lastName: 'Perms',
     })
 
-    expect(user.role).toBe('admin')
-    expect(user.permissions).toContain('admin.users')
-    expect(user.permissions).toContain('admin.settings')
-    for (const perm of [
-      'accounting.read', 'accounting.write', 'accounting.post',
-      'inventory.read', 'inventory.write', 'inventory.adjust',
-      'invoicing.read', 'invoicing.write', 'invoicing.send',
-      'pos.read', 'pos.write',
-      'payroll.read', 'payroll.write', 'payroll.approve',
-    ]) {
-      expect(user.permissions).toContain(perm)
-    }
-    expect(user.permissions.slice().sort()).toEqual(DEFAULT_ROLE_PERMISSIONS.admin.slice().sort())
+    // FR-27 P3-5 (#529): the founder holds the Administrator role, which grants everything; no legacy role key or
+    // permissions are written.
+    expect(await roleKeyOf(user._id)).toBe('admin')
+    const stored: any = await User.findById(user._id).lean()
+    expect(grantOfRole(await Role.findById(stored.roleId).lean()).all).toBe(true)
+    expect(stored.role).toBeUndefined()
+    expect(stored.permissions).toBeUndefined()
   })
 
   it('should grant accountant only accounting + invoicing + inventory.read permissions', async () => {
@@ -133,8 +128,8 @@ describe('Permission & Auth: Role-Based Access Control', () => {
 
     // Both should be admins in their respective orgs
     expect(org1Admin.orgId).not.toBe(org2Admin.orgId)
-    expect(org1Admin.role).toBe('admin')
-    expect(org2Admin.role).toBe('admin')
+    expect(await roleKeyOf(org1Admin._id)).toBe('admin')
+    expect(await roleKeyOf(org2Admin._id)).toBe('admin')
   })
 })
 
@@ -152,9 +147,8 @@ describe('Permission sets are scoped to the owning org', () => {
       firstName: 'Foreign', lastName: 'Admin',
     })
 
-    // `register` assigns the org's own Administrator set (isAdmin) to its first admin.
-    const foreignSetIds = (await User.findById(foreignAdmin.id).exec())!.permissionSetIds!
-    expect(foreignSetIds.length).toBe(1)
+    // The org's own Administrator set (isAdmin), as `register` seeds it (FR-27 P3-5: nobody is put on it any more).
+    const foreignSetIds = [(await PermissionSet.findOne({ orgId: foreignAdmin.orgId, name: 'Administrator' }).lean())!._id]
 
     // A plain member of a DIFFERENT org, pointed at that foreign set.
     const org = await createTestOrg({ name: 'Victim Org', slug: 'victim-org' })
@@ -166,13 +160,12 @@ describe('Permission sets are scoped to the owning org', () => {
     const reloaded = (await User.findById(member._id).exec())!
     const token = await tokenize(reloaded)
 
-    // Not admin-by-proxy: the foreign set grants nothing.
-    expect(token.permissions).not.toContain('admin.users')
-    expect(token.permissions).not.toContain('admin.settings')
-    expect(token.permissions).not.toContain('inventory.write')
-
-    // And the user is not stranded with an empty permission list — the role still applies.
-    expect(token.permissions.slice().sort()).toEqual(DEFAULT_ROLE_PERMISSIONS.member.slice().sort())
+    // FR-27 P3-5: the token names the person's role and carries no permissions, so no set reaches it: not
+    // admin-by-proxy, and not stranded either. Their role is the built-in Member.
+    expect('permissions' in token).toBe(false)
+    const role: any = await Role.findById(token.rid).lean()
+    expect(role.templateKey).toBe('member')
+    expect(grantOfRole(role).all).toBeFalsy()
   })
 
   it('still resolves a set that DOES belong to the org', async () => {
@@ -188,7 +181,7 @@ describe('Permission sets are scoped to the owning org', () => {
     // FR-27 P3-2: the org's own sets give the founder the Administrator role, which grants every capability; the
     // token carries its projection (role admin), and the role decides every request.
     const role: any = await Role.findById(member.roleId).lean().exec()
-    expect([role?.all, token.role]).toEqual([true, 'admin'])
+    expect([role?.all, token.rid]).toEqual([true, String(role._id)])
   })
 
   it('computeEffectivePermissions agrees with the token for a foreign set', async () => {
@@ -197,7 +190,7 @@ describe('Permission sets are scoped to the owning org', () => {
       email: 'admin@foreign2.com', username: 'foreign2admin', password: 'pass123',
       firstName: 'Foreign', lastName: 'Two',
     })
-    const foreignSetIds = (await User.findById(foreignAdmin.id).exec())!.permissionSetIds!
+    const foreignSetIds = [(await PermissionSet.findOne({ orgId: foreignAdmin.orgId, name: 'Administrator' }).lean())!._id]
 
     const org = await createTestOrg({ name: 'Victim Two', slug: 'victim-two' })
     const member = await createTestUser(org._id, {
@@ -217,7 +210,7 @@ describe('Permission sets are scoped to the owning org', () => {
       email: 'admin@foreign3.com', username: 'foreign3admin', password: 'pass123',
       firstName: 'Foreign', lastName: 'Three',
     })
-    const foreignSetId = String((await User.findById(foreignAdmin.id).exec())!.permissionSetIds![0])
+    const foreignSetId = String((await PermissionSet.findOne({ orgId: foreignAdmin.orgId, name: 'Administrator' }).lean())!._id)
 
     const org = await createTestOrg({ name: 'Other Org', slug: 'other-org' })
 
