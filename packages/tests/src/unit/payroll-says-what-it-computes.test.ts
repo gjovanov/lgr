@@ -30,7 +30,7 @@ describe('payroll says what it computes (FR-32.12)', () => {
 
   it('the generic calculation states its gross as the base salary, with nothing computed beside it', () => {
     const service = read('services/src/biz/payroll.service.ts')
-    expect(service).toContain('const grossPay = baseSalary\n')
+    expect(service).toMatch(/const grossPay = baseSalary\r?\n/)
     expect(service).not.toMatch(/TODO: calculate from timesheets/)
   })
 
