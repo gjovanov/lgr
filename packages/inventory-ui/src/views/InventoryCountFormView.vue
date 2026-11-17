@@ -55,7 +55,7 @@
             <td>{{ line.productName || line.productId }}</td>
             <td class="text-end">{{ line.systemQuantity }}</td>
             <td>
-              <v-text-field v-model.number="line.countedQuantity" type="number" min="0" density="compact" hide-details variant="underlined" :disabled="readonly" />
+              <DecimalField v-model="line.countedQuantity" :decimals="QTY_DECIMALS" :min-decimals="0" min="0" density="compact" hide-details variant="underlined" :disabled="readonly" />
             </td>
             <td class="text-end" :class="(line.countedQuantity - line.systemQuantity) !== 0 ? 'text-error font-weight-bold' : 'text-success'">
               {{ line.countedQuantity - line.systemQuantity }}
@@ -75,6 +75,8 @@
 
 <script setup lang="ts">
 import { rowKey } from 'ui-shared/composables/row-key'
+import DecimalField from 'ui-shared/components/DecimalField.vue'
+import { QTY_DECIMALS } from 'ui-shared/composables/price-precision'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

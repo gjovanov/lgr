@@ -604,6 +604,7 @@
 </template>
 
 <script setup lang="ts">
+import { askConfirm } from 'ui-shared/composables/confirm'
 import { ref, reactive, computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -1349,7 +1350,7 @@ async function confirmCascade() {
 }
 
 async function deleteOrder() {
-  if (!confirm(t('invoicing.deleteOrderConfirm'))) return
+  if (!(await askConfirm({ text: t('invoicing.deleteOrderConfirm'), confirm: t('common.delete'), danger: true }))) return
   try {
     await httpClient.delete(`${orgUrl()}/invoicing/orders/${route.params.id}`)
     showSuccess(t('common.deletedSuccessfully'))

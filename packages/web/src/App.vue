@@ -27,6 +27,9 @@
     </template>
   </v-snackbar>
   <!-- FR-24.14: a newer build is served; offered, never forced while a form is dirty or a printer is up. -->
+  <!-- FR-31.17: the one confirm dialog (`ui-shared/composables/confirm#askConfirm`). -->
+  <ConfirmDialogHost />
+
   <v-snackbar :model-value="newBuild && !deadStart" :timeout="-1" location="bottom" color="info" data-testid="new-build">
     {{ $t('common.newVersion') }}
     <template #actions>
@@ -38,6 +41,7 @@
 
 <script setup lang="ts">
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import ConfirmDialogHost from 'ui-shared/components/ConfirmDialogHost.vue'
 import { deadStart, moveFailed, newBuild, reloadNow } from './stale'
 
 const { snackbar, hideSnackbar } = useSnackbar()
