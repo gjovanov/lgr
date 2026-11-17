@@ -452,7 +452,7 @@ Most of this FR is proven by CI, not in production.
     - The other models follow as they are touched (the order and the movement next), each the same three lines.
   - **Ratchets** (`unit/code-ratchets.test.ts`):
     - direct model calls in the API packages' controllers, 277 (272 on this branch's first base; the masters merged in since added five, three of them the journal list's document names, FR-29 D);
-    - `as any` outside the tests, 2 151 (2 173 at the audit, 2 183 on this branch's first base);
+    - `as any` outside the tests, 2 153 (2 173 at the audit, 2 183 on this branch's first base);
     - each file that uses the raw driver listed with its reason, and a new one fails until it is listed. Ten are listed with their reason still to be named.
 
 ### Slice D
