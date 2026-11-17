@@ -62,6 +62,17 @@ export async function runStockLevels(ctx: ReportHandlerContext): Promise<ReportR
 
   const match: Record<string, any> = { orgId: oid(ctx.orgId) }
   if (ctx.params.warehouseId) match.warehouseId = oid(ctx.params.warehouseId)
+  // FR-30.14: an article or a category narrows the levels themselves, before anything is joined: a category is resolved
+  // to its articles' ids first. They were matched on the joined article, after every level had been joined.
+  if (ctx.params.productId) match.productId = oid(ctx.params.productId)
+  if (ctx.params.categoryId) {
+    const { Product } = await import('db/models')
+    const categories = await categoryWithDescendants(ctx.orgId, String(ctx.params.categoryId))
+    const articles: any[] = await Product.find({ orgId: oid(ctx.orgId), categoryId: { $in: categories } }, { _id: 1 }).lean().exec()
+    match.productId = ctx.params.productId
+      ? (articles.some((a) => String(a._id) === String(ctx.params.productId)) ? oid(ctx.params.productId) : { $in: [] })
+      : { $in: articles.map((a) => a._id) }
+  }
 
   const pipeline: any[] = [{ $match: match }]
 
@@ -93,6 +104,12 @@ export async function runStockLevels(ctx: ReportHandlerContext): Promise<ReportR
 
   if (!includeZero) pipeline.push({ $match: { quantity: { $ne: 0 } } })
 
+  // FR-30.14: the order and the cut need nothing joined, unless the reorder filter does (it compares with the article's
+  // minimum): then the joins come first, as before. The report joined the article and the warehouse onto all 46 120
+  // levels of a shop before it sorted and cut: 138 154 documents read, 4 s.
+  const order = belowMin ? { quantity: 1 } : { totalValue: -1 }
+  if (!belowMin) pipeline.push({ $sort: order }, { $limit: cap + 1 })
+
   pipeline.push(
     {
       $lookup: {
@@ -106,13 +123,6 @@ export async function runStockLevels(ctx: ReportHandlerContext): Promise<ReportR
     { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
   )
 
-  if (ctx.params.productId) {
-    pipeline.push({ $match: { 'product._id': oid(ctx.params.productId) } })
-  }
-  if (ctx.params.categoryId) {
-    const ids = await categoryWithDescendants(ctx.orgId, String(ctx.params.categoryId))
-    pipeline.push({ $match: { 'product.categoryId': { $in: ids } } })
-  }
 
   if (!rollUp) {
     pipeline.push(
@@ -140,9 +150,10 @@ export async function runStockLevels(ctx: ReportHandlerContext): Promise<ReportR
     })
   }
 
+  if (belowMin) pipeline.push({ $sort: order }, { $limit: cap + 1 })
+  // A $lookup keeps the order it is given; the sort is said again so the rows come out in it whatever the stages do.
+  else pipeline.push({ $sort: order })
   pipeline.push(
-    { $sort: belowMin ? { quantity: 1 } : { totalValue: -1 } },
-    { $limit: cap + 1 },
     {
       $project: {
         _id: 0,

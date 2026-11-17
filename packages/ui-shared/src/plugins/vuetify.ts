@@ -1,5 +1,7 @@
 import 'vuetify/styles'
-import '@mdi/font/css/materialdesignicons.css'
+// FR-30.21: the icons the app uses, and no other (`scripts/build-icon-subset.ts`). The whole font was 395 KB of the
+// sign-in page's first load; `@mdi/font/css/materialdesignicons.css` back in place of this line is the rollback.
+import '../styles/icons/mdi-subset.css'
 // Loaded here rather than per app: every UI goes through createVuetifyPlugin, so this is the
 // one choke point that reaches all of them (desktop-ui included). See the file for why.
 import '../styles/tooltip.css'

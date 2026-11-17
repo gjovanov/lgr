@@ -43,6 +43,8 @@ export default defineConfig({
         'org-switcher.spec.ts',
         // The left navigation's header beside the app bar: collapsed, and on a phone.
         'shell-rail.spec.ts',
+        // FR-30 G (#795): the first load: a clean sign-in page, one language, the drag library with its picker, caching.
+        'first-load.spec.ts',
       ],
     },
     {

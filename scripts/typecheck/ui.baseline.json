@@ -68,9 +68,6 @@
   "packages/ui-shared/src/components/cash-register/CashRegisterJournal.vue": {
     "TS2322": 2
   },
-  "packages/ui-shared/src/plugins/i18n.ts": {
-    "TS2769": 1
-  },
   "packages/ui-shared/src/stores/app.store.ts": {
     "TS2344": 1,
     "TS2345": 1

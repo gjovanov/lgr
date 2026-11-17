@@ -58,6 +58,7 @@
           </div>
 
           <GridColumnPickerDialog
+            v-if="colDialogOpen"
             v-model="colDialogOpen"
             :entries="colEntries"
             @toggle="toggleCol"
@@ -124,12 +125,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, toRef, useSlots } from 'vue'
+import { computed, ref, toRef, useSlots, defineAsyncComponent } from 'vue'
 import { useRoute } from 'vue-router'
 import StatCard, { type StatCardDef } from './StatCard.vue'
 import EmptyState from './EmptyState.vue'
 import ListLoadError from './ListLoadError.vue'
-import GridColumnPickerDialog from './GridColumnPickerDialog.vue'
+// FR-30.23: the drag library comes with the picker, when it opens, and not with the screen.
+const GridColumnPickerDialog = defineAsyncComponent(() => import('./GridColumnPickerDialog.vue'))
 import { useGridColumns } from '../composables/useGridColumns'
 import type { PaginationState } from '../composables/usePaginatedTable'
 import { pageSizeOptions } from '../composables/page-sizes'
