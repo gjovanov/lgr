@@ -6,7 +6,8 @@ import { logger } from 'services/logger'
 import { verifyToken } from '../auth/verify-token.js'
 
 /**
- * `/ws/tasks` — background-task progress and notifications for the signed-in user (#154).
+ * `/ws/tasks` — background-task progress for the signed-in user (#154). (Its `notification` message had no
+ * sender but a test, and went with `sendNotification` in FR-32.9.)
  *
  * Protocol:
  *   Client → Server:
@@ -17,7 +18,6 @@ import { verifyToken } from '../auth/verify-token.js'
  *     { type: 'error', code, message }
  *     { type: 'pong', timestamp }
  *     { type: 'task:update', data }   one of THIS user's tasks moved
- *     { type: 'notification', data }
  *
  * ⚠ Until #154 the socket subscribed to whichever user its `?userId=` named, with no credential at
  * all. User ids are ObjectIds and not secret, so anyone could read anyone's task progress. The
@@ -151,8 +151,4 @@ export function setupWebSocket(app: Elysia<any, any, any, any, any, any, any, an
     message(ws, message: any) { void handleTasksMessage(ws, message) },
     close(ws) { handleTasksClose(ws) },
   })
-}
-
-export function sendNotification(userId: string, notification: object) {
-  broadcast(userId, { type: 'notification', data: notification })
 }

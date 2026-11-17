@@ -397,3 +397,18 @@ Most of this FR is proven by CI, not in production.
   - `audit-log.service.ts` (5: the four repositories that do not exist, a missing import) and `doc-import/persist.ts` (an audit entry stored without its content): [FR-29](FR-29-atomic-bookings-records-runtime.md) §1.5 and .22;
   - `access/evaluate.ts`, `access/role.service.ts`, `biz/auth.service.ts` and `dao/user.dao.ts` (5): files FR-27's open pull requests change;
   - `dao/warehouse/stock-level.dao.ts` (1): a dead DAO class, deleted by slice B.
+
+### Slice B
+
+- **FR-32.9, .10: dead code out** (`feat/797-fr32-b-dead-code`).
+  - The 24 DAO classes only tests imported are gone, with their four unit suites. That includes `org-app.dao.ts` and the `$text` query, which FR-30.4 had already removed.
+  - The base class's reads are lean for the four left (org, user, invite, sign-in code). `GET /org/:orgId` reads the lean org as `toJSON()` gave it. The open item about `.lean()` is closed.
+  - Nine files of `ui-shared` are deleted: the audit's eight, and `AuditLogPanel.vue`, which the new check found.
+  - Also deleted: the shell's unmounted `AppBreadcrumb` and the 69 `meta.breadcrumb` of the module manifests (D-4), and `sendNotification` with its `notification` message (D-4).
+  - `md-to-pdf` and the parity test's reference page (`tests/helpers/md-to-pdf-reference.ts`) moved to the tests package. `reporting` no longer depends on it.
+  - `unit/unimported-shared-files.test.ts` (FR-32.10) fails on a file of `ui-shared` or `ui-shell` that no source file imports. Its allow-list is empty.
+  - Tests that had to change (FR-32.27):
+    - `app-hub.flow` reads `OrgApp` itself, and its "OrgApp DAO" block went with the class;
+    - `movement-number`, `product-ledger` and `warehouse.flow` number their fixtures through `biz/movement-number#nextMovementNumber`, which the deleted DAO method called;
+    - `tasks-ws.flow` lost the `notification` assertions;
+    - `module-manifests` asserts that no route carries a breadcrumb.

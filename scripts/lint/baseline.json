@@ -768,9 +768,6 @@
   "packages/services/src/dao/invite.dao.ts": {
     "lgr/no-as-any": 4
   },
-  "packages/services/src/dao/org-app.dao.ts": {
-    "lgr/no-as-any": 3
-  },
   "packages/services/src/events/handlers.ts": {
     "lgr/no-as-any": 9
   },

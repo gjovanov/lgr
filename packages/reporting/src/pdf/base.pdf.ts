@@ -305,21 +305,8 @@ async function closeOrKill(browser: any): Promise<void> {
   if (!closed && proc && proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL')
 }
 
-/**
- * The page md-to-pdf handed Chrome (its `as_html`): the reference of the parity test, and the
- * only use left of the previous renderer. It printed pages unlocked (see `lockPage`), so the
- * `PDF_RENDERER=md-to-pdf` switch that brought it back is gone. ⚠ Test fixtures only: never hand
- * this anything a person typed.
- */
-export async function mdToPdfPageDom(content: string, options?: MarkdownToPdfOptions): Promise<string> {
-  const { mdToPdf } = await import('md-to-pdf')
-  const result = await mdToPdf({ content }, {
-    ...(options?.css ? { css: options.css } : {}),
-    as_html: true,
-    launch_options: { args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] },
-  } as any)
-  return String(result?.content ?? '')
-}
+// The page md-to-pdf handed Chrome, the parity test's reference, is `tests/helpers/md-to-pdf-reference.ts`
+// (FR-32.9): md-to-pdf is a dependency of the tests package only, never of one that ships.
 
 /**
  * Render markdown to a PDF, verifying the result is actually a document.

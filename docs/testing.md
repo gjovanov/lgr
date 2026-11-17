@@ -80,11 +80,7 @@ bun test packages/tests/src/unit/biz/accounting-posting.test.ts
 | File | Tests | Description |
 |------|-------|-------------|
 | `dao/core.dao.test.ts` | — | Generic CRUD operations (findAll, create, update, delete) |
-| `dao/accounting.dao.test.ts` | — | Account queries, trial balance data fetching |
-| `dao/invoicing.dao.test.ts` | — | Invoice filtering, payment history |
-| `dao/warehouse.dao.test.ts` | — | Stock level queries, movement history |
 | `dao/hr.dao.test.ts` | — | Employee, leave balance queries |
-| `dao/payroll.dao.test.ts` | — | Payroll run, payslip queries |
 | `dao/crm.dao.test.ts` | — | Lead, deal, pipeline queries |
 | `dao/erp.dao.test.ts` | — | Production order, BOM queries |
 
