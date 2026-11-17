@@ -92,7 +92,8 @@ const retrying = ref<string | null>(null)
 const url = () => `/org/${appStore.currentOrg?.id}/accounting/journal/postings`
 
 function eventLabel(event: string): string {
-  const key = `accounting.journalEntry.postings.events.${event}`
+  // The keys spell the event with underscores: a dot in a key is a level of the catalogue.
+  const key = `accounting.journalEntry.postings.events.${event.replace(/\./g, '_')}`
   return te(key) ? t(key) : event
 }
 

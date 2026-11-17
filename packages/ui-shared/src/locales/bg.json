@@ -909,10 +909,10 @@
           "createdAt": "Дължи се от"
         },
         "events": {
-          "invoice.posted": "Издаден документ",
-          "payment.recorded": "Плащане",
-          "stock.movement.confirmed": "Складово движение",
-          "pos.session.closed": "Затворена касова смяна"
+          "invoice_posted": "Издаден документ",
+          "payment_recorded": "Плащане",
+          "stock_movement_confirmed": "Складово движение",
+          "pos_session_closed": "Затворена касова смяна"
         },
         "states": {
           "queued": "Чака",

@@ -909,10 +909,10 @@
           "createdAt": "Owed since"
         },
         "events": {
-          "invoice.posted": "Issued document",
-          "payment.recorded": "Payment",
-          "stock.movement.confirmed": "Stock movement",
-          "pos.session.closed": "Till session closed"
+          "invoice_posted": "Issued document",
+          "payment_recorded": "Payment",
+          "stock_movement_confirmed": "Stock movement",
+          "pos_session_closed": "Till session closed"
         },
         "states": {
           "queued": "Waiting",

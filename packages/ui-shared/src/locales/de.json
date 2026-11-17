@@ -909,10 +909,10 @@
           "createdAt": "Geschuldet seit"
         },
         "events": {
-          "invoice.posted": "Ausgestellter Beleg",
-          "payment.recorded": "Zahlung",
-          "stock.movement.confirmed": "Lagerbewegung",
-          "pos.session.closed": "Kassenschicht geschlossen"
+          "invoice_posted": "Ausgestellter Beleg",
+          "payment_recorded": "Zahlung",
+          "stock_movement_confirmed": "Lagerbewegung",
+          "pos_session_closed": "Kassenschicht geschlossen"
         },
         "states": {
           "queued": "Wartet",
