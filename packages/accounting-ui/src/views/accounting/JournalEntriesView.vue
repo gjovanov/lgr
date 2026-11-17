@@ -22,6 +22,8 @@
     </template>
 
     <template #filters>
+      <!-- FR-29.17: the entries the org's documents still owe, and "Try again". -->
+      <OwedPostings @posted="fetchItems" />
       <FilterBar v-model:search="search">
         <v-col cols="12" sm="6" md="2">
           <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" clearable />
@@ -306,6 +308,7 @@ import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
+import OwedPostings from './OwedPostings.vue'
 
 const appStore = useAppStore()
 const store = useAccountingStore()

@@ -413,6 +413,21 @@ Most of this FR is proven by CI, not in production.
     - `tasks-ws.flow` lost the `notification` assertions;
     - `module-manifests` asserts that no route carries a breadcrumb.
 
+### Slice B, the open items
+
+- **FR-32.11, .12** (`feat/797-fr32-b-file-delete`):
+  - **Deleting a file deletes its bytes.** `DELETE /org/:orgId/file/:id` removes the stored object after the row (`services/biz/files/file-removal.service.ts`).
+    - Bytes another `File` row or a `DocFile` still names stay, in either the relative or the old absolute form.
+    - A file already gone, another provider's key and a path outside the org are left alone.
+    - A removal that fails is logged and leaves a `NodeState` marker (`file-removal:<hash>`, node state: the bytes are this node's). The retention tick retries it (`fileRemovalsRetried`).
+    - `integration/file-delete.flow.test.ts` deletes a file and looks for the object, and makes a removal fail, then lets the tick finish it.
+    - Files whose row was deleted before this are not touched: §4 leaves counting and removing them to the owner.
+  - **Payroll says what it computes** (D-5).
+    - The generic run's gross is the base salary, with no overtime, bonus or allowance figure computed beside it.
+    - Its form and its payslips say so (`payroll.legacyNotComputed`, four languages).
+    - The four payroll lists' Export and the payslip's PDF button did nothing. They are removed and filed as #830.
+    - The three TODOs left in the source are FR-25 §7.5's, and `unit/payroll-says-what-it-computes.test.ts` fails on a TODO that names no issue or spec item.
+
 ### Slice C
 
 - **FR-32.14** shipped first, by itself (#799).
@@ -422,6 +437,6 @@ Most of this FR is proven by CI, not in production.
     - `unit/entity-types.test.ts` compiles a probe. The entity has every field of the model, a field added to a model reaches its entity as a plain value, and a planted wrong type fails.
     - The other models follow as they are touched (the order and the movement next), each the same three lines.
   - **Ratchets** (`unit/code-ratchets.test.ts`):
-    - direct model calls in the API packages' controllers, 274 (272 on this branch's first base; the master it was rebased onto has two more);
-    - `as any` outside the tests, 2 163 (2 173 at the audit, 2 183 on this branch's first base);
+    - direct model calls in the API packages' controllers, 277 (272 on this branch's first base; the masters merged in since added five, three of them the journal list's document names, FR-29 D);
+    - `as any` outside the tests, 2 151 (2 173 at the audit, 2 183 on this branch's first base);
     - each file that uses the raw driver listed with its reason, and a new one fails until it is listed. Ten are listed with their reason still to be named.

@@ -90,6 +90,7 @@
                     <ProductLineDescription
                       :description="lineOf(node).description"
                       :product-id="lineOf(node).productId"
+                      :known="knownOf(lineOf(node).productId)"
                       price-field="sellingPrice"
                       class="flex-grow-1"
                       style="min-width: 0"
@@ -739,6 +740,7 @@ function takeReservations(data: any) {
   reservations.value = data.reservations || []
   linkedInvoices.value = data.lookup?.invoices || {}
   if (data.lookup?.contacts) Object.assign(contactNames.value, data.lookup.contacts)
+  if (data.lookup?.products) knownProducts.value = data.lookup.products
   if (data.lookup?.orders) {
     for (const [oid, info] of Object.entries<any>(data.lookup.orders)) orderNumbers.value[oid] = info.orderNumber
   }
@@ -778,6 +780,16 @@ const supplierOptions = ref<any[]>([])
 const loadingContacts = ref(false)
 const warehouses = ref<Array<{ _id: string; name: string; isDefault?: boolean }>>([])
 const contactNames = ref<Record<string, string>>({})
+/**
+ * FR-30.10: the articles as the order's read named them (`lookup.products`), so a line reads no article to show its
+ * name. A line given another article reads that one, as before.
+ */
+const knownProducts = ref<Record<string, { name: string }>>({})
+function knownOf(productId?: string | null): { id: string; name: string } | null {
+  const p = productId ? knownProducts.value[String(productId)] : undefined
+  return p ? { id: String(productId), name: p.name } : null
+}
+
 
 let contactSearchTimer: ReturnType<typeof setTimeout> | null = null
 function onContactSearch(text: string, pool: 'client' | 'supplier') {
@@ -788,7 +800,8 @@ function onContactSearch(text: string, pool: 'client' | 'supplier') {
 async function fetchContacts(pool: 'client' | 'supplier', search?: string) {
   loadingContacts.value = true
   try {
-    const params: Record<string, any> = { size: 20 }
+    // FR-30.7: the picker's rows, not whole contacts.
+    const params: Record<string, any> = { size: 20, fields: 'list' }
     if (pool === 'supplier') params.type = 'supplier'
     if (search) params.search = search
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params })

@@ -4,6 +4,7 @@ import type { IBatchRepository } from 'dal'
 import { DuplicateError, ValidationError } from 'dal'
 import { toEntity, toDocument } from './entity-mapper.js'
 import { translateFilter } from './filter-translator.js'
+import { pageUnderCeiling } from 'config/list-rows'
 
 /**
  * A DAL projection as Mongoose takes it. `id` is the document's `_id`, which Mongo returns unless it
@@ -60,26 +61,27 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     const mongoFilter = translateFilter(filter)
     const projection = toProjection(opts?.select)
     const sort = page?.sort ?? { createdAt: -1 }
-    const size = page?.size ?? 10
     const pageNum = page?.page ?? 0
+    // FR-30.8: "All" (`size <= 0`) and any size above the ceiling are the ceiling, unless the caller reads every row on
+    // purpose. It used to be up to 100 000 whole documents: 81.6 MB for the Products list.
+    const { take, asked } = pageUnderCeiling(page?.size ?? 10, page?.unbounded)
 
-    if (size <= 0) {
-      // size <= 0 means "all items, no pagination". Hard backstop at 100k for sanity.
-      const MAX_ROWS = 100_000
-      const docs = await this.model.find(mongoFilter, projection, withSession(opts)).sort(sort).limit(MAX_ROWS).lean().exec()
-      if (docs.length >= MAX_ROWS) {
-        // Surface as a soft warning; clients asking for "all" on huge collections should paginate.
-        console.warn(`[dal-mongo] findAll on ${this.model.modelName} returned ${MAX_ROWS}+ rows — consider pagination`)
-      }
+    if (asked === Infinity) {
+      const q = this.model.find(mongoFilter, projection, withSession(opts)).sort(sort)
+      const docs = await (take === Infinity ? q : q.limit(take)).lean().exec()
+      // Cut only when the ceiling was reached: then the real total is counted, and the answer says it was cut.
+      const total = docs.length < take ? docs.length : await this.model.countDocuments(mongoFilter, withSession(opts)).exec()
       return {
         items: docs.map(d => toEntity<T>(d)),
-        total: docs.length,
+        total,
         page: 0,
         size: docs.length,
         totalPages: 1,
+        ...(total > docs.length ? { truncated: true as const } : {}),
       }
     }
 
+    const size = take
     const skip = pageNum * size
     const [docs, total] = await Promise.all([
       this.model.find(mongoFilter, projection, withSession(opts)).sort(sort).skip(skip).limit(size).lean().exec(),
@@ -92,6 +94,7 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
       page: pageNum,
       size,
       totalPages: Math.ceil(total / size),
+      ...(asked > size && total - skip > size ? { truncated: true as const } : {}),
     }
   }
 

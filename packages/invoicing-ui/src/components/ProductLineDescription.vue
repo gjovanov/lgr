@@ -113,6 +113,11 @@ const props = defineProps<{
   allowCreate?: boolean
   /** The warehouse whose stock the hits show (the document's); none: the sum over the warehouses. */
   stockWarehouseId?: string | null
+  /**
+   * FR-30.10: the article as the document's read named it (`GET /invoices/:id` gives each line its article's name). Used
+   * while the line holds that article, so a saved document reads no article per line; another article is read.
+   */
+  known?: { id: string; name: string } | null
 }>()
 
 const emit = defineEmits<{
@@ -349,6 +354,7 @@ async function resolveProductName(pid: string | undefined) {
   if (!pid) { linkedProductName.value = ''; return }
   const found = products.value.find((p) => p._id === pid)
   if (found) { linkedProductName.value = found.name; return }
+  if (props.known && props.known.id === String(pid)) { linkedProductName.value = props.known.name; return }
   try {
     const orgId = appStore.currentOrg?.id
     if (!orgId) return

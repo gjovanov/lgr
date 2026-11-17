@@ -23,7 +23,8 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
     const r = getRepos()
 
     if (query.view === 'tree') {
-      const allResult = await r.accounts.findAll({ orgId } as any, { page: 0, size: 0, sort: { code: 1 } })
+      // The whole chart: a tree of part of it would hang branches on the wrong root (FR-30.8's ceiling is for lists).
+      const allResult = await r.accounts.findAll({ orgId } as any, { page: 0, size: 0, sort: { code: 1 }, unbounded: true })
       const accounts = allResult.items
       const map = new Map<string, any>()
       const roots: any[] = []
@@ -56,7 +57,10 @@ export const accountController = new Elysia({ prefix: '/org/:orgId/accounting/ac
     const sortBy = (query.sortBy as string) || 'code'
     const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : 1
 
-    const result = await r.accounts.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+    // FR-30.8: the chart's "All" is a declared lean "all", past the ceiling. Every accounting picker looks an account up
+    // in it (`accounting.store#fetchAccounts`), and an account missing from it shows as its raw id. A books org holds a
+    // few hundred small rows.
+    const result = await r.accounts.findAll(filter, { page, size, sort: { [sortBy]: sortOrder }, unbounded: size <= 0 })
     return { accounts: result.items, ...result }
   }, { isSignIn: true })
   .post(

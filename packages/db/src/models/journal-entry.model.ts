@@ -165,6 +165,12 @@ export interface IJournalEntry extends Document {
   /** What a re-import of its month matches it by, and whether it changed (FR-25 §5.5). */
   importKey?: string
   importHash?: string
+  /**
+   * FR-29.14: the posting this entry is, `<event>:<source>` (`config/posting-keys`), on an entry an event handler made.
+   * Unique per org, so an event handled twice, or a retry that meets a posting already made, leaves one entry.
+   * Entries made before FR-29 carry none, and neither do those made by hand or by the books import.
+   */
+  postingKey?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -276,6 +282,7 @@ const journalEntrySchema = new Schema<IJournalEntry>(
     importBatchId: Schema.Types.ObjectId,
     importKey: String,
     importHash: String,
+    postingKey: String,
   },
   { timestamps: true },
 )
@@ -294,6 +301,9 @@ journalEntrySchema.index({ orgId: 1, docType: 1, docNumber: 1 })
 journalEntrySchema.index({ orgId: 1, type: 1, date: -1 })
 // One imported entry per key: of two imports of a month at once, the second fails instead of doubling it.
 journalEntrySchema.index({ orgId: 1, importKey: 1 }, { unique: true, partialFilterExpression: { importKey: { $type: 'string' } } })
+// FR-29.14: one entry per posting. Partial, as `importKey`'s: the entries that carry no key are not in it, so it builds over
+// every journal that exists today.
+journalEntrySchema.index({ orgId: 1, postingKey: 1 }, { unique: true, partialFilterExpression: { postingKey: { $type: 'string' } } })
 // FR-25a §3.6: the journal grid's filters (`services/biz/journal-header.service.ts#journalListFilter`), newest first. A
 // books org holds years of entries, so a filter that fetched them all to test one field would read every one, twice
 // (the page and its count). Partial: only an entry that carries the field is in them, so an org without the books' header

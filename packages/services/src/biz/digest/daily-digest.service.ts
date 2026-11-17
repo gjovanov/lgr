@@ -27,6 +27,8 @@ import {
   EmailLog,
   Org,
   OrgHome,
+  POSSession,
+  PostingJob,
   Outbox,
   ReplOrg,
 } from 'db/models'
@@ -699,6 +701,35 @@ async function buildOps(orgId: string, date: string): Promise<DigestOps> {
     })),
     failedEmailCount,
     personalDataLocked: personalDataStatus().unopenable.includes(String(orgId)),
+    ...(await failedPostingsOf(orgId)),
+  }
+}
+
+/**
+ * FR-29.17: the org's postings that failed for good, named by their document's number. Not of one day: a failed one
+ * stays in every digest until an accountant posts it.
+ */
+async function failedPostingsOf(orgId: string): Promise<{ failedPostings: { event: string; document: string }[]; failedPostingCount: number }> {
+  const filter = { orgId: oid(orgId), state: 'failed' as const }
+  const [rows, count] = await Promise.all([
+    PostingJob.find(filter, { event: 1, invoiceId: 1, movementId: 1, sessionId: 1 }).sort({ createdAt: -1 }).limit(DIGEST_CAPS.emails).lean().exec(),
+    PostingJob.countDocuments(filter).exec(),
+  ])
+  if (!count) return { failedPostings: [], failedPostingCount: 0 }
+  const ids = (k: 'invoiceId' | 'movementId' | 'sessionId') => rows.map(r => r[k]).filter(Boolean)
+  const [invoices, movements, sessions] = await Promise.all([
+    Invoice.find({ orgId: oid(orgId), _id: { $in: ids('invoiceId') } }, { invoiceNumber: 1 }).lean().exec(),
+    StockMovement.find({ orgId: oid(orgId), _id: { $in: ids('movementId') } }, { movementNumber: 1 }).lean().exec(),
+    POSSession.find({ orgId: oid(orgId), _id: { $in: ids('sessionId') } }, { sessionNumber: 1 }).lean().exec(),
+  ])
+  const name = new Map<string, string>([
+    ...invoices.map(i => [String(i._id), String(i.invoiceNumber ?? '')] as [string, string]),
+    ...movements.map(m => [String(m._id), String(m.movementNumber ?? '')] as [string, string]),
+    ...sessions.map(s => [String(s._id), String(s.sessionNumber ?? '')] as [string, string]),
+  ])
+  return {
+    failedPostingCount: count,
+    failedPostings: rows.map(r => ({ event: r.event, document: name.get(String(r.invoiceId ?? r.movementId ?? r.sessionId ?? '')) ?? '' })),
   }
 }
 
@@ -807,7 +838,7 @@ function sectionIsEmpty(key: DigestSectionKey, value: any): boolean {
     case 'materials':
       return !value.sold.rowCount && !value.transferred.rowCount && !value.loaded.rowCount
     case 'ops':
-      return !value.tasks.length && !value.failedEmailCount && !value.personalDataLocked
+      return !value.tasks.length && !value.failedEmailCount && !value.personalDataLocked && !value.failedPostingCount
     // FR-20.100: a server that crossed no threshold is nothing to report.
     case 'server':
       return !value.alarms.length
