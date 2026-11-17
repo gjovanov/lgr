@@ -128,6 +128,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   entityKey: 'contacts',
   filters,
   defaultSize: 25,
+  // FR-30.7: the picker's rows, not whole contacts.
+  listFields: true,
 })
 
 const headers = computed(() => [

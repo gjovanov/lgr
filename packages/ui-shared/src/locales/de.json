@@ -893,6 +893,37 @@
         "reporting_month_invalid": "Geben Sie einen Monat ein.",
         "date_invalid": "Geben Sie ein Datum ein.",
         "link_incomplete": "Jede Verknüpfung braucht eine Art und eine Nummer."
+      },
+      "postings": {
+        "owed": "{count} Buchungssätze werden von Belegen geschuldet und sind noch nicht gebucht. Sie werden von selbst erneut versucht.",
+        "failed": "{count} Buchungssätze konnten nach allen Versuchen nicht gebucht werden.",
+        "show": "Anzeigen",
+        "hide": "Ausblenden",
+        "retry": "Erneut versuchen",
+        "columns": {
+          "document": "Beleg",
+          "event": "Buchung",
+          "state": "Status",
+          "attempts": "Versuche",
+          "lastError": "Letzter Fehler",
+          "createdAt": "Geschuldet seit"
+        },
+        "events": {
+          "invoice_posted": "Ausgestellter Beleg",
+          "payment_recorded": "Zahlung",
+          "stock_movement_confirmed": "Lagerbewegung",
+          "pos_session_closed": "Kassenschicht geschlossen"
+        },
+        "states": {
+          "queued": "Wartet",
+          "failed": "Fehlgeschlagen"
+        },
+        "outcomes": {
+          "done": "Gebucht",
+          "retry": "Nicht gebucht: wird erneut versucht",
+          "failed": "Nicht gebucht",
+          "not_due": "Wird gerade gebucht"
+        }
       }
     },
     "paymentCodes": {
@@ -936,6 +967,7 @@
     "default": "Standard"
   },
   "payroll": {
+    "legacyNotComputed": "Überstunden, Prämien und Zulagen werden hier nicht berechnet: das Bruttogehalt ist das Grundgehalt.",
     "timesheetTypes": {
       "regular": "Regulär",
       "overtime": "Überstunden",

@@ -38,6 +38,7 @@ const READS_NO_BODY: Record<string, string> = {
   'POST /api/org/:orgId/permission-sets/migrate': 'it migrates the org the URL names',
   'POST /api/org/:orgId/accounting/journal/:id/post': ACTION,
   'POST /api/org/:orgId/accounting/journal/:id/void': ACTION,
+  'POST /api/org/:orgId/accounting/journal/postings/:id/retry': ACTION,
   'POST /api/org/:orgId/invoices/:id/receipt': ACTION,
   'POST /api/org/:orgId/invoices/:id/void': ACTION,
   'POST /api/org/:orgId/invoicing/number-clashes/:id/prepare': ACTION,
