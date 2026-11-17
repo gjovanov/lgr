@@ -122,4 +122,10 @@ export interface ReadOptions extends SessionOptions {
    * reads as if none were named.
    */
   hint?: Readonly<Record<string, 1 | -1>>
+  /**
+   * FR-30.2: read the page through this index (its name): the one the list declares for its sort
+   * (`config/list-sorts`). For a query another index could also answer, which the planner may pick (or keep cached) for
+   * the same shape. Ignored with `hint`. A store without it reads as if none were named.
+   */
+  index?: string
 }

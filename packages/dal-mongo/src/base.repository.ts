@@ -26,7 +26,9 @@ const HINTED_PAGE_MAX = 300
  * Run a read through `hint`, or without one when the store has no such index (a database whose index is still being
  * built as the server starts): the same read, served as the planner chooses.
  */
-async function withHint<R>(hint: Record<string, 1 | -1> | undefined, run: (h?: Record<string, 1 | -1>) => Promise<R>): Promise<R> {
+type IndexHint = Record<string, 1 | -1> | string
+
+async function withHint<R>(hint: IndexHint | undefined, run: (h?: IndexHint) => Promise<R>): Promise<R> {
   if (!hint) return run()
   try {
     return await run(hint)
@@ -101,11 +103,14 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     const size = take
     const skip = pageNum * size
     const hint = opts?.hint
-    const find = (h?: Record<string, 1 | -1>, extra = 0) => {
+    // FR-30.2: the page through the index the list declares for its sort (by name), when the caller names it; the
+    // count stays the planner's.
+    const pageIndex: IndexHint | undefined = hint ?? opts?.index
+    const find = (h?: IndexHint, extra = 0) => {
       const q = this.model.find(mongoFilter, projection, withSession(opts)).sort(sort).skip(skip).limit(size + extra)
       return (h ? q.hint(h) : q).lean().exec()
     }
-    const count = (h?: Record<string, 1 | -1>) => this.model.countDocuments(mongoFilter, withSession(opts, h ? { hint: h } : undefined)).exec()
+    const count = (h?: IndexHint) => this.model.countDocuments(mongoFilter, withSession(opts, h ? { hint: h } : undefined)).exec()
 
     /*
      * FR-30.11: a read through an index named for it (the product search) first reads the matches' ids from that
@@ -141,7 +146,7 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
 
     // FR-30.12: a type-ahead's page: one row more than it holds tells whether more follow, and nothing is counted.
     if (page?.count === false || page?.count === 'when-more') {
-      const rows = await withHint(hint, (h) => find(h, 1))
+      const rows = await withHint(pageIndex, (h) => find(h, 1))
       const hasMore = rows.length > size
       const docs = hasMore ? rows.slice(0, size) : rows
       const seen = skip + docs.length + (hasMore ? 1 : 0)
@@ -149,7 +154,7 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
       return { items: docs.map(d => toEntity<T>(d)), total, page: pageNum, size, totalPages: Math.ceil(total / size), hasMore }
     }
 
-    const [docs, total] = await withHint(hint, (h) => Promise.all([find(h), count(h)]))
+    const [docs, total] = await Promise.all([withHint(pageIndex, (h) => find(h)), withHint(hint, count)])
 
     return {
       items: docs.map(d => toEntity<T>(d)),
