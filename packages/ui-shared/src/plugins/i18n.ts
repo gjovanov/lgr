@@ -1,5 +1,4 @@
 import { createI18n, type I18n } from 'vue-i18n'
-import en from '../locales/en.json'
 import vuetifyEn from 'vuetify/lib/locale/en.js'
 import vuetifyDe from 'vuetify/lib/locale/de.js'
 import vuetifyBg from 'vuetify/lib/locale/bg.js'
@@ -38,11 +37,13 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
 }
 
 /**
- * The catalogues other than English, loaded when they are needed. English is the fallback, so it
- * is always in the bundle; the other three (~600 KB, about 120 KB gzipped) used to be in every
- * SPA's first load for a person who reads one of them at most (FR-24.15).
+ * The catalogues, each loaded when it is needed: a session downloads its own language and no other (FR-30.22). The
+ * other three used to be in every SPA's first load (FR-24.15), and English stayed there after that as the fallback,
+ * so a Bulgarian session downloaded English and Bulgarian. Nothing needs English as a fallback: the four catalogues
+ * * have the same keys.
  */
 const CATALOGS: Record<string, () => Promise<{ default: Record<string, unknown> }>> = {
+  en: () => import('../locales/en.json'),
   mk: () => import('../locales/mk.json'),
   de: () => import('../locales/de.json'),
   bg: () => import('../locales/bg.json'),
@@ -58,16 +59,20 @@ function catalogFor(locale: string, base: Record<string, unknown>, extra?: Local
 }
 
 /**
- * Factory function to create an i18n instance, with English loaded. Accepts optional additional
- * locale messages to merge on top of the base messages, now and as each language loads.
- * `loadLocale` (registerPlugins calls it with the person's language) loads and selects a language.
+ * Factory function to create an i18n instance, with no language loaded yet. Accepts optional additional
+ * locale messages to merge on top of the base messages as each language loads.
+ * `loadLocale` (registerPlugins calls it with the person's language, and the SPA mounts once it has) loads and
+ * selects a language.
  */
 export function createI18nPlugin(additionalMessages?: LocaleMessages): I18n {
   const i18n = createI18n({
     legacy: false,
     locale: DEFAULT_LOCALE,
+    // FR-30.22: a language falls back to English only once English is loaded (a session that switched to it).
     fallbackLocale: FALLBACK_LOCALE,
-    messages: { en: catalogFor('en', en as Record<string, unknown>, additionalMessages) },
+    fallbackWarn: false,
+    missingWarn: false,
+    messages: {},
   }) as unknown as I18n
   if (additionalMessages) extraMessages.set(i18n, additionalMessages)
   return i18n
@@ -80,7 +85,14 @@ export async function loadLocale(i18n: I18n, locale: string): Promise<void> {
   if (!global.availableLocales.includes(locale)) {
     const load = CATALOGS[locale]
     if (!load) return
-    const base = (await load()).default
+    let base: Record<string, unknown>
+    try {
+      base = (await load()).default
+    } catch (e) {
+      // A language that did not arrive: English rather than keys, if English does.
+      if (locale !== DEFAULT_LOCALE) return loadLocale(i18n, DEFAULT_LOCALE)
+      throw e
+    }
     global.setLocaleMessage(locale, catalogFor(locale, base, extraMessages.get(i18n)))
   }
   if (typeof global.locale === 'object') global.locale.value = locale

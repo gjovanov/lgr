@@ -4,8 +4,5 @@
   },
   "packages/desktop-ui/src/views/SettingsView.vue": {
     "TS18047": 1
-  },
-  "packages/ui-shared/src/plugins/i18n.ts": {
-    "TS2769": 1
   }
 }

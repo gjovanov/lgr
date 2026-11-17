@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-16. Slices A (FR-30.1 to .4) and B (FR-30.6 to .10) built, §11. The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-16. Slices A (FR-30.1 to .4), B (FR-30.6 to .10), F (FR-30.19, .20) and G (FR-30.21 to .27) built, §11. The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | FR-05 and FR-22 (`ListScaffold`, `usePaginatedTable`, grid state in the URL, the click-budget walks), FR-28 (the product search, its explain test and request-count test), FR-06 (the reports registry), FR-24 (one SPA, `scripts/check-web-bundle.ts`), the lowered search mirrors (`db/src/plugins/lowered-fields.plugin.ts`) |
 | **Touches** | `db` (indexes on `Product`, `Invoice`, `StockLevel`, `StockMovement`; the lowered-fields plugin), `packages/migrations` (dropping indexes), `dal-mongo` and `services` (pagination, search, the stock-levels report, the contact ledger, dashboards), `invoicing-api` and `warehouse-api` (list endpoints), `reporting` (PDF), `ui-shared` (the list engine, the icon set, locales), `invoicing-ui` and `inventory-ui` (document open, the count form), `portal-api` (static files, two small endpoints), `packages/server` (the on-prem master's static files) |
 | **Tracking** | [gjovanov/lgr#795](https://github.com/gjovanov/lgr/issues/795) |
@@ -445,3 +445,18 @@ The demo organization is small, so production proves that nothing changed, and t
 | Ten at once | ten launches | 1.4 s in all, one launch |
 
 **Tests.** `unit/pdf-shared-browser.test.ts`: no launch over ten renders after the first; two renders at once in two contexts, neither the default, both closed after; a browser killed mid-render, and the render beside it still prints through the retry; ten at once all arrive with at most two rendering together; a render waiting for its turn fails at its own deadline. The renderer's own tests (`pdf-render-deadline`, `pdf-page-lock`, `pdf-renderer`) are unchanged.
+
+### Slice G (FR-30.21 to .27), 2026-11-17
+
+**What was built.**
+- **Icons (FR-30.21, D-5).** `scripts/build-icon-subset.ts` collects the `mdi-…` names the UI sources use (every package's `src`, the web shell), Vuetify's own (`vuetify/lib/iconsets/mdi`) and an allow-list (empty: no name is built at runtime), and writes a subset font (`subset-font`, a dev dependency), its stylesheet and the names into `ui-shared/src/styles/icons/`, committed. The templates keep their string names. `unit/icon-subset.test.ts` fails on a name used and not shipped. 320 of 7 447 icons: 17.4 KB woff2, against 393.8 KB. Rollback: import `@mdi/font/css/materialdesignicons.css` again in `plugins/vuetify.ts`.
+- **One language per session (FR-30.22).** English left the entry chunk: every catalogue loads on demand, the session's own before the app mounts, another when the person switches. A catalogue that does not arrive falls back to English.
+- **The drag library with its picker (FR-30.23).** The grid and line column pickers are async components, mounted when opened (`ListScaffold`, the product picker, the document lines, the accounting lists, the report runner).
+- **Caching (FR-30.24).** A file whose name carries Vite's hash is served `public, max-age=31536000, immutable` (`spa-fallback.ts#uiStaticPlugin`); any other keeps the plugin's default; the shell stays `no-store`.
+- **The budget (FR-30.25).** `check-web-bundle.ts` counts the first load's styles (gzipped, 60 KB) and the fonts they ask for (40 KB), each and with the JavaScript (450 KB in all).
+- **Compression without an ingress (FR-30.26).** The web build writes `.br` and `.gz` beside each text asset (`packages/web/scripts/compress-assets.ts`); the server sends the one the browser accepts for a hashed file. An on-prem master's ingress passes it through.
+- **Not there is not an error (FR-30.27).** `GET /api/auth/idp/config` answers `{ enabled: false }`, 200, where "Sign in with LGR" is not offered (it was a 404 on every visit to the sign-in page); an org without a logo answers 204, and Settings → Organization shows its placeholder. `integration/sign-in-with-lgr.flow` asserted the 404 and now asserts the 200: the one changed assertion, the behaviour FR-30.27 changes.
+
+**Measured.** The icon font: 393.8 KB → 17.4 KB. The bundle's figures are what CI's `check:web` prints on the pull request (recorded there).
+
+**Tests.** `unit/icon-subset.test.ts`, `integration/static-cache.flow.test.ts` (hash detection, immutable and not, Brotli and gzip with their types, both static modes), `e2e/first-load.spec.ts` (a clean sign-in page, one language, the picker's chunk only on opening it, the cache headers), `integration/sign-in-with-lgr.flow` (the 200).

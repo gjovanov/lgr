@@ -55,7 +55,7 @@
       </v-card-text>
     </v-card>
 
-    <GridColumnPickerDialog v-model="colDialogOpen" :entries="colEntries" @toggle="toggleCol" @reorder="reorderCols" @reset="resetCols" />
+    <GridColumnPickerDialog v-if="colDialogOpen" v-model="colDialogOpen" :entries="colEntries" @toggle="toggleCol" @reorder="reorderCols" @reset="resetCols" />
 
     <v-data-table-server
       :headers="effectiveHeaders"
@@ -137,7 +137,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
@@ -149,7 +149,8 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useGridColumns } from 'ui-shared/composables/useGridColumns'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
-import GridColumnPickerDialog from 'ui-shared/components/GridColumnPickerDialog.vue'
+// FR-30.23: the drag library comes with the picker, when it opens, and not with the screen.
+const GridColumnPickerDialog = defineAsyncComponent(() => import('ui-shared/components/GridColumnPickerDialog.vue'))
 import { TAX_CATEGORIES, dayOf, taxCategoryRoman } from 'config/fixed-asset-tax'
 import { assetCurrency, fixedAssetFilters, refusalKey, statusColor, statusLabelKey } from './fixed-asset-form'
 
