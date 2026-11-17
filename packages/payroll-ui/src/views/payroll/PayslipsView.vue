@@ -65,6 +65,10 @@
               </tr>
             </tbody>
           </v-table>
+          <!-- FR-32.12 (D-5): a payslip of the generic run says what it does not compute. -->
+          <div v-if="selectedPayslip.engine !== 'bg'" class="text-caption text-medium-emphasis mt-1" data-testid="legacy-not-computed">
+            {{ $t('payroll.legacyNotComputed') }}
+          </div>
 
           <v-divider class="my-3" />
           <div class="text-subtitle-1 font-weight-bold mb-2">{{ $t('payroll.deductions') }}</div>
