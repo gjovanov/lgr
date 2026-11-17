@@ -1676,7 +1676,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   // ── issue (FR-22.17 / .18) ──
   // FR-22.61b: an invoice the question linked to its stock note is another document than the form holds: read again.
-  const issuer = useDocumentIssue({ onLinked: () => loadDocument() })
+  const issuer = useDocumentIssue({ onLinked: async () => { await loadDocument() } })
   const issuing = ref(false)
   const issuingWithPrint = ref(false)
   /** Why the document is still a draft after it was asked to be issued (FR-22 §5.2). */
