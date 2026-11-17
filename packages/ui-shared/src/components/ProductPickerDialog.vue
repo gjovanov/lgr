@@ -110,6 +110,7 @@ import { useProductColumns, PRODUCT_CELL_KEYS } from '../composables/product-lis
 import ProductFilterBar from './product-list/ProductFilterBar.vue'
 import ProductCell from './product-list/ProductCell.vue'
 import GridColumnPickerDialog from './GridColumnPickerDialog.vue'
+import { pageSizeOptions } from '../composables/page-sizes'
 
 /**
  * FR-28.23 — the product dialog is the Products list in a window ("Details").
@@ -196,14 +197,17 @@ const {
 const suppliersShown = computed(() => effectiveHeaders.value.some((h: any) => h.key === 'suppliers'))
 watch(suppliersShown, (shown) => { if (shown && props.modelValue) void list.fetchSupplierFacts() })
 
-/** "All" only where the server can answer it: the till's catalog pages at 200 at most. */
-const pageSizes = computed(() => [
+/**
+ * "All" only where the server can answer it: the till's catalog pages at 200 at most, and a list answer carries at most
+ * a thousand rows (FR-30.9).
+ */
+const pageSizes = computed(() => pageSizeOptions([
   { value: 10, title: '10' },
   { value: 25, title: '25' },
   { value: 50, title: '50' },
   { value: 100, title: '100' },
   ...(props.source === 'till' ? [] : [{ value: -1, title: '$vuetify.dataFooter.itemsPerPageAll' }]),
-])
+], list.pagination.total))
 
 // ── what is ticked, and what the keyboard has under it ──
 const selectedIds = ref<string[]>([])

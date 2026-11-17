@@ -20,6 +20,7 @@
     :data-typed="typed ? 'true' : 'false'"
     @update:model-value="onValueChange"
     @update:search="typing = !!$event"
+    @update:focused="onFocused"
   >
     <template v-if="!typed" #prepend-inner>
       <v-icon size="x-small" icon="mdi-lock-outline" :title="$t('invoicing.pricePickOnly')" :aria-label="$t('invoicing.pricePickOnly')" data-testid="price-pick-only" />
@@ -181,9 +182,10 @@ function lookupNow(): Promise<void> {
   if (quantityTimer) { clearTimeout(quantityTimer); quantityTimer = null }
   stopWaiting?.()
   stopWaiting = null
-  return loadOptions()
+  return deferred() ? Promise.resolve() : loadOptions()
 }
 function lookupAfterTyping() {
+  if (deferred()) return
   if (quantityTimer) clearTimeout(quantityTimer)
   quantityTimer = setTimeout(() => { void lookupNow() }, PRICE_LOOKUP_DELAY_MS)
   if (!stopWaiting) stopWaiting = waitingPriceLookup(lookupNow)
@@ -281,11 +283,30 @@ function onValueChange(val: any) {
   emit('price-selected', selectedOption)
 }
 
-// Watch for prop changes that should trigger re-fetch + auto-select
-watch(() => props.productId, loadOptions)
-watch(() => props.contactId, loadOptions)
-watch(() => props.all, loadOptions)
-watch(() => props.quantity, lookupAfterTyping, { flush: 'post' })
+/**
+ * FR-30.10: a line that keeps its price (`autoApplyResolved` off: loaded from a saved document, or pinned) needs its
+ * options only once someone opens its price, so it asks for them then. A saved document of 30 lines asked for 30 sets
+ * of options as it opened, none of which could change a price. A line that applies the resolved price asks at once.
+ */
+const opened = ref(false)
+const deferred = () => !props.autoApplyResolved && !opened.value
+function onFocused(focused: boolean) {
+  if (!focused || opened.value) return
+  opened.value = true
+  if (!options.value.length || !resolvedKey.value) void loadOptions()
+}
+function maybeLoad() {
+  if (deferred()) return
+  void loadOptions()
+}
 
-onMounted(loadOptions)
+// Watch for prop changes that should trigger re-fetch + auto-select
+watch(() => props.productId, maybeLoad)
+watch(() => props.contactId, maybeLoad)
+watch(() => props.all, maybeLoad)
+watch(() => props.quantity, lookupAfterTyping, { flush: 'post' })
+// A line that starts applying the resolved price (a change of contact re-resolves every line) asks now.
+watch(() => props.autoApplyResolved, (on) => { if (on) void loadOptions() })
+
+onMounted(maybeLoad)
 </script>

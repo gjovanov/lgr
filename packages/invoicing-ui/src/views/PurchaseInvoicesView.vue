@@ -297,6 +297,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   entityKey: 'invoices',
   filters,
   urlSync: true,
+  // FR-30.7: rows, not whole documents.
+  listFields: true,
 })
 
 // ── KPI summary ────────────────────────────────────────────────────────────
