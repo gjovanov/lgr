@@ -491,9 +491,9 @@ describe("a snapshot's diff takes what reading stock takes", () => {
     for (const who of ['nobody', 'biller']) {   // invoicing is not inventory either
       const run = await call('POST', files(`/${snapshotId}/compare`), tokens[who])
       expect(run.status).toBe(403)
-      expect(String(run.json.message).startsWith('Permission required: inventory.read')).toBe(true)
-      expect(run.json.permissions).toContain('inventory.read')
-      expect(run.json.permissions).toContain('inventory.write')
+      // FR-27 P3-5: the refusal of the stock read itself, by the role (`accessRefusal`).
+      expect(String(run.json.message).startsWith('Not part of your role')).toBe(true)
+      expect(run.json.capabilities).toContain('stock-levels.lookup')
       // The refusal carries none of what it refuses.
       expect(run.json.summary).toBeUndefined()
       expect(run.json.rows).toBeUndefined()
@@ -523,7 +523,7 @@ describe("a snapshot's diff takes what reading stock takes", () => {
     const stored = denied.json.results[0]
     expect(stored.docType).toBe('store_availability')
     expect(stored.outcome).toBe('created')
-    expect(String(stored.compare?.error).startsWith('Permission required: inventory.read')).toBe(true)
+    expect(String(stored.compare?.error).startsWith('Not part of your role')).toBe(true)
     expect(stored.compare.snapshotRows).toBeUndefined()
     const storedRow = await docRow(stored.docFileId)
     expect(storedRow.compareSummary ?? null).toBeNull()

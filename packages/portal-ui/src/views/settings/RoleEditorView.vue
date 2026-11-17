@@ -37,7 +37,6 @@
       </v-row>
 
       <v-alert v-if="role.all" type="info" variant="tonal" class="mb-4">{{ $t('access.ui.administratorFixed') }}</v-alert>
-      <v-alert v-if="role.needsRelease" type="warning" variant="tonal" class="mb-4">{{ $t('access.ui.needsReleaseHint') }}</v-alert>
       <v-alert v-if="role.unknownCaps?.length" type="warning" variant="tonal" class="mb-4">
         {{ $t('access.ui.unknownCaps') }}: {{ role.unknownCaps.join(', ') }}
       </v-alert>

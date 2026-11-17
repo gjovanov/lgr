@@ -5,7 +5,7 @@ import { setSession } from 'ui-shared/session/session'
 import { setLiveAccess } from 'ui-shared/access/live-grant'
 import { capShows, vCap } from 'ui-shared/access/v-cap'
 import { opensTarget } from 'ui-shared/access/page-access'
-import { CAPABILITIES } from 'config/access'
+import { CAPABILITIES, compileLegacy } from 'config/access'
 
 /**
  * FR-27.7 (#529) — generic read-only. A role that reads a feature and does not work on it sees its pages without New,
@@ -40,6 +40,12 @@ const org = { id: 'o1', slug: 'o1', name: 'O1' } as any
 // Reads invoicing, works on nothing: the legacy `member` reading the invoices.
 const reader = { id: 'u1', orgId: 'o1', role: 'member', permissions: ['invoicing.read'], exp: 4102444800 }
 const clerk = { ...reader, id: 'u2', permissions: ['invoicing.read', 'invoicing.write'] }
+/** FR-27 P3-5: a session's grant is its role's, as the sign-in and `/auth/me` say it (here: what those claims compile to). */
+const roleOf = (claims: { role: string; permissions: string[] }) => {
+  const grant = compileLegacy(claims) as { caps: Set<string> }
+  return { all: false, caps: [...grant.caps], role: { id: 'r', name: 'R', version: 'r:1' } }
+}
+const signIn = (claims: typeof reader) => { setSession(token(claims), org); setLiveAccess(roleOf(claims)) }
 
 describe('capShows: the rule of v-cap and a form action\'s cap', () => {
   it('any one of the capabilities; none named shows; an id the catalogue does not know hides', () => {
@@ -54,16 +60,15 @@ describe('capShows: the rule of v-cap and a form action\'s cap', () => {
   })
 
   it('the session decides: a reader is shown no write, a clerk is', () => {
-    setSession(token(reader), org)
+    signIn(reader)
     expect(capShows('contacts.view')).toBe(true)
     expect(capShows(['contacts.create', 'contacts.edit'])).toBe(false)
-    setSession(token(clerk), org)
+    signIn(clerk)
     expect(capShows(['contacts.create', 'contacts.edit'])).toBe(true)
   })
 
   it('the directive hides the element, marks it, and follows the live grant', async () => {
-    setSession(token(clerk), org)
-    setLiveAccess(null)
+    signIn(clerk)
     const el: any = { dataset: {}, style: {} }
     vCap.mounted!(el, { value: 'contacts.delete' } as any, null as any, null as any)
     expect(el.dataset.cap).toBe('contacts.delete')
@@ -82,11 +87,10 @@ describe('capShows: the rule of v-cap and a form action\'s cap', () => {
 
 describe('opensTarget: CreateButton shows only for a form the role opens', () => {
   it("a reader is offered no invoice form; a clerk is; a page the registry does not know is the server's", () => {
-    setSession(token(reader), org)
-    setLiveAccess(null)
+    signIn(reader)
     expect(opensTarget('/invoicing/invoices/new')).toBe(false)
     expect(opensTarget('/invoicing/invoices/new', { type: 'credit_note' })).toBe(false)
-    setSession(token(clerk), org)
+    signIn(clerk)
     expect(opensTarget('/invoicing/invoices/new')).toBe(true)
     expect(opensTarget('/invoicing/invoices/new', { type: 'credit_note' })).toBe(true)
     expect(opensTarget('/invoicing/nowhere/new')).toBe(true)

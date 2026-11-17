@@ -4,6 +4,7 @@ import { apiLogin, apiGet, apiPost } from './helpers/api'
 import { closeTillSession, createBackOfficeCashSale, openTillSession, ringTillSale } from './helpers/cash-register'
 import { BETA, signInAsMultiInAcme, switchTo } from './helpers/org-switcher'
 import { openNavDrawer } from './helpers/nav'
+import { compileLegacy } from '../../config/src/access'
 
 const API = process.env.BASE_URL || 'http://localhost:4001'
 const PASSWORD = 'e2e-test-pw-12345'
@@ -21,23 +22,21 @@ test.describe.configure({ mode: 'serial' })
 
 const username = `till-only-${Date.now()}`
 
-/** A user whose permissions are exactly `permissions`. A set replaces the role's defaults; `User.permissions` only adds to them. */
+/**
+ * A user whose role grants exactly what `permissions` granted a session (FR-27 P3-5, #529: a person is given a role;
+ * permission sets are no longer given to anyone): a role of their own, made through the roles API.
+ */
 async function userWith(name: string, permissions: string[]) {
   const admin = await apiLogin()
+  const grant = compileLegacy({ role: 'member', permissions })
+  const caps = grant.all ? [] : [...grant.caps]
+  const made = await apiPost(admin, '/roles', { name: `Role of ${name}`, caps })
+  expect(made.ok, `create the role → ${made.status}`).toBe(true)
+  const { role } = await made.json()
   const res = await apiPost(admin, '/user', {
-    email: `${name}@acme.com`, username: name, password: PASSWORD, firstName: 'Till', lastName: 'Only', role: 'member',
+    email: `${name}@acme.com`, username: name, password: PASSWORD, firstName: 'Till', lastName: 'Only', roleId: role.id,
   })
   expect(res.ok, `create the user → ${res.status}`).toBe(true)
-  const { user } = await res.json()
-  const set = await apiPost(admin, '/permission-sets', { name: `Set of ${name}`, permissions })
-  expect(set.ok, `create the set → ${set.status}`).toBe(true)
-  const { permissionSet } = await set.json()
-  const put = await fetch(`${API}/api/org/${admin.orgId}/user/${user.id || user._id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${admin.token}` },
-    body: JSON.stringify({ permissionSetIds: [permissionSet.id || permissionSet._id] }),
-  })
-  expect(put.ok, `assign the set → ${put.status}`).toBe(true)
 }
 
 /**

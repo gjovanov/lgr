@@ -14,7 +14,8 @@ import {
   type OAuthUserInfo,
 } from 'services/biz/oauth.service'
 import { inviteDao } from 'services/dao/invite.dao'
-import { User } from 'db/models'
+import { roleKeyOf } from '../helpers/factories'
+import { Role, User } from 'db/models'
 
 /**
  * The two OAuth holes from the 2026-09-21 review (#49), asserted closed.
@@ -82,7 +83,9 @@ describe('S-17 — OAuth may not self-enrol into an organisation', () => {
     // Verified: an invite admits a stranger, but only a provider-verified address founds a new person.
     const { user, isNew } = await getOrCreateUser({ ...stranger, emailVerified: true }, 'invited-org', invite.code)
     expect(isNew).toBe(true)
-    expect(user.role).toBe('accountant') // the invite decides, not a hardcoded 'member'
+    // The invite decides, not a hardcoded 'member' (FR-27 P3-5: the session names the role, `rid`).
+    const accountant: any = await Role.findOne({ orgId: org._id, isBuiltin: true, templateKey: 'accountant' }).lean()
+    expect(user.rid).toBe(String(accountant._id))
   })
 
   it('refuses an invite issued by a DIFFERENT org', async () => {
@@ -322,7 +325,7 @@ describe('S-20 — an OAuth email links an existing account only when the provid
     const info: OAuthUserInfo = { ...stranger, email: 'contractor@elsewhere.example', emailVerified: true }
     const { user, isNew } = await getOrCreateUser(info, 'unpinned-org', invite.code)
     expect(isNew).toBe(true)
-    expect(user.role).toBe('accountant')
+    expect(await roleKeyOf(user.id)).toBe('accountant')
   })
 
   it('but an unverified email can no longer found the person it admits (multi-org Phase 1B)', async () => {

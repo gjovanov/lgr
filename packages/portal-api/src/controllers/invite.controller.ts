@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
 import { RoleRefusal, assertAssignable, defaultRoleOf } from 'services/biz/access/role.service'
-import { Role } from 'db/models'
+import { Role, type IInvite } from 'db/models'
+import { roleDisplay } from 'config/access'
 import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { inviteDao } from 'services/dao/invite.dao'
@@ -13,6 +14,14 @@ import { IdentityError } from 'services/biz/identity/identity.service'
 import { joinOrgByInvite } from 'services/biz/identity/account.service'
 import { inviteUrl, isEmailAddress, mailInvite } from 'services/biz/invite-email.service'
 import { BEARER_REQUIRED, NOT_A_PERSON, bearerPresent, callerOf, enterOrg } from '../auth/session-answer.js'
+
+/** The role an invitation gives, for display (`roleDisplay`); one from before FR-27 P3-5 names only its legacy key. */
+async function inviteRoleDisplay(invite: Pick<IInvite, 'orgId' | 'assignRoleId' | 'assignRole'>): Promise<string> {
+  const role = invite.assignRoleId
+    ? await Role.findOne({ _id: invite.assignRoleId, orgId: invite.orgId }, { name: 1, isBuiltin: 1, templateKey: 1 }).lean().exec()
+    : null
+  return role ? roleDisplay(role) : invite.assignRole ?? ''
+}
 
 export const inviteController = new Elysia()
   .use(AuthService)
@@ -39,7 +48,9 @@ export const inviteController = new Elysia()
         isValid: validation.valid,
         status: invite.status,
         targetEmail: invite.targetEmail || null,
-        assignRole: invite.assignRole,
+        // FR-27 P3-5: the role it gives, for display (a built-in by its key, any other by its name); an invitation
+        // from before names only its legacy key.
+        role: await inviteRoleDisplay(invite),
       }
     },
   )
@@ -110,16 +121,12 @@ export const inviteController = new Elysia()
         if (e instanceof RoleRefusal) return status(e.status, e.body)
         throw e
       }
-      // Its legacy key goes with it, for a release that reads no roles, until P3-5 stops writing it.
-      const role: any = await Role.findOne({ _id: assignRoleId, orgId }, { all: 1, legacy: 1 }).lean().exec()
-      const assignRole = role?.all ? 'admin' : role?.legacy?.role ?? 'member'
-
+      // FR-27 P3-5 (#529): the role alone, by id. Its legacy key (`assignRole`) is no longer written.
       const invite = await inviteDao.createInvite({
         orgId,
         inviterId: user.id,
         targetEmail,
         maxUses: body.maxUses,
-        assignRole,
         assignRoleId,
         expiresInHours: body.expiresInHours,
       })

@@ -225,7 +225,6 @@ const props = defineProps<{
   orgUrl: string
   id: string
   locale?: string
-  role?: string
   userId?: string
   backRoute: RouteLocationRaw
   /** Where a row of the storno chain opens. */

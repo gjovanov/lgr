@@ -126,7 +126,7 @@ export async function deletePermissionSet(id: string, orgId: string): Promise<{ 
  * own list on top, and the role's areas (FR-26). This preview used to show the user's own list
  * alone, which is not what they are issued.
  */
-function fromRole(user: { role: string; permissions?: string[] }) {
+function fromRole(user: { role?: string; permissions?: string[] }) {
   const roleDefaults = DEFAULT_ROLE_PERMISSIONS[user.role as Role] || DEFAULT_ROLE_PERMISSIONS.member
   const areas = DEFAULT_ROLE_AREAS[user.role as Role]
   return {
@@ -220,7 +220,7 @@ export async function migrateToPermissionSets(orgId: string): Promise<{ migrated
   for (const user of users) {
     if (user.permissionSetIds && user.permissionSetIds.length > 0) continue
 
-    const setName = ROLE_TO_PERMISSION_SET[user.role] || 'Member (Read Only)'
+    const setName = ROLE_TO_PERMISSION_SET[user.role ?? 'member'] || 'Member (Read Only)'
     const setId = nameToId.get(setName)
     if (!setId) {
       logger.warn({ orgId, userId: String(user._id), role: user.role }, 'No matching permission set for role')

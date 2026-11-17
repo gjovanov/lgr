@@ -5,15 +5,16 @@
  *   bun scripts/restore-administrator.ts --org <slug> --user <username>              # what it would do
  *   bun scripts/restore-administrator.ts --org <slug> --user <username> --execute
  *
- * The person gets the org's built-in Administrator role (migration 0015 made it), and the legacy fields that match
- * it (`role: admin`, no set), so the legacy model and an older master agree. Their sessions follow within a minute
- * on `roles`; on the legacy model they sign in again.
+ * The person gets the org's built-in Administrator role (migration 0015 made it), with its role history entry (id and
+ * name). FR-27 P3-5 (#529): nothing of the legacy model is written (no legacy role key, sets or permissions). Their
+ * sessions follow within a minute.
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { Role, User } from '../packages/db/src/models/index.js'
 import { Org } from '../packages/db/src/models/index.js'
 import { recordAuditEntry } from '../packages/services/src/biz/audit-log.service.js'
 import { endSessionsOf } from '../packages/services/src/biz/permission-set.service.js'
+import { roleHistoryEntry } from '../packages/services/src/biz/access/role.service.js'
 import { keepHomeOrgs } from './lib/home-guard.js'
 
 const args = process.argv.slice(2)
@@ -37,13 +38,11 @@ async function main() {
   if (!execute) return
 
   const now = new Date()
-  const history = [...(person.roleHistory ?? [])]
-  const open = history.find((h: any) => !h.endDate)
-  if (open) open.endDate = now
-  history.push({ role: 'admin', roleName: admin.name, startDate: now, assignedAt: now })
+  const history = [...(person.roleHistory ?? [])].map((h: any) => (h.endDate ? h : { ...h, endDate: now }))
+  history.push(roleHistoryEntry(admin, now))
   await User.updateOne(
     { _id: person._id, orgId: org._id },
-    { $set: { roleId: admin._id, role: 'admin', permissionSetIds: [], permissions: [], roleHistory: history, isActive: true }, $unset: { deactivatedAt: 1 } },
+    { $set: { roleId: admin._id, roleHistory: history, isActive: true }, $unset: { deactivatedAt: 1 } },
   )
   await endSessionsOf(person.identityId)
   await recordAuditEntry({

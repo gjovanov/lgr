@@ -2,7 +2,7 @@ import { mongoose } from 'db/connection'
 import { DocFile, Invoice, StockMovement } from 'db/models'
 import { PERMISSION_BY_TARGET, targetRefusal, type ImportActor } from '../doc-import/target-access.js'
 import type { ImportTarget } from '../doc-import/types.js'
-import { permissionRefusal } from '../route-permission.js'
+import { accessRefusal, grantOf } from '../access/evaluate.js'
 import { targetForDocType } from './doc-pipeline.service.js'
 
 /**
@@ -25,8 +25,8 @@ import { targetForDocType } from './doc-pipeline.service.js'
  * The DIFF of a storeAvailability snapshot (`compareRefusal`) is a read, not a booking: it sets the
  * snapshot against the live catalog and stock and prints both side by side.
  *
- * `admin` always passes, as in `writeRefusal`: a set that lacked a write would otherwise lock an
- * org's owner out of their own data.
+ * The Administrator always passes. FR-27 P3-5 (#529): asked of the session's grant (its role's), never of the
+ * token's legacy role.
  *
  * Asked BEFORE the job starts, so a refusal is a 403 and not a job that fails, and all or nothing:
  * one document the caller may not book refuses the batch.
@@ -83,7 +83,7 @@ async function targetsFor(orgId: string, docFileIds: readonly string[], action: 
 
 /** Why `actor` may not do `action` to these documents, or null. The shape is `targetRefusal`'s. */
 export async function booksRefusal(orgId: string, actor: ImportActor, docFileIds: readonly string[], action: BooksAction) {
-  if (actor.role === 'admin') return null
+  if (grantOf(actor).all) return null
   for (const target of await targetsFor(orgId, docFileIds, action)) {
     const refusal = targetRefusal(actor, target)
     if (refusal) return refusal
@@ -99,13 +99,9 @@ const STOCK_READ_ROUTE = '/api/org/:orgId/warehouse/stock-level'
  *
  * The diff sets the snapshot against the live catalog and stock and prints the quantities and prices
  * of both sides. That is a read of what `GET warehouse/*` reads, so it asks what that read asks, from
- * the same table (`permissionRefusal`), and cannot drift from it: whoever may read stock may see the
- * diff, and nobody else. `admin` always passes.
+ * the same table (`accessRefusal`, the session's role), and cannot drift from it: whoever may read stock may see the
+ * diff, and nobody else. The Administrator always passes.
  */
 export function compareRefusal(actor: ImportActor & { amr?: readonly string[] }) {
-  return permissionRefusal(
-    { role: actor.role, permissions: actor.permissions, areas: actor.areas ?? undefined, amr: actor.amr },
-    'GET',
-    STOCK_READ_ROUTE,
-  )
+  return accessRefusal(actor, 'GET', STOCK_READ_ROUTE)
 }

@@ -1,6 +1,6 @@
 import {
   Org, type IOrg,
-  User, type IUser,
+  User, Role, type IUser,
   Account, type IAccount,
   Contact, type IContact,
   Invoice, type IInvoice,
@@ -141,6 +141,17 @@ export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<I
     if (roleId) user.roleId = roleId
   }
   return user as IUser
+}
+
+/**
+ * FR-27 P3-5 (#529): the built-in role a person holds, by its template key (`admin` for the Administrator), read from
+ * their `roleId`. Nothing writes the legacy `User.role` any more, so a test asks this where it asked `user.role`.
+ */
+export async function roleKeyOf(userId: unknown): Promise<string | undefined> {
+  const person: any = await User.findById(userId, { roleId: 1 }).lean().exec()
+  if (!person?.roleId) return undefined
+  const role: any = await Role.findById(person.roleId, { templateKey: 1, all: 1, name: 1 }).lean().exec()
+  return role?.all ? 'admin' : role?.templateKey ?? role?.name
 }
 
 /**

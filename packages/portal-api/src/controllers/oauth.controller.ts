@@ -30,6 +30,7 @@ import {
 import { setSessionCookie, SESSION_TTL_SECONDS } from '../auth/session-cookie.js'
 import { IdentityError, emailInUse } from 'services/biz/identity/identity.service'
 import { identityClaims, type IdentityClaims } from 'services/biz/identity/session.service'
+import { accessAnswerFor } from 'services/biz/access/live'
 import type { UserTokenized } from 'services/biz/auth.service'
 import { config } from 'config'
 
@@ -303,7 +304,7 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + ttl })
         setSessionCookie(cookie, token)
 
-        return { user, token, org: { id: user.orgId, name: body.orgName, slug: body.orgSlug } }
+        return { user, token, org: { id: user.orgId, name: body.orgName, slug: body.orgSlug }, access: await accessAnswerFor(user) }
       } catch (err: any) {
         if (err instanceof IdentityError) {
           set.status = err.status

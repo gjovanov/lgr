@@ -406,7 +406,9 @@ describe('accepting an invitation while signed in', () => {
     const res = await call('POST', `/invite/${invite.code}/accept`, { token: tab })
     expect(res.status).toBe(200)
     expect(res.body.org.slug).toBe(target.slug)
-    expect(res.body.user.role).toBe('accountant')
+    // FR-27 P3-5: the role, as the org menu shows it (a built-in role by its key); the token carries none.
+    expect(res.body.orgs.find((o: any) => o.current)?.role).toBe('accountant')
+    expect(res.body.user.role).toBeUndefined()
     expect(claimsOf(res.body.token).iid).toBe(String(identity._id))
     expect((await Invite.findById(invite._id).lean().exec())!.status).toBe('exhausted')
 
@@ -450,7 +452,8 @@ describe('founding an organization while signed in', () => {
     const res = await call('POST', '/auth/orgs', { token: tab, body: { name: 'New Org', slug } })
     expect(res.status).toBe(200)
     expect(res.body.org.slug).toBe(slug)
-    expect(res.body.user.role).toBe('admin')
+    expect(res.body.orgs.find((o: any) => o.current)?.role).toBe('admin')
+    expect(res.body.access?.all).toBe(true)
     expect(res.body.orgs.map((o: any) => o.slug)).toContain(a.slug)
     const orgId = res.body.org.id
     expect(await OrgApp.countDocuments({ orgId })).toBeGreaterThan(0)

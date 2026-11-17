@@ -9,8 +9,8 @@ export const appHubController = new Elysia({ prefix: '/org/:orgId/apps' })
   .get('/', async ({ params: { orgId }, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
 
-    // FR-27.5: an org on `roles` (the live grant on `user.access`) shows the tiles of the role's apps.
-    const apps = await getAvailableApps(orgId, user.permissions || [], user.id, undefined, { role: user.role, grant: (user as any).access ? grantOf(user as any) : undefined })
+    // FR-27.5, P3-5 (#529): the tiles of the role's apps, from its live grant; never the token's legacy claims.
+    const apps = await getAvailableApps(orgId, [], user.id, undefined, { grant: grantOf(user) })
     return { apps }
   }, { isSignIn: true })
   .post(

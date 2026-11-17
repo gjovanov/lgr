@@ -6,7 +6,6 @@
     :org-url="appStore.orgUrl()"
     :id="String(route.params.id)"
     :locale="appStore.locale"
-    :role="role"
     :user-id="userId"
     :back-route="{ name: 'invoicing.cash-sales' }"
     :related-route="(row: any) => journalRoute(row, tillOnly)"
@@ -26,7 +25,7 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '../store/app.store'
 import CashRegisterDocument from 'ui-shared/components/cash-register/CashRegisterDocument.vue'
-import { jwtRole, jwtUserId, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { jwtUserId, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { readsDocuments } from 'ui-shared/nav/page-registry'
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { journalRoute } from '../pos/till-rules'
@@ -34,7 +33,6 @@ import { journalRoute } from '../pos/till-rules'
 const route = useRoute()
 const appStore = useAppStore()
 // The app store's user is empty on a fresh page load; the session token is the durable source.
-const role = computed(() => appStore.user?.role || jwtRole())
 const userId = computed(() => appStore.user?.id || jwtUserId())
 const { loading: printing, exportOne } = useInvoicingExport(() => appStore.orgUrl())
 /** The journal's page is all of a sale someone without the documents reads: no document page, no print. */

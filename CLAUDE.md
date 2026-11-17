@@ -774,7 +774,9 @@ scans server code and fails on any `fetch(` call without one.
   options object passed first (`{ as: 'global' }`) is registered AS the hook and every request
   throws. Request hooks are always global.
 - Provides `{ isSignIn: true }` macro for route protection
-- JWT payload: `{ id, email, username, firstName, lastName, role, orgId, permissions, operatorCode?, iid?, tv? }`
+- JWT payload: `{ id, email, username, firstName, lastName, orgId, operatorCode?, rid?, rv?, iid?, tv?, amr? }`. ⚠ FR-27 P3-5:
+  no `role`, `permissions` or `areas`: what a person may do is their role, read live on every request (`grantOf`, `can`),
+  and the SPA gets it from the sign-in answer and `/auth/me` (`access`). Never add a reader of the token's legacy claims.
 - Single JWT issued by Portal, validated by all controllers in the same process
 
 There is also `app-auth.service.ts` (verify-only variant) for use if domain APIs run standalone.
@@ -1468,7 +1470,8 @@ Nomenclature models use `isActive: boolean` + `deactivatedAt?: Date` instead of 
 - `middleName` — Bulgarian three-part names (from identity document)
 - `operatorCode` — 4-digit fiscal operator code (unique per org, atomic assignment, included in JWT)
 - `position` — job title
-- `roleHistory[]` — `{ role, startDate, endDate, assignedBy, assignedAt }` for audit trail
+- `roleHistory[]` — `{ roleId, roleName, startDate, endDate, assignedBy, assignedAt }` for audit trail (entries from
+  before FR-27 P3-5 name the legacy key, `role`)
 
 ### Startup & Shutdown
 
@@ -3976,22 +3979,23 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - Nothing reads `roleId` until an org's access model is `roles`.
 - **An org on `roles`** (`scripts/access-model.ts --set roles`; refused while anyone has no role):
   - Both auth plugins call `attachAccess` (`services/biz/access/live.ts`). It reads the person's role live, membership and role each cached 60 s per process (`forgetMember`, `forgetRole` in the writing process), through the driver, not the models: the query budgets count only a request's own queries.
-  - The session gets the role's grant (`user.access`, non-enumerable, never serialised) and its claims from the role's projection, so what still reads claims follows the role.
+  - The session gets the role's grant (`user.access`, non-enumerable, never serialised), and nothing else of the legacy model (P3-5).
   - Responses carry `x-access-version: <roleId>:<version>`.
   - `decideAccess` decides by the evaluator. `shadowAccess` asks the legacy rules on the projection beside it and counts where they differ.
-  - Sign-in issues the projection with `rid`/`rv`.
+  - Sign-in issues `rid`/`rv`, and answers the grant (`access`, as `/auth/me`; `live.ts#accessAnswerFor`).
   - A person with no role keeps their token's claims. Back to `legacy` at any time.
 - **Roles API** (`portal-api/.../role.controller.ts`; `GET/POST /roles`, `GET/PUT/DELETE /roles/:id`; a person's role through `PUT /user/:id` `roleId`).
   - Every write goes through `services/biz/access/role.service.ts`, which holds FR-27.8: managing takes `roles.edit`; not your own role, nor your own assignment; nothing beyond the actor's grant; `*` and `roles.*` an Administrator's only; the Administrator role is fixed; the last active Administrator keeps it and stays active; roles are the org's own; everything audited with caps before and after.
-  - ⚠ Both models are written. A role keeps `projectGrant(grant)` (`config/access/projection.ts`: never more than the role; `needsRelease` when not exact) and a permission set that carries it (`legacy.setId`, "Role · <name>").
-  - A person given a role is put on that set with the projection's role key. A set, not their own `permissions`: without a set, `tokenize()` adds the role's defaults.
+  - ⚠ FR-27 P3-5: only the role model is written. No projection (`legacy`), no `needsRelease`, no "Role · <name>" set,
+    and nothing of the legacy model on a person or an invitation (`role`, `permissions`, `permissionSetIds`,
+    `assignRole`; the schemas have no defaults for them). What a role or person from before holds stays, frozen, until P3-7.
   - On the legacy model, an assignment or a role edit ends the affected people's sessions; on `roles` it is live.
   - `scripts/restore-administrator.ts --org --user [--execute]` gives a locked-out org its Administrator back, audited.
 - **A person's first role** (`startingRoleOf` / `giveStartingRole`): a new org's founder (`provisionNewOrg` seeds the
   ten built-ins, `seedBuiltinRoles`), an invite accepted, a member an admin creates.
   - Chosen: a role named (`assignRoleId` on the invite, `roleId` on the create), or, when neither a role nor a legacy
     role is named, the org's default (`Org.settings.access.defaultRoleId`, `PUT /roles/default`; an invite resolves it
-    when it is made). Written onto both models, as an assignment.
+    when it is made). Written as an assignment: `roleId` and a role history entry (id and name).
   - Read off the legacy role (the built-in of that key): recorded only when it grants exactly what the person's
     legacy fields do, and those are left alone. ⚠ So an org whose system set was edited changes nobody's access: that
     person gets no role yet, and their claims decide.
@@ -4096,9 +4100,11 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
 - **An outgoing article line's unit is its article's** (#724, `withArticleUnits`): the routes write the article's unit
   over any other, except where the stored document already holds the article at that unit. Nothing is refused; the
   importers send the article's unit already. The form locks the field (`DocumentLineTable#unitLocked`).
-- **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` answers `access` (`{ all, caps, role }`,
-  null when the claims decide). `sessionViewer()` carries it as `grant`, which `grantOfViewer` prefers, so every page
-  gate and `useAccess()` follow it, reactively. A response whose `x-access-version` is not the one held asks `/auth/me`
+- **The SPA follows the role live** (`ui-shared/access/live-grant.ts`): `/auth/me` and every sign-in answer `access`
+  (`{ all, caps, role }`, null for a person with no role). `sessionViewer()` carries it as `grant`, the only grant it has
+  (FR-27 P3-5: the token carries no claims, and a viewer without its grant holds nothing), so every page gate and
+  `useAccess()` follow it, reactively. ⚠ A page load or a new tab learns it before the router's first decision
+  (`web/src/router.ts` awaits `whenAccessSettled`, one `/auth/me`). A response whose `x-access-version` is not the one held asks `/auth/me`
   again, once (`followAccessVersion`, from `useHttpClient`). The grant belongs to one membership (`id@orgId`).
 - **A page whose data needs more than its app** names it: `PAGE_ACCESS[id].alsoAnyOf`, and the same in the legacy
   oracle (`PageDef.alsoNeed`, permissions), which the differential test holds equal. `/reports/aging` and

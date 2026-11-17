@@ -68,17 +68,18 @@ describe('an org on roles: the role decides', () => {
   })
 })
 
-describe('the legacy model: as before', () => {
+describe('FR-27 P3-5: a caller stated as legacy claims is read as its grant (no session carries claims any more)', () => {
   const legacy = (role: string) => ({ role, permissions: [...(DEFAULT_ROLE_PERMISSIONS as any)[role]] })
 
-  it('the report permission and its role list decide', () => {
+  it("the report's capability decides, on what the claims compile to; never the permission or the role list", () => {
     expect(canAccessReport(report('accounting-trial-balance'), legacy('accountant'))).toBe(true)
     expect(canAccessReport(report('accounting-trial-balance'), legacy('warehouse_manager'))).toBe(false)
     const fiscal = REPORT_REGISTRY.find(e => e.category === 'fiscal')!
     expect(canAccessReport(fiscal, legacy('nra_auditor'))).toBe(true)
     expect(canAccessReport(fiscal, legacy('accountant'))).toBe(false)
     expect(canAccessReport(fiscal, { role: 'admin', permissions: [] })).toBe(true)
-    // `invoicing.write` alone never read the invoicing reports: the exact permission, as ever.
-    expect(canAccessReport(report('sales-documents'), { role: 'member', permissions: ['invoicing.write'] })).toBe(false)
+    // `invoicing.write` reads the sales documents (`sales-docs.view`), so the report shows to it now: the capability, as
+    // a role holding it is asked. The legacy rule asked the exact `invoicing.read`.
+    expect(canAccessReport(report('sales-documents'), { role: 'member', permissions: ['invoicing.write'] })).toBe(true)
   })
 })

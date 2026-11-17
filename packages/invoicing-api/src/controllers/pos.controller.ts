@@ -18,10 +18,9 @@ import {
 import { saleInDoubt, saleProgress } from 'services/biz/cash-register/in-doubt'
 import { isDeviceConnected, getPrinter } from 'fiscal/fiscal-device.service'
 import { buildSessionReport, formatSessionReport, type SessionReport } from 'services/biz/cash-register/session-report'
-import { permissionRefusal } from 'services/biz/route-permission'
 import type { ZReportResult } from 'fiscal/types'
 import { fiscalCapabilities } from 'fiscal/capabilities'
-import { can, grantOf } from 'services/biz/access/evaluate'
+import { accessRefusal, can, grantOf } from 'services/biz/access/evaluate'
 import { DEVICE_REPORT_KINDS, printDeviceReport } from 'fiscal/device-command'
 import { fiscalFailure } from 'fiscal/errors'
 import { interruptedDocuments, unfinishedReceipts, unfinishedRefusal } from 'services/biz/cash-register/payment-receipt.service'
@@ -686,8 +685,8 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
     if (!session) return status(404, { message: 'POS session not found' })
     const device = await sessionReportDevice(orgId, session)
     const report: SessionReport = session.report ?? buildSessionReport(session, await loadPosRows({ orgId, sessionId: id, withReceipts: true }))
-    // The check the session report's own route answers with.
-    const readsTheMoney = !permissionRefusal(user as any, 'GET', '/org/:orgId/trade/pos/session/:id/report')
+    // The check the session report's own route answers with (FR-27 P3-5: the role's, as every route's).
+    const readsTheMoney = !accessRefusal(user as any, 'GET', '/org/:orgId/trade/pos/session/:id/report')
     return {
       notOnDevice: report.counts.text
         ? { receipts: report.counts.text, amount: readsTheMoney ? report.amounts?.text ?? null : null, currency: report.currency }

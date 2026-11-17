@@ -12,6 +12,7 @@ import { loadPosRows, PAYMENT_RECEIPT, PAYMENT_STORNO } from './cash-register/po
 import { UNPROVED_STORNO_STATES, receiptTookMoney, refundGaveMoney, stornoUnproved } from './cash-register/counting.js'
 import { originOf } from './cash-register/register.service.js'
 import { Invoice, User } from 'db/models'
+import { roleDisplaysOf } from './identity/session.service.js'
 
 /**
  * The period the tables cover, from the query's `dateFrom` / `dateTo` (FR-21 B-7).
@@ -218,5 +219,9 @@ export async function exportNomenclature(orgId: string, repos?: RepositoryRegist
     r.workstations.findMany({ orgId } as any, { code: 1 }),
   ])
 
-  return { products, contacts, warehouses, users, workstations }
+  // FR-27 P3-5 (#529): an operator's role is their role (a built-in by its key, any other by its name), not the legacy
+  // key, which a person given a role since is not written.
+  const roles = await roleDisplaysOf(users.map((u: any) => ({ _id: u._id ?? u.id, roleId: u.roleId, role: u.role })))
+  const withRoles = users.map((u: any) => ({ ...u, role: roles.get(String(u._id ?? u.id)) || u.role || '' }))
+  return { products, contacts, warehouses, users: withRoles, workstations }
 }

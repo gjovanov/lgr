@@ -17,8 +17,8 @@ import { can, compileLegacy, type Grant } from 'config/access'
 export const STORNO_ROLES = ['admin', 'manager'] as const
 
 /**
- * Who asks: the session's grant (FR-27.5: in an org on `roles`, the role's, live, as the server's
- * `can(user, 'cash-sales.storno')` decides), or a legacy role key, read as that role's own capabilities.
+ * Who asks: the session's grant (FR-27.5: the role's, live, as the server's `can(user, 'cash-sales.storno')` decides),
+ * or a legacy role key, read as that role's own capabilities (tests; FR-27 P3-5: no session carries one any more).
  */
 export type StornoActor = string | Grant | null | undefined
 
