@@ -370,6 +370,12 @@ export interface DigestOps {
   failedEmailCount: number
   /** FR-25 §3.12: this server cannot open this org's personal-data keys. */
   personalDataLocked?: boolean
+  /**
+   * FR-29.17: journal entries the org's documents owe that failed after every retry, whatever day they were owed:
+   * the document each is for (its number), and how many there are.
+   */
+  failedPostings?: { event: string; document: string }[]
+  failedPostingCount?: number
 }
 
 // ── The whole thing ─────────────────────────────────────────────────────────

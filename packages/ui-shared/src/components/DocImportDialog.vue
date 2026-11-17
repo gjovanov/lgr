@@ -5,7 +5,7 @@
         <v-icon icon="mdi-file-upload-outline" />
         <span>{{ $t(mode === 'single' ? 'docImport.titleSingle' : 'docImport.titleBatch') }}</span>
         <v-spacer />
-        <v-btn icon="mdi-close" variant="text" size="small" :disabled="busy" @click="show = false" />
+        <v-btn :aria-label="$t('common.close')" :title="$t('common.close')" icon="mdi-close" variant="text" size="small" :disabled="busy" @click="show = false" />
       </v-card-title>
       <v-divider />
 

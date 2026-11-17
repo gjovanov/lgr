@@ -181,7 +181,7 @@
                  Each is the size of a document list's row menu (`RowActionsMenu`): a draft's four take the room
                  the tick column needs, and a row stays as tall as its one line of text. -->
             <div class="d-flex flex-nowrap">
-              <v-btn icon="mdi-eye" size="small" density="comfortable" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
+              <v-btn :aria-label="$t('common.view')" :title="$t('common.view')" icon="mdi-eye" size="small" density="comfortable" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
               <!-- The movement as a document, for whoever may read it: it goes with the goods and carries no price. -->
               <v-btn icon="mdi-printer" size="small" density="comfortable" variant="text" :title="$t('common.print')" :loading="printing === item._id" data-testid="movement-print" @click="printMovement(item)" />
               <v-btn v-if="writesMovement(item)" icon="mdi-check" size="small" density="comfortable" variant="text" color="success" :title="$t('warehouse.confirm')" data-testid="movement-confirm" @click="confirmMovement(item)" />

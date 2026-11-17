@@ -433,7 +433,7 @@
           <v-icon color="warning">mdi-shield-search</v-icon>
           {{ $t('invoicing.coverShortages') }}
           <v-spacer />
-          <v-btn icon="mdi-refresh" size="small" variant="text" :loading="loadingSuggestions" @click="loadSuggestions" />
+          <v-btn :aria-label="$t('common.refresh')" :title="$t('common.refresh')" icon="mdi-refresh" size="small" variant="text" :loading="loadingSuggestions" @click="loadSuggestions" />
         </v-card-title>
         <v-card-text>
           <div v-if="loadingSuggestions" class="text-center pa-4"><v-progress-circular indeterminate /></div>

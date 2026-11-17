@@ -42,8 +42,8 @@
       <template #item.actions="{ item }">
         <v-btn v-if="item.status === 'draft'" icon="mdi-calculator" size="small" variant="text" color="info" @click="calculate(item._id)" title="Calculate" />
         <v-btn v-if="item.status === 'calculated'" icon="mdi-check-circle" size="small" variant="text" color="success" @click="approve(item._id)" title="Approve" />
-        <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'payroll.runs.edit', params: { id: item._id } }" />
-        <v-btn icon="mdi-chevron-down" size="small" variant="text" @click="toggleExpand(item._id)" />
+        <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" :to="{ name: 'payroll.runs.edit', params: { id: item._id } }" />
+        <v-btn :aria-label="$t('common.expand')" :title="$t('common.expand')" icon="mdi-chevron-down" size="small" variant="text" @click="toggleExpand(item._id)" />
       </template>
       <template #expanded-row="{ columns, item }">
         <tr>

@@ -521,3 +521,14 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     browser and finds none of its English words.
   - *Decision:* the till's cash register journal and its document keep their `YYYY-MM-DD HH:mm` (§10 leaves the till's
     flow out), and the three e2e specs that read a price field's five decimals (customer-order-tree, invoicing-product-autocomplete, pos-redirects) now read its two.
+- **B4** (FR-31.21; FR-31.20 not built): icon buttons have names.
+  - The 61 icon-only buttons that named themselves in no way (an `icon="mdi-…"` or a `<v-icon>` inside, with no
+    `aria-label`, `title` or tooltip) now carry a translated `aria-label` and a `title`, which is the tooltip: delete,
+    close, edit, refresh, download, view, back, expand, copy, the form sidebar's toggle and its notes and activity, the app
+    switcher, the theme toggle and the menus of the shell. `unit/icon-button-names.test.ts` fails on a new one.
+  - The exceptions are three views FR-27 P3-3 takes apart (`UsersView`, `InvitesView`, `PermissionSetsView`), not this
+    FR's to touch; they go with the files.
+  - *Not built: FR-31.20 (room at 1366x768).* D-6 asks the owner to see a screenshot of each layout before it ships
+    (the new invoice's folded party block and sticky line header, Products' one row per article, Sales invoices' foldable
+    KPI row, the top bar's "More"). With no owner answer on #796, the layouts stay as they are, and the slice says so
+    rather than ship a look nobody approved. It is a change in the browser alone, buildable once D-6 is answered.

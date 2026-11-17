@@ -126,7 +126,7 @@
               />
             </td>
             <td v-if="entryStatus === 'draft'">
-              <v-btn icon="mdi-close" size="x-small" variant="text" @click="removeLine(idx)" />
+              <v-btn :aria-label="$t('common.close')" :title="$t('common.close')" icon="mdi-close" size="x-small" variant="text" @click="removeLine(idx)" />
             </td>
           </tr>
         </tbody>

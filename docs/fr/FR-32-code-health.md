@@ -412,3 +412,18 @@ Most of this FR is proven by CI, not in production.
     - `movement-number`, `product-ledger` and `warehouse.flow` number their fixtures through `biz/movement-number#nextMovementNumber`, which the deleted DAO method called;
     - `tasks-ws.flow` lost the `notification` assertions;
     - `module-manifests` asserts that no route carries a breadcrumb.
+
+### Slice B, the open items
+
+- **FR-32.11, .12** (`feat/797-fr32-b-file-delete`):
+  - **Deleting a file deletes its bytes.** `DELETE /org/:orgId/file/:id` removes the stored object after the row (`services/biz/files/file-removal.service.ts`).
+    - Bytes another `File` row or a `DocFile` still names stay, in either the relative or the old absolute form.
+    - A file already gone, another provider's key and a path outside the org are left alone.
+    - A removal that fails is logged and leaves a `NodeState` marker (`file-removal:<hash>`, node state: the bytes are this node's). The retention tick retries it (`fileRemovalsRetried`).
+    - `integration/file-delete.flow.test.ts` deletes a file and looks for the object, and makes a removal fail, then lets the tick finish it.
+    - Files whose row was deleted before this are not touched: §4 leaves counting and removing them to the owner.
+  - **Payroll says what it computes** (D-5).
+    - The generic run's gross is the base salary, with no overtime, bonus or allowance figure computed beside it.
+    - Its form and its payslips say so (`payroll.legacyNotComputed`, four languages).
+    - The four payroll lists' Export and the payslip's PDF button did nothing. They are removed and filed as #830.
+    - The three TODOs left in the source are FR-25 §7.5's, and `unit/payroll-says-what-it-computes.test.ts` fails on a TODO that names no issue or spec item.

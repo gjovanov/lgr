@@ -5,7 +5,7 @@
         <v-icon class="mr-2">mdi-swap-horizontal</v-icon>
         {{ $t('invoicing.movements') }}
         <v-spacer />
-        <v-btn icon="mdi-close" variant="text" size="small" @click="emit('update:modelValue', false)" />
+        <v-btn :aria-label="$t('common.close')" :title="$t('common.close')" icon="mdi-close" variant="text" size="small" @click="emit('update:modelValue', false)" />
       </v-card-title>
 
       <v-card-text>

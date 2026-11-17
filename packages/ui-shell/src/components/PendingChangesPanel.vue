@@ -20,7 +20,7 @@
       >
         {{ $t('pendingChanges.clearAll') }}
       </v-btn>
-      <v-btn icon="mdi-close" variant="text" size="small" @click="emit('update:modelValue', false)" />
+      <v-btn :aria-label="$t('common.close')" :title="$t('common.close')" icon="mdi-close" variant="text" size="small" @click="emit('update:modelValue', false)" />
     </v-toolbar>
 
     <v-divider />
@@ -58,7 +58,7 @@
           {{ relativeTime(entry.capturedAt) }}
         </v-list-item-subtitle>
         <template #append>
-          <v-btn
+          <v-btn :aria-label="$t('common.close')" :title="$t('common.close')"
             icon="mdi-close"
             variant="text"
             size="x-small"

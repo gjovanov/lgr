@@ -48,7 +48,7 @@
             <span :class="item.varianceCount > 0 ? 'text-error font-weight-bold' : ''">{{ item.varianceCount || 0 }}</span>
           </template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.inventory-counts.edit', params: { id: item._id } }" />
+            <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.inventory-counts.edit', params: { id: item._id } }" />
             <v-btn v-if="item.status === 'in_progress'" v-cap="['inventory-counts.create', 'inventory-counts.edit']" icon="mdi-check-all" size="small" variant="text" color="success" :title="$t('warehouse.completeCount')" :loading="completing === item._id" :disabled="completing !== null && completing !== item._id" data-testid="complete-count" @click="complete(item)" />
           </template>
         </v-data-table-server>

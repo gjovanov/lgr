@@ -1,7 +1,7 @@
 <template>
   <!-- Mobile: bottom sheet -->
   <template v-if="mobile">
-    <v-btn icon variant="text" @click="sheet = true">
+    <v-btn icon variant="text" :aria-label="$t('shell.apps')" :title="$t('shell.apps')" @click="sheet = true">
       <v-icon>mdi-apps</v-icon>
     </v-btn>
     <v-bottom-sheet v-model="sheet">
@@ -9,7 +9,7 @@
         <v-card-title class="text-body-1 d-flex align-center">
           {{ $t('shell.apps') }}
           <v-spacer />
-          <v-btn icon="mdi-close" variant="text" size="small" @click="sheet = false" />
+          <v-btn :aria-label="$t('common.close')" :title="$t('common.close')" icon="mdi-close" variant="text" size="small" @click="sheet = false" />
         </v-card-title>
         <v-divider />
         <div class="d-flex flex-wrap pa-2 justify-center">

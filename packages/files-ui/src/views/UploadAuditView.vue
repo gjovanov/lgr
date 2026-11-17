@@ -19,7 +19,7 @@
         <v-text-field v-model="dateFrom" type="date" :label="$t('files.audit.from')" density="compact" variant="outlined" hide-details clearable style="max-width: 180px" @update:model-value="reload" />
         <v-text-field v-model="dateTo" type="date" :label="$t('files.audit.to')" density="compact" variant="outlined" hide-details clearable style="max-width: 180px" @update:model-value="reload" />
         <v-spacer />
-        <v-btn variant="text" icon="mdi-refresh" @click="reload" />
+        <v-btn :aria-label="$t('common.refresh')" :title="$t('common.refresh')" variant="text" icon="mdi-refresh" @click="reload" />
       </v-card-text>
     </v-card>
 

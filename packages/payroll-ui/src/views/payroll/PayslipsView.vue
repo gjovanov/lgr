@@ -34,7 +34,7 @@
       </template>
       <template #item.actions="{ item }">
         <!-- FR-31.11: no PDF button until a payslip prints: the one here did nothing (no route makes a payslip's PDF). -->
-        <v-btn icon="mdi-eye" size="small" variant="text" @click="viewDetail(item)" />
+        <v-btn :aria-label="$t('common.view')" :title="$t('common.view')" icon="mdi-eye" size="small" variant="text" @click="viewDetail(item)" />
       </template>
     </v-data-table-server>
 
@@ -65,6 +65,10 @@
               </tr>
             </tbody>
           </v-table>
+          <!-- FR-32.12 (D-5): a payslip of the generic run says what it does not compute. -->
+          <div v-if="selectedPayslip.engine !== 'bg'" class="text-caption text-medium-emphasis mt-1" data-testid="legacy-not-computed">
+            {{ $t('payroll.legacyNotComputed') }}
+          </div>
 
           <v-divider class="my-3" />
           <div class="text-subtitle-1 font-weight-bold mb-2">{{ $t('payroll.deductions') }}</div>

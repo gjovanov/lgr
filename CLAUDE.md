@@ -1593,6 +1593,10 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
   leaves out what `LIST_ROW_EXCLUDES` names (an invoice's lines, a slot's filters, the mirrors). The grids and pickers
   ask (`usePaginatedTable({ listFields: true })`); an answer without it is whole, so scripts and skills are untouched.
 
+- **One Chrome per process for PDFs** (FR-30.19/.20, `reporting/pdf/base.pdf.ts`): started by the first render, closed
+  after `PDF_BROWSER_IDLE_MS` idle, a browser context per render, at most `PDF_RENDER_CONCURRENCY` (2) renders at once.
+  A stalled render still kills it (`closePdfBrowser`), and the retry starts another.
+
 ## Cyrillic-Safe Search (2026-04-28)
 
 `packages/db/src/plugins/lowered-fields.plugin.ts` maintains `*Lower` mirror fields via Mongoose pre-save / pre-insertMany / pre-(findOneAndUpdate|updateOne|updateMany) hooks (locale='bg'). `buildSearchFilter(search, fields, { lowered: { name: 'nameLower', ... } })` lowercases the keyword and queries the mirrors without `$options:'i'`. Backfill: `bun run scripts/backfill-search-lowercase.ts --execute`. Models with mirrors: Product (name/sku/barcode/description/category), Contact (companyName/firstName/lastName/email/taxId/vatNumber), Warehouse (name/code), ProductCategory (name/description).
@@ -4193,9 +4197,9 @@ the rules); daily job: CronJob `lgr-org-sync` in lgr-deploy (04:30 Europe/Sofia)
 - [RESOLVED] [2026-03-10] N+1 in approvePayroll() — payslips go in one `createMany` since FR-25 R0, and a failed write puts the run back as it was
 - [LOW] [2026-03-10, re-checked 2026-11-10] `bun audit` reports 2 transitive advisories, neither reachable (S-16 in `docs/security/2026-09-21-security-review.md`): `zod` 3.25.76 through `chromium-bidi` and `@scalar/types` (LGR validates requests with TypeBox; the PDF renderer drives Chrome over CDP, not BiDi), and `uuid` 8.3.2 through `exceljs` (the flaw is in `v3`/`v5`/`v6` given a buffer; exceljs calls `v4`). Both wait for their parents to accept the fixed major. The March four (minimatch, immutable) had left the tree; on 2026-11-10 `vue-i18n` went 9.14.5 → 11.4.18 (9.x is end of life; its two advisories need `escapeParameter`, never enabled) and `follow-redirects` 1.16.1 → 1.16.2. ⚠ vue-i18n 11 interprets messages (JIT) on the web too, as the desktop shell already did: every message of the catalogs renders the same text as on 9 (74,236 renderings compared). — Status: OPEN
 - [MEDIUM] [2026-03-10] VerifyVAT integration tests hit live API with 50 req/month quota — tests flaky/failing — Status: OPEN
-- [MEDIUM] [2026-03-10] file.controller.ts TODO: file deletion from storage not implemented — Status: OPEN
-- [MEDIUM] [2026-03-10] payroll.service.ts overtime hardcoded to 0 (not calculated from timesheets) — Status: OPEN
-- [LOW] [2026-03-10] 17 TODO/FIXME comments across codebase (mostly payroll export stubs) — Status: OPEN
+- [MEDIUM] [2026-03-10] file.controller.ts TODO: file deletion from storage not implemented — **Status: RESOLVED 2026-11-17 (FR-32.11)**: `DELETE /org/:orgId/file/:id` removes the stored bytes after the row (`services/biz/files/file-removal.service.ts`); bytes another `File` row or a `DocFile` still names stay; a removal that fails leaves a `NodeState` marker (`file-removal:<hash>`) the retention tick retries. ⚠ Files whose row was deleted BEFORE this still have their bytes on disk; counting and removing those is the owner's decision (FR-32 §4).
+- [MEDIUM] [2026-03-10] payroll.service.ts overtime hardcoded to 0 (not calculated from timesheets) — **Status: RESOLVED 2026-11-17 (FR-32.12, D-5)**: the generic run states its gross as the base salary, and its form and payslips say overtime, bonuses and allowances are not computed (`payroll.legacyNotComputed`). Computing them is a payroll decision of its own (FR-25).
+- [LOW] [2026-03-10] 17 TODO/FIXME comments across codebase (mostly payroll export stubs) — **Status: RESOLVED 2026-11-17 (FR-32.12)**: the payroll lists' Export and the payslip PDF, which did nothing, are gone and filed as #830; the overtime TODO is closed by D-5; the three left are FR-25 §7.5's. ⚠ `unit/payroll-says-what-it-computes.test.ts` fails on a TODO/FIXME that names no issue or spec item.
 - [RESOLVED] [2026-03-10] Live API token (sk_live_...) in .env.test — replaced with placeholder
 - [RESOLVED] [2026-03-10] N+1 in postJournalEntry() and voidJournalEntry() — batch-loaded accounts
 - [RESOLVED] [2026-03-10] N+1 in validateStockAvailability() — batch-loaded stock levels

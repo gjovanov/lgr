@@ -113,8 +113,8 @@
       <template #item.actions="{ item }">
         <!-- An asset of the books takes no action here: it opens read-only from its row. -->
         <template v-if="!item.imported">
-          <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="navigateToEdit(item)" />
-          <v-btn v-cap="'fixed-assets.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
+          <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" @click.stop="navigateToEdit(item)" />
+          <v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" v-cap="'fixed-assets.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
         </template>
       </template>
     </v-data-table-server>

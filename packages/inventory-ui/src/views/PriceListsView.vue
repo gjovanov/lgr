@@ -39,8 +39,8 @@
             </v-icon>
           </template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.price-lists.edit', params: { id: item._id } }" />
-            <v-btn v-cap="'price-lists.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
+            <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.price-lists.edit', params: { id: item._id } }" />
+            <v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" v-cap="'price-lists.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>
