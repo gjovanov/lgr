@@ -967,6 +967,7 @@
     "default": "Default"
   },
   "payroll": {
+    "legacyNotComputed": "Overtime, bonuses and allowances are not computed here: the gross pay is the base salary.",
     "timesheetTypes": {
       "regular": "Regular",
       "overtime": "Overtime",

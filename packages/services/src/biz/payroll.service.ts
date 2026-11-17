@@ -46,11 +46,14 @@ export async function calculatePayroll(payrollRunId: string, repos?: RepositoryR
 
   for (const emp of employees) {
     const baseSalary = emp.salary.baseSalary
-    const overtimeHours = 0 // TODO: calculate from timesheets
-    const overtimePay = overtimeHours * (emp.salary.hourlyRate || baseSalary / 160) * 1.5
+    // FR-32.12 (D-5): the generic run computes no overtime, bonuses or allowances, and the run's form and its
+    // payslips say so (`payroll.legacyNotComputed`). Computing them is a payroll decision of its own (FR-25);
+    // the Bulgarian engine above takes them as inputs. The fields stay 0 in the stored item, as they always were.
+    const overtimeHours = 0
+    const overtimePay = 0
     const bonuses = 0
     const allowances = 0
-    const grossPay = baseSalary + overtimePay + bonuses + allowances
+    const grossPay = baseSalary
 
     // Calculate deductions
     const deductions: { type: string; name: string; amount: number }[] = []

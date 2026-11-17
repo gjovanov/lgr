@@ -24,6 +24,7 @@ import { EmailLog, DocFile } from 'db/models'
 import { homeScope } from 'db/home/home'
 import { config } from 'config'
 import { logger } from '../../logger/logger.js'
+import { retryPendingFileRemovals } from '../files/file-removal.service.js'
 
 /**
  * The complete set of collections this module may write to, and the only field it may remove
@@ -42,6 +43,11 @@ export interface RetentionOutcome {
   emailLogsDeleted: number
   /** `DocFile`s that lost a settled `compareSummary`. */
   compareSummariesStripped: number
+  /**
+   * FR-32.11: the bytes of deleted `File` rows whose first removal failed, removed now. Only bytes a person deleted
+   * the row of, recorded at that moment (`files/file-removal.service.ts`): no row, fiscal or not, is touched.
+   */
+  fileRemovalsRetried: number
   /** True when a cap was hit, so the caller knows the next tick still has work. */
   more: boolean
 }
@@ -128,17 +134,23 @@ export async function retentionTick(now = new Date()): Promise<RetentionOutcome>
     emailBodiesStripped: 0,
     emailLogsDeleted: 0,
     compareSummariesStripped: 0,
+    fileRemovalsRetried: 0,
     more: false,
   }
 
   out.emailLogsDeleted = await deleteExpiredEmailLogs(now, limit)
   out.emailBodiesStripped = await stripEmailBodies(now, limit)
   out.compareSummariesStripped = await stripSettledCompareSummaries(limit)
+  // Never throws, like the rest of the tick: one marker that fails stays for the next tick.
+  out.fileRemovalsRetried = (await retryPendingFileRemovals(limit).catch((err: unknown) => {
+    logger.warn({ err }, 'retention: the pending file removals could not be read')
+    return { removed: 0, stillPending: 0 }
+  })).removed
   out.more = out.emailLogsDeleted >= limit ||
     out.emailBodiesStripped >= limit ||
     out.compareSummariesStripped >= limit
 
-  if (out.emailLogsDeleted || out.emailBodiesStripped || out.compareSummariesStripped) {
+  if (out.emailLogsDeleted || out.emailBodiesStripped || out.compareSummariesStripped || out.fileRemovalsRetried) {
     logger.info({ ...out, touchable: Object.keys(TOUCHABLE) }, 'Retention sweep')
   }
   return out
