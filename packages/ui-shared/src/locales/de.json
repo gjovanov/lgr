@@ -2691,6 +2691,12 @@
     "addItem": "Position hinzufügen",
     "deletePriceListConfirm": "Sind Sie sicher, dass Sie diese Preisliste löschen möchten?",
     "countItems": "Zählpositionen",
+    "countSearch": "Artikel nach Name oder SKU suchen",
+    "countFilter": {
+      "all": "Alle",
+      "notCounted": "Noch nicht gezählt",
+      "difference": "Mit Differenz"
+    },
     "systemQty": "System-Menge",
     "countedQty": "Gezählte Menge",
     "variance": "Abweichung",

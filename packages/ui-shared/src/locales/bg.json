@@ -2691,6 +2691,12 @@
     "addItem": "Добави артикул",
     "deletePriceListConfirm": "Сигурни ли сте, че искате да изтриете тази ценова листа?",
     "countItems": "Позиции за броене",
+    "countSearch": "Търси артикул по име или код",
+    "countFilter": {
+      "all": "Всички",
+      "notCounted": "Непреброени",
+      "difference": "С разлика"
+    },
     "systemQty": "Системно кол.",
     "countedQty": "Преброено кол.",
     "variance": "Отклонение",
