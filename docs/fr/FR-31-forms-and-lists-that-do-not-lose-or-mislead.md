@@ -498,3 +498,21 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     `e2e/line-identity.spec.ts` removes the second of three lines: the third line's row is the same element afterwards,
     keeps a quantity typed into it, and nothing loads its article or prices again. Run against the position keys, it
     fails.
+- **B2** (FR-31.16, .17): decimal fields in the four daily grids, and the app's own confirm dialog.
+  - `DecimalField` now takes a decimal comma as a point on every system (a typed comma is typed as a point, a pasted
+    `12,5` is pasted as `12.5`: a number field dropped the comma, so „2,5" became 25), and `minDecimals`: at least that
+    many at rest, more only when the figure has them. It stays a `type="number"` field, so the grids' e2e tests, which
+    find their fields by that, pass unmodified.
+  - In the document line table the quantity (3 decimals, `config/price-precision#QTY_DECIMALS`), the typed price
+    (4, at least 2) and the discount (2); in the movement form the quantity and the unit cost; in the count form the
+    counted quantity; in the till's cart the quantity. A loaded figure is shown to the field's decimals and never written
+    back unless typed (`e2e/fields-and-dialogs.spec.ts` saves a 1.23456 / 0.04723 line untouched).
+  - `ui-shared/composables/confirm.ts#askConfirm({ text, confirm, danger })` returns the answer;
+    `components/ConfirmDialogHost.vue` (in `web/App.vue`) draws it, its button named for the action. The three
+    `confirm()` calls (delete a supplier order, delete a customer order, take over a reservation) use it.
+  - `unit/fields-and-dialogs.test.ts` fails on a browser `confirm`/`alert`/`prompt` in UI source, on more raw
+    `type="number"` inputs than the ceiling (85 after this slice, 92 at the audit), and on a daily grid's quantity, price
+    or discount that is not a `DecimalField`. `e2e/fields-and-dialogs.spec.ts`: a comma and a point, the wheel, the
+    untouched save, and both order deletions through the app's dialog with no browser dialog.
+  - *Decision:* quantities show as many decimals as they have (`5`, `2.5`), not a fixed three, so a column of whole
+    pieces reads as it did and the grids' tests read `5` as before.

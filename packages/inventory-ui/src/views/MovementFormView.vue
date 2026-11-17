@@ -158,12 +158,12 @@
                 <v-chip v-if="line.stockQty != null" size="small" label color="info" variant="tonal">{{ line.stockQty }}</v-chip>
                 <span v-else class="text-grey">&mdash;</span>
               </td>
-              <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" :disabled="readonly" /></td>
+              <td><DecimalField v-model="line.quantity" :decimals="QTY_DECIMALS" :min-decimals="0" density="compact" hide-details variant="underlined" :disabled="readonly" /></td>
               <td v-if="seesCosts">
-                <v-text-field
-                  v-model.number="line.unitCost"
-                  type="number"
-                  step="0.0001"
+                <DecimalField
+                  v-model="line.unitCost"
+                  :decimals="PRICE_DECIMALS"
+                  :min-decimals="2"
                   density="compact"
                   hide-details
                   variant="underlined"
@@ -370,6 +370,8 @@
 
 <script setup lang="ts">
 import { rowKey } from 'ui-shared/composables/row-key'
+import DecimalField from 'ui-shared/components/DecimalField.vue'
+import { PRICE_DECIMALS, QTY_DECIMALS } from 'ui-shared/composables/price-precision'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

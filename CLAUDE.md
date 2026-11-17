@@ -2948,6 +2948,9 @@ prints: „One list of actions for a document's two bars" below.
   - **A line grid keys its rows by the line** (FR-31.12): `:key="rowKey(line)"` (`ui-shared/composables/row-key.ts`, a
     `WeakMap` on the line object, never a field on it), never by position: removing a row gave the rows below it to
     other lines, with their open menus, typed text and focus, and made them load again.
+  - **The app asks, never the browser** (FR-31.17): `await askConfirm({ text, confirm: t('common.delete'), danger: true })`
+    (`ui-shared/composables/confirm.ts`). ⚠ `unit/fields-and-dialogs.test.ts` fails on `confirm(`, `alert(` or
+    `prompt(` of the browser, and on a new raw `type="number"` input: a figure is a `DecimalField`, which takes a comma.
   - A list on `usePaginatedTable` / `useProductList` never throws a failed request any more: it puts it in
     `pagination.loadError`, and `ListScaffold` (or `ListLoadError` in a table of its own) says it with Retry, never "no
     data". An error on the message line (`useSnackbar`) stays until closed, and messages queue.

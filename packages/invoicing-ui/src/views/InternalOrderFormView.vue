@@ -570,6 +570,7 @@
 </template>
 
 <script setup lang="ts">
+import { askConfirm } from 'ui-shared/composables/confirm'
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -1265,7 +1266,7 @@ async function convertOrder() {
 }
 
 async function deleteOrder() {
-  if (!confirm(t('invoicing.deleteInternalOrderConfirm'))) return
+  if (!(await askConfirm({ text: t('invoicing.deleteInternalOrderConfirm'), confirm: t('common.delete'), danger: true }))) return
   try {
     await httpClient.delete(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`)
     showSuccess(t('common.deletedSuccessfully'))
@@ -1386,8 +1387,8 @@ function reserveFromOrder(line: any, inc: any) {
     allocationId: inc.allocationId,
   }))
 }
-function preempt(line: any, p: any) {
-  if (!confirm(t('invoicing.preemptConfirm', { number: p.reservationNumber }))) return
+async function preempt(line: any, p: any) {
+  if (!(await askConfirm({ text: t('invoicing.preemptConfirm', { number: p.reservationNumber }), confirm: t('invoicing.preempt') }))) return
   return coverAction(() => httpClient.post(`${orgUrl()}/invoicing/reservations/${p.reservationId}/preempt`, {
     internalOrderId: route.params.id,
     internalOrderLineId: line.lineId,

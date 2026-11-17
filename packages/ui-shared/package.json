@@ -126,6 +126,8 @@
     "./components/AddressBankEditor.vue": "./src/components/AddressBankEditor.vue",
     "./components/DateField": "./src/components/DateField.vue",
     "./components/DateField.vue": "./src/components/DateField.vue",
+    "./components/ConfirmDialogHost.vue": "./src/components/ConfirmDialogHost.vue",
+    "./composables/confirm": "./src/composables/confirm.ts",
     "./components/DecimalField": "./src/components/DecimalField.vue",
     "./components/DecimalField.vue": "./src/components/DecimalField.vue",
     "./composables/price-precision": "./src/composables/price-precision.ts",

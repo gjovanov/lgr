@@ -186,7 +186,7 @@
           <td v-if="col.key === 'qty'">
             <!-- the column width (catalog) fits 5-digit quantities plus the number-input spinner -->
             <!-- FR-31.5: the price follows the quantity once the typing stops; leaving the field looks it up at once. -->
-            <v-text-field v-model.number="line.quantity" type="number" min="0" density="compact" hide-details variant="underlined" @blur="flushPriceLookups" />
+            <DecimalField v-model="line.quantity" :decimals="QTY_DECIMALS" :min-decimals="0" min="0" density="compact" hide-details variant="underlined" @blur="flushPriceLookups" />
           </td>
           <td v-else-if="col.key === 'unit'">
             <!-- Owner, 2026-11-12: on an outgoing document the unit is the article's once the line has one. -->
@@ -229,11 +229,11 @@
               />
               <!-- A credit note (outgoing) and the bills take a typed figure here; on a SALES document only a role
                    that may type a price does (FR-27 `sales-docs.manual-price`): the others pick with the icon. -->
-              <v-text-field
+              <DecimalField
                 v-else
-                v-model.number="line.unitPrice"
-                type="number"
-                step="0.0001"
+                v-model="line.unitPrice"
+                :decimals="PRICE_DECIMALS"
+                :min-decimals="2"
                 density="compact"
                 hide-details
                 variant="underlined"
@@ -251,7 +251,7 @@
             </div>
           </td>
           <td v-else-if="col.key === 'discount'">
-            <v-text-field v-model.number="line.discount" type="number" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
+            <DecimalField v-model="line.discount" :decimals="2" :min-decimals="0" min="0" max="100" suffix="%" density="compact" hide-details variant="underlined" />
           </td>
           <td v-else-if="col.key === 'lineSubtotal'" class="text-end" style="white-space: nowrap;">
             <PriceExplainButton v-if="!isColActive('lineTotal') && line.priceExplanation?.length" :steps="line.priceExplanation" :currency="form.currency" />
@@ -300,6 +300,8 @@
 
 <script setup lang="ts">
 import { rowKey } from 'ui-shared/composables/row-key'
+import DecimalField from 'ui-shared/components/DecimalField.vue'
+import { PRICE_DECIMALS, QTY_DECIMALS } from 'ui-shared/composables/price-precision'
 import ProductLineDescription from '../ProductLineDescription.vue'
 import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
