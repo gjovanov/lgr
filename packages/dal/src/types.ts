@@ -48,8 +48,14 @@ export interface SortSpec {
 
 export interface PageRequest {
   page: number
+  /** Rows a page holds. `<= 0` is "All": up to `LIST_CEILING` rows (`config/list-rows`, FR-30.8). */
   size: number
   sort?: SortSpec
+  /**
+   * The caller reads every row on purpose, past the ceiling: server code that needs the whole set (the chart of
+   * accounts' tree), or an endpoint's declared lean "all" (FR-30.8). Never a list's ordinary page.
+   */
+  unbounded?: boolean
 }
 
 export interface PageResult<T> {
@@ -58,6 +64,8 @@ export interface PageResult<T> {
   page: number
   size: number
   totalPages: number
+  /** FR-30.8: the answer was cut at the ceiling; `total` is the real count. Absent when it was not. */
+  truncated?: true
 }
 
 // ── Aggregate types ──

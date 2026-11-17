@@ -572,6 +572,15 @@ export const config = {
       ? Number(process.env.DIGEST_CHECK_INTERVAL_MS)
       : 10 * 60 * 1000, // 10 minutes
   },
+  postings: {
+    /**
+     * FR-29.16: how often the `postings` scheduler retries the journal entries still owed. Every pod runs it (the
+     * posting key decides). 0 disables it; a posting is still tried at once after its commit.
+     */
+    drainIntervalMs: process.env.POSTINGS_DRAIN_INTERVAL_MS !== undefined
+      ? Number(process.env.POSTINGS_DRAIN_INTERVAL_MS)
+      : 60 * 1000,
+  },
   desktop: {
     /**
      * FR-14.20 (#57) — signs the desktop ACCESS TOKENS that `/api/desktop/v1/*` accepts.

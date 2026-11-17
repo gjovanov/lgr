@@ -114,8 +114,15 @@ async function main() {
   const ownEik = idsOf(me?.org?.taxNumber, me?.org?.vatNumber)[0]
   console.log(`auth: → org ${orgSlug} (${s.orgId})`)
 
-  const listed = await s.get('/invoicing/contact?size=0&sortBy=createdAt&sortOrder=asc')
-  const contacts: LgrContact[] = (listed.contacts ?? listed.items ?? []).map((c: any) => ({
+  // Page by page: a list answer carries at most 1 000 rows (FR-30.8), and an org holds more contacts than that.
+  const listedRows: any[] = []
+  for (let page = 0; ; page++) {
+    const listed = await s.get(`/invoicing/contact?size=500&page=${page}&sortBy=createdAt&sortOrder=asc`)
+    const rows: any[] = listed.contacts ?? listed.items ?? []
+    listedRows.push(...rows)
+    if (rows.length < 500 || listedRows.length >= (listed.total ?? 0)) break
+  }
+  const contacts: LgrContact[] = listedRows.map((c: any) => ({
     id: String(c._id ?? c.id), type: c.type, companyName: c.companyName, aliases: c.aliases, isActive: c.isActive,
     taxId: c.taxId, taxNumber: c.taxNumber, vatNumber: c.vatNumber, phone: c.phone, notes: c.notes, representative: c.representative,
     addresses: (c.addresses ?? []).map((a: any) => ({ street: a.street, city: a.city })),

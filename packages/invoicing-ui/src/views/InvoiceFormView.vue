@@ -35,6 +35,7 @@ import { useRoute, useRouter } from 'vue-router'
 import DocumentForm from '../components/document-form/DocumentForm.vue'
 import { DOCUMENT_CONFIGS } from '../composables/document-form/configs'
 import { useDocumentRouteKey } from '../composables/document-form/useDocumentRouteKey'
+import { handOverDocument, takeHandedDocument } from '../composables/document-form/document-preread'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useAppStore } from '../store/app.store'
 
@@ -63,7 +64,10 @@ async function resolveType() {
     // Resolve which config to mount from the stored document's type. The form re-fetches
     // the document itself — this pre-read is only the config decision.
     try {
-      const { data } = await httpClient.get(`${appStore.orgUrl()}/invoices/${route.params.id}`)
+      // FR-30.10: the document is read once. What this read gets is handed to the form, which fills itself from it.
+      const id = String(route.params.id)
+      const data = takeHandedDocument(id) ?? (await httpClient.get(`${appStore.orgUrl()}/invoices/${id}`)).data
+      handOverDocument(id, data)
       // Incoming documents belong to the purchase form — bounce over (links from the
       // contact ledger etc. route by type only, not by direction).
       if (data.invoice?.direction === 'incoming') {

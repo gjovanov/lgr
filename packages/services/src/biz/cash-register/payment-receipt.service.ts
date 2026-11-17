@@ -55,6 +55,8 @@ import { Invoice, POSSession } from 'db/models'
 import { assertHomeIsHere } from 'db/home/home'
 import { createAuditEntry } from '../audit-log.service.js'
 import { eventBus } from '../../events/event-bus.js'
+import { inTransaction } from '../transaction.js'
+import { enqueuePosting } from '../postings/posting.service.js'
 import { LEASE_MS } from '../hot-path-key.js'
 import { fitsDue, heldOn, isBeingVoided, outstandingOf, overpays, paymentPipeline, type PaymentRow } from '../invoice-payment.js'
 import { printsHere } from '../sale-counting.js'
@@ -486,12 +488,20 @@ export async function recordPayment(c: RegisterContext, doc: any): Promise<void>
   }
   // FR-20.4: a raw driver write, which the Mongoose write guard cannot see — so it asks first.
   await assertHomeIsHere(String(doc.orgId))
-  const after = await Invoice.collection.findOneAndUpdate(
-    // No check that it fits: it printed. The hold kept the room for it.
-    { _id: invoiceId, orgId: doc.orgId, 'payments.receiptId': { $ne: doc._id } } as any,
-    paymentPipeline(row, { at: new Date(), by: c.user.id, releases: doc._id }) as any,
-    { returnDocument: 'after' },
-  )
+  const pipeline = paymentPipeline(row, { at: new Date(), by: c.user.id, releases: doc._id })
+  // FR-29.15: the payment and the journal entry it owes are stored in one transaction.
+  const after = await inTransaction(async session => {
+    const recorded = await Invoice.collection.findOneAndUpdate(
+      // No check that it fits: it printed. The hold kept the room for it.
+      { _id: invoiceId, orgId: doc.orgId, 'payments.receiptId': { $ne: doc._id } } as any,
+      pipeline as any,
+      { returnDocument: 'after', session },
+    )
+    if (recorded) {
+      await enqueuePosting(c.orgId, { event: 'payment.recorded', invoiceId: String(invoiceId), receiptId: String(doc._id), userId: c.user.id }, { session })
+    }
+    return recorded
+  })
   if (!after) return releaseHold(doc) // Recorded by the attempt this one resumes.
 
   createAuditEntry({
