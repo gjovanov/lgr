@@ -3,7 +3,7 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestProduct, createTestWarehouse, createTestUser, createTestContact, createTestInvoice } from '../helpers/factories'
 import { StockMovement, Invoice } from 'db/models'
 import { confirmMovement } from 'services/biz/warehouse.service'
-import { stockMovementDao } from 'services/dao/warehouse/stock-movement.dao'
+import { nextMovementNumber } from 'services/biz/movement-number'
 import { getProductLedger } from 'services/biz/product-ledger.service'
 
 beforeAll(async () => { await setupTestDB() })
@@ -29,7 +29,7 @@ describe('Product Ledger', () => {
     const warehouse = await createTestWarehouse(org._id)
     const user = await createTestUser(org._id)
 
-    const mvNum = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mvNum = await nextMovementNumber(String(org._id))
     const movement = await StockMovement.create({
       orgId: org._id, movementNumber: mvNum, type: 'receipt', status: 'draft',
       date: new Date(), toWarehouseId: warehouse._id,
@@ -57,7 +57,7 @@ describe('Product Ledger', () => {
     const user = await createTestUser(org._id)
 
     // First receipt
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     const m1 = await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'draft',
       date: new Date('2026-01-01'), toWarehouseId: warehouse._id,
@@ -67,7 +67,7 @@ describe('Product Ledger', () => {
     await confirmMovement(String(m1._id))
 
     // Then dispatch
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     const m2 = await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'dispatch', status: 'draft',
       date: new Date('2026-01-15'), fromWarehouseId: warehouse._id,
@@ -95,7 +95,7 @@ describe('Product Ledger', () => {
     const warehouse = await createTestWarehouse(org._id)
     const user = await createTestUser(org._id)
 
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     const m1 = await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'draft',
       date: new Date('2026-01-01'), toWarehouseId: warehouse._id,
@@ -104,7 +104,7 @@ describe('Product Ledger', () => {
     })
     await confirmMovement(String(m1._id))
 
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     const m2 = await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'dispatch', status: 'draft',
       date: new Date('2026-01-15'), fromWarehouseId: warehouse._id,
@@ -135,7 +135,7 @@ describe('Product Ledger', () => {
     const warehouse = await createTestWarehouse(org._id)
     const user = await createTestUser(org._id)
 
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     const m1 = await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'draft',
       date: new Date('2026-01-01'), toWarehouseId: warehouse._id,
@@ -144,7 +144,7 @@ describe('Product Ledger', () => {
     })
     await confirmMovement(String(m1._id))
 
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     const m2 = await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'dispatch', status: 'draft',
       date: new Date('2026-01-15'), fromWarehouseId: warehouse._id,
@@ -171,7 +171,7 @@ describe('Product Ledger', () => {
     const user = await createTestUser(org._id)
 
     // Receipt into WH-A
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     const m1 = await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'draft',
       date: new Date('2026-01-01'), toWarehouseId: whA._id,
@@ -181,7 +181,7 @@ describe('Product Ledger', () => {
     await confirmMovement(String(m1._id))
 
     // Transfer from WH-A to WH-B
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     const m2 = await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'transfer', status: 'draft',
       date: new Date('2026-01-10'), fromWarehouseId: whA._id, toWarehouseId: whB._id,
@@ -211,7 +211,7 @@ describe('Product Ledger', () => {
     const user = await createTestUser(org._id)
 
     // Receipt into WH-A
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     const m1 = await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'draft',
       date: new Date('2026-01-01'), toWarehouseId: whA._id,
@@ -221,7 +221,7 @@ describe('Product Ledger', () => {
     await confirmMovement(String(m1._id))
 
     // Transfer from WH-A to WH-B
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     const m2 = await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'transfer', status: 'draft',
       date: new Date('2026-01-10'), fromWarehouseId: whA._id, toWarehouseId: whB._id,
@@ -251,7 +251,7 @@ describe('Product Ledger', () => {
     const user = await createTestUser(org._id)
 
     // Receipt in January
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     const m1 = await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'draft',
       date: new Date('2026-01-15'), toWarehouseId: warehouse._id,
@@ -261,7 +261,7 @@ describe('Product Ledger', () => {
     await confirmMovement(String(m1._id))
 
     // Dispatch in March
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     const m2 = await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'dispatch', status: 'draft',
       date: new Date('2026-03-10'), fromWarehouseId: warehouse._id,
@@ -291,7 +291,7 @@ describe('Product Ledger', () => {
     const user = await createTestUser(org._id)
 
     // Receipt: 50 units at 10 each
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     const m1 = await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'draft',
       date: new Date('2026-01-01'), toWarehouseId: warehouse._id,
@@ -301,7 +301,7 @@ describe('Product Ledger', () => {
     await confirmMovement(String(m1._id))
 
     // Receipt: 30 units at 15 each
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     const m2 = await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'receipt', status: 'draft',
       date: new Date('2026-01-05'), toWarehouseId: warehouse._id,
@@ -330,7 +330,7 @@ describe('Product Ledger', () => {
     const invoice = await createTestInvoice(org._id, contact._id)
 
     // Create movement linked to invoice
-    const mvNum = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mvNum = await nextMovementNumber(String(org._id))
     const movement = await StockMovement.create({
       orgId: org._id, movementNumber: mvNum, type: 'dispatch', status: 'draft',
       date: new Date(), fromWarehouseId: warehouse._id, invoiceId: invoice._id,
@@ -354,7 +354,7 @@ describe('Product Ledger', () => {
 
     // Create 5 receipt movements
     for (let i = 0; i < 5; i++) {
-      const mvNum = await stockMovementDao.getNextMovementNumber(String(org._id))
+      const mvNum = await nextMovementNumber(String(org._id))
       const m = await StockMovement.create({
         orgId: org._id, movementNumber: mvNum, type: 'receipt', status: 'draft',
         date: new Date(`2026-01-${String(i + 1).padStart(2, '0')}`), toWarehouseId: warehouse._id,
@@ -390,7 +390,7 @@ describe('Product Ledger', () => {
     const user = await createTestUser(org._id)
 
     // Receipt
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     const m1 = await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'draft',
       date: new Date('2026-01-01'), toWarehouseId: warehouse._id,
@@ -400,7 +400,7 @@ describe('Product Ledger', () => {
     await confirmMovement(String(m1._id))
 
     // Dispatch
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     const m2 = await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'dispatch', status: 'draft',
       date: new Date('2026-01-15'), fromWarehouseId: warehouse._id,
@@ -432,7 +432,7 @@ describe('Product Ledger', () => {
     const invoice = await createTestInvoice(org._id, contact._id)
 
     // Movement with contactId set directly
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     const m1 = await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'dispatch', status: 'draft',
       date: new Date('2026-01-01'), fromWarehouseId: warehouse._id,
@@ -443,7 +443,7 @@ describe('Product Ledger', () => {
     await confirmMovement(String(m1._id))
 
     // Movement linked to invoice (contactId not set on movement, fallback to invoice contact)
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     const m2 = await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'dispatch', status: 'draft',
       date: new Date('2026-01-02'), fromWarehouseId: warehouse._id,
@@ -472,7 +472,7 @@ describe('Product Ledger', () => {
     const contactB = await createTestContact(org._id, { companyName: 'Corp B' })
 
     // Movement for contact A
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     const m1 = await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'dispatch', status: 'draft',
       date: new Date('2026-01-01'), fromWarehouseId: warehouse._id,
@@ -483,7 +483,7 @@ describe('Product Ledger', () => {
     await confirmMovement(String(m1._id))
 
     // Movement for contact B
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     const m2 = await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'dispatch', status: 'draft',
       date: new Date('2026-01-02'), fromWarehouseId: warehouse._id,
@@ -555,7 +555,7 @@ describe('Product Ledger', () => {
     const user = await createTestUser(org._id)
 
     // Create adjustment with toWarehouseId only (like inventory count generates)
-    const mvNum = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mvNum = await nextMovementNumber(String(org._id))
     const movement = await StockMovement.create({
       orgId: org._id, movementNumber: mvNum, type: 'adjustment', status: 'draft',
       date: new Date(), toWarehouseId: warehouse._id,
@@ -579,7 +579,7 @@ describe('Product Ledger', () => {
     const user = await createTestUser(org._id)
 
     // Opening receipt (positive balance)
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     const m1 = await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'draft',
       date: new Date('2026-01-01'), toWarehouseId: warehouse._id,
@@ -590,7 +590,7 @@ describe('Product Ledger', () => {
 
     // book-corrections-style write-off: fromWarehouseId + POSITIVE absolute quantity.
     // The stock engine reduces by 30 (100 → 70); the ledger must show the same sign, not +30.
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     const m2 = await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'adjustment', status: 'draft',
       date: new Date('2026-01-15'), fromWarehouseId: warehouse._id,
@@ -634,7 +634,7 @@ describe('Product Ledger — sorting, and filters that keep the balance absolute
     const book = async (f: { type: 'receipt' | 'dispatch'; date: string; qty: number; unitCost?: number; contactId?: any; invoiceId?: any }) => {
       const unitCost = f.unitCost ?? 5
       const m = await StockMovement.create({
-        orgId: org._id, movementNumber: await stockMovementDao.getNextMovementNumber(String(org._id)),
+        orgId: org._id, movementNumber: await nextMovementNumber(String(org._id)),
         type: f.type, status: 'draft', date: new Date(f.date),
         ...(f.type === 'receipt' ? { toWarehouseId: warehouse._id } : { fromWarehouseId: warehouse._id }),
         ...(f.contactId ? { contactId: f.contactId } : {}),

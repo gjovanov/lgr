@@ -30,8 +30,8 @@ import { inModule } from 'ui-shared/nav/open-page'
  * reached from a ★ favorite, a shared link, or a cross-app redirect, because there is no
  * in-app history to go back to. The user lands somewhere with no visible exit.
  *
- * ⚠ `AppShell` never renders `AppBreadcrumb`, so every route's `meta.breadcrumb` is inert
- * data. Wiring breadcrumbs into the shell would change the layout of every app in the suite;
+ * ⚠ The shell draws no breadcrumb (FR-32.9 deleted the unmounted component and the routes'
+ * inert `meta.breadcrumb`, D-4). One would cost a row of height on every screen of the suite;
  * a back affordance on the pages that need one does not.
  *
  * Navigation is an explicit push to the hub rather than `router.back()`, so the button always

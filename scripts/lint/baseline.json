@@ -351,7 +351,7 @@
     "lgr/catch-drops-error": 4
   },
   "packages/services/src/biz/auto-journal.service.ts": {
-    "lgr/no-as-any": 12
+    "lgr/no-as-any": 9
   },
   "packages/services/src/biz/backup/backup-restore.service.ts": {
     "lgr/no-as-any": 8
@@ -758,12 +758,6 @@
   },
   "packages/services/src/dao/invite.dao.ts": {
     "lgr/no-as-any": 4
-  },
-  "packages/services/src/dao/org-app.dao.ts": {
-    "lgr/no-as-any": 3
-  },
-  "packages/services/src/events/handlers.ts": {
-    "lgr/no-as-any": 9
   },
   "packages/services/src/logger/logger.ts": {
     "lgr/no-empty-catch": 1

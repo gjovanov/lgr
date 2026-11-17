@@ -119,7 +119,7 @@
     "TS2345": 1
   },
   "packages/portal-api/src/controllers/org.controller.ts": {
-    "TS2559": 2
+    "TS2559": 1
   },
   "packages/portal-api/src/controllers/pos-payment-method.controller.ts": {
     "TS18047": 3
@@ -174,9 +174,6 @@
   },
   "packages/services/src/dao/user.dao.ts": {
     "TS2416": 1
-  },
-  "packages/services/src/dao/warehouse/stock-level.dao.ts": {
-    "TS2352": 1
   },
   "packages/warehouse-api/src/controllers/inventory-count.controller.ts": {
     "TS18047": 5,

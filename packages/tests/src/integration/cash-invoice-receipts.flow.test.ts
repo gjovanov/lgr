@@ -4456,27 +4456,27 @@ describe('the ledger', () => {
   }
 
   /**
-   * Holds the handler of `payment.recorded` between reading the invoice and posting its entry, which
-   * is where another payment lands: what a test can see is the row, before and after.
+   * Holds the posting of `payment.recorded` after it read the invoice and its row, just before it writes its entry,
+   * which is where another payment lands: what a test can see is the row, before and after. (FR-29 slice D: the
+   * posting reads the row itself, so the hold is on the entry's write, not on the repository's invoice read.)
    */
   async function whileItsEntryPosts(during: () => Promise<void>, run: () => Promise<unknown>) {
     const { getRepos } = await import('services/context')
     const repos: any = getRepos()
-    const real = repos.invoices.findById
+    const real = repos.journalEntries.create
     let once = false
-    repos.invoices.findById = async function (...args: any[]) {
-      const doc = await real.apply(this, args)
+    repos.journalEntries.create = async function (...args: any[]) {
       if (!once) {
         once = true
         await during()
       }
-      return doc
+      return real.apply(this, args)
     }
     try {
       await run()
       for (let i = 0; i < 200 && !once; i++) await new Promise(r => setTimeout(r, 10))
     } finally {
-      repos.invoices.findById = real
+      repos.journalEntries.create = real
     }
   }
 
@@ -4588,17 +4588,15 @@ describe('the ledger', () => {
       const before = (await raw(d.id)).payments
       expect(before.map((p: any) => !!p.journalEntryId)).toEqual([true, true])
 
-      // Another entry for the FIRST receipt, the second row now last: the last row keeps its own.
+      // The FIRST receipt's event again, the second row now last. FR-29.14: its posting is made already (its key, and
+      // its row's entry), so nothing is posted twice, and each row keeps its own entry.
       const [first] = await receiptsOf(d.id)
       eventBus.emit('payment.recorded', { invoiceId: d.id, orgId: w.orgId, userId: String(w.user._id), amount: 10, method: 'cash', receiptId: String(first._id) })
-      await settled(w, 4)
-      let after = (await raw(d.id)).payments
-      for (let i = 0; i < 120 && String(after[0].journalEntryId) === String(before[0].journalEntryId); i++) {
-        await new Promise(r => setTimeout(r, 25))
-        after = (await raw(d.id)).payments
-      }
+      await new Promise(r => setTimeout(r, 300))
+      const after = (await raw(d.id)).payments
+      expect(await JournalEntry.countDocuments({ orgId: w.oid })).toBe(3)
       expect(String(after[1].journalEntryId)).toBe(String(before[1].journalEntryId))
-      expect(String(after[0].journalEntryId)).not.toBe(String(before[0].journalEntryId))
+      expect(String(after[0].journalEntryId)).toBe(String(before[0].journalEntryId))
       // The array was not written back: the rows are the same rows.
       expect(after.map((p: any) => String(p._id))).toEqual(before.map((p: any) => String(p._id)))
     } finally {

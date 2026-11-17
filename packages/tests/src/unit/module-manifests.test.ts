@@ -20,7 +20,7 @@ import { routes as oneSpaRoutes } from '../../../web/src/routes'
 
 /**
  * FR-24.3/24.4: each module is a manifest, and every app-relative path it names (menu entries,
- * breadcrumbs, back-to values) resolves against its OWN route table. Those paths no longer depend
+ * back-to values) resolves against its OWN route table. Those paths no longer depend
  * on a router's base, so the same table mounts unchanged under one SPA (Phase 2).
  */
 
@@ -51,11 +51,9 @@ function menuPaths(items: ModuleMenuItem[] | null): string[] {
   return (items ?? []).flatMap(i => [...(i.to ? [i.to] : []), ...menuPaths(i.children ?? null)])
 }
 
-function breadcrumbPaths(records: any[]): string[] {
-  return records.flatMap(r => [
-    ...((r.meta?.breadcrumb ?? []) as { to?: string }[]).flatMap(c => (c.to ? [c.to] : [])),
-    ...breadcrumbPaths(r.children ?? []),
-  ])
+/** FR-32.9 (D-4): no route carries `meta.breadcrumb` any more. Nothing drew it: the shell never mounted a breadcrumb. */
+function breadcrumbs(records: any[]): string[] {
+  return records.flatMap(r => [...(r.meta?.breadcrumb ? [r.name ?? r.path] : []), ...breadcrumbs(r.children ?? [])])
 }
 
 function sources(dir: string): string[] {
@@ -112,9 +110,8 @@ describe('FR-24.4: every app-relative path resolves in its own module', () => {
     expect(misses).toEqual([])
   })
 
-  it('breadcrumbs', () => {
-    const misses = MANIFESTS.flatMap(m => breadcrumbPaths(m.routes).filter(p => !resolves(m, p)).map(p => `${m.id} ${p}`))
-    expect(misses).toEqual([])
+  it('no breadcrumbs: nothing draws them (FR-32.9, D-4)', () => {
+    expect(MANIFESTS.flatMap(m => breadcrumbs(m.routes).map(r => `${m.id} ${r}`))).toEqual([])
   })
 
   it('back-to values in the views and form configs', () => {

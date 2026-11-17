@@ -893,6 +893,37 @@
         "reporting_month_invalid": "Enter a month.",
         "date_invalid": "Enter a date.",
         "link_incomplete": "Each link needs a type and a number."
+      },
+      "postings": {
+        "owed": "{count} journal entries are owed by documents and not posted yet. They are tried again by themselves.",
+        "failed": "{count} journal entries could not be posted after every retry.",
+        "show": "Show",
+        "hide": "Hide",
+        "retry": "Try again",
+        "columns": {
+          "document": "Document",
+          "event": "Posting",
+          "state": "State",
+          "attempts": "Attempts",
+          "lastError": "Last error",
+          "createdAt": "Owed since"
+        },
+        "events": {
+          "invoice_posted": "Issued document",
+          "payment_recorded": "Payment",
+          "stock_movement_confirmed": "Stock movement",
+          "pos_session_closed": "Till session closed"
+        },
+        "states": {
+          "queued": "Waiting",
+          "failed": "Failed"
+        },
+        "outcomes": {
+          "done": "Posted",
+          "retry": "Not posted: it will be tried again",
+          "failed": "Not posted",
+          "not_due": "It is being posted right now"
+        }
       }
     },
     "paymentCodes": {
@@ -936,6 +967,7 @@
     "default": "Default"
   },
   "payroll": {
+    "legacyNotComputed": "Overtime, bonuses and allowances are not computed here: the gross pay is the base salary.",
     "timesheetTypes": {
       "regular": "Regular",
       "overtime": "Overtime",
