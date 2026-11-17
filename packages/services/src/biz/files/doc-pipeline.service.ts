@@ -69,16 +69,18 @@ const TYPE_ORDER: Record<string, number> = {
  * day of till takings with the sales documents. Unanalyzed it keeps the middling fallback, which
  * costs nothing: analysis books nothing, so only the commit order has to be right.
  */
-const typeOrder = (d: { docType?: string; analysis?: { target?: string | null } | null }) => {
-  if (d.docType === 'store_operations' && d.analysis?.target) {
-    return d.analysis.target === 'cash_sale' ? TYPE_ORDER.cash_register : TYPE_ORDER.goods_receipt
+const typeOrder = (d: { docType?: string; analysis?: unknown }) => {
+  // `DocFile.analysis` is Mixed (unknown): only its `target` is read here.
+  const target = (d.analysis as { target?: string | null } | null | undefined)?.target
+  if (d.docType === 'store_operations' && target) {
+    return target === 'cash_sale' ? TYPE_ORDER.cash_register : TYPE_ORDER.goods_receipt
   }
   return TYPE_ORDER[d.docType || ''] ?? 8
 }
 
 export function inProcessingOrder<T extends {
   docType?: string; docDate?: string; docNumber?: string
-  analysis?: { target?: string | null } | null
+  analysis?: unknown
 }>(docs: T[]): T[] {
   return [...docs].sort((a, b) =>
     typeOrder(a) - typeOrder(b)
@@ -434,7 +436,7 @@ function stampSuperseded(orgId: string, userId: string, doc: any, result: any) {
     orgId, userId, action: 'supersede', module: 'files', entityType: 'DocFile', entityId: String(doc._id), entityName: doc.originalName,
     changes: [{ field: 'status', oldValue: doc.status, newValue: 'superseded' }, { field: 'supersededBy', oldValue: null, newValue: result.number ?? null }],
   })
-  return { updateOne: { filter: { _id: doc._id }, update: { $set: { status: 'superseded', supersededBy: result.number ?? null } } } }
+  return { updateOne: { filter: { _id: doc._id }, update: { $set: { status: 'superseded' as const, supersededBy: result.number ?? null } } } }
 }
 
 /** Commit the stored analysis via the engine (book stock / issue doc), stamp the DocFile. */

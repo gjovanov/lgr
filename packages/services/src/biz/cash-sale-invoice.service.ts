@@ -1008,7 +1008,7 @@ function attachableLinesOf(inv: any): AttachableLine[] {
 
 /** Does the match take every sold line of `cs` whole? (A sale to a named customer is invoiced whole.) */
 function takesWhole(cs: any, inv: any, map: Map<string, string>): boolean {
-  const qtyOf = new Map((inv.lines || []).map((l: any) => [idOf(l._id), num(l.quantity)]))
+  const qtyOf = new Map<string, number>((inv.lines || []).map((l: any) => [idOf(l._id), num(l.quantity)]))
   const taken = new Map<string, number>()
   for (const [invLine, saleLine] of map) taken.set(saleLine, (taken.get(saleLine) || 0) + (qtyOf.get(invLine) || 0))
   const left = soldByLine(cs)

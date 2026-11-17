@@ -318,7 +318,7 @@ async function analyzeOne(
   if (mapped.reference && item.filename && !item.filename.includes(mapped.reference)) {
     // The CLI skills' hardest-learned rule: a misread Номер would be preserved verbatim as
     // the issued number, so a filename/number disagreement must never auto-convert.
-    const fileDigits = (item.filename.match(/\d{4,}/g) || [])
+    const fileDigits: string[] = item.filename.match(/\d{4,}/g) || []
     if (fileDigits.length && !fileDigits.includes(mapped.reference)) {
       warnings.push(`document number ${mapped.reference} does not appear in the filename`)
     }

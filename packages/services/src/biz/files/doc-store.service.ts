@@ -88,7 +88,7 @@ const sha256 = (buf: ArrayBuffer | Buffer) => createHash('sha256').update(Buffer
 async function readXlsxPeriodDate(buf: ArrayBuffer): Promise<string | null> {
   try {
     const wb = new ExcelJS.Workbook()
-    await wb.xlsx.load(Buffer.from(buf as any))
+    await wb.xlsx.load(Buffer.from(buf) as unknown as ExcelJS.Buffer)
     const ws = wb.worksheets[0]
     if (!ws) return null
     for (let r = 1; r <= Math.min(12, ws.rowCount); r++) {

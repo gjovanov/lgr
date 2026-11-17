@@ -86,7 +86,7 @@ export interface WrittenFencedExport {
 const section = () => ({ h: createHash('sha256'), count: 0 })
 const digestOf = (s: { h: ReturnType<typeof createHash>; count: number }): SectionDigest => ({ count: s.count, sha256: s.h.digest('hex') })
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex')
-const orgOf = (orgPath: string | undefined, doc: Doc) => (orgPath === '_id' ? doc._id : doc.orgId)
+const orgOf = (orgPath: string | null | undefined, doc: Doc) => (orgPath === '_id' ? doc._id : doc.orgId)
 
 /** The journal rows of an org that global may not have seen. */
 export function aboveCutoff(cutoff: number, journalEpoch?: number) {

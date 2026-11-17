@@ -387,4 +387,13 @@ Most of this FR is proven by CI, not in production.
 
 ## 11. Build log
 
-Nothing is built yet.
+### Slice A
+
+- **#806** (FR-32.1–.3, .8): a `tsconfig.json` on one strict base in every package, `bun run typecheck`, the CI job, the baselines (backend 248, ui 57, desktop-ui 3 at the start).
+- **#807** (FR-32.5): oxlint with the four rules, against `scripts/lint/baseline.json` (2 064 at the start). The job is `typecheck + lint (ubuntu)`, about a minute, beside the tests (FR-32.8).
+- **#809** (FR-32.6): the five `@smoke` tests on every pull request that touches a UI package or `e2e`, five minutes, no retries.
+- **FR-32.14** shipped by itself in **#799** (slice C's first requirement).
+- **FR-32.4, the core packages** (`feat/797-fr32-a-core-typecheck`): the backend baseline falls from 248 to 208. Every error of `dal`, `dal-mongo`, `db` and `fiscal` is fixed, and 37 of `services`' 48. The Stripe webhook reads the period end and an invoice's subscription in both API shapes, the one before 2025-03-31 and the one after (`periodEndOf`, `subscriptionIdOf`, `unit/stripe-webhook-shapes.test.ts`). Left in `services`, each carried by the work that owns its file:
+  - `audit-log.service.ts` (5: the four repositories that do not exist, a missing import) and `doc-import/persist.ts` (an audit entry stored without its content): [FR-29](FR-29-atomic-bookings-records-runtime.md) §1.5 and .22;
+  - `access/evaluate.ts`, `access/role.service.ts`, `biz/auth.service.ts` and `dao/user.dao.ts` (5): files FR-27's open pull requests change;
+  - `dao/warehouse/stock-level.dao.ts` (1): a dead DAO class, deleted by slice B.

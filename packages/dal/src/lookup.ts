@@ -53,7 +53,7 @@ export async function lookup<T extends Record<string, any>, R extends BaseEntity
     if (!ref) return { ...item, [targetKey]: null }
 
     const picked = select
-      ? select.reduce((acc, k) => { acc[k as string] = ref[k as string]; return acc }, { id: ref.id } as any)
+      ? select.reduce((acc, k) => { acc[k as string] = (ref as unknown as Record<string, unknown>)[k as string]; return acc }, { id: ref.id } as any)
       : ref
 
     return { ...item, [targetKey]: picked }

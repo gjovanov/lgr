@@ -458,7 +458,7 @@ async function mailBundle(
     if (!ids.length) return { emailed: false, skippedReason: 'no_recipients' }
     const u: any = await User.findOne({ _id: { $in: ids }, orgId, isActive: true }, { email: 1 }).lean().exec()
     if (!u?.email) return { emailed: false, skippedReason: 'no_recipients' }
-    to = u.email
+    to = String(u.email)
   }
 
   const m = built.manifest
