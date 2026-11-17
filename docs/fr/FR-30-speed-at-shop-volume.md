@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-16. Nothing is built. The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-16. Slice A built (FR-30.1 to .4, §11). The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | FR-05 and FR-22 (`ListScaffold`, `usePaginatedTable`, grid state in the URL, the click-budget walks), FR-28 (the product search, its explain test and request-count test), FR-06 (the reports registry), FR-24 (one SPA, `scripts/check-web-bundle.ts`), the lowered search mirrors (`db/src/plugins/lowered-fields.plugin.ts`) |
 | **Touches** | `db` (indexes on `Product`, `Invoice`, `StockLevel`, `StockMovement`; the lowered-fields plugin), `packages/migrations` (dropping indexes), `dal-mongo` and `services` (pagination, search, the stock-levels report, the contact ledger, dashboards), `invoicing-api` and `warehouse-api` (list endpoints), `reporting` (PDF), `ui-shared` (the list engine, the icon set, locales), `invoicing-ui` and `inventory-ui` (document open, the count form), `portal-api` (static files, two small endpoints), `packages/server` (the on-prem master's static files) |
 | **Tracking** | [gjovanov/lgr#795](https://github.com/gjovanov/lgr/issues/795) |
@@ -360,4 +360,31 @@ The demo organization is small, so production proves that nothing changed, and t
 
 ## 11. Build log
 
-Nothing is built yet.
+### Slice A (FR-30.1 to .4), 2026-11-16
+
+**What was built.**
+- `config/list-sorts.ts`: per list (products, invoices, stock levels, movements) the keys it sorts by, each `index` (named), `scan` (with its reason) or `aggregate`; `chooseListSort` (anything else is the list's default sort) and `sortableHeaders` (the grid offers only those keys). The four list routes and the four grids use it.
+- Indexes: `Product { orgId, createdAt: -1 }`, `{ orgId, name: 1 }`; `Invoice { orgId, direction, createdAt: -1 }`, `{ orgId, direction, invoiceNumber: 1 }`, the ledger's partial `{ orgId, 'cashSaleRef.contactId' }`; `StockLevel { orgId, createdAt: -1 }`; `StockMovement { orgId, date: -1 }`, `{ orgId, createdAt: -1 }`.
+  - Two more than §2.1 named. The Movements grid opens on `createdAt`, not `date` (the API's default), so both are kept. The № column of Sales invoices read every bill first through the unique key (`BILL-…` sorts before `INV-…`): 2 014 documents for 10 rows.
+- The seven text indexes left the schemas; migration `0016-drop-unread-text-indexes` drops whatever text index each of the seven collections still has, by its name. `hasTextIndex` and the DAO's `$text` method went with them.
+- Tests: `integration/list-plans.flow.test.ts` (the profiler on the real routes: no in-memory sort, at most five pages read, for each list's grid query, its API default, its usual filters, and every index-served key in both orders; the ledger; the migration), `unit/list-sorts.test.ts`.
+
+**Measured** on the same data before (this slice's indexes dropped) and after, with `LGR_PERF=1` on the test file: 23 050 articles with ten tiers, 46 100 levels, 10 020 documents of 12 lines, 5 000 movements of 10 lines, in-memory replica set, a developer laptop (read as ratios). Median of 7 API calls.
+
+| Query | Before: read, ms | After: read, ms |
+|---|---|---|
+| Products, the grid's first page | 23 050, 333 | 11, 193 |
+| Products by name (API default) | 23 050, 201 | 10, 50 |
+| Sales invoices | 8 016, 137 | 10, 101 |
+| Sales invoices by № | 2 014, 114 | 10, 106 |
+| Bills | 2 004, 110 | 10, 37 |
+| Stock levels | 46 100, 412 | 10, 120 |
+| Movements | 5 000, 57 | 10, 18 |
+| Contact ledger, one contact (route) | 7 515, 223 | 3, 59 |
+| — its cash-sale read alone | 7 515, 385 | 3, 6 |
+
+**What is left in a list's time is its total.** The page's own query now takes 0 to 2 ms. `countDocuments` still reads every matching document where the filter is not covered by an index: Products with "active only" (`isActive: { $ne: false }`, about 300 ms), Sales invoices (`type` and the payment-receipt rule, about 90 ms); Stock levels counts 46 100 index keys (about 130 ms). That is outside this slice; it is a question for the owner (an index that covers the count, or a total that is not exact past a size).
+
+**Sorts no index serves** (`scan` in the table, held by the test as a list): Products by type, unit, active, minimum, purchase and selling price; documents by status, type, currency, reference, subtotal, tax, total, amount due; Stock levels by quantity; Movements by status and total (and by the three looked-up names, an aggregation). Each still reads the filtered rows, as before. They stay offered: dropping them from the grids, or indexing them, is the owner's call (FR-30.2).
+
+**Turned off in the grids**, because the server never sorted by them (they are names looked up after the page): the contact on Sales invoices and Bills, the article's SKU and name and the warehouse on Stock levels.

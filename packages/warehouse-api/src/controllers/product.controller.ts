@@ -9,6 +9,7 @@ import { findProductsByStockColumn, stockColumnForSortKey } from 'services/biz/p
 import { grantOf } from 'services/biz/access/evaluate'
 import { keepStoredCosts, redactProduct, redactProducts } from 'config/access'
 import { PRODUCT_TARIFF_CODE_MAX } from 'config/constants'
+import { LIST_SORTS, chooseListSort } from 'config/list-sorts'
 
 /** What an article is (`PRODUCT_TYPES`). One list for the create and the update route. */
 const PRODUCT_TYPE = t.Union([
@@ -33,18 +34,20 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = (query.sortBy as string) || 'name'
-    const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : 1
+    // FR-30.2: a sort the list declares (`config/list-sorts`), else the list's default.
+    const chosen = chooseListSort('products', query.sortBy, query.sortOrder)
+    const sortOrder = chosen.order
 
     // A price tier's column (`tier_1`) sorts by that tier's price, and a stock column by the figure
     // its cell shows; a plain find can do neither.
-    const tier = tierForSortKey(sortBy)
-    const stockColumn = stockColumnForSortKey(sortBy)
+    const tier = tierForSortKey(chosen.key)
+    const stockColumn = stockColumnForSortKey(chosen.key)
+    const plain = LIST_SORTS.products.keys[chosen.key] ? chosen : chooseListSort('products', undefined, undefined)
     const result = tier
       ? await findProductsByTierPrice(r.products, filter, tier, sortOrder, page, size)
       : stockColumn
         ? await findProductsByStockColumn(r.products, orgId, filter, stockColumn, (query.warehouseId as string) || undefined, sortOrder, page, size)
-        : await r.products.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+        : await r.products.findAll(filter, { page, size, sort: { [plain.field]: plain.order } })
     // FR-27.6: the cost figures only for a role that holds `products.costs`; absent, not blanked.
     const items = redactProducts(grantOf(user as any), result.items as any[])
     return { ...result, products: items, items }

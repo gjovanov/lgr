@@ -10,7 +10,6 @@
  * Multi-keyword: space-separated = AND (all keywords must match at least one field).
  */
 export interface BuildSearchFilterOptions {
-  hasTextIndex?: boolean
   /**
    * When set, search runs against the lowered mirror fields. Map source field → mirror field.
    * Example: { name: 'nameLower', sku: 'skuLower' }. Pass the source `fields` array as well —

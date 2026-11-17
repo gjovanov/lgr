@@ -2,6 +2,7 @@ import { FiscalRoute, deviceFromAuthorSession, deviceFromCounter, deviceFromDead
 import { can, grantOf } from 'services/biz/access/evaluate'
 import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, writesKind } from 'config/access'
 import { QUOTE_CONVERTS_TO, isQuoteType } from 'config/constants'
+import { chooseListSort } from 'config/list-sorts'
 import { keepStoredTrails, withVisibleTrails } from 'services/biz/access/price-trails'
 import { typedPriceRefusal, withArticleUnits } from 'services/biz/sales-lines'
 import { Elysia, t } from 'elysia'
@@ -708,10 +709,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = invoiceSortField(query.sortBy)
-    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
+    // FR-30.2: a sort the list declares (`config/list-sorts`: the № column is `invoiceNumber`), else the newest first.
+    const sort = chooseListSort('invoices', query.sortBy, query.sortOrder)
 
-    const result = await r.invoices.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+    const result = await r.invoices.findAll(filter, { page, size, sort: { [sort.field]: sort.order } })
 
     // #171: a cash sale lists the invoices issued for it (the link lives only on the invoices).
     const cashSaleIds = result.items.filter((i: any) => i.type === 'cash_sale').map((i: any) => String(i.id))

@@ -135,7 +135,7 @@ employeeSchema.index({ orgId: 1, status: 1 })
 employeeSchema.index({ orgId: 1, managerId: 1 })
 employeeSchema.index({ orgId: 1, tags: 1 })
 employeeSchema.index({ orgId: 1, nationalIdHmac: 1 }, { sparse: true })
-employeeSchema.index({ firstName: 'text', middleName: 'text', lastName: 'text', email: 'text' })
+// FR-30.4: no text index. Nothing ran a `$text` query, and every write kept one up; migration 0016 drops it.
 
 replicate(employeeSchema, { class: 'R' })
 
