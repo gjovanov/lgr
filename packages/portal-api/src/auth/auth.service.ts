@@ -2,9 +2,7 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { config } from 'config'
 import type { SessionUser } from 'services/biz/auth.service'
-import { buildScopedRepos } from 'services/biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
-import { shadowAccess } from 'services/biz/access/shadow'
 import { decideAccess, floorRefusal, sortAccessRefusal } from 'services/biz/access/evaluate'
 import { attachAccess } from 'services/biz/access/live'
 import { homeGate } from 'services/biz/home-gate'
@@ -34,18 +32,15 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
     const token = pickSessionToken(headers.authorization, sessionCookieValue(cookie, headers))
     const payload = token ? await jwt.verify(token) : false
     const user: SessionUser | null = await liveSessionUser(asSessionUser(payload))
-    // FR-27.5: an org on `roles` takes the session's grant and claims from its role, read live.
+    // FR-27.5, P3-2: every org session takes its grant from its role, read live. FR-27 P3-5: nothing else of the
+    // legacy model rides on the session (no role, permissions or areas; no "own records only" repositories).
     const accessVersion = await attachAccess(user)
     if (accessVersion) set.headers['x-access-version'] = accessVersion
     // A person signed in but in no org yet: reaches the identity routes and nothing else (below).
     const identityClaims = asIdentityClaims(payload)
     const person: IdentityClaims | null =
       identityClaims && (await identityStillValid(identityClaims.iid, identityClaims.tv)) ? identityClaims : null
-
-    const scopedRepos = user?.ownRecordsModules?.length
-      ? buildScopedRepos(user.ownRecordsModules, user.id)
-      : null
-    return { user, person, scopedRepos }
+    return { user, person }
   })
   /**
    * A request needs the permission its route names: a write since S-28, a read since S-29
@@ -62,10 +57,8 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
       throw status(401, { message: 'Unauthorized' })
     }
     if (isForeignOrg(user, params?.orgId)) return
-    // FR-27: an org on `roles` is decided by its people's roles, any other by the legacy rules; the other model is
-    // asked beside it in `shadow` and `roles`, and every answer it would give otherwise is counted.
+    // FR-27 P3-2: every org session is decided by the person's role, read live; one with no role is refused.
     const refusal = decideAccess(user, request.method, route)
-    shadowAccess(user, params?.orgId, request.method, route, !!refusal)
     if (refusal) throw status(403, refusal)
     // S-28: a route whose controller decides refuses here a caller holding none of its floor, before validation.
     const floor = floorRefusal(user, request.method, route)
@@ -125,24 +118,6 @@ export const AuthService = new Elysia({ name: 'Service.Auth' })
         },
       }
     },
-    access(spec?: { permission?: string; admin?: boolean }) {
-      return {
-        beforeHandle({ user, status }: any) {
-          if (!user) return status(401, { message: 'Unauthorized' })
-          if (!spec) return
-
-          if (spec.admin) {
-            if (user.role !== 'admin' && !user.permissions?.includes('admin.settings')) {
-              return status(403, { message: 'Administrator access required' })
-            }
-          }
-
-          if (spec.permission) {
-            if (!user.permissions?.includes(spec.permission)) {
-              return status(403, { message: `Permission required: ${spec.permission}` })
-            }
-          }
-        },
-      }
-    },
+    // FR-27 P3-5 (#529): the `access` macro (`{ admin, permission }`), which read the token's legacy role and
+    // permissions, is gone: no route used it. A controller asks `can(user, <capability>)`.
   })

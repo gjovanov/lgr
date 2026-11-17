@@ -187,15 +187,12 @@
   "packages/portal-api/src/controllers/admin-nodes.controller.ts": {
     "lgr/no-as-any": 2
   },
-  "packages/portal-api/src/controllers/app-hub.controller.ts": {
-    "lgr/no-as-any": 2
-  },
   "packages/portal-api/src/controllers/audit-log.controller.ts": {
     "lgr/no-as-any": 2
   },
   "packages/portal-api/src/controllers/auth.controller.ts": {
     "lgr/catch-drops-error": 4,
-    "lgr/no-as-any": 17
+    "lgr/no-as-any": 11
   },
   "packages/portal-api/src/controllers/backup.controller.ts": {
     "lgr/no-as-any": 7
@@ -259,7 +256,7 @@
     "lgr/no-as-any": 1
   },
   "packages/portal-api/src/controllers/user.controller.ts": {
-    "lgr/no-as-any": 4
+    "lgr/no-as-any": 3
   },
   "packages/portal-api/src/front/control-socket.ts": {
     "lgr/catch-drops-error": 2,
@@ -315,18 +312,12 @@
   "packages/reports-ui/src/views/SuptoTableView.vue": {
     "lgr/catch-drops-error": 1
   },
-  "packages/services/src/biz/access/evaluate.ts": {
-    "lgr/no-as-any": 1
-  },
-  "packages/services/src/biz/access/live.ts": {
-    "lgr/no-as-any": 1
-  },
   "packages/services/src/biz/access/partition.ts": {
     "lgr/no-as-any": 2
   },
   "packages/services/src/biz/access/role.service.ts": {
     "lgr/catch-drops-error": 1,
-    "lgr/no-as-any": 4
+    "lgr/no-as-any": 3
   },
   "packages/services/src/biz/access/shadow.ts": {
     "lgr/catch-drops-error": 1,
@@ -488,7 +479,7 @@
     "lgr/no-as-any": 6
   },
   "packages/services/src/biz/doc-import/target-access.ts": {
-    "lgr/no-as-any": 3
+    "lgr/no-as-any": 1
   },
   "packages/services/src/biz/doc-import/till-overlap.ts": {
     "lgr/no-as-any": 1
@@ -535,7 +526,7 @@
   },
   "packages/services/src/biz/identity/account.service.ts": {
     "lgr/catch-drops-error": 4,
-    "lgr/no-as-any": 2
+    "lgr/no-as-any": 1
   },
   "packages/services/src/biz/identity/identity-migration.service.ts": {
     "lgr/catch-drops-error": 1
@@ -721,7 +712,7 @@
     "lgr/no-as-any": 6
   },
   "packages/services/src/biz/report-registry.types.ts": {
-    "lgr/no-as-any": 4
+    "lgr/no-as-any": 3
   },
   "packages/services/src/biz/reservation-ops.service.ts": {
     "lgr/no-as-any": 58

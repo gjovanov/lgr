@@ -1,5 +1,5 @@
 import { FiscalRoute, deviceFromAuthorSession, deviceFromCounter, deviceFromDeadReceipt } from 'fiscal/fiscal-route'
-import { can, grantOf } from 'services/biz/access/evaluate'
+import { can, grantOf, type AccessCaller } from 'services/biz/access/evaluate'
 import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, writesKind } from 'config/access'
 import { QUOTE_CONVERTS_TO, isQuoteType } from 'config/constants'
 import { chooseListSort } from 'config/list-sorts'
@@ -596,7 +596,7 @@ const ORDERS_REFUSED = { code: 'area_required', area: 'orders', message: 'Orders
  * (the form round-trips `orderRef` verbatim, so an invoice converted from an order saves unchanged) and may add or
  * change none.
  */
-function orderLinkRefusal(user: { role?: string; areas?: readonly string[] }, body: any, existing?: any): typeof ORDERS_REFUSED | null {
+function orderLinkRefusal(user: AccessCaller, body: any, existing?: any): typeof ORDERS_REFUSED | null {
   if (seesOrders(user as any)) return null
   for (const f of ORDER_HEAD_FIELDS) {
     if (body?.[f] === undefined) continue

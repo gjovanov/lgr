@@ -2,10 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { getOrCreateUser, registerWithOAuth } from 'services/biz/oauth.service'
+import { tokenize } from 'services/biz/auth.service'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { inviteDao } from 'services/dao/invite.dao'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, APP_IDS } from 'config/constants'
-import { Org, OrgApp, PermissionSet, User } from 'db/models'
+import { Org, OrgApp, PermissionSet, Role, User } from 'db/models'
 import type { Types } from 'mongoose'
 
 /**
@@ -66,9 +67,12 @@ describe('S-23: an OAuth session carries the same claims as a password session',
 
     const { user } = await getOrCreateUser(google('g-narrow', 'narrow@claims.test') as any, org.slug)
 
-    expect(user.permissions.sort()).toEqual(['sales.read'])
-    expect(user.permissions).not.toContain(DEFAULT_ROLE_PERMISSIONS.accountant.find(p => p !== 'sales.read')!)
-    expect(user.ownRecordsModules).toContain('sales')
+    // FR-27 P3-5: an org session names the person's role, whichever way they signed in (S-23): here the role 0015
+    // gave, exactly the set's access. The token carries no permissions; the role decides every request.
+    const password = await tokenize((await User.findOne({ orgId: org._id, username: 'narrow' }).exec())!)
+    expect(user).toEqual(password)
+    expect(user.rid).toBeTruthy()
+    expect('permissions' in user).toBe(false)
     expect(user.operatorCode).toBe('0007')
   })
 
@@ -84,7 +88,11 @@ describe('S-23: an OAuth session carries the same claims as a password session',
 
     const { user } = await getOrCreateUser(google('g-boss', 'boss@claims.test') as any, org.slug)
 
-    expect([...user.permissions].sort()).toEqual([...PERMISSIONS].sort())
+    // FR-27 P3-5: the Administrator's role, as a password sign-in names it (S-23); the role grants everything.
+    const password = await tokenize((await User.findOne({ orgId: org._id, username: 'boss' }).exec())!)
+    expect(user).toEqual(password)
+    const role: any = await Role.findById(user.rid).lean().exec()
+    expect(role.all).toBe(true)
   })
 })
 
@@ -103,9 +111,12 @@ describe('S-23: OAuth-created users are provisioned like registered ones', () =>
     expect(isNew).toBe(true)
     const stored = await User.findById(user.id).lean().exec()
     expect(stored!.operatorCode).toMatch(/^\d{4}$/)
-    expect(stored!.roleHistory?.[0]?.role).toBe('accountant')
+    // FR-27 P3-5: the history names the role by id and name (an invitation from before names its legacy key only).
+    const accountant: any = await Role.findOne({ orgId: org._id, isBuiltin: true, templateKey: 'accountant' }).lean().exec()
+    expect(String(stored!.roleHistory?.[0]?.roleId)).toBe(String(accountant._id))
+    expect(stored!.roleHistory?.[0]?.roleName).toBe(accountant.name)
     expect(user.operatorCode).toBe(stored!.operatorCode)
-    expect(user.role).toBe('accountant')
+    expect(user.rid).toBe(String(accountant._id))
   })
 
   it('an OAuth sign-up gets the org register() would build: modules, app rows, permission sets, an operator code', async () => {
@@ -123,10 +134,15 @@ describe('S-23: OAuth-created users are provisioned like registered ones', () =>
     expect(adminSet).not.toBeNull()
 
     const stored = await User.findById(user.id).lean().exec()
-    expect(stored!.permissionSetIds?.map(String)).toContain(String(adminSet!._id))
+    // FR-27 P3-5: the Administrator role, by id and name in the history; no permission set, no legacy key.
+    expect(stored!.permissionSetIds).toBeUndefined()
+    expect(stored!.role).toBeUndefined()
     expect(stored!.operatorCode).toMatch(/^\d{4}$/)
-    expect(stored!.roleHistory?.[0]?.role).toBe('admin')
-    expect([...user.permissions].sort()).toEqual([...PERMISSIONS].sort())
+    const admin: any = await Role.findOne({ orgId: created!._id, isBuiltin: true, templateKey: 'admin' }).lean().exec()
+    expect(String(stored!.roleId)).toBe(String(admin._id))
+    expect(String(stored!.roleHistory?.[0]?.roleId)).toBe(String(admin._id))
+    const password = await tokenize((await User.findById(user.id).exec())!)
+    expect(user.rid).toBe(password.rid)
     expect(user.operatorCode).toBe(stored!.operatorCode)
   })
 })

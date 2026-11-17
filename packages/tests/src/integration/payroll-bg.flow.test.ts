@@ -2,7 +2,9 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
-import { createTestOrg, createTestUser } from '../helpers/factories'
+import { createTestOrg, createTestUser, createTestPerson } from '../helpers/factories'
+import { tokenize } from 'services/biz/auth.service'
+import { mongoose } from 'db/connection'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
@@ -43,9 +45,13 @@ let hrToken: string
 let writerToken: string
 let readerToken: string
 
-async function tokenFor(user: any, role: string, permissions: string[], org: string) {
-  const self = signer as any
-  return self.decorator.jwt.sign({ id: String(user._id), email: user.email, username: user.username, firstName: 'A', lastName: 'B', role, orgId: org, permissions })
+/**
+ * A session for `role` with exactly `permissions`, in `org` (FR-27 P3-2: the role decides, so each case is a person of
+ * its own, whose role holds just that). `user` names the case it stands in for, and is not signed in itself.
+ */
+async function tokenFor(_user: any, role: string, permissions: string[], org: string) {
+  const person = await createTestPerson(new mongoose.Types.ObjectId(org), { role, permissions })
+  return (signer as any).decorator.jwt.sign(await tokenize(person))
 }
 
 function call(method: string, path: string, token: string, body?: unknown, org = orgId) {

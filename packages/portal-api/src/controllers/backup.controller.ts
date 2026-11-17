@@ -9,13 +9,14 @@ import { runBackupForOrg } from 'services/biz/backup/backup-runner.service'
 import { bundleDir, verifyBundle, BUNDLE_DATE_RE } from 'services/biz/backup/backup-bundle.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { isSysAdmin } from 'services/biz/sys-admin'
+import { grantOf } from 'services/biz/access/evaluate'
 import { orgLocalParts } from 'services/biz/digest/daily-digest.service'
 
 /**
  * FR-13.15 (#24) — the per-org backup's operator surface.
  *
- * Admin-only, using the same raw `role !== 'admin'` guard as the digest controller it sits
- * beside. This is the ORG's own backup: creating and downloading it is org-admin work
+ * The Administrator's only (FR-27 P3-5, #529: the role's grant is `all`; until then the raw
+ * `role !== 'admin'` guard). This is the ORG's own backup: creating and downloading it is org-admin work
  * (arguably GDPR portability), and that includes the screen's "Create backup now"
  * (`POST /create`, within `orgAdminCreateRefusal`'s limits). The *restoring* half is a
  * different animal entirely — §5.7 gates that behind a separate, fail-closed sys-admin
@@ -49,7 +50,8 @@ import { orgLocalParts } from 'services/biz/digest/daily-digest.service'
  */
 function guard(user: any, orgId: string, status: any) {
   if (!user) return status(401, { message: 'Unauthorized' })
-  if (user.role !== 'admin') return status(403, { message: 'Admin only' })
+  // FR-27 P3-5: the Administrator role (every capability); the token's legacy role is no longer read.
+  if (!grantOf(user).all) return status(403, { message: 'Admin only' })
   // Compared as strings: `user.orgId` arrives from the JWT, `orgId` from the path.
   if (String(user.orgId || '') !== String(orgId)) {
     return status(403, { message: 'This backup belongs to a different organisation' })

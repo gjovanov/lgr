@@ -2,7 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
-import { createTestAccount, createTestBankAccount, createTestContact, createTestFixedAsset, createTestOrg, createTestUser } from '../helpers/factories'
+import { createTestAccount, createTestBankAccount, createTestContact, createTestFixedAsset, createTestOrg, createTestUser, createTestPerson } from '../helpers/factories'
+import { tokenize } from 'services/biz/auth.service'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { Account, AccountingAnalytic, AuditLog, JournalEntry, Org } from 'db/models'
@@ -23,11 +24,9 @@ const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
 let app: Elysia
 
 async function tokenFor(orgId: Id, role: keyof typeof ROLES, permissions: string[] = ROLES[role]) {
-  const user = await createTestUser(orgId, { role, permissions } as any)
-  return (signer as any).decorator.jwt.sign({
-    id: String(user._id), orgId: String(orgId), role, email: user.email, username: user.username,
-    firstName: 'Test', lastName: 'User', permissions, ownRecordsModules: [],
-  }) as Promise<string>
+  // FR-27 P3-2: the role decides; a set holding exactly these permissions gives the person a role with just them.
+  const user = await createTestPerson(orgId as any, { role, permissions })
+  return (signer as any).decorator.jwt.sign(await tokenize(user)) as Promise<string>
 }
 
 async function call(method: string, path: string, token: string, body?: unknown) {

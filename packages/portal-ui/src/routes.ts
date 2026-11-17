@@ -52,9 +52,9 @@ export const portalRoutes: RouteRecordRaw[] = [
       { path: 'settings/users', name: 'settings.users', component: () => import('./views/settings/UsersView.vue') },
       { path: 'settings/invites', name: 'settings.invites', component: () => import('./views/settings/InvitesView.vue') },
       { path: 'settings/billing', name: 'settings.billing', component: () => import('./views/settings/BillingView.vue') },
-      // FR-27.4: Roles & access replaces Permission sets in the menu. The sets stay reachable from it while an org has
-      // no roles (migration 0015 not run there), and hold the roles' projections; Phase 3 removes them.
-      { path: 'settings/permission-sets', name: 'settings.permissionSets', component: () => import('./views/settings/PermissionSetsView.vue') },
+      // FR-27 P3-3 (#529): the permission sets screen is gone. An old link or bookmark lands on Roles & access, by
+      // NAME (a path names a router's base). The route's name stays, so nothing that named it breaks.
+      { path: 'settings/permission-sets', name: 'settings.permissionSets', redirect: { name: 'settings.roles' } },
       { path: 'settings/roles', name: 'settings.roles', component: () => import('./views/settings/RolesView.vue') },
       { path: 'settings/roles/:id', name: 'settings.roles.edit', component: () => import('./views/settings/RoleEditorView.vue') },
       // FR-14.23 (#57). Route name is load-bearing (Playwright navigation) - named once, never renamed.

@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { signInHref } from 'ui-shared/nav/navigate'
 import { hasOrgSession } from 'ui-shared/session/session'
+import { whenAccessSettled } from 'ui-shared/access/live-grant'
+import { useAppStore } from 'ui-shared/stores/app.store'
 import { getI18n } from 'ui-shared/plugins'
 import { portalGuard } from '../../portal-ui/src/routes'
 import { tillRedirect } from '../../invoicing-ui/src/pos/till-rules'
@@ -31,6 +33,12 @@ router.beforeEach(async (to, from, next) => {
   }
   if (staleNavigation(to, from)) return next(false)
   if (to.name === 'pos.pin') return next()
+  // FR-27 P3-5 (#529): the token says nothing of what the role allows, so a page load or a new tab learns the grant
+  // (`/auth/me`, once) before the first decision that reads it: the till's, the portal's and every page's.
+  if (hasOrgSession()) {
+    useAppStore() // registers how to ask `/auth/me` (`setAccessRefetch`)
+    await whenAccessSettled()
+  }
 
   const module = moduleOf(to)
   if (!module) return portalGuard(to, next)

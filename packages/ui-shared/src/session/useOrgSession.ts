@@ -3,6 +3,7 @@ import { sessionViewer } from '../composables/useStorageIdentity'
 import { APP_NAV_META, canOpenPage, matchPage, type PageViewer } from '../nav/page-registry'
 import { portalHref } from '../nav/navigate'
 import { getOrg, setSession, type SessionOrg } from './session'
+import { setLiveAccess, type LiveAccess } from '../access/live-grant'
 
 /**
  * The signed-in person's orgs, and moving this tab between them (multi-org sign-in, Phase 3).
@@ -38,6 +39,8 @@ export interface OrgSessionAnswer {
   org: SessionOrg
   orgs: OrgChoice[]
   needsOrgChoice: false
+  /** FR-27 P3-5: the role's grant in the org entered (the token carries none). */
+  access?: LiveAccess | null
 }
 
 /** The person's orgs (the current one marked) and the invitations waiting for their address. */
@@ -48,6 +51,8 @@ export async function fetchMyOrgs(): Promise<{ orgs: OrgChoice[]; invitations: I
 
 function enter(data: OrgSessionAnswer): OrgSessionAnswer {
   setSession(data.token, data.org)
+  // FR-27 P3-5: where the tab lands next is decided on the new org's grant, which the answer carries.
+  if ('access' in data) setLiveAccess(data.access ?? null)
   return data
 }
 

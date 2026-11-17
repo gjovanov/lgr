@@ -1,14 +1,24 @@
-import { connectDB, disconnectDB } from 'db/connection'
-import { mongoose } from 'db/connection'
+import { connectDB, disconnectDB, mongoose } from 'db/connection'
+import { giveStartingRole, seedBuiltinRoles, startingRoleOf } from 'services/biz/access/role.service'
 import {
   Org, User, Account, FiscalYear, FiscalPeriod, JournalEntry,
   Contact, Invoice, Product, Warehouse, StockLevel,
   Employee, PayrollRun, Payslip, OrgApp, Identity,
 } from 'db/models'
-import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS } from 'config/constants'
+import { MODULES, APP_IDS } from 'config/constants'
 import ExcelJS from 'exceljs'
 import path from 'path'
 import { existsSync } from 'node:fs'
+
+/** FR-27 P3-5: who was seeded as which built-in role (by its template key), given once their org's roles exist. */
+const seededRoles = new Map<string, { orgId: string; key: string }>()
+
+/** A seeded membership, given the built-in role of `key` at the end of the seed (no legacy role or permissions). */
+async function seedMember(fields: Record<string, unknown>, key: string) {
+  const user = await User.create(fields)
+  seededRoles.set(String(user._id), { orgId: String(user.orgId), key })
+  return user
+}
 
 /**
  * One person per seeded address (multi-org sign-in): an identity linked to every user that carries
@@ -104,11 +114,11 @@ export async function seed() {
   // ── Users (5) ──
   const password = await Bun.password.hash('test123')
   const users1 = await Promise.all([
-    User.create({ email: 'admin@acme.com', username: 'admin', password, firstName: 'Admin', lastName: 'User', role: 'admin', orgId: org1._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.admin }),
-    User.create({ email: 'accountant@acme.com', username: 'accountant', password, firstName: 'Anna', lastName: 'Smith', role: 'accountant', orgId: org1._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.accountant }),
-    User.create({ email: 'hr@acme.com', username: 'hrmanager', password, firstName: 'Helen', lastName: 'Brown', role: 'hr_manager', orgId: org1._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.hr_manager }),
-    User.create({ email: 'warehouse@acme.com', username: 'warehouse', password, firstName: 'Walter', lastName: 'Green', role: 'warehouse_manager', orgId: org1._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.warehouse_manager }),
-    User.create({ email: 'sales@acme.com', username: 'sales', password, firstName: 'Sarah', lastName: 'Wilson', role: 'sales', orgId: org1._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.sales }),
+    seedMember({ email: 'admin@acme.com', username: 'admin', password, firstName: 'Admin', lastName: 'User', orgId: org1._id, isActive: true }, 'admin'),
+    seedMember({ email: 'accountant@acme.com', username: 'accountant', password, firstName: 'Anna', lastName: 'Smith', orgId: org1._id, isActive: true }, 'accountant'),
+    seedMember({ email: 'hr@acme.com', username: 'hrmanager', password, firstName: 'Helen', lastName: 'Brown', orgId: org1._id, isActive: true }, 'hr_manager'),
+    seedMember({ email: 'warehouse@acme.com', username: 'warehouse', password, firstName: 'Walter', lastName: 'Green', orgId: org1._id, isActive: true }, 'warehouse_manager'),
+    seedMember({ email: 'sales@acme.com', username: 'sales', password, firstName: 'Sarah', lastName: 'Wilson', orgId: org1._id, isActive: true }, 'sales'),
   ])
 
   org1.ownerId = users1[0]._id
@@ -540,11 +550,11 @@ export async function seed() {
   })
 
   const betaUsers = await Promise.all([
-    User.create({ email: 'admin@beta.com', username: 'admin', password, firstName: 'Beta', lastName: 'Admin', role: 'admin', orgId: org2._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.admin }),
-    User.create({ email: 'accountant@beta.com', username: 'accountant', password, firstName: 'Beth', lastName: 'Jones', role: 'accountant', orgId: org2._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.accountant }),
-    User.create({ email: 'hr@beta.com', username: 'hrmanager', password, firstName: 'Harry', lastName: 'Lee', role: 'hr_manager', orgId: org2._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.hr_manager }),
-    User.create({ email: 'warehouse@beta.com', username: 'warehouse', password, firstName: 'Wayne', lastName: 'Patel', role: 'warehouse_manager', orgId: org2._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.warehouse_manager }),
-    User.create({ email: 'sales@beta.com', username: 'sales', password, firstName: 'Samantha', lastName: 'Nguyen', role: 'sales', orgId: org2._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.sales }),
+    seedMember({ email: 'admin@beta.com', username: 'admin', password, firstName: 'Beta', lastName: 'Admin', orgId: org2._id, isActive: true }, 'admin'),
+    seedMember({ email: 'accountant@beta.com', username: 'accountant', password, firstName: 'Beth', lastName: 'Jones', orgId: org2._id, isActive: true }, 'accountant'),
+    seedMember({ email: 'hr@beta.com', username: 'hrmanager', password, firstName: 'Harry', lastName: 'Lee', orgId: org2._id, isActive: true }, 'hr_manager'),
+    seedMember({ email: 'warehouse@beta.com', username: 'warehouse', password, firstName: 'Wayne', lastName: 'Patel', orgId: org2._id, isActive: true }, 'warehouse_manager'),
+    seedMember({ email: 'sales@beta.com', username: 'sales', password, firstName: 'Samantha', lastName: 'Nguyen', orgId: org2._id, isActive: true }, 'sales'),
   ])
 
   org2.ownerId = betaUsers[0]._id
@@ -590,29 +600,25 @@ export async function seed() {
 
   // The dev seed's one password (`test123`, above), like every other seeded user. These two used
   // to carry passwords shaped like real people's, removed from the repo on 2026-10-05.
-  const regalUser = await User.create({
+  const regalUser = await seedMember({
     email: 'regal-owner@lgr.test',
     username: 'regal-owner',
     password,
     firstName: 'Regal',
     lastName: 'Owner',
-    role: 'admin',
     orgId: org3._id,
     isActive: true,
-    permissions: DEFAULT_ROLE_PERMISSIONS.admin,
-  })
+  }, 'admin')
 
-  await User.create({
+  await seedMember({
     email: 'regal-admin@lgr.test',
     username: 'regal-admin',
     password,
     firstName: 'Regal',
     lastName: 'Admin',
-    role: 'admin',
     orgId: org3._id,
     isActive: true,
-    permissions: DEFAULT_ROLE_PERMISSIONS.admin,
-  })
+  }, 'admin')
 
   org3.ownerId = regalUser._id
   await org3.save()
@@ -673,9 +679,13 @@ export async function seed() {
   // ── People (multi-org sign-in) ──
   // One person works in BOTH demo orgs, which is what the org switcher is exercised with. Every
   // other seeded user is a person of their own.
-  await User.create({ email: 'multi@lgr.test', username: 'multi', password, firstName: 'Mila', lastName: 'Multi', role: 'manager', orgId: org1._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.manager })
-  await User.create({ email: 'multi@lgr.test', username: 'multi', password, firstName: 'Mila', lastName: 'Multi', role: 'accountant', orgId: org2._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.accountant })
+  await seedMember({ email: 'multi@lgr.test', username: 'multi', password, firstName: 'Mila', lastName: 'Multi', orgId: org1._id, isActive: true }, 'manager')
+  await seedMember({ email: 'multi@lgr.test', username: 'multi', password, firstName: 'Mila', lastName: 'Multi', orgId: org2._id, isActive: true }, 'accountant')
   const people = await seedIdentities(password)
+  // FR-27 (#529): every person has a role (since P3-2 a membership without one cannot sign in): the built-in role of
+  // the key they were seeded as. FR-27 P3-5: the role alone; no legacy role key or permissions are written.
+  for (const orgId of new Set([...seededRoles.values()].map(v => v.orgId))) await seedBuiltinRoles(orgId)
+  for (const [userId, { orgId, key }] of seededRoles) await giveStartingRole(orgId, userId, await startingRoleOf(orgId, { legacyRole: key }))
 
   console.log('Seed completed successfully!')
   console.log(`  Acme Corp (acme-corp): admin/test123`)

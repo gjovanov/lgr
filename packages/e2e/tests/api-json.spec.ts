@@ -159,7 +159,8 @@ test.describe('API JSON Serialization', () => {
     const createRes = await fetch(`${PORTAL_API}/api/org/${auth.orgId}/invite`, {
       method: 'POST',
       headers: authHeaders(auth.token),
-      body: JSON.stringify({ assignRole: 'member', expiresInHours: 1 }),
+      // FR-27 P3-3 (#529): no role named is the org's default role; the legacy `assignRole` is refused (422).
+      body: JSON.stringify({ expiresInHours: 1 }),
     })
     const createData = await expectJsonResponse(createRes, 'invite')
     expect(createData.invite._id).toBeTruthy()

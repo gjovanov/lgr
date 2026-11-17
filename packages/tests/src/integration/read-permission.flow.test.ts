@@ -195,7 +195,9 @@ describe('FR-26: the areas a role is held to', () => {
         // A role the module rule refuses already is not this test's.
         if (rule && 'need' in rule && !rule.need.some(p => DEFAULT_ROLE_PERMISSIONS[role].includes(p))) continue
         const { status, json } = await get(concrete(path), tokens[role])
-        const refused = status === 403 && json?.code === 'area_required'
+        // FR-27 P3-2: the role refuses it at the route (`permission_required`), where the legacy model named the area.
+        // A controller's own refusal (an export's `Forbidden`) is not the area's, in either model.
+        const refused = status === 403 && ['area_required', 'permission_required'].includes(json?.code)
         const held = holdsArea({ role, areas: DEFAULT_ROLE_AREAS[role] }, area)
         if (refused === held) wrong.push(`${role} GET ${orgRouteRest(path)} → ${status} ${json?.code ?? ''}`)
       }

@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia'
-import { can, grantOf } from 'services/biz/access/evaluate'
+import { can, grantOf, type AccessCaller } from 'services/biz/access/evaluate'
 import { seesBills } from 'services/biz/access/partition'
 import { seesCosts } from 'config/access'
 import { AppAuthService } from '../auth/app-auth.service.js'
@@ -177,7 +177,7 @@ function filenameFor(id: string, format: string): string {
  * every report of the modules it holds: bills through `purchase-documents`, orders through
  * `order-sheet`. Admins pass, as on every route.
  */
-function reportsRefusal(user: { role?: string; permissions?: readonly string[] }): string | null {
+function reportsRefusal(user: AccessCaller): string | null {
   if (can(user, 'reports.view')) return null
   return 'The reports.read permission is required'
 }

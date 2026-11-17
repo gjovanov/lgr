@@ -1,4 +1,5 @@
 import { holdsArea, type Area, type Permission } from 'config/constants'
+import { can, compileLegacy, type CapabilityId, type Grant } from 'config/access'
 
 /**
  * What a write needs, by route (S-28).
@@ -317,6 +318,10 @@ export function areaForRoute(route: string): Area | undefined {
 }
 
 interface Caller {
+  /** FR-27 P3-5: a session's person and org, and its role's grant; the legacy claims below are no session's any more. */
+  id?: string
+  orgId?: string
+  access?: Grant
   role?: string
   permissions?: readonly string[]
   /** FR-26: absent = every area. */
@@ -335,12 +340,20 @@ export function areaRefusal(
 }
 
 /**
+ * The session's grant, as `access/evaluate.ts#grantOf` reads it (not imported: evaluate imports this file). FR-27 P3-5
+ * (#529): the role's, attached by the auth plugins; a session without one (no org session) compiles to nothing.
+ */
+function grantOfCaller(user: Caller | null | undefined): Grant {
+  return user?.access ?? compileLegacy(user)
+}
+
+/**
  * FR-25 §3.11: may this caller see or change anything about one person? `payroll.read` is a run's
  * totals and answers no. For what a route's rule cannot say: a field of a response, a write that
- * needs this on top of `payroll.write`.
+ * needs this on top of `payroll.write`. FR-27 P3-5: the grant's `payroll-people.view`.
  */
 export function holdsPersonal(user: Caller): boolean {
-  return user.role === 'admin' || !!user.permissions?.includes('payroll.personal')
+  return can(grantOfCaller(user), 'payroll-people.view')
 }
 
 /**
@@ -447,26 +460,33 @@ export function permissionRefusal(
     ?? (GUARDED_READS.has(method.toUpperCase()) || !READ_METHODS.has(method.toUpperCase()) ? areaRefusal(user, route) : null)
 }
 
-/** The modules of an audit entry (`AuditLog.module`) and what reading them needs. */
-const AUDIT_MODULE_READ: Readonly<Record<string, readonly Permission[]>> = {
-  accounting: ACCOUNTING,
-  invoicing: INVOICING,
-  warehouse: INVENTORY,
-  payroll: PAYROLL,
-  pos: POS,
+/**
+ * The modules of an audit entry (`AuditLog.module`) and what reading them needs, as capabilities (FR-27 P3-5, #529):
+ * what each legacy permission group gave every holder (`config/access/legacy.ts#LEGACY_BRIDGE`), so a built-in role
+ * reads the same modules as before.
+ */
+const INVENTORY_READS: readonly CapabilityId[] = (['products', 'categories', 'warehouses', 'movements', 'stock-levels', 'inventory-counts', 'valuation', 'opening-stock', 'price-lists', 'bulk-pricing'] as const)
+  .flatMap(f => [`${f}.view`, `${f}.lookup`] as CapabilityId[])
+const AUDIT_MODULE_CAPS: Readonly<Record<string, readonly CapabilityId[]>> = {
+  accounting: (['accounts', 'bank-accounts', 'journal', 'ledgers', 'vat', 'accounting-setup', 'exchange-rates', 'reconciliation', 'fixed-assets'] as const)
+    .flatMap(f => [`${f}.view`, `${f}.lookup`] as CapabilityId[]),
+  invoicing: ['sales-docs.view', 'proforma.view', 'bills.view', 'orders.view', 'payments.view', 'contacts.view'],
+  warehouse: INVENTORY_READS,
+  payroll: ['payroll-runs.view', 'payroll-runs.lookup'],
+  pos: ['till.view'],
   // The merged trade module wrote the POS storno, and the fiscal devices are run by the tills.
-  trade: [...POS, ...INVOICING, ...INVENTORY],
-  fiscal: [...POS, ...INVENTORY],
+  trade: ['till.view', 'sales-docs.view', 'proforma.view', 'bills.view', 'orders.view', 'payments.view', 'contacts.view', ...INVENTORY_READS],
+  fiscal: ['till.view', ...INVENTORY_READS],
 }
 
 /**
- * What of the audit trail this caller may read: all of it (`admin`, or `admin.audit`), or the
- * history of single records in these modules. Entries of `admin`, `auth`, `files` and `system`
- * are the trail's own business and appear only in the whole of it.
+ * What of the audit trail this caller may read: all of it (`audit-log.view`; the Administrator), or the history of
+ * single records in these modules. Entries of `admin`, `auth`, `files` and `system` are the trail's own business and
+ * appear only in the whole of it. FR-27 P3-5: asked of the session's grant.
  */
 export function auditReadScope(user: Caller | null | undefined): 'all' | string[] {
   if (!user) return []
-  if (user.role === 'admin' || (user.permissions ?? []).includes('admin.audit')) return 'all'
-  const held = user.permissions ?? []
-  return Object.entries(AUDIT_MODULE_READ).filter(([, need]) => need.some(p => held.includes(p))).map(([m]) => m)
+  const grant = grantOfCaller(user)
+  if (can(grant, 'audit-log.view')) return 'all'
+  return Object.entries(AUDIT_MODULE_CAPS).filter(([, need]) => can(grant, need)).map(([m]) => m)
 }

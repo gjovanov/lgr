@@ -11,6 +11,7 @@ import {
 } from 'services/biz/oauth.service'
 import { inviteDao } from 'services/dao/invite.dao'
 import { User, Org } from 'db/models'
+import { roleKeyOf } from '../helpers/factories'
 
 /** An invite is now the only way an OAuth identity joins an org it is not already in. */
 async function inviteTo(org: any, inviterId: string, opts: { targetEmail?: string; assignRole?: string } = {}) {
@@ -89,7 +90,7 @@ describe('OAuth Flow', () => {
     expect(user.email).toBe('newuser@oauth.com')
     expect(user.firstName).toBe('New')
     expect(user.lastName).toBe('OAuthUser')
-    expect(user.role).toBe('member')
+    expect(await roleKeyOf(user.id)).toBe('member') // FR-27 P3-5: the role, no legacy key
 
     // Verify in DB
     const dbUser = await User.findOne({ email: 'newuser@oauth.com' })
@@ -214,7 +215,7 @@ describe('OAuth Flow', () => {
     expect(user.username).toBe('oauthadmin')
     expect(user.firstName).toBe('OAuth')
     expect(user.lastName).toBe('Admin')
-    expect(user.role).toBe('admin')
+    expect(await roleKeyOf(user.id)).toBe('admin')
 
     // Verify org created
     const org = await Org.findOne({ slug: 'oauth-reg-org' })

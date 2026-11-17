@@ -39,21 +39,10 @@
           {{ item.isActive ? $t('common.active') : $t('common.inactive') }}
         </v-chip>
       </template>
+      <!-- FR-27 P3-3 (#529): the person's role. Its legacy key is shown only where the role's name cannot be read (no `roles.view`). -->
       <template #item.role="{ item }">
-        <v-chip v-if="rolesMode && item.roleId" size="small" variant="outlined" data-testid="user-role">{{ roleName(item.roleId) }}</v-chip>
-        <v-chip v-else :color="roleColor(item.role)" size="small" variant="outlined">{{ roleLabel(item.role) }}</v-chip>
-      </template>
-      <template #item.permissionSets="{ item }">
-        <template v-if="item.permissionSetIds?.length">
-          <v-chip
-            v-for="setId in item.permissionSetIds"
-            :key="setId"
-            size="small"
-            class="mr-1"
-            variant="tonal"
-          >{{ permissionSetName(setId) }}</v-chip>
-        </template>
-        <span v-else class="text-grey text-caption">{{ $t('common.none') }}</span>
+        <v-chip v-if="item.roleId && roleName(item.roleId)" size="small" variant="outlined" data-testid="user-role">{{ roleName(item.roleId) }}</v-chip>
+        <v-chip v-else size="small" variant="outlined">{{ roleLabel(item.role) }}</v-chip>
       </template>
       <template #item.actions="{ item }">
         <v-btn icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
@@ -86,93 +75,26 @@
             </div>
           </v-alert>
 
-          <!--
-            The role IS the primary authorization control — `user.role` is what every admin
-            gate, the tenant guard and the report gates read — so an org admin has to be able
-            to set it. It was rendered `disabled` and fed capitalised labels ("Viewer") that
-            match no value the API accepts, which made the field doubly dead.
-          -->
-          <!-- FR-27.4: in an org with roles, one Role select, what it is in a sentence, and what it lets the person do. -->
-          <template v-if="rolesMode">
-            <v-select
-              v-model="form.roleId"
-              :label="$t('access.ui.role')"
-              :items="orgRoles.map(r => ({ title: r.name, value: r.id }))"
-              item-title="title"
-              item-value="value"
-              :disabled="!canEditRole"
-              :hint="roleHint"
-              persistent-hint
-              class="mb-2"
-              data-testid="user-role-select"
-            />
-            <div v-if="selectedRole" class="text-body-2 mb-4" data-testid="user-role-summary">
-              <div class="text-medium-emphasis mb-1">{{ describeRole(selectedRole) }}</div>
-              <div><strong>{{ $t('access.ui.canCreate') }}:</strong> {{ roleSummary.canCreate }}</div>
-              <div><strong>{{ $t('access.ui.readOnly') }}:</strong> {{ roleSummary.readOnly }}</div>
-              <div><strong>{{ $t('access.ui.notVisible') }}:</strong> {{ roleSummary.notVisible }}</div>
-              <div v-if="roleSummary.hiddenPrices"><strong>{{ $t('access.ui.pricesHidden') }}:</strong> {{ roleSummary.hiddenPrices }}</div>
-            </div>
-          </template>
-          <template v-else>
+          <!-- FR-27.4, P3-3 (#529): one Role select, what it is in a sentence, and what it lets the person do. -->
           <v-select
-            v-model="form.role"
-            :label="$t('settings.role')"
-            :items="roleItems"
+            v-model="form.roleId"
+            :label="$t('access.ui.role')"
+            :items="orgRoles.map(r => ({ title: r.name, value: r.id }))"
             item-title="title"
             item-value="value"
             :disabled="!canEditRole"
             :hint="roleHint"
             persistent-hint
             class="mb-2"
+            data-testid="user-role-select"
           />
-
-          <v-autocomplete
-            v-model="form.permissionSetIds"
-            :items="permissionSets"
-            item-title="name"
-            item-value="_id"
-            :label="$t('permissionSets.title')"
-            multiple
-            chips
-            closable-chips
-            class="mb-2"
-          />
-
-          <!-- FR-26.9.3: a role and sets that disagree. The sets decide at sign-in, not the role. -->
-          <v-alert v-if="roleSetMismatch" type="warning" variant="tonal" density="compact" class="mb-3" data-testid="role-set-mismatch">
-            {{ roleSetMismatch }}
-          </v-alert>
-
-          <!-- Effective Permissions (read-only) -->
-          <div v-if="editing && form.permissionSetIds?.length" class="mb-4">
-            <div class="text-subtitle-2 mb-1">{{ $t('permissionSets.effectivePermissions') }}</div>
-            <v-chip
-              v-for="perm in effectivePermissions"
-              :key="perm"
-              size="x-small"
-              class="mr-1 mb-1"
-              variant="outlined"
-            >{{ perm }}</v-chip>
-            <div v-if="!effectivePermissions.length" class="text-grey text-caption">{{ $t('common.loading') }}...</div>
-            <!-- FR-26: the areas, where the sets hold the user to some. -->
-            <div class="text-subtitle-2 mt-2 mb-1">{{ $t('permissionSets.areas') }}</div>
-            <span v-if="!effectiveAreas" class="text-caption">{{ $t('permissionSets.allAreas') }}</span>
-            <template v-else>
-              <span v-if="!effectiveAreas.length" class="text-caption">{{ $t('permissionSets.noAreas') }}</span>
-              <v-chip v-for="area in effectiveAreas" :key="area" size="x-small" class="mr-1 mb-1" color="warning" variant="outlined">
-                {{ $t(`permissionSets.area.${area}`) }}
-              </v-chip>
-            </template>
+          <div v-if="selectedRole" class="text-body-2 mb-4" data-testid="user-role-summary">
+            <div class="text-medium-emphasis mb-1">{{ describeRole(selectedRole) }}</div>
+            <div><strong>{{ $t('access.ui.canCreate') }}:</strong> {{ roleSummary.canCreate }}</div>
+            <div><strong>{{ $t('access.ui.readOnly') }}:</strong> {{ roleSummary.readOnly }}</div>
+            <div><strong>{{ $t('access.ui.notVisible') }}:</strong> {{ roleSummary.notVisible }}</div>
+            <div v-if="roleSummary.hiddenPrices"><strong>{{ $t('access.ui.pricesHidden') }}:</strong> {{ roleSummary.hiddenPrices }}</div>
           </div>
-
-          <div class="text-subtitle-2 mb-2">{{ $t('settings.permissions') }} (Legacy)</div>
-          <v-row>
-            <v-col v-for="perm in availablePermissions" :key="perm" cols="12" sm="6" md="4">
-              <v-checkbox v-model="form.permissions" :value="perm" :label="perm" density="compact" hide-details />
-            </v-col>
-          </v-row>
-          </template>
 
           <v-switch v-model="form.isActive" :label="$t('common.active')" color="primary" class="mt-4" />
         </v-card-text>
@@ -191,21 +113,12 @@
         <v-card-text>
           <v-text-field v-model="inviteEmail" :label="$t('common.email')" type="email" class="mb-2" />
           <v-select
-            v-if="rolesMode"
             v-model="inviteRoleId"
             :label="$t('access.ui.role')"
             :items="orgRoles.map(r => ({ title: r.name, value: r.id }))"
             item-title="title"
             item-value="value"
             data-testid="invite-role-select"
-          />
-          <v-select
-            v-else
-            v-model="inviteRole"
-            :label="$t('settings.role')"
-            :items="roleItems"
-            item-title="title"
-            item-value="value"
           />
         </v-card-text>
         <v-card-actions>
@@ -221,7 +134,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSettingsStore } from '../../store/settings.store'
 import { useAppStore } from '../../store/app.store'
@@ -229,7 +142,6 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
-import { PERMISSIONS, ROLES, ROLE_PERMISSION_SET_NAMES, mergeAreas, type Role } from 'config/constants'
 import { jwtUserId, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { grantOfViewer } from 'ui-shared/nav/page-registry'
 import { can, grantOfRole, summarize } from 'config/access'
@@ -252,18 +164,22 @@ const editing = ref(false)
 const saving = ref(false)
 const inviting = ref(false)
 const inviteEmail = ref('')
-const inviteRole = ref<Role>('member')
 const inviteRoleId = ref<string>('')
 
-/** FR-27.4: the org's roles. None (the migration has not run here, or the session may not read them): the legacy controls. */
+/**
+ * FR-27.4, P3-3 (#529): the org's roles, the one thing this screen gives a person. Read with `roles.view`; without it
+ * the list is empty, the select offers nothing, and a new person or invite gets the org's default role.
+ */
 const orgRoles = ref<any[]>([])
-const rolesMode = computed(() => orgRoles.value.length > 0)
-const roleName = (id: string) => orgRoles.value.find(r => r.id === String(id))?.name ?? '—'
+/** The org's default role (FR-27.3), else its built-in Member: what a new person or an invite starts on. */
+const defaultRoleId = ref('')
+const roleName = (id: string) => orgRoles.value.find(r => r.id === String(id))?.name ?? ''
 async function fetchRoles() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/roles`)
     orgRoles.value = data.roles || []
-    inviteRoleId.value = data.defaultRoleId || orgRoles.value.find(r => r.templateKey === 'member')?.id || ''
+    defaultRoleId.value = data.defaultRoleId || orgRoles.value.find(r => r.templateKey === 'member')?.id || ''
+    inviteRoleId.value = defaultRoleId.value
   } catch {
     orgRoles.value = []
   }
@@ -280,37 +196,19 @@ const identityLocked = computed(() => editing.value && editingMultiOrg.value)
 /** Set when creating a user whose address already has an account: invite that person instead. */
 const existingPerson = ref('')
 
-const permissionSets = ref<any[]>([])
-const effectivePermissions = ref<string[]>([])
-/** FR-26: absent = every area. */
-const effectiveAreas = ref<string[] | undefined>(undefined)
+/** Where a role's name cannot be read: the legacy key the person's role writes (display only, until P3-5). */
+const roleLabel = (r: string) => (r && te(`settings.roles.${r}`) ? t(`settings.roles.${r}`) : r || '—')
 
-/**
- * ⚠ The single source of roles is `config/constants` — the same list the API validates
- * against and the same one `DEFAULT_ROLE_PERMISSIONS` is keyed by. This view used to carry
- * its own hardcoded `['Admin', 'Manager', ..., 'Viewer']`, and not one of those strings is a
- * value the server accepts: submitting any of them is a 422. So even once the select was
- * enabled it could not have saved.
- */
-const roleItems = computed(() => ROLES.map(r => ({ value: r, title: t(`settings.roles.${r}`) })))
-const roleLabel = (r: string) => (te(`settings.roles.${r}`) ? t(`settings.roles.${r}`) : r)
-
-/** Only an admin may change a role — the API answers 403 to everyone else (user.controller PUT). */
-/**
- * Read from the session token, as `jwtRole` is everywhere else. `appStore.user` is filled by a
- * sign-in in this tab only: the portal never loads `/auth/me`, so after a reload, or arriving from
- * another app, it was empty and an admin found the role locked at Member.
- */
 // FR-27: what the server asks before it changes a person (`users.edit`), on the session's grant.
 const isAdmin = computed(() => can(grantOfViewer(sessionViewer()), 'users.edit'))
 
 /**
- * ⚠ An admin editing THEMSELVES cannot change their own role here. Demoting yourself takes
- * effect on your next token and, in an org with one admin, locks the org out of every admin
- * screen with no way back through the UI. The server refuses it too; this only explains why.
+ * ⚠ An admin editing THEMSELVES cannot change their own role here. Demoting yourself, in an org with one admin,
+ * locks the org out of every admin screen with no way back through the UI. The server refuses it too (`own_role`);
+ * this only explains why.
  */
 const isSelf = computed(() => {
-  // The session's own id, for the same reason. The server enforces the rule regardless.
+  // The session's own id: `appStore.user` is filled by a sign-in in this tab only.
   const myId = jwtUserId()
   return !!form._id && !!myId && String(form._id) === String(myId)
 })
@@ -319,21 +217,14 @@ const canEditRole = computed(() => isAdmin.value && !isSelf.value)
 const roleHint = computed(() => {
   if (!isAdmin.value) return t('settings.roleAdminOnly')
   if (isSelf.value) return t('settings.roleSelfBlocked')
-  // Changing the role REPLACES `permissions` with that role's defaults (server-side), and the
-  // JWT already issued keeps the old set until the user signs in again.
   return t('settings.roleChangeHint')
 })
-// The permissions the server knows. The list this replaced offered `trade.*` and names nothing
-// checks any more (hr, crm, erp, settings, admin.read/write): granting one did nothing.
-const availablePermissions = PERMISSIONS
 
 const headers = computed(() => [
   { title: t('common.name'), key: 'fullName' },
   { title: t('common.email'), key: 'email' },
   { title: t('auth.username'), key: 'username' },
   { title: t('settings.role'), key: 'role' },
-  // FR-27.4: no sets where the org has roles.
-  ...(rolesMode.value ? [] : [{ title: t('permissionSets.title'), key: 'permissionSets', sortable: false }]),
   { title: t('common.active'), key: 'isActive' },
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
@@ -345,8 +236,7 @@ const headers = computed(() => [
  */
 const emptyForm = () => ({
   _id: '', firstName: '', middleName: '', lastName: '', email: '', username: '',
-  password: '', role: 'member' as Role, permissions: [] as string[], permissionSetIds: [] as string[], isActive: true,
-  roleId: '' as string,
+  password: '', isActive: true, roleId: '' as string,
 })
 
 const form = reactive(emptyForm())
@@ -361,59 +251,6 @@ const roleSummary = computed(() => {
   // FR-27.11.B: the prices it does not see, by the editor's names for them.
   const hiddenPrices = s.hiddenPrices.map(c => t(`access.action.${c.slice(c.indexOf('.') + 1).replace(/[:-]/g, '_')}`)).join(', ')
   return { canCreate: names(s.canCreate), readOnly: names(s.readOnly), notVisible: names(s.notVisible), hiddenPrices }
-})
-
-function permissionSetName(id: string): string {
-  const found = permissionSets.value.find(s => s._id === id)
-  return found?.name || id
-}
-
-async function fetchPermissionSets() {
-  try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/permission-sets`)
-    permissionSets.value = data.permissionSets || []
-  } catch {
-    // non-critical
-  }
-}
-
-async function fetchEffectivePermissions(userId: string) {
-  if (!userId) { effectivePermissions.value = []; return }
-  try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/permission-sets/effective/${userId}`)
-    effectivePermissions.value = data.permissions || []
-    effectiveAreas.value = Array.isArray(data.areas) ? data.areas : undefined
-  } catch {
-    effectivePermissions.value = []
-    effectiveAreas.value = undefined
-  }
-}
-
-// Watch for permissionSetIds changes in the form to refresh effective permissions
-watch(() => form.permissionSetIds, () => {
-  if (editing.value && form._id) {
-    // We re-fetch from server on the saved state; for UI preview we compute locally
-    const selected = permissionSets.value.filter(s => form.permissionSetIds.includes(s._id))
-    const perms = new Set<string>()
-    for (const s of selected) {
-      for (const p of (s.permissions || [])) perms.add(p)
-    }
-    effectivePermissions.value = [...perms].sort()
-    effectiveAreas.value = mergeAreas(selected)
-  }
-}, { deep: true })
-
-/**
- * FR-26.9.3: why the role and the sets disagree, or ''. A system set is a role's own; on a user of
- * another role it decides what they may do, whatever the role says. Saving a new role replaces it.
- */
-const roleSetMismatch = computed(() => {
-  const own = ROLE_PERMISSION_SET_NAMES[form.role]
-  const selected = permissionSets.value.filter(s => form.permissionSetIds.includes(s._id))
-  const foreign = selected.filter(s => s.isSystem && s.name !== own).map(s => s.name)
-  const missing = !!own && permissionSets.value.some(s => s.isSystem && s.name === own) && !selected.some(s => s.name === own)
-  if (!foreign.length && !(missing && selected.length)) return ''
-  return t('settings.roleSetMismatch', { role: roleLabel(form.role), sets: foreign.join(', ') || '—', own: own || '—' })
 })
 
 function openDialog(item?: any) {
@@ -431,17 +268,12 @@ function openDialog(item?: any) {
       lastName: item.lastName || '',
       email: item.email || '',
       username: item.username || '',
-      role: item.role || 'member',
       isActive: item.isActive !== false,
-      permissions: [...(item.permissions || [])],
-      permissionSetIds: [...(item.permissionSetIds || [])],
       roleId: item.roleId ? String(item.roleId) : '',
     })
-    if (item._id) fetchEffectivePermissions(item._id)
   } else {
     editing.value = false
-    Object.assign(form, emptyForm())
-    effectivePermissions.value = []
+    Object.assign(form, { ...emptyForm(), roleId: defaultRoleId.value })
   }
   dialog.value = true
 }
@@ -464,16 +296,9 @@ async function save() {
       email: form.email,
       username: form.username,
     }
-    if (rolesMode.value) {
-      // FR-27.3: the role alone; the server writes the legacy fields from it.
-      if (canEditRole.value && form.roleId) payload.roleId = form.roleId
-    } else {
-      payload.permissions = form.permissions
-      payload.permissionSetIds = form.permissionSetIds
-      // Sent only when this admin is actually allowed to set it, so a disabled select can
-      // never round-trip a stale value back over the stored role.
-      if (canEditRole.value) payload.role = form.role
-    }
+    // FR-27.3: the role alone; the server writes the legacy fields from it. Sent only when this admin may set it, so a
+    // disabled select never round-trips a stale value.
+    if (canEditRole.value && form.roleId) payload.roleId = form.roleId
 
     if (editing.value) {
       payload.isActive = form.isActive
@@ -497,7 +322,7 @@ async function save() {
 async function inviteInstead() {
   inviting.value = true
   try {
-    const data = await store.inviteUser(existingPerson.value, rolesMode.value ? undefined : form.role, rolesMode.value ? form.roleId || undefined : undefined)
+    const data = await store.inviteUser(existingPerson.value, form.roleId || undefined)
     dialog.value = false
     inviteResult.value = { link: data.link, targetEmail: data.invite?.targetEmail, email: data.email }
   } catch (e: any) {
@@ -510,10 +335,10 @@ async function inviteInstead() {
 async function sendInvite() {
   inviting.value = true
   try {
-    const data = await store.inviteUser(inviteEmail.value.trim(), rolesMode.value ? undefined : inviteRole.value, rolesMode.value ? inviteRoleId.value || undefined : undefined)
+    const data = await store.inviteUser(inviteEmail.value.trim(), inviteRoleId.value || undefined)
     inviteDialog.value = false
     inviteEmail.value = ''
-    inviteRole.value = 'member'
+    inviteRoleId.value = defaultRoleId.value
     // #510: it used to say "Saved successfully" and nothing was sent. Now it says what happened.
     inviteResult.value = { link: data.link, targetEmail: data.invite?.targetEmail, email: data.email }
   } catch (e: any) {
@@ -523,23 +348,11 @@ async function sendInvite() {
   }
 }
 
-function roleColor(role: string) {
-  const colors: Record<string, string> = {
-    admin: 'error',
-    manager: 'warning',
-    accountant: 'info',
-    warehouse_manager: 'success',
-    member: 'grey',
-    nra_auditor: 'purple',
-  }
-  return colors[role] || 'grey'
-}
-
 onMounted(() => {
-  // FR-27 acceptance 4: the org's roles and sets are `roles.view`'s (their routes refuse anyone else). Without it
-  // the page lists the people and asks for neither: no 403 on load.
+  // FR-27 acceptance 4: the org's roles are `roles.view`'s (their route refuses anyone else). Without it the page
+  // lists the people and does not ask: no 403 on load.
   if (!can(grantOfViewer(sessionViewer()), 'roles.view')) return
-  fetchPermissionSets()
   fetchRoles()
 })
 </script>
+

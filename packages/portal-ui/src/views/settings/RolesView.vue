@@ -17,9 +17,6 @@
 
     <v-alert v-if="!loading && !roles.length" type="info" variant="tonal">
       {{ $t('access.ui.noRoles') }}
-      <template #append>
-        <v-btn variant="text" :to="{ name: 'settings.permissionSets' }" data-testid="roles-open-sets">{{ $t('permissionSets.title') }}</v-btn>
-      </template>
     </v-alert>
 
     <v-data-table v-else :headers="headers" :items="roles" :loading="loading" item-value="id" hover data-testid="roles-table" @click:row="(_: any, { item }: any) => open(item)">
@@ -28,11 +25,6 @@
         <v-chip v-if="item.all" color="error" size="small" class="ml-2">{{ $t('access.feature.roles') }}: *</v-chip>
         <v-chip v-else-if="item.isBuiltin" size="small" variant="outlined" class="ml-2">{{ $t('access.ui.builtin') }}</v-chip>
         <v-chip v-if="item.edited" size="small" color="info" variant="tonal" class="ml-1">{{ $t('access.ui.edited') }}</v-chip>
-        <v-tooltip v-if="item.needsRelease" :text="$t('access.ui.needsReleaseHint')">
-          <template #activator="{ props: tip }">
-            <v-chip v-bind="tip" size="small" color="warning" variant="tonal" class="ml-1">{{ $t('access.ui.needsRelease') }}</v-chip>
-          </template>
-        </v-tooltip>
       </template>
       <template #item.description="{ item }">
         <span class="text-body-2 text-medium-emphasis">{{ describe(item) }}</span>

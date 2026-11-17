@@ -333,6 +333,9 @@ export function validateParams(entry: ReportEntry, raw: Record<string, any> | un
 // ── The gate (FR-6.7) ───────────────────────────────────────────────────────
 
 export interface ReportCaller {
+  id?: string
+  orgId?: string
+  /** Legacy claims a test may still state; FR-27 P3-5: no session carries them. */
   permissions?: string[]
   role?: string
 }
@@ -340,22 +343,14 @@ export interface ReportCaller {
 /** `true` when this caller may see AND run this report. One rule, three endpoints. */
 export function canAccessReport(entry: ReportEntry, user: ReportCaller | null | undefined): boolean {
   if (!user) return false
-  // Admin holds every module permission by construction; keep it explicit so a report whose
-  // permission is not in an admin's set (there are none today) still resolves sensibly.
-  const access = (user as any).access as Grant | undefined
-  if (access) {
-    // FR-27.5: an org on `roles`: what the report shows is the role's to read, or not.
-    if (!grantCan(access, entry.cap)) return false
-  } else {
-    const perms = user.permissions || []
-    if (!perms.includes(entry.permission) && user.role !== 'admin') return false
-    if (entry.roles && !entry.roles.includes(user.role || '')) return false
-  }
-  if (entry.fieldGroup === 'costs' && !seesCosts(callerGrant(user))) return false
+  // FR-27.5, P3-5 (#529): what the report shows is the role's to read, or not; never the token's legacy role.
+  const grant = callerGrant(user)
+  if (!grantCan(grant, entry.cap)) return false
+  if (entry.fieldGroup === 'costs' && !seesCosts(grant)) return false
   return true
 }
 
-/** The caller's grant: its role's, live (an org on `roles`), else its claims compiled, as the server decides by. */
+/** The caller's grant: its role's, live, as the server decides by (a hand-built caller of a test: its claims compiled). */
 function callerGrant(user: ReportCaller): Grant {
   return ((user as any).access as Grant | undefined) ?? compileLegacy(user as any)
 }

@@ -8,7 +8,12 @@ import jwt from '@elysiajs/jwt'
 import { config } from 'config'
 import { PERMISSIONS } from 'config/constants'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
+import { createTestOrg, createTestUser, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
+import { tokenize } from 'services/biz/auth.service'
+
+/** A session of a real person with the built-in role of that key, as sign-in issues it (FR-27 P3-2: the role decides). */
+const realSession = async (orgId: string, role: string) =>
+  (new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret })) as any).decorator.jwt.sign(await tokenize(await createTestUser(orgId as any, { role } as any)))
 import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { forgetClockVerification, TIME_SOURCES, verifyClock } from 'fiscal/clock'
@@ -91,7 +96,7 @@ describe('the scheduled sync', () => {
 describe('a person setting a device clock', () => {
   const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
   const token = (orgId: string, role = 'admin') =>
-    (signer as any).decorator.jwt.sign({ id: '000000000000000000000001', orgId, role, permissions: [...PERMISSIONS], ownRecordsModules: [] })
+    realSession(orgId, role)
 
   async function device() {
     const org = await createTestOrg()
@@ -188,7 +193,7 @@ describe('an Eltrade an hour ahead (#450)', () => {
     const sim = eltradeAhead(deviceId, HOUR)
     await serverClock(0)
     const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
-    const auth = `Bearer ${await (signer as any).decorator.jwt.sign({ id: '000000000000000000000001', orgId, role: 'admin', permissions: [...PERMISSIONS], ownRecordsModules: [] })}`
+    const auth = `Bearer ${await realSession(orgId, 'admin')}`
     const post = (body?: object) => fetch(`http://localhost:${port}/org/${orgId}/fiscal/device/${deviceId}/sync-time`, {
       method: 'POST', headers: { authorization: auth, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined,
     })
@@ -228,7 +233,7 @@ describe('a clock the sync left for a person is noted on the device (#450)', () 
     // Ahead by an hour: the step is minus an hour, give or take the test's own seconds.
     expect(Math.abs(noted.stepMs + HOUR)).toBeLessThan(5_000)
 
-    const auth = { authorization: `Bearer ${await (signer as any).decorator.jwt.sign({ id: '000000000000000000000001', orgId, role: 'admin', permissions: [...PERMISSIONS], ownRecordsModules: [] })}` }
+    const auth = { authorization: `Bearer ${await realSession(orgId, 'admin')}` }
     const list = await (await fetch(`http://localhost:${port}/org/${orgId}/fiscal/device?size=100`, { headers: auth })).json()
     expect(list.fiscalDevices.find((x: any) => String(x._id ?? x.id) === deviceId)?.clockHeld?.stepMs).toBe(noted.stepMs)
     const one = await (await fetch(`http://localhost:${port}/org/${orgId}/fiscal/device/${deviceId}`, { headers: auth })).json()

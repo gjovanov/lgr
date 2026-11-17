@@ -4,7 +4,7 @@ import jwt from '@elysiajs/jwt'
 import { config } from 'config'
 import { captureRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg } from '../helpers/factories'
+import { createTestOrg, roleKeyOf } from '../helpers/factories'
 import { withFakeGoogle, googleCallbackRequest } from '../helpers/fake-oauth-provider'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import {
@@ -94,7 +94,7 @@ describe('OAuth sign-up — end to end, through the real callback', () => {
 
     const user: any = await User.findOne({ username: 'ada' }).lean()
     expect(user.email).toBe(person.email)
-    expect(user.role).toBe('admin')
+    expect(await roleKeyOf(user._id)).toBe('admin') // FR-27 P3-5: the role, no legacy key
     expect(user.oauthProviders.map((p: any) => p.providerId)).toEqual([person.providerId])
 
     // Signed in the way the sign-in handoff signs in: the session cookie matches the token's life.

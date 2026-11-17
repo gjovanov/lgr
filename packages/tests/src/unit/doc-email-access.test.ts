@@ -1,7 +1,7 @@
 import { describe, it, expect, afterAll } from 'bun:test'
 import { setSession } from 'ui-shared/session/session'
 import { setLiveAccess } from 'ui-shared/access/live-grant'
-import type { CapabilityId, Grant } from 'config/access'
+import { compileLegacy, type CapabilityId, type Grant } from 'config/access'
 import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, ROLES, type Role } from 'config/constants'
 import { internalOrderEmailAccess, mayEmailInternalOrders, mayEmailOrders, orderEmailAccess } from 'invoicing-api/src/lib/email-guards'
 import { useDocEmailAccess } from '../../../invoicing-ui/src/composables/doc-email-access'
@@ -45,6 +45,11 @@ const claimsOf = (role: Role) => ({
   ...(DEFAULT_ROLE_AREAS[role] ? { areas: DEFAULT_ROLE_AREAS[role] } : {}),
   exp: 4102444800,
 })
+/** FR-27 P3-5: a session's grant is its role's, as the sign-in answers it (here: what those claims compile to). */
+const liveOf = (claims: Parameters<typeof compileLegacy>[0]) => {
+  const grant = compileLegacy(claims)
+  return { all: !!grant.all, caps: grant.all ? [] : [...grant.caps], role: { id: 'r', name: 'R', version: 'r:1' } }
+}
 const list = useDocEmailAccess()
 /** What the two routes answer a session of exactly this grant, for each kind of order. */
 const served = (access: Grant) => {
@@ -59,7 +64,7 @@ describe('an order list offers the mail by what the two routes are reached by', 
     for (const role of ROLES) {
       const claims = claimsOf(role)
       setSession(token(claims), org)
-      setLiveAccess(null)
+      setLiveAccess(liveOf(claims))
       expect({ role, ...offered() }).toEqual({
         role,
         supplier: mayEmailOrders(orderEmailAccess(claims)),

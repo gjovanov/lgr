@@ -226,7 +226,7 @@
                     </td>
                     <td v-if="trailingColumns" :colspan="trailingColumns" />
                   </tr>
-                  <tr v-for="(tier, i) in priceTiers" :key="i" data-testid="tier-row" :data-tier="tier.name">
+                  <tr v-for="(tier, i) in priceTiers" :key="rowKey(tier)" data-testid="tier-row" :data-tier="tier.name">
                     <td class="text-medium-emphasis">{{ i + 1 }}</td>
                     <td>
                       <!-- A slot that reads differently from how it is stored („Доставна цена", the slot PlusMinus's
@@ -344,6 +344,7 @@
 </template>
 
 <script setup lang="ts">
+import { rowKey } from 'ui-shared/composables/row-key'
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'

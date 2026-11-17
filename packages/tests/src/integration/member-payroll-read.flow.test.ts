@@ -7,7 +7,8 @@ import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
-import { PermissionSet, User } from 'db/models'
+import { PermissionSet, Role, User } from 'db/models'
+import { can, grantOfRole } from 'config/access'
 import { tokenize } from 'services/biz/auth.service'
 import { backfillMemberPayrollRead } from 'services/biz/member-payroll-read.backfill'
 import { ROLE_TO_PERMISSION_SET, seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
@@ -88,7 +89,8 @@ describe('from this release on', () => {
     const user = await createTestUser(org._id, { role: 'member', permissionSetIds: [] } as any)
 
     const claims = await tokenize(user)
-    expect(claims.permissions).not.toContain('payroll.read')
+    // FR-27 P3-5: the token names the role and carries no permissions; the member's role does not read payroll.
+    expect('permissions' in claims).toBe(false)
 
     const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
     const token = await (signer as any).decorator.jwt.sign({ ...claims })
@@ -168,7 +170,9 @@ describe('the backfill, on the sets', () => {
 
     await backfillMemberPayrollRead(String(org._id), { execute: true })
 
-    expect((await tokenize((await User.findById(user._id))!)).permissions).toContain('payroll.read')
+    // FR-27 P3-5: the set is the legacy model's; what the member's role (0015's, made of the set) holds is what decides.
+    const rid = (await tokenize((await User.findById(user._id))!)).rid
+    expect(can(grantOfRole(await Role.findById(rid).lean()), 'payroll-runs.view')).toBe(true)
   })
 })
 
@@ -193,15 +197,16 @@ describe('the backfill, on a member\'s own list', () => {
     })
   }
 
-  it('which is what actually ends it for a member with no set', async () => {
+  it('which is what actually ends it for a member with no set, in the legacy fields', async () => {
     const org = await createTestOrg()
     const user = await createTestUser(org._id, { role: 'member', permissions: OWN_LIST, permissionSetIds: [] } as any)
-    // The role's defaults no longer hold it, and the merge still brings it back from the row.
-    expect((await tokenize((await User.findById(user._id))!)).permissions).toContain('payroll.read')
+    expect(await ownListOf(user)).toContain('payroll.read')
 
     await backfillMemberPayrollRead(String(org._id), { execute: true })
 
-    expect((await tokenize((await User.findById(user._id))!)).permissions).not.toContain('payroll.read')
+    // FR-27 P3-2: the legacy fields no longer decide (the person's role does); the backfill still clears them, which is
+    // what a release that reads no roles serves.
+    expect(await ownListOf(user)).not.toContain('payroll.read')
   })
 
   const kept: [string, Record<string, unknown>][] = [

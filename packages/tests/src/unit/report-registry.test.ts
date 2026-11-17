@@ -115,29 +115,31 @@ describe('rowCapFor', () => {
 // ── the gate (FR-6.7) ───────────────────────────────────────────────────────
 
 describe('canAccessReport', () => {
-  it('requires the report permission', () => {
-    const e = entry({ permission: 'inventory.read' })
-    expect(canAccessReport(e, { role: 'warehouse_manager', permissions: ['inventory.read'] })).toBe(true)
-    expect(canAccessReport(e, { role: 'accountant', permissions: ['invoicing.read'] })).toBe(false)
+  // FR-27 P3-5 (#529): the session's grant decides (its role's); the report's legacy permission and `roles` are not read.
+  const holding = (...caps: string[]) => ({ access: { caps: new Set(caps) } }) as any
+
+  it("requires the report's capability", () => {
+    const e = entry({ cap: 'stock-levels.view' })
+    expect(canAccessReport(e, holding('stock-levels.view'))).toBe(true)
+    expect(canAccessReport(e, holding('sales-docs.view'))).toBe(false)
   })
 
-  it('matches permissions exactly — no prefix or wildcard expansion', () => {
-    const e = entry({ permission: 'inventory.read' })
-    expect(canAccessReport(e, { role: 'member', permissions: ['inventory.write'] })).toBe(false)
-    expect(canAccessReport(e, { role: 'member', permissions: ['inventory'] })).toBe(false)
+  it('matches capabilities exactly — no prefix or wildcard expansion', () => {
+    const e = entry({ cap: 'stock-levels.view' })
+    expect(canAccessReport(e, holding('stock-levels.lookup'))).toBe(false)
+    expect(canAccessReport(e, holding('stock-levels'))).toBe(false)
   })
 
   it('lets admin through without the explicit permission', () => {
     expect(canAccessReport(entry({ permission: 'inventory.read' }), { role: 'admin', permissions: [] })).toBe(true)
   })
 
-  it('applies `roles` ON TOP of the permission, never instead of it', () => {
-    // The SUPTO case (P2): a manager holds every module permission and must STILL be shut out.
-    const supto = entry({ permission: 'invoicing.read', roles: ['admin', 'nra_auditor'] })
-    expect(canAccessReport(supto, { role: 'manager', permissions: ['invoicing.read'] })).toBe(false)
-    expect(canAccessReport(supto, { role: 'nra_auditor', permissions: ['invoicing.read'] })).toBe(true)
-    // …and the role alone is not enough either.
-    expect(canAccessReport(supto, { role: 'nra_auditor', permissions: [] })).toBe(false)
+  it('the SUPTO case: its own capability, which a manager reading every module does not hold', () => {
+    const supto = entry({ cap: 'supto.view', roles: ['admin', 'nra_auditor'] })
+    expect(canAccessReport(supto, holding('sales-docs.view', 'products.view', 'ledgers.view'))).toBe(false)
+    expect(canAccessReport(supto, holding('supto.view'))).toBe(true)
+    // Nothing held, nothing read.
+    expect(canAccessReport(supto, holding())).toBe(false)
   })
 
   it('denies an anonymous caller', () => {

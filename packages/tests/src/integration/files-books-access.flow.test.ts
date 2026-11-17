@@ -4,7 +4,7 @@ import jwt from '@elysiajs/jwt'
 import ExcelJS from 'exceljs'
 import { setupTestDB, teardownTestDB } from '../setup'
 import {
-  createTestOrg, createTestUser, createTestWarehouse, createTestProduct, createTestContact, createTestInvoice,
+  createTestOrg, createTestPerson, createTestUser, createTestWarehouse, createTestProduct, createTestContact, createTestInvoice,
 } from '../helpers/factories'
 import { uploadPath, useTempUploadDir } from '../helpers/upload-path'
 import { createApiApp } from '../../../portal-api/src/api.js'
@@ -106,9 +106,14 @@ function expectStarted(res: { status: number; json: any }) {
   return res.json.taskId as string
 }
 
-function expectRefused(res: { status: number; json: any }, message: string) {
-  expect(res.status).toBe(403)
-  expect(res.json?.message).toBe(message)
+/**
+ * Refused, by the role (FR-27 P3-2: every session is decided by its role). `legacy` names the permission the legacy
+ * model asked for, as the case reads; the role's answer is `capability_required` with the capabilities it lacks.
+ */
+function expectRefused(res: { status: number; json: any }, legacy: string) {
+  expect([res.status, legacy.startsWith('Permission required: ')]).toEqual([403, true])
+  expect([res.json?.code, res.json?.message]).toEqual(['capability_required', 'Importing into this is not part of your role.'])
+  expect(res.json?.capabilities?.length).toBeGreaterThan(0)
 }
 
 const jobs = () => BackgroundTask.countDocuments({ orgId })
@@ -188,16 +193,20 @@ beforeAll(async () => {
   const member = await createTestUser(org._id, { role: 'member', email: 'member@fba.test', username: 'fba-member' } as any)
   adminId = String(admin._id)
 
-  // What sign-in issues, with the permissions of each case written over it.
-  const claims = await tokenize(member)
+  // What sign-in issues. Each case is a person of its own whose role holds exactly those permissions: since FR-27 P3-2
+  // the role decides, and claims written over a token decide nothing.
+  const as = async (key: string, permissions: string[], areas?: string[]) => {
+    const person = await createTestPerson(org._id, { role: 'member', permissions, areas }, { email: `${key}@fba.test`, username: `fba-${key}` } as any)
+    tokens[key] = await sign(await tokenize(person))
+  }
   tokens.admin = await sign(await tokenize(admin))
-  tokens.plain = await sign(claims)   // a member: no admin.settings, so no Files at all
-  tokens.nobody = await sign({ ...claims, permissions: ['admin.settings'] })
-  tokens.clerk = await sign({ ...claims, permissions: ['admin.settings', 'inventory.write'] })
-  tokens.biller = await sign({ ...claims, permissions: ['admin.settings', 'invoicing.write'] })
-  tokens.sellerLike = await sign({ ...claims, permissions: ['admin.settings', 'invoicing.write', 'inventory.write'], areas: [] })
-  tokens.buyer = await sign({ ...claims, permissions: ['admin.settings', 'invoicing.write'], areas: ['purchases'] })
-  tokens.reader = await sign({ ...claims, permissions: ['admin.settings', 'inventory.read'] })   // reads stock, writes nothing
+  tokens.plain = await sign(await tokenize(member))   // a member: no admin.settings, so no Files at all
+  await as('nobody', ['admin.settings'])
+  await as('clerk', ['admin.settings', 'inventory.write'])
+  await as('biller', ['admin.settings', 'invoicing.write'])
+  await as('sellerLike', ['admin.settings', 'invoicing.write', 'inventory.write'], [])
+  await as('buyer', ['admin.settings', 'invoicing.write'], ['purchases'])
+  await as('reader', ['admin.settings', 'inventory.read'])   // reads stock, writes nothing
 
   // The one real document: a receipt, analyzed by the engine, committed through the route below.
   const buf = await storeOperationsBook([['Гайка М8', 100]], '05.11.2026 - 05.11.2026')
@@ -284,8 +293,8 @@ describe('booking a document takes the write permission of what it books', () =>
   it('a bill also takes the purchases area', async () => {
     const res = await call('POST', files('/commit-batch'), tokens.sellerLike, { docFileIds: [billId] })
     expect(res.status).toBe(403)
-    expect(res.json.code).toBe('area_required')
-    expect(res.json.area).toBe('purchases')
+    // FR-27 P3-2: an area is the legacy model's; the role without bills lacks their capability.
+    expect(res.json.code).toBe('capability_required')
     expectStarted(await call('POST', files('/commit-batch'), tokens.buyer, { docFileIds: [billId] }))
   })
 
@@ -346,7 +355,7 @@ describe('undoing a document takes the permission of the records it booked', () 
   it('a bill also takes the purchases area', async () => {
     const res = await call('POST', files('/delete-batch'), tokens.sellerLike, { docFileIds: [bookedBillId] })
     expect(res.status).toBe(403)
-    expect(res.json.code).toBe('area_required')
+    expect(res.json.code).toBe('capability_required')
     expectStarted(await call('POST', files('/delete-batch'), tokens.buyer, { docFileIds: [bookedBillId] }))
   })
 
@@ -420,8 +429,8 @@ describe('analysing a document takes the write permission of what it maps into',
   it('a bill also takes the purchases area', async () => {
     const res = await call('POST', files('/analyze-batch'), tokens.sellerLike, { docFileIds: [billId] })
     expect(res.status).toBe(403)
-    expect(res.json.code).toBe('area_required')
-    expect(res.json.area).toBe('purchases')
+    // FR-27 P3-2: an area is the legacy model's; the role without bills lacks their capability.
+    expect(res.json.code).toBe('capability_required')
     expectStarted(await call('POST', files(`/${billId}/analyze`), tokens.buyer, {}))
   })
 
@@ -482,9 +491,9 @@ describe("a snapshot's diff takes what reading stock takes", () => {
     for (const who of ['nobody', 'biller']) {   // invoicing is not inventory either
       const run = await call('POST', files(`/${snapshotId}/compare`), tokens[who])
       expect(run.status).toBe(403)
-      expect(String(run.json.message).startsWith('Permission required: inventory.read')).toBe(true)
-      expect(run.json.permissions).toContain('inventory.read')
-      expect(run.json.permissions).toContain('inventory.write')
+      // FR-27 P3-5: the refusal of the stock read itself, by the role (`accessRefusal`).
+      expect(String(run.json.message).startsWith('Not part of your role')).toBe(true)
+      expect(run.json.capabilities).toContain('stock-levels.lookup')
       // The refusal carries none of what it refuses.
       expect(run.json.summary).toBeUndefined()
       expect(run.json.rows).toBeUndefined()
@@ -514,7 +523,7 @@ describe("a snapshot's diff takes what reading stock takes", () => {
     const stored = denied.json.results[0]
     expect(stored.docType).toBe('store_availability')
     expect(stored.outcome).toBe('created')
-    expect(String(stored.compare?.error).startsWith('Permission required: inventory.read')).toBe(true)
+    expect(String(stored.compare?.error).startsWith('Not part of your role')).toBe(true)
     expect(stored.compare.snapshotRows).toBeUndefined()
     const storedRow = await docRow(stored.docFileId)
     expect(storedRow.compareSummary ?? null).toBeNull()

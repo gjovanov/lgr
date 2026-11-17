@@ -68,7 +68,7 @@ async function main() {
 
   for (const { role, caps } of plans) {
     const { after, role: saved } = await setRoleCapsBySystem(String(org._id), String(role._id), caps, VIA)
-    console.log(`  ${saved.name}: saved, version ${saved.version}, needsRelease ${saved.needsRelease}: ${named(priceCaps(after))}`)
+    console.log(`  ${saved.name}: saved, version ${saved.version}: ${named(priceCaps(after))}`)
   }
 }
 

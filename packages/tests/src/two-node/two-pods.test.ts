@@ -6,7 +6,8 @@ import { createHmac } from 'node:crypto'
 import { mongoose } from 'db/connection'
 import { Desktop, FiscalDevice, Invoice } from 'db/models'
 import { DESKTOP_TOKEN_AUDIENCE } from 'services/biz/desktop/desktop.service'
-import { createTestContact, createTestOrg, createTestWarehouse, createTestFiscalDevice, createTestProduct, createTestStockLevel } from '../helpers/factories'
+import { createTestContact, createTestOrg, createTestWarehouse, createTestFiscalDevice, createTestProduct, createTestStockLevel, createTestUser } from '../helpers/factories'
+import { tokenize } from 'services/biz/auth.service'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { IslResponseCollector } from 'ui-shared/composables/fiscalIslResponse'
 import { startTwoPods, type TwoPods } from './harness'
@@ -137,10 +138,10 @@ describe.skipIf(!enabled)('two pods of one global, one till', () => {
     productId = String(product._id)
     contactId = String((await createTestContact(org._id, { companyName: 'Клиент ООД', type: 'customer' } as any))._id)
     const signer = new Elysia().use(jwt({ name: 'jwt', secret: pods.jwtSecret })) as any
-    token = await signer.decorator.jwt.sign({
-      id: '000000000000000000000001', orgId, role: 'admin', firstName: 'Ana', lastName: 'Till',
-      permissions: [...PERMISSIONS], ownRecordsModules: [], operatorCode: '0001',
-    })
+    // FR-27 P3-2: the role decides, so the till's cashier is a real person with the Administrator role, as sign-in
+    // issues their session (a made-up id with claims written over it has no role and is refused).
+    const cashier = await createTestUser(org._id, { role: 'admin', firstName: 'Ana', lastName: 'Till', operatorCode: '0001' } as any)
+    token = await signer.decorator.jwt.sign(await tokenize(cashier))
 
     tillA = await openBridge('a', 'till-tab-1')
   }, 300_000)

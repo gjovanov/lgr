@@ -16,25 +16,16 @@ export function jwtUserId(): string {
   return c?.id || c?._id || 'anon'
 }
 
-/**
- * The signed-in user's role, straight from the JWT.
- *
- * The app store's `user` is populated by `login()` and by an explicit `/auth/me` call, so it is
- * `null` on a fresh page load — a view that gates admin-only controls on it would disable them
- * for an admin who simply reloaded. The token is the durable source. Returns '' when unknown;
- * the server re-checks the role on every mutation regardless.
- */
-export function jwtRole(): string {
-  return claims()?.role || ''
-}
-
 export function orgIdFromStorage(): string {
   return getOrg()?.id || 'no-org'
 }
 
 /**
- * Who `canOpenPage` asks about: the role, permissions and sign-in method the token carries.
- * Read from the token for the same reason as `jwtRole`. Null when signed out.
+ * Who `canOpenPage` asks about: the session's grant and how it was signed in (`amr`). Null when signed out.
+ *
+ * FR-27 P3-5 (#529): the grant is the role's, live, as the sign-in answer and `/auth/me` last said (reactive: menus
+ * follow an edit). The token carries no `role`, `permissions` or `areas` any more, and none is read from it: until
+ * the grant is known (`accessSettled`) the viewer holds nothing, and the router waits for it (`whenAccessSettled`).
  */
 export function sessionViewer(): PageViewer | null {
   const c = claims()
@@ -42,12 +33,7 @@ export function sessionViewer(): PageViewer | null {
   const landing = liveLanding()
   if (!c) return null
   return {
-    role: c.role,
-    permissions: Array.isArray(c.permissions) ? c.permissions : [],
     amr: Array.isArray(c.amr) ? (c.amr as string[]) : undefined,
-    // FR-26: ⚠ absent stays absent (unrestricted); only a list the token carries restricts.
-    ...(Array.isArray(c.areas) ? { areas: c.areas as string[] } : {}),
-    // FR-27.5: in an org on `roles`, the role's grant as `/auth/me` last said (reactive: menus follow an edit).
     ...(live ? { grant: live } : {}),
     // FR-27.4: the role's landing page.
     ...(landing ? { landing } : {}),

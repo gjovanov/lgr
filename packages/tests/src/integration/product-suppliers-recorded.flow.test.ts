@@ -3,9 +3,8 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { captureRejection, expectRejection } from '../helpers/capture-rejection'
-import {
-  createTestOrg, createTestUser, createTestContact, createTestInvoice, createTestProduct, createTestStockMovement,
-} from '../helpers/factories'
+import { createTestOrg, createTestUser, createTestContact, createTestInvoice, createTestProduct, createTestStockMovement, createTestPerson } from '../helpers/factories'
+import { tokenize } from 'services/biz/auth.service'
 import { productController } from 'warehouse-api/src/controllers/product.controller'
 import { productSupplierController, productSupplierRecordController } from 'warehouse-api/src/controllers/product-supplier.controller'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
@@ -69,7 +68,15 @@ async function world() {
     id: String(user._id), orgId, email: 'a@t.test', username: 'u', firstName: 'A', lastName: 'B', ownRecordsModules: [],
     role: 'admin', permissions: DEFAULT_ROLE_PERMISSIONS.admin, ...over,
   })
-  const token = (over: object = {}) => (signer as any).decorator.jwt.sign(claims(over)) as Promise<string>
+  // FR-27 P3-2: the role decides, so claims written over a token decide nothing. A case's claims are a person of
+  // their own whose role holds exactly them; with none, the world's own person. `orgId` stays as the case says
+  // (another org's token is the tenant guard's).
+  const token = async (over: any = {}): Promise<string> => {
+    const access = ['role', 'permissions', 'areas'].some(k => k in over)
+    const c: any = claims(over)
+    const who = access ? await createTestPerson(org._id, { role: c.role, permissions: c.permissions, areas: c.areas }) : user
+    return (signer as any).decorator.jwt.sign({ ...(await tokenize(who)), ...('orgId' in over ? { orgId: over.orgId } : {}) })
+  }
 
   async function http(method: string, path: string, tok: string, body?: unknown, org = orgId) {
     const res = await app.handle(new Request(`http://localhost/org/${org}/warehouse${path}`, {

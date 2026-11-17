@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup.js'
-import { createTestOrg, createTestUser, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories.js'
+import { createTestOrg, createTestPerson, createTestUser, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories.js'
+import { tokenize } from 'services/biz/auth.service'
 import { AuditLog, FiscalDevice, Identity, Org, Role, User } from 'db/models'
 import { forgetIdentity } from 'services/biz/identity/session.service'
 import { forgetAccessModel } from 'services/biz/access/shadow'
@@ -58,21 +59,22 @@ async function seed(opts: { role?: string; permissions?: string[] } = {}) {
   const org = await createTestOrg()
   const wh = await createTestWarehouse(org._id)
   const device = await createTestFiscalDevice(org._id, wh._id)
-  const user = await createTestUser(org._id, {
-    ...(opts.role ? { role: opts.role as any } : {}),
-    ...(opts.permissions ? { permissions: opts.permissions } : {}),
-  } as any)
-  const token = await signToken({
-    id: String(user._id),
-    email: user.email,
-    username: user.username,
-    firstName: user.firstName,
-    lastName: user.lastName,
-    role: user.role,
-    orgId: String(org._id),
-    permissions: opts.permissions ?? [...(user.permissions as any)],
-  })
+  // FR-27 P3-2: the role decides, so a case that names permissions is a person whose role holds exactly them (a set
+  // of its own); one that does not is the factory's admin. The token is what sign-in issues.
+  const user = opts.permissions
+    ? await createTestPerson(org._id, { role: opts.role ?? 'member', permissions: opts.permissions })
+    : await createTestUser(org._id, { ...(opts.role ? { role: opts.role as any } : {}) } as any)
+  const token = await signToken(await tokenize(user) as any)
   return { org, wh, device, user, token }
+}
+
+/**
+ * FR-27 P3-5: an Administrator who may take a device over, as sign-in issues them: a person on the Administrator role
+ * (the token carries no permissions; the role, read live, decides).
+ */
+async function adminTokenOf(org: { _id: unknown }) {
+  const admin = await createTestUser(org._id as any, { role: 'admin', firstName: 'Ada', lastName: 'Admin' } as any)
+  return signToken(await tokenize(admin) as any)
 }
 
 function registerMsg(extra: Record<string, unknown> = {}) {
@@ -320,10 +322,7 @@ describe('fiscal bridge — no silent eviction', () => {
     const first = fakeWs()
     await handleMessage(first, registerMsg({ deviceNumber: device.deviceNumber, orgId: String(org._id), token }))
 
-    const adminToken = await signToken({
-      id: String(org.ownerId), orgId: String(org._id), firstName: 'Ada', lastName: 'Admin',
-      permissions: ['pos.write', 'admin.settings'],
-    })
+    const adminToken = await adminTokenOf(org)
     const admin = fakeWs()
     // No `takeover: true` — opening a second tab must not steal a printing till's port.
     await handleMessage(admin, registerMsg({ deviceNumber: device.deviceNumber, orgId: String(org._id), token: adminToken }))
@@ -355,10 +354,7 @@ describe('fiscal bridge — no silent eviction', () => {
     const first = fakeWs()
     await handleMessage(first, registerMsg({ deviceNumber: device.deviceNumber, orgId: String(org._id), token }))
 
-    const adminToken = await signToken({
-      id: String(org.ownerId), orgId: String(org._id), firstName: 'Ada', lastName: 'Admin',
-      permissions: ['pos.write', 'admin.settings'],
-    })
+    const adminToken = await adminTokenOf(org)
     const admin = fakeWs()
     await handleMessage(admin, registerMsg({
       deviceNumber: device.deviceNumber, orgId: String(org._id), token: adminToken, takeover: true,
@@ -399,9 +395,7 @@ describe('fiscal bridge — no silent eviction', () => {
     const first = fakeWs()
     await handleMessage(first, registerMsg({ deviceNumber: device.deviceNumber, orgId: String(org._id), token }))
 
-    const adminToken = await signToken({
-      id: String(org.ownerId), orgId: String(org._id), permissions: ['pos.write', 'admin.settings'],
-    })
+    const adminToken = await adminTokenOf(org)
     const admin = fakeWs()
     await handleMessage(admin, registerMsg({
       deviceNumber: device.deviceNumber, orgId: String(org._id), token: adminToken, takeover: true,

@@ -1,6 +1,6 @@
 import {
   Org, type IOrg,
-  User, type IUser,
+  User, Role, type IUser,
   Account, type IAccount,
   Contact, type IContact,
   Invoice, type IInvoice,
@@ -30,6 +30,7 @@ import {
   Invite, type IInvite,
   Tag, type ITag,
   FiscalDevice, type IFiscalDevice,
+  PermissionSet,
 } from 'db/models'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
@@ -140,6 +141,37 @@ export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<I
     if (roleId) user.roleId = roleId
   }
   return user as IUser
+}
+
+/**
+ * FR-27 P3-5 (#529): the built-in role a person holds, by its template key (`admin` for the Administrator), read from
+ * their `roleId`. Nothing writes the legacy `User.role` any more, so a test asks this where it asked `user.role`.
+ */
+export async function roleKeyOf(userId: unknown): Promise<string | undefined> {
+  const person: any = await User.findById(userId, { roleId: 1 }).lean().exec()
+  if (!person?.roleId) return undefined
+  const role: any = await Role.findById(person.roleId, { templateKey: 1, all: 1, name: 1 }).lean().exec()
+  return role?.all ? 'admin' : role?.templateKey ?? role?.name
+}
+
+/**
+ * FR-27 P3-2 (#529): a person whose role grants exactly these claims, for a test that varies access case by case.
+ *
+ * Since the role decides every request, a token's own `permissions` decide nothing: a test can no longer sign one
+ * person with other claims written over. This makes a person of their own instead: a set holding the claims (absent
+ * `areas` = every area, `[]` = none), and the role 0015 makes of it, an imported one with exactly that access.
+ */
+export async function createTestPerson(
+  orgId: Types.ObjectId,
+  claims: { role?: string; permissions?: string[]; areas?: string[] },
+  overrides: Partial<IUser> = {},
+): Promise<IUser> {
+  const role = claims.role ?? 'member'
+  const set = await PermissionSet.create({
+    orgId, name: `Test access ${uniqueTs()}`, permissions: claims.permissions ?? [], isAdmin: false, isDefault: false, isSystem: false,
+    ...(claims.areas ? { areas: claims.areas } : {}),
+  } as any)
+  return createTestUser(orgId, { role, permissions: claims.permissions ?? [], permissionSetIds: [set._id], ...overrides } as any)
 }
 
 // Account codes are unique per org. A random 4-digit code collided now and then (two draws in one

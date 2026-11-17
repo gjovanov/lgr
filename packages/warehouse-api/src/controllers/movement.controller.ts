@@ -3,7 +3,7 @@ import { movementWarehouseRefusal } from 'config/movement-warehouses'
 import { sideIsExternal } from 'config/external-warehouse'
 import { chooseListSort } from 'config/list-sorts'
 import { listProjection } from 'config/list-rows'
-import { can, grantOf } from 'services/biz/access/evaluate'
+import { can, grantOf, type AccessCaller } from 'services/biz/access/evaluate'
 import { seesBills } from 'services/biz/access/partition'
 import { redactMovementLine, redactMovementTotals, seesCosts, sortsByMovementTotal } from 'config/access'
 import { AppAuthService } from '../auth/app-auth.service.js'
@@ -70,7 +70,7 @@ const NO_CONTACT = '000000000000000000000000'
  * transfers and nothing else. `inventory.write` keeps every type; `admin` is refused nothing.
  * The rule itself is `lib/movement-access.ts#writesTransfersOnly`, which the list's mail asks too.
  */
-function transferOnly(user: { role?: string; permissions?: readonly string[] }): boolean {
+function transferOnly(user: AccessCaller): boolean {
   return writesTransfersOnly(grantOf(user as any))
 }
 
@@ -93,7 +93,7 @@ function requestIdOf(headers: Record<string, string | undefined>): { id?: string
  * #493, FR-26.6 `purchases`: the incoming documents these movements point at, for a session
  * without the area; empty for one that has it (nothing is hidden from it). One query per call.
  */
-async function hiddenBills(user: { role?: string; areas?: readonly string[] }, orgId: string, movements: any[]): Promise<Set<string>> {
+async function hiddenBills(user: AccessCaller, orgId: string, movements: any[]): Promise<Set<string>> {
   if (seesBills(user as any)) return new Set()
   const ids = [...new Set(movements.map(m => m.invoiceId).filter(Boolean).map(String))].filter(id => /^[0-9a-f]{24}$/i.test(id))
   if (!ids.length) return new Set()
@@ -114,7 +114,7 @@ function withoutBill<T extends Record<string, any>>(hidden: Set<string>, m: T): 
 
 /** Why a transfer-only session may not write this movement, with its status, or null. */
 function transferRefusal(
-  user: { role?: string; permissions?: readonly string[] },
+  user: AccessCaller,
   m: { type?: string; fromWarehouseId?: unknown; toWarehouseId?: unknown },
   opts: { warehouses?: boolean } = {},
 ): { status: 403 | 422; body: { code: string; message: string } } | null {

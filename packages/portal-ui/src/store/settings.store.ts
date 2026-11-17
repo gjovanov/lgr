@@ -75,15 +75,13 @@ export const useSettingsStore = defineStore('settings', () => {
   }
 
   /**
-   * ⚠ The API's fields are `targetEmail` and `assignRole` (invite.controller POST body) — this
-   * sent `{ email }`, which Elysia dropped, so every invite was created unaddressed and with
-   * no role. The dialog's role picker had nowhere to go.
+   * ⚠ The API's fields are `targetEmail` and `assignRoleId` (invite.controller POST body). This once
+   * sent `{ email }`, which Elysia dropped, so every invite was created unaddressed and with no role.
+   * FR-27 P3-3 (#529): a role by its id only; none is the org's default role. The legacy role field is refused (422).
    */
-  /** FR-27.4: an invitation names a role (`assignRoleId`) in an org that has roles, else a legacy role. */
-  async function inviteUser(email: string, assignRole?: string, assignRoleId?: string) {
+  async function inviteUser(email: string, assignRoleId?: string) {
     const { data } = await httpClient.post(`${appStore.orgUrl()}/invite`, {
       targetEmail: email,
-      ...(assignRole ? { assignRole } : {}),
       ...(assignRoleId ? { assignRoleId } : {}),
     })
     return data

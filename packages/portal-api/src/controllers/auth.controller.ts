@@ -10,7 +10,8 @@ import {
   INVALID_CREDENTIALS,
   type SessionUser,
 } from 'services/biz/auth.service'
-import { identityClaims, membershipsOf, type Membership } from 'services/biz/identity/session.service'
+import { identityClaims, membershipsOf, roleDisplayOfMember, type Membership } from 'services/biz/identity/session.service'
+import { accessAnswerFor, accessAnswerOf } from 'services/biz/access/live'
 import {
   BEARER_REQUIRED,
   NOT_A_PERSON,
@@ -48,7 +49,8 @@ import {
 import { OAUTH_HANDOFF, readFlowCookie, clearFlowCookie } from '../auth/oauth-cookies.js'
 import { setSessionCookie, clearSessionCookie, SESSION_TTL_SECONDS } from '../auth/session-cookie.js'
 import { orgDao } from 'services/dao/org.dao'
-import { Identity, Invite, Org, User, settingsForClient, type IIdentity } from 'db/models'
+import { Identity, Invite, Org, Role, User, settingsForClient, type IIdentity } from 'db/models'
+import { roleDisplay } from 'config/access'
 import { codeDao } from 'services/dao/code.dao'
 import { sendEmail } from 'services/biz/email.service'
 import { createAuditEntry } from 'services/biz/audit-log.service'
@@ -66,6 +68,10 @@ async function invitationsFor(email: string) {
     .exec()
   const orgs = await Org.find({ _id: { $in: invites.map(i => i.orgId) } }, { name: 1, slug: 1 }).lean().exec()
   const byId = new Map(orgs.map(o => [String(o._id), o]))
+  // FR-27 P3-5: the role an invitation gives, for display; one from before names only its legacy key.
+  const roleIds = invites.map(i => i.assignRoleId).filter(Boolean)
+  const roles = roleIds.length ? await Role.find({ _id: { $in: roleIds } }, { name: 1, isBuiltin: 1, templateKey: 1 }).lean().exec() : []
+  const roleOf = new Map(roles.map(r => [String(r._id), roleDisplay(r)]))
   return invites
     .filter(i => byId.has(String(i.orgId)))
     .map(i => ({
@@ -73,7 +79,7 @@ async function invitationsFor(email: string) {
       orgId: String(i.orgId),
       name: byId.get(String(i.orgId))!.name,
       slug: byId.get(String(i.orgId))!.slug,
-      role: i.assignRole,
+      role: (i.assignRoleId && roleOf.get(String(i.assignRoleId))) || i.assignRole || '',
       expiresAt: i.expiresAt,
     }))
 }
@@ -177,6 +183,8 @@ export const authController = new Elysia({ prefix: '/auth' })
           org: orgBrief(org),
           orgs: orgList(result.memberships, user.orgId),
           needsOrgChoice: false,
+          // FR-27 P3-5 (#529): the token carries no grant; the SPA decides on this until `/auth/me`.
+          access: await accessAnswerFor(user),
         }
       } catch (err: any) {
         set.status = 401
@@ -184,6 +192,7 @@ export const authController = new Elysia({ prefix: '/auth' })
           // Several people use this username: ask for the email or the org. Nothing was checked
           // against anyone's password, so it is not a failure to count.
           if (err.code === 'ambiguous_login') set.status = 409
+          if (err.code === 'no_role') set.status = 403
           // Only a wrong password counts. `not_activated` / `disabled` are said to someone who just
           // proved the password, and charging those to the throttle would lock out a real owner.
           if (err.code === 'invalid_credentials') {
@@ -222,7 +231,7 @@ export const authController = new Elysia({ prefix: '/auth' })
       // must not mint sessions in other orgs. The next sign-in names the person.
       const org = await orgDao.findById(user.orgId)
       return {
-        orgs: org ? [{ orgId: user.orgId, name: org.name, slug: org.slug, ...(org.settings?.environment ? { environment: org.settings.environment } : {}), role: user.role, current: true }] : [],
+        orgs: org ? [{ orgId: user.orgId, name: org.name, slug: org.slug, ...(org.settings?.environment ? { environment: org.settings.environment } : {}), role: await roleDisplayOfMember(user.id), current: true }] : [],
         invitations: [],
       }
     }
@@ -515,8 +524,9 @@ export const authController = new Elysia({ prefix: '/auth' })
         org: orgBrief(org),
         orgs: user.iid
           ? orgList(await membershipsOf(user.iid), user.orgId)
-          : [{ orgId: user.orgId, name: org.name, slug: org.slug, role: user.role, current: true }],
+          : [{ orgId: user.orgId, name: org.name, slug: org.slug, role: await roleDisplayOfMember(user.id), current: true }],
         needsOrgChoice: false,
+        access: await accessAnswerFor(user),
       }
     } catch (err: any) {
       set.status = 400
@@ -562,7 +572,7 @@ export const authController = new Elysia({ prefix: '/auth' })
           entityName: `${user.firstName} ${user.lastName}`,
         })
 
-        return { user, token, org: orgBrief(org) }
+        return { user, token, org: orgBrief(org), access: await accessAnswerFor(user) }
       } catch (err: any) {
         set.status = 400
         return { message: err instanceof HandoffError ? err.message : HANDOFF_REFUSED }
@@ -615,17 +625,9 @@ export const authController = new Elysia({ prefix: '/auth' })
           }
         : null,
       user,
-      // FR-27.5: an org on `roles`: the session's grant, read live from its role. The SPA follows it, and refetches
-      // this when a response's `x-access-version` changes. Null: the token's claims decide, as before.
-      access: (user as any).access
-        ? {
-            all: !!(user as any).access.all,
-            caps: (user as any).access.all ? [] : [...(user as any).access.caps].sort(),
-            role: (user as any).accessRole ?? null,
-            // FR-27.4: where the role starts its people (null: the App Hub's default).
-            landing: (user as any).accessRole?.landing ?? null,
-          }
-        : null,
+      // FR-27.5: the session's grant, read live from its role. The SPA follows it, and refetches this when a response's
+      // `x-access-version` changes. Null: the person holds no role (FR-27 P3-5: the token says nothing of it).
+      access: accessAnswerOf(user),
       org: org
         ? {
             ...orgBrief(org),

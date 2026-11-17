@@ -14,7 +14,7 @@ const mongoose = require('mongoose')
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
-const { DocFile, Org, User, AuditLog } = require('./src/models')
+const { DocFile, Org, Role, User, AuditLog } = require('./src/models')
 
 const EXECUTE = process.env.EXECUTE === '1'
 const ORGSLUG = process.env.ORGSLUG || 'regal-pz'
@@ -53,7 +53,9 @@ const mimeFor = (n: string) => /\.pdf$/i.test(n) ? 'application/pdf'
   if (!org) { console.log(`org ${ORGSLUG} not found`); process.exit(1) }
   await require('./src/home/home').assertHomeIsHere(String(org._id), { fresh: true })  // FR-20.4: only on its home
   const orgId = String(org._id)
-  const admin: any = await User.findOne({ orgId, role: 'admin' }).lean() || await User.findOne({ orgId }).lean()
+  // FR-27 P3-5: an Administrator by role (the Administrator role, `all`), else one from before roles by the legacy key.
+  const adminRoles = (await Role.find({ orgId, all: true }, { _id: 1 }).lean()).map((r: any) => r._id)
+  const admin: any = await User.findOne({ orgId, $or: [{ roleId: { $in: adminRoles } }, { roleId: { $exists: false }, role: 'admin' }] }).lean() || await User.findOne({ orgId }).lean()
   const uploadDir = process.env.UPLOAD_DIR || '/app/uploads'
   const root = path.join(uploadDir, orgId, 'docs')
   console.log(`org=${ORGSLUG} (${orgId})  root=${root}  uploadedBy=${admin?._id}  EXECUTE=${EXECUTE}`)
