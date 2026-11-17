@@ -32,6 +32,39 @@ interface JournalRef {
   journalId?: string
 }
 
+/**
+ * FR-29.14: how an entry an event owes is made. With a `postingKey` the entry carries it (one entry per posting,
+ * `JournalEntry`'s partial unique index): an entry that already holds the key is the posting, and is returned instead
+ * of a second one. And a failure is THROWN, so the posting job keeps it and tries again (`postings/posting.service`).
+ * Without one, as before: a failure is logged and the answer is null.
+ */
+export interface PostingOptions {
+  postingKey?: string
+}
+
+/** The duplicate key of `{ orgId, postingKey }`: the driver's, or the repository's `DuplicateError`. */
+function isPostingKeyTaken(e: unknown): boolean {
+  const err = e as { code?: unknown; fields?: unknown; keyPattern?: unknown; message?: unknown } | null | undefined
+  if (err?.code === 'DUPLICATE') return !!err.fields && typeof err.fields === 'object' && 'postingKey' in err.fields
+  if (err?.code !== 11000 && err?.code !== 11001) return false
+  if (err.keyPattern && typeof err.keyPattern === 'object') return 'postingKey' in err.keyPattern
+  return /postingKey/.test(String(err.message ?? ''))
+}
+
+/** The entry, made once per posting key (see `PostingOptions`). */
+async function createPostingEntry(repos: RepositoryRegistry, orgId: string, data: Record<string, unknown>, opts: PostingOptions): Promise<any> {
+  const { postingKey } = opts
+  try {
+    return await repos.journalEntries.create({ ...data, ...(postingKey ? { postingKey } : {}) } as any)
+  } catch (e) {
+    if (postingKey && isPostingKeyTaken(e)) {
+      const made = await repos.journalEntries.findOne({ orgId, postingKey })
+      if (made) return made
+    }
+    throw e
+  }
+}
+
 interface JELine {
   accountId: string
   description: string
@@ -96,6 +129,7 @@ export async function createInvoiceJournalEntry(
   journal: JournalRef,
   autoPost: boolean,
   r?: RepositoryRegistry,
+  opts: PostingOptions = {},
 ): Promise<any | null> {
   const repos = r ?? getRepos()
 
@@ -156,7 +190,7 @@ export async function createInvoiceJournalEntry(
     const fiscalPeriodId = await ensureFiscalPeriod(orgId, invoice.issueDate || new Date(), repos)
     const entryNumber = await getNextNumber(orgId, 'JE', 5)
 
-    const je = await repos.journalEntries.create({
+    const je = await createPostingEntry(repos, orgId, {
       orgId,
       journalId: journal.journalId,
       entryNumber,
@@ -172,11 +206,12 @@ export async function createInvoiceJournalEntry(
       sourceId: invoice.id,
       createdBy: invoice.createdBy || orgId,
       ...(autoPost ? { postedBy: invoice.createdBy || orgId, postedAt: new Date() } : {}),
-    } as any)
+    }, opts)
 
     return je
   } catch (err: any) {
     logger.error({ orgId, invoiceId: invoice.id, error: err.message }, 'Failed to create invoice journal entry')
+    if (opts.postingKey) throw err
     return null
   }
 }
@@ -191,6 +226,7 @@ export async function createPaymentJournalEntry(
   journal: JournalRef,
   autoPost: boolean,
   r?: RepositoryRegistry,
+  opts: PostingOptions = {},
 ): Promise<any | null> {
   const repos = r ?? getRepos()
 
@@ -231,7 +267,7 @@ export async function createPaymentJournalEntry(
     const fiscalPeriodId = await ensureFiscalPeriod(orgId, payDate, repos)
     const entryNumber = await getNextNumber(orgId, 'JE', 5)
 
-    const je = await repos.journalEntries.create({
+    const je = await createPostingEntry(repos, orgId, {
       orgId,
       journalId: journal.journalId,
       entryNumber,
@@ -247,11 +283,12 @@ export async function createPaymentJournalEntry(
       sourceId: invoice.id,
       createdBy: invoice.createdBy || orgId,
       ...(autoPost ? { postedBy: invoice.createdBy || orgId, postedAt: new Date() } : {}),
-    } as any)
+    }, opts)
 
     return je
   } catch (err: any) {
     logger.error({ orgId, invoiceId: invoice.id, error: err.message }, 'Failed to create payment journal entry')
+    if (opts.postingKey) throw err
     return null
   }
 }
@@ -305,6 +342,7 @@ export async function createMovementValuationEntry(
   lines: any[],
   date: Date,
   r?: RepositoryRegistry,
+  opts: PostingOptions = {},
 ): Promise<any | null> {
   const repos = r ?? getRepos()
 
@@ -357,7 +395,7 @@ export async function createMovementValuationEntry(
     const fiscalPeriodId = await ensureFiscalPeriod(orgId, date, repos)
     const entryNumber = await getNextNumber(orgId, 'JE', 5)
 
-    const je = await repos.journalEntries.create({
+    const je = await createPostingEntry(repos, orgId, {
       orgId,
       journalId: accountingSettings?.defaultSaleJournalId,
       entryNumber,
@@ -373,7 +411,7 @@ export async function createMovementValuationEntry(
       sourceId: movement.id,
       createdBy: movement.createdBy,
       ...(autoPost ? { postedBy: movement.createdBy, postedAt: new Date() } : {}),
-    } as any)
+    }, opts)
 
     // Link JE back to movement
     await repos.stockMovements.update(movement.id, { journalEntryId: je.id } as any)
@@ -381,6 +419,7 @@ export async function createMovementValuationEntry(
     return je
   } catch (err: any) {
     logger.error({ orgId, movementId: movement.id, error: err.message }, 'Failed to create movement valuation entry')
+    if (opts.postingKey) throw err
     return null
   }
 }
@@ -421,6 +460,7 @@ export async function createPOSSessionJournalEntry(
   journal: JournalRef,
   autoPost: boolean,
   r?: RepositoryRegistry,
+  opts: PostingOptions = {},
 ): Promise<{ journalEntry: any; batchMovement: null } | null> {
   const repos = r ?? getRepos()
 
@@ -487,7 +527,7 @@ export async function createPOSSessionJournalEntry(
     const fiscalPeriodId = await ensureFiscalPeriod(orgId, new Date(), repos)
     const entryNumber = await getNextNumber(orgId, 'JE', 5)
 
-    const je = await repos.journalEntries.create({
+    const je = await createPostingEntry(repos, orgId, {
       orgId,
       journalId: journal.journalId,
       entryNumber,
@@ -503,7 +543,7 @@ export async function createPOSSessionJournalEntry(
       sourceId: session.id,
       createdBy: session.cashierId,
       ...(autoPost ? { postedBy: session.cashierId, postedAt: new Date() } : {}),
-    } as any)
+    }, opts)
 
     // Update session with references
     await repos.posSessions.update(session.id, { journalEntryId: je.id } as any)
@@ -511,6 +551,7 @@ export async function createPOSSessionJournalEntry(
     return { journalEntry: je, batchMovement: null }
   } catch (err: any) {
     logger.error({ orgId, sessionId: session.id, error: err.message }, 'Failed to create POS session journal entry')
+    if (opts.postingKey) throw err
     return null
   }
 }

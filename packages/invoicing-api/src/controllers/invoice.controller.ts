@@ -17,6 +17,8 @@ import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { upsertTags } from 'services/biz/tag.service'
 import { eventBus } from 'services/events/event-bus'
+import { inTransaction } from 'services/biz/transaction'
+import { enqueuePosting } from 'services/biz/postings/posting.service'
 import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
@@ -1839,6 +1841,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         orgId, invoice, userId: user.id, status: newStatus,
         heldBy: { 'issue.leaseUntil': (claimed as any).issue?.leaseUntil },
         fields: updateData,
+        // FR-29.15: what the `invoice.posted` below owes, stored with the issue.
+        owesPosting: !forCashSale && !isQuoteType(invoice.type),
       })
     } catch (e: any) {
       await release()
@@ -2085,17 +2089,23 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }
       // FR-20.4: a raw driver write, which the Mongoose write guard cannot see — so it asks first.
       await assertHomeIsHere(orgId)
-      const after = await Invoice.collection.findOneAndUpdate(
-        {
-          _id: oid(id), orgId: oid(orgId),
-          status: { $nin: ['voided', 'cancelled', 'paid'] },
-          // The key, when sent, is part of the filter: a second request with it matches nothing.
-          ...(key ? { 'payments.clientKey': { $ne: key } } : {}),
-          ...fitsDue(body.amount),
-        },
-        paymentPipeline(row, { at: new Date(), by: String(user.id) }) as any,
-        { returnDocument: 'after' },
-      )
+      const pipeline = paymentPipeline(row, { at: new Date(), by: String(user.id) })
+      // FR-29.15: the payment and the journal entry it owes are stored in one transaction.
+      const after = await inTransaction(async session => {
+        const doc = await Invoice.collection.findOneAndUpdate(
+          {
+            _id: oid(id), orgId: oid(orgId),
+            status: { $nin: ['voided', 'cancelled', 'paid'] },
+            // The key, when sent, is part of the filter: a second request with it matches nothing.
+            ...(key ? { 'payments.clientKey': { $ne: key } } : {}),
+            ...fitsDue(body.amount),
+          },
+          pipeline as any,
+          { returnDocument: 'after', session },
+        )
+        if (doc) await enqueuePosting(orgId, { event: 'payment.recorded', invoiceId: id, paymentId: String(paymentId), userId: user.id }, { session })
+        return doc
+      })
       if (!after) {
         // A concurrent request with this key won, the invoice became paid/voided meanwhile, or
         // another payment took what was left of it.
