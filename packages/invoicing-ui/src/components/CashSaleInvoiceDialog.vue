@@ -245,7 +245,8 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 async function fetchContacts(search?: string) {
   loadingContacts.value = true
   try {
-    const params: Record<string, any> = { type: 'customer', size: 20 }
+    // FR-30.7: the picker's rows, not whole contacts.
+    const params: Record<string, any> = { type: 'customer', size: 20, fields: 'list' }
     if (search) params.search = search
     const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`, { params })
     const list = data.contacts || []

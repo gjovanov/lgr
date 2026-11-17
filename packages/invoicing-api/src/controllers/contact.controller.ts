@@ -11,6 +11,7 @@ import { pickerContacts } from 'services/biz/contact-picker.service'
 import { Invoice, StockMovement } from 'db/models'
 import { cleanContactAliases, MAX_CONTACT_ALIASES, MAX_CONTACT_ALIAS_LENGTH } from 'config/contact-aliases'
 import { QUOTE_TYPES } from 'config/constants'
+import { listProjection } from 'config/list-rows'
 import { MAX_REPRESENTATIVE_LENGTH } from 'config/party-identity'
 
 /**
@@ -130,15 +131,17 @@ export const contactController = new Elysia({ prefix: '/org/:orgId/invoicing/con
     // FR-22.25: a document's partner picker asks for its side first, by recent use. Opt-in, and
     // never when the caller sorts: the contacts list keeps its own columns' sort.
     const prefer = query.prefer === 'customer' || query.prefer === 'supplier' ? query.prefer : null
+    // FR-30.7: `fields=list` (the list and the pickers) answers rows, without the notes and the search mirrors.
+    const select = listProjection('contacts', query.fields)
     if (prefer && !query.sortBy && size > 0) {
-      const result = await pickerContacts(orgId, filter, prefer, page, size)
+      const result = await pickerContacts(orgId, filter, prefer, page, size, select)
       return { contacts: result.items, ...result }
     }
 
     const sortBy = (query.sortBy as string) || 'createdAt'
     const sortOrder = (query.sortOrder as string) === 'desc' ? -1 : ((query.sortOrder as string) === 'asc' ? 1 : -1)
 
-    const result = await r.contacts.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+    const result = await r.contacts.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } }, { select })
     return { contacts: result.items, ...result }
   }, { isSignIn: true })
   .post(

@@ -7,6 +7,7 @@ import { grantOf } from 'services/biz/access/evaluate'
 import { redactStockCost } from 'config/access'
 import { productIdsPassingStockFilter } from 'services/biz/product-stock-filter'
 import { chooseListSort } from 'config/list-sorts'
+import { COUNT_FIELDS, listProjection } from 'config/list-rows'
 
 export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/stock-level' })
   .use(AppAuthService)
@@ -51,7 +52,14 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
     // FR-30.2: a sort the list declares (`config/list-sorts`), else the list's default.
     const sort = chooseListSort('stockLevels', query.sortBy, query.sortOrder)
 
-    const result = await r.stockLevels.findAll(filter, { page, size, sort: { [sort.field]: sort.order } })
+    // FR-30.8: the count form's lean "all" (`fields=count`) is the one answer past the ceiling, and it is narrow: a count
+    // of a warehouse lists every level in it. Anything else is a list's page, cut at the ceiling.
+    const lean = query.fields === COUNT_FIELDS
+    const result = await r.stockLevels.findAll(
+      filter,
+      { page, size, sort: { [sort.field]: sort.order }, unbounded: lean },
+      { select: lean ? ['productId', 'warehouseId', 'quantity', 'avgCost'] : listProjection('stockLevels', query.fields) },
+    )
 
     // Manual lookups to replace .populate()
     const productIds = new Set<string>()
@@ -62,8 +70,9 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
     }
 
     const [products, warehouses] = await Promise.all([
-      productIds.size > 0 ? r.products.findMany({ orgId, id: { $in: [...productIds] } } as any) : [],
-      warehouseIds.size > 0 ? r.warehouses.findMany({ orgId, id: { $in: [...warehouseIds] } } as any) : [],
+      // A row takes the article's name and SKU and the warehouse's name: the articles were read whole (FR-30.7).
+      productIds.size > 0 ? r.products.findMany({ orgId, id: { $in: [...productIds] } } as any, undefined, { select: lean ? ['sku', 'name', 'unit'] : ['sku', 'name'] }) : [],
+      warehouseIds.size > 0 ? r.warehouses.findMany({ orgId, id: { $in: [...warehouseIds] } } as any, undefined, { select: ['name'] }) : [],
     ])
 
     const productMap = new Map(products.map(p => [p.id, p]))
@@ -78,11 +87,12 @@ export const stockLevelController = new Elysia({ prefix: '/org/:orgId/warehouse/
         ...redactStockCost(grant, sl as any),
         productSku: product?.sku || '',
         productName: product?.name || '',
+        ...(lean ? { productUnit: product?.unit || '' } : {}),
         warehouseName: warehouse?.name || '',
       }
     })
 
-    return { stockLevels, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages }
+    return { stockLevels, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages, ...(result.truncated ? { truncated: true } : {}) }
   }, { isSignIn: true })
   // Bulk per-warehouse stock for a set of products — powers the products-grid quantity badges
   // without an N+1 (one call per rendered page). Returns { stock: { [productId]: [{ warehouse… }] } }.

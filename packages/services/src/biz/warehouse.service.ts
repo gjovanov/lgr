@@ -13,6 +13,7 @@ import {
 import { eventBus } from '../events/event-bus.js'
 import { externalWarehouseIds } from './external-warehouses.js'
 import { inTransaction } from './transaction.js'
+import { enqueuePosting } from './postings/posting.service.js'
 
 export interface ConfirmMovementOptions {
   /**
@@ -275,6 +276,8 @@ async function bookMovement(movement: IStockMovement, r: RepositoryRegistry, opt
     ...(toExternal ? { toWarehouseId: null, externalToWarehouseId: movement.toWarehouseId } : {}),
   } as any, { session })
   if (!updated) throw new Error('Failed to update movement status')
+  // FR-29.15: the valuation entry it owes, in the booking's own transaction (`postings/posting.service`).
+  await enqueuePosting(orgId, { event: 'stock.movement.confirmed', movementId, movementType: movement.type }, { session })
   return updated
 }
 

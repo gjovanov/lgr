@@ -188,8 +188,9 @@ async function loadProducts() {
   if (!form.value.warehouseId) return
   try {
     // size: 0 = ALL stock levels. The default page (10) used to silently seed a "full"
-    // count with ten products. Large warehouses take a moment here — that is the point.
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, { params: { warehouseId: form.value.warehouseId, size: 0 } })
+    // count with ten products. `fields=count` is the endpoint's lean "all" (FR-30.8): past the list ceiling of a
+    // thousand rows, each level narrow.
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, { params: { warehouseId: form.value.warehouseId, size: 0, fields: 'count' } })
     form.value.lines = (data.stockLevels || []).map((s: any) => ({
       productId: s.productId,
       productName: s.productName || s.productSku,

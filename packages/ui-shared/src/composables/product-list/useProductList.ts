@@ -22,6 +22,7 @@ import {
 } from './product-list-params'
 import { NO_SUPPLY, type ProductRow, type StockBadge, type SupplierFact, type SupplyTotals } from './types'
 import { capsOfSortKey, sortRefusal } from 'config/access'
+import { ALL_ROWS, LARGEST_PAGE_SIZE, pageSizeFromUrl } from '../page-sizes'
 
 /**
  * A sort key from the address bar: well formed, and (FR-27.11.D) one the role may sort by. A `sortBy=tier_3` left in an
@@ -194,7 +195,8 @@ export function useProductList(opts: UseProductListOptions) {
     const sortOrderUrl = computed({ get: () => pagination.value.sortOrder, set: (v: 'asc' | 'desc') => { pagination.value.sortOrder = v } })
     useListQueryState([
       { key: 'page', ref: pageUrl as any, codec: 'int', default: 1, sanitize: (v) => (v >= 1 ? v : undefined) },
-      { key: 'size', ref: sizeUrl as any, codec: 'int', default: defaultSize, sanitize: (v) => ([10, 25, 50, 100, -1].includes(v) ? v : undefined) },
+      // FR-30.9: a remembered or bookmarked "All" opens at the largest page; "All" is offered again for a small list.
+      { key: 'size', ref: sizeUrl as any, codec: 'int', default: defaultSize, sanitize: (v) => pageSizeFromUrl(v, [10, 25, 50, 100, -1]) },
       { key: 'sortBy', ref: sortByUrl as any, default: defaultSortBy, sanitize: sortKeyFromUrl },
       { key: 'sortOrder', ref: sortOrderUrl as any, default: defaultSortOrder, sanitize: (v) => (v === 'asc' || v === 'desc' ? v : undefined) },
     ])
@@ -219,13 +221,15 @@ export function useProductList(opts: UseProductListOptions) {
     // Vuetify uses -1 for "All": the server takes size 0 for "no paging". The till's catalog has no "All".
     const wireSize = source === 'till'
       ? Math.min(200, Math.max(1, pagination.value.size > 0 ? pagination.value.size : 24))
-      : (pagination.value.size === -1 ? 0 : pagination.value.size)
+      : (pagination.value.size === ALL_ROWS ? 0 : pagination.value.size)
     const params: Record<string, any> = {
       page: pagination.value.page,
       size: wireSize,
       sortBy: pagination.value.sortBy,
       sortOrder: pagination.value.sortOrder,
       ...filters.value,
+      // FR-30.7: the grid's rows (a price slot's name and price), not whole articles. The till's catalog is its own.
+      ...(source === 'products' ? { fields: 'list' } : {}),
     }
     const key = JSON.stringify([endpoint, params])
     if (inFlight && inFlightKey === key) return inFlight
@@ -239,6 +243,13 @@ export function useProductList(opts: UseProductListOptions) {
         // A newer request owns the rows and the spinner (FR-31.4).
         if (!answer.latest) return
         const { data } = answer.value
+        // FR-30.9: "All" on a list that grew past the ceiling was cut: the largest page instead, from the first.
+        if (data.truncated && pagination.value.size === ALL_ROWS) {
+          pagination.value.size = LARGEST_PAGE_SIZE
+          pagination.value.page = 0
+          queueMicrotask(() => void fetchItems())
+          return
+        }
         const rows: any[] = data.products || data.items || []
         items.value = source === 'till' ? rows.map(tillRow) : rows
         pagination.value.total = data.total ?? 0

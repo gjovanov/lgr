@@ -136,6 +136,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   entityKey: 'contacts',
   filters,
   urlSync: true,
+  // FR-30.7: rows, not whole documents.
+  listFields: true,
 })
 
 const headers = computed(() => [
