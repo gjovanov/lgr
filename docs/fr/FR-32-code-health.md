@@ -422,6 +422,6 @@ Most of this FR is proven by CI, not in production.
     - `unit/entity-types.test.ts` compiles a probe. The entity has every field of the model, a field added to a model reaches its entity as a plain value, and a planted wrong type fails.
     - The other models follow as they are touched (the order and the movement next), each the same three lines.
   - **Ratchets** (`unit/code-ratchets.test.ts`):
-    - direct model calls in the API packages' controllers, 272;
-    - `as any` outside the tests, 2 183 (2 173 at the audit);
+    - direct model calls in the API packages' controllers, 274 (272 on this branch's first base; the master it was rebased onto has two more);
+    - `as any` outside the tests, 2 163 (2 173 at the audit, 2 183 on this branch's first base);
     - each file that uses the raw driver listed with its reason, and a new one fails until it is listed. Ten are listed with their reason still to be named.
