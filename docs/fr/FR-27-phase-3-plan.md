@@ -204,7 +204,7 @@ Each PR keeps `bun run test`, `build`, `check:web` and the FR-27 walks green
   - reads `permissions`, `areas` or `role` from a token or session;
   - imports `compileLegacy`.
 
-**Done (draft PR, stacked on P3-6):** `unit/access-no-legacy.test.ts` scans every `.ts` / `.vue` of `packages/*` and
+**Done (draft PR #838, stacked on P3-6 / #837):** `unit/access-no-legacy.test.ts` scans every `.ts` / `.vue` of `packages/*` and
 `scripts/`, comments left out, outside the homes: `config/access/`, `services/biz/access/`, `packages/migrations/`, and the
 tests (`packages/tests/`, `packages/e2e/`), which state fixtures. Four rules, one test each:
 - **role-key check**: a built-in key (`ROLES`) compared with a `role` (`role === 'admin'`, `'x' !== session.role`), a key
