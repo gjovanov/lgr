@@ -75,14 +75,16 @@ describe('FR-27.4: the roles of an org', () => {
     expect((await call('GET', '/roles', tokens.manager)).status).toBe(403)
   })
 
-  it('a role is created from a template, as its access, with a projection the legacy model serves exactly', async () => {
+  it('a role is created from a template, as its access, with no legacy projection (FR-27 P3-5)', async () => {
     // `sales` withholds nothing (FR-27.11.B): its access is exactly the legacy role's.
     const r = await call('POST', '/roles', tokens.admin1, { name: 'Counter', from: { templateKey: 'sales' } })
     expect(r.status).toBe(200)
-    expect(r.json.role).toMatchObject({ name: 'Counter', isBuiltin: false, needsRelease: false })
+    expect(r.json.role).toMatchObject({ name: 'Counter', isBuiltin: false })
+    expect(r.json.role).not.toHaveProperty('needsRelease')
     const role: any = await Role.findById(r.json.role.id).lean().exec()
     expect(sameGrant(grantOfRole(role), templateGrant('sales'))).toBe(true)
-    expect(await PermissionSet.exists({ _id: role.legacy.setId, orgId: org._id, name: 'Role · Counter' })).toBeTruthy()
+    expect(role.legacy).toBeUndefined()
+    expect(await PermissionSet.exists({ orgId: org._id, name: 'Role · Counter' })).toBeNull()
     // The create does not wait for its audit row: `createAuditEntry` never makes the operation it records
     // wait for, or fail on, its own trail. A read at once is a race, so read the row when it is there
     // (the idiom of audit-via.flow.test.ts).
@@ -95,10 +97,9 @@ describe('FR-27.4: the roles of an org', () => {
     expect(audit?.changes?.[0]?.field).toBe('caps')
   })
 
-  it('FR-27.11.B (D-11, D-12): from the Seller template, without the cost figures, Цена на едро and Цена 0, which a release that reads no roles cannot withhold', async () => {
+  it('FR-27.11.B (D-11, D-12): from the Seller template, without the cost figures, Цена на едро and Цена 0', async () => {
     const r = await call('POST', '/roles', tokens.admin1, { name: 'Counter (Seller)', from: { templateKey: 'seller' } })
     expect(r.status).toBe(200)
-    expect(r.json.role.needsRelease).toBe(true)
     expect(r.json.role.caps).not.toContain('products.costs')
     expect(r.json.role.caps).not.toContain('products.price:wholesale')
     expect(r.json.role.caps).not.toContain('products.price:0')
@@ -115,23 +116,21 @@ describe('FR-27.4: the roles of an org', () => {
 })
 
 describe('FR-27.3: giving a person a role', () => {
-  it('writes the role, its projection and the history, and the legacy model then grants what the role does', async () => {
+  it('writes the role and its history entry (id and name), and nothing of the legacy model (FR-27 P3-5)', async () => {
     const counter: any = await Role.findOne({ orgId: org._id, name: 'Counter' }).lean().exec()
+    const before: any = await User.findById(people.clerk._id).lean().exec()
     const r = await call('PUT', `/user/${people.clerk._id}`, tokens.admin1, { roleId: String(counter._id) })
     expect(r.status).toBe(200)
     const clerk: any = await User.findById(people.clerk._id).lean().exec()
     expect(String(clerk.roleId)).toBe(String(counter._id))
-    expect(clerk.permissionSetIds.map(String)).toEqual([String(counter.legacy.setId)])
+    // The person's legacy fields stay as they were, frozen (P3-7 archives them).
+    expect((clerk.permissionSetIds ?? []).map(String)).toEqual((before.permissionSetIds ?? []).map(String))
+    expect(clerk.role).toBe(before.role)
     expect(clerk.roleHistory.at(-1)).toMatchObject({ roleName: 'Counter' })
-    // What a release that reads no roles makes of the person: their token, compiled.
-    const legacy = await tokenize((await User.findById(people.clerk._id).exec())!)
-    await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'legacy' } }).exec()
-    forgetAccessModel(orgId)
-    const onLegacy = await tokenize((await User.findById(people.clerk._id).exec())!)
-    await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-    forgetAccessModel(orgId)
-    expect(sameGrant(compileLegacy(onLegacy), grantOfRole(counter))).toBe(true)
-    expect(legacy.rid).toBe(String(counter._id))
+    expect(String(clerk.roleHistory.at(-1).roleId)).toBe(String(counter._id))
+    const token = await tokenize((await User.findById(people.clerk._id).exec())!)
+    expect(token.rid).toBe(String(counter._id))
+    expect('permissions' in token).toBe(false)
   })
 
   it('nobody changes their own role', async () => {
@@ -185,22 +184,22 @@ describe('FR-27.8: the Administrator', () => {
 })
 
 describe('editing and deleting roles', () => {
-  it('an edit reaches the role and its projection set; a built-in role edited keeps what it was saved with', async () => {
+  it('an edit reaches the role, a new version, and no legacy projection (FR-27 P3-5)', async () => {
     const counter: any = await Role.findOne({ orgId: org._id, name: 'Counter' }).lean().exec()
     const r = await call('PUT', `/roles/${counter._id}`, tokens.admin2, { caps: ['sales-docs.view', 'sales-docs.create', 'products.view'] })
     expect(r.status).toBe(200)
     expect(r.json.role).toMatchObject({ edited: true, version: 2 })
-    const set: any = await PermissionSet.findById(counter.legacy.setId).lean().exec()
-    // Never more than the role: no permission covers these three alone, so the legacy model serves less.
-    expect(sameGrant(compileLegacy({ role: 'member', permissions: set.permissions, areas: set.areas }), grantOfRole({ caps: r.json.role.caps })) || r.json.role.needsRelease).toBe(true)
+    const stored: any = await Role.findById(counter._id).lean().exec()
+    expect(stored.legacy).toBeUndefined()
+    expect(stored.needsRelease).toBeUndefined()
   })
 
-  it('a role in use, or built-in, is not deleted; an unused one is, with its set', async () => {
+  it('a role in use, or built-in, is not deleted; an unused one is', async () => {
     const counter: any = await Role.findOne({ orgId: org._id, name: 'Counter' }).lean().exec()
     expect((await call('DELETE', `/roles/${counter._id}`, tokens.admin2)).json.code).toBe('role_in_use')
     const lookers: any = await Role.findOne({ orgId: org._id, name: 'Lookers' }).lean().exec()
     expect((await call('DELETE', `/roles/${lookers._id}`, tokens.admin2)).status).toBe(200)
-    expect(await PermissionSet.exists({ _id: lookers.legacy.setId })).toBeNull()
+    expect(await Role.exists({ _id: lookers._id })).toBeNull()
   })
 })
 
@@ -219,7 +218,7 @@ describe("#529: a sys-admin sets a role's price levels by script, as the editor 
     const { before, after, role } = await setRoleCapsBySystem(String(other._id), String(seller._id), edit.caps, VIA)
     expect(priceCaps(after)).toEqual(['products.price:1', 'products.price:2', 'products.price:other', 'products.price:selling'])
     expect(notPrice(after)).toEqual(notPrice(before))
-    expect(role).toMatchObject({ edited: true, version: (seller.version ?? 1) + 1, needsRelease: true })
+    expect(role).toMatchObject({ edited: true, version: (seller.version ?? 1) + 1 })
 
     // What the server reads from now on is what was saved: the role is edited, so its caps are its grant.
     const stored: any = await Role.findById(seller._id).lean().exec()

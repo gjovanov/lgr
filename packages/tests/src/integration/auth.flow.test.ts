@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { register, login } from 'services/biz/auth.service'
-import { Identity, User } from 'db/models'
+import { Identity, Role, User } from 'db/models'
 
 /**
  * What the activation link does, as a test shortcut: the membership AND its person go live (since
@@ -41,7 +41,10 @@ describe('Auth Flow: Register -> Login -> Access', () => {
     expect(result.org.name).toBe('Test Corp')
     expect(result.org.slug).toBe('test-corp')
     expect(result.user).toBeDefined()
-    expect(result.user.role).toBe('admin')
+    // FR-27 P3-5 (#529): the founder holds the Administrator role, and no legacy role key is written.
+    const admin: any = await Role.findOne({ orgId: result.org._id, isBuiltin: true, templateKey: 'admin' }).lean()
+    expect(String(result.user.roleId)).toBe(String(admin._id))
+    expect(result.user.role).toBeUndefined()
     expect(result.user.email).toBe('admin@test.com')
     expect(String(result.user.orgId)).toBe(String(result.org._id))
     expect(String(result.org.ownerId)).toBe(String(result.user._id))
@@ -86,12 +89,15 @@ describe('Auth Flow: Register -> Login -> Access', () => {
     expect(result.user).toHaveProperty('username')
     expect(result.user).toHaveProperty('firstName')
     expect(result.user).toHaveProperty('lastName')
-    expect(result.user).toHaveProperty('role')
     expect(result.user).toHaveProperty('orgId')
-    expect(result.user).toHaveProperty('permissions')
+    // FR-27 P3-5 (#529): the role and its version, never what it allows (no `role`, `permissions`, `areas`).
+    expect(result.user).toHaveProperty('rid')
+    expect(result.user).toHaveProperty('rv')
+    expect(result.user).not.toHaveProperty('role')
+    expect(result.user).not.toHaveProperty('permissions')
+    expect(result.user).not.toHaveProperty('areas')
     expect(typeof result.user.id).toBe('string')
     expect(typeof result.user.orgId).toBe('string')
-    expect(result.user.permissions.length).toBeGreaterThan(0)
   })
 
   it('should reject invalid credentials', async () => {

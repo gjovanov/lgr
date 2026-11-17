@@ -147,17 +147,17 @@ describe('what an invite may name (#510)', () => {
     expect(both.status).toBe(422)
   })
 
-  it('a role by its id rides on the invite with its legacy key; none is the built-in Member (FR-27 P3-3, #529)', async () => {
+  it('a role by its id rides on the invite, with no legacy key (FR-27 P3-5); none is the built-in Member (P3-3, #529)', async () => {
     for (const key of ['accountant', 'seller', 'admin']) {
       const role: any = await Role.findOne({ orgId, isBuiltin: true, templateKey: key }).lean()
       const r = await call('POST', '/invite', { assignRoleId: String(role._id) })
       expect({ key, status: r.status }).toEqual({ key, status: 200 })
       expect(String(r.json.invite.assignRoleId)).toBe(String(role._id))
-      expect(r.json.invite.assignRole).toBe(role.all ? 'admin' : role.legacy?.role ?? key)
+      expect(r.json.invite.assignRole).toBeUndefined()
     }
     const member: any = await Role.findOne({ orgId, isBuiltin: true, templateKey: 'member' }).lean()
     const none = await call('POST', '/invite', {})
     expect(String(none.json.invite.assignRoleId)).toBe(String(member._id))
-    expect(none.json.invite.assignRole).toBe('member')
+    expect(none.json.invite.assignRole).toBeUndefined()
   })
 })
