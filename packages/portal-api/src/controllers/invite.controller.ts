@@ -11,7 +11,7 @@ import { paginateQuery } from 'services/utils/pagination'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { IdentityError } from 'services/biz/identity/identity.service'
 import { joinOrgByInvite } from 'services/biz/identity/account.service'
-import { inviteUrl, isEmailAddress, isRole, mailInvite } from 'services/biz/invite-email.service'
+import { inviteUrl, isEmailAddress, mailInvite } from 'services/biz/invite-email.service'
 import { BEARER_REQUIRED, NOT_A_PERSON, bearerPresent, callerOf, enterOrg } from '../auth/session-answer.js'
 
 export const inviteController = new Elysia()
@@ -88,27 +88,31 @@ export const inviteController = new Elysia()
       if (targetEmail !== undefined && !isEmailAddress(targetEmail)) {
         return status(422, { code: 'invalid_email', message: 'Enter the address the invitation is for' })
       }
-      // #510: a role the system knows. Any string was stored, and the membership was made with it.
-      let assignRole = body.assignRole ?? 'member'
-      if (!isRole(assignRole)) return status(422, { code: 'invalid_role', message: `Unknown role: ${assignRole}` })
-      // FR-27.4: the invite names a role, one the admin may give (FR-27.8). Its legacy key goes with it. Naming neither
-      // a role nor a legacy role is the org's default role (FR-27.3), when this admin may give it.
+      // FR-27 P3-3 (#529): an invitation names a role (`assignRoleId`), one the admin may give (FR-27.8). The legacy
+      // `assignRole` is refused, never dropped: a caller that named one and got 200 would believe the invitee gets it.
+      if (body.assignRole !== undefined) {
+        return status(422, { code: 'legacy_role_field', message: 'Name the role by its id (assignRoleId): a legacy role (assignRole) is no longer accepted.' })
+      }
+      // Naming none is the org's default role (FR-27.3) when this admin may give it, else the built-in Member.
       let assignRoleId = body.assignRoleId
-      if (assignRoleId) {
-        try {
-          await assertAssignable(user as any, orgId, assignRoleId)
-        } catch (e) {
-          if (e instanceof RoleRefusal) return status(e.status, e.body)
-          throw e
-        }
-      } else if (!body.assignRole) {
+      if (!assignRoleId) {
         const fallback = await defaultRoleOf(orgId)
         if (fallback) assignRoleId = await assertAssignable(user as any, orgId, fallback).then(() => fallback, () => undefined)
       }
-      if (assignRoleId) {
-        const role: any = await Role.findOne({ _id: assignRoleId, orgId }, { all: 1, legacy: 1 }).lean().exec()
-        assignRole = role?.all ? 'admin' : role?.legacy?.role ?? assignRole
+      if (!assignRoleId) {
+        const member: any = await Role.findOne({ orgId, isBuiltin: true, templateKey: 'member' }, { _id: 1 }).lean().exec()
+        if (!member) return status(422, { code: 'no_role', message: 'This organization has no role to invite with.' })
+        assignRoleId = String(member._id)
       }
+      try {
+        await assertAssignable(user as any, orgId, assignRoleId)
+      } catch (e) {
+        if (e instanceof RoleRefusal) return status(e.status, e.body)
+        throw e
+      }
+      // Its legacy key goes with it, for a release that reads no roles, until P3-5 stops writing it.
+      const role: any = await Role.findOne({ _id: assignRoleId, orgId }, { all: 1, legacy: 1 }).lean().exec()
+      const assignRole = role?.all ? 'admin' : role?.legacy?.role ?? 'member'
 
       const invite = await inviteDao.createInvite({
         orgId,
@@ -116,7 +120,7 @@ export const inviteController = new Elysia()
         targetEmail,
         maxUses: body.maxUses,
         assignRole,
-        ...(assignRoleId ? { assignRoleId } : {}),
+        assignRoleId,
         expiresInHours: body.expiresInHours,
       })
 
@@ -134,7 +138,8 @@ export const inviteController = new Elysia()
       body: t.Object({
         targetEmail: t.Optional(t.String()),
         maxUses: t.Optional(t.Number()),
-        assignRole: t.Optional(t.String()),
+        // Declared only to be refused (422 `legacy_role_field`): a schema drops what it does not name.
+        assignRole: t.Optional(t.Unknown()),
         assignRoleId: t.Optional(t.String()),
         expiresInHours: t.Optional(t.Number()),
       }),

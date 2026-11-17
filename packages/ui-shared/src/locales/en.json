@@ -1164,7 +1164,6 @@
     "roleAdminOnly": "Only an administrator can change a role.",
     "roleSelfBlocked": "You cannot change your own role — ask another administrator.",
     "inviteUser": "Invite User",
-    "permissions": "Permissions",
     "sendInvite": "Send Invite",
     "user": "User",
     "dailyDigest": {
@@ -1219,15 +1218,13 @@
       "emailFailed": "The email to {email} could not be sent. Send them this link yourself."
     },
     "inviteErrors": {
-      "invalid_email": "Enter the email address the invitation is for.",
-      "invalid_role": "Choose a role for the invitation."
+      "invalid_email": "Enter the email address the invitation is for."
     },
     "cashRegister": {
       "title": "Cash register",
       "requireConnectedDevice": "A sale needs a connected fiscal printer",
       "requireConnectedDeviceHint": "On, a sale and a cash or card invoice need an open session and a connected fiscal printer, and LGR prints the fiscal receipt. Off, LGR prints nothing: cash and card invoices are paid as they are issued, with no receipt. A new organization starts off."
-    },
-    "roleSetMismatch": "The role \"{role}\" and the permission sets disagree: {sets}. The sets decide at sign-in, not the role. The role's set is \"{own}\"; saving a new role puts it in place of the old one."
+    }
   },
   "admin": {
     "auditLog": "Audit Log",
@@ -3572,43 +3569,6 @@
     "sync": "Sync from TickyTack",
     "synced": "Timesheets synced",
     "disabled": "Time tracking integration is not enabled"
-  },
-  "permissionSets": {
-    "title": "Permission Sets",
-    "name": "Name",
-    "description": "Description",
-    "permissions": "Permissions",
-    "ownRecordsOnly": "Own Records Only",
-    "isDefault": "Default",
-    "isAdmin": "Administrator",
-    "isSystem": "System",
-    "userCount": "Users",
-    "create": "Create Permission Set",
-    "edit": "Edit Permission Set",
-    "delete": "Delete Permission Set",
-    "deleteConfirm": "Are you sure? This cannot be undone.",
-    "cannotDeleteSystem": "System permission sets cannot be deleted",
-    "cannotDeleteInUse": "Cannot delete — users are still assigned",
-    "migrate": "Migrate from Roles",
-    "migrateConfirm": "Convert all legacy roles to permission sets?",
-    "migrated": "Migration complete",
-    "effectivePermissions": "Effective Permissions",
-    "recordScoping": "Record Scoping",
-    "allRecords": "All Records",
-    "ownOnly": "Own Records Only",
-    "areas": "Areas",
-    "allAreas": "All areas",
-    "onlyAreas": "Only the areas ticked",
-    "noAreas": "No area",
-    "area": {
-      "portal": "Portal (apps, dashboard, settings)",
-      "orders": "Orders and reservations",
-      "purchases": "Incoming documents",
-      "payments": "Payment and cash orders",
-      "pricing": "Price lists and bulk pricing",
-      "stockControl": "Stock levels, counts, valuation, opening stock",
-      "catalogExport": "Product export"
-    }
   },
   "pendingChanges": {
     "title": "Pending Changes",

@@ -343,9 +343,7 @@ export const PORTAL_PAGES: PageDef[] = [
   portalPage('/dashboard', READ_DASHBOARD),
   portalPage('/settings/organization', BACK_OFFICE),
   portalPage('/settings/users', BACK_OFFICE),
-  // Writing a set is assigning access, which is the server's admin role (`permission-set.controller`).
-  portalPage('/settings/permission-sets', []),
-  // FR-27.4: Roles & access, the permission sets' successor; an admin's as theirs.
+  // FR-27.4: Roles & access, the permission sets' successor (P3-3 removed their screen); an admin's as theirs.
   portalPage('/settings/roles', []),
   portalPage('/settings/invites', []),
   portalPage('/settings/desktops', ['admin.settings']),

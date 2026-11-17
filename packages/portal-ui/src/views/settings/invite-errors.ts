@@ -1,8 +1,9 @@
 /**
  * #510: an invitation the server refused, in the admin's language. The create route answers
- * `invalid_email` and `invalid_role` with a code; anything else falls back to its message.
+ * `invalid_email` with a code; anything else (a role this admin may not give, FR-27.8) falls back to its message.
+ * FR-27 P3-3 (#529): `invalid_role` is gone with the legacy role field, which the route now refuses outright.
  */
-const CODES = ['invalid_email', 'invalid_role'] as const
+const CODES = ['invalid_email'] as const
 
 export function inviteErrorText(e: any, t: (key: string) => string): string {
   const code = e?.response?.data?.code

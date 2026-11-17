@@ -17,9 +17,6 @@
 
     <v-alert v-if="!loading && !roles.length" type="info" variant="tonal">
       {{ $t('access.ui.noRoles') }}
-      <template #append>
-        <v-btn variant="text" :to="{ name: 'settings.permissionSets' }" data-testid="roles-open-sets">{{ $t('permissionSets.title') }}</v-btn>
-      </template>
     </v-alert>
 
     <v-data-table v-else :headers="headers" :items="roles" :loading="loading" item-value="id" hover data-testid="roles-table" @click:row="(_: any, { item }: any) => open(item)">

@@ -133,8 +133,6 @@ const PERSONAL = new Set([
 const PAGE_GATED = new Set([
   // `/settings/billing` opens with `billing.manage`, which every Stripe call needs.
   'portal-ui/src/views/settings/BillingView.vue',
-  // `/settings/permission-sets` opens with `roles.edit`, which every set write needs (the legacy screen; Phase 3 removes it).
-  'portal-ui/src/views/settings/PermissionSetsView.vue',
   // `/admin/nodes`, `/admin/licences`: lgrai.app's operators (the sys-admin list), not an org's roles.
   'portal-ui/src/views/admin/NodesView.vue',
   'portal-ui/src/views/admin/LicencesView.vue',
