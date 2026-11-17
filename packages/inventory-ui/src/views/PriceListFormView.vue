@@ -49,7 +49,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(item, idx) in form.items" :key="idx">
+          <tr v-for="(item, idx) in form.items" :key="rowKey(item)">
             <td style="min-width:280px">
               <div class="d-flex align-center ga-1">
                 <ProductSearch
@@ -90,6 +90,7 @@
 </template>
 
 <script setup lang="ts">
+import { rowKey } from 'ui-shared/composables/row-key'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
