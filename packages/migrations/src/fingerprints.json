@@ -16,5 +16,6 @@
   "0014-seller-permission-sets": "a44b27dbe48dd04649b0e49691ef6f6757f8493287b9e873c66364f642027d7c",
   "0015-roles-from-sets": "de693614c8ddf9e92b067220e6e6a7cd6c7f80d2ca6bd832362c68924295732e",
   "0016-drop-unread-text-indexes": "bc93a69ac0083a25686aa8c69146634ebb60e08b7cd21c6642120f54f6a07620",
-  "0017-legacy-access-archive": "abe876ef15e8cec9b04a42525ab12ea6904fd73ffb4ee729884ebd23dae188c9"
+  "0017-legacy-access-archive": "abe876ef15e8cec9b04a42525ab12ea6904fd73ffb4ee729884ebd23dae188c9",
+  "0018-product-search-field": "b052e14a60acc9fa06399bc2f7ad987a2c4c5b15f1370d0918c35603b60fe3e0"
 }

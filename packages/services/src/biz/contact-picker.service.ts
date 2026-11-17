@@ -50,12 +50,17 @@ export interface PickerPage {
   page: number
   size: number
   totalPages: number
+  /** FR-30.12: on a page read without its count, whether rows follow it. */
+  hasMore?: boolean
 }
 
 /** One page of `filter`'s contacts in the picker's order (see above); `select`: the picker's rows (FR-30.7). */
-export async function pickerContacts(orgId: string, filter: Record<string, any>, side: PickerSide, page: number, size: number, select?: Projection): Promise<PickerPage> {
+export async function pickerContacts(orgId: string, filter: Record<string, any>, side: PickerSide, page: number, size: number, select?: Projection, opts: { count?: false } = {}): Promise<PickerPage> {
   const r = getRepos()
-  const want = (page + 1) * size
+  // FR-30.12: a type-ahead counts nothing; one row past the page says whether more follow.
+  const counted = opts.count !== false
+  const end = (page + 1) * size
+  const want = counted ? end : end + 1
   const recent = await recentContactIds(orgId, side)
   const rank = new Map(recent.map((id, i) => [id, i]))
 
@@ -80,6 +85,11 @@ export async function pickerContacts(orgId: string, filter: Record<string, any>,
     out.push(...rest.items)
   }
 
+  if (!counted) {
+    const hasMore = out.length > end
+    const seen = Math.min(out.length, end) + (hasMore ? 1 : 0)
+    return { items: out.slice(page * size, end), total: seen, page, size, totalPages: Math.ceil(seen / size), hasMore }
+  }
   const total = await r.contacts.count(filter as any)
   return { items: out.slice(page * size, want), total, page, size, totalPages: Math.ceil(total / size) }
 }

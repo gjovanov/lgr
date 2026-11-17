@@ -1819,6 +1819,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         prefer: config.direction === 'incoming' ? 'supplier' : 'customer',
         // FR-30.7: the picker's rows: the party block's addresses and tax numbers, without the notes and mirrors.
         fields: 'list',
+        // FR-30.12: a type-ahead shows no total, so nothing is counted.
+        count: 'none',
       }
       if (search) params.search = search
       const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params })

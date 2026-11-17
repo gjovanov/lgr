@@ -11,6 +11,7 @@ import { keepStoredCosts, redactProduct, redactProducts } from 'config/access'
 import { PRODUCT_TARIFF_CODE_MAX } from 'config/constants'
 import { LIST_SORTS, chooseListSort } from 'config/list-sorts'
 import { listProjection } from 'config/list-rows'
+import { PRODUCT_SEARCH_INDEX } from 'services/biz/search.utils'
 
 /** What an article is (`PRODUCT_TYPES`). One list for the create and the update route. */
 const PRODUCT_TYPE = t.Union([
@@ -50,7 +51,16 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
       ? await findProductsByTierPrice(r.products, filter, tier, sortOrder, page, size, select)
       : stockColumn
         ? await findProductsByStockColumn(r.products, orgId, filter, stockColumn, (query.warehouseId as string) || undefined, sortOrder, page, size, select)
-        : await r.products.findAll(filter, { page, size, sort: { [plain.field]: plain.order } }, { select })
+        : await r.products.findAll(
+          filter,
+          // FR-30.12: a type-ahead reads one row more than it shows: `count=none` counts nothing, `count=when-more` only
+          // when more follow (the line search's "Show all N results").
+          { page, size, sort: { [plain.field]: plain.order }, ...(query.count === 'none' ? { count: false as const } : query.count === 'when-more' ? { count: 'when-more' as const } : {}) },
+          // FR-30.11: a search reads the search field's index, which the planner passed over for the sort's. Only when the
+          // search reads that field alone (`indexedSearch`): a supplier's code or an article without the field is read
+          // from documents, which those keys cannot answer.
+          { select, ...(resolved.indexedSearch ? { hint: PRODUCT_SEARCH_INDEX } : {}) },
+        )
     // FR-27.6: the cost figures only for a role that holds `products.costs`; absent, not blanked.
     const items = redactProducts(grantOf(user as any), result.items as any[])
     return { ...result, products: items, items }

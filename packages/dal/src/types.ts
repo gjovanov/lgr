@@ -56,6 +56,13 @@ export interface PageRequest {
    * accounts' tree), or an endpoint's declared lean "all" (FR-30.8). Never a list's ordinary page.
    */
   unbounded?: boolean
+  /**
+   * FR-30.12: a type-ahead's page is read with one row more than it holds, which says whether more follow (`hasMore`).
+   * `false`: nothing is counted, and `total` is what was seen (`skip + rows`, one more when `hasMore`). `'when-more'`:
+   * counted only when more follow (the product search's "Show all N results"), so a search that fits its page is one
+   * query.
+   */
+  count?: false | 'when-more'
 }
 
 export interface PageResult<T> {
@@ -66,6 +73,8 @@ export interface PageResult<T> {
   totalPages: number
   /** FR-30.8: the answer was cut at the ceiling; `total` is the real count. Absent when it was not. */
   truncated?: true
+  /** FR-30.12: on a page read without its count, whether rows follow it. */
+  hasMore?: boolean
 }
 
 // ── Aggregate types ──
@@ -107,4 +116,10 @@ export interface SessionOptions {
 export interface ReadOptions extends SessionOptions {
   /** Return only these fields (`id` always). */
   select?: Projection
+  /**
+   * FR-30.11: count through this index (its keys, `{ orgId: 1, searchLower: 1, isActive: 1, _id: 1 }`), and read the page
+   * through it while the matches are few. For a query the planner would serve from another index. A store without it
+   * reads as if none were named.
+   */
+  hint?: Readonly<Record<string, 1 | -1>>
 }

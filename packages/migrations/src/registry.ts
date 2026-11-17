@@ -17,6 +17,7 @@ import { sellerPermissionSets } from './migrations/0014-seller-permission-sets.j
 import { rolesFromSets } from './migrations/0015-roles-from-sets.js'
 import { dropUnreadTextIndexes } from './migrations/0016-drop-unread-text-indexes.js'
 import { legacyAccessArchive } from './migrations/0017-legacy-access-archive.js'
+import { productSearchField } from './migrations/0018-product-search-field.js'
 import FINGERPRINTS from './fingerprints.json' with { type: 'json' }
 
 /**
@@ -47,6 +48,7 @@ export const RELEASED: Migration[] = [
   rolesFromSets,
   dropUnreadTextIndexes,
   legacyAccessArchive,
+  productSearchField,
 ]
 
 /** {@link RELEASED}, each carrying its file's fingerprint, which the runner checksums. */
