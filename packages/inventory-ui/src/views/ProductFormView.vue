@@ -5,7 +5,11 @@
     :status="isEdit ? { steps: [$t('common.active'), $t('common.archived')], current: form.isActive !== false ? $t('common.active') : $t('common.archived') } : undefined"
     :actions="formActions"
     :loading="loading"
+    :load-error="loadError"
+    :refusal="refusal"
     back-to="/products"
+    @retry="loadProduct"
+    @dismiss-refusal="dismissRefusal"
   >
     <!-- FR-22.47: what the article leads to, read from the article as stored. -->
     <template #header-actions>
@@ -349,6 +353,7 @@ import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { useContactSearch, contactTitle } from 'ui-shared/composables/useContactSearch'
 import { useProductTypes } from 'ui-shared/composables/useProductTypes'
@@ -379,6 +384,8 @@ const seesSelling = computed(() => access.can('products.price:selling'))
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+// FR-31.6 / .8: an article that did not load says so; a refused save stays at the top of the form.
+const { loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal } = useFormFeedback()
 
 interface PriceEntry {
   name: string
@@ -853,18 +860,20 @@ async function handleSubmit() {
       // The form stays open on what it saved, on the current tab: an edit from here is unsaved again (FR-31.1).
       markSaved()
       keepStored(data?.product)
+      succeeded()
       showSuccess(t('common.savedSuccessfully'))
     } else {
       const { data } = await httpClient.post(`${orgUrl()}/warehouse/product`, payload)
       // The new article opens as itself in this same form: what is edited there is unsaved again.
       markSaved()
+      succeeded()
       showSuccess(t('common.savedSuccessfully'))
       const newId = data?.product?._id || data?._id
       if (newId) router.push({ name: 'inventory.products.edit', params: { id: newId, tab: urlTab.value } })
       else router.push({ name: 'inventory.products' })
     }
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    refused(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
 }
 
@@ -892,30 +901,7 @@ onMounted(async () => {
     return
   }
   if (isEdit.value) {
-    try {
-      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
-      const p = data.product || data
-      // The clean state is the loaded article, taken once the field watchers have run (FR-22.13, FR-31.2).
-      await markLoaded(() => {
-        Object.assign(form, {
-          sku: p.sku || '', name: p.name || '', tariffCode: p.tariffCode || '', type: p.type || 'goods', category: p.category || '',
-          categoryId: p.categoryId || null,
-          unit: p.unit || 'pcs', barcode: p.barcode || '', description: p.description || '',
-          isActive: p.isActive ?? true, purchasePrice: p.purchasePrice || 0, sellingPrice: p.sellingPrice || 0, taxRate: p.taxRate || 0,
-          trackInventory: p.trackInventory ?? true, minStockLevel: p.minStockLevel || 0,
-          maxStockLevel: p.maxStockLevel || 0,
-          costingMethod: p.costingMethod || null,
-          standardCost: p.standardCost || 0,
-          tags: p.tags || [],
-        })
-        keepStored(p)
-        linkCategoryByName()
-        sellingPricePercent.value = calcPercent(form.sellingPrice)
-        priceEntries.value = mergePriceEntries(p.customPrices || [], p.tagPrices || [])
-        // The article's price tiers; a slot with base-price defaults for every level it lacks.
-        showTiers(p)
-      })
-    } catch { /* handle */ }
+    await loadProduct()
   } else {
     // What a new article starts with is its clean state.
     await markLoaded(async () => {
@@ -928,6 +914,37 @@ onMounted(async () => {
     })
   }
 })
+
+/** The article, read into the form; a failure is said by the form, with Back and Retry (FR-31.6). */
+async function loadProduct() {
+  loadStarted()
+  try {
+    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
+    const p = data.product || data
+    // The clean state is the loaded article, taken once the field watchers have run (FR-22.13, FR-31.2).
+    await markLoaded(() => {
+      Object.assign(form, {
+        sku: p.sku || '', name: p.name || '', tariffCode: p.tariffCode || '', type: p.type || 'goods', category: p.category || '',
+        categoryId: p.categoryId || null,
+        unit: p.unit || 'pcs', barcode: p.barcode || '', description: p.description || '',
+        isActive: p.isActive ?? true, purchasePrice: p.purchasePrice || 0, sellingPrice: p.sellingPrice || 0, taxRate: p.taxRate || 0,
+        trackInventory: p.trackInventory ?? true, minStockLevel: p.minStockLevel || 0,
+        maxStockLevel: p.maxStockLevel || 0,
+        costingMethod: p.costingMethod || null,
+        standardCost: p.standardCost || 0,
+        tags: p.tags || [],
+      })
+      keepStored(p)
+      linkCategoryByName()
+      sellingPricePercent.value = calcPercent(form.sellingPrice)
+      priceEntries.value = mergePriceEntries(p.customPrices || [], p.tagPrices || [])
+      // The article's price tiers; a slot with base-price defaults for every level it lacks.
+      showTiers(p)
+    })
+  } catch (e) {
+    loadFailed(e)
+  }
+}
 
 /**
  * A new article starts at the org's default VAT rate, the one documents preselect, instead of

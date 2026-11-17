@@ -121,18 +121,25 @@ describe('a list on usePaginatedTable: the latest request fills it', () => {
     expect(t.items.value.map((r: any) => r._id)).toEqual(['page-2-row'])
   })
 
-  it('an error of a replaced request is dropped; the latest one\'s is passed on', async () => {
+  it('an error of a replaced request is dropped; the latest one\'s is the list\'s state (FR-31.7)', async () => {
     const calls = server()
     const t = usePaginatedTable({ url: '/org/o1/warehouse/movement', entityKey: 'movements' })
     const first = t.fetchItems()
     const second = t.fetchItems()
     calls[0].fail(500)
     await first
+    expect(t.pagination.value.loadError).toBeNull()
     calls[1].fail(403)
-    let caught: any
-    try { await second } catch (e) { caught = e }
-    expect(caught?.response?.status).toBe(403)
+    await second
+    expect(t.pagination.value.loadError).toBe('forbidden')
+    expect(t.items.value).toEqual([])
     expect(t.loading.value).toBe(false)
+    // Retry answers: the list has rows again, and no error.
+    const third = t.fetchItems()
+    calls[2].answer([{ _id: 'row' }])
+    await third
+    expect(t.pagination.value.loadError).toBeNull()
+    expect(t.items.value.map((r: any) => r._id)).toEqual(['row'])
   })
 })
 

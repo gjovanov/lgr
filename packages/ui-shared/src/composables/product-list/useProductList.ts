@@ -5,6 +5,7 @@ import { accessGrant, useAccess } from '../../access/useAccess'
 import { liveAccessVersion } from '../../access/live-grant'
 import { httpClient } from '../useHttpClient'
 import { latestOnly } from '../latest-only'
+import { loadFailureOf } from '../load-failure'
 import { contactTitle, useContactSearch } from '../useContactSearch'
 import { useListQueryState } from '../useListQueryState'
 import { useSearchDebounce } from '../useSearchDebounce'
@@ -242,6 +243,7 @@ export function useProductList(opts: UseProductListOptions) {
         items.value = source === 'till' ? rows.map(tillRow) : rows
         pagination.value.total = data.total ?? 0
         pagination.value.totalPages = data.totalPages ?? 0
+        pagination.value.loadError = null
         loading.value = false
       } catch (e: any) {
         // Only the latest request's error reaches here: an earlier one's is dropped by `latestOnly`.
@@ -253,7 +255,11 @@ export function useProductList(opts: UseProductListOptions) {
           queueMicrotask(() => void fetchItems())
           return
         }
-        throw e
+        // FR-31.7: a refused or failed list says so (`ListScaffold`), never "no articles".
+        items.value = []
+        pagination.value.total = 0
+        pagination.value.totalPages = 0
+        pagination.value.loadError = loadFailureOf(e)
       } finally {
         // Only the request that is still THE one in flight clears the marker (a newer one has replaced it).
         if (inFlightSeq === mine) { inFlight = null; inFlightKey = '' }

@@ -25,7 +25,7 @@
       <!-- What the record leads to, beside its title on every tab of it (FR-22.47: an article's
            „Заприходи" / „Продай" / „Резервирай"). Small buttons: the bar keeps its height, which
            `.form-content` subtracts. -->
-      <slot name="header-actions" />
+      <slot v-if="!loadError" name="header-actions" />
     </div>
 
     <!-- Main content area: sheet (left) + sidebar (right) — full width, fixed height -->
@@ -33,7 +33,7 @@
       <!-- Left: form sheet (scrollable) -->
       <div class="form-sheet flex-grow-1">
         <!-- Actions bar: sticky -->
-        <div v-if="visibleActions.length || status" class="form-actions-bar d-flex align-center justify-space-between ga-2 px-4 py-1">
+        <div v-if="!loadError && (visibleActions.length || status)" class="form-actions-bar d-flex align-center justify-space-between ga-2 px-4 py-1">
           <FormActionBar
             class="form-actions-bar__actions"
             :actions="visibleActions"
@@ -60,7 +60,7 @@
         </div>
 
         <!-- Smart buttons row -->
-        <div v-if="smartButtons?.length" class="smart-buttons-row d-flex align-center ga-2 px-4 py-1">
+        <div v-if="!loadError && smartButtons?.length" class="smart-buttons-row d-flex align-center ga-2 px-4 py-1">
           <SmartButton
             v-for="btn in smartButtons"
             :key="btn.label"
@@ -77,7 +77,35 @@
         <!-- Paper card (scrollable area) -->
         <div class="form-paper-scroll">
           <div class="form-paper-wrapper pa-3">
-            <v-card class="form-paper" rounded="lg" elevation="0">
+            <!-- FR-31.6: a record that could not be read says so, with Back and Retry, and shows no form and no
+                 action. It used to look like an empty draft: „Edit Invoice", a Draft chip, enabled Issue and Save. -->
+            <v-card v-if="loadError" class="form-paper" rounded="lg" elevation="0" data-testid="form-load-error" :data-failure="loadError">
+              <EmptyState
+                :icon="loadError === 'not_found' ? 'mdi-file-question-outline' : loadError === 'forbidden' ? 'mdi-lock-outline' : 'mdi-cloud-alert-outline'"
+                :title="$t(`common.loadFailure.${loadError}.title`)"
+                :description="$t(`common.loadFailure.${loadError}.text`)"
+              >
+                <template #actions>
+                  <v-btn variant="text" data-testid="form-load-error-back" @click="goBack">{{ backLabel || $t('common.back') }}</v-btn>
+                  <v-btn color="primary" variant="flat" data-testid="form-load-error-retry" @click="emit('retry')">{{ $t('common.retry') }}</v-btn>
+                </template>
+              </EmptyState>
+            </v-card>
+            <v-card v-else class="form-paper" rounded="lg" elevation="0">
+              <!-- FR-31.8: a refused save, issue, delete or confirm is said here, and stays until it is closed or the
+                   next action succeeds; a toast went after five seconds. -->
+              <v-alert
+                v-if="refusal"
+                type="error"
+                variant="tonal"
+                density="compact"
+                class="ma-3 mb-0"
+                closable
+                data-testid="form-refusal"
+                @click:close="emit('dismiss-refusal')"
+              >
+                {{ refusal }}
+              </v-alert>
               <div v-if="$slots['document-header']" class="form-paper-header">
                 <slot name="document-header" />
               </div>
@@ -146,6 +174,8 @@ import { inModule } from '../nav/open-page'
 import { useI18n } from 'vue-i18n'
 import SmartButton from './SmartButton.vue'
 import FormActionBar from './FormActionBar.vue'
+import EmptyState from './EmptyState.vue'
+import type { LoadFailure } from '../composables/load-failure'
 import { focusFirstField, isMacPlatform, useFormShortcuts } from '../composables/form-shortcuts'
 import { capShows, type CapValue } from '../access/v-cap'
 
@@ -226,11 +256,25 @@ const props = withDefaults(defineProps<{
    * with a `new` segment (`/invoices/new`, `/products/new/edit`) and no `entityId`.
    */
   autofocus?: boolean
+  /**
+   * FR-31.6: the record could not be read (`loadFailureOf`): the form says so with Back and Retry (`@retry`), and
+   * shows no field and no action. Unset while it loads and once it has loaded.
+   */
+  loadError?: LoadFailure | null
+  /** FR-31.8: why the last action was refused, said at the top of the form until `@dismiss-refusal` or a success. */
+  refusal?: string | null
 }>(), {
   // ⚠ An explicit undefined: a boolean prop left out is otherwise cast to `false`, which would
   // read as "never" instead of "decide from the route".
   autofocus: undefined,
 })
+
+const emit = defineEmits<{
+  /** Read the record again, after a failed load. */
+  retry: []
+  /** The person closed the refusal. */
+  'dismiss-refusal': []
+}>()
 
 const router = useRouter()
 const route = useRoute()
@@ -255,8 +299,9 @@ function toggleSidebar() {
   try { localStorage.setItem(SIDEBAR_PREF_KEY, String(sidebarCollapsed.value)) } catch { /* ignore */ }
 }
 
+// A record that did not load offers nothing to do with it: no Save, Issue, Delete or Print, and no shortcut.
 const visibleActions = computed(() =>
-  (props.actions || []).filter(a => a.show !== false && capShows(a.cap))
+  props.loadError ? [] : (props.actions || []).filter(a => a.show !== false && capShows(a.cap))
 )
 
 // ── FR-22.52: keyboard ──

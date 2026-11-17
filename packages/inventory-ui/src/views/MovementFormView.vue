@@ -5,6 +5,10 @@
     :status="isEdit ? statusDef : undefined"
     :actions="formActions"
     :loading="loading"
+    :load-error="loadError"
+    :refusal="refusal"
+    @retry="fetchItem"
+    @dismiss-refusal="dismissRefusal"
     back-to="/movements"
     :back-label="$t('nav.stockMovements')"
   >
@@ -375,6 +379,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { movementWarehouseRefusal, namesExternalWarehouses, unusedWarehouseSide, type WarehouseSide } from 'config/movement-warehouses'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
 import { pinnedWarehouseId, rememberedFlag } from 'ui-shared/composables/useUserDefaults'
 import { appHref, goTo } from 'ui-shared/nav/navigate'
@@ -433,6 +438,8 @@ const router = useRouter()
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+// FR-31.6 / .8: a record that did not load says so; a refused action stays at the top of the form.
+const { loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal } = useFormFeedback()
 const { formatCurrency } = useCurrency()
 
 const isEdit = computed(() => !!route.params.id)
@@ -820,6 +827,7 @@ function syncGrWithUpdateFromLines() {
 async function fetchItem() {
   if (!isEdit.value) return
   loading.value = true
+  loadStarted()
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/movement/${route.params.id}`)
     const detail = data.stockMovement || data
@@ -859,7 +867,7 @@ async function fetchItem() {
       if ((wasOn && !readonly.value) || (!wasOn && grWithUpdate.value)) await seedUnseededLines()
     })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    loadFailed(e)
   } finally {
     loading.value = false
   }
@@ -926,15 +934,16 @@ async function handleSubmit() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
   const misfit = warehouseRefusal()
-  if (misfit) { showError(misfit); return }
+  if (misfit) { refused(misfit); return }
   if (hasNoWarehouse() && !(await askNoWarehouse('save'))) return
   saving.value = true
   try {
     const id = await save()
+    succeeded()
     showSuccess(t('common.savedSuccessfully'))
     await showSaved(id)
   } catch (e: any) {
-    showError(stockRefusalMessage(e, t))
+    refused(stockRefusalMessage(e, t))
   } finally {
     saving.value = false
   }
@@ -945,7 +954,7 @@ async function saveAndConfirm() {
   const { valid } = await formRef.value.validate()
   if (!valid) return
   const misfit = warehouseRefusal()
-  if (misfit) { showError(misfit); return }
+  if (misfit) { refused(misfit); return }
   if (hasNoWarehouse() && !(await askNoWarehouse('confirm'))) return
   saving.value = true
   let id: string | null = null
@@ -958,9 +967,10 @@ async function saveAndConfirm() {
       `${appStore.orgUrl()}/warehouse/movement/${id}/confirm`,
       form.value.type === 'adjustment' ? { createCount: true } : {},
     )
+    succeeded()
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {
-    showError(stockRefusalMessage(e, t))
+    refused(stockRefusalMessage(e, t))
   } finally {
     try {
       if (id) await showSaved(id)

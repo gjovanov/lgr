@@ -45,6 +45,10 @@
           item-value="_id"
           hover
         >
+          <!-- FR-31.7: a request that failed or was refused is said, with Retry; never "no data". -->
+          <template v-if="pagination.loadError" #no-data>
+            <ListLoadError :failure="pagination.loadError" @retry="fetchItems" />
+          </template>
           <template #item.productName="{ item }">
             <entity-link v-if="item.productId" :label="item.productName" :to="{ name: 'inventory.products.stock', params: { id: item.productId, tab: 'stock' } }" />
             <span v-else>{{ item.productName }}</span>
@@ -87,6 +91,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
+import ListLoadError from 'ui-shared/components/ListLoadError.vue'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { sortableHeaders } from 'config/list-sorts'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'

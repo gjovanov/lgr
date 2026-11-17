@@ -2932,6 +2932,16 @@ prints: „One list of actions for a document's two bars" below.
     says nothing of an abort. ⚠ A late answer to an earlier word once put the wrong article on a line on Enter.
   - The line's price lookup waits 250 ms after the quantity's last change (FR-31.5); leaving the quantity field and
     `useDocumentForm.validate` (every save, issue, print) run a waiting one at once (`price-lookups.ts`).
+  - **A failure is said, and stays** (FR-31.6 to .9). `EntityFormShell` takes `load-error` (`loadFailureOf`:
+    `not_found` / `forbidden` / `failed`) and shows that with Back and Retry (`@retry`), and no field and no action;
+    `refusal` is an alert at the top of the form until `@dismiss-refusal` or the next success. A form gets both from
+    `useFormFeedback()`; `refused()` says it on the message line too (where it was said before), and `succeeded()`
+    withdraws it from both, so a success never waits behind a refusal that is no longer true. ⚠ A load that swallows its error (the document form's did) looks like an empty draft.
+  - A list on `usePaginatedTable` / `useProductList` never throws a failed request any more: it puts it in
+    `pagination.loadError`, and `ListScaffold` (or `ListLoadError` in a table of its own) says it with Retry, never "no
+    data". An error on the message line (`useSnackbar`) stays until closed, and messages queue.
+  - The shell's translator (`HomeBanner`, `setRefusalTranslator`) is asked for EVERY coded answer, not a 409's only,
+    and for `UNEXPECTED_ERROR_CODE`, the last fallback: the server's English is shown only for a code it does not know.
 - **One issue path** (FR-22.17): `invoicing-ui/composables/document-issue.ts` holds the requests (the
   document, `/stock-availability/check`, `create-transfers`, `/send`) with no Vue in it — the
   integration test drives the same functions — and `useDocumentIssue` adds the transfer dialog, the

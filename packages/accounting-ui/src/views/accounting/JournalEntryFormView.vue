@@ -6,6 +6,10 @@
     :actions="formActions"
     :smart-buttons="isEdit ? smartButtons : undefined"
     :loading="store.loading"
+    :load-error="loadError"
+    :refusal="refusal"
+    @retry="loadEntry(String(route.params.id))"
+    @dismiss-refusal="dismissRefusal"
     back-to="/journal-entries"
   >
     <v-form ref="formRef" @submit.prevent="handleSubmit">
@@ -168,6 +172,7 @@ import { useAccountingStore, type JournalEntryDetail } from '../../store/account
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import type { FormAction, SmartButtonDef } from 'ui-shared/components/EntityFormShell.vue'
 import JournalDocumentCard from '../../components/JournalDocumentCard.vue'
@@ -179,6 +184,8 @@ const router = useRouter()
 const appStore = useAppStore()
 const store = useAccountingStore()
 const { showSuccess, showError } = useSnackbar()
+// FR-31.6 / .8: a record that did not load says so, with Back and Retry.
+const { loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal } = useFormFeedback()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
@@ -358,10 +365,11 @@ async function handleSubmit() {
       await store.createJournalEntry(buildPayload())
     }
     markSaved()
+    succeeded()
     showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'accounting.journal-entries' })
   } catch (e: any) {
-    showError(refusalOf(e))
+    refused(refusalOf(e))
   }
 }
 
@@ -375,30 +383,33 @@ async function saveAndPost() {
       await store.postJournalEntry(entry._id)
     }
     markSaved()
+    succeeded()
     showSuccess(t('common.postedSuccessfully'))
     router.push({ name: 'accounting.journal-entries' })
   } catch (e: any) {
-    showError(refusalOf(e))
+    refused(refusalOf(e))
   }
 }
 
 async function postEntry() {
   try {
     await store.postJournalEntry(route.params.id as string)
+    succeeded()
     showSuccess(t('common.postedSuccessfully'))
     router.push({ name: 'accounting.journal-entries' })
   } catch (e: any) {
-    showError(e?.response?.data?.message || t('common.operationFailed'))
+    refused(e?.response?.data?.message || t('common.operationFailed'))
   }
 }
 
 async function voidEntry() {
   try {
     await store.voidJournalEntry(route.params.id as string)
+    succeeded()
     showSuccess(t('common.voidedSuccessfully'))
     router.push({ name: 'accounting.journal-entries' })
   } catch (e: any) {
-    showError(refusalOf(e))
+    refused(refusalOf(e))
   }
 }
 
@@ -407,6 +418,7 @@ async function voidEntry() {
  * entry opened from the grid showed an empty form.
  */
 async function loadEntry(id: string) {
+  loadStarted()
   loaded.value = false
   try {
     const existing = await store.fetchJournalEntry(id)
@@ -428,7 +440,7 @@ async function loadEntry(id: string) {
       header.value = headerFormOf(existing)
     })
   } catch (e: any) {
-    showError(refusalOf(e))
+    loadFailed(e)
   } finally {
     loaded.value = true
   }

@@ -85,7 +85,7 @@ export interface UseDocumentIssueOptions {
 export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
   const { t } = useI18n()
   const appStore = useAppStore()
-  const { showSuccess, showError } = useSnackbar()
+  const { showSuccess, showError, withdraw } = useSnackbar()
   const transfer = useStockTransfer()
   // #155: one Idempotency-Key per Issue attempt (ui-shared/composables/idempotency).
   const issueAttempt = createIdempotentAction()
@@ -149,6 +149,8 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
   })
 
   async function finish(invoice: any, type: string, then?: (invoice: any) => Promise<void> | void) {
+    // Issued: the refusal of an earlier attempt is no longer true, and goes from the message line (FR-31.8).
+    if (lastError.value) withdraw(lastError.value)
     lastError.value = ''
     const notice = issuedReceiptNotice(invoice)
     lastReceiptError.value = notice ? t(notice.key, { reason: invoice.receiptError, amount: (Number(invoice.refunded) || 0).toFixed(2) }) : ''

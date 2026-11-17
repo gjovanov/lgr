@@ -458,7 +458,28 @@
     "copy": "Copy",
     "copied": "Copied",
     "requiredFieldsNote": "* Required fields",
-    "open": "Open"
+    "open": "Open",
+    "retry": "Try again",
+    "unexpectedError": "Something went wrong. Try again.",
+    "loadFailure": {
+      "not_found": {
+        "title": "Not found",
+        "text": "This record does not exist, or it was deleted."
+      },
+      "forbidden": {
+        "title": "Not allowed",
+        "text": "Your role may not open this record."
+      },
+      "failed": {
+        "title": "Could not be loaded",
+        "text": "The record could not be loaded. Try again in a moment."
+      }
+    },
+    "listFailure": {
+      "not_found": "This list could not be found.",
+      "forbidden": "Your role may not see this list.",
+      "failed": "The list could not be loaded. Try again in a moment."
+    }
   },
   "export": {
     "aggregated": "Aggregate by product",

@@ -6,6 +6,7 @@ import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { flushPriceLookups } from 'ui-shared/composables/price-lookups'
+import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useInvoicingExport, type CompanionDoc } from 'ui-shared/composables/useInvoicingExport'
@@ -131,6 +132,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const router = useRouter()
   const appStore = useAppStore()
   const { showSuccess, showError, showSnackbar } = useSnackbar()
+  // FR-31.6 / .8: a document that did not load says so; a refused save stays at the top of the form.
+  const feedback = useFormFeedback()
   const { formatCurrency } = useCurrency()
 
   const vatRates = computed(() => appStore.currentOrg?.settings?.taxConfig?.vatRates ?? [])
@@ -1569,6 +1572,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         id = String(data?.invoice?.id || data?.invoice?._id || '')
       }
       markSaved()
+      feedback.succeeded()
       // FR-22.26: the method a new document was saved with is where the next one starts. Editing an
       // older document changes nothing about the next.
       if (created) payMethodMemory?.write(form.paymentMethod || '')
@@ -1587,8 +1591,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       return id
     } catch (e: any) {
       // A receipt's refusal in its own words (FR-23); a stock refusal in the user's language (#168, FR-22.61: an
-      // invoice made from a stock note keeps its quantities); any other as the server said it.
-      showError(receiptRefusalKey(e?.response?.data) ? receiptRefusalMessage(t, e, t('common.operationFailed')) : stockRefusalMessage(e, t))
+      // invoice made from a stock note keeps its quantities); any other as the server said it. Said at the top of the
+      // form, where it stays until it is closed or the next save succeeds (FR-31.8).
+      feedback.refused(receiptRefusalKey(e?.response?.data) ? receiptRefusalMessage(t, e, t('common.operationFailed')) : stockRefusalMessage(e, t))
       return null
     } finally {
       loading.value = false
@@ -1655,11 +1660,13 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       if (!id) return
       const { data: received } = await httpClient.post(`${orgUrl()}/invoices/${id}/receive`)
       // A bill made from receipts books no stock: its receipts did (FR-22.31).
+      feedback.succeeded()
       showSuccess(t(received?.invoice?.stockSource?.marker ? 'invoicing.linkDelivery.received' : 'invoicing.invoiceReceived'))
       await loadDocument()
     } catch (e: any) {
       receiptOverlap.value = id ? receiptOverlapOf(e, id) : null
-      if (!receiptOverlap.value) showError(stockRefusalMessage(e, t))
+      // A refusal stays on the form, and goes with the next success (FR-31.8).
+      if (!receiptOverlap.value) feedback.refused(stockRefusalMessage(e, t))
       // Saved but not received: show what was saved, still a draft.
       if (route.params.id) await loadDocument()
     } finally {
@@ -1669,7 +1676,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
 
   // ── issue (FR-22.17 / .18) ──
   // FR-22.61b: an invoice the question linked to its stock note is another document than the form holds: read again.
-  const issuer = useDocumentIssue({ onLinked: () => loadDocument() })
+  const issuer = useDocumentIssue({ onLinked: async () => { await loadDocument() } })
   const issuing = ref(false)
   const issuingWithPrint = ref(false)
   /** Why the document is still a draft after it was asked to be issued (FR-22 §5.2). */
@@ -1770,11 +1777,12 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       const id = await saveIfNeeded()
       if (!id) return
       const { data } = await httpClient.post(`${orgUrl()}/invoices/${id}/convert`, { target })
+      feedback.succeeded()
       showSuccess(t(target === 'proforma' ? 'invoicing.convertedToProforma' : 'invoicing.convertedToInvoice'))
       const createdId = data?.invoice?.id || data?.invoice?._id
       if (createdId) await router.push({ name: target === 'proforma' ? 'invoicing.proforma.edit' : 'invoicing.sales.edit', params: { id: String(createdId) } })
     } catch (e: any) {
-      showError(e?.response?.data?.message || t('common.operationFailed'))
+      feedback.refused(e?.response?.data?.message || t('common.operationFailed'))
     } finally {
       converting.value = false
       convertingTo.value = ''
@@ -1929,7 +1937,13 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     }
   }
 
-  async function loadDocument() {
+  /**
+   * Read the document into the form. True when it was read; otherwise the form says why (`loadError`, FR-31.6): not
+   * found, not allowed, or not loaded. It used to swallow the failure, and an id that did not exist showed „Edit
+   * Invoice", a Draft chip, an empty form and enabled Issue and Save.
+   */
+  async function loadDocument(): Promise<boolean> {
+    feedback.loadStarted()
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)
       const inv = data.invoice
@@ -1982,8 +1996,10 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         await seedUnseededLines()
       })
       noteLoaded()
-    } catch {
-      /* */
+      return true
+    } catch (e) {
+      feedback.loadFailed(e)
+      return false
     }
   }
 
@@ -2198,6 +2214,10 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     issuing,
     issueFromForm,
     issueError,
+    // FR-31.6 / .8: what the shell says of a failed load (with Retry: `loadDocument`) and of a refused save.
+    loadError: feedback.loadError,
+    refusal: feedback.refusal,
+    dismissRefusal: feedback.dismissRefusal,
     receiptError,
     receiptTakesPayment,
     deliveryReceiptDue,

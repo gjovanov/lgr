@@ -5,6 +5,10 @@
     :status="statusDef"
     :actions="formActions"
     :loading="loading"
+    :load-error="loadError"
+    :refusal="refusal"
+    @retry="loadOrder()"
+    @dismiss-refusal="dismissRefusal"
     back-to="/internal-orders"
     :back-label="$t('nav.internalOrders')"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
@@ -575,6 +579,7 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import { useAccess } from 'ui-shared/access/useAccess'
 import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
@@ -635,6 +640,8 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError, showSnackbar } = useSnackbar()
+// FR-31.6 / .8: a record that did not load says so, with Back and Retry.
+const { loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal } = useFormFeedback()
 const conversion = useConversionFeedback()
 const { formatCurrency } = useCurrency()
 const { uomOptions } = useProductUnits()
@@ -1128,13 +1135,14 @@ async function save(quiet = false): Promise<boolean> {
   const { valid } = (await formRef.value?.validate()) || { valid: true }
   if (!valid) return false
   if (!form.lines.some((l) => l.productId && (Number(l.quantity) || 0) > 0)) {
-    showError(t('invoicing.linesRequired'))
+    refused(t('invoicing.linesRequired'))
     return false
   }
   saving.value = true
   try {
     if (isEdit.value) {
       await httpClient.put(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`, buildPayload())
+      succeeded()
       if (!quiet) showSuccess(t('common.savedSuccessfully'))
       markSaved()
       await loadOrder()
@@ -1142,6 +1150,7 @@ async function save(quiet = false): Promise<boolean> {
       markClean()
     } else {
       const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders`, buildPayload())
+      succeeded()
       if (!quiet) showSuccess(t('common.savedSuccessfully'))
       markSaved()
       router.replace({ name: 'invoicing.internalOrders.edit', params: { id: data.internalOrder._id } })
@@ -1152,7 +1161,7 @@ async function save(quiet = false): Promise<boolean> {
     }
     return true
   } catch (e: any) {
-    showError(reservationErrorMessage(e, t))
+    refused(reservationErrorMessage(e, t))
     return false
   } finally {
     saving.value = false
@@ -1468,6 +1477,7 @@ async function submitGenerate() {
 
 // ── loading ──
 async function loadOrder(id?: string) {
+  loadStarted()
   try {
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/internal-orders/${id || route.params.id}`)
     const o = data.internalOrder
@@ -1506,8 +1516,8 @@ async function loadOrder(id?: string) {
     // 500 ms timer from mount (until FR-31.2), so a slower load counted as an edit, and so did every reload after
     // Confirm, Complete or Convert: leaving an untouched order asked to keep „Незапазени промени".
     snapshotPending()
-  } catch {
-    showError(t('common.operationFailed'))
+  } catch (e) {
+    loadFailed(e)
   }
 }
 

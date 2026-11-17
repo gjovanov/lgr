@@ -88,9 +88,12 @@
               <v-skeleton-loader v-if="!items.length" :type="`table-row@${skeletonRows}`" />
             </template>
 
-            <!-- Empty state (distinguishes "no matches for filters" vs "nothing here yet") -->
+            <!-- Empty state (distinguishes "no matches for filters" vs "nothing here yet"). FR-31.7: a request that
+                 failed or was refused is neither: the list says so, with Retry. -->
             <template #no-data>
+              <ListLoadError v-if="pagination.loadError" :failure="pagination.loadError" @retry="retry" />
               <EmptyState
+                v-else
                 :icon="resolvedEmpty.icon"
                 :title="resolvedEmpty.title"
                 :description="resolvedEmpty.description"
@@ -125,6 +128,7 @@ import { computed, ref, toRef, useSlots } from 'vue'
 import { useRoute } from 'vue-router'
 import StatCard, { type StatCardDef } from './StatCard.vue'
 import EmptyState from './EmptyState.vue'
+import ListLoadError from './ListLoadError.vue'
 import GridColumnPickerDialog from './GridColumnPickerDialog.vue'
 import { useGridColumns } from '../composables/useGridColumns'
 import type { PaginationState } from '../composables/usePaginatedTable'
@@ -195,6 +199,16 @@ const emit = defineEmits<{
   'kpi-click': [kpi: StatCardDef]
   'update:selected': [ids: string[]]
 }>()
+
+/** FR-31.7: ask for the same page again, as the table itself would (`update:options`, which every list binds). */
+function retry() {
+  const p = props.pagination
+  emit('update:options', {
+    page: p.page + 1,
+    itemsPerPage: p.size,
+    sortBy: p.sortBy ? [{ key: p.sortBy, order: p.sortOrder }] : [],
+  })
+}
 
 function onSelectedChange(ids: unknown) {
   if (props.selectable) emit('update:selected', (Array.isArray(ids) ? ids : []).map(String))

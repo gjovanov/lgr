@@ -10,6 +10,10 @@
     :back-to="config.backTo"
     :back-label="config.backLabelKey ? $t(config.backLabelKey) : undefined"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
+    :load-error="loadError"
+    :refusal="refusal"
+    @retry="loadDocument"
+    @dismiss-refusal="dismissRefusal"
   >
     <!-- FR-28.32 / .33: the banner is one row of three equal columns — who (the party), which document
          (its number and status), when (the issue date). The organization's name and the title it
@@ -628,6 +632,10 @@ const {
   onAttached,
   lastPrint,
   issueError,
+  loadError,
+  refusal,
+  dismissRefusal,
+  loadDocument,
   receiptError,
   receiptTakesPayment,
   deliveryReceiptDue,

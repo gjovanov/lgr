@@ -458,7 +458,28 @@
     "copy": "Kopieren",
     "copied": "Kopiert",
     "requiredFieldsNote": "* Pflichtfelder",
-    "open": "Öffnen"
+    "open": "Öffnen",
+    "retry": "Erneut versuchen",
+    "unexpectedError": "Etwas ist schiefgelaufen. Bitte erneut versuchen.",
+    "loadFailure": {
+      "not_found": {
+        "title": "Nicht gefunden",
+        "text": "Dieser Datensatz existiert nicht oder wurde gelöscht."
+      },
+      "forbidden": {
+        "title": "Kein Zugriff",
+        "text": "Ihre Rolle darf diesen Datensatz nicht öffnen."
+      },
+      "failed": {
+        "title": "Konnte nicht geladen werden",
+        "text": "Der Datensatz konnte nicht geladen werden. Bitte gleich erneut versuchen."
+      }
+    },
+    "listFailure": {
+      "not_found": "Diese Liste wurde nicht gefunden.",
+      "forbidden": "Ihre Rolle darf diese Liste nicht sehen.",
+      "failed": "Die Liste konnte nicht geladen werden. Bitte gleich erneut versuchen."
+    }
   },
   "export": {
     "aggregated": "Nach Produkt aggregieren",

@@ -5,6 +5,10 @@
     :status="isEdit ? statusPipeline : undefined"
     :actions="formActions"
     :loading="loading"
+    :load-error="loadError"
+    :refusal="formRefusal"
+    @retry="loadFixedAsset"
+    @dismiss-refusal="dismissRefusal"
     back-to="/fixed-assets"
     :back-label="$t('accounting.fixedAssets')"
   >
@@ -356,6 +360,7 @@ import { useAppStore } from '../../store/app.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
+import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
@@ -386,6 +391,8 @@ const route = useRoute()
 const router = useRouter()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
+// FR-31.6 / .8: a record that did not load says so, with Back and Retry.
+const { loadError, refusal: formRefusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal } = useFormFeedback()
 
 const formRef = ref()
 const loading = ref(false)
@@ -525,10 +532,11 @@ async function handleSubmit() {
       await httpClient.post(`${orgUrl()}/accounting/fixed-asset`, body)
     }
     markSaved()
+    succeeded()
     showSuccess(t('common.savedSuccessfully'))
     router.push({ name: 'accounting.fixed-assets' })
   } catch (e: any) {
-    showError(refusal(e))
+    refused(refusal(e))
   } finally {
     loading.value = false
   }
@@ -545,6 +553,7 @@ async function loadAnalytics() {
 }
 
 async function loadFixedAsset() {
+  loadStarted()
   loading.value = true
   try {
     const { data } = await httpClient.get(`${orgUrl()}/accounting/fixed-asset/${route.params.id}`)
@@ -556,7 +565,7 @@ async function loadFixedAsset() {
     })
     void loadAnalytics()
   } catch (e: any) {
-    showError(refusal(e))
+    loadFailed(e)
   } finally {
     loading.value = false
   }

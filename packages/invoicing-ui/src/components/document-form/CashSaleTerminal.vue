@@ -8,6 +8,10 @@
     :back-to="config.backTo"
     :back-label="config.backLabelKey ? $t(config.backLabelKey) : undefined"
     :entity-id="isEdit ? (route.params.id as string) : undefined"
+    :load-error="loadError"
+    :refusal="refusal"
+    @retry="loadDocument"
+    @dismiss-refusal="dismissRefusal"
   >
     <!-- The same banner as DocumentForm (FR-28.32, D-14): the client picker and the number with its
          status. The organization's name and the title it used to repeat are gone. -->
@@ -347,6 +351,7 @@ const {
   paymentMethods, fmtCurrency, subtotal, taxTotal, documentTotal, uniformTaxRate,
   computeLineTotal, removeLine, addLine, resolvePriceForLine,
   onLinePriceChange, onLinePriceSelected,
+  loadError, refusal, dismissRefusal, loadDocument,
 } = doc
 
 /** Cash sales are issued (paid) the moment they are saved — existing ones are read-only. */
