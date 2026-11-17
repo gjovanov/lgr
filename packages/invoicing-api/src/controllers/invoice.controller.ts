@@ -6,6 +6,7 @@ import { chooseListSort } from 'config/list-sorts'
 import { keepStoredTrails, withVisibleTrails } from 'services/biz/access/price-trails'
 import { typedPriceRefusal, withArticleUnits } from 'services/biz/sales-lines'
 import { Elysia, t } from 'elysia'
+import { AnObject } from 'services/http/body-schemas'
 import { seesOrders } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
@@ -1226,7 +1227,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           country: t.Optional(t.String()),
         })),
         // Purchase bills only: inline product-master updates applied atomically with the bill.
-        productUpdates: t.Optional(t.Array(t.Any())),
+        productUpdates: t.Optional(t.Array(AnObject)),
       }),
     },
   )
@@ -1560,7 +1561,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         tags: t.Optional(t.Array(t.String())),
         terms: t.Optional(t.String()),
         // Purchase bills only: inline product-master updates applied atomically with the edit.
-        productUpdates: t.Optional(t.Array(t.Any())),
+        productUpdates: t.Optional(t.Array(AnObject)),
       }),
     },
   )
@@ -1888,7 +1889,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (settlement.action !== 'none') return { invoice: await r.invoices.findOne({ id, orgId } as any) }
 
     return { invoice: updated }
-  }, { isSignIn: true, fiscalDevice: deviceFromCounter })
+  }, {
+    isSignIn: true,
+    fiscalDevice: deviceFromCounter,
+    // FR-32.18: what an issue may say, and nothing it must (the Issue button sends none). Kept whole for the key's hash.
+    body: t.Optional(t.Object({
+      pendingTransferIds: t.Optional(t.Array(t.String())),
+      acknowledgeOverlap: t.Optional(t.Boolean()),
+    }, { additionalProperties: true })),
+  })
   .post('/:id/receive', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()

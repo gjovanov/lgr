@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { AnObject } from 'services/http/body-schemas'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
 import { sideIsExternal } from 'config/external-warehouse'
 import { chooseListSort } from 'config/list-sorts'
@@ -336,7 +337,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
           batchNumber: t.Optional(t.String()),
           serialNumbers: t.Optional(t.Array(t.String())),
           productUpdate: t.Optional(t.Any()),
-          priceTiers: t.Optional(t.Array(t.Any())),
+          priceTiers: t.Optional(t.Array(AnObject)),
         })),
         totalAmount: t.Number(),
         reference: t.Optional(t.String()),
@@ -421,7 +422,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         totalAmount: t.Number(),
         reference: t.Optional(t.String()),
         notes: t.Optional(t.String()),
-        productUpdates: t.Optional(t.Array(t.Any())),
+        productUpdates: t.Optional(t.Array(AnObject)),
       }),
     },
   )
@@ -564,7 +565,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         reference: t.Optional(t.String()),
         notes: t.Optional(t.String()),
         // Goods receipts only: inline product-master updates applied atomically with the edit.
-        productUpdates: t.Optional(t.Array(t.Any())),
+        productUpdates: t.Optional(t.Array(AnObject)),
       }),
     },
   )

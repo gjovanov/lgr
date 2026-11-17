@@ -2,7 +2,7 @@ import staticPlugin from '@elysiajs/static'
 import { APP_IDS } from 'config/constants'
 import { logger } from 'services/logger'
 import { posRedirect } from './lib/pos-redirect.js'
-import { errorRef, serverErrorMessage } from './lib/server-error.js'
+import { errorRef, schemaRejection, serverErrorMessage } from './lib/server-error.js'
 
 /**
  * Serving the built SPAs from the API process: their files, and their shell for every browser
@@ -139,6 +139,13 @@ export function spaErrorHandler(given?: OneSpaShell | Record<string, never> | nu
     if (code === 'VALIDATION') {
       set.status = 422
       return { message: validationMessage(err) }
+    }
+    // FR-32.18: a value the MODEL refused (an enum, a required field, a cast), on a create or on an edit that runs
+    // the validators: 422 naming the fields, as the route's own schema answers. It was a 500 (S-12).
+    const refused = schemaRejection(err)
+    if (refused) {
+      set.status = 422
+      return refused
     }
     // A body that is not what its content type says (`{bad json`): the caller's mistake, which
     // fell through to the 500 below with the parser's own words.
