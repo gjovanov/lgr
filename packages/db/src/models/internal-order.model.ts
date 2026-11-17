@@ -72,8 +72,8 @@ export interface IInternalOrder extends Document {
   tags?: string[]
   draftNumber?: string
   numberHistory?: Array<{ number: string; allocatedAt: Date; status: string }>
-  /** FR-28.17 / .18: where a draft came from, and the request that made it (the idempotency key). */
-  createdFrom?: { source: 'products'; requestId: string }
+  /** FR-28.17 / .18, FR-29.13: where a draft came from (the Products list or the order form), and the request that made it. */
+  createdFrom?: { source: 'products' | 'form'; requestId: string }
   createdBy: Types.ObjectId
   createdAt: Date
   updatedAt: Date
@@ -141,7 +141,7 @@ const internalOrderSchema = new Schema<IInternalOrder>(
      * (`{ orgId, createdFrom.requestId }` is unique among the documents that carry one).
      */
     createdFrom: {
-      type: new Schema({ source: { type: String, enum: ['products'], required: true }, requestId: { type: String, required: true } }, { _id: false }),
+      type: new Schema({ source: { type: String, enum: ['products', 'form'], required: true }, requestId: { type: String, required: true } }, { _id: false }),
       required: false,
     },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },

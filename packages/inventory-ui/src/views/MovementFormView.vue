@@ -374,6 +374,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
@@ -877,6 +878,12 @@ async function fetchItem() {
  * Save the movement; the id it has afterwards, or null when it was not saved. The blank line the
  * grid keeps at the bottom is not part of it.
  */
+/**
+ * FR-29.13: a new movement is created under one `Idempotency-Key` per attempt, kept while its outcome is unknown, so a
+ * double click or a save repeated after a timeout gets back the movement the first request made instead of a second.
+ */
+const createAttempt = createIdempotentAction()
+
 async function save(): Promise<string | null> {
   const basePayload: Record<string, any> = {
     type: form.value.type,
@@ -914,7 +921,8 @@ async function save(): Promise<string | null> {
   const endpoint = grWithUpdate.value && form.value.type === 'receipt'
     ? `${appStore.orgUrl()}/warehouse/movement/with-update`
     : `${appStore.orgUrl()}/warehouse/movement`
-  const { data } = await httpClient.post(endpoint, basePayload)
+  // The endpoint is part of what identifies the attempt: the same lines sent to the other route are another request.
+  const { data } = await createAttempt.run({ endpoint, basePayload }, headers => httpClient.post(endpoint, basePayload, { headers }))
   markSaved()
   return data.stockMovement?._id || data.stockMovement?.id || data._id || null
 }
