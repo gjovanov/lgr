@@ -139,6 +139,7 @@
             icon
             variant="text"
             size="x-small"
+            :aria-label="sidebarCollapsed ? $t('common.expand') : $t('common.collapse')"
             @click="toggleSidebar"
           >
             <v-icon>{{ sidebarCollapsed ? 'mdi-chevron-left' : 'mdi-chevron-right' }}</v-icon>
@@ -148,11 +149,11 @@
 
         <!-- Collapsed: icon-only buttons -->
         <div v-if="sidebarCollapsed" class="sidebar-icons d-flex flex-column align-center ga-2 pt-2">
-          <v-btn icon variant="text" size="small" @click="sidebarCollapsed = false">
+          <v-btn icon variant="text" size="small" :aria-label="$t('common.notes')" @click="sidebarCollapsed = false">
             <v-icon>mdi-message-text-outline</v-icon>
             <v-tooltip activator="parent" location="left" content-class="tooltip-visible">{{ $t('common.notes') }}</v-tooltip>
           </v-btn>
-          <v-btn icon variant="text" size="small" @click="sidebarCollapsed = false">
+          <v-btn icon variant="text" size="small" :aria-label="$t('common.activity')" @click="sidebarCollapsed = false">
             <v-icon>mdi-history</v-icon>
             <v-tooltip activator="parent" location="left" content-class="tooltip-visible">{{ $t('common.activity') }}</v-tooltip>
           </v-btn>

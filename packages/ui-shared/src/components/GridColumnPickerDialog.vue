@@ -4,7 +4,7 @@
       <v-toolbar color="surface" flat density="compact">
         <v-toolbar-title class="text-body-1 font-weight-bold">{{ $t('grid.columns') }}</v-toolbar-title>
         <v-spacer />
-        <v-btn icon="mdi-close" variant="text" size="small" @click="emit('update:modelValue', false)" />
+        <v-btn :aria-label="$t('common.close')" :title="$t('common.close')" icon="mdi-close" variant="text" size="small" @click="emit('update:modelValue', false)" />
       </v-toolbar>
       <v-card-text class="pa-2">
         <!-- FR-05 (#12): reorder by drag & drop (SortableJS handles touch via long-press).

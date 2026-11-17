@@ -20,7 +20,7 @@
         <v-select v-model="statusFilter" :items="statusItems" :label="$t('files.col.status')" density="compact" variant="outlined" hide-details clearable style="max-width: 160px" @update:model-value="reloadAll" />
         <v-text-field v-if="viewMode === 'flat'" v-model="docDate" :label="$t('files.col.date')" placeholder="YYYY-MM-DD" density="compact" variant="outlined" hide-details clearable style="max-width: 150px" @update:model-value="reload" />
         <v-spacer />
-        <v-btn variant="text" icon="mdi-refresh" @click="reloadAll" />
+        <v-btn :aria-label="$t('common.refresh')" :title="$t('common.refresh')" variant="text" icon="mdi-refresh" @click="reloadAll" />
       </v-card-text>
     </v-card>
 
@@ -73,7 +73,7 @@
       <template #item.actions="{ item }">
         <v-btn size="x-small" variant="text" icon="mdi-clipboard-text-search-outline" :title="$t('files.batch.review')" @click="reviewOne(item)" />
         <v-btn v-if="canReconcile(item)" v-cap="'files.manage'" size="x-small" variant="text" color="deep-purple" icon="mdi-sync-alert" :title="$t('files.reconcile.action')" @click="reconcileOne(item)" />
-        <v-btn size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(item))" />
+        <v-btn :aria-label="$t('common.download')" :title="$t('common.download')" size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(item))" />
       </template>
     </v-data-table-server>
 
@@ -123,7 +123,7 @@
                   <td class="text-no-wrap">
                     <v-btn size="x-small" variant="text" icon="mdi-clipboard-text-search-outline" :title="$t('files.batch.review')" @click="reviewOne(doc)" />
                     <v-btn v-if="canReconcile(doc)" v-cap="'files.manage'" size="x-small" variant="text" color="deep-purple" icon="mdi-sync-alert" :title="$t('files.reconcile.action')" @click="reconcileOne(doc)" />
-                    <v-btn size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(doc))" />
+                    <v-btn :aria-label="$t('common.download')" :title="$t('common.download')" size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(doc))" />
                   </td>
                 </tr>
               </tbody>
@@ -359,11 +359,11 @@
         <v-card-title class="text-subtitle-1">{{ $t('files.versions') }} — {{ activeDoc?.originalName }}</v-card-title>
         <v-list density="compact">
           <v-list-item v-if="versionData?.current" :title="`v${versionData.current.version} · ${versionData.current.name}`" :subtitle="$t('files.currentVersion')">
-            <template #append><v-btn size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(activeDoc))" /></template>
+            <template #append><v-btn :aria-label="$t('common.download')" :title="$t('common.download')" size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(activeDoc))" /></template>
           </v-list-item>
           <v-divider />
           <v-list-item v-for="v in versionData?.versions || []" :key="v.name" :title="v.name" :subtitle="new Date(v.archivedAt).toLocaleString()">
-            <template #append><v-btn size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(activeDoc, v.name))" /></template>
+            <template #append><v-btn :aria-label="$t('common.download')" :title="$t('common.download')" size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(activeDoc, v.name))" /></template>
           </v-list-item>
           <v-list-item v-if="!(versionData?.versions || []).length" :title="$t('files.noVersions')" />
         </v-list>
