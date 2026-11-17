@@ -168,6 +168,8 @@ export interface IJournalEntry extends TenantEntity {
   importBatchId?: string
   importKey?: string
   importHash?: string
+  /** FR-29.14: the posting an event handler made this entry for (`config/posting-keys`). */
+  postingKey?: string
 }
 
 // ── FixedAsset ──

@@ -1,5 +1,5 @@
 import { PRICE_TIERS, PRICE_TIER_COLUMN_PREFIX } from 'config/constants'
-import type { Filter, IBatchRepository, IProduct, PageResult } from 'dal'
+import type { Filter, IBatchRepository, IProduct, PageResult, Projection } from 'dal'
 import { findPageSortedBy } from './sorted-page.js'
 
 /**
@@ -26,6 +26,7 @@ export function findProductsByTierPrice(
   order: 1 | -1,
   page: number,
   size: number,
+  select?: Projection,
 ): Promise<PageResult<IProduct>> {
   const squashed = tierName.replace(/\s+/g, '')
   const tierPrice = {
@@ -43,5 +44,5 @@ export function findProductsByTierPrice(
       in: { $cond: [{ $gt: ['$$t.finalPrice', 0] }, '$$t.finalPrice', null] },
     },
   }
-  return findPageSortedBy(products, filter, [{ $addFields: { sortKey: tierPrice } }], order, page, size, { name: 1 })
+  return findPageSortedBy(products, filter, [{ $addFields: { sortKey: tierPrice } }], order, page, size, { name: 1 }, select)
 }
