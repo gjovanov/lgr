@@ -23,6 +23,8 @@ import {
   hasReservationChanges, saveOrderWithReservations, cancelOrderReservations, type ReservationChanges,
 } from 'services/biz/order-reservations.service'
 import { ReservationOpsError } from 'services/biz/reservation-ops.service'
+import { isRequestIdTaken, readCreateRequestId } from 'services/biz/create-request-id'
+import { IdempotencyError } from 'services/biz/hot-path-key'
 import {
   OrdersFromProductsError, checkOrderReferences, createSupplierOrderFromProducts, previewOrderFromProducts, supplierOrderRefs,
 } from 'services/biz/orders-from-products.service'
@@ -319,8 +321,22 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, status }) => {
+    async ({ params: { orgId }, body, user, status, headers }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
+
+      // FR-29.13: the form's request id (`Idempotency-Key`). A request repeated with it is answered with the order the
+      // first one made, and nothing is made again.
+      let requestId: string | undefined
+      try {
+        requestId = readCreateRequestId(headers)
+      } catch (e) {
+        if (e instanceof IdempotencyError) return status(400, { code: e.code, message: e.message })
+        throw e
+      }
+      const made = async () => (requestId ? Order.findOne({ orgId, 'createdFrom.requestId': requestId }).exec() : null)
+      const first = await made()
+      if (first) return { order: first, replayed: true }
+      const createdFrom = requestId ? { source: 'form' as const, requestId } : undefined
 
       const invalid = validateSupplierGroups(body.supplierGroups as any[])
       if (invalid) return status(422, { message: invalid })
@@ -346,12 +362,16 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
               groups: sanitizeGroups(body.supplierGroups as any[]),
               changes: body.reservationChanges as ReservationChanges,
               warehouseName: names,
+              createdFrom,
             })
             const synced = await syncOrderDerivedState(orgId, saved.orderId, user.id)
             await upsertTags(orgId, 'order', body.tags)
             createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'order', entityId: saved.orderId, entityName: orderNumber, changes: { reservations: { to: saved.reservationIds.length } } })
             return { order: synced }
           } catch (e: any) {
+            // The same request at the same moment: the one that committed first made the order.
+            const won = isRequestIdTaken(e) ? await made() : null
+            if (won) return { order: won, replayed: true }
             if (e?.code === 11000 && /orderNumber/.test(String(e?.message || ''))) continue
             return reservationRefusal(status, e)
           }
@@ -378,10 +398,14 @@ export const orderController = new Elysia({ prefix: '/org/:orgId/invoicing/order
             terms: body.terms,
             tags: body.tags || [],
             supplierGroups: sanitizeGroups(body.supplierGroups as any[]),
+            ...(createdFrom ? { createdFrom } : {}),
             createdBy: user.id,
           } as any)
           break
         } catch (e: any) {
+          // The same request at the same moment: the one that saved first made the order.
+          const won = isRequestIdTaken(e) ? await made() : null
+          if (won) return { order: won, replayed: true }
           lastErr = e
           if (e?.code !== 11000) throw e
         }
