@@ -295,7 +295,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       // Without this the old screen would save and change nothing. P3-3 takes the legacy controls away.
       if (grantChanged) {
         await User.updateOne({ _id: userId, orgId }, { $unset: { roleId: 1 } }).exec()
-        await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: { orgId: new mongoose.Types.ObjectId(orgId) } })
+        await rolesFromSets.up({ db: mongoose.connection.db!, log: () => {}, orgFilter: { orgId: new mongoose.Types.ObjectId(orgId) } })
         forgetMember(userId)
       }
       if (body.isActive === true && existing.isActive === false) await adminActivated(existing, orgId)

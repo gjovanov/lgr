@@ -276,7 +276,7 @@ export async function register(
       }
       // FR-27 P3-2 (#529): and the invite's role, as joining by invite gives it (`joinOrgByInvite`): with no role,
       // sign-in refuses the membership.
-      await giveStartingRole(org._id, user._id, await startingRoleOf(org._id, { roleId: (invite as any).assignRoleId, legacyRole: role }))
+      await giveStartingRole(org._id, user._id, await startingRoleOf(org._id, { roleId: invite?.assignRoleId, legacyRole: role }))
     }
   } catch (err) {
     // Leave no half-registered person behind: they could not register again with this address.

@@ -608,7 +608,7 @@ export async function getOrCreateUser(
     isNew = true
     // FR-27.3, as an invite accepted with a password (`account.service#joinOrgByInvite`): the invite's role, else the
     // built-in role of its legacy one. Since P3-2 the role decides, and a membership without one cannot sign in.
-    await giveStartingRole(org._id, user._id, await startingRoleOf(org._id, { roleId: (invite as any)?.assignRoleId, legacyRole: role }))
+    await giveStartingRole(org._id, user._id, await startingRoleOf(org._id, { roleId: invite?.assignRoleId, legacyRole: role }))
     logger.info({ orgId: org._id, userId: user._id, provider: info.provider }, 'OAuth user created')
   }
 
