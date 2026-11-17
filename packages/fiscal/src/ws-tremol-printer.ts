@@ -136,7 +136,7 @@ export class WsTremolFiscalPrinter implements IFiscalPrinter {
       await this.send(TREMOL_CMD.CLOSE_RECEIPT)
 
       let receiptNumber = 'unknown'
-      try { receiptNumber = (await this.send(TREMOL_CMD.READ_RECEIPT_INFO)).split(';')[0] || 'unknown' } catch {}
+      try { receiptNumber = (await this.send(TREMOL_CMD.READ_RECEIPT_INFO)).split(';')[0] || 'unknown' } catch { /* The receipt is printed: its number is read for the record only, and "unknown" says it was not. */ }
       logger.info({ deviceId: this.deviceId, receiptNumber, reason }, 'Tremol storno via WS')
       return { fiscalReceiptNumber: receiptNumber, dateTime: new Date() }
     })

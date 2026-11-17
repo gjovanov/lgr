@@ -379,13 +379,13 @@ export function useProductList(opts: UseProductListOptions) {
     try {
       const { data } = await httpClient.get(`${opts.orgUrl()}/warehouse/product-category`, { params: { isActive: 'true' } })
       categoryOptions.value = (data.productCategories || []).map((c: { name: string }) => c.name)
-    } catch { /* */ }
+    } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
   }
   async function fetchWarehouses() {
     try {
       const { data } = await httpClient.get(`${opts.orgUrl()}/warehouse/warehouse`, { params: { size: 0 } })
       warehouseOptions.value = data.warehouses || []
-    } catch { /* */ }
+    } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
   }
 
   let suppliersLoaded_ = false

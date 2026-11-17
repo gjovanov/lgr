@@ -1311,14 +1311,14 @@ async function fetchWarehouses() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000, external: 'include' } })
     warehouses.value = data.warehouses || []
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 async function fetchCategories() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category?size=0`)
     categories.value = data.productCategories || []
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 // ── GR-with-update helpers ──

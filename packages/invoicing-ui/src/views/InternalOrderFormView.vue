@@ -800,7 +800,7 @@ async function fetchContacts(pool: 'client' | 'supplier', search?: string) {
     if (pool === 'client') clientOptions.value = merged
     else supplierOptions.value = merged
     for (const c of items) contactNames.value[c._id] = c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ')
-  } catch { /* */ } finally {
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
     loadingContacts.value = false
   }
 }
@@ -809,7 +809,7 @@ async function fetchWarehouses() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } })
     warehouses.value = data.warehouses || []
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 function warehouseName(id: string) { return warehouses.value.find((w) => w._id === String(id))?.name || '—' }
 
@@ -1533,7 +1533,7 @@ async function fetchPeekedNumber() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/internal-orders/peek-next`)
     peekedNumber.value = data.next || ''
-  } catch { /* */ }
+  } catch { /* A preview only: the number is drawn on save. */ }
 }
 
 onMounted(async () => {

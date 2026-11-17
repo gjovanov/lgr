@@ -80,6 +80,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { reportError } from 'ui-shared/composables/report-error'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
@@ -196,7 +197,7 @@ async function loadProducts() {
       countedQuantity: s.quantity || 0,
       avgCost: s.avgCost || 0,
     }))
-  } catch { /* */ }
+  } catch (e) { reportError(e) }
 }
 
 async function handleSubmit() {
@@ -256,7 +257,7 @@ async function completeCount() {
 }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } }); warehouses.value = data.warehouses || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } }); warehouses.value = data.warehouses || [] } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 onMounted(async () => {

@@ -155,14 +155,14 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
       pagination.value.sortBy = opts.sortBy[0].key
       pagination.value.sortOrder = opts.sortBy[0].order || 'desc'
     }
-    fetchItems()
+    void fetchItems() // never rejects: a failure is `pagination.loadError`
   }
 
   if (isRef(options.url)) {
     watch(options.url, (newUrl, oldUrl) => {
       if (newUrl && !newUrl.includes('/undefined') && newUrl !== oldUrl) {
         pagination.value.page = 0
-        fetchItems()
+        void fetchItems()
       }
     })
   }
@@ -170,7 +170,7 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
   if (filters) {
     watch(filters, () => {
       pagination.value.page = 0
-      fetchItems()
+      void fetchItems()
     }, { deep: true })
   }
 
