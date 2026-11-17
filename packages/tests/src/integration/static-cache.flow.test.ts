@@ -30,7 +30,7 @@ beforeAll(() => {
 })
 
 afterAll(() => {
-  rmSync(dir, { recursive: true, force: true })
+  if (dir) rmSync(dir, { recursive: true, force: true })
 })
 
 describe('which names carry a content hash', () => {
@@ -90,7 +90,7 @@ describe('a build of more than 1 024 files, as NODE_ENV=production serves it', (
     compressDir(join(big, 'ui'))
   })
   afterAll(() => {
-    rmSync(big, { recursive: true, force: true })
+    if (big) rmSync(big, { recursive: true, force: true })
   })
 
   it('still serves each file, and its precompressed copy is no route of its own', async () => {

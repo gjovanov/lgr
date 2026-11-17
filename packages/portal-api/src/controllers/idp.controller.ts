@@ -80,12 +80,12 @@ export const idpSignInController = new Elysia({ prefix: '/auth/idp' })
   /**
    * Whether this server offers "Sign in with LGR": a master, linked, with a fresh node token. FR-30.27: everywhere else
    * the answer is `{ enabled: false }`, 200. It was a 404 on every visit to the sign-in page, which the browser logs as
-   * a failed request. Declared before the hook below, which keeps the redeem to a master.
+   * a failed request.
+   *
+   * ⚠ The redeem's master-only check is that route's own `beforeHandle`, never an instance hook: a hook declared after
+   * this route still reached it once the controller was mounted in the API, and answered 404 on global.
    */
   .get('/config', () => idpConfig())
-  .onBeforeHandle(({ status }) => {
-    if (nodeRole() !== 'master') return status(404, NOT_FOUND)
-  })
   .post(
     '/redeem',
     async ({ body, jwt, cookie, status }: any) => {
@@ -97,6 +97,9 @@ export const idpSignInController = new Elysia({ prefix: '/auth/idp' })
       }
     },
     {
+      beforeHandle: ({ status }: any) => {
+        if (nodeRole() !== 'master') return status(404, NOT_FOUND)
+      },
       body: t.Object({
         code: t.String({ minLength: 20, maxLength: 128 }),
         codeVerifier: t.String({ minLength: 43, maxLength: 128 }),
