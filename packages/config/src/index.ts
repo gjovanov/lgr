@@ -561,6 +561,10 @@ export const config = {
      * `page.pdf` itself already gives up after 30 s.
      */
     renderTimeoutMs: Number(process.env.PDF_RENDER_TIMEOUT_MS) || 60_000,
+    /** FR-30.20 (D-6): renders at once in one process; the rest wait, inside their deadline. */
+    concurrency: Number(process.env.PDF_RENDER_CONCURRENCY) || 2,
+    /** FR-30.19 (D-7): how long the process's one Chrome lives without a render before it is closed. */
+    browserIdleMs: Number(process.env.PDF_BROWSER_IDLE_MS) || 5 * 60_000,
   },
   digest: {
     /**
