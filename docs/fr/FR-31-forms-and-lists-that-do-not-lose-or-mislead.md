@@ -486,3 +486,15 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     filters, and Excel downloads; the five lists offer nothing.
   - *Decision:* the accounting and payroll menus and the payslip PDF went too. They are outside §1.5's eight, but
     acceptance criterion 6 is "no screen offers an Export that does nothing", and they did nothing.
+- **A6** (FR-31.12): lines keep their identity.
+  - The eight grids of §1.6 key their rows by `ui-shared/composables/row-key.ts#rowKey(line)`: the document line table,
+    the movement, count and price list forms, the product form's price rows, the journal entry form, the journal entry
+    dialog of the journal entries list, and the till's cart.
+  - *Decision:* the key belongs to the line OBJECT (a `WeakMap`), not to its data, where §2.7 put a `_key` field. It is
+    never written on the line, so no payload, no unsaved-edits comparison and no Pending Changes copy can carry it, and
+    nothing has to strip it (FR-31.23). A line keeps its key for as long as it is the same line; a line made anew (a
+    load, a restore) is a new row, as it would be with a `_key` given on load.
+  - `unit/row-key.test.ts` (the key through a removal and a proxy, nothing on the line, the eight grids use it).
+    `e2e/line-identity.spec.ts` removes the second of three lines: the third line's row is the same element afterwards,
+    keeps a quantity typed into it, and nothing loads its article or prices again. Run against the position keys, it
+    fails.
