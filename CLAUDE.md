@@ -2926,6 +2926,12 @@ prints: „One list of actions for a document's two bars" below.
   - A value the form only reads (a line's stock, a device's status) is left out of `getFormData`: its late arrival
     would read as an edit. Tested in `unit/pending-changes-guard.test.ts` (no DOM: a no-op renderer) and
     `e2e/tests/unsaved-after-save.spec.ts`.
+  - **The latest question wins** (FR-31.4): a search, a list page or a price lookup goes through
+    `ui-shared/composables/latest-only.ts#latestOnly`, one wrapper per consumer. Only the latest call's answer is
+    delivered; an earlier one's answer and error are dropped and its request aborted (`signal`), and `useHttpClient`
+    says nothing of an abort. ⚠ A late answer to an earlier word once put the wrong article on a line on Enter.
+  - The line's price lookup waits 250 ms after the quantity's last change (FR-31.5); leaving the quantity field and
+    `useDocumentForm.validate` (every save, issue, print) run a waiting one at once (`price-lookups.ts`).
 - **One issue path** (FR-22.17): `invoicing-ui/composables/document-issue.ts` holds the requests (the
   document, `/stock-availability/check`, `create-transfers`, `/send`) with no Vue in it — the
   integration test drives the same functions — and `useDocumentIssue` adds the transfer dialog, the

@@ -89,6 +89,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { setProductSearchMenuOpen } from 'ui-shared/composables/useProductSearchMenu'
+import { latestOnly } from 'ui-shared/composables/latest-only'
 import {
   SEARCH_DEBOUNCE_MS, SEARCH_MIN_CHARS, hitPriceText, hitStockText, hitSubtitle, loadHitStock, searchProductHits, type HitStock,
 } from 'ui-shared/composables/product-hit'
@@ -220,6 +221,9 @@ function onInput(val: string) {
   emit('update:description', searchText.value)
   if (debounceTimer) clearTimeout(debounceTimer)
   if (searchText.value.length < SEARCH_MIN_CHARS) {
+    // A search still on its way answers a question nobody asks any more: it must not reopen the list.
+    search.cancel()
+    loading.value = false
     products.value = []
     total.value = 0
     menuOpen.value = false
@@ -228,12 +232,21 @@ function onInput(val: string) {
   debounceTimer = setTimeout(() => fetchProducts(searchText.value), SEARCH_DEBOUNCE_MS)
 }
 
+/**
+ * FR-31.4: only the answer to the latest search reaches the list. A slow answer to an earlier word used to replace
+ * the matches of what the field holds, with its first row highlighted: Enter then put that article on the line.
+ */
+const search = latestOnly((signal, orgUrl: string, query: string) => searchProductHits(orgUrl, query, signal))
+
 async function fetchProducts(query: string) {
+  const orgId = appStore.currentOrg?.id
+  if (!orgId) return
   loading.value = true
   try {
-    const orgId = appStore.currentOrg?.id
-    if (!orgId) return
-    const found = await searchProductHits(`/org/${orgId}`, query)
+    const answer = await search(`/org/${orgId}`, query)
+    // A newer search owns the list and the spinner.
+    if (!answer.latest) return
+    const found = answer.value
     products.value = found.products
     total.value = found.total
     answeredFor.value = query.trim()
@@ -241,7 +254,9 @@ async function fetchProducts(query: string) {
     highlightedIndex.value = products.value.length || props.allowCreate ? 0 : -1
     menuOpen.value = products.value.length > 0 || (!!props.allowCreate && query.trim().length >= 2)
     if (menuOpen.value) nextTick(positionOverlay)
-  } catch { /* */ } finally {
+    loading.value = false
+  } catch {
+    // The latest search failed: the list keeps what it shows.
     loading.value = false
   }
 }
@@ -367,6 +382,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (debounceTimer) clearTimeout(debounceTimer)
+  search.cancel()
   window.removeEventListener('scroll', positionOverlay, true)
   window.removeEventListener('resize', positionOverlay)
   if (menuOpen.value) setProductSearchMenuOpen(false) // don't leak the count on unmount

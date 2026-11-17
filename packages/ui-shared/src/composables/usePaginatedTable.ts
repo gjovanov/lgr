@@ -1,5 +1,6 @@
 import { ref, isRef, watch, computed, type Ref } from 'vue'
 import { httpClient } from './useHttpClient'
+import { latestOnly } from './latest-only'
 import { useListQueryState, ALLOWED_PAGE_SIZES } from './useListQueryState'
 import { capsOfSortKey, sortRefusal } from 'config/access'
 import { accessGrant } from '../access/useAccess'
@@ -88,26 +89,32 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
     return typeof options.url === 'string' ? options.url : options.url.value
   }
 
+  /**
+   * FR-31.4: only the answer to the latest request fills the table. A slow answer to an earlier filter, page or sort
+   * used to replace the rows of the one the screen shows; it is dropped now, its request aborted, and its error says
+   * nothing. One wrapper per table.
+   */
+  const request = latestOnly((signal, url: string, params: Record<string, any>) => httpClient.get(url, { params, signal }))
+
   async function fetchItems() {
     const url = getUrl()
     if (!url || url.includes('/undefined')) return
     loading.value = true
+    // Vuetify uses -1 for "All". Send size=0 over the wire so the server returns
+    // the unbounded result set (DAL treats size <= 0 as no-pagination).
+    const wireSize = pagination.value.size === -1 ? 0 : pagination.value.size
+    const params: Record<string, any> = {
+      page: pagination.value.page,
+      size: wireSize,
+      sortBy: pagination.value.sortBy,
+      sortOrder: pagination.value.sortOrder,
+      ...(filters?.value || {}),
+    }
+    let answer
     try {
-      // Vuetify uses -1 for "All". Send size=0 over the wire so the server returns
-      // the unbounded result set (DAL treats size <= 0 as no-pagination).
-      const wireSize = pagination.value.size === -1 ? 0 : pagination.value.size
-      const params: Record<string, any> = {
-        page: pagination.value.page,
-        size: wireSize,
-        sortBy: pagination.value.sortBy,
-        sortOrder: pagination.value.sortOrder,
-        ...(filters?.value || {}),
-      }
-      const { data } = await httpClient.get(url, { params })
-      items.value = data[entityKey] || data.items || []
-      pagination.value.total = data.total ?? 0
-      pagination.value.totalPages = data.totalPages ?? 0
+      answer = await request(url, params)
     } catch (e: any) {
+      loading.value = false
       // FR-27.11.C.3 / D: a sort on a price the role does not see, refused by the server: the default sort instead.
       const sortBy = pagination.value.sortBy
       if (e?.response?.status === 403 && e.response.data?.code === 'capability_required' && sortBy !== defaultSortBy && capsOfSortKey(sortBy).length > 0) {
@@ -116,9 +123,14 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
         return
       }
       throw e
-    } finally {
-      loading.value = false
     }
+    // A newer request owns the rows and the spinner.
+    if (!answer.latest) return
+    const { data } = answer.value
+    items.value = data[entityKey] || data.items || []
+    pagination.value.total = data.total ?? 0
+    pagination.value.totalPages = data.totalPages ?? 0
+    loading.value = false
   }
 
   /**

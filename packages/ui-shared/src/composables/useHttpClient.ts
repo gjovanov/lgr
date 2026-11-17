@@ -4,6 +4,7 @@ import { getToken, recoverFrom401 } from '../session/session'
 import { portalHref } from '../nav/navigate'
 import { currentReturnPath, signInPath } from '../nav/return-path'
 import { followAccessVersion } from '../access/live-grant'
+import { isAbort } from './latest-only'
 
 /**
  * FR-20.75 (P3-5): the app shell's words for a refusal the server names by code. The client has no
@@ -72,6 +73,9 @@ export function createHttpClient(baseURL = '/api'): AxiosInstance {
           // To the portal's sign-in, which brings the person back to this page (FR-22.53).
           window.location.href = portalHref(signInPath(currentReturnPath()))
         }
+      } else if (isAbort(error)) {
+        // A request its caller gave up on (a newer search replaced it, FR-31.4): nobody is waiting for it, and it
+        // failed nothing. It has no response, and without this it read as a network failure.
       } else if (!error.response || error.response.status >= 500) {
         // Only show snackbar for server errors (5xx) and network failures.
         // 4xx errors are handled by the calling code (forms, views).

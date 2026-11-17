@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
+import { flushPriceLookups } from 'ui-shared/composables/price-lookups'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useInvoicingExport, type CompanionDoc } from 'ui-shared/composables/useInvoicingExport'
@@ -1529,6 +1530,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   async function validate(): Promise<boolean> {
+    // Every save, issue and print asks here first, so a line's price still waiting for its quantity's typing to stop
+    // is looked up now (FR-31.5): what is saved is the price of the quantity on the screen.
+    await flushPriceLookups()
     // The date and the form are both asked, one after the other and never short-circuited, so every
     // field that is wrong says so on the one press of Save (a bill with no supplier invoice number
     // AND no date).
