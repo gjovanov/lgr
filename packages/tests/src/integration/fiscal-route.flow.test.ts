@@ -5,7 +5,8 @@ import { config } from 'config'
 import { PERMISSIONS } from 'config/constants'
 import { FiscalPresence } from 'db/models'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
+import { createTestOrg, createTestUser, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
+import { tokenize } from 'services/biz/auth.service'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
@@ -58,8 +59,9 @@ afterEach(async () => {
 }, 30_000)
 
 const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
-const token = (orgId: string) =>
-  (signer as any).decorator.jwt.sign({ id: '000000000000000000000001', orgId, role: 'admin', permissions: [...PERMISSIONS], ownRecordsModules: [] })
+/** An Administrator's session, as sign-in issues it (FR-27 P3-2: a real person with a role decides, never made-up claims). */
+const token = async (orgId: string) =>
+  (signer as any).decorator.jwt.sign(await tokenize(await createTestUser(orgId as any, { role: 'admin' } as any)))
 
 async function world() {
   const org = await createTestOrg()

@@ -184,6 +184,7 @@ export const authController = new Elysia({ prefix: '/auth' })
           // Several people use this username: ask for the email or the org. Nothing was checked
           // against anyone's password, so it is not a failure to count.
           if (err.code === 'ambiguous_login') set.status = 409
+          if (err.code === 'no_role') set.status = 403
           // Only a wrong password counts. `not_activated` / `disabled` are said to someone who just
           // proved the password, and charging those to the throttle would lock out a real owner.
           if (err.code === 'invalid_credentials') {

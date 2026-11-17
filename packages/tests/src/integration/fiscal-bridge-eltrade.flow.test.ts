@@ -3,7 +3,9 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { config } from 'config'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
+import { createTestOrg, createTestWarehouse, createTestFiscalDevice, createTestPerson } from '../helpers/factories'
+import { tokenize } from 'services/biz/auth.service'
+import { mongoose } from 'db/connection'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { setupFiscalBridgeWS } from '../../../portal-api/src/websocket/fiscal-bridge'
 import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
@@ -94,16 +96,10 @@ async function connectBrowser(orgId: string, deviceNumber: string, sim: EltradeS
 }
 
 /** A cashier's token: in the device's org, holding `pos.write` — the minimum the bridge needs. */
-function bridgeToken(orgId: string): Promise<string> {
-  return (signer as any).decorator.jwt.sign({
-    id: '000000000000000000000001',
-    orgId,
-    role: 'member',
-    firstName: 'Cashier',
-    lastName: 'One',
-    permissions: ['pos.write'],
-    ownRecordsModules: [],
-  })
+async function bridgeToken(orgId: string): Promise<string> {
+  // FR-27 P3-2: a real person whose role holds just pos.write (the role decides, never claims written over a token).
+  const cashier = await createTestPerson(new mongoose.Types.ObjectId(orgId), { role: 'member', permissions: ['pos.write'] }, { firstName: 'Cashier', lastName: 'One' } as any)
+  return (signer as any).decorator.jwt.sign(await tokenize(cashier))
 }
 
 async function eltradeDevice(deviceNumber = 'ED123456') {
@@ -182,7 +178,7 @@ const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
 
 /** GET /fiscal/device the way the POS terminal calls it, as a cashier (not an admin). */
 async function listDevices(orgId: string) {
-  const token = await (signer as any).decorator.jwt.sign({ id: '000000000000000000000001', orgId, role: 'member', permissions: [], ownRecordsModules: [] })
+  const token = await (signer as any).decorator.jwt.sign(await tokenize(await createTestPerson(new mongoose.Types.ObjectId(orgId), { role: 'member', permissions: [] })))
   const res = await fetch(`http://localhost:${port}/org/${orgId}/fiscal/device?isActive=true&size=0`, { headers: { authorization: `Bearer ${token}` } })
   return res.json() as Promise<any>
 }

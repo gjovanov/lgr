@@ -315,9 +315,6 @@
   "packages/reports-ui/src/views/SuptoTableView.vue": {
     "lgr/catch-drops-error": 1
   },
-  "packages/services/src/biz/access/evaluate.ts": {
-    "lgr/no-as-any": 1
-  },
   "packages/services/src/biz/access/live.ts": {
     "lgr/no-as-any": 1
   },
@@ -326,7 +323,7 @@
   },
   "packages/services/src/biz/access/role.service.ts": {
     "lgr/catch-drops-error": 1,
-    "lgr/no-as-any": 4
+    "lgr/no-as-any": 3
   },
   "packages/services/src/biz/access/shadow.ts": {
     "lgr/catch-drops-error": 1,

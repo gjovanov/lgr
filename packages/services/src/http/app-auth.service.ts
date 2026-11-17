@@ -4,7 +4,6 @@ import { config } from 'config'
 import type { UserTokenized } from '../biz/auth.service'
 import { buildScopedRepos } from '../biz/scoped-repos'
 import { isForeignOrg, FOREIGN_ORG_MESSAGE } from '../biz/tenant-guard'
-import { shadowAccess } from '../biz/access/shadow'
 import { decideAccess, floorRefusal, sortAccessRefusal } from '../biz/access/evaluate'
 import { attachAccess } from '../biz/access/live'
 import { homeGate } from '../biz/home-gate'
@@ -37,7 +36,7 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
     // A token naming a person (`iid`) is revoked by a password change or reset: `liveSessionUser`.
     const token = pickSessionToken(headers.authorization, sessionCookieValue(cookie, headers))
     const user: UserTokenized | null = token ? await liveSessionUser(asSessionUser(await jwt.verify(token))) : null
-    // FR-27.5: an org on `roles` takes the session's grant and claims from its role, read live.
+    // FR-27.5, P3-2: every org session takes its grant and claims from its role, read live.
     const accessVersion = await attachAccess(user)
     if (accessVersion) set.headers['x-access-version'] = accessVersion
 
@@ -59,10 +58,8 @@ export const AppAuthService = new Elysia({ name: 'Service.AppAuth' })
     // the hook below, ~74 routes answered an anonymous caller 422 with the whole body schema.
     if (!user && !isPublicRoute(request.method, route)) throw status(401, { message: 'Unauthorized' })
     if (isForeignOrg(user, params?.orgId)) return
-    // FR-27: an org on `roles` is decided by its people's roles, any other by the legacy rules; the other model is
-    // asked beside it in `shadow` and `roles`, and every answer it would give otherwise is counted.
+    // FR-27 P3-2: every org session is decided by the person's role, read live; one with no role is refused.
     const refusal = decideAccess(user, request.method, route)
-    shadowAccess(user, params?.orgId, request.method, route, !!refusal)
     if (refusal) throw status(403, refusal)
     // S-28: a route whose controller decides refuses here a caller holding none of its floor, before validation.
     const floor = floorRefusal(user, request.method, route)

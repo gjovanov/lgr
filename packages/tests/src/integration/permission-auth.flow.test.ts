@@ -4,7 +4,7 @@ import { createTestOrg, createTestUser } from '../helpers/factories'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } from 'config/constants'
 import { register, tokenize } from 'services/biz/auth.service'
 import { getPermissionSet, deletePermissionSet, computeEffectivePermissions } from 'services/biz/permission-set.service'
-import { User } from 'db/models'
+import { User, Role } from 'db/models'
 
 beforeAll(async () => {
   await setupTestDB()
@@ -182,10 +182,13 @@ describe('Permission sets are scoped to the owning org', () => {
       firstName: 'Own', lastName: 'Admin',
     })
 
-    const token = await tokenize((await User.findById(admin.id).exec())!)
+    const member = (await User.findById(admin.id).exec())!
+    const token = await tokenize(member)
 
-    // The org's own Administrator set is isAdmin, which expands to every PERMISSION.
-    expect(token.permissions.slice().sort()).toEqual([...PERMISSIONS].sort())
+    // FR-27 P3-2: the org's own sets give the founder the Administrator role, which grants every capability; the
+    // token carries its projection (role admin), and the role decides every request.
+    const role: any = await Role.findById(member.roleId).lean().exec()
+    expect([role?.all, token.role]).toEqual([true, 'admin'])
   })
 
   it('computeEffectivePermissions agrees with the token for a foreign set', async () => {

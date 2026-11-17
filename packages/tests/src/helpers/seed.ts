@@ -1,4 +1,5 @@
-import { connectDB, disconnectDB } from 'db/connection'
+import { connectDB, disconnectDB, mongoose } from 'db/connection'
+import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 import { mongoose } from 'db/connection'
 import {
   Org, User, Account, FiscalYear, FiscalPeriod, JournalEntry,
@@ -676,6 +677,9 @@ export async function seed() {
   await User.create({ email: 'multi@lgr.test', username: 'multi', password, firstName: 'Mila', lastName: 'Multi', role: 'manager', orgId: org1._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.manager })
   await User.create({ email: 'multi@lgr.test', username: 'multi', password, firstName: 'Mila', lastName: 'Multi', role: 'accountant', orgId: org2._id, isActive: true, permissions: DEFAULT_ROLE_PERMISSIONS.accountant })
   const people = await seedIdentities(password)
+  // FR-27 (#529): every person has a role, with exactly the access their legacy fields give, as migration 0015 gives
+  // one in production. Since P3-2 the role decides, and a membership without one cannot sign in.
+  await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: {} })
 
   console.log('Seed completed successfully!')
   console.log(`  Acme Corp (acme-corp): admin/test123`)

@@ -10,7 +10,8 @@ import { AuditLog, File as FileModel, TaxReturn, VatRegisterEntry } from 'db/mod
 import { VatReturnRefused, applyVatImport, planVatImport } from 'services/biz/vat-files/vat-return.service'
 import { generateMonthFiles, readFiledMonth, type VatFile } from 'services/biz/vat-files/month'
 import { setupTestDB, teardownTestDB } from '../setup'
-import { createTestOrg, createTestUser } from '../helpers/factories'
+import { createTestOrg, createTestUser, createTestPerson } from '../helpers/factories'
+import { tokenize } from 'services/biz/auth.service'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { captureRejection } from '../helpers/capture-rejection'
 
@@ -91,10 +92,10 @@ beforeAll(async () => {
   orgId = String(org._id)
   otherOrg = await createTestOrg({ slug: 'vat-return-other', vatNumber: 'BG888888888' } as any)
   for (const role of ['accountant', 'member', 'nra_auditor', 'sales'] as const) tokens[role] = await tokenFor(org, role)
-  tokens.noFile = await (signer as any).decorator.jwt.sign({
-    id: String((await createTestUser(org._id, { role: 'accountant', email: 'nofile@vat.test' } as any))._id), orgId, role: 'accountant', email: 'nofile@vat.test',
-    username: 'nofile', firstName: 'N', lastName: 'F', permissions: DEFAULT_ROLE_PERMISSIONS.accountant.filter(p => p !== 'accounting.file'), ownRecordsModules: [],
-  })
+  // FR-27 P3-2: an accountant without accounting.file is a role of its own (a set holding just that).
+  tokens.noFile = await (signer as any).decorator.jwt.sign(await tokenize(await createTestPerson(org._id, {
+    role: 'accountant', permissions: DEFAULT_ROLE_PERMISSIONS.accountant.filter(p => p !== 'accounting.file'),
+  }, { email: 'nofile@vat.test' } as any)))
 }, 120_000)
 
 afterAll(async () => {

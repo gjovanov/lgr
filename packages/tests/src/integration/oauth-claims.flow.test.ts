@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { getOrCreateUser, registerWithOAuth } from 'services/biz/oauth.service'
+import { tokenize } from 'services/biz/auth.service'
 import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { inviteDao } from 'services/dao/invite.dao'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, APP_IDS } from 'config/constants'
@@ -66,9 +67,12 @@ describe('S-23: an OAuth session carries the same claims as a password session',
 
     const { user } = await getOrCreateUser(google('g-narrow', 'narrow@claims.test') as any, org.slug)
 
+    // FR-27 P3-2: an org session's claims are its role's projection, whichever way the person signed in (S-23): here
+    // the role 0015 gave, exactly the set's access. Record scoping is the legacy model's; no role carries it.
+    const password = await tokenize((await User.findOne({ orgId: org._id, username: 'narrow' }).exec())!)
+    expect([[...user.permissions].sort(), user.ownRecordsModules]).toEqual([[...password.permissions].sort(), password.ownRecordsModules])
     expect(user.permissions.sort()).toEqual(['sales.read'])
     expect(user.permissions).not.toContain(DEFAULT_ROLE_PERMISSIONS.accountant.find(p => p !== 'sales.read')!)
-    expect(user.ownRecordsModules).toContain('sales')
     expect(user.operatorCode).toBe('0007')
   })
 
@@ -84,7 +88,10 @@ describe('S-23: an OAuth session carries the same claims as a password session',
 
     const { user } = await getOrCreateUser(google('g-boss', 'boss@claims.test') as any, org.slug)
 
-    expect([...user.permissions].sort()).toEqual([...PERMISSIONS].sort())
+    // FR-27 P3-2: the Administrator's projection, as a password sign-in carries it (S-23); the role grants everything.
+    const password = await tokenize((await User.findOne({ orgId: org._id, username: 'boss' }).exec())!)
+    expect([...user.permissions].sort()).toEqual([...password.permissions].sort())
+    expect(user.role).toBe('admin')
   })
 })
 
@@ -126,7 +133,10 @@ describe('S-23: OAuth-created users are provisioned like registered ones', () =>
     expect(stored!.permissionSetIds?.map(String)).toContain(String(adminSet!._id))
     expect(stored!.operatorCode).toMatch(/^\d{4}$/)
     expect(stored!.roleHistory?.[0]?.role).toBe('admin')
-    expect([...user.permissions].sort()).toEqual([...PERMISSIONS].sort())
+    // FR-27 P3-2: the founder holds the Administrator role, and the session its projection, as a password sign-in's.
+    const password = await tokenize((await User.findById(user.id).exec())!)
+    expect([...user.permissions].sort()).toEqual([...password.permissions].sort())
+    expect(user.role).toBe('admin')
     expect(user.operatorCode).toBe(stored!.operatorCode)
   })
 })

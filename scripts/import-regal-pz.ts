@@ -41,7 +41,8 @@
  * Unset, creating either refuses and names what is missing. An org and warehouse that already exist
  * do not need them.
  */
-import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { connectDB, disconnectDB, mongoose } from '../packages/db/src/connection.js'
+import { rolesFromSets } from '../packages/migrations/src/migrations/0015-roles-from-sets.js'
 import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import {
@@ -284,6 +285,8 @@ async function bootstrapOrg() {
     }
     console.log(`User created: ${admin.username} (operator ${operatorCode}${person && !person.created ? ', linked to their existing account' : ''})`)
   }
+  // FR-27 (#529): the admin's role, with exactly their access, as 0015 gives one (the role decides since P3-2).
+  await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: { orgId: org._id } })
 
   if (!org.ownerId) {
     org.ownerId = user._id

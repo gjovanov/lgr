@@ -1,5 +1,5 @@
 import { accessRuleFor, can as grantCan, compileLegacy, sortRefusal as fieldSortRefusal, type CapabilityId, type Grant, type LegacyClaims } from 'config/access'
-import { orgRouteRest, permissionRefusal, pinScopeRefusal } from '../route-permission'
+import { orgRouteRest, pinScopeRefusal } from '../route-permission'
 
 /**
  * FR-27.2 — the one evaluator (#529).
@@ -43,6 +43,10 @@ export function can(user: AccessCaller | null | undefined, cap: CapabilityId | r
 export type AccessRefusal =
   | { message: string; code: 'permission_required'; capabilities?: readonly CapabilityId[] }
   | { message: string; code: 'pin_session_scope' }
+  | { message: string; code: 'no_role' }
+
+/** FR-27 P3-2: a person in an org with no role has nothing to be decided by, and is refused rather than read off claims. */
+export const NO_ROLE_MESSAGE = 'You have no role in this organization. An administrator gives you one in Settings → Roles & access (or `bun scripts/restore-administrator.ts` when nobody can).'
 
 /**
  * Why this session may not make this request, or null when it may. The same exemptions as `permissionRefusal`:
@@ -65,10 +69,6 @@ export function accessRefusal(user: AccessCaller | null | undefined, method: str
   return { message: `Not part of your role: ${rule.anyOf.join(' or ')}`, code: 'permission_required', capabilities: rule.anyOf }
 }
 
-/**
- * The one decision the auth plugins take on every request (FR-27.5): an org on `roles` (a session carrying its
- * role's `access`) is decided by the evaluator; any other by the legacy rules, as before Phase 1.
- */
 /**
  * FR-27.11.C.3: a list sorted by a figure the session's role does not see is refused, on every route, by the auth
  * plugins (so no list route can forget it). The legacy model grants every level: only a role is ever refused.
@@ -97,6 +97,15 @@ export function floorRefusal(user: AccessCaller | null | undefined, method: stri
   return { message: `Not part of your role: ${rule.floor.join(' or ')}`, code: 'permission_required', capabilities: rule.floor }
 }
 
-export function decideAccess(user: AccessCaller | null | undefined, method: string, route: string) {
-  return user?.access ? accessRefusal(user, method, route) : permissionRefusal(user as any, method, route)
+/**
+ * The one decision the auth plugins take on every request (FR-27 P3-2): the person's role, read live, for every org.
+ * An org session with no role (`access`, attached by `./live.ts#attachAccess`) is refused on every org route: the
+ * legacy claims decide nothing any more.
+ */
+export function decideAccess(user: AccessCaller | null | undefined, method: string, route: string): AccessRefusal | null {
+  if (user && !user.access && method.toUpperCase() !== 'OPTIONS') {
+    const path = route.startsWith('/api/') ? route : `/api${route.startsWith('/') ? '' : '/'}${route}`
+    if (orgRouteRest(path) !== null) return { message: NO_ROLE_MESSAGE, code: 'no_role' }
+  }
+  return accessRefusal(user, method, route)
 }

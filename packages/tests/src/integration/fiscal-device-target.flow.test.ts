@@ -4,8 +4,9 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { config } from 'config'
 import { PERMISSIONS } from 'config/constants'
+import { tokenize } from 'services/biz/auth.service'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestWarehouse } from '../helpers/factories'
+import { createTestOrg, createTestWarehouse, createTestUser } from '../helpers/factories'
 import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
 import { disconnectAll } from 'fiscal/fiscal-device.service'
 import { FiscalDevice } from 'db/models'
@@ -43,8 +44,12 @@ afterEach(async () => {
 }, 30_000)
 
 const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
+
+/** A session of a real person with the built-in role of that key, as sign-in issues it (FR-27 P3-2: the role decides). */
+const realSession = async (orgId: string, role: string) =>
+  (signer as any).decorator.jwt.sign(await tokenize(await createTestUser(orgId as any, { role } as any)))
 const token = (orgId: string) =>
-  (signer as any).decorator.jwt.sign({ id: '000000000000000000000001', orgId, role: 'admin', permissions: [...PERMISSIONS], ownRecordsModules: [] })
+  realSession(orgId, 'admin')
 
 async function call(method: string, path: string, tok: string, body?: unknown) {
   const res = await app.handle(new Request(`http://localhost${path}`, {

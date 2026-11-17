@@ -3,7 +3,8 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { captureRejection, expectRejection } from '../helpers/capture-rejection'
-import { createTestEmployee, createTestOrg, createTestUser } from '../helpers/factories'
+import { createTestEmployee, createTestOrg, createTestUser, createTestPerson } from '../helpers/factories'
+import { tokenize } from 'services/biz/auth.service'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
@@ -46,11 +47,9 @@ async function makeWorld() {
     })
   }
   // What a books org's accountant holds: the role's own, and payroll granted by name.
-  const bookkeeper = await createTestUser(org._id, { role: 'accountant' } as any)
-  tokens.bookkeeper = await (signer as any).decorator.jwt.sign({
-    id: String(bookkeeper._id), orgId, role: 'accountant', email: String(bookkeeper.email), username: 'bookkeeper', firstName: 'P', lastName: 'R',
-    permissions: [...DEFAULT_ROLE_PERMISSIONS.accountant, 'payroll.read', 'payroll.write', 'payroll.approve'], ownRecordsModules: [],
-  })
+  // FR-27 P3-2: the role decides, so the bookkeeper's grant is a role of its own (a set holding exactly it).
+  const bookkeeper = await createTestPerson(org._id, { role: 'accountant', permissions: [...DEFAULT_ROLE_PERMISSIONS.accountant, 'payroll.read', 'payroll.write', 'payroll.approve'] })
+  tokens.bookkeeper = await (signer as any).decorator.jwt.sign(await tokenize(bookkeeper))
   const employee = await createTestEmployee(org._id, {
     salary: { baseSalary: 1000, currency: 'EUR', frequency: 'monthly' },
     deductions: [{ type: 'tax', name: 'Income tax', percentage: 10 }],

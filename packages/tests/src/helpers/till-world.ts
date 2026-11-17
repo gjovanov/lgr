@@ -1,5 +1,8 @@
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
+import { tokenize } from 'services/biz/auth.service'
+import { forgetMember } from 'services/biz/access/live'
+import { Role, User } from 'db/models'
 import type { Types } from 'mongoose'
 import {
   createTestOrg,
@@ -96,25 +99,36 @@ export async function tillWorld(app: Elysia, opts: TillWorldOptions = {}) {
     registered.push(deviceId)
   }
 
-  /** The cashier's token under another role, with that role's own permissions. */
-  const tokenAs = (asRole: string): Promise<string> => (signer as any).decorator.jwt.sign({
-    id: String(user._id), orgId, role: asRole, email: 'cashier@test.com', username: 'cashier',
-    firstName: 'Иван', lastName: 'Петров', operatorCode: '0001',
-    permissions: DEFAULT_ROLE_PERMISSIONS[asRole as keyof typeof DEFAULT_ROLE_PERMISSIONS] || DEFAULT_ROLE_PERMISSIONS.admin,
-    ownRecordsModules: [],
-  })
+  /**
+   * The cashier's token under a role (FR-27 P3-2). The role decides, read live from the person, so a token cannot
+   * carry another role's claims as it used to. A tokenAs token is the cashier's own, tagged with the role it stands
+   * for, and `call` puts the cashier on that built-in role just before its request: the same person (their open
+   * session, their operator code), holding another role, as these tests mean.
+   */
+  const roleOfToken = new Map<string, string>()
+  const tokenAs = async (asRole: string): Promise<string> => {
+    const signed = await (signer as any).decorator.jwt.sign({ ...(await tokenize(user)), testRole: asRole })
+    roleOfToken.set(signed, asRole)
+    return signed
+  }
+  let current = role
+  async function actAs(asRole: string) {
+    if (asRole === current) return
+    const builtin: any = await Role.findOne({ orgId: org._id, isBuiltin: true, templateKey: asRole }).lean().exec()
+    if (!builtin) throw new Error(`till-world: no built-in role "${asRole}"`)
+    await User.updateOne({ _id: user._id }, { $set: { roleId: builtin._id } }).exec()
+    forgetMember(user._id)
+    current = asRole
+  }
   const token = await tokenAs(role)
 
   // A back-office clerk with no session of their own: their cash sales stay sessionless (FR-21.31).
   const clerk = await createTestUser(org._id, { operatorCode: '0002', role } as any)
-  const clerkToken = await (signer as any).decorator.jwt.sign({
-    id: String(clerk._id), orgId, role, email: 'clerk@test.com', username: 'clerk',
-    firstName: 'Мария', lastName: 'Иванова', operatorCode: '0002',
-    permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || DEFAULT_ROLE_PERMISSIONS.admin,
-    ownRecordsModules: [],
-  })
+  const clerkToken = await (signer as any).decorator.jwt.sign(await tokenize(clerk))
 
   async function call(method: string, path: string, body?: any, key?: string, as = token) {
+    const asRole = roleOfToken.get(as)
+    if (asRole) await actAs(asRole)
     const res = await app.handle(new Request(`http://localhost/org/${orgId}${path}`, {
       method,
       headers: { 'content-type': 'application/json', authorization: `Bearer ${as}`, ...(key ? { 'idempotency-key': key } : {}) },

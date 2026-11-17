@@ -30,6 +30,7 @@ import {
   Invite, type IInvite,
   Tag, type ITag,
   FiscalDevice, type IFiscalDevice,
+  PermissionSet,
 } from 'db/models'
 import { mongoose } from 'db/connection'
 const { Types } = mongoose
@@ -140,6 +141,26 @@ export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<I
     if (roleId) user.roleId = roleId
   }
   return user as IUser
+}
+
+/**
+ * FR-27 P3-2 (#529): a person whose role grants exactly these claims, for a test that varies access case by case.
+ *
+ * Since the role decides every request, a token's own `permissions` decide nothing: a test can no longer sign one
+ * person with other claims written over. This makes a person of their own instead: a set holding the claims (absent
+ * `areas` = every area, `[]` = none), and the role 0015 makes of it, an imported one with exactly that access.
+ */
+export async function createTestPerson(
+  orgId: Types.ObjectId,
+  claims: { role?: string; permissions?: string[]; areas?: string[] },
+  overrides: Partial<IUser> = {},
+): Promise<IUser> {
+  const role = claims.role ?? 'member'
+  const set = await PermissionSet.create({
+    orgId, name: `Test access ${uniqueTs()}`, permissions: claims.permissions ?? [], isAdmin: false, isDefault: false, isSystem: false,
+    ...(claims.areas ? { areas: claims.areas } : {}),
+  } as any)
+  return createTestUser(orgId, { role, permissions: claims.permissions ?? [], permissionSetIds: [set._id], ...overrides } as any)
 }
 
 // Account codes are unique per org. A random 4-digit code collided now and then (two draws in one
