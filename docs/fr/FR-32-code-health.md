@@ -441,3 +441,18 @@ Most of this FR is proven by CI, not in production.
     - Its form and its payslips say so (`payroll.legacyNotComputed`, four languages).
     - The four payroll lists' Export and the payslip's PDF button did nothing. They are removed and filed as #830.
     - The three TODOs left in the source are FR-25 §7.5's, and `unit/payroll-says-what-it-computes.test.ts` fails on a TODO that names no issue or spec item.
+
+### Slice D
+
+- **FR-32.18, .19, .20** (`feat/797-fr32-d-body-schemas`):
+  - **A value the model refuses answers 422 with its fields** (`code: 'invalid_fields'`, `fields`, the message S-12 already wrote). That covers a create whose document the model refuses and an edit that runs the validators (`updateInOrg(…, { validate: true })`, #685). It was a 500 that named them. This is the one answer FR-32.27 lets change.
+  - **Every write route that reads a body declares it.**
+    - The eleven creates that store the body as the document (`clientCreate`) declare it as an object; their values stay the model's to judge.
+    - `POST /invoices/:id/send` declares its two optional fields. `acknowledgeOverlap` takes any value, as before: only `true` answers the question, and anything else is asked again (409), which the overlap suites pin.
+    - The 16 arrays declared as "anything" now declare their elements as objects (`services/http/body-schemas#AnObject`), without naming fields, because a schema is a whitelist.
+  - **`unit/write-route-bodies.test.ts`** reads the real route table.
+    - A POST, PUT or PATCH with no body schema fails unless it is on `READS_NO_BODY` with its reason.
+    - A listed route, or a DELETE, whose handler takes `body` fails.
+    - So does an array whose elements are "anything".
+    - The six multipart uploads are on the list: each reads its files from the form itself.
+  - **The four screens of #675** were closed before this FR was written, by #685 (fixed assets, exchange rates, timesheets) and #686 (bank reconciliation). Their tests are `integration/form-payloads` and the reconciliation suite.

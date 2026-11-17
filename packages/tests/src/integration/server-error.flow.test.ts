@@ -84,7 +84,10 @@ describe('S-12: what a 500 says', () => {
 
   it('names the fields a schema refused, and nothing of the model or the cast', async () => {
     const r = await post('/api/schema')
-    expect(r.status).toBe(500)
+    // FR-32.18: a value the model refuses answers 422 with its fields (it was a 500 that named them).
+    expect(r.status).toBe(422)
+    expect(r.json.code).toBe('invalid_fields')
+    expect(r.json.fields).toContain('issueDate')
     expect(r.json.message.startsWith('Not saved: ')).toBe(true)
     expect(r.json.message).toContain('"issueDate" is required')
     expect(r.json.message).toMatch(/\(and \d+ more\)$/)

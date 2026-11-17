@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia'
+import { AnObject } from 'services/http/body-schemas'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry } from 'services/biz/audit-log.service'
@@ -111,7 +112,7 @@ export const payrollImportController = new Elysia({ prefix: '/org/:orgId/payroll
         dryRun: t.Optional(t.Boolean()),
         period: t.String({ pattern: '^\\d{6}$' }),
         version: t.String({ minLength: 1 }),
-        rows: t.Array(t.Any(), { minItems: 1 }),
+        rows: t.Array(AnObject, { minItems: 1 }),
         sheet: t.Optional(t.Array(t.Object({
           personId: t.String({ minLength: 9, maxLength: 13 }),
           paidLeaveDays: t.Optional(t.Number()),
