@@ -42,13 +42,23 @@ describe('FR-30.19: one browser per process', () => {
   it('a browser killed mid-render: the renders on it go to the retry, which starts another', async () => {
     const before = pdfBrowserLaunches()
     let killed = false
+    let printed: Promise<Buffer | undefined> | undefined
     const killer = onRenderedPage('# Killer', undefined, async (page) => {
-      await new Promise((r) => setTimeout(r, 200))
-      page.browser().process()?.kill('SIGKILL')
+      const browser = page.browser()
+      // The other render is started from here, so it lands on this browser, and the browser is killed the moment
+      // that render opens its page: it is mid-render then, whatever the machine's speed. A fixed wait let a fast
+      // runner finish it before the kill, and the retry never ran.
+      const otherOpened = new Promise<void>((resolve) => {
+        browser.on('targetcreated', (target: any) => {
+          if (target.type() === 'page' && target.browserContext() !== page.browserContext()) resolve()
+        })
+      })
+      printed = markdownToPdf('# Printed through the kill')
+      await otherOpened
+      browser.process()?.kill('SIGKILL')
       killed = true
       throw new Error('its browser is gone')
     }).catch(() => 'failed')
-    const printed = markdownToPdf('# Printed through the kill')
     expect(await killer).toBe('failed')
     expect(killed).toBe(true)
     expect(looksLikePdf(await printed)).toBe(true)

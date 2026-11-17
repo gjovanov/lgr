@@ -300,7 +300,7 @@ export async function closePdfBrowser(): Promise<void> {
   shared = null
   if (!entry) return
   if (entry.idle) clearTimeout(entry.idle)
-  const browser = await entry.browser.catch(() => null)
+  const browser = await entry.browser.catch(() => /* the launch failed, so there is nothing to close; its render already failed with the error */ null)
   if (browser) await closeOrKill(browser)
 }
 
@@ -417,7 +417,7 @@ async function withRenderedPage<T>(
 async function closeContext(context: any): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined
   await Promise.race([
-    context.close().catch(() => {}),
+    context.close().catch(() => { /* its browser is gone (a crash, a kill), and the context with it */ }),
     new Promise<void>(resolve => { timer = setTimeout(resolve, 5_000) }),
   ])
   clearTimeout(timer)
