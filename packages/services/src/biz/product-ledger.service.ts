@@ -233,7 +233,7 @@ export async function getProductLedger(
   }
 
   // Build ledger entries — transfers produce two rows
-  const rawEntries: Omit<ProductLedgerEntry, 'runningQty' | 'runningValue'>[] = []
+  const rawEntries: Omit<ProductLedgerEntry, 'runningQty' | 'runningValue' | 'startQty' | 'endQty'>[] = []
 
   for (const m of movements) {
     const docRef = m.movementNumber

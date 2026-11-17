@@ -3,7 +3,7 @@ export type { BaseEntity, TenantEntity, Filter, FilterOperator, FilterValue, Sor
 
 // Repository interfaces
 export type {
-  IRepository, IBatchRepository, IAccountRepository, IJournalEntryRepository, JournalLineTotalsQuery, JournalLineTotals,
+  IRepository, IBatchRepository, IAccountRepository, IJournalEntryRepository, JournalLineTotalsQuery, JournalLineTotals, JournalAnalyticTotals,
 } from './repository.js'
 
 // Registry

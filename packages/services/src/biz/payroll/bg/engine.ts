@@ -215,7 +215,7 @@ export function calculatePerson(input: BgPersonInput, p: BgParameters): BgPerson
 
   // Earnings.
   const { lines: fromContract, contractDay } = contractLines(input, p)
-  const lines = [
+  const lines: { code: BgLineCode; cents: number; days?: number; insurable: boolean; taxable: boolean }[] = [
     ...fromContract.map(l => ({ ...l, insurable: true, taxable: true })),
     ...(input.earnings ?? []).map(e => ({ code: e.code, cents: toCents(e.amount), insurable: e.insurable ?? true, taxable: e.taxable ?? true })),
   ]

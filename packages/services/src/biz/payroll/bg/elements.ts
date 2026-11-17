@@ -1,3 +1,4 @@
+import { mongoose } from 'db/connection'
 import { PayrollElement } from 'db/models'
 
 /**
@@ -16,10 +17,11 @@ export const DEFAULT_PAYROLL_ELEMENTS = [
 
 /** Safe to run before every calculation: what an org has already is left as it is. */
 export async function seedPayrollElements(orgId: unknown): Promise<void> {
+  const org = new mongoose.Types.ObjectId(String(orgId))
   await PayrollElement.bulkWrite(DEFAULT_PAYROLL_ELEMENTS.map(element => ({
     updateOne: {
-      filter: { orgId, code: element.code },
-      update: { $setOnInsert: { ...element, orgId, pmCodes: [], isActive: true } },
+      filter: { orgId: org, code: element.code },
+      update: { $setOnInsert: { ...element, orgId: org, pmCodes: [], isActive: true } },
       upsert: true,
     },
   })))

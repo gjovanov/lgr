@@ -8,7 +8,7 @@
  *
  * Import-pure: the CLI and the unit tests read this without booting anything.
  */
-import type { AnalyticKind } from 'db/models/accounting-analytic.model'
+import type { AnalyticKind } from 'db/models'
 
 /** A bank document's comment names the invoices it pays; a sales document's number says whose it is. */
 export type DocFamily = 'sales' | 'purchase' | 'vat' | 'bank' | 'stock' | 'payroll' | 'other'

@@ -29,7 +29,7 @@ export function normaliseAreas(areas: readonly string[] | null | undefined): Are
  */
 export async function listPermissionSets(orgId: string): Promise<{ permissionSets: IPermissionSet[]; total: number }> {
   const items = await PermissionSet.find({ orgId }).sort({ isSystem: -1, name: 1 }).lean().exec()
-  return { permissionSets: items as IPermissionSet[], total: items.length }
+  return { permissionSets: items as unknown as IPermissionSet[], total: items.length }
 }
 
 /**

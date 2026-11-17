@@ -127,7 +127,7 @@ export async function ocrExtract(
     return throughLgrai<ExtractResult>('extract', opts.orgId, { filename, pdfBase64: pdf.toString('base64'), ...(opts.forceOcr ? { forceOcr: true } : {}) }, EXTRACT_TIMEOUT_MS, 'extract')
   }
   const fd = new FormData()
-  fd.append('file', new Blob([pdf], { type: 'application/pdf' }), filename)
+  fd.append('file', new Blob([pdf as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }), filename)
   if (opts.forceOcr) fd.append('forceOcr', 'true')
   let res: Response
   try {

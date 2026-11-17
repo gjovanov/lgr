@@ -340,7 +340,7 @@ export const googleDriveAdapter: CloudStorageAdapter = {
           'Content-Length': String(chunk.length),
           'Content-Range': `bytes ${uploaded}-${content.length - 1}/${content.length}`,
         },
-        body: chunk,
+        body: chunk as Uint8Array<ArrayBuffer>,
       }, { timeoutMs: DRIVE_UPLOAD_MS })
 
       if (res.status === 200 || res.status === 201) {

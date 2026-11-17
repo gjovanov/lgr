@@ -186,7 +186,7 @@ export async function createInvoiceJournalEntry(
 export async function createPaymentJournalEntry(
   orgId: string,
   invoice: any,
-  payment: { amount: number; method: string; date?: Date },
+  payment: { amount: number; method: string; date?: Date | string },
   accounts: DefaultAccounts,
   journal: JournalRef,
   autoPost: boolean,

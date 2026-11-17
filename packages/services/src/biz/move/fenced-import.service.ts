@@ -466,7 +466,7 @@ export async function runImportBatch(row: any, budget = IMPORT_BATCH): Promise<{
       }
       if (processed >= budget) return { processed, finished: false }
       const key = keyOf(it.doc._id)
-      if (it.coll === 'invoices') await handle(it.coll, key, () => importSale(ctx, it.doc), it.doc.register?.sessionId ? keyOf(it.doc.register.sessionId) : undefined)
+      if (it.coll === 'invoices') await handle(it.coll, key, () => importSale(ctx, it.doc), (it.doc as Doc).register?.sessionId ? keyOf((it.doc as Doc).register.sessionId) : undefined)
       else if (it.coll === 'possessions') await handle(it.coll, key, () => importSession(ctx, it.doc))
       else if (it.coll === 'stockmovements') await handle(it.coll, key, () => importMovement(ctx, it.doc, listed))
       else await handle(it.coll, key, () => importPlain(ctx, it.coll, it.doc))
