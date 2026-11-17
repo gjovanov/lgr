@@ -13,6 +13,14 @@
  *     did before FR-30. Each says why it is kept. The test holds this list as it is: a new `scan` key is a decision.
  *   - `aggregate`: a name looked up on another collection, which only an aggregation orders (`MOVEMENT_SORT_BY_REF`).
  *
+ * ⚠ `_id` is a key of EVERY list, and no grid offers it. It is for a client that reads a whole list in pages: the
+ * import and audit tooling (`fetchAll` in `scripts/compare-stock-api.ts`, `.claude/skills/daily-import/predict.ts`
+ * and others) sends `page=N&sortBy=_id&sortOrder=asc` until a page adds nothing. Pages need an order with no ties:
+ * rows whose sort keys are equal come in whatever order the database finds them, which may differ for another skip,
+ * so a page can repeat a row and leave another out, and nothing tells the reader. Every default sort here has ties
+ * (a name, the moment a batch was inserted, a movement's day); the id has none. `unit/list-sorts.test.ts` holds
+ * what the scripts and skills send to this table.
+ *
  * Import-pure: the API and the grids read the same table.
  */
 
@@ -43,6 +51,12 @@ export interface ListSortSpec {
 
 const SCAN_FIGURE = 'a figure of the row; no index orders it, so the filtered rows are sorted in memory'
 const SCAN_SMALL_DOMAIN = 'a field of a few values; an index on it would not bound a page'
+/**
+ * Served as before FR-30: in the id's order through the collection's own `_id` index, past the other organizations'
+ * rows, so a deep page costs what it skips. Whoever asks for it reads the whole list anyway.
+ */
+const WHOLE_LIST = 'the one order with no ties, for a client that reads the whole list in pages (the import and audit tooling); no index orders it inside an organization'
+const BY_ID: ListSortKey = { field: '_id', served: { scan: WHOLE_LIST } }
 
 /** The Products list's price-tier columns (`tier_<slot>`) and its stock columns: FR-22.44 and FR-28.3. */
 const PRODUCT_SPECIAL_SORT = /^(tier_[a-z0-9_]+|stock|reserved|onOrder)$/
@@ -53,6 +67,7 @@ export const LIST_SORTS: Record<ListSortId, ListSortSpec> = {
     defaultKey: 'name',
     defaultOrder: 'asc',
     keys: {
+      _id: BY_ID,
       createdAt: { field: 'createdAt', served: { index: 'orgId_1_createdAt_-1' } },
       name: { field: 'name', served: { index: 'orgId_1_name_1' } },
       sku: { field: 'sku', served: { index: 'orgId_1_sku_1' } },
@@ -71,6 +86,7 @@ export const LIST_SORTS: Record<ListSortId, ListSortSpec> = {
     defaultKey: 'createdAt',
     defaultOrder: 'desc',
     keys: {
+      _id: BY_ID,
       createdAt: { field: 'createdAt', served: { index: 'orgId_1_direction_1_createdAt_-1' } },
       issueDate: { field: 'issueDate', served: { index: 'orgId_1_direction_1_issueDate_-1' } },
       // The grids' № column. The stored field is `invoiceNumber` (FR-22.10).
@@ -94,6 +110,7 @@ export const LIST_SORTS: Record<ListSortId, ListSortSpec> = {
     defaultKey: 'createdAt',
     defaultOrder: 'desc',
     keys: {
+      _id: BY_ID,
       createdAt: { field: 'createdAt', served: { index: 'orgId_1_createdAt_-1' } },
       quantity: { field: 'quantity', served: { scan: SCAN_FIGURE } },
     },
@@ -103,6 +120,7 @@ export const LIST_SORTS: Record<ListSortId, ListSortSpec> = {
     defaultKey: 'date',
     defaultOrder: 'desc',
     keys: {
+      _id: BY_ID,
       date: { field: 'date', served: { index: 'orgId_1_date_-1' } },
       createdAt: { field: 'createdAt', served: { index: 'orgId_1_createdAt_-1' } },
       number: { field: 'movementNumber', served: { index: 'orgId_1_movementNumber_1' } },
