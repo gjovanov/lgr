@@ -4,7 +4,6 @@
       <h1 class="text-h5">{{ $t('nav.inventoryCount') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <export-menu @export="onExport" />
         <responsive-btn v-cap="'inventory-counts.create'" color="primary" icon="mdi-plus" :to="{ name: 'inventory.inventory-counts.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
@@ -69,7 +68,6 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 interface Item { _id: string; number: string; warehouseName: string; warehouseId?: string; date: string; type: string; status: string; itemCount: number; varianceCount: number; notes?: string; lines?: any[] }
@@ -110,7 +108,6 @@ const headers = computed(() => [
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
-function onExport(format: string) { console.log('Export inventory counts as', format) }
 
 // The count being completed: a large one takes a while to book, and a second click while it runs asked for the
 // completion again. The button shows it is working, and the others wait.

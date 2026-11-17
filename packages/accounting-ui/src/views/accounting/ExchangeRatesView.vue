@@ -4,7 +4,6 @@
       <h1 class="text-h5">{{ $t('accounting.exchangeRates') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <export-menu module="accounting" />
         <responsive-btn v-cap="'exchange-rates.create'" color="primary" icon="mdi-plus" @click="router.push({ name: 'accounting.exchange-rate-new' })">
           {{ $t('common.add') }}
         </responsive-btn>
@@ -71,7 +70,6 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 const appStore = useAppStore()

@@ -479,7 +479,8 @@
       "not_found": "Diese Liste wurde nicht gefunden.",
       "forbidden": "Ihre Rolle darf diese Liste nicht sehen.",
       "failed": "Die Liste konnte nicht geladen werden. Bitte gleich erneut versuchen."
-    }
+    },
+    "exportInReport": "Öffnet den Bericht zu dieser Liste, der nach Excel und PDF exportiert"
   },
   "export": {
     "aggregated": "Nach Produkt aggregieren",

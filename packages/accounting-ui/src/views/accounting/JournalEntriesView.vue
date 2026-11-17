@@ -11,7 +11,6 @@
     @update:options="onUpdateOptions"
   >
     <template #actions>
-      <export-menu module="accounting" />
       <responsive-btn
         v-cap="'journal.create'"
         color="primary"
@@ -302,7 +301,6 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'

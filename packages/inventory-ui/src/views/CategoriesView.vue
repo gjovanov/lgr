@@ -4,7 +4,6 @@
       <h1 class="text-h5">{{ $t('warehouse.categories') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <export-menu @export="onExport" />
         <responsive-btn v-if="writes" color="primary" icon="mdi-plus" :to="{ name: 'inventory.categories.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
@@ -74,7 +73,6 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 
@@ -132,7 +130,6 @@ async function doDelete() {
   }
 }
 
-function onExport(format: string) { console.log('Export categories as', format) }
 
 onMounted(() => { fetchItems() })
 </script>

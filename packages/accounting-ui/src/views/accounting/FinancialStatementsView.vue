@@ -3,9 +3,6 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('accounting.financialStatements') }}</h1>
       <v-spacer />
-      <div class="d-flex ga-2">
-        <export-menu module="accounting" />
-      </div>
     </div>
 
     <v-tabs v-model="activeTab" class="mb-4">
@@ -284,7 +281,6 @@ import { useAppStore } from '../../store/app.store'
 import { useAccountingStore } from '../../store/accounting.store'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ChartView from 'ui-shared/components/ChartView.vue'
 

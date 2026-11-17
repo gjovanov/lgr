@@ -7,7 +7,8 @@
       <v-spacer />
       <div class="d-flex align-center ga-2 flex-wrap justify-end">
         <ViewSwitcher v-model="displayMode" :views="['list', 'kanban']" class="mr-2" />
-        <export-menu @export="onExport" />
+        <!-- FR-31.11: the list's report, which exports to Excel and PDF, on the list's filters. -->
+        <ReportExportButton report="stock-movements" :query="reportQuery" />
         <!-- FR-26: an import writes receipts (`movements.create`); a transfer-only or read-only session imports nothing. -->
         <v-btn v-cap="'movements.create'" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
         <!-- FR-22.50: says what it creates — the form opens as a goods receipt. -->
@@ -265,7 +266,8 @@ import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
-import ExportMenu from 'ui-shared/components/ExportMenu'
+import ReportExportButton from 'ui-shared/components/ReportExportButton.vue'
+import { periodQuery } from 'ui-shared/components/report-export'
 import CreateButton from 'ui-shared/components/CreateButton.vue'
 import ProductLedgerTable from 'ui-shared/components/ProductLedgerTable.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -410,6 +412,18 @@ const filters = computed(() => {
   return f
 })
 
+/**
+ * FR-31.11: Export is the `stock-movements` report on the list's filters, where the report has the same parameter: the
+ * period, the type, the status, the warehouse, and the article when exactly one is chosen (the report takes one).
+ */
+const reportQuery = computed(() => ({
+  ...periodQuery('period', dateFrom.value, dateTo.value),
+  types: typeFilter.value || undefined,
+  statuses: statusFilter.value || undefined,
+  warehouseId: warehouseIdFilter.value || undefined,
+  productId: selectedProducts.value.length === 1 ? selectedProducts.value[0]._id : undefined,
+}))
+
 const url = computed(() => `${appStore.orgUrl()}/warehouse/movement`)
 // FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.
 useListQueryState([
@@ -498,7 +512,6 @@ const productLookup = latestOnly(async (signal, q: string) => {
 watch(selectedProducts, (prods) => {
   if (prods.length !== 1) viewMode.value = 'movements'
 })
-function onExport(format: string) { console.log('Export movements as', format) }
 
 async function confirmMovement(item: Item) {
   try {
