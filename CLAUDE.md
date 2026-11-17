@@ -1602,6 +1602,8 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
   leaves out what `LIST_ROW_EXCLUDES` names (an invoice's lines, a slot's filters, the mirrors). The grids and pickers
   ask (`usePaginatedTable({ listFields: true })`); an answer without it is whole, so scripts and skills are untouched.
 
+- **Kept a while** (FR-30.15/.16, `services/utils/ttl-cache.ts`, per process): the partner picker's ranking five minutes
+  per org and side, the dashboard's stock value a minute. The stock-levels report sorts and cuts before it joins.
 - **One Chrome per process for PDFs** (FR-30.19/.20, `reporting/pdf/base.pdf.ts`): started by the first render, closed
   after `PDF_BROWSER_IDLE_MS` idle, a browser context per render, at most `PDF_RENDER_CONCURRENCY` (2) renders at once.
   A stalled render still kills it (`closePdfBrowser`), and the retry starts another.
