@@ -304,7 +304,7 @@ export const oauthController = new Elysia({ prefix: '/oauth' })
         const token: string = await jwt.sign({ ...(user as any), exp: Math.floor(Date.now() / 1000) + ttl })
         setSessionCookie(cookie, token)
 
-        return { user, token, org: { id: user.orgId, name: body.orgName, slug: body.orgSlug }, access: await accessAnswerFor(user as any) }
+        return { user, token, org: { id: user.orgId, name: body.orgName, slug: body.orgSlug }, access: await accessAnswerFor(user) }
       } catch (err: any) {
         if (err instanceof IdentityError) {
           set.status = err.status

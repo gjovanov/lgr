@@ -49,10 +49,10 @@ beforeEach(() => {
 })
 
 describe('the live grant', () => {
-  it('none: the claims decide, as before', () => {
+  it('none: nothing is granted, whatever legacy claims an old token carries (FR-27 P3-5)', () => {
     expect(liveGrant()).toBeNull()
     expect(sessionViewer()?.grant).toBeUndefined()
-    expect(can(accessGrant(), 'sales-docs.view')).toBe(true)
+    expect(can(accessGrant(), 'sales-docs.view')).toBe(false)
   })
 
   it("held: it decides over the claims, for this tab's session and the views", () => {
@@ -75,7 +75,7 @@ describe('the live grant', () => {
     setLiveAccess(role('r1:1', ['products.view']))
     setSession(token({ ...seller, orgId: 'o2' }), { id: 'o2', slug: 'o2', name: 'O2' } as any)
     expect(liveGrant()).toBeNull()
-    expect(can(accessGrant(), 'sales-docs.view')).toBe(true)
+    expect(can(accessGrant(), 'products.view')).toBe(false)
   })
 })
 

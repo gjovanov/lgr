@@ -3,6 +3,7 @@ import {
   unknownCaps, withImplied, type CapabilityId, type Grant,
 } from 'config/access'
 import { Org, PermissionSet, Role, User, type IRoleHistoryEntry } from 'db/models'
+import { mongoose } from 'db/connection'
 import { createAuditEntry, recordAuditEntry } from '../audit-log.service'
 import { grantOf, type AccessCaller } from './evaluate'
 import { forgetMember, forgetRole } from './live'
@@ -108,7 +109,8 @@ export async function assertNotLastAdministrator(orgId: string, userId: string):
  * (`role`) is no longer written; entries from before keep it.
  */
 export function roleHistoryEntry(role: { _id: unknown; name: string }, at: Date, assignedBy?: unknown): IRoleHistoryEntry {
-  return { roleId: role._id as any, roleName: role.name, startDate: at, assignedAt: at, ...(assignedBy ? { assignedBy: assignedBy as any } : {}) }
+  const id = (v: unknown) => new mongoose.Types.ObjectId(String(v))
+  return { roleId: id(role._id), roleName: role.name, startDate: at, assignedAt: at, ...(assignedBy ? { assignedBy: id(assignedBy) } : {}) }
 }
 
 /** The history with its open period closed at `at` and the new role's opened. */

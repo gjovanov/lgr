@@ -103,7 +103,7 @@ export async function roleDisplaysOf(users: readonly Pick<IUser, '_id' | 'roleId
 /** One membership's role, for display (`roleDisplay`): where a session names no person, its org is all it lists. */
 export async function roleDisplayOfMember(userId: unknown): Promise<string> {
   const member = await User.findById(userId, { roleId: 1, role: 1 }).lean().exec()
-  return member ? ((await roleDisplaysOf([member as any])).get(String(member._id)) ?? '') : ''
+  return member ? ((await roleDisplaysOf([member])).get(String(member._id)) ?? '') : ''
 }
 
 /** The person's active memberships, with their orgs, in a stable order (org name). */

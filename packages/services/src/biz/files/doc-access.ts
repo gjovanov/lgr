@@ -83,7 +83,7 @@ async function targetsFor(orgId: string, docFileIds: readonly string[], action: 
 
 /** Why `actor` may not do `action` to these documents, or null. The shape is `targetRefusal`'s. */
 export async function booksRefusal(orgId: string, actor: ImportActor, docFileIds: readonly string[], action: BooksAction) {
-  if (grantOf(actor as any).all) return null
+  if (grantOf(actor).all) return null
   for (const target of await targetsFor(orgId, docFileIds, action)) {
     const refusal = targetRefusal(actor, target)
     if (refusal) return refusal
@@ -103,5 +103,5 @@ const STOCK_READ_ROUTE = '/api/org/:orgId/warehouse/stock-level'
  * diff, and nobody else. The Administrator always passes.
  */
 export function compareRefusal(actor: ImportActor & { amr?: readonly string[] }) {
-  return accessRefusal(actor as any, 'GET', STOCK_READ_ROUTE)
+  return accessRefusal(actor, 'GET', STOCK_READ_ROUTE)
 }

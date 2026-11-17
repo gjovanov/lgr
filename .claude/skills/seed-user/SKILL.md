@@ -1,22 +1,20 @@
 ---
 name: seed-user
-description: Create a user in an existing LGR org, fully wired for RBAC + SUPTO — hashed password, atomic operator code, a role with its permission set and a roleHistory activity entry. Use when the user wants to add an admin/manager/accountant/etc. account to an org (e.g. a new tenant's first admin), seed a login for testing, or provision staff accounts. Runs locally against the dev DB or against the production cluster Mongo.
+description: Create a user in an existing LGR org, fully wired for RBAC + SUPTO — hashed password, atomic operator code, an FR-27 role and a roleHistory activity entry. Use when the user wants to add an admin/manager/accountant/etc. account to an org (e.g. a new tenant's first admin), seed a login for testing, or provision staff accounts. Runs locally against the dev DB or against the production cluster Mongo.
 allowed-tools: Bash(bun:*), Bash(kubectl:*), Bash(tmux:*), Bash(docker:*)
 ---
 
-# Seed a user with role, permissions & activity
+# Seed a user with a role & activity
 
 Backed by `scripts/seed-user.ts`. Creates one `User` in an existing org, replicating
 what the register flow does so the account is immediately usable:
 
 - password hashed with `Bun.password.hash`
 - **operatorCode** allocated atomically via the `OPERATOR` sequence (SUPTO — every user needs one)
-- **role** + a **roleHistory** entry (the role-assignment activity / audit trail)
-- **permissions** from `DEFAULT_ROLE_PERMISSIONS[role]`
-- default **permission sets** seeded (idempotent) and the matching set linked (`ROLE_TO_PERMISSION_SET`)
-- its **FR-27 role** (#529), with exactly that access, as migration 0015 gives it: the built-in role of `--role`, or
-  for a service account (`--permissions`) an imported role named like its set. Without one, `access-model.ts --set roles`
-  refuses the org, and an org on `roles` decides by the role
+- its **FR-27 role** (#529) and a **roleHistory** entry naming it (id and name; the Н-18 audit trail): the built-in role
+  of `--role`, or for a service account (`--caps` / `--permissions`) a role of its own, `Service: <username>`. The role
+  decides every session (P3-2); a person without one cannot sign in.
+- FR-27 P3-5: **nothing of the legacy model** is written: no legacy `role` key, no `permissions`, no permission set.
 
 ## Options
 
@@ -26,22 +24,23 @@ bun run scripts/seed-user.ts --org <slug> --email <e> --username <u> --password 
 
 - `--org <slug>` **(required)** — target org, must already exist.
 - `--email` `--username` `--password` `--first` `--last` **(required)**. Email/username are unique **per org**, so the same address can exist in multiple orgs.
-- `--role <role>` — `admin` (default) `| manager | accountant | warehouse_manager | member | nra_auditor`. Determines permissions + permission set.
+- `--role <role>` — `admin` (default) `| manager | accountant | warehouse_manager | member | nra_auditor` (any `ROLES` key). The built-in role of that key.
 - `--middle <m>` — middle name (Bulgarian three-part names).
 - `--position <p>` — job title.
 - `--inactive` — create inactive (default: **active**, so the account can log in immediately — unlike register, which starts inactive pending email activation).
 - `--set-owner` — set `org.ownerId` to this user **if the org has no owner yet**.
-- `--permissions <a,b>` [`--set-name <n>`] — a **service account**. Instead of the role's default set, it links a set holding
-  exactly these permissions and no area, named `--set-name` (default `Service: <username>`), creating it if missing. A set of
-  that name with other permissions is refused, never reused. Give it `--role member`: the set decides. Example: `books-sync`
-  in regal-acc, `--permissions accounting.import` (pull-plusminus-books, "Nightly run").
-- `--execute` — perform writes. **Without it the script is a dry-run** (prints the resolved permissions + permission set, no DB connection).
+- `--caps <a,b>` [`--set-name <n>`] — a **service account**: instead of a built-in role, a role of its own holding exactly
+  these capabilities (the `config/access` catalogue), named `--set-name` (default `Service: <username>`), created if missing.
+  A role of that name with other capabilities is refused, never reused.
+- `--permissions <a,b>` — the same, named by legacy permissions: what they gave a session opening no area. Example:
+  `books-sync` in regal-acc, `--permissions accounting.import` = `books-import.run` (pull-plusminus-books, "Nightly run").
+- `--execute` — perform writes. **Without it the script is a dry-run** (prints the role it would give, no DB connection).
   It writes documents only: it connects without building indexes or collections, and refuses to write while a unique index on
-  users, identities, permission sets or sequences is missing (`scripts/lib/require-indexes.ts`). Run from a checkout ahead of
+  users, identities, roles or sequences is missing (`scripts/lib/require-indexes.ts`). Run from a checkout ahead of
   prod, it used to build that checkout's indexes there; on 2026-11-05 that would have been two indexes prod did not have.
 
 Idempotency: if a user with the same username or email already exists in the org, it is
-reported and left untouched (a missing permission-set link is repaired). Passwords are
+reported and left untouched (a missing role is given). Passwords are
 never changed for an existing user.
 
 ## Run locally (dev DB)
