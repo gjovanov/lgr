@@ -26,7 +26,7 @@ export interface EmailBlock {
   message: string
 }
 
-type MaybeUser = { permissions?: string[]; role?: string } | null | undefined
+type MaybeUser = AccessCaller | null | undefined
 type EmailableDoc = { direction?: string; status?: string } | null | undefined
 
 /**

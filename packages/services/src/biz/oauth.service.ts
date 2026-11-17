@@ -2,7 +2,6 @@ import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
 import { User, Org, OAuthHandoff, OAuthPendingRegistration, Desktop, Identity, type IUser, type IOrg } from 'db/models'
 import { homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
-import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
 import {
   type LoginResult,
   type SessionUser,
@@ -536,10 +535,6 @@ export async function getOrCreateUser(
     const lastName = nameParts.slice(1).join(' ') || info.name
     const username = `${info.name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '')}_${Date.now().toString(36).slice(-4)}`
 
-    // The invite says what they get. `member` is the floor, not the default for anyone asking.
-    const role = (invite!.assignRole || 'member') as Role
-    const permissions = DEFAULT_ROLE_PERMISSIONS[role] || DEFAULT_ROLE_PERMISSIONS.member
-
     // FR-20.5: never a membership in an org whose home is elsewhere — refused before the invite is used.
     if (!(await isHomeHere(org._id))) throw new Error('This organization is managed on its own server. Join it there.')
 
@@ -581,21 +576,19 @@ export async function getOrCreateUser(
 
     try {
       // What `register()` gives an invited user, and what this path skipped (S-23): the fiscal
-      // operator code a POS receipt is printed under, and the start of their role history (Н-18).
+      // operator code a POS receipt is printed under. FR-27 P3-5 (#529): no legacy role or permissions; the role
+      // below opens the role history (Н-18).
       const operatorCode = await allocateOperatorCode(String(org._id))
       user = await User.create({
         email: memberEmail,
         username,
         firstName,
         lastName,
-        role,
         operatorCode,
         orgId: org._id,
         identityId,
         isActive: true,
         avatar: info.avatarUrl,
-        permissions,
-        roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
         oauthProviders: [
           { provider: info.provider, providerId: info.providerId },
         ],
@@ -606,9 +599,9 @@ export async function getOrCreateUser(
       throw err
     }
     isNew = true
-    // FR-27.3, as an invite accepted with a password (`account.service#joinOrgByInvite`): the invite's role, else the
-    // built-in role of its legacy one. Since P3-2 the role decides, and a membership without one cannot sign in.
-    await giveStartingRole(org._id, user._id, await startingRoleOf(org._id, { roleId: invite?.assignRoleId, legacyRole: role }))
+    // FR-27.3, as an invite accepted with a password (`account.service#joinOrgByInvite`): the invite's role, else (an
+    // invitation from before P3-5) the built-in role of its legacy key. Since P3-2 the role decides.
+    await giveStartingRole(org._id, user._id, await startingRoleOf(org._id, { roleId: invite?.assignRoleId, legacyRole: invite?.assignRole }), invite?.inviterId)
     logger.info({ orgId: org._id, userId: user._id, provider: info.provider }, 'OAuth user created')
   }
 
@@ -679,14 +672,12 @@ export async function registerWithOAuth(
       username,
       firstName,
       lastName,
-      role: 'admin',
       operatorCode,
       orgId: org._id,
       identityId: person._id,
       isActive: true,
       avatar: info.avatarUrl,
-      permissions: DEFAULT_ROLE_PERMISSIONS.admin,
-      roleHistory: [{ role: 'admin', startDate: new Date(), assignedAt: new Date() }],
+      // FR-27 P3-5 (#529): no legacy role or permissions; `provisionNewOrg` gives the Administrator role.
       oauthProviders: [
         { provider: info.provider, providerId: info.providerId },
       ],

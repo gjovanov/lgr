@@ -13,7 +13,8 @@ import { replicate } from '../replication/declare.js'
  *   sets, or their role plus extra permissions. `legacyKey` is that access, so the migration finds the role again.
  * - **`all`**: the Administrator, every capability there is and any added later. Never edited or emptied.
  * - **`legacy`**: what a release that reads no roles gives the role's people (FR-27 §4 step 3): the role key,
- *   permissions and areas `tokenize()` reads.
+ *   permissions and areas `tokenize()` read. FR-27 P3-5 (#529): no longer written, nor `needsRelease`; a role from
+ *   before keeps both, frozen, for a rollback. P3-7 archives them.
  *
  * Replicated like permission sets (class R).
  */
@@ -28,10 +29,10 @@ export interface IRole extends Document {
   all: boolean
   caps: string[]
   landing?: string
-  legacy: { role: string; permissions: string[]; areas?: string[]; setId?: Types.ObjectId }
+  legacy?: { role: string; permissions: string[]; areas?: string[]; setId?: Types.ObjectId }
   legacyKey?: string
   /** The projection does not say all the role grants: the legacy model serves its people less (FR-27 §4 step 4). */
-  needsRelease: boolean
+  needsRelease?: boolean
   /** Bumped on every change of what the role grants: the token's `rv` (FR-27.5). */
   version: number
   createdAt: Date
@@ -49,15 +50,17 @@ const roleSchema = new Schema<IRole>(
     caps: [{ type: String }],
     landing: String,
     legacy: {
-      role: { type: String, required: true },
-      permissions: [{ type: String }],
+      // Not required: FR-27 P3-5 writes no projection, and a nested path's `required` holds on every document.
+      role: { type: String },
+      permissions: { type: [{ type: String }], default: undefined },
       // ⚠ `default: undefined`: absent and `[]` are opposites (FR-26), as on a permission set.
       areas: { type: [String], default: undefined },
       // The permission set that carries the projection, which its people are put on (FR-27 §4 step 3).
       setId: { type: Schema.Types.ObjectId, ref: 'PermissionSet' },
     },
     legacyKey: String,
-    needsRelease: { type: Boolean, default: false },
+    // FR-27 P3-5: no longer written (no default); a role from before keeps its value.
+    needsRelease: { type: Boolean },
     version: { type: Number, default: 1 },
   },
   { timestamps: true },

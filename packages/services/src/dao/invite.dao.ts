@@ -25,7 +25,8 @@ class InviteDaoClass extends BaseDao<IInvite> {
       inviterId: params.inviterId as any,
       status: 'active',
       useCount: 0,
-      assignRole: params.assignRole || 'member',
+      // FR-27 P3-5 (#529): the role by id; a legacy key only where a caller still names one (tests of old invites).
+      ...(params.assignRole ? { assignRole: params.assignRole } : {}),
       ...(params.assignRoleId ? { assignRoleId: params.assignRoleId as any } : {}),
     }
 

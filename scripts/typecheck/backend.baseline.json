@@ -127,9 +127,6 @@
   "packages/portal-api/src/controllers/stripe.controller.ts": {
     "TS2345": 1
   },
-  "packages/portal-api/src/controllers/user.controller.ts": {
-    "TS2322": 1
-  },
   "packages/portal-api/src/front/control-socket.ts": {
     "TS2345": 1
   },
@@ -171,9 +168,6 @@
   "packages/services/src/biz/audit-log.service.ts": {
     "TS2339": 4,
     "TS2503": 1
-  },
-  "packages/services/src/biz/auth.service.ts": {
-    "TS2322": 1
   },
   "packages/services/src/biz/doc-import/persist.ts": {
     "TS2353": 1

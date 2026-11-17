@@ -162,7 +162,6 @@ import { givesBack, kindColor } from '../../cash-register/journal-kind'
 const props = defineProps<{
   orgUrl: string
   locale?: string
-  role?: string
   userId?: string
   /** Where a row opens. */
   detailRoute: (row: any) => RouteLocationRaw

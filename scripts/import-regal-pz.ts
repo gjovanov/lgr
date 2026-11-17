@@ -41,20 +41,18 @@
  * Unset, creating either refuses and names what is missing. An org and warehouse that already exist
  * do not need them.
  */
-import { connectDB, disconnectDB, mongoose } from '../packages/db/src/connection.js'
-import { rolesFromSets } from '../packages/migrations/src/migrations/0015-roles-from-sets.js'
+import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
+import { giveStartingRole, seedBuiltinRoles, startingRoleOf } from '../packages/services/src/biz/access/role.service.js'
 import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import {
-  Org, User, OrgApp, PermissionSet, ProductCategory,
+  Org, User, OrgApp, ProductCategory,
   Warehouse, Product, StockLevel, Identity,
 } from '../packages/db/src/models/index.js'
-import { DEFAULT_ROLE_PERMISSIONS, MODULES, APP_IDS } from '../packages/config/src/constants.js'
+import { MODULES, APP_IDS } from '../packages/config/src/constants.js'
 import { PURCHASE_BASIS_TIER_NAME, purchasePriceFromTier2 } from '../packages/config/src/price-tiers.js'
-import { seedDefaultPermissionSets } from '../packages/services/src/biz/permission-set.seed.js'
 import { allocateOperatorCode } from '../packages/services/src/biz/sequence.service.js'
 import { discardIdentity, identityForOperatorJoin } from '../packages/services/src/biz/identity/identity.service.js'
-import { createMongoRepositories } from '../packages/dal-mongo/src/index.js'
 import ExcelJS from 'exceljs'
 import path from 'path'
 
@@ -272,12 +270,9 @@ async function bootstrapOrg() {
         identityId: person?.identity._id,
         firstName: admin.firstName,
         lastName: admin.lastName,
-        role: 'admin',
         operatorCode,
         orgId: org._id,
         isActive: true,
-        permissions: DEFAULT_ROLE_PERMISSIONS.admin,
-        roleHistory: [{ role: 'admin', startDate: new Date(), assignedAt: new Date() }],
       })
     } catch (err) {
       if (person?.created) await discardIdentity(person.identity._id)
@@ -285,21 +280,16 @@ async function bootstrapOrg() {
     }
     console.log(`User created: ${admin.username} (operator ${operatorCode}${person && !person.created ? ', linked to their existing account' : ''})`)
   }
-  // FR-27 (#529): the admin's role, with exactly their access, as 0015 gives one (the role decides since P3-2).
-  await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: { orgId: org._id } })
+  // FR-27 (#529): the admin's role, the Administrator (the role decides since P3-2). P3-5: the role alone, with its
+  // history entry; no legacy role key, permissions or permission set.
+  await seedBuiltinRoles(org._id)
+  await giveStartingRole(org._id, user._id, await startingRoleOf(org._id, { legacyRole: 'admin' }))
 
   if (!org.ownerId) {
     org.ownerId = user._id
     await org.save()
   }
 
-  const repos = await createMongoRepositories({ backend: 'mongo' })
-  await seedDefaultPermissionSets(String(org._id), repos)
-  const adminSet = await PermissionSet.findOne({ orgId: org._id, name: 'Administrator' })
-  if (adminSet && (!user.permissionSetIds || user.permissionSetIds.length === 0)) {
-    user.permissionSetIds = [adminSet._id]
-    await user.save()
-  }
 
   for (const appId of APP_IDS) {
     const existing = await OrgApp.findOne({ orgId: org._id, appId })

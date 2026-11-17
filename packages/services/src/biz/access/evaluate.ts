@@ -12,6 +12,9 @@ import { orgRouteRest, pinScopeRefusal } from '../route-permission'
  */
 
 export interface AccessCaller extends LegacyClaims {
+  /** The session's person and org. FR-27 P3-5 (#529): a session carries these and its grant, no legacy claims. */
+  id?: string
+  orgId?: string
   amr?: readonly string[]
   /** FR-27.5: the grant of the session's role, attached by the auth plugins for an org on `roles` (`./live.ts`). */
   readonly access?: Grant

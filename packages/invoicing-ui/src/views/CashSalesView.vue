@@ -7,7 +7,6 @@
     ref="journal"
     :org-url="appStore.orgUrl()"
     :locale="appStore.locale"
-    :role="role"
     :user-id="userId"
     :detail-route="(row: any) => journalRoute(row, tillOnly)"
     :invoice-link="(inv: any) => (tillOnly ? undefined : { name: 'invoicing.sales.edit', params: { id: inv.id } })"
@@ -105,7 +104,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { jwtRole, jwtUserId, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
+import { jwtUserId, sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { canOpenPage, pageById, readsDocuments } from 'ui-shared/nav/page-registry'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import ExportDialog from 'ui-shared/components/ExportDialog'
@@ -121,7 +120,6 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 // The app store's user is empty on a fresh page load; the session token is the durable source.
-const role = computed(() => appStore.user?.role || jwtRole())
 const userId = computed(() => appStore.user?.id || jwtUserId())
 const journal = ref<{ fetchItems: () => Promise<void> } | null>(null)
 const viewer = sessionViewer()

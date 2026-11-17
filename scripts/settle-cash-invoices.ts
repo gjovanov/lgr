@@ -38,6 +38,7 @@
 import { mongoose } from 'db/connection'
 import { assertHomeIsHere, isHomeHere } from 'db/home/home'
 import { Org, User } from 'db/models'
+import { administratorFilter } from 'services/biz/access/role.service'
 import { initServiceContext } from 'services/context'
 import { syncCashSettlement, SETTLED_ON_ISSUE } from 'services/biz/cash-settlement.service'
 import { orgsToSettle, unsettledInvoices } from 'services/biz/settlement-backlog'
@@ -53,9 +54,8 @@ if (METHODS.some(m => !SETTLED_ON_ISSUE[m])) throw new Error(`--method must be o
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 
 async function actorFor(orgId: any): Promise<string> {
-  const filter: Record<string, any> = { orgId }
-  if (AS_EMAIL) filter.email = AS_EMAIL
-  else filter.role = 'admin'
+  // FR-27 P3-5: "an admin" is a person on the Administrator role (`administratorFilter`), not the legacy key.
+  const filter: Record<string, any> = AS_EMAIL ? { orgId, email: AS_EMAIL } : await administratorFilter(orgId)
   const u: any = await User.findOne(filter).sort({ createdAt: 1 }).select('_id email').lean()
   if (!u) throw new Error(AS_EMAIL ? `no user ${AS_EMAIL} in org ${orgId}` : `no admin in org ${orgId}`)
   return String(u._id)

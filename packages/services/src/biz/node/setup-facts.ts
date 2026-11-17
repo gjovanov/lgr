@@ -11,7 +11,7 @@
  * ⚠ Addresses and an active flag only: never a password hash, a token, or anything a page could
  * replay. The console shows these to the person who holds the setup token, on the server itself.
  */
-import { Desktop, Org, User } from 'db/models'
+import { Desktop, Org, Role, User } from 'db/models'
 import { homeScope } from 'db/home/home'
 
 export type SetupPerson = { email: string; active: boolean }
@@ -23,10 +23,14 @@ export async function setupFacts(): Promise<SetupFacts> {
   if (!orgs.length) return { orgs: [], desktops: 0 }
   const ids = orgs.map(o => o._id)
   const owners = orgs.map(o => (o as any).ownerId).filter(Boolean)
+  // FR-27 P3-5 (#529): an admin is a person on the Administrator role (`all`); one from before roles, by the legacy key.
+  const adminRoles = (await Role.find({ orgId: { $in: ids }, all: true }, { _id: 1 }).lean().exec()).map(r => r._id)
+  const adminRoleIds = new Set(adminRoles.map(String))
+  const isAdmin = (p: any) => (p.roleId ? adminRoleIds.has(String(p.roleId)) : p.role === 'admin')
   // The oldest first: when an org's owner is gone, its first admin stands in (`setup.rs`).
   const people = await User.find(
-    { orgId: { $in: ids }, $or: [{ _id: { $in: owners } }, { role: 'admin' }] },
-    { orgId: 1, email: 1, isActive: 1, role: 1, createdAt: 1 },
+    { orgId: { $in: ids }, $or: [{ _id: { $in: owners } }, { roleId: { $in: adminRoles } }, { roleId: { $exists: false }, role: 'admin' }] },
+    { orgId: 1, email: 1, isActive: 1, role: 1, roleId: 1, createdAt: 1 },
   )
     .sort({ createdAt: 1 })
     .lean()
@@ -41,7 +45,7 @@ export async function setupFacts(): Promise<SetupFacts> {
         name: o.name,
         slug: o.slug,
         owner: owner ? person(owner) : null,
-        admins: people.filter((p: any) => String(p.orgId) === String(o._id) && p.role === 'admin').map(person),
+        admins: people.filter((p: any) => String(p.orgId) === String(o._id) && isAdmin(p)).map(person),
       }
     }),
     desktops,

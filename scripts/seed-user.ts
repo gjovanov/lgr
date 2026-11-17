@@ -2,15 +2,12 @@
  * Seed a user into an existing org, fully wired for SUPTO + RBAC:
  *   - password hashed with Bun.password.hash
  *   - operatorCode allocated atomically (SUPTO — every user needs one)
- *   - role + a roleHistory activity entry (the role-assignment audit trail)
- *   - permissions from DEFAULT_ROLE_PERMISSIONS[role]
- *   - default permission sets seeded (idempotent) + the matching set linked
- *   - its FR-27 role (#529): exactly the access the lines above give, as migration 0015 gives it — the built-in role
- *     when that is the role's default access, else an imported role per distinct set ("Service: books import"). An org
- *     on `roles` decides by the role, and `access-model.ts --set roles` refuses an org with a person without one.
+ *   - its FR-27 role (#529) and the role history entry that records it (id and name): the built-in role of `--role`,
+ *     or, for a service account, a role of its own holding exactly what it runs ("Service: <username>").
+ *   - FR-27 P3-5: nothing of the legacy model (no legacy role key, permissions or permission sets) is written.
  *
  * Idempotent: if a user with the username or email already exists in the org it
- * is reported and left untouched (missing permission-set link is repaired).
+ * is reported and left untouched (a missing role is given).
  *
  * Usage:
  *   bun run scripts/seed-user.ts --org <slug> --email <e> --username <u> --password <p> --first <F> --last <L>            # dry-run
@@ -32,22 +29,23 @@
  *   --role <role>    admin | manager | accountant | warehouse_manager | member | nra_auditor  (default: admin)
  *   --inactive       create the user inactive (default: active)
  *   --set-owner      set org.ownerId to this user if the org has no owner yet
- *   --permissions <a,b>  a SERVICE account: instead of the role's default set, link a set holding exactly these
- *                    permissions and opening no area, created if missing. A set of that name with other
- *                    permissions is refused, never reused. Give it the least role (member): the set decides.
- *   --set-name <n>   the name of that set (default: "Service: <username>")
+ *   --caps <a,b>     a SERVICE account: instead of a built-in role, a role of its own holding exactly these
+ *                    capabilities (`config/access` catalogue), created if missing. A role of that name with other
+ *                    capabilities is refused, never reused.
+ *   --permissions <a,b>  the same, named by legacy permissions (as before FR-27): what those permissions gave a
+ *                    session opening no area (`compileLegacy`), e.g. `accounting.import` = `books-import.run`.
+ *   --set-name <n>   the name of that role (default: "Service: <username>")
  *   --execute        perform writes (default: dry-run)
  */
-import { connectDB, disconnectDB, mongoose } from '../packages/db/src/connection.js'
+import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { requireUniqueIndexes } from './lib/require-indexes.js'
-import { Identity, Org, User, PermissionSet, Role, Sequence } from '../packages/db/src/models/index.js'
-import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, ROLES } from '../packages/config/src/constants.js'
-import { seedDefaultPermissionSets, ROLE_TO_PERMISSION_SET } from '../packages/services/src/biz/permission-set.seed.js'
+import { Identity, Org, User, Role, Sequence } from '../packages/db/src/models/index.js'
+import { PERMISSIONS, ROLES } from '../packages/config/src/constants.js'
+import { compileLegacy, isCapability, withImplied, type CapabilityId } from '../packages/config/src/access/index.js'
 import { allocateOperatorCode } from '../packages/services/src/biz/sequence.service.js'
 import { discardIdentity, identityForOperatorJoin } from '../packages/services/src/biz/identity/identity.service.js'
-import { createMongoRepositories } from '../packages/dal-mongo/src/index.js'
-import { rolesFromSets } from '../packages/migrations/src/migrations/0015-roles-from-sets.js'
+import { giveStartingRole, seedBuiltinRoles } from '../packages/services/src/biz/access/role.service.js'
 
 function parseArgs(argv: string[]) {
   const o: Record<string, string | boolean> = {}
@@ -71,30 +69,39 @@ const firstName = args.first as string
 const lastName = args.last as string
 const middleName = args.middle as string | undefined
 const position = args.position as string | undefined
-const role = (args.role as string) || 'admin'
+const roleKey = (args.role as string) || 'admin'
 const isActive = !args.inactive
 const setOwner = !!args['set-owner']
-const servicePermissions = typeof args.permissions === 'string' ? args.permissions.split(',').map(p => p.trim()).filter(Boolean) : null
+const list = (v: unknown) => (typeof v === 'string' ? v.split(',').map(p => p.trim()).filter(Boolean) : null)
+const servicePermissions = list(args.permissions)
+const serviceCapsNamed = list(args.caps)
 const serviceSetName = (args['set-name'] as string) || `Service: ${username}`
 
 const missing = ['org', 'email', 'username', 'password', 'first', 'last'].filter(k => !args[k])
 if (missing.length) { console.error(`Missing required: ${missing.map(m => '--' + m).join(', ')}. See header for options.`); process.exit(2) }
-if (!ROLES.includes(role as any)) { console.error(`Invalid role "${role}". Valid: ${ROLES.join(', ')}`); process.exit(2) }
+if (!ROLES.includes(roleKey as any)) { console.error(`Invalid role "${roleKey}". Valid: ${ROLES.join(', ')}`); process.exit(2) }
 if (args.permissions !== undefined && !servicePermissions?.length) { console.error('--permissions takes a comma-separated list.'); process.exit(2) }
+if (args.caps !== undefined && !serviceCapsNamed?.length) { console.error('--caps takes a comma-separated list.'); process.exit(2) }
+if (servicePermissions && serviceCapsNamed) { console.error('Name --caps or --permissions, not both.'); process.exit(2) }
 const unknown = (servicePermissions ?? []).filter(p => !PERMISSIONS.includes(p as any))
 if (unknown.length) { console.error(`Unknown permission(s): ${unknown.join(', ')}`); process.exit(2) }
+const unknownCaps = (serviceCapsNamed ?? []).filter(c => !isCapability(c))
+if (unknownCaps.length) { console.error(`Unknown capability(ies): ${unknownCaps.join(', ')}`); process.exit(2) }
 
-const samePermissions = (a: readonly string[], b: readonly string[]) => [...a].sort().join() === [...b].sort().join()
+/** A service account's capabilities: named, or what its legacy permissions gave a session opening no area. */
+const serviceCaps: string[] | null = serviceCapsNamed
+  ? withImplied(serviceCapsNamed as CapabilityId[]).sort()
+  : servicePermissions
+    ? (() => { const g = compileLegacy({ role: 'member', permissions: servicePermissions, areas: [] }); return g.all ? [] : [...g.caps].sort() })()
+    : null
+
+const sameCaps = (a: readonly string[], b: readonly string[]) => [...a].sort().join() === [...b].sort().join()
 
 async function main() {
   console.log(`Mode: ${dryRun ? 'DRY RUN' : 'EXECUTE'}`)
-  console.log(`Org: ${orgSlug} | user: ${username} <${email}> | role: ${role} | active: ${isActive} | setOwner: ${setOwner}`)
-  if (servicePermissions) {
-    console.log(`Permissions (service set "${serviceSetName}", no area): ${servicePermissions.join(', ')}`)
-  } else {
-    console.log(`Permissions (${role}): ${(DEFAULT_ROLE_PERMISSIONS as any)[role].join(', ')}`)
-    console.log(`Permission set: ${ROLE_TO_PERMISSION_SET[role] || '(none)'}`)
-  }
+  console.log(`Org: ${orgSlug} | user: ${username} <${email}> | role: ${roleKey} | active: ${isActive} | setOwner: ${setOwner}`)
+  if (serviceCaps) console.log(`Role (service, "${serviceSetName}"): ${serviceCaps.join(', ')}`)
+  else console.log(`Role: the built-in role "${roleKey}"`)
   console.log()
 
   if (dryRun) { console.log('Dry run complete. Add --execute to write.'); return }
@@ -102,37 +109,34 @@ async function main() {
   // Documents only: building indexes is the app's (scripts/lib/require-indexes.ts).
   await connectDB({ readOnly: true })
   console.log('Connected to MongoDB')
-  await requireUniqueIndexes([User, Identity, PermissionSet, Sequence])
+  await requireUniqueIndexes([User, Identity, Role, Sequence])
 
   const org = await Org.findOne({ slug: orgSlug })
   if (!org) { console.error(`Org "${orgSlug}" not found.`); process.exit(1) }
   await assertScriptHome(org._id, orgSlug)
 
-  const repos = await createMongoRepositories({ backend: 'mongo' })
-  await seedDefaultPermissionSets(String(org._id), repos)
-  let permSet = ROLE_TO_PERMISSION_SET[role] && !servicePermissions
-    ? await PermissionSet.findOne({ orgId: org._id, name: ROLE_TO_PERMISSION_SET[role] })
-    : null
-  if (servicePermissions) {
-    permSet = await PermissionSet.findOne({ orgId: org._id, name: serviceSetName })
-    if (permSet && (permSet.isAdmin || !samePermissions(permSet.permissions, servicePermissions))) {
-      console.error(`Refused: the set "${serviceSetName}" exists with other permissions (${permSet.isAdmin ? 'admin' : permSet.permissions.join(', ')}). Name another with --set-name.`)
+  // FR-27 (#529): the role this person is given. A built-in one (made where an org lacks them), or the service
+  // account's own, refused when one of that name holds anything else.
+  await seedBuiltinRoles(org._id)
+  let role: any
+  if (serviceCaps) {
+    role = await Role.findOne({ orgId: org._id, name: serviceSetName }).lean()
+    if (role && (role.all || role.isBuiltin || !sameCaps(role.caps ?? [], serviceCaps))) {
+      console.error(`Refused: the role "${serviceSetName}" exists with other capabilities. Name another with --set-name.`)
       process.exit(2)
     }
-    permSet ??= await PermissionSet.create({
+    role ??= (await Role.create({
       orgId: org._id, name: serviceSetName, description: `Service account ${username}: only what it runs.`,
-      permissions: servicePermissions, areas: [], isAdmin: false, isDefault: false, isSystem: false,
-    })
+      isBuiltin: false, edited: false, all: false, caps: serviceCaps, version: 1,
+    })).toObject()
+  } else {
+    role = await Role.findOne({ orgId: org._id, isBuiltin: true, templateKey: roleKey }).lean()
   }
+  if (!role) { console.error(`Org "${orgSlug}" has no role "${roleKey}".`); process.exit(1) }
 
   let user = await User.findOne({ orgId: org._id, $or: [{ username }, { email }] })
   if (user) {
-    console.log(`User already exists: ${user.username} <${user.email}> (role ${user.role}) — leaving credentials untouched.`)
-    if (permSet && (!user.permissionSetIds || user.permissionSetIds.length === 0)) {
-      user.permissionSetIds = [permSet._id]
-      await user.save()
-      console.log(`  linked missing permission set: ${permSet.name}`)
-    }
+    console.log(`User already exists: ${user.username} <${user.email}> — leaving credentials untouched.`)
   } else {
     const hashedPassword = await Bun.password.hash(password)
     // Multi-org: the person behind this membership. Someone who already has an account is linked as
@@ -153,28 +157,22 @@ async function main() {
         password: person && !person.created ? person.identity.password : hashedPassword,
         identityId: person?.identity._id,
         firstName, middleName, lastName, position,
-        role, operatorCode, orgId: org._id, isActive,
-        permissions: servicePermissions ?? (DEFAULT_ROLE_PERMISSIONS as any)[role],
-        roleHistory: [{ role, startDate: new Date(), assignedAt: new Date() }],
-        permissionSetIds: permSet ? [permSet._id] : [],
+        operatorCode, orgId: org._id, isActive,
       })
     } catch (err) {
       if (person?.created) await discardIdentity(person.identity._id)
       throw err
     }
-    console.log(`User created: ${username} (operator ${operatorCode}, role ${role}, permission set ${permSet?.name || '(none)'})`)
+    console.log(`User created: ${username} (operator ${operatorCode})`)
     if (!person) console.log('  Not linked to a person yet: this address still has users the identity migration has not linked. It will group them.')
     else if (person.created) console.log(`  New person <${person.identity.email}>, password set by an operator (they change it before joining another org).`)
     else console.log(`  Linked to the existing person <${person.identity.email}>. Their password is unchanged; --password was not used.`)
   }
 
-  // FR-27 (#529): the person's role, from what the lines above gave them. 0015's own code, scoped to this org: it is
-  // idempotent, gives a role only to whoever has none, and only one that grants exactly their access today.
+  // FR-27 (#529): the person's role, with its history entry (Appendix 29); one who already has a role keeps it.
   if (!user.roleId) {
-    await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: { orgId: org._id } })
-    const given: any = await User.findById(user._id, { roleId: 1 }).lean()
-    const role: any = given?.roleId ? await Role.findById(given.roleId, { name: 1 }).lean() : null
-    console.log(role ? `  role: ${role.name}` : '  ⚠ no role: their access matches no role 0015 can make. Give one in Settings → Roles & access.')
+    await giveStartingRole(org._id, user._id, { role, chosen: true })
+    console.log(`  role: ${role.name}`)
   }
 
   if (setOwner && !org.ownerId) {

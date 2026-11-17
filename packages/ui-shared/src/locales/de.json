@@ -5368,8 +5368,6 @@
       "people": "Personen",
       "builtin": "Integriert",
       "edited": "Bearbeitet",
-      "needsRelease": "Nicht vollständig auf älteren Servern",
-      "needsReleaseHint": "Ein Server mit älterer Version oder das alte Modell gibt den Personen dieser Rolle weniger als angegeben, nie mehr.",
       "administratorFixed": "Der Administrator hat alles, auch was spätere Versionen hinzufügen, und wird nicht bearbeitet.",
       "unknownCaps": "Optionen, die diese Version nicht mehr kennt (nicht gewährt)",
       "extras": "Extras",

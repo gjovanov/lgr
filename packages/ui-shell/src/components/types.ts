@@ -14,7 +14,6 @@ export interface ShellUser {
   email: string
   firstName: string
   lastName: string
-  role: string
 }
 
 export interface ShellOrg {

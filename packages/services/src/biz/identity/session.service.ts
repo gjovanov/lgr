@@ -1,4 +1,5 @@
-import { Identity, Org, User, type IIdentity, type IUser } from 'db/models'
+import { Identity, Org, Role, User, type IIdentity, type IUser } from 'db/models'
+import { roleDisplay } from 'config/access'
 import { normalizeEmail } from './email.js'
 
 /**
@@ -87,6 +88,22 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 export interface Membership {
   user: IUser
   org: { id: string; name: string; slug: string; environment?: 'prod' | 'dev' }
+  /** FR-27 P3-5: the person's role there, for display (`roleDisplay`). */
+  role?: string
+}
+
+/** The display of each membership's role (`roleDisplay`), by user id. A membership from before roles shows its legacy key. */
+export async function roleDisplaysOf(users: readonly Pick<IUser, '_id' | 'roleId' | 'role'>[]): Promise<Map<string, string>> {
+  const ids = users.map(u => u.roleId).filter(Boolean)
+  const roles = ids.length ? await Role.find({ _id: { $in: ids } }, { name: 1, isBuiltin: 1, templateKey: 1 }).lean().exec() : []
+  const byId = new Map(roles.map(r => [String(r._id), roleDisplay(r)]))
+  return new Map(users.map(u => [String(u._id), (u.roleId && byId.get(String(u.roleId))) || u.role || '']))
+}
+
+/** One membership's role, for display (`roleDisplay`): where a session names no person, its org is all it lists. */
+export async function roleDisplayOfMember(userId: unknown): Promise<string> {
+  const member = await User.findById(userId, { roleId: 1, role: 1 }).lean().exec()
+  return member ? ((await roleDisplaysOf([member as any])).get(String(member._id)) ?? '') : ''
 }
 
 /** The person's active memberships, with their orgs, in a stable order (org name). */
@@ -94,11 +111,12 @@ export async function membershipsOf(identityId: unknown): Promise<Membership[]> 
   const users = await User.find({ identityId, isActive: true }).exec()
   const orgs = await Org.find({ _id: { $in: users.map(u => u.orgId) } }, { name: 1, slug: 1, 'settings.environment': 1 }).lean().exec()
   const byId = new Map(orgs.map(o => [String(o._id), o]))
+  const roles = await roleDisplaysOf(users)
   return users
     .filter(u => byId.has(String(u.orgId)))
     .map(user => {
       const o = byId.get(String(user.orgId))!
-      return { user, org: { id: String(o._id), name: o.name, slug: o.slug, ...(o.settings?.environment ? { environment: o.settings.environment } : {}) } }
+      return { user, role: roles.get(String(user._id)) ?? '', org: { id: String(o._id), name: o.name, slug: o.slug, ...(o.settings?.environment ? { environment: o.settings.environment } : {}) } }
     })
     .sort((a, b) => a.org.name.localeCompare(b.org.name))
 }

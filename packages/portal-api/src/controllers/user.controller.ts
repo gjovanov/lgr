@@ -2,15 +2,12 @@ import { Elysia, t } from 'elysia'
 import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { publicUser, userDao, USER_PUBLIC_PROJECTION } from 'services/dao/user.dao'
-import { User, PermissionSet } from 'db/models'
+import { Role, User } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
-import { DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
+import { ROLES } from 'config/constants'
 import { createAuditEntry } from 'services/biz/audit-log.service'
-import { endSessionsOf, setsForRole } from 'services/biz/permission-set.service'
+import { endSessionsOf } from 'services/biz/permission-set.service'
 import { RoleRefusal, assertAssignable, assertNotLastAdministrator, assignRole, giveStartingRole, startingRoleOf } from 'services/biz/access/role.service'
-import { forgetMember } from 'services/biz/access/live'
-import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
-import { mongoose } from 'db/connection'
 
 import { allocateOperatorCode } from 'services/biz/sequence.service'
 import {
@@ -34,6 +31,18 @@ const refused = (err: unknown) =>
  * `sales` came to be assignable while granting no permissions.
  */
 const roleValues = ROLES.map(r => t.Literal(r))
+
+/**
+ * FR-27 P3-5 (#529): a legacy role key an API caller still names (`role`) is the built-in role of that key, given as a
+ * role is (by id, held to FR-27.8). The key itself is no longer written onto the person.
+ */
+async function builtinRoleId(orgId: string, key: string): Promise<string | null> {
+  const role = await Role.findOne({ orgId, isBuiltin: true, templateKey: key }, { _id: 1 }).lean().exec()
+  return role ? String(role._id) : null
+}
+
+/** FR-27 P3-5: the legacy sets and permissions cannot be written any more; refused, never dropped. */
+const LEGACY_FIELDS = { code: 'legacy_role_field', message: 'Give the person a role (roleId): permission sets and permissions are no longer written.' }
 
 export const userController = new Elysia({ prefix: '/org/:orgId/user' })
   .use(AuthService)
@@ -73,8 +82,14 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         const r = refused(new IdentityError('identity_exists'))!
         return status(r.status, r.body)
       }
-      // FR-27.3: a role named here must be one the admin may give, before anything is created.
-      const { roleId, ...fields } = body
+      // FR-27.3: a role named here must be one the admin may give, before anything is created. A legacy key names the
+      // built-in role of that key (FR-27 P3-5).
+      const { roleId: namedRoleId, role: legacyKey, ...fields } = body
+      if (namedRoleId && legacyKey) {
+        return status(422, { code: 'role_and_legacy', message: 'Send a role (roleId), or the legacy role: not both.' })
+      }
+      const roleId = namedRoleId ?? (legacyKey ? await builtinRoleId(orgId, legacyKey) : undefined)
+      if (legacyKey && !roleId) return status(422, { code: 'role_not_found', message: 'This organization has no built-in role of that key.' })
       if (roleId) {
         try {
           await assertAssignable(user as any, orgId, roleId)
@@ -85,7 +100,6 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       }
 
       const hashedPassword = await Bun.password.hash(body.password)
-      const role = body.role || 'member'
 
       let identity
       try {
@@ -118,17 +132,10 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
           email: normalizeEmail(body.email),
           password: hashedPassword, // the legacy copy, kept in step until it is retired
           identityId: identity._id,
-          role,
           operatorCode,
           orgId: orgId as unknown as import('mongoose').Types.ObjectId,
           isActive: true,
-          permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || [],
-          roleHistory: [{
-            role,
-            startDate: new Date(),
-            assignedBy: user.id,
-            assignedAt: new Date(),
-          }],
+          // FR-27 P3-5 (#529): no legacy role, sets or permissions. The role below opens the role history.
         })
       } catch (err) {
         await discardIdentity(identity._id)
@@ -137,7 +144,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'admin', entityType: 'user', entityId: String(created._id), entityName: `${body.firstName} ${body.lastName}` })
       if (roleId) await assignRole(user as any, orgId, String(created._id), roleId)
-      else await giveStartingRole(orgId, created._id, await startingRoleOf(orgId, { legacyRole: body.role }))
+      else await giveStartingRole(orgId, created._id, await startingRoleOf(orgId, {}), user.id)
 
       // Never echo the hash back — the same rule as the list (FR-11.3) and the `/:userId` routes.
       return { user: publicUser(created.toJSON() as Record<string, any>) }
@@ -153,8 +160,9 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         middleName: t.Optional(t.String()),
         lastName: t.String({ minLength: 1 }),
         position: t.Optional(t.String()),
+        // FR-27 P3-5: a legacy key names the built-in role of that key; it is not written.
         role: t.Optional(t.Union(roleValues)),
-        // FR-27.3: the person's role; it decides once the org is on `roles`, and writes `role` from its projection.
+        // FR-27.3: the person's role.
         roleId: t.Optional(t.String()),
       }),
     },
@@ -181,31 +189,28 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
 
       const updateData: Record<string, unknown> = { ...body }
       delete updateData.password // set below, from the identity edit's one hash
+      // FR-27 P3-5 (#529): nothing of the legacy model is written onto a person.
+      delete updateData.role
+      delete updateData.roleId
+      delete updateData.permissions
+      delete updateData.permissionSetIds
 
-      // Validate permissionSetIds if provided
-      if (body.permissionSetIds && body.permissionSetIds.length > 0) {
-        const validSets = await PermissionSet.find({
-          _id: { $in: body.permissionSetIds },
-          orgId,
-        }).lean().exec()
-        if (validSets.length !== body.permissionSetIds.length) {
-          return status(400, { message: 'One or more permission set IDs are invalid' })
-        }
+      if (body.permissions !== undefined || body.permissionSetIds !== undefined) return status(422, LEGACY_FIELDS)
+      if (body.roleId !== undefined && body.role) {
+        return status(422, { code: 'role_and_legacy', message: 'Send a role (roleId), or the legacy role: not both.' })
       }
-
       // FR-27.3: the person's one role. role.service holds it to FR-27.8 (not your own, nothing beyond your own,
-      // the Administrator's only an Administrator's, never the last Administrator's) and writes both models.
-      if (body.roleId !== undefined) {
-        if (body.role || body.permissions || body.permissionSetIds) {
-          return status(422, { code: 'role_and_legacy', message: 'Send a role (roleId), or the legacy role, sets and permissions: not both.' })
-        }
+      // the Administrator's only an Administrator's, never the last Administrator's). A legacy key names the built-in
+      // role of that key (FR-27 P3-5).
+      const roleId = body.roleId ?? (body.role ? await builtinRoleId(orgId, body.role) : undefined)
+      if (body.role && !roleId) return status(422, { code: 'role_not_found', message: 'This organization has no built-in role of that key.' })
+      if (roleId) {
         try {
-          await assignRole(user as any, orgId, userId, body.roleId)
+          await assignRole(user as any, orgId, userId, roleId)
         } catch (e) {
           if (e instanceof RoleRefusal) return status(e.status, e.body)
           throw e
         }
-        delete updateData.roleId
       }
       // The Users form's Active switch, turned off or on.
       const switchedOff = body.isActive === false && existing.isActive !== false
@@ -223,48 +228,8 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       // Switched on again: the date goes, so the next switching off is told from this one.
       if (body.isActive === true && existing.isActive === false) updateData.deactivatedAt = null
 
-      // ⚠ An admin may not change their OWN role. Now that the Users screen exposes the role
-      // select (it was rendered `disabled`, so this was unreachable), the single-admin org is
-      // one save away from having no admin at all — and no UI path back, since every route
-      // that could restore it is itself admin-only. Demotions go through another admin.
-      if (body.role && body.role !== existing.role && String(existing._id) === String(user.id)) {
-        return status(403, { message: 'You cannot change your own role' })
-      }
-
-      // Track role changes in roleHistory (Appendix 29 requirement)
-      if (body.role && body.role !== existing.role) {
-        const now = new Date()
-        const history = [...(existing.roleHistory || [])]
-
-        // Close the current role's period
-        const lastEntry = history.find(h => !h.endDate)
-        if (lastEntry) {
-          lastEntry.endDate = now
-        }
-
-        // Open new role period
-        history.push({
-          role: body.role,
-          startDate: now,
-          assignedBy: user.id as any,
-          assignedAt: now,
-        })
-        updateData.roleHistory = history
-
-        // Update permissions to match new role
-        updateData.permissions = DEFAULT_ROLE_PERMISSIONS[body.role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || existing.permissions
-        // FR-26.9.1: and the sets, which `tokenize()` prefers: the role's system set replaces the
-        // old one, custom sets stay.
-        updateData.permissionSetIds = await setsForRole(orgId, body.permissionSetIds ?? existing.permissionSetIds ?? [], body.role)
-      }
-
-      // FR-26.9.4: what the person may do changed, so the sessions they hold end within the minute.
-      const setsBefore = (existing.permissionSetIds ?? []).map(String).sort().join(',')
-      const setsAfter = updateData.permissionSetIds === undefined
-        ? setsBefore
-        : (updateData.permissionSetIds as unknown[]).map(String).sort().join(',')
-      const grantChanged = (!!body.role && body.role !== existing.role) || setsBefore !== setsAfter
-        || (body.permissions !== undefined && [...body.permissions].sort().join(',') !== [...(existing.permissions ?? [])].sort().join(','))
+      // ⚠ An admin may not change their OWN role (`assignRole` refuses it, `own_role`): the single-admin org would be
+      // one save away from having no admin at all. The role history (Appendix 29) is `assignRole`'s.
 
       // The person's own fields last, once every check above has passed: they may live on an
       // identity this org does not own (refused while the person is active in another org).
@@ -290,17 +255,9 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
 
       const updated = await userDao.updateInOrg(userId, orgId, updateData)
       if (!updated) return status(404, { message: 'User not found' })
-      // FR-27 P3-2: the role decides, so a change of the legacy role, sets or permissions moves the person to the role
-      // with exactly their new access, as migration 0015 gives one (the built-in role of the key, or an imported one).
-      // Without this the old screen would save and change nothing. P3-3 takes the legacy controls away.
-      if (grantChanged) {
-        await User.updateOne({ _id: userId, orgId }, { $unset: { roleId: 1 } }).exec()
-        await rolesFromSets.up({ db: mongoose.connection.db!, log: () => {}, orgFilter: { orgId: new mongoose.Types.ObjectId(orgId) } })
-        forgetMember(userId)
-      }
       if (body.isActive === true && existing.isActive === false) await adminActivated(existing, orgId)
-      // What the person may do changed, or they may do nothing here any more: the sessions they hold end.
-      if (grantChanged || switchedOff) await endSessionsOf(existing.identityId)
+      // They may do nothing here any more: the sessions they hold end. A change of role is live (FR-27.5).
+      if (switchedOff) await endSessionsOf(existing.identityId)
       // And this membership's own session, person or none: read afresh on its next request here.
       if (body.isActive !== undefined) forgetMembership(userId)
 
@@ -318,8 +275,10 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         middleName: t.Optional(t.String()),
         lastName: t.Optional(t.String()),
         position: t.Optional(t.String()),
+        // FR-27 P3-5: a legacy key names the built-in role of that key; it is not written.
         role: t.Optional(t.Union(roleValues)),
         isActive: t.Optional(t.Boolean()),
+        // FR-27 P3-5: declared only to be refused (422 `legacy_role_field`): a schema drops what it does not name.
         permissions: t.Optional(t.Array(t.String())),
         permissionSetIds: t.Optional(t.Array(t.String())),
         roleId: t.Optional(t.String()),

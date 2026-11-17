@@ -28,12 +28,15 @@ export const CAPABILITY_BY_TARGET: Record<ImportTarget, readonly CapabilityId[]>
   movement: ['movements.create'],
 }
 
-/** What the rule reads of a session: the claims of its token. */
+/** What the rule reads of a session: its role's grant (FR-27.5, attached by the auth plugins). */
 export interface ImportActor {
+  id?: string
+  orgId?: string
+  /** Legacy claims a test may still state; FR-27 P3-5: no session carries them, and nothing here reads them. */
   role?: string
   permissions?: readonly string[]
   areas?: readonly string[] | null
-  /** FR-27.5: an org on `roles`, the role's grant. */
+  /** FR-27.5: the role's grant. */
   access?: any
 }
 
@@ -46,19 +49,8 @@ export interface ImportActor {
  * invoices does, as before.
  */
 export function targetRefusal(user: ImportActor, target: ImportTarget) {
-  // FR-27.5: a role decides by its capabilities. Its token's permissions are its legacy projection, which may say
-  // less than the role (a role with bills but not sales documents has no `invoicing.write`).
-  if (user.access) {
-    const missing = (CAPABILITY_BY_TARGET[target] ?? []).filter(c => !can(user as any, c))
-    return missing.length ? { code: 'capability_required', capabilities: missing, message: 'Importing into this is not part of your role.' } : null
-  }
-  const permission = PERMISSION_BY_TARGET[target]
-  if (permission && !user.permissions?.includes(permission)) return { message: `Permission required: ${permission}` }
-  if ((target === 'sales_invoice' || target === 'cash_sale') && !can(user as any, 'sales-docs.import')) {
-    return { code: 'capability_required', capabilities: ['sales-docs.import'], message: 'Importing sales documents is not part of your role.' }
-  }
-  if (target === 'bill' && !can(user as any, 'bills.create')) {
-    return { code: 'area_required', area: 'purchases', message: 'Incoming documents are not part of your role.' }
-  }
-  return null
+  // FR-27.5: a role decides by its capabilities. FR-27 P3-5 (#529): every session is decided so; the token's legacy
+  // permissions are never read (it carries none).
+  const missing = (CAPABILITY_BY_TARGET[target] ?? []).filter(c => !can(user as any, c))
+  return missing.length ? { code: 'capability_required', capabilities: missing, message: 'Importing into this is not part of your role.' } : null
 }

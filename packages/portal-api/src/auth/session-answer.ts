@@ -1,6 +1,7 @@
 import { Identity, Org, type IIdentity, type IUser } from 'db/models'
 import { sessionFor, type SessionUser } from 'services/biz/auth.service'
 import { membershipsOf, type Membership } from 'services/biz/identity/session.service'
+import { accessAnswerFor } from 'services/biz/access/live'
 import { recordAuditEntry } from 'services/biz/audit-log.service'
 import { setSessionCookie, SESSION_TTL_SECONDS } from './session-cookie.js'
 
@@ -9,7 +10,7 @@ import { setSessionCookie, SESSION_TTL_SECONDS } from './session-cookie.js'
  * controllers so that "you are now in org X" means one thing wherever it is said.
  */
 
-/** What the org menu lists: the person's orgs, with their role in each and the current one marked. */
+/** What the org menu lists: the person's orgs, with their role in each (for display, `roleDisplay`) and the current one marked. */
 export function orgList(memberships: Membership[], currentOrgId?: string) {
   return memberships.map(m => ({
     orgId: m.org.id,
@@ -17,7 +18,7 @@ export function orgList(memberships: Membership[], currentOrgId?: string) {
     slug: m.org.slug,
     // The PROD / DEV badge the menu shows beside the name; absent for an org that has none.
     ...(m.org.environment ? { environment: m.org.environment } : {}),
-    role: m.user.role,
+    role: m.role ?? '',
     current: m.org.id === currentOrgId,
   }))
 }
@@ -109,5 +110,7 @@ export async function enterOrg(
     org: orgBrief({ ...(org ?? {}), _id: member.orgId }),
     orgs: orgList(await membershipsOf(identity._id), claims.orgId),
     needsOrgChoice: false,
+    // FR-27 P3-5 (#529): the token carries no grant; the SPA decides where it lands on this.
+    access: await accessAnswerFor(claims),
   }
 }

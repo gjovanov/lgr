@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia'
-import { can } from 'services/biz/access/evaluate'
+import { can, type AccessCaller } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import {
   listPermissionSets,
@@ -8,10 +8,8 @@ import {
   updatePermissionSet,
   deletePermissionSet,
   computeEffectivePermissions,
-  migrateToPermissionSets,
   getPermissionSetUserCounts,
 } from 'services/biz/permission-set.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { AREAS } from 'config/constants'
 
@@ -44,7 +42,7 @@ const ownRecordsSchema = t.Optional(
  * set to a person is `admin`'s alone (`user.controller`). So defining what a set grants is too:
  * `admin.settings` reads the sets and cannot change what they grant.
  */
-const mayWrite = (user: { role?: string; permissions?: readonly string[] }) => can(user, 'roles.edit')
+const mayWrite = (user: AccessCaller) => can(user, 'roles.edit')
 
 export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permission-sets' })
   .use(AuthService)
@@ -192,25 +190,10 @@ export const permissionSetController = new Elysia({ prefix: '/org/:orgId/permiss
     return { message: 'Permission set deleted' }
   }, { isSignIn: true })
 
-  // POST /migrate — migrate from old roles to permission sets
-  .post('/migrate', async ({ params: { orgId }, user, status }) => {
+  // POST /migrate — it put people on permission sets by their legacy role. FR-27 P3-5 (#529): nothing writes a
+  // person's sets any more, and the Migrate button went with P3-3: refused, never a 200 that changed nothing.
+  .post('/migrate', async ({ user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!mayWrite(user)) return status(403, { message: 'Admin only' })
-
-    // Ensure default sets exist first
-    await seedDefaultPermissionSets(orgId)
-
-    const result = await migrateToPermissionSets(orgId)
-
-    createAuditEntry({
-      orgId,
-      userId: user.id,
-      action: 'migrate',
-      module: 'admin',
-      entityType: 'permission_set',
-      entityId: orgId,
-      entityName: 'Role migration',
-    })
-
-    return { message: 'Migration complete', ...result }
+    return status(410, { code: 'legacy_model', message: 'Permission sets are no longer given to people: give them a role.' })
   }, { isSignIn: true })

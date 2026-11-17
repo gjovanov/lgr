@@ -5368,8 +5368,6 @@
       "people": "People",
       "builtin": "Built-in",
       "edited": "Edited",
-      "needsRelease": "Not all of it on older servers",
-      "needsReleaseHint": "A server on an older release, or the legacy model, gives this role's people less than it says, never more.",
       "administratorFixed": "The Administrator holds everything, including what a later release adds, and is not edited.",
       "unknownCaps": "Options this release no longer knows (not granted)",
       "extras": "Extras",

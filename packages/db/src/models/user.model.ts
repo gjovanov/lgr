@@ -10,7 +10,10 @@ export interface IOAuthProvider {
 }
 
 export interface IRoleHistoryEntry {
-  role: string
+  /** The legacy role key. FR-27 P3-5: no longer written; entries from before keep it. */
+  role?: string
+  /** FR-27 P3-5: the role given, by id. */
+  roleId?: Types.ObjectId
   /** FR-27.8: the role's name at the time (the key alone says nothing of a custom role). */
   roleName?: string
   startDate: Date
@@ -27,10 +30,12 @@ export interface IUser extends Document {
   firstName: string
   middleName?: string
   lastName: string
-  role: string
+  /** The legacy role key. FR-27 P3-5 (#529): no longer written; what a person may do is their role (`roleId`). */
+  role?: string
   operatorCode?: string
   position?: string
   roleHistory: IRoleHistoryEntry[]
+  /** Legacy (FR-26). FR-27 P3-5: no longer written; P3-7 archives it. */
   permissionSetIds?: Types.ObjectId[]
   /** FR-27.3 (#529): the person's one role in this org. Set by migration 0015; decides from FR-27 Phase 1's switch. */
   roleId?: Types.ObjectId
@@ -38,7 +43,8 @@ export interface IUser extends Document {
   avatar?: string
   isActive: boolean
   deactivatedAt?: Date
-  permissions: string[]
+  /** Legacy. FR-27 P3-5: no longer written; P3-7 archives it. */
+  permissions?: string[]
   preferences: {
     locale?: string
     theme?: string
@@ -63,12 +69,16 @@ const userSchema = new Schema<IUser>(
     firstName: { type: String, required: true },
     middleName: { type: String },
     lastName: { type: String, required: true },
-    role: { type: String, required: true, default: 'member' },
+    // FR-27 P3-5 (#529): the legacy role key, no longer written (no default: a new membership has none). Read only
+    // where a person from before has it; P3-7 archives it.
+    role: { type: String },
     operatorCode: { type: String },
     position: { type: String },
     roleHistory: [
       {
-        role: { type: String, required: true },
+        // The legacy key, on entries from before FR-27 P3-5. A new entry names the role by id and name.
+        role: String,
+        roleId: { type: Schema.Types.ObjectId, ref: 'Role' },
         roleName: String,
         startDate: { type: Date, required: true },
         endDate: Date,
@@ -76,12 +86,14 @@ const userSchema = new Schema<IUser>(
         assignedAt: { type: Date, required: true },
       },
     ],
-    permissionSetIds: [{ type: Schema.Types.ObjectId, ref: 'PermissionSet' }],
+    // FR-27 P3-5: legacy, no longer written. `default: undefined`, or every new membership would carry `[]`.
+    permissionSetIds: { type: [{ type: Schema.Types.ObjectId, ref: 'PermissionSet' }], default: undefined },
     roleId: { type: Schema.Types.ObjectId, ref: 'Role' },
     avatar: String,
     isActive: { type: Boolean, default: true },
     deactivatedAt: Date,
-    permissions: [{ type: String }],
+    // FR-27 P3-5: legacy, no longer written (as `permissionSetIds`).
+    permissions: { type: [{ type: String }], default: undefined },
     preferences: {
       locale: String,
       theme: String,
