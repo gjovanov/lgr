@@ -147,9 +147,11 @@ describe('and cannot change what a set grants', () => {
     expect((await setRow(deputySetId)).isAdmin).toBe(false)
   })
 
-  it('the session they sign in with next is what it was', async () => {
+  it('the session they sign in with next is what it was: the same role (FR-27 P3-5: no permissions in the token)', async () => {
+    const before: any = await User.findById(deputyId, { roleId: 1 }).lean().exec()
     const reissued = await tokenize((await User.findById(deputyId).exec()) as any)
-    expect([...reissued.permissions].sort()).toEqual(['admin.settings', 'invoicing.read'])
+    expect(reissued.rid).toBe(String(before.roleId))
+    expect('permissions' in reissued).toBe(false)
   })
 })
 
@@ -176,7 +178,8 @@ describe('an administrator writes them as before', () => {
     expect(await setRow(id)).toBeNull()
   })
 
-  it('migrate is theirs too', async () => {
-    expect((await call('POST', sets('/migrate'), tokens.admin)).status).toBe(200)
+  it('migrate writes nothing any more (FR-27 P3-5): 410, a person is given a role', async () => {
+    const res = await call('POST', sets('/migrate'), tokens.admin)
+    expect({ status: res.status, code: res.json?.code }).toEqual({ status: 410, code: 'legacy_model' })
   })
 })

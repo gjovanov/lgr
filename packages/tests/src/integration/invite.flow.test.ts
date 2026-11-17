@@ -44,7 +44,8 @@ describe('Invite Flow', () => {
     expect(invite.status).toBe('active')
     expect(invite.maxUses).toBe(10)
     expect(invite.useCount).toBe(0)
-    expect(invite.assignRole).toBe('member')
+    // FR-27 P3-5: no legacy key is written; naming no role is the org's default role, else the built-in Member.
+    expect(invite.assignRole).toBeUndefined()
     expect(invite.expiresAt).toBeDefined()
   })
 
@@ -145,7 +146,8 @@ describe('Invite Flow', () => {
       inviteCode: invite.code,
     })
 
-    expect(result.user.role).toBe('member')
+    // FR-27 P3-5: no legacy key is written (the role, below).
+    expect(((await User.findById(result.user._id).lean()) as any).role).toBeUndefined()
     expect(String(result.user.orgId)).toBe(String(org._id))
     expect(String(result.org._id)).toBe(String(org._id))
 

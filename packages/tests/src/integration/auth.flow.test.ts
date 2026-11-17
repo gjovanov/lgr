@@ -43,7 +43,7 @@ describe('Auth Flow: Register -> Login -> Access', () => {
     expect(result.user).toBeDefined()
     // FR-27 P3-5 (#529): the founder holds the Administrator role, and no legacy role key is written.
     const admin: any = await Role.findOne({ orgId: result.org._id, isBuiltin: true, templateKey: 'admin' }).lean()
-    expect(String(result.user.roleId)).toBe(String(admin._id))
+    expect(String(((await User.findById(result.user._id).lean()) as any).roleId)).toBe(String(admin._id))
     expect(result.user.role).toBeUndefined()
     expect(result.user.email).toBe('admin@test.com')
     expect(String(result.user.orgId)).toBe(String(result.org._id))
