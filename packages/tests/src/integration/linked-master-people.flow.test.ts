@@ -6,7 +6,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { config } from 'config'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
-import { createTestOrg, createTestUser } from '../helpers/factories'
+import { createTestOrg, createTestUser, roleKeyOf } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { Identity, User } from 'db/models'
 import { forgetAllHomes, homeNewOrg } from 'db/home/home'
@@ -84,7 +84,8 @@ describe('a linked master', () => {
     // The membership is the master's: a role change, with the person's fields sent back unchanged.
     const role = await edit({ role: 'manager', firstName: 'Boris', lastName: 'Shop', email: m.clerk.identity.email })
     expect(role.status).toBe(200)
-    expect(((await User.findById(m.clerk.member._id).lean()) as any).role).toBe('manager')
+    // FR-27 P3-5: the built-in role of that key, by id; the legacy key is not written.
+    expect(await roleKeyOf(m.clerk.member._id)).toBe('manager')
 
     const own = await call(m.app, 'POST', '/api/auth/password', m.session, { currentPassword: GLOBAL_PW, newPassword: 'another-password-456' })
     expect([own.status, (await own.json()).code]).toEqual([409, 'edit_on_lgrai'])
