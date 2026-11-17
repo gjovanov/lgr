@@ -1982,6 +1982,9 @@
       "link": "Link to the dispatch",
       "issueAnyway": "Other goods: issue anyway",
       "notIssued": "it may be for goods a dispatch already delivered, and the question was not answered"
+    },
+    "lineRefusal": {
+      "short": "Not enough stock: {available} available, {requested} needed"
     }
   },
   "pos": {
