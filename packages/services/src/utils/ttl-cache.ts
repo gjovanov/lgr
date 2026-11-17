@@ -18,7 +18,8 @@ export function ttlCache<V>(ttlMs: number, now: () => number = Date.now): TtlCac
       if (hit && now() - hit.at < ttlMs) return hit.value
       const value = load()
       kept.set(key, { at: now(), value })
-      value.catch(() => { if (kept.get(key)?.value === value) kept.delete(key) })
+      // The caller gets the rejection from the promise returned below; this branch only forgets the failed read.
+      value.catch((_err: unknown) => { if (kept.get(key)?.value === value) kept.delete(key) })
       return value
     },
     forget(key) {

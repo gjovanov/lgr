@@ -34,6 +34,7 @@ let warehouses: mongoose.Types.ObjectId[] = []
 let parentCategory: mongoose.Types.ObjectId
 let childCategory: mongoose.Types.ObjectId
 let someProduct: mongoose.Types.ObjectId
+let productOutsideChild: mongoose.Types.ObjectId
 
 async function profiled(collection: string, run: () => Promise<unknown>): Promise<any[]> {
   await db().command({ profile: 0 })
@@ -64,7 +65,10 @@ beforeAll(async () => {
     categoryId: i % 3 === 0 ? childCategory : i % 3 === 1 ? parentCategory : undefined,
     minStockLevel: i % 4 === 0 ? 20 : undefined,
   }))
-  someProduct = products[7]!._id
+  // An article in the child category (i % 3 === 0) with stock, so the article-and-category set has rows; the next one is
+  // in the parent category, outside the child.
+  someProduct = products[6]!._id
+  productOutsideChild = products[7]!._id
   for (let k = 0; k < products.length; k += 5000) await Product.collection.insertMany(products.slice(k, k + 5000) as any[])
   // Each article in the three warehouses: distinct values, so every order has one answer.
   const levels = products.flatMap((p, i) => warehouses.map((w, k) => {
@@ -125,6 +129,14 @@ describe('FR-30.14: the stock-levels report limits before it joins', () => {
       })
     }
   }
+
+  it('an article outside the category returns no rows, as before', async () => {
+    const ctx = { orgId, params: { categoryId: String(childCategory), productId: String(productOutsideChild) }, output: 'table' }
+    const [now, was] = [await runStockLevels(ctx as any), await legacyRunStockLevels(ctx as any)]
+    expect(was.rows).toHaveLength(0)
+    expect(now.rows).toHaveLength(0)
+    expect(now.totals).toEqual(was.totals)
+  })
 
   it('without a filter that needs the article, the articles and warehouses joined are the page\'s only', async () => {
     const ctx = { orgId, params: {}, output: 'table' }
