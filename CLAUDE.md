@@ -1579,6 +1579,15 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
 - Each key says how it is served: `index` (by name; `integration/list-plans.flow.test.ts` asserts from the profiler
   that the page reads at most five pages with no in-memory sort), `scan` (reads the filtered rows, with a reason) or
   `aggregate`. ⚠ A new `scan` key fails that test until it is added to its list there: it is a decision.
+- ⚠ **`_id` is a key of every list** (2026-11-17), and no grid offers it. The import and audit tooling reads a
+  whole list in pages with `sortBy=_id&sortOrder=asc` (`fetchAll` in `scripts/compare-stock-api.ts`,
+  `.claude/skills/daily-import/predict.ts` and seven more), because pages need an order with no ties: rows whose
+  sort keys are equal can come in another order for another skip, so a page repeats a row and leaves another out,
+  and the reader's loop just ends. The first version of the table answered the id with the list's default sort (a
+  name, a batch's insert moment, a movement's day: all with ties). `unit/list-sorts.test.ts` holds every `sortBy`
+  the scripts and skills send to the table, so a key taken out of it, or a script asking for a new one, fails there.
+  It holds their page sizes too: none above the ceiling below, none `size <= 0`. A script reads one answer and never
+  looks at `truncated`, so "everything" in one request would be the first 1 000 rows, silently.
 - ⚠ A list's default sort is an index's: `Product { orgId, createdAt }` / `{ orgId, name }`, `Invoice { orgId,
   direction, createdAt }` / `{ orgId, direction, invoiceNumber }`, `StockLevel { orgId, createdAt }`,
   `StockMovement { orgId, date }` / `{ orgId, createdAt }`. What is left in a list's time is its `countDocuments`.
