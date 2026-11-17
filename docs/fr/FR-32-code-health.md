@@ -412,3 +412,16 @@ Most of this FR is proven by CI, not in production.
     - `movement-number`, `product-ledger` and `warehouse.flow` number their fixtures through `biz/movement-number#nextMovementNumber`, which the deleted DAO method called;
     - `tasks-ws.flow` lost the `notification` assertions;
     - `module-manifests` asserts that no route carries a breadcrumb.
+
+### Slice C
+
+- **FR-32.14** shipped first, by itself (#799).
+- **FR-32.15, .16, .17** (`feat/797-fr32-c-entity-types`):
+  - **Entity types from the model.** `dal/entity-of.ts#EntityOf` and `Plain` derive an entity from its model's interface. They map `ObjectId` to string, add `id` and the stamps, and drop Mongoose's own keys, as `toEntity` does at run time.
+    - The invoice is the first entity: `IInvoice` and its lines, payments, price steps, addresses and cash-sale ref are now `Plain<…>` of `db/models/invoice.model.ts`, where `dal` restated 43 fields by hand.
+    - `unit/entity-types.test.ts` compiles a probe. The entity has every field of the model, a field added to a model reaches its entity as a plain value, and a planted wrong type fails.
+    - The other models follow as they are touched (the order and the movement next), each the same three lines.
+  - **Ratchets** (`unit/code-ratchets.test.ts`):
+    - direct model calls in the API packages' controllers, 272;
+    - `as any` outside the tests, 2 183 (2 173 at the audit);
+    - each file that uses the raw driver listed with its reason, and a new one fails until it is listed. Ten are listed with their reason still to be named.
