@@ -460,3 +460,15 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
   `unit/failures-said.test.ts`; `e2e/failures-said.spec.ts` issues a two-line draft whose second line nothing can
   cover. *Decision:* only the document form's issue marks lines. The movement form's refusals are about the movement
   (a warehouse, the supplier), not a line, and a save refusal of the document form names no line.
+- **A4** (FR-31.10): the five pickers of §1.4 find what is past the first ten.
+  - Payment order, contact: `ContactAutocompleteWithCreate` on `useContactSearch`, the document forms' picker.
+  - Payment order, bank account, and cash order, cash and counter account: every row (`size: 0`), as the accounting
+    store's `fetchAccounts()` asks.
+  - Payment order, unpaid invoices: the chosen contact's (any contact's until one is chosen), 50 at a time, searched
+    by number on the server through a field above the table; the ones the order names stay listed.
+  - Timesheet, employee: an autocomplete searched on the server, 20 at a time; the timesheet's own employee is fetched
+    by id.
+  - `e2e/payment-orders.spec.ts` makes eleven contacts, the one to pay first, and pays it with its own invoice (another
+    contact's invoice is not offered); a cash order offers the last account of the seeded chart of 35.
+  - *Decision:* the unpaid invoices are not narrowed by the order's direction: they never were, and an order may
+    settle either side.
