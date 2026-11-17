@@ -32,6 +32,7 @@ import { useDocumentIssue } from '../useDocumentIssue'
 import { receiptRefusalKey, receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { canRecordPayment } from '../document-row-actions'
 import { receiptOverlapOf, type ReceiptOverlap } from '../receipt-overlap'
+import { takeHandedDocument } from './document-preread'
 import {
   buildPayload as buildPayloadPure,
   buildProductUpdates,
@@ -1799,6 +1800,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         ...(config.contactFetchParams || {}),
         size: 20,
         prefer: config.direction === 'incoming' ? 'supplier' : 'customer',
+        // FR-30.7: the picker's rows: the party block's addresses and tax numbers, without the notes and mirrors.
+        fields: 'list',
       }
       if (search) params.search = search
       const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params })
@@ -1931,6 +1934,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       resolvedPrice: l.unitPrice || undefined,
       productUpdate: {},
       priceTiers: [],
+      // FR-30.10: the article's name as the document's read gave it, so the line reads no article to show it. It names
+      // its article only while the line still holds that article (`ProductLineDescription#known`).
+      ...(l.productId && typeof l.productName === 'string' ? { knownProduct: { id: String(l.productId), name: l.productName } } : {}),
       // Marks the line as loaded from a persisted document — the price combobox must
       // not overwrite its historical price with the currently-resolved one.
       loaded: true,
@@ -1945,7 +1951,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   async function loadDocument(): Promise<boolean> {
     feedback.loadStarted()
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)
+      // FR-30.10: what the view read to choose this form, when it did; else the document is read here.
+      const id = String(route.params.id)
+      const data = takeHandedDocument(id) ?? (await httpClient.get(`${orgUrl()}/invoices/${id}`)).data
       const inv = data.invoice
       // What was just loaded is the clean state (FR-22.13, FR-31.2), with whatever it awaits: the contact, a bill's
       // seeded lines. An edit made while it loaded stays an edit. After a save that stays on the document (FR-22.16)

@@ -433,6 +433,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   entityKey: 'stockMovements',
   filters,
   urlSync: true,
+  // FR-30.7: rows, not whole documents.
+  listFields: true,
 })
 
 const showImportDialog = ref(false)

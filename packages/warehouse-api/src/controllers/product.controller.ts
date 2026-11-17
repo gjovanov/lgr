@@ -10,6 +10,7 @@ import { grantOf } from 'services/biz/access/evaluate'
 import { keepStoredCosts, redactProduct, redactProducts } from 'config/access'
 import { PRODUCT_TARIFF_CODE_MAX } from 'config/constants'
 import { LIST_SORTS, chooseListSort } from 'config/list-sorts'
+import { listProjection } from 'config/list-rows'
 
 /** What an article is (`PRODUCT_TYPES`). One list for the create and the update route. */
 const PRODUCT_TYPE = t.Union([
@@ -43,11 +44,13 @@ export const productController = new Elysia({ prefix: '/org/:orgId/warehouse/pro
     const tier = tierForSortKey(chosen.key)
     const stockColumn = stockColumnForSortKey(chosen.key)
     const plain = LIST_SORTS.products.keys[chosen.key] ? chosen : chooseListSort('products', undefined, undefined)
+    // FR-30.7: `fields=list` (the grid, the pickers) answers rows: a slot's name and price, not its filters.
+    const select = listProjection('products', query.fields)
     const result = tier
-      ? await findProductsByTierPrice(r.products, filter, tier, sortOrder, page, size)
+      ? await findProductsByTierPrice(r.products, filter, tier, sortOrder, page, size, select)
       : stockColumn
-        ? await findProductsByStockColumn(r.products, orgId, filter, stockColumn, (query.warehouseId as string) || undefined, sortOrder, page, size)
-        : await r.products.findAll(filter, { page, size, sort: { [plain.field]: plain.order } })
+        ? await findProductsByStockColumn(r.products, orgId, filter, stockColumn, (query.warehouseId as string) || undefined, sortOrder, page, size, select)
+        : await r.products.findAll(filter, { page, size, sort: { [plain.field]: plain.order } }, { select })
     // FR-27.6: the cost figures only for a role that holds `products.costs`; absent, not blanked.
     const items = redactProducts(grantOf(user as any), result.items as any[])
     return { ...result, products: items, items }

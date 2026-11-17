@@ -3,6 +3,7 @@ import { can, grantOf } from 'services/biz/access/evaluate'
 import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, writesKind } from 'config/access'
 import { QUOTE_CONVERTS_TO, isQuoteType } from 'config/constants'
 import { chooseListSort } from 'config/list-sorts'
+import { listProjection } from 'config/list-rows'
 import { keepStoredTrails, withVisibleTrails } from 'services/biz/access/price-trails'
 import { typedPriceRefusal, withArticleUnits } from 'services/biz/sales-lines'
 import { Elysia, t } from 'elysia'
@@ -347,6 +348,23 @@ function stockFailureAnswer(e: IssueStockError, otherwise: number | null): [numb
 // Produce a viewable history when legacy rows have no statusHistory yet, using
 // the known status-change timestamps (createdAt, sentAt, paidAt). Read-only synthesis —
 // does not persist.
+/**
+ * FR-30.10: a document's lines with their article's name and SKU (`productName`, `productSku`), read in one query. A
+ * line whose article is gone gets empty ones, as the form showed when its read of the article failed.
+ */
+async function withLineArticles(orgId: string, lines: any[] | undefined): Promise<any[] | undefined> {
+  if (!Array.isArray(lines) || !lines.length) return undefined
+  const ids = [...new Set(lines.map((l) => (l?.productId ? String(l.productId) : '')).filter(Boolean))]
+  if (!ids.length) return undefined
+  const products = await getRepos().products.findMany({ orgId, id: { $in: ids } }, undefined, { select: ['name', 'sku'] })
+  const byId = new Map(products.map((p: any) => [String(p.id), p]))
+  return lines.map((l) => {
+    if (!l?.productId) return l
+    const p: any = byId.get(String(l.productId))
+    return { ...l, productName: p?.name ?? '', productSku: p?.sku ?? '' }
+  })
+}
+
 function synthesizeStatusHistory(invoice: any): any[] {
   if (Array.isArray(invoice.statusHistory) && invoice.statusHistory.length > 0) {
     return invoice.statusHistory
@@ -646,7 +664,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           lastName: 'lastNameLower',
         },
       })
-      const matchingContacts = await r.contacts.findMany({ orgId, ...contactFilter } as any)
+      // Their ids only: the search read every matching contact whole (FR-30.7).
+      const matchingContacts = await r.contacts.findMany({ orgId, ...contactFilter } as any, undefined, { select: ['id'] })
       const contactIds = matchingContacts.map((c: any) => c.id || c._id)
 
       if (contactIds.length > 0 && invoiceFilter.$or) {
@@ -712,7 +731,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // FR-30.2: a sort the list declares (`config/list-sorts`: the № column is `invoiceNumber`), else the newest first.
     const sort = chooseListSort('invoices', query.sortBy, query.sortOrder)
 
-    const result = await r.invoices.findAll(filter, { page, size, sort: { [sort.field]: sort.order } })
+    // FR-30.7: `fields=list` (the grids) answers rows, without the lines; without it, the whole document as before.
+    const result = await r.invoices.findAll(filter, { page, size, sort: { [sort.field]: sort.order } }, { select: listProjection('invoices', query.fields) })
 
     // #171: a cash sale lists the invoices issued for it (the link lives only on the invoices).
     const cashSaleIds = result.items.filter((i: any) => i.type === 'cash_sale').map((i: any) => String(i.id))
@@ -732,8 +752,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     }
 
     const [contacts, relatedInvoices] = await Promise.all([
-      contactIds.size > 0 ? r.contacts.findMany({ orgId, id: { $in: [...contactIds] } } as any) : [],
-      relatedInvoiceIds.size > 0 ? r.invoices.findMany({ orgId, id: { $in: [...relatedInvoiceIds] } } as any) : [],
+      // What the rows take of them, and no more (FR-30.7): a related document was read with its lines.
+      contactIds.size > 0 ? r.contacts.findMany({ orgId, id: { $in: [...contactIds] } } as any, undefined, { select: ['companyName', 'firstName', 'lastName', 'email'] }) : [],
+      relatedInvoiceIds.size > 0 ? r.invoices.findMany({ orgId, id: { $in: [...relatedInvoiceIds] } } as any, undefined, { select: ['invoiceNumber', 'type'] }) : [],
     ])
 
     const contactMap = new Map(contacts.map(c => [c.id, c]))
@@ -1242,10 +1263,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (invoice.contactId) {
       contact = await r.contacts.findByIdInOrg(String(invoice.contactId), orgId)
     }
+    // FR-30.10: each line names its article, so the form reads no article per line to show it (30 reads for 30 lines).
+    const lines = await withLineArticles(orgId, invoice.lines)
 
     return {
       invoice: {
         ...invoice,
+        ...(lines ? { lines } : {}),
         // FR-22.31: a bill made from goods receipts links them, and its form compares its prices
         // with what they were received at.
         ...(isReceiptLinked(invoice) ? { receipts: await linkedReceiptsOf(orgId, invoice) } : {}),

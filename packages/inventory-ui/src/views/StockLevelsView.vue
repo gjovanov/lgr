@@ -143,6 +143,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   entityKey: 'stockLevels',
   filters,
   urlSync: true,
+  // FR-30.7: rows, not whole documents.
+  listFields: true,
 })
 
 // FR-30.2: a sort only on a column the list's server sorts by (`config/list-sorts`).

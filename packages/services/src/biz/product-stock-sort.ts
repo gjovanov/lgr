@@ -1,6 +1,6 @@
 import { mongoose } from 'db/connection'
 import { Order, StockLevel } from 'db/models'
-import type { Filter, IBatchRepository, IProduct, PageResult } from 'dal'
+import type { Filter, IBatchRepository, IProduct, PageResult, Projection } from 'dal'
 import { getProductsSupplyTotals } from './product-supply.service.js'
 import { ORDER_HOLDING_STATUSES } from './reservation.service.js'
 import { findPageSortedByKeys } from './sorted-page.js'
@@ -69,7 +69,8 @@ export async function findProductsByStockColumn(
   order: 1 | -1,
   page: number,
   size: number,
+  select?: Projection,
 ): Promise<PageResult<IProduct>> {
   const figures = await columnFigures(orgId, column, warehouseId)
-  return findPageSortedByKeys(products, filter, figures, order, page, size, 'name')
+  return findPageSortedByKeys(products, filter, figures, order, page, size, 'name', select)
 }

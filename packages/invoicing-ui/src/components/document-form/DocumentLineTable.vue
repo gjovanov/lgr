@@ -161,6 +161,7 @@
               <ProductLineDescription
                 :description="line.description"
                 :product-id="line.productId"
+                :known="line.knownProduct"
                 :price-field="config.priceField"
                 :allow-create="!!config.allowCreateProduct"
                 :stock-warehouse-id="docWarehouseId"
