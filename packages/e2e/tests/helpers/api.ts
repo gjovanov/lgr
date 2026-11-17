@@ -35,6 +35,14 @@ export async function apiPost(session: ApiSession, path: string, body: unknown):
   })
 }
 
+export async function apiPut(session: ApiSession, path: string, body: unknown): Promise<Response> {
+  return fetch(`${API}/api/org/${session.orgId}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+    body: JSON.stringify(body),
+  })
+}
+
 export async function apiDelete(session: ApiSession, path: string): Promise<Response> {
   return fetch(`${API}/api/org/${session.orgId}${path}`, {
     method: 'DELETE',
