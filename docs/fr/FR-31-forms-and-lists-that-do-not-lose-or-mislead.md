@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-16. Nothing is built. The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-16. Being built slice by slice: §11 says what is done. The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | FR-05 (a list's state in the address), FR-22 (`EntityFormShell`, `RowActionsMenu`, the walks and their click budgets, `createIdempotentAction`), FR-28 (server-searched pickers, `useContactSearch`, the product list engine), FR-06 (the Reports entries three inventory lists link to), #737 (`DecimalField`), the coded refusals of `stock-refusals` |
 | **Touches** | `ui-shared` (`usePendingChanges`, `usePaginatedTable`, `useSnackbar`, `useHttpClient`, `EntityFormShell`, `ListScaffold`, `PriceCombobox`, `DecimalField`, one formatter, one confirm dialog), `ui-shell` (top bar, app switcher), `invoicing-ui`, `inventory-ui`, `accounting-ui`, `payroll-ui`, `portal-ui` (forms, lists, pickers), one small lookup endpoint, `tests` and `e2e` |
 | **Tracking** | [gjovanov/lgr#796](https://github.com/gjovanov/lgr/issues/796) |
@@ -442,4 +442,21 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
 
 ## 11. Build log
 
-Nothing is built yet.
+- **A1** (#805): `markSaved()` retakes the clean state and keeps guarding; the clean state is taken when the load
+  resolves (`markLoaded`), with no timer; an edit made during the load stays an edit. Unit tests for the guard and the
+  composables of FR-31.3; `e2e/unsaved-after-save.spec.ts` on the eight forms.
+- **A2** (#810): `ui-shared/composables/latest-only.ts#latestOnly` in the line search, `usePaginatedTable`, the
+  movements list's product filter and `PriceCombobox`; the price lookup waits 250 ms after the quantity's last change
+  and runs at once on leaving the field or saving. `e2e/late-search-answer.spec.ts`.
+- **A3** (#812): `EntityFormShell`'s load-error state (not found, not allowed, could not be loaded; Back and Retry);
+  a list's `loadError` with Retry; a refusal stays at the top of the form (`useFormFeedback`) and on the message line
+  until closed; messages queue; every coded answer is translated. `e2e/failures-said.spec.ts`.
+- **A3, the line** (FR-31.8's "a refusal about a line is marked there"): a refused issue marks the lines it is about.
+  The stock check's shortfalls (the transfer dialog closed without confirming) name the article and the warehouse; a
+  cost-layer refusal of `/send` (FR-29.6) names the article by name only. Each such line says "Not enough stock:
+  N available, M needed" under its description, with a red edge. The mark goes with the refusal at the top (closed,
+  or the next attempt), and from a line whose article, warehouse or quantity has changed since. Pure parts in
+  `invoicing-ui/composables/document-issue.ts` (`shortagesOfCheck`, `shortagesOfRefusal`, `shortageMatches`), tested in
+  `unit/failures-said.test.ts`; `e2e/failures-said.spec.ts` issues a two-line draft whose second line nothing can
+  cover. *Decision:* only the document form's issue marks lines. The movement form's refusals are about the movement
+  (a warehouse, the supplier), not a line, and a save refusal of the document form names no line.

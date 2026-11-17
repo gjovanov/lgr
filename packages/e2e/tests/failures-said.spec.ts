@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { apiLogin, apiPost } from './helpers/api'
+import { activeContact, apiGet, apiLogin, apiPost } from './helpers/api'
+import { answerIssuePayment } from './helpers/document-form'
 
 /**
  * FR-31.6 to .8 (#796): a failure is said on the screen, and stays.
@@ -131,6 +132,55 @@ test.describe('a refusal stays (FR-31.8)', () => {
     refuse = false
     await saveButtons(page).first().click()
     await expect(refusal).toHaveCount(0)
+  })
+
+  test('a refused issue names the line it is about, until that line changes', async ({ page }) => {
+    const api = await apiLogin()
+    const customer = await activeContact(api, 'customer')
+    const { warehouses } = await apiGet(api, '/warehouse/warehouse?size=50')
+    const wh = warehouses.find((w: any) => w.code === 'WH-01') || warehouses[0]
+    const warehouseId = String(wh.id || wh._id)
+    const { products } = await apiGet(api, `/trade/pos/catalog?warehouseId=${warehouseId}&type=goods&size=1`)
+    expect(customer && products?.length, 'an active customer and an article — is the DB seeded?').toBeTruthy()
+    const p = products[0]
+    const res = await apiPost(api, '/invoices', {
+      type: 'invoice', direction: 'outgoing', contactId: customer.id || customer._id,
+      issueDate: new Date().toISOString().slice(0, 10), currency: 'EUR',
+      lines: [
+        // A service line first: the refusal is about the second line only.
+        { description: `E2E service ${Date.now()}`, unit: 'pcs', quantity: 1, unitPrice: 1, discount: 0, taxRate: 20 },
+        { productId: p.productId, warehouseId, description: p.productName, unit: p.unit || 'pcs', quantity: 999999, unitPrice: 1, discount: 0, taxRate: p.taxRate || 0 },
+      ],
+      subtotal: 1000000, taxTotal: 0, total: 1000000,
+    })
+    expect(res.ok, `draft → ${res.status}`).toBe(true)
+    const draft = (await res.json()).invoice
+
+    await loginForApp(page)
+    await page.goto(`/invoicing/invoices/${draft.id || draft._id}/edit`)
+    await page.locator('[data-action="issue"]').first().getByRole('button').click()
+    await answerIssuePayment(page)
+    // Nothing holds 999,999: the transfer dialog cannot cover it, and is closed without confirming.
+    const dialog = page.locator('.v-dialog').filter({ hasText: /Stock Transfer Required/i })
+    await expect(dialog).toBeVisible({ timeout: 10000 })
+    await dialog.getByRole('button', { name: /cancel/i }).click()
+    await expect(dialog).toBeHidden()
+
+    await expect(page.getByTestId('issue-error')).toBeVisible()
+    const rows = page.locator('.line-table tbody tr')
+    const marked = page.getByTestId('line-refusal')
+    await expect(marked).toHaveCount(1)
+    await expect(rows.nth(1).getByTestId('line-refusal')).toContainText(/not enough stock/i)
+    await expect(rows.nth(1).getByTestId('line-refusal')).toContainText('999999')
+    await expect(rows.nth(0).getByTestId('line-refusal')).toHaveCount(0)
+    // Still there after the toasts would have gone.
+    await page.waitForTimeout(6000)
+    await expect(marked).toHaveCount(1)
+
+    // A new quantity on that line: what was refused is no longer what the line says.
+    const qty = rows.nth(1).locator('td').nth(2).locator('input')
+    await qty.fill('1')
+    await expect(marked).toHaveCount(0)
   })
 
   test('an error message outside a form stays until it is closed', async ({ page }) => {

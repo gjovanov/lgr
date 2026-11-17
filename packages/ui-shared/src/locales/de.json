@@ -2552,6 +2552,9 @@
       "link": "Mit dem Warenausgang verknüpfen",
       "issueAnyway": "Andere Ware: trotzdem ausstellen",
       "notIssued": "sie betrifft vielleicht Ware, die ein Warenausgang schon geliefert hat, und die Frage blieb unbeantwortet"
+    },
+    "lineRefusal": {
+      "short": "Nicht genug Bestand: {available} verfügbar, {requested} benötigt"
     }
   },
   "warehouse": {
