@@ -36,6 +36,7 @@
         />
 
         <GridColumnPickerDialog
+          v-if="colDialogOpen"
           v-model="colDialogOpen"
           :entries="colEntries"
           @toggle="toggleCol"
@@ -103,14 +104,15 @@
 
 <script setup lang="ts">
 import { intlLocale } from '../format/format'
-import { computed, nextTick, ref, toRef, watch } from 'vue'
+import { computed, nextTick, ref, toRef, watch, defineAsyncComponent } from 'vue'
 import { useGridColumns } from '../composables/useGridColumns'
 import { useProductList } from '../composables/product-list/useProductList'
 import { useProductColumns, PRODUCT_CELL_KEYS } from '../composables/product-list/useProductColumns'
 import ProductFilterBar from './product-list/ProductFilterBar.vue'
 import ProductCell from './product-list/ProductCell.vue'
-import GridColumnPickerDialog from './GridColumnPickerDialog.vue'
 import { pageSizeOptions } from '../composables/page-sizes'
+// FR-30.23: the drag library comes with the picker, when it opens, and not with the screen.
+const GridColumnPickerDialog = defineAsyncComponent(() => import('./GridColumnPickerDialog.vue'))
 
 /**
  * FR-28.23 — the product dialog is the Products list in a window ("Details").
