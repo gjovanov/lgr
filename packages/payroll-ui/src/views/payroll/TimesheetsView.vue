@@ -4,7 +4,6 @@
       <h1 class="text-h4">{{ $t('payroll.timesheets') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <ExportMenu @export="handleExport" />
         <responsive-btn v-cap="'payroll-people.edit'" icon="mdi-plus" color="primary" :to="{ name: 'payroll.timesheets.new' }">
           {{ $t('common.create') }}
         </responsive-btn>
@@ -61,7 +60,6 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 
@@ -109,7 +107,6 @@ function statusColor(status: string) {
   return colors[status] || 'grey'
 }
 
-function handleExport(format: string) { /* TODO */ }
 
 onMounted(() => fetchItems())
 </script>

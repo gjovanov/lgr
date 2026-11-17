@@ -4,7 +4,6 @@
       <h1 class="text-h5">{{ $t('accounting.reconciliation') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <export-menu module="accounting" />
         <!-- #675: the bank's lines come from a statement file, or are entered by hand where there is none. -->
         <v-btn
           v-cap="['reconciliation.create', 'reconciliation.edit']"
@@ -229,7 +228,6 @@ import { useAccountingStore } from '../../store/accounting.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 
 interface RecTxn {
   _id: string

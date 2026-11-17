@@ -4,7 +4,6 @@
       <h1 class="text-h5">{{ $t('accounting.bankAccounts') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <export-menu module="accounting" />
         <responsive-btn v-cap="'bank-accounts.create'" color="primary" icon="mdi-plus" @click="router.push({ name: 'accounting.bank-account-new' })">
           {{ $t('common.add') }}
         </responsive-btn>
@@ -97,7 +96,6 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useGridColumns } from 'ui-shared/composables/useGridColumns'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 import GridColumnPickerDialog from 'ui-shared/components/GridColumnPickerDialog.vue'

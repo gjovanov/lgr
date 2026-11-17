@@ -3,9 +3,6 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h5">{{ $t('accounting.generalLedger') }}</h1>
       <v-spacer />
-      <div class="d-flex ga-2">
-        <export-menu module="accounting" />
-      </div>
     </div>
 
     <!-- Filters -->
@@ -94,7 +91,6 @@ import { useAppStore } from '../../store/app.store'
 import { useAccountingStore } from '../../store/accounting.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { formatCurrency } from 'ui-shared/composables/useCurrency'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import EntityLink from 'ui-shared/components/EntityLink'
 
 const appStore = useAppStore()

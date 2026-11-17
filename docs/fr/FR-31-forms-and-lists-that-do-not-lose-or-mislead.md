@@ -472,3 +472,17 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     contact's invoice is not offered); a cash order offers the last account of the seeded chart of 35.
   - *Decision:* the unpaid invoices are not narrowed by the order's direction: they never were, and an order may
     settle either side.
+- **A5** (FR-31.11): an Export that is offered exports.
+  - Stock levels, Movements and Valuation: Export is `ui-shared/components/ReportExportButton.vue`, a link to the
+    list's report (`stock-levels`, `stock-movements`, `inventory-valuation`) with the list's filters under the report's
+    parameter names (`report-export.ts#reportHref`): the warehouse everywhere, the below-minimum switch on Stock
+    levels, the period, type, status and (one) article on Movements. It is shown only to a person who may open the
+    report (`canOpenPage`), and on Valuation only with the costs.
+  - The other five inventory lists offer no Export (D-2), nor do the eight accounting lists and the four payroll
+    lists that had the same menu with no handler or a TODO, nor the payslip's PDF button (no route makes one).
+    `ExportMenu.vue` is deleted.
+  - `unit/no-dead-controls.test.ts` fails on a template handler whose function only logs or does nothing, on a console
+    call as a handler, and on the menu coming back. `e2e/list-report-export.spec.ts`: the report arrives with the
+    filters, and Excel downloads; the five lists offer nothing.
+  - *Decision:* the accounting and payroll menus and the payslip PDF went too. They are outside §1.5's eight, but
+    acceptance criterion 6 is "no screen offers an Export that does nothing", and they did nothing.

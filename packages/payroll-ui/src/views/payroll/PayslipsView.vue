@@ -3,7 +3,6 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h4">{{ $t('payroll.payslips') }}</h1>
       <v-spacer />
-      <ExportMenu @export="handleExport" />
     </div>
 
     <v-row class="mb-4">
@@ -34,8 +33,8 @@
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
       <template #item.actions="{ item }">
+        <!-- FR-31.11: no PDF button until a payslip prints: the one here did nothing (no route makes a payslip's PDF). -->
         <v-btn icon="mdi-eye" size="small" variant="text" @click="viewDetail(item)" />
-        <v-btn icon="mdi-file-pdf-box" size="small" variant="text" color="error" @click="downloadPdf(item._id)" />
       </template>
     </v-data-table-server>
 
@@ -90,9 +89,6 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn prepend-icon="mdi-file-pdf-box" color="error" variant="outlined" @click="downloadPdf(selectedPayslip._id)">
-            {{ $t('payroll.downloadPdf') }}
-          </v-btn>
           <v-btn @click="detailDialog = false">{{ $t('common.close') }}</v-btn>
         </v-card-actions>
       </v-card>
@@ -107,7 +103,6 @@ import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import EntityLink from 'ui-shared/components/EntityLink'
 
 const { t } = useI18n()
@@ -145,16 +140,11 @@ function viewDetail(item: any) {
   detailDialog.value = true
 }
 
-function downloadPdf(id: string) {
-  // TODO: API call to download PDF
-}
-
 function statusColor(status: string) {
   const colors: Record<string, string> = { Generated: 'info', Sent: 'success', Paid: 'primary' }
   return colors[status] || 'grey'
 }
 
-function handleExport(format: string) { /* TODO */ }
 
 onMounted(() => fetchItems())
 </script>

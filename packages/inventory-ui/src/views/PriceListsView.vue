@@ -4,7 +4,6 @@
       <h1 class="text-h5">{{ $t('nav.priceLists') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
-        <export-menu @export="onExport" />
         <responsive-btn v-cap="'price-lists.create'" color="primary" icon="mdi-plus" :to="{ name: 'inventory.price-lists.new' }">{{ $t('common.create') }}</responsive-btn>
       </div>
     </div>
@@ -69,7 +68,6 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
-import ExportMenu from 'ui-shared/components/ExportMenu'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 interface Item { _id: string; name: string; currency: string; validFrom?: string; validTo?: string; isActive: boolean; itemCount?: number; items?: any[] }
@@ -105,7 +103,6 @@ const headers = computed(() => [
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
-function onExport(format: string) { console.log('Export price lists as', format) }
 
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
