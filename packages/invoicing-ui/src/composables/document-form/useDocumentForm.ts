@@ -29,6 +29,7 @@ import type { FormAction, SmartButtonDef, StatusDef } from 'ui-shared/components
 import type { DocumentTypeConfig } from './types'
 import { COLLAPSE, IMPORT_KEY } from './form-actions'
 import { useDocumentIssue } from '../useDocumentIssue'
+import { shortageMatches, shortageQuantity, type LineShortage } from '../document-issue'
 import { receiptRefusalKey, receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { canRecordPayment } from '../document-row-actions'
 import { receiptOverlapOf, type ReceiptOverlap } from '../receipt-overlap'
@@ -1684,6 +1685,22 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const issueError = issuer.lastError
   /** FR-23: issued, and its receipt did not print. The Pay action takes the money again, when it is there to take. */
   const receiptError = issuer.lastReceiptError
+
+  // ── FR-31.8: a refusal about an article is marked on its lines ──
+  /** What `lineRefusalOf` matches a line against: the quantity the matching lines held when the refusal came. */
+  const refusedLines = ref<{ shortage: LineShortage; quantity: number }[]>([])
+  watch(issuer.lastShortages, (shortages) => {
+    refusedLines.value = shortages.map(shortage => ({ shortage, quantity: shortageQuantity(shortage, form.lines) }))
+  })
+  /**
+   * Why the last issue was refused, said on the line it is about (FR-31.8), or ''. It goes with the refusal at the top
+   * (closed, or the next attempt), and from a line whose article, warehouse or quantity has since been changed.
+   */
+  function lineRefusalOf(line: any): string {
+    if (!issueError.value) return ''
+    const hit = refusedLines.value.find(r => shortageMatches(r.shortage, line) && shortageQuantity(r.shortage, form.lines) === r.quantity)
+    return hit ? t('invoicing.lineRefusal.short', { available: hit.shortage.available, requested: hit.shortage.requested }) : ''
+  }
   const receiptTakesPayment = issuer.lastReceiptTakesPayment
 
   // ── a payment on the document (FR-23) ──
@@ -2222,6 +2239,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     issuing,
     issueFromForm,
     issueError,
+    lineRefusalOf,
     // FR-31.6 / .8: what the shell says of a failed load (with Retry: `loadDocument`) and of a refused save.
     loadError: feedback.loadError,
     refusal: feedback.refusal,

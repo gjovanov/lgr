@@ -167,7 +167,8 @@ export async function referencedBlobs(orgId: string): Promise<Map<string, Refere
 
 async function hashFile(path: string): Promise<string> {
   const h = createHash('sha256')
-  for await (const part of Bun.file(path).stream()) h.update(part)
+  // Bun's ReadableStream is async-iterable; the DOM lib's type does not say so.
+  for await (const part of Bun.file(path).stream() as unknown as AsyncIterable<Uint8Array>) h.update(part)
   return h.digest('hex')
 }
 

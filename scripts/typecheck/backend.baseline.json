@@ -39,18 +39,6 @@
   "packages/config/src/access/levels.ts": {
     "TS7053": 1
   },
-  "packages/dal-mongo/src/accounting.repositories.ts": {
-    "TS2724": 1
-  },
-  "packages/dal/src/lookup.ts": {
-    "TS7053": 1
-  },
-  "packages/db/src/plugins/lowered-fields.plugin.ts": {
-    "TS2578": 1
-  },
-  "packages/fiscal/src/bridge.ts": {
-    "TS2322": 1
-  },
   "packages/invoicing-api/src/controllers/cash-order.controller.ts": {
     "TS18047": 5
   },
@@ -180,12 +168,6 @@
     "TS2322": 1,
     "TS2339": 1
   },
-  "packages/services/src/biz/accounting-books/plusminus-archive.ts": {
-    "TS2322": 1
-  },
-  "packages/services/src/biz/accounting-books/registry.ts": {
-    "TS2307": 1
-  },
   "packages/services/src/biz/audit-log.service.ts": {
     "TS2339": 4,
     "TS2503": 1
@@ -193,76 +175,14 @@
   "packages/services/src/biz/auth.service.ts": {
     "TS2322": 1
   },
-  "packages/services/src/biz/backup/backup-files.service.ts": {
-    "TS2345": 1
-  },
-  "packages/services/src/biz/backup/backup-runner.service.ts": {
-    "TS2322": 1
-  },
-  "packages/services/src/biz/cash-sale-invoice.service.ts": {
-    "TS2365": 1
-  },
-  "packages/services/src/biz/cloud-storage.service.ts": {
-    "TS2322": 1
-  },
-  "packages/services/src/biz/company-lookup.service.ts": {
-    "TS2769": 2
-  },
-  "packages/services/src/biz/doc-import/analyze.ts": {
-    "TS2345": 1
-  },
-  "packages/services/src/biz/doc-import/ocr-client.ts": {
-    "TS2322": 1
-  },
   "packages/services/src/biz/doc-import/persist.ts": {
     "TS2353": 1
-  },
-  "packages/services/src/biz/files/doc-pipeline.service.ts": {
-    "TS2322": 1,
-    "TS2345": 2
-  },
-  "packages/services/src/biz/files/doc-store.service.ts": {
-    "TS2345": 1
-  },
-  "packages/services/src/biz/move/fenced-export.service.ts": {
-    "TS2345": 2
-  },
-  "packages/services/src/biz/move/fenced-import.service.ts": {
-    "TS2339": 2
-  },
-  "packages/services/src/biz/node/inspection.service.ts": {
-    "TS2322": 1
-  },
-  "packages/services/src/biz/payroll/bg/elements.ts": {
-    "TS2345": 1
-  },
-  "packages/services/src/biz/payroll/bg/engine.ts": {
-    "TS2322": 1,
-    "TS2353": 1
-  },
-  "packages/services/src/biz/permission-set.service.ts": {
-    "TS2352": 1
-  },
-  "packages/services/src/biz/product-ledger.service.ts": {
-    "TS2345": 6
-  },
-  "packages/services/src/biz/replication/blob-source.ts": {
-    "TS2504": 1
-  },
-  "packages/services/src/biz/replication/mirror-blobs.ts": {
-    "TS2504": 1
-  },
-  "packages/services/src/biz/stripe.service.ts": {
-    "TS2339": 4
   },
   "packages/services/src/dao/user.dao.ts": {
     "TS2416": 1
   },
   "packages/services/src/dao/warehouse/stock-level.dao.ts": {
     "TS2352": 1
-  },
-  "packages/services/src/events/handlers.ts": {
-    "TS2322": 1
   },
   "packages/warehouse-api/src/controllers/inventory-count.controller.ts": {
     "TS18047": 5,

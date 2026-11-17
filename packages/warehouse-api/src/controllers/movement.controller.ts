@@ -15,6 +15,8 @@ import { createMovementWithProductUpdates, updateMovementWithProductUpdates, GRV
 import { createNumberedMovement, withMovementNumber } from 'services/biz/movement-number'
 import { nextCountNumber } from 'services/biz/count-number'
 import { createAuditEntry } from 'services/biz/audit-log.service'
+import { isRequestIdTaken, readCreateRequestId } from 'services/biz/create-request-id'
+import { IdempotencyError } from 'services/biz/hot-path-key'
 import { buildSearchFilter } from 'services/biz/search.utils'
 import { buildProductListFilter, hasProductListFilter, productIdsMatching } from 'services/biz/product-list-filter'
 import { findPageSortedBy } from 'services/biz/sorted-page'
@@ -73,6 +75,19 @@ function transferOnly(user: { role?: string; permissions?: readonly string[] }):
 }
 
 const TRANSFER_ONLY = { code: 'transfer_only', message: 'Your role moves stock between warehouses only: a transfer.' } as const
+
+/**
+ * FR-29.13: the request's id (`Idempotency-Key`), or the refusal of a malformed one (a 400). `{}` when none was sent:
+ * the create is today's.
+ */
+function requestIdOf(headers: Record<string, string | undefined>): { id?: string; refusal?: { code: string; message: string } } {
+  try {
+    return { id: readCreateRequestId(headers) }
+  } catch (e) {
+    if (e instanceof IdempotencyError) return { refusal: { code: e.code, message: e.message } }
+    throw e
+  }
+}
 
 /**
  * #493, FR-26.6 `purchases`: the incoming documents these movements point at, for a session
@@ -259,9 +274,17 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user, status }) => {
+    async ({ params: { orgId }, body, user, status, headers }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
+
+      // FR-29.13: a request repeated with its id is answered with the movement the first one made.
+      const request = requestIdOf(headers)
+      if (request.refusal) return status(400, request.refusal)
+      const requestId = request.id
+      const made = async () => (requestId ? r.stockMovements.findOne({ orgId, requestId }) : null)
+      const first = await made()
+      if (first) return { stockMovement: first, replayed: true }
 
       const notTransfer = transferRefusal(user, body, { warehouses: true })
       if (notTransfer) return status(notTransfer.status, notTransfer.body)
@@ -272,10 +295,18 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
       // A number the caller chose is saved or refused as it is. Otherwise the org's next one, and when another
       // movement took that at the same moment, the one after it (`createNumberedMovement`).
-      const draft = { ...body, status: 'draft', createdBy: user.id }
-      const movement = body.movementNumber
-        ? await r.stockMovements.create({ ...draft, orgId } as any)
-        : await createNumberedMovement(r, orgId, draft)
+      const draft = { ...body, status: 'draft', createdBy: user.id, ...(requestId ? { requestId } : {}) }
+      let movement
+      try {
+        movement = body.movementNumber
+          ? await r.stockMovements.create({ ...draft, orgId } as any)
+          : await createNumberedMovement(r, orgId, draft)
+      } catch (e) {
+        // The same request at the same moment: the one that saved first made the movement.
+        const won = isRequestIdTaken(e) ? await made() : null
+        if (won) return { stockMovement: won, replayed: true }
+        throw e
+      }
       const movementNumber = movement.movementNumber
 
       createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'warehouse', entityType: 'stock_movement', entityId: movement.id, entityName: movementNumber })
@@ -319,10 +350,21 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
   // Goods-receipt with inline product updates. Atomic via Mongo transaction (requires replset).
   .post(
     '/with-update',
-    async ({ params: { orgId }, body, user, status }) => {
+    async ({ params: { orgId }, body, user, status, headers }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       // FR-26.7: this route books receipts only.
       if (transferOnly(user)) return status(403, TRANSFER_ONLY)
+      // FR-29.13: a request repeated with its id is answered with the movement the first one made, in this route's
+      // shape. Its product updates were applied by the first request, with the movement, and are not applied again.
+      const request = requestIdOf(headers)
+      if (request.refusal) return status(400, request.refusal)
+      const requestId = request.id
+      const replay = async () => {
+        const first = requestId ? await getRepos().stockMovements.findOne({ orgId, requestId }, { select: ['movementNumber'] }) : null
+        return first ? { stockMovement: { _id: first.id, movementNumber: first.movementNumber }, updatedProductIds: [] as string[], replayed: true } : null
+      }
+      const first = await replay()
+      if (first) return first
       const misfit = movementWarehouseRefusal({ ...body, ...await movementExternalSides(orgId, body) })
       if (misfit) return status(422, misfit)
       // The product updates and the movement are one transaction, so a number another movement took at the same
@@ -330,7 +372,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       const write = async (movementNumber: string) => ({
         movementNumber,
         ...await createMovementWithProductUpdates(
-          { ...body, orgId, movementNumber, createdBy: user.id } as any,
+          { ...body, orgId, movementNumber, createdBy: user.id, ...(requestId ? { requestId } : {}) } as any,
           (body.productUpdates || []) as any,
         ),
       })
@@ -354,6 +396,9 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         return { stockMovement: { _id: movementId, movementNumber }, updatedProductIds }
       } catch (e: any) {
         if (e instanceof GRValidationError) return status(422, { message: e.message })
+        // The same request at the same moment: the one that committed first made the movement.
+        const won = isRequestIdTaken(e) ? await replay() : null
+        if (won) return won
         // To the app's error handler, which logs it and says only what S-12 lets through. Answered
         // here, a failed transaction's driver error reached the caller verbatim and the log not at all.
         throw e

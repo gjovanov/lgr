@@ -263,7 +263,7 @@ async function* iterateSidecarLines(
   onCompressed?: (chunk: Buffer) => void,
 ): AsyncGenerator<string> {
   const file = createReadStream(absolutePath)
-  if (onCompressed) file.on('data', onCompressed)
+  if (onCompressed) file.on('data', chunk => onCompressed(chunk as Buffer))
   const source = unzstdStream()
   // `pipe` does not forward a read error, and a decompressor waiting for input that never comes
   // would hold this loop for ever.

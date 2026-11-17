@@ -149,7 +149,7 @@ async function main() {
   let serialPath = SERIAL_PORT
   if (!serialPath) {
     console.log('  Auto-detecting fiscal printer...')
-    serialPath = await autoDetectPort()
+    serialPath = (await autoDetectPort()) ?? undefined
     if (!serialPath) {
       console.log(red('  No fiscal printer found. Use --list to see available ports.'))
       console.log(`  Or specify manually: bun run bridge.ts --port ${process.platform === 'win32' ? 'COM3' : '/dev/ttyUSB0'}`)

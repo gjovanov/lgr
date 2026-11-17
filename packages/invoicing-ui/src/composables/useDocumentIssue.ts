@@ -14,12 +14,16 @@ import {
   issuedReceiptNotice,
   prepareIssue,
   sendIssue,
+  shortagesOfCheck,
+  shortagesOfRefusal,
   type DispatchOverlap,
+  type LineShortage,
   type StockCheck,
   type StockCheckLine,
 } from './document-issue'
 
 export { stockCheckLines, checksStockOnIssue, confirmsPaymentOnIssue, ISSUED_KEY } from './document-issue'
+export type { LineShortage } from './document-issue'
 
 /**
  * Issuing a document, and the stock check in front of it (FR-22.17): the list's „Изпрати" and the
@@ -101,6 +105,8 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
    */
   const lastReceiptError = ref('')
   const lastReceiptTakesPayment = ref(false)
+  /** FR-31.8: the articles the last refusal is about, so the form can mark their lines. Cleared by the next attempt. */
+  const lastShortages = ref<LineShortage[]>([])
 
   type Then = (invoice: any) => Promise<void> | void
   /** The document waiting on the transfer dialog, and what its caller does once it is issued. */
@@ -146,12 +152,14 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
     if (open || !pending || transfer.confirming.value) return
     pending = null
     lastError.value = t('invoicing.issueFlow.notIssuedStock')
+    lastShortages.value = shortagesOfCheck(transfer.shortfalls.value)
   })
 
   async function finish(invoice: any, type: string, then?: (invoice: any) => Promise<void> | void) {
     // Issued: the refusal of an earlier attempt is no longer true, and goes from the message line (FR-31.8).
     if (lastError.value) withdraw(lastError.value)
     lastError.value = ''
+    lastShortages.value = []
     const notice = issuedReceiptNotice(invoice)
     lastReceiptError.value = notice ? t(notice.key, { reason: invoice.receiptError, amount: (Number(invoice.refunded) || 0).toFixed(2) }) : ''
     lastReceiptTakesPayment.value = !!notice?.takesPayment
@@ -162,6 +170,7 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
 
   function failed(e: any): IssueOutcome {
     lastError.value = receiptRefusalMessage(t, e, t('common.operationFailed'))
+    lastShortages.value = shortagesOfRefusal(e)
     showError(lastError.value)
     return 'failed'
   }
@@ -173,6 +182,7 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
   async function issue(doc: { _id: string; type?: string }, then?: Then, flags: { acknowledgeOverlap?: boolean } = {}): Promise<IssueOutcome> {
     const loading = opts.loading
     if (loading) loading.value = true
+    lastShortages.value = []
     try {
       const { invoice, check, overlap } = await prepareIssue(httpClient, appStore.orgUrl(), doc._id, flags)
       const type = doc.type || invoice.type
@@ -268,7 +278,7 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
   }
 
   return {
-    transfer, issue, confirmTransfers, lastError, lastReceiptError, lastReceiptTakesPayment, paymentConfirm, answerPayment,
+    transfer, issue, confirmTransfers, lastError, lastShortages, lastReceiptError, lastReceiptTakesPayment, paymentConfirm, answerPayment,
     dispatchOverlap, issueDespiteOverlap, overlapLinked,
   }
 }

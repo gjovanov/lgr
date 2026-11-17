@@ -252,6 +252,8 @@ export interface IStockMovement extends TenantEntity {
   journalEntryId?: string
   /** FR-04: bidirectional link to the InventoryCount this adjustment belongs to. */
   inventoryCountId?: string
+  /** FR-29.13: the request that created it (the movement form's `Idempotency-Key`). */
+  requestId?: string
   createdBy: string
 }
 

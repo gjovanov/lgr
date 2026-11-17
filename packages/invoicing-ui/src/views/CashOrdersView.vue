@@ -232,7 +232,9 @@ async function doDelete() {
 }
 
 async function fetchAccounts() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/account`); accounts.value = data.accounts || [] } catch { /* */ }
+  // Every account (`size: 0`), as the accounting store asks for them: the API's first page of ten left the cash
+  // account and its counter-account unpickable in a chart of 35 (FR-31.10).
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/account`, { params: { size: 0 } }); accounts.value = data.accounts || [] } catch { /* */ }
 }
 
 onMounted(() => { fetchItems(); fetchAccounts() })

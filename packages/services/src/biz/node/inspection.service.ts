@@ -17,6 +17,7 @@
 import { NodeState } from 'db/models'
 
 export type Premises = 'shop' | 'offsite'
+const isPremises = (v: unknown): v is Premises => v === 'shop' || v === 'offsite'
 export type InspectionPath = 'tunnel' | 'overlay' | 'vpn'
 export type InspectionProblem = 'undeclared' | 'path_missing' | 'link_not_full' | 'no_address'
 
@@ -73,7 +74,7 @@ export async function setInspection(
   now = new Date(),
 ): Promise<Inspection> {
   const premises = body.premises
-  if (premises !== 'shop' && premises !== 'offsite') {
+  if (!isPremises(premises)) {
     throw new InspectionError(422, 'premises_required', 'Say where the server stands: in the shop, or off the premises.')
   }
   let path: InspectionPath | null = null

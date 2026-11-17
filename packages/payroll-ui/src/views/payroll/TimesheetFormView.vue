@@ -12,7 +12,21 @@
     :back-label="$t('payroll.timesheets')"
   >
     <v-form ref="formRef" @submit.prevent="handleSubmit">
-      <v-select v-model="form.employeeId" :label="$t('payroll.employee')" :items="employees" item-title="name" item-value="_id" density="compact" class="mb-2" />
+      <!-- FR-31.10: searched on the server. It offered the ten newest employees and nothing else. -->
+      <v-autocomplete
+        v-model="form.employeeId"
+        :label="$t('payroll.employee')"
+        :items="employees"
+        item-title="name"
+        item-value="_id"
+        :placeholder="$t('payroll.searchEmployee')"
+        :loading="employeesLoading"
+        no-filter
+        density="compact"
+        class="mb-2"
+        data-testid="timesheet-employee"
+        @update:search="onEmployeeSearch"
+      />
       <v-text-field v-model="form.date" :label="$t('common.date')" type="date" density="compact" class="mb-2" />
       <v-row>
         <v-col cols="12" md="6">
@@ -34,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
@@ -43,6 +57,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
+import { latestOnly } from 'ui-shared/composables/latest-only'
 import EntityFormShell from 'ui-shared/components/EntityFormShell'
 import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 
@@ -94,12 +109,50 @@ const formActions = computed<FormAction[]>(() => [
   { label: t('common.save'), color: 'primary', icon: 'mdi-content-save', handler: handleSubmit, cap: 'payroll-people.edit', loading: saving.value },
 ])
 
-async function fetchEmployees() {
+/**
+ * The employee picker, searched on the server (FR-31.10): a page of 20 by name, the newest first, and the one the
+ * timesheet names fetched by id when the page does not hold it, so it shows by name.
+ */
+const EMPLOYEE_PAGE = 20
+const employeesLoading = ref(false)
+const employeeRequest = latestOnly((signal, params: Record<string, string | number>) =>
+  httpClient.get(`${appStore.orgUrl()}/payroll/employee`, { params, signal }))
+const named = (e: any) => ({ ...e, _id: String(e._id || e.id), name: [e.firstName, e.lastName].filter(Boolean).join(' ') })
+async function fetchEmployees(text?: string | null) {
+  employeesLoading.value = true
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/payroll/employee`)
-    employees.value = (data.employees || []).map((e: any) => ({ ...e, name: `${e.firstName} ${e.lastName}` }))
-  } catch { /* */ }
+    const params: Record<string, string | number> = { size: EMPLOYEE_PAGE }
+    const q = (text ?? '').trim()
+    if (q) params.search = q
+    const answer = await employeeRequest(params)
+    if (!answer.latest) return
+    const found = (answer.value.data?.employees || []).map(named)
+    const chosen = employees.value.find(e => e._id === form.value.employeeId && !found.some((f: any) => f._id === e._id))
+    employees.value = chosen ? [chosen, ...found] : found
+    employeesLoading.value = false
+  } catch {
+    // A failed or replaced search keeps what is shown.
+    employeesLoading.value = false
+  }
 }
+let employeeTimer: ReturnType<typeof setTimeout> | null = null
+function onEmployeeSearch(text: string | null) {
+  // Vuetify writes the chosen employee's name back into the search box: that is no query.
+  const chosen = employees.value.find(e => e._id === form.value.employeeId)
+  if (chosen && text === chosen.name) return
+  if (employeeTimer) clearTimeout(employeeTimer)
+  employeeTimer = setTimeout(() => { void fetchEmployees(text) }, 300)
+}
+/** The timesheet's own employee, by id, when the list does not hold it. */
+async function ensureEmployee() {
+  const id = form.value.employeeId
+  if (!id || employees.value.some(e => e._id === id)) return
+  try {
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/payroll/employee/${id}`)
+    if (data?.employee && !employees.value.some(e => e._id === id)) employees.value = [named(data.employee), ...employees.value]
+  } catch { /* the field shows the id, as before */ }
+}
+watch(() => form.value.employeeId, () => { void ensureEmployee() })
 
 async function fetchItem() {
   if (!isEdit.value) return

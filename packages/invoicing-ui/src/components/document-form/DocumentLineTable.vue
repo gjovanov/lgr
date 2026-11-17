@@ -153,7 +153,7 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(line, idx) in form.lines" :key="idx">
+        <tr v-for="(line, idx) in form.lines" :key="idx" :class="{ 'line-refused': !!lineRefusalOf(line) }">
           <td class="line-no text-medium-emphasis">{{ idx + 1 }}</td>
           <td>
             <!-- From the top: the button stays beside the field, not beside the field and its chip. -->
@@ -174,6 +174,10 @@
                 @details="openProductPicker(idx, $event)"
               />
               <ProductDetailsButton @click="openProductPicker(idx)" />
+            </div>
+            <!-- FR-31.8: a refused issue says on the line what it is about (the stock it lacks), beside the alert at the top. -->
+            <div v-if="lineRefusalOf(line)" class="text-caption text-error" role="alert" data-testid="line-refusal">
+              <v-icon icon="mdi-alert-circle-outline" size="x-small" class="mr-1" />{{ lineRefusalOf(line) }}
             </div>
           </td>
           <!-- The cells in the order of their headings: the catalog's, or the one the person dragged them into in
@@ -382,6 +386,7 @@ const {
   grCategories,
   setGRField,
   setGRTierPrice,
+  lineRefusalOf,
 } = props.doc
 
 /**
@@ -435,6 +440,10 @@ async function onQuickProductCreated(product: any) {
 .line-table :deep(td) {
   padding-left: 6px !important;
   padding-right: 6px !important;
+}
+/* FR-31.8: the line a refusal is about. */
+.line-refused > td:first-child {
+  box-shadow: inset 3px 0 0 rgb(var(--v-theme-error));
 }
 .line-no {
   width: 36px;

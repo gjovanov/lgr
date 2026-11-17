@@ -609,6 +609,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useProductUnits } from 'ui-shared/composables/useProductUnits'
@@ -1257,6 +1258,12 @@ function buildPayload() {
   }
 }
 
+/**
+ * FR-29.13: a new order is created under one `Idempotency-Key` per attempt, kept while its outcome is unknown, so a
+ * double click or a save repeated after a timeout gets back the order the first request made instead of a second one.
+ */
+const createAttempt = createIdempotentAction()
+
 async function onSave() {
   const { valid } = (await formRef.value?.validate()) || { valid: true }
   if (!valid) return
@@ -1272,7 +1279,8 @@ async function onSave() {
       // It stays open on what it saved: an edit from here is unsaved again (FR-22.16, as the documents do).
       markClean()
     } else {
-      const { data } = await httpClient.post(`${orgUrl()}/invoicing/orders`, buildPayload())
+      const payload = buildPayload()
+      const { data } = await createAttempt.run(payload, headers => httpClient.post(`${orgUrl()}/invoicing/orders`, payload, { headers }))
       succeeded()
       showSuccess(t('common.savedSuccessfully'))
       markSaved()

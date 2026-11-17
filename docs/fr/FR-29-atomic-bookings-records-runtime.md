@@ -391,3 +391,23 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     issue again after a taken movement number or a level created at the same moment.
   - FR-29.12: `scripts/count-issue-leftovers.ts` is read-only, native driver, counts per org, and
     `--list` for the owner. **Open:** running it on production is the owner's.
+- **Slice C** (branch `feat/794-fr29-c-request-id`):
+  - FR-29.13 is built. The request id is the form's `Idempotency-Key` header, made by `createIdempotentAction()`
+    (one per attempt, kept while the outcome is unknown, a new one when the body changes), and read by
+    `services/biz/create-request-id.ts` (`readCreateRequestId`, `isRequestIdTaken`).
+    - `POST /invoicing/orders` and `/invoicing/internal-orders` store it as `createdFrom: { source: 'form', requestId }`
+      (the source list gained `form`), under FR-28's partial unique index. A supplier order with staged reservations
+      carries it into its transaction (`saveOrderWithReservations({ createdFrom })`).
+    - `POST /warehouse/movement` and `/warehouse/movement/with-update` store it as `StockMovement.requestId`, under a
+      new partial unique index on `{ orgId, requestId }`. The movement form sends it to whichever of the two it posts
+      to, and the route is part of what identifies the attempt.
+    - A repeated id answers the first document in the create's own shape, with `replayed: true`. The same id at the
+      same moment is decided by the index: the loser reads the winner's document. A replayed goods receipt does not
+      apply its product updates again (`updatedProductIds: []`).
+    - A malformed id is 400 `idempotency_key_invalid`, as on the invoices. No id: the create is today's (the
+      importers and the skills send none).
+  - Decision: no hash of the body is stored beside the id, unlike an invoice's `clientKey`. A repeated id is
+    answered with its document whatever the second body says. The forms' key changes with the body, so they never
+    send one id for two documents.
+  - Tests: `integration/create-request-id.flow` (each of the four routes: the same id twice, three at once, another
+    org, no id, a malformed id; what is stored; a replayed receipt; an order with reservations).

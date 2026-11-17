@@ -46,7 +46,6 @@ export function loweredFieldsPlugin(schema: Schema, config: LoweredFieldsConfig)
   schema.pre('save', function () {
     for (const [src, tgt] of entries) {
       if (this.isModified(src)) {
-        // @ts-expect-error dynamic field access
         this[tgt] = lower(this[src], locale)
       }
     }

@@ -217,6 +217,8 @@ export interface SaveOrderInput {
   groups: any[]
   changes: ReservationChanges
   warehouseName?: (id: string) => string
+  /** FR-29.13: POST only, the request that makes the order (`Order.createdFrom`); its index refuses a second one. */
+  createdFrom?: { source: 'form'; requestId: string }
 }
 
 /**
@@ -329,6 +331,7 @@ export async function saveOrderWithReservations(input: SaveOrderInput): Promise<
           numberHistory: [{ number: input.orderNumber, allocatedAt: new Date(), status: 'draft' }],
           ...input.header,
           supplierGroups: groups,
+          ...(input.createdFrom ? { createdFrom: input.createdFrom } : {}),
           createdBy: userId,
         })
       }

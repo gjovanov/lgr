@@ -11,6 +11,28 @@ function getStripe() {
   return _stripe
 }
 
+/**
+ * FR-32.4 (#797): where a webhook's payload says when the period ends and which subscription an
+ * invoice is for. A webhook is sent in the ACCOUNT's (or the endpoint's) API version, not the SDK's.
+ * From 2025-03-31 (basil) the period end is on each subscription item and an invoice names its
+ * subscription under `parent.subscription_details`; before it, both were top-level fields. Both
+ * shapes are read, the new one first, so the handler is right whichever version the account sends.
+ */
+type LegacySubscription = { current_period_end?: number | null }
+type LegacyInvoice = { subscription?: string | { id: string } | null }
+
+export function periodEndOf(sub: Stripe.Subscription): Date | null {
+  const ends = (sub.items?.data ?? []).map(i => i.current_period_end).filter((n): n is number => typeof n === 'number')
+  const end = ends.length ? Math.max(...ends) : (sub as unknown as LegacySubscription).current_period_end
+  return typeof end === 'number' ? new Date(end * 1000) : null
+}
+
+export function subscriptionIdOf(invoice: Stripe.Invoice): string | null {
+  const ref = invoice.parent?.subscription_details?.subscription ?? (invoice as unknown as LegacyInvoice).subscription
+  if (!ref) return null
+  return typeof ref === 'string' ? ref : ref.id
+}
+
 export const stripeService = {
   async createCheckoutSession(orgId: string, planId: PlanId, userEmail: string) {
     const org = await Org.findById(orgId)
@@ -68,9 +90,10 @@ export const stripeService = {
         const sub = event.data.object as Stripe.Subscription
         const org = await Org.findOne({ 'subscription.stripeCustomerId': sub.customer as string })
         if (org) {
+          const periodEnd = periodEndOf(sub)
           await Org.findByIdAndUpdate(org._id, {
             'subscription.status': sub.status,
-            'subscription.currentPeriodEnd': new Date(sub.current_period_end * 1000),
+            ...(periodEnd ? { 'subscription.currentPeriodEnd': periodEnd } : {}),
             'subscription.cancelAtPeriodEnd': sub.cancel_at_period_end,
           })
         }
@@ -90,7 +113,7 @@ export const stripeService = {
       }
       case 'invoice.payment_failed': {
         const invoice = event.data.object as Stripe.Invoice
-        const subId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id
+        const subId = subscriptionIdOf(invoice)
         if (subId) {
           const org = await Org.findOne({ 'subscription.stripeSubscriptionId': subId })
           if (org) {

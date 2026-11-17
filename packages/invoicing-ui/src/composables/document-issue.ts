@@ -31,6 +31,47 @@ export interface StockCheck {
   allResolvable: boolean
 }
 
+/**
+ * FR-31.8: an article a refusal of the issue is about. The stock check names it by id and warehouse (the transfer
+ * dialog was closed on it); a cost-layer refusal of `/send` (FR-29.6) names it by its name only, since a refusal
+ * carries no database id. The form marks the lines it is about.
+ */
+export interface LineShortage {
+  productId?: string
+  warehouseId?: string
+  /** The article's name, when the refusal names no id. */
+  product?: string
+  requested: number
+  available: number
+}
+
+/** The shortfalls of a stock check, as the lines they are about. */
+export function shortagesOfCheck(shortfalls: any[] | undefined): LineShortage[] {
+  return (shortfalls || []).map((s: any) => ({
+    productId: String(s.productId), warehouseId: String(s.warehouseId), requested: Number(s.requested) || 0, available: Number(s.available) || 0,
+  }))
+}
+
+const COST_LAYER_CODES = ['no_cost_layer', 'insufficient_cost_layers']
+
+/** The article a refusal of `/send` is about (a cost-layer refusal names it), or none. */
+export function shortagesOfRefusal(e: any): LineShortage[] {
+  const body = e?.response?.data
+  if (!body || !COST_LAYER_CODES.includes(body.code) || !body.product) return []
+  return [{ product: String(body.product), requested: Number(body.needed) || 0, available: Number(body.available) || 0 }]
+}
+
+/** Whether `line` is one the shortage is about: its article in its warehouse, or its article's name. */
+export function shortageMatches(s: LineShortage, line: any): boolean {
+  if (s.productId) return String(line?.productId || '') === s.productId && (!s.warehouseId || String(line?.warehouseId || '') === s.warehouseId)
+  return !!s.product && String(line?.description || '').trim() === s.product.trim()
+}
+
+/** The quantity the lines a shortage is about hold together: a change of it is a change of what was refused. */
+export function shortageQuantity(s: LineShortage, lines: any[]): number {
+  return lines.filter(l => shortageMatches(s, l)).reduce((sum, l) => sum + (Number(l?.quantity) || 0), 0)
+}
+
 /** The lines the availability check is given: product + warehouse lines, each with its reservation. */
 export function stockCheckLines(lines: any[] | undefined): StockCheckLine[] {
   // Reservation-backed lines consume their own hold — send the ref so the pre-flight doesn't
