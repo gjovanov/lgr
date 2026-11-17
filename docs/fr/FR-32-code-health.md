@@ -419,7 +419,7 @@ Most of this FR is proven by CI, not in production.
   - **A value the model refuses answers 422 with its fields** (`code: 'invalid_fields'`, `fields`, the message S-12 already wrote). That covers a create whose document the model refuses and an edit that runs the validators (`updateInOrg(…, { validate: true })`, #685). It was a 500 that named them. This is the one answer FR-32.27 lets change.
   - **Every write route that reads a body declares it.**
     - The eleven creates that store the body as the document (`clientCreate`) declare it as an object; their values stay the model's to judge.
-    - `POST /invoices/:id/send` declares its two optional fields.
+    - `POST /invoices/:id/send` declares its two optional fields. `acknowledgeOverlap` takes any value, as before: only `true` answers the question, and anything else is asked again (409), which the overlap suites pin.
     - The 16 arrays declared as "anything" now declare their elements as objects (`services/http/body-schemas#AnObject`), without naming fields, because a schema is a whitelist.
   - **`unit/write-route-bodies.test.ts`** reads the real route table.
     - A POST, PUT or PATCH with no body schema fails unless it is on `READS_NO_BODY` with its reason.

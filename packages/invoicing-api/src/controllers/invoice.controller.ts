@@ -1748,7 +1748,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     // A bill issued here books its goods as `/receive` does, so it answers the same question first.
     const overlap = await receiptsOverlapping(orgId, invoice)
-    // `/send` has no schema, so this reads the answer itself: only the answer counts as one.
+    // `/send`'s schema takes any value here, so this reads the answer itself: only the answer counts as one.
     if (overlap && (body as any)?.acknowledgeOverlap !== true) return status(409, receiptOverlapRefusal(invoice, overlap))
     // FR-22.61b: the mirror question, of a sales invoice typed for goods a stock note already delivered. Asked here,
     // before the tender, the claim and the dispatch: a refusal leaves the draft as it was.
@@ -1892,11 +1892,15 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   }, {
     isSignIn: true,
     fiscalDevice: deviceFromCounter,
-    // FR-32.18: what an issue may say, and nothing it must (the Issue button sends none). Kept whole for the key's hash.
+    // FR-32.18: what an issue may say, and nothing it must (the Issue button sends none). `acknowledgeOverlap` takes any
+    // value: only `true` answers the overlap question, and anything else is asked again (409 `receipt_overlap` /
+    // `dispatch_overlap`), as it was before the route had a schema. A 422 there would change an answer FR-32.27 keeps.
+    // No `additionalProperties`: nothing else is read, and a schema that keeps undeclared fields is the body-as-document
+    // controllers' (`unit/server-owned.test.ts`).
     body: t.Optional(t.Object({
       pendingTransferIds: t.Optional(t.Array(t.String())),
-      acknowledgeOverlap: t.Optional(t.Boolean()),
-    }, { additionalProperties: true })),
+      acknowledgeOverlap: t.Optional(t.Unknown()),
+    })),
   })
   .post('/:id/receive', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
