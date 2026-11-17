@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia'
 import { AuthService } from '../auth/auth.service.js'
-import { getStockValuationTotals } from 'services/biz/warehouse.service'
+import { cachedStockValuationTotals } from 'services/biz/warehouse.service'
 import { queryAuditLogs } from 'services/biz/audit-log.service'
 import { grantOf } from 'services/biz/access/evaluate'
 import { seesCosts } from 'config/access'
@@ -104,7 +104,8 @@ export const dashboardController = new Elysia({ prefix: '/org/:orgId/dashboard' 
         paid30d: { amount: 0, count: 0 },
         drafts: { count: 0 },
       })),
-      getStockValuationTotals(orgId).catch(() => ({ totalValue: 0, itemCount: 0 })),
+      // FR-30.16: at most a minute old.
+      cachedStockValuationTotals(orgId).catch(() => ({ totalValue: 0, itemCount: 0 })),
       r.employees.findAll({ orgId, status: 'active' } as any, { page: 0, size: 1 }).catch(() => ({ total: 0 } as any)),
       // FR-27.11.C.5: the recent activity drops a change of a figure the caller does not see.
       queryAuditLogs(orgId, { size: 8, viewer: grantOf(user as any) }).catch(() => ({ auditLogs: [] as any[] } as any)),

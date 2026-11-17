@@ -13,6 +13,7 @@ import {
 import { eventBus } from '../events/event-bus.js'
 import { externalWarehouseIds } from './external-warehouses.js'
 import { inTransaction } from './transaction.js'
+import { ttlCache } from '../utils/ttl-cache.js'
 
 export interface ConfirmMovementOptions {
   /**
@@ -401,6 +402,16 @@ export async function adjustStock(
  * aggregation. getStockValuation below materialises every item (23k docs + a 23k-id
  * $in on regal — ~1.6s); this stays ~25ms. (Aggregate does NOT auto-cast orgId.)
  */
+/**
+ * FR-30.16: the dashboard's stock value, at most a minute old. It summed every stock level of the org on each open
+ * of the dashboard (about 95 ms on a shop's 46 000 levels).
+ */
+export const STOCK_TOTALS_TTL_MS = 60_000
+const stockTotals = ttlCache<{ totalValue: number; itemCount: number }>(STOCK_TOTALS_TTL_MS)
+export function cachedStockValuationTotals(orgId: string): Promise<{ totalValue: number; itemCount: number }> {
+  return stockTotals.get(orgId, () => getStockValuationTotals(orgId))
+}
+
 export async function getStockValuationTotals(orgId: string): Promise<{ totalValue: number; itemCount: number }> {
   const [res] = await StockLevel.aggregate([
     { $match: { orgId: new StockLevel.base.Types.ObjectId(orgId) } },

@@ -1585,6 +1585,9 @@ Summary: All 6 UIs build green. Phases shipped 2026-04-29: single-line `StatusMu
 - **No text indexes** (FR-30.4): nothing ran `$text`, and migration `0016` drops them. Search is a pattern over the
   fields or their lowered mirrors (below).
 
+- **Kept a while** (FR-30.15/.16, `services/utils/ttl-cache.ts`, per process): the partner picker's ranking five minutes
+  per org and side, the dashboard's stock value a minute. The stock-levels report sorts and cuts before it joins.
+
 ## Cyrillic-Safe Search (2026-04-28)
 
 `packages/db/src/plugins/lowered-fields.plugin.ts` maintains `*Lower` mirror fields via Mongoose pre-save / pre-insertMany / pre-(findOneAndUpdate|updateOne|updateMany) hooks (locale='bg'). `buildSearchFilter(search, fields, { lowered: { name: 'nameLower', ... } })` lowercases the keyword and queries the mirrors without `$options:'i'`. Backfill: `bun run scripts/backfill-search-lowercase.ts --execute`. Models with mirrors: Product (name/sku/barcode/description/category), Contact (companyName/firstName/lastName/email/taxId/vatNumber), Warehouse (name/code), ProductCategory (name/description).

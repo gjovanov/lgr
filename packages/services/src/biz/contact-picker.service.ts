@@ -1,6 +1,7 @@
 import { Invoice } from 'db/models'
 import { mongoose } from 'db/connection'
 import { getRepos } from '../context.js'
+import { ttlCache } from '../utils/ttl-cache.js'
 
 const { Types } = mongoose
 
@@ -43,6 +44,21 @@ export async function recentContactIds(orgId: string, side: PickerSide, limit = 
   return rows.map((row: any) => String(row._id))
 }
 
+/**
+ * FR-30.15 (D-4): the ranking is kept five minutes per organization and side. It aggregated the org's documents of a
+ * year on every form that opened (about 45 ms on a shop-year); a contact first used in the last five minutes may
+ * still sort by name until then.
+ */
+export const PICKER_RANKING_TTL_MS = 5 * 60_000
+const rankings = ttlCache<string[]>(PICKER_RANKING_TTL_MS)
+export function rankedContactIds(orgId: string, side: PickerSide): Promise<string[]> {
+  return rankings.get(`${orgId}:${side}`, () => recentContactIds(orgId, side))
+}
+/** Forget the kept rankings (a test that rewrites an org's documents). */
+export function forgetPickerRankings(): void {
+  rankings.forget()
+}
+
 export interface PickerPage {
   items: any[]
   total: number
@@ -55,7 +71,7 @@ export interface PickerPage {
 export async function pickerContacts(orgId: string, filter: Record<string, any>, side: PickerSide, page: number, size: number): Promise<PickerPage> {
   const r = getRepos()
   const want = (page + 1) * size
-  const recent = await recentContactIds(orgId, side)
+  const recent = await rankedContactIds(orgId, side)
   const rank = new Map(recent.map((id, i) => [id, i]))
 
   const used = recent.length ? await r.contacts.findMany({ ...filter, id: { $in: recent } } as any) : []

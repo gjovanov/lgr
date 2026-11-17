@@ -388,3 +388,19 @@ The demo organization is small, so production proves that nothing changed, and t
 **Sorts no index serves** (`scan` in the table, held by the test as a list): Products by type, unit, active, minimum, purchase and selling price; documents by status, type, currency, reference, subtotal, tax, total, amount due; Stock levels by quantity; Movements by status and total (and by the three looked-up names, an aggregation). Each still reads the filtered rows, as before. They stay offered: dropping them from the grids, or indexing them, is the owner's call (FR-30.2).
 
 **Turned off in the grids**, because the server never sorted by them (they are names looked up after the page): the contact on Sales invoices and Bills, the article's SKU and name and the warehouse on Stock levels.
+
+### Slice D (FR-30.14 to .16), 2026-11-17
+
+**What was built.**
+- **The stock-levels report limits before it joins (FR-30.14).** Without the reorder filter, the report sorts by value and cuts at its row cap before it joins the article and the warehouse; the joins then read one article and one warehouse per row kept. An article or a category narrows the levels in the first `$match` (a category is resolved to its articles' ids, descendants included, first). With "below minimum", which compares with the article's minimum, the joins still come first, but on the levels the article and category filters left.
+- **The picker's ranking (FR-30.15, D-4)** is kept five minutes per organization and side (`rankedContactIds`, `services/utils/ttl-cache.ts`, per process). A contact first used in the last five minutes may still sort by name until then.
+- **Dashboards (FR-30.16).** The KPI summary's first stage matches the statuses its tiles count (`SUMMARY_STATUSES`: sent, received, partially paid, overdue, paid, draft); a voided, cancelled or converted document is no longer read and dropped by each facet. The dashboard's stock value is at most a minute old (`cachedStockValuationTotals`).
+
+**Measured** (`LGR_PERF=1` on `stock-levels-report.flow`: 15 400 articles in three warehouses, 46 200 levels, a developer laptop, the handler itself, median of 5).
+
+| Stock-levels report, no filter | Before | After |
+|---|---|---|
+| time | 9 120 ms | 392 ms (budget 500) |
+| articles read by the joins | one per level | one per row kept (at most the cap + 1) |
+
+**Tests.** `integration/stock-levels-report.flow.test.ts`: the rows, totals and meta equal the old pipeline's (frozen in `helpers/stock-levels-report-legacy.ts`) for twelve parameter sets (none, zero rows, rolled up, below minimum, a warehouse, an article, a category with descendants, combinations) in two outputs; the joins read at most the cap + 1 articles; a category narrows the first stage; the ranking aggregated once for two forms; the cache's lifetime and a failed read not kept; the summary's first stage and its figures with voided and cancelled documents beside them; the stock value read once a minute.
