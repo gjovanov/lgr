@@ -88,8 +88,11 @@ export interface FiscalDeviceCreateBody {
   manufacturer: FiscalManufacturer
   connectionType: FiscalConnectionType
   connectionParams?: FiscalConnectionParams
+  /** Required: the model's, so a device's warehouse is never `null` (422). */
   warehouseId: string
   workstationId?: string
+  /** The form's Active switch; unsaid, the device is active. */
+  isActive?: boolean
 }
 
 export async function createFiscalDevice(body: FiscalDeviceCreateBody): Promise<{ fiscalDevice: FiscalDevice }> {
@@ -106,7 +109,12 @@ export interface FiscalDeviceUpdateBody {
   warehouseId?: string
   workstationId?: string
   isActive?: boolean
+  /** The model's enum. ⚠ `error` stops sales on a device no bridge holds (503) until it is cleared. */
+  status?: FiscalDeviceStatus
 }
+
+/** A device's stored status (`db/models/fiscal-device.model`): the last thing its bridge, or a page, recorded. */
+export type FiscalDeviceStatus = 'online' | 'offline' | 'error'
 
 export async function updateFiscalDevice(id: string, body: FiscalDeviceUpdateBody): Promise<{ fiscalDevice: FiscalDevice }> {
   const { data } = await httpClient.put(orgPath(`${BASE}/${id}`), body)
@@ -115,10 +123,9 @@ export async function updateFiscalDevice(id: string, body: FiscalDeviceUpdateBod
 
 /**
  * The status a page saw, written for the device list (a courtesy: the bridge records online and offline on its own).
- * ⚠ The PUT's schema does not name `status`: Elysia drops it and answers 200, so this stores nothing. Sent as the
- * screens always sent it; a fix names it in the schema (FR-32.24 found it, §11).
+ * The PUT stores it (it was dropped with a 200 until FR-32.24 found it, §11), for whoever holds `devices.edit`.
  */
-export async function recordFiscalDeviceStatus(id: string, status: 'online' | 'offline' | 'error'): Promise<{ fiscalDevice: FiscalDevice }> {
+export async function recordFiscalDeviceStatus(id: string, status: FiscalDeviceStatus): Promise<{ fiscalDevice: FiscalDevice }> {
   const { data } = await httpClient.put(orgPath(`${BASE}/${id}`), { status })
   return data
 }
