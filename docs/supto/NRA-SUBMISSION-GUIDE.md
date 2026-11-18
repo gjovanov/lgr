@@ -61,7 +61,7 @@ Each business deploying LGR SUPTO must submit their own declaration within **7 d
 ### Data Export Testing
 - [ ] Generate all 9 Appendix 29 tables with real sales data
 - [ ] Verify column content matches specification
-- [ ] Test with NRA auditor role (read-only access)
+- [ ] Test with the built-in NRA Auditor (Read Only) role (`nra_auditor`): it reads and exports, and writes nothing
 - [ ] Verify period filters work correctly
 - [ ] Verify warehouse/device/operator filters
 
@@ -71,7 +71,8 @@ Each business deploying LGR SUPTO must submit their own declaration within **7 d
 - [ ] POS sale produces audit entry with УНП
 - [ ] Storno produces audit entry with original УНП
 - [ ] Product create/update/deactivate produces audit entries
-- [ ] Role change produces roleHistory entry
+- [ ] Giving a person another role closes their open `roleHistory` entry and adds one with the role's id and name (`roleId`, `roleName`), and writes an audit entry with the old and the new role
+- [ ] Creating, editing or deleting a role writes an audit entry with its capabilities before and after
 
 ### Immutability Testing
 - [ ] Completed POS transaction cannot be modified or deleted
@@ -81,9 +82,10 @@ Each business deploying LGR SUPTO must submit their own declaration within **7 d
 - [ ] Nomenclature items are deactivated, not deleted
 
 ### Security Testing
-- [ ] Non-admin cannot manage fiscal devices (403)
-- [ ] Non-manager cannot perform storno (403)
-- [ ] NRA auditor can only read, not write (403 on mutations)
+- [ ] A role without `devices.edit` cannot manage fiscal devices, and one without `devices.z-report` cannot print a Z-report (403)
+- [ ] A role without `cash-sales.storno` cannot perform a storno or a refund on a credit note (403)
+- [ ] NRA Auditor can only read, not write (403 on mutations)
+- [ ] A person with no role in the organization cannot sign in to it, and is refused on its routes (403 `no_role`)
 - [ ] Server-side total validation rejects mismatched amounts
 - [ ] Fiscal device IP validation blocks SSRF attempts
 
