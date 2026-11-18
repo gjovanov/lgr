@@ -225,6 +225,9 @@ export const PREFIX_READ_RULES: ReadonlyArray<readonly [string, WriteRule]> = [
   // FR-27.4: the roles screen; role.controller asks roles.view.
   ['roles', { self: 'roles.view (FR-27.4, role.controller)' }],
 
+  // FR-31.22: the top bar's jump to a document by its number searches only the families whose page the caller opens.
+  ['lookup', { self: 'document-lookup.service: only the document families whose page the caller may open' }],
+
   ['apps', { member: 'the app hub, filtered by what the caller may open' }],
   ['licence', { member: "this server's licence for the org, for the banner and the till (FR-20.55); nothing in it is secret" }],
   ['home', { member: 'where the org lives and whether it is written here, for the read-only banner (FR-20.75); nothing in it is secret' }],

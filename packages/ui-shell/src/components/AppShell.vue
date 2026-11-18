@@ -33,6 +33,9 @@
 
       <v-spacer />
 
+      <!-- FR-31.22: open a document by its number, from any screen (Ctrl+K). -->
+      <DocumentJump v-if="org" />
+
       <LocaleSwitcher
         :locales="locales"
         :current-locale="currentLocale"
@@ -88,6 +91,7 @@ import type { NotificationItem } from './NotificationBell.vue'
 import AppSwitcher from './AppSwitcher.vue'
 import NavFavoritesMenu from './NavFavoritesMenu.vue'
 import NewDocumentMenu from './NewDocumentMenu.vue'
+import DocumentJump from './DocumentJump.vue'
 import OrgSelector from './OrgSelector.vue'
 import OrgSwitcher from './OrgSwitcher.vue'
 import UserMenu from './UserMenu.vue'

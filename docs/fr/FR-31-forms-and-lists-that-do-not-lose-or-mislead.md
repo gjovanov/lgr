@@ -574,3 +574,33 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     (the new invoice's folded party block and sticky line header, Products' one row per article, Sales invoices' foldable
     KPI row, the top bar's "More"). With no owner answer on #796, the layouts stay as they are, and the slice says so
     rather than ship a look nobody approved. It is a change in the browser alone, buildable once D-6 is answered.
+- **B5** (FR-31.22): jump to a document by its number.
+  - `GET /api/org/:orgId/lookup/documents?number=…` (`portal-api/controllers/document-lookup.controller.ts`, the work in
+    `services/biz/document-lookup.service.ts`, the shapes in `config/document-lookup.ts`). It matches the number exactly
+    (as typed and in capitals, since every series is written in capitals), then, when nothing matches exactly, as the
+    start of a number, at most 20 listed and `more` when there are others. Over invoices of every type, supplier orders,
+    customer orders, reservations and movements; an issued invoice or order is also found by its `draftNumber`.
+  - A family is searched only when the caller may open its page, by the page's capability: sales documents
+    (`sales-docs.view`), quotes (`proforma.view`), bills (`bills.view`), the till's documents (`cash-sales.view`), the
+    orders and reservations (`orders.view`; a supplier order also `orders.browse`), movements (`movements.view`). The
+    route's rule is `self` in both tables (`route-permission.ts`, `config/access/routes.ts`); a document the caller may
+    not open is never in the answer.
+  - Every query reads through an index on the number: the unique `{ orgId, <number> }` keys,
+    `Invoice { orgId, direction, invoiceNumber }`, and a new partial `{ orgId, draftNumber }` on invoices, supplier orders
+    and customer orders (built by Mongoose's autoIndex on start; no migration). A spelling is an exact value or an
+    anchored, escaped prefix, which an index reads as a range.
+  - The top bar: `ui-shell/components/DocumentJump.vue`, a magnifier button that opens the field under it. Enter opens
+    the one match (`ui-shell/document-route.ts#documentRoute`, by route name: a till document as the cash-register
+    journal opens it), lists several with the kind, the date, the contact and the draft number it was found by, or says
+    there is none. Ctrl+K (⌘K) opens it from any screen (D-7); no key of the document line table or of a form is K, and
+    the physical key decides in a Cyrillic layout.
+  - `integration/document-lookup.flow.test.ts`: exact (any case), prefix with the limit, a draft number, several, none,
+    another org's number, a role that reads only sales documents and one that reads only movements; and the explain:
+    the database's profiler over every lookup shows no collection scan, and the draft numbers through their index.
+    `unit/document-jump.test.ts`: every match's route name is declared by its module, every text in four languages, the
+    icons shipped, the shortcut.
+  - *Decision:* the field sits behind a button rather than open in the bar. The bar has no room for it at 1366 px
+    (FR-31.20 is not built), and the button is in the bar on every screen; Ctrl+K types straight into it.
+  - *Decision:* the families are the page's capability, not the route's read rule. The movements route also answers a
+    seller (`sales-docs.view`, for a contact's movements), but the movement page does not open for one: the lookup finds
+    what the caller can open, never more.

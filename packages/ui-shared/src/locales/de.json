@@ -5484,6 +5484,33 @@
     "apps": "Apps",
     "portal": "Portal",
     "theme": "Helles oder dunkles Design",
-    "menu": "Menü"
+    "menu": "Menü",
+    "jump": {
+      "open": "Beleg nach Nummer finden (Strg+K)",
+      "label": "Belegnummer",
+      "hint": "Nummer eingeben oder einfügen, dann Enter drücken",
+      "none": "Kein Beleg hat die Nummer {number}.",
+      "several": "Mehrere Belege haben die Nummer {number}. Bitte einen wählen:",
+      "prefix": "Nummern, die mit {number} beginnen:",
+      "more": "Nur die ersten {n} werden angezeigt: geben Sie mehr von der Nummer ein.",
+      "failed": "Die Suche hat nicht geantwortet. Bitte erneut versuchen.",
+      "viaDraft": "Entwurf {number}",
+      "kind": {
+        "invoice": "Rechnung",
+        "creditNote": "Gutschrift",
+        "debitNote": "Belastungsanzeige",
+        "proforma": "Proformarechnung",
+        "offer": "Angebot",
+        "bill": "Eingangsrechnung",
+        "cashSale": "Barverkauf",
+        "cashStorno": "Storno eines Barverkaufs",
+        "paymentReceipt": "Zahlungsbeleg",
+        "paymentStorno": "Storno einer Zahlung",
+        "supplierOrder": "Lieferantenbestellung",
+        "customerOrder": "Kundenauftrag",
+        "reservation": "Reservierung",
+        "movement": "Lagerbewegung"
+      }
+    }
   }
 }
