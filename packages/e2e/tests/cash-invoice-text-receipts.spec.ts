@@ -57,7 +57,7 @@ test.describe('FR-23 — a cash invoice on a device that is not fiscalized', () 
 
     admin = await apiLogin()
     cashierName = `e2e-text-${Date.now().toString(36)}`
-    await ok(admin, 'POST', '/user', { email: `${cashierName}@lgr.test`, username: cashierName, password: PASSWORD, firstName: 'E2E', lastName: 'Text', role: 'manager' })
+    await ok(admin, 'POST', '/user', { email: `${cashierName}@lgr.test`, username: cashierName, password: PASSWORD, firstName: 'E2E', lastName: 'Text', roleKey: 'manager' })
     cashier = await apiLogin('acme-corp', cashierName, PASSWORD)
     till = await openTillSession(cashier)
 

@@ -96,7 +96,7 @@ describe('S-09: every password a person sets has at least 12 characters', () => 
   })
 
   it('an admin creating a user, and changing one, refuses 11 characters and takes 12', async () => {
-    const user = (password: string) => ({ email: `new-${password.length}@s09.test`, username: `new-${password.length}`, password, firstName: 'New', lastName: 'Person', role: 'member' })
+    const user = (password: string) => ({ email: `new-${password.length}@s09.test`, username: `new-${password.length}`, password, firstName: 'New', lastName: 'Person', roleKey: 'member' })
     const short = await send('POST', `/api/org/${orgId}/user/`, user('12345678901'))
     expect(short.status).toBe(422)
     expect(short.json.message).toContain('password')

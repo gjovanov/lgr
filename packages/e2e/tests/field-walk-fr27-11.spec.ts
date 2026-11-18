@@ -140,7 +140,7 @@ test.beforeAll(async ({ browser }) => {
     } else {
       w.roleId = await roleThroughEditor(page, name, w.visible)
     }
-    const created = await api(admin, 'POST', '/user', { email: `${w.username}@walk.invalid`, username: w.username, password: PASSWORD, firstName: 'Walk', lastName: w.key, role: 'member' })
+    const created = await api(admin, 'POST', '/user', { email: `${w.username}@walk.invalid`, username: w.username, password: PASSWORD, firstName: 'Walk', lastName: w.key, roleKey: 'member' })
     expect(created.status, `user ${w.key}: ${JSON.stringify(created.json)}`).toBeLessThan(300)
     w.id = String(created.json?.user?._id ?? created.json?.user?.id)
     const given = await api(admin, 'PUT', `/user/${w.id}`, { roleId: w.roleId })

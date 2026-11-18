@@ -236,7 +236,7 @@ describe('an Air-gapped master owns its people (AC 64)', () => {
   it('its admin creates a person, renames them and resets the password, all locally; the person signs in', async () => {
     const created = await call('POST', `/api/org/${orgId}/user`, {
       token: tokens.admin,
-      body: { email: 'new@pins.test', username: 'newcomer', password: 'first local word', firstName: 'New', lastName: 'Comer', role: 'sales' },
+      body: { email: 'new@pins.test', username: 'newcomer', password: 'first local word', firstName: 'New', lastName: 'Comer', roleKey: 'sales' },
     })
     expect(created.status).toBe(200)
     const id = created.json.user._id ?? created.json.user.id

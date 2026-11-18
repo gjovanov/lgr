@@ -77,7 +77,7 @@ test.beforeAll(async () => {
 
   // A read-only member: it may open the Products list, and may not create an order.
   const { user } = await okJson(await apiPost(admin, '/user', {
-    email: `${memberName}@acme.com`, username: memberName, password: PASSWORD, firstName: 'Read', lastName: 'Only', role: 'member',
+    email: `${memberName}@acme.com`, username: memberName, password: PASSWORD, firstName: 'Read', lastName: 'Only', roleKey: 'member',
   }))
   ids.member = user?._id || user?.id
 })

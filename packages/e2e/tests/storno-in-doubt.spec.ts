@@ -63,7 +63,7 @@ test.describe('FR-23 — a storno that may have printed', () => {
 
     admin = await apiLogin()
     managerName = `e2e-doubt-${Date.now().toString(36)}`
-    await ok(admin, 'POST', '/user', { email: `${managerName}@lgr.test`, username: managerName, password: PASSWORD, firstName: 'E2E', lastName: 'Doubt', role: 'manager' })
+    await ok(admin, 'POST', '/user', { email: `${managerName}@lgr.test`, username: managerName, password: PASSWORD, firstName: 'E2E', lastName: 'Doubt', roleKey: 'manager' })
     manager = await apiLogin('acme-corp', managerName, PASSWORD)
     till = await openTillSession(manager)
 

@@ -47,7 +47,7 @@ test.beforeAll(async () => {
   for (const role of ['seller', 'sales_consultant'] as const) {
     const u = users[role]
     const { user } = await okJson(await apiPost(admin, '/user', {
-      email: `${u.username}@acme.com`, username: u.username, password: PASSWORD, firstName: 'Manual', lastName: role, role,
+      email: `${u.username}@acme.com`, username: u.username, password: PASSWORD, firstName: 'Manual', lastName: role, roleKey: role,
     }))
     u.id = String(user?._id || user?.id)
   }

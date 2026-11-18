@@ -108,7 +108,7 @@ test.beforeAll(async () => {
 
   // A read-only member: it opens the lists, and mails nothing.
   const { user } = await okJson(await apiPost(admin, '/user', {
-    email: `${memberName}@acme.com`, username: memberName, password: PASSWORD, firstName: 'Read', lastName: 'Only', role: 'member',
+    email: `${memberName}@acme.com`, username: memberName, password: PASSWORD, firstName: 'Read', lastName: 'Only', roleKey: 'member',
   }))
   made.member = user?._id || user?.id
 })

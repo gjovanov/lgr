@@ -197,7 +197,7 @@ describe('an admin editing a user', () => {
     expect(after!.email).toBe('both@example.com')
     expect(after!.firstName).toBe('Sam')
 
-    const ok = await api('PUT', path, token, { position: 'Buyer', role: 'manager' })
+    const ok = await api('PUT', path, token, { position: 'Buyer', roleKey: 'manager' })
     expect(ok.status).toBe(200)
     expect((await User.findById(inA._id).lean().exec())!.position).toBe('Buyer')
   })

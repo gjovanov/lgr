@@ -20,7 +20,7 @@ import { join, resolve } from 'node:path'
 const ROOT = resolve(import.meta.dir, '..', '..', '..', '..')
 const PACKAGES = join(ROOT, 'packages')
 
-const CONTROLLER_MODEL_CALLS = 256
+const CONTROLLER_MODEL_CALLS = 255
 const AS_ANY = 1975
 
 const COPY = 'copies, compares or replays documents as they are stored, which Mongoose would cast, default and hook'
