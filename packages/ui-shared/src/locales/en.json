@@ -5423,7 +5423,7 @@
         "description": "Reads the organization's documents and reports; changes nothing."
       },
       "nra_auditor": {
-        "description": "The tax inspector: reads everything and exports the SUPTO tables."
+        "description": "The tax inspector: reads sales, stock, accounting and the audit trail, and exports the SUPTO tables. Changes no data."
       }
     },
     "ui": {
@@ -5438,6 +5438,7 @@
       "builtin": "Built-in",
       "edited": "Edited",
       "administratorFixed": "The Administrator holds everything, including what a later release adds, and is not edited.",
+      "nraAuditorFixed": "The NRA Auditor (Read Only) is the audit profile the SUPTO documents describe: it reads and exports, and is not edited.",
       "unknownCaps": "Options this release no longer knows (not granted)",
       "extras": "Extras",
       "alwaysIncluded": "Always included: the person's account, notifications, language, favourites, the organization's name and its people.",

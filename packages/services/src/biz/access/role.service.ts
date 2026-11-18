@@ -1,6 +1,6 @@
 import {
-  CAPABILITIES, PAGE_ACCESS, ROLE_TEMPLATES, TEMPLATE_WITHHOLDS, canOpen, grantOfRole, isCapability, templateDefaults,
-  templateOf, unknownCaps, withImplied, type CapabilityId, type Grant,
+  CAPABILITIES, PAGE_ACCESS, ROLE_TEMPLATES, TEMPLATE_WITHHOLDS, canOpen, grantOfRole, isCapability, isLockedRole,
+  templateDefaults, templateOf, unknownCaps, withImplied, type CapabilityId, type Grant,
 } from 'config/access'
 import { Org, Role, User, type IRoleHistoryEntry } from 'db/models'
 import { mongoose } from 'db/connection'
@@ -19,6 +19,8 @@ import { forgetMember, forgetRole } from './live'
  *   - nobody makes, edits or gives a role that holds a capability they do not hold;
  *   - only an Administrator gives the Administrator role, or `roles.edit` / `roles.view`;
  *   - the Administrator role cannot be edited or deleted, and the last active Administrator cannot lose it;
+ *   - the NRA Auditor (Read Only) role is locked as the Administrator is (#529, owner 2026-11-18): not edited, not
+ *     renamed, not deleted (`config/access/roles.ts#isLockedRole`); one an org changed before keeps what it holds;
  *   - roles are the org's own: another org's role id is not found;
  *   - every create, edit, delete and assignment is audited with what it grants before and after.
  *
@@ -77,6 +79,17 @@ async function roleInOrg(orgId: string, roleId: string): Promise<any> {
 /** Whether a stored role is an Administrator's: every capability. */
 const isAdministratorRole = (role: any) => !!role?.all
 
+/**
+ * #529 (owner, 2026-11-18): a locked role (`isLockedRole`) is not edited, by a person or a script: the Administrator
+ * (409 `administrator_role_fixed`, as before) and the NRA Auditor (Read Only) (409 `nra_auditor_role_fixed`). Nothing
+ * about the role is changed: name, description, capabilities, landing. ⚠ What a role holds is never rewritten here: an
+ * NRA Auditor role an org edited before the lock keeps it, and only further edits are refused.
+ */
+function assertEditable(role: any): void {
+  if (isAdministratorRole(role)) refuse(409, 'administrator_role_fixed', 'The Administrator role cannot be edited.')
+  if (isLockedRole(role)) refuse(409, 'nra_auditor_role_fixed', 'The NRA Auditor (Read Only) role cannot be edited: it is the audit profile the SUPTO documents describe.')
+}
+
 async function administratorRoleIds(orgId: string): Promise<string[]> {
   return (await Role.find({ orgId, all: true }, { _id: 1 }).lean().exec()).map(r => String(r._id))
 }
@@ -127,6 +140,8 @@ export interface RoleView {
   isBuiltin: boolean
   templateKey?: string
   edited: boolean
+  /** #529: the Administrator or the NRA Auditor (Read Only): not edited (`isLockedRole`); the editor shows it read-only. */
+  locked: boolean
   all: boolean
   caps: string[]
   unknownCaps: string[]
@@ -140,7 +155,7 @@ function view(role: any, people: number): RoleView {
   const grant = grantOfRole(role)
   return {
     id: String(role._id), name: role.name, description: role.description, isBuiltin: !!role.isBuiltin, templateKey: role.templateKey,
-    edited: !!role.edited, all: !!role.all, caps: capsOf(grant), unknownCaps: unknownCaps(role),
+    edited: !!role.edited, locked: isLockedRole(role), all: !!role.all, caps: capsOf(grant), unknownCaps: unknownCaps(role),
     version: role.version ?? 1, people, landing: role.landing ?? null,
   }
 }
@@ -209,7 +224,7 @@ export async function createRole(actor: Actor, orgId: string, input: RoleInput):
 export async function updateRole(actor: Actor, orgId: string, roleId: string, input: RoleInput): Promise<RoleView> {
   assertManages(actor)
   const role = await roleInOrg(orgId, roleId)
-  if (isAdministratorRole(role)) refuse(409, 'administrator_role_fixed', 'The Administrator role cannot be edited.')
+  assertEditable(role)
   const me = await User.findOne({ _id: actor.id, orgId }, { roleId: 1 }).lean().exec()
   if (me && String((me as any).roleId) === String(role._id)) refuse(403, 'own_role', 'You cannot edit your own role.')
 
@@ -223,7 +238,8 @@ export async function updateRole(actor: Actor, orgId: string, roleId: string, in
 
 /**
  * #529 — the same edit as the role editor's save, made by a sys-admin's script rather than a person: no actor, so no
- * actor checks, and the audit row says where it came from (`via`). The Administrator role is still refused. Used by
+ * actor checks, and the audit row says where it came from (`via`). A locked role (the Administrator, the NRA Auditor) is
+ * still refused. Used by
  * `scripts/role-price-levels.ts`.
  */
 export async function setRoleCapsBySystem(
@@ -233,7 +249,7 @@ export async function setRoleCapsBySystem(
   via: string,
 ): Promise<{ before: CapabilityId[]; after: CapabilityId[]; role: RoleView }> {
   const role = await roleInOrg(orgId, roleId)
-  if (isAdministratorRole(role)) refuse(409, 'administrator_role_fixed', 'The Administrator role cannot be edited.')
+  assertEditable(role)
   const before = capsOf(grantOfRole(role))
   const view = await applyRoleUpdate(orgId, role, { caps: [...caps] }, { userId: '', via })
   return { before, after: view.caps as CapabilityId[], role: view }

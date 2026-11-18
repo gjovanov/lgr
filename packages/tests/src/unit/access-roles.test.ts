@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { ROLES } from 'config/constants'
-import { ROLE_TEMPLATES, can, grantOfRole, legacyKeyOf, roleDisplay, sameGrant, templateGrant, unknownCaps } from 'config/access'
+import { ROLE_TEMPLATES, can, grantOfRole, isLockedRole, legacyKeyOf, roleDisplay, sameGrant, templateGrant, unknownCaps } from 'config/access'
 
 /**
  * FR-27.3 (#529) — the built-in roles grant today's access of their legacy role, and a stored role grants what it
@@ -33,6 +33,18 @@ describe('the built-in templates', () => {
   it('the Administrator holds everything', () => {
     expect(templateGrant('admin').all).toBe(true)
     expect(grantOfRole({ all: true }).all).toBe(true)
+  })
+
+  it('#529: the Administrator and the NRA Auditor are locked, edited or not; every other role is not', () => {
+    expect(isLockedRole({ all: true, isBuiltin: true, templateKey: 'admin' })).toBe(true)
+    expect(isLockedRole({ isBuiltin: true, templateKey: 'nra_auditor' })).toBe(true)
+    expect(isLockedRole({ isBuiltin: true, edited: true, templateKey: 'nra_auditor', caps: ['sales-docs.edit'] })).toBe(true)
+    for (const t of ROLE_TEMPLATES.filter(t => !['admin', 'nra_auditor'].includes(t.key))) {
+      expect(isLockedRole({ isBuiltin: true, templateKey: t.key })).toBe(false)
+    }
+    // A role an org made from the auditor's template is its own: not built-in, so not locked.
+    expect(isLockedRole({ isBuiltin: false, caps: [...(templateGrant('nra_auditor') as { caps: Set<string> }).caps] })).toBe(false)
+    expect(isLockedRole(null)).toBe(false)
   })
 })
 

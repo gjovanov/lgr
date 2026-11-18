@@ -141,6 +141,15 @@ Why each one exists, and what was built around it: [`docs/history/access.md`](..
   - ⚠ A built-in role the org renamed shows the org's name (#529, answer 4): the key would be translated back to the
     template's name, and the org menu and the export would disagree with the Roles screen.
 
+- ⚠ **The NRA Auditor (Read Only) role is locked like the Administrator** (#529, owner 2026-11-18): it is the audit
+  profile the SUPTO documents (`docs/supto/`) describe, so no org adds to it, takes from it or renames it.
+  `config/access/roles.ts#isLockedRole` (the Administrator's `all`, or the built-in role of a `LOCKED_TEMPLATE_KEYS`
+  template); `role.service#updateRole` and `setRoleCapsBySystem` refuse every edit (caps, name, description, landing),
+  409 `nra_auditor_role_fixed` (the Administrator keeps `administrator_role_fixed`), and a built-in is never deleted
+  (`builtin_role`). The roles API sends `locked`; `RoleEditorView` shows a locked role read-only. The lock rewrites
+  nothing: a role an org changed before keeps its name and capabilities (no migration). A change to its template
+  changes what the SUPTO documents say it reads: update them with it.
+
 - **A page the role does not open (FR-27.7, Phase 2) shows "Not available for your role"** (`ui-shell/NotAvailable.vue`):
   both layouts (`ModuleLayout`, the portal's `DefaultLayout`) ask `ui-shared/access/page-access#usePageAccess`, and its
   view never mounts. The page is `pageAt(path, query)`: a registry page at its own path (a list, a new-document form)

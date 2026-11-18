@@ -61,7 +61,7 @@ Each business deploying LGR SUPTO must submit their own declaration within **7 d
 ### Data Export Testing
 - [ ] Generate all 9 Appendix 29 tables with real sales data
 - [ ] Verify column content matches specification
-- [ ] Test with the built-in NRA Auditor (Read Only) role (`nra_auditor`): it reads and exports, and writes nothing
+- [ ] Test with the built-in NRA Auditor (Read Only) role (`nra_auditor`): it reads and exports; running a report or exporting a table writes nothing
 - [ ] Verify period filters work correctly
 - [ ] Verify warehouse/device/operator filters
 
@@ -84,7 +84,8 @@ Each business deploying LGR SUPTO must submit their own declaration within **7 d
 ### Security Testing
 - [ ] A role without `devices.edit` cannot manage fiscal devices, and one without `devices.z-report` cannot print a Z-report (403)
 - [ ] A role without `cash-sales.storno` cannot perform a storno or a refund on a credit note (403)
-- [ ] NRA Auditor can only read, not write (403 on mutations)
+- [ ] NRA Auditor gets 403 on every create, edit, delete or void of documents, nomenclatures, roles, users and settings. Like any member, it can still add a note to a record (`POST /audit-logs`, action `note` only, written to the audit trail under its operator code), record a file's description (`POST /file`), change its own password and PIN, and mark its own notifications read
+- [ ] The NRA Auditor (Read Only) role is locked: the organization's Administrator cannot edit or rename it (409 `nra_auditor_role_fixed`) or delete it (409 `builtin_role`), and the Roles screen shows it read-only
 - [ ] A person with no role in the organization cannot sign in to it, and is refused on its routes (403 `no_role`)
 - [ ] Server-side total validation rejects mismatched amounts
 - [ ] Fiscal device IP validation blocks SSRF attempts

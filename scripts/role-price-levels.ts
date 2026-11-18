@@ -17,7 +17,7 @@
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { Org, Role, User } from '../packages/db/src/models/index.js'
-import { PRICE_CAPS, grantOfRole, withPriceLevels, type CapabilityId } from '../packages/config/src/access/index.js'
+import { PRICE_CAPS, grantOfRole, isLockedRole, withPriceLevels, type CapabilityId } from '../packages/config/src/access/index.js'
 import { setRoleCapsBySystem } from '../packages/services/src/biz/access/role.service.js'
 import { keepHomeOrgs } from './lib/home-guard.js'
 
@@ -48,6 +48,8 @@ async function main() {
     const role: any = await Role.findOne({ orgId: org._id, isBuiltin: true, templateKey: key }).lean()
     if (!role) throw new Error(`${org.slug}: no built-in role "${key}"`)
     if (role.all) throw new Error(`${org.slug}: "${key}" is the Administrator role, which sees every price`)
+    // #529: the NRA Auditor's role is locked as the Administrator's is (`setRoleCapsBySystem` refuses it too).
+    if (isLockedRole(role)) throw new Error(`${org.slug}: "${key}" is a locked role, which no edit changes`)
     const current = grantOfRole(role)
     const edit = withPriceLevels(current.all ? [] : current.caps, levels)
     if (edit.unknown.length) throw new Error(`unknown level(s): ${edit.unknown.join(', ')}`)

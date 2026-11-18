@@ -37,14 +37,33 @@ export function unknownCaps(role: RoleLike | null | undefined): string[] {
  * which the SPA translates (`settings.roles.<key>`, as it did the legacy key), any other by its name. Display only:
  * nothing decides by it.
  *
- * ⚠ A built-in role the org renamed (`updateRole` renames any but the Administrator) shows the org's name, as the Roles
- * screen does: the key would be translated back to the template's name, and the org menu and the export would
- * disagree with the Roles screen (#529, answer 4).
+ * ⚠ A built-in role the org renamed (`updateRole` renames any but the locked ones, `isLockedRole`; an NRA Auditor role
+ * renamed before its lock keeps that name) shows the org's name, as the Roles screen does: the key would be translated
+ * back to the template's name, and the org menu and the export would disagree with the Roles screen (#529, answer 4).
  */
 export function roleDisplay(role: { isBuiltin?: boolean; templateKey?: string | null; name?: string | null } | null | undefined): string {
   if (!role) return ''
   if (role.isBuiltin && role.templateKey && (!role.name || role.name === templateOf(role.templateKey)?.name)) return role.templateKey
   return role.name ?? ''
+}
+
+/**
+ * #529 (owner, 2026-11-18): the built-in roles an organization cannot edit, by its template key. The Administrator is
+ * locked by what it is (`all`); the NRA Auditor (Read Only) is the audit profile of Наредба Н-18, Appendix 29 т. 19, and
+ * the SUPTO documents describe exactly what it reads, so no organization adds to it (or takes from it, or renames it).
+ */
+export const LOCKED_TEMPLATE_KEYS: readonly string[] = ['nra_auditor']
+
+/**
+ * Whether an organization may not edit this role (`role.service#updateRole` refuses it, 409, and the editor shows it
+ * read-only): the Administrator (`all`) and the built-in role of a `LOCKED_TEMPLATE_KEYS` template.
+ *
+ * ⚠ The lock refuses changes; it rewrites nothing. An NRA Auditor role an organization edited or renamed before the
+ * lock keeps what it holds and its name: no migration resets it.
+ */
+export function isLockedRole(role: RoleLike | null | undefined): boolean {
+  if (!role) return false
+  return !!role.all || (!!role.isBuiltin && !!role.templateKey && LOCKED_TEMPLATE_KEYS.includes(role.templateKey))
 }
 
 /** Whether two grants allow exactly the same. */
