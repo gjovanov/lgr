@@ -117,6 +117,7 @@ import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import { useGridColumns } from 'ui-shared/composables/useGridColumns'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -153,10 +154,19 @@ const filters = computed(() => {
 })
 
 const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/account`)
+// FR-31.18: the list's place (search, the books' two filters, page, size, sort) in the address; declared before
+// usePaginatedTable.
+const yesNoParam = (v: string) => (v === 'yes' || v === 'no' ? v : undefined)
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'analytics', ref: hasAnalytics, sanitize: yesNoParam },
+  { key: 'quantitative', ref: quantitative, sanitize: yesNoParam },
+])
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'accounts',
   filters,
+  urlSync: true,
 })
 
 const deleteDialog = ref(false)

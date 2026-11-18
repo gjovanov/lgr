@@ -160,6 +160,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import CurrencyInput from 'ui-shared/components/CurrencyInput'
 import TagInput from 'ui-shared/components/TagInput.vue'
@@ -183,10 +184,18 @@ const filters = computed(() => {
   return f
 })
 
+// FR-31.18: the list's place (search, tags, page, size, sort) in the address; declared before usePaginatedTable. The
+// status and department filters have no control on the page, so nothing sets them and they stay out of the address.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'tags', ref: tagFilter, codec: 'csv' },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/payroll/employee`),
   entityKey: 'employees',
   filters,
+  urlSync: true,
 })
 
 const dialog = ref(false)

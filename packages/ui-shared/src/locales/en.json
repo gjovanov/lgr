@@ -331,7 +331,13 @@
       "internalOrders": "No customer orders yet",
       "internalOrdersHint": "Create a client order for future delivery — reserve stock or incoming goods against it.",
       "reservations": "No reservations yet",
-      "reservationsHint": "Reservations link client demand to stock on hand or to goods expected on supplier orders."
+      "reservationsHint": "Reservations link client demand to stock on hand or to goods expected on supplier orders.",
+      "movements": "No stock movements yet",
+      "movementsHint": "Record a goods receipt, a dispatch or a transfer to get started.",
+      "stockLevels": "No stock yet",
+      "stockLevelsHint": "Stock appears here once a goods receipt is confirmed.",
+      "inventoryCounts": "No inventory counts yet",
+      "inventoryCountsHint": "Start a count to compare the shelves with the books."
     }
   },
   "common": {

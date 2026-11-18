@@ -321,6 +321,7 @@ import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAppStore } from '../../store/app.store'
 import { useDesktopStore, type Desktop, type MintedCode } from '../../store/desktop.store'
@@ -352,12 +353,20 @@ const filters = computed(() => ({
   ...(includeRevoked.value ? { includeRevoked: 'true' } : {}),
 }))
 
+// FR-31.18: the list's place (search, revoked shown, page, size, sort) in the address; declared before
+// usePaginatedTable. Auto-refresh is how the page behaves, not which rows it shows, and stays out.
+useListQueryState([
+  { key: 'q', ref: search },
+  { key: 'revoked', ref: includeRevoked, codec: 'bool', default: false },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/desktops`),
   entityKey: 'desktops',
   defaultSize: 25,
   defaultSortBy: 'lastSeenAt',
   filters: filters as any,
+  urlSync: true,
 })
 
 const headers = computed(() => [

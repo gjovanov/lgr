@@ -110,6 +110,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -172,10 +173,17 @@ const filters = computed(() => {
   return f
 })
 
+// FR-31.18: the list's place (status, active, page, size, sort) in the address; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'status', ref: statusFilter, sanitize: (v: string) => (['online', 'offline', 'error'].includes(v) ? v : undefined) },
+  { key: 'active', ref: activeFilter, sanitize: (v: string) => (v === 'true' || v === 'false' ? v : undefined) },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/fiscal/device`),
   entityKey: 'fiscalDevices',
   filters,
+  urlSync: true,
 })
 
 const headers = computed(() => [

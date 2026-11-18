@@ -331,7 +331,13 @@
       "internalOrders": "Noch keine Kundenbestellungen",
       "internalOrdersHint": "Erstellen Sie eine Kundenbestellung für zukünftige Lieferung — reservieren Sie Bestand oder erwartete Ware.",
       "reservations": "Noch keine Reservierungen",
-      "reservationsHint": "Reservierungen verknüpfen Kundenbedarf mit Lagerbestand oder mit Ware, die aus Lieferantenbestellungen erwartet wird."
+      "reservationsHint": "Reservierungen verknüpfen Kundenbedarf mit Lagerbestand oder mit Ware, die aus Lieferantenbestellungen erwartet wird.",
+      "movements": "Noch keine Lagerbewegungen",
+      "movementsHint": "Erfassen Sie einen Wareneingang, eine Auslieferung oder eine Umlagerung, um zu beginnen.",
+      "stockLevels": "Noch kein Bestand",
+      "stockLevelsHint": "Der Bestand erscheint hier, sobald ein Wareneingang bestätigt ist.",
+      "inventoryCounts": "Noch keine Inventuren",
+      "inventoryCountsHint": "Beginnen Sie eine Inventur, um die Regale mit den Büchern zu vergleichen."
     }
   },
   "common": {

@@ -539,6 +539,30 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     untouched save, and both order deletions through the app's dialog with no browser dialog.
   - *Decision:* quantities show as many decimals as they have (`5`, `2.5`), not a fixed three, so a column of whole
     pieces reads as it did and the grids' tests read `5` as before.
+- **B3** (FR-31.18, .19): lists keep their place; Movements, Stock levels and Inventory counts on the shared list shell.
+  - The seventeen lists of §1.9 pass `urlSync: true` to `usePaginatedTable`: the page, the page size and the sort are in
+    the address. Each filter a control on the page sets is a `useListQueryState` key, declared before the table: the
+    search (`q`) on Categories, Warehouses, Price lists, Accounts, Bank accounts, Exchange rates, Fixed assets, Employees,
+    Payroll runs, Payslips, Timesheets and Desktops; and `analytics` / `quantitative` (Accounts), `taxCategory` / `origin`
+    (Fixed assets), `tags` (Employees), `employee` / `from` / `to` (Timesheets), `status` / `active` (POS devices),
+    `status` / `from` / `to` (POS sessions), `revoked` (Desktops). A value the filter does not offer is dropped. VAT
+    returns, Users and Invites have no filter: their page, size and sort. The per-tab memory of FR-05 brings the place
+    back on a form's own Back as well as the browser's.
+  - Movements, Stock levels and Inventory counts are on `ListScaffold`: the column picker and the remembered columns,
+    keyed by their unchanged route names. Their addresses keep the same keys. Movements keeps its tick column and e-mail
+    bar (the shell's `selectable` and `bulk-bar`), its board and a product's ledger (the shell's other views), and no
+    longer fetches the contact list it never read; its Export (A5) and its dates (B1) were already done.
+    `ListScaffold` takes `header-testid` for the title row the movements fit test measures.
+  - `unit/list-place.test.ts` fails on a table on `usePaginatedTable` without `urlSync: true` (a picker dialog and a
+    VAT return's own rows are the two listed exceptions), on a settable filter of the seventeen left out of the address
+    or declared after the table, and on the three lists leaving the shell, their route names or their keys.
+    `e2e/list-place.spec.ts`: Categories (a search and page two, by the form's Back and the browser's), Warehouses (a
+    search) and Accounts (page two, and the address opened as it stands); Movements' column picker survives a reload,
+    its address keeps `type` and `status`, and no contact list is asked for.
+  - *Decision:* a filter with no control on its page (Employees' status and department, Payroll runs' status) stays out
+    of the address: nothing sets it, so nothing is lost. Desktops' auto-refresh is how the page behaves, not which rows
+    it shows, and stays out too. The three moved lists keep the default row density they had, not the shell's compact
+    one, so their rows look as they did.
 - **B4** (FR-31.21; FR-31.20 not built): icon buttons have names.
   - The 61 icon-only buttons that named themselves in no way (an `icon="mdi-…"` or a `<v-icon>` inside, with no
     `aria-label`, `title` or tooltip) now carry a translated `aria-label` and a `title`, which is the tooltip: delete,

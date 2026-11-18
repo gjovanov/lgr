@@ -410,6 +410,12 @@ Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales 
   (`ui-shared/composables/confirm.ts`). ⚠ `unit/fields-and-dialogs.test.ts` fails on `confirm(`, `alert(` or
   `prompt(` of the browser, and on a new raw `type="number"` input: a figure is a `DecimalField`, which takes a comma.
 
+- **A list keeps its place** (FR-31.18): every list on `usePaginatedTable` passes `urlSync: true`, and each filter a
+  control on the page sets is a `useListQueryState` key, declared before the table. ⚠ `unit/list-place.test.ts` fails
+  on a new table without it (a picker dialog and a record's own rows are its two listed exceptions) and on a settable
+  filter left out of the address. Movements, Stock levels and Inventory counts are on `ListScaffold` (FR-31.19): the
+  column picker, columns kept by route name, addresses as before.
+
 - A list on `usePaginatedTable` / `useProductList` never throws a failed request any more: it puts it in
   `pagination.loadError`, and `ListScaffold` (or `ListLoadError` in a table of its own) says it with Retry, never "no
   data". An error on the message line (`useSnackbar`) stays until closed, and messages queue.
