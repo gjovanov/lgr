@@ -377,7 +377,6 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -405,6 +404,15 @@ import type { FormAction, StatusDef } from 'ui-shared/components/EntityFormShell
 import GRColumnPicker from '../components/GRColumnPicker.vue'
 import { useGRColumns } from '../composables/useGRColumns'
 import { useMovementPrint } from '../composables/useMovementPrint'
+import {
+  confirmMovement, createMovement, createReceiptWithUpdate, getMovement, updateMovement,
+  type MovementCreateBody, type MovementType, type MovementUpdateBody, type ReceiptWithUpdateBody,
+} from '../api/movements'
+import { billFromReceipt, saleFromDispatch } from '../api/invoicing'
+import { getProduct, listProducts } from '../api/products'
+import { listProductCategories } from '../api/product-categories'
+import { listStockLevels } from '../api/stock-levels'
+import { listWarehouses } from '../api/warehouses'
 import { grColumnLabel } from 'ui-shared/composables/useGRColumns'
 // What a line stages for its product, and what reaches it — shared with the supplier bill's form.
 import {
@@ -834,12 +842,10 @@ async function fetchItem() {
   loading.value = true
   loadStarted()
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/movement/${route.params.id}`)
-    const detail = data.stockMovement || data
-    // The page names the movement by its SM- number (FR-22.29): the API sends `movementNumber`,
-    // which this read as `number` and so never showed.
+    const { stockMovement: detail } = await getMovement(route.params.id as string)
+    // The page names the movement by its SM- number (FR-22.29): the one read sends it as `number` too.
     movement.value = {
-      number: detail.number || detail.movementNumber,
+      number: detail.number,
       status: detail.status || 'draft',
       inventoryCountId: detail.inventoryCountId || undefined,
       billable: !!detail.billable,
@@ -889,8 +895,9 @@ async function fetchItem() {
 const createAttempt = createIdempotentAction()
 
 async function save(): Promise<string | null> {
-  const basePayload: Record<string, any> = {
-    type: form.value.type,
+  const basePayload: MovementCreateBody & Pick<ReceiptWithUpdateBody, 'productUpdates'> = {
+    // The type select offers the kinds the schema accepts.
+    type: form.value.type as MovementType,
     date: form.value.date,
     fromWarehouseId: form.value.fromWarehouseId || undefined,
     toWarehouseId: form.value.toWarehouseId || undefined,
@@ -914,21 +921,22 @@ async function save(): Promise<string | null> {
     // Draft edit: type is immutable after create — PUT does not accept it. An emptied warehouse or
     // partner is sent as `null`: left out, PUT keeps the one the draft has, and clearing it did
     // nothing. Once confirmed a receipt's wrong supplier refuses every other one for good.
-    const { type: _type, ...updateBody } = basePayload
+    const { type: _type, ...fields } = basePayload
+    const updateBody: MovementUpdateBody = fields
     updateBody.fromWarehouseId = form.value.fromWarehouseId || null
     updateBody.toWarehouseId = form.value.toWarehouseId || null
     updateBody.contactId = form.value.contactId || null
-    await httpClient.put(`${appStore.orgUrl()}/warehouse/movement/${route.params.id}`, updateBody)
+    await updateMovement(route.params.id as string, updateBody)
     markSaved()
     return route.params.id as string
   }
-  const endpoint = grWithUpdate.value && form.value.type === 'receipt'
-    ? `${appStore.orgUrl()}/warehouse/movement/with-update`
-    : `${appStore.orgUrl()}/warehouse/movement`
-  // The endpoint is part of what identifies the attempt: the same lines sent to the other route are another request.
-  const { data } = await createAttempt.run({ endpoint, basePayload }, headers => httpClient.post(endpoint, basePayload, { headers }))
+  const withUpdate = grWithUpdate.value && form.value.type === 'receipt'
+  // The route is part of what identifies the attempt: the same lines sent to the other route are another request.
+  const { stockMovement } = await createAttempt.run({ withUpdate, basePayload }, headers => (withUpdate
+    ? createReceiptWithUpdate({ ...basePayload, type: 'receipt' }, headers)
+    : createMovement(basePayload, headers)))
   markSaved()
-  return data.stockMovement?._id || data.stockMovement?.id || data._id || null
+  return stockMovement._id
 }
 
 /** After a create, the page becomes the movement's own: its route, its number, its status. */
@@ -975,10 +983,7 @@ async function saveAndConfirm() {
     if (!id) throw new Error(t('common.operationFailed'))
     // FR-04 (#11): confirming a manual adjustment auto-creates its completed inventory
     // count server-side (createCount is UI-only — imports/skills stay count-free).
-    await httpClient.post(
-      `${appStore.orgUrl()}/warehouse/movement/${id}/confirm`,
-      form.value.type === 'adjustment' ? { createCount: true } : {},
-    )
+    await confirmMovement(id, form.value.type === 'adjustment' ? { createCount: true } : {})
     succeeded()
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {
@@ -1000,11 +1005,11 @@ async function saveAndConfirm() {
 async function createBill(contactId?: string) {
   billing.value = true
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/bills/from-receipt`, {
-      movementIds: [route.params.id],
+    const { invoice } = await billFromReceipt({
+      movementIds: [route.params.id as string],
       ...(contactId ? { contactId } : {}),
     })
-    goTo(billHref(data.invoice.id || data.invoice._id))
+    goTo(billHref(invoice.id))
   } catch (e: any) {
     const res = e?.response?.data
     // Billed meanwhile (a second click, another tab): go to that bill rather than refuse.
@@ -1054,13 +1059,13 @@ function billHref(id: string) {
 async function createInvoice(contactId?: string) {
   invoicing.value = true
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/sales/from-dispatch`, {
-      movementIds: [route.params.id],
+    const { invoice } = await saleFromDispatch({
+      movementIds: [route.params.id as string],
       // „Словом" is written in the language the person works in, as the invoice form writes it.
       locale: appStore.locale,
       ...(contactId ? { contactId } : {}),
     })
-    goTo(saleHref(data.invoice.id || data.invoice._id))
+    goTo(saleHref(invoice.id))
   } catch (e: any) {
     const res = e?.response?.data
     // Invoiced meanwhile (a second click, another tab): go to that invoice rather than refuse.
@@ -1142,10 +1147,8 @@ async function fetchLineStock(idx: number, opts: { prefill?: boolean } = {}) {
     return
   }
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, {
-      params: { productId: line.productId, warehouseId, size: 1 },
-    })
-    const sl = data.stockLevels?.[0]
+    const { stockLevels } = await listStockLevels({ productId: line.productId, warehouseId, size: 1 })
+    const sl = stockLevels[0]
     if (!sl) { line.stockQty = 0; return }
     line.stockQty = sl.availableQuantity ?? sl.quantity ?? 0
     if (opts.prefill && !arriving.value && !Number(line.quantity)) {
@@ -1203,10 +1206,10 @@ async function seedLineProductUpdate(idx: number, costAtPick?: number) {
   const productId = String(line.productId)
   const costBefore = costAtPick ?? line.unitCost
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${productId}`)
+    const { product } = await getProduct(productId)
     // The line may have been given another product while this one loaded.
     if (String(line.productId) !== productId) return
-    Object.assign(line, seedFromProduct(data.product || data, productId))
+    Object.assign(line, seedFromProduct(product, productId))
     // A cost typed while the product loaded is its new purchase price, as if typed after.
     if (line.unitCost !== costBefore) cascadePurchasePrice(line, line.unitCost)
   } catch { /* keep defaults if fetch fails */ }
@@ -1220,8 +1223,7 @@ async function seedUnseededLines() {
   const pending = form.value.lines.filter((l: any) => needsSeed(l))
   if (!pending.length) return
   const products = await productsForSeed(async (ids) => {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product`, { params: { ids: ids.join(','), size: ids.length } })
-    return data.products || []
+    return (await listProducts({ ids: ids.join(','), size: ids.length })).products
   }, [...new Set(pending.map((l: any) => String(l.productId)))])
   for (const line of pending) {
     const p = products.get(String(line.productId))
@@ -1290,10 +1292,10 @@ function openQuickProduct(idx: number, name: string) {
   quickOpen.value = true
 }
 
-/** The new article (or the catalog's own, when it had it) goes on the line it was asked from. */
+/** The new article (or the catalog's own, when it had it) goes on the line it was asked from. Both are the repository's entity, `_id` included. */
 async function onQuickProductCreated(product: any) {
   if (quickLine < 0 || !product) return
-  await onLineProductSelected(quickLine, { ...product, _id: product._id || product.id })
+  await onLineProductSelected(quickLine, product)
 }
 
 // Refreshes the „stock" chips when the warehouse they read changes. Info only — see fetchLineStock.
@@ -1312,15 +1314,13 @@ async function fetchWarehouses() {
   // ⚠ `external: 'include'`: unasked, the route answers only the warehouses that keep stock. This form
   // is where an external one is chosen (on a transfer) and where a booked one is shown by name.
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000, external: 'include' } })
-    warehouses.value = data.warehouses || []
+    warehouses.value = (await listWarehouses({ size: 1000, external: 'include' })).warehouses
   } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 async function fetchCategories() {
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category?size=0`)
-    categories.value = data.productCategories || []
+    categories.value = (await listProductCategories({ size: 0 })).productCategories
   } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
@@ -1373,10 +1373,8 @@ function applyNewReceiptDefaults() {
  */
 async function prefillFromProduct(id: string) {
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${encodeURIComponent(id)}`)
-    const product = data?.product
-    if (!product) return
-    await onLineProductSelected(0, { ...product, _id: String(product._id || product.id) })
+    const { product } = await getProduct(encodeURIComponent(id))
+    await onLineProductSelected(0, product)
   } catch { /* the blank receipt */ }
 }
 

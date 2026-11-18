@@ -88,7 +88,9 @@ import { useI18n } from 'vue-i18n'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { writesInventory } from 'ui-shared/nav/page-registry'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import {
+  createWarehouse, getWarehouse, updateWarehouse, type WarehouseAddress, type WarehouseCreateBody, type WarehouseType,
+} from '../api/warehouses'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
@@ -115,6 +117,8 @@ const emptyAddress = (): IAddress => ({ street: '', city: '', state: '', postalC
 // `isExternal`: another site's warehouse, named here for transfers. It keeps no stock in this organization.
 const emptyForm = () => ({ code: '', name: '', type: 'warehouse', manager: '', address: emptyAddress(), isDefault: false, isExternal: false, isActive: true })
 const form = ref(emptyForm())
+/** The form as the routes take it. Its type select offers the four kinds the schemas accept. */
+const body = (): WarehouseCreateBody => ({ ...form.value, type: form.value.type as WarehouseType })
 
 const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   appId: 'inventory',
@@ -141,9 +145,9 @@ async function fetchItem() {
   loading.value = true
   loadStarted()
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse/${route.params.id}`)
-    const item = data.warehouse || data
-    const addr = item.address || emptyAddress()
+    const { warehouse: item } = await getWarehouse(route.params.id as string)
+    // A record from before the schema may hold its address as text: the fields then start empty, as they did.
+    const addr: WarehouseAddress = (typeof item.address === 'object' && item.address) || emptyAddress()
     await markLoaded(() => {
       form.value = {
         code: item.code,
@@ -169,10 +173,10 @@ async function handleSubmit() {
   saving.value = true
   try {
     if (isEdit.value) {
-      await httpClient.put(`${appStore.orgUrl()}/warehouse/warehouse/${route.params.id}`, form.value)
+      await updateWarehouse(route.params.id as string, body())
     } else {
-      const { data } = await httpClient.post(`${appStore.orgUrl()}/warehouse/warehouse`, form.value)
-      const newId = data.warehouse?._id || data._id
+      const { warehouse } = await createWarehouse(body())
+      const newId = warehouse._id
       if (newId) {
         markSaved()
         succeeded()

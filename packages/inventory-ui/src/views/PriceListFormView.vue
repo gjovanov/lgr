@@ -95,7 +95,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createPriceList, getPriceList, updatePriceList } from '../api/price-lists'
+import { getProduct } from '../api/products'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
@@ -162,8 +163,7 @@ async function fetchItem() {
   loading.value = true
   loadStarted()
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/price-list/${route.params.id}`)
-    const item = data.priceList || data
+    const { priceList: item } = await getPriceList(route.params.id as string)
     await markLoaded(() => {
       form.value = {
         name: item.name, currency: item.currency, validFrom: item.validFrom?.split('T')[0] || '',
@@ -186,10 +186,10 @@ async function handleSubmit() {
   saving.value = true
   try {
     if (isEdit.value) {
-      await httpClient.put(`${appStore.orgUrl()}/warehouse/price-list/${route.params.id}`, form.value)
+      await updatePriceList(route.params.id as string, form.value)
     } else {
-      const { data } = await httpClient.post(`${appStore.orgUrl()}/warehouse/price-list`, form.value)
-      const newId = data.priceList?._id || data._id
+      const { priceList } = await createPriceList(form.value)
+      const newId = priceList._id
       if (newId) {
         markSaved()
         succeeded()
@@ -215,8 +215,7 @@ async function fetchItemProductNames() {
   await Promise.all(ids.map(async (id) => {
     if (productNames.value[id]) return
     try {
-      const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${id}`)
-      const p = data.product || data
+      const { product: p } = await getProduct(id)
       if (p?.name) productNames.value[id] = p.name
     } catch { /* stays blank until re-picked */ }
   }))

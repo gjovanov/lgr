@@ -351,7 +351,6 @@ import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { writesInventory } from 'ui-shared/nav/page-registry'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
@@ -365,6 +364,9 @@ import type { FormAction } from 'ui-shared/components/EntityFormShell.vue'
 import ProductTabBar from '../components/ProductTabBar.vue'
 import ProductDocActions from '../components/ProductDocActions.vue'
 import type { ProductForActions } from '../composables/product-doc-actions'
+import { listProductCategories } from '../api/product-categories'
+import { createProduct, getProduct, updateProduct, type CostingMethod, type Product, type ProductSaveBody, type ProductType } from '../api/products'
+import { getOrg } from '../api/org'
 import { PRICE_TIER_NAMES, PRODUCT_TARIFF_CODE_MAX } from 'config/constants'
 import { hasTierLabel, tierLabel, tierNameOfLabel } from 'config/price-tiers'
 import { capOfTier } from 'config/access'
@@ -449,10 +451,9 @@ const form = reactive({
  * „Активен" switch means nothing until it is saved. Null until the article has loaded.
  */
 const storedProduct = ref<ProductForActions | null>(null)
-function keepStored(p: { _id?: string; id?: string; isActive?: boolean; trackInventory?: boolean } | null | undefined) {
-  if (!p) return
+function keepStored(p: Product) {
   storedProduct.value = {
-    _id: String(p._id || p.id || route.params.id),
+    _id: p._id,
     isActive: p.isActive !== false,
     trackInventory: p.trackInventory !== false,
   }
@@ -807,8 +808,7 @@ function mergePriceEntries(customPrices: any[], tagPrices: any[]): PriceEntry[] 
 async function fetchCategories() {
   loadingCategories.value = true
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product-category?size=0`)
-    categories.value = data.productCategories || []
+    categories.value = (await listProductCategories({ size: 0 })).productCategories
   } finally {
     loadingCategories.value = false
   }
@@ -846,7 +846,8 @@ async function handleSubmit() {
       validFrom: t.validFrom || undefined,
       validTo: t.validTo || undefined,
     }))
-    const payload: Record<string, any> = { ...form, priceTiers: tiersPayload }
+    // The form's selects offer what the schemas accept: the four types, and the costing methods or none.
+    const payload: ProductSaveBody = { ...form, type: form.type as ProductType, costingMethod: form.costingMethod as CostingMethod | null, priceTiers: tiersPayload }
     if (!seesCosts.value) {
       // Nothing it cannot see: the server keeps the stored costs and margins.
       delete payload.purchasePrice
@@ -857,19 +858,19 @@ async function handleSubmit() {
     if (!seesSelling.value) delete payload.sellingPrice
 
     if (isEdit.value) {
-      const { data } = await httpClient.put(`${orgUrl()}/warehouse/product/${route.params.id}`, payload)
+      const { product } = await updateProduct(route.params.id as string, payload)
       // The form stays open on what it saved, on the current tab: an edit from here is unsaved again (FR-31.1).
       markSaved()
-      keepStored(data?.product)
+      keepStored(product)
       succeeded()
       showSuccess(t('common.savedSuccessfully'))
     } else {
-      const { data } = await httpClient.post(`${orgUrl()}/warehouse/product`, payload)
+      const { product } = await createProduct(payload)
       // The new article opens as itself in this same form: what is edited there is unsaved again.
       markSaved()
       succeeded()
       showSuccess(t('common.savedSuccessfully'))
-      const newId = data?.product?._id || data?._id
+      const newId = product._id
       if (newId) router.push({ name: 'inventory.products.edit', params: { id: newId, tab: urlTab.value } })
       else router.push({ name: 'inventory.products' })
     }
@@ -885,12 +886,12 @@ onMounted(async () => {
   if (tryRestore()) {
     // The form holds the restored edits; the header's actions still read the article as stored.
     if (isEdit.value) {
-      httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
-        .then(({ data }) => {
-          keepStored(data?.product)
+      getProduct(route.params.id as string)
+        .then(({ product }) => {
+          keepStored(product)
           // Edits kept before the tiers were kept with them: the table shows the stored tiers, not nothing.
           if (!priceTiers.value.length) {
-            showTiers(data?.product)
+            showTiers(product)
             snapshot()
           }
         })
@@ -920,8 +921,7 @@ onMounted(async () => {
 async function loadProduct() {
   loadStarted()
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${route.params.id}`)
-    const p = data.product || data
+    const { product: p } = await getProduct(route.params.id as string)
     // The clean state is the loaded article, taken once the field watchers have run (FR-22.13, FR-31.2).
     await markLoaded(() => {
       Object.assign(form, {
@@ -953,8 +953,8 @@ async function loadProduct() {
  */
 async function applyOrgDefaultVat() {
   try {
-    const { data } = await httpClient.get(orgUrl())
-    const rate = (data?.org?.settings || data?.settings)?.taxConfig?.defaultVatRate
+    const { org } = await getOrg()
+    const rate = org.settings?.taxConfig?.defaultVatRate
     if (typeof rate === 'number' && form.taxRate === 0) form.taxRate = rate
   } catch { /* keep the field as is */ }
 }

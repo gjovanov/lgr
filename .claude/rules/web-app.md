@@ -169,3 +169,20 @@ search still reads such an article by its mirrors, slower, until migration 0018 
   (`lgr:pay-method:<docType>:<user>:<org>`), written when a NEW document is saved — editing an old
   one changes nothing; a cash sale's method is fixed and never remembered. „Последна цена за
   клиента" (`lgr:last-price:<docType>`) on the invoice and, now, the proforma.
+
+## Typed API modules (FR-32.24, #797)
+
+- **A screen of `inventory-ui` makes no HTTP call itself.** It calls a function of
+  `inventory-ui/src/api/<resource>.ts`, which takes the body its route's schema declares and returns
+  the answer its handler returns; the screen reads that answer as typed, never `data.x || data` or
+  `_id || id`. A new call is a new function there, written from its controller. `invoicing-ui` goes
+  the same way, a screen at a time. `unit/ui-api-modules.test.ts` fails on a file of `inventory-ui`
+  outside `src/api/` that imports or calls the HTTP client or reads an id both ways, and on
+  `invoicing-ui`'s raw calls growing past their ceiling (lower it when a screen moves).
+- ⚠ **A write through an API module is a write for `unit/access-read-only` (FR-27.7).** A view
+  writes when it sends `httpClient.post|put|patch|delete`, shows a Save, Delete or pencil, or calls a
+  function it imports from a `src/api/` module whose body sends one of those. The write functions are
+  read from the modules, so a new module needs no list; but a write function must send its request in
+  its own body (a module function that only calls another helper that writes is not seen). Such a view
+  must consult access (`v-cap`, a form action's `cap`, …) like any other: the bulk price adjustment
+  and the opening-stock import pass by their `v-cap`.

@@ -81,7 +81,11 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import {
+  completeInventoryCount, createInventoryCount, getInventoryCount, updateInventoryCount, type InventoryCount, type InventoryCountBody,
+} from '../api/inventory-counts'
+import { listStockLevels } from '../api/stock-levels'
+import { listWarehouses } from '../api/warehouses'
 import { reportError } from 'ui-shared/composables/report-error'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
@@ -159,11 +163,12 @@ async function fetchItem() {
   loading.value = true
   loadStarted()
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/inventory-count/${route.params.id}`)
-    const detail = data.inventoryCount || data.item || data
+    // A count that is not there answers `{ inventoryCount: null }`: the form then starts empty.
+    const { inventoryCount } = await getInventoryCount(route.params.id as string)
+    const detail: Partial<InventoryCount> = inventoryCount ?? {}
     // The GET /:id handler returns the raw doc — its field is countNumber (the `number`
     // alias exists only on the LIST handler), so the subtitle used to render blank.
-    countNumber.value = detail.countNumber || detail.number || ''
+    countNumber.value = detail.countNumber || ''
     countStatus.value = detail.status || 'draft'
     adjustmentMovementId.value = detail.adjustmentMovementId || ''
     await markLoaded(() => {
@@ -192,8 +197,8 @@ async function loadProducts() {
     // size: 0 = ALL stock levels. The default page (10) used to silently seed a "full"
     // count with ten products. `fields=count` is the endpoint's lean "all" (FR-30.8): past the list ceiling of a
     // thousand rows, each level narrow.
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, { params: { warehouseId: form.value.warehouseId, size: 0, fields: 'count' } })
-    form.value.lines = (data.stockLevels || []).map((s: any) => ({
+    const { stockLevels } = await listStockLevels({ warehouseId: form.value.warehouseId, size: 0, fields: 'count' })
+    form.value.lines = stockLevels.map(s => ({
       productId: s.productId,
       productName: s.productName || s.productSku,
       systemQuantity: s.quantity || 0,
@@ -208,7 +213,7 @@ async function handleSubmit() {
   if (!valid) return
   saving.value = true
   try {
-    const payload = {
+    const payload: InventoryCountBody = {
       ...form.value,
       itemCount: form.value.lines.length,
       varianceCount: form.value.lines.filter(l => l.countedQuantity !== l.systemQuantity).length,
@@ -222,10 +227,10 @@ async function handleSubmit() {
       })),
     }
     if (isEdit.value) {
-      await httpClient.put(`${appStore.orgUrl()}/warehouse/inventory-count/${route.params.id}`, payload)
+      await updateInventoryCount(route.params.id as string, payload)
     } else {
-      const { data } = await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count`, payload)
-      const newId = data.inventoryCount?._id || data._id
+      const { inventoryCount } = await createInventoryCount(payload)
+      const newId = inventoryCount._id
       if (newId) {
         markSaved()
         succeeded()
@@ -247,9 +252,9 @@ async function handleSubmit() {
 async function completeCount() {
   saving.value = true
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count/${route.params.id}/complete`)
+    const { inventoryCount } = await completeInventoryCount(route.params.id as string)
     countStatus.value = 'completed'
-    adjustmentMovementId.value = data?.inventoryCount?.adjustmentMovementId || adjustmentMovementId.value
+    adjustmentMovementId.value = inventoryCount?.adjustmentMovementId || adjustmentMovementId.value
     succeeded()
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {
@@ -260,7 +265,7 @@ async function completeCount() {
 }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } }); warehouses.value = data.warehouses || [] } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
+  try { warehouses.value = (await listWarehouses({ size: 1000 })).warehouses } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 onMounted(async () => {

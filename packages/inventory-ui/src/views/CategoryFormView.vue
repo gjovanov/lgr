@@ -40,7 +40,7 @@ import { useI18n } from 'vue-i18n'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { writesInventory } from 'ui-shared/nav/page-registry'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createProductCategory, getProductCategory, updateProductCategory } from '../api/product-categories'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
@@ -87,8 +87,7 @@ async function fetchItem() {
   loading.value = true
   loadStarted()
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category/${route.params.id}`)
-    const item = data.productCategory || data
+    const { productCategory: item } = await getProductCategory(route.params.id as string)
     await markLoaded(() => {
       form.value = {
         name: item.name,
@@ -111,10 +110,10 @@ async function handleSubmit() {
   saving.value = true
   try {
     if (isEdit.value) {
-      await httpClient.put(`${appStore.orgUrl()}/warehouse/product-category/${route.params.id}`, form.value)
+      await updateProductCategory(route.params.id as string, form.value)
     } else {
-      const { data } = await httpClient.post(`${appStore.orgUrl()}/warehouse/product-category`, form.value)
-      const newId = data.productCategory?._id || data._id
+      const { productCategory } = await createProductCategory(form.value)
+      const newId = productCategory._id
       if (newId) {
         markSaved()
         succeeded()

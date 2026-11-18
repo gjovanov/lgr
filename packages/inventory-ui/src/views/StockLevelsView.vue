@@ -80,7 +80,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useAccess } from 'ui-shared/access/useAccess'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { listWarehouses } from '../api/warehouses'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -155,7 +155,7 @@ const headers = computed(() => sortableHeaders('stockLevels', [
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
+  try { warehouses.value = (await listWarehouses()).warehouses } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 onMounted(() => { fetchItems(); fetchWarehouses() })

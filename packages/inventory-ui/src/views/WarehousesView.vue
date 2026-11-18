@@ -77,7 +77,7 @@ import { useI18n } from 'vue-i18n'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { writesInventory } from 'ui-shared/nav/page-registry'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { deleteWarehouse } from '../api/warehouses'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -136,7 +136,7 @@ const headers = computed(() => [
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/warehouse/warehouse/${selectedId.value}`)
+    await deleteWarehouse(selectedId.value)
     await fetchItems()
     deleteDialog.value = false
     showSuccess(t('common.deletedSuccessfully'))
