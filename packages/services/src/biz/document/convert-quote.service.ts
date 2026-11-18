@@ -1,5 +1,5 @@
 import { kindOfDocument, writesKind } from 'config/access'
-import { QUOTE_CONVERTS_TO, isQuoteType } from 'config/constants'
+import { QUOTE_CONVERTS_TO, isQuoteType, type QuoteType } from 'config/constants'
 import { Invoice } from 'db/models'
 import { getRepos } from '../../context.js'
 import { grantOf } from '../access/evaluate.js'
@@ -36,7 +36,7 @@ export async function convertQuote(orgId: string, id: string, user: any, request
   if (!isQuoteType(quote.type) || quote.direction !== 'outgoing') {
     return refuse(400, { code: 'not_a_quote', message: 'Only a proforma or an offer can be converted' })
   }
-  const offered: readonly string[] = QUOTE_CONVERTS_TO[quote.type]
+  const offered: readonly string[] = QUOTE_CONVERTS_TO[quote.type as QuoteType]
   const target: any = requested ?? offered[0]
   if (!offered.includes(target)) {
     return refuse(400, { code: 'conversion_not_offered', message: `A ${quote.type} is converted into ${offered.map(t => `a ${t}`).join(' or ')}, not into a ${target}` })
