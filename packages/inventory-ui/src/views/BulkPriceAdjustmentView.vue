@@ -97,9 +97,9 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TagInput from 'ui-shared/components/TagInput.vue'
+import { bulkAdjustPrices, type BulkAdjustBody } from '../api/pricing'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -140,7 +140,7 @@ function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
 async function doAdjust() {
   loading.value = true
   try {
-    const payload: any = {}
+    const payload: BulkAdjustBody = {}
     if (mode.value === 'byProductTags') {
       payload.productTagFilters = productTags.value
       payload.sellingPricePercent = sellingPercent.value
@@ -153,7 +153,7 @@ async function doAdjust() {
       payload.customPricePercent = customPriceTagPercent.value
     }
 
-    const { data } = await httpClient.post(`${orgUrl()}/warehouse/bulk-pricing/adjust`, payload)
+    const data = await bulkAdjustPrices(payload)
     result.value = data
     confirmDialog.value = false
     showSuccess(t('warehouse.bulkPricing.result', { products: data.productsUpdated, prices: data.pricesAdjusted }))

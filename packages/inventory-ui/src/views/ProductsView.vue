@@ -134,7 +134,7 @@ import { useI18n } from 'vue-i18n'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { writesInventory } from 'ui-shared/nav/page-registry'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { deleteProduct } from '../api/products'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useProductList } from 'ui-shared/composables/product-list/useProductList'
 import { useProductSelection } from 'ui-shared/composables/product-list/useProductSelection'
@@ -232,7 +232,7 @@ function rowActions(item: ProductRow): RowAction[] {
 function confirmDelete(item: ProductRow) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/warehouse/product/${selectedId.value}`)
+    await deleteProduct(selectedId.value)
     await list.fetchItems()
     deleteDialog.value = false
     showSuccess(t('common.deletedSuccessfully'))

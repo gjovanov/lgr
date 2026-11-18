@@ -338,7 +338,6 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { reportError } from 'ui-shared/composables/report-error'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -347,6 +346,14 @@ import ProductTabBar from '../components/ProductTabBar.vue'
 import ProductDocActions from '../components/ProductDocActions.vue'
 import ProductSuppliersTab from '../components/ProductSuppliersTab.vue'
 import { useAccess } from 'ui-shared/access/useAccess'
+import { listContacts } from '../api/contacts'
+import { listInventoryCounts } from '../api/inventory-counts'
+import { getProductSupply } from '../api/invoicing'
+import { listMovements } from '../api/movements'
+import { getProductLedger, type ProductLedgerParams } from '../api/product-ledger'
+import { getProduct } from '../api/products'
+import { listStockLevels } from '../api/stock-levels'
+import { listWarehouses } from '../api/warehouses'
 
 const route = useRoute()
 const router = useRouter()
@@ -535,15 +542,13 @@ function eventLabel(eventType: string) {
 async function fetchProduct() {
   if (!productId.value) return
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${productId.value}`)
-    product.value = data.product || data
+    product.value = (await getProduct(productId.value)).product
   } catch (e) { reportError(e) }
 }
 
 async function fetchWarehouses() {
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`)
-    warehouses.value = data.warehouses || []
+    warehouses.value = (await listWarehouses()).warehouses
   } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
@@ -551,18 +556,17 @@ async function fetchStockData() {
   if (!productId.value) return
   stockLoading.value = true
   try {
-    const [levelsRes, movementsRes, countsRes] = await Promise.all([
-      httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, { params: { productId: productId.value, size: 0 } }),
-      httpClient.get(`${appStore.orgUrl()}/warehouse/movement`, { params: { productId: productId.value, size: 0 } }),
-      httpClient.get(`${appStore.orgUrl()}/warehouse/inventory-count`, { params: { productId: productId.value, size: 0 } }),
+    const [levels, movements, counts] = await Promise.all([
+      listStockLevels({ productId: productId.value, size: 0 }),
+      listMovements({ productId: productId.value, size: 0 }),
+      listInventoryCounts({ productId: productId.value, size: 0 }),
     ])
-    stockLevels.value = levelsRes.data.stockLevels || []
-    stockMovements.value = movementsRes.data.stockMovements || []
-    stockCounts.value = countsRes.data.inventoryCounts || []
+    stockLevels.value = levels.stockLevels
+    stockMovements.value = movements.stockMovements
+    stockCounts.value = counts.inventoryCounts
   } catch (e) { reportError(e) }
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/product-supply/${productId.value}`)
-    supply.value = data.supply
+    supply.value = (await getProductSupply(productId.value)).supply
   } catch {
     supply.value = null
   }
@@ -577,7 +581,7 @@ async function fetchLedger() {
   const mine = ++ledgerRequest
   ledgerLoading.value = true
   try {
-    const params: Record<string, string> = {
+    const params: ProductLedgerParams = {
       page: String(currentPage.value),
       size: String(pageSize.value),
     }
@@ -591,11 +595,11 @@ async function fetchLedger() {
       params.sortOrder = sortOrder.value
     }
 
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-ledger/${productId.value}`, { params })
+    const data = await getProductLedger(productId.value, params)
     if (mine !== ledgerRequest) return
-    entries.value = data.entries || []
-    totalEntries.value = data.total ?? 0
-    summary.value = data.summary || summary.value
+    entries.value = data.entries
+    totalEntries.value = data.total
+    summary.value = data.summary
   } catch {
     if (mine !== ledgerRequest) return
     entries.value = []
@@ -627,8 +631,8 @@ watch(contactSearch, (q) => {
   contactDebounce = setTimeout(async () => {
     contactLoading.value = true
     try {
-      const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`, { params: { search: q, size: 10 } })
-      contactItems.value = (data.contacts || []).map((c: any) => ({
+      const { contacts } = await listContacts({ search: q, size: 10 })
+      contactItems.value = contacts.map(c => ({
         ...c,
         displayName: c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || c._id,
       }))

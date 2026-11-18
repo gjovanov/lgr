@@ -53,7 +53,7 @@ import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { completeInventoryCount } from '../api/inventory-counts'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -108,7 +108,7 @@ async function complete(item: Item) {
   if (completing.value) return
   completing.value = item._id
   try {
-    await httpClient.post(`${appStore.orgUrl()}/warehouse/inventory-count/${item._id}/complete`)
+    await completeInventoryCount(item._id)
     await fetchItems()
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {

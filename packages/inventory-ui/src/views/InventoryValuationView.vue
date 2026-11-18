@@ -91,7 +91,8 @@ import { formatNumber, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getValuation } from '../api/valuation'
+import { listWarehouses } from '../api/warehouses'
 import { reportError } from 'ui-shared/composables/report-error'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ReportExportButton from 'ui-shared/components/ReportExportButton.vue'
@@ -151,17 +152,17 @@ const headers = computed(() => [
 async function fetchValuation() {
   loading.value = true
   try {
-    const params: Record<string, string> = {}
+    const params: { warehouseId?: string } = {}
     if (warehouseFilter.value) params.warehouseId = warehouseFilter.value
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/cost-layer/valuation`, { params })
-    items.value = data.items || []
-    totalValue.value = data.totalValue || 0
+    const data = await getValuation(params)
+    items.value = data.items
+    totalValue.value = data.totalValue
   } catch (e) { reportError(e) }
   finally { loading.value = false }
 }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
+  try { warehouses.value = (await listWarehouses()).warehouses } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 

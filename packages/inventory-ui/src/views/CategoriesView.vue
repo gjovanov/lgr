@@ -69,7 +69,7 @@ import { useI18n } from 'vue-i18n'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { writesInventory } from 'ui-shared/nav/page-registry'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { deleteProductCategory } from '../api/product-categories'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -127,7 +127,7 @@ function confirmDelete(item: Category) { selectedId.value = item._id; deleteDial
 
 async function doDelete() {
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/warehouse/product-category/${selectedId.value}`)
+    await deleteProductCategory(selectedId.value)
     await fetchItems()
     deleteDialog.value = false
     showSuccess(t('common.deletedSuccessfully'))
