@@ -8,7 +8,6 @@ import { createTestOrg, createTestWarehouse, createTestUser } from '../helpers/f
 import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
 import { disconnectAll } from 'fiscal/fiscal-device.service'
 import { AuditLog, FiscalDevice } from 'db/models'
-import { Types } from 'mongoose'
 
 /**
  * FR-32.24 finding: what the device form, the device list and the till send to `/fiscal/device` is what is stored.
@@ -89,10 +88,11 @@ describe('a device\'s status, written by the device list and the till', () => {
     const id = await createDevice(orgId, warehouseId, tok)
 
     expect((await call('PUT', `/org/${orgId}/fiscal/device/${id}`, tok, { status: 'online' })).status).toBe(200)
-    // The audit row is written without being awaited, and stores a castable id as an ObjectId (entityId is Mixed).
+    // The audit row is written without being awaited, and stores a castable id as an ObjectId (entityId is Mixed): compared as text.
     let rows: any[] = []
     for (let i = 0; i < 20 && rows.length === 0; i++) {
-      rows = await AuditLog.find({ orgId, entityType: 'fiscal_device', entityId: new Types.ObjectId(id), action: 'update' }).lean()
+      const all: any[] = await AuditLog.find({ orgId, entityType: 'fiscal_device', action: 'update' }).lean()
+      rows = all.filter(row => String(row.entityId) === id)
       if (rows.length === 0) await new Promise((r) => setTimeout(r, 50))
     }
     expect(rows).toHaveLength(1)
