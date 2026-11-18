@@ -30,6 +30,11 @@ export interface RequestContext {
    * `lan`, `tunnel` or `loopback` (`front-guard.ts#requestVia`). Absent without a front.
    */
   via?: string
+  /**
+   * FR-29.26: the response has been sent. Work the request left running (a background task) still sees this context;
+   * it is no longer the request's, and carries no request time limit.
+   */
+  done?: boolean
 }
 
 const storage = new AsyncLocalStorage<RequestContext | null>()
@@ -39,6 +44,8 @@ export function enterRequest(ctx: RequestContext): void {
 }
 
 export function leaveRequest(): void {
+  const ctx = storage.getStore()
+  if (ctx) ctx.done = true
   storage.enterWith(null)
 }
 

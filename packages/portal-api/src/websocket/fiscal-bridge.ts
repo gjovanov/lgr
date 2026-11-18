@@ -55,7 +55,7 @@ import { logger } from 'services/logger'
 import { randomUUID } from 'crypto'
 import { verifyToken } from '../auth/verify-token.js'
 import { attachAccess } from 'services/biz/access/live'
-import { liveSessionUser } from 'services/biz/identity/session.service'
+import { SessionCheckUnavailableError, liveSessionUser } from 'services/biz/identity/session.service'
 import { can, grantOf } from 'services/biz/access/evaluate'
 import type { Grant } from 'config/access'
 import {
@@ -293,13 +293,13 @@ async function authenticateBridge(ws: any, msg: any): Promise<BridgePrincipal | 
   const desktopClaims = verifyDesktopToken(msg.token)
   if (desktopClaims) return authenticateDesktopBridge(ws, desktopClaims)
 
-  // A token naming a person (`iid`) is revoked by a password change or reset, here as in every auth plugin
-  // (`liveSessionUser`): a signature alone is not a live session.
+  // A token naming a person (`iid`) is revoked by a password change or reset (`liveSessionUser`). FR-29.23: one that could
+  // not be checked just now is told to try again, not refused; its socket closes like any other, so the bridge reconnects.
   const verified = await verifyToken(msg.token)
-  const payload = verified ? await liveSessionUser(verified) : null
-  if (!payload) {
-    refuse(ws, 'A signed-in session is required to bridge a fiscal device.', 'unauthenticated')
-    closeSocket(ws, 'unauthenticated')
+  const payload = verified ? await liveSessionUser(verified).catch((e: unknown) => { if (e instanceof SessionCheckUnavailableError) return e; throw e }) : null
+  if (!payload || payload instanceof SessionCheckUnavailableError) {
+    refuse(ws, payload?.message ?? 'A signed-in session is required to bridge a fiscal device.', payload?.code ?? 'unauthenticated')
+    closeSocket(ws, payload?.code ?? 'unauthenticated')
     return null
   }
 

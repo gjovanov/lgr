@@ -209,6 +209,8 @@ if (config.front.controlSocket && config.front.secret) {
         }),
         // FR-29.21: audit writes that failed in this process.
         audit: (await import('services/biz/audit-log.service')).auditHealth(),
+        // FR-29.24: the declared indexes that did not build, guard indexes flagged.
+        indexes: (await import('db/indexes/verify')).lastIndexReport(),
         // FR-20.22: what the status page shows. Unknown is never drift 0.
         clock: (() => {
           const trust = clockTrusted()
@@ -328,6 +330,17 @@ setTimeout(async () => {
   })
   // Warms caches; nothing waits for it.
   void once('data-priming', runDataPriming)
+  // FR-29.24/.25: every model's index build awaited, and what did not build said: in the log, a guard index at error
+  // level (D-7), and in the sys-admin health. The server serves regardless; nothing waits for it.
+  void once('index-verification', async () => {
+    const { verifyIndexes } = await import('db/indexes/verify')
+    const report = await verifyIndexes()
+    for (const f of report.failures) {
+      if (f.guards) logger.error({ model: f.model, index: f.index, guards: f.guards, reason: f.reason }, 'A guard index is missing: what it guards is not refused')
+      else logger.warn({ model: f.model, index: f.index, reason: f.reason }, 'A declared index did not build')
+    }
+    logger.info({ models: report.models, failures: report.failures.length }, 'Indexes verified')
+  })
 
   /** A scheduler whose module is imported when it starts, so a broken import fails only it. */
   const lazy = <M>(load: () => Promise<M>, run: (m: M) => Promise<unknown>) => {
@@ -340,19 +353,19 @@ setTimeout(async () => {
   await startSchedulers([
     // FR-24.46: a device marked `online` that no live presence row holds (on any pod) is `offline`.
     {
-      name: 'fiscal-presence', intervalMs: 10_000, immediate: true,
+      name: 'fiscal-presence', where: 'every-pod', intervalMs: 10_000, immediate: true,
       ...lazy(() => import('services/biz/fiscal-presence.service'), m => m.markUnheldDevicesOffline()),
     },
     // NTP time verification at start (the immediate tick), then every 6 hours by default.
     {
-      name: 'fiscal-time-sync', intervalMs: config.supto.timeSyncIntervalMs, immediate: true,
+      name: 'fiscal-time-sync', where: 'every-pod', intervalMs: config.supto.timeSyncIntervalMs, immediate: true,
       ...lazy(() => import('fiscal/time-sync.service'), m => m.runTimeSyncCycle()),
     },
     // FR-11.5 (#21) — daily digest. `checkIntervalMs: 0` disables it; .env.test sets that so no
     // test ever mails. The tick is cheap and decides per org, in the org's own timezone, whether
     // its hour has come. The immediate pass catches up today after a restart past the hour.
     {
-      name: 'daily-digest', intervalMs: config.digest.checkIntervalMs, immediate: true,
+      name: 'daily-digest', where: 'every-pod', intervalMs: config.digest.checkIntervalMs, immediate: true,
       ...lazy(() => import('services/biz/digest/digest-runner.service'), m => m.digestTick()),
     },
     // FR-20.61 (P3-1b, P3-2b) — a master's capture of its own writes: one tailer under a lease, kept
@@ -360,12 +373,12 @@ setTimeout(async () => {
     // follows the link (Full: on), which can change while the API runs; LGR_REPLICATION=off stops it
     // for good, and global never runs it.
     {
-      name: 'replication-capture', intervalMs: config.node.role === 'master' && config.replication.capture !== false ? 5_000 : 0, immediate: true,
+      name: 'replication-capture', where: 'one', intervalMs: config.node.role === 'master' && config.replication.capture !== false ? 5_000 : 0, immediate: true,
       ...lazy(() => import('services/biz/replication/engine'), m => m.captureTick()),
     },
     // FR-13.10 (#24) — per-org backups. The claim is the unique {orgId, kind, date} on BackupRun.
     {
-      name: 'backup', intervalMs: config.backup.checkIntervalMs, immediate: true,
+      name: 'backup', where: 'every-pod', intervalMs: config.backup.checkIntervalMs, immediate: true,
       ...lazy(() => import('services/biz/backup/backup-runner.service'), m => m.backupTick()),
     },
     // FR-13.43–13.46 (#24) — retention. Global and bounded by `batchSize`: a row 366 days old is
@@ -373,42 +386,42 @@ setTimeout(async () => {
     // ⚠ Registered AFTER the backup scheduler on purpose. It is the only scheduled job that
     // destroys data, and its immediate pass must not run ahead of the backup's.
     {
-      name: 'retention', intervalMs: config.retention.checkIntervalMs, immediate: true,
+      name: 'retention', where: 'one', intervalMs: config.retention.checkIntervalMs, immediate: true,
       ...lazy(() => import('services/biz/retention/retention.service'), m => m.retentionTick()),
     },
     // FR-14.19 (#57) — reap ephemeral desktops that stopped reporting. ⚠ Only `ephemeral: true`
     // rows: the field lanes' throwaway VMs, never a till whose shop lost its connection.
     {
-      name: 'desktop-reaper', intervalMs: config.desktop.reaperIntervalMs, immediate: true,
+      name: 'desktop-reaper', where: 'one', intervalMs: config.desktop.reaperIntervalMs, immediate: true,
       ...lazy(() => import('services/biz/desktop/desktop.service'), m => m.reapEphemeralDesktops()),
     },
     // FR-20.2 (P2-1) — on global, reap ephemeral masters silent for 24 h. ⚠ Only `ephemeral: true`
     // rows: the field lanes' throwaway masters, never a shop's whose internet is down.
     {
-      name: 'node-reaper', intervalMs: config.node.role === 'global' ? config.node.reaperIntervalMs : 0, immediate: true,
+      name: 'node-reaper', where: 'one', intervalMs: config.node.role === 'global' ? config.node.reaperIntervalMs : 0, immediate: true,
       ...lazy(() => import('services/biz/node/node.service'), m => m.reapEphemeralNodes()),
     },
     // FR-20.43 (P2-5) — on a master, its people's changes on lgrai.app, which end their sessions here.
     {
-      name: 'identity-feed', intervalMs: config.node.role === 'master' ? config.identityFeed.intervalMs : 0, immediate: true,
+      name: 'identity-feed', where: 'one', intervalMs: config.node.role === 'master' ? config.identityFeed.intervalMs : 0, immediate: true,
       ...lazy(() => import('services/biz/identity/identity-feed.service'), m => m.identityFeedTick()),
     },
     // FR-20.40 (P2-4c) — on a master, its seal key's public half where the supervisor signs it into
     // its token assertions: before registration too, so the first token already carries it.
     {
-      name: 'seal-key', intervalMs: config.node.role === 'master' && config.node.sealPubFile ? 10 * 60_000 : 0, immediate: true,
+      name: 'seal-key', where: 'one', intervalMs: config.node.role === 'master' && config.node.sealPubFile ? 10 * 60_000 : 0, immediate: true,
       ...lazy(() => import('services/biz/node/node-seal-key'), m => m.publishSealKey()),
     },
     // FR-20.79 (P3-6a) — moving an org to its master: on global, a frozen move's copy once the home
     // cache has run out; on a master, its moves on global (take the copy, then the home).
     {
-      name: 'move-tick', intervalMs: config.node.role === 'global' ? config.move.tickMs : 0, immediate: true,
+      name: 'move-tick', where: 'one', intervalMs: config.node.role === 'global' ? config.move.tickMs : 0, immediate: true,
       ...lazy(() => import('services/biz/move/move.service'), m => m.moveTick()),
     },
     // FR-20.80 (P3-6c) — a move back: on global, a verified one's files put back in place and its
     // flip, after which the master's bulk socket is welcomed again (it pages the org no more).
     {
-      name: 'move-back-tick', intervalMs: config.node.role === 'global' ? config.move.tickMs : 0, immediate: true,
+      name: 'move-back-tick', where: 'one', intervalMs: config.node.role === 'global' ? config.move.tickMs : 0, immediate: true,
       ...lazy(
         async () => ({ back: await import('services/biz/move/move-back.service'), uplink: await import('./websocket/uplink.js') }),
         m => m.back.moveBackTick(new Date(), { flippedBack: nodeId => m.uplink.rewelcomeNode(nodeId) }),
@@ -420,7 +433,7 @@ setTimeout(async () => {
     // journal). Any of them locks legal numbering. From the start: a reverted disk is caught by the
     // backup drive's copy, or, linked, by lgrai.app's watermark.
     {
-      name: 'series-lock-tick', intervalMs: config.node.role === 'master' ? 60_000 : 0, immediate: true,
+      name: 'series-lock-tick', where: 'one', intervalMs: config.node.role === 'master' ? 60_000 : 0, immediate: true,
       // Then what it says of each org goes to lgrai.app, for the Servers page there.
       ...lazy(
         async () => ({ lock: await import('services/biz/home/series-lock.service'), mark: await import('services/biz/home/legal-mark.service') }),
@@ -434,22 +447,22 @@ setTimeout(async () => {
     // FR-20.70 (P3-7f) — after this master lost the record of its changes, lgrai.app's copy of each
     // org written here is made equal to it again: the copy's ids asked for and journaled again.
     {
-      name: 'mirror-reconcile-tick', intervalMs: config.node.role === 'master' ? 60_000 : 0, immediate: true,
+      name: 'mirror-reconcile-tick', where: 'one', intervalMs: config.node.role === 'master' ? 60_000 : 0, immediate: true,
       ...lazy(() => import('services/biz/replication/reconcile'), m => m.mirrorReconcileTick()),
     },
     // FR-20.84 (P3-6e) — the audited import of a fenced export a person asked for: one batch a tick,
     // under a lease, so a crash or another pod repeats nothing.
     {
-      name: 'fenced-import-tick', intervalMs: config.node.role === 'global' ? config.move.tickMs : 0, immediate: true,
+      name: 'fenced-import-tick', where: 'one', intervalMs: config.node.role === 'global' ? config.move.tickMs : 0, immediate: true,
       ...lazy(() => import('services/biz/move/fenced-import.service'), m => m.fencedImportTick()),
     },
     // FR-20.71 (P3-7g) — on a master: what a re-seed kept, brought into the books once a person asks.
     {
-      name: 'kept-import-tick', intervalMs: config.node.role === 'master' ? config.move.tickMs : 0, immediate: true,
+      name: 'kept-import-tick', where: 'one', intervalMs: config.node.role === 'master' ? config.move.tickMs : 0, immediate: true,
       ...lazy(() => import('services/biz/move/kept-import.service'), m => m.keptImportTick()),
     },
     {
-      name: 'move-worker', intervalMs: config.node.role === 'master' ? config.move.workerMs : 0, immediate: true,
+      name: 'move-worker', where: 'one', intervalMs: config.node.role === 'master' ? config.move.workerMs : 0, immediate: true,
       ...lazy(
         async () => ({ worker: await import('services/biz/move/move-worker.service'), fiscal: await import('fiscal/in-flight') }),
         // A move back is refused while a fiscal device of this process prints.
@@ -458,16 +471,16 @@ setTimeout(async () => {
     },
     // FR-20.86 (P2-6) — on a master, the outbox: mail global sends on its behalf. 0 disables it.
     {
-      name: 'outbox', intervalMs: config.node.role === 'master' ? config.outbox.intervalMs : 0, immediate: true,
+      name: 'outbox', where: 'one', intervalMs: config.node.role === 'master' ? config.outbox.intervalMs : 0, immediate: true,
       ...lazy(() => import('services/biz/relay/outbox-worker'), m => m.outboxTick()),
     },
     // FR-20.23 — background tasks: this process's heartbeat on the tasks it runs, and failing the
     // tasks whose process stopped (a deploy, a crash), so no screen polls a dead task for a week.
-    { name: 'task-heartbeat', intervalMs: owner.HEARTBEAT_MS, tick: owner.heartbeatOwnedTasks },
-    { name: 'orphaned-task-reaper', intervalMs: 60_000, immediate: true, tick: () => owner.failOrphanedTasks() },
+    { name: 'task-heartbeat', where: 'every-pod', intervalMs: owner.HEARTBEAT_MS, tick: owner.heartbeatOwnedTasks },
+    { name: 'orphaned-task-reaper', where: 'every-pod', intervalMs: 60_000, immediate: true, tick: () => owner.failOrphanedTasks() },
     // FR-29.16: the journal entries still owed (`postingjobs`), tried again with a growing delay. Every pod may run it.
     {
-      name: 'postings', intervalMs: config.postings.drainIntervalMs, immediate: true,
+      name: 'postings', where: 'every-pod', intervalMs: config.postings.drainIntervalMs, immediate: true,
       ...lazy(() => import('services/biz/postings/posting.service'), m => m.drainPostings()),
     },
   ])

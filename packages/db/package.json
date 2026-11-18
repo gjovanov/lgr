@@ -9,7 +9,8 @@
     "./models": "./src/models/index.ts",
     "./plugins/*": "./src/plugins/*.ts",
     "./home/*": "./src/home/*.ts",
-    "./replication/*": "./src/replication/*.ts"
+    "./replication/*": "./src/replication/*.ts",
+    "./indexes/*": "./src/indexes/*.ts"
   },
   "dependencies": {
     "config": "workspace:*",

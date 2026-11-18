@@ -520,7 +520,7 @@
     "lgr/catch-drops-error": 1
   },
   "packages/services/src/biz/identity/session.service.ts": {
-    "lgr/catch-drops-error": 2
+    "lgr/catch-drops-error": 1
   },
   "packages/services/src/biz/idp/idp-signin.service.ts": {
     "lgr/catch-drops-error": 1

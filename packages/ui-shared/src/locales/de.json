@@ -487,6 +487,8 @@
       "failed": "Die Liste konnte nicht geladen werden. Bitte gleich erneut versuchen."
     },
     "exportInReport": "Öffnet den Bericht zu dieser Liste, der nach Excel und PDF exportiert",
+    "sessionCheckUnavailable": "Die Sitzung konnte gerade nicht geprüft werden. Sie sind weiterhin angemeldet: Versuchen Sie es gleich noch einmal.",
+    "queryTimeout": "Das hat zu lange gedauert und wurde abgebrochen. Versuchen Sie es erneut oder grenzen Sie die Anfrage ein.",
     "apply": "Anwenden"
   },
   "export": {
