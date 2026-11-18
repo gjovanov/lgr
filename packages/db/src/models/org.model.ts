@@ -151,9 +151,8 @@ export interface IOrg extends Document {
       requireConnectedDevice?: boolean
     }
     /**
-     * FR-27 (#529): which model decides access. Unset is `legacy`: the permissions, sets and areas of today.
-     * `shadow`: they still decide, and the new evaluator runs beside them and counts every answer it would give
-     * differently (`services/biz/access/shadow.ts`). `roles`: Phase 1. A sys-admin's switch (`scripts/access-model.ts`).
+     * FR-27 (#529): which model decided access, as last switched (`legacy`, `shadow`, `roles`). Read by nothing since
+     * P3-2: every org is decided by its people's roles, and P3-6 removed the legacy model and shadow mode.
      */
     access?: {
       model?: 'legacy' | 'shadow' | 'roles'

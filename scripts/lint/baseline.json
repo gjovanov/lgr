@@ -294,16 +294,9 @@
   "packages/reports-ui/src/views/SuptoTableView.vue": {
     "lgr/catch-drops-error": 1
   },
-  "packages/services/src/biz/access/partition.ts": {
-    "lgr/no-as-any": 2
-  },
   "packages/services/src/biz/access/role.service.ts": {
     "lgr/catch-drops-error": 1,
     "lgr/no-as-any": 3
-  },
-  "packages/services/src/biz/access/shadow.ts": {
-    "lgr/catch-drops-error": 1,
-    "lgr/no-as-any": 2
   },
   "packages/services/src/biz/accounting-books/analytics.service.ts": {
     "lgr/no-as-any": 1
@@ -543,9 +536,6 @@
   "packages/services/src/biz/journal-header.service.ts": {
     "lgr/no-as-any": 2
   },
-  "packages/services/src/biz/member-payroll-read.backfill.ts": {
-    "lgr/no-as-any": 1
-  },
   "packages/services/src/biz/move/fenced-export.service.ts": {
     "lgr/no-as-any": 5
   },
@@ -606,19 +596,13 @@
     "lgr/no-as-any": 24
   },
   "packages/services/src/biz/org-clone/clone.service.ts": {
-    "lgr/no-as-any": 16
+    "lgr/no-as-any": 14
   },
   "packages/services/src/biz/outbound-fetch.ts": {
     "lgr/no-as-any": 3
   },
   "packages/services/src/biz/payroll.service.ts": {
     "lgr/no-as-any": 7
-  },
-  "packages/services/src/biz/permission-set.migration.ts": {
-    "lgr/no-as-any": 5
-  },
-  "packages/services/src/biz/permission-set.seed.ts": {
-    "lgr/no-as-any": 2
   },
   "packages/services/src/biz/personal-data/employee-personal.ts": {
     "lgr/no-as-any": 8
@@ -694,7 +678,7 @@
     "lgr/no-as-any": 6
   },
   "packages/services/src/biz/report-registry.types.ts": {
-    "lgr/no-as-any": 3
+    "lgr/no-as-any": 2
   },
   "packages/services/src/biz/reservation-ops.service.ts": {
     "lgr/no-as-any": 58
@@ -707,12 +691,6 @@
   },
   "packages/services/src/biz/sales-lines.ts": {
     "lgr/no-as-any": 7
-  },
-  "packages/services/src/biz/scoped-repos.ts": {
-    "lgr/no-as-any": 2
-  },
-  "packages/services/src/biz/scoped-repository.ts": {
-    "lgr/no-as-any": 2
   },
   "packages/services/src/biz/sequence.service.ts": {
     "lgr/no-as-any": 6

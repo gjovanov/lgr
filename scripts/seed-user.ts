@@ -32,8 +32,8 @@
  *   --caps <a,b>     a SERVICE account: instead of a built-in role, a role of its own holding exactly these
  *                    capabilities (`config/access` catalogue), created if missing. A role of that name with other
  *                    capabilities is refused, never reused.
- *   --permissions <a,b>  the same, named by legacy permissions (as before FR-27): what those permissions gave a
- *                    session opening no area (`compileLegacy`), e.g. `accounting.import` = `books-import.run`.
+ *   --permissions    gone with the legacy model (FR-27 P3-6): refused, naming --caps. `accounting.import` was
+ *                    `--caps books-import.run`.
  *   --set-name <n>   the name of that role (default: "Service: <username>")
  *   --execute        perform writes (default: dry-run)
  */
@@ -41,8 +41,8 @@ import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { requireUniqueIndexes } from './lib/require-indexes.js'
 import { Identity, Org, User, Role, Sequence } from '../packages/db/src/models/index.js'
-import { PERMISSIONS, ROLES } from '../packages/config/src/constants.js'
-import { compileLegacy, isCapability, withImplied, type CapabilityId } from '../packages/config/src/access/index.js'
+import { ROLES } from '../packages/config/src/constants.js'
+import { isCapability, withImplied, type CapabilityId } from '../packages/config/src/access/index.js'
 import { allocateOperatorCode } from '../packages/services/src/biz/sequence.service.js'
 import { discardIdentity, identityForOperatorJoin } from '../packages/services/src/biz/identity/identity.service.js'
 import { giveStartingRole, seedBuiltinRoles } from '../packages/services/src/biz/access/role.service.js'
@@ -73,27 +73,22 @@ const roleKey = (args.role as string) || 'admin'
 const isActive = !args.inactive
 const setOwner = !!args['set-owner']
 const list = (v: unknown) => (typeof v === 'string' ? v.split(',').map(p => p.trim()).filter(Boolean) : null)
-const servicePermissions = list(args.permissions)
 const serviceCapsNamed = list(args.caps)
 const serviceSetName = (args['set-name'] as string) || `Service: ${username}`
 
 const missing = ['org', 'email', 'username', 'password', 'first', 'last'].filter(k => !args[k])
 if (missing.length) { console.error(`Missing required: ${missing.map(m => '--' + m).join(', ')}. See header for options.`); process.exit(2) }
 if (!ROLES.includes(roleKey as any)) { console.error(`Invalid role "${roleKey}". Valid: ${ROLES.join(', ')}`); process.exit(2) }
-if (args.permissions !== undefined && !servicePermissions?.length) { console.error('--permissions takes a comma-separated list.'); process.exit(2) }
+if (args.permissions !== undefined) {
+  console.error('--permissions is gone with the legacy model (FR-27 P3-6): name capabilities with --caps (`accounting.import` was --caps books-import.run).')
+  process.exit(2)
+}
 if (args.caps !== undefined && !serviceCapsNamed?.length) { console.error('--caps takes a comma-separated list.'); process.exit(2) }
-if (servicePermissions && serviceCapsNamed) { console.error('Name --caps or --permissions, not both.'); process.exit(2) }
-const unknown = (servicePermissions ?? []).filter(p => !PERMISSIONS.includes(p as any))
-if (unknown.length) { console.error(`Unknown permission(s): ${unknown.join(', ')}`); process.exit(2) }
 const unknownCaps = (serviceCapsNamed ?? []).filter(c => !isCapability(c))
 if (unknownCaps.length) { console.error(`Unknown capability(ies): ${unknownCaps.join(', ')}`); process.exit(2) }
 
-/** A service account's capabilities: named, or what its legacy permissions gave a session opening no area. */
-const serviceCaps: string[] | null = serviceCapsNamed
-  ? withImplied(serviceCapsNamed as CapabilityId[]).sort()
-  : servicePermissions
-    ? (() => { const g = compileLegacy({ role: 'member', permissions: servicePermissions, areas: [] }); return g.all ? [] : [...g.caps].sort() })()
-    : null
+/** A service account's capabilities, as named, with what their forms read (`withImplied`). */
+const serviceCaps: string[] | null = serviceCapsNamed ? withImplied(serviceCapsNamed as CapabilityId[]).sort() : null
 
 const sameCaps = (a: readonly string[], b: readonly string[]) => [...a].sort().join() === [...b].sort().join()
 

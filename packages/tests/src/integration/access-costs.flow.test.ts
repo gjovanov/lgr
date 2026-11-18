@@ -10,10 +10,9 @@ import { config } from 'config'
 import { mongoose } from 'db/connection'
 import { Org, Product, StockLevel, User, type IUser } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
-import { forgetAccessModel } from 'services/biz/access/shadow'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
-import { PRICE_LEVEL_CAPS, compileLegacy } from 'config/access'
+import { PRICE_LEVEL_CAPS } from 'config/access'
+import { capsOfPermissions } from '../helpers/permission-caps'
 
 /**
  * FR-27.6 (#529, D-5; §8 field test step 3) — turn the cost figures off on a role, and read a product through the
@@ -55,7 +54,6 @@ beforeAll(async () => {
   app = new Elysia().onError(spaErrorHandler({}) as any).use(createApiApp()) as any
   org = await createTestOrg({ slug: 'access-costs' } as any)
   orgId = String(org._id)
-  await seedDefaultPermissionSets(orgId)
   people.admin = await createTestUser(org._id, { role: 'admin', username: 'admin', email: 'admin@access-costs.test' } as any)
   people.clerk = await createTestUser(org._id, { role: 'member', username: 'clerk', email: 'clerk@access-costs.test' } as any)
   people.manager = await createTestUser(org._id, { role: 'manager', username: 'manager', email: 'manager@access-costs.test' } as any)
@@ -71,7 +69,6 @@ beforeAll(async () => {
   await StockLevel.create({ orgId: org._id, productId: product._id, warehouseId: new mongoose.Types.ObjectId(), quantity: 3, availableQuantity: 3, avgCost: 2 } as any)
   await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: {} })
   await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-  forgetAccessModel(orgId)
   for (const key of Object.keys(people)) await sign(key)
   // A role that reads and edits products, without the cost figures, given to the clerk.
   // Every price level (FR-27.11), so this is about the cost figures alone.
@@ -127,7 +124,7 @@ describe('FR-27.6: a role without the cost figures', () => {
 describe('FR-27.6: the reports drop the cost columns for such a role', () => {
   it('stock levels without „Средна цена" and the value, cells and totals gone; the Administrator keeps them', async () => {
     // What `inventory.read` + `reports.read` give, less the cost figures: the inventory reports open, the costs do not.
-    const caps = [...(compileLegacy({ role: 'member', permissions: ['inventory.read', 'reports.read'] }) as any).caps].filter((c: string) => c !== 'products.costs')
+    const caps = [...(capsOfPermissions('inventory.read', 'reports.read') as any).caps].filter((c: string) => c !== 'products.costs')
     const role = await call('POST', '/roles', tokens.admin, { name: 'Stock reader', caps })
     expect(role.status).toBe(200)
     people.reader = await createTestUser(org._id, { role: 'member', username: 'reader', email: 'reader@access-costs.test' } as any)
@@ -176,7 +173,6 @@ describe('everyone else, as before', () => {
 
   it('FR-27 P3-2: the access model is no longer read: back on legacy, the clerk still sees what the role holds, no costs', async () => {
     await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'legacy' } }).exec()
-    forgetAccessModel(orgId)
     const one = await call('GET', `/warehouse/product/${productId}`, tokens.clerk)
     expect(one.status).toBe(200)
     expect('purchasePrice' in one.json.product).toBe(false)

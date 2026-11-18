@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
-import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { currentAppId, orgSlugFromName, switchLanding } from 'ui-shared/session/useOrgSession'
+import { templateGrant } from 'config/access'
 
 /**
  * The new-org dialog suggests the org's address from its name. The server takes only lowercase
@@ -30,8 +30,8 @@ describe('orgSlugFromName', () => {
 })
 
 describe('where an org switch lands', () => {
-  const accountant = { role: 'accountant', permissions: DEFAULT_ROLE_PERMISSIONS.accountant }
-  const sales = { role: 'sales', permissions: DEFAULT_ROLE_PERMISSIONS.sales }
+  const accountant = { grant: templateGrant('accountant') }
+  const sales = { grant: templateGrant('sales') }
   const land = (here: string, who: any, over = {}) => switchLanding(here, { hasRouteParams: false, appEnabled: true, who, ...over })
 
   it('the same page, when the person may open it in the new org', () => {
@@ -47,7 +47,7 @@ describe('where an org switch lands', () => {
     expect(land('/invoicing/cash-sales/new', accountant)).toBe('/invoicing/')
     expect(land('/invoicing/cash-register/sessions', accountant)).toBe('/invoicing/')
     expect(land('/invoicing/configuration/devices', accountant)).toBe('/invoicing/')
-    expect(land('/invoicing/invoices/new', { role: 'member', permissions: DEFAULT_ROLE_PERMISSIONS.member })).toBe('/invoicing/')
+    expect(land('/invoicing/invoices/new', { grant: templateGrant('member') })).toBe('/invoicing/')
   })
 
   it('the app\'s home, when the page names something of the old org', () => {

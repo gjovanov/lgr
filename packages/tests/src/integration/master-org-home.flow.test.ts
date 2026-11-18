@@ -9,7 +9,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { captureRejection } from '../helpers/capture-rejection'
-import { Identity, Org, OrgHome, PermissionSet, User } from 'db/models'
+import { Identity, Org, OrgHome, Role, User } from 'db/models'
 import { forgetAllHomes, isHomeHere } from 'db/home/home'
 import { register } from 'services/biz/auth.service'
 import { config } from 'config'
@@ -42,9 +42,9 @@ describe('an org created on a master (FR-20.18)', () => {
     expect(home).toMatchObject({ home: 'master-abcdefghijklmnop', epoch: 1, state: 'active' })
     expect((await Org.findById(org._id).lean() as any).homeEpochHighWater).toBe(1)
     expect(await isHomeHere(org._id)).toBe(true)
-    // Everything a new org gets was written: the founder, the permission sets.
+    // Everything a new org gets was written: the founder, the built-in roles.
     expect(await User.exists({ _id: user._id })).toBeTruthy()
-    expect(await PermissionSet.countDocuments({ orgId: org._id })).toBeGreaterThan(0)
+    expect(await Role.countDocuments({ orgId: org._id })).toBeGreaterThan(0)
   })
 
   test('on lgrai.app nothing changes: no record, global is home', async () => {

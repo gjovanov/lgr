@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { LOOKUP_FAMILIES, lookupNumber, lookupSpellings, prefixPattern, type LookupMatch } from 'config/document-lookup'
 import { documentIcon, documentKindKey, documentRoute, isJumpShortcut, type JumpKeyEvent } from '../../../ui-shell/src/document-route'
-import { readRuleFor } from 'services/biz/route-permission'
 import { accessRuleFor } from 'config/access'
 
 /**
@@ -133,8 +132,7 @@ describe('where it lives', () => {
     expect(jump).toContain('isJumpShortcut')
   })
 
-  it('the route has a rule in both tables: the service decides what each caller finds', () => {
-    expect(readRuleFor('/api/org/:orgId/lookup/documents')).toMatchObject({ self: expect.any(String) })
+  it('the route has a rule: the service decides what each caller finds', () => {
     expect(accessRuleFor('GET', 'lookup/documents')).toMatchObject({ self: expect.any(String) })
   })
 })

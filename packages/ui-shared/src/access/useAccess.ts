@@ -4,8 +4,7 @@ import { grantOfViewer } from '../nav/page-registry'
 
 /**
  * FR-27.2 (#529) — what this tab's session may do, for the views: the same grant and the same `can()` the server
- * decides by: the token's claims compiled (`compileLegacy`), exactly as today's permission checks, or, in an org on
- * `roles`, the role's grant as `/auth/me` said, followed live (FR-27.5, `live-grant.ts`).
+ * decides by: the role's grant as `/auth/me` said, followed live (FR-27.5, `live-grant.ts`).
  *
  * Read from the token, like `sessionViewer`: the app store's user is null on a fresh page load.
  */

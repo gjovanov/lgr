@@ -6,7 +6,8 @@ import { createTestUser } from '../helpers/factories'
 import { POSSession } from 'db/models'
 import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/till-world'
 import { posController } from 'invoicing-api/src/controllers/pos.controller'
-import { writeRuleFor } from 'services/biz/route-permission'
+import { accessRuleFor } from 'config/access'
+import { orgRouteRest } from 'services/biz/route-permission'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 
@@ -47,19 +48,20 @@ describe('FR-21.32 — the till writes need pos.write', () => {
    */
   const DEVICE_REPORT = '/org/:orgId/trade/pos/session/:id/device-report'
 
-  it('every write route of the till resolves to a rule that needs pos.write', () => {
+  it('every write route of the till resolves to a rule that needs the till (`till.sell`, as `pos.write` gave)', () => {
     const writes = (posController as any).routes
       .filter((r: any) => !['GET', 'HEAD', 'OPTIONS'].includes(r.method))
       .filter((r: any) => r.path !== DEVICE_REPORT)
     expect(writes.length).toBeGreaterThan(3)
     for (const r of writes) {
-      const rule: any = writeRuleFor(r.method, r.path)
-      expect({ route: `${r.method} ${r.path}`, need: rule?.need }).toEqual({ route: `${r.method} ${r.path}`, need: ['pos.write'] })
+      const rule: any = accessRuleFor(r.method, orgRouteRest(`/api${r.path}`) as string)
+      const caps = rule?.anyOf ?? rule?.floor
+      expect({ route: `${r.method} ${r.path}`, sells: !!caps?.includes('till.sell') }).toEqual({ route: `${r.method} ${r.path}`, sells: true })
     }
   })
 
-  it('a device report decides for itself, on the device page\'s roles', () => {
-    expect((writeRuleFor('POST', DEVICE_REPORT) as any).self).toContain('FISCAL_ADMIN_ROLES')
+  it('a device report decides for itself, on the device page\'s capability', () => {
+    expect(accessRuleFor('POST', orgRouteRest(`/api${DEVICE_REPORT}`) as string)).toMatchObject({ floor: ['devices.report'] })
   })
 
   it('a role without pos.write is refused at every till door, before anything is written', async () => {

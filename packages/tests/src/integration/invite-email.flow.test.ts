@@ -8,7 +8,6 @@ import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { Identity, Invite, Org, Role } from 'db/models'
 import { sessionFor } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 
 /**
  * #510: inviting a user, over the real route table. An email invite used to store the address and
@@ -55,7 +54,6 @@ beforeAll(async () => {
   app = new Elysia().onError(spaErrorHandler({}) as any).use(createApiApp())
   const org = await createTestOrg({ name: 'Acme Invites' } as any)
   orgId = String(org._id)
-  await seedDefaultPermissionSets(orgId)
   const identity = await Identity.create({ email: 'boss@invite.test', firstName: 'Ana', lastName: 'Boss', isActive: true, passwordSetBy: 'self', password: await Bun.password.hash('test123') } as any)
   const admin = await createTestUser(org._id, { role: 'admin', email: 'boss@invite.test', firstName: 'Ana', lastName: 'Boss', identityId: identity._id } as any)
   token = await (signer as any).decorator.jwt.sign(await sessionFor(admin, identity))

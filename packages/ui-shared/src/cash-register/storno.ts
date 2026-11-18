@@ -5,27 +5,17 @@
  * Import-pure: the POS and invoicing journals, and a unit test, read it.
  */
 
-import { can, compileLegacy, type Grant } from 'config/access'
+import { can, type Grant } from 'config/access'
 
 /**
- * The roles the storno route accepts ("H4: Storno requires manager or admin role"). Since FR-27 (#529) both sides
- * ask the grant for `cash-sales.storno`, which today's roles give as this list says.
- *
- * ⚠ Not `warehouse_manager` (owner, 2026-10-27): its permissions hold neither `pos.write` nor
- * `invoicing.write`, so it reached no storno door, and the list promised what it could not do.
+ * Who asks: the session's grant (FR-27.5: the role's, live, as the server's `can(user, 'cash-sales.storno')` decides;
+ * the built-in Administrator and Manager hold it). FR-27 P3-6: a legacy role key (`STORNO_ROLES`) is no actor any more.
  */
-export const STORNO_ROLES = ['admin', 'manager'] as const
-
-/**
- * Who asks: the session's grant (FR-27.5: the role's, live, as the server's `can(user, 'cash-sales.storno')` decides),
- * or a legacy role key, read as that role's own capabilities (tests; FR-27 P3-5: no session carries one any more).
- */
-export type StornoActor = string | Grant | null | undefined
+export type StornoActor = Grant | null | undefined
 
 /** FR-27: whether this session may reverse a sale (`cash-sales.storno`). */
 function mayStorno(who: StornoActor): boolean {
-  if (!who) return false
-  return can(typeof who === 'string' ? compileLegacy({ role: who }) : who, 'cash-sales.storno')
+  return !!who && can(who, 'cash-sales.storno')
 }
 
 /**

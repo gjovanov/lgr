@@ -1,8 +1,11 @@
 import { describe, it, expect } from 'bun:test'
-import { DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
-import { EDITOR_FEATURES, ROLE_TEMPLATES, beyondLevel, canOpen, compileLegacy, levelOf, levelsOf, offersLevel, templateDefaults, templateGrant, withImplied, type CapabilityId, type Grant } from 'config/access'
+import { ROLES } from 'config/constants'
+import { EDITOR_FEATURES, ROLE_TEMPLATES, beyondLevel, canOpen, levelOf, levelsOf, offersLevel, templateDefaults, templateGrant, withImplied, type CapabilityId, type Grant } from 'config/access'
 import { targetRefusal } from 'services/biz/doc-import/target-access'
-import { PAGE_REGISTRY, canOpenPage, legacyCanOpenPage, startPage } from 'ui-shared/nav/page-registry'
+import { PAGE_REGISTRY, canOpenPage, startPage } from 'ui-shared/nav/page-registry'
+
+/** A built-in role's session viewer (FR-27 P3-6: a viewer is its grant). */
+const as = (r: string) => ({ grant: templateGrant(r) })
 
 /**
  * What the FR-27 acceptance-4 walk (`e2e/tests/field-walk-roles.spec.ts`) found, held here.
@@ -38,14 +41,15 @@ describe('an import is decided by what its target needs', () => {
     expect(targetRefusal({ role: 'admin', permissions: [], access: { all: true } as Grant }, 'bill')).toBeNull()
   })
 
-  it('FR-27 P3-5: a caller stated as legacy claims is asked the same capabilities, of what the claims compile to', () => {
-    const writer = { role: 'member', permissions: ['invoicing.write'] }
-    expect(targetRefusal(writer, 'sales_invoice')).toBeNull()
-    expect(targetRefusal(writer, 'bill')).toBeNull()
-    expect(targetRefusal(writer, 'movement')).toMatchObject({ code: 'capability_required', capabilities: ['movements.create'] })
-    expect(targetRefusal({ role: 'member', permissions: ['invoicing.write'], areas: ['orders'] }, 'bill')).toMatchObject({ code: 'capability_required', capabilities: ['bills.create'] })
-    expect(targetRefusal({ role: 'seller', permissions: ['invoicing.write'], areas: [] }, 'sales_invoice')).toMatchObject({ code: 'capability_required' })
-    expect(targetRefusal({ role: 'member', permissions: ['inventory.write'] }, 'movement')).toBeNull()
+  it('FR-27 P3-6: a caller without a grant imports nothing; the built-in roles as their templates say', () => {
+    expect(targetRefusal({ id: 'u' }, 'sales_invoice')).toMatchObject({ code: 'capability_required' })
+    const of = (r: string) => ({ access: templateGrant(r) })
+    expect(targetRefusal(of('sales'), 'sales_invoice')).toBeNull()
+    expect(targetRefusal(of('sales'), 'bill')).toBeNull()
+    expect(targetRefusal(of('sales'), 'movement')).toMatchObject({ code: 'capability_required', capabilities: ['movements.create'] })
+    expect(targetRefusal(of('sales_consultant'), 'bill')).toMatchObject({ code: 'capability_required', capabilities: ['bills.create'] })
+    expect(targetRefusal(of('seller'), 'sales_invoice')).toMatchObject({ code: 'capability_required' })
+    expect(targetRefusal(of('warehouse_manager'), 'movement')).toBeNull()
   })
 })
 
@@ -63,37 +67,33 @@ describe('the reports that read invoices open only where invoices are read', () 
     expect(canOpen('/reports/aging', { all: true })).toBe(true)
   })
 
-  it('for every default role, both models agree, and the HR and warehouse managers open neither', () => {
+  it('for every built-in role, the menus answer as the page rule, and the HR and warehouse managers open neither', () => {
     for (const r of ROLES) {
-      const who = { role: r, permissions: [...(DEFAULT_ROLE_PERMISSIONS as any)[r]] }
       for (const id of pages) {
         const page = PAGE_REGISTRY.find(p => p.id === id)!
-        expect({ r, id, legacy: legacyCanOpenPage(page, who) }).toEqual({ r, id, legacy: canOpen(id, compileLegacy(who)) })
-        expect(canOpenPage(page, who)).toBe(canOpen(id, compileLegacy(who)))
+        expect(canOpenPage(page, as(r))).toBe(canOpen(id, templateGrant(r)))
       }
     }
     for (const r of ['hr_manager', 'warehouse_manager']) {
-      const who = { role: r, permissions: [...(DEFAULT_ROLE_PERMISSIONS as any)[r]] }
-      for (const id of pages) expect({ r, id, opens: canOpen(id, compileLegacy(who)) }).toEqual({ r, id, opens: false })
+      for (const id of pages) expect({ r, id, opens: canOpen(id, templateGrant(r)) }).toEqual({ r, id, opens: false })
     }
   })
 })
 
 describe('the start page is one the role opens', () => {
   it('the HR Manager, who opens no Dashboard, starts in its own app; a reader of invoices on the Dashboard', () => {
-    const hr = { role: 'hr_manager', permissions: [...(DEFAULT_ROLE_PERMISSIONS as any).hr_manager] }
-    expect(canOpen('/dashboard', compileLegacy(hr))).toBe(false)
+    const hr = as('hr_manager')
+    expect(canOpen('/dashboard', hr.grant)).toBe(false)
     expect(startPage(hr)).not.toBe('/dashboard')
     expect(startPage(hr)).toMatch(/^\/(payroll|reports)\//)
-    expect(startPage({ role: 'member', permissions: ['invoicing.read'] })).toBe('/dashboard')
-    expect(startPage({ role: 'admin', permissions: [] })).toBe('/dashboard')
+    expect(startPage({ grant: { caps: new Set(['sales-docs.view', 'dashboard.view'] as CapabilityId[]) } })).toBe('/dashboard')
+    expect(startPage({ grant: { all: true } })).toBe('/dashboard')
   })
 
   it('for every default role: the Dashboard exactly when the role opens it', () => {
     for (const r of ROLES) {
-      const who = { role: r, permissions: [...(DEFAULT_ROLE_PERMISSIONS as any)[r]] }
-      const opens = canOpen('/dashboard', compileLegacy(who))
-      expect({ r, dashboard: startPage(who) === '/dashboard' }).toEqual({ r, dashboard: opens })
+      const opens = canOpen('/dashboard', templateGrant(r))
+      expect({ r, dashboard: startPage(as(r)) === '/dashboard' }).toEqual({ r, dashboard: opens })
     }
   })
 })

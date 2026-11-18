@@ -5,7 +5,12 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { visibleMenu, type ModuleManifest, type ModuleMenuItem } from '../../../ui-shell/src/module'
 import { inModule, pendingRestoreUrl } from 'ui-shared/nav/open-page'
 import { APP_NAV_META, canOpenPage, isTillOnly, matchPage, PAGE_REGISTRY, readsDocuments, type PageViewer } from 'ui-shared/nav/page-registry'
-import { APP_REGISTRY, DEFAULT_ROLE_PERMISSIONS, FISCAL_ADMIN_ROLES, type Role } from 'config/constants'
+import { ROLES, type Role } from 'config/constants'
+import { ALL, templateGrant, type CapabilityId, type Grant } from 'config/access'
+import { capsOfPermissions } from '../helpers/permission-caps'
+
+/** A grant with these capabilities added: what a legacy role's NAME gave on top of its permissions (FR-27 P3-6). */
+const withCaps = (g: Grant, ...caps: CapabilityId[]): Grant => ({ caps: new Set([...(g.caps ?? []), ...caps]) })
 import { manifest as accounting } from '../../../accounting-ui/src/manifest'
 import { manifest as inventory } from '../../../inventory-ui/src/manifest'
 import { manifest as invoicing } from '../../../invoicing-ui/src/manifest'
@@ -236,9 +241,9 @@ describe('the till\'s guard', () => {
   const PIN = async () => true
   const session = (who: PageViewer, pinOffered = NO_PIN): TillSession => ({ hasOrg: true, who, pinOffered })
   const noSession = (pinOffered = NO_PIN): TillSession => ({ hasOrg: false, who: null, pinOffered })
-  const cashier: PageViewer = { role: 'cashier', permissions: ['pos.read', 'pos.write'] }
-  const pinAdmin: PageViewer = { role: 'admin', permissions: DEFAULT_ROLE_PERMISSIONS.admin, amr: ['pin'] }
-  const sales: PageViewer = { role: 'sales', permissions: DEFAULT_ROLE_PERMISSIONS.sales }
+  const cashier: PageViewer = { grant: capsOfPermissions('pos.read', 'pos.write') }
+  const pinAdmin: PageViewer = { grant: ALL, amr: ['pin'] }
+  const sales: PageViewer = { grant: templateGrant('sales') }
 
   it('takes a till-only session from any other page of the module to the terminal', async () => {
     for (const who of [cashier, pinAdmin]) {
@@ -285,7 +290,7 @@ describe('the till\'s guard', () => {
  */
 describe('payroll: a run\'s totals, and the people (FR-25 §3.11)', () => {
   const labels = (who: PageViewer) => visibleMenu(payroll.menu!, who).map(item => item.to)
-  const totalsOnly: PageViewer = { role: 'manager', permissions: DEFAULT_ROLE_PERMISSIONS.manager }
+  const totalsOnly: PageViewer = { grant: templateGrant('manager') }
 
   it('a reader of totals is offered the runs, and lands on them', () => {
     expect(labels(totalsOnly)).toEqual(['/runs'])
@@ -293,7 +298,7 @@ describe('payroll: a run\'s totals, and the people (FR-25 §3.11)', () => {
   })
 
   it('whoever holds payroll.personal keeps the app as it was', () => {
-    for (const who of [{ role: 'hr_manager', permissions: DEFAULT_ROLE_PERMISSIONS.hr_manager }, { role: 'admin', permissions: [] }] as PageViewer[]) {
+    for (const who of [{ grant: templateGrant('hr_manager') }, { grant: ALL }] as PageViewer[]) {
       expect(labels(who)).toEqual(['/employees', '/runs', '/payslips', '/timesheets'])
       expect(payrollLanding(who)).toEqual({ name: 'payroll.employees' })
     }
@@ -308,8 +313,8 @@ describe('payroll: a run\'s totals, and the people (FR-25 §3.11)', () => {
 })
 
 describe('who may open what', () => {
-  const role = (r: Role): PageViewer => ({ role: r, permissions: DEFAULT_ROLE_PERMISSIONS[r] })
-  const set = (...permissions: string[]): PageViewer => ({ role: 'member', permissions })
+  const role = (r: Role): PageViewer => ({ grant: templateGrant(r) })
+  const set = (...permissions: string[]): PageViewer => ({ grant: capsOfPermissions(...permissions) })
   const pin = (r: Role): PageViewer => ({ ...role(r), amr: ['pin'] })
 
   const TERMINAL = '/invoicing/cash-sales/new'
@@ -338,8 +343,8 @@ describe('who may open what', () => {
     // any app they hold nothing of. A warehouse manager still runs the devices by address.
     ['neither, by address', role('warehouse_manager'), false, INVOICES, { [TERMINAL]: TERMINAL, [DEVICES]: DEVICES, [INVOICES]: INVOICES }],
     // Who runs a device is the server's roles, not `pos.*`: these used to land on the journal.
-    ['a warehouse manager who reads invoicing too', { role: 'warehouse_manager', permissions: ['invoicing.read', 'inventory.read'] }, true, INVOICES, { [DEVICES]: DEVICES, [`${DEVICES}/6a1b`]: `${DEVICES}/6a1b`, [TERMINAL]: JOURNAL, [SESSIONS]: JOURNAL }],
-    ['a manager on a set of their own', { role: 'manager', permissions: ['invoicing.read'] }, true, INVOICES, { [DEVICES]: DEVICES, [TERMINAL]: JOURNAL }],
+    ['a warehouse manager who reads invoicing too', { grant: withCaps(capsOfPermissions('invoicing.read', 'inventory.read'), 'devices.view', 'devices.edit', 'devices.report') }, true, INVOICES, { [DEVICES]: DEVICES, [`${DEVICES}/6a1b`]: `${DEVICES}/6a1b`, [TERMINAL]: JOURNAL, [SESSIONS]: JOURNAL }],
+    ['a manager on a set of their own', { grant: withCaps(capsOfPermissions('invoicing.read'), 'devices.view', 'devices.edit', 'devices.report', 'devices.z-report', 'devices.sync-time', 'cash-sales.storno', 'cash-sales.settle', 'till.manage-sessions', 'sequences.view', 'sequences.edit') }, true, INVOICES, { [DEVICES]: DEVICES, [TERMINAL]: JOURNAL }],
     // The server reads the orders and the contacts for the inventory app, so these pages are theirs.
     ['the till and inventory', set('pos.read', 'pos.write', 'inventory.read'), true, TERMINAL, { [ORDER]: ORDER, [CONTACTS]: CONTACTS, [TERMINAL]: TERMINAL, [INVOICES]: TERMINAL }],
     ['a warehouse manager, following a link from a product', role('warehouse_manager'), false, INVOICES, { [ORDER]: ORDER, [CONTACTS]: CONTACTS }],
@@ -362,9 +367,6 @@ describe('who may open what', () => {
       // The tile is for who has somewhere to start. A page opened by another right (the devices by
       // a role) earns none: the app's home would refuse them.
       it('has the tile exactly if the journal, which the whole app reads, opens for them', () => {
-        const { requiredPermission, alsoOpenedBy } = APP_REGISTRY.invoicing
-        const held = who.permissions ?? []
-        expect([requiredPermission, ...(alsoOpenedBy ?? [])].some(p => held.includes(p))).toBe(tile)
         expect(canOpenPage(matchPage(JOURNAL)!, who)).toBe(tile)
       })
 
@@ -384,13 +386,16 @@ describe('who may open what', () => {
     })
   }
 
-  // The server's rule is roles, and `fiscal` reads are any member's. The menu hid the page from the
+  // `fiscal` reads are any member's, and running a device is `devices.*`. The menu hid the page from the
   // people who run the devices, and a guard took some of them off it.
-  it('the devices open for the roles the server lets run them, and the menu offers them', () => {
+  it('the devices open for the roles that run them, and the menu offers them', () => {
     const devices = matchPage(DEVICES)!
-    for (const r of FISCAL_ADMIN_ROLES) {
-      expect({ r, opens: canOpenPage(devices, { role: r, permissions: [] }) }).toEqual({ r, opens: true })
-      expect(menuPaths(visibleMenu(invoicing.menu!, { role: r, permissions: [] }))).toContain('/configuration/devices')
+    // The built-in roles that run them (FISCAL_ADMIN_ROLES until FR-27 P3-6), by their devices capabilities alone.
+    const runners: PageViewer[] = [{ grant: ALL }, ...['manager', 'warehouse_manager'].map(r => ({ grant: { caps: new Set([...templateGrant(r).caps].filter(c => c.startsWith('devices.'))) } }))]
+    expect(ROLES.filter(r => templateGrant(r).all || templateGrant(r).caps.has('devices.edit'))).toEqual(['admin', 'manager', 'warehouse_manager'])
+    for (const who of runners) {
+      expect(canOpenPage(devices, who)).toBe(true)
+      expect(menuPaths(visibleMenu(invoicing.menu!, who))).toContain('/configuration/devices')
     }
     expect(canOpenPage(devices, set('pos.read'))).toBe(true)
     expect(canOpenPage(devices, set('invoicing.read'))).toBe(false)
@@ -428,7 +433,7 @@ describe('who may open what', () => {
 
   it('a PIN session is till-only whatever it holds, and an admin never is, whatever its set says', () => {
     expect(isTillOnly(pin('admin'))).toBe(true)
-    expect(isTillOnly({ role: 'admin', permissions: ['pos.read'] })).toBe(false)
+    expect(isTillOnly({ grant: ALL })).toBe(false)
   })
 
   // The page registry prefix-matches this one to the journal, which the till reads. It is the back
@@ -441,8 +446,8 @@ describe('who may open what', () => {
 
 describe('a draft of a new cash sale, made on the form that stood at this address', () => {
   const session = (who: PageViewer): TillSession => ({ hasOrg: true, who, pinOffered: async () => false })
-  const accountant: PageViewer = { role: 'accountant', permissions: DEFAULT_ROLE_PERMISSIONS.accountant }
-  const sales: PageViewer = { role: 'sales', permissions: DEFAULT_ROLE_PERMISSIONS.sales }
+  const accountant: PageViewer = { grant: templateGrant('accountant') }
+  const sales: PageViewer = { grant: templateGrant('sales') }
 
   // The entries in the field name `invoicing.cash-sales.new`, and an accountant holds no `pos.*`:
   // the terminal is no page of theirs, and the draft still is.
@@ -463,7 +468,7 @@ describe('a draft of a new cash sale, made on the form that stood at this addres
   })
 
   it('the form is the back office\'s, so a till-only session is not sent there', async () => {
-    expect(await guarded('/invoicing/cash-sales/draft', session({ role: 'member', permissions: ['pos.read', 'pos.write'] }))).toBe('/invoicing/cash-sales/new')
+    expect(await guarded('/invoicing/cash-sales/draft', session({ grant: capsOfPermissions('pos.read', 'pos.write') }))).toBe('/invoicing/cash-sales/new')
   })
 
   it('the form sits at its own address, with no `meta.till`', () => {
@@ -632,7 +637,7 @@ describe('the till\'s old addresses', () => {
 })
 
 describe('the invoicing menu, as each person sees it', () => {
-  const role = (r: Role): PageViewer => ({ role: r, permissions: DEFAULT_ROLE_PERMISSIONS[r] })
+  const role = (r: Role): PageViewer => ({ grant: templateGrant(r) })
   const entries = (who: PageViewer | null) => visibleMenu(invoicing.menu!, who).flatMap(g => g.children!.filter(c => c.to).map(c => c.to))
   const dividers = (who: PageViewer | null) => visibleMenu(invoicing.menu!, who).flatMap(g => g.children!.filter(c => c.divider))
   const TILL = ['/cash-sales/new', '/cash-sales', '/cash-register/sessions', '/configuration/devices']
@@ -652,18 +657,18 @@ describe('the invoicing menu, as each person sees it', () => {
   })
 
   it('an admin too, whatever its set says', () => {
-    expect(entries({ role: 'admin', permissions: [] })).toEqual(everything)
+    expect(entries({ grant: ALL })).toEqual(everything)
   })
 
   it('a till-only role sees the till alone, with no group left empty and no divider above it', () => {
-    const till: PageViewer = { role: 'cashier', permissions: ['pos.read', 'pos.write'] }
+    const till: PageViewer = { grant: capsOfPermissions('pos.read', 'pos.write') }
     expect(entries(till)).toEqual(TILL)
     expect(visibleMenu(invoicing.menu!, till).map(g => g.labelKey)).toEqual(['nav.outgoingDocs', 'nav.configuration'])
     expect(dividers(till)).toEqual([])
   })
 
   it("a PIN session sees the till alone, even an admin's", () => {
-    expect(entries({ role: 'admin', permissions: DEFAULT_ROLE_PERMISSIONS.admin, amr: ['pin'] })).toEqual(TILL)
+    expect(entries({ grant: ALL, amr: ['pin'] })).toEqual(TILL)
   })
 
   // An accountant has no `pos.*`: every call of these pages would be refused.
@@ -682,7 +687,7 @@ describe('the invoicing menu, as each person sees it', () => {
 
   // FR-20.40. The rule is the entry's own, under the till's rules: it holds for whoever is at the till.
   it('„Switch operator" shows only where the server offers a PIN', async () => {
-    const till: PageViewer = { role: 'cashier', permissions: ['pos.read', 'pos.write'] }
+    const till: PageViewer = { grant: capsOfPermissions('pos.read', 'pos.write') }
     entries(till) // asks once, and lets the answer (no server here: "no") settle first
     await pinOffered()
     await Promise.resolve()
@@ -696,7 +701,7 @@ describe('the invoicing menu, as each person sees it', () => {
 
   it('leaves the manifest as it found it', () => {
     const copy = JSON.stringify(invoicing.menu)
-    visibleMenu(invoicing.menu!, { role: 'cashier', permissions: ['pos.read'] })
+    visibleMenu(invoicing.menu!, { grant: capsOfPermissions('pos.read') })
     expect(JSON.stringify(invoicing.menu)).toBe(copy)
   })
 })
@@ -733,7 +738,7 @@ describe('visibleMenu', () => {
 
   it('hands `when` the person', () => {
     const seen: unknown[] = []
-    const who: PageViewer = { role: 'sales' }
+    const who: PageViewer = { grant: templateGrant('sales') }
     visibleMenu([entry('/a', (w) => { seen.push(w); return true })], who)
     expect(seen).toEqual([who])
   })

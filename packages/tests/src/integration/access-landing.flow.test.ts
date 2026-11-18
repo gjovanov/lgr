@@ -8,7 +8,6 @@ import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { Org, Role, User } from 'db/models'
 import { register, tokenize } from 'services/biz/auth.service'
-import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember } from 'services/biz/access/live'
 
 /**
@@ -50,7 +49,6 @@ beforeAll(async () => {
   adminToken = await sign(r.user._id)
   member = await createTestUser(r.org._id, { role: 'member', username: 'counter', email: 'counter@landing.test' } as any)
   await Org.updateOne({ _id: r.org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-  forgetAccessModel(orgId)
 }, 60_000)
 
 afterAll(async () => { await teardownTestDB() }, 60_000)

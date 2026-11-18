@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { APP_IDS, APP_REGISTRY, DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
-import { ROLE_TEMPLATES, appsOpenedBy, compileLegacy, templateGrant, type CapabilityId, type Grant } from 'config/access'
+import { ROLE_TEMPLATES, appsOpenedBy, templateGrant, type CapabilityId, type Grant } from 'config/access'
 
 /**
  * FR-27.5 (#529) — the App Hub's tiles in an org on `roles`: the apps whose pages the role opens (`PAGE_ACCESS`), from
@@ -35,7 +35,7 @@ describe('appsOpenedBy: the apps whose pages a role opens', () => {
   it("each built-in role's tiles are its legacy tiles, but the Warehouse Manager's, which opens Invoicing's orders, contacts and devices", () => {
     for (const role of ROLES) {
       const perms = (DEFAULT_ROLE_PERMISSIONS as Record<string, readonly string[]>)[role] ?? []
-      const pages = appsOpenedBy(compileLegacy({ role, permissions: perms }))
+      const pages = appsOpenedBy(templateGrant(role))
       const legacy = legacyTiles(role, perms)
       if (role === 'warehouse_manager') expect({ role, pages }).toEqual({ role, pages: [...new Set([...legacy, 'invoicing'])].sort((a, b) => APP_IDS.indexOf(a) - APP_IDS.indexOf(b)) })
       else expect({ role, pages }).toEqual({ role, pages: legacy })

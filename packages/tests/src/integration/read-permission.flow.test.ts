@@ -6,29 +6,59 @@ import { createTestOrg, createTestUser } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
-import { APP_REGISTRY, DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, holdsArea, type Role } from 'config/constants'
+import { ROLES as ALL_ROLES, type Role } from 'config/constants'
+import { EXACT_READS, READ_PREFIXES, accessRuleFor, appsOpenedBy, can, templateGrant } from 'config/access'
 import { mongoose } from 'db/connection'
 import { AuditLog, Org } from 'db/models'
-import { AREA_PREFIXES, EXACT_READ_RULES, PREFIX_READ_RULES, areaForRoute, orgRouteRest, readRuleFor } from 'services/biz/route-permission'
+import { orgRouteRest } from 'services/biz/route-permission'
 
 /**
- * A role's permissions hold over HTTP for READS too (S-29).
+ * A role's capabilities hold over HTTP for READS too (S-29; FR-27 P3-6: the capability rules of
+ * `config/access/routes.ts`, the legacy permission rules being gone).
  *
  * Until the read rules, any member of an org read its payroll, its ledgers and its audit trail
  * through the API: the UI was the only thing between a cashier and every payslip. The property is
  * over the real route table, as `route-permission.flow` is for writes:
  *
  *   - every GET under an org has a rule, and every rule names a route that exists;
- *   - a GET whose rule names permissions answers 403 to a member holding none of them;
- *   - each default role still reaches every read of every app it may open (`APP_REGISTRY`'s
- *     `requiredPermission`), so the rules cannot quietly break a screen;
+ *   - a GET whose rule names capabilities answers 403 to a member whose role holds none of them;
+ *   - each built-in role still reaches every read of every app it opens (`appsOpenedBy`), so the
+ *     rules cannot quietly break a screen;
  *   - the audit trail is `admin.audit`'s, and a record's history is its module's;
  *   - an org is never serialised with an integration token.
  *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
 
-const ROLES = Object.keys(DEFAULT_ROLE_PERMISSIONS).filter(r => r !== 'admin') as Role[]
+const ROLES = ALL_ROLES.filter(r => r !== 'admin') as Role[]
+
+/**
+ * The parts FR-26 carved out of the Seller's and the Sales Consultant's modules (its `AREA_PREFIXES` until FR-27
+ * P3-6), and which of the two still reads each: their built-in roles leave the rest out, so a route there refuses them.
+ */
+const CARVED: ReadonlyArray<readonly [string, readonly Role[]]> = [
+  ['dashboard', []],
+  ['invoicing/orders', ['sales_consultant']],
+  ['invoicing/internal-orders', ['sales_consultant']],
+  ['invoicing/reservations', ['sales_consultant']],
+  ['bills/import', []],
+  ['invoicing/bills', []],
+  ['invoicing/payment-order', []],
+  ['invoicing/cash-order', []],
+  ['warehouse/price-list', []],
+  ['warehouse/bulk-pricing', []],
+  ['warehouse/inventory-count', []],
+  ['warehouse/opening-stock', []],
+  ['warehouse/cost-layer/valuation', []],
+]
+const carvedOf = (path: string) => {
+  const rest = orgRouteRest(path)
+  return rest === null ? undefined : CARVED.find(([prefix]) => rest === prefix || rest.startsWith(`${prefix}/`))
+}
+/** Whether FR-26 holds this role out of the carved part: the Seller out of all, the Sales Consultant out of all but orders. */
+const heldOut = (role: Role, carved: readonly [string, readonly Role[]]) =>
+  (role === 'seller' || role === 'sales_consultant') && !carved[1].includes(role)
+const ruleOf = (path: string) => accessRuleFor('GET', orgRouteRest(path) as string)
 const NO_SUCH_ID = '0123456789abcdef01234567'
 const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
 
@@ -60,11 +90,9 @@ beforeAll(async () => {
   for (const role of [...ROLES, 'admin' as Role]) {
     const email = `${role}@reads.test`
     const user = await createTestUser(org._id, { role, email } as any)
+    // The person's built-in role decides (FR-27 P3-2); the token carries none of it.
     tokens[role] = await (signer as any).decorator.jwt.sign({
-      id: String(user._id), orgId, role, email, username: role, firstName: 'R', lastName: 'P',
-      permissions: DEFAULT_ROLE_PERMISSIONS[role], ownRecordsModules: [],
-      // FR-26: the roles held to areas sign in with them, as `tokenize()` issues them.
-      ...(DEFAULT_ROLE_AREAS[role] ? { areas: DEFAULT_ROLE_AREAS[role] } : {}),
+      id: String(user._id), orgId, email, username: role, firstName: 'R', lastName: 'P',
     })
   }
 }, 60_000)
@@ -75,16 +103,16 @@ afterAll(async () => {
 
 describe('the read rules cover the route table', () => {
   it('every GET under an org resolves to a rule', () => {
-    const missing = getRoutes().filter(p => !readRuleFor(p)).map(p => orgRouteRest(p))
+    const missing = getRoutes().filter(p => !ruleOf(p)).map(p => orgRouteRest(p))
     expect(missing).toEqual([])
   })
 
   it('no rule names a route that does not exist', () => {
     const rests = getRoutes().map(p => orgRouteRest(p)!)
-    const dead = PREFIX_READ_RULES.map(([prefix]) => prefix)
+    const dead = READ_PREFIXES.map(([prefix]) => prefix)
       .filter(prefix => !rests.some(r => prefix === '' ? r === '' : r === prefix || r.startsWith(`${prefix}/`)))
     expect(dead).toEqual([])
-    expect([...EXACT_READ_RULES.keys()].filter(rest => !rests.includes(rest))).toEqual([])
+    expect([...EXACT_READS.keys()].filter(rest => !rests.includes(rest))).toEqual([])
   })
 
   it("a contact's amounts are the invoicing app's, though the contact itself is every trade app's", async () => {
@@ -94,21 +122,21 @@ describe('the read rules cover the route table', () => {
     expect((await get(summary, tokens.sales)).status).not.toBe(403)
   })
 
-  it('a nested prefix is listed before the one it nests in, so it is ever reached', () => {
-    const prefixes = PREFIX_READ_RULES.map(([p]) => p)
-    const shadowed = prefixes.filter((p, i) => p && prefixes.slice(0, i).some(q => q && p.startsWith(`${q}/`)))
-    expect(shadowed).toEqual([])
+  it('the longest prefix decides, whatever order the table lists them in', () => {
+    const nested = READ_PREFIXES.map(([p]) => p).filter(p => p && READ_PREFIXES.some(([q]) => q && q !== p && p.startsWith(`${q}/`)))
+    expect(nested.length).toBeGreaterThan(0)
+    for (const p of nested) expect({ p, rule: accessRuleFor('GET', p) }).toEqual({ p, rule: READ_PREFIXES.find(([q]) => q === p)![1] })
   })
 })
 
-describe('a GET answers 403 to a member without its permissions', () => {
-  it('for every route whose rule names permissions, and every default role that holds none', async () => {
+describe('a GET answers 403 to a member whose role holds none of its capabilities', () => {
+  it('for every route whose rule names capabilities, and every built-in role that holds none', async () => {
     const leaks: string[] = []
     for (const path of getRoutes()) {
-      const rule = readRuleFor(path)
-      if (!rule || !('need' in rule)) continue
+      const rule = ruleOf(path)
+      if (!rule || !('anyOf' in rule)) continue
       for (const role of ROLES) {
-        if (rule.need.some(p => DEFAULT_ROLE_PERMISSIONS[role].includes(p))) continue
+        if (can(templateGrant(role), rule.anyOf)) continue
         const { status, json } = await get(concrete(path), tokens[role])
         if (status !== 403 || json?.code !== 'permission_required') leaks.push(`${role} GET ${orgRouteRest(path)} → ${status}`)
       }
@@ -125,7 +153,7 @@ describe('a GET answers 403 to a member without its permissions', () => {
       expect((await get(`/api/org/${orgId}/accounting/journal`, tokens[role])).status).toBe(403)
       expect((await get(`/api/org/${orgId}/accounting/report/balance-sheet`, tokens[role])).status).toBe(403)
     }
-    // The ones that hold the permission still read.
+    // The ones whose role holds it still read.
     expect((await get(`/api/org/${orgId}/payroll/payslip`, tokens.hr_manager)).status).toBe(200)
     expect((await get(`/api/org/${orgId}/accounting/journal`, tokens.accountant)).status).toBe(200)
     expect((await get(`/api/org/${orgId}/payroll/payslip`, tokens.admin)).status).toBe(200)
@@ -134,8 +162,8 @@ describe('a GET answers 403 to a member without its permissions', () => {
 
 /**
  * What each app reads, found by scanning every `*-ui` package for the routes it calls. A role
- * opens an app when it holds the app's `requiredPermission`; the shell is everyone's. `pos` is the
- * till's pages inside the invoicing app, whose tile `pos.read` opens too.
+ * opens an app when it opens a page of it (`appsOpenedBy`); the shell is everyone's. `pos` is the
+ * till's pages inside the invoicing app, which `till.view` opens.
  */
 const APP_READS: Record<string, string[]> = {
   shell: ['', 'apps', 'notification', 'user'],
@@ -158,22 +186,24 @@ const APP_READS: Record<string, string[]> = {
   reports: ['reports/catalog'],
 }
 
-describe('each default role still reaches what its apps read', () => {
-  it('no read of an app a role may open is refused', async () => {
+describe('each built-in role still reaches what its apps read', () => {
+  it('no read of an app a role opens is refused', async () => {
     const broken: string[] = []
     for (const role of ROLES) {
-      const held = DEFAULT_ROLE_PERMISSIONS[role]
+      const grant = templateGrant(role)
       const apps = [
         'shell',
-        ...Object.entries(APP_REGISTRY).filter(([, a]) => held.includes(a.requiredPermission)).map(([id]) => id),
-        ...(held.includes('pos.read') ? ['pos'] : []),
-        ...(held.includes('payroll.personal') ? ['payroll-people'] : []),
+        // Invoicing as the back office that reads its documents: the Warehouse Manager opens only its orders, contacts
+        // and devices pages there (#529), which its inventory reads cover.
+        ...appsOpenedBy(grant).filter(app => app !== 'invoicing' || can(grant, 'sales-docs.view')),
+        ...(can(grant, 'till.view') ? ['pos'] : []),
+        ...(can(grant, 'payroll-people.view') ? ['payroll-people'] : []),
       ]
       for (const appId of apps) {
         for (const rest of APP_READS[appId] ?? []) {
-          // FR-26: an area the role is held out of is refused on purpose (below).
-          const area = areaForRoute(`/api/org/:orgId/${rest}`)
-          if (area && !holdsArea({ role, areas: DEFAULT_ROLE_AREAS[role] }, area)) continue
+          // FR-26: a part the role is held out of is refused on purpose (below).
+          const carved = carvedOf(`/api/org/:orgId/${rest}`)
+          if (carved && heldOut(role, carved)) continue
           const { status } = await get(`/api/org/${orgId}${rest ? `/${rest}` : ''}`, tokens[role])
           if (status === 403 || status === 401) broken.push(`${role} (${appId}) GET ${rest || '(org)'} → ${status}`)
         }
@@ -183,33 +213,31 @@ describe('each default role still reaches what its apps read', () => {
   }, 120_000)
 })
 
-describe('FR-26: the areas a role is held to', () => {
-  it('every carved-out read answers 403 to the roles without its area, and only to them', async () => {
+describe("FR-26: the parts the Seller's and the Sales Consultant's roles leave out", () => {
+  it('every carved-out read answers 403 to the roles held out of it, and only to them', async () => {
     const wrong: string[] = []
-    const reads = getRoutes().filter(p => areaForRoute(p))
+    const reads = getRoutes().filter(p => carvedOf(p))
     expect(reads.length).toBeGreaterThan(0)
     for (const path of reads) {
-      const area = areaForRoute(path)!
+      const carved = carvedOf(path)!
       for (const role of ROLES) {
-        const rule = readRuleFor(path)
-        // A role the module rule refuses already is not this test's.
-        if (rule && 'need' in rule && !rule.need.some(p => DEFAULT_ROLE_PERMISSIONS[role].includes(p))) continue
+        // The two roles' own parts aside, a role its capabilities refuse already is not this test's.
+        const rule = ruleOf(path)
+        if (!heldOut(role, carved) && rule && 'anyOf' in rule && !can(templateGrant(role), rule.anyOf)) continue
         const { status, json } = await get(concrete(path), tokens[role])
-        // FR-27 P3-2: the role refuses it at the route (`permission_required`), where the legacy model named the area.
-        // A controller's own refusal (an export's `Forbidden`) is not the area's, in either model.
-        const refused = status === 403 && ['area_required', 'permission_required'].includes(json?.code)
-        const held = holdsArea({ role, areas: DEFAULT_ROLE_AREAS[role] }, area)
-        if (refused === held) wrong.push(`${role} GET ${orgRouteRest(path)} → ${status} ${json?.code ?? ''}`)
+        // A controller's own refusal (an export's `Forbidden`) is not the route rule's.
+        const refused = status === 403 && json?.code === 'permission_required'
+        if (refused !== heldOut(role, carved)) wrong.push(`${role} GET ${orgRouteRest(path)} → ${status} ${json?.code ?? ''}`)
       }
     }
     expect(wrong).toEqual([])
   }, 120_000)
 
-  it('every area prefix names a route that exists', () => {
-    // Of any method: some areas are writes only (`bills/import`).
+  it('every carved prefix names a route that exists', () => {
+    // Of any method: some parts are writes only (`bills/import`).
     const all = (createApiApp() as any).routes as Array<{ path: string }>
     const rests = all.map(r => orgRouteRest(r.path)).filter((r): r is string => r !== null)
-    expect(AREA_PREFIXES.map(([prefix]) => prefix).filter(prefix => !rests.some(r => r === prefix || r.startsWith(`${prefix}/`)))).toEqual([])
+    expect(CARVED.map(([prefix]) => prefix).filter(prefix => !rests.some(r => r === prefix || r.startsWith(`${prefix}/`)))).toEqual([])
   })
 
   it("what a Seller's kept pages read stays open: contacts, stock levels, products, movements, the journal", async () => {

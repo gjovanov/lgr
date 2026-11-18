@@ -8,8 +8,8 @@ import { config } from 'config'
 import { mongoose } from 'db/connection'
 import { forgetAllHomes, homeNewOrg } from 'db/home/home'
 import { AuditLog, EmailLog, InternalOrder, Org, Outbox } from 'db/models'
-import type { CapabilityId, Grant } from 'config/access'
-import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
+import { templateGrant, type CapabilityId, type Grant } from 'config/access'
+import type { Role } from 'config/constants'
 import { MAX_SELECTION } from 'config/doc-email'
 import { drainOne } from 'services/biz/relay/outbox-worker'
 import { docEmailController } from 'invoicing-api/src/controllers/doc-email.controller'
@@ -113,7 +113,7 @@ async function world() {
   await Org.updateOne({ _id: org._id }, { $set: { email: 'office@example.test' } })
   const orgId = String(org._id)
   const admin = await createTestUser(org._id, { role: 'admin' } as any)
-  const user = { id: String(admin._id), role: 'admin', permissions: [...DEFAULT_ROLE_PERMISSIONS.admin] }
+  const user = { id: String(admin._id), access: templateGrant('admin') }
   const client = await createTestContact(org._id, { companyName: 'Client One', email: TO } as any)
   const product = await createTestProduct(org._id)
   let seq = 0
@@ -143,10 +143,9 @@ async function world() {
   /** A session of a role as its token is issued, and its two routes. */
   async function session(role: Role) {
     const person = role === 'admin' ? { _id: user.id } : await createTestUser(org._id, { role } as any)
+    // The person's built-in role decides (FR-27 P3-2); the token carries none of it.
     const token = await (signer as any).decorator.jwt.sign({
-      id: String(person._id), orgId, role, email: `${role}@test.com`, username: role,
-      firstName: 'Test', lastName: 'User', permissions: DEFAULT_ROLE_PERMISSIONS[role], ownRecordsModules: [],
-      ...(DEFAULT_ROLE_AREAS[role] ? { areas: DEFAULT_ROLE_AREAS[role] } : {}),
+      id: String(person._id), orgId, email: `${role}@test.com`, username: role, firstName: 'Test', lastName: 'User',
     })
     return async (path: '' | '/preview', body: unknown, opts: { anonymous?: boolean; orgId?: string } = {}) => {
       const res = await app.handle(new Request(`http://localhost/org/${opts.orgId ?? orgId}/invoicing/export/email${path}`, {

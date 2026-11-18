@@ -328,10 +328,9 @@ Why each one exists, and what was built around it: [`docs/history/fiscal.md`](..
 
 - ⚠ **`canOpenPage` is the one rule for who may open what.** ★, „+ Нов", the menu, `tillRedirect`, the
   PIN's landing and the org switch's all ask it. `module-manifests.test.ts` is the table: each kind of
-  person, every page, on the real router. It mirrors the server: a page of the app opens for every
-  `invoicing.*`, as the server reads it (`APP_NAV_META.invoicing.reads`); Orders and Contacts for
-  `inventory.*` too, which the server reads them for; Devices for `FISCAL_ADMIN_ROLES` as well
-  (`PageDef.roles`), since the server's rule there is a role. Writes stay the server's.
+  person, every page, on the real router. It mirrors the server: a page opens for the capabilities
+  `config/access/pages.ts#PAGE_ACCESS` names (FR-27.2; the legacy `PageDef.need`/`roles`/`area` are gone
+  since P3-6), Devices for `devices.*` as well. Writes stay the server's.
 
 - **`isTillOnly`** (`ui-shared/nav/page-registry.ts`): a PIN session, or `pos.*` with no right that
   opens another page of the app (`invoicing.*`, `inventory.*`). No default role is one today.

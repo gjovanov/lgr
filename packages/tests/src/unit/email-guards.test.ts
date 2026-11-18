@@ -6,7 +6,7 @@ import {
   isValidRecipient,
   RESEND_WINDOW_MS,
 } from 'invoicing-api/src/lib/email-guards'
-import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import { templateGrant } from 'config/access'
 
 /**
  * FR-10 (#19) — the gates on `POST /invoicing/export/:id/email`.
@@ -21,10 +21,8 @@ import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
  * function under test, so the coverage is real.
  */
 
-const asUser = (role: string) => ({
-  role,
-  permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS],
-})
+/** A session of a built-in role (FR-27 P3-6: its grant, as the auth plugins attach it). */
+const asUser = (role: string) => ({ access: templateGrant(role) })
 
 const issued = { direction: 'outgoing', status: 'sent' }
 const TO = 'customer@example.com'

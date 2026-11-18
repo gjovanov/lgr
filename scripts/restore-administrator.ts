@@ -13,7 +13,7 @@ import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { Role, User } from '../packages/db/src/models/index.js'
 import { Org } from '../packages/db/src/models/index.js'
 import { recordAuditEntry } from '../packages/services/src/biz/audit-log.service.js'
-import { endSessionsOf } from '../packages/services/src/biz/permission-set.service.js'
+import { endSessionsOf } from '../packages/services/src/biz/identity/session.service.js'
 import { roleHistoryEntry } from '../packages/services/src/biz/access/role.service.js'
 import { keepHomeOrgs } from './lib/home-guard.js'
 

@@ -8,10 +8,9 @@ import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { PRICE_TIERS } from 'config/constants'
-import { compileLegacy } from 'config/access'
+import { capsOfPermissions } from '../helpers/permission-caps'
 import { InventoryCount, Invoice, Order, Org, Product, Role, StockLevel, StockMovement, User } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
-import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
 import { canSeeSupplierPrices } from 'services/biz/product-suppliers.service'
 import { orgRouteRest } from 'services/biz/route-permission'
@@ -62,7 +61,6 @@ beforeAll(async () => {
   await Product.updateOne({ _id: product._id }, { $set: { 'priceTiers.5.tags': ['Цена 3'] } }).exec()
   contactId = String((await createTestContact(org._id, { tags: ['Цена 3'] } as any))._id)
   await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-  forgetAccessModel(orgId)
   const role: any = await Role.create({
     // Its projection, as a role made through the API carries: what still reads claims (the history's scope) reads it.
     orgId: org._id, name: 'Seller (regal-pz)', isBuiltin: false, edited: true, version: 1, legacy: { role: 'member', permissions: ['inventory.read'] },
@@ -251,7 +249,7 @@ describe('C.1 / C.2 what else carries a cost', () => {
     const org: any = await Org.findById(orgId).lean().exec()
     // What `invoicing.read` + `inventory.read` give, and the Reports app, less the cost figures.
     const permissions = ['invoicing.read', 'inventory.read', 'reports.read']
-    const caps = [...(compileLegacy({ role: 'member', permissions }) as any).caps].filter((c: string) => c !== 'products.costs')
+    const caps = [...(capsOfPermissions(...permissions) as any).caps].filter((c: string) => c !== 'products.costs')
     const role: any = await Role.create({ orgId: org._id, name: 'Reader (no costs)', isBuiltin: false, edited: true, version: 1, legacy: { role: 'member', permissions }, caps } as any)
     const person = await createTestUser(org._id, { role: 'member', username: 'reader', email: 'reader@price-levels.test' } as any)
     await User.updateOne({ _id: person._id }, { $set: { roleId: role._id } }).exec()
@@ -408,7 +406,7 @@ describe('C.1 / C.2 what else carries a cost', () => {
 describe("C.6 a document's stored price trail", () => {
   it('names no level the reader does not see; a hidden winning level reads "Customer price", and the line price stays', async () => {
     const org: any = await Org.findById(orgId).lean().exec()
-    const caps = [...(compileLegacy({ role: 'member', permissions: ['invoicing.read'] }) as any).caps].filter((c: string) => c !== 'products.price:3')
+    const caps = [...(capsOfPermissions('invoicing.read') as any).caps].filter((c: string) => c !== 'products.price:3')
     const role: any = await Role.create({ orgId: org._id, name: 'Invoices without Цена 3', isBuiltin: false, edited: true, version: 1, legacy: { role: 'member', permissions: ['invoicing.read'] }, caps } as any)
     const person = await createTestUser(org._id, { role: 'member', username: 'no-tier-3', email: 'no-tier-3@price-levels.test' } as any)
     await User.updateOne({ _id: person._id }, { $set: { roleId: role._id } }).exec()
@@ -438,7 +436,7 @@ describe('C.4 / C.6 the trail is not overwritten, and every answer is redacted',
   beforeAll(async () => {
     const org: any = await Org.findById(orgId).lean().exec()
     // Writes invoices, does not see Цена 3.
-    const caps = [...(compileLegacy({ role: 'member', permissions: ['invoicing.read', 'invoicing.write'] }) as any).caps].filter((c: string) => c !== 'products.price:3')
+    const caps = [...(capsOfPermissions('invoicing.read', 'invoicing.write') as any).caps].filter((c: string) => c !== 'products.price:3')
     const role: any = await Role.create({ orgId: org._id, name: 'Clerk without Цена 3', isBuiltin: false, edited: true, version: 1, legacy: { role: 'member', permissions: ['invoicing.read', 'invoicing.write'] }, caps } as any)
     const person = await createTestUser(org._id, { role: 'member', username: 'clerk-no-3', email: 'clerk-no-3@price-levels.test' } as any)
     await User.updateOne({ _id: person._id }, { $set: { roleId: role._id } }).exec()

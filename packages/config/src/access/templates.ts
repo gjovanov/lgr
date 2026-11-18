@@ -1,6 +1,6 @@
-import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, ROLES, type Role } from '../constants'
+import { DEFAULT_ROLE_PERMISSIONS, ROLES, type Role } from '../constants'
 import { ALL, type Grant } from './grant'
-import type { LegacyClaims } from './legacy'
+import { LEGACY_ROLE_AREAS, type LegacyClaims } from './legacy'
 import { TEMPLATE_CAPS } from './template-caps'
 
 /**
@@ -8,7 +8,7 @@ import { TEMPLATE_CAPS } from './template-caps'
  * template's grant is data since Phase 3 (P3-4, `template-caps.ts`): what its legacy role's defaults compiled to on
  * 2026-11-16, pinned against them until the legacy model goes. `admin` is the Administrator: `*`.
  *
- * The names are the system permission sets' where a role has one (`ROLE_PERMISSION_SET_NAMES`), so a person sees
+ * The names are the system permission sets' where a role had one (`ROLE_PERMISSION_SET_NAMES` until FR-27 P3-6), so a person sees
  * the name they knew. `sales` and `hr_manager`, which had no set, get one here (FR-27.3).
  *
  * Import-pure.
@@ -37,7 +37,7 @@ const NAMES: Readonly<Record<Role, string>> = {
 }
 
 export const ROLE_TEMPLATES: readonly RoleTemplate[] = ROLES.map(key => {
-  const areas = DEFAULT_ROLE_AREAS[key]
+  const areas = LEGACY_ROLE_AREAS[key]
   return {
     key,
     name: NAMES[key],

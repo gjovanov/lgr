@@ -2,7 +2,7 @@ import type { NavigationGuardNext, RouteLocationNormalized, RouteRecordRaw } fro
 import { servedByMaster } from 'ui-shared/nav/node-role'
 import { getToken, hasOrgSession } from 'ui-shared/session/session'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
-import { isPortalAreaPath, landingWithoutPortal, viewerHoldsArea } from 'ui-shared/nav/page-registry'
+import { holdsPortal, isPortalAreaPath, landingWithoutPortal } from 'ui-shared/nav/page-registry'
 import { useAccess } from 'ui-shared/access/useAccess'
 
 /**
@@ -127,9 +127,9 @@ export function portalGuard(to: RouteLocationNormalized, next: NavigationGuardNe
     // #493 item 4 (FR-27): inside an org, a session that changes no org (a Seller) has no All organizations either.
     // Before an org is entered, the screen after sign-in, it is the way in, as ever (the branch above).
     next({ path: landingWithoutPortal(sessionViewer()), replace: true })
-  } else if (signedIn && hasOrgSession() && isPortalAreaPath(to.path) && !viewerHoldsArea(sessionViewer(), 'portal')) {
+  } else if (signedIn && hasOrgSession() && isPortalAreaPath(to.path) && !holdsPortal(sessionViewer())) {
     // FR-26.8.4: a session without the portal (a Seller) lands in its first app instead. Presentation:
-    // the server refuses what it must on its own (`route-permission.ts#AREA_PREFIXES`).
+    // the server refuses what it must on its own (`config/access/routes.ts`).
     next({ path: landingWithoutPortal(sessionViewer()), replace: true })
   } else if (isGuest && signedIn) {
     const pendingInvite = sessionStorage.getItem('lgr_invite_code')

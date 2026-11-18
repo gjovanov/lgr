@@ -23,14 +23,15 @@ export async function setupFacts(): Promise<SetupFacts> {
   if (!orgs.length) return { orgs: [], desktops: 0 }
   const ids = orgs.map(o => o._id)
   const owners = orgs.map(o => (o as any).ownerId).filter(Boolean)
-  // FR-27 P3-5 (#529): an admin is a person on the Administrator role (`all`); one from before roles, by the legacy key.
+  // FR-27 (#529): an admin is a person on the Administrator role (`all`). P3-6: a person without a role is no admin
+  // (the legacy key decided for one until then; since P3-2 such a person cannot sign in).
   const adminRoles = (await Role.find({ orgId: { $in: ids }, all: true }, { _id: 1 }).lean().exec()).map(r => r._id)
   const adminRoleIds = new Set(adminRoles.map(String))
-  const isAdmin = (p: any) => (p.roleId ? adminRoleIds.has(String(p.roleId)) : p.role === 'admin')
+  const isAdmin = (p: any) => !!p.roleId && adminRoleIds.has(String(p.roleId))
   // The oldest first: when an org's owner is gone, its first admin stands in (`setup.rs`).
   const people = await User.find(
-    { orgId: { $in: ids }, $or: [{ _id: { $in: owners } }, { roleId: { $in: adminRoles } }, { roleId: { $exists: false }, role: 'admin' }] },
-    { orgId: 1, email: 1, isActive: 1, role: 1, roleId: 1, createdAt: 1 },
+    { orgId: { $in: ids }, $or: [{ _id: { $in: owners } }, { roleId: { $in: adminRoles } }] },
+    { orgId: 1, email: 1, isActive: 1, roleId: 1, createdAt: 1 },
   )
     .sort({ createdAt: 1 })
     .lean()

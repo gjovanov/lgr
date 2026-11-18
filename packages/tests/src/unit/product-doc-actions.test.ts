@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { NEW_DOCUMENT_MENU, pageById, type PageViewer } from 'ui-shared/nav/page-registry'
-import { DEFAULT_ROLE_PERMISSIONS, type Role } from 'config/constants'
+import type { Role } from 'config/constants'
 // The rules the Products list and the product page offer their actions by (`inventory-ui` is a
 // private app package).
 import {
@@ -8,6 +8,7 @@ import {
   productDocActions,
   withProduct,
 } from '../../../inventory-ui/src/composables/product-doc-actions'
+import { ALL, templateGrant } from 'config/access'
 
 /**
  * FR-22.47 — an article offers „Заприходи", „Продай" and „Резервирай", in the Products list's row
@@ -21,13 +22,13 @@ import {
 
 const ID = '6a1f00000000000000000001'
 const article = { _id: ID }
-const role = (r: Role): PageViewer => ({ role: r, permissions: DEFAULT_ROLE_PERMISSIONS[r] })
+const role = (r: Role): PageViewer => ({ grant: templateGrant(r) })
 const keys = (who: PageViewer | null, product: Parameters<typeof productDocActions>[0] = article) =>
   productDocActions(product, who).map((a) => a.key)
 
 describe('productDocActions — what an article offers (FR-22.47)', () => {
   it('opens the forms „+ Нов" opens, each on this article', () => {
-    const actions = productDocActions(article, { role: 'admin', permissions: [] })
+    const actions = productDocActions(article, { grant: ALL })
     expect(actions.map((a) => [a.key, a.appId, a.path])).toEqual([
       ['receive', 'inventory', `/inventory/movements/new?productId=${ID}`],
       ['sell', 'invoicing', `/invoicing/invoices/new?productId=${ID}`],
@@ -68,7 +69,7 @@ describe('productDocActions — what an article offers (FR-22.47)', () => {
   })
 
   it('a PIN session reaches the till alone, even an admin\'s', () => {
-    expect(keys({ role: 'admin', permissions: DEFAULT_ROLE_PERMISSIONS.admin, amr: ['pin'] })).toEqual([])
+    expect(keys({ grant: ALL, amr: ['pin'] })).toEqual([])
   })
 
   it('a deactivated article is not sold or reserved: listed, disabled, with the reason', () => {

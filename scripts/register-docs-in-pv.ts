@@ -53,9 +53,9 @@ const mimeFor = (n: string) => /\.pdf$/i.test(n) ? 'application/pdf'
   if (!org) { console.log(`org ${ORGSLUG} not found`); process.exit(1) }
   await require('./src/home/home').assertHomeIsHere(String(org._id), { fresh: true })  // FR-20.4: only on its home
   const orgId = String(org._id)
-  // FR-27 P3-5: an Administrator by role (the Administrator role, `all`), else one from before roles by the legacy key.
+  // FR-27: an Administrator by role (the Administrator role, `all`).
   const adminRoles = (await Role.find({ orgId, all: true }, { _id: 1 }).lean()).map((r: any) => r._id)
-  const admin: any = await User.findOne({ orgId, $or: [{ roleId: { $in: adminRoles } }, { roleId: { $exists: false }, role: 'admin' }] }).lean() || await User.findOne({ orgId }).lean()
+  const admin: any = await User.findOne({ orgId, roleId: { $in: adminRoles } }).lean() || await User.findOne({ orgId }).lean()
   const uploadDir = process.env.UPLOAD_DIR || '/app/uploads'
   const root = path.join(uploadDir, orgId, 'docs')
   console.log(`org=${ORGSLUG} (${orgId})  root=${root}  uploadedBy=${admin?._id}  EXECUTE=${EXECUTE}`)

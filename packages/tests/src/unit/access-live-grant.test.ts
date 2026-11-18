@@ -34,7 +34,7 @@ afterAll(() => {
 })
 
 const token = (claims: Record<string, unknown>) => `h.${btoa(JSON.stringify(claims)).replace(/=+$/, '')}.s`
-const seller = { id: 'u1', orgId: 'o1', role: 'seller', permissions: ['invoicing.read', 'invoicing.write'], exp: 4102444800 }
+const seller = { id: 'u1', orgId: 'o1', exp: 4102444800 }
 const role = (version: string, caps: string[]): LiveAccess => ({ all: false, caps, role: { id: 'r1', name: 'Counter', version } })
 const tick = () => new Promise(r => setTimeout(r, 0))
 
@@ -60,8 +60,8 @@ describe('the live grant', () => {
     expect(can(accessGrant(), 'sales-docs.view')).toBe(false)
     expect(can(accessGrant(), 'products.view')).toBe(true)
     expect(can(grantOfViewer(sessionViewer()), 'products.view')).toBe(true)
-    // Another viewer's claims are theirs.
-    expect(can(grantOfViewer({ role: 'seller', permissions: ['invoicing.read'] }), 'sales-docs.view')).toBe(true)
+    // Another viewer's grant is theirs.
+    expect(can(grantOfViewer({ grant: { caps: new Set(['sales-docs.view']) } as any }), 'sales-docs.view')).toBe(true)
   })
 
   it('an unknown capability is no grant; the Administrator is all', () => {

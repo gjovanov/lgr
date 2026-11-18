@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'bun:test'
 import {
-  COST_TIER_NAMES, PRICE_LEVEL_CAPS, compileLegacy, keepStoredCosts, levelsOf, CATALOGUE, projectGrant, redactProduct, redactStockCost,
+  COST_TIER_NAMES, PRICE_LEVEL_CAPS, keepStoredCosts, levelsOf, CATALOGUE, redactProduct, redactStockCost,
   summarize, templateGrant, withImplied, type CapabilityId,
 } from 'config/access'
-import { DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
+import { ROLES } from 'config/constants'
 
 /**
  * FR-27.6 (#529, D-5) — the cost figures, a field group: `products.costs`.
@@ -22,10 +22,10 @@ const product = {
 const viewer = { caps: new Set<CapabilityId>(['products.view', ...PRICE_LEVEL_CAPS]) }
 const costs = { caps: new Set<CapabilityId>(['products.view', 'products.costs', ...PRICE_LEVEL_CAPS]) }
 
-describe('nobody loses the cost figures on the legacy model', () => {
-  it('every legacy role that reads a product holds them', () => {
+describe('nobody lost the cost figures: the built-in roles hold them', () => {
+  it('every built-in role that reads a product holds them', () => {
     for (const role of ROLES) {
-      const g = compileLegacy({ role, permissions: [...(DEFAULT_ROLE_PERMISSIONS[role] ?? [])] })
+      const g = templateGrant(role)
       const readsProducts = g.all || ['products.view', 'products.lookup', 'sales-docs.view', 'till.view'].some(c => (g.caps as Set<string>).has(c))
       if (readsProducts) expect(g.all || g.caps.has('products.costs')).toBe(true)
     }
@@ -33,7 +33,7 @@ describe('nobody loses the cost figures on the legacy model', () => {
 
   it('so does every built-in role; a grant that reads no product has none', () => {
     expect(templateGrant('seller').caps?.has('products.costs')).toBe(true)
-    expect(compileLegacy({ role: 'member', permissions: [] }).caps.has('products.costs')).toBe(false)
+    expect(templateGrant('no-such-role').caps.has('products.costs')).toBe(false)
   })
 })
 
@@ -97,12 +97,7 @@ describe('the editor and the projection', () => {
     expect(withImplied(['movements.create'] as CapabilityId[])).toContain('products.costs')
   })
 
-  it('a role without them projects onto the legacy model, which cannot withhold them: not exact', () => {
-    const reader = compileLegacy({ role: 'member', permissions: ['inventory.read'] }) as { caps: Set<CapabilityId> }
-    const withoutCosts = new Set([...reader.caps].filter(c => c !== 'products.costs'))
-    const p = projectGrant({ caps: withoutCosts })
-    expect(p.exact).toBe(false)
-    expect(p.legacy.permissions).toContain('inventory.read')
+  it('the cost slot is „Доставна цена" by its stored name', () => {
     expect(COST_TIER_NAMES).toEqual(['Доставна цена'])
   })
 })

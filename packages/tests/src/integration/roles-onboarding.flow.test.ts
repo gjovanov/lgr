@@ -5,12 +5,12 @@ import { setupTestDB, teardownTestDB } from '../setup'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
-import { Identity, Invite, Org, PermissionSet, Role, User } from 'db/models'
+import { Identity, Invite, Org, Role, User } from 'db/models'
+import { mongoose } from 'db/connection'
 import { register, tokenize } from 'services/biz/auth.service'
 import { joinOrgByInvite } from 'services/biz/identity/account.service'
 import { inviteDao } from 'services/dao/invite.dao'
-import { forgetAccessModel } from 'services/biz/access/shadow'
-import { ROLE_TEMPLATES, compileLegacy, grantOfRole, legacyClaimsOf, sameGrant } from 'config/access'
+import { ROLE_TEMPLATES, grantOfRole, sameGrant } from 'config/access'
 
 /**
  * FR-27.3 / FR-27.4 (#529) — how a person gets their first role: a new org's founder, an invitation, a member an admin
@@ -47,11 +47,6 @@ const sign = async (userId: unknown) => (signer as any).decorator.jwt.sign(await
 /** Someone with their own password, who can accept an invitation. */
 async function person(email: string) {
   return Identity.create({ email, password: await Bun.password.hash('secure123'), passwordSetBy: 'self', firstName: 'New', lastName: 'Person', isActive: true })
-}
-
-async function legacyGrantOf(member: any) {
-  const sets = member.permissionSetIds?.length ? await PermissionSet.find({ _id: { $in: member.permissionSetIds }, orgId: member.orgId }).lean().exec() : []
-  return compileLegacy(legacyClaimsOf({ role: member.role, permissions: member.permissions }, sets as any))
 }
 
 beforeAll(async () => {
@@ -151,7 +146,8 @@ describe('FR-27.4: an invitation names a role', () => {
   it('an org whose system set was edited: the person still joins on the built-in role, which decides (FR-27 P3-2)', async () => {
     // Since P3-2 sign-in refuses a membership without a role, so "no role yet, the edited set decides" would be a
     // person who can never sign in. They start on the built-in Accountant, and what it grants is what they may do.
-    await PermissionSet.updateOne({ orgId: org._id, name: 'Accountant', isSystem: true }, { $addToSet: { permissions: 'payroll.read' } }).exec()
+    // Sets have no model since FR-27 P3-6; one an older release left behind is read by nothing.
+    await mongoose.connection.db!.collection('permissionsets').updateOne({ orgId: org._id, name: 'Accountant', isSystem: true }, { $addToSet: { permissions: 'payroll.read' } })
     const invite: any = await storedLegacyInvite('edited@onboarding.test', 'accountant')
     const { member } = await joinOrgByInvite((await person('edited@onboarding.test'))._id, invite.code)
     const joined: any = await User.findById(member._id).lean().exec()
@@ -192,7 +188,6 @@ describe('FR-27.5: /auth/me says what the role grants', () => {
     // On the legacy model too: every org session is its role's.
     expect((await call('GET', '/auth/me', adminToken)).json.access).toMatchObject({ all: true, caps: [] })
     await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-    forgetAccessModel(orgId)
     const clerk: any = await User.findOne({ orgId: org._id, username: 'nobody' }).lean().exec()
     const me = (await call('GET', '/auth/me', await sign(clerk._id))).json.access
     expect(me.all).toBe(false)

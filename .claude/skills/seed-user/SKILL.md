@@ -12,7 +12,7 @@ what the register flow does so the account is immediately usable:
 - password hashed with `Bun.password.hash`
 - **operatorCode** allocated atomically via the `OPERATOR` sequence (SUPTO — every user needs one)
 - its **FR-27 role** (#529) and a **roleHistory** entry naming it (id and name; the Н-18 audit trail): the built-in role
-  of `--role`, or for a service account (`--caps` / `--permissions`) a role of its own, `Service: <username>`. The role
+  of `--role`, or for a service account (`--caps`) a role of its own, `Service: <username>`. The role
   decides every session (P3-2); a person without one cannot sign in.
 - FR-27 P3-5: **nothing of the legacy model** is written: no legacy `role` key, no `permissions`, no permission set.
 
@@ -32,8 +32,8 @@ bun run scripts/seed-user.ts --org <slug> --email <e> --username <u> --password 
 - `--caps <a,b>` [`--set-name <n>`] — a **service account**: instead of a built-in role, a role of its own holding exactly
   these capabilities (the `config/access` catalogue), named `--set-name` (default `Service: <username>`), created if missing.
   A role of that name with other capabilities is refused, never reused.
-- `--permissions <a,b>` — the same, named by legacy permissions: what they gave a session opening no area. Example:
-  `books-sync` in regal-acc, `--permissions accounting.import` = `books-import.run` (pull-plusminus-books, "Nightly run").
+- `--permissions` — gone with the legacy model (FR-27 P3-6): refused (exit 2), naming `--caps`. What it was:
+  `--permissions accounting.import` is `--caps books-import.run` (`books-sync` in regal-acc, pull-plusminus-books).
 - `--execute` — perform writes. **Without it the script is a dry-run** (prints the role it would give, no DB connection).
   It writes documents only: it connects without building indexes or collections, and refuses to write while a unique index on
   users, identities, roles or sequences is missing (`scripts/lib/require-indexes.ts`). Run from a checkout ahead of

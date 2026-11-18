@@ -1,22 +1,15 @@
 import { describe, it, expect } from 'bun:test'
-import { CAPABILITIES, ROLE_TEMPLATES, TEMPLATE_CAPS, compileLegacy, sameGrant, templateGrant } from 'config/access'
+import { CAPABILITIES, ROLE_TEMPLATES, TEMPLATE_CAPS } from 'config/access'
 
 /**
- * FR-27 Phase 3, P3-4 (#529) — the built-in roles are data (`config/access/template-caps.ts`). Until the legacy model
- * goes (P3-6), each one is pinned to what its legacy role's defaults compile to: nobody's access moved when the
- * templates stopped being compiled. Remove the pin with the legacy tables, never before.
+ * FR-27 Phase 3, P3-4 (#529) — the built-in roles are data (`config/access/template-caps.ts`). Each is pinned to what
+ * its legacy role's defaults compiled to in `unit/access-legacy-frozen.test.ts`, legacy.ts's own test (FR-27 P3-6).
  */
 
 describe('the templates are data', () => {
   it('one entry per built-in role, and nothing else', () => {
     expect(Object.keys(TEMPLATE_CAPS).sort()).toEqual(ROLE_TEMPLATES.map(t => t.key).sort())
   })
-
-  for (const t of ROLE_TEMPLATES) {
-    it(`${t.key}: exactly what its legacy role compiled to`, () => {
-      expect(sameGrant(templateGrant(t.key), compileLegacy(t.legacy))).toBe(true)
-    })
-  }
 
   it('every capability a template names is in the catalogue, once', () => {
     const known = new Set<string>(CAPABILITIES)

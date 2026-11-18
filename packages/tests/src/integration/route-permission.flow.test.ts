@@ -6,11 +6,10 @@ import { createTestOrg, createTestUser } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
-import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import type { Role } from 'config/constants'
+import { EXACT_WRITES, WRITE_PREFIXES, accessRuleFor, can, templateGrant } from 'config/access'
 import { FOREIGN_ORG_MESSAGE } from 'services/biz/tenant-guard'
-import {
-  EXACT_WRITE_RULES, PREFIX_WRITE_RULES, orgRouteRest, writeRuleFor,
-} from 'services/biz/route-permission'
+import { orgRouteRest } from 'services/biz/route-permission'
 
 /**
  * A role's permissions hold over HTTP (S-28).
@@ -19,11 +18,13 @@ import {
  * invoicing, payroll and warehouse controllers checked the session, the org and the home, and
  * nothing else. A PROPERTY over the real route table, in the shape of tenant-isolation:
  *
- *   - every write under an org has a rule (`services/biz/route-permission.ts`), and no rule names
+ *   - every write under an org has a rule (`config/access/routes.ts`, FR-27.2), and no rule names
  *     a route that does not exist, so the table can neither miss a new controller nor rot;
- *   - every write whose rule names permissions answers 403 to a member of the org who holds none
- *     of them, before its body is validated. Probed with `{}`, so a route that checked only its
+ *   - every write whose rule names capabilities answers 403 to a member of the org whose role holds
+ *     none of them, before its body is validated. Probed with `{}`, so a route that checked only its
  *     schema would answer 422 and fail here.
+ *
+ * FR-27 P3-6 (#529): the legacy permission rules are gone; these are the capability rules the evaluator decides by.
  *
  * The probes cannot write anything: the guard refuses before the handler, and the controls that
  * do get through use ids that do not exist.
@@ -45,14 +46,16 @@ function writeRoutes(): Array<{ method: string; path: string }> {
   return routes.filter(r => !READ_METHODS.has(r.method) && orgRouteRest(r.path) !== null)
 }
 
-async function tokenFor(org: any, role: keyof typeof DEFAULT_ROLE_PERMISSIONS): Promise<string> {
+/** A session of a person holding the built-in role of this key (the role decides; the token carries none of it). */
+async function tokenFor(org: any, role: Role): Promise<string> {
   const email = `${role}@${org.slug}.test`
   const user = await createTestUser(org._id, { role, email } as any)
   return (signer as any).decorator.jwt.sign({
-    id: String(user._id), orgId: String(org._id), role, email, username: role, firstName: 'R', lastName: 'P',
-    permissions: DEFAULT_ROLE_PERMISSIONS[role], ownRecordsModules: [],
+    id: String(user._id), orgId: String(org._id), email, username: role, firstName: 'R', lastName: 'P',
   })
 }
+
+const ruleOf = (method: string, path: string) => accessRuleFor(method, orgRouteRest(path) as string)
 
 /** `/api/org/:orgId/x/:id` with real values; ids that exist nowhere. */
 function concrete(path: string, org: string): string {
@@ -89,33 +92,33 @@ afterAll(async () => {
 
 describe('the rule table covers the route table', () => {
   it('every write under an org has a rule', () => {
-    const missing = writeRoutes().filter(r => !writeRuleFor(r.method, r.path)).map(r => `${r.method} ${r.path}`)
+    const missing = writeRoutes().filter(r => !ruleOf(r.method, r.path)).map(r => `${r.method} ${r.path}`)
     expect(missing).toEqual([])
   })
 
   it('every exact rule names a route that exists', () => {
     const real = new Set(writeRoutes().map(r => `${r.method} ${orgRouteRest(r.path)}`))
-    expect([...EXACT_WRITE_RULES.keys()].filter(k => !real.has(k))).toEqual([])
+    expect([...EXACT_WRITES.keys()].filter(k => !real.has(k))).toEqual([])
   })
 
   it('every prefix rule covers at least one route', () => {
     const rests = writeRoutes().map(r => orgRouteRest(r.path) as string)
-    const unused = PREFIX_WRITE_RULES
+    const unused = WRITE_PREFIXES
       .filter(([prefix]) => !rests.some(rest => rest === prefix || rest.startsWith(`${prefix}/`)))
       .map(([prefix]) => prefix)
     expect(unused).toEqual([])
   })
 })
 
-describe('a read-only role is refused every write its permissions do not cover', () => {
+describe('a read-only role is refused every write its capabilities do not cover', () => {
   for (const role of ['member', 'nra_auditor'] as const) {
-    it(`${role}: 403 before the body is read, on every route that names a permission`, async () => {
-      const held = DEFAULT_ROLE_PERMISSIONS[role] as readonly string[]
+    it(`${role}: 403 before the body is read, on every route that names capabilities`, async () => {
+      const grant = templateGrant(role)
       const wrong: string[] = []
       let probed = 0
       for (const r of writeRoutes()) {
-        const rule = writeRuleFor(r.method, r.path)
-        if (!rule || !('need' in rule) || rule.need.some(p => held.includes(p))) continue
+        const rule = ruleOf(r.method, r.path)
+        if (!rule || !('anyOf' in rule) || can(grant, rule.anyOf)) continue
         probed++
         const res = await call(r.method, concrete(r.path, orgId), tokens[role])
         if (res.status !== 403 || res.json?.code !== 'permission_required') wrong.push(`${r.method} ${r.path} → ${res.status}`)
@@ -134,7 +137,7 @@ describe('controls', () => {
   })
 
   it('a role is held to its own permissions, not denied outright', async () => {
-    // `sales` holds invoicing.write but not accounting.write or inventory.write.
+    // `sales` works on contacts, not on accounts or products.
     expect((await call('DELETE', `/api/org/${orgId}/invoicing/contact/${NO_SUCH_ID}`, tokens.sales)).status).toBe(404)
     expect((await call('DELETE', `/api/org/${orgId}/accounting/account/${NO_SUCH_ID}`, tokens.sales)).status).toBe(403)
     expect((await call('DELETE', `/api/org/${orgId}/warehouse/product/${NO_SUCH_ID}`, tokens.sales)).status).toBe(403)

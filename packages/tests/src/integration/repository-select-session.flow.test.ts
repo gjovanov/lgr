@@ -2,7 +2,6 @@ import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:tes
 import { mongoose } from 'db/connection'
 import type { RepositoryRegistry, DalSession } from 'dal'
 import { getRepos } from 'services/context'
-import { ScopedRepository } from 'services/biz/scoped-repository'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 
 const { Types } = mongoose
@@ -185,23 +184,5 @@ describe('session', () => {
     })
 
     expect((await repos.accounts.findById(account.id))!.balance).toBe(10)
-  })
-
-  test('the own-records wrapper hands the session to its scope checks and to the call', async () => {
-    const scoped = new ScopedRepository(repos.warehouses as any, { isActive: true })
-    const inactive = await repos.warehouses.create(warehouse('I1', { isActive: false }))
-
-    await inAbortedTransaction(async session => {
-      const mine = await scoped.create(warehouse('M1'), { session })
-      // Its scope check finds the document only through the session.
-      expect(await scoped.findByIdInOrg(mine.id, orgId, { session, select: ['code'] })).toMatchObject({ id: mine.id, code: 'M1' })
-      expect(await scoped.updateInOrg(mine.id, orgId, { name: 'Mine' } as any, {}, { session })).toMatchObject({ name: 'Mine' })
-      expect(await scoped.count({ orgId } as any, { session })).toBe(1)
-      // Out of scope stays out of scope.
-      expect(await scoped.findByIdInOrg(inactive.id, orgId, { session })).toBeNull()
-      expect(await scoped.deleteInOrg(mine.id, orgId, {}, { session })).toBe(true)
-    })
-
-    expect(await repos.warehouses.count({ orgId } as any)).toBe(1)
   })
 })

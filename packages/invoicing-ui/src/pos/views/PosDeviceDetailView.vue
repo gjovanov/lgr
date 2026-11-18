@@ -13,7 +13,7 @@
     :back-label="t('nav.devices')"
   >
     <!-- FR-26 D-8: whoever does not run the devices reads the page. The server refuses them every write and
-         command here (`FISCAL_ADMIN_ROLES`), so none is offered: no Save, no Connect, no operators, no reports but the status. -->
+         command here (`devices.edit`, `devices.report`), so none is offered: no Save, no Connect, no operators, no reports but the status. -->
     <!-- #450: the clock the scheduled sync left for a person (an hour off: summer time not switched). -->
     <v-alert v-if="!isNew && clockHeld" type="warning" variant="tonal" class="mb-4" data-testid="clock-held">
       {{ clockMessage }}
@@ -186,7 +186,7 @@
 
             <!-- What the device cannot do is disabled with the reason (`capabilities` on the device):
                  an Eltrade has no operator report and no electronic-journal print in its protocol.
-                 Each card below is a command the server takes from FISCAL_ADMIN_ROLES only: `runs`. -->
+                 Each card below is a command the server takes with `devices.*` only: `runs`. -->
 
             <!-- Daily X-Report -->
             <v-col v-if="runs" cols="12" md="6" lg="4">

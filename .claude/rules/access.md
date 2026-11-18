@@ -63,31 +63,31 @@ Why each one exists, and what was built around it: [`docs/history/access.md`](..
   its own org (`/auth/orgs`) and cannot switch until it signs in again. That is deliberate: such a
   token has no `tv`, so letting it mint switched sessions would bypass revocation.
 
-## Seller and Sales Consultant: areas (2026-11-03, FR-26, #493)
+## Seller and Sales Consultant (2026-11-03, FR-26, #493)
 
-- ⚠ **Absent and `[]` mean opposite things.** Absent: unrestricted (every existing set, role and token). `[]`: none. The model path is `default: undefined`, the set API takes `areas: null` for "every area" (`$unset`), and `sessionViewer` passes the claim only when the token carries a list.
+- ⚠ **FR-27 P3-6 (#529): FR-26's areas are gone** (`AREAS`, `holdsArea`, `mergeAreas`, `DEFAULT_ROLE_AREAS`, `route-permission.ts#AREA_PREFIXES`, `PageDef.area`, the `areas` claim). What they carved out is what the two built-in roles' capabilities leave out (`config/access/template-caps.ts`), and the route rules (`config/access/routes.ts`) and page rules (`PAGE_ACCESS`) refuse it as for any role. The areas live on only in `config/access/legacy.ts`, frozen for migration 0015.
 
-- **UI.** `PageDef.area` and `canOpenPage`; the inventory menu goes through `withPageRules` (`ui-shell/module.ts`). A session without `portal` has no Portal tile and lands in its first app (`portalGuard`, `landingWithoutPortal`). `isTransferOnly` gives the movement form Transfer only; `writesInventory` makes Products, Categories and Warehouses read-only. Sequences is admin and manager only, as the server always was.
+- **UI.** A session without the portal (`page-registry#holdsPortal`, `PORTAL_CAPS`) has no Portal tile and lands in its first app (`portalGuard`, `landingWithoutPortal`). The Products list's export is `exportsCatalog` (`products.export`). `isTransferOnly` gives the movement form Transfer only; `writesInventory` makes Products, Categories and Warehouses read-only.
 
-- **Assigning a role takes effect** (FR-26.9): a role change swaps the user's SYSTEM sets for the role's (`setsForRole`, custom sets stay), an invite starts on the role's set (`inviteSetFor`; a restricted role whose set the org lacks gets none, never the default set), and a change of role, sets or own permissions bumps the person's `tokenVersion` (`endSessionsOf`): every session of theirs, in every org, ends within the minute.
-
-- **Migration `0014-seller-permission-sets`** seeds both system sets in every org. A set of either name somebody made is reported and left alone, never adopted. Rollback: move every Seller and Sales Consultant to another role first; the previous release rejects the names and ignores `areas`.
+- **Migration `0014-seller-permission-sets`** seeded both system sets in every org (released; it writes through the driver). Sets have no model since P3-6, and migration 0017 (#820) archives them.
 
 ## One access model: Phase 0 (FR-27, #529)
 
-- ⚠ **`integration/access-differential.flow.test.ts`** holds the evaluator to its answer on every org route of `createApiApp()`, and `canOpen` to `canOpenPage` on every page. It covers every role × no, each single, default and an unknown permission × areas absent, `[]`, each alone, all × PIN.
+- **The role decides every request** (P3-2), and since P3-6 nothing else exists to decide. A new route needs a rule in
+  `config/access/routes.ts` alone.
 
-- In `shadow` both auth plugins call `shadowAccess`, which never waits. Every answer the evaluator would give differently is counted in `access_shadow_diffs` (`AccessShadowDiff`, class N, field `org` not `orgId`, a 30-day TTL, counts only).
+- ⚠ **`config/access/legacy.ts` is FROZEN** (`compileLegacy`, `legacyClaimsOf`, `LEGACY_BRIDGE`): released migration
+  0015 imports it. `unit/access-legacy-frozen.test.ts` pins its checksum and that nothing outside `packages/migrations/`
+  (and the access files 0015 reads it through) names it. Tests name an access by capabilities, a built-in role by
+  `templateGrant(key)`, or a legacy permission's old capabilities by `tests/helpers/permission-caps.ts`.
 
-- ⚠ **Where another app's session reaches it, `services/biz/access/partition.ts#seesBills` / `seesOrders`**: on the
-  legacy model FR-26's area, as before (an absent `areas` list holds it whatever the permissions: a warehouse
-  manager, with no invoicing permission, is told of the bill that holds a receipt), on a role the partition's
-  capabilities. `bills.view` alone is NOT the area there: legacy grants it only with an invoicing permission.
-  `product-supply` and the invoice's order links read `seesOrders`. The invoice controller's own routes, which only
-  invoicing sessions reach, read the grant (`unit/access-legacy-gates.test.ts` proves both).
+- ⚠ **Where another app's session reaches it, `services/biz/access/partition.ts#seesBills` / `seesOrders`**: the
+  partition's capabilities (`bills.view`; `orders.view|browse|lookup`). FR-27 P3-6 removed their legacy branch
+  (FR-26's area, under which a warehouse manager was told of the bill behind a receipt); no session took it since
+  P3-2. `product-supply` and the invoice's order links read `seesOrders`.
 
 - ⚠ Legacy grants the three together from the invoicing permissions, and an `areas` list without `purchases`
-  takes `bills` away, so nobody's answer changes (`access-differential`). A grant that reads every kind and works
+  takes `bills` away, so nobody's answer changed. A grant that reads every kind and works
   on every kind costs no query.
 
 ## One access model: Phase 1, roles (FR-27, #529)

@@ -5,7 +5,8 @@ import { setupTestDB, teardownTestDB } from '../setup'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
-import { Identity, Invite, PermissionSet, Role, User } from 'db/models'
+import { Identity, Invite, Role, User } from 'db/models'
+import { mongoose } from 'db/connection'
 import { register, tokenize } from 'services/biz/auth.service'
 import { joinOrgByInvite } from 'services/biz/identity/account.service'
 import { inviteDao } from 'services/dao/invite.dao'
@@ -157,7 +158,7 @@ describe('FR-27 P3-5: a role carries no legacy projection', () => {
     expect('legacy' in raw).toBe(false)
     expect('needsRelease' in raw).toBe(false)
     expect(raw.version).toBe(2)
-    expect(await PermissionSet.countDocuments({ orgId: org._id, name: 'Role · Counter clerk' })).toBe(0)
+    expect(await mongoose.connection.db!.collection('permissionsets').countDocuments({ orgId: org._id, name: 'Role · Counter clerk' })).toBe(0)
   })
 
   it("a new org's built-in roles carry no projection either", async () => {

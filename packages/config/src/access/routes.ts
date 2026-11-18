@@ -3,17 +3,17 @@ import type { CapabilityId, FeatureId } from './catalogue'
 /**
  * FR-27.2 — what each org route needs, in capabilities (#529).
  *
- * The same three kinds as `services/biz/route-permission.ts`, which this replaces in Phase 0's last step:
+ * Three kinds (the legacy permission rules of `services/biz/route-permission.ts` are gone since FR-27 P3-6):
  *   - `anyOf`: the caller must hold one of these capabilities;
  *   - `self`: the controller decides, and the reason says how (and, as the slices land, which capability);
  *   - `member`: any member of the org may.
  * A route resolves by its exact key first, then by the longest prefix. One with no rule is refused, and
- * `access-differential.flow.test.ts` fails on it, as `route-permission.flow` does today.
+ * `route-permission.flow` (writes) and `read-permission.flow` (reads) fail on it.
  *
  * Keys are the route after `/api/org/:orgId/`. Exact read keys are that path; exact write keys carry the method.
  *
- * ⚠ FR-26's areas are not here: an area is a set of capabilities the compiled grant lacks (`legacy.ts#AREA_OF`).
- * So a rule on an area route names only that area's capabilities, or the carve-out would leak.
+ * ⚠ A rule on a route that was an FR-26 area's names only that part's capabilities (`bills`, `orders`, `payments`,
+ * `price-lists`, …): a wider one would open the part to a role that does not hold it.
  *
  * Import-pure.
  */
@@ -117,7 +117,6 @@ export const READ_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['warehouse/inventory-count', reads('inventory-counts')],
   ['warehouse/opening-stock', reads('opening-stock')],
   ['warehouse/price-list', reads('price-lists')],
-  ['warehouse/bulk-pricing', reads('bulk-pricing')],
   ['warehouse', reads('products')],
 
   // The cash-sale terminal in the invoicing app sells from the POS catalog.
@@ -136,7 +135,7 @@ export const READ_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['audit-logs', self('auditReadScope: the whole trail needs admin.audit; anyone else reads the history of one record, of a module they read')],
   ['reports', self('canAccessReport: the catalog lists only what the caller may run')],
   ['supto', self('admin or nra_auditor')],
-  ['fiscal', member('device names and states, for the tills; connection details only for FISCAL_ADMIN_ROLES (sanitizeDevice)')],
+  ['fiscal', member('device names and states, for the tills; connection details only with devices.edit (sanitizeDevice)')],
   ['file', any('files.view')],
   ['files', self('files-api: admin, or admin.settings; the archives also for nra_auditor; the diff of a snapshot also takes what reading stock takes (compareRefusal)')],
   ['digest', self('admin role (FR-11): admin.settings deliberately does not suffice')],
@@ -149,7 +148,6 @@ export const READ_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['server', self(`${ADMIN_OR_SETTINGS} (FR-20.98); \`here\` tells any member only whether to show it`)],
   ['integration', self(ADMIN)],
   ['invite', self(ADMIN)],
-  ['permission-sets', self(ADMIN_OR_SETTINGS)],
   ['roles', self('roles.view (FR-27.4, role.controller)')],
 
   // FR-31.22: the top bar's jump to a document by its number searches only the families whose page the caller opens.
@@ -170,7 +168,7 @@ export const EXACT_READS: ReadonlyMap<string, AccessRule> = new Map([
   // The documents that sum is made of are theirs who read the documents, as the ledger behind the Invoices button
   // is (FR-27.6). The bills among them go by the caller's own partition, in the controller.
   ['invoicing/contact/:id/unpaid', any('sales-docs.view')],
-  ['trade/pos/session/:id/device-report', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager')],
+  ['trade/pos/session/:id/device-report', self('devices.report, as the device page (pos.controller)')],
   // A filing's files name a person: they go to who files them and who audits them (FR-25 D10).
   ['accounting/vat/:period/file/:name', any('vat.file', 'audit-log.lookup')],
 ])
@@ -235,10 +233,9 @@ export const WRITE_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['pos', any('till.sell')],
 
   ['files', self('files-api: admin, or admin.settings; booking, undoing, reconciling or analysing a document also takes the write permission of what it books (booksRefusal)')],
-  ['fiscal', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager', DEVICE_WRITES)],
+  ['fiscal', self('the devices.* capability of each command (fiscal-device.controller)', DEVICE_WRITES)],
   ['user', self('admin role (S-21)', ['users.edit'])],
   ['invite', self(ADMIN, ['invites.manage'])],
-  ['permission-sets', self(ADMIN, ['roles.edit'])],
   ['roles', self('roles.edit, and FR-27.8 in role.service', ['roles.edit'])],
   ['apps', self(ADMIN, ['apps.manage'])],
   ['digest', self(ADMIN, ['digest.manage'])],
@@ -291,7 +288,7 @@ export const EXACT_WRITES: ReadonlyMap<string, AccessRule> = new Map([
   // FR-21.18, FR-23: the journal's storno and its settle. The route also requires a storno role.
   ['POST cash-register/documents/:id/storno', any('till.sell', 'sales-docs.edit')],
   ['POST cash-register/documents/:id/settle', any('till.sell', 'sales-docs.edit')],
-  ['POST trade/pos/session/:id/device-report', self('FISCAL_ADMIN_ROLES: admin, manager, warehouse_manager', ['devices.report'])],
+  ['POST trade/pos/session/:id/device-report', self('devices.report, as the device page (pos.controller)', ['devices.report'])],
   ['POST doc-import/extract', any('doc-import.extract')],
   ['POST doc-import/analyze', self('PERMISSION_BY_TARGET: the write permission of the surface imported into')],
   ['POST doc-import/commit', self('PERMISSION_BY_TARGET: the write permission of the surface imported into')],

@@ -77,12 +77,12 @@ export function neverClonedFor(source: { settings?: any } | null | undefined): R
 
 /**
  * Seeded when missing, never overwritten and never wiped by a sync. A membership is access, and who
- * may enter the test org is decided there, not by a sync from the real one; a permission set or a
- * role (FR-27) is matched by its name, so a person's role in the test org stays the test org's. The
+ * may enter the test org is decided there, not by a sync from the real one; a role (FR-27) is
+ * matched by its name, so a person's role in the test org stays the test org's. The
  * apps an org has enabled are its own switches, and the app creates them by itself the first time
  * anyone opens the app hub, so a copy made after a reset finds them already there: matched by app.
  */
-export const SEED_ONLY: readonly string[] = ['User', 'PermissionSet', 'Role', 'OrgApp']
+export const SEED_ONLY: readonly string[] = ['User', 'Role', 'OrgApp']
 
 /**
  * Kept by a reset (the wipe that precedes the first copy into an org that already exists): access,
@@ -90,7 +90,7 @@ export const SEED_ONLY: readonly string[] = ['User', 'PermissionSet', 'Role', 'O
  * signed into the org before still is.
  */
 export const KEPT_ON_RESET: readonly string[] = [
-  'User', 'PermissionSet', 'Role', 'Invite',
+  'User', 'Role', 'Invite',
   'Desktop', 'DesktopEnrollmentCode', 'DesktopEnrollmentKey', 'DesktopEnrollmentKeyUse',
   'FiscalDevice', 'Workstation',
 ]
@@ -127,7 +127,7 @@ export function clonedModels(tenantModels: readonly string[], source?: { setting
 
 /** The order a copy writes in: the models others point at come first; the rest alphabetically. */
 export function copyOrder(models: readonly string[]): string[] {
-  const first = ['PermissionSet', 'Role', 'User']
+  const first = ['Role', 'User']
   return [...first.filter(m => models.includes(m)), ...models.filter(m => !first.includes(m)).sort()]
 }
 

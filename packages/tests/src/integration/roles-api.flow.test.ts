@@ -7,11 +7,9 @@ import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
-import { AuditLog, Org, PermissionSet, Role, User, type IUser } from 'db/models'
+import { AuditLog, Org, Role, User, type IUser } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
-import { forgetAccessModel } from 'services/biz/access/shadow'
-import { PRICE_CAPS, compileLegacy, grantOfRole, sameGrant, templateGrant, withPriceLevels } from 'config/access'
+import { PRICE_CAPS, grantOfRole, sameGrant, templateGrant, withPriceLevels } from 'config/access'
 import { RoleRefusal, setRoleCapsBySystem } from 'services/biz/access/role.service'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 
@@ -52,15 +50,12 @@ beforeAll(async () => {
   org = await createTestOrg({ slug: 'roles-api' } as any)
   other = await createTestOrg({ slug: 'roles-api-other' } as any)
   orgId = String(org._id)
-  await seedDefaultPermissionSets(orgId)
-  await seedDefaultPermissionSets(String(other._id))
   for (const [key, role] of [['admin1', 'admin'], ['admin2', 'admin'], ['manager', 'manager'], ['accountant', 'accountant'], ['clerk', 'member']] as const) {
     people[key] = await createTestUser(org._id, { role, username: key, email: `${key}@roles-api.test` } as any)
   }
   await createTestUser(other._id, { role: 'admin', username: 'outsider', email: 'outsider@roles-api.test' } as any)
   await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: {} })
   await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-  forgetAccessModel(orgId)
   for (const key of Object.keys(people)) await sign(key)
 }, 60_000)
 
@@ -84,7 +79,7 @@ describe('FR-27.4: the roles of an org', () => {
     const role: any = await Role.findById(r.json.role.id).lean().exec()
     expect(sameGrant(grantOfRole(role), templateGrant('sales'))).toBe(true)
     expect(role.legacy).toBeUndefined()
-    expect(await PermissionSet.exists({ orgId: org._id, name: 'Role · Counter' })).toBeNull()
+    expect(await mongoose.connection.db!.collection('permissionsets').countDocuments({ orgId: org._id, name: 'Role · Counter' })).toBe(0)
     // The create does not wait for its audit row: `createAuditEntry` never makes the operation it records
     // wait for, or fail on, its own trail. A read at once is a race, so read the row when it is there
     // (the idiom of audit-via.flow.test.ts).

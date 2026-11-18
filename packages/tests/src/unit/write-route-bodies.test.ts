@@ -35,7 +35,6 @@ const READS_NO_BODY: Record<string, string> = {
   'PUT /api/org/:orgId/notification/read-all': 'it marks every notification of the session\'s user',
   'POST /api/org/:orgId/apps/:appId/activate': ACTION,
   'POST /api/org/:orgId/apps/:appId/deactivate': ACTION,
-  'POST /api/org/:orgId/permission-sets/migrate': 'it migrates the org the URL names',
   'POST /api/org/:orgId/accounting/journal/:id/post': ACTION,
   'POST /api/org/:orgId/accounting/journal/:id/void': ACTION,
   'POST /api/org/:orgId/accounting/journal/postings/:id/retry': ACTION,

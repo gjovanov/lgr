@@ -8,13 +8,11 @@ export { OrgLogo, type IOrgLogo } from './org-logo.model.js'
 export { User, type IUser, type IOAuthProvider, type IRoleHistoryEntry, type IUserLegacyArchive } from './user.model.js'
 export { Identity, type IIdentity, type IIdentityProvider, type PasswordSetBy } from './identity.model.js'
 export { AuthToken, type IAuthToken, type AuthTokenPurpose } from './auth-token.model.js'
-export { PermissionSet, type IPermissionSet, type IOwnRecordsConfig } from './permission-set.model.js'
 export { Role, type IRole } from './role.model.js'
 export { Invite, type IInvite, type IInviteLegacyArchive, type InviteStatus } from './invite.model.js'
 export { Code, type ICode, type CodeType } from './code.model.js'
 export { OAuthHandoff, type IOAuthHandoff } from './oauth-handoff.model.js'
 export { LoginThrottle, type ILoginThrottle } from './login-throttle.model.js'
-export { AccessShadowDiff, type IAccessShadowDiff } from './access-shadow-diff.model.js'
 export {
   OAuthPendingRegistration,
   type IOAuthPendingRegistration,

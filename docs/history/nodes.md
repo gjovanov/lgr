@@ -515,7 +515,7 @@ master**, but the `/methods` probe, which says no (`portal-api/src/controllers/l
   and the PIN is not checked. Every attempt costs one argon2 verify, decoy included, as `login()`
   does.
 - ⚠ **A PIN session (`amr: ['pin']`, 12 h) reaches the till only** (`pinScopeRefusal`, first in
-  `permissionRefusal`, so `admin` too): the POS routes, the shell's `me`/`logout`, and the PIN pad
+  `accessRefusal`, so the Administrator too): the POS routes, the shell's `me`/`logout`, and the PIN pad
   itself (the next operator signs in over the last one's session). Inside them the role still
   counts, so a manager's PIN authorises a storno. A new route the POS terminal calls must be added
   to `PIN_SCOPE_ORG`, or a till breaks on it. ⚠ Keep `/auth/switch` out: it would mint a FULL

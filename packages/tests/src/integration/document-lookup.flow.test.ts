@@ -9,8 +9,6 @@ import { config } from 'config'
 import { mongoose } from 'db/connection'
 import { Contact, InternalOrder, Invoice, Order, Org, Reservation, Role, StockMovement, User, type IUser } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
-import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 import type { CapabilityId } from 'config/access'
@@ -61,7 +59,6 @@ beforeAll(async () => {
   app = new Elysia().onError(spaErrorHandler({}) as any).use(createApiApp()) as any
   org = await createTestOrg({ slug: 'document-lookup' } as any)
   orgId = String(org._id)
-  await seedDefaultPermissionSets(orgId)
   for (const key of ['admin', 'seller', 'storekeeper']) {
     people[key] = await createTestUser(org._id, { role: key === 'admin' ? 'admin' : 'member', username: `lookup-${key}`, email: `${key}@lookup.test` } as any)
   }
@@ -114,7 +111,6 @@ beforeAll(async () => {
 
   await rolesFromSets.up({ db: db() as any, log: () => {}, orgFilter: {} })
   await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-  forgetAccessModel(orgId)
   // Sales documents only: no bills, no till documents, no orders, no movements.
   await giveRole('seller', 'Lookup seller', ['sales-docs.view', 'sales-docs.create'] as CapabilityId[])
   // Movements only.

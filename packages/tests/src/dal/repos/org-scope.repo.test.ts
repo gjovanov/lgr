@@ -1,6 +1,5 @@
 import { describe, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test'
 import type { RepositoryRegistry } from 'dal'
-import { ScopedRepository } from 'services/biz/scoped-repository'
 import { setupMongoRepos, teardownMongo, createTestOrg, releaseMongoRepos } from '../helpers/dal-test-setup'
 
 /**
@@ -112,28 +111,6 @@ for (const [name, setup, cleanup] of backends) {
       expect(await repos.accounts.updateInOrg('not-an-id', orgA, { name: 'x' } as any)).toBeNull()
       expect(await repos.accounts.deleteInOrg('not-an-id', orgA)).toBe(false)
       expect(await repos.accounts.findByIdInOrg(a.id, '')).toBeNull()
-    })
-
-    test('the own-records wrapper keeps the org scope under its own', async () => {
-      const b = await account(orgB, '1000')
-      // A scope every document matches, so only the org can be what refuses.
-      const scoped = new ScopedRepository(repos.accounts as any, { isActive: true })
-
-      expect(await scoped.findByIdInOrg(b.id, orgA)).toBeNull()
-      expect(await scoped.updateInOrg(b.id, orgA, { name: 'x' })).toBeNull()
-      expect(await scoped.deleteInOrg(b.id, orgA)).toBe(false)
-      expect((await scoped.findByIdInOrg(b.id, orgB))?.id).toBe(b.id)
-    })
-
-    test('the own-records wrapper refuses an update operator too', async () => {
-      const a = await account(orgA, '1000')
-      const scoped = new ScopedRepository(repos.accounts as any, { isActive: true })
-
-      let error: any = null
-      try { await scoped.updateInOrg(a.id, orgA, { $set: { orgId: orgB } }) } catch (e) { error = e }
-
-      expect(error?.name).toBe('ValidationError')
-      expect(String((await repos.accounts.findById(a.id) as any).orgId)).toBe(orgA)
     })
   })
 }

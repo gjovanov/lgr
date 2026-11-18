@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { mongoose } from 'db/connection'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
-import { PermissionSet, Role, User } from 'db/models'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
+import { Role, User } from 'db/models'
+import { DEFAULT_ROLE_PERMISSIONS, type Role as RoleKey } from 'config/constants'
 import { compileLegacy, grantOfRole, legacyClaimsOf, sameGrant } from 'config/access'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 
@@ -23,16 +23,29 @@ const people: Record<string, any> = {}
 const db = () => mongoose.connection.db!
 const ctx = () => ({ db: db() as any, log: () => {}, orgFilter: {} })
 
+/** The system sets an org was seeded with before FR-27 P3-6, written raw: sets have no model, 0015 reads them so. */
+const SYSTEM_SETS: Array<[string, RoleKey]> = [
+  ['Administrator', 'admin'], ['Manager', 'manager'], ['Accountant', 'accountant'], ['Warehouse Manager', 'warehouse_manager'],
+  ['Seller', 'seller'], ['Sales Consultant', 'sales_consultant'], ['Member (Read Only)', 'member'], ['NRA Auditor (Read Only)', 'nra_auditor'],
+]
+async function seedLegacySets(orgId: unknown) {
+  await db().collection('permissionsets').insertMany(SYSTEM_SETS.map(([name, role]) => ({
+    _id: new mongoose.Types.ObjectId(), orgId, name, permissions: [...DEFAULT_ROLE_PERMISSIONS[role]], isSystem: true,
+    isAdmin: role === 'admin', isDefault: role === 'member',
+    ...(role === 'seller' ? { areas: [] } : role === 'sales_consultant' ? { areas: ['orders'] } : {}),
+  })))
+}
+
 async function set(orgId: unknown, name: string) {
-  return (await PermissionSet.findOne({ orgId, name }).lean().exec()) as any
+  return (await db().collection('permissionsets').findOne({ orgId, name })) as any
 }
 
 beforeAll(async () => {
   await setupTestDB()
   org = await createTestOrg({ slug: 'roles-migration' } as any)
   other = await createTestOrg({ slug: 'roles-migration-other' } as any)
-  await seedDefaultPermissionSets(String(org._id))
-  await seedDefaultPermissionSets(String(other._id))
+  await seedLegacySets(org._id)
+  await seedLegacySets(other._id)
   const make = async (key: string, role: string, extra: Record<string, unknown> = {}) => {
     people[key] = await createTestUser(org._id, { role, email: `${key}@roles.test`, username: key, ...extra } as any)
   }
@@ -77,7 +90,7 @@ describe('migration 0015: roles from sets', () => {
       // FR-27 P3-5: the token no longer carries the legacy claims; they are read as `tokenize()` read them (its sets in
       // this org, else the role's defaults), which is the migration's own oracle.
       const u: any = await User.findById(people[key]._id).lean().exec()
-      const sets = u.permissionSetIds?.length ? await PermissionSet.find({ _id: { $in: u.permissionSetIds }, orgId: u.orgId }).lean().exec() : []
+      const sets = u.permissionSetIds?.length ? await db().collection('permissionsets').find({ _id: { $in: u.permissionSetIds }, orgId: u.orgId }).toArray() : []
       const legacy = compileLegacy(legacyClaimsOf(u, sets as any))
       expect({ key, same: sameGrant(grantOfRole(role), legacy) }).toEqual({ key, same: true })
     }

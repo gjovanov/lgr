@@ -118,7 +118,7 @@ test.describe('The Seller and the Sales Consultant', () => {
     expect((await options.allInnerTexts()).map(t => t.trim())).toEqual(['Transfer'])
   })
 
-  // D-8: the server writes and commands a device for FISCAL_ADMIN_ROLES alone, so nothing else is offered.
+  // D-8: the server writes and commands a device with `devices.*` alone, so nothing else is offered.
   test('Devices are read-only: no New, no Save, no Connect, no operators, and of the reports the device status alone', async ({ page }) => {
     // The seed has no device. This one, made once and found again by its number, is in no warehouse a
     // till sells from and is deactivated before anyone looks: no sale ever finds it, and the page opens

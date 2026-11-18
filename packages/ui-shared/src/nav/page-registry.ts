@@ -1,5 +1,4 @@
-import { FISCAL_ADMIN_ROLES, PERMISSIONS, holdsArea, type Area } from 'config/constants'
-import { NOTHING, PAGE_ACCESS, can, canOpen, compileLegacy, grantHoldsArea, type CapabilityId, type Grant } from 'config/access'
+import { NOTHING, PAGE_ACCESS, can, canOpen, type CapabilityId, type Grant } from 'config/access'
 
 /**
  * Cross-app registry of the favouritable PAGES/functions surfaced by the global top-bar ★ menu.
@@ -17,33 +16,15 @@ export interface PageDef {
   labelKey: string // i18n key, e.g. "nav.salesInvoices"
   icon: string
   path: string // navigation target (same value as id)
-  /**
-   * Who may open it: any one of these permissions (an `admin` always may). Unset means the app's
-   * own permission, the one its App Hub tile is shown for. A new-document form names the WRITE
-   * permission its Save needs (`services/biz/route-permission.ts`), so nobody is offered a form
-   * the server would refuse to save (FR-22 §5.8).
-   */
-  need?: readonly string[]
-  /** Who may open it by role, whatever they hold, where the server's own rule is a role. */
-  roles?: readonly string[]
   /** A page of the till, inside the invoicing app: all a PIN session reaches (`canOpenPage`). */
   till?: boolean
-  /** And one of these permissions too: what the page's own data needs beyond its app (`PAGE_ACCESS.alsoAnyOf`). */
-  alsoNeed?: readonly string[]
-  /**
-   * FR-26: the area the page belongs to (`config/constants#AREAS`). A session whose `areas` claim
-   * lacks it does not open the page, as the server refuses its routes (`route-permission.ts#AREA_PREFIXES`).
-   */
-  area?: Area
+  // FR-27 P3-6 (#529): who opens a page is `config/access/pages.ts#PAGE_ACCESS`, by its id. The legacy `need`,
+  // `roles`, `alsoNeed` and `area` are gone with the oracle that read them (`legacyCanOpenPage`).
 }
 
-/**
- * Each app's base path, name, permission and colour. Every app is a module of the one SPA (FR-24.21).
- * `reads`: every permission the server reads the app for, where that is more than its tile's
- * (`route-permission.ts#PREFIX_READ_RULES`).
- */
-export const APP_NAV_META: Record<string, { base: string; nameKey: string; permission: string; color: string; reads?: readonly string[] }> = {
-  invoicing: { base: '/invoicing', nameKey: 'apps.invoicing', permission: 'invoicing.read', color: '#2196f3', reads: ['invoicing.read', 'invoicing.write', 'invoicing.send'] },
+/** Each app's base path, name, permission and colour. Every app is a module of the one SPA (FR-24.21). */
+export const APP_NAV_META: Record<string, { base: string; nameKey: string; permission: string; color: string }> = {
+  invoicing: { base: '/invoicing', nameKey: 'apps.invoicing', permission: 'invoicing.read', color: '#2196f3' },
   inventory: { base: '/inventory', nameKey: 'apps.inventory', permission: 'inventory.read', color: '#ff9800' },
   accounting: { base: '/accounting', nameKey: 'apps.accounting', permission: 'accounting.read', color: '#4caf50' },
   payroll: { base: '/payroll', nameKey: 'apps.payroll', permission: 'payroll.read', color: '#9c27b0' },
@@ -51,7 +32,7 @@ export const APP_NAV_META: Record<string, { base: string; nameKey: string; permi
   files: { base: '/files', nameKey: 'apps.files', permission: 'admin.settings', color: '#607d8b' },
 }
 
-/** FR-27: what opens each app, in `APP_NAV_META`'s `reads ?? permission` terms (`config/access/legacy.ts`). */
+/** FR-27: the capability that opens each app's first page, for `landingWithoutPortal`. */
 const APP_OPENED_BY: Readonly<Record<string, CapabilityId>> = {
   invoicing: 'sales-docs.view',
   inventory: 'products.view',
@@ -61,32 +42,13 @@ const APP_OPENED_BY: Readonly<Record<string, CapabilityId>> = {
   files: 'files.view',
 }
 
-function page(appId: string, to: string, labelKey: string, icon: string, need?: readonly string[]): PageDef {
+function page(appId: string, to: string, labelKey: string, icon: string): PageDef {
   const path = APP_NAV_META[appId].base + to
-  return need ? { id: path, appId, labelKey, icon, path, need } : { id: path, appId, labelKey, icon, path }
+  return { id: path, appId, labelKey, icon, path }
 }
 
-// FR-25 §3.11: what the server reads these for. Without it `payroll.read` still opens the app, at its totals.
-const READ_PEOPLE = ['payroll.personal'] as const
-const WRITE_INVOICING = ['invoicing.write'] as const
-// FR-26.7: `inventory.transfer` saves a movement too, a transfer only (`route-permission.ts`).
-const WRITE_MOVEMENT = ['inventory.write', 'inventory.transfer'] as const
-// The till's pages, each named for what the server asks of it (`route-permission.ts`). An app's
-// own `invoicing.read` would hide them from a till-only role and show them to an accountant.
-const WRITE_TILL = ['pos.write'] as const
-const READ_TILL = ['pos.read', 'pos.write'] as const
-const READ_JOURNAL = [...APP_NAV_META.invoicing.reads!, ...READ_TILL] as const
-// What the server reads for the inventory app too (`route-permission.ts`): the orders a delivery is
-// booked against, and the contacts it picks a supplier from.
-const READ_WITH_INVENTORY = [...APP_NAV_META.invoicing.reads!, 'inventory.read', 'inventory.write', 'inventory.adjust'] as const
-
-/** A page of an area (FR-26 §2.3). */
-function inArea(def: PageDef, area: Area): PageDef {
-  return { ...def, area }
-}
-
-function tillPage(to: string, labelKey: string, icon: string, need: readonly string[], roles?: readonly string[]): PageDef {
-  return { ...page('invoicing', to, labelKey, icon, need), till: true, ...(roles ? { roles } : {}) }
+function tillPage(to: string, labelKey: string, icon: string): PageDef {
+  return { ...page('invoicing', to, labelKey, icon), till: true }
 }
 
 export const PAGE_REGISTRY: PageDef[] = [
@@ -94,50 +56,49 @@ export const PAGE_REGISTRY: PageDef[] = [
   // FR-01: credit/debit notes merged into the sales/purchase document grids; their old
   // paths redirect, so stale favorites keep working while the rows themselves are gone.
   page('invoicing', '/invoices', 'nav.salesDocs', 'mdi-receipt-text-outline'),
-  inArea(page('invoicing', '/orders', 'nav.externalOrders', 'mdi-clipboard-list-outline', READ_WITH_INVENTORY), 'orders'),
-  inArea(page('invoicing', '/internal-orders', 'nav.internalOrders', 'mdi-account-clock-outline'), 'orders'),
-  inArea(page('invoicing', '/reservations', 'nav.reservations', 'mdi-lock-clock'), 'orders'),
+  page('invoicing', '/orders', 'nav.externalOrders', 'mdi-clipboard-list-outline'),
+  page('invoicing', '/internal-orders', 'nav.internalOrders', 'mdi-account-clock-outline'),
+  page('invoicing', '/reservations', 'nav.reservations', 'mdi-lock-clock'),
   page('invoicing', '/proforma', 'nav.proforma', 'mdi-file-document-outline'),
   page('invoicing', '/offer', 'nav.offers', 'mdi-file-sign'),
-  inArea(page('invoicing', '/bills', 'nav.purchaseDocs', 'mdi-receipt-text'), 'purchases'),
-  tillPage('/cash-sales', 'nav.crSales', 'mdi-cash-register', READ_JOURNAL),
-  inArea(page('invoicing', '/payment-orders', 'nav.paymentOrders', 'mdi-bank-transfer'), 'payments'),
-  inArea(page('invoicing', '/cash-orders', 'nav.cashOrders', 'mdi-cash'), 'payments'),
+  page('invoicing', '/bills', 'nav.purchaseDocs', 'mdi-receipt-text'),
+  tillPage('/cash-sales', 'nav.crSales', 'mdi-cash-register'),
+  page('invoicing', '/payment-orders', 'nav.paymentOrders', 'mdi-bank-transfer'),
+  page('invoicing', '/cash-orders', 'nav.cashOrders', 'mdi-cash'),
   // FR-06 (#14): the aging report and the export page moved to the Reports app — their rows
   // are under "Reports" below. The old paths still resolve (redirect stubs), and existing
   // favorites on them are remapped on load, see LEGACY_PAGE_IDS.
-  page('invoicing', '/contacts', 'nav.contacts', 'mdi-contacts', READ_WITH_INVENTORY),
-  // FR-26.8.3: the server lets admin and manager in (`route-permission.ts`), and nobody else.
-  { ...page('invoicing', '/configuration/sequences', 'nav.sequences', 'mdi-numeric', []), roles: ['admin', 'manager'] },
+  page('invoicing', '/contacts', 'nav.contacts', 'mdi-contacts'),
+  page('invoicing', '/configuration/sequences', 'nav.sequences', 'mdi-numeric'),
   // ── Inventory ──
   page('inventory', '/products', 'nav.products', 'mdi-package-variant'),
   page('inventory', '/categories', 'nav.categories', 'mdi-shape'),
   page('inventory', '/warehouses', 'nav.warehouses', 'mdi-warehouse'),
-  inArea(page('inventory', '/stock-levels', 'nav.stockLevels', 'mdi-chart-box'), 'stockControl'),
+  page('inventory', '/stock-levels', 'nav.stockLevels', 'mdi-chart-box'),
   page('inventory', '/movements', 'nav.stockMovements', 'mdi-swap-horizontal'),
-  inArea(page('inventory', '/inventory-counts', 'nav.inventoryCount', 'mdi-clipboard-check'), 'stockControl'),
-  inArea(page('inventory', '/inventory-valuation', 'nav.inventoryValuation', 'mdi-chart-areaspline'), 'stockControl'),
-  inArea(page('inventory', '/opening-stock', 'nav.openingStock', 'mdi-database-import-outline'), 'stockControl'),
-  inArea(page('inventory', '/price-lists', 'nav.priceLists', 'mdi-tag-multiple'), 'pricing'),
-  inArea(page('inventory', '/bulk-pricing', 'nav.bulkPricing', 'mdi-percent'), 'pricing'),
+  page('inventory', '/inventory-counts', 'nav.inventoryCount', 'mdi-clipboard-check'),
+  page('inventory', '/inventory-valuation', 'nav.inventoryValuation', 'mdi-chart-areaspline'),
+  page('inventory', '/opening-stock', 'nav.openingStock', 'mdi-database-import-outline'),
+  page('inventory', '/price-lists', 'nav.priceLists', 'mdi-tag-multiple'),
+  page('inventory', '/bulk-pricing', 'nav.bulkPricing', 'mdi-percent'),
   // ── New documents (FR-22.49, FR-22.51) ──
   // The daily forms, blank: ★ can pin one, and „+ Нов" lists them (NEW_DOCUMENT_MENU below).
   // `matchPage` prefers these over their lists, so a pin made on /invoicing/invoices/new pins
   // the form. A credit or debit note is the invoice form opened with `?type=`.
-  page('invoicing', '/invoices/new', 'nav.newDocPage.salesInvoice', 'mdi-receipt-text-plus-outline', WRITE_INVOICING),
-  page('invoicing', '/invoices/new?type=credit_note', 'nav.newDocPage.creditNote', 'mdi-receipt-text-minus-outline', WRITE_INVOICING),
-  page('invoicing', '/invoices/new?type=debit_note', 'nav.newDocPage.debitNote', 'mdi-receipt-text-arrow-right-outline', WRITE_INVOICING),
-  page('invoicing', '/proforma/new', 'nav.newDocPage.proforma', 'mdi-file-document-plus-outline', WRITE_INVOICING),
-  page('invoicing', '/offer/new', 'nav.newDocPage.offer', 'mdi-file-sign', WRITE_INVOICING),
+  page('invoicing', '/invoices/new', 'nav.newDocPage.salesInvoice', 'mdi-receipt-text-plus-outline'),
+  page('invoicing', '/invoices/new?type=credit_note', 'nav.newDocPage.creditNote', 'mdi-receipt-text-minus-outline'),
+  page('invoicing', '/invoices/new?type=debit_note', 'nav.newDocPage.debitNote', 'mdi-receipt-text-arrow-right-outline'),
+  page('invoicing', '/proforma/new', 'nav.newDocPage.proforma', 'mdi-file-document-plus-outline'),
+  page('invoicing', '/offer/new', 'nav.newDocPage.offer', 'mdi-file-sign'),
   // The till's terminal: a cash sale is rung up there.
-  tillPage('/cash-sales/new', 'nav.csTerminal', 'mdi-point-of-sale', WRITE_TILL),
-  inArea(page('invoicing', '/bills/new', 'nav.newDocPage.bill', 'mdi-receipt-text-arrow-left-outline', WRITE_INVOICING), 'purchases'),
+  tillPage('/cash-sales/new', 'nav.csTerminal', 'mdi-point-of-sale'),
+  page('invoicing', '/bills/new', 'nav.newDocPage.bill', 'mdi-receipt-text-arrow-left-outline'),
   // FR-26.8.6: the form makes every type, and a transfer-only session (a Seller) saves transfers.
-  page('inventory', '/movements/new', 'nav.newDocPage.stockMovement', 'mdi-truck-delivery-outline', WRITE_MOVEMENT),
-  inArea(page('invoicing', '/internal-orders/new', 'nav.newDocPage.customerOrder', 'mdi-clipboard-account-outline', WRITE_INVOICING), 'orders'),
-  inArea(page('invoicing', '/orders/new', 'nav.newDocPage.supplierOrder', 'mdi-clipboard-arrow-right-outline', WRITE_INVOICING), 'orders'),
+  page('inventory', '/movements/new', 'nav.newDocPage.stockMovement', 'mdi-truck-delivery-outline'),
+  page('invoicing', '/internal-orders/new', 'nav.newDocPage.customerOrder', 'mdi-clipboard-account-outline'),
+  page('invoicing', '/orders/new', 'nav.newDocPage.supplierOrder', 'mdi-clipboard-arrow-right-outline'),
   // FR-22.37: the Reservations list with its create dialog open (a redirect to `?new=1`).
-  inArea(page('invoicing', '/reservations/new', 'nav.newDocPage.reservation', 'mdi-lock-plus-outline', WRITE_INVOICING), 'orders'),
+  page('invoicing', '/reservations/new', 'nav.newDocPage.reservation', 'mdi-lock-plus-outline'),
   // ── Accounting ──
   page('accounting', '/accounts', 'nav.accounts', 'mdi-chart-bar'),
   page('accounting', '/analytics', 'nav.analytics', 'mdi-file-tree-outline'),
@@ -151,21 +112,19 @@ export const PAGE_REGISTRY: PageDef[] = [
   page('accounting', '/exchange-rates', 'nav.exchangeRates', 'mdi-currency-usd'),
   page('accounting', '/fixed-assets', 'nav.fixedAssets', 'mdi-office-building'),
   // ── The till, inside Invoicing ──
-  tillPage('/cash-register/sessions', 'nav.crSessions', 'mdi-clock-outline', READ_TILL),
-  // The server reads `fiscal` for any member and writes it by role: who runs a device holds no `pos.*`.
-  tillPage('/configuration/devices', 'nav.devices', 'mdi-printer-pos', READ_TILL, FISCAL_ADMIN_ROLES),
+  tillPage('/cash-register/sessions', 'nav.crSessions', 'mdi-clock-outline'),
+  tillPage('/configuration/devices', 'nav.devices', 'mdi-printer-pos'),
   // ── Payroll ──
-  page('payroll', '/employees', 'payroll.employees', 'mdi-account-multiple', READ_PEOPLE),
+  page('payroll', '/employees', 'payroll.employees', 'mdi-account-multiple'),
   page('payroll', '/runs', 'payroll.payrollRuns', 'mdi-cash-register'),
-  page('payroll', '/payslips', 'payroll.payslips', 'mdi-file-document-outline', READ_PEOPLE),
-  page('payroll', '/timesheets', 'payroll.timesheets', 'mdi-clock-outline', READ_PEOPLE),
+  page('payroll', '/payslips', 'payroll.payslips', 'mdi-file-document-outline'),
+  page('payroll', '/timesheets', 'payroll.timesheets', 'mdi-clock-outline'),
   // ── Reports (FR-06 #14) ──
   // FR-6.5: one row per registry report, so every report is ★-favouritable and shows up in
   // the global page search. The labels are the registry's own label keys — a row here and an
   // entry there must name the same thing.
-  // What they read beyond Reports: the invoices (`invoicing/export` asks `canExport`; the aging, the invoicing read rule).
-  { ...page('reports', '/export', 'nav.export', 'mdi-download'), alsoNeed: ['invoicing.read', 'invoicing.write'] },
-  { ...page('reports', '/aging', 'nav.agingReport', 'mdi-clock-alert-outline'), alsoNeed: APP_NAV_META.invoicing.reads },
+  page('reports', '/export', 'nav.export', 'mdi-download'),
+  page('reports', '/aging', 'nav.agingReport', 'mdi-clock-alert-outline'),
   page('reports', '/sales-documents', 'reports.salesDocuments.label', 'mdi-file-document-outline'),
   page('reports', '/purchase-documents', 'reports.purchaseDocuments.label', 'mdi-file-import-outline'),
   page('reports', '/cash-register', 'reports.cashRegister.label', 'mdi-cash-register'),
@@ -262,105 +221,72 @@ export function matchPage(pathname: string, search = ''): PageDef | null {
   return best
 }
 
-/**
- * What `canOpenPage` needs to know about the person: the session's grant (`sessionViewer`). FR-27 P3-5: `role`,
- * `permissions` and `areas` are the legacy claims, which no session carries any more; a viewer stated with them (a
- * unit test, the differential test's oracle) is compiled as the server compiled them, until P3-6.
- */
+/** What `canOpenPage` needs to know about the person: the session's grant (`sessionViewer`). */
 export interface PageViewer {
-  role?: string
-  permissions?: readonly string[]
   /** How the session was made; `['pin']` for a till's PIN sign-in. */
   amr?: readonly string[]
-  /** FR-26: the only areas the session opens; absent = every area. */
-  areas?: readonly string[]
-  /** FR-27.5: the session's live grant from its role (an org on `roles`); it decides over the claims. */
+  /** FR-27.5: the session's live grant from its role. Until it is known the viewer holds nothing. */
   grant?: Grant
   /** FR-27.4: the page id its role starts it on. */
   landing?: string
 }
 
-/**
- * FR-27 (#529): the viewer's grant: its role's, live. FR-27 P3-5: a session's viewer carries nothing else, so until the
- * grant is known it holds nothing. A viewer stated as legacy claims (tests) is compiled as the server compiled them.
- */
+/** FR-27 (#529): the viewer's grant: its role's, live. Until it is known the viewer holds nothing. */
 export function grantOfViewer(who: PageViewer | null | undefined): Grant {
-  if (who?.grant) return who.grant
-  return who && (who.role || who.permissions?.length || Array.isArray(who.areas)) ? compileLegacy(who) : NOTHING
+  return who?.grant ?? NOTHING
 }
 
 /**
- * FR-26's area-wide gates (the portal: the App Hub, the Dashboard, Settings; the catalog's export), asked where the
- * live role decides (FR-27.5): of its grant, so an edit reaches them with no sign-out, and a role whose projection
- * carries no `areas` list (all of them, for an older release) holds only the areas it holds something of. Else
- * (the token's claims decide) the token's `areas`, exactly as before.
+ * What puts the portal (the App Hub, the Dashboard, Settings, Admin) in a role: anything of its pages. A role holding
+ * none of it (the Seller, the Sales Consultant: FR-26.8.4) has no Portal tile and lands in its first app. FR-26's
+ * `portal` area until FR-27 P3-6, now the capabilities that area was made of.
  */
-export function viewerHoldsArea(who: PageViewer | null | undefined, area: Area): boolean {
-  if (!who) return false
-  if (who.grant) return grantHoldsArea(who.grant, area)
-  // FR-27 P3-5: a session's viewer without its grant yet holds no area; a viewer stated as legacy claims (tests), as before.
-  return who.role || who.permissions?.length || Array.isArray(who.areas) ? holdsArea(who, area) : false
+export const PORTAL_CAPS: readonly CapabilityId[] = [
+  'dashboard.view', 'dashboard.lookup', 'org-settings.view', 'users.view', 'desktops.view', 'servers.view', 'audit-log.view',
+]
+
+/** Whether this session's role has the portal (`PORTAL_CAPS`). */
+export function holdsPortal(who: PageViewer | null | undefined): boolean {
+  return !!who && can(grantOfViewer(who), PORTAL_CAPS)
+}
+
+/** Whether this session exports the catalog from the Products list (#493; FR-26's `catalogExport` until P3-6). */
+export function exportsCatalog(who: PageViewer | null | undefined): boolean {
+  return !!who && can(grantOfViewer(who), 'products.export')
 }
 
 /**
  * May this person open the page? ★ and „+ Нов" list only what this answers yes to (FR-22 §5.8).
  *
- * FR-27.2: one line on the grant (`config/access/pages.ts`), a PIN session the till only.
- * `access-differential.flow` holds it to `legacyCanOpenPage` for every shape.
+ * FR-27.2: one line on the grant (`config/access/pages.ts`), a PIN session the till only. Hiding an entry is
+ * presentation: the server still answers every request on its own.
+ *
+ * ⚠ The ONE rule for who may open what. ★, „+ Нов", the menus, the till's guard and the landing after a PIN and
+ * after an org switch all ask it, so none of them can come to another answer.
  */
 export function canOpenPage(page: PageDef, who: PageViewer | null | undefined): boolean {
   return !!who && canOpen(page.id, grantOfViewer(who), who.amr)
 }
 
-/**
- * ⚠ The oracle, until FR-27 Phase 3: what `canOpenPage` answered before the grant, from `need`, `roles` and `area`.
- * Only the differential test calls it.
- *
- * It mirrors the server rather than deciding anything: the read rule for an app's pages, the
- * write rule for a new-document form, an `admin` always (as `route-permission.ts#writeRefusal`),
- * and a PIN session the till only, whatever its role (`pinScopeRefusal`). Hiding an entry is
- * presentation — the server still answers every request on its own.
- *
- * ⚠ The ONE rule for who may open what. ★, „+ Нов", the invoicing menu, the till's guard and the
- * landing after a PIN and after an org switch all ask it, so none of them can come to another answer.
- */
-export function legacyCanOpenPage(page: PageDef, who: PageViewer | null | undefined): boolean {
-  if (!who) return false
-  if (who.amr?.includes('pin') && !page.till) return false
-  if (who.role === 'admin') return true
-  if (page.area && !holdsArea(who, page.area)) return false
-  if (page.alsoNeed && !page.alsoNeed.some(p => (who.permissions ?? []).includes(p))) return false
-  if (who.role && page.roles?.includes(who.role)) return true
-  const need = page.need ?? APP_NAV_META[page.appId]?.reads ?? [APP_NAV_META[page.appId]?.permission]
-  const held = who.permissions ?? []
-  return need.some((p) => !!p && held.includes(p))
-}
-
-/** Whoever holds anything but the till's own: a member reads the org and its people on the server (pickers, the shell), and a till needs neither page. */
-const BACK_OFFICE = PERMISSIONS.filter(p => !p.startsWith('pos.'))
-const READ_DASHBOARD = ['invoicing.read', 'invoicing.write', 'invoicing.send', 'accounting.read', 'accounting.write', 'accounting.post', 'inventory.read', 'inventory.write', 'inventory.adjust'] as const
-
-// FR-26: every portal page is of the `portal` area: a Seller has none of them.
-const portalPage = (path: string, need: readonly string[]): PageDef => ({ id: path, appId: 'portal', labelKey: '', icon: '', path, need, area: 'portal' })
+// The portal's pages are no rows of the registry; `PAGE_ACCESS` names what opens each, by its path.
+const portalPage = (path: string): PageDef => ({ id: path, appId: 'portal', labelKey: '', icon: '', path })
 
 /**
  * The portal's own pages. No ★ pins one and no app menu lists one, so they are no rows of the registry, and
- * `canOpenPage` answers for them as for any other, each naming what the server asks of it
- * (`route-permission.ts`). An empty `need` is an admin's alone: billing and invites are the server's admin role.
+ * `canOpenPage` answers for them as for any other.
  * ⚠ Presentation, as ever: portal routes have no guard, and the server answers every request on its own.
  */
 export const PORTAL_PAGES: PageDef[] = [
-  portalPage('/dashboard', READ_DASHBOARD),
-  portalPage('/settings/organization', BACK_OFFICE),
-  portalPage('/settings/users', BACK_OFFICE),
-  // FR-27.4: Roles & access, the permission sets' successor (P3-3 removed their screen); an admin's as theirs.
-  portalPage('/settings/roles', []),
-  portalPage('/settings/invites', []),
-  portalPage('/settings/desktops', ['admin.settings']),
-  portalPage('/settings/servers', ['admin.settings']),
-  portalPage('/settings/server', ['admin.settings']),
-  portalPage('/settings/billing', []),
-  portalPage('/admin/audit-log', ['admin.audit']),
+  portalPage('/dashboard'),
+  portalPage('/settings/organization'),
+  portalPage('/settings/users'),
+  portalPage('/settings/roles'),
+  portalPage('/settings/invites'),
+  portalPage('/settings/desktops'),
+  portalPage('/settings/servers'),
+  portalPage('/settings/server'),
+  portalPage('/settings/billing'),
+  portalPage('/admin/audit-log'),
 ]
 
 /** What the portal's side menu offers this person: the pages `canOpenPage` lets them open. */
@@ -370,9 +296,8 @@ export function portalPagesFor(who: PageViewer | null | undefined): string[] {
 
 /**
  * Who has the till and nothing else of the invoicing app: a PIN session, whatever its role (the
- * server holds it to the till, `pinScopeRefusal`), and someone holding `pos.*` with no right that
- * opens another page of it. The invoicing router takes them to the till from any other page. An
- * `admin` is refused nothing, whatever its set says.
+ * server holds it to the till, `pinScopeRefusal`), and a role holding the till with nothing that
+ * opens another page of it. The invoicing router takes them to the till from any other page.
  */
 export function isTillOnly(who: PageViewer | null | undefined): boolean {
   if (!who) return false
@@ -383,9 +308,8 @@ export function isTillOnly(who: PageViewer | null | undefined): boolean {
 }
 
 /**
- * FR-26.7: whether this session writes stock movements as transfers only: it holds
- * `inventory.transfer` and not `inventory.write`, and is no `admin`. The movement form offers it
- * Transfer alone, as the server accepts.
+ * FR-26.7: whether this session writes stock movements as transfers only (`movements.create:transfer`, not
+ * `movements.create`). The movement form offers it Transfer alone, as the server accepts.
  */
 export function isTransferOnly(who: PageViewer | null | undefined): boolean {
   if (!who) return false
@@ -393,16 +317,15 @@ export function isTransferOnly(who: PageViewer | null | undefined): boolean {
   return can(grant, 'movements.create:transfer') && !can(grant, 'movements.create')
 }
 
-/** Whether this session writes the inventory's records (products, categories, warehouses): `inventory.write`, or `admin`. */
+/** Whether this session writes the inventory's records (products, categories, warehouses): `products.edit`. */
 export function writesInventory(who: PageViewer | null | undefined): boolean {
   return !!who && can(grantOfViewer(who), 'products.edit')
 }
 
 /**
  * Whether this session runs the fiscal devices: adds and edits them, programs their operators and prints their
- * reports. The server decides by role, never by permission (`FISCAL_ADMIN_ROLES`, `fiscal-device.controller.ts`):
- * a cashier holds `pos.write` and runs none, and a warehouse manager runs them without it. Anyone else who opens
- * the Devices page reads it (FR-26 D-8).
+ * reports: `devices.edit`, as `fiscal-device.controller.ts` asks (the roles named `FISCAL_ADMIN_ROLES` until FR-27
+ * P3-6). A cashier sells and runs none. Anyone else who opens the Devices page reads it (FR-26 D-8).
  */
 export function runsDevices(who: PageViewer | null | undefined): boolean {
   return !!who && can(grantOfViewer(who), 'devices.edit')
@@ -462,7 +385,7 @@ export function newDocumentMenu(who: PageViewer | null | undefined): NewDocument
 }
 
 /**
- * FR-26.8.4: the portal's pages a session without the `portal` area does not reach: the App Hub,
+ * FR-26.8.4: the portal's pages a session without the portal (`holdsPortal`) does not reach: the App Hub,
  * Dashboard, Settings and Admin. `/account`, `/orgs`, an invite and the sign-in pages stay.
  */
 export function isPortalAreaPath(path: string): boolean {
@@ -471,7 +394,7 @@ export function isPortalAreaPath(path: string): boolean {
 }
 
 /**
- * Where a session without the `portal` area lands instead of the App Hub: Products, where it opens them (#493
+ * Where a session without the portal (`holdsPortal`) lands instead of the App Hub: Products, where it opens them (#493
  * item 3: what a Seller and a Sales Consultant use most), else the first app it opens, in the order of
  * `APP_NAV_META` (Invoicing first), else its own account page.
  */
@@ -505,9 +428,9 @@ export function startPage(who: PageViewer | null | undefined): string {
   const own = ownLanding(who)
   if (own) return own
   // FR-27.7: "else the first page it may open": the Dashboard only for a role that opens it (its summary answers
-  // anyone else 403). FR-26's portal area, the live role's (FR-27.5), still sends a session without it out of the portal.
+  // anyone else 403). A role without the portal is sent out of it.
   const dashboard = PORTAL_PAGES.find(p => p.id === '/dashboard')
-  return viewerHoldsArea(who, 'portal') && dashboard && canOpenPage(dashboard, who!) ? '/dashboard' : landingWithoutPortal(who)
+  return holdsPortal(who) && dashboard && canOpenPage(dashboard, who!) ? '/dashboard' : landingWithoutPortal(who)
 }
 
 /**

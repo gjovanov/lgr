@@ -18,7 +18,8 @@ import {
   canExportReport,
   validateParams,
 } from 'services/biz/report-registry'
-import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import { templateGrant } from 'config/access'
+import { capsOfPermissions } from '../helpers/permission-caps'
 import { Order } from 'db/models'
 import type { Types } from 'mongoose'
 
@@ -34,8 +35,8 @@ beforeAll(async () => { await setupTestDB() })
 afterAll(async () => { await teardownTestDB() })
 afterEach(async () => { await clearCollections() })
 
-function caller(role: keyof typeof DEFAULT_ROLE_PERMISSIONS) {
-  return { role, permissions: DEFAULT_ROLE_PERMISSIONS[role] }
+function caller(role: string) {
+  return { access: templateGrant(role) } as any
 }
 
 async function captureRejection(p: Promise<any>): Promise<any> {
@@ -849,7 +850,7 @@ describe('reports.export gate (FR-6.2)', () => {
   })
 
   it('never lets reports.export alone reveal a report the caller cannot access', () => {
-    const outsider = { role: 'member', permissions: ['reports.read', 'reports.export'] }
+    const outsider = { access: capsOfPermissions('reports.read', 'reports.export') } as any
     expect(canAccessReport(entry(), outsider)).toBe(false)
     expect(canExportReport(entry(), outsider)).toBe(false)
   })

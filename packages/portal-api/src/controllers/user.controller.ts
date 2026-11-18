@@ -6,7 +6,6 @@ import { Role, User } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
 import { ROLES } from 'config/constants'
 import { createAuditEntry } from 'services/biz/audit-log.service'
-import { endSessionsOf } from 'services/biz/permission-set.service'
 import { RoleRefusal, assertAssignable, assertNotLastAdministrator, assignRole, giveStartingRole, startingRoleOf } from 'services/biz/access/role.service'
 
 import { allocateOperatorCode } from 'services/biz/sequence.service'
@@ -19,7 +18,7 @@ import {
   emailInUse,
   normalizeEmail,
 } from 'services/biz/identity/identity.service'
-import { forgetMembership } from 'services/biz/identity/session.service'
+import { endSessionsOf, forgetMembership } from 'services/biz/identity/session.service'
 
 /** An identity refusal as the HTTP answer: its status, and a code the UI can act on. */
 const refused = (err: unknown) =>

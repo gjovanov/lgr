@@ -3,8 +3,7 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, roleKeyOf } from '../helpers/factories'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS } from 'config/constants'
 import { register, tokenize } from 'services/biz/auth.service'
-import { getPermissionSet, deletePermissionSet, computeEffectivePermissions } from 'services/biz/permission-set.service'
-import { PermissionSet, User, Role } from 'db/models'
+import { User, Role } from 'db/models'
 import { grantOfRole } from 'config/access'
 
 beforeAll(async () => {
@@ -139,90 +138,3 @@ describe('Permission & Auth: Role-Based Access Control', () => {
  * ask for. An instance of exactly this was found live in a dev database: a user carrying
  * another org's `Administrator` set, which is `isAdmin` and therefore every permission.
  */
-describe('Permission sets are scoped to the owning org', () => {
-  it('ignores a permission set belonging to another org, and falls back to the role', async () => {
-    const { user: foreignAdmin } = await register({
-      orgName: 'Foreign Org', orgSlug: 'foreign-org',
-      email: 'admin@foreign.com', username: 'foreignadmin', password: 'pass123',
-      firstName: 'Foreign', lastName: 'Admin',
-    })
-
-    // The org's own Administrator set (isAdmin), as `register` seeds it (FR-27 P3-5: nobody is put on it any more).
-    const foreignSetIds = [(await PermissionSet.findOne({ orgId: foreignAdmin.orgId, name: 'Administrator' }).lean())!._id]
-
-    // A plain member of a DIFFERENT org, pointed at that foreign set.
-    const org = await createTestOrg({ name: 'Victim Org', slug: 'victim-org' })
-    const member = await createTestUser(org._id, {
-      role: 'member', email: 'member@victim.com', username: 'victimmember',
-    })
-    await User.findByIdAndUpdate(member._id, { permissionSetIds: foreignSetIds }).exec()
-
-    const reloaded = (await User.findById(member._id).exec())!
-    const token = await tokenize(reloaded)
-
-    // FR-27 P3-5: the token names the person's role and carries no permissions, so no set reaches it: not
-    // admin-by-proxy, and not stranded either. Their role is the built-in Member.
-    expect('permissions' in token).toBe(false)
-    const role: any = await Role.findById(token.rid).lean()
-    expect(role.templateKey).toBe('member')
-    expect(grantOfRole(role).all).toBeFalsy()
-  })
-
-  it('still resolves a set that DOES belong to the org', async () => {
-    const { user: admin } = await register({
-      orgName: 'Own Set Org', orgSlug: 'own-set-org',
-      email: 'admin@ownset.com', username: 'ownsetadmin', password: 'pass123',
-      firstName: 'Own', lastName: 'Admin',
-    })
-
-    const member = (await User.findById(admin.id).exec())!
-    const token = await tokenize(member)
-
-    // FR-27 P3-2: the org's own sets give the founder the Administrator role, which grants every capability; the
-    // token carries its projection (role admin), and the role decides every request.
-    const role: any = await Role.findById(member.roleId).lean().exec()
-    expect([role?.all, token.rid]).toEqual([true, String(role._id)])
-  })
-
-  it('computeEffectivePermissions agrees with the token for a foreign set', async () => {
-    const { user: foreignAdmin } = await register({
-      orgName: 'Foreign Two', orgSlug: 'foreign-two',
-      email: 'admin@foreign2.com', username: 'foreign2admin', password: 'pass123',
-      firstName: 'Foreign', lastName: 'Two',
-    })
-    const foreignSetIds = [(await PermissionSet.findOne({ orgId: foreignAdmin.orgId, name: 'Administrator' }).lean())!._id]
-
-    const org = await createTestOrg({ name: 'Victim Two', slug: 'victim-two' })
-    const member = await createTestUser(org._id, {
-      role: 'member', email: 'member@victim2.com', username: 'victim2member',
-    })
-    await User.findByIdAndUpdate(member._id, { permissionSetIds: foreignSetIds }).exec()
-
-    // The preview the Users screen shows must not promise permissions the token won't carry.
-    const effective = await computeEffectivePermissions(String(member._id), String(org._id))
-    expect(effective.isAdmin).toBe(false)
-    expect(effective.permissions).not.toContain('admin.settings')
-  })
-
-  it('refuses to read another org\'s permission set by id', async () => {
-    const { user: foreignAdmin } = await register({
-      orgName: 'Foreign Three', orgSlug: 'foreign-three',
-      email: 'admin@foreign3.com', username: 'foreign3admin', password: 'pass123',
-      firstName: 'Foreign', lastName: 'Three',
-    })
-    const foreignSetId = String((await PermissionSet.findOne({ orgId: foreignAdmin.orgId, name: 'Administrator' }).lean())!._id)
-
-    const org = await createTestOrg({ name: 'Other Org', slug: 'other-org' })
-
-    // Reachable with its real id from the owning org, invisible from any other.
-    expect(await getPermissionSet(foreignSetId, String(foreignAdmin.orgId))).not.toBeNull()
-    expect(await getPermissionSet(foreignSetId, String(org._id))).toBeNull()
-
-    const del = await deletePermissionSet(foreignSetId, String(org._id))
-    expect(del.success).toBe(false)
-    expect(del.reason).toBe('Not found')
-
-    // Still there.
-    expect(await getPermissionSet(foreignSetId, String(foreignAdmin.orgId))).not.toBeNull()
-  })
-})

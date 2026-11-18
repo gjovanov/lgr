@@ -55,8 +55,8 @@ const roleSchema = new Schema<IRole>(
       permissions: { type: [{ type: String }], default: undefined },
       // ⚠ `default: undefined`: absent and `[]` are opposites (FR-26), as on a permission set.
       areas: { type: [String], default: undefined },
-      // The permission set that carries the projection, which its people are put on (FR-27 §4 step 3).
-      setId: { type: Schema.Types.ObjectId, ref: 'PermissionSet' },
+      // The permission set that carried the projection (FR-27 §4 step 3). FR-27 P3-6: sets have no model any more.
+      setId: { type: Schema.Types.ObjectId },
     },
     legacyKey: String,
     // FR-27 P3-5: no longer written (no default); a role from before keeps its value.

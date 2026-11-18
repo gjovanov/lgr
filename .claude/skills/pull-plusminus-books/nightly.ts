@@ -12,7 +12,7 @@
 //                            delivers nothing
 //
 // Settings, NAME=value lines in BOOKS_NIGHTLY_ENV (default: the main checkout's .secrets/lgr-books-sync.env):
-//   LGR_USERNAME, LGR_PASSWORD   the books org's service account, whose only right is accounting.import (seed-user --permissions).
+//   LGR_USERNAME, LGR_PASSWORD   the books org's service account, whose only right is books-import.run (seed-user --caps).
 //                                Read from the file only: a person's own LGR_* in the environment is never used. For a split, the
 //                                same person with a membership in every org of it, each holding only accounting.import
 //   BOOKS_NIGHTLY_MAIL_TO        who hears about a change or a failure (comma-separated)

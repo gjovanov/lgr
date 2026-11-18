@@ -2,7 +2,7 @@ import type { DalConfig } from 'dal'
 import type { RepositoryRegistry } from 'dal'
 import { connectDB, mongoose } from 'db/connection'
 import {
-  Org, User, Invite, Code, EmailLog, AuditLog, File, Notification, BackgroundTask, OrgApp, Tag, PermissionSet,
+  Org, User, Invite, Code, EmailLog, AuditLog, File, Notification, BackgroundTask, OrgApp, Tag,
   Journal, PaymentTerm, FiscalPosition,
   Account, FiscalYear, FiscalPeriod, JournalEntry, FixedAsset, BankAccount, BankReconciliation, TaxReturn, VatRegisterEntry, ExchangeRate,
   Contact, Invoice, PaymentOrder, CashOrder,
@@ -45,7 +45,6 @@ export async function createMongoRepositories(config: DalConfig): Promise<Reposi
     backgroundTasks: new MongoRepository(BackgroundTask),
     orgApps: new MongoRepository(OrgApp),
     tags: new MongoRepository(Tag),
-    permissionSets: new MongoRepository(PermissionSet),
 
     // Accounting
     journals: new MongoRepository(Journal),

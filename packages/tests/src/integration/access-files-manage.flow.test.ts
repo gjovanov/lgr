@@ -9,7 +9,6 @@ import { config } from 'config'
 import { mongoose } from 'db/connection'
 import { Org, Role, User } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
-import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
 
 /**
@@ -49,7 +48,6 @@ beforeAll(async () => {
   tokens.admin = await sign(admin._id)
   tokens.settings = await sign(settings._id)
   await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-  forgetAccessModel(orgId)
   const role: any = await Role.create({ orgId: org._id, name: 'Archivist', caps: ['files.view'], isBuiltin: false, edited: true, version: 1, legacy: { role: 'member', permissions: [] } } as any)
   await User.updateOne({ _id: reader._id }, { $set: { roleId: role._id } }).exec()
   forgetMember(reader._id)
@@ -75,7 +73,6 @@ describe('FR-27.7: files.view reads, files.manage changes', () => {
     // An empty batch is the route's own 400, past the gate.
     expect((await call('POST', '/files/delete-batch', tokens.admin, { docFileIds: [] })).status).toBe(400)
     await Org.updateOne({ _id: orgId }, { $set: { 'settings.access.model': 'legacy' } }).exec()
-    forgetAccessModel(orgId)
     expect((await call('POST', '/files/delete-batch', tokens.settings, { docFileIds: [] })).status).toBe(400)
   })
 })

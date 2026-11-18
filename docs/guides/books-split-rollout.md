@@ -131,7 +131,7 @@ Refused, and why:
 
 ```bash
 bun run scripts/seed-user.ts --org <home> --email <service's address> --username <service> --password <unused> \
-  --first <…> --last <…> --role member --permissions accounting.import --set-name "Service: books import"
+  --first <…> --last <…> --role member --caps books-import.run --set-name "Service: books import"
 ```
 
 A dry run; then `--execute`; then the same for `<store>`. It must say "Linked to the existing person

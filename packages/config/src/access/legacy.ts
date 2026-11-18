@@ -1,15 +1,21 @@
-import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, mergeAreas, type Area, type Permission, type Role } from '../constants'
+import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, type Permission, type Role } from '../constants'
 import type { CapabilityId, FeatureId } from './catalogue'
 import { ALL, type Grant } from './grant'
 // FR-27.11: every price level. Legacy grants them all with any product read, as it grants the costs.
 import { PRICE_LEVEL_CAPS } from './fields'
 
 /**
+ * ⚠ FROZEN (FR-27 P3-6, #529). Released migration 0015 imports this file, and a released migration is never edited
+ * (its fingerprint is its own file, so a change here would change what it does without the runner noticing).
+ * `unit/access-legacy-frozen.test.ts` pins this file's checksum and that only `packages/migrations/` (and the files
+ * 0015 reads it through) import it; nothing else decides by the legacy model any more. FR-26's areas live here alone.
+ * "Today" below is the legacy model's last day: the comments are as they were when it decided.
+ *
  * FR-27 §4 — today's grant, as capabilities: the Phase 0 oracle, and in Phase 1 the migration's engine.
  *
  * `compileLegacy(claims)` gives a session what its token's role, permissions and areas give it today, route by
- * route and page by page. `access-differential.flow.test.ts` proves it for every permission, role and area over the
- * real route table and the page registry. Change a row here and that test says which routes moved.
+ * route and page by page. `access-differential.flow.test.ts` proved it for every permission, role and area over the
+ * real route table and the page registry, until P3-6 removed the legacy route rules it compared with.
  *
  * Why it can be checked one permission at a time: today a route needs ANY of its permissions, and a page any of
  * its own, so the answer for several permissions is the OR of their answers. The compiled grant is the union of the
@@ -17,6 +23,27 @@ import { PRICE_LEVEL_CAPS } from './fields'
  */
 
 type Cap = CapabilityId
+
+/** FR-26 §2.3's areas, as tokens carried them (`config/constants` until FR-27 P3-6). */
+const AREAS = ['portal', 'orders', 'purchases', 'payments', 'pricing', 'stockControl', 'catalogExport'] as const
+type Area = (typeof AREAS)[number]
+
+/** The areas of a role's users who held no permission set: only the FR-26 roles were restricted. */
+export const LEGACY_ROLE_AREAS: Partial<Record<Role, Area[]>> = {
+  seller: [],
+  sales_consultant: ['orders'],
+}
+
+/** The claim several permission sets gave, most permissive wins: an `isAdmin` set or one without `areas` means none. */
+function mergeAreas(sets: ReadonlyArray<{ isAdmin?: boolean; areas?: readonly string[] | null }>): Area[] | undefined {
+  if (!sets.length) return undefined
+  const union = new Set<Area>()
+  for (const s of sets) {
+    if (s.isAdmin || !Array.isArray(s.areas)) return undefined
+    for (const a of s.areas) if ((AREAS as readonly string[]).includes(a)) union.add(a as Area)
+  }
+  return AREAS.filter(a => union.has(a))
+}
 
 const each = (features: readonly FeatureId[], action: string): Cap[] => features.map(f => `${f}.${action}` as Cap)
 const work = (features: readonly FeatureId[]): Cap[] => [...each(features, 'create'), ...each(features, 'edit'), ...each(features, 'delete')]
@@ -95,7 +122,7 @@ export const LEGACY_BRIDGE: Readonly<Record<Permission, readonly Cap[]>> = {
  * What a role's NAME gives, whatever its permissions: the checks that decide by role today. `admin` is not here: it
  * holds everything. Used by the controllers' own checks and the pages that name `roles`; no route rule reads them.
  */
-export const LEGACY_ROLE_CAPS: Readonly<Partial<Record<string, readonly Cap[]>>> = {
+const LEGACY_ROLE_CAPS: Readonly<Partial<Record<string, readonly Cap[]>>> = {
   // FISCAL_ADMIN_ROLES runs the devices; Z-reports and time sync are admin's and manager's (fiscal-device.controller).
   manager: [
     'devices.view', 'devices.edit', 'devices.report', 'devices.z-report', 'devices.sync-time',
@@ -115,10 +142,9 @@ export const LEGACY_ROLE_CAPS: Readonly<Partial<Record<string, readonly Cap[]>>>
  * Seller, but available for Sales Consultant"). The Sales Consultant holds the same permissions and keeps it, and so
  * does the old `sales` role: the name decides, as the role table above does.
  *
- * No route rule reads these, so the differential test is untouched. `projectGrant` may choose a key for what it
- * withholds (a key that only takes away never serves more than the role).
+ * No route rule read these, so the differential test was untouched.
  */
-export const LEGACY_ROLE_WITHHOLDS: Readonly<Partial<Record<string, readonly Cap[]>>> = {
+const LEGACY_ROLE_WITHHOLDS: Readonly<Partial<Record<string, readonly Cap[]>>> = {
   seller: ['sales-docs.manual-price'],
 }
 
@@ -127,7 +153,7 @@ export const LEGACY_ROLE_WITHHOLDS: Readonly<Partial<Record<string, readonly Cap
  * action of it where the area carves a page out but not its data (`stock-levels.view`: the product page still
  * reads the levels).
  */
-export const AREA_OF: Readonly<Record<string, Area>> = {
+const AREA_OF: Readonly<Record<string, Area>> = {
   bills: 'purchases',
   orders: 'orders',
   payments: 'payments',
@@ -146,20 +172,8 @@ export const AREA_OF: Readonly<Record<string, Area>> = {
   'audit-log.view': 'portal',
 }
 
-export function areaOfCap(cap: string): Area | undefined {
+function areaOfCap(cap: string): Area | undefined {
   return AREA_OF[cap] ?? AREA_OF[cap.slice(0, cap.indexOf('.'))]
-}
-
-/**
- * FR-27.5 (#529) — does a role's grant hold anything of an FR-26 area: `holdsArea` asked of a role instead of a
- * token. The areas a role's projection lists (`projectGrant`), and what the client's few area-wide gates (the
- * portal, the catalog's export) ask in an org on `roles`, so they follow the live role, not the token's claims.
- */
-export function grantHoldsArea(grant: Grant | null | undefined, area: Area): boolean {
-  if (!grant) return false
-  if (grant.all) return true
-  for (const c of grant.caps) if (areaOfCap(c) === area) return true
-  return false
 }
 
 /**
@@ -169,17 +183,14 @@ export function grantHoldsArea(grant: Grant | null | undefined, area: Area): boo
  * strip. The lists today are the Seller's and the Sales Consultant's, as a role or as a set. No rule of today's
  * reads these capabilities, so the differential test is untouched.
  */
-export const NOT_WITH_AN_AREAS_LIST: readonly Cap[] = ['sales-docs.totals', 'bills.totals', 'sales-docs.import', 'org.switch']
+const NOT_WITH_AN_AREAS_LIST: readonly Cap[] = ['sales-docs.totals', 'bills.totals', 'sales-docs.import', 'org.switch']
 
 /**
  * FR-27.6 (D-5): whoever reads a product today reads its costs, so the legacy model grants `products.costs` with any
  * capability that opens a product route (`warehouse/product`'s read rule). A role may leave it out; the legacy
- * model cannot (`LEGACY_CANNOT_WITHHOLD`), so such a role's projection is not exact (`needsRelease`).
+ * model cannot.
  */
 const PRODUCT_READERS: readonly Cap[] = ['products.view', 'products.lookup', 'sales-docs.view', 'till.view']
-
-/** What no legacy claim can withhold where it grants its feature: the projection holds it even when the role does not. */
-export const LEGACY_CANNOT_WITHHOLD: readonly Cap[] = ['products.costs', ...PRICE_LEVEL_CAPS]
 
 /** What a token says today: its role, its permissions, and FR-26's areas (absent: every area). */
 export interface LegacyClaims {
@@ -211,7 +222,7 @@ export function legacyClaimsOf(
 ): { role: string; permissions: string[]; areas?: string[]; ownRecordsModules: string[] } {
   if (!sets.length) {
     const roleDefaults = DEFAULT_ROLE_PERMISSIONS[user.role as Role] || DEFAULT_ROLE_PERMISSIONS.member
-    const areas = DEFAULT_ROLE_AREAS[user.role as Role]
+    const areas = LEGACY_ROLE_AREAS[user.role as Role]
     return {
       role: user.role,
       permissions: [...new Set([...roleDefaults, ...(user.permissions || [])])],

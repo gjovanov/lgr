@@ -8,9 +8,8 @@ import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
-import { CostLayer, DocFile, FiscalDevice, Identity, InternalOrder, InventoryCount, Invoice, Order, PermissionSet, POSSession, Reservation, StockLevel, StockMovement, Warehouse, Workstation } from 'db/models'
+import { CostLayer, DocFile, FiscalDevice, Identity, InternalOrder, InventoryCount, Invoice, Order, POSSession, Reservation, StockLevel, StockMovement, Warehouse, Workstation } from 'db/models'
 import { sessionFor } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { confirmMovement } from 'services/biz/warehouse.service'
 import { commitDocuments } from 'services/biz/doc-import/commit'
 import { resolveWarehouse } from 'services/biz/doc-import/map-movement'
@@ -56,7 +55,7 @@ afterEach(async () => { await clearCollections() }, 30_000)
 async function member(org: any, role: string, setName?: string) {
   const email = `${role}-${Math.random().toString(36).slice(2, 8)}@extwh.test`
   const identity = await Identity.create({ email, firstName: 'F', lastName: role, isActive: true, passwordSetBy: 'self', password: passwordHash } as any)
-  const set = setName ? await PermissionSet.findOne({ orgId: org._id, name: setName }).lean() : null
+  const set = null as { _id: unknown } | null // FR-27 P3-6: no permission sets; the person holds the built-in role of their key
   const user = await createTestUser(org._id, { role, email, identityId: identity._id, ...(set ? { permissionSetIds: [set._id] } : {}) } as any)
   return { user, token: await sign(await sessionFor(user, identity)) }
 }
@@ -436,7 +435,6 @@ describe('a transfer with an external warehouse', () => {
 
   it('a transfer-only session writes it, in both directions', async () => {
     const w = await world()
-    await seedDefaultPermissionSets(w.orgId)
     const seller = await member(w.org, 'seller', 'Seller')
     await w.stocked(10)
 
@@ -803,7 +801,6 @@ describe('the printed document', () => {
 
   it('the route answers a PDF named by the movement\'s number, to whoever may read the movement', async () => {
     const w = await world()
-    await seedDefaultPermissionSets(w.orgId)
     const seller = await member(w.org, 'seller', 'Seller')
     const payroll = await member(w.org, 'hr_manager')
     await w.stocked(10)

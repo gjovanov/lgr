@@ -2,10 +2,9 @@ import { describe, it, expect } from 'bun:test'
 // Import-pure modules (no db/models): this file must never boot Mongoose, as `doc-email-guards.test.ts`.
 import { MOVEMENT_EMAIL_WORK, MOVEMENT_READS, mayEmailMovements, movementEmailSkip } from 'warehouse-api/src/lib/movement-email-guards'
 import { writesTransfersOnly } from 'warehouse-api/src/lib/movement-access'
-import { accessRuleFor, compileLegacy, type CapabilityId, type Grant } from 'config/access'
+import { accessRuleFor, templateGrant, type CapabilityId, type Grant } from 'config/access'
 import { DOC_EMAIL_BLOCKS, DOC_EMAIL_SKIPS } from 'config/doc-email'
-import { DEFAULT_ROLE_AREAS, DEFAULT_ROLE_PERMISSIONS, ROLES, type Role } from 'config/constants'
-import { readRuleFor, writeRuleFor } from 'services/biz/route-permission'
+import { ROLES, type Role } from 'config/constants'
 
 /**
  * Which of the movements list's ticked movements go by e-mail (2026-11-16): the rule per movement.
@@ -17,7 +16,8 @@ import { readRuleFor, writeRuleFor } from 'services/biz/route-permission'
 
 const caps = (...c: string[]): Grant => ({ caps: new Set(c as CapabilityId[]) })
 /** A role as its token compiles today: its default permissions, and FR-26's areas where the role has them. */
-const legacy = (role: Role) => compileLegacy({ role, permissions: [...DEFAULT_ROLE_PERMISSIONS[role]], areas: DEFAULT_ROLE_AREAS[role] })
+/** A built-in role's grant (FR-27 P3-6: the legacy model is gone; the templates are its access, pinned). */
+const legacy = (role: Role) => templateGrant(role)
 
 const WORKER = caps('movements.view', 'movements.create', 'movements.edit', 'movements.delete')
 /** A Seller's part of it (FR-26.7): reads the movements, writes transfers. */
@@ -57,17 +57,7 @@ describe('who mails a movement at all', () => {
     }
   })
 
-  it('the legacy table asks the same of both routes: inventory.write, or a Seller\'s inventory.transfer', () => {
-    for (const route of ['/api/org/:orgId/warehouse/movement/email', '/api/org/:orgId/warehouse/movement/email/preview']) {
-      expect(writeRuleFor('POST', route), route).toEqual({ need: ['inventory.write', 'inventory.transfer'] } as any)
-    }
-    // …and a movement is read with any inventory or invoicing permission.
-    const read = readRuleFor('/api/org/:orgId/warehouse/movement/:id/export') as { need?: readonly string[] }
-    expect(read.need).toContain('inventory.read')
-    expect(read.need).toContain('inventory.transfer')
-  })
-
-  it('by role, on the legacy model', () => {
+  it('by built-in role', () => {
     const mails = ROLES.filter(role => mayEmailMovements(legacy(role)))
     expect(mails).toEqual(['admin', 'manager', 'warehouse_manager', 'seller', 'sales_consultant'])
   })
@@ -82,7 +72,7 @@ describe('a transfer-only session', () => {
     expect(writesTransfersOnly(null)).toBe(true)
   })
 
-  it('by role, on the legacy model: the two FR-26 roles, and nobody who holds inventory.write', () => {
+  it('by built-in role: the two FR-26 roles, and nobody who works on movements', () => {
     expect(writesTransfersOnly(legacy('seller'))).toBe(true)
     expect(writesTransfersOnly(legacy('sales_consultant'))).toBe(true)
     for (const role of ['admin', 'manager', 'warehouse_manager'] as const) expect(writesTransfersOnly(legacy(role)), role).toBe(false)

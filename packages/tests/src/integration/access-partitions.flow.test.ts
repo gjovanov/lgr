@@ -9,8 +9,6 @@ import { config } from 'config'
 import { mongoose } from 'db/connection'
 import { Invoice, Org, Role, User, type IUser } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
-import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 import { kindOfDocument, partitionFilter, readableDirection, type CapabilityId } from 'config/access'
@@ -54,7 +52,6 @@ beforeAll(async () => {
   app = new Elysia().onError(spaErrorHandler({}) as any).use(createApiApp()) as any
   org = await createTestOrg({ slug: 'access-partitions' } as any)
   orgId = String(org._id)
-  await seedDefaultPermissionSets(orgId)
   for (const key of ['admin', 'billsClerk', 'counter', 'quoter']) {
     people[key] = await createTestUser(org._id, { role: key === 'admin' ? 'admin' : 'member', username: key, email: `${key}@partitions.test` } as any)
   }
@@ -66,7 +63,6 @@ beforeAll(async () => {
   docs.bill = String((await createTestInvoice(org._id, contact._id as any, { invoiceNumber: 'BILL-P-1', direction: 'incoming' } as any))._id)
   await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: {} })
   await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-  forgetAccessModel(orgId)
   // Bills only, and they work on them.
   await giveRole('billsClerk', 'Bills clerk', ['bills.view', 'bills.create', 'bills.edit', 'contacts.lookup'] as CapabilityId[])
   // Sales documents to work on; bills to read, never to change.

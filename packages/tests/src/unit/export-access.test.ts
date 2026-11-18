@@ -2,9 +2,11 @@ import { describe, it, expect } from 'bun:test'
 // Import-pure module (no db/models) — this file must never boot Mongoose,
 // same reasoning as amount-in-words.test.ts.
 import { canExport, canWrite } from 'invoicing-api/src/lib/export-access'
-import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import { templateGrant } from 'config/access'
+import { capsOfPermissions } from '../helpers/permission-caps'
 
-const asUser = (role: string) => ({ role, permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS] })
+/** A session of a built-in role (FR-27 P3-6: its grant, as the auth plugins attach it). */
+const asUser = (role: string) => ({ access: templateGrant(role) })
 
 describe('invoicing export access gate', () => {
   // Regression: the gate used to accept only the legacy `trade.*` grants, so every non-admin
@@ -18,13 +20,13 @@ describe('invoicing export access gate', () => {
   // Migration 0005 rewrote every stored `trade.*` into the granular grants. One left in a token
   // issued before it is no grant at all: the holder signs in again and gets the granular ones.
   it('a legacy trade.* grant grants nothing', () => {
-    expect(canExport({ role: 'manager', permissions: ['trade.read'] })).toBe(false)
-    expect(canWrite({ role: 'manager', permissions: ['trade.write'] })).toBe(false)
+    expect(canExport({ access: capsOfPermissions('trade.read') })).toBe(false)
+    expect(canWrite({ access: capsOfPermissions('trade.write') })).toBe(false)
   })
 
   it('refuses a caller with no invoicing grant at all', () => {
-    expect(canExport({ role: 'warehouse_manager', permissions: DEFAULT_ROLE_PERMISSIONS.warehouse_manager })).toBe(false)
-    expect(canExport({ role: 'member', permissions: [] })).toBe(false)
+    expect(canExport({ access: templateGrant('warehouse_manager') })).toBe(false)
+    expect(canExport({ access: capsOfPermissions() })).toBe(false)
     expect(canExport(null)).toBe(false)
   })
 

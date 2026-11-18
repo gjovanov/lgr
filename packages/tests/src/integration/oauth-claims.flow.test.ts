@@ -3,10 +3,10 @@ import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { getOrCreateUser, registerWithOAuth } from 'services/biz/oauth.service'
 import { tokenize } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
 import { inviteDao } from 'services/dao/invite.dao'
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, APP_IDS } from 'config/constants'
-import { Org, OrgApp, PermissionSet, Role, User } from 'db/models'
+import { Org, OrgApp, Role, User } from 'db/models'
+import { mongoose } from 'db/connection'
 import type { Types } from 'mongoose'
 
 /**
@@ -41,7 +41,6 @@ beforeAll(async () => {
   await setupTestDB()
   const o = await createTestOrg({ slug: 'claims-org' } as any)
   org = { _id: o._id as Types.ObjectId, slug: 'claims-org' }
-  await seedDefaultPermissionSets(String(org._id))
 }, 120_000)
 
 afterAll(async () => {
@@ -49,13 +48,10 @@ afterAll(async () => {
 }, 60_000)
 
 describe('S-23: an OAuth session carries the same claims as a password session', () => {
-  it('honours a restrictive permission set, own-records included, instead of the role\'s defaults', async () => {
-    const narrow = await PermissionSet.create({
-      orgId: org._id,
-      name: 'Own sales, read only',
-      permissions: ['sales.read'],
-      ownRecordsOnly: { sales: true },
-    })
+  it('names the role a narrow person holds, as a password session does', async () => {
+    // A person from before roles on a set of their own (raw: sets have no model since FR-27 P3-6); 0015 gives the role.
+    const narrow = { _id: new mongoose.Types.ObjectId() }
+    await mongoose.connection.db!.collection('permissionsets').insertOne({ _id: narrow._id, orgId: org._id, name: 'Own sales, read only', permissions: ['sales.read'] })
     await createTestUser(org._id, {
       email: 'narrow@claims.test',
       username: 'narrow',
@@ -76,13 +72,11 @@ describe('S-23: an OAuth session carries the same claims as a password session',
     expect(user.operatorCode).toBe('0007')
   })
 
-  it('expands the Administrator set to every permission, as password login does', async () => {
-    const adminSet = await PermissionSet.findOne({ orgId: org._id, isAdmin: true }).lean().exec()
+  it('names the Administrator role, as password login does', async () => {
     await createTestUser(org._id, {
       email: 'boss@claims.test',
       username: 'boss',
       role: 'admin',
-      permissionSetIds: [adminSet!._id],
       oauthProviders: [{ provider: 'google', providerId: 'g-boss' }],
     } as any)
 
@@ -130,8 +124,8 @@ describe('S-23: OAuth-created users are provisioned like registered ones', () =>
     const created = await Org.findOne({ slug: 'oauth-founded' }).lean().exec()
     expect(created!.settings.modules?.length ?? 0).toBeGreaterThan(0)
     expect(await OrgApp.countDocuments({ orgId: created!._id })).toBe(APP_IDS.length)
-    const adminSet = await PermissionSet.findOne({ orgId: created!._id, isAdmin: true }).lean().exec()
-    expect(adminSet).not.toBeNull()
+    // FR-27 P3-6: no permission sets for a new org, its built-in roles instead.
+    expect(await mongoose.connection.db!.collection('permissionsets').countDocuments({ orgId: created!._id })).toBe(0)
 
     const stored = await User.findById(user.id).lean().exec()
     // FR-27 P3-5: the Administrator role, by id and name in the history; no permission set, no legacy key.

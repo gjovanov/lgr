@@ -101,7 +101,8 @@ const userSchema = new Schema<IUser>(
       },
     ],
     // FR-27 P3-5: legacy, no longer written. `default: undefined`, or every new membership would carry `[]`.
-    permissionSetIds: { type: [{ type: Schema.Types.ObjectId, ref: 'PermissionSet' }], default: undefined },
+    // FR-27 P3-6: read by nothing, and the sets have no model; kept as a path until migration 0017 archives it.
+    permissionSetIds: { type: [{ type: Schema.Types.ObjectId }], default: undefined },
     roleId: { type: Schema.Types.ObjectId, ref: 'Role' },
     avatar: String,
     isActive: { type: Boolean, default: true },

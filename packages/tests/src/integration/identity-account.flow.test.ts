@@ -5,7 +5,8 @@ import { config } from 'config'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
-import { AuthToken, Code, Identity, Invite, OrgApp, PermissionSet, User } from 'db/models'
+import { AuthToken, Code, Identity, Invite, OrgApp, User } from 'db/models'
+import { mongoose } from 'db/connection'
 import { inviteDao } from 'services/dao/invite.dao'
 import { resendActivation, sessionFor } from 'services/biz/auth.service'
 import { forgetMembership, membershipSwitchedOff } from 'services/biz/identity/session.service'
@@ -457,7 +458,8 @@ describe('founding an organization while signed in', () => {
     expect(res.body.orgs.map((o: any) => o.slug)).toContain(a.slug)
     const orgId = res.body.org.id
     expect(await OrgApp.countDocuments({ orgId })).toBeGreaterThan(0)
-    expect(await PermissionSet.countDocuments({ orgId, name: 'Administrator' })).toBe(1)
+    // FR-27 P3-6: a new org gets its built-in roles and no permission sets.
+    expect(await mongoose.connection.db!.collection('permissionsets').countDocuments({ orgId: new mongoose.Types.ObjectId(orgId) })).toBe(0)
 
     expect((await call('POST', '/auth/orgs', { token: tab, body: { name: 'Again', slug } })).body.code).toBe('slug_taken')
   })

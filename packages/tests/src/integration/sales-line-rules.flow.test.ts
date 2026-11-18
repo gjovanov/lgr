@@ -7,15 +7,12 @@ import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
-import { Identity, Invoice, InternalOrder, Org, PermissionSet, POSTransaction, Role, User, type IUser } from 'db/models'
+import { Identity, Invoice, InternalOrder, Org, POSTransaction, Role, User, type IUser } from 'db/models'
 import { sessionFor, tokenize } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
-import { forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 import { typedPriceRefusal, withArticleUnits } from 'services/biz/sales-lines'
-import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
-import type { CapabilityId } from 'config/access'
+import { templateGrant, type CapabilityId } from 'config/access'
 import { forgetDevices, tillApp, tillWorld } from '../helpers/till-world'
 
 /**
@@ -55,7 +52,7 @@ async function call(orgId: string, method: string, path: string, token: string, 
 async function member(org: any, role: string, setName?: string): Promise<{ user: IUser; token: string }> {
   const email = `${role}-${Math.random().toString(36).slice(2, 8)}@lines724.test`
   const identity = await Identity.create({ email, firstName: 'F', lastName: role, isActive: true, passwordSetBy: 'self', password: await Bun.password.hash('test123') } as any)
-  const set = setName ? await PermissionSet.findOne({ orgId: org._id, name: setName }).lean() : null
+  const set = null as { _id: unknown } | null // FR-27 P3-6: no permission sets; the person holds the built-in role of their key
   const user = await createTestUser(org._id, { role, email, identityId: identity._id, ...(set ? { permissionSetIds: [set._id] } : {}) } as any)
   return { user, token: await sign(await sessionFor(user, identity)) }
 }
@@ -75,7 +72,6 @@ beforeAll(async () => {
   app = new Elysia().onError(spaErrorHandler({}) as any).use(createApiApp()) as any
   shop = await createTestOrg({ slug: 'lines-724' } as any)
   shopId = String(shop._id)
-  await seedDefaultPermissionSets(shopId)
   // `Цена 2` is a filterless slot: offered in the price menu (`all`), never by resolution.
   bolt = String((await createTestProduct(shop._id, {
     name: 'Bolt', sellingPrice: 10, unit: 'pcs', taxRate: 20,
@@ -184,11 +180,12 @@ describe('rule 1 on a sales document: the Seller saves a price the form could ha
   })
 
   it('the rule asks nothing of a bill, of a save without lines, or of a session that may type', async () => {
-    const seller = { id: String(users.seller._id), orgId: shopId, role: 'seller', permissions: [...DEFAULT_ROLE_PERMISSIONS.seller] }
+    // A session of the built-in Seller and Sales Consultant: their roles' grants (FR-27 P3-6).
+    const seller = { id: String(users.seller._id), orgId: shopId, access: templateGrant('seller') }
     const lines = [{ productId: bolt, unitPrice: 1.23, quantity: 1 }]
     expect(await typedPriceRefusal(shopId, seller as any, { direction: 'incoming', lines })).toBeNull()
     expect(await typedPriceRefusal(shopId, seller as any, { direction: 'outgoing', lines: [] })).toBeNull()
-    expect(await typedPriceRefusal(shopId, { ...seller, role: 'sales_consultant' } as any, { direction: 'outgoing', lines })).toBeNull()
+    expect(await typedPriceRefusal(shopId, { ...seller, access: templateGrant('sales_consultant') } as any, { direction: 'outgoing', lines })).toBeNull()
     expect((await typedPriceRefusal(shopId, seller as any, { direction: 'outgoing', lines }))?.code).toBe('price_not_offered')
     // Another organization's article offers nothing here.
     const elsewhere = await createTestOrg()
@@ -251,14 +248,12 @@ describe('on the roles model: a role without the capability, a customer order\'s
   beforeAll(async () => {
     org = await createTestOrg({ slug: 'lines-724-roles' } as any)
     orgId = String(org._id)
-    await seedDefaultPermissionSets(orgId)
     product = String((await createTestProduct(org._id, { name: 'Nut', sellingPrice: 2, unit: 'pcs', taxRate: 20, priceTiers: [{ name: 'Цена 3', percent: 0, finalPrice: 1.5, manualOverride: true }] } as any))._id)
     const clerk = await createTestUser(org._id, { role: 'member', username: 'clerk724' } as any)
     const typist = await createTestUser(org._id, { role: 'member', username: 'typist724' } as any)
     const admin = await createTestUser(org._id, { role: 'admin', username: 'admin724' } as any)
     await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: { orgId: org._id } })
     await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': 'roles' } }).exec()
-    forgetAccessModel(orgId)
     clerkToken = await roleFor(clerk, 'Counter without typing', WORKS)
     typistToken = await roleFor(typist, 'Counter that types', [...WORKS, 'sales-docs.manual-price'])
     adminToken = await sign(await tokenize((await User.findById(admin._id).exec())!))

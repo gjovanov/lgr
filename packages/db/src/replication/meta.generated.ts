@@ -5,7 +5,6 @@ import type { MetaEntry } from './generate.js'
 
 export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   AbsenceEntry: { collection: 'absenceentries', class: 'R', orgPath: 'orgId' },
-  AccessShadowDiff: { collection: 'access_shadow_diffs', class: 'N', orgPath: null },
   Account: { collection: 'accounts', class: 'R', orgPath: 'orgId' },
   AccountingAnalytic: { collection: 'accountinganalytics', class: 'R', orgPath: 'orgId' },
   ArchiveUnit: { collection: 'archiveunits', class: 'R', orgPath: 'orgId' },
@@ -81,7 +80,6 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   PayrollParameter: { collection: 'payrollparameters', class: 'G', orgPath: null },
   PayrollRun: { collection: 'payrollruns', class: 'R', orgPath: 'orgId' },
   Payslip: { collection: 'payslips', class: 'R', orgPath: 'orgId' },
-  PermissionSet: { collection: 'permissionsets', class: 'R', orgPath: 'orgId' },
   PersonalDataKey: { collection: 'personaldatakeys', class: 'R', orgPath: 'orgId' },
   POSPaymentMethod: { collection: 'pospaymentmethods', class: 'R', orgPath: 'orgId' },
   POSSession: { collection: 'possessions', class: 'R', orgPath: 'orgId' },

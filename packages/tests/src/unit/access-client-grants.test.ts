@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'bun:test'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { DEFAULT_ROLE_PERMISSIONS, ROLES } from 'config/constants'
-import { compileLegacy, type CapabilityId, type Grant } from 'config/access'
+import { ROLES } from 'config/constants'
+import { templateGrant, type CapabilityId, type Grant } from 'config/access'
 import { canStornoJournalRow, canStornoTransaction } from 'ui-shared/cash-register/storno'
 
 /**
  * FR-27.5 (#529): the till's storno and settle, and the VAT files' download, are offered by the session's grant: in an
  * org on `roles` the role's, live, as the server's `can(user, …)` decides them. They were offered by the role's NAME
- * (`compileLegacy({ role })`) or the token's permissions, so a role made in the editor with `cash-sales.storno` was
+ * (the legacy role compiled) or the token's permissions, so a role made in the editor with `cash-sales.storno` was
  * never offered the storno its server door accepts.
  *
  * NOTE: no `.rejects` / `.resolves` (Known Issues).
@@ -29,12 +29,9 @@ describe('storno: by the grant', () => {
     expect(canStornoTransaction(sale, null)).toBe(false)
   })
 
-  it('on the legacy model the session grant answers as the role name did, for every default role', () => {
-    for (const role of ROLES) {
-      const grant = compileLegacy({ role, permissions: [...(DEFAULT_ROLE_PERMISSIONS as any)[role]] })
-      expect({ role, v: canStornoTransaction(sale, grant) }).toEqual({ role, v: canStornoTransaction(sale, role) })
-      expect({ role, v: canStornoJournalRow(row, grant) }).toEqual({ role, v: canStornoJournalRow(row, role) })
-    }
+  it('the built-in roles that reversed a sale by name (admin, manager) still do, and no other', () => {
+    expect(ROLES.filter(role => canStornoTransaction(sale, templateGrant(role)))).toEqual(['admin', 'manager'])
+    expect(ROLES.filter(role => canStornoJournalRow(row, templateGrant(role)))).toEqual(['admin', 'manager'])
   })
 })
 
@@ -55,13 +52,8 @@ describe('ratchet: the client offers by the grant, never by a role name or the t
     })
     .map(p => ({ file: relative(join(ROOT, 'packages'), p).split('\\').join('/'), text: readFileSync(p, 'utf8') }))
 
-  /**
-   * `storno.ts` reads a legacy role key where one is handed to it (its callers hand it the grant). FR-27 P3-3 (#529):
-   * the users and permission-sets screens no longer edit the legacy fields, so neither is on this list.
-   */
-  const ALLOWED = new Set([
-    'ui-shared/src/cash-register/storno.ts',
-  ])
+  /** FR-27 P3-6 (#529): `storno.ts` takes a grant only, so nothing is on this list. */
+  const ALLOWED = new Set<string>([])
 
   it('finds the client sources', () => {
     expect(files.length).toBeGreaterThan(200)
@@ -69,7 +61,7 @@ describe('ratchet: the client offers by the grant, never by a role name or the t
 
   it('no grant compiled from a role name alone, no role-name list, and no permission read off the session', () => {
     const offenders = files.filter(f => !ALLOWED.has(f.file) && (
-      /compileLegacy\(\{\s*role\b[^}]*\}\)/.test(f.text) ||
+      /compileLegacy\(/.test(f.text) ||
       /\bpermissions\??\.includes\(/.test(f.text) ||
       // A list of role names asked of the session's role (`['admin', 'manager'].includes(user.role)`).
       /\]\.includes\([\w.?]*\brole\b/.test(f.text)

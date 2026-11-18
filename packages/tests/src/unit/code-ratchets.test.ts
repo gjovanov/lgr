@@ -21,7 +21,7 @@ const ROOT = resolve(import.meta.dir, '..', '..', '..', '..')
 const PACKAGES = join(ROOT, 'packages')
 
 const CONTROLLER_MODEL_CALLS = 277
-const AS_ANY = 2156
+const AS_ANY = 2135
 
 const COPY = 'copies, compares or replays documents as they are stored, which Mongoose would cast, default and hook'
 const HOME = "writes the org's home or legal-series state below the home guard, on purpose (home-write-guard's RAW_WRITE_SITES)"
@@ -56,7 +56,6 @@ const RAW_DRIVER_FILES: Record<string, string> = {
   'services/src/biz/backup/backup-restore.service.ts': UNNAMED,
   'services/src/biz/backup/backup-status.service.ts': "reads the database's own statistics, which no model has",
   'services/src/biz/access/live.ts': UNNAMED,
-  'services/src/biz/access/shadow.ts': UNNAMED,
   'portal-api/src/api.ts': UNNAMED,
   'portal-api/src/unified.ts': MIGRATIONS,
   'portal-api/src/websocket/uplink.ts': UNNAMED,

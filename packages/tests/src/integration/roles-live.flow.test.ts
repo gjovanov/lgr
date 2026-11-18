@@ -7,10 +7,8 @@ import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { mongoose } from 'db/connection'
-import { AccessShadowDiff, Org, PermissionSet, Role, User, type IUser } from 'db/models'
+import { Org, Role, User, type IUser } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
-import { seedDefaultPermissionSets } from 'services/biz/permission-set.seed'
-import { flushShadowDiffs, forgetAccessModel } from 'services/biz/access/shadow'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 
@@ -40,7 +38,6 @@ async function request(method: string, path: string, token: string) {
 
 async function model(m: 'legacy' | 'roles') {
   await Org.updateOne({ _id: org._id }, { $set: { 'settings.access.model': m } }).exec()
-  forgetAccessModel(orgId)
 }
 
 const roleOf = async (key: string) => (await Role.findOne({ orgId: org._id, templateKey: key }).lean().exec()) as any
@@ -50,10 +47,8 @@ beforeAll(async () => {
   app = new Elysia().onError(spaErrorHandler({}) as any).use(createApiApp()) as any
   org = await createTestOrg({ slug: 'roles-live' } as any)
   orgId = String(org._id)
-  await seedDefaultPermissionSets(orgId)
-  const seller = (await PermissionSet.findOne({ orgId: org._id, name: 'Seller' }).lean().exec()) as any
   people.accountant = await createTestUser(org._id, { role: 'accountant', username: 'accountant', email: 'accountant@roles-live.test' } as any)
-  people.seller = await createTestUser(org._id, { role: 'seller', username: 'seller', email: 'seller@roles-live.test', permissionSetIds: [seller._id] } as any)
+  people.seller = await createTestUser(org._id, { role: 'seller', username: 'seller', email: 'seller@roles-live.test' } as any)
   await rolesFromSets.up({ db: mongoose.connection.db as any, log: () => {}, orgFilter: {} })
   // Signed in while the org was still on the legacy model: these tokens carry no role.
   for (const key of Object.keys(people)) tokens[key] = await (signer as any).decorator.jwt.sign(await tokenize((await User.findById(people[key]._id).exec())!))
