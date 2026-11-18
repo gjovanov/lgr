@@ -1,235 +1,229 @@
 <template>
-  <v-container fluid>
-    <!-- The title and its buttons wrap, as on a `ListScaffold` page: on a phone the buttons go under the title, and
-         among themselves, where one row of them was wider than the screen and the whole page scrolled sideways. -->
-    <div class="d-flex align-center mb-4 ga-2 flex-wrap" data-testid="movements-header">
-      <h1 class="text-h5">{{ $t('nav.stockMovements') }}</h1>
-      <v-spacer />
-      <div class="d-flex align-center ga-2 flex-wrap justify-end">
-        <ViewSwitcher v-model="displayMode" :views="['list', 'kanban']" class="mr-2" />
-        <!-- FR-31.11: the list's report, which exports to Excel and PDF, on the list's filters. -->
-        <ReportExportButton report="stock-movements" :query="reportQuery" />
-        <!-- FR-26: an import writes receipts (`movements.create`); a transfer-only or read-only session imports nothing. -->
-        <v-btn v-cap="'movements.create'" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
-        <!-- FR-22.50: says what it creates — the form opens as a goods receipt. -->
-        <CreateButton :label="$t('nav.newDocPage.stockMovement')" :to="{ name: 'inventory.movements.new' }" />
+  <!-- FR-31.19: on the shared list shell, so the list has the column picker and remembers its columns (keyed by the
+       route name, `inventory.movements`, which does not change). `fit` (FR-22.23): a row is one line and the gutters are
+       8 px, so the list fits 1366 px with its tick column; the names that can run long are clipped, whole in their
+       `title`. The board and a product's ledger are the shell's other views. -->
+  <ListScaffold
+    :title="$t('nav.stockMovements')"
+    header-testid="movements-header"
+    :headers="headers"
+    :items="items"
+    :loading="loading"
+    :pagination="pagination"
+    :view="shownView"
+    :has-active-filters="hasActiveFilters"
+    :empty="{ icon: 'mdi-swap-horizontal', title: $t('list.empty.movements'), description: $t('list.empty.movementsHint') }"
+    :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
+    density="default"
+    fit
+    selectable
+    :selected="ticked"
+    @update:selected="onTicked"
+    @update:options="onUpdateOptions"
+  >
+    <template #actions>
+      <ViewSwitcher v-model="displayMode" :views="['list', 'kanban']" class="mr-2" />
+      <!-- FR-31.11: the list's report, which exports to Excel and PDF, on the list's filters. -->
+      <ReportExportButton report="stock-movements" :query="reportQuery" />
+      <!-- FR-26: an import writes receipts (`movements.create`); a transfer-only or read-only session imports nothing. -->
+      <v-btn v-cap="'movements.create'" variant="outlined" prepend-icon="mdi-file-upload-outline" @click="showImportDialog = true">{{ $t('docImport.importBtn') }}</v-btn>
+      <!-- FR-22.50: says what it creates — the form opens as a goods receipt. -->
+      <CreateButton :label="$t('nav.newDocPage.stockMovement')" :to="{ name: 'inventory.movements.new' }" />
+    </template>
+
+    <template #filters>
+      <v-card class="mb-4">
+        <v-card-text class="pb-4">
+          <v-row>
+            <v-col cols="12" md="2">
+              <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+            </v-col>
+            <v-col cols="12" md="2">
+              <v-select v-model="typeFilter" :label="$t('common.type')" :items="movementTypeItems" clearable hide-details density="compact" />
+            </v-col>
+            <v-col cols="12" md="2">
+              <!-- `completed` is what confirmMovement leaves behind, so it belongs here. -->
+              <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusItems" clearable hide-details density="compact" />
+            </v-col>
+            <v-col cols="12" md="2">
+              <!-- An external warehouse is offered too: the transfers that name it are found by it. -->
+              <v-select v-model="warehouseIdFilter" :label="$t('warehouse.warehouse')" :items="warehouseFilterItems" item-title="name" item-value="_id" clearable hide-details density="compact" />
+            </v-col>
+            <v-col cols="12" md="2">
+              <DateField v-model="dateFrom" :label="$t('invoicing.dateFrom')" hide-details density="compact" />
+            </v-col>
+            <v-col cols="12" md="2">
+              <DateField v-model="dateTo" :label="$t('invoicing.dateTo')" hide-details density="compact" />
+            </v-col>
+          </v-row>
+          <!-- The Products list's search and filters, for the articles a movement carries: the
+               movements holding any article they find there (`buildProductListFilter`). -->
+          <v-row>
+            <v-col cols="12" md="3">
+              <v-text-field v-model="productSearch" prepend-inner-icon="mdi-package-variant-closed" :label="$t('warehouse.movementProducts.search')" clearable hide-details density="compact" />
+            </v-col>
+            <v-col cols="12" md="2">
+              <v-select v-model="productCategory" :label="$t('warehouse.category')" :items="categoryOptions" clearable hide-details density="compact" />
+            </v-col>
+            <v-col cols="12" md="2">
+              <v-select v-model="productType" :label="$t('warehouse.movementProducts.type')" :items="productTypeItems(['goods', 'service'])" clearable hide-details density="compact" />
+            </v-col>
+            <v-col cols="12" md="3">
+              <TagInput v-model="productTags" type="product" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
+            </v-col>
+            <v-col cols="12" md="2">
+              <v-select v-model="productStatus" :label="$t('warehouse.movementProducts.status')" :items="productStatusItems" hide-details density="compact" />
+            </v-col>
+          </v-row>
+          <v-row>
+            <v-col cols="12" md="4">
+              <v-autocomplete
+                v-model="selectedProducts"
+                v-model:search="productSearchQuery"
+                :items="productSearchResults"
+                :loading="productSearchLoading"
+                item-title="displayName"
+                item-value="_id"
+                return-object
+                multiple
+                chips
+                closable-chips
+                :placeholder="$t('warehouse.movementProducts.pick')"
+                density="compact"
+                hide-details
+                variant="underlined"
+                clearable
+                no-filter
+              />
+            </v-col>
+            <v-col v-if="selectedProducts.length === 1" cols="12" md="4" class="d-flex align-center">
+              <v-btn-toggle v-model="viewMode" mandatory density="compact" color="primary">
+                <v-btn value="movements" size="small" prepend-icon="mdi-swap-horizontal">{{ $t('nav.stockMovements') }}</v-btn>
+                <v-btn value="ledger" size="small" prepend-icon="mdi-book-open-variant">{{ $t('warehouse.productLedger') }}</v-btn>
+              </v-btn-toggle>
+            </v-col>
+          </v-row>
+        </v-card-text>
+      </v-card>
+    </template>
+
+    <!-- The ticked movements by e-mail, each as its printed sheet: to its contact, or all to one address, which is
+         how a transfer reaches the people of the other site. The shared bar and dialog, told the warehouse's two routes.
+         A tick is the movement's ID (`item-value`), never the row: it holds across pages, sorts and filters. -->
+    <template #bulk-bar>
+      <BatchEmailBar
+        v-model:selected="ticked"
+        kind="movement"
+        :org-url="appStore.orgUrl()"
+        preview-path="/warehouse/movement/email/preview"
+        email-path="/warehouse/movement/email"
+        :may-email="mailsTicked"
+        :org-name="appStore.currentOrg?.name"
+        :locale="appStore.locale"
+      />
+    </template>
+
+    <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
+    <template #item.type="{ item }">
+      <v-chip size="small" label :color="typeColor(item.type)">{{ typeLabel(item.type) }}</v-chip>
+    </template>
+    <!-- An external side is another site's warehouse: the movement books nothing there, and says so. -->
+    <template #item.fromWarehouseName="{ item }">
+      <span class="cell-clip movement-warehouse" :title="item.fromWarehouseName">{{ item.fromWarehouseName }}</span>
+      <v-chip v-if="item.fromExternal" size="x-small" label color="info" variant="tonal" class="ml-1" data-testid="movement-external-side">{{ $t('warehouse.external') }}</v-chip>
+    </template>
+    <template #item.toWarehouseName="{ item }">
+      <span class="cell-clip movement-warehouse" :title="item.toWarehouseName">{{ item.toWarehouseName }}</span>
+      <v-chip v-if="item.toExternal" size="x-small" label color="info" variant="tonal" class="ml-1" data-testid="movement-external-side">{{ $t('warehouse.external') }}</v-chip>
+    </template>
+    <template #item.contactName="{ item }">
+      <entity-link v-if="item.contactId" class="cell-clip movement-contact" :title="item.contactName" :label="item.contactName || ''" :href="`/invoicing/contacts/${item.contactId}/edit`" />
+      <span v-else class="cell-clip movement-contact" :title="item.contactName">{{ item.contactName }}</span>
+    </template>
+    <template #item.status="{ item }">
+      <StatusChip :status="item.status" :color-fn="statusColor" />
+      <!-- FR-22.31: a receipt its supplier's bill already pays for — the bill, one click away. -->
+      <v-chip
+        v-if="item.bill"
+        :href="appHref('invoicing', `/invoicing/bills/${item.bill.id}/edit`)"
+        size="x-small"
+        color="primary"
+        variant="tonal"
+        class="ml-1"
+        prepend-icon="mdi-receipt-text-check-outline"
+        :title="item.bill.number"
+        data-testid="movement-billed"
+      >
+        {{ $t('warehouse.billed') }}
+      </v-chip>
+      <!-- FR-22.61: a dispatch a sales invoice holds (made from it, or booked by it): the invoice, one click
+           away. A dispatch without the mark is a stock note nobody has invoiced yet. -->
+      <v-chip
+        v-if="item.sale"
+        :href="appHref('invoicing', `/invoicing/invoices/${item.sale.id}/edit`)"
+        size="x-small"
+        color="primary"
+        variant="tonal"
+        class="ml-1"
+        prepend-icon="mdi-receipt-text-check-outline"
+        :title="item.sale.number"
+        data-testid="movement-invoiced"
+      >
+        {{ $t('warehouse.invoiced') }}
+      </v-chip>
+    </template>
+    <template #item.total="{ item }">{{ fmtCurrency(item.total || 0) }}</template>
+    <template #item.actions="{ item }">
+      <!-- One row of icons: with Print beside View, a row no longer fits them wrapped in the column's width.
+           Each is the size of a document list's row menu (`RowActionsMenu`): a draft's four take the room
+           the tick column needs, and a row stays as tall as its one line of text. -->
+      <div class="d-flex flex-nowrap">
+        <v-btn :aria-label="$t('common.view')" :title="$t('common.view')" icon="mdi-eye" size="small" density="comfortable" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
+        <!-- The movement as a document, for whoever may read it: it goes with the goods and carries no price. -->
+        <v-btn icon="mdi-printer" size="small" density="comfortable" variant="text" :title="$t('common.print')" :loading="printing === item._id" data-testid="movement-print" @click="printMovement(item)" />
+        <v-btn v-if="writesMovement(item)" icon="mdi-check" size="small" density="comfortable" variant="text" color="success" :title="$t('warehouse.confirm')" data-testid="movement-confirm" @click="confirmMovement(item)" />
+        <!-- #448: a draft saved by mistake can go. The API refuses one another document names. -->
+        <v-btn v-if="writesMovement(item)" icon="mdi-delete" size="small" density="comfortable" variant="text" color="error" :title="$t('common.delete')" data-testid="movement-delete" @click="askDelete(item)" />
       </div>
-    </div>
+    </template>
 
-    <!-- Filters -->
-    <v-card class="mb-4">
-      <v-card-text class="pb-4">
-        <v-row>
-          <v-col cols="12" md="2">
-            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-select v-model="typeFilter" :label="$t('common.type')" :items="movementTypeItems" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <!-- `completed` is what confirmMovement leaves behind, so it belongs here. -->
-            <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusItems" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <!-- An external warehouse is offered too: the transfers that name it are found by it. -->
-            <v-select v-model="warehouseIdFilter" :label="$t('warehouse.warehouse')" :items="warehouseFilterItems" item-title="name" item-value="_id" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <DateField v-model="dateFrom" :label="$t('invoicing.dateFrom')" hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <DateField v-model="dateTo" :label="$t('invoicing.dateTo')" hide-details density="compact" />
-          </v-col>
-        </v-row>
-        <!-- The Products list's search and filters, for the articles a movement carries: the
-             movements holding any article they find there (`buildProductListFilter`). -->
-        <v-row>
-          <v-col cols="12" md="3">
-            <v-text-field v-model="productSearch" prepend-inner-icon="mdi-package-variant-closed" :label="$t('warehouse.movementProducts.search')" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-select v-model="productCategory" :label="$t('warehouse.category')" :items="categoryOptions" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-select v-model="productType" :label="$t('warehouse.movementProducts.type')" :items="productTypeItems(['goods', 'service'])" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <TagInput v-model="productTags" type="product" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-select v-model="productStatus" :label="$t('warehouse.movementProducts.status')" :items="productStatusItems" hide-details density="compact" />
-          </v-col>
-        </v-row>
-        <v-row>
-          <v-col cols="12" md="4">
-            <v-autocomplete
-              v-model="selectedProducts"
-              v-model:search="productSearchQuery"
-              :items="productSearchResults"
-              :loading="productSearchLoading"
-              item-title="displayName"
-              item-value="_id"
-              return-object
-              multiple
-              chips
-              closable-chips
-              :placeholder="$t('warehouse.movementProducts.pick')"
-              density="compact"
-              hide-details
-              variant="underlined"
-              clearable
-              no-filter
-            />
-          </v-col>
-          <v-col v-if="selectedProducts.length === 1" cols="12" md="4" class="d-flex align-center">
-            <v-btn-toggle v-model="viewMode" mandatory density="compact" color="primary">
-              <v-btn value="movements" size="small" prepend-icon="mdi-swap-horizontal">{{ $t('nav.stockMovements') }}</v-btn>
-              <v-btn value="ledger" size="small" prepend-icon="mdi-book-open-variant">{{ $t('warehouse.productLedger') }}</v-btn>
-            </v-btn-toggle>
-          </v-col>
-        </v-row>
-      </v-card-text>
-    </v-card>
+    <template #view="{ view }">
+      <KanbanBoard
+        v-if="view === 'kanban'"
+        :columns="kanbanColumns"
+        :items="kanbanItems"
+        item-key="_id"
+        @move="handleKanbanMove"
+      >
+        <template #card="{ item }">
+          <div class="d-flex flex-column ga-1">
+            <span class="font-weight-bold text-body-2">{{ item.number || item._id.slice(-6) }}</span>
+            <v-chip size="x-small" label :color="typeColor(item.type)">{{ typeLabel(item.type) }}</v-chip>
+            <span v-if="item.contactName" class="text-caption">{{ item.contactName }}</span>
+            <span class="text-caption text-medium-emphasis">{{ formatDate(item.date) }}</span>
+            <span v-if="seesCosts" class="text-body-2 font-weight-medium" data-cap="products.costs">{{ fmtCurrency(item.total || 0) }}</span>
+          </div>
+        </template>
+      </KanbanBoard>
 
-    <!-- `list-fit` (FR-22.23): a row is one line and the gutters are 8 px, so the list fits 1366 px with its tick
-         column. The names that can run long are clipped, the whole name in their `title`. -->
-    <v-card v-if="(viewMode === 'movements' || selectedProducts.length !== 1) && displayMode === 'list'" class="list-fit">
-      <v-card-text>
-        <!-- The ticked movements by e-mail, each as its printed sheet: to its contact, or all to one address, which is
-             how a transfer reaches the people of the other site. The shared bar and dialog, told the warehouse's two routes. -->
-        <BatchEmailBar
-          v-model:selected="ticked"
-          kind="movement"
-          :org-url="appStore.orgUrl()"
-          preview-path="/warehouse/movement/email/preview"
-          email-path="/warehouse/movement/email"
-          :may-email="mailsTicked"
-          :org-name="appStore.currentOrg?.name"
-          :locale="appStore.locale"
-        />
-        <!-- `item-value` makes a tick the movement's ID, never the row: it holds across pages, sorts and filters. -->
-        <v-data-table-server
-          show-select
-          :model-value="ticked"
-          :headers="headers"
-          :items="items"
-          :items-length="pagination.total"
-          :loading="loading"
-          :page="pagination.page + 1"
-          :items-per-page="pagination.size"
-          @update:options="onUpdateOptions"
-          @update:model-value="onTicked"
-          item-value="_id"
-          hover
-        >
-          <!-- FR-31.7: a request that failed or was refused is said, with Retry; never "no data". -->
-          <template v-if="pagination.loadError" #no-data>
-            <ListLoadError :failure="pagination.loadError" @retry="fetchItems" />
-          </template>
-          <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
-          <template #item.type="{ item }">
-            <v-chip size="small" label :color="typeColor(item.type)">{{ typeLabel(item.type) }}</v-chip>
-          </template>
-          <!-- An external side is another site's warehouse: the movement books nothing there, and says so. -->
-          <template #item.fromWarehouseName="{ item }">
-            <span class="cell-clip movement-warehouse" :title="item.fromWarehouseName">{{ item.fromWarehouseName }}</span>
-            <v-chip v-if="item.fromExternal" size="x-small" label color="info" variant="tonal" class="ml-1" data-testid="movement-external-side">{{ $t('warehouse.external') }}</v-chip>
-          </template>
-          <template #item.toWarehouseName="{ item }">
-            <span class="cell-clip movement-warehouse" :title="item.toWarehouseName">{{ item.toWarehouseName }}</span>
-            <v-chip v-if="item.toExternal" size="x-small" label color="info" variant="tonal" class="ml-1" data-testid="movement-external-side">{{ $t('warehouse.external') }}</v-chip>
-          </template>
-          <template #item.contactName="{ item }">
-            <entity-link v-if="item.contactId" class="cell-clip movement-contact" :title="item.contactName" :label="item.contactName || ''" :href="`/invoicing/contacts/${item.contactId}/edit`" />
-            <span v-else class="cell-clip movement-contact" :title="item.contactName">{{ item.contactName }}</span>
-          </template>
-          <template #item.status="{ item }">
-            <StatusChip :status="item.status" :color-fn="statusColor" />
-            <!-- FR-22.31: a receipt its supplier's bill already pays for — the bill, one click away. -->
-            <v-chip
-              v-if="item.bill"
-              :href="appHref('invoicing', `/invoicing/bills/${item.bill.id}/edit`)"
-              size="x-small"
-              color="primary"
-              variant="tonal"
-              class="ml-1"
-              prepend-icon="mdi-receipt-text-check-outline"
-              :title="item.bill.number"
-              data-testid="movement-billed"
-            >
-              {{ $t('warehouse.billed') }}
-            </v-chip>
-            <!-- FR-22.61: a dispatch a sales invoice holds (made from it, or booked by it): the invoice, one click
-                 away. A dispatch without the mark is a stock note nobody has invoiced yet. -->
-            <v-chip
-              v-if="item.sale"
-              :href="appHref('invoicing', `/invoicing/invoices/${item.sale.id}/edit`)"
-              size="x-small"
-              color="primary"
-              variant="tonal"
-              class="ml-1"
-              prepend-icon="mdi-receipt-text-check-outline"
-              :title="item.sale.number"
-              data-testid="movement-invoiced"
-            >
-              {{ $t('warehouse.invoiced') }}
-            </v-chip>
-          </template>
-          <template #item.total="{ item }">{{ fmtCurrency(item.total || 0) }}</template>
-          <template #item.actions="{ item }">
-            <!-- One row of icons: with Print beside View, a row no longer fits them wrapped in the column's width.
-                 Each is the size of a document list's row menu (`RowActionsMenu`): a draft's four take the room
-                 the tick column needs, and a row stays as tall as its one line of text. -->
-            <div class="d-flex flex-nowrap">
-              <v-btn :aria-label="$t('common.view')" :title="$t('common.view')" icon="mdi-eye" size="small" density="comfortable" variant="text" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
-              <!-- The movement as a document, for whoever may read it: it goes with the goods and carries no price. -->
-              <v-btn icon="mdi-printer" size="small" density="comfortable" variant="text" :title="$t('common.print')" :loading="printing === item._id" data-testid="movement-print" @click="printMovement(item)" />
-              <v-btn v-if="writesMovement(item)" icon="mdi-check" size="small" density="comfortable" variant="text" color="success" :title="$t('warehouse.confirm')" data-testid="movement-confirm" @click="confirmMovement(item)" />
-              <!-- #448: a draft saved by mistake can go. The API refuses one another document names. -->
-              <v-btn v-if="writesMovement(item)" icon="mdi-delete" size="small" density="comfortable" variant="text" color="error" :title="$t('common.delete')" data-testid="movement-delete" @click="askDelete(item)" />
-            </div>
-          </template>
-        </v-data-table-server>
-      </v-card-text>
-    </v-card>
+      <v-card v-else-if="view === 'ledger'">
+        <v-card-title class="d-flex align-center">
+          {{ $t('warehouse.productLedger') }}: {{ selectedProducts[0]?.name || '' }}
+          <v-spacer />
+          <v-btn variant="outlined" size="small" prepend-icon="mdi-open-in-new" :to="{ name: 'inventory.products.stock', params: { id: selectedProducts[0]?._id, tab: 'stock' } }">{{ $t('warehouse.fullView') }}</v-btn>
+        </v-card-title>
+        <v-card-text>
+          <ProductLedgerTable
+            :product-id="selectedProducts[0]?._id || ''"
+            :org-url="appStore.orgUrl()"
+            :base-currency="baseCurrency"
+            :locale-code="localeCode"
+            :warehouses="stockWarehouses"
+          />
+        </v-card-text>
+      </v-card>
+    </template>
 
-    <KanbanBoard
-      v-if="(viewMode === 'movements' || selectedProducts.length !== 1) && displayMode === 'kanban'"
-      :columns="kanbanColumns"
-      :items="kanbanItems"
-      item-key="_id"
-      @move="handleKanbanMove"
-    >
-      <template #card="{ item }">
-        <div class="d-flex flex-column ga-1">
-          <span class="font-weight-bold text-body-2">{{ item.number || item._id.slice(-6) }}</span>
-          <v-chip size="x-small" label :color="typeColor(item.type)">{{ typeLabel(item.type) }}</v-chip>
-          <span v-if="item.contactName" class="text-caption">{{ item.contactName }}</span>
-          <span class="text-caption text-medium-emphasis">{{ formatDate(item.date) }}</span>
-          <span v-if="seesCosts" class="text-body-2 font-weight-medium" data-cap="products.costs">{{ fmtCurrency(item.total || 0) }}</span>
-        </div>
-      </template>
-    </KanbanBoard>
-
-    <v-card v-if="viewMode === 'ledger' && selectedProducts.length === 1">
-      <v-card-title class="d-flex align-center">
-        {{ $t('warehouse.productLedger') }}: {{ selectedProducts[0]?.name || '' }}
-        <v-spacer />
-        <v-btn variant="outlined" size="small" prepend-icon="mdi-open-in-new" :to="{ name: 'inventory.products.stock', params: { id: selectedProducts[0]?._id, tab: 'stock' } }">{{ $t('warehouse.fullView') }}</v-btn>
-      </v-card-title>
-      <v-card-text>
-        <ProductLedgerTable
-          :product-id="selectedProducts[0]?._id || ''"
-          :org-url="appStore.orgUrl()"
-          :base-currency="baseCurrency"
-          :locale-code="localeCode"
-          :warehouses="stockWarehouses"
-        />
-      </v-card-text>
-    </v-card>
-
-
-    <!-- This view predates ListScaffold, so the dialog is mounted by hand. -->
     <DocImportDialog
       v-model="showImportDialog"
       :org-url="appStore.orgUrl()"
@@ -249,7 +243,7 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
-  </v-container>
+  </ListScaffold>
 </template>
 
 <script setup lang="ts">
@@ -259,7 +253,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
-import ListLoadError from 'ui-shared/components/ListLoadError.vue'
+import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { sortableHeaders } from 'config/list-sorts'
 import { latestOnly } from 'ui-shared/composables/latest-only'
@@ -289,7 +283,6 @@ import { mailsMovements } from '../composables/movement-email-access'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; fromExternal?: boolean; toExternal?: boolean; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string; bill?: { id: string; number: string }; sale?: { id: string; number: string } }
 interface Warehouse { _id: string; name: string; isExternal?: boolean }
-interface Contact { _id: string; name: string; companyName?: string; firstName?: string; lastName?: string }
 const { t } = useI18n()
 const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
@@ -324,7 +317,6 @@ const warehouseFilterItems = computed(() => warehouses.value.map(w => ({
 /** The warehouses that keep stock: the only ones a product's ledger has rows for. */
 const stockWarehouses = computed(() => warehouses.value.filter(w => !w.isExternal))
 const { printing, printMovement } = useMovementPrint()
-const contacts = ref<Contact[]>([])
 const { search, debouncedSearch } = useSearchDebounce()
 const typeFilter = ref<string | null>(null)
 const statusFilter = ref<string | null>(null)
@@ -336,6 +328,8 @@ const productSearchLoading = ref(false)
 let productDebounceTimer: ReturnType<typeof setTimeout> | null = null
 const viewMode = ref<'movements' | 'ledger'>('movements')
 const displayMode = ref<'list' | 'kanban'>('list')
+/** What the shell shows: one product's ledger when it is chosen and asked for, else the list or the board. */
+const shownView = computed(() => (viewMode.value === 'ledger' && selectedProducts.value.length === 1 ? 'ledger' : displayMode.value))
 const dateFrom = ref('')
 const dateTo = ref('')
 
@@ -412,6 +406,8 @@ const filters = computed(() => {
   if (productStatus.value !== 'all') f.productActive = productStatus.value === 'active' ? 'true' : 'false'
   return f
 })
+/** Any filter narrows the list: an empty answer is then "no matches", not "nothing here yet". */
+const hasActiveFilters = computed(() => Object.keys(filters.value).length > 0)
 
 /**
  * FR-31.11: Export is the `stock-movements` report on the list's filters, where the report has the same parameter: the
@@ -562,18 +558,7 @@ async function fetchWarehouses() {
   } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
-function contactDisplayName(c: any): string {
-  if (c.companyName) return c.companyName
-  return [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || c._id
-}
-
-async function fetchContacts() {
-  try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`)
-    contacts.value = (data.contacts || []).map((c: any) => ({ ...c, name: contactDisplayName(c) }))
-  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
-}
-
+// FR-31.19: the contact list this page once fetched is gone. Nothing on the page read it.
 async function fetchCategories() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category`, { params: { isActive: 'true' } })
@@ -581,7 +566,7 @@ async function fetchCategories() {
   } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
-onMounted(() => { fetchItems(); fetchWarehouses(); fetchContacts(); fetchCategories() })
+onMounted(() => { fetchItems(); fetchWarehouses(); fetchCategories() })
 </script>
 
 <style scoped>

@@ -147,6 +147,7 @@ import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import { useGridColumns } from 'ui-shared/composables/useGridColumns'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -202,10 +203,18 @@ const originItems = computed(() => [
 const filters = computed(() => fixedAssetFilters({ search: debouncedSearch.value, taxCategory: taxCategory.value, origin: origin.value }))
 
 const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/fixed-asset`)
+// FR-31.18: the list's place (search, tax category, origin, page, size, sort) in the address; declared before
+// usePaginatedTable. A value the filter does not offer is dropped.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'taxCategory', ref: taxCategory, sanitize: (v: string) => (v === 'none' || TAX_CATEGORIES.some(c => c.code === v) ? v : undefined) },
+  { key: 'origin', ref: origin, sanitize: (v: string) => (v === 'imported' || v === 'native' ? v : undefined) },
+])
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'fixedAssets',
   filters,
+  urlSync: true,
 })
 
 const deleteDialog = ref(false)

@@ -7,6 +7,7 @@ import { isSysAdmin } from 'services/biz/sys-admin'
 import { alarmsOfNodes } from 'services/biz/node/node-alarms'
 import { HomeHoldError, heldHomes, holdAfterRestore, releaseHold } from 'services/biz/home/home-hold.service'
 import { postingHealth } from 'services/biz/postings/posting.service'
+import { auditHealth } from 'services/biz/audit-log.service'
 import { schedulerHealth } from 'services/scheduler/registry'
 
 /**
@@ -85,6 +86,8 @@ export const adminNodesController = new Elysia({ prefix: '/admin/nodes' })
       if (!isSysAdmin(user)) return status(403, { message: 'This page requires a system administrator' })
       return {
         postings: await postingHealth(),
+        // FR-29.21: audit writes that failed in this process.
+        audit: auditHealth(),
         schedulers: schedulerHealth().map(s => ({ name: s.name, state: s.state, lastOkAt: s.lastOkAt, failures: s.failures, lastError: s.lastError })),
       }
     },

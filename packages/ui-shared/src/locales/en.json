@@ -331,7 +331,13 @@
       "internalOrders": "No customer orders yet",
       "internalOrdersHint": "Create a client order for future delivery — reserve stock or incoming goods against it.",
       "reservations": "No reservations yet",
-      "reservationsHint": "Reservations link client demand to stock on hand or to goods expected on supplier orders."
+      "reservationsHint": "Reservations link client demand to stock on hand or to goods expected on supplier orders.",
+      "movements": "No stock movements yet",
+      "movementsHint": "Record a goods receipt, a dispatch or a transfer to get started.",
+      "stockLevels": "No stock yet",
+      "stockLevelsHint": "Stock appears here once a goods receipt is confirmed.",
+      "inventoryCounts": "No inventory counts yet",
+      "inventoryCountsHint": "Start a count to compare the shelves with the books."
     }
   },
   "common": {
@@ -1280,7 +1286,8 @@
       "loopback": "the server itself",
       "desktop": "the desktop {name}",
       "lan": "the shop's network"
-    }
+    },
+    "systemActor": "System"
   },
   "validation": {
     "required": "This field is required",
@@ -5477,6 +5484,33 @@
     "apps": "Apps",
     "portal": "Portal",
     "theme": "Light or dark theme",
-    "menu": "Menu"
+    "menu": "Menu",
+    "jump": {
+      "open": "Find a document by its number (Ctrl+K)",
+      "label": "Document number",
+      "hint": "Type or paste a number, then press Enter",
+      "none": "No document has the number {number}.",
+      "several": "Several documents have the number {number}. Choose one:",
+      "prefix": "Numbers that begin with {number}:",
+      "more": "Only the first {n} are listed: type more of the number.",
+      "failed": "The search did not answer. Try again.",
+      "viaDraft": "draft {number}",
+      "kind": {
+        "invoice": "Invoice",
+        "creditNote": "Credit note",
+        "debitNote": "Debit note",
+        "proforma": "Proforma invoice",
+        "offer": "Offer",
+        "bill": "Bill",
+        "cashSale": "Cash sale",
+        "cashStorno": "Cash sale storno",
+        "paymentReceipt": "Payment receipt",
+        "paymentStorno": "Payment storno",
+        "supplierOrder": "Supplier order",
+        "customerOrder": "Customer order",
+        "reservation": "Reservation",
+        "movement": "Stock movement"
+      }
+    }
   }
 }

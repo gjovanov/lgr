@@ -30,6 +30,7 @@
     "./supto": "./src/supto.ts",
     "./list-sorts": "./src/list-sorts.ts",
     "./list-rows": "./src/list-rows.ts",
+    "./document-lookup": "./src/document-lookup.ts",
     "./licence-keys": "./src/licence-keys.json",
     "./idp-keys": "./src/idp-keys.json",
     "./repoint-keys": "./src/repoint-keys.json"
