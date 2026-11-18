@@ -385,6 +385,15 @@ Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales 
   (movement, count, price list, warehouse, category, POS device, timesheet, payroll run) an edit made afterwards
   was dropped on leaving without a word.
 
+- **`useDocumentForm` is built from parts** (FR-32.22): `document-form/parts/` (state, totals, lines, product-update,
+  pricing, products, party, load, status, print, saving, issue), each at most 500 lines, a part reading only the
+  parts before it; the composable keeps the bars' actions, what starts a print, the „Складова разписка" print and
+  `issueFromForm`, and returns what it always did. ⚠ The parts are called in the order their hooks register, and
+  the form's `onMounted` (`load.ts#mountForm`) is called last: `usePendingChanges` (state) registers its own
+  `onMounted` first, and the clean state is taken when the load resolves (FR-31 A1). `unit/document-form-parts.test`
+  holds the order and the sizes; `unit/document-form-actions.test` reads the actions and the print in
+  `useDocumentForm.ts` itself, so those stay there.
+
 - **The latest question wins** (FR-31.4): a search, a list page or a price lookup goes through
   `ui-shared/composables/latest-only.ts#latestOnly`, one wrapper per consumer. Only the latest call's answer is
   delivered; an earlier one's answer and error are dropped and its request aborted (`signal`), and `useHttpClient`

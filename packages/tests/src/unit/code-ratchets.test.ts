@@ -71,7 +71,6 @@ const RAW_DRIVER_FILES: Record<string, string> = {
 const MAX_LINES = 1000
 const LARGE_FILES: Record<string, number> = {
   'invoicing-api/src/controllers/invoice.controller.ts': 2494,
-  'invoicing-ui/src/composables/document-form/useDocumentForm.ts': 2274,
   'invoicing-ui/src/views/InternalOrderFormView.vue': 1564,
   'invoicing-ui/src/views/OrderFormView.vue': 1544,
   'services/src/biz/cash-register/register.service.ts': 1542,

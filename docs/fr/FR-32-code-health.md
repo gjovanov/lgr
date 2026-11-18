@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-16. Slices A, C and D are built, and B but for FR-32.13; slice E has FR-32.25 and .26, and .21 to .24 are to come (§11). The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-16. Slices A, C and D are built, and B but for FR-32.13; slice E has FR-32.22, .25 and .26, and .21, .23 and .24 are to come (§11). The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | `ci.yml` (the always-on gate) and `e2e-nightly.yml` (#365, the whole Playwright suite), the route-table suites (tenant isolation, route and read permission), `dal` and `dal-mongo`, the known-items list in `CLAUDE.md`, #675 |
 | **Touches** | Every package gets a type-check configuration. `.github/workflows` (two new jobs). `dal`, `dal-mongo` and `db` (entity types, `select`, `session`). `services` (dead DAO classes out, document services). `invoicing-api` (the largest controller). `ui-shared`, `ui-shell` and the `*-ui` packages (dead files out, typed API modules, the two order forms). `reporting` (one dependency moves). `portal-api` (file deletion, the auth plugin). `CLAUDE.md` and `docs/` |
 | **Tracking** | [gjovanov/lgr#797](https://github.com/gjovanov/lgr/issues/797) |
@@ -490,4 +490,15 @@ Most of this FR is proven by CI, not in production.
     - `unit/one-auth-plugin.test.ts` fails on a plugin that declares a hook of its own, and on a second file that runs the role and home gates.
   - **Large files do not grow** (`unit/code-ratchets.test.ts`, `LARGE_FILES`): the 21 source files over 1 000 lines, each with its length. A listed file may not get longer, no other file may pass 1 000 lines, and a file that falls to 1 000 or fewer leaves the list.
   - No test had to change. Two were added to (`one-auth-plugin`, `code-ratchets`).
-  - **Still to do in slice E**, each its own pull request, a file at a time (§5): FR-32.21, the document services and the invoice controller's handlers of at most 80 lines (`issueDocument` with FR-29.8); FR-32.22, `useDocumentForm` in files of at most 500 lines; FR-32.23, one base for the two order forms, each at most 900 lines; FR-32.24, the typed API modules of `invoicing-ui` and `inventory-ui`, by screen.
+  - **Still to do in slice E**, each its own pull request, a file at a time (§5): FR-32.21, the document services and the invoice controller's handlers of at most 80 lines (`issueDocument` with FR-29.8); FR-32.23, one base for the two order forms, each at most 900 lines; FR-32.24, the typed API modules of `invoicing-ui` and `inventory-ui`, by screen.
+
+- **FR-32.22** (`feat/797-fr32-22-document-form-parts`): `useDocumentForm` in parts. No behaviour changes.
+  - **Twelve parts in `document-form/parts/`**, along the seams it already had, each at most 500 lines. A part reads only the parts before it.
+    - `state` (353 lines): the app's services, the org's tax and currency, the collections, the line and product-update columns, the form, the payment-method memory, the pending-changes guard, the print notes and `isDirtyNow`.
+    - `totals` (40), `lines` (122: the document-level tax rate and warehouse, the pin, the place of deal, adding and removing a line), `product-update` (94: a bill's product update), `pricing` (290: a line's price, the document-wide price, the customer's last price), `products` (143: an article put on a line).
+    - `party` (289: the contact, the invoice a note corrects, the reference lists, and a new document from a copy, a note or an article), `load` (241: the stored document, an imported one, and the form's start on mount).
+    - `status` (116: the pipeline, the number, what the status allows, the smart buttons), `print` (51), `saving` (238: the payload, validation, the save, „Запази и получи", conversion), `issue` (91: the issuer, the refusals on the lines, the payment and the receipts).
+  - **`useDocumentForm.ts`** (410 lines, from 2 274) calls them and keeps the bars' actions, what starts a print, the „Складова разписка" print and `issueFromForm`: `unit/document-form-actions.test` reads those in that file. It returns the same object, key for key and in the same order. The option types are in `types.ts` and re-exported.
+  - **The order is the hooks' order.** The parts are called in the order their code was written, so the watchers are made in the same order, and the form's `onMounted` (`load.ts#mountForm`) is registered last, after `usePendingChanges`'s own (FR-31 A1: the clean state is taken when the load resolves).
+  - **`unit/document-form-parts.test.ts`** fails on a file of the split over 500 lines, on a part that is not in its list, on parts called out of order or the `onMounted` not last, and on an `onMounted` anywhere but `mountForm`.
+  - `LARGE_FILES` lost `useDocumentForm.ts`; the two type errors of the org's tax settings moved with their lines to `parts/state.ts` in the ui baseline. No test of the document form changed.

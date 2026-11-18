@@ -203,3 +203,35 @@ export interface DocumentTypeConfig {
   line: LineConfig
   payload: PayloadConfig
 }
+
+// ── what `useDocumentForm` is given, and what its Print dialog answers (FR-32.22: here, so its parts read them) ──
+
+export interface BeforeCreateResult {
+  /** true → the composable proceeds to POST; false → the hook took over (e.g. opened a dialog). */
+  proceed: boolean
+}
+
+export interface UseDocumentFormOptions {
+  /** Create-mode interceptor (cash sale stock check). Receives the built payload; may open a
+   *  dialog and return { proceed:false } to suspend, then later call `submitCreate(extra)`. */
+  onBeforeCreate?: (payload: Record<string, any>) => Promise<BeforeCreateResult> | BeforeCreateResult
+  /**
+   * A new document was just created as `id`, and the form is about to move onto its edit route.
+   * The view keeps the form mounted for that move (`useDocumentRouteKey#adopt`): it is the same
+   * document, and the form may still be issuing or printing it.
+   */
+  onCreated?: (id: string) => void
+  /**
+   * Fields the view adds to a NEW document's payload, on every create path (FR-21.31: the cash
+   * sale's `receipt`, when it joins its author's open session and is to print on its device).
+   */
+  extraPayload?: () => Record<string, any>
+}
+
+/** How a print is to be made: what the Print dialog answers, or the user's last settings with no companion. */
+export interface PrintChoice {
+  format: 'xlsx' | 'pdf'
+  mode: 'compact' | 'detailed'
+  columns?: string[]
+  companions?: string[]
+}
