@@ -122,8 +122,14 @@ beforeAll(async () => {
   for (const key of Object.keys(people)) tokens[key] = await (signer as any).decorator.jwt.sign(await tokenize((await User.findById(people[key]._id).exec())!))
 }, 60_000)
 
-afterAll(async () => {
+/** The profiler off and its collection gone: the test database is the process's, and a later file sweeps every collection. */
+async function profilerOff() {
   await db().command({ profile: 0 }).catch(() => { /* the profiler may never have been on */ })
+  await db().collection('system.profile').drop().catch(() => { /* none */ })
+}
+
+afterAll(async () => {
+  await profilerOff()
   await teardownTestDB()
 }, 60_000)
 
@@ -230,6 +236,7 @@ describe('FR-31.22: the lookup reads through the numbers\' indexes', () => {
       await db().command({ profile: 0 })
     }
     const ops = (await db().collection('system.profile').find({ op: 'query', ns: { $in: collections.map(c => `${db().databaseName}.${c}`) } }).toArray()) as any[]
+    await profilerOff()
     // The lookup did ask every family (and the contacts).
     const asked = new Set(ops.map(o => String(o.ns).split('.').slice(1).join('.')))
     expect([...asked].sort()).toEqual([...collections].sort())

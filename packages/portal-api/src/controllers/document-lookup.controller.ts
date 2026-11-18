@@ -18,6 +18,6 @@ export const documentLookupController = new Elysia({ prefix: '/org/:orgId/lookup
   },
   {
     isSignIn: true,
-    query: t.Object({ number: t.Optional(t.String({ maxLength: LOOKUP_MAX_LENGTH * 4 })) }, { additionalProperties: true }),
+    query: t.Object({ number: t.Optional(t.String({ maxLength: LOOKUP_MAX_LENGTH * 4 })) }),
   },
 )
