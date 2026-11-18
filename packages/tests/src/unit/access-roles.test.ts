@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { ROLES } from 'config/constants'
-import { ROLE_TEMPLATES, can, grantOfRole, legacyKeyOf, sameGrant, templateGrant, unknownCaps } from 'config/access'
+import { ROLE_TEMPLATES, can, grantOfRole, legacyKeyOf, roleDisplay, sameGrant, templateGrant, unknownCaps } from 'config/access'
 
 /**
  * FR-27.3 (#529) — the built-in roles grant today's access of their legacy role, and a stored role grants what it
@@ -58,5 +58,23 @@ describe("0015's key for an imported role", () => {
   it('legacyKeyOf: the same access, the same key, whatever the order', () => {
     expect(legacyKeyOf({ role: 'member', permissions: ['b', 'a'] })).toBe(legacyKeyOf({ role: 'member', permissions: ['a', 'b'] }))
     expect(legacyKeyOf({ role: 'member', permissions: [], areas: [] })).not.toBe(legacyKeyOf({ role: 'member', permissions: [] }))
+  })
+})
+
+describe('how a role is named outside the roles screens (roleDisplay, #529 answer 4)', () => {
+  it('a built-in role still carrying its template name: its key, which the SPA translates', () => {
+    for (const t of ROLE_TEMPLATES) expect(roleDisplay({ isBuiltin: true, templateKey: t.key, name: t.name })).toBe(t.key)
+    expect(roleDisplay({ isBuiltin: true, templateKey: 'seller' })).toBe('seller')
+  })
+
+  it('a built-in role the org renamed: its own name, as the Roles screen shows it', () => {
+    expect(roleDisplay({ isBuiltin: true, templateKey: 'seller', name: 'Counter staff' })).toBe('Counter staff')
+    expect(roleDisplay({ isBuiltin: true, templateKey: 'member', name: 'Member' })).toBe('Member')
+  })
+
+  it('a custom role: its name; none: empty', () => {
+    expect(roleDisplay({ isBuiltin: false, name: 'Seller' })).toBe('Seller')
+    expect(roleDisplay({ isBuiltin: false, templateKey: 'seller', name: 'Seller copy' })).toBe('Seller copy')
+    expect(roleDisplay(null)).toBe('')
   })
 })

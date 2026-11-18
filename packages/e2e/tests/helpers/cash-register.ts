@@ -101,7 +101,7 @@ export async function ownCashier(name = 'cashier'): Promise<OwnCashier> {
   const username = `e2e-${name}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
   const password = 'e2e-test-pw-12345'
   const { user } = await call(admin, 'POST', '/user', {
-    email: `${username}@lgr.test`, username, password, firstName: 'E2E', lastName: name, role: 'sales',
+    email: `${username}@lgr.test`, username, password, firstName: 'E2E', lastName: name, roleKey: 'sales',
   })
   return {
     session: await apiLogin('acme-corp', username, password),

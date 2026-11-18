@@ -2,11 +2,11 @@ import { Elysia, t } from 'elysia'
 import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { publicUser, userDao, USER_PUBLIC_PROJECTION } from 'services/dao/user.dao'
-import { Role, User } from 'db/models'
+import { User } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
 import { ROLES } from 'config/constants'
 import { createAuditEntry } from 'services/biz/audit-log.service'
-import { RoleRefusal, assertAssignable, assertNotLastAdministrator, assignRole, giveStartingRole, startingRoleOf } from 'services/biz/access/role.service'
+import { RoleRefusal, assertAssignable, assertNotLastAdministrator, assignRole, giveStartingRole, namedRoleId, startingRoleOf } from 'services/biz/access/role.service'
 
 import { allocateOperatorCode } from 'services/biz/sequence.service'
 import {
@@ -32,13 +32,11 @@ const refused = (err: unknown) =>
 const roleValues = ROLES.map(r => t.Literal(r))
 
 /**
- * FR-27 P3-5 (#529): a legacy role key an API caller still names (`role`) is the built-in role of that key, given as a
- * role is (by id, held to FR-27.8). The key itself is no longer written onto the person.
+ * FR-27.3 (#529): a body names the person's role by `roleId`, or by `roleKey` (a built-in role's template key, the same
+ * in every org: `role.service#namedRoleId` checks it, 422 `unknown_role_key`). Free text in the schema so that an
+ * unknown key gets that code, not the schema's bare 422.
  */
-async function builtinRoleId(orgId: string, key: string): Promise<string | null> {
-  const role = await Role.findOne({ orgId, isBuiltin: true, templateKey: key }, { _id: 1 }).lean().exec()
-  return role ? String(role._id) : null
-}
+const roleKeyField = t.Optional(t.String({ minLength: 1, maxLength: 64 }))
 
 /** FR-27 P3-5: the legacy sets and permissions cannot be written any more; refused, never dropped. */
 const LEGACY_FIELDS = { code: 'legacy_role_field', message: 'Give the person a role (roleId): permission sets and permissions are no longer written.' }
@@ -81,21 +79,16 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         const r = refused(new IdentityError('identity_exists'))!
         return status(r.status, r.body)
       }
-      // FR-27.3: a role named here must be one the admin may give, before anything is created. A legacy key names the
-      // built-in role of that key (FR-27 P3-5).
-      const { roleId: namedRoleId, role: legacyKey, ...fields } = body
-      if (namedRoleId && legacyKey) {
-        return status(422, { code: 'role_and_legacy', message: 'Send a role (roleId), or the legacy role: not both.' })
-      }
-      const roleId = namedRoleId ?? (legacyKey ? await builtinRoleId(orgId, legacyKey) : undefined)
-      if (legacyKey && !roleId) return status(422, { code: 'role_not_found', message: 'This organization has no built-in role of that key.' })
-      if (roleId) {
-        try {
-          await assertAssignable(user as any, orgId, roleId)
-        } catch (e) {
-          if (e instanceof RoleRefusal) return status(e.status, e.body)
-          throw e
-        }
+      // FR-27.3: a role named here (`roleId`, or `roleKey`: the built-in role of that key) must be one the admin may
+      // give, before anything is created. A legacy `role` key is still the built-in role of that key, logged (#529).
+      const { roleId: _roleId, roleKey: _roleKey, role: _legacyKey, ...fields } = body
+      let roleId: string | undefined
+      try {
+        roleId = await namedRoleId(orgId, body, 'POST /user')
+        if (roleId) await assertAssignable(user as any, orgId, roleId)
+      } catch (e) {
+        if (e instanceof RoleRefusal) return status(e.status, e.body)
+        throw e
       }
 
       const hashedPassword = await Bun.password.hash(body.password)
@@ -159,10 +152,12 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         middleName: t.Optional(t.String()),
         lastName: t.String({ minLength: 1 }),
         position: t.Optional(t.String()),
-        // FR-27 P3-5: a legacy key names the built-in role of that key; it is not written.
+        // FR-27 P3-5: a legacy key names the built-in role of that key; it is not written. Logged; the next release
+        // refuses it (422 `legacy_role_field`): send `roleKey`.
         role: t.Optional(t.Union(roleValues)),
-        // FR-27.3: the person's role.
+        // FR-27.3: the person's role, by id or by its built-in template key; one of the two.
         roleId: t.Optional(t.String()),
+        roleKey: roleKeyField,
       }),
     },
   )
@@ -191,25 +186,20 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       // FR-27 P3-5 (#529): nothing of the legacy model is written onto a person.
       delete updateData.role
       delete updateData.roleId
+      delete updateData.roleKey
       delete updateData.permissions
       delete updateData.permissionSetIds
 
       if (body.permissions !== undefined || body.permissionSetIds !== undefined) return status(422, LEGACY_FIELDS)
-      if (body.roleId !== undefined && body.role) {
-        return status(422, { code: 'role_and_legacy', message: 'Send a role (roleId), or the legacy role: not both.' })
-      }
-      // FR-27.3: the person's one role. role.service holds it to FR-27.8 (not your own, nothing beyond your own,
-      // the Administrator's only an Administrator's, never the last Administrator's). A legacy key names the built-in
-      // role of that key (FR-27 P3-5).
-      const roleId = body.roleId ?? (body.role ? await builtinRoleId(orgId, body.role) : undefined)
-      if (body.role && !roleId) return status(422, { code: 'role_not_found', message: 'This organization has no built-in role of that key.' })
-      if (roleId) {
-        try {
-          await assignRole(user as any, orgId, userId, roleId)
-        } catch (e) {
-          if (e instanceof RoleRefusal) return status(e.status, e.body)
-          throw e
-        }
+      // FR-27.3: the person's one role, by `roleId` or `roleKey` (a legacy `role` key is still the built-in role of
+      // that key, logged, #529). role.service holds it to FR-27.8 (not your own, nothing beyond your own, the
+      // Administrator's only an Administrator's, never the last Administrator's).
+      try {
+        const roleId = await namedRoleId(orgId, body, 'PUT /user/:userId')
+        if (roleId) await assignRole(user as any, orgId, userId, roleId)
+      } catch (e) {
+        if (e instanceof RoleRefusal) return status(e.status, e.body)
+        throw e
       }
       // The Users form's Active switch, turned off or on.
       const switchedOff = body.isActive === false && existing.isActive !== false
@@ -274,13 +264,15 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         middleName: t.Optional(t.String()),
         lastName: t.Optional(t.String()),
         position: t.Optional(t.String()),
-        // FR-27 P3-5: a legacy key names the built-in role of that key; it is not written.
+        // FR-27 P3-5: a legacy key names the built-in role of that key; it is not written. Logged; the next release
+        // refuses it (422 `legacy_role_field`): send `roleKey`.
         role: t.Optional(t.Union(roleValues)),
         isActive: t.Optional(t.Boolean()),
         // FR-27 P3-5: declared only to be refused (422 `legacy_role_field`): a schema drops what it does not name.
         permissions: t.Optional(t.Array(t.String())),
         permissionSetIds: t.Optional(t.Array(t.String())),
         roleId: t.Optional(t.String()),
+        roleKey: roleKeyField,
       }),
     },
   )

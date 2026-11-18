@@ -117,6 +117,23 @@ Each PR keeps `bun run test`, `build`, `check:web` and the FR-27 walks green
   Migrate button's route) wrote `permissionSetIds`: it answers 410 `legacy_model`. (4) `PUT /user` refuses `permissions`
   and `permissionSetIds` (422 `legacy_role_field`); a legacy `role` key on `POST`/`PUT /user` names the built-in role of
   that key and is not written.
+- **After review (#529, the owner's answers 2 to 4, one PR).**
+  - **`roleKey` on `POST`/`PUT /user`** (answer 3). A body names the role by `roleId` or by `roleKey`, a built-in role's
+    template key (FR-27.3: scripts and API callers name a role by key; a role id differs per org), resolved to that
+    org's built-in role of the template (`role.service#namedRoleId`). An unknown key is 422 `unknown_role_key` (with the
+    keys); `roleId` with `roleKey` is 422 `role_id_and_key`; either with the legacy `role` is 422 `role_and_legacy`. The
+    e2e files and tests that sent `role` (the FR-27 field walks among them) send `roleKey`; the four tests that state the
+    conversion itself (`legacy-not-written`, `roles-onboarding`, `seller-roles`, `user-role-key`) keep `role`.
+  - **The legacy `role` key still converts in this release, and each use is logged** (warn, `legacy role field on a
+    user route`: the route, the org, the key; nothing about the person), so the release shows whether anything besides
+    our tests still sends it. ⚠ **The next release refuses it: 422 `legacy_role_field`**, the code invitations already
+    answer for `assignRole` (`invite.controller.ts`). Read the logs of the release first; those four tests then assert
+    the 422.
+  - **A renamed built-in role shows its own name** (answer 4). `roleDisplay` gives the template key only while the role
+    still carries its template's name (`templateOf(key).name`); a built-in the org renamed (`updateRole` renames any but
+    the Administrator) shows that name in the org menu, the org picker, an invitation and the SUPTO operators export,
+    as on the Roles screen.
+  - **Wording** (answer 2): the `backup` route rule (`config/access/routes.ts`) says "the Administrator of this org".
 
 ### P3-6 · Delete the legacy code
 - Delete `AREAS`, `holdsArea`, `mergeAreas`, `DEFAULT_ROLE_AREAS` and `ROLE_PERMISSION_SET_NAMES`.
@@ -239,6 +256,9 @@ tests (`packages/tests/`, `packages/e2e/`), which state fixtures. Four rules, on
   test-org copy's admins and `scripts/register-docs-in-pv.ts`: a person without a role is no Administrator.
 - Found after rebasing on master: `scripts/lib/daily-import.ts#gateGrantSession` judged a server that answers no
   `access` by the session's `role` claim (`claim === 'admin'`). It now stops such a session: no claim decides.
+- **The SUPTO documents** (`docs/supto/`, the description that goes to the NRA; the owner's follow-up to answer 4 on
+  #529) describe the role model since Phase 3: roles of capabilities, the ten built-in roles, the token's `rid`/`rv`,
+  `roleHistory` by `roleId`/`roleName`, and the legacy fields archived by 0017 and dropped by 0020.
 
 ### P3-9 · The archive goes (one-way, one release after P3-7)
 - Migration **0020** (`0020-legacy-access-archive-drop`; planned as "0018", but 0018 went to FR-30's product search

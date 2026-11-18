@@ -70,7 +70,7 @@ test.beforeAll(async () => {
 
   // A Seller: holds Inventory and Invoicing, but its areas lack the purchases, so it may not read a bill.
   const { user } = await okJson(await apiPost(admin, '/user', {
-    email: `${sellerName}@acme.com`, username: sellerName, password: PASSWORD, firstName: 'Counter', lastName: 'Seller', role: 'seller',
+    email: `${sellerName}@acme.com`, username: sellerName, password: PASSWORD, firstName: 'Counter', lastName: 'Seller', roleKey: 'seller',
   }))
   ids.seller = user?._id || user?.id
 })

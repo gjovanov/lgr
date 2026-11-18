@@ -200,7 +200,7 @@ describe('S-14: no route hands out a secret', () => {
 
   it('creating a user answers without the hash the admin just set', async () => {
     const res = await call('POST', `/api/org/${orgId}/user/`, {
-      email: 'new@s14.test', username: 'new-s14', password: 'a-long-enough-password', firstName: 'New', lastName: 'Person', role: 'member',
+      email: 'new@s14.test', username: 'new-s14', password: 'a-long-enough-password', firstName: 'New', lastName: 'Person', roleKey: 'member',
     })
     expect(res.status).toBe(200)
     expect(JSON.parse(res.text).user.email).toBe('new@s14.test')

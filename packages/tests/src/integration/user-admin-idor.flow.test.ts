@@ -101,7 +101,7 @@ describe('S-21: /org/:orgId/user/:userId stays inside :orgId', () => {
 
     const res = await call('PUT', `/api/org/${orgA.orgId}/user/${victimInB}`, adminOfA, {
       password: 'taken-over-by-a',
-      role: 'admin',
+      roleKey: 'admin',
       email: 'attacker@idor-a.test',
     })
 

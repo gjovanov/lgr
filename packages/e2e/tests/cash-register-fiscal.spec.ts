@@ -70,7 +70,7 @@ test.describe('FR-21 — the cash register on a fiscal device', () => {
     const person = async (role: 'sales' | 'manager') => {
       const username = `e2e-${role}-${run}`
       await ok(admin, 'POST', '/user', {
-        email: `${username}@lgr.test`, username, password: 'e2e-test-pw-12345', firstName: 'E2E', lastName: role, role,
+        email: `${username}@lgr.test`, username, password: 'e2e-test-pw-12345', firstName: 'E2E', lastName: role, roleKey: role,
       })
       return apiLogin('acme-corp', username, 'e2e-test-pw-12345')
     }

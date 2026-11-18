@@ -125,6 +125,22 @@ Why each one exists, and what was built around it: [`docs/history/access.md`](..
   legacy fields do, and those are left alone. ⚠ So an org whose system set was edited changes nobody's access: that
   person gets no role yet, and their claims decide.
 
+- **A user route names the role by `roleId` or `roleKey`** (FR-27.3, #529, the owner's answer 3): `POST`/`PUT /user`
+  take `roleKey`, a built-in role's template key (`seller`, `manager`…), which is the same in every org where a role id
+  is not, resolved to that org's built-in role (`role.service#namedRoleId`). An unknown key is 422 `unknown_role_key`,
+  `roleId` with `roleKey` 422 `role_id_and_key`, either with the legacy `role` 422 `role_and_legacy`. Tests and e2e
+  files send `roleKey`.
+  - ⚠ A legacy `role` key on `POST`/`PUT /user` is still the built-in role of that key in this release, and every use
+    is logged at warn (`legacy role field on a user route`: the route, the org and the key, never the person). The
+    next release refuses it, 422 `legacy_role_field`, as invitations refuse `assignRole`: read that release's logs
+    first. A new caller sends `roleKey`.
+
+- **How a role is named outside the roles screens** (`config/access/roles.ts#roleDisplay`: the org menu, the org picker,
+  an invitation, the SUPTO operators export): a built-in role by its template key, which the SPA translates, while it
+  still carries its template's name; else the role's own name, as on the Roles screen.
+  - ⚠ A built-in role the org renamed shows the org's name (#529, answer 4): the key would be translated back to the
+    template's name, and the org menu and the export would disagree with the Roles screen.
+
 - **A page the role does not open (FR-27.7, Phase 2) shows "Not available for your role"** (`ui-shell/NotAvailable.vue`):
   both layouts (`ModuleLayout`, the portal's `DefaultLayout`) ask `ui-shared/access/page-access#usePageAccess`, and its
   view never mounts. The page is `pageAt(path, query)`: a registry page at its own path (a list, a new-document form)

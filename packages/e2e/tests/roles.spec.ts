@@ -35,7 +35,7 @@ test.describe('The Seller and the Sales Consultant', () => {
     const admin = await apiLogin()
     for (const [role, username] of Object.entries(users)) {
       const res = await apiPost(admin, '/user', {
-        email: `${username}@acme.com`, username, password: PASSWORD, firstName: 'Counter', lastName: role, role,
+        email: `${username}@acme.com`, username, password: PASSWORD, firstName: 'Counter', lastName: role, roleKey: role,
       })
       expect(res.ok, `create the ${role} → ${res.status}`).toBe(true)
     }

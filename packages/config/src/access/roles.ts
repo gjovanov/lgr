@@ -1,7 +1,7 @@
 import { isCapability, type CapabilityId } from './catalogue'
 import { ALL, type Grant } from './grant'
 import type { LegacyClaims } from './legacy'
-import { templateGrant } from './templates'
+import { templateGrant, templateOf } from './templates'
 
 /**
  * FR-27.3 (#529) — what a stored role grants. Import-pure: the server resolves it, and the editor shows it.
@@ -33,12 +33,17 @@ export function unknownCaps(role: RoleLike | null | undefined): string[] {
 
 /**
  * FR-27 P3-5 (#529): how a person's role is named outside the roles screens (the org menu, the org picker, an
- * invitation): a built-in role by its template key, which the SPA translates (`settings.roles.<key>`, as it did the
- * legacy key), any other by its name. Display only: nothing decides by it.
+ * invitation, the SUPTO operators table): a built-in role that still carries its template's name by its template key,
+ * which the SPA translates (`settings.roles.<key>`, as it did the legacy key), any other by its name. Display only:
+ * nothing decides by it.
+ *
+ * ⚠ A built-in role the org renamed (`updateRole` renames any but the Administrator) shows the org's name, as the Roles
+ * screen does: the key would be translated back to the template's name, and the org menu and the export would
+ * disagree with the Roles screen (#529, answer 4).
  */
 export function roleDisplay(role: { isBuiltin?: boolean; templateKey?: string | null; name?: string | null } | null | undefined): string {
   if (!role) return ''
-  if (role.isBuiltin && role.templateKey) return role.templateKey
+  if (role.isBuiltin && role.templateKey && (!role.name || role.name === templateOf(role.templateKey)?.name)) return role.templateKey
   return role.name ?? ''
 }
 
