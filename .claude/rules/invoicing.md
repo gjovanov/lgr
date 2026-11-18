@@ -583,3 +583,19 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
   (`lib/counter-issue#counterAtIssue`) and finishing a dead receipt before an edit (`finishInterruptedDocuments`) are
   passed to the service by the route, which calls them by name. That call is how `unit/fiscal-route-declared` sees the
   route reach a device: a port passed as a plain object would hide it.
+
+## One base for the two order forms (2026-11-18, FR-32.23, #797)
+
+- **Where it lives.** The supplier order (`OrderFormView.vue`, ORDO) and the customer order
+  (`InternalOrderFormView.vue`, ORDI) stand on `composables/order-form/useOrderFormBase.ts`: the number and status on
+  the screen, the reservations and invoices the GET returns, the contact pools and the warehouses, Delete, the number
+  a new order gets, and the order-wide actions with Cancel and Complete asking first. `components/order-form/` holds
+  the foot both share (`OrderFormFooter`: notes, terms, tags, the totals and Save) and each form's own cards and
+  dialogs; `composables/order-form/` holds each form's body, its load and its tree's cells. `unit/order-form-size`
+  holds each form to 900 lines (they were 1 544 and 1 564).
+- ⚠ **A form's `usePendingChanges` stays in the view, after `useOrderFormBase` and before its `onMounted`.** The clean
+  state is taken when the load resolves (FR-31.2, `snapshotPending()` at the end of `loadOrder`): a base that
+  registered the guard or the mount itself would change the order the hooks run in.
+- ⚠ **Code moved from a `.vue` into a `.ts` file is linted for floating promises.** oxlint reads the `.ts` files, not
+  the script blocks of `.vue` files: a `router.push(…)`, a `nextTick(…)` or an action left unawaited there is written
+  `void …`, as `useOrderFormBase#deleteOrder` does.
