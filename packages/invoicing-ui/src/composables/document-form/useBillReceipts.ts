@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { billFromReceipt, linkReceipts, listBillableReceipts, type BillableReceipt } from '../../api/bills'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { appHref } from 'ui-shared/nav/navigate'
@@ -28,17 +28,7 @@ export interface LinkedReceipt {
   lines: Array<{ productId: string; quantity: number; unitCost: number }>
 }
 
-export interface BillableReceipt {
-  id: string
-  number: string
-  date: string
-  lineCount: number
-  total: number
-  /** It names no supplier, and takes the bill's (FR-22.31a). */
-  noSupplier?: boolean
-  /** Its notes, when it names no supplier: all there is to tell whose goods they were. */
-  notes?: string
-}
+export type { BillableReceipt } from '../../api/bills'
 
 /** Per article: what the receipts received, and at what average cost. */
 export function receivedByProduct(receipts: LinkedReceipt[]): Map<string, { quantity: number; cost: number }> {
@@ -106,8 +96,7 @@ export function useBillReceipts(doc: DocForm) {
     dialogOpen.value = true
     loading.value = true
     try {
-      const { data } = await httpClient.get(`${doc.orgUrl()}/invoicing/bills/billable-receipts`, { params: { contactId: doc.form.contactId } })
-      billable.value = data.receipts || []
+      billable.value = (await listBillableReceipts(doc.form.contactId)).receipts
       selected.value = preselectedReceipts(billable.value)
     } catch (e: any) {
       showError(e?.response?.data?.message || t('common.operationFailed'))
@@ -134,14 +123,14 @@ export function useBillReceipts(doc: DocForm) {
           dialogOpen.value = false
           return
         }
-        await httpClient.post(`${doc.orgUrl()}/invoicing/bills/${id}/link-receipts`, {
+        await linkReceipts(id, {
           movementIds: selected.value,
           contactId: doc.form.contactId,
           ...(filledLines.value ? { replaceLines: true } : {}),
         })
       } else {
         // A bill not saved yet: the server makes it from the receipts, with what was typed so far.
-        const { data } = await httpClient.post(`${doc.orgUrl()}/invoicing/bills/from-receipt`, {
+        const { invoice } = await billFromReceipt({
           movementIds: selected.value,
           contactId: doc.form.contactId,
           // The bill this form was typing keeps none of its lines, so it may not change its money either.
@@ -154,8 +143,8 @@ export function useBillReceipts(doc: DocForm) {
         })
         doc.markSaved()
         // The bill this form was typing, now saved: the form stays mounted for it (FR-22.16).
-        doc.adoptCreated(String(data.invoice.id))
-        await router.replace({ name: `${doc.config.listRouteName}.edit`, params: { id: data.invoice.id } })
+        doc.adoptCreated(invoice._id)
+        await router.replace({ name: `${doc.config.listRouteName}.edit`, params: { id: invoice._id } })
       }
       dialogOpen.value = false
       await doc.loadDocument()

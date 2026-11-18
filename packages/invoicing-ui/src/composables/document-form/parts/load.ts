@@ -7,7 +7,7 @@
  * after `usePendingChanges`'s own (`state.ts`), so the clean state is taken when the load resolves (FR-31 A1).
  */
 import { onMounted } from 'vue'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getDocument, peekNextDocumentNumber } from '../../../api/documents'
 import { takeHandedDocument } from '../document-preread'
 import { emptyBillingAddress, type FormState, type Line } from './state'
 import type { FormLines } from './lines'
@@ -18,7 +18,7 @@ export function useFormLoad(s: FormState, lines: FormLines, gr: FormProductUpdat
   const {
     config, t, route, showSuccess, feedback, baseCurrency, defaultVatRate, isEdit, warehouses,
     invoiceStatus, invoiceNumber, invoiceData, peekedNumber, docTaxRate, userDefaultWarehouseId, loadUserDefaultWarehouse,
-    form, emptyLine, rememberedPaymentMethod, markLoaded, tryRestore, orgUrl, grColumnsVisible, printNote, companionNote,
+    form, emptyLine, rememberedPaymentMethod, markLoaded, tryRestore, grColumnsVisible, printNote, companionNote,
     noteLoaded,
   } = s
   const { filledFormLines, syncDocLevelFromLines, onDocWarehouseChange, seedPlaceOfDeal } = lines
@@ -85,8 +85,7 @@ export function useFormLoad(s: FormState, lines: FormLines, gr: FormProductUpdat
 
   async function fetchPeekedNumber() {
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/invoices/peek-next`, { params: config.peekParams })
-      peekedNumber.value = data.next || ''
+      peekedNumber.value = (await peekNextDocumentNumber(config.peekParams)).next
     } catch {
       /* keep empty */
     }
@@ -131,7 +130,7 @@ export function useFormLoad(s: FormState, lines: FormLines, gr: FormProductUpdat
     try {
       // FR-30.10: what the view read to choose this form, when it did; else the document is read here.
       const id = String(route.params.id)
-      const data = takeHandedDocument(id) ?? (await httpClient.get(`${orgUrl()}/invoices/${id}`)).data
+      const data = takeHandedDocument<Awaited<ReturnType<typeof getDocument>>>(id) ?? (await getDocument(id))
       const inv = data.invoice
       // What was just loaded is the clean state (FR-22.13, FR-31.2), with whatever it awaits: the contact, a bill's
       // seeded lines. An edit made while it loaded stays an edit. After a save that stays on the document (FR-22.16)
@@ -140,12 +139,12 @@ export function useFormLoad(s: FormState, lines: FormLines, gr: FormProductUpdat
         invoiceStatus.value = inv.status || 'draft'
         invoiceNumber.value = inv.invoiceNumber || ''
         invoiceData.value = inv
-        form.contactId = inv.contactId?._id || inv.contactId || ''
-        // Persisted in `reference`; the legacy key is read first for any document that
-        // predates the fix (it was never actually stored, but costs nothing to honour).
-        form.supplierInvoiceNumber = inv.supplierInvoiceNumber || inv.reference || ''
+        // The read names the contact (`{ _id, companyName… }`), or gives the stored id when it is gone.
+        form.contactId = typeof inv.contactId === 'object' ? inv.contactId._id : inv.contactId ?? ''
+        // The supplier's own invoice number is stored in `reference` (the model has no `supplierInvoiceNumber`).
+        form.supplierInvoiceNumber = inv.reference || ''
         form.relatedInvoiceId = inv.relatedInvoiceId || ''
-        form.issueDate = inv.issueDate?.split('T')[0] || inv.date?.split('T')[0] || ''
+        form.issueDate = inv.issueDate.split('T')[0]
         form.dueDate = inv.dueDate?.split('T')[0] || ''
         // A proforma's validity is stored as its dueDate (B-11): the model has no validUntil.
         form.validUntil = config.secondaryDate === 'validUntil' ? form.dueDate : ''

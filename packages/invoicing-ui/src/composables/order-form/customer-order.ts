@@ -1,5 +1,6 @@
 import { orderLineQuery } from '../order-tree/links'
 import type { ReservationRow } from '../order-tree/types'
+import type { OrderPriority } from '../../api/internal-orders'
 
 /**
  * The customer order (ORDI) as its form holds it, and as its PUT/POST carries it and its GET returns it: plain
@@ -78,7 +79,8 @@ export function customerOrderBody(form: CustomerOrderForm) {
     contactId: form.contactId,
     issueDate: form.issueDate,
     requestedDeliveryDate: form.requestedDeliveryDate,
-    priority: form.priority,
+    // The form's select offers the four the schema names.
+    priority: form.priority as OrderPriority,
     warehouseId: form.warehouseId || undefined,
     currency: form.currency,
     exchangeRate: form.exchangeRate || 1,

@@ -329,7 +329,6 @@
     <!-- Cover shortages, and a supplier order for them: opened from the Reservations card and from a line's + Reserve. -->
     <ShortageDialogs
       ref="shortages"
-      :org-url="orgUrl()"
       :warehouse-id="form.warehouseId"
       :warehouses="warehouses"
       :supplier-options="supplierOptions"
@@ -358,7 +357,11 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import {
+  convertInternalOrder, createInternalOrder, customerOrderRoutes, getInternalOrder, reserveAvailable as reserveAvailableOn,
+  updateInternalOrder, type InternalOrderRead,
+} from '../api/internal-orders'
+import { repeatReservation } from '../api/reservations'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useAccess } from 'ui-shared/access/useAccess'
 import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/components/EntityFormShell.vue'
@@ -410,7 +413,7 @@ const {
   contactNames, knownProducts, knownOf, onContactSearch, fetchContacts, adoptContact, warehouses, fetchWarehouses, warehouseName,
   createAttempt, fetchPeekedNumber, deleteOrder, doAction, cascade, cascadeNow, cancelOrder, completeOrder, confirmCascade,
 } = useOrderFormBase({
-  api: 'internal-orders',
+  routes: customerOrderRoutes,
   listRoute: 'invoicing.internalOrders',
   side: 'client',
   deleteConfirmKey: 'invoicing.deleteInternalOrderConfirm',
@@ -451,10 +454,10 @@ const repeating = ref('')
 async function reserveAgain(res: any) {
   repeating.value = res._id
   try {
-    const { data } = await httpClient.post(`${orgUrl()}/invoicing/reservations/${res._id}/repeat`, {})
-    showSuccess(data.created
-      ? t('invoicing.reservations.reservedAgain', { number: data.reservation.reservationNumber })
-      : t('invoicing.reservations.alreadyReservedAgain', { number: data.reservation.reservationNumber }))
+    const { reservation, created } = await repeatReservation(res._id, {})
+    showSuccess(created
+      ? t('invoicing.reservations.reservedAgain', { number: reservation.reservationNumber })
+      : t('invoicing.reservations.alreadyReservedAgain', { number: reservation.reservationNumber }))
     await refreshReservations()
   } catch (e: any) {
     showError(reservationErrorMessage(e, t))
@@ -474,14 +477,12 @@ function figuresOf(line: LineRow): LineFigures {
   return (line._id && lineFigures.value[String(line._id)]) || NO_FIGURES
 }
 /** The reservations, their orders' numbers and the names, as GET /internal-orders/:id answers them. */
-function takeReservations(data: any) {
-  reservations.value = data.reservations || []
-  linkedInvoices.value = data.lookup?.invoices || {}
-  if (data.lookup?.contacts) Object.assign(contactNames.value, data.lookup.contacts)
-  if (data.lookup?.products) knownProducts.value = data.lookup.products
-  if (data.lookup?.orders) {
-    for (const [oid, info] of Object.entries<any>(data.lookup.orders)) orderNumbers.value[oid] = info.orderNumber
-  }
+function takeReservations(data: InternalOrderRead) {
+  reservations.value = data.reservations
+  linkedInvoices.value = data.lookup.invoices
+  Object.assign(contactNames.value, data.lookup.contacts)
+  knownProducts.value = data.lookup.products
+  for (const [oid, info] of Object.entries(data.lookup.orders)) orderNumbers.value[oid] = info.orderNumber
 }
 
 /**
@@ -491,7 +492,7 @@ function takeReservations(data: any) {
  */
 async function refreshReservations() {
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`)
+    const data = await getInternalOrder(route.params.id as string)
     orderStatus.value = data.internalOrder.status
     lineFigures.value = figuresByLine(data.internalOrder.lines)
     takeReservations(data)
@@ -697,7 +698,7 @@ async function save(quiet = false): Promise<boolean> {
   saving.value = true
   try {
     if (isEdit.value) {
-      await httpClient.put(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`, customerOrderBody(form))
+      await updateInternalOrder(route.params.id as string, customerOrderBody(form))
       succeeded()
       if (!quiet) showSuccess(t('common.savedSuccessfully'))
       markSaved()
@@ -706,14 +707,14 @@ async function save(quiet = false): Promise<boolean> {
       markClean()
     } else {
       const payload = customerOrderBody(form)
-      const { data } = await createAttempt.run(payload, headers => httpClient.post(`${orgUrl()}/invoicing/internal-orders`, payload, { headers }))
+      const { internalOrder } = await createAttempt.run(payload, headers => createInternalOrder(payload, headers))
       succeeded()
       if (!quiet) showSuccess(t('common.savedSuccessfully'))
       markSaved()
-      router.replace({ name: 'invoicing.internalOrders.edit', params: { id: data.internalOrder._id } })
-      orderNumber.value = data.internalOrder.orderNumber
-      orderStatus.value = data.internalOrder.status
-      await loadOrder(data.internalOrder._id)
+      router.replace({ name: 'invoicing.internalOrders.edit', params: { id: internalOrder._id } })
+      orderNumber.value = internalOrder.orderNumber
+      orderStatus.value = internalOrder.status
+      await loadOrder(internalOrder._id)
       markClean()
     }
     return true
@@ -760,11 +761,11 @@ async function convertOrder() {
   if (!(await saveIfNeeded())) return
   loading.value = true
   try {
-    const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/convert`)
+    const data = await convertInternalOrder(route.params.id as string)
     // The message says what stays reserved on supplier orders; it outlives the move.
     conversion.converted(data)
     // FR-22.35: the user lands on the new draft invoice, which issues and prints from its own form.
-    await router.push({ name: 'invoicing.sales.edit', params: { id: String(data.invoice._id || data.invoice.id) } })
+    await router.push({ name: 'invoicing.sales.edit', params: { id: data.invoice._id } })
   } catch (e: any) {
     conversion.failed(e)
   } finally {
@@ -777,11 +778,11 @@ const reserving = ref(false)
 async function reserveAvailable() {
   reserving.value = true
   try {
-    const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/reserve-available`, {})
+    const data = await reserveAvailableOn(route.params.id as string, {})
     // FR-22.43: what stock could not cover is named, line by line — „no shortages" was the answer
     // even when nothing at all was free.
-    const created = data.created?.length || 0
-    const lines = (data.short || []).map((s: any) => t('invoicing.shortLine', {
+    const created = data.created.length
+    const lines = data.short.map((s) => t('invoicing.shortLine', {
       name: form.lines.find((l) => String(l._id) === String(s.lineId))?.description || '—',
       missing: s.missing,
     })).join(', ')
@@ -809,7 +810,7 @@ function openRelease(res: any) {
 async function loadOrder(id?: string) {
   loadStarted()
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/internal-orders/${id || route.params.id}`)
+    const data = await getInternalOrder(id || (route.params.id as string))
     const o = data.internalOrder
     orderStatus.value = o.status
     orderNumber.value = o.orderNumber

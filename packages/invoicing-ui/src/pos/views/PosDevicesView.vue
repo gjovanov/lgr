@@ -51,7 +51,7 @@
           hover
         >
           <template #item.name="{ item }">
-            <entity-link :label="item.name" :to="{ name: 'pos.devices.detail', params: { id: item._id || item.id } }" />
+            <entity-link :label="item.name" :to="{ name: 'pos.devices.detail', params: { id: item._id } }" />
           </template>
           <template #item.status="{ item }">
             <v-chip size="small" label :color="deviceStatusColor(item.status)">{{ stateLabel(item.status) }}</v-chip>
@@ -69,12 +69,12 @@
               v-if="runs && item.connectionType === 'browser'"
               size="small"
               variant="outlined"
-              :color="connectedDeviceId === (item._id || item.id) ? 'error' : 'success'"
-              :loading="connectingDeviceId === (item._id || item.id)"
-              :prepend-icon="connectedDeviceId === (item._id || item.id) ? 'mdi-printer-off' : 'mdi-printer'"
+              :color="connectedDeviceId === item._id ? 'error' : 'success'"
+              :loading="connectingDeviceId === item._id"
+              :prepend-icon="connectedDeviceId === item._id ? 'mdi-printer-off' : 'mdi-printer'"
               @click="toggleConnection(item)"
             >
-              {{ connectedDeviceId === (item._id || item.id) ? $t('pos.device.disconnect') : $t('pos.device.connect') }}
+              {{ connectedDeviceId === item._id ? $t('pos.device.disconnect') : $t('pos.device.connect') }}
             </v-btn>
             <!--
               FR-14.27 — "connected via Till 2". `bridgedBy` is read from the hub's LIVE socket
@@ -113,7 +113,7 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { recordFiscalDeviceStatus } from '../../api/fiscal-devices'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { runsDevices } from 'ui-shared/nav/page-registry'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -145,7 +145,7 @@ watch(() => fiscalBridge.status.value, async (val) => {
     // Find the device by deviceNumber to restore connectedDeviceId and update DB
     const dev = items.value.find((d: any) => d.deviceNumber === fiscalBridge.deviceNumber.value)
     if (dev) {
-      const devId = dev._id || dev.id
+      const devId = dev._id
       connectedDeviceId.value = devId
       await updateDeviceStatus(devId, 'online')
     }
@@ -206,15 +206,15 @@ const connectedDeviceId = ref<string | null>(null)
 const connectingDeviceId = ref<string | null>(null)
 
 /** Only for whoever runs devices: the server refuses anyone else the PUT, and the bridge records online and offline on its own. */
-async function updateDeviceStatus(id: string, status: string) {
+async function updateDeviceStatus(id: string, status: 'online' | 'offline' | 'error') {
   if (!runs) return
   try {
-    await httpClient.put(`${appStore.orgUrl()}/fiscal/device/${id}`, { status })
+    await recordFiscalDeviceStatus(id, status)
   } catch { /* best-effort status update */ }
 }
 
 async function toggleConnection(item: any) {
-  const id = item._id || item.id
+  const id = item._id
   if (connectedDeviceId.value === id) {
     // Disconnect
     await fiscalBridge.disconnect()

@@ -87,7 +87,7 @@ import { formatNumber, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getProduct } from '../api/products'
 import { setProductSearchMenuOpen } from 'ui-shared/composables/useProductSearchMenu'
 import { latestOnly } from 'ui-shared/composables/latest-only'
 import {
@@ -356,11 +356,9 @@ async function resolveProductName(pid: string | undefined) {
   if (found) { linkedProductName.value = found.name; return }
   if (props.known && props.known.id === String(pid)) { linkedProductName.value = props.known.name; return }
   try {
-    const orgId = appStore.currentOrg?.id
-    if (!orgId) return
-    const { data } = await httpClient.get(`/org/${orgId}/warehouse/product/${pid}`)
-    const p = data.product || data
-    linkedProductName.value = p.name || ''
+    if (!appStore.currentOrg?.id) return
+    const { product } = await getProduct(pid)
+    linkedProductName.value = product.name || ''
   } catch { linkedProductName.value = '' }
 }
 

@@ -5,7 +5,10 @@
  * (`?relatedInvoiceId=`), or an article (`?productId=`).
  */
 import { ref, watch } from 'vue'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getDocument, listDocuments, type DocumentContact, type DocumentListParams } from '../../../api/documents'
+import { getContact, listContacts, type Contact } from '../../../api/contacts'
+import { getProduct } from '../../../api/products'
+import { listWarehouses } from '../../../api/warehouses'
 import { reportError } from 'ui-shared/composables/report-error'
 import { linesFromRelatedInvoice, copyOfDocument, noteFromInvoice } from '../document-payload'
 import type { FormState, Line } from './state'
@@ -15,7 +18,7 @@ import type { FormProductUpdate } from './product-update'
 import type { FormProducts } from './products'
 
 export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricing, gr: FormProductUpdate, products: FormProducts) {
-  const { config, isEdit, form, contacts, warehouses, invoices, loadingContacts, selectedContact, orgUrl, emptyLine } = s
+  const { config, isEdit, form, contacts, warehouses, invoices, loadingContacts, selectedContact, emptyLine } = s
   const { syncDocLevelFromLines } = lines
   const { priceOptionsCache, docPriceKey, useLastPrice, reResolveLinePrices } = pricing
   const { seedUnseededLines } = gr
@@ -49,9 +52,10 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
     if (config.showRelatedInvoice) void fetchInvoices() // reference data, never rejects
   }
 
-  function onContactCreated(contact: any) {
+  /** The contact the create dialog made: the route's answer (`ContactAutocompleteWithCreate`). */
+  function onContactCreated(contact: Contact) {
     contacts.value.push(contact)
-    form.contactId = contact._id || contact.id
+    form.contactId = contact._id
     onContactChange(form.contactId)
   }
 
@@ -68,9 +72,8 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
           return
         }
         try {
-          const { data } = await httpClient.get(`${orgUrl()}/invoices/${newId}`)
-          const invoice = data.invoice
-          if (invoice?.lines?.length) {
+          const { invoice } = await getDocument(newId)
+          if (invoice.lines?.length) {
             form.lines = linesFromRelatedInvoice(invoice.lines)
             // The doc-level tax-rate / warehouse controls show what the copied lines carry.
             syncDocLevelFromLines()
@@ -89,9 +92,7 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
    */
   async function prefillFromInvoice(id: string) {
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/invoices/${id}`)
-      const invoice = data.invoice
-      if (!invoice) return
+      const { invoice } = await getDocument(id)
       const note = noteFromInvoice(invoice)
       form.contactId = note.contactId
       await ensureSelectedContactLoaded(invoice.contactId)
@@ -101,7 +102,7 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
       form.lines = note.lines as Line[]
       prefilledFrom = note.relatedInvoiceId
       if (!invoices.value.some((i: any) => i._id === note.relatedInvoiceId)) {
-        invoices.value = [{ ...invoice, _id: invoice._id || invoice.id }, ...invoices.value]
+        invoices.value = [invoice, ...invoices.value]
       }
       form.relatedInvoiceId = note.relatedInvoiceId
       syncDocLevelFromLines()
@@ -119,9 +120,7 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
    */
   async function prefillFromCopy(id: string) {
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/invoices/${id}`)
-      const source = data.invoice
-      if (!source) return
+      const { invoice: source } = await getDocument(id)
       const copy = copyOfDocument(source)
       form.contactId = copy.contactId
       await ensureSelectedContactLoaded(source.contactId)
@@ -158,13 +157,12 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
    */
   async function prefillFromProduct(id: string) {
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${encodeURIComponent(id)}`)
-      const product = data?.product
+      const { product } = await getProduct(encodeURIComponent(id))
       const line = form.lines[0]
-      if (!product || !line) return
-      line.productId = String(product._id || product.id)
+      if (!line) return
+      line.productId = product._id
       line.description = product.name
-      await onProductSelected(0, { ...product, _id: line.productId })
+      await onProductSelected(0, product)
     } catch {
       /* A blank form, as „Нов" opens. */
     }
@@ -186,8 +184,7 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
         count: 'none',
       }
       if (search) params.search = search
-      const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params })
-      contacts.value = data.contacts || []
+      contacts.value = (await listContacts(params)).contacts
       // A filtered result may drop the currently selected contact — keep it resolvable.
       if (form.contactId) await ensureSelectedContactLoaded(form.contactId)
     } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
@@ -205,10 +202,10 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
 
   // ── contact picker dialog (wide server-searched table, mirrors the product picker) ──
   const contactPickerOpen = ref(false)
-  function onContactPicked(c: any) {
-    const id = c?._id || c?.id
-    if (!id) return
-    if (!contacts.value.some((x: any) => x._id === id)) contacts.value = [{ ...c, _id: id }, ...contacts.value]
+  /** A row of the wide picker (`ContactPickerDialog`): the list route's contact. */
+  function onContactPicked(c: Contact) {
+    const id = c._id
+    if (!contacts.value.some((x: any) => x._id === id)) contacts.value = [c, ...contacts.value]
     form.contactId = id
     onContactChange(id)
   }
@@ -216,27 +213,24 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
   /** Ensure the invoice's selected contact is in the picker list even when it falls outside the
    * (paginated / type-filtered) contact fetch — otherwise the autocomplete shows the raw id and the
    * party block shows "—". Fetches the full contact (with addresses + tax numbers) by id. */
-  async function ensureSelectedContactLoaded(rawContactId: any) {
-    const id = rawContactId?._id || rawContactId
+  async function ensureSelectedContactLoaded(rawContactId: DocumentContact | string | undefined) {
+    // A document's read names its contact; the form holds the id.
+    const id = typeof rawContactId === 'object' ? rawContactId._id : rawContactId
     if (!id) return
     if (contacts.value.some((c: any) => c._id === id)) return
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/${id}`)
-      const c = data.contact
-      if (c) { c._id = c._id || c.id; contacts.value = [c, ...contacts.value] }
+      const { contact } = await getContact(id)
+      contacts.value = [contact, ...contacts.value]
     } catch {
       // Fallback to the invoice's populated contact (name only) so the picker isn't blank.
-      if (rawContactId && typeof rawContactId === 'object' && rawContactId.companyName) {
-        contacts.value = [{ ...rawContactId, _id: id }, ...contacts.value]
-      }
+      if (typeof rawContactId === 'object' && rawContactId.companyName) contacts.value = [rawContactId, ...contacts.value]
     }
   }
 
   async function fetchWarehouses() {
     try {
       // The endpoint paginates with size=10 by default — request all for the per-line DDL.
-      const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } })
-      warehouses.value = data.warehouses || []
+      warehouses.value = (await listWarehouses({ size: 1000 })).warehouses
     } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
   }
 
@@ -247,7 +241,7 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
    */
   async function fetchInvoices(search?: string) {
     try {
-      const params: Record<string, any> = {
+      const params: DocumentListParams = {
         type: 'invoice',
         direction: config.direction,
         status: 'sent,received,partially_paid,paid,overdue',
@@ -255,8 +249,7 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
       }
       if (search) params.search = search
       if (form.contactId) params.contactId = form.contactId
-      const { data } = await httpClient.get(`${orgUrl()}/invoices`, { params })
-      invoices.value = data.invoices || []
+      invoices.value = (await listDocuments(params)).invoices
       // A filtered result may drop the currently selected invoice — keep it resolvable.
       if (form.relatedInvoiceId) await ensureSelectedRelatedInvoiceLoaded(form.relatedInvoiceId)
     } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
@@ -274,8 +267,8 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
   async function ensureSelectedRelatedInvoiceLoaded(id: string) {
     if (!id || invoices.value.some((i: any) => i._id === id)) return
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/invoices/${id}`)
-      if (data.invoice) invoices.value = [data.invoice, ...invoices.value]
+      const { invoice } = await getDocument(id)
+      invoices.value = [invoice, ...invoices.value]
     } catch { /* The list keeps what it had: the picked id stays on the form. */ }
   }
 

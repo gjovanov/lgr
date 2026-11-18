@@ -34,15 +34,15 @@
  * Moved out of `OrderFormView` (FR-32.23); the request and what it says are the ones the form made.
  */
 import { computed, ref } from 'vue'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { convertOrderFor } from '../../api/orders'
 import { useConversionFeedback } from '../../composables/useConversionFeedback'
 
 const props = defineProps<{
   /** The order's reservations, as its GET returns them. */
   reservations: any[]
   contactNames: Record<string, string>
-  /** `/org/:orgId/invoicing/orders/:id` */
-  orderUrl: string
+  /** The supplier order. */
+  orderId: string
   /** The form's reload after a conversion. */
   reload: () => Promise<void>
 }>()
@@ -67,8 +67,7 @@ const convertibleClients = computed(() => {
 async function convertFor(contactId: string) {
   convertingId.value = contactId
   try {
-    const { data } = await httpClient.post(`${props.orderUrl}/convert`, { contactId })
-    conversion.converted(data)
+    conversion.converted(await convertOrderFor(props.orderId, { contactId }))
     await props.reload()
   } catch (e: any) {
     conversion.failed(e)

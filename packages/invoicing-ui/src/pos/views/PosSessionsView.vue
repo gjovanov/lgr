@@ -86,7 +86,7 @@
           <template #item.transactionCount="{ item }">
             <entity-link
               :label="String(item.transactionCount ?? 0)"
-              :to="{ name: 'invoicing.cash-sales', query: { session: item._id || item.id } }"
+              :to="{ name: 'invoicing.cash-sales', query: { session: item._id } }"
               :aria-label="$t('pos.sessionDocuments', { number: item.sessionNumber })"
               data-testid="session-documents"
             />
@@ -186,8 +186,7 @@
     <CloseSessionDialog
       v-if="closing"
       v-model="closeOpen"
-      :session-id="closing._id || closing.id"
-      :org-url="`/org/${appStore.currentOrg?.id}`"
+      :session-id="closing._id"
       :currency="closing.currency"
       :can-skip-fiscal="canSkipFiscal"
       @closed="onClosedAgain"
@@ -248,7 +247,10 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ChartView from 'ui-shared/components/ChartView.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import {
+  getSessionDeviceReport, getSessionReport, printSessionDeviceReport, printSessionReport, type SessionDeviceReportBody,
+} from '../../api/pos'
+import { listFiscalDevices } from '../../api/fiscal-devices'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { canOpenPage, grantOfViewer, pageById, runsDevices as runsDevicesFor } from 'ui-shared/nav/page-registry'
@@ -329,13 +331,13 @@ const reportError = ref('')
 const reportSessionId = ref('')
 
 async function openReport(item: any) {
-  reportSessionId.value = item._id || item.id
+  reportSessionId.value = item._id
   report.value = null
   reportError.value = ''
   reportOpen.value = true
   reportLoading.value = true
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/trade/pos/session/${reportSessionId.value}/report`)
+    const data = await getSessionReport(reportSessionId.value)
     report.value = data.report
     reportError.value = data.error || ''
   } catch (e: any) {
@@ -348,7 +350,7 @@ async function openReport(item: any) {
 async function printReport() {
   reportPrinting.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/trade/pos/session/${reportSessionId.value}/report/print`)
+    await printSessionReport(reportSessionId.value)
     reportError.value = ''
     showSuccess(t('pos.sessionReport.printed'))
   } catch (e: any) {
@@ -403,16 +405,16 @@ let reportFor = ''
 
 /** The device this session's reports print on, as the server resolves it, asked when the menu opens. */
 async function loadReportDevice(item: any) {
-  const id = String(item._id || item.id)
+  const id = String(item._id)
   reportFor = id
   reportDevice.value = null
   reportNotOnDevice.value = null
   deviceLoading.value = true
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/trade/pos/session/${id}/device-report`)
+    const data = await getSessionDeviceReport(id)
     if (reportFor !== id) return
     reportDevice.value = data.device
-    reportNotOnDevice.value = data.notOnDevice ?? null
+    reportNotOnDevice.value = data.notOnDevice
   } catch (e: any) {
     if (reportFor === id) showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
@@ -466,8 +468,9 @@ function chooseReport(kind: ReportKind, item: any) {
 async function printDeviceReport() {
   deviceReportPrinting.value = true
   try {
-    const id = reportSession.value._id || reportSession.value.id
-    await httpClient.post(`${appStore.orgUrl()}/trade/pos/session/${id}/device-report`, { kind: paramsKind.value, ...params.value })
+    // The kind chosen in the menu, and the fields its dialog holds (an X has none).
+    const body = { kind: paramsKind.value, ...params.value } as SessionDeviceReportBody
+    await printSessionDeviceReport(reportSession.value._id, body)
     paramsOpen.value = false
     showSuccess(t('pos.deviceReport.printed'))
   } catch (e: any) {
@@ -500,10 +503,9 @@ const clockDevices = ref<{ id: string; name: string }[]>([])
 async function loadClockDevices() {
   if (!can(grantOfViewer(sessionViewer()), 'devices.sync-time')) return
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/fiscal/device`, { params: { size: 100 } })
-    clockDevices.value = (data.fiscalDevices || [])
-      .filter((d: any) => d.clockHeld && d.isActive !== false)
-      .map((d: any) => ({ id: String(d._id || d.id), name: d.name }))
+    clockDevices.value = (await listFiscalDevices({ size: 100 })).fiscalDevices
+      .filter((d) => d.clockHeld && d.isActive !== false)
+      .map((d) => ({ id: d._id, name: d.name }))
   } catch {
     clockDevices.value = []
   }

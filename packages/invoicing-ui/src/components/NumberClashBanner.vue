@@ -59,7 +59,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { listNumberClashes, prepareClashCorrection } from '../api/number-clashes'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useAppStore } from '../store/app.store'
@@ -84,22 +84,20 @@ const fmt = (n: number, currency: string | null) => formatCurrency(n, currency ?
 const isLater = (c: any, d: any) => (c.later === 'flagged' ? c.flagged?.id : c.other?.id) === d.id
 
 async function load() {
-  const orgId = appStore.currentOrg?.id
-  if (!orgId) return
+  if (!appStore.currentOrg?.id) return
   try {
-    clashes.value = (await httpClient.get(`/org/${orgId}/invoicing/number-clashes`)).data.clashes ?? []
+    clashes.value = (await listNumberClashes()).clashes
   } catch {
     clashes.value = []
   }
 }
 
 async function prepare(c: any) {
-  const orgId = appStore.currentOrg?.id
-  if (!orgId) return
+  if (!appStore.currentOrg?.id) return
   preparing.value = c.id
   error.value = ''
   try {
-    await httpClient.post(`/org/${orgId}/invoicing/number-clashes/${c.id}/prepare`)
+    await prepareClashCorrection(c.id)
     showSnackbar(t('invoicing.numberClash.preparedToast'), 'success')
     await load()
   } catch (e: any) {
