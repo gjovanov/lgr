@@ -172,7 +172,9 @@ import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createPaymentOrder, executePaymentOrder, updatePaymentOrder, type PaymentOrderBody } from '../api/payment-orders'
+import { listBankAccounts } from '../api/accounting'
+import { listDocuments } from '../api/documents'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -335,10 +337,10 @@ async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
   loading.value = true
   try {
-    const payload = { ...form.value }
-    if (!payload.bankAccountId) delete (payload as any).bankAccountId
-    if (editing.value) await httpClient.put(`${appStore.orgUrl()}/invoicing/payment-order/${selectedId.value}`, payload)
-    else await httpClient.post(`${appStore.orgUrl()}/invoicing/payment-order`, payload)
+    const payload: PaymentOrderBody = { ...form.value }
+    if (!payload.bankAccountId) delete payload.bankAccountId
+    if (editing.value) await updatePaymentOrder(selectedId.value, payload)
+    else await createPaymentOrder(payload)
     showSuccess(t('common.savedSuccessfully'))
     await fetchItems()
     markSaved()
@@ -351,7 +353,7 @@ async function save() {
 async function execute(item: Item) {
   loading.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/invoicing/payment-order/${item._id}/execute`)
+    await executePaymentOrder(item._id)
     showSuccess(t('invoicing.orderExecuted'))
     await fetchItems()
   } catch (e: any) {
@@ -361,15 +363,14 @@ async function execute(item: Item) {
 
 async function fetchBankAccounts() {
   // Every bank account (`size: 0`), not the API's first page of ten (FR-31.10).
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/bank-account`, { params: { size: 0 } }); bankAccounts.value = data.bankAccounts || [] } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
+  try { bankAccounts.value = (await listBankAccounts({ size: 0 })).bankAccounts } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 /**
  * The unpaid invoices the order may pay: the chosen contact's, searched by number on the server, the newest first
  * (FR-31.10). Those the order already names stay listed, so a saved order shows what it pays.
  */
-const unpaidRequest = latestOnly((signal, params: Record<string, string | number>) =>
-  httpClient.get(`${appStore.orgUrl()}/invoices`, { params, signal }))
+const unpaidRequest = latestOnly((signal, params: Record<string, string | number>) => listDocuments(params, signal))
 async function fetchUnpaidInvoices() {
   unpaidLoading.value = true
   try {
@@ -379,7 +380,7 @@ async function fetchUnpaidInvoices() {
     if (q) params.search = q
     const answer = await unpaidRequest(params)
     if (!answer.latest) return
-    const found: Invoice[] = (answer.value.data?.invoices || []).map((i: any) => ({ ...i, _id: String(i._id || i.id) }))
+    const found: Invoice[] = answer.value.invoices
     const ids = new Set(found.map(i => i._id))
     const chosen = new Set(form.value.invoiceIds || [])
     const kept = unpaidInvoices.value.filter(i => chosen.has(i._id) && !ids.has(i._id))

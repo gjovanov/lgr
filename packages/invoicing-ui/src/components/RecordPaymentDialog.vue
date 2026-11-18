@@ -55,7 +55,7 @@ import { intlLocale } from 'ui-shared/format'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { recordPayment, type PaymentBody } from '../api/documents'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
@@ -132,12 +132,12 @@ async function save() {
   refusal.value = ''
   printFailed.value = false
   try {
-    const { data } = await attempt.run({ id, ...form.value }, (headers) =>
-      httpClient.post(`${appStore.orgUrl()}/invoices/${id}/payments`, form.value, { headers }))
+    // The dialog offers the org's methods (`usePaymentMethods`), the five the route's schema names.
+    const data = await attempt.run({ id, ...form.value }, (headers) => recordPayment(id, form.value as PaymentBody, headers))
     // An interrupted print the device cannot confirm: the payment stands, and someone checks it.
-    if (data?.receiptError) showError(t('cashRegister.receipt.unknown', { reason: data.receiptError }))
-    else if (data?.stornos?.length) showSuccess(t('cashRegister.receipt.refundPrinted', { number: data.stornos.map((s: any) => s.number).join(', ') }))
-    else showSuccess(data?.receipt?.number ? t('cashRegister.receipt.printed', { number: data.receipt.number }) : t('invoicing.paymentRecorded'))
+    if (data.receiptError) showError(t('cashRegister.receipt.unknown', { reason: data.receiptError }))
+    else if (data.stornos?.length) showSuccess(t('cashRegister.receipt.refundPrinted', { number: data.stornos.map((s) => s.number).join(', ') }))
+    else showSuccess(data.receipt?.number ? t('cashRegister.receipt.printed', { number: data.receipt.number }) : t('invoicing.paymentRecorded'))
     emit('update:modelValue', false)
     emit('recorded')
   } catch (e: any) {

@@ -31,9 +31,8 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { updateReservation } from '../api/reservations'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { useAppStore } from '../store/app.store'
 import { reservationErrorMessage } from '../composables/reservation-errors'
 
 /**
@@ -45,7 +44,6 @@ const props = defineProps<{ modelValue: boolean; reservation: any | null; subtit
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; saved: [reservation: any] }>()
 
 const { t } = useI18n()
-const appStore = useAppStore()
 const { showSuccess } = useSnackbar()
 
 const quantity = ref(0)
@@ -63,9 +61,9 @@ async function save() {
   saving.value = true
   error.value = ''
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/reservations/${props.reservation._id}/update`, { quantity: quantity.value })
+    const { reservation } = await updateReservation(props.reservation._id, { quantity: quantity.value })
     showSuccess(t('common.savedSuccessfully'))
-    emit('saved', data.reservation)
+    emit('saved', reservation)
     emit('update:modelValue', false)
   } catch (e: any) {
     error.value = reservationErrorMessage(e, t)

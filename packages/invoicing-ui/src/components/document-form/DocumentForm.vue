@@ -511,7 +511,7 @@
 import { formatDate } from 'ui-shared/format'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { emailDocument } from '../../api/document-email'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import EntityFormShell from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
@@ -706,13 +706,13 @@ async function onSendEmail(payload: { to: string; subject?: string; message?: st
   emailLoading.value = true
   try {
     const id = route.params.id as string
-    const { data } = await httpClient.post(`${orgUrl()}/invoicing/export/${id}/email`, {
+    const answer = await emailDocument(id, {
       ...payload,
       locale: appStore.locale,
     })
     showEmailDialog.value = false
     // FR-20.86: on a server, the mail waits for lgrai.app. Its history is updated when it has gone.
-    if (data?.queued) {
+    if (!answer.sent) {
       showSuccess(t('invoicing.sendEmail.queuedTo', { to: payload.to }))
       return
     }

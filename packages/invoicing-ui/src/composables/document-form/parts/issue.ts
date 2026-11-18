@@ -4,7 +4,7 @@
  * fiscal receipts of an issued document (FR-23). `useDocumentForm#issueFromForm` is what issues from the form.
  */
 import { ref, computed, watch } from 'vue'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { printDeliveryReceipt as printDeliveryReceiptOf } from '../../../api/documents'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { useDocumentIssue } from '../../useDocumentIssue'
@@ -13,7 +13,7 @@ import type { FormState } from './state'
 import type { FormLoad } from './load'
 
 export function useFormIssue(s: FormState, load: FormLoad) {
-  const { config, t, route, showSuccess, showError, form, invoiceData, orgUrl } = s
+  const { config, t, route, showSuccess, showError, form, invoiceData } = s
   const { loadDocument } = load
 
   // ── issue (FR-22.17 / .18) ──
@@ -68,10 +68,10 @@ export function useFormIssue(s: FormState, load: FormLoad) {
     const id = String(route.params.id)
     printingReceipt.value = true
     try {
-      const { data } = await deliveryReceipt.run({ id }, headers => httpClient.post(`${orgUrl()}/invoices/${id}/receipt`, {}, { headers }))
+      const data = await deliveryReceipt.run({ id }, headers => printDeliveryReceiptOf(id, headers))
       receiptError.value = ''
-      if (data?.receiptError) showError(t('cashRegister.receipt.issuedUnknown', { reason: data.receiptError }))
-      else showSuccess(t('cashRegister.receipt.deliveryPrinted', { number: data?.receipt?.number }))
+      if (data.receiptError) showError(t('cashRegister.receipt.issuedUnknown', { reason: data.receiptError }))
+      else showSuccess(t('cashRegister.receipt.deliveryPrinted', { number: data.receipt?.number }))
     } catch (e: any) {
       receiptError.value = receiptRefusalMessage(t, e, t('common.operationFailed'))
       showError(receiptError.value)

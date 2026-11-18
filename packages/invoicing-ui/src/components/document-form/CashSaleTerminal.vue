@@ -304,7 +304,8 @@ import DateField from 'ui-shared/components/DateField.vue'
 import PriceSelectButton from 'ui-shared/components/PriceSelectButton.vue'
 import PriceCombobox from 'ui-shared/components/PriceCombobox.vue'
 import RegisterTerminal, { type RegisterCatalogProduct } from 'ui-shared/components/cash-register/RegisterTerminal.vue'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getCashSaleInvoicing, type InvoiceDocument } from '../../api/documents'
+import { listPosSessions } from '../../api/pos'
 import { jwtUserId } from 'ui-shared/composables/useStorageIdentity'
 import { useAccess } from 'ui-shared/access/useAccess'
 import { computePosTotals } from 'config/pos-totals'
@@ -367,14 +368,13 @@ const invoicing = ref<any>(null)
 async function loadInvoicing() {
   if (!isEdit.value) return
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}/to-invoice`)
-    invoicing.value = data.invoicing
+    invoicing.value = (await getCashSaleInvoicing(route.params.id as string)).invoicing
   } catch {
     invoicing.value = null
   }
 }
-function onInvoiceIssued(invoice: any) {
-  router.push({ name: 'invoicing.sales.edit', params: { id: invoice.id || invoice._id } })
+function onInvoiceIssued(invoice: InvoiceDocument) {
+  router.push({ name: 'invoicing.sales.edit', params: { id: invoice._id } })
 }
 onMounted(loadInvoicing)
 
@@ -452,8 +452,7 @@ async function loadOpenSession() {
   if (readonly.value) return
   try {
     const cashierId = (appStore.user as any)?.id || jwtUserId()
-    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/session`, { params: { status: 'open', size: 1, ...(cashierId ? { cashierId } : {}) } })
-    openSession.value = (data.sessions || [])[0] || null
+    openSession.value = (await listPosSessions({ status: 'open', size: 1, ...(cashierId ? { cashierId } : {}) })).sessions[0] || null
   } catch {
     openSession.value = null // no till access: the sale stays sessionless, as the server decides too
   } finally {

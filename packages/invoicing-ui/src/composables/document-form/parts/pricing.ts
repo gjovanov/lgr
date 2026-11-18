@@ -6,7 +6,7 @@
 import { formatDate } from 'ui-shared/format'
 import { ref, computed } from 'vue'
 import { tierLabel } from 'config/price-tiers'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getLastPrices, resolvePrice, type LastPricesParams, type PriceResolveParams } from '../../../api/pricing'
 import { fetchPriceOptions, type PriceOption } from 'ui-shared/composables/usePriceOptions'
 import { rememberedFlag } from 'ui-shared/composables/useUserDefaults'
 import { resolvesSalesPrice } from '../document-payload'
@@ -23,10 +23,10 @@ export function useFormPricing(s: FormState, gr: FormProductUpdate) {
     // A purchase document keeps the purchase price `onProductSelected` put on the line (B-10).
     if (!line?.productId || !resolvesSalesPrice(config)) return
     try {
-      const params: Record<string, string> = { productId: line.productId }
+      const params: PriceResolveParams = { productId: line.productId }
       if (form.contactId) params.contactId = form.contactId
       if (line.quantity) params.quantity = String(line.quantity)
-      const { data } = await httpClient.get(`${orgUrl()}/pricing/resolve`, { params })
+      const data = await resolvePrice(params)
       line.unitPrice = data.finalPrice
       line.priceExplanation = data.steps
       line.resolvedPrice = data.finalPrice
@@ -193,14 +193,13 @@ export function useFormPricing(s: FormState, gr: FormProductUpdate) {
 
   async function fetchLastPrices(productIds: string[]): Promise<Record<string, any>> {
     if (!form.contactId || !productIds.length) return {}
-    const params: Record<string, string> = {
+    const params: LastPricesParams = {
       contactId: form.contactId,
       productIds: [...new Set(productIds)].join(','),
     }
     if (form.currency) params.currency = form.currency
     if (isEdit.value) params.excludeId = route.params.id as string
-    const { data } = await httpClient.get(`${orgUrl()}/pricing/last-prices`, { params })
-    return data?.prices || {}
+    return (await getLastPrices(params)).prices
   }
 
   function setLastPrice(line: Line, lp: { price: number; invoiceNumber: string; issueDate: string }) {

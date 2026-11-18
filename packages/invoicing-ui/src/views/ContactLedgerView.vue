@@ -117,7 +117,7 @@ import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getContact } from '../api/contacts'
 import { isMovementRow, useContactLedger, type ContactLedgerEntry } from 'ui-shared/composables/useContactLedger'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -165,8 +165,7 @@ function documentRoute(item: ContactLedgerEntry) {
 
 async function fetchContactName() {
   try {
-    const { data } = await httpClient.get(`${orgUrl.value}/invoicing/contact/${contactId.value}`)
-    const c = data.contact || data
+    const { contact: c } = await getContact(contactId.value)
     contactName.value = c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || ''
   } catch { /* The ledger shows without the name in its title; the HTTP client says a network failure or a 5xx. */ }
 }

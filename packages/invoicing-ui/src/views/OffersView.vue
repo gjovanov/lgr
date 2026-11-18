@@ -146,7 +146,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { convertQuote, deleteDocument, voidDocument } from '../api/documents'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -291,11 +291,9 @@ function convertedRoute(item: Item) {
 async function convert(item: Item, target: Target) {
   loading.value = true
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/convert`, { target })
+    const { invoice } = await convertQuote(item._id, { target })
     showSuccess(t(target === 'proforma' ? 'invoicing.convertedToProforma' : 'invoicing.convertedToInvoice'))
-    const createdId = data?.invoice?.id || data?.invoice?._id
-    if (createdId) await router.push({ name: target === 'proforma' ? 'invoicing.proforma.edit' : 'invoicing.sales.edit', params: { id: String(createdId) } })
-    else await fetchItems()
+    await router.push({ name: target === 'proforma' ? 'invoicing.proforma.edit' : 'invoicing.sales.edit', params: { id: invoice._id } })
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
     await fetchItems()
@@ -317,7 +315,7 @@ async function doVoid() {
   if (!item) return
   loading.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/void`)
+    await voidDocument(item._id)
     showSuccess(t('invoicing.offerVoided'))
     voidDialog.value = false
     await fetchItems()
@@ -347,7 +345,7 @@ function rowActions(item: Item): RowAction[] {
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/invoices/${selectedId.value}`)
+    await deleteDocument(selectedId.value)
     showSuccess(t('common.deletedSuccessfully'))
     await fetchItems()
     deleteDialog.value = false

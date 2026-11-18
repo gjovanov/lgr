@@ -152,7 +152,8 @@
 import { intlLocale } from 'ui-shared/format'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getCashSaleInvoicing, invoiceCashSale, type CashSaleInvoiceBody, type CashSaleInvoicing, type InvoiceDocument } from '../api/documents'
+import { getContact, listContacts } from '../api/contacts'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
@@ -169,7 +170,7 @@ import { useAppStore } from '../store/app.store'
 const props = defineProps<{ modelValue: boolean; cashSaleId: string }>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  'issued': [invoice: any]
+  'issued': [invoice: InvoiceDocument]
 }>()
 
 const { t } = useI18n()
@@ -183,7 +184,7 @@ interface StateLine {
 }
 interface Row extends StateLine { take: number }
 
-const state = ref<any>(null)
+const state = ref<CashSaleInvoicing | null>(null)
 const loadingState = ref(false)
 const rows = ref<Row[]>([])
 const contactId = ref('')
@@ -250,8 +251,7 @@ async function fetchContacts(search?: string) {
     // FR-30.12: a type-ahead shows no total, so nothing is counted.
     const params: Record<string, any> = { type: 'customer', size: 20, fields: 'list', count: 'none' }
     if (search) params.search = search
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`, { params })
-    const list = data.contacts || []
+    const list = (await listContacts(params)).contacts
     const chosen = contacts.value.find(c => c._id === contactId.value)
     contacts.value = chosen && !list.some((c: any) => c._id === chosen._id) ? [chosen, ...list] : list
   } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
@@ -266,7 +266,7 @@ function onContactCreated(c: any) {
   contacts.value = [c, ...contacts.value]
 }
 function onContactPicked(c: any) {
-  const id = c?._id || c?.id
+  const id = c?._id
   if (!id) return
   if (!contacts.value.some(x => x._id === id)) contacts.value = [{ ...c, _id: id }, ...contacts.value]
   contactId.value = id
@@ -274,8 +274,8 @@ function onContactPicked(c: any) {
 async function ensureContactLoaded(id: string) {
   if (!id || contacts.value.some(c => c._id === id)) return
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact/${id}`)
-    if (data.contact) contacts.value = [data.contact, ...contacts.value]
+    const { contact } = await getContact(id)
+    contacts.value = [contact, ...contacts.value]
   } catch { /* The list keeps what it had: the picked id stays on the form. */ }
 }
 
@@ -284,12 +284,12 @@ async function load() {
   state.value = null
   attempt = createIdempotentAction()
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoices/${props.cashSaleId}/to-invoice`)
-    state.value = data.invoicing
-    rows.value = (data.invoicing.lines as StateLine[])
+    const { invoicing } = await getCashSaleInvoicing(props.cashSaleId)
+    state.value = invoicing
+    rows.value = invoicing.lines
       .filter(l => l.quantity > 0)
       .map(l => ({ ...l, take: l.remaining }))
-    contactId.value = data.invoicing.cashSale.contactId || ''
+    contactId.value = invoicing.cashSale.contactId || ''
     issueDate.value = today()
     await fetchContacts()
     if (contactId.value) await ensureContactLoaded(contactId.value)
@@ -303,18 +303,17 @@ async function load() {
 
 async function submit(issue: boolean) {
   saving.value = issue ? 'issue' : 'draft'
-  const body: Record<string, any> = { contactId: contactId.value, issueDate: issueDate.value, issue, locale: appStore.locale }
+  const body: CashSaleInvoiceBody = { contactId: contactId.value, issueDate: issueDate.value, issue, locale: appStore.locale }
   // A sale to a named customer is invoiced whole: the server takes every line.
-  if (!state.value.wholeOnly) {
+  if (!state.value?.wholeOnly) {
     body.lines = rows.value.filter(r => (Number(r.take) || 0) > 0).map(r => ({ lineId: r.lineId, quantity: Number(r.take) }))
   }
   try {
-    const { data } = await attempt.run(body, headers =>
-      httpClient.post(`${appStore.orgUrl()}/invoices/${props.cashSaleId}/to-invoice`, body, { headers }))
+    const { invoice } = await attempt.run(body, headers => invoiceCashSale(props.cashSaleId, body, headers))
     showSuccess(issue
-      ? t('invoicing.cashSaleInvoice.issued', { number: data.invoice.invoiceNumber })
-      : t('invoicing.cashSaleInvoice.draftCreated', { number: data.invoice.invoiceNumber }))
-    emit('issued', data.invoice)
+      ? t('invoicing.cashSaleInvoice.issued', { number: invoice.invoiceNumber })
+      : t('invoicing.cashSaleInvoice.draftCreated', { number: invoice.invoiceNumber }))
+    emit('issued', invoice)
     emit('update:modelValue', false)
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

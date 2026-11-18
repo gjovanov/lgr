@@ -45,7 +45,7 @@
 import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { attachToCashSale, getCashSaleCandidates, type CashSaleCandidates, type InvoiceDocument } from '../api/documents'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useAppStore } from '../store/app.store'
 
@@ -58,7 +58,7 @@ import { useAppStore } from '../store/app.store'
 const props = defineProps<{ modelValue: boolean; invoiceId: string }>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  'attached': [invoice: any]
+  'attached': [invoice: InvoiceDocument]
 }>()
 
 const { t, te } = useI18n()
@@ -66,11 +66,7 @@ const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const localeCode = computed(() => intlLocale(appStore.locale))
 
-interface Offer {
-  eligible: boolean; code?: string; reason?: string; day: string; considered: number
-  candidates: Array<{ id: string; number: string; issueDate: string; total: number; currency: string; state: string }>
-}
-const offer = ref<Offer | null>(null)
+const offer = ref<CashSaleCandidates | null>(null)
 const picked = ref('')
 const loading = ref(false)
 const saving = ref(false)
@@ -88,7 +84,7 @@ async function load() {
   offer.value = null
   picked.value = ''
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoices/${props.invoiceId}/cash-sale-candidates`)
+    const data = await getCashSaleCandidates(props.invoiceId)
     offer.value = data
     if (data.eligible && data.candidates.length === 1) picked.value = data.candidates[0].id
   } catch (e: any) {
@@ -103,8 +99,8 @@ async function attach() {
   saving.value = true
   error.value = ''
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoices/${props.invoiceId}/attach-to-cash-sale`, { cashSaleId: picked.value })
-    emit('attached', data.invoice)
+    const { invoice } = await attachToCashSale(props.invoiceId, { cashSaleId: picked.value })
+    emit('attached', invoice)
     emit('update:modelValue', false)
   } catch (e: any) {
     error.value = refusalText(e?.response?.data?.code, e?.response?.data?.message)

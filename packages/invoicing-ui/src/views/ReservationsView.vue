@@ -150,7 +150,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { repeatReservation } from '../api/reservations'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -272,10 +272,10 @@ function onCreated(reservation: any, created: boolean) {
 async function reserveAgain(item: any) {
   repeating.value = item._id
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/reservations/${item._id}/repeat`, {})
-    showSuccess(data.created
-      ? t('invoicing.reservations.reservedAgain', { number: data.reservation.reservationNumber })
-      : t('invoicing.reservations.alreadyReservedAgain', { number: data.reservation.reservationNumber }))
+    const { reservation, created } = await repeatReservation(item._id, {})
+    showSuccess(created
+      ? t('invoicing.reservations.reservedAgain', { number: reservation.reservationNumber })
+      : t('invoicing.reservations.alreadyReservedAgain', { number: reservation.reservationNumber }))
     await fetchItems()
   } catch (e: any) {
     // FR-22 §5.7: its source has nothing free any more — the dialog, with the shortage named.

@@ -146,7 +146,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { convertQuote, deleteDocument, voidDocument } from '../api/documents'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -285,11 +285,9 @@ function statusColor(s: string) { return ({ draft: 'grey', sent: 'info', convert
 async function convert(item: Item) {
   loading.value = true
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/convert`)
+    const { invoice } = await convertQuote(item._id)
     showSuccess(t('invoicing.convertedToInvoice'))
-    const invoiceId = data?.invoice?.id || data?.invoice?._id
-    if (invoiceId) await router.push({ name: 'invoicing.sales.edit', params: { id: String(invoiceId) } })
-    else await fetchItems()
+    await router.push({ name: 'invoicing.sales.edit', params: { id: invoice._id } })
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally { loading.value = false }
@@ -310,7 +308,7 @@ async function doVoid() {
   if (!item) return
   loading.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/void`)
+    await voidDocument(item._id)
     showSuccess(t('invoicing.proformaVoided'))
     voidDialog.value = false
     await fetchItems()
@@ -339,7 +337,7 @@ function rowActions(item: Item): RowAction[] {
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/invoices/${selectedId.value}`)
+    await deleteDocument(selectedId.value)
     showSuccess(t('common.deletedSuccessfully'))
     await fetchItems()
     deleteDialog.value = false

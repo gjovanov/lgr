@@ -33,8 +33,7 @@ import { DOCUMENT_CONFIGS } from '../composables/document-form/configs'
 import { useDocumentRouteKey } from '../composables/document-form/useDocumentRouteKey'
 import { handOverDocument, takeHandedDocument } from '../composables/document-form/document-preread'
 import type { DocType } from '../composables/document-form/types'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { useAppStore } from '../store/app.store'
+import { getDocument } from '../api/documents'
 
 type PurchaseApiType = 'invoice' | 'credit_note' | 'debit_note'
 const TYPES: PurchaseApiType[] = ['invoice', 'credit_note', 'debit_note']
@@ -47,7 +46,6 @@ const CONFIG_BY_TYPE: Record<PurchaseApiType, DocType> = {
 
 const route = useRoute()
 const router = useRouter()
-const appStore = useAppStore()
 const { formKey, adopt } = useDocumentRouteKey()
 
 const isEdit = computed(() => !!route.params.id)
@@ -66,14 +64,14 @@ async function resolveType() {
     try {
       // FR-30.10: the document is read once. What this read gets is handed to the form, which fills itself from it.
       const id = String(route.params.id)
-      const data = takeHandedDocument(id) ?? (await httpClient.get(`${appStore.orgUrl()}/invoices/${id}`)).data
+      const data = takeHandedDocument<Awaited<ReturnType<typeof getDocument>>>(id) ?? (await getDocument(id))
       handOverDocument(id, data)
       // Outgoing documents belong to the sales form — bounce over.
-      if (data.invoice?.direction === 'outgoing') {
+      if (data.invoice.direction === 'outgoing') {
         router.replace({ name: 'invoicing.sales.edit', params: { id: route.params.id as string } })
         return
       }
-      const t = data.invoice?.type as string
+      const t = data.invoice.type
       apiType.value = (TYPES as string[]).includes(t) ? (t as PurchaseApiType) : 'invoice'
     } catch {
       apiType.value = 'invoice'

@@ -86,29 +86,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { listSequences, updateSequence, type SequenceRow } from '../api/sequences'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
 
-interface SequenceRow {
-  prefix: string
-  defaultDisplay: string
-  displayPrefix: string
-  group: 'invoice' | 'proforma' | 'offer' | 'bill' | 'cash_sale' | 'order'
-    | 'internal_order' | 'reservation' | 'certificate' | 'pp_protocol' | 'pos_session'
-  variant: 'draft' | 'issued'
-  year: number
-  lastNumber: number
-  /** The org may number this series without a year (the sales documents). */
-  mayBeContinuous?: boolean
-  /** It does: ten digits, no year, on through the years. */
-  continuous?: boolean
-  padLength?: number
-}
-
 const { t } = useI18n()
-const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 
 const rows = ref<SequenceRow[]>([])
@@ -159,8 +141,7 @@ function onEdit(item: SequenceRow, value: string) {
 async function load() {
   loading.value = true
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/sequences`)
-    rows.value = data.sequences || []
+    rows.value = (await listSequences()).sequences
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
   } finally {
@@ -174,7 +155,7 @@ async function save(item: SequenceRow) {
   if (next === undefined) return
   saving.value = k
   try {
-    await httpClient.put(`${appStore.orgUrl()}/invoicing/sequences/${item.prefix}`, {
+    await updateSequence(item.prefix, {
       displayPrefix: next || null,
     })
     showSuccess(t('common.savedSuccessfully'))
@@ -191,7 +172,7 @@ async function save(item: SequenceRow) {
 async function saveContinuous(item: SequenceRow, continuous: boolean) {
   saving.value = `${keyOf(item)}:continuous`
   try {
-    await httpClient.put(`${appStore.orgUrl()}/invoicing/sequences/${item.prefix}`, { continuous })
+    await updateSequence(item.prefix, { continuous })
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))

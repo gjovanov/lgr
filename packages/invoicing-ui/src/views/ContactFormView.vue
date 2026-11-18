@@ -169,8 +169,8 @@
     </template>
 
     <ContactLedgerDialog v-model="invoicesDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" :selectable="false" />
-    <ContactUnpaidDialog v-model="balanceDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" :base-currency="baseCurrency" />
-    <ContactMovementsDialog v-model="movementsDialog" :contact-id="route.params.id as string" :org-url="orgUrl()" />
+    <ContactUnpaidDialog v-model="balanceDialog" :contact-id="route.params.id as string" :base-currency="baseCurrency" />
+    <ContactMovementsDialog v-model="movementsDialog" :contact-id="route.params.id as string" />
   </EntityFormShell>
 </template>
 
@@ -179,7 +179,9 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import {
+  createContact, getContact, getContactSummary, lookupCompany, updateContact, type ContactCreateBody,
+} from '../api/contacts'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import TagInput from 'ui-shared/components/TagInput.vue'
 import AddressBankEditor from 'ui-shared/components/AddressBankEditor.vue'
@@ -225,8 +227,7 @@ const summary = ref<{ invoiceCount: number; openBalance: number | null; currency
 async function fetchSummary() {
   if (!isEdit.value) return
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/${route.params.id}/summary`)
-    summary.value = data
+    summary.value = await getContactSummary(route.params.id as string)
   } catch { /* keep defaults */ }
 }
 
@@ -386,8 +387,7 @@ async function doLookup(value: string) {
   if (!value?.trim()) return
   lookingUp.value = true
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/lookup/${encodeURIComponent(value.trim())}`)
-    const info = data.company || data
+    const { company: info } = await lookupCompany(value.trim())
     // Always fill taxNumber/vatNumber when returned
     if (info.taxNumber) form.taxNumber = info.taxNumber
     if (info.vatNumber) form.vatNumber = info.vatNumber
@@ -430,9 +430,11 @@ async function handleSubmit() {
   loading.value = true
   try {
     if (isEdit.value) {
-      await httpClient.put(`${orgUrl()}/invoicing/contact/${route.params.id}`, buildContactPayload(form, 'update'))
+      await updateContact(route.params.id as string, buildContactPayload(form, 'update'))
     } else {
-      await httpClient.post(`${orgUrl()}/invoicing/contact`, buildContactPayload(form, 'create'))
+      // The shared builder (`ui-shared/composables/contact-payload`) writes the schema's fields; the form's type select
+      // offers the three kinds the schema takes.
+      await createContact(buildContactPayload(form, 'create') as ContactCreateBody)
     }
     markSaved()
     succeeded()
@@ -457,8 +459,7 @@ onMounted(async () => {
 async function loadContact() {
   loadStarted()
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact/${route.params.id}`)
-    const contact = data.contact || data
+    const { contact } = await getContact(route.params.id as string)
     await markLoaded(() => {
       Object.assign(form, {
         companyName: contact.companyName || '',

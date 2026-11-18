@@ -131,7 +131,8 @@
 import { formatDate } from 'ui-shared/format'
 import { ref, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createReservation, getReservationSources, repeatReservation } from '../api/reservations'
+import { getProduct, listProducts, type Product } from '../api/products'
 import { useContactSearch, contactTitle } from 'ui-shared/composables/useContactSearch'
 import { useAppStore } from '../store/app.store'
 import {
@@ -225,9 +226,9 @@ async function loadSources() {
   const mine = ++sourcesRequest
   loadingSources.value = true
   try {
-    const params: Record<string, string> = { productId: productId.value }
+    const params: { productId: string; contactId?: string } = { productId: productId.value }
     if (contactId.value) params.contactId = contactId.value
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/reservations/sources`, { params })
+    const data = await getReservationSources(params)
     if (mine !== sourcesRequest) return
     sources.value = data
     sourceKey.value = defaultSourceKey(options.value, quantity.value, sourceKey.value || preferredKey.value)
@@ -251,24 +252,23 @@ async function searchProducts(text: string) {
   const mine = ++productRequest
   loadingProducts.value = true
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`, { params: { search: text, size: 10 } })
+    const { products: matches } = await listProducts({ search: text, size: 10 })
     if (mine !== productRequest) return
-    const found = (data.products || []).map(asOption)
+    const found = matches.map(asOption)
     // Keep the chosen product resolvable while the list shows other matches.
-    const keep = product.value && !found.some((p: any) => p._id === product.value!._id) ? [product.value] : []
+    const keep = product.value && !found.some((p) => p._id === product.value!._id) ? [product.value] : []
     products.value = [...keep, ...found]
   } catch { /* keep what is shown */ } finally {
     if (mine === productRequest) loadingProducts.value = false
   }
 }
-function asOption(p: any) {
-  const id = String(p._id || p.id)
-  return { _id: id, name: p.name, sku: p.sku, unit: p.unit, label: p.sku ? `${p.name} (${p.sku})` : p.name }
+function asOption(p: Product) {
+  return { _id: p._id, name: p.name, sku: p.sku, unit: p.unit, label: p.sku ? `${p.name} (${p.sku})` : p.name }
 }
 async function loadProduct(id: string) {
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${id}`)
-    if (data?.product) products.value = [asOption(data.product)]
+    const { product: found } = await getProduct(id)
+    products.value = [asOption(found)]
   } catch { /* the field stays empty */ }
 }
 
@@ -355,21 +355,24 @@ function close() {
 }
 
 async function submit() {
-  if (!canSubmit.value || !selected.value) return
+  const client = contactId.value
+  const article = productId.value
+  if (!canSubmit.value || !selected.value || !client || !article) return
   saving.value = true
   error.value = ''
   const line = selectedLine.value
-  const body: Record<string, unknown> = {
+  const body = {
     quantity: Number(quantity.value),
-    contactId: contactId.value,
+    contactId: client,
     ...sourceBody(selected.value),
     ...(line ? { internalOrderId: line.internalOrderId, internalOrderLineId: line.lineId } : {}),
   }
   try {
-    const { data } = props.repeat
-      ? await httpClient.post(`${orgUrl()}/invoicing/reservations/${props.repeat._id}/repeat`, body)
-      : await httpClient.post(`${orgUrl()}/invoicing/reservations`, { productId: productId.value, ...body })
-    emit('created', data.reservation, data.created !== false)
+    // A repeat answers whether it made the copy; a new reservation always does.
+    const { reservation, created } = props.repeat
+      ? await repeatReservation(props.repeat._id, body)
+      : { ...(await createReservation({ productId: article, ...body })), created: true }
+    emit('created', reservation, created)
     close()
   } catch (e: any) {
     error.value = reservationErrorMessage(e, t)

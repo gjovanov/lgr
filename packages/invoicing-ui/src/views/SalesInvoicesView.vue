@@ -206,7 +206,7 @@ import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { deleteDocument, getDocumentSummary, voidDocument } from '../api/documents'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -371,8 +371,7 @@ async function fetchSummary() {
     if (dateFrom.value) params.startDate = dateFrom.value
     if (dateTo.value) params.endDate = dateTo.value
     if (tagFilter.value.length) params.tags = tagFilter.value.join(',')
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoices/summary`, { params })
-    summary.value = data.summary
+    summary.value = (await getDocumentSummary(params)).summary
   } catch {
     /* KPIs are non-critical — never block the list */
   } finally {
@@ -540,7 +539,7 @@ function openPaymentDialog(item: Invoice) {
 async function voidInvoice(item: Invoice) {
   loading.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/void`)
+    await voidDocument(item._id)
     showSuccess(t(VOIDED_KEY[item.type] || VOIDED_KEY.invoice))
     await refresh()
   } catch (e: any) {
@@ -606,7 +605,7 @@ function confirmDelete(item: Invoice) {
 
 async function doDelete() {
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/invoices/${selectedId.value}`)
+    await deleteDocument(selectedId.value)
     showSuccess(t('common.deletedSuccessfully'))
     await refresh()
     deleteDialog.value = false

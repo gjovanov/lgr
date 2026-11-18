@@ -98,7 +98,7 @@ import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { deleteInternalOrder, runInternalOrderAction } from '../api/internal-orders'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -198,7 +198,7 @@ function coverageColor(c: string) {
 async function confirmOrder(item: Item) {
   loading.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/invoicing/internal-orders/${item._id}/confirm`)
+    await runInternalOrderAction(item._id, 'confirm')
     showSuccess(t('invoicing.orderConfirmed'))
     await fetchItems()
   } catch (e: any) {
@@ -211,7 +211,7 @@ async function confirmOrder(item: Item) {
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/invoicing/internal-orders/${selectedId.value}`)
+    await deleteInternalOrder(selectedId.value)
     showSuccess(t('common.deletedSuccessfully'))
     await fetchItems()
     deleteDialog.value = false

@@ -428,13 +428,13 @@ function openQuickProduct(idx: number, name: string) {
   quickOpen.value = true
 }
 
-/** The new article (or the catalog's own, when it had it) goes on the line it was asked from. */
+/** The new article (or the catalog's own, when it had it) goes on the line it was asked from: the route's answer. */
 async function onQuickProductCreated(product: any) {
   const line = form.lines[quickLine]
   if (!line || !product) return
-  line.productId = product._id || product.id
+  line.productId = product._id
   line.description = product.name
-  await onProductSelected(quickLine, { ...product, _id: line.productId })
+  await onProductSelected(quickLine, product)
 }
 </script>
 

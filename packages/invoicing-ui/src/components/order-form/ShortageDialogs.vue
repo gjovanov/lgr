@@ -141,14 +141,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { formatDate } from 'ui-shared/format'
 import { askConfirm } from 'ui-shared/composables/confirm'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { generateExternalOrder, getInternalOrderSuggestions } from '../../api/internal-orders'
+import { createReservation, preemptReservation } from '../../api/reservations'
+import { listOrders } from '../../api/orders'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { reservationErrorMessage } from '../../composables/reservation-errors'
 import { asDraftOrder, defaultDraftFor, pickDraftsFor, type DraftOrder } from '../../composables/order-generate'
 import type { Warehouse } from '../../composables/order-form/useOrderFormBase'
 
 const props = defineProps<{
-  orgUrl: string
   /** The order's own warehouse, if it has one. */
   warehouseId?: string
   warehouses: Warehouse[]
@@ -167,7 +168,8 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const { showSuccess, showError } = useSnackbar()
-const orgUrl = () => props.orgUrl
+/** The client order the dialogs are about. */
+const orderId = () => route.params.id as string
 
 // ── cover-shortages dialog ──
 const coverDialog = ref(false)
@@ -197,14 +199,16 @@ function openCoverFor(lineId: string, section: 'stock' | 'order') {
 async function loadSuggestions() {
   loadingSuggestions.value = true
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/suggestions`)
-    for (const line of data.lines || []) {
+    const data = await getInternalOrderSuggestions(orderId())
+    // Each source gets the quantity its row offers (`_qty`), which the person may change.
+    const lines: any[] = data.lines
+    for (const line of lines) {
       for (const fs of line.freeStock) fs._qty = Math.min(line.openQuantity, fs.available)
       for (const inc of line.incoming) inc._qty = Math.min(line.openQuantity, inc.unreserved)
       for (const p of line.preemptable) p._qty = Math.min(line.openQuantity, p.releasable)
     }
-    suggestions.value = data.lines || []
-    sugLookup.value = data.lookup || {}
+    suggestions.value = lines
+    sugLookup.value = data.lookup
   } catch (e: any) {
     showError(reservationErrorMessage(e, t))
   } finally {
@@ -225,21 +229,21 @@ async function coverAction(fn: () => Promise<any>) {
   }
 }
 function reserveFromStock(line: any, fs: any) {
-  return coverAction(() => httpClient.post(`${orgUrl()}/invoicing/reservations`, {
+  return coverAction(() => createReservation({
     source: 'stock',
     productId: line.productId,
     quantity: fs._qty,
-    internalOrderId: route.params.id,
+    internalOrderId: orderId(),
     internalOrderLineId: line.lineId,
     warehouseId: fs.warehouseId,
   }))
 }
 function reserveFromOrder(line: any, inc: any) {
-  return coverAction(() => httpClient.post(`${orgUrl()}/invoicing/reservations`, {
+  return coverAction(() => createReservation({
     source: 'order',
     productId: line.productId,
     quantity: inc._qty,
-    internalOrderId: route.params.id,
+    internalOrderId: orderId(),
     internalOrderLineId: line.lineId,
     orderId: inc.orderId,
     groupId: inc.groupId,
@@ -249,8 +253,8 @@ function reserveFromOrder(line: any, inc: any) {
 }
 async function preempt(line: any, p: any) {
   if (!(await askConfirm({ text: t('invoicing.preemptConfirm', { number: p.reservationNumber }), confirm: t('invoicing.preempt') }))) return
-  return coverAction(() => httpClient.post(`${orgUrl()}/invoicing/reservations/${p.reservationId}/preempt`, {
-    internalOrderId: route.params.id,
+  return coverAction(() => preemptReservation(p.reservationId, {
+    internalOrderId: orderId(),
     internalOrderLineId: line.lineId,
     quantity: p._qty,
   }))
@@ -288,8 +292,7 @@ watch(() => generateRows.value.map((r) => r.supplierId).join('|'), () => {
 
 async function loadDraftOrders() {
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/orders`, { params: { status: 'draft', size: 100, sortBy: 'createdAt', sortOrder: 'desc' } })
-    draftOrders.value = (data.orders || []).map(asDraftOrder)
+    draftOrders.value = (await listOrders({ status: 'draft', size: 100, sortBy: 'createdAt', sortOrder: 'desc' })).orders.map(asDraftOrder)
   } catch {
     draftOrders.value = []
   }
@@ -329,14 +332,14 @@ async function submitGenerate() {
   generating.value = true
   const appending = generateTarget.value !== 'new'
   try {
-    const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/generate-external`, {
+    const { order } = await generateExternalOrder(orderId(), {
       lines,
       ...(appending ? { orderId: generateTarget.value } : {}),
     })
-    showSuccess(t(appending ? 'invoicing.externalOrderAppended' : 'invoicing.externalOrderCreated', { number: data.order.orderNumber }))
+    showSuccess(t(appending ? 'invoicing.externalOrderAppended' : 'invoicing.externalOrderCreated', { number: order.orderNumber }))
     generateDialog.value = false
     // FR-22.35: the user lands on the supplier order — the next step is sending it.
-    await router.push({ name: 'invoicing.orders.edit', params: { id: String(data.order._id) } })
+    await router.push({ name: 'invoicing.orders.edit', params: { id: order._id } })
   } catch (e: any) {
     showError(reservationErrorMessage(e, t))
   } finally {

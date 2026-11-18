@@ -4,7 +4,7 @@
  * получи" and a quote's conversion.
  */
 import { ref } from 'vue'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { convertQuote, createDocument, receiveBill, updateDocument, type DocumentBody } from '../../../api/documents'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { flushPriceLookups } from 'ui-shared/composables/price-lookups'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
@@ -21,7 +21,7 @@ import type { FormLoad } from './load'
 export function useFormSaving(s: FormState, totalsPart: FormTotals, lines: FormLines, load: FormLoad, opts: UseDocumentFormOptions) {
   const {
     config, t, route, router, appStore, feedback, showSuccess, isEdit, loading, form, baseCurrency, formRef, issueDateRef,
-    grColumnsVisible, payMethodMemory, markSaved, orgUrl, printNote, companionNote, isDirtyNow,
+    grColumnsVisible, payMethodMemory, markSaved, printNote, companionNote, isDirtyNow,
   } = s
   const { totals } = totalsPart
   const { showPlaceOfDeal } = lines
@@ -92,12 +92,13 @@ export function useFormSaving(s: FormState, totalsPart: FormTotals, lines: FormL
       let id = route.params.id ? String(route.params.id) : ''
       const created = !isEdit.value
       if (!created) {
-        await httpClient.put(`${orgUrl()}/invoices/${id}`, payload)
+        await updateDocument(id, payload)
       } else {
         // #155: an unanswered save keeps its key, so saving again returns the document it made
         // (a cash sale is issued and moves stock on create) instead of making a second one.
-        const { data } = await createAttempt.run(payload, headers => httpClient.post(`${orgUrl()}/invoices`, payload, { headers }))
-        id = String(data?.invoice?.id || data?.invoice?._id || '')
+        // `buildPayload` writes the schema's fields (`document-payload.ts`, held to the routes by its tests).
+        const { invoice } = await createAttempt.run(payload, headers => createDocument(payload as DocumentBody, headers))
+        id = invoice._id
       }
       markSaved()
       feedback.succeeded()
@@ -186,10 +187,10 @@ export function useFormSaving(s: FormState, totalsPart: FormTotals, lines: FormL
       // this one rather than saving a second.
       id = await persist(buildPayload(), { quiet: true })
       if (!id) return
-      const { data: received } = await httpClient.post(`${orgUrl()}/invoices/${id}/receive`)
+      const { invoice: received } = await receiveBill(id)
       // A bill made from receipts books no stock: its receipts did (FR-22.31).
       feedback.succeeded()
-      showSuccess(t(received?.invoice?.stockSource?.marker ? 'invoicing.linkDelivery.received' : 'invoicing.invoiceReceived'))
+      showSuccess(t(received.stockSource?.marker ? 'invoicing.linkDelivery.received' : 'invoicing.invoiceReceived'))
       await loadDocument()
     } catch (e: any) {
       receiptOverlap.value = id ? receiptOverlapOf(e, id) : null
@@ -216,11 +217,10 @@ export function useFormSaving(s: FormState, totalsPart: FormTotals, lines: FormL
     try {
       const id = await saveIfNeeded()
       if (!id) return
-      const { data } = await httpClient.post(`${orgUrl()}/invoices/${id}/convert`, { target })
+      const { invoice } = await convertQuote(id, { target })
       feedback.succeeded()
       showSuccess(t(target === 'proforma' ? 'invoicing.convertedToProforma' : 'invoicing.convertedToInvoice'))
-      const createdId = data?.invoice?.id || data?.invoice?._id
-      if (createdId) await router.push({ name: target === 'proforma' ? 'invoicing.proforma.edit' : 'invoicing.sales.edit', params: { id: String(createdId) } })
+      await router.push({ name: target === 'proforma' ? 'invoicing.proforma.edit' : 'invoicing.sales.edit', params: { id: invoice._id } })
     } catch (e: any) {
       feedback.refused(e?.response?.data?.message || t('common.operationFailed'))
     } finally {

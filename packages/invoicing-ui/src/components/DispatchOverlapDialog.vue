@@ -66,12 +66,12 @@
 import { formatDate } from 'ui-shared/format'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { linkSaleDispatches } from '../api/issue'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useContactSearch } from 'ui-shared/composables/useContactSearch'
 import ContactAutocompleteWithCreate from 'ui-shared/components/ContactAutocompleteWithCreate.vue'
 import { appHref } from 'ui-shared/nav/navigate'
-import { linkDispatches, preselectedDispatches, type DispatchOverlap, type QuantityDifference } from '../composables/document-issue'
+import { preselectedDispatches, type DispatchOverlap, type QuantityDifference } from '../composables/document-issue'
 
 /**
  * FR-22.61b: a sales invoice about to dispatch goods that may have already left on a stock note. The two ways out
@@ -138,7 +138,7 @@ async function link() {
   linking.value = true
   error.value = ''
   try {
-    const result = await linkDispatches(httpClient, props.orgUrl, overlap.invoiceId, {
+    const result = await linkSaleDispatches(overlap.invoiceId, {
       movementIds: selected.value,
       ...(differs.value.length ? { replaceLines: true } : {}),
       ...(overlap.needsCustomer ? { contactId: customerId.value } : {}),

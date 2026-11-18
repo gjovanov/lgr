@@ -7,6 +7,8 @@
  * applies; nothing here second-guesses them.
  */
 
+import type { ReservationSource } from '../api/reservations'
+
 export interface StockSource {
   warehouseId: string
   warehouseName: string
@@ -92,7 +94,7 @@ export function defaultSourceKey(options: SourceOption[], quantity: number, pref
 }
 
 /** The fields a source puts in `POST /reservations` (or a repeat). */
-export function sourceBody(o: SourceOption): Record<string, string> {
+export function sourceBody(o: SourceOption): ReservationSource {
   if (o.kind === 'stock') return { source: 'stock', warehouseId: o.stock.warehouseId }
   const a = o.allocation
   return { source: 'order', orderId: a.orderId, groupId: a.groupId, lineId: a.lineId, allocationId: a.allocationId }

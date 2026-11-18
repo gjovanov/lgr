@@ -61,7 +61,8 @@
 import { formatDate } from 'ui-shared/format'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { linkReceipts } from '../api/bills'
+import { receiveBill } from '../api/documents'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useContactSearch } from 'ui-shared/composables/useContactSearch'
@@ -130,7 +131,7 @@ async function link() {
   linking.value = true
   error.value = ''
   try {
-    await httpClient.post(`${props.orgUrl}/invoicing/bills/${overlap.billId}/link-receipts`, {
+    await linkReceipts(overlap.billId, {
       movementIds: selected.value,
       ...(overlap.typedLines ? { replaceLines: true } : {}),
       ...(overlap.needsSupplier ? { contactId: supplierId.value } : {}),
@@ -151,9 +152,9 @@ async function receiveAnyway() {
   receiving.value = true
   error.value = ''
   try {
-    const { data } = await httpClient.post(`${props.orgUrl}/invoices/${overlap.billId}/receive`, { acknowledgeOverlap: true })
+    const { invoice } = await receiveBill(overlap.billId, { acknowledgeOverlap: true })
     close()
-    emit('received', data?.invoice)
+    emit('received', invoice)
   } catch (e: any) {
     error.value = stockRefusalMessage(e, t)
   } finally {

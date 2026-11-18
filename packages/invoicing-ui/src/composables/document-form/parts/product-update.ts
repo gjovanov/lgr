@@ -3,12 +3,13 @@
  * product, and the purchase price that cascades to the tiers. The switch and the columns are `state.ts`'s.
  */
 import { watch } from 'vue'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getProduct, listProducts, type Product } from '../../../api/products'
+import { listProductCategories } from '../../../api/product-categories'
 import { cascadePurchasePrice, needsSeed, productsForSeed, seedFromProduct, setProductField, setTierPrice } from 'ui-shared/composables/gr-product-update'
 import type { FormState, Line } from './state'
 
 export function useFormProductUpdate(s: FormState) {
-  const { form, orgUrl, grColumnsVisible, grCategories } = s
+  const { form, grColumnsVisible, grCategories } = s
 
   // ── GR product-update helpers (purchase bills only) ──
   // What a line stages, its base and what reaches the product: `ui-shared/composables/gr-product-update.ts`.
@@ -21,10 +22,9 @@ export function useFormProductUpdate(s: FormState) {
     setTierPrice(line, tierName, val)
   }
 
-  async function fetchProductForSeed(id: string): Promise<any | null> {
+  async function fetchProductForSeed(id: string): Promise<Product | null> {
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product/${id}`)
-      return data.product || data
+      return (await getProduct(id)).product
     } catch {
       return null
     }
@@ -52,10 +52,10 @@ export function useFormProductUpdate(s: FormState) {
     if (!grColumnsVisible.value) return
     const pending = form.lines.filter(needsSeed)
     if (!pending.length) return
-    const products = await productsForSeed(async (ids) => {
-      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product`, { params: { ids: ids.join(','), size: ids.length } })
-      return data.products || []
-    }, [...new Set(pending.map((l) => String(l.productId)))])
+    const products = await productsForSeed(
+      async (ids) => (await listProducts({ ids: ids.join(','), size: ids.length })).products,
+      [...new Set(pending.map((l) => String(l.productId)))],
+    )
     for (const line of pending) {
       const p = products.get(String(line.productId))
       // Staged meanwhile (a product picked again while these loaded): that line keeps its own.
@@ -65,8 +65,7 @@ export function useFormProductUpdate(s: FormState) {
 
   async function fetchGRCategories() {
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/warehouse/product-category`, { params: { size: 0 } })
-      grCategories.value = data.productCategories || []
+      grCategories.value = (await listProductCategories({ size: 0 })).productCategories
     } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
   }
 

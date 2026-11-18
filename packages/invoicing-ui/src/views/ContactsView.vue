@@ -77,7 +77,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { deleteContact } from '../api/contacts'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -161,7 +161,7 @@ function confirmDelete(item: Contact) {
 
 async function doDelete() {
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/invoicing/contact/${selectedId.value}`)
+    await deleteContact(selectedId.value)
     showSuccess(t('common.deletedSuccessfully'))
     await fetchItems()
     deleteDialog.value = false

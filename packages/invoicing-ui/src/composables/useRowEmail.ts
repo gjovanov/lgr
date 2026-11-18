@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { emailDocument } from '../api/document-email'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAppStore } from '../store/app.store'
 
@@ -56,13 +56,13 @@ export function useRowEmail() {
     if (!row.value) return
     loading.value = true
     try {
-      const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/export/${row.value._id}/email`, {
+      const answer = await emailDocument(row.value._id, {
         ...payload,
         locale: appStore.locale,
       })
       dialogOpen.value = false
       // FR-20.86: on a server, the mail waits for lgrai.app.
-      showSuccess(t(data?.queued ? 'invoicing.sendEmail.queuedTo' : 'invoicing.sendEmail.sentTo', { to: payload.to }))
+      showSuccess(t(answer.sent ? 'invoicing.sendEmail.sentTo' : 'invoicing.sendEmail.queuedTo', { to: payload.to }))
     } catch (e: any) {
       // The server's message is the useful one — "not configured" and "the mail provider
       // rejected the message" are different problems with different fixes.
