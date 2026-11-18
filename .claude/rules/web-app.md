@@ -169,3 +169,17 @@ search still reads such an article by its mirrors, slower, until migration 0018 
   (`lgr:pay-method:<docType>:<user>:<org>`), written when a NEW document is saved — editing an old
   one changes nothing; a cash sale's method is fixed and never remembered. „Последна цена за
   клиента" (`lgr:last-price:<docType>`) on the invoice and, now, the proforma.
+
+## Typed API modules (FR-32.24, #797)
+
+- **A screen of `inventory-ui` makes no HTTP call itself.** It calls a function of
+  `inventory-ui/src/api/<resource>.ts`, which takes the body its route's schema declares and returns
+  the answer its handler returns; the screen reads that answer as typed, never `data.x || data` or
+  `_id || id`. A new call is a new function there, written from its controller. `invoicing-ui` goes
+  the same way, a screen at a time. `unit/ui-api-modules.test.ts` fails on a file of `inventory-ui`
+  outside `src/api/` that imports or calls the HTTP client or reads an id both ways, and on
+  `invoicing-ui`'s raw calls growing past their ceiling (lower it when a screen moves).
+- ⚠ **`unit/access-read-only` (FR-27.7) sees a view write by `httpClient.post|put|patch|delete` in
+  it**, or by a Save, Delete or pencil it shows. A view that writes through its API module and shows
+  none of those (the bulk price adjustment, the opening-stock import) is no longer seen as writing:
+  its `v-cap` is then its only gate, and nothing holds it there. Keep the gate when such a view changes.

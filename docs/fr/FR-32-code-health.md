@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-16. Slices A, C and D are built, and B but for FR-32.13; slice E has FR-32.21, .22, .25 and .26, and .23 and .24 are to come (§11). The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-16. Slices A, C and D are built, and B but for FR-32.13; slice E has FR-32.21, .22, .25 and .26 and the inventory screens of .24, and .23 and the rest of .24 are to come (§11). The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | `ci.yml` (the always-on gate) and `e2e-nightly.yml` (#365, the whole Playwright suite), the route-table suites (tenant isolation, route and read permission), `dal` and `dal-mongo`, the known-items list in `CLAUDE.md`, #675 |
 | **Touches** | Every package gets a type-check configuration. `.github/workflows` (two new jobs). `dal`, `dal-mongo` and `db` (entity types, `select`, `session`). `services` (dead DAO classes out, document services). `invoicing-api` (the largest controller). `ui-shared`, `ui-shell` and the `*-ui` packages (dead files out, typed API modules, the two order forms). `reporting` (one dependency moves). `portal-api` (file deletion, the auth plugin). `CLAUDE.md` and `docs/` |
 | **Tracking** | [gjovanov/lgr#797](https://github.com/gjovanov/lgr/issues/797) |
@@ -490,7 +490,7 @@ Most of this FR is proven by CI, not in production.
     - `unit/one-auth-plugin.test.ts` fails on a plugin that declares a hook of its own, and on a second file that runs the role and home gates.
   - **Large files do not grow** (`unit/code-ratchets.test.ts`, `LARGE_FILES`): the 21 source files over 1 000 lines, each with its length. A listed file may not get longer, no other file may pass 1 000 lines, and a file that falls to 1 000 or fewer leaves the list.
   - No test had to change. Two were added to (`one-auth-plugin`, `code-ratchets`).
-  - **Still to do in slice E**, each its own pull request, a file at a time (§5): FR-32.23, one base for the two order forms, each at most 900 lines; FR-32.24, the typed API modules of `invoicing-ui` and `inventory-ui`, by screen.
+  - **Still to do in slice E**, each its own pull request, a file at a time (§5): FR-32.23, one base for the two order forms, each at most 900 lines; FR-32.24, the typed API modules of `invoicing-ui`, by screen (`inventory-ui`'s are done, below).
 - **FR-32.21** (`feat/797-fr32-21-document-services`): the document services, and the invoice controller's handlers of at most 80 lines.
   - **`services/biz/document`.** `createDocument` (`POST /invoices`), `updateDocument` (`PUT /invoices/:id`) and `sendDocument` (`POST /invoices/:id/send`, around FR-29.8's `issueDocument`), each moved whole from its route. With them `convertQuote`, the list's `listFilter` and `listRows`, the checks a document is made against (`document-checks`) and who holds a document (`document-claims`).
     - A service refuses by returning `refuse(code, body)`, and the route answers through `answered(status, …)`: the code, the body and the audit rows are the ones the route had.
@@ -510,3 +510,18 @@ Most of this FR is proven by CI, not in production.
   - **The order is the hooks' order.** The parts are called in the order their code was written, so the watchers are made in the same order, and the form's `onMounted` (`load.ts#mountForm`) is registered last, after `usePendingChanges`'s own (FR-31 A1: the clean state is taken when the load resolves).
   - **`unit/document-form-parts.test.ts`** fails on a file of the split over 500 lines, on a part that is not in its list, on parts called out of order or the `onMounted` not last, and on an `onMounted` anywhere but `mountForm`.
   - `LARGE_FILES` lost `useDocumentForm.ts`; the two type errors of the org's tax settings moved with their lines to `parts/state.ts` in the ui baseline. No test of the document form changed.
+
+- **FR-32.24, the inventory screens** (`feat/797-fr32-24-typed-api`): typed API modules for every screen of `inventory-ui`. No behaviour changes: each request is the one the screen made, to the same route, with the same body and query.
+  - **`inventory-ui/src/api/`**, one module per resource: `warehouses`, `product-categories`, `price-lists`, `products`, `stock-levels`, `inventory-counts`, `movements`, `product-suppliers`, `product-ledger`, `valuation`, `pricing` (the bulk adjustment) and `opening-stock`; and for the other apps' routes these screens call, `contacts`, `invoicing` (a bill from a receipt, a sales invoice from a dispatch, an article's supply) and `org`. `org-path#orgPath` is the tab's `/org/<id>`, read at the call as the screens read it.
+    - A function takes the body its route's schema declares and returns the answer its handler returns, typed. Where a schema takes any object (`clientCreate`, FR-32.18: price lists, inventory counts), the type is the model's fields the form sends.
+    - The types are written from the schemas, and each module names its controller. A UI package cannot import an API package's schema without bringing the server's program, and Elysia, into `vue-tsc` and the web build: deriving them from one schema module both sides read is left open.
+  - **The 18 components** (65 calls) call those functions. The guessed shapes are gone, each checked against its route: `data.x || data` on every read, `data.x?._id || data._id` on every create, `stockMovement?._id || stockMovement?.id || data._id` on a movement's, `invoice.id || invoice._id`, `data.warehouses || data.data`, `data.inventoryCount || data.item || data`, `org.settings || settings`, a movement's `number || movementNumber`, and the three `_id || id` of an article. A missing record is a 404, except an inventory count's (`{ inventoryCount: null }`, and the form still starts empty), and the repository's entity carries both `_id` and `id`.
+    - Two `as any` went with them: 1 978 → 1 976. `ProductFormView` stays at 1 016 lines and `MovementFormView` goes 1 407 → 1 405 (`LARGE_FILES`).
+  - **`unit/ui-api-modules.test.ts`**: no file of `inventory-ui` outside `src/api/` imports or calls the HTTP client, and none reads an id one way and then the other. `invoicing-ui`'s raw calls outside `src/api/` (157: 130 in its components, 27 in its composables) may not grow. It is a ceiling, not an exact count, because FR-32.23 folds the two order forms' copies of a call into one beside this.
+  - No test changed. `unit/code-ratchets` has the new `as any` count.
+  - **Still to do for FR-32.24**: `invoicing-ui`, a screen at a time, the daily ones first.
+    - The contacts: `ContactsView`, `ContactFormView` (5 calls), `ContactLedgerView` and the two dialogs of a contact.
+    - The document lists: sales, purchases, proformas, offers, cash orders, payment orders, internal orders (2 to 5 calls each), and the dialogs of a document (cash sale, payment, overlaps, number clash).
+    - The reservations (`ReservationCreateDialog` 5, the detail, the list, two dialogs) and the sequences.
+    - The till: `PosDeviceDetailView` (18), `PosTerminalView` (10), `PosSessionsView` (5), `CloseSessionDialog`, `PosDevicesView`.
+    - The order forms (28) once FR-32.23 is in, and the document form's composables (`document-form/`, `useDocumentIssue`, `useRowEmail`: 27).
