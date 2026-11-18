@@ -9,8 +9,8 @@ const { Types } = mongoose
 
 /**
  * FR-27 P3-6 (#529) — `scripts/access-model.ts`, run as a script against the test database. The legacy model and
- * shadow mode are gone: it reports who has no role and gives the people from before roles theirs (0015's own `up`),
- * and refuses the switches it used to make, saying why.
+ * shadow mode are gone: it reports who has no role, and refuses the switches it used to make, saying why. FR-27 P3-9:
+ * `--give-roles` (0015's own `up`) is refused too: the legacy fields it read are gone from every person.
  *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
  */
@@ -32,10 +32,10 @@ beforeAll(async () => {
   plain = await createTestOrg({ slug: 'all-plain' } as any)
   done = await createTestOrg({ slug: 'all-done' } as any)
   await createTestUser(done._id, { role: 'admin', username: 'd1', email: 'd1@all.test' } as any)
-  // A person from before roles, as production kept them: legacy fields and no role (raw: nothing writes them now).
+  // A person without a role (raw: every writer gives one).
   await mongoose.connection.db!.collection('users').insertOne({
     _id: new Types.ObjectId(), orgId: plain._id, email: 'a2@all.test', username: 'a2', firstName: 'A', lastName: 'Two',
-    isActive: true, role: 'accountant', roleHistory: [],
+    isActive: true, roleHistory: [],
   })
 }, 60_000)
 
@@ -58,11 +58,11 @@ describe('access-model (FR-27 P3-6)', () => {
     expect(r.out).not.toContain('all-done:')
   }, 120_000)
 
-  it('--give-roles gives the people from before roles theirs, by 0015', async () => {
+  it('--give-roles is refused, saying why, and gives nobody a role (FR-27 P3-9)', async () => {
     const r = await run('--org', 'all-plain', '--give-roles')
-    expect(r.code).toBe(0)
-    expect(r.out).toContain('all-plain: 0 person(s) without a role')
+    expect(r.code).toBe(1)
+    expect(r.out).toContain('gone with the legacy access (FR-27 P3-9)')
     const person: any = await User.findOne({ username: 'a2' }).lean().exec()
-    expect(person.roleId).toBeDefined()
+    expect(person.roleId).toBeUndefined()
   }, 120_000)
 })

@@ -94,9 +94,11 @@ async function member(orgId: unknown, name: string, opts: { role?: string; token
   } as any)
   const user = await User.create({
     orgId, identityId: person._id, email: person.email, username: `${name.toLowerCase()}${k}`, firstName: name, lastName: 'Shop',
-    role: opts.role ?? 'member', isActive: true, permissions: [], password: await Bun.password.hash('per-org-copy'),
+    isActive: true, password: await Bun.password.hash('per-org-copy'),
     oauthProviders: [{ provider: 'google', providerId: `g-${k}` }], lastLoginAt: new Date(),
   } as any)
+  // The legacy key 0015 gives the role by (`userToken` below), through the driver: no schema names it (FR-27 P3-9).
+  await User.collection.updateOne({ _id: user._id }, { $set: { role: opts.role ?? 'member', permissions: [] } })
   if (opts.credential) {
     await OnpremCredential.create({ identityId: person._id, orgId, kind: 'password', verifier: await Bun.password.hash(LOCAL_PASSWORD, { algorithm: 'argon2id' }), tvAtSet: opts.tokenVersion ?? 3, setAt: new Date() })
   }

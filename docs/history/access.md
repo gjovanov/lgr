@@ -113,7 +113,7 @@ Spec: `docs/fr/FR-26-seller-and-sales-consultant-roles.md`. Roles `seller` („�
 - ⚠ **FR-27 P3-6 (#529): FR-26's areas are gone** (`AREAS`, `holdsArea`, `mergeAreas`, `DEFAULT_ROLE_AREAS`, `route-permission.ts#AREA_PREFIXES`, `PageDef.area`, the `areas` claim). What they carved out is what the two built-in roles' capabilities leave out (`config/access/template-caps.ts`), and the route rules (`config/access/routes.ts`) and page rules (`PAGE_ACCESS`) refuse it as for any role. The areas live on only in `config/access/legacy.ts`, frozen for migration 0015.
 - **Server.** What no prefix can say is the controllers', by capability: an incoming document under `/invoices` is 404 by id and absent from the list, summary, exports, ledger and aging (`bills.view`, FR-27.6 partitions, below); an invoice adds or changes no order link (`orders.*`); `product-supply` names no order (`seesOrders`). A movement write takes `movements.create` or `movements.create:transfer`, and the controller holds a transfer-only caller to transfers with both warehouses (`movement.controller#transferRefusal`).
 - **UI.** A session without the portal (`page-registry#holdsPortal`, `PORTAL_CAPS`) has no Portal tile and lands in its first app (`portalGuard`, `landingWithoutPortal`). The Products list's export is `exportsCatalog` (`products.export`). `isTransferOnly` gives the movement form Transfer only; `writesInventory` makes Products, Categories and Warehouses read-only.
-- **Migration `0014-seller-permission-sets`** seeded both system sets in every org (released; it writes through the driver). Sets have no model since P3-6, and migration 0017 (#820) archives them.
+- **Migration `0014-seller-permission-sets`** seeded both system sets in every org (released; it writes through the driver). Sets have no model since P3-6, migration 0017 (#820) archives them, and 0020 (P3-9) drops them.
 
 ## One access model: Phase 0 (FR-27, #529)
 
@@ -191,6 +191,16 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
     `assignRole`; the schemas have no defaults for them). What a role or person from before holds stays, frozen, until P3-7.
   - On the legacy model, an assignment or a role edit ends the affected people's sessions; on `roles` it is live.
   - `scripts/restore-administrator.ts --org --user [--execute]` gives a locked-out org its Administrator back, audited.
+- ⚠ **FR-27 P3-9 (#529): the legacy access paths are gone, and never come back.** No schema names `User.role` /
+  `permissions` / `permissionSetIds` / `legacyArchive`, `Invite.assignRole` / `legacyArchive`, or `Role.legacy` /
+  `needsRelease`. Migration 0017 took the fields off every person and invitation into `legacyArchive`; 0020
+  (`0020-legacy-access-archive-drop`) unsets the archive and any leftover field, and deletes the permission sets
+  (`permissionsets`, `permissionsets_archive`), dropping each collection only once no other org's sets are left in
+  it. A path put back reads nothing, and with a default writes the legacy model back on every save. Released
+  migrations (0014, 0015, 0017, 0020) and the test factory read and write the fields through the driver. One-way: the
+  only way back is the backup taken before 0020 runs (a mongodump of `users`, `invites`, `permissionsets`,
+  `permissionsets_archive`), or the one taken before 0017, restored by hand. `scripts/access-model.ts --give-roles`
+  (0015 for the people from before roles) is refused: there are none left to read.
 - **A person's first role** (`startingRoleOf` / `giveStartingRole`): a new org's founder (`provisionNewOrg` seeds the
   ten built-ins, `seedBuiltinRoles`), an invite accepted, a member an admin creates.
   - Chosen: a role named (`assignRoleId` on the invite, `roleId` on the create), or, when neither a role nor a legacy

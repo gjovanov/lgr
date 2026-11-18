@@ -170,7 +170,7 @@ export async function joinOrgByInvite(identityId: unknown, code: string): Promis
     const member = await createMembership(identity, org)
     // FR-27.3: the invite's role, else (an invitation from before FR-27 P3-5) the built-in role of its legacy key, else
     // the org's default role, else the built-in Member.
-    await giveStartingRole(org._id, member._id, await startingRoleOf(org._id, { roleId: invite.assignRoleId, legacyRole: invite.assignRole }), invite.inviterId)
+    await giveStartingRole(org._id, member._id, await startingRoleOf(org._id, { roleId: invite.assignRoleId }), invite.inviterId)
     return { member, org }
   } catch (err) {
     await inviteDao.releaseUse(String(invite._id)).catch(() => undefined)

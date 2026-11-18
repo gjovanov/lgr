@@ -26,7 +26,7 @@ import { writeFileSync } from 'fs'
 import { assertAllOrgsHome } from './lib/home-guard.js'
 import { config } from '../packages/config/src/index.js'
 import { mongoose } from '../packages/db/src/connection.js'
-import { AuditLog, Identity, Org, User } from '../packages/db/src/models/index.js'
+import { AuditLog, Identity, Org, Role, User } from '../packages/db/src/models/index.js'
 import {
   executeIdentityMigration,
   loadMigrationInput,
@@ -110,9 +110,10 @@ async function main() {
 
   const merged = plan.identities.filter(i => i.flags.includes('multi-org'))
   const mergedUserIds = merged.flatMap(i => i.userIds.map(String))
-  const roles = new Map(
-    (await User.find({ _id: { $in: mergedUserIds } }, { role: 1 }).lean().exec()).map(u => [String(u._id), u.role]),
-  )
+  // Each merged membership by its role's name (FR-27 P3-9: there is no legacy key to name it by).
+  const memberships = await User.find({ _id: { $in: mergedUserIds } }, { roleId: 1 }).lean().exec()
+  const roleNames = new Map((await Role.find({ _id: { $in: memberships.map(m => m.roleId).filter(Boolean) } }, { name: 1 }).lean().exec()).map(r => [String(r._id), r.name]))
+  const roles = new Map(memberships.map(m => [String(m._id), m.roleId ? roleNames.get(String(m.roleId)) ?? '' : '']))
   // Who created each merged account: an admin of ANOTHER org adding someone's email is exactly the
   // case the no-password rule exists for, and this is how an operator spots it. `entityId` is
   // Mixed and `createAuditEntry` stores an ObjectId when it can (older rows: the string), so a

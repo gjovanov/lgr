@@ -12,8 +12,9 @@ import { ROLES } from 'config/constants'
  *   2. reads `permissions`, `areas` or `role` off a token or a session (`user.permissions`, `claims.areas`, …), or asks a
  *      permission list (`permissions.includes(…)`);
  *   3. names the legacy compiler (`compileLegacy`, `legacyClaimsOf`, `LEGACY_BRIDGE`);
- *   4. reads a person's stored legacy `role` (`u.role`, `person.role`): allowed only where it is DISPLAY, listed below
- *      with why. Those go with migration 0017, which archives the field (#820).
+ *   4. reads a person's stored legacy `role` (`u.role`, `person.role`). FR-27 P3-9: no schema has the field and no
+ *      document keeps it (migrations 0017 and 0020), so no reader is left; the two listed below read a `role` that
+ *      is already the role's display (`roleDisplay`), under a name the rule cannot tell apart.
  *
  * The homes, never scanned: `packages/config/src/access/` (the model, and `legacy.ts` frozen for 0015),
  * `packages/services/src/biz/access/` (the evaluator), `packages/migrations/` (released migrations read what they read),
@@ -53,18 +54,11 @@ const RULES: ReadonlyArray<{ id: string; re: RegExp }> = [
 ]
 
 /**
- * Display only: what shows a person's legacy role key, decides nothing, and goes when 0017 archives the field.
- * Each entry: the file, the rule it matches, and why it may.
+ * Display only: a `role` that is the role's display (`roleDisplay`), not a stored legacy key, and decides nothing.
+ * FR-27 P3-9 (#529): the readers that fell back on a person's legacy key (`roleDisplaysOf`, the SUPTO export, three
+ * scripts) went with the field. Each entry: the file, the rule it matches, and why it may.
  */
 const DISPLAY_ONLY: ReadonlyArray<{ file: string; rule: string; why: string }> = [
-  {
-    file: 'packages/services/src/biz/identity/session.service.ts', rule: 'stored legacy role',
-    why: "roleDisplaysOf: a membership's role label in the org picker and switcher; a membership from before roles shows its legacy key",
-  },
-  {
-    file: 'packages/services/src/biz/supto-export.service.ts', rule: 'stored legacy role',
-    why: "the Н-18 operators table's role column (an audit page's names): an operator from before roles is listed by the key they held",
-  },
   {
     file: 'packages/portal-api/src/auth/session-answer.ts', rule: 'stored legacy role',
     why: "orgList: the org menu's role label, a membership's `role` as `roleDisplaysOf` already made it (the role's name)",
@@ -72,18 +66,6 @@ const DISPLAY_ONLY: ReadonlyArray<{ file: string; rule: string; why: string }> =
   {
     file: 'packages/reporting/src/excel/supto.excel.ts', rule: 'stored legacy role',
     why: "the SUPTO operators sheet's Role column: the row's `role` is the display `supto-export.service` filled in",
-  },
-  {
-    file: 'scripts/configure-daily-digest.ts', rule: 'stored legacy role',
-    why: "prints the digest's recipients with the key they held, for the operator who runs it; the recipients are chosen by address",
-  },
-  {
-    file: 'scripts/restore-administrator.ts', rule: 'stored legacy role',
-    why: "the audit entry's old value (the role history's label) for a person from before roles: what they held, as text",
-  },
-  {
-    file: 'scripts/migrate-identities.ts', rule: 'stored legacy role',
-    why: 'the identity migration report names each merged membership with the key it held, for the operator who reads it',
   },
 ]
 

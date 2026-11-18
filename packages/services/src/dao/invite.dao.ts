@@ -7,7 +7,6 @@ export interface CreateInviteParams {
   inviterId: string
   targetEmail?: string
   maxUses?: number
-  assignRole?: string
   expiresInHours?: number
   assignRoleId?: string
 }
@@ -25,8 +24,7 @@ class InviteDaoClass extends BaseDao<IInvite> {
       inviterId: params.inviterId as any,
       status: 'active',
       useCount: 0,
-      // FR-27 P3-5 (#529): the role by id; a legacy key only where a caller still names one (tests of old invites).
-      ...(params.assignRole ? { assignRole: params.assignRole } : {}),
+      // FR-27 P3-5 (#529): the role by id. FR-27 P3-9: there is no legacy key (`assignRole`) to write.
       ...(params.assignRoleId ? { assignRoleId: params.assignRoleId as any } : {}),
     }
 

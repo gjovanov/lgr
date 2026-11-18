@@ -201,16 +201,13 @@ describe('0017-legacy-access-archive (FR-27 P3-7)', () => {
     await legacyAccessArchive.up(ctx())
   })
 
-  it('the models read the archive, typed, and a user leaves the server without it', async () => {
+  it('the models name none of it (FR-27 P3-9), and a user leaves the server without the archive', async () => {
     const w = await world()
     await legacyAccessArchive.up(ctx())
-    const user = await User.findById(w.users.all._id).exec()
-    expect(user!.legacyArchive?.role).toBe('manager')
-    expect(user!.legacyArchive?.permissionSetIds?.map(String)).toEqual([String(w.sets.setA1), String(w.sets.setA2)])
-    expect(user!.legacyArchive?.archivedAt).toBeInstanceOf(Date)
-    // A schema default never makes up a list the archive did not have.
-    expect((await User.findById(w.users.roleOnly._id).exec())!.toObject().legacyArchive).toEqual({ role: 'seller', archivedAt: expect.any(Date) })
-    expect((await Invite.findById(w.invites.withRole._id).exec())!.legacyArchive?.assignRole).toBe('warehouse_manager')
+    // The archive is the database's, read through the driver; no schema path names it or the fields since P3-9.
+    for (const path of ['legacyArchive', 'role', 'permissions', 'permissionSetIds']) expect({ path, model: User.schema.path(path) }).toEqual({ path, model: undefined })
+    for (const path of ['legacyArchive', 'assignRole']) expect({ path, model: Invite.schema.path(path) }).toEqual({ path, model: undefined })
+    expect((await raw('users', w.users.all._id)).legacyArchive.role).toBe('manager')
 
     const projected: any = await User.findById(w.users.all._id).select(USER_PUBLIC_PROJECTION).lean().exec()
     expect(projected.legacyArchive).toBeUndefined()

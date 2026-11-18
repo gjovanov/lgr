@@ -18,5 +18,6 @@
   "0016-drop-unread-text-indexes": "bc93a69ac0083a25686aa8c69146634ebb60e08b7cd21c6642120f54f6a07620",
   "0017-legacy-access-archive": "abe876ef15e8cec9b04a42525ab12ea6904fd73ffb4ee729884ebd23dae188c9",
   "0018-product-search-field": "b052e14a60acc9fa06399bc2f7ad987a2c4c5b15f1370d0918c35603b60fe3e0",
-  "0019-drop-unused-indexes": "6c73979aeb9f100e45957016cf6a0a86fab54e8ca94451c5cd933530e731b16b"
+  "0019-drop-unused-indexes": "6c73979aeb9f100e45957016cf6a0a86fab54e8ca94451c5cd933530e731b16b",
+  "0020-legacy-access-archive-drop": "77944d06f1f2c75632104d4f634465168e7f988014f4e4581ae053505262c7ad"
 }

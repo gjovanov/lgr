@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
-import { createTestContact, createTestInvite, createTestInvoice, createTestOrg, createTestPerson, createTestProduct, createTestStockMovement, createTestUser, createTestWarehouse } from '../helpers/factories'
+import { builtinRoleIdOf, createTestContact, createTestInvite, createTestInvoice, createTestOrg, createTestPerson, createTestProduct, createTestStockMovement, createTestUser, createTestWarehouse } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
@@ -468,9 +468,9 @@ describe('assigning a role takes effect (FR-26.9)', () => {
     expect((await request('GET', '/apps', token)).status).toBe(200)
   })
 
-  it("an accepted invite (stored before P3-5, naming a legacy key) gets that built-in role, and no set", async () => {
+  it("an accepted invite naming the built-in Seller gets that role, and no set", async () => {
     const identity = await Identity.create({ email: `invitee-${Date.now()}@fr26.test`, firstName: 'I', lastName: 'N', isActive: true, passwordSetBy: 'self', password: await Bun.password.hash('test123') } as any)
-    const invite = await createTestInvite(org._id, people.admin._id as any, { assignRole: 'seller' } as any)
+    const invite = await createTestInvite(org._id, people.admin._id as any, { assignRoleId: await builtinRoleIdOf(org._id, 'seller') } as any)
     const { member: joined } = await joinOrgByInvite(identity._id, invite.code)
     const stored: any = await User.findById(joined._id).lean()
     expect(stored.permissionSetIds).toBeUndefined()
@@ -481,7 +481,7 @@ describe('assigning a role takes effect (FR-26.9)', () => {
     const bare = await createTestOrg()
     const inviter = await createTestUser(bare._id, { role: 'admin' } as any)
     const identity = await Identity.create({ email: `bare-${Date.now()}@fr26.test`, firstName: 'B', lastName: 'R', isActive: true, passwordSetBy: 'self', password: await Bun.password.hash('test123') } as any)
-    const invite = await createTestInvite(bare._id, inviter._id as any, { assignRole: 'seller' } as any)
+    const invite = await createTestInvite(bare._id, inviter._id as any, { assignRoleId: await builtinRoleIdOf(bare._id, 'seller') } as any)
     const { member: joined } = await joinOrgByInvite(identity._id, invite.code)
     expect(joined.permissionSetIds ?? []).toEqual([])
     const grant = await roleGrant(joined)
@@ -492,7 +492,7 @@ describe('assigning a role takes effect (FR-26.9)', () => {
   it('a role with no system set (sales, hr_manager) is invited onto its own defaults, as a role change gives', async () => {
     for (const [role, needed] of [['sales', 'invoicing.write'], ['hr_manager', 'payroll.read']] as const) {
       const identity = await Identity.create({ email: `${role}-${Date.now()}@fr26.test`, firstName: 'I', lastName: 'N', isActive: true, passwordSetBy: 'self', password: await Bun.password.hash('test123') } as any)
-      const invite = await createTestInvite(org._id, people.admin._id as any, { assignRole: role } as any)
+      const invite = await createTestInvite(org._id, people.admin._id as any, { assignRoleId: await builtinRoleIdOf(org._id, role) } as any)
       const { member: joined } = await joinOrgByInvite(identity._id, invite.code)
       expect(joined.permissionSetIds ?? []).toEqual([])
       const stored: any = await User.findById(joined._id).lean()

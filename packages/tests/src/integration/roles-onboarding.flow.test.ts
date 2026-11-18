@@ -9,7 +9,6 @@ import { Identity, Invite, Org, Role, User } from 'db/models'
 import { mongoose } from 'db/connection'
 import { register, tokenize } from 'services/biz/auth.service'
 import { joinOrgByInvite } from 'services/biz/identity/account.service'
-import { inviteDao } from 'services/dao/invite.dao'
 import { ROLE_TEMPLATES, grantOfRole, sameGrant } from 'config/access'
 
 /**
@@ -129,31 +128,19 @@ describe('FR-27.4: an invitation names a role', () => {
     expect(await Invite.countDocuments({ orgId: org._id, targetEmail: 'refused@onboarding.test' })).toBe(0)
   })
 
-  // An invitation stored before P3-3 names a legacy role only. It keeps working: the built-in role of that name.
-  const storedLegacyInvite = (targetEmail: string, assignRole: string) =>
-    inviteDao.createInvite({ orgId, inviterId: String(founder._id), targetEmail, assignRole })
-
-  it('a stored invitation naming a legacy role is the built-in role of that name, and writes no legacy fields', async () => {
-    const invite: any = await storedLegacyInvite('legacy@onboarding.test', 'accountant')
-    expect(invite.assignRoleId).toBeUndefined()
-    const { member } = await joinOrgByInvite((await person('legacy@onboarding.test'))._id, invite.code)
+  it('an invitation from before P3-3, its legacy role gone with 0017 and 0020, names none: the default role (FR-27 P3-9)', async () => {
+    // As production keeps one after migration 0017: no `assignRole`, no `assignRoleId`, the key in `legacyArchive`
+    // (0020 drops that too). No schema names either, and nothing reads them: it is an invitation that names no role.
+    const code = `pre-p3-3-${Date.now()}`
+    await mongoose.connection.db!.collection('invites').insertOne({
+      orgId: org._id, code, inviterId: founder._id, targetEmail: 'legacy@onboarding.test', maxUses: 1, useCount: 0, status: 'active',
+      legacyArchive: { assignRole: 'accountant', archivedAt: new Date() }, createdAt: new Date(), updatedAt: new Date(),
+    })
+    const { member } = await joinOrgByInvite((await person('legacy@onboarding.test'))._id, code)
     const joined: any = await User.findById(member._id).lean().exec()
-    const accountant: any = await Role.findOne({ orgId: org._id, templateKey: 'accountant' }).lean().exec()
-    expect(String(joined.roleId)).toBe(String(accountant._id))
+    expect(String(joined.roleId)).toBe(String(counter._id))
     expect(joined.permissionSetIds).toBeUndefined()
-  })
-
-  it('an org whose system set was edited: the person still joins on the built-in role, which decides (FR-27 P3-2)', async () => {
-    // Since P3-2 sign-in refuses a membership without a role, so "no role yet, the edited set decides" would be a
-    // person who can never sign in. They start on the built-in Accountant, and what it grants is what they may do.
-    // Sets have no model since FR-27 P3-6; one an older release left behind is read by nothing.
-    await mongoose.connection.db!.collection('permissionsets').updateOne({ orgId: org._id, name: 'Accountant', isSystem: true }, { $addToSet: { permissions: 'payroll.read' } })
-    const invite: any = await storedLegacyInvite('edited@onboarding.test', 'accountant')
-    const { member } = await joinOrgByInvite((await person('edited@onboarding.test'))._id, invite.code)
-    const joined: any = await User.findById(member._id).lean().exec()
-    const accountant: any = await Role.findOne({ orgId: org._id, templateKey: 'accountant' }).lean().exec()
-    expect(String(joined.roleId)).toBe(String(accountant._id))
-    expect(grantOfRole(accountant).caps.has('payroll-runs.view')).toBe(false)
+    expect(joined.role).toBeUndefined()
   })
 
   it('a role beyond the inviter is refused (FR-27.8)', async () => {

@@ -190,8 +190,8 @@ Each PR keeps `bun run test`, `build`, `check:web` and the FR-27 walks green
     test fixtures. Nothing decides by it.
   - **The schema fields** `User.role` / `permissions` / `permissionSetIds` and `Invite.assignRole`, and `Role.legacy` /
     `needsRelease`: no default since P3-5, read by nothing that decides (display only: `roleDisplaysOf` falls back to
-    a membership's legacy key). Removing a path changes nothing at runtime, so they go with 0018, which drops the
-    archive, rather than split the one-way step between two PRs. 0017 (#820) reads and archives them through the
+    a membership's legacy key). Removing a path changes nothing at runtime, so they go with the migration that drops
+    the archive (0020, P3-9), rather than split the one-way step between two PRs. 0017 (#820) reads and archives them through the
     driver, as it reads `permissionsets`: it needs neither the paths nor the model. The `ref: 'PermissionSet'` went.
   - `scripts/access-model.ts`: `--org` lists who has no role, `--give-roles` is 0015's own `up` for the people from
     before roles, `--all` lists the orgs with someone without one. `--set`, `--report`, `--days`, `--min-days` and
@@ -220,8 +220,8 @@ Each PR keeps `bun run test`, `build`, `check:web` and the FR-27 walks green
 - ⚠ The schemas must stop defaulting the legacy fields first (P3-5/P3-6): Mongoose writes a default back on any
   `save()` of a loaded document, so with `role: { default: 'member' }` an archived person would get `role: 'member'`,
   `permissions: []` and `permissionSetIds: []` again on their next save, and an invite `assignRole: 'member'`.
-- The archive is kept for **one release**, then **0018** drops it (§5): `legacyArchive` on users and invites,
-  `permissionsets_archive`, and the `permissionsets` collection itself.
+- The archive is kept for **one release**, then **0020** drops it (§5, P3-9; the plan said 0018, which went to
+  FR-30): `legacyArchive` on users and invites, `permissionsets_archive`, and the `permissionsets` collection itself.
 
 ### P3-8 · The grep test (acceptance 2)
 - `unit/access-no-legacy.test.ts` fails on any file outside `config/access/`, `services/biz/access/` and
@@ -249,7 +249,8 @@ tests (`packages/tests/`, `packages/e2e/`), which state fixtures. Four rules, on
   - `scripts/migrate-identities.ts`: the identity migration's report.
 
   Each goes when migration 0017 archives the field. The test fails on an allow-list entry nothing matches any more, and
-  on rules that stop catching their own examples.
+  on rules that stop catching their own examples. P3-9: five went with the schema path; the two left
+  (`session-answer.ts`, `supto.excel.ts`) read a `role` that is already the role's display.
 - Found on the way, and gone in P3-6 rather than listed: `app-hub.service`'s legacy tiles (`role === 'admin'`, the
   token's permissions), and the legacy-key fallbacks of `administratorFilter`, `setup-facts` (a master's admins), the
   test-org copy's admins and `scripts/register-docs-in-pv.ts`: a person without a role is no Administrator.
@@ -259,6 +260,41 @@ tests (`packages/tests/`, `packages/e2e/`), which state fixtures. Four rules, on
   #529) describe the role model since Phase 3: roles of capabilities, the ten built-in roles, the token's `rid`/`rv`,
   `roleHistory` by `roleId`/`roleName`, and the legacy fields archived by 0017 and dropped by 0020.
 
+### P3-9 · The archive goes (one-way, one release after P3-7)
+- Migration **0020** (`0020-legacy-access-archive-drop`; planned as "0018", but 0018 went to FR-30's product search
+  field and 0019 to FR-30.5's unused indexes). In every org of the node (`orgFilter`):
+  - `users`: `legacyArchive` is unset, and with it any legacy field (`role`, `permissions`, `permissionSetIds`)
+    found on a person since 0017. Nothing has written those since P3-5 and no schema names them from this release,
+    so such a field is a leftover nothing reads: unset, not archived (0017 archived what was there);
+  - `invites`: `legacyArchive` is unset, and a leftover `assignRole` the same way;
+  - `permissionsets_archive` and `permissionsets`: the org's documents are deleted. The collections are shared by every
+    org of the node, so each is dropped only once it is empty, never with another org's documents in it.
+  The people and invitations go first and the sets last, so a run cut short never leaves an archive naming sets that
+  are gone. Roles are not touched: a role from before P3-5 may still carry `legacy` / `needsRelease`, read by nothing.
+  Idempotent and scoped like every migration, raw driver like 0017, with a dry run per step (`bun run migrate
+  --dry-run`): how many people and invitations have an archive or a leftover field, how many sets and archived sets
+  go, and whether each collection is then dropped or kept for another org.
+- **The schema paths go in the same PR** (they were kept only for 0017, which reads through the driver):
+  `User.role` / `permissions` / `permissionSetIds` / `legacyArchive`, `Invite.assignRole` / `legacyArchive`,
+  `Role.legacy` / `needsRelease`, and their replication metadata. What read them:
+  - display fallbacks on a person's legacy key: `roleDisplaysOf` (the org picker and switcher), the SUPTO operators
+    table, the invitation's role (`inviteRoleDisplay`, `/auth/invites`), and three scripts (`configure-daily-digest`,
+    `restore-administrator`, `migrate-identities`). After 0017 no person or invitation has the key, so each shows the
+    role (or nothing) only; `access-no-legacy` lists the two left, which read the display under the name `role`;
+  - an invitation that names only a legacy key (`startingRoleOf`'s `legacyRole` from `invite.assignRole`): after 0017
+    none does, so it names no role and starts the person on the org's default role, else Member;
+  - `scripts/access-model.ts --give-roles` (0015 for the people from before roles): refused, as 0015 would read a
+    person without the fields as a Member;
+  - the test factory, which states a person's access as legacy fields for 0015 to turn into their role: it writes
+    them through the driver.
+  `USER_PUBLIC_PROJECTION`, `publicUser` and the invite list keep leaving `legacyArchive` out until every node has
+  run 0020: a lean read returns what is stored, path or none.
+- ⚠ **Order: merge → deploy → run 0020 by hand on global, one release after 0017** (0017 ran on 2026-11-18), with a
+  backup first: a mongodump of `users`, `invites`, `permissionsets` and `permissionsets_archive`. The rollback is that
+  backup (or, failing it, the pre-0017 one on the build host), restored by hand: no release reads the archive. A master
+  runs 0020 at its start after the update, behind the backup its supervisor takes; a master that skips a release runs
+  0017 and 0020 in one start, and its supervisor's backup is then the only copy.
+
 ## 3. Rollback window
 
 | After | Rollback |
@@ -267,6 +303,7 @@ tests (`packages/tests/`, `packages/e2e/`), which state fixtures. Four rules, on
 | P3-2 to P3-4 | redeploy the previous release |
 | P3-5 | redeploy, and access granted since this deploy is missing until re-projected |
 | P3-7 | none in code. Restore from the archive by hand within the one-release window (G4 is the last resort) |
+| P3-9 | none in code or in the database: the mongodump taken before 0020 runs (else the pre-0017 one), restored by hand |
 
 ## 4. Risks
 
@@ -288,5 +325,6 @@ tests (`packages/tests/`, `packages/e2e/`), which state fixtures. Four rules, on
 | P3-6 | large (deletion, mostly mechanical) |
 | P3-7 | small |
 | P3-8 | small |
+| P3-9 | small (the migration), medium (the schema paths and their readers) |
 
 Each is reviewable alone, and P3-1 to P3-4 change nobody's access.

@@ -92,17 +92,17 @@ export interface Membership {
   role?: string
 }
 
-/** The display of each membership's role (`roleDisplay`), by user id. A membership from before roles shows its legacy key. */
-export async function roleDisplaysOf(users: readonly Pick<IUser, '_id' | 'roleId' | 'role'>[]): Promise<Map<string, string>> {
+/** The display of each membership's role (`roleDisplay`), by user id; empty without one (FR-27 P3-9: no legacy key). */
+export async function roleDisplaysOf(users: readonly Pick<IUser, '_id' | 'roleId'>[]): Promise<Map<string, string>> {
   const ids = users.map(u => u.roleId).filter(Boolean)
   const roles = ids.length ? await Role.find({ _id: { $in: ids } }, { name: 1, isBuiltin: 1, templateKey: 1 }).lean().exec() : []
   const byId = new Map(roles.map(r => [String(r._id), roleDisplay(r)]))
-  return new Map(users.map(u => [String(u._id), (u.roleId && byId.get(String(u.roleId))) || u.role || '']))
+  return new Map(users.map(u => [String(u._id), (u.roleId && byId.get(String(u.roleId))) || '']))
 }
 
 /** One membership's role, for display (`roleDisplay`): where a session names no person, its org is all it lists. */
 export async function roleDisplayOfMember(userId: unknown): Promise<string> {
-  const member = await User.findById(userId, { roleId: 1, role: 1 }).lean().exec()
+  const member = await User.findById(userId, { roleId: 1 }).lean().exec()
   return member ? ((await roleDisplaysOf([member])).get(String(member._id)) ?? '') : ''
 }
 

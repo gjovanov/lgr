@@ -35,7 +35,6 @@ interface IInvite extends Document {
 | useCount | number | Yes | `0` | Number of times this invite has been used |
 | status | string | Yes | `'active'` | Invite status: active, expired, revoked, exhausted |
 | assignRoleId | string (ObjectId) | No | - | The role (FR-27) the person joins with. Every invite made since FR-27 P3-3 names one: the one the admin chose, else the org's default role, else its built-in Member |
-| assignRole | string | Yes | `'member'` | The legacy key of that role, written by the server for a release that reads no roles (until FR-27 P3-5). An invite stored before P3-3 may name only this: it joins the built-in role of that key. `POST` refuses it in a body: 422 `legacy_role_field` |
 | expiresAt | Date | No | - | Expiration timestamp. Null = no expiration |
 | createdAt | Date | Yes | auto | Creation timestamp |
 | updatedAt | Date | Yes | auto | Last update timestamp |

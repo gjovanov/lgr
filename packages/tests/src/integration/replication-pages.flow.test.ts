@@ -517,7 +517,9 @@ describe('memberships (FR-20.63)', () => {
     expect((await mirror.collection<any>('users').findOne({ _id: linked._id }))!.identityId).toEqual(person)
     const inert: any = await mirror.collection('users').findOne({ _id: fresh._id })
     expect(inert.identityId).toBeUndefined()
-    expect(inert).toMatchObject({ email: `${String(fresh._id)}@inert.invalid`, username: fresh.username, role: fresh.role })
+    expect(inert).toMatchObject({ email: `${String(fresh._id)}@inert.invalid`, username: fresh.username, roleId: fresh.roleId })
+    // FR-27 P3-9: the legacy key is no field of the home's, so it does not travel (the factory still stores one).
+    expect('role' in inert).toBe(false)
 
     // The home re-points a sanctioned membership at somebody else: unlinked, not re-pointed.
     await User.updateOne({ _id: linked._id }, { $set: { identityId: new mongoose.Types.ObjectId() } })

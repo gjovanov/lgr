@@ -17,12 +17,11 @@ interface IUser extends Document {
   password?: string
   firstName: string
   lastName: string
-  role: string
+  roleId?: Types.ObjectId        // the person's one role in this org (FR-27)
   orgId: Types.ObjectId
   identityId?: Types.ObjectId   // the person behind this membership (Identity)
   avatar?: string
   isActive: boolean
-  permissions: string[]
   preferences: {
     locale?: string
     theme?: string
@@ -47,10 +46,9 @@ interface IUser extends Document {
 | password | string | No | - | Bcrypt-hashed password. Optional for OAuth-only users |
 | firstName | string | Yes | - | First name |
 | lastName | string | Yes | - | Last name |
-| role | string | Yes | `'member'` | Role: admin, manager, accountant, hr_manager, warehouse_manager, sales, member |
+| roleId | string (ObjectId) | No | - | The person's one [role](../../fr/FR-27-one-access-model.md) in this org: what they may do. The legacy `role` key, `permissions` and `permissionSetIds` are gone (FR-27 P3-9, migrations 0017 and 0020) |
 | avatar | string | No | - | URL or path to avatar image |
 | isActive | boolean | Yes | `true` | Whether the user can log in |
-| permissions | string[] (JSON) | Yes | `[]` | Granular permission strings (e.g., `accounting.read`) |
 | preferences | JSON | Yes | `{}` | User preferences (locale, theme, dashboard layout) |
 | oauthProviders | JSON array | Yes | `[]` | Linked OAuth providers with tokens |
 | lastLoginAt | Date | No | - | Timestamp of last successful login |

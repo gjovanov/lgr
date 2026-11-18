@@ -47,7 +47,7 @@ async function main() {
   await endSessionsOf(person.identityId)
   await recordAuditEntry({
     orgId: String(org._id), userId: '', action: 'update', module: 'admin', entityType: 'user', entityId: String(person._id), entityName: username,
-    changes: [{ field: 'role', oldValue: person.roleId ? String(person.roleId) : person.role, newValue: admin.name }], via: 'scripts/restore-administrator.ts',
+    changes: [{ field: 'role', oldValue: person.roleId ? String(person.roleId) : null, newValue: admin.name }], via: 'scripts/restore-administrator.ts',
   })
   console.log(`${org.slug}: ${username} is an Administrator again`)
 }

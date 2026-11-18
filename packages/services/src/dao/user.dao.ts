@@ -14,8 +14,9 @@ import { BaseDao } from './base.dao.js'
  * restore. `no-secrets-in-responses.flow.test.ts` sweeps every route instead.
  *
  * `legacyArchive` (FR-27 P3-7, migration 0017) is not a secret, but it is the legacy access a person had, kept only
- * for a hand restore: no screen reads it, so no answer carries it. Not `select: false` for the same reason: a
- * backup taken in the window must carry it.
+ * for a hand restore: no screen reads it, so no answer carries it. FR-27 P3-9: no schema names it any more and
+ * migration 0020 drops it, but a node that has not run 0020 yet still has it, and a lean read returns what is
+ * stored: the exclusion stays until every node has run 0020.
  */
 export const USER_PUBLIC_PROJECTION = '-password -oauthProviders.accessToken -oauthProviders.refreshToken -legacyArchive'
 

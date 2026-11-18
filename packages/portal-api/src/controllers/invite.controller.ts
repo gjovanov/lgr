@@ -15,12 +15,12 @@ import { joinOrgByInvite } from 'services/biz/identity/account.service'
 import { inviteUrl, isEmailAddress, mailInvite } from 'services/biz/invite-email.service'
 import { BEARER_REQUIRED, NOT_A_PERSON, bearerPresent, callerOf, enterOrg } from '../auth/session-answer.js'
 
-/** The role an invitation gives, for display (`roleDisplay`); one from before FR-27 P3-5 names only its legacy key. */
-async function inviteRoleDisplay(invite: Pick<IInvite, 'orgId' | 'assignRoleId' | 'assignRole'>): Promise<string> {
+/** The role an invitation gives, for display (`roleDisplay`); empty when it names none (FR-27 P3-9: no legacy key). */
+async function inviteRoleDisplay(invite: Pick<IInvite, 'orgId' | 'assignRoleId'>): Promise<string> {
   const role = invite.assignRoleId
     ? await Role.findOne({ _id: invite.assignRoleId, orgId: invite.orgId }, { name: 1, isBuiltin: 1, templateKey: 1 }).lean().exec()
     : null
-  return role ? roleDisplay(role) : invite.assignRole ?? ''
+  return role ? roleDisplay(role) : ''
 }
 
 export const inviteController = new Elysia()
@@ -81,7 +81,8 @@ export const inviteController = new Elysia()
       if (!can(user, 'invites.manage')) return status(403, { message: 'Admin only' })
 
       const filter: Record<string, any> = { orgId }
-      // FR-27 P3-7: an invite's `legacyArchive` (migration 0017) is kept for a hand restore, never sent.
+      // FR-27 P3-7: an invite's `legacyArchive` (migration 0017) is never sent. No schema names it since P3-9, and
+      // migration 0020 drops it; until it has run on this node, the projection still keeps it out.
       const result = await paginateQuery(Invite, filter, query, { select: '-legacyArchive' })
       return { invites: result.items, ...result }
     },
