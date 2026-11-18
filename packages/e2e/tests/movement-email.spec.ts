@@ -90,7 +90,7 @@ test.beforeAll(async () => {
 
   // A role that only reads the movements, and a Seller, who writes transfers and nothing else.
   for (const [username, role] of [[readerName, 'member'], [sellerName, 'seller']] as const) {
-    const { user } = await api.post('/user', { email: `${username}@acme.com`, username, password: PASSWORD, firstName: 'E2E', lastName: role, role })
+    const { user } = await api.post('/user', { email: `${username}@acme.com`, username, password: PASSWORD, firstName: 'E2E', lastName: role, roleKey: role })
     expect(user?._id || user?.id, `the ${role} was made`).toBeTruthy()
     made.users.push(String(user._id || user.id))
   }

@@ -100,7 +100,7 @@ test.describe('FR-23 R2 — a storno for a refund on a credit note', () => {
     admin = await apiLogin()
     // A fiscal receipt names its operator: a user created through the API gets a code. A manager may reverse money (H4).
     cashierName = `e2e-refund-${Date.now().toString(36)}`
-    await ok(admin, 'POST', '/user', { email: `${cashierName}@lgr.test`, username: cashierName, password: PASSWORD, firstName: 'E2E', lastName: 'Refund', role: 'manager' })
+    await ok(admin, 'POST', '/user', { email: `${cashierName}@lgr.test`, username: cashierName, password: PASSWORD, firstName: 'E2E', lastName: 'Refund', roleKey: 'manager' })
     cashier = await apiLogin('acme-corp', cashierName, PASSWORD)
     till = await openTillSession(cashier)
 

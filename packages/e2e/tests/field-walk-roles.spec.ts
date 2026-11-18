@@ -154,7 +154,7 @@ test.beforeAll(async () => {
   for (const r of builtin) {
     const key = String(r.templateKey ?? r.name).replace(/[^a-z0-9]+/gi, '-').toLowerCase()
     const w: Walker = { key, name: r.name, roleId: String(r.id ?? r._id), username: `walkroles-${key}-${STAMP}` }
-    const created = await api(admin, 'POST', '/user', { email: `${w.username}@walk.invalid`, username: w.username, password: PASSWORD, firstName: 'Walk', lastName: key, role: 'member' })
+    const created = await api(admin, 'POST', '/user', { email: `${w.username}@walk.invalid`, username: w.username, password: PASSWORD, firstName: 'Walk', lastName: key, roleKey: 'member' })
     expect(created.status, `user ${key}: ${JSON.stringify(created.json)}`).toBeLessThan(300)
     w.id = String(created.json?.user?._id ?? created.json?.user?.id)
     const given = await api(admin, 'PUT', `/user/${w.id}`, { roleId: w.roleId })

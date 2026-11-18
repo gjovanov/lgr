@@ -313,7 +313,7 @@ test('a Seller, who may not read bills, gets the dialog without the supplier fil
   const name = `seller-pd-${Date.now().toString(36)}`
   const password = 'e2e-test-pw-12345'
   const { user } = await okJson(await apiPost(admin, '/user', {
-    email: `${name}@acme.com`, username: name, password, firstName: 'Counter', lastName: 'Seller', role: 'seller',
+    email: `${name}@acme.com`, username: name, password, firstName: 'Counter', lastName: 'Seller', roleKey: 'seller',
   }))
   try {
     await loginForApp(page, 'acme-corp', name, password)
