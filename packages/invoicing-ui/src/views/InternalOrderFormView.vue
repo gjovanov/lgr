@@ -257,99 +257,23 @@
 
         <!-- Coverage toolbox + linked reservations. The order-wide buttons stay on the header, folded or
              not: they act on the whole order, not on what the panel shows. -->
-        <CollapsiblePanel v-if="isEdit" screen="internal-orders.edit" panel-id="reservations" :default-open="false" :summary="$t('invoicing.panels.reservationsCount', activeReservations.length)" class="mt-4" data-testid="internal-order-reservations">
-          <template #title>
-            <v-icon size="20" color="primary">mdi-lock-clock</v-icon>
-            {{ $t('nav.reservations') }}
-            <v-chip size="x-small" variant="tonal">{{ activeReservations.length }}</v-chip>
-          </template>
-          <template #actions>
-            <template v-if="canReserve">
-              <v-btn size="small" variant="outlined" color="primary" prepend-icon="mdi-warehouse" :loading="reserving" @click="reserveAvailable">
-                {{ $t('invoicing.reserveAvailable') }}
-              </v-btn>
-              <v-btn size="small" variant="outlined" color="warning" prepend-icon="mdi-shield-search" @click="openCoverDialog()">
-                {{ $t('invoicing.coverShortages') }}
-              </v-btn>
-              <v-btn size="small" variant="outlined" prepend-icon="mdi-factory" @click="openGenerateDialog()">
-                {{ $t('invoicing.generateExternalOrder') }}
-              </v-btn>
-            </template>
-          </template>
-          <v-card-text class="pa-2">
-            <div v-if="!reservations.length" class="text-medium-emphasis text-body-2 pa-2">
-              {{ $t('invoicing.noReservationsYet') }}
-            </div>
-            <div v-else style="overflow-x: auto">
-              <v-table density="compact">
-                <thead>
-                  <tr>
-                    <th>{{ $t('invoicing.reservationNumber') }}</th>
-                    <th>{{ $t('invoicing.product') }}</th>
-                    <th>{{ $t('invoicing.source') }}</th>
-                    <th>{{ $t('warehouse.warehouse') }}</th>
-                    <th class="text-end">{{ $t('invoicing.qty') }}</th>
-                    <th class="text-end">{{ $t('invoicing.invoicedQty') }}</th>
-                    <th class="text-end">{{ $t('invoicing.dispatchedQty') }}</th>
-                    <th>{{ $t('common.status') }}</th>
-                    <th style="width: 40px"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="res in reservations" :key="res._id">
-                    <td class="text-no-wrap"><EntityLink :label="res.reservationNumber" :to="{ name: 'invoicing.reservations.detail', params: { id: String(res._id) } }" /></td>
-                    <td>{{ lineDescription(res) }}</td>
-                    <td>
-                      <v-chip
-                        v-if="res.source === 'order'"
-                        size="x-small"
-                        variant="tonal"
-                        color="info"
-                        :to="orderLink(res)"
-                      >
-                        {{ orderNumbers[String(res.orderId)] || 'ORDO' }}
-                      </v-chip>
-                      <v-chip v-else size="x-small" variant="tonal">{{ $t('invoicing.sourceStock') }}</v-chip>
-                      <v-icon v-if="isLate(res)" size="14" color="error" class="ml-1" :title="$t('invoicing.lateDelivery')">mdi-clock-alert-outline</v-icon>
-                    </td>
-                    <td>{{ warehouseName(res.warehouseId) }}</td>
-                    <td class="text-end">{{ res.quantity }}</td>
-                    <td class="text-end">{{ res.invoicedQuantity || 0 }}</td>
-                    <td class="text-end">{{ res.dispatchedQuantity || 0 }}</td>
-                    <td>
-                      <v-chip size="x-small" label variant="tonal" :color="resStatusColor(res.status)">
-                        {{ $t(`invoicing.status.${res.status}`) }}
-                      </v-chip>
-                    </td>
-                    <td>
-                      <v-btn
-                        v-if="res.status === 'active' && !readonly"
-                        icon="mdi-close"
-                        size="x-small"
-                        variant="text"
-                        color="error"
-                        :title="$t('invoicing.reservations.release')"
-                        :aria-label="$t('invoicing.reservations.release')"
-                        @click="openRelease(res)"
-                      />
-                      <v-btn
-                        v-if="res.status === 'cancelled' && canReserve"
-                        icon="mdi-restore"
-                        size="x-small"
-                        variant="text"
-                        color="primary"
-                        :loading="repeating === res._id"
-                        :title="$t('invoicing.reservations.reserveAgain')"
-                        :aria-label="$t('invoicing.reservations.reserveAgain')"
-                        @click="reserveAgain(res)"
-                      />
-                    </td>
-                  </tr>
-                </tbody>
-              </v-table>
-            </div>
-          </v-card-text>
-        </CollapsiblePanel>
+        <CustomerReservationsCard
+          v-if="isEdit"
+          :reservations="reservations"
+          :readonly="readonly"
+          :can-reserve="canReserve"
+          :reserving="reserving"
+          :repeating="repeating"
+          :order-numbers="orderNumbers"
+          :warehouse-name="warehouseName"
+          :line-description="lineDescription"
+          :is-late="isLate"
+          @reserve-available="reserveAvailable"
+          @cover="shortages?.openCoverDialog()"
+          @generate="shortages?.openGenerateDialog()"
+          @release="openRelease"
+          @reserve-again="reserveAgain"
+        />
         <OrderInvoicesCard v-if="isEdit" screen="internal-orders.edit" :invoices="linkedInvoices" :contacts="contactNames" :currency="form.currency || baseCurrency" :locale-code="localeCode" />
         <ReservationQuantityDialog
           v-model="resEditDialog"
@@ -365,46 +289,22 @@
           @released="refreshReservations"
         />
 
-        <!-- Notes / terms / tags + totals -->
-        <v-row class="mt-4">
-          <v-col cols="12" md="6">
-            <v-textarea v-model="form.notes" :label="$t('common.notes')" rows="2" auto-grow :readonly="readonly" />
-            <v-textarea v-model="form.terms" :label="$t('invoicing.terms')" rows="2" auto-grow :readonly="readonly" />
-            <TagInput v-model="form.tags" type="internal_order" :org-url="orgUrl()" class="mt-2" />
-          </v-col>
-          <v-col cols="12" md="6">
-            <v-card variant="outlined">
-              <v-card-text>
-                <div class="d-flex justify-space-between mb-2">
-                  <span>{{ $t('invoicing.orderedQty') }}</span>
-                  <span class="font-weight-medium">{{ totalOrdered }}</span>
-                </div>
-                <div class="d-flex justify-space-between mb-2">
-                  <span>{{ $t('invoicing.reservedQty') }}</span>
-                  <span>{{ totalReserved }}</span>
-                </div>
-                <div v-if="isEdit" class="d-flex justify-space-between mb-2">
-                  <span>{{ $t('invoicing.deliveredQty') }}</span>
-                  <span>{{ totalDelivered }}</span>
-                </div>
-                <v-divider class="my-2" />
-                <div class="d-flex justify-space-between text-h6">
-                  <span>{{ $t('invoicing.estimatedTotal') }}</span>
-                  <span>{{ fmtCurrency(estimatedTotal) }}</span>
-                </div>
-              </v-card-text>
-            </v-card>
-          </v-col>
-        </v-row>
-
-        <template v-if="!readonly">
-          <v-divider class="my-4" />
-          <div class="d-flex justify-end ga-2 flex-wrap pb-2">
-            <v-btn v-cap="isEdit ? ['orders.create', 'orders.edit'] : 'orders.create'" color="primary" variant="flat" prepend-icon="mdi-content-save" :loading="saving" @click="onSave">
-              {{ $t('common.save') }}
-            </v-btn>
-          </div>
-        </template>
+        <OrderFormFooter
+          v-model:notes="form.notes"
+          v-model:terms="form.terms"
+          v-model:tags="form.tags"
+          tag-type="internal_order"
+          :org-url="orgUrl()"
+          :readonly="readonly"
+          :is-edit="isEdit"
+          :saving="saving"
+          :ordered="totalOrdered"
+          :reserved="totalReserved"
+          moved-label="invoicing.deliveredQty"
+          :moved="totalDelivered"
+          :total="fmtCurrency(estimatedTotal)"
+          @save="onSave"
+        />
       </v-defaults-provider>
     </v-form>
 
@@ -426,134 +326,18 @@
     />
     <ContactPickerDialog v-model="contactPickerOpen" :org-url="orgUrl()" :type="contactPickerTarget?.kind === 'supplier' ? 'supplier' : 'customer'" @select="onContactPicked" />
 
-    <!-- Cover-shortages dialog: free stock → unreserved incoming → preemptable reservations -->
-    <v-dialog v-model="coverDialog" max-width="860" scrollable>
-      <v-card>
-        <v-card-title class="d-flex align-center ga-2">
-          <v-icon color="warning">mdi-shield-search</v-icon>
-          {{ $t('invoicing.coverShortages') }}
-          <v-spacer />
-          <v-btn :aria-label="$t('common.refresh')" :title="$t('common.refresh')" icon="mdi-refresh" size="small" variant="text" :loading="loadingSuggestions" @click="loadSuggestions" />
-        </v-card-title>
-        <v-card-text>
-          <div v-if="loadingSuggestions" class="text-center pa-4"><v-progress-circular indeterminate /></div>
-          <div v-else-if="!visibleSuggestions.length" class="text-medium-emphasis pa-4">{{ $t('invoicing.noShortages') }}</div>
-          <div v-for="line in visibleSuggestions" :key="line.lineId" class="mb-4" data-testid="cover-line">
-            <div class="text-subtitle-2 mb-1">
-              {{ sugLookup.products?.[line.productId]?.name || line.productId }}
-              — {{ $t('invoicing.shortQty') }}: <b>{{ line.openQuantity }}</b>
-            </div>
-            <!-- Opened from a line's + Reserve: only the source it asked for, and a word when that source has nothing for it. -->
-            <div v-if="coverScope?.section === 'stock' && !line.freeStock.length" class="text-medium-emphasis text-body-2 mb-2">{{ $t('invoicing.tree.nothingFromStock') }}</div>
-            <div v-if="coverScope?.section === 'order' && !line.incoming.length" class="text-medium-emphasis text-body-2 mb-2">{{ $t('invoicing.tree.nothingFromOrders') }}</div>
-
-            <div v-if="showSection('stock') && line.freeStock.length" class="mb-2">
-              <div class="text-caption text-medium-emphasis mb-1">{{ $t('invoicing.freeStock') }}</div>
-              <div v-for="fs in line.freeStock" :key="fs.warehouseId" class="d-flex align-center ga-2 mb-1">
-                <v-chip size="x-small" variant="tonal">{{ sugLookup.warehouses?.[fs.warehouseId] || fs.warehouseId }}</v-chip>
-                <span class="text-caption">{{ $t('invoicing.freeQty') }}: {{ fs.available }}</span>
-                <v-text-field v-model.number="fs._qty" type="number" min="0" density="compact" variant="underlined" hide-details style="max-width: 100px" />
-                <v-btn size="x-small" color="primary" variant="tonal" :loading="acting" @click="reserveFromStock(line, fs)">{{ $t('invoicing.reserve') }}</v-btn>
-              </div>
-            </div>
-
-            <div v-if="showSection('order') && line.incoming.length" class="mb-2">
-              <div class="text-caption text-medium-emphasis mb-1">{{ $t('invoicing.incomingStock') }}</div>
-              <div v-for="inc in line.incoming" :key="inc.allocationId" class="d-flex align-center ga-2 mb-1 flex-wrap">
-                <v-chip size="x-small" variant="tonal" color="info">{{ inc.orderNumber }}</v-chip>
-                <v-chip size="x-small" variant="tonal">{{ sugLookup.warehouses?.[inc.warehouseId] || '' }}</v-chip>
-                <span class="text-caption">
-                  {{ inc.unreserved }}
-                  <template v-if="inc.expectedDate"> · {{ formatDate(inc.expectedDate) }}</template>
-                </span>
-                <v-icon v-if="inc.late" size="14" color="error" :title="$t('invoicing.lateDelivery')">mdi-clock-alert-outline</v-icon>
-                <v-text-field v-model.number="inc._qty" type="number" min="0" density="compact" variant="underlined" hide-details style="max-width: 100px" />
-                <v-btn size="x-small" color="primary" variant="tonal" :loading="acting" @click="reserveFromOrder(line, inc)">{{ $t('invoicing.reserve') }}</v-btn>
-              </div>
-            </div>
-
-            <div v-if="!coverScope && line.preemptable.length" class="mb-2">
-              <div class="text-caption text-medium-emphasis mb-1">
-                {{ $t('invoicing.preemptable') }}
-                <span v-if="line.preemptableTotal > line.preemptable.length">({{ line.preemptable.length }}/{{ line.preemptableTotal }})</span>
-              </div>
-              <div v-for="p in line.preemptable" :key="p.reservationId" class="d-flex align-center ga-2 mb-1 flex-wrap">
-                <v-chip size="x-small" variant="tonal">{{ p.reservationNumber }}</v-chip>
-                <span class="text-caption">
-                  {{ sugLookup.contacts?.[p.contactId] || '' }}
-                  <template v-if="p.internalOrderNumber"> · {{ p.internalOrderNumber }}</template>
-                  <template v-if="p.requestedDeliveryDate"> · {{ formatDate(p.requestedDeliveryDate) }}</template>
-                  · {{ $t('invoicing.releasableQty') }}: {{ p.releasable }}
-                </span>
-                <v-text-field v-model.number="p._qty" type="number" min="0" density="compact" variant="underlined" hide-details style="max-width: 100px" />
-                <v-btn size="x-small" color="warning" variant="tonal" :loading="acting" @click="preempt(line, p)">{{ $t('invoicing.preempt') }}</v-btn>
-              </div>
-            </div>
-          </div>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="coverDialog = false">{{ $t('common.close') }}</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <!-- Generate-external-order dialog -->
-    <v-dialog v-model="generateDialog" max-width="720">
-      <v-card>
-        <v-card-title class="d-flex align-center ga-2">
-          <v-icon color="primary">mdi-factory</v-icon>
-          {{ $t('invoicing.generateExternalOrder') }}
-        </v-card-title>
-        <v-card-text>
-          <p class="text-body-2 text-medium-emphasis mb-3">{{ $t('invoicing.generateExternalHint') }}</p>
-          <div v-if="!generateRows.length" class="text-medium-emphasis pa-2">{{ $t('invoicing.noShortages') }}</div>
-          <div v-for="row in generateRows" :key="row.internalOrderLineId" class="d-flex align-center ga-2 mb-2 flex-wrap">
-            <div style="min-width: 200px" class="flex-grow-1 text-body-2">{{ row.description }}</div>
-            <v-text-field v-model.number="row.quantity" type="number" min="0" :label="$t('invoicing.qty')" density="compact" variant="outlined" hide-details style="max-width: 110px" />
-            <v-autocomplete
-              v-model="row.supplierId"
-              :items="supplierOptions"
-              item-title="companyName"
-              item-value="_id"
-              :label="$t('invoicing.supplier')"
-              density="compact"
-              variant="outlined"
-              no-filter
-              hide-details
-              style="min-width: 220px"
-              :loading="loadingContacts"
-              @update:search="(s: string) => onContactSearch(s, 'supplier')"
-            />
-            <!-- FR-22.42: where the goods go, said up front — the order's warehouse, else the default one. -->
-            <v-autocomplete v-model="row.warehouseId" :items="warehouses" item-title="name" item-value="_id" :label="$t('invoicing.toWarehouse')" density="compact" variant="outlined" hide-details style="min-width: 180px" />
-          </div>
-          <!-- FR-22.42: a draft supplier order of the same supplier can take the lines, instead of a new one. -->
-          <v-select
-            v-if="generateRows.length"
-            v-model="generateTarget"
-            :items="generateTargets"
-            item-title="title"
-            item-value="value"
-            :label="$t('invoicing.generateInto')"
-            :hint="generateTargets.length > 1 ? $t('invoicing.generateIntoHint') : ''"
-            persistent-hint
-            density="compact"
-            variant="outlined"
-            class="mt-4"
-            data-testid="generate-target"
-            @update:model-value="generateTargetTouched = true"
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn @click="generateDialog = false">{{ $t('common.cancel') }}</v-btn>
-          <v-btn color="primary" variant="flat" :loading="generating" :disabled="!generateRows.some(r => r.quantity > 0 && r.supplierId)" @click="submitGenerate">
-            {{ generateTarget === 'new' ? $t('common.create') : $t('invoicing.addToOrder') }}
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <!-- Cover shortages, and a supplier order for them: opened from the Reservations card and from a line's + Reserve. -->
+    <ShortageDialogs
+      ref="shortages"
+      :org-url="orgUrl()"
+      :warehouse-id="form.warehouseId"
+      :warehouses="warehouses"
+      :supplier-options="supplierOptions"
+      :loading-contacts="loadingContacts"
+      :refresh="refreshReservations"
+      @search-suppliers="(s: string) => onContactSearch(s, 'supplier')"
+      @known-supplier="keepSupplier"
+    />
 
     <!-- FR-22.41: what Cancel or Complete releases, asked before it happens. -->
     <OrderCascadeDialog
@@ -571,102 +355,71 @@
 </template>
 
 <script setup lang="ts">
-import { formatDate, intlLocale } from 'ui-shared/format'
-import { askConfirm } from 'ui-shared/composables/confirm'
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { createIdempotentAction } from 'ui-shared/composables/idempotency'
-import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { useCurrency } from 'ui-shared/composables/useCurrency'
-import { useProductUnits } from 'ui-shared/composables/useProductUnits'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
-import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import { useAccess } from 'ui-shared/access/useAccess'
 import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/components/EntityFormShell.vue'
 import EntityNotesPanel from 'ui-shared/components/EntityNotesPanel.vue'
-import TagInput from 'ui-shared/components/TagInput.vue'
 import ProductPickerDialog from 'ui-shared/components/ProductPickerDialog'
 import ProductDetailsButton from 'ui-shared/components/ProductDetailsButton.vue'
 import LineUnitSelect from 'ui-shared/components/LineUnitSelect.vue'
 import PriceSelectButton from 'ui-shared/components/PriceSelectButton'
 import ContactPickerDialog from 'ui-shared/components/ContactPickerDialog'
+import EntityLink from 'ui-shared/components/EntityLink'
+import CollapsiblePanel from 'ui-shared/components/CollapsiblePanel.vue'
 import ProductLineDescription from '../components/ProductLineDescription.vue'
-import { useConversionFeedback } from '../composables/useConversionFeedback'
-import { useCustomerOrderPrint } from '../composables/useCustomerOrderPrint'
-import { COLLAPSE } from '../composables/document-form/form-actions'
 import ReservationQuantityDialog from '../components/ReservationQuantityDialog.vue'
 import ReservationReleaseDialog from '../components/ReservationReleaseDialog.vue'
-import EntityLink from 'ui-shared/components/EntityLink'
-import { reservationErrorMessage } from '../composables/reservation-errors'
-import { orderCoverage } from 'config/order-coverage'
-import { pickLinePrice, releaseLinePrice, setLineArticle, typeLinePrice } from 'config/order-line-price'
-import { asDraftOrder, defaultDraftFor, pickDraftsFor, type DraftOrder } from '../composables/order-generate'
-import { cascadeSummary } from '../composables/order-cascade'
 import OrderCascadeDialog from '../components/OrderCascadeDialog.vue'
 import OrderInvoicesCard from '../components/OrderInvoicesCard.vue'
 import DocumentBanner from '../components/document-form/DocumentBanner.vue'
-import CollapsiblePanel from 'ui-shared/components/CollapsiblePanel.vue'
 import OrderTree from '../components/order-tree/OrderTree.vue'
 import ReserveMenu from '../components/order-tree/ReserveMenu.vue'
+import OrderFormFooter from '../components/order-form/OrderFormFooter.vue'
+import CustomerReservationsCard from '../components/order-form/CustomerReservationsCard.vue'
+import ShortageDialogs from '../components/order-form/ShortageDialogs.vue'
+import { useCustomerOrderPrint } from '../composables/useCustomerOrderPrint'
+import { COLLAPSE } from '../composables/document-form/form-actions'
+import { reservationErrorMessage } from '../composables/reservation-errors'
+import { orderCoverage } from 'config/order-coverage'
+import { pickLinePrice, releaseLinePrice, setLineArticle, typeLinePrice } from 'config/order-line-price'
 import { buildCustomerOrderTree, customerLineNodeId } from '../composables/order-tree/customer-order-tree'
 import { isLateReservation } from '../composables/order-tree/figures'
-import { orderLineQuery } from '../composables/order-tree/links'
-import type { ReservationRow, TreeActionType, TreeColumn, TreeNode } from '../composables/order-tree/types'
+import type { TreeActionType, TreeNode } from '../composables/order-tree/types'
+import { useOrderFormBase } from '../composables/order-form/useOrderFormBase'
+import { fillPickedLines, orderStatusDef } from '../composables/order-form/shared'
+import {
+  NO_FIGURES, coverageColor, customerLinesFrom, customerOrderBody, emptyLine, figuresByLine, rowOrderLink, type LineFigures, type LineRow,
+} from '../composables/order-form/customer-order'
+import {
+  customerActionColor, customerActionIcon, customerActionTitle, customerStatusChips, customerTreeColumns, figureOf, invoicedAndDelivered as invoicedAndDeliveredOf,
+} from '../composables/order-form/customer-tree-view'
 
-/** A line as the user edits it. What the server derives for it lives in `lineFigures`, not here. */
-interface LineRow {
-  _id?: string
-  productId?: string
-  description: string
-  sku?: string
-  quantity: number
-  unit: string
-  expectedUnitPrice?: number
-  /** The price was chosen for this order (a pick or a typed figure): its invoice charges it. `true` or absent. */
-  pricePinned?: boolean
-  taxRate?: number
-}
-
-/** A saved line's figures, derived by the server from its reservations and invoices. */
-interface LineFigures {
-  reserved: number
-  /** Of `reserved`, what waits on a supplier order not sent yet (FR-22.44). */
-  onUnsentOrder: number
-  invoiced: number
-  delivered: number
-}
-
+// The customer order (ORDI). What it shares with the supplier order's form is `useOrderFormBase` and
+// `components/order-form` (FR-32.23); what is its own is here and in `composables/order-form`.
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
-const appStore = useAppStore()
-const { showSuccess, showError, showSnackbar } = useSnackbar()
-// FR-31.6 / .8: a record that did not load says so, with Back and Retry.
-const { loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal } = useFormFeedback()
-const conversion = useConversionFeedback()
-const { formatCurrency } = useCurrency()
-const { uomOptions } = useProductUnits()
-
-const isEdit = computed(() => !!route.params.id)
-const formRef = ref<any>()
-const loading = ref(false)
-const orderStatus = ref('draft')
-const orderNumber = ref('')
-const peekedNumber = ref('')
-const documentNumber = computed(() => orderNumber.value || peekedNumber.value)
-const readonly = computed(() => ['completed', 'cancelled', 'delivered'].includes(orderStatus.value))
+const {
+  loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismissRefusal, showSuccess, showError, showSnackbar, conversion, uomOptions,
+  isEdit, formRef, loading, saving, orderStatus, orderNumber, documentNumber, readonly, baseCurrency, localeCode, rules, orgUrl, fmtCurrency,
+  reservations, linkedInvoices, linkedOrderNumbers: orderNumbers, clientOptions, supplierOptions, loadingContacts,
+  contactNames, knownProducts, knownOf, onContactSearch, fetchContacts, adoptContact, warehouses, fetchWarehouses, warehouseName,
+  createAttempt, fetchPeekedNumber, deleteOrder, doAction, cascade, cascadeNow, cancelOrder, completeOrder, confirmCascade,
+} = useOrderFormBase({
+  api: 'internal-orders',
+  listRoute: 'invoicing.internalOrders',
+  side: 'client',
+  deleteConfirmKey: 'invoicing.deleteInternalOrderConfirm',
+  readonlyStatuses: ['completed', 'cancelled', 'delivered'],
+  currency: () => form.currency,
+  knownContactIds: (pool) => (pool === 'client' ? [form.contactId] : []),
+  reload: () => loadOrder(),
+})
 const canReserve = computed(() => ['confirmed', 'partially_delivered'].includes(orderStatus.value))
-
-const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => intlLocale(appStore.locale))
-const rules = { required: (v: string) => !!v || t('validation.required') }
-
-function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
-function fmtCurrency(amount: number) { return formatCurrency(amount, form.currency || baseCurrency.value, localeCode.value) }
-function emptyLine(): LineRow { return { description: '', quantity: 0, unit: 'pcs' } }
 
 const form = reactive({
   contactId: '',
@@ -684,15 +437,7 @@ const form = reactive({
 
 const priorityOptions = computed(() => (['low', 'normal', 'high', 'urgent'] as const).map((p) => ({ value: p, title: t(`invoicing.priority.${p}`) })))
 
-// ── reservations + lookups ──
-const reservations = ref<any[]>([])
-const orderNumbers = ref<Record<string, string>>({})
-/** FR-22.36: the invoices made from this order, as its GET returns them. */
-const linkedInvoices = ref<Record<string, any>>({})
-const activeReservations = computed(() => reservations.value.filter((r) => r.status !== 'cancelled'))
-function resStatusColor(status: string) {
-  return status === 'active' ? 'primary' : status === 'fulfilled' ? 'success' : 'error'
-}
+// ── reservations ──
 function lineDescription(res: any) {
   return form.lines.find((l: any) => String(l._id) === String(res.internalOrderLineId))?.description || '—'
 }
@@ -725,17 +470,8 @@ async function reserveAgain(res: any) {
  * „Незапазени промени" (the P7-chain flake).
  */
 const lineFigures = ref<Record<string, LineFigures>>({})
-const NO_FIGURES: LineFigures = { reserved: 0, onUnsentOrder: 0, invoiced: 0, delivered: 0 }
 function figuresOf(line: LineRow): LineFigures {
   return (line._id && lineFigures.value[String(line._id)]) || NO_FIGURES
-}
-function takeFigures(lines: any[]) {
-  lineFigures.value = Object.fromEntries((lines || []).map((l: any) => [String(l._id), {
-    reserved: Number(l.reservedQuantity) || 0,
-    onUnsentOrder: Number(l.onUnsentOrderQuantity) || 0,
-    invoiced: Number(l.invoicedQuantity) || 0,
-    delivered: Number(l.deliveredQuantity) || 0,
-  }]))
 }
 /** The reservations, their orders' numbers and the names, as GET /internal-orders/:id answers them. */
 function takeReservations(data: any) {
@@ -757,7 +493,7 @@ async function refreshReservations() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`)
     orderStatus.value = data.internalOrder.status
-    takeFigures(data.internalOrder.lines)
+    lineFigures.value = figuresByLine(data.internalOrder.lines)
     takeReservations(data)
   } catch {
     showError(t('common.operationFailed'))
@@ -774,60 +510,6 @@ function coverageInput(line: LineRow) {
   return { quantity: line.quantity, reserved: f.reserved, onUnsentOrder: f.onUnsentOrder }
 }
 const coverage = computed(() => orderCoverage(form.lines.map(coverageInput)).status)
-function coverageColor(c: string) { return ({ none: 'error', partial: 'warning', ordered: 'info', full: 'success' }[c] || 'grey') }
-
-// ── contacts (server-searched pools) + warehouses ──
-const clientOptions = ref<any[]>([])
-const supplierOptions = ref<any[]>([])
-const loadingContacts = ref(false)
-const warehouses = ref<Array<{ _id: string; name: string; isDefault?: boolean }>>([])
-const contactNames = ref<Record<string, string>>({})
-/**
- * FR-30.10: the articles as the order's read named them (`lookup.products`), so a line reads no article to show its
- * name. A line given another article reads that one, as before.
- */
-const knownProducts = ref<Record<string, { name: string }>>({})
-function knownOf(productId?: string | null): { id: string; name: string } | null {
-  const p = productId ? knownProducts.value[String(productId)] : undefined
-  return p ? { id: String(productId), name: p.name } : null
-}
-
-
-let contactSearchTimer: ReturnType<typeof setTimeout> | null = null
-function onContactSearch(text: string, pool: 'client' | 'supplier') {
-  if (contactSearchTimer) clearTimeout(contactSearchTimer)
-  contactSearchTimer = setTimeout(() => fetchContacts(pool, text || undefined), 300)
-}
-
-async function fetchContacts(pool: 'client' | 'supplier', search?: string) {
-  loadingContacts.value = true
-  try {
-    // FR-30.7: the picker's rows, not whole contacts.
-    // FR-30.12: a type-ahead shows no total, so nothing is counted.
-    const params: Record<string, any> = { size: 20, fields: 'list', count: 'none' }
-    if (pool === 'supplier') params.type = 'supplier'
-    if (search) params.search = search
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params })
-    const items = data.contacts || []
-    const merged = [...items]
-    if (pool === 'client' && form.contactId && contactNames.value[form.contactId] && !merged.some((c: any) => c._id === form.contactId)) {
-      merged.push({ _id: form.contactId, companyName: contactNames.value[form.contactId] })
-    }
-    if (pool === 'client') clientOptions.value = merged
-    else supplierOptions.value = merged
-    for (const c of items) contactNames.value[c._id] = c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ')
-  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
-    loadingContacts.value = false
-  }
-}
-
-async function fetchWarehouses() {
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } })
-    warehouses.value = data.warehouses || []
-  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
-}
-function warehouseName(id: string) { return warehouses.value.find((w) => w._id === String(id))?.name || '—' }
 
 // ── pickers ──
 const productPickerOpen = ref(false)
@@ -841,21 +523,10 @@ function openProductPicker(li: number, text = '') {
   productPickerText.value = text
   productPickerOpen.value = true
 }
-/**
- * FR-28.28: several articles at once. The first goes on the line the dialog was opened from, as one pick would; each
- * of the others on the next free line, through the line's own after-pick logic.
- */
+/** FR-28.28: several articles at once, from the line the dialog was opened from. */
 function onProductsPicked(ps: any[]) {
   if (productPickerTarget.value === null || !ps.length) return
-  let li = productPickerTarget.value
-  ps.forEach((p, i) => {
-    if (i > 0) {
-      li += 1
-      const next = form.lines[li]
-      if (!next || next.productId || next.description) form.lines.splice(li, 0, emptyLine())
-    }
-    const line = form.lines[li]
-    if (!line) return
+  fillPickedLines(form.lines, productPickerTarget.value, ps, emptyLine, (line, p) => {
     setLineArticle(line, p._id)
     line.description = p.name
     onProductSelected(line, p)
@@ -870,17 +541,13 @@ function openContactPicker(target: ContactPickTarget) {
   contactPickerOpen.value = true
 }
 function onContactPicked(c: any) {
-  const id = c?._id || c?.id
-  if (!id) return
-  const name = c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ')
-  contactNames.value[id] = name
-  const entry = { _id: id, companyName: name }
-  if (contactPickerTarget.value?.kind === 'supplier') {
-    if (!supplierOptions.value.some((o) => o._id === id)) supplierOptions.value = [entry, ...supplierOptions.value]
-  } else {
-    if (!clientOptions.value.some((o) => o._id === id)) clientOptions.value = [entry, ...clientOptions.value]
-    form.contactId = id
-  }
+  const supplier = contactPickerTarget.value?.kind === 'supplier'
+  const id = adoptContact(c, supplier ? 'supplier' : 'client')
+  if (id && !supplier) form.contactId = id
+}
+/** A supplier the shortage suggestions name, among the options so its name shows. */
+function keepSupplier(entry: { _id: string; companyName: string }) {
+  if (!supplierOptions.value.some((o) => o._id === entry._id)) supplierOptions.value = [entry, ...supplierOptions.value]
 }
 
 function onProductSelected(line: LineRow, product: any) {
@@ -913,10 +580,13 @@ function focusLineQuantity(idx: number) {
 
 // ── the lines as a tree (FR-28.44) ──
 // What a row is and what a line adds up to is the node model's (`composables/order-tree/customer-order-tree.ts`), rebuilt
-// from the form's lines, the reservations and what the server derives per saved line. The cells above only say it. Nothing
-// here is staged: a reservation is made, changed and released AT ONCE, each with its own dialog.
+// from the form's lines, the reservations and what the server derives per saved line; what its cells say is
+// `composables/order-form/customer-tree-view.ts`. Nothing here is staged: a reservation is made, changed and released
+// AT ONCE, each with its own dialog.
 const linesPanelRef = ref<any>(null)
 const treeRef = ref<any>(null)
+/** The cover and generate dialogs (`ShortageDialogs`). */
+const shortages = ref<{ openCoverDialog(): void; openCoverFor(lineId: string, section: 'stock' | 'order'): void; openGenerateDialog(lineId?: string): Promise<void> } | null>(null)
 
 const tree = computed(() => buildCustomerOrderTree(form.lines, reservations.value, {
   readonly: readonly.value,
@@ -930,101 +600,13 @@ const shownNodes = computed(() => readonly.value
   : tree.value.nodes)
 function lineOf(node: TreeNode): LineRow { return form.lines[node.source.lineIndex!] }
 
-/**
- * The widths of the two figures the user types: a quantity of five digits and a price to 9,999.99 are read whole at 1366 px
- * (the right panel open or folded) and at 1920 px, which `customer-order-tree.spec.ts` measures on the fields. They rest on
- * the number-field rules of `OrderTree.vue` (no spin buttons, no padding in the field): with those a digit takes 9 px.
- * The price column also holds the line's „Select price" before the field: the button's 20 px and the 4 px between them
- * are added to the 84 px the column had, so the field is as wide as it was. The article's column pays for it, and still
- * has more than its minimum at 1366 px with the right panel open.
- */
-const QTY_COL = '68px'
-const PRICE_COL = '108px'
+const treeColumns = computed(() => customerTreeColumns(t, isEdit.value))
+const invoicedAndDelivered = (f: { invoiced: number; dispatched: number }) => invoicedAndDeliveredOf(t, f)
+const statusChips = (node: TreeNode, open: boolean) => customerStatusChips(t, node, open)
+const actionIcon = customerActionIcon
+const actionColor = customerActionColor
+const actionTitle = (type: TreeActionType) => customerActionTitle(t, type)
 
-/**
- * The columns are the supplier order's, with what a customer order says in them: Free is what is still SHORT, and Delivered
- * (not Dispatched) is the goods that left. A new order has nothing to show in the figures, so it has only the line's own fields.
- */
-const treeColumns = computed<TreeColumn[]>(() => [
-  { key: 'item', title: t('invoicing.tree.itemOrder') },
-  { key: 'qty', title: t('invoicing.qty'), align: 'end', width: QTY_COL },
-  { key: 'unit', title: t('invoicing.unit'), width: '68px' },
-  { key: 'price', title: t('invoicing.tree.price'), align: 'end', width: PRICE_COL },
-  ...(isEdit.value
-    ? ([
-        { key: 'reserved', title: t('invoicing.tree.reserved'), align: 'end', width: '80px' },
-        { key: 'free', title: t('invoicing.shortQty'), hint: t('invoicing.tree.shortHint'), align: 'end', width: '60px' },
-        { key: 'invoiced', title: t('invoicing.tree.invoiced'), align: 'end', width: '74px' },
-        { key: 'dispatched', title: t('invoicing.tree.delivered'), align: 'end', width: '90px', optional: true },
-        { key: 'status', title: t('common.status'), width: '142px' },
-      ] as TreeColumn[])
-    : []),
-  // + Reserve and the remove button side by side, in the longest of the four languages (Reservieren, 104 px).
-  { key: 'actions', title: '', width: isEdit.value ? '152px' : '64px' },
-])
-
-/** The tooltip of Invoiced while Delivered has no column of its own (a narrow screen): both figures, so neither is lost. */
-const invoicedAndDelivered = (f: { invoiced: number; dispatched: number }) =>
-  `${t('invoicing.tree.invoiced')} ${f.invoiced} · ${t('invoicing.tree.delivered')} ${f.dispatched}`
-
-/**
- * A line not saved yet (or the blank one waiting for an article) has no figures to show: nothing is reserved or invoiced against it.
- * A reservation shows its own invoiced and dispatched, but no Reserved or Free (its quantity is its own column).
- */
-function figureOf(node: TreeNode, value: number | null | undefined, ownToo = false): string | number {
-  if (node.kind === 'line' && !node.coverage) return ''
-  if (node.kind === 'reservation' && !ownToo) return ''
-  return value ?? ''
-}
-
-/** EXACTLY what the line's chip has always said: 'Reserved Qty: 4/4', or 'Ordered: 4/4' while the cover waits on a supplier order not sent. */
-function coverageText(node: TreeNode): string {
-  const label = node.coverage?.status === 'ordered' ? t('invoicing.coverage.ordered') : t('invoicing.reservedQty')
-  return `${label}: ${node.figures.reserved}/${node.figures.quantity}`
-}
-
-interface StatusChip { key: string; text: string; color?: string; label?: boolean; icon?: string; title?: string }
-/**
- * A reservation says its status (and that it is late); a line says how far it is covered, and, while it is closed, what
- * is wrong below it (`rolledFlags`), so folding a line never hides the thing that needs a look.
- */
-function statusChips(node: TreeNode, open: boolean): StatusChip[] {
-  const lateChip: StatusChip = { key: 'late', text: t('invoicing.tree.late'), color: 'error', icon: 'mdi-clock-alert-outline', title: t('invoicing.lateDelivery') }
-  if (node.kind === 'reservation' && node.reservation) {
-    const status = node.reservation.status || ''
-    const chips: StatusChip[] = [{ key: 'status', text: t(`invoicing.status.${status}`), color: resStatusColor(status), label: true }]
-    if (node.reservation.late) chips.push(lateChip)
-    return chips
-  }
-  if (node.kind !== 'line' || !node.coverage) return []
-  const chips: StatusChip[] = [{
-    key: 'coverage',
-    text: coverageText(node),
-    color: coverageColor(node.coverage.status),
-    // FR-22.44: a line whose cover waits on a supplier order not sent yet reads "Ordered".
-    title: node.coverage.onUnsentOrder > 0 ? t('invoicing.onUnsentOrder', { count: node.coverage.onUnsentOrder }) : undefined,
-  }]
-  const flags = open ? node.flags : node.rolledFlags
-  if (flags.includes('overReserved')) chips.push({ key: 'overReserved', text: t('invoicing.tree.overReserved'), color: 'error' })
-  if (flags.includes('late')) chips.push(lateChip)
-  return chips
-}
-
-// The controls of a row. The labels are the ones the buttons have always had: specs and walks look them up by name.
-function actionIcon(type: TreeActionType): string {
-  return ({ remove: 'mdi-close', editQuantity: 'mdi-pencil', release: 'mdi-close', reserveAgain: 'mdi-restore' } as Record<string, string>)[type] || 'mdi-dots-horizontal'
-}
-function actionColor(type: TreeActionType): string | undefined {
-  return type === 'release' || type === 'remove' ? 'error' : type === 'reserveAgain' ? 'primary' : undefined
-}
-function actionTitle(type: TreeActionType): string {
-  return ({
-    remove: t('common.remove'),
-    editQuantity: t('invoicing.reservations.changeQuantity'),
-    release: t('invoicing.reservations.release'),
-    reserveAgain: t('invoicing.reservations.reserveAgain'),
-  } as Record<string, string>)[type] || ''
-}
 /** The reservation the way the server has it: the dialogs and the repeat call take that, not the row. */
 function rawReservation(node: TreeNode) {
   return reservations.value.find((r) => String(r._id) === node.reservation?.resId)
@@ -1041,18 +623,8 @@ function onAction(node: TreeNode, type: TreeActionType) {
 function onReservePick(node: TreeNode, source: 'stock' | 'order' | 'generate') {
   const lineId = String(lineOf(node)?._id || '')
   if (!lineId) return
-  if (source === 'generate') openGenerateDialog(lineId)
-  else openCoverFor(lineId, source)
-}
-
-/** FR-28.46: the supplier order opens on the line (and the warehouse) a reservation is on, not at the top of the document. */
-function orderLink(res: any) {
-  return res.orderId ? { name: 'invoicing.orders.edit', params: { id: String(res.orderId) }, query: orderLineQuery(res) } : undefined
-}
-function rowOrderLink(row: ReservationRow) {
-  return row.source === 'order' && row.orderId
-    ? { name: 'invoicing.orders.edit', params: { id: row.orderId }, query: orderLineQuery({ lineId: row.orderLineId, allocationId: row.allocationId }) }
-    : undefined
+  if (source === 'generate') shortages.value?.openGenerateDialog(lineId)
+  else shortages.value?.openCoverFor(lineId, source)
 }
 
 // ── FR-28.46: a link can name the line ──
@@ -1080,13 +652,9 @@ const linesSummary = computed(() => {
 const estimatedTotal = computed(() => form.lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.expectedUnitPrice) || 0), 0))
 
 // ── status pipeline + actions ──
-const statusDef = computed<StatusDef | undefined>(() => ({
-  steps: ['invoicing.status.draft', 'invoicing.status.confirmed', 'invoicing.status.delivered', 'invoicing.status.completed'],
-  current: `invoicing.status.${orderStatus.value === 'partially_delivered' ? 'confirmed' : orderStatus.value}`,
-  colors: orderStatus.value === 'cancelled' ? { [`invoicing.status.cancelled`]: 'error' } : undefined,
-}))
+const statusDef = computed<StatusDef | undefined>(() =>
+  orderStatusDef(['draft', 'confirmed', 'delivered', 'completed'], orderStatus.value === 'partially_delivered' ? 'confirmed' : orderStatus.value, orderStatus.value))
 
-const saving = ref(false)
 const { printingId, printOrder } = useCustomerOrderPrint()
 const formActions = computed<FormAction[]>(() => [
   { label: t('common.save'), icon: 'mdi-content-save', handler: onSave, loading: saving.value, show: !readonly.value && ['draft', 'confirmed'].includes(orderStatus.value), cap: isEdit.value ? ['orders.create', 'orders.edit'] : 'orders.create' },
@@ -1116,42 +684,7 @@ const { markSaved, markClean, tryRestore, isDirty, snapshot: snapshotPending } =
 })
 
 // ── persistence ──
-function buildPayload() {
-  return {
-    contactId: form.contactId,
-    issueDate: form.issueDate,
-    requestedDeliveryDate: form.requestedDeliveryDate,
-    priority: form.priority,
-    warehouseId: form.warehouseId || undefined,
-    currency: form.currency,
-    exchangeRate: form.exchangeRate || 1,
-    notes: form.notes || undefined,
-    terms: form.terms || undefined,
-    tags: form.tags,
-    lines: form.lines
-      .filter((l) => l.productId)
-      .map((l) => ({
-        ...(l._id ? { _id: l._id } : {}),
-        productId: l.productId!,
-        description: l.description,
-        sku: l.sku || undefined,
-        quantity: Number(l.quantity) || 0,
-        unit: l.unit || 'pcs',
-        expectedUnitPrice: l.expectedUnitPrice !== undefined && l.expectedUnitPrice !== null ? Number(l.expectedUnitPrice) : undefined,
-        // Always said, either way: a save that does not say keeps the stored pin (the rule for callers older than it).
-        pricePinned: l.pricePinned === true,
-        taxRate: l.taxRate,
-      })),
-  }
-}
-
 function onSave() { return save() }
-
-/**
- * FR-29.13: a new order is created under one `Idempotency-Key` per attempt, kept while its outcome is unknown, so a
- * double click or a save repeated after a timeout gets back the order the first request made instead of a second one.
- */
-const createAttempt = createIdempotentAction()
 
 /** True when the order is stored as the form shows it. `quiet`: no toast of its own (an action follows and says its own). */
 async function save(quiet = false): Promise<boolean> {
@@ -1164,7 +697,7 @@ async function save(quiet = false): Promise<boolean> {
   saving.value = true
   try {
     if (isEdit.value) {
-      await httpClient.put(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`, buildPayload())
+      await httpClient.put(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`, customerOrderBody(form))
       succeeded()
       if (!quiet) showSuccess(t('common.savedSuccessfully'))
       markSaved()
@@ -1172,7 +705,7 @@ async function save(quiet = false): Promise<boolean> {
       // It stays open on what it saved: an edit from here is unsaved again (FR-22.16, as the documents do).
       markClean()
     } else {
-      const payload = buildPayload()
+      const payload = customerOrderBody(form)
       const { data } = await createAttempt.run(payload, headers => httpClient.post(`${orgUrl()}/invoicing/internal-orders`, payload, { headers }))
       succeeded()
       if (!quiet) showSuccess(t('common.savedSuccessfully'))
@@ -1212,23 +745,6 @@ async function saveIfNeeded(): Promise<boolean> {
   return save(true)
 }
 
-/** True when it went through; a refusal goes to `onError` (the cascade dialog) or the snackbar. */
-async function doAction(path: string, successKey: string, opts: { onError?: (message: string) => void } = {}): Promise<boolean> {
-  loading.value = true
-  try {
-    await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/${path}`)
-    showSuccess(t(successKey))
-    await loadOrder()
-    return true
-  } catch (e: any) {
-    const message = reservationErrorMessage(e, t)
-    if (opts.onError) opts.onError(message)
-    else showError(message)
-    return false
-  } finally {
-    loading.value = false
-  }
-}
 async function confirmOrder() {
   if (await saveIfNeeded()) await doAction('confirm', 'invoicing.orderConfirmed')
 }
@@ -1238,30 +754,6 @@ async function confirmOrder() {
 async function printSheet() {
   if (!(await saveIfNeeded())) return
   await printOrder({ _id: route.params.id as string, number: orderNumber.value })
-}
-
-// ── FR-22.41: Complete and Cancel say what they release before they do it ──
-const cascade = reactive({ open: false, action: 'cancel' as 'cancel' | 'complete', error: '', busy: false })
-const cascadeNow = computed(() => cascadeSummary(reservations.value, 'client', orderNumbers.value))
-function openCascade(action: 'cancel' | 'complete') {
-  cascade.action = action
-  cascade.error = ''
-  cascade.open = true
-}
-/** Cancel always asks: it cannot be undone. Complete asks only when it lets reservations go. */
-function cancelOrder() { openCascade('cancel') }
-function completeOrder() {
-  if (cascadeNow.value.count > 0) openCascade('complete')
-  else doAction('complete', 'invoicing.orderCompleted')
-}
-async function confirmCascade() {
-  cascade.busy = true
-  cascade.error = ''
-  const ok = await doAction(cascade.action, cascade.action === 'cancel' ? 'invoicing.orderCancelled' : 'invoicing.orderCompleted', {
-    onError: (message) => { cascade.error = message },
-  })
-  cascade.busy = false
-  if (ok) cascade.open = false
 }
 
 async function convertOrder() {
@@ -1277,17 +769,6 @@ async function convertOrder() {
     conversion.failed(e)
   } finally {
     loading.value = false
-  }
-}
-
-async function deleteOrder() {
-  if (!(await askConfirm({ text: t('invoicing.deleteInternalOrderConfirm'), confirm: t('common.delete'), danger: true }))) return
-  try {
-    await httpClient.delete(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`)
-    showSuccess(t('common.deletedSuccessfully'))
-    router.push({ name: 'invoicing.internalOrders' })
-  } catch (e: any) {
-    showError(reservationErrorMessage(e, t))
   }
 }
 
@@ -1324,181 +805,6 @@ function openRelease(res: any) {
   releaseDialog.value = true
 }
 
-// ── cover-shortages dialog ──
-const coverDialog = ref(false)
-const loadingSuggestions = ref(false)
-const acting = ref(false)
-const suggestions = ref<any[]>([])
-const sugLookup = ref<any>({})
-
-/** Opened from a line's + Reserve: the line, and the source it asked for. The toolbox's Cover shortages leaves it null and shows everything. */
-const coverScope = ref<{ lineId: string; section: 'stock' | 'order' } | null>(null)
-const visibleSuggestions = computed(() => coverScope.value
-  ? suggestions.value.filter((l) => String(l.lineId) === coverScope.value!.lineId)
-  : suggestions.value)
-function showSection(section: 'stock' | 'order'): boolean {
-  return !coverScope.value || coverScope.value.section === section
-}
-function openCoverDialog() {
-  coverScope.value = null
-  coverDialog.value = true
-  loadSuggestions()
-}
-function openCoverFor(lineId: string, section: 'stock' | 'order') {
-  coverScope.value = { lineId, section }
-  coverDialog.value = true
-  loadSuggestions()
-}
-async function loadSuggestions() {
-  loadingSuggestions.value = true
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/suggestions`)
-    for (const line of data.lines || []) {
-      for (const fs of line.freeStock) fs._qty = Math.min(line.openQuantity, fs.available)
-      for (const inc of line.incoming) inc._qty = Math.min(line.openQuantity, inc.unreserved)
-      for (const p of line.preemptable) p._qty = Math.min(line.openQuantity, p.releasable)
-    }
-    suggestions.value = data.lines || []
-    sugLookup.value = data.lookup || {}
-  } catch (e: any) {
-    showError(reservationErrorMessage(e, t))
-  } finally {
-    loadingSuggestions.value = false
-  }
-}
-
-async function coverAction(fn: () => Promise<any>) {
-  acting.value = true
-  try {
-    await fn()
-    showSuccess(t('common.savedSuccessfully'))
-    await Promise.all([refreshReservations(), loadSuggestions()])
-  } catch (e: any) {
-    showError(reservationErrorMessage(e, t))
-  } finally {
-    acting.value = false
-  }
-}
-function reserveFromStock(line: any, fs: any) {
-  return coverAction(() => httpClient.post(`${orgUrl()}/invoicing/reservations`, {
-    source: 'stock',
-    productId: line.productId,
-    quantity: fs._qty,
-    internalOrderId: route.params.id,
-    internalOrderLineId: line.lineId,
-    warehouseId: fs.warehouseId,
-  }))
-}
-function reserveFromOrder(line: any, inc: any) {
-  return coverAction(() => httpClient.post(`${orgUrl()}/invoicing/reservations`, {
-    source: 'order',
-    productId: line.productId,
-    quantity: inc._qty,
-    internalOrderId: route.params.id,
-    internalOrderLineId: line.lineId,
-    orderId: inc.orderId,
-    groupId: inc.groupId,
-    lineId: inc.lineId,
-    allocationId: inc.allocationId,
-  }))
-}
-async function preempt(line: any, p: any) {
-  if (!(await askConfirm({ text: t('invoicing.preemptConfirm', { number: p.reservationNumber }), confirm: t('invoicing.preempt') }))) return
-  return coverAction(() => httpClient.post(`${orgUrl()}/invoicing/reservations/${p.reservationId}/preempt`, {
-    internalOrderId: route.params.id,
-    internalOrderLineId: line.lineId,
-    quantity: p._qty,
-  }))
-}
-
-// ── generate-external dialog ──
-const generateDialog = ref(false)
-const generating = ref(false)
-const generateRows = ref<any[]>([])
-/** 'new', or the id of the draft supplier order the lines are added to (FR-22.42). */
-const generateTarget = ref<string>('new')
-const generateTargetTouched = ref(false)
-const draftOrders = ref<DraftOrder[]>([])
-
-/**
- * The warehouse the goods go to when the dialog leaves it empty — the order's own, else the
- * default one — which is what `generateExternalOrder` falls back to. Shown, not implied.
- */
-const fallbackWarehouseId = computed(() => form.warehouseId || warehouses.value.find((w) => w.isDefault)?._id || '')
-
-const generateTargets = computed(() => [
-  { value: 'new', title: t('invoicing.generateIntoNew') },
-  ...pickDraftsFor(draftOrders.value, generateRows.value.map((r) => r.supplierId)).map((d) => ({
-    value: d._id,
-    title: t('invoicing.generateIntoDraft', { number: d.orderNumber, suppliers: d.supplierNames.join(', '), lines: d.lineCount }),
-  })),
-])
-
-// Until the user picks one, the target follows the suppliers: their newest draft, else a new order.
-watch(() => generateRows.value.map((r) => r.supplierId).join('|'), () => {
-  if (!generateDialog.value || generateTargetTouched.value) return
-  generateTarget.value = defaultDraftFor(draftOrders.value, generateRows.value.map((r) => r.supplierId))?._id || 'new'
-  if (!generateTargets.value.some((o) => o.value === generateTarget.value)) generateTarget.value = 'new'
-})
-
-async function loadDraftOrders() {
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/orders`, { params: { status: 'draft', size: 100, sortBy: 'createdAt', sortOrder: 'desc' } })
-    draftOrders.value = (data.orders || []).map(asDraftOrder)
-  } catch {
-    draftOrders.value = []
-  }
-}
-
-async function openGenerateDialog(lineId?: string) {
-  // Fresh every time: a reservation made since the cover dialog last looked changes what is short.
-  await Promise.all([loadSuggestions(), loadDraftOrders()])
-  generateRows.value = suggestions.value.filter((line) => !lineId || String(line.lineId) === lineId).map((line) => ({
-    internalOrderLineId: line.lineId,
-    description: sugLookup.value.products?.[line.productId]?.name || line.productId,
-    quantity: line.openQuantity,
-    supplierId: line.supplierHint?.supplierId || '',
-    warehouseId: fallbackWarehouseId.value,
-  }))
-  // Make hinted suppliers resolvable in the autocomplete.
-  for (const row of generateRows.value) {
-    if (row.supplierId && sugLookup.value.contacts?.[row.supplierId] && !supplierOptions.value.some((o) => o._id === row.supplierId)) {
-      supplierOptions.value = [{ _id: row.supplierId, companyName: sugLookup.value.contacts[row.supplierId] }, ...supplierOptions.value]
-    }
-  }
-  generateTargetTouched.value = false
-  generateTarget.value = defaultDraftFor(draftOrders.value, generateRows.value.map((r) => r.supplierId))?._id || 'new'
-  generateDialog.value = true
-}
-
-async function submitGenerate() {
-  const lines = generateRows.value
-    .filter((r) => r.quantity > 0 && r.supplierId)
-    .map((r) => ({
-      internalOrderLineId: r.internalOrderLineId,
-      quantity: r.quantity,
-      supplierId: r.supplierId,
-      warehouseId: r.warehouseId || undefined,
-    }))
-  if (!lines.length) return
-  generating.value = true
-  const appending = generateTarget.value !== 'new'
-  try {
-    const { data } = await httpClient.post(`${orgUrl()}/invoicing/internal-orders/${route.params.id}/generate-external`, {
-      lines,
-      ...(appending ? { orderId: generateTarget.value } : {}),
-    })
-    showSuccess(t(appending ? 'invoicing.externalOrderAppended' : 'invoicing.externalOrderCreated', { number: data.order.orderNumber }))
-    generateDialog.value = false
-    // FR-22.35: the user lands on the supplier order — the next step is sending it.
-    await router.push({ name: 'invoicing.orders.edit', params: { id: String(data.order._id) } })
-  } catch (e: any) {
-    showError(reservationErrorMessage(e, t))
-  } finally {
-    generating.value = false
-  }
-}
-
 // ── loading ──
 async function loadOrder(id?: string) {
   loadStarted()
@@ -1517,21 +823,10 @@ async function loadOrder(id?: string) {
     form.notes = o.notes || ''
     form.terms = o.terms || ''
     form.tags = o.tags || []
-    form.lines = (o.lines || []).map((l: any) => ({
-      _id: l._id,
-      productId: l.productId ? String(l.productId) : undefined,
-      description: l.description || '',
-      sku: l.sku,
-      quantity: l.quantity || 0,
-      unit: l.unit || 'pcs',
-      expectedUnitPrice: l.expectedUnitPrice,
-      // `true` or absent, never `false`: the unsaved-changes check compares the lines as JSON.
-      pricePinned: l.pricePinned === true ? true : undefined,
-      taxRate: l.taxRate,
-    }))
+    form.lines = customerLinesFrom(o.lines)
     // FR-22.43: a blank line waits for the next article while lines can still be added.
     if (canAddLines.value) form.lines.push(emptyLine())
-    takeFigures(o.lines)
+    lineFigures.value = figuresByLine(o.lines)
     takeReservations(data)
     if (form.contactId && contactNames.value[form.contactId] && !clientOptions.value.some((c: any) => c._id === form.contactId)) {
       clientOptions.value = [{ _id: form.contactId, companyName: contactNames.value[form.contactId] }, ...clientOptions.value]
@@ -1543,13 +838,6 @@ async function loadOrder(id?: string) {
   } catch (e) {
     loadFailed(e)
   }
-}
-
-async function fetchPeekedNumber() {
-  try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/internal-orders/peek-next`)
-    peekedNumber.value = data.next || ''
-  } catch { /* A preview only: the number is drawn on save. */ }
 }
 
 onMounted(async () => {
