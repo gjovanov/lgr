@@ -1,4 +1,9 @@
 import type { TenantEntity } from '../types.js'
+import type { EntityOf, Plain } from '../entity-of.js'
+import type {
+  IInvoice as DbInvoice, IInvoiceLine as DbInvoiceLine, IInvoicePayment as DbInvoicePayment, IPriceStep as DbPriceStep,
+  IInvoiceCashSaleRef as DbInvoiceCashSaleRef, IInvoiceAddress as DbInvoiceAddress, IInvoiceRecurringConfig as DbInvoiceRecurringConfig,
+} from 'db/models'
 
 // ── Contact ──
 
@@ -57,117 +62,17 @@ export interface IContact extends TenantEntity {
 
 // ── Pricing ──
 
-export interface IPriceStep {
-  type: 'base' | 'category' | 'tag' | 'contact' | 'tier' | 'override'
-  label: string
-  price: number
-}
-
-// ── Invoice ──
-
-export interface IInvoiceLine {
-  id?: string
-  productId?: string
-  description: string
-  quantity: number
-  unit: string
-  unitPrice: number
-  discount: number
-  taxRate: number
-  taxAmount: number
-  lineTotal: number
-  accountId?: string
-  /** FR-25 §3.9: the books' analytic for the line. */
-  analyticId?: string
-  warehouseId?: string
-  priceExplanation?: IPriceStep[]
-  /** On an invoice for a cash sale: the cash-sale line it invoices (#171). */
-  cashSaleLineId?: string
-}
-
-/** The cash sale an invoice was issued for (#171): see `db/models/invoice.model.ts`. */
-export interface IInvoiceCashSaleRef {
-  cashSaleId: string
-  number: string
-  issueDate: Date
-  contactId?: string
-}
-
-export interface IInvoicePayment {
-  id?: string
-  date: Date
-  amount: number
-  method: string
-  reference?: string
-  bankAccountId?: string
-  journalEntryId?: string
-  /** Set when the system, not a person, recorded it: `cash_on_issue`, `card_on_issue` or `cash_register`. */
-  origin?: string
-}
-
-export interface IInvoiceAddress {
-  street: string
-  city: string
-  state?: string
-  postalCode: string
-  country: string
-}
-
-export interface IInvoiceRecurringConfig {
-  enabled: boolean
-  frequency: string
-  nextDate: Date
-  endDate?: Date
-}
-
-export interface IInvoice extends TenantEntity {
-  /** FR-25 §3.9: the VAT period, the accountant's `Вид`, the register's document type. */
-  vatPeriod?: string
-  vatKind?: string
-  vatDocTypeCode?: string
-  invoiceNumber: string
-  type: string
-  direction: string
-  status: string
-  contactId: string
-  issueDate: Date
-  dueDate: Date
-  currency: string
-  exchangeRate: number
-  reference?: string
-  lines: IInvoiceLine[]
-  subtotal: number
-  discountTotal: number
-  taxTotal: number
-  total: number
-  totalBase: number
-  amountPaid: number
-  amountDue: number
-  payments: IInvoicePayment[]
-  /** FR-23: the money the receipts printing right now are taking. */
-  receiptHolds?: Array<{ receiptId: string; amount: number }>
-  voidingUntil?: Date | null
-  deliveryReceiptOwed?: boolean
-  notes?: string
-  terms?: string
-  footer?: string
-  billingAddress: IInvoiceAddress
-  shippingAddress?: IInvoiceAddress
-  relatedInvoiceId?: string
-  convertedInvoiceId?: string
-  proformaId?: string
-  /** The offer a proforma or an invoice was converted from. */
-  offerId?: string
-  cashSaleRef?: IInvoiceCashSaleRef
-  taxEventDate?: Date
-  journalEntryId?: string
-  recurringConfig?: IInvoiceRecurringConfig
-  attachments: string[]
-  sentAt?: Date
-  paidAt?: Date
-  tags?: string[]
-  createdBy: string
-}
+/*
+ * FR-32.15 (#797): the invoice's types come from its model (`db/models/invoice.model.ts`), not a second copy here.
+ * Until then this file restated 43 of the model's fields by hand, and nothing tied the two together.
+ */
+export type IPriceStep = Plain<DbPriceStep>
+export type IInvoiceLine = Plain<DbInvoiceLine>
+export type IInvoiceCashSaleRef = Plain<DbInvoiceCashSaleRef>
+export type IInvoicePayment = Plain<DbInvoicePayment>
+export type IInvoiceAddress = Plain<DbInvoiceAddress>
+export type IInvoiceRecurringConfig = Plain<DbInvoiceRecurringConfig>
+export type IInvoice = EntityOf<DbInvoice>
 
 // ── PaymentOrder ──
 

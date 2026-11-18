@@ -55,7 +55,10 @@ export { FiscalPosition, type IFiscalPosition, type IFiscalPositionTaxMap } from
 
 // Invoicing
 export { Contact, type IContact } from './contact.model.js'
-export { Invoice, INVOICE_NUMBER_KEY, type IInvoice } from './invoice.model.js'
+export {
+  Invoice, INVOICE_NUMBER_KEY, type IInvoice, type IInvoiceLine, type IInvoicePayment, type IPriceStep, type IInvoiceCashSaleRef,
+  type IInvoiceAddress, type IInvoiceRecurringConfig,
+} from './invoice.model.js'
 export { Order, type IOrder, type IOrderSupplierGroup, type IOrderLine, type IOrderAllocation, type IOrderReservation } from './order.model.js'
 export { InternalOrder, type IInternalOrder, type IInternalOrderLine } from './internal-order.model.js'
 export { Reservation, type IReservation } from './reservation.model.js'

@@ -442,6 +442,19 @@ Most of this FR is proven by CI, not in production.
     - The four payroll lists' Export and the payslip's PDF button did nothing. They are removed and filed as #830.
     - The three TODOs left in the source are FR-25 §7.5's, and `unit/payroll-says-what-it-computes.test.ts` fails on a TODO that names no issue or spec item.
 
+### Slice C
+
+- **FR-32.14** shipped first, by itself (#799).
+- **FR-32.15, .16, .17** (`feat/797-fr32-c-entity-types`):
+  - **Entity types from the model.** `dal/entity-of.ts#EntityOf` and `Plain` derive an entity from its model's interface. They map `ObjectId` to string, add `id` and the stamps, and drop Mongoose's own keys, as `toEntity` does at run time.
+    - The invoice is the first entity: `IInvoice` and its lines, payments, price steps, addresses and cash-sale ref are now `Plain<…>` of `db/models/invoice.model.ts`, where `dal` restated 43 fields by hand.
+    - `unit/entity-types.test.ts` compiles a probe. The entity has every field of the model, a field added to a model reaches its entity as a plain value, and a planted wrong type fails.
+    - The other models follow as they are touched (the order and the movement next), each the same three lines.
+  - **Ratchets** (`unit/code-ratchets.test.ts`):
+    - direct model calls in the API packages' controllers, 277 (272 on this branch's first base; the masters merged in since added five, three of them the journal list's document names, FR-29 D);
+    - `as any` outside the tests, 2 156 (2 173 at the audit, 2 183 on this branch's first base);
+    - each file that uses the raw driver listed with its reason, and a new one fails until it is listed. Ten are listed with their reason still to be named.
+
 ### Slice D
 
 - **FR-32.18, .19, .20** (`feat/797-fr32-d-body-schemas`):
