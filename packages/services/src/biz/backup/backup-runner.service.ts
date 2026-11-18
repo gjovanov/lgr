@@ -391,14 +391,10 @@ export async function runBackupForOrg(
 
     // FR-13.25 — an operator creating a backup is an auditable act.
     //
-    // ⚠ The SCHEDULER's runs are deliberately not written here. `AuditLog.userId` is a
-    // required `ObjectId` ref to `User` (`audit-log.model.ts:23`) and `createAuditEntry`
-    // casts it unconditionally, so a system actor would throw, be swallowed by that
-    // function's own try/catch, and write nothing — the appearance of an audit trail with
-    // none behind it. (The `userId: 'system'` calls in `events/handlers.ts` already fail this
-    // way; that is a separate bug and weakening a fiscal model is not this PR's business.)
-    // A scheduled run is instead made visible where an operator actually looks: the FR-11
-    // digest now carries this org's own last `BackupRun` — see `readOrgBackupRun` below.
+    // The SCHEDULER's runs are not written here: a scheduled run is made visible where an
+    // operator actually looks, the FR-11 digest, which carries this org's own last
+    // `BackupRun` — see `readOrgBackupRun` below. (Since FR-29.20 an entry can name the
+    // system as its actor, `systemActor('backup')`, should a nightly row ever be wanted.)
     if (opts.actorUserId) {
       createAuditEntry({
         orgId, userId: opts.actorUserId, action: 'create', module: 'admin',

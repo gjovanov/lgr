@@ -43,24 +43,16 @@
     "TS18047": 5
   },
   "packages/invoicing-api/src/controllers/internal-order.controller.ts": {
-    "TS2345": 1,
-    "TS2353": 3
+    "TS2345": 1
   },
   "packages/invoicing-api/src/controllers/invoice-export.controller.ts": {
     "TS2345": 11
   },
-  "packages/invoicing-api/src/controllers/invoice.controller.ts": {
-    "TS2353": 3
-  },
   "packages/invoicing-api/src/controllers/order.controller.ts": {
-    "TS2345": 2,
-    "TS2353": 4
+    "TS2345": 2
   },
   "packages/invoicing-api/src/controllers/payment-order.controller.ts": {
     "TS18047": 5
-  },
-  "packages/invoicing-api/src/controllers/reservation.controller.ts": {
-    "TS2353": 5
   },
   "packages/invoicing-api/src/lib/cash-register-till.ts": {
     "TS2459": 1
@@ -166,11 +158,7 @@
     "TS2339": 1
   },
   "packages/services/src/biz/audit-log.service.ts": {
-    "TS2339": 4,
     "TS2503": 1
-  },
-  "packages/services/src/biz/doc-import/persist.ts": {
-    "TS2353": 1
   },
   "packages/services/src/dao/user.dao.ts": {
     "TS2416": 1

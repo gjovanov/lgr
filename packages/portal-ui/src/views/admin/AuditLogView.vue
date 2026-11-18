@@ -46,8 +46,8 @@
               clearable
               hide-details
               :loading="searchingEntities"
-              :disabled="filters.entityTypes.length !== 1"
-              :hint="filters.entityTypes.length !== 1 ? 'Select exactly one entity type first' : ''"
+              :disabled="!entitySearchable"
+              :hint="entitySearchable ? '' : 'Select exactly one entity type that can be searched'"
               persistent-hint
               @update:search="onEntitySearch"
             />
@@ -85,6 +85,10 @@
         >
           <template #item.timestamp="{ item }">
             <span class="text-caption">{{ formatDateTime(item.timestamp) }}</span>
+          </template>
+          <!-- FR-29.20: the system's entry (a job, an event) says "System" where a person's name would be. -->
+          <template #item.userName="{ item }">
+            <span :title="item.system ? item.systemName : undefined">{{ item.system ? $t('admin.systemActor') : item.userName }}</span>
           </template>
           <template #item.action="{ item }">
             <v-chip :color="actionColor(item.action)" size="x-small" label>{{ item.action }}</v-chip>
@@ -172,7 +176,7 @@
 
 <script setup lang="ts">
 import { formatDateTime as dateTime } from 'ui-shared/format'
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAdminStore } from '../../store/admin.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -187,7 +191,9 @@ const pageSize = ref(25)
 const correlatedCache = ref<Record<string, any[]>>({})
 const loadingCorrelated = ref<Record<string, boolean>>({})
 
-const filterOptions = reactive({ modules: [] as string[], actions: [] as string[], entityTypes: [] as string[] })
+const filterOptions = reactive({ modules: [] as string[], actions: [] as string[], entityTypes: [] as string[], searchableEntityTypes: [] as string[] })
+/** FR-29.22: the object search is offered for one entity type, and only for a type the server can search. */
+const entitySearchable = computed(() => filters.entityTypes.length === 1 && filterOptions.searchableEntityTypes.includes(filters.entityTypes[0]))
 const userResults = ref<{ id: string; label: string }[]>([])
 const entityResults = ref<{ id: string; label: string }[]>([])
 const searchingUsers = ref(false)
@@ -301,6 +307,7 @@ async function fetchFilterOptions() {
     filterOptions.modules = data.modules || []
     filterOptions.actions = data.actions || []
     filterOptions.entityTypes = data.entityTypes || []
+    filterOptions.searchableEntityTypes = data.searchableEntityTypes || []
   } catch { /* The filters offer nothing; the log itself still loads, and the HTTP client says a network failure or a 5xx. */ }
 }
 

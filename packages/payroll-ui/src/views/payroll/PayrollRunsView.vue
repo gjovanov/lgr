@@ -86,6 +86,7 @@ import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
@@ -104,10 +105,17 @@ const filters = computed(() => {
   return f
 })
 
+// FR-31.18: the list's place (search, page, size, sort) in the address; declared before usePaginatedTable. The status
+// filter has no control on the page, so nothing sets it and it stays out of the address.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/payroll/run`),
   entityKey: 'payrollRuns',
   filters,
+  urlSync: true,
 })
 
 const expanded = ref<string[]>([])

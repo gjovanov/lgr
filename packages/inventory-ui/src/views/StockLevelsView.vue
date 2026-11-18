@@ -1,88 +1,77 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">{{ $t('nav.stockLevels') }}</h1>
-      <v-spacer />
-      <div class="d-flex ga-2">
-        <!-- FR-31.11: the list's report, which exports to Excel and PDF, on the list's filters. -->
-        <ReportExportButton report="stock-levels" :query="{ warehouseId: warehouseFilter, belowMin: lowStockOnly }" />
-      </div>
-    </div>
+  <!-- FR-31.19: on the shared list shell, so the list has the column picker and remembers its columns (keyed by the
+       route name, `inventory.stock-levels`, which does not change). -->
+  <ListScaffold
+    :title="$t('nav.stockLevels')"
+    :headers="headers"
+    :items="items"
+    :loading="loading"
+    :pagination="pagination"
+    :has-active-filters="hasActiveFilters"
+    :empty="{ icon: 'mdi-warehouse', title: $t('list.empty.stockLevels'), description: $t('list.empty.stockLevelsHint') }"
+    :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
+    density="default"
+    @update:options="onUpdateOptions"
+  >
+    <template #actions>
+      <!-- FR-31.11: the list's report, which exports to Excel and PDF, on the list's filters. -->
+      <ReportExportButton report="stock-levels" :query="{ warehouseId: warehouseFilter, belowMin: lowStockOnly }" />
+    </template>
 
-    <!-- Filters -->
-    <v-card class="mb-4">
-      <v-card-text class="pb-4">
-        <v-row>
-          <v-col cols="12" md="3">
-            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-select v-model="warehouseFilter" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-select v-model="categoryFilter" :label="$t('warehouse.category')" :items="categoryOptions" clearable hide-details density="compact" />
-          </v-col>
-          <v-col cols="12" md="3">
-            <TagInput v-model="tagFilter" type="product" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
-          </v-col>
-          <v-col cols="12" md="2">
-            <v-switch v-model="lowStockOnly" :label="$t('warehouse.lowStockOnly')" color="warning" hide-details density="compact" />
-          </v-col>
-        </v-row>
-      </v-card-text>
-    </v-card>
+    <template #filters>
+      <v-card class="mb-4">
+        <v-card-text class="pb-4">
+          <v-row>
+            <v-col cols="12" md="3">
+              <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+            </v-col>
+            <v-col cols="12" md="2">
+              <v-select v-model="warehouseFilter" :label="$t('warehouse.warehouse')" :items="warehouses" item-title="name" item-value="_id" clearable hide-details density="compact" />
+            </v-col>
+            <v-col cols="12" md="2">
+              <v-select v-model="categoryFilter" :label="$t('warehouse.category')" :items="categoryOptions" clearable hide-details density="compact" />
+            </v-col>
+            <v-col cols="12" md="3">
+              <TagInput v-model="tagFilter" type="product" :org-url="appStore.orgUrl()" :label="$t('common.filterByTags')" />
+            </v-col>
+            <v-col cols="12" md="2">
+              <v-switch v-model="lowStockOnly" :label="$t('warehouse.lowStockOnly')" color="warning" hide-details density="compact" />
+            </v-col>
+          </v-row>
+        </v-card-text>
+      </v-card>
+    </template>
 
-    <!-- Stock Matrix -->
-    <v-card>
-      <v-card-text>
-        <v-data-table-server
-          :headers="headers"
-          :items="items"
-          :items-length="pagination.total"
-          :loading="loading"
-          :page="pagination.page + 1"
-          :items-per-page="pagination.size"
-          @update:options="onUpdateOptions"
-          item-value="_id"
-          hover
-        >
-          <!-- FR-31.7: a request that failed or was refused is said, with Retry; never "no data". -->
-          <template v-if="pagination.loadError" #no-data>
-            <ListLoadError :failure="pagination.loadError" @retry="fetchItems" />
-          </template>
-          <template #item.productName="{ item }">
-            <entity-link v-if="item.productId" :label="item.productName" :to="{ name: 'inventory.products.stock', params: { id: item.productId, tab: 'stock' } }" />
-            <span v-else>{{ item.productName }}</span>
-          </template>
-          <template #item.quantity="{ item }">
-            <span
-              :class="{
-                'text-error font-weight-bold': item.quantity <= (item.reorderLevel || 0),
-                'text-success': item.quantity > (item.reorderLevel || 0),
-              }"
-            >
-              {{ item.quantity }}
-            </span>
-          </template>
-          <template #item.reorderLevel="{ item }">
-            <span>{{ item.reorderLevel || '-' }}</span>
-          </template>
-          <template #item.value="{ item }">
-            {{ fmtCurrency(item.quantity * (item.avgCost || 0)) }}
-          </template>
-          <template #item.status="{ item }">
-            <v-chip
-              size="small"
-              label
-              :color="item.quantity <= 0 ? 'error' : item.quantity <= (item.reorderLevel || 0) ? 'warning' : 'success'"
-            >
-              {{ item.quantity <= 0 ? $t('warehouse.outOfStock') : item.quantity <= (item.reorderLevel || 0) ? $t('warehouse.lowStock') : $t('warehouse.inStock') }}
-            </v-chip>
-          </template>
-        </v-data-table-server>
-      </v-card-text>
-    </v-card>
-  </v-container>
+    <template #item.productName="{ item }">
+      <entity-link v-if="item.productId" :label="item.productName" :to="{ name: 'inventory.products.stock', params: { id: item.productId, tab: 'stock' } }" />
+      <span v-else>{{ item.productName }}</span>
+    </template>
+    <template #item.quantity="{ item }">
+      <span
+        :class="{
+          'text-error font-weight-bold': item.quantity <= (item.reorderLevel || 0),
+          'text-success': item.quantity > (item.reorderLevel || 0),
+        }"
+      >
+        {{ item.quantity }}
+      </span>
+    </template>
+    <template #item.reorderLevel="{ item }">
+      <span>{{ item.reorderLevel || '-' }}</span>
+    </template>
+    <template #item.value="{ item }">
+      {{ fmtCurrency(item.quantity * (item.avgCost || 0)) }}
+    </template>
+    <template #item.status="{ item }">
+      <v-chip
+        size="small"
+        label
+        :color="item.quantity <= 0 ? 'error' : item.quantity <= (item.reorderLevel || 0) ? 'warning' : 'success'"
+      >
+        {{ item.quantity <= 0 ? $t('warehouse.outOfStock') : item.quantity <= (item.reorderLevel || 0) ? $t('warehouse.lowStock') : $t('warehouse.inStock') }}
+      </v-chip>
+    </template>
+  </ListScaffold>
 </template>
 
 <script setup lang="ts">
@@ -93,7 +82,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
-import ListLoadError from 'ui-shared/components/ListLoadError.vue'
+import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { sortableHeaders } from 'config/list-sorts'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -129,6 +118,8 @@ const filters = computed(() => {
   if (lowStockOnly.value) f.lowStockOnly = true
   return f
 })
+/** Any filter narrows the list: an empty answer is then "no matches", not "nothing here yet". */
+const hasActiveFilters = computed(() => Object.keys(filters.value).length > 0)
 
 const url = computed(() => `${appStore.orgUrl()}/warehouse/stock-level`)
 // FR-05 (#12): grid state in the querystring; declared before usePaginatedTable.

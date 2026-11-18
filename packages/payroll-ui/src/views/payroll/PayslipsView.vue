@@ -107,6 +107,7 @@ import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import EntityLink from 'ui-shared/components/EntityLink'
 
 const { t } = useI18n()
@@ -120,10 +121,16 @@ const filters = computed(() => {
   return f
 })
 
+// FR-31.18: the list's place (search, page, size, sort) in the address; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/payroll/payslip`),
   entityKey: 'payslips',
   filters,
+  urlSync: true,
 })
 
 const detailDialog = ref(false)

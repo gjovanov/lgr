@@ -245,6 +245,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ChartView from 'ui-shared/components/ChartView.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -293,10 +294,18 @@ const filters = computed(() => {
   return f
 })
 
+// FR-31.18: the list's place (status, period, page, size, sort) in the address; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'status', ref: statusFilter, sanitize: (v: string) => (v === 'open' || v === 'closed' ? v : undefined) },
+  { key: 'from', ref: dateFrom, codec: 'date' },
+  { key: 'to', ref: dateTo, codec: 'date' },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/trade/pos/session`),
   entityKey: 'sessions',
   filters,
+  urlSync: true,
 })
 
 const headers = computed(() => [
