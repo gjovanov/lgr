@@ -207,6 +207,8 @@ if (config.front.controlSocket && config.front.secret) {
           logger.warn({ err: e }, 'The status could not count the owed postings')
           return null
         }),
+        // FR-29.21: audit writes that failed in this process.
+        audit: (await import('services/biz/audit-log.service')).auditHealth(),
         // FR-20.22: what the status page shows. Unknown is never drift 0.
         clock: (() => {
           const trust = clockTrusted()

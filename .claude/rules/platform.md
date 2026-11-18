@@ -30,3 +30,18 @@ Production runs **two pods** (`replicas: 2`, lgr-deploy #47) since Phase 6: a ti
 - [MEDIUM] [2026-03-10] file.controller.ts TODO: file deletion from storage not implemented — **Status: RESOLVED 2026-11-17 (FR-32.11)**: `DELETE /org/:orgId/file/:id` removes the stored bytes after the row (`services/biz/files/file-removal.service.ts`); bytes another `File` row or a `DocFile` still names stay; a removal that fails leaves a `NodeState` marker (`file-removal:<hash>`) the retention tick retries. ⚠ Files whose row was deleted BEFORE this still have their bytes on disk; counting and removing those is the owner's decision (FR-32 §4).
 
 - [LOW] [2026-03-10] 17 TODO/FIXME comments across codebase (mostly payroll export stubs) — **Status: RESOLVED 2026-11-17 (FR-32.12)**: the payroll lists' Export and the payslip PDF, which did nothing, are gone and filed as #830; the overtime TODO is closed by D-5; the three left are FR-25 §7.5's. ⚠ `unit/payroll-says-what-it-computes.test.ts` fails on a TODO/FIXME that names no issue or spec item.
+
+## The audit trail (FR-29 E, #794)
+
+`services/biz/audit-log.service.ts`. No row that exists is rewritten.
+- `changes` is `AuditChanges`: the stored array `{ field, oldValue, newValue }[]`, or a map
+  `{ field: { from, to } }`, stored as the array (`changesOf`). Any other shape does not type-check. Before, Mongoose
+  cast a map to one element with no fields.
+- **The system is an actor**: `actor: systemActor('<event or job>')` and no `userId` (`AuditLog.actor { kind:
+  'system', name }`). ⚠ Never `userId: 'system'`: it used to throw in the cast and write nothing (it is still read as
+  the system). The audit page, the notes panel and the dashboard show "System" (`admin.systemActor`); the API
+  answers `system: true, systemName`.
+- **A failed write is loud** (D-6): logged at error level (module, action, entity type and id, never values) and
+  counted (`auditHealth()`, in `GET /api/admin/nodes/health` and a master's `/status`). The action still succeeds.
+- The entity search (`ENTITY_SEARCH`, `SEARCHABLE_ENTITY_TYPES`) offers only the types it searches, through
+  `buildSearchFilter`; `/audit-logs/filters` answers `searchableEntityTypes`.

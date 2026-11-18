@@ -12,7 +12,7 @@
 import { isQuoteType } from 'config/constants'
 import { Invoice, POSSession } from 'db/models'
 import { getRepos } from '../../context.js'
-import { createAuditEntry, generateCorrelationId } from '../audit-log.service.js'
+import { createAuditEntry, generateCorrelationId, systemActor } from '../audit-log.service.js'
 import {
   createInvoiceJournalEntry,
   createPaymentJournalEntry,
@@ -89,7 +89,7 @@ export async function postInvoiceJournal(payload: { orgId: string; invoiceId: st
   })
   createAuditEntry({
     orgId: payload.orgId,
-    userId: 'system',
+    actor: systemActor('invoice.posted'),
     action: 'auto_create',
     module: 'accounting',
     entityType: 'journal_entry',
@@ -155,7 +155,7 @@ export async function postPosSessionJournal(payload: { orgId: string; sessionId:
   })
   createAuditEntry({
     orgId: payload.orgId,
-    userId: 'system',
+    actor: systemActor('pos.session.closed'),
     action: 'auto_create',
     module: 'accounting',
     entityType: 'journal_entry',
@@ -239,7 +239,7 @@ export async function postPaymentJournal(payload: {
   }
   createAuditEntry({
     orgId: payload.orgId,
-    userId: 'system',
+    actor: systemActor('payment.recorded'),
     action: 'auto_create',
     module: 'accounting',
     entityType: 'journal_entry',
@@ -275,7 +275,7 @@ export async function postMovementValuation(payload: { orgId: string; movementId
 
   createAuditEntry({
     orgId: payload.orgId,
-    userId: 'system',
+    actor: systemActor('stock.movement.confirmed'),
     action: 'auto_create',
     module: 'accounting',
     entityType: 'journal_entry',

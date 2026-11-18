@@ -1850,7 +1850,8 @@
       "loopback": "der Server selbst",
       "desktop": "der Desktop {name}",
       "lan": "das Netzwerk des Geschäfts"
-    }
+    },
+    "systemActor": "System"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",
