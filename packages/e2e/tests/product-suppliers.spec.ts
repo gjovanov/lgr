@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 import { apiDelete, apiGet, apiLogin, apiPost } from './helpers/api'
 import { okJson } from './helpers/bills'
-import { headerTitles } from './helpers/table'
+import { closeColumnPicker, headerTitles } from './helpers/table'
 
 /**
  * FR-28 slice 2 — which suppliers an article was bought from, on the Products list.
@@ -174,7 +174,7 @@ test('the cog offers Last purchase, Last cost, Minimum and To order, off until c
     await expect(item).toHaveCount(1)
     await item.getByRole('checkbox').click()
   }
-  await dialog.getByRole('button', { name: 'Close' }).click()
+  await closeColumnPicker(dialog)
   await expect.poll(async () => headerTitles(table)).toEqual(expect.arrayContaining(OPTIONAL))
 
   const cell = async (suffix: string, title: string) => {

@@ -238,7 +238,7 @@ const props = defineProps<{
 
 const { t } = useI18n()
 const { formatCurrency } = useCurrency()
-const { showSuccess, showSnackbar } = useSnackbar()
+const { showSuccess, showSnackbar, withdraw } = useSnackbar()
 
 const doc = ref<any | null>(null)
 const loading = ref(false)
@@ -320,6 +320,17 @@ function openCorrection() {
 // What the number collided with, as the server said it: the same request, confirmed, goes through.
 const numberQuestion = ref('')
 watch([settleNumber, settling], () => { numberQuestion.value = '' })
+/**
+ * FR-31.8: a refusal stays on the message line until it is closed, and what comes meanwhile waits behind it. The settle's
+ * next answer (another refusal, or the settle done) is the one that is true now: the earlier refusal goes, so the
+ * answer is said at once and not behind a refusal that no longer holds.
+ */
+let settleRefusal = ''
+function sayOfSettle(say: () => void, refusal = '') {
+  if (settleRefusal) withdraw(settleRefusal)
+  settleRefusal = refusal
+  say()
+}
 async function settle() {
   settlingNow.value = true
   let asked = false
@@ -331,13 +342,14 @@ async function settle() {
       ...(printed && takesNumber.value && settleNumber.value.trim() ? { receiptNumber: settleNumber.value.trim() } : {}),
       ...(numberQuestion.value ? { confirmNumber: true } : {}),
     })
-    showSuccess(t(correcting ? 'cashRegister.receipt.numberCorrected' : `cashRegister.receipt.${settleWords.value.done}`))
+    sayOfSettle(() => showSuccess(t(correcting ? 'cashRegister.receipt.numberCorrected' : `cashRegister.receipt.${settleWords.value.done}`)))
   } catch (e: any) {
     if (['receipt_number_taken', 'receipt_number_off_device'].includes(e?.response?.data?.code)) {
       asked = true
       numberQuestion.value = receiptRefusalMessage(t, e, t('common.operationFailed'))
     } else {
-      showSnackbar(receiptRefusalMessage(t, e, t('common.operationFailed')), 'error', 12000)
+      const refusal = receiptRefusalMessage(t, e, t('common.operationFailed'))
+      sayOfSettle(() => showSnackbar(refusal, 'error', 12000), refusal)
     }
   } finally {
     settlingNow.value = false

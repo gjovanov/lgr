@@ -227,11 +227,22 @@ export function useListQueryState(defs: QueryParamDef[], opts: { debounceMs?: nu
 
   // A change still inside the debounce window when the list unmounts never reached the URL;
   // keep it in the memory at least, so coming back shows what the user last set.
-  onScopeDispose(() => {
+  function keepPendingInMemory() {
     if (!timer) return
     clearTimeout(timer)
     timer = null
     rememberListQuery(store, memoryKey, mergeOwnedIntoStored(recallListQuery(store, memoryKey), owned, currentSerialized()))
+  }
+  // A navigation away from the list that is under way (a link, a report's Export) is never cancelled by a write still
+  // waiting in its debounce: a replace started meanwhile supersedes the pending push, and the click goes nowhere (Stock
+  // levels' Export pressed right after its warehouse was picked, while the report's page loads). The change is kept in
+  // the memory instead, as at unmount.
+  const stopLeaveGuard = router.beforeEach((to) => {
+    if (to.path !== listPath) keepPendingInMemory()
+  })
+  onScopeDispose(() => {
+    stopLeaveGuard()
+    keepPendingInMemory()
   })
 
   return {

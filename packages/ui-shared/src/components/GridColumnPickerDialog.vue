@@ -42,7 +42,8 @@
       <v-card-actions class="px-4 py-2">
         <v-btn variant="text" prepend-icon="mdi-restore" @click="emit('reset')">{{ $t('grid.reset') }}</v-btn>
         <v-spacer />
-        <v-btn color="primary" variant="flat" @click="emit('update:modelValue', false)">{{ $t('common.close') }}</v-btn>
+        <!-- The toolbar's X has the same name (FR-31 B4): this one is the one the tests press. -->
+        <v-btn color="primary" variant="flat" data-testid="column-picker-close" @click="emit('update:modelValue', false)">{{ $t('common.close') }}</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

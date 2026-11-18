@@ -59,7 +59,10 @@ test.afterAll(async () => {
   if (productId) await apiDelete(admin, `/warehouse/product/${productId}`).catch(() => null)
 })
 
-/** A new invoice for the first customer, with one line of the test product, its resolved price arrived. */
+/**
+ * A new invoice for the first customer, with one line of the test product, its resolved price arrived. The closed
+ * price shows two decimals, more only when the price has more (FR-31 B1, D-5): 8 reads 8.00.
+ */
 async function invoiceWithTheProduct(page: Page) {
   await page.goto('/invoicing/invoices/new')
   await expect(page.getByRole('heading', { name: /new invoice/i })).toBeVisible({ timeout: 15000 })
@@ -73,7 +76,7 @@ async function invoiceWithTheProduct(page: Page) {
   await found.scrollIntoViewIfNeeded()
   await found.click({ force: true })
   await expect(lineDescription(row).locator('.v-chip')).toBeVisible({ timeout: 5000 })
-  await expect(row.getByTestId('price-combobox')).toContainText('8.00000', { timeout: 10000 })
+  await expect(row.getByTestId('price-combobox')).toContainText('8.00', { timeout: 10000 })
   return row
 }
 
@@ -104,7 +107,7 @@ test('a Seller picks a price on a sales invoice line, and cannot type one', asyn
   await page.keyboard.type('99.99')
   await page.keyboard.press('Escape')
   await page.keyboard.press('Tab')
-  await expect(field).toContainText('8.00000')
+  await expect(field).toContainText('8.00')
   await expect(field).not.toContainText('99.99')
 
   // Picking one of the list works: the selling price, 10.
@@ -112,7 +115,7 @@ test('a Seller picks a price on a sales invoice line, and cannot type one', asyn
   const selling = page.locator('.v-overlay--active .v-list-item').filter({ hasText: /^\s*10\.00/ })
   await expect(selling.first()).toBeVisible({ timeout: 5000 })
   await selling.first().click()
-  await expect(field).toContainText('10.00000')
+  await expect(field).toContainText('10.00')
 
   const invoice = await saveAndRead(page)
   expect(invoice.lines[0].unitPrice).toBe(10)
@@ -129,7 +132,7 @@ test('a Sales Consultant types a price, "12,5" read as 12.5', async ({ page }) =
 
   await lineUnitPrice(row).fill('12,5')
   await lineUnitPrice(row).press('Tab')
-  await expect(field).toContainText('12.50000')
+  await expect(field).toContainText('12.50')
 
   const invoice = await saveAndRead(page)
   expect(invoice.lines[0].unitPrice).toBe(12.5)

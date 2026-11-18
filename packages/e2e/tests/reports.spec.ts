@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
+import { closeColumnPicker } from './helpers/table'
 
 /**
  * FR-06 (#14) — the Reports app, end to end: hub renders → each card opens → the runner
@@ -110,7 +111,7 @@ test.describe('Reports app', () => {
     // The picker's checkbox is a bare `v-checkbox-btn` — the column name is a sibling
     // list-item title, not an accessible name, so getByLabel matches nothing here.
     await dialog.locator('.v-list-item', { hasText: 'Avg. cost' }).locator('input[type="checkbox"]').uncheck()
-    await dialog.getByRole('button', { name: /^close$/i }).click()
+    await closeColumnPicker(dialog)
 
     await expect(header).toBeHidden()
     expect(runs).toBe(0)

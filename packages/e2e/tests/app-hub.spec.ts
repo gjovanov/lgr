@@ -177,8 +177,9 @@ test.describe('App Hub', () => {
     }).toPass({ timeout: 15000 })
   })
 
-  test('should filter apps by user permissions', async () => {
-    // Login as accountant (accounting, invoicing and reporting permissions)
+  test('should filter apps by the role the person holds', async () => {
+    // The seeded accountant holds the built-in Accountant role: the books, the sales documents and
+    // the stock to read, no payroll and no till (`config/src/access/template-caps.ts`).
     const loginRes = await apiPost('/api/auth/login', {
       orgSlug: 'acme-corp',
       username: 'accountant',
@@ -191,24 +192,25 @@ test.describe('App Hub', () => {
     const appsRes = await apiGet(`/api/org/${orgId}/apps`, token)
     const appsData = await appsRes.json()
 
-    // Accountant has accounting.read, invoicing.read/write/send, inventory.read permissions
+    // FR-27 P3-6 (#837): the tiles are the apps the role's grant opens.
     const appIds = appsData.apps.map((a: any) => a.id)
     expect(appIds).toContain('accounting')
     expect(appIds).toContain('invoicing')
     expect(appIds).toContain('inventory')
-    // FR-06 (#14): the Reports tile is gated on `invoicing.read`, which the accountant holds.
+    // FR-06 (#14): the Reports tile opens with the sales documents, which the accountant reads.
     expect(appIds).toContain('reports')
 
-    // Payroll stays out — no payroll.read from either permission source.
+    // Payroll stays out: the role grants nothing of it.
     expect(appIds).not.toContain('payroll')
 
-    // None of the till's rights here. The two sources of an accountant's permissions used to
-    // disagree: the seeded "Accountant" PermissionSet granted the legacy `trade.read`, which expanded
-    // to `pos.read`, while DEFAULT_ROLE_PERMISSIONS.accountant grants no POS access. The seeded set
-    // now follows the role's defaults, and `trade.*` is gone (migration 0005), so both agree. Read
-    // off the token: no tile says it any more, since POS has none for anyone.
-    const { permissions } = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'))
-    expect(permissions).toContain('invoicing.read')
-    expect(permissions.filter((p: string) => p.startsWith('pos.'))).toEqual([])
+    // The grant is the sign-in answer's, and the role's: the sales documents to read, none of the
+    // till's rights. FR-27 P3-5 (#529): the token names the role (`rid`) and never what it allows.
+    const { access } = loginData
+    expect(access.all).toBe(false)
+    expect(access.caps).toContain('sales-docs.view')
+    expect(access.caps.filter((c: string) => c.startsWith('till.'))).toEqual([])
+    const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'))
+    expect(claims.rid).toBe(access.role.id)
+    expect(claims.permissions).toBeUndefined()
   })
 })

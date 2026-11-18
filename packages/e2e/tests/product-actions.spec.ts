@@ -5,6 +5,7 @@ import { okJson } from './helpers/bills'
 import { rowAction } from './helpers/row-actions'
 import { lineValues } from './helpers/document-form'
 import { listGeometry, pinnedInView } from './helpers/list-geometry'
+import { closeColumnPicker } from './helpers/table'
 
 /**
  * FR-22.47 — an article offers „Заприходи", „Продай" and „Резервирай" (Receive, Sell, Reserve), in
@@ -46,6 +47,11 @@ async function productRow(page: Page, sku: string, status?: 'inactive' | 'all'):
   return row
 }
 
+/** A unit cost as the receipt's field shows it (FR-31.16, `DecimalField`): at least two decimals, more only when it has them. */
+function costShown(n: number): string {
+  return (String(n).split('.')[1] ?? '').length >= 2 ? String(n) : n.toFixed(2)
+}
+
 /** The goods receipt, its first line the article at its purchase price, the cursor in the quantity. */
 async function expectReceipt(page: Page, p: any): Promise<void> {
   await expect(page).toHaveURL(new RegExp(`/inventory/movements/new\\?productId=${p._id}$`))
@@ -53,7 +59,7 @@ async function expectReceipt(page: Page, p: any): Promise<void> {
   const lines = page.locator('.line-table tbody tr')
   const first = lines.first()
   await expect(first.locator('.v-chip').filter({ hasText: p.name })).toBeVisible({ timeout: 10000 })
-  await expect(first.locator('td').nth(3).locator('input')).toHaveValue(String(p.purchasePrice))
+  await expect(first.locator('td').nth(3).locator('input')).toHaveValue(costShown(p.purchasePrice))
   // What the destination holds of it, as picking it shows.
   await expect(first.locator('td').nth(1).locator('.v-chip')).toBeVisible()
   // The next line is waiting, and the quantity is what the user types next.
@@ -143,7 +149,7 @@ test('at 1366 px the Products list keeps the name and the row menu in view — a
   for (const tier of ['Trade-discount price', 'Цена на едро', 'Цена 1', 'Цена 2', 'Цена 4', 'Цена 5']) {
     await dialog.locator('.v-list-item').filter({ has: page.locator('.v-list-item-title', { hasText: new RegExp(`^${tier}$`) }) }).getByRole('checkbox').click()
   }
-  await dialog.getByRole('button', { name: 'Close' }).click()
+  await closeColumnPicker(dialog)
   for (const path of paths) {
     await page.goto(path)
     await expect(page.locator('.v-data-table tbody tr').first()).toBeVisible({ timeout: 15000 })

@@ -589,7 +589,6 @@ test.describe('A line\'s price is picked from the article\'s prices, as on an in
 
     // Convert, with the pick not saved: what the form shows is what is invoiced.
     const converted = page.waitForResponse((r: any) => r.request().method() === 'POST' && r.url().includes(`/internal-orders/${ordi._id}/convert`))
-    const pricesLoaded = page.waitForResponse((r: any) => r.url().includes('/pricing/options') && r.url().includes(idOf(priced)))
     await page.locator('.form-actions-bar').getByRole('button', { name: 'Convert to Invoice' }).click()
     const { invoice } = await (await converted).json()
     expect(invoice.lines.map((l: any) => [l.quantity, l.unitPrice])).toEqual([[2, 8]])
@@ -597,10 +596,13 @@ test.describe('A line\'s price is picked from the article\'s prices, as on an in
     const stored = (await api.call('GET', `/invoicing/internal-orders/${ordi._id}`)).internalOrder.lines[0]
     expect(stored).toMatchObject({ expectedUnitPrice: 8, pricePinned: true })
 
-    // The user lands on the draft. Its form loads the article's prices for this client and must leave the line's alone.
+    // The user lands on the draft. A saved line asks for the article's prices only once its price is opened
+    // (FR-30.10); opened, the prices for this client are loaded and must leave the line's alone.
     await page.waitForURL(new RegExp(`/invoicing/invoices/${idOf(invoice)}/edit$`))
     const line = page.locator('tr').filter({ has: page.getByTestId('price-combobox') }).first()
     await expect(line.getByTestId('price-combobox')).toContainText('8.00', { timeout: 15000 })
+    const pricesLoaded = page.waitForResponse((r: any) => r.url().includes('/pricing/options') && r.url().includes(idOf(priced)))
+    await line.getByTestId('price-combobox').locator('input').first().focus()
     await pricesLoaded
     await expect(line.getByTestId('price-combobox')).toContainText('8.00')
 

@@ -10,7 +10,6 @@
     :has-active-filters="hasActiveFilters"
     :empty="{ icon: 'mdi-warehouse', title: $t('list.empty.stockLevels'), description: $t('list.empty.stockLevelsHint') }"
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
-    density="default"
     @update:options="onUpdateOptions"
   >
     <template #actions>

@@ -10,6 +10,8 @@ const API = process.env.BASE_URL || 'http://localhost:4001'
 export interface ApiSession {
   token: string
   orgId: string
+  /** The sign-in answer's grant (FR-27.5): the token carries the role, never what it allows. */
+  access?: { all: boolean; caps: string[]; role: { id: string; name: string } | null } | null
 }
 
 export async function apiLogin(
@@ -24,7 +26,7 @@ export async function apiLogin(
   })
   if (!res.ok) throw new Error(`login failed (${res.status}) — is the DB seeded?`)
   const data = await res.json()
-  return { token: data.token, orgId: data.org._id || data.org.id }
+  return { token: data.token, orgId: data.org._id || data.org.id, access: data.access }
 }
 
 export async function apiPost(session: ApiSession, path: string, body: unknown): Promise<Response> {

@@ -115,9 +115,11 @@ test.describe('the app’s own confirm dialog (FR-31.17)', () => {
   test('deleting a draft customer order asks in the app, and Delete deletes', async ({ page }) => {
     const w = await world()
     const res = await apiPost(w.api, '/invoicing/internal-orders', {
-      contactId: w.clientId, issueDate: new Date().toISOString().slice(0, 10),
+      // A customer order is for a delivery date: the model requires one, and the route says so (422).
+      contactId: w.clientId, issueDate: new Date().toISOString().slice(0, 10), requestedDeliveryDate: new Date().toISOString().slice(0, 10),
       lines: [{ productId: w.productId, description: w.product.name, quantity: 3, unit: 'pcs' }],
     })
+    expect(res.ok, `the draft customer order → ${res.status}`).toBe(true)
     const { internalOrder } = await res.json()
     const id = String(internalOrder._id || internalOrder.id)
     await deleteThroughTheDialog(page, `/invoicing/internal-orders/${id}/edit`, async () => !(await apiGet(w.api, `/invoicing/internal-orders/${id}`)).internalOrder)

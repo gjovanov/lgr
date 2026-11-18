@@ -11,3 +11,12 @@ export async function columnValues(table: Locator, title: string): Promise<strin
   if (index < 0) throw new Error(`no column „${title}"`)
   return (await table.locator(`tbody tr > td:nth-child(${index + 1})`).allTextContents()).map((s) => s.trim())
 }
+
+/**
+ * Closes the open column picker (`GridColumnPickerDialog`) by its footer button. Its toolbar X is
+ * named "Close" as well (FR-31 B4), so a role-and-name locator finds two; the test id finds the one.
+ * `scope` is the open dialog.
+ */
+export async function closeColumnPicker(scope: Locator): Promise<void> {
+  await scope.getByTestId('column-picker-close').click()
+}

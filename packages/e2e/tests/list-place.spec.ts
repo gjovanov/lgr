@@ -2,6 +2,7 @@ import { test, expect, type Page, type Request } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 import { appears } from './helpers/vuetify'
 import { apiDelete, apiLogin, apiPost } from './helpers/api'
+import { closeColumnPicker } from './helpers/table'
 
 /**
  * FR-31 B3 (#796): lists keep their place, and Movements, Stock levels and Inventory counts are on the shared list shell.
@@ -157,7 +158,7 @@ test.describe('FR-31.19: Movements on the shared list shell', () => {
     await page.getByRole('button', { name: 'Columns' }).click()
     const dialog = page.getByRole('dialog')
     await dialog.locator('.v-list-item').filter({ has: page.locator('.v-list-item-title', { hasText: /^Type$/ }) }).getByRole('checkbox').click()
-    await dialog.getByRole('button', { name: 'Close' }).last().click()
+    await closeColumnPicker(dialog)
     await expect(typeHeader).toHaveCount(0)
     await page.reload()
     await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
@@ -167,7 +168,7 @@ test.describe('FR-31.19: Movements on the shared list shell', () => {
     // Put it back, for whatever runs after.
     await page.getByRole('button', { name: 'Columns' }).click()
     await page.getByRole('dialog').getByRole('button', { name: 'Reset' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).last().click()
+    await closeColumnPicker(page.getByRole('dialog'))
     await expect(typeHeader).toHaveCount(1)
   })
 

@@ -221,7 +221,8 @@ test('P2 receive: goods before the invoice — receipt with product update, incl
   await walk.fill(dialog.getByTestId('quick-product-selling').locator('input'), target[newName].selling, 'new article: selling price')
   await walk.click(dialog.getByTestId('quick-product-create'), 'create the article')
   await expect(dialog).toBeHidden()
-  await expect(cellInput(page, 2, costCol)).toHaveValue(target[newName].purchase)
+  // The unit cost is a `DecimalField` with at least two decimals at rest (FR-31.16): 12.4 reads 12.40.
+  await expect(cellInput(page, 2, costCol)).toHaveValue(Number(target[newName].purchase).toFixed(2))
   await expect(cellInput(page, 2, sellingCol)).toHaveValue(target[newName].selling)
   const qty3 = cellInput(page, 2, qtyCol)
   await expect.poll(() => isFocused(qty3), { timeout: 3000 }).toBe(true)
