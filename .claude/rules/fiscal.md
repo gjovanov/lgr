@@ -5,6 +5,7 @@ paths:
   - "packages/invoicing-api/src/controllers/pos*"
   - "packages/invoicing-api/src/controllers/cash-*"
   - "packages/invoicing-api/src/controllers/invoice.controller.ts"
+  - "packages/services/src/biz/document/**"
   - "packages/invoicing-api/src/lib/cash-register-*"
   - "packages/invoicing-api/src/lib/counter-*"
   - "packages/invoicing-ui/src/pos/**"

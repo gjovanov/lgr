@@ -199,7 +199,7 @@ describe('no controller stores a body as the document unguarded', () => {
     'accounting-api/src/controllers/payment-term.controller.ts',
     'accounting-api/src/controllers/tax-return.controller.ts',
     'invoicing-api/src/controllers/contact.controller.ts',
-    'invoicing-api/src/controllers/invoice.controller.ts',
+    // FR-32.21: the invoice controller's PUT hands its declared body to `services/biz/document#updateDocument`, which stores it.
     'payroll-api/src/controllers/run.controller.ts',
     'portal-api/src/controllers/fiscal-device.controller.ts',
     'portal-api/src/controllers/pos-payment-method.controller.ts',

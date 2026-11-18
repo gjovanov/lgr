@@ -81,6 +81,11 @@ Why each one exists, and what was built around it: [`docs/history/access.md`](..
   (and the access files 0015 reads it through) names it. Tests name an access by capabilities, a built-in role by
   `templateGrant(key)`, or a legacy permission's old capabilities by `tests/helpers/permission-caps.ts`.
 
+- **Nothing outside the access model decides by the legacy one** (P3-8): `unit/access-no-legacy.test.ts` fails on a
+  legacy role key used as a check, `permissions` / `areas` / `role` read off a token or session, the legacy compiler,
+  or a person's stored `role` outside `config/access/`, `services/biz/access/`, the migrations and the tests. A
+  display-only use goes on its allow-list with why; anything that decides takes the grant (`can`, `grantOf`).
+
 - ⚠ **Where another app's session reaches it, `services/biz/access/partition.ts#seesBills` / `seesOrders`**: the
   partition's capabilities (`bills.view`; `orders.view|browse|lookup`). FR-27 P3-6 removed their legacy branch
   (FR-26's area, under which a warehouse manager was told of the bill behind a receipt); no session took it since

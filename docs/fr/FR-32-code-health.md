@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-16. Slices A, C and D are built, and B but for FR-32.13; slice E has FR-32.22, .25 and .26, and .21, .23 and .24 are to come (§11). The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-16. Slices A, C and D are built, and B but for FR-32.13; slice E has FR-32.21, .22, .25 and .26, and .23 and .24 are to come (§11). The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | `ci.yml` (the always-on gate) and `e2e-nightly.yml` (#365, the whole Playwright suite), the route-table suites (tenant isolation, route and read permission), `dal` and `dal-mongo`, the known-items list in `CLAUDE.md`, #675 |
 | **Touches** | Every package gets a type-check configuration. `.github/workflows` (two new jobs). `dal`, `dal-mongo` and `db` (entity types, `select`, `session`). `services` (dead DAO classes out, document services). `invoicing-api` (the largest controller). `ui-shared`, `ui-shell` and the `*-ui` packages (dead files out, typed API modules, the two order forms). `reporting` (one dependency moves). `portal-api` (file deletion, the auth plugin). `CLAUDE.md` and `docs/` |
 | **Tracking** | [gjovanov/lgr#797](https://github.com/gjovanov/lgr/issues/797) |
@@ -490,7 +490,15 @@ Most of this FR is proven by CI, not in production.
     - `unit/one-auth-plugin.test.ts` fails on a plugin that declares a hook of its own, and on a second file that runs the role and home gates.
   - **Large files do not grow** (`unit/code-ratchets.test.ts`, `LARGE_FILES`): the 21 source files over 1 000 lines, each with its length. A listed file may not get longer, no other file may pass 1 000 lines, and a file that falls to 1 000 or fewer leaves the list.
   - No test had to change. Two were added to (`one-auth-plugin`, `code-ratchets`).
-  - **Still to do in slice E**, each its own pull request, a file at a time (§5): FR-32.21, the document services and the invoice controller's handlers of at most 80 lines (`issueDocument` with FR-29.8); FR-32.23, one base for the two order forms, each at most 900 lines; FR-32.24, the typed API modules of `invoicing-ui` and `inventory-ui`, by screen.
+  - **Still to do in slice E**, each its own pull request, a file at a time (§5): FR-32.23, one base for the two order forms, each at most 900 lines; FR-32.24, the typed API modules of `invoicing-ui` and `inventory-ui`, by screen.
+- **FR-32.21** (`feat/797-fr32-21-document-services`): the document services, and the invoice controller's handlers of at most 80 lines.
+  - **`services/biz/document`.** `createDocument` (`POST /invoices`), `updateDocument` (`PUT /invoices/:id`) and `sendDocument` (`POST /invoices/:id/send`, around FR-29.8's `issueDocument`), each moved whole from its route. With them `convertQuote`, the list's `listFilter` and `listRows`, the checks a document is made against (`document-checks`) and who holds a document (`document-claims`).
+    - A service refuses by returning `refuse(code, body)`, and the route answers through `answered(status, …)`: the code, the body and the audit rows are the ones the route had.
+    - What reaches a device stays in `invoicing-api`, since `services` does not depend on `fiscal`, and the route hands it in: a cash sale's drawer and receipt (`lib/cash-register-sale`), the receipt or refund at issue (`lib/counter-issue`), finishing a dead receipt before an edit (`finishInterruptedDocuments`).
+    - A payment's answers went to `lib/counter-payment`. Its row stays in the controller, where `home-write-guard` lists the raw write.
+  - **The handlers**, before and after: create 326 → 29 lines, update 235 → 7, issue 289 → 16, the list 145 → 19, payments 161 → 64, convert 110 → 4. The longest is now `/receive`, 74. `unit/invoice-handler-size.test.ts` holds each to 80 lines, and reads a planted long one.
+  - **The controller** is 973 lines (it was 2 494), so it left `LARGE_FILES`. Direct model calls in controllers 277 → 256, `as any` 2 135 → 1 978; the lint baseline's entry for the controller 186 → 34 casts, and its one `.catch()` that dropped its error now says why.
+  - No invoicing or order test changed. `unit/server-owned` no longer lists the invoice controller among those that store a body (the service stores it now), and `unit/code-ratchets` has the new counts.
 
 - **FR-32.22** (`feat/797-fr32-22-document-form-parts`): `useDocumentForm` in parts. No behaviour changes.
   - **Twelve parts in `document-form/parts/`**, along the seams it already had, each at most 500 lines. A part reads only the parts before it.

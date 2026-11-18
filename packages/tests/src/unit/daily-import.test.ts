@@ -399,15 +399,8 @@ describe('grant: is the session shown everything the records hold', () => {
     }
   })
 
-  it("judges a server that answers no access block by the token's own claim", () => {
-    expect(levels(gateGrantSession('test-org', me({ user: { ...SESSION, role: 'admin' } })))).toEqual(['ok'])
-    const member = gateGrantSession('test-org', me({ user: { ...SESSION, role: 'member' } }))
-    expect(levels(member)).toEqual(['stop'])
-    expect(member[0]!.text).toContain('role "member"')
-  })
-
-  it('stops a session that names no grant at all: no access block and no claim', () => {
-    for (const body of [{ user: SESSION }, { user: SESSION, access: null }]) {
+  it('stops a session that names no grant: no access block, whatever a legacy claim says (FR-27 P3-8)', () => {
+    for (const body of [{ user: SESSION }, { user: SESSION, access: null }, { user: { ...SESSION, role: 'admin' } }]) {
       const gate = gateGrantSession('test-org', me(body))
       expect(levels(gate)).toEqual(['stop'])
       expect(gate[0]!.text).toContain('names no grant')
