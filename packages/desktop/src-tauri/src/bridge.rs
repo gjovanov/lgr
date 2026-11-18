@@ -34,10 +34,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use tungstenite::stream::MaybeTlsStream;
 use tungstenite::Message;
 
 use crate::framing::{Collect, HeuristicCollector, IslCollector};
+use crate::socket::HubSocket;
 use crate::{enroll, presence};
 
 /// ISL read budget. Mirrors `useFiscalBridge.ts` so both bridges give the hub the same answers.
@@ -51,7 +51,10 @@ const HEURISTIC_BUDGET_MS: u64 = 30_000;
 
 /// How long a single serial read may block before the loop re-checks its budget.
 const SERIAL_READ_SLICE: Duration = Duration::from_millis(100);
-/// How long the WS read blocks before the loop re-checks `stop`.
+/// How long the loop waits for the hub before it looks at `stop` and its clock again.
+///
+/// ⚠ A wait on the socket, never a receive timeout (`socket.rs`, lgr#811): on Windows a receive
+/// that times out as the hub's frame arrives loses that frame, and here the frame is a command.
 const WS_READ_SLICE: Duration = Duration::from_millis(500);
 
 /// #591 — once the hub has said nothing for this long, the bridge asks it (`ping`, which the hub
@@ -296,7 +299,13 @@ pub enum Event {
     Registered(String),
     /// Refused for a reason retrying will not fix (unassigned, revoked, taken over).
     Refused { device_id: String, code: String },
-    Disconnected(String),
+    /// The link ended, or could not be made, and is tried again.
+    ///
+    /// ⚠ **Carries WHY** (lgr#811). It was a bare id, and one log line served a reset, a TLS error,
+    /// a port that would not open, a failed ping and a hub that closed the socket. When a soak lane
+    /// saved a sale without its receipt, the till's line for that second named no error, and the
+    /// cause could only be matched to it by its signature.
+    Disconnected { device_id: String, why: String },
     /// The hub said nothing for `SILENT_AFTER`, pings unanswered: given up, and connecting again.
     Silent(String),
 }
@@ -481,24 +490,25 @@ pub fn run(
 
     let mut attempt = 0u32;
     while !stop.load(Ordering::SeqCst) && !halted() {
-        match connect_once(&server_url, &device, &port_name, &state, &stop, &mut on_event) {
-            Outcome::Closed => {
-                attempt = 0;
-                on_event(Event::Disconnected(device.id.clone()));
-            }
-            // A link that went silent was up a minute ago: the hub may well be back already.
-            Outcome::Silent => {
-                attempt = 0;
-                on_event(Event::Silent(device.id.clone()));
-            }
-            Outcome::Unreachable => {
-                attempt = attempt.saturating_add(1);
-                on_event(Event::Disconnected(device.id.clone()));
-            }
+        // Whether this session got as far as the hub's `registered`, seen in front of the caller's
+        // handler: a link that worked starts the backoff over (`next_attempt`).
+        let mut registered = false;
+        let outcome = connect_once(&server_url, &device, &port_name, &state, &stop, &mut |event| {
+            registered |= matches!(event, Event::Registered(_));
+            on_event(event)
+        });
+        attempt = next_attempt(attempt, &outcome, registered);
+        match outcome {
             Outcome::Fatal(code) => {
                 on_event(Event::Refused { device_id: device.id.clone(), code });
                 return;
             }
+            // Told to stop: nothing ended by itself, and nothing is tried again.
+            _ if stop.load(Ordering::SeqCst) || halted() => break,
+            Outcome::Closed(why) | Outcome::Unreachable(why) => {
+                on_event(Event::Disconnected { device_id: device.id.clone(), why })
+            }
+            Outcome::Silent => on_event(Event::Silent(device.id.clone())),
         }
 
         let wait = presence::backoff_secs(attempt);
@@ -512,13 +522,39 @@ pub fn run(
     state.set_link(&device.id, DeviceLink::Offline, None);
 }
 
+/// How one connection ended. `Closed` and `Unreachable` say what happened, for the log.
 #[derive(Debug, PartialEq, Eq)]
 enum Outcome {
-    Closed,
+    /// The hub closed the socket, or this side was told to stop.
+    Closed(String),
     /// The hub said nothing for `SILENT_AFTER` (#591).
     Silent,
-    Unreachable,
+    /// The link could not be made, or it broke.
+    Unreachable(String),
     Fatal(String),
+}
+
+/// The backoff step after a connection ended, from the step before it.
+///
+/// ⚠ **A session that registered starts the count over, whatever ended it** (lgr#811), as presence
+/// does since #741. The count used to go back to 0 only on a close frame and on silence, and a hub
+/// that stops or restarts reaches a till as a read error. A bridge that had worked for hours kept
+/// the step the outage before it had left, so the wait before its FIRST retry grew with every
+/// outage the app had seen, up to a minute, and a till prints nothing for as long as that wait
+/// lasts. The soak's lost link came back after 4 s, not 2: one failed try during the master's
+/// update, 36 minutes earlier, was still being counted.
+///
+/// ⚠ Pure and tested, like `presence::next_attempt`.
+fn next_attempt(attempt: u32, outcome: &Outcome, registered: bool) -> u32 {
+    let attempt = if registered { 0 } else { attempt };
+    match outcome {
+        // A close frame: asked to go, so back at once. And a link that went silent was up a minute
+        // ago: the hub may well be back already.
+        Outcome::Closed(_) | Outcome::Silent => 0,
+        Outcome::Unreachable(_) => attempt.saturating_add(1),
+        // `run` ends on this one.
+        Outcome::Fatal(_) => attempt,
+    }
 }
 
 /// What a failure to mint the bridge's credential means, from `enroll`'s error code. Pure, and
@@ -543,39 +579,8 @@ fn classify_mint_error(code: &str) -> Outcome {
             Outcome::Fatal(code.to_string())
         }
         _ if is_fatal(code) => Outcome::Fatal(code.to_string()),
-        _ => Outcome::Unreachable,
+        _ => Outcome::Unreachable(format!("no credential ({code})")),
     }
-}
-
-type Socket = crate::trust::Socket;
-
-/// Give the WS read a timeout, so the loop can notice `stop` instead of blocking for ever.
-///
-/// ⚠ One arm per transport, and `Rustls` is a master's (`trust.rs`). The enum is `non_exhaustive`,
-/// so a transport missing here would fall to `_` in silence: no timeout, a loop blocked in `read`
-/// for ever, and a port that `stop` and revocation could no longer make it let go of.
-fn set_ws_read_timeout(socket: &mut Socket, dur: Option<Duration>) {
-    match socket.get_mut() {
-        MaybeTlsStream::Plain(s) => {
-            let _ = s.set_read_timeout(dur);
-        }
-        MaybeTlsStream::NativeTls(s) => {
-            let _ = s.get_ref().set_read_timeout(dur);
-        }
-        MaybeTlsStream::Rustls(s) => {
-            let _ = s.get_ref().set_read_timeout(dur);
-        }
-        _ => {}
-    }
-}
-
-/// Did this websocket error come from our own read timeout rather than a broken connection?
-fn is_read_timeout(e: &tungstenite::Error) -> bool {
-    matches!(
-        e,
-        tungstenite::Error::Io(io)
-            if io.kind() == std::io::ErrorKind::WouldBlock || io.kind() == std::io::ErrorKind::TimedOut
-    )
 }
 
 fn connect_once(
@@ -615,8 +620,8 @@ fn connect_once(
             // The other owner is usually a Chrome tab (Web Serial takes the port exclusively), or
             // the device is switched off. Both are worth retrying — the tab may be closed.
             let msg = format!("cannot open {port_name}: {e}");
-            state.set_link(&device.id, DeviceLink::InUse, Some(msg));
-            return Outcome::Unreachable;
+            state.set_link(&device.id, DeviceLink::InUse, Some(msg.clone()));
+            return Outcome::Unreachable(msg);
         }
     };
 
@@ -625,14 +630,16 @@ fn connect_once(
     };
     // Pinned and straight to a master, with its credential on the upgrade (FR-20.31, FR-20.32): the
     // fiscal path stays on the shop's LAN (FR-20.36).
-    let mut socket = match crate::trust::ws_connect(&url, &token) {
+    //
+    // ⚠ Read through `HubSocket` and never with a receive timeout (lgr#811): on Windows a receive
+    // that times out as a command arrives loses the command, and the sale goes without its receipt.
+    let mut socket = match crate::trust::ws_connect(&url, &token).and_then(|s| HubSocket::new(s).map_err(|e| e.to_string())) {
         Ok(socket) => socket,
-        Err(_) => {
+        Err(e) => {
             state.set_link(&device.id, DeviceLink::Offline, Some("hub unreachable".into()));
-            return Outcome::Unreachable;
+            return Outcome::Unreachable(format!("the hub could not be reached: {e}"));
         }
     };
-    set_ws_read_timeout(&mut socket, Some(WS_READ_SLICE));
 
     // ⚠ FIRST message, within the hub's 10 s deadline, and never in the URL.
     let register = serde_json::json!({
@@ -640,8 +647,8 @@ fn connect_once(
         "deviceNumber": device.device_number,
         "token": token,
     });
-    if socket.send(Message::Text(register.to_string())).is_err() {
-        return Outcome::Unreachable;
+    if let Err(e) = socket.send(Message::Text(register.to_string())) {
+        return Outcome::Unreachable(format!("the registration could not be sent: {e}"));
     }
 
     let mut last_heard = Instant::now();
@@ -651,8 +658,8 @@ fn connect_once(
         // entirely (`mark_revoked`, from inside `mint_token`), and this port has to be let go of
         // whichever path noticed.
         if stop.load(Ordering::SeqCst) || halted() {
-            let _ = socket.close(None);
-            return Outcome::Closed;
+            socket.close();
+            return Outcome::Closed("told to stop".into());
         }
 
         // #591: ask a quiet hub, and give a silent one up rather than read it for ever.
@@ -662,29 +669,32 @@ fn connect_once(
                 return Outcome::Silent;
             }
             Next::Ping => {
-                if socket.send(Message::Text(PING.to_string())).is_err() {
+                if let Err(e) = socket.send(Message::Text(PING.to_string())) {
                     state.set_link(&device.id, DeviceLink::Offline, None);
-                    return Outcome::Unreachable;
+                    return Outcome::Unreachable(format!("the ping could not be sent: {e}"));
                 }
                 last_ping = Instant::now();
             }
             Next::Listen => {}
         }
 
-        let text = match socket.read() {
-            Ok(message) => {
+        let text = match socket.read(WS_READ_SLICE) {
+            Ok(Some(message)) => {
                 // Anything at all is the hub alive: its `pong`, a command, a control frame.
                 last_heard = Instant::now();
                 match message {
                     Message::Text(t) => t,
-                    Message::Close(_) => return Outcome::Closed,
+                    Message::Close(frame) => {
+                        return Outcome::Closed(format!("the hub closed the socket{}", crate::socket::close_note(&frame)))
+                    }
                     _ => continue,
                 }
             }
-            Err(e) if is_read_timeout(&e) => continue,
-            Err(_) => {
+            // Nothing yet: back to `stop` and the clock.
+            Ok(None) => continue,
+            Err(e) => {
                 state.set_link(&device.id, DeviceLink::Offline, None);
-                return Outcome::Unreachable;
+                return Outcome::Unreachable(e);
             }
         };
 
@@ -706,18 +716,27 @@ fn connect_once(
                     _ => DeviceLink::Error,
                 };
                 state.set_link(&device.id, link, Some(code.clone()));
-                let _ = socket.close(None);
-                return if fatal { Outcome::Fatal(code) } else { Outcome::Unreachable };
+                socket.close();
+                return if fatal {
+                    Outcome::Fatal(code)
+                } else {
+                    Outcome::Unreachable(format!("the hub refused the registration ({code})"))
+                };
             }
             Some(Incoming::Evicted) => {
                 // An admin took the device, or this desktop was revoked. Either way the port is
                 // not ours any more — let go of it rather than holding it against the new owner.
                 state.set_link(&device.id, DeviceLink::InUse, Some("taken over".into()));
-                let _ = socket.close(None);
+                socket.close();
                 return Outcome::Fatal("evicted".into());
             }
             Some(Incoming::Command { id, frame, isl, timeout_ms }) => {
-                relay(&mut socket, &mut *serial, state, device, &id, &frame, isl, timeout_ms);
+                if let Err(e) = relay(&mut socket, &mut *serial, state, device, &id, &frame, isl, timeout_ms) {
+                    // The device has done what it was told, and the hub will not hear of it on this
+                    // socket: it learns of the close, and the next connection starts clean.
+                    state.set_link(&device.id, DeviceLink::Offline, None);
+                    return Outcome::Unreachable(format!("the answer to a command could not be sent: {e}"));
+                }
                 // The exchange held the loop for as long as the device took (a Z report runs for
                 // minutes): the hub was waiting on it, not silent.
                 last_heard = Instant::now();
@@ -731,9 +750,12 @@ fn connect_once(
 ///
 /// ⚠ Synchronous, inside the read loop, which is what serializes commands on the port. Two frames
 /// sharing a serial line is the one thing the protocol cannot survive.
+///
+/// An `Err` is the answer failing to leave, never the command failing: a device that did not
+/// answer is still answered for (`fiscal:response:error`).
 #[allow(clippy::too_many_arguments)]
 fn relay(
-    socket: &mut Socket,
+    socket: &mut HubSocket,
     serial: &mut dyn serialport::SerialPort,
     state: &Arc<BridgeState>,
     device: &AssignedDevice,
@@ -741,15 +763,13 @@ fn relay(
     frame_b64: &str,
     isl: bool,
     timeout_ms: Option<u64>,
-) {
+) -> Result<(), String> {
     let engine = base64::engine::general_purpose::STANDARD;
     let Ok(frame) = engine.decode(frame_b64) else {
-        answer_error(socket, command_id, "the hub sent a frame that is not base64");
-        return;
+        return answer_error(socket, command_id, "the hub sent a frame that is not base64");
     };
     if frame.is_empty() {
-        answer_error(socket, command_id, "the hub sent an empty frame");
-        return;
+        return answer_error(socket, command_id, "the hub sent an empty frame");
     }
 
     state.inflight.fetch_add(1, Ordering::SeqCst);
@@ -765,14 +785,14 @@ fn relay(
     match result {
         Ok(bytes) => {
             state.set_link(&device.id, DeviceLink::Idle, None);
-            let _ = socket.send(Message::Text(
+            socket.send(Message::Text(
                 serde_json::json!({
                     "type": "fiscal:response",
                     "commandId": command_id,
                     "frame": engine.encode(&bytes),
                 })
                 .to_string(),
-            ));
+            ))
         }
         Err(e) => {
             // ⚠ An ANSWER, never a dropped command. Saying nothing makes the hub wait out its
@@ -783,20 +803,20 @@ fn relay(
             // ⚠ And NOT a device `error` status: an `error` device makes the hub 503 every sale
             // once no bridge holds it. This is a per-command failure, reported as one.
             state.set_link(&device.id, DeviceLink::Idle, Some(e.clone()));
-            answer_error(socket, command_id, &e);
+            answer_error(socket, command_id, &e)
         }
     }
 }
 
-fn answer_error(socket: &mut Socket, command_id: &str, error: &str) {
-    let _ = socket.send(Message::Text(
+fn answer_error(socket: &mut HubSocket, command_id: &str, error: &str) -> Result<(), String> {
+    socket.send(Message::Text(
         serde_json::json!({
             "type": "fiscal:response:error",
             "commandId": command_id,
             "error": error,
         })
         .to_string(),
-    ));
+    ))
 }
 
 /// Write the frame and collect the device's answer, with the browser relay's read budgets.
@@ -1135,8 +1155,40 @@ mod tests {
         // back, which mints as `token_failed`. The bridge took it as final and its till held no
         // fiscal device until LGR Desktop was restarted.
         for code in ["token_failed", "bad_response", "bad_assertion", "server_unreachable", "server_timeout", "something_new"] {
-            assert_eq!(classify_mint_error(code), Outcome::Unreachable, "{code} must be tried again");
+            assert_eq!(
+                classify_mint_error(code),
+                Outcome::Unreachable(format!("no credential ({code})")),
+                "{code} must be tried again, and the log told which it was"
+            );
         }
+    }
+
+    #[test]
+    fn a_bridge_that_registered_starts_the_backoff_over() {
+        // lgr#811. The step went back to 0 only on a close frame and on silence, and a hub that
+        // stops or restarts reaches a till as a read error. In a 2 h soak a till's link broke 36
+        // minutes after its master's update: the one failed try of the update was still counted,
+        // and the bridge waited 4 s where 2 would have done. After a few outages it is a minute.
+        let broke = || Outcome::Unreachable("the link broke".into());
+        let mut attempt = 0;
+        for outage in 1..=8 {
+            attempt = next_attempt(attempt, &broke(), true);
+            assert_eq!(presence::backoff_secs(attempt), 2, "outage {outage}: the first retry after a bridge that worked");
+        }
+        // Tries that never got as far as the hub's `registered` still back off, to the ceiling: a
+        // port another tab holds, a hub that is away, a registration the hub turns down for now.
+        let mut attempt = 0;
+        let waits: Vec<u64> = (0..7)
+            .map(|_| {
+                attempt = next_attempt(attempt, &broke(), false);
+                presence::backoff_secs(attempt)
+            })
+            .collect();
+        assert_eq!(waits, [2, 4, 8, 16, 32, 60, 60]);
+        // A close frame and a silent hub start over, as they always did.
+        assert_eq!(next_attempt(5, &Outcome::Closed("the hub closed the socket".into()), false), 0);
+        assert_eq!(next_attempt(5, &Outcome::Silent, false), 0);
+        assert_eq!(next_attempt(5, &Outcome::Silent, true), 0);
     }
 
     #[test]

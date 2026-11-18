@@ -114,6 +114,14 @@ and that site could send back a code for its own account (a login CSRF).
     whatever arrives, and a link that has said nothing for 75 s is dead (`presence::next`). It logs
     "the server said nothing for 75 s" and reconnects on the backoff. A dead TCP connection never
     errors by itself: before this the shell sat in `read()` through a four-minute cut, silent.
+  - ⚠ **That wait is on the socket, never a receive timeout** (`socket.rs`, #811). On Windows a
+    blocking receive that times out as data arrives fails with error 997 and loses that data. So
+    the socket is non-blocking and the loop waits for it with `WSAPoll` (`poll` elsewhere), after
+    reading what tungstenite and the TLS layer already hold. Sends stay blocking. Presence and the
+    fiscal bridge share this code. Up to desktop 0.1.13 both read with a receive timeout and read
+    again when it ran out.
+  - When the link ends, the log says what ended it: `presence: the server did not answer; retrying
+    with backoff (<the error>)`.
 - **The assignment follows the desktop** (#328). `PUT /self`, which the shell sends after every
   reconnect, answers with the start path and fiscal device ids an admin has assigned NOW. The shell
   learned them only at enrollment before, so a desktop enrolled with a one-time code always opened
@@ -191,6 +199,14 @@ registered desktop (`bridge.rs`).
   registered desktop. `connectionParams.bridgeDesktopId` can pin it to one.
 - **Why Rust carries the bytes:** Bun with `serialport` on Windows writes to the port but never
   receives from it.
+- **Its link to the hub.** A quiet hub is pinged after 20 s and given up after 60 s (#591).
+  - The socket is read as presence's is (`socket.rs`, #811, above). Here the frame that arrives
+    after a quiet spell is a sale's first command, and a receive timeout that lost it had the hub
+    save the sale without its receipt.
+  - A bridge that had registered starts its backoff over when its link breaks, so its first retry
+    comes after 2 s whatever happened earlier (#811, as presence since #741).
+  - Its log line says what ended the link: `bridge: <device> disconnected (device <id>), retrying:
+    <the error>`.
 
 ### Updates (FR-14.28, FR-14.29)
 
