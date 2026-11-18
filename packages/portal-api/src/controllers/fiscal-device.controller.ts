@@ -47,6 +47,14 @@ const ManufacturerSchema = t.Union([
   t.Literal('datecs'), t.Literal('daisy'), t.Literal('tremol'), t.Literal('eltrade'), t.Literal('incotex'),
 ])
 
+/**
+ * The model's `status` enum (`db/models/fiscal-device.model`). The device list and the till write what their bridge
+ * saw; the PUT did not name it, so Elysia dropped it and answered 200 with nothing stored (FR-32.24 finding).
+ * ⚠ `error` is not cosmetic: a device in `error` that no bridge holds makes the server 503 every sale on it
+ * (`cash-register-till#getFiscalContext`), until a connect or a write of `online`/`offline` clears it.
+ */
+const DeviceStatusSchema = t.Union([t.Literal('online'), t.Literal('offline'), t.Literal('error')])
+
 /** Strip connection params for non-admin users (M1: sensitive data exposure) */
 function sanitizeDevice(device: any, runsDevices: boolean) {
   if (runsDevices) return device
@@ -125,11 +133,12 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     const targetError = await tcpTargetError(body.connectionType, body.connectionParams)
     if (targetError) return status(400, targetError)
 
+    // A new device is active unless the form's Active switch was turned off before the first save.
     const device = await r.fiscalDevices.create({
       ...body,
       orgId,
       status: 'offline',
-      isActive: true,
+      isActive: body.isActive ?? true,
     } as any)
 
     createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'fiscal', entityType: 'fiscal_device', entityId: device.id, entityName: `${body.name} (${body.deviceNumber})` })
@@ -152,8 +161,11 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
         // the device is assigned to may bridge it.
         bridgeDesktopId: t.Optional(t.String()),
       })),
+      // ⚠ Required, never null: the model requires a device's warehouse (its sales and its Z are the warehouse's).
       warehouseId: t.String(),
       workstationId: t.Optional(t.String()),
+      // The model's field, and the form's Active switch: it was dropped here, so a device always started active.
+      isActive: t.Optional(t.Boolean()),
     }),
   })
   .get('/:id', async ({ params: { orgId, id }, user, status }) => {
@@ -220,9 +232,12 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
         // the device is assigned to may bridge it.
         bridgeDesktopId: t.Optional(t.String()),
       })),
+      // Never null: the model requires a device's warehouse, so it can be moved but not cleared.
       warehouseId: t.Optional(t.String()),
       workstationId: t.Optional(t.String()),
       isActive: t.Optional(t.Boolean()),
+      // What the device list and the till saw of the device (`DeviceStatusSchema`); audited as this update.
+      status: t.Optional(DeviceStatusSchema),
     }),
   })
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {

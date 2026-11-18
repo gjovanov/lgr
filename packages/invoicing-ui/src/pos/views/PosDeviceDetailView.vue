@@ -55,6 +55,7 @@
             <v-col cols="12" md="4">
               <v-select v-model="device.connectionType" :label="t('pos.device.connectionType')" :items="connectionTypes" :rules="[rules.required]" density="compact" />
             </v-col>
+            <!-- A device's warehouse is required (the model's, and both schemas refuse null): it can be changed, never cleared. -->
             <v-col cols="12" md="4">
               <v-autocomplete
                 v-model="device.warehouseId"
@@ -63,7 +64,7 @@
                 item-title="name"
                 item-value="_id"
                 :loading="loadingWarehouses"
-                clearable
+                :rules="[rules.required]"
                 density="compact"
               />
             </v-col>
