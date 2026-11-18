@@ -442,6 +442,16 @@ Most of this FR is proven by CI, not in production.
     - The four payroll lists' Export and the payslip's PDF button did nothing. They are removed and filed as #830.
     - The three TODOs left in the source are FR-25 §7.5's, and `unit/payroll-says-what-it-computes.test.ts` fails on a TODO that names no issue or spec item.
 
+### Slice B, `CLAUDE.md`
+
+- **FR-32.13** (`feat/797-fr32-b-claude-md`): `CLAUDE.md` went from 5 777 lines (538 KB) to about 540 (47 KB).
+  - **Kept**: the commands, the layout, the areas table, tenancy, secrets, org homes, migrations, outbound calls, auth, the controller and model patterns, the frontend and test conventions with the eight E2E gotchas, environment, deployment, and the open Known Issues with the rules the resolved ones left.
+  - **History**: every other section, word for word, in `docs/history/<area>.md`, eleven areas (access, accounting, deployment, files, fiscal, invoicing, nodes, platform, reporting, warehouse, web-app). The resolved Known Issues entries are in `platform.md`.
+  - **Traps**: each area's ⚠ and never/always lines, with the bullet each sits in, are in `.claude/rules/<area>.md`, a rule file whose `paths:` make it load when a session touches that area's files.
+  - **The comparison**: `bun scripts/claude-md-warnings.ts origin/master` found all 595 ⚠ of the old file in `CLAUDE.md` or a rule file, and all 433 never/always lines are there too.
+  - **The check**: `unit/claude-md.test.ts` fails when `CLAUDE.md` is over 800 lines, when a ⚠ of a history is in neither `CLAUDE.md` nor a rule file, when a rule file has no `paths:` or no link to its history, when an area has a history and no rule file (or the other way round), and when a link in `CLAUDE.md` names a missing file.
+  - The open items of slice B were already closed by #829 and #831. `CLAUDE.md` no longer lists them as open.
+
 ### Slice C
 
 - **FR-32.14** shipped first, by itself (#799).
