@@ -154,6 +154,8 @@ const inviteResult = ref<InviteResult | null>(null)
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/invite`),
   entityKey: 'invites',
+  // FR-31.18: the page, its size and the sort in the address.
+  urlSync: true,
 })
 const showCreateDialog = ref(false)
 const copySnackbar = ref(false)

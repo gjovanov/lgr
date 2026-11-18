@@ -1,7 +1,8 @@
 <template>
   <v-container fluid>
     <!-- Header: title + actions -->
-    <div class="d-flex align-center mb-4 ga-2 flex-wrap">
+    <!-- The title and its buttons wrap: on a phone the buttons go under the title, and among themselves. -->
+    <div class="d-flex align-center mb-4 ga-2 flex-wrap" :data-testid="headerTestid">
       <div>
         <h1 class="text-h5">{{ title }}</h1>
         <div v-if="subtitle" class="text-body-2 text-medium-emphasis">{{ subtitle }}</div>
@@ -181,6 +182,8 @@ const props = withDefaults(defineProps<{
    */
   selectable?: boolean
   selected?: string[]
+  /** A `data-testid` for the title row, for a list whose tests measure it (Movements, FR-31.19). */
+  headerTestid?: string
 }>(), {
   view: 'list',
   itemValue: '_id',

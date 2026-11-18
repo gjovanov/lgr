@@ -2997,6 +2997,11 @@ prints: „One list of actions for a document's two bars" below.
   - A list on `usePaginatedTable` / `useProductList` never throws a failed request any more: it puts it in
     `pagination.loadError`, and `ListScaffold` (or `ListLoadError` in a table of its own) says it with Retry, never "no
     data". An error on the message line (`useSnackbar`) stays until closed, and messages queue.
+  - **A list keeps its place** (FR-31.18): every list on `usePaginatedTable` passes `urlSync: true`, and each filter a
+    control on the page sets is a `useListQueryState` key, declared before the table. ⚠ `unit/list-place.test.ts` fails
+    on a new table without it (a picker dialog and a record's own rows are its two listed exceptions) and on a settable
+    filter left out of the address. Movements, Stock levels and Inventory counts are on `ListScaffold` (FR-31.19): the
+    column picker, columns kept by route name, addresses as before.
   - The shell's translator (`HomeBanner`, `setRefusalTranslator`) is asked for EVERY coded answer, not a 409's only,
     and for `UNEXPECTED_ERROR_CODE`, the last fallback: the server's English is shown only for a code it does not know.
 - **One issue path** (FR-22.17): `invoicing-ui/composables/document-issue.ts` holds the requests (the

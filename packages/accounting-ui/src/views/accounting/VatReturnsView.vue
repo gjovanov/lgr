@@ -75,6 +75,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   defaultSize: 25,
   defaultSortBy: 'periodCode',
   defaultSortOrder: 'desc',
+  // FR-31.18: the page and its size in the address, so Back from a month returns to the same page.
+  urlSync: true,
 })
 
 const headers = computed(() => [

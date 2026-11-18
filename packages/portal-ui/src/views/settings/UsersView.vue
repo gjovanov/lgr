@@ -156,6 +156,8 @@ const { showSuccess, showError } = useSnackbar()
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/user`),
   entityKey: 'users',
+  // FR-31.18: the page, its size and the sort in the address.
+  urlSync: true,
 })
 
 const dialog = ref(false)
