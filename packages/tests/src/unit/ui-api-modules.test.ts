@@ -23,8 +23,11 @@ const CLIENT_IMPORT = /from\s+'(?:ui-shared\/composables\/useHttpClient|axios)'/
 /** An id read one way and then the other: `x._id || x.id`, `x.id || x._id`. */
 const ID_FALLBACK = /\._id\s*(?:\|\||\?\?)\s*[\w.?]*\bid\b|\.id\s*(?:\|\||\?\?)\s*[\w.?]*\._id\b/
 
-/** invoicing-ui's raw calls outside `src/api/` when FR-32.24 started (130 in its components, 27 in composables). */
-const INVOICING_RAW_CALLS = 157
+/**
+ * invoicing-ui's raw calls outside `src/api/`: 157 when FR-32.24 started (130 in its components, 27 in composables),
+ * 152 once FR-32.23 folded the two order forms (120 in its components, 32 in composables). It may only go down.
+ */
+const INVOICING_RAW_CALLS = 152
 
 function sources(pkg: string): Array<[string, string]> {
   return [...new Glob(`${pkg}/src/**/*.{ts,vue}`).scanSync(PACKAGES)]

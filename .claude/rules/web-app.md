@@ -179,7 +179,10 @@ search still reads such an article by its mirrors, slower, until migration 0018 
   the same way, a screen at a time. `unit/ui-api-modules.test.ts` fails on a file of `inventory-ui`
   outside `src/api/` that imports or calls the HTTP client or reads an id both ways, and on
   `invoicing-ui`'s raw calls growing past their ceiling (lower it when a screen moves).
-- ⚠ **`unit/access-read-only` (FR-27.7) sees a view write by `httpClient.post|put|patch|delete` in
-  it**, or by a Save, Delete or pencil it shows. A view that writes through its API module and shows
-  none of those (the bulk price adjustment, the opening-stock import) is no longer seen as writing:
-  its `v-cap` is then its only gate, and nothing holds it there. Keep the gate when such a view changes.
+- ⚠ **A write through an API module is a write for `unit/access-read-only` (FR-27.7).** A view
+  writes when it sends `httpClient.post|put|patch|delete`, shows a Save, Delete or pencil, or calls a
+  function it imports from a `src/api/` module whose body sends one of those. The write functions are
+  read from the modules, so a new module needs no list; but a write function must send its request in
+  its own body (a module function that only calls another helper that writes is not seen). Such a view
+  must consult access (`v-cap`, a form action's `cap`, …) like any other: the bulk price adjustment
+  and the opening-stock import pass by their `v-cap`.
