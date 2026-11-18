@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-16. Nothing is built. The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-16. Slices A, C and D are built, and B but for FR-32.13; slice E has FR-32.25 and .26, and .21 to .24 are to come (§11). The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | `ci.yml` (the always-on gate) and `e2e-nightly.yml` (#365, the whole Playwright suite), the route-table suites (tenant isolation, route and read permission), `dal` and `dal-mongo`, the known-items list in `CLAUDE.md`, #675 |
 | **Touches** | Every package gets a type-check configuration. `.github/workflows` (two new jobs). `dal`, `dal-mongo` and `db` (entity types, `select`, `session`). `services` (dead DAO classes out, document services). `invoicing-api` (the largest controller). `ui-shared`, `ui-shell` and the `*-ui` packages (dead files out, typed API modules, the two order forms). `reporting` (one dependency moves). `portal-api` (file deletion, the auth plugin). `CLAUDE.md` and `docs/` |
 | **Tracking** | [gjovanov/lgr#797](https://github.com/gjovanov/lgr/issues/797) |
@@ -469,3 +469,15 @@ Most of this FR is proven by CI, not in production.
     - So does an array whose elements are "anything".
     - The six multipart uploads are on the list: each reads its files from the form itself.
   - **The four screens of #675** were closed before this FR was written, by #685 (fixed assets, exchange rates, timesheets) and #686 (bank reconciliation). Their tests are `integration/form-payloads` and the reconciliation suite.
+
+### Slice E
+
+- **FR-32.25, .26** (`feat/797-fr32-e-structure`), the first part of the slice: the two requirements that change no behaviour and need no screen moved.
+  - **One auth chain.** `services/http/session-auth.ts#sessionAuth` is the chain both plugins ran as two copies of about 120 lines: the session from the bearer or the cookie, the live grant, the 401 and the permission refusals in the transform hook, then the tenant guard, the home gate and the licence gate, and the `isSignIn` macro.
+    - `AuthService` (portal-api, `Service.Auth`) is `sessionAuth({ name: 'Service.Auth', identityRoutes: true })`. `AppAuthService` (`Service.AppAuth`, re-exported by every `*-api`) is the same chain with `identityRoutes: false`: the domain routes include no identity route, so it reads no identity-only token, as before.
+    - Each plugin keeps its Elysia name, so the deduplication of each is what it was. The session rules stay where they were (`session-token.ts`, `identity/session.service.ts`, `tenant-guard.ts`, `access/*`, `home-gate.ts`).
+    - The chain lives in `services`, not in the portal: `services` and the `*-api` packages cannot import `portal-api`. It is the portal's chain, the identity routes included.
+    - `unit/one-auth-plugin.test.ts` fails on a plugin that declares a hook of its own, and on a second file that runs the role and home gates.
+  - **Large files do not grow** (`unit/code-ratchets.test.ts`, `LARGE_FILES`): the 21 source files over 1 000 lines, each with its length. A listed file may not get longer, no other file may pass 1 000 lines, and a file that falls to 1 000 or fewer leaves the list.
+  - No test had to change. Two were added to (`one-auth-plugin`, `code-ratchets`).
+  - **Still to do in slice E**, each its own pull request, a file at a time (§5): FR-32.21, the document services and the invoice controller's handlers of at most 80 lines (`issueDocument` with FR-29.8); FR-32.22, `useDocumentForm` in files of at most 500 lines; FR-32.23, one base for the two order forms, each at most 900 lines; FR-32.24, the typed API modules of `invoicing-ui` and `inventory-ui`, by screen.

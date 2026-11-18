@@ -12,6 +12,7 @@ import { join, resolve } from 'node:path'
  *   and `services` (`lgr/no-as-any`); this is the whole count, the one FR-32.17 starts from (2 173 at the audit).
  * - Files that use the raw driver (`Model.collection.*`, `connection.db`): a new one fails until it is listed below
  *   with the reason it bypasses Mongoose.
+ * - FR-32.26: the source files over 1 000 lines (`LARGE_FILES`). None may get longer, and no other may join them.
  *
  * A count that went DOWN fails too, until the number here is lowered: otherwise the slack would let the next one in
  * unseen. Lower it in the same pull request.
@@ -63,6 +64,42 @@ const RAW_DRIVER_FILES: Record<string, string> = {
   'invoicing-api/src/controllers/invoice.controller.ts': PIPELINE,
 }
 
+/**
+ * FR-32.26: the source files over 1 000 lines, with their length when the check started. A file on this list may not
+ * get longer, and no other file may pass 1 000 lines. Lower a number when a file gets shorter, if you like; take a
+ * file off when it is 1 000 lines or fewer (the check says so). Slice E of FR-32 splits the first four.
+ */
+const MAX_LINES = 1000
+const LARGE_FILES: Record<string, number> = {
+  'invoicing-api/src/controllers/invoice.controller.ts': 2494,
+  'invoicing-ui/src/composables/document-form/useDocumentForm.ts': 2274,
+  'invoicing-ui/src/views/InternalOrderFormView.vue': 1564,
+  'invoicing-ui/src/views/OrderFormView.vue': 1544,
+  'services/src/biz/cash-register/register.service.ts': 1542,
+  'inventory-ui/src/views/MovementFormView.vue': 1407,
+  'services/src/biz/cash-sale-invoice.service.ts': 1379,
+  'fiscal/src/eltrade.ts': 1357,
+  'invoicing-api/src/controllers/pos.controller.ts': 1196,
+  'services/src/biz/oauth.service.ts': 1162,
+  'services/src/biz/backup/backup-restore.service.ts': 1158,
+  'services/src/biz/reservation-ops.service.ts': 1133,
+  'portal-ui/src/views/settings/ServersView.vue': 1101,
+  'portal-api/src/websocket/fiscal-bridge.ts': 1100,
+  'config/src/index.ts': 1065,
+  'services/src/biz/cash-register/payment-receipt.service.ts': 1061,
+  'invoicing-api/src/controllers/invoice-export.controller.ts': 1027,
+  'services/src/biz/receipt-bill.service.ts': 1025,
+  'inventory-ui/src/views/ProductFormView.vue': 1016,
+  'services/src/biz/doc-import/parse-table.ts': 1014,
+  'services/src/biz/accounting-books/import.service.ts': 1002,
+}
+
+/** Lines as `wc -l` counts them in a file that ends with a newline, and the last line too when it does not. */
+function lineCount(text: string): number {
+  const lines = text.split('\n')
+  return text.endsWith('\n') ? lines.length - 1 : lines.length
+}
+
 const METHODS = 'find|findOne|findById|findOneAndUpdate|findByIdAndUpdate|findOneAndDelete|findByIdAndDelete|updateOne|updateMany|create|insertMany|deleteOne|deleteMany|countDocuments|aggregate|exists|bulkWrite|distinct|replaceOne'
 
 function sources(pattern: string, skip: RegExp = /^(tests|e2e)[\\/]/): Array<[string, string]> {
@@ -97,5 +134,26 @@ describe('counts that only go down (FR-32.16, .17)', () => {
       .filter(([, text]) => RAW.test(text)).map(([f]) => f)
     expect(files.filter(f => !(f in RAW_DRIVER_FILES))).toEqual([])
     expect(Object.keys(RAW_DRIVER_FILES).filter(f => !files.includes(f))).toEqual([])
+  })
+})
+
+describe('large files do not grow (FR-32.26)', () => {
+  const lengths = new Map(sources('*/src/**/*.{ts,vue}').map(([f, text]) => [f, lineCount(text)]))
+
+  it('no file but the listed ones is over 1 000 lines', () => {
+    const over = [...lengths].filter(([f, n]) => n > MAX_LINES && !(f in LARGE_FILES)).map(([f, n]) => `${f}: ${n}`)
+    expect(over).toEqual([])
+  })
+
+  it('a listed file is no longer than it was', () => {
+    const grown = Object.entries(LARGE_FILES)
+      .filter(([f, max]) => (lengths.get(f) ?? 0) > max)
+      .map(([f, max]) => `${f}: ${lengths.get(f)} > ${max}`)
+    expect(grown).toEqual([])
+  })
+
+  it('a listed file is still over 1 000 lines (take it off the list otherwise)', () => {
+    const done = Object.keys(LARGE_FILES).filter(f => (lengths.get(f) ?? 0) <= MAX_LINES).map(f => `${f}: ${lengths.get(f) ?? 'gone'}`)
+    expect(done).toEqual([])
   })
 })
