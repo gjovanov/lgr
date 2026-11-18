@@ -234,6 +234,15 @@ export function linesFromRelatedInvoice(lines: any[] | undefined): Array<LineInp
 }
 
 /**
+ * The contact of a document as its one read (`GET /invoices/:id`) gives it: named (`{ _id, companyName… }`) when it
+ * exists, else the stored id.
+ */
+function contactIdOf(contact: unknown): string {
+  if (contact && typeof contact === 'object') return String((contact as { _id: unknown })._id)
+  return contact ? String(contact) : ''
+}
+
+/**
  * A credit or debit note started FROM an issued invoice (FR-22.21: „Кредитно известие" /
  * „Дебитно известие" on the invoice): everything the note takes from it — the customer, the
  * invoice it corrects, its currency and how it was paid, and its lines as they were sold
@@ -243,10 +252,9 @@ export function linesFromRelatedInvoice(lines: any[] | undefined): Array<LineInp
  * and starting from the org's base currency put a USD invoice's note in EUR.
  */
 export function noteFromInvoice(invoice: any): Required<Pick<DocumentFormState, 'contactId' | 'relatedInvoiceId' | 'currency' | 'exchangeRate' | 'paymentMethod' | 'lines'>> {
-  const contact = invoice?.contactId
   return {
-    contactId: contact ? String(contact._id || contact.id || contact) : '',
-    relatedInvoiceId: String(invoice?.id || invoice?._id || ''),
+    contactId: contactIdOf(invoice?.contactId),
+    relatedInvoiceId: String(invoice?._id ?? ''),
     currency: invoice?.currency || '',
     exchangeRate: num(invoice?.exchangeRate) || 1,
     paymentMethod: invoice?.paymentMethod || '',
@@ -262,10 +270,9 @@ export function noteFromInvoice(invoice: any): Required<Pick<DocumentFormState, 
  * wording, and its print notes.
  */
 export function copyOfDocument(doc: any): Required<Pick<DocumentFormState, 'contactId' | 'relatedInvoiceId' | 'currency' | 'exchangeRate' | 'paymentMethod' | 'notes' | 'terms' | 'footer' | 'reason' | 'placeOfTransaction' | 'tags' | 'lines'>> & { billingAddress?: BillingAddress } {
-  const contact = doc?.contactId
   const b = doc?.billingAddress
   return {
-    contactId: contact ? String(contact._id || contact.id || contact) : '',
+    contactId: contactIdOf(doc?.contactId),
     relatedInvoiceId: doc?.relatedInvoiceId ? String(doc.relatedInvoiceId) : '',
     currency: doc?.currency || '',
     exchangeRate: num(doc?.exchangeRate) || 1,

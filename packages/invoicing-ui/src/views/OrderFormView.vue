@@ -424,7 +424,7 @@
       @find="openContactPicker({ kind: 'client' })"
       @submit="submitReservation"
     />
-    <ConvertToInvoicesDialog v-model="convertDialog" :reservations="reservations" :contact-names="contactNames" :order-url="`${orgUrl()}/invoicing/orders/${route.params.id}`" :reload="() => loadOrder()" />
+    <ConvertToInvoicesDialog v-model="convertDialog" :reservations="reservations" :contact-names="contactNames" :order-id="route.params.id as string" :reload="() => loadOrder()" />
 
     <!-- FR-22.41: what Cancel or Complete releases, asked before it happens. -->
     <OrderCascadeDialog
@@ -447,7 +447,7 @@ import { ref, reactive, computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createOrder, exportOrderGroup, getOrder, supplierOrderRoutes, updateOrder } from '../api/orders'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { triggerBlobDownload } from 'ui-shared/composables/useInvoicingExport'
 import { upsertAmountInWords } from 'config/amount-in-words'
@@ -494,7 +494,7 @@ const {
   knownProducts, knownOf, onContactSearch, fetchContacts, withKnown, adoptContact, warehouses, fetchWarehouses, warehouseName,
   createAttempt, fetchPeekedNumber, deleteOrder, doAction, cascade, cascadeNow, cancelOrder, completeOrder, confirmCascade,
 } = useOrderFormBase({
-  api: 'orders',
+  routes: supplierOrderRoutes,
   listRoute: 'invoicing.orders',
   side: 'supplier',
   deleteConfirmKey: 'invoicing.deleteOrderConfirm',
@@ -767,7 +767,7 @@ async function onSave() {
   saving.value = true
   try {
     if (isEdit.value) {
-      await httpClient.put(`${orgUrl()}/invoicing/orders/${route.params.id}`, buildPayload())
+      await updateOrder(route.params.id as string, buildPayload())
       adding.value = null
       succeeded()
       showSuccess(t('common.savedSuccessfully'))
@@ -777,14 +777,14 @@ async function onSave() {
       markClean()
     } else {
       const payload = buildPayload()
-      const { data } = await createAttempt.run(payload, headers => httpClient.post(`${orgUrl()}/invoicing/orders`, payload, { headers }))
+      const { order } = await createAttempt.run(payload, headers => createOrder(payload, headers))
       succeeded()
       showSuccess(t('common.savedSuccessfully'))
       markSaved()
-      router.replace({ name: 'invoicing.orders.edit', params: { id: data.order._id } })
-      orderNumber.value = data.order.orderNumber
-      orderStatus.value = data.order.status
-      await loadOrder(data.order._id, { clearStaged: true })
+      router.replace({ name: 'invoicing.orders.edit', params: { id: order._id } })
+      orderNumber.value = order.orderNumber
+      orderStatus.value = order.status
+      await loadOrder(order._id, { clearStaged: true })
       markClean()
     }
   } catch (e: any) {
@@ -799,11 +799,8 @@ function sendOrder() { doAction('send', 'invoicing.orderSent') }
 // ── group exports (supplier / internal sheets) ──
 async function exportGroup(group: GroupRow, variant: 'supplier' | 'internal', format: 'xlsx' | 'pdf') {
   try {
-    const res = await httpClient.get(`${orgUrl()}/invoicing/orders/${route.params.id}/export`, {
-      params: { groupId: group._id, variant, format, locale: appStore.locale },
-      responseType: 'blob',
-    })
-    triggerBlobDownload(res.data, `${orderNumber.value || 'order'}-${variant}.${format}`)
+    const blob = await exportOrderGroup(route.params.id as string, { groupId: group._id, variant, format, locale: appStore.locale })
+    triggerBlobDownload(blob, `${orderNumber.value || 'order'}-${variant}.${format}`)
   } catch (e: any) {
     showError(e?.response?.data?.message || t('export.failed'))
   }
@@ -818,7 +815,7 @@ async function exportGroup(group: GroupRow, variant: 'supplier' | 'internal', fo
 async function loadOrder(id?: string, opts: { clearStaged?: boolean } = {}) {
   loadStarted()
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/invoicing/orders/${id || route.params.id}`)
+    const data = await getOrder(id || (route.params.id as string))
     const o = data.order
     orderStatus.value = o.status
     orderNumber.value = o.orderNumber
@@ -832,16 +829,12 @@ async function loadOrder(id?: string, opts: { clearStaged?: boolean } = {}) {
     // What the user opened or closed stays so across this reload: the tree keeps it, by the id of each row.
     form.supplierGroups = supplierGroupsFrom(o.supplierGroups)
     // First-class reservations + names come with the response.
-    reservations.value = data.reservations || []
-    linkedInvoices.value = data.lookup?.invoices || {}
+    reservations.value = data.reservations
+    linkedInvoices.value = data.lookup.invoices
     if (opts.clearStaged) clearStaged()
-    if (data.lookup?.contacts) Object.assign(contactNames.value, data.lookup.contacts)
-    if (data.lookup?.products) knownProducts.value = data.lookup.products
-    if (data.lookup?.internalOrders) {
-      for (const [iid, info] of Object.entries<any>(data.lookup.internalOrders)) {
-        internalOrderNumbers.value[iid] = info.orderNumber
-      }
-    }
+    Object.assign(contactNames.value, data.lookup.contacts)
+    knownProducts.value = data.lookup.products
+    for (const [iid, info] of Object.entries(data.lookup.internalOrders)) internalOrderNumbers.value[iid] = info.orderNumber
     // Refresh the option pools so selected ids render their names.
     supplierOptions.value = withKnown(supplierOptions.value, 'supplier')
     clientOptions.value = withKnown(clientOptions.value, 'client')

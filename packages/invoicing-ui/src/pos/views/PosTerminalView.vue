@@ -160,7 +160,7 @@
           <v-list density="compact">
             <v-list-item
               v-for="dev in deviceCandidates"
-              :key="dev._id || dev.id"
+              :key="dev._id"
               :title="dev.name"
               :subtitle="`${dev.deviceNumber} · ${dev.manufacturer}`"
               prepend-icon="mdi-printer-pos"
@@ -194,7 +194,6 @@
       v-if="activeSession"
       v-model="closeSessionDialog"
       :session-id="activeSession._id"
-      :org-url="orgUrl()"
       :currency="activeSession.currency"
       :can-skip-fiscal="canSkipFiscal"
       @closed="onSessionClosed"
@@ -209,7 +208,9 @@ import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { computePosTotals, tillLineAmounts, tillTotals } from 'config/pos-totals'
 import { useAppStore } from '../../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { listPosSessions, openPosSession, ringUpSale, type PosSaleAnswer, type PosSaleBody } from '../../api/pos'
+import { listFiscalDevices, recordFiscalDeviceStatus } from '../../api/fiscal-devices'
+import { listWarehouses } from '../../api/warehouses'
 import { createIdempotentAction, isOutcomeUnknown } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
@@ -271,18 +272,16 @@ watch(() => fiscalBridge.status.value, async (val) => {
     showError(fiscalBridge.errorMessage.value)
     // Update device status in DB
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, { params: { isActive: 'true' } })
-      const dev = (data.fiscalDevices || []).find((d: any) => d.connectionType === 'browser')
-      if (dev) await httpClient.put(`${orgUrl()}/fiscal/device/${dev._id || dev.id}`, { status: 'error' })
+      const dev = (await listFiscalDevices({ isActive: 'true' })).fiscalDevices.find((d) => d.connectionType === 'browser')
+      if (dev) await recordFiscalDeviceStatus(dev._id, 'error')
     } catch { /* The device's status is a courtesy for the device list; the till already says it lost the printer. */ }
   }
   if (val === 'connected' && fiscalBridge.deviceNumber.value) {
     showSuccess(t('pos.printerConnected'))
     // Update device status in DB
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, { params: { isActive: 'true' } })
-      const dev = (data.fiscalDevices || []).find((d: any) => d.connectionType === 'browser')
-      if (dev) await httpClient.put(`${orgUrl()}/fiscal/device/${dev._id || dev.id}`, { status: 'online' })
+      const dev = (await listFiscalDevices({ isActive: 'true' })).fiscalDevices.find((d) => d.connectionType === 'browser')
+      if (dev) await recordFiscalDeviceStatus(dev._id, 'online')
     } catch { /* The device's status is a courtesy for the device list; the till already says it has the printer. */ }
   }
 })
@@ -412,12 +411,9 @@ async function refreshConnectedElsewhere() {
   }
   if (document.hidden) return
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, {
-      params: { isActive: 'true', size: 0, warehouseId: activeSession.value.warehouseId },
-    })
-    const devices = data.fiscalDevices || []
+    const devices = (await listFiscalDevices({ isActive: 'true', size: 0, warehouseId: activeSession.value.warehouseId })).fiscalDevices
     warehouseHasDevice.value = devices.length > 0
-    const dev = devices.find((d: any) => d.connected)
+    const dev = devices.find((d) => d.connected)
     connectedElsewhere.value = dev ? { deviceNumber: dev.deviceNumber, name: dev.name } : null
     if (!dev) fiscalizedElsewhere.value = undefined
     else if (dev.fiscalized !== undefined) fiscalizedElsewhere.value = dev.fiscalized
@@ -458,10 +454,9 @@ async function connectFiscalPrinter() {
     return
   }
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/fiscal/device`, { params: { isActive: 'true', size: 0 } })
-    const browserDevices = (data.fiscalDevices || []).filter((d: any) => d.connectionType === 'browser')
+    const browserDevices = (await listFiscalDevices({ isActive: 'true', size: 0 })).fiscalDevices.filter((d) => d.connectionType === 'browser')
     const warehouseId = activeSession.value?.warehouseId
-    const onWarehouse = warehouseId ? browserDevices.filter((d: any) => String(d.warehouseId) === String(warehouseId)) : []
+    const onWarehouse = warehouseId ? browserDevices.filter((d) => String(d.warehouseId) === String(warehouseId)) : []
     const candidates = onWarehouse.length ? onWarehouse : browserDevices
     if (!candidates.length) {
       await fiscalBridge.disconnect()
@@ -507,17 +502,13 @@ async function cancelDeviceChoice() {
 async function fetchSessions() {
   try {
     const cashierId = appStore.user?.id || jwtUserId()
-    const { data } = await httpClient.get(`${orgUrl()}/trade/pos/session`, {
-      params: { size: 10, sortBy: 'openedAt', sortOrder: 'desc', ...(cashierId ? { cashierId } : {}) },
-    })
-    sessions.value = data.sessions || []
+    sessions.value = (await listPosSessions({ size: 10, sortBy: 'openedAt', sortOrder: 'desc', ...(cashierId ? { cashierId } : {}) })).sessions
   } catch { sessions.value = [] }
 }
 
 async function fetchWarehouses() {
   try {
-    const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`, { params: { size: 0 } })
-    warehouses.value = (data.warehouses || []).filter((w: any) => w.isActive !== false).map((w: any) => ({ id: w.id || w._id, name: w.name }))
+    warehouses.value = (await listWarehouses({ size: 0 })).warehouses.filter((w) => w.isActive !== false).map((w) => ({ id: w._id, name: w.name }))
   } catch { warehouses.value = [] }
 }
 
@@ -535,7 +526,7 @@ async function doOpenSession() {
     currency: currency.value,
   }
   try {
-    const { data } = await httpClient.post(`${orgUrl()}/trade/pos/session`, body, { headers: openAttempt.headers(body) })
+    const data = await openPosSession(body, openAttempt.headers(body))
     openAttempt.settle()
     sessions.value.unshift(data.session)
     openSessionDialog.value = false
@@ -593,14 +584,14 @@ async function completeSale() {
       discount: 0, taxRate: c.taxRate,
       ...tillLineAmounts(c),
     }))
-    const body = {
+    const body: PosSaleBody = {
       type: 'sale', lines,
       subtotal: subtotal.value, discountTotal: 0, taxTotal: taxAmount.value, total: total.value,
       payments: [{ method: paymentMethod.value, amount: total.value }], changeDue: 0,
     }
-    let data: any
+    let data: PosSaleAnswer
     try {
-      ({ data } = await httpClient.post(`${orgUrl()}/trade/pos/session/${activeSession.value._id}/transaction`, body, { headers: saleAttempt.headers(body) }))
+      data = await ringUpSale(activeSession.value._id, body, saleAttempt.headers(body))
       saleAttempt.settle()
       answerLost.value = false
     } catch (e: any) {
@@ -624,11 +615,11 @@ async function completeSale() {
     // The sale is recorded either way; a receipt that did not print, or stock that did not
     // move, must not look like success.
     const warnings = [
-      data?.receiptError && t('pos.receiptNotPrinted', { reason: data.receiptError }),
-      data?.stockError && t('pos.stockNotMoved', { reason: data.stockError }),
+      data.receiptError && t('pos.receiptNotPrinted', { reason: data.receiptError }),
+      data.stockError && t('pos.stockNotMoved', { reason: data.stockError }),
     ].filter(Boolean) as string[]
-    const txn = data?.transaction ?? {}
-    const receipt = receiptOutcome(txn, data?.receiptError)
+    const txn = data.transaction
+    const receipt = receiptOutcome(txn, data.receiptError)
     lastSale.value = {
       number: txn.transactionNumber || '',
       total: txn.total ?? body.total,

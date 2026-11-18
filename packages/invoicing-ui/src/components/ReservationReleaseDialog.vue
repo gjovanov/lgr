@@ -48,9 +48,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { cancelReservation } from '../api/reservations'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { useAppStore } from '../store/app.store'
 import { releaseOutcome } from '../composables/reservation-form'
 import { reservationErrorMessage } from '../composables/reservation-errors'
 
@@ -72,7 +71,6 @@ const props = defineProps<{
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; released: [reservation: any] }>()
 
 const { t, te } = useI18n()
-const appStore = useAppStore()
 const { showSuccess } = useSnackbar()
 const unitLabel = (u?: string) => (u && te(`warehouse.uomShort.${u}`) ? t(`warehouse.uomShort.${u}`) : u || '')
 
@@ -108,11 +106,11 @@ async function release() {
   const released = Number(amount.value)
   const cancels = outcome.value.cancels
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/reservations/${props.reservation._id}/cancel`, { quantity: released })
+    const { reservation } = await cancelReservation(props.reservation._id, { quantity: released })
     showSuccess(cancels
       ? t(props.onPage ? 'invoicing.reservations.cancelledHere' : 'invoicing.reservations.cancelled', { number: number.value })
       : t('invoicing.reservations.released', { quantity: released, number: number.value }))
-    emit('released', data.reservation)
+    emit('released', reservation)
     close()
   } catch (e: any) {
     error.value = reservationErrorMessage(e, t)

@@ -1,11 +1,12 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { linkSaleDispatches } from '../../api/issue'
+import { listInvoiceableDispatches, saleFromDispatch } from '../../api/sales'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { appHref } from 'ui-shared/nav/navigate'
-import { linkDispatches, preselectedDispatches, type OverlappingDispatch, type QuantityDifference } from '../document-issue'
+import { preselectedDispatches, type OverlappingDispatch, type QuantityDifference } from '../document-issue'
 import type { useDocumentForm } from './useDocumentForm'
 
 /**
@@ -69,8 +70,7 @@ export function useInvoiceDispatches(doc: DocForm) {
   async function load() {
     loading.value = true
     try {
-      const { data } = await httpClient.get(`${doc.orgUrl()}/invoicing/sales/invoiceable-dispatches`, { params: { contactId: doc.form.contactId } })
-      invoiceable.value = data.dispatches || []
+      invoiceable.value = (await listInvoiceableDispatches(doc.form.contactId)).dispatches
     } catch (e: any) {
       showError(e?.response?.data?.message || t('common.operationFailed'))
     } finally {
@@ -109,7 +109,7 @@ export function useInvoiceDispatches(doc: DocForm) {
           dialogOpen.value = false
           return
         }
-        const result = await linkDispatches(httpClient, doc.orgUrl(), id, {
+        const result = await linkSaleDispatches(id, {
           movementIds: selected.value,
           contactId: doc.form.contactId,
           ...(differs.value.length ? { replaceLines: true } : {}),
@@ -123,7 +123,7 @@ export function useInvoiceDispatches(doc: DocForm) {
         }
         linesWritten = result.linesWritten
       } else {
-        const { data } = await httpClient.post(`${doc.orgUrl()}/invoicing/sales/from-dispatch`, {
+        const { invoice } = await saleFromDispatch({
           movementIds: selected.value,
           contactId: doc.form.contactId,
           locale: locale.value,
@@ -136,8 +136,8 @@ export function useInvoiceDispatches(doc: DocForm) {
         })
         doc.markSaved()
         // The invoice this form was typing, now saved: the form stays mounted for it (FR-22.16).
-        doc.adoptCreated(String(data.invoice.id))
-        await router.replace({ name: `${doc.config.listRouteName}.edit`, params: { id: data.invoice.id } })
+        doc.adoptCreated(invoice._id)
+        await router.replace({ name: `${doc.config.listRouteName}.edit`, params: { id: invoice._id } })
       }
       dialogOpen.value = false
       await doc.loadDocument()

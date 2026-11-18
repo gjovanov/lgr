@@ -214,7 +214,7 @@
 import { formatMoney } from 'ui-shared/format'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { closePosSession, getClosePreview, printSessionReport, type ClosePreview } from '../../api/pos'
 import { createIdempotentAction, isOutcomeUnknown } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
@@ -235,7 +235,6 @@ import SessionReportCard, { type SessionReportData } from './SessionReportCard.v
 const props = defineProps<{
   modelValue: boolean
   sessionId: string
-  orgUrl: string
   currency?: string
   /** Only admin/manager may bypass a configured device. */
   canSkipFiscal?: boolean
@@ -263,7 +262,7 @@ const open = computed({
 
 const loadingPreview = ref(false)
 const submitting = ref(false)
-const preview = ref<any>(null)
+const preview = ref<ClosePreview | null>(null)
 const expected = ref<Record<string, number>>({ cash: 0, card: 0, other: 0 })
 const counted = ref<Record<string, number>>({ cash: 0, card: 0, other: 0 })
 const notes = ref('')
@@ -323,9 +322,9 @@ async function loadPreview() {
   closeWithoutFiscal.value = false
   notes.value = ''
   try {
-    const { data } = await httpClient.get(`${props.orgUrl}/trade/pos/session/${props.sessionId}/close-preview`)
+    const data = await getClosePreview(props.sessionId)
     preview.value = data
-    expected.value = { cash: 0, card: 0, other: 0, ...(data.expected || {}) }
+    expected.value = { cash: 0, card: 0, other: 0, ...data.expected }
     // Prefill the counted column with what is expected: the common case is "it matches",
     // and the operator only edits what differs.
     counted.value = { ...expected.value }
@@ -352,7 +351,7 @@ async function submit() {
       notes: notes.value || undefined,
       closeWithoutFiscal: closeWithoutFiscal.value || undefined,
     }
-    const { data } = await httpClient.post(`${props.orgUrl}/trade/pos/session/${props.sessionId}/close`, body, { headers: attempt.headers(body) })
+    const data = await closePosSession(props.sessionId, body, attempt.headers(body))
     attempt.settle()
 
     if (data.fiscalStatus === 'closed') {
@@ -401,7 +400,7 @@ const reprinting = ref(false)
 async function reprint() {
   reprinting.value = true
   try {
-    await httpClient.post(`${props.orgUrl}/trade/pos/session/${props.sessionId}/report/print`)
+    await printSessionReport(props.sessionId)
     if (result.value) result.value = { ...result.value, reportError: undefined }
     showSuccess(t('pos.sessionReport.printed'))
   } catch (e: any) {

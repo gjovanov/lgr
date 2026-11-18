@@ -53,7 +53,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getContactUnpaid, type UnpaidDocument } from '../api/contacts'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import EntityLink from 'ui-shared/components/EntityLink'
 import StatusChip from 'ui-shared/components/StatusChip'
@@ -65,24 +65,9 @@ import StatusChip from 'ui-shared/components/StatusChip'
  *
  * The button used to open the contact's ledger, whose "Balance" is sales less purchases: another figure.
  */
-interface UnpaidDocument {
-  _id: string
-  type: string
-  direction?: string
-  invoiceNumber?: string
-  issueDate?: string
-  dueDate?: string
-  status: string
-  currency?: string
-  total: number
-  amountPaid: number
-  due: number
-}
-
 const props = defineProps<{
   modelValue: boolean
   contactId: string
-  orgUrl: string
   /** The currency a figure is shown in when its document names none. */
   baseCurrency?: string
 }>()
@@ -142,11 +127,11 @@ async function fetch() {
   if (!props.contactId) return
   loading.value = true
   try {
-    const { data } = await httpClient.get(`${props.orgUrl}/invoicing/contact/${props.contactId}/unpaid`)
-    documents.value = data.documents || []
-    count.value = data.count || 0
-    openBalance.value = data.mixedCurrency ? null : (data.openBalance ?? 0)
-    currency.value = data.currency || null
+    const data = await getContactUnpaid(props.contactId)
+    documents.value = data.documents
+    count.value = data.count
+    openBalance.value = data.mixedCurrency ? null : data.openBalance
+    currency.value = data.currency
     refused.value = false
   } catch {
     documents.value = []

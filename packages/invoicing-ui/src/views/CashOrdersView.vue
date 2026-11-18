@@ -93,7 +93,8 @@ import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { createCashOrder, deleteCashOrder, updateCashOrder, type CashOrderBody } from '../api/cash-orders'
+import { listAccounts } from '../api/accounting'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -205,11 +206,11 @@ async function save() {
   const { valid } = await formRef.value.validate(); if (!valid) return
   loading.value = true
   try {
-    const payload: any = { ...form.value }
+    const payload: CashOrderBody = { ...form.value }
     if (!payload.accountId) delete payload.accountId
     if (!payload.counterAccountId) delete payload.counterAccountId
-    if (editing.value) await httpClient.put(`${appStore.orgUrl()}/invoicing/cash-order/${selectedId.value}`, payload)
-    else await httpClient.post(`${appStore.orgUrl()}/invoicing/cash-order`, payload)
+    if (editing.value) await updateCashOrder(selectedId.value, payload)
+    else await createCashOrder(payload)
     showSuccess(t('common.savedSuccessfully'))
     await fetchItems()
     markSaved()
@@ -222,7 +223,7 @@ async function save() {
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/invoicing/cash-order/${selectedId.value}`)
+    await deleteCashOrder(selectedId.value)
     showSuccess(t('common.deletedSuccessfully'))
     await fetchItems()
     deleteDialog.value = false
@@ -234,7 +235,7 @@ async function doDelete() {
 async function fetchAccounts() {
   // Every account (`size: 0`), as the accounting store asks for them: the API's first page of ten left the cash
   // account and its counter-account unpickable in a chart of 35 (FR-31.10).
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/account`, { params: { size: 0 } }); accounts.value = data.accounts || [] } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
+  try { accounts.value = (await listAccounts({ size: 0 })).accounts } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 onMounted(() => { fetchItems(); fetchAccounts() })

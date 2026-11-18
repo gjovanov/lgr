@@ -608,3 +608,16 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
 - ⚠ **Code moved from a `.vue` into a `.ts` file is linted for floating promises.** oxlint reads the `.ts` files, not
   the script blocks of `.vue` files: a `router.push(…)`, a `nextTick(…)` or an action left unawaited there is written
   `void …`, as `useOrderFormBase#deleteOrder` does.
+
+## Typed API modules (2026-11-18, FR-32.24, #797)
+
+- **Every request of `invoicing-ui` is a function of `src/api/`** (the rule is `web-app.md`'s). The order forms' base
+  is handed its order's routes by its form (`OrderFormSpec#routes`: `api/orders#supplierOrderRoutes` or
+  `api/internal-orders#customerOrderRoutes`), not a path to build.
+- ⚠ **A document's one read (`GET /invoices/:id`) names its contact, or gives its id.** `contactId` is `{ _id,
+  companyName… }` when the contact exists and the stored id when it is gone: read it by `typeof`, as
+  `document-payload#contactIdOf` and `load#loadDocument` do. The model has no `supplierInvoiceNumber` (a bill's number
+  is `reference`) and no `date` (a document's day is `issueDate`).
+- ⚠ **`PUT /fiscal/device/:id` does not name `status`.** The device list's and the till's status writes
+  (`api/fiscal-devices#recordFiscalDeviceStatus`) are dropped with a 200: they store nothing, and the device's status
+  is what its bridge records. Name it in the schema to make them count.

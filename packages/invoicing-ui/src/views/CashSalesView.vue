@@ -114,6 +114,7 @@ import CashRegisterJournal from 'ui-shared/components/cash-register/CashRegister
 import { useInvoicingExport } from 'ui-shared/composables/useInvoicingExport'
 import { useRowEmail } from '../composables/useRowEmail'
 import CashSaleInvoiceDialog from '../components/CashSaleInvoiceDialog.vue'
+import type { InvoiceDocument } from '../api/documents'
 import { journalRoute } from '../pos/till-rules'
 
 const { t } = useI18n()
@@ -145,8 +146,8 @@ function openInvoiceDialog(item: any) {
   invoiceFor.value = item.id
   invoiceDialog.value = true
 }
-function onInvoiceIssued(invoice: any) {
-  router.push({ name: 'invoicing.sales.edit', params: { id: invoice.id || invoice._id } })
+function onInvoiceIssued(invoice: InvoiceDocument) {
+  router.push({ name: 'invoicing.sales.edit', params: { id: invoice._id } })
 }
 
 const showImportDialog = ref(false)

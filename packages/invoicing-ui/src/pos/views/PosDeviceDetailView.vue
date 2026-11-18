@@ -414,7 +414,13 @@ import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import {
+  createFiscalDevice, getFiscalDevice, namePaymentSlot, printEjReport as ejReportOn, printFmReport as fmReportOn,
+  printOperatorReport as operatorReportOn, printXReport as xReportOn, printZReport as zReportOn, programOperator as programOperatorOn, readFiscalDeviceStatus, readOperator as readOperatorOn,
+  readPaymentNames as readPaymentNamesOf, recordFiscalDeviceStatus, syncFiscalDeviceTime, updateFiscalDevice,
+  type FiscalConnectionType, type FiscalDeviceCreateBody, type FiscalManufacturer,
+} from '../../api/fiscal-devices'
+import { listWarehouses } from '../../api/warehouses'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useFiscalBridge } from 'ui-shared/composables/useFiscalBridge'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
@@ -444,7 +450,7 @@ const runs = runsDevices(sessionViewer())
  */
 async function recordStatus(status: 'online' | 'offline' | 'error') {
   if (!runs || isNew.value) return
-  try { await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, { status }) } catch { /* The stored status is a courtesy for the device list; this page shows the live one. */ }
+  try { await recordFiscalDeviceStatus(deviceId.value, status) } catch { /* The stored status is a courtesy for the device list; this page shows the live one. */ }
 }
 
 // Watch for device disconnect (USB unplugged / powered off)
@@ -463,7 +469,6 @@ watch(() => fiscalBridge.status.value, async (val) => {
 
 const isNew = computed(() => route.params.id === undefined || route.name === 'pos.devices.new')
 const deviceId = computed(() => route.params.id as string)
-const deviceUrl = computed(() => `${appStore.orgUrl()}/fiscal/device`)
 
 const loading = ref(false)
 const saving = ref(false)
@@ -659,8 +664,7 @@ async function toggleConnection() {
 async function readDeviceStatus() {
   reportLoading.status = true
   try {
-    const { data } = await httpClient.get(`${deviceUrl.value}/${deviceId.value}/status`)
-    deviceStatus.value = data.deviceStatus
+    deviceStatus.value = (await readFiscalDeviceStatus(deviceId.value)).deviceStatus
   } catch (e: any) {
     showError(e?.response?.data?.message || t('pos.device.status.readFailed'))
   } finally {
@@ -685,7 +689,7 @@ const clockMessage = computed(() => {
 async function setClock(confirm = false) {
   syncing.value = true
   try {
-    await httpClient.post(`${deviceUrl.value}/${deviceId.value}/sync-time`, confirm ? { confirm: true } : {})
+    await syncFiscalDeviceTime(deviceId.value, confirm ? { confirm: true } : {})
     clockConfirm.value = null
     clockHeld.value = null
     showSuccess(t('pos.device.clock.set'))
@@ -701,8 +705,7 @@ async function setClock(confirm = false) {
 async function fetchWarehouses() {
   loadingWarehouses.value = true
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 0 } })
-    warehouses.value = (data.warehouses || []).map((w: any) => ({ ...w, _id: w._id || w.id }))
+    warehouses.value = (await listWarehouses({ size: 0 })).warehouses
   } catch {
     warehouses.value = []
   } finally {
@@ -715,8 +718,7 @@ async function fetchDevice() {
   loading.value = true
   loadStarted()
   try {
-    const { data } = await httpClient.get(`${deviceUrl.value}/${deviceId.value}`)
-    const d = data.fiscalDevice || data
+    const { fiscalDevice: d } = await getFiscalDevice(deviceId.value)
     await markLoaded(() => {
       Object.assign(device, {
         name: d.name || '',
@@ -747,8 +749,7 @@ function setCapabilities(d: any) {
 /** A saved manufacturer or connection can change what the device can do. */
 async function refreshCapabilities() {
   try {
-    const { data } = await httpClient.get(`${deviceUrl.value}/${deviceId.value}`)
-    setCapabilities(data.fiscalDevice || data)
+    setCapabilities((await getFiscalDevice(deviceId.value)).fiscalDevice)
   } catch { /* the page keeps what it had */ }
 }
 
@@ -759,12 +760,14 @@ async function handleSave() {
 
   saving.value = true
   try {
-    const payload: Record<string, unknown> = {
+    // The selects offer the kinds the schemas name. ⚠ A cleared warehouse is sent as null, which the schemas refuse
+    // (422, said at the top of the form). `isActive` is the update's; the create makes a device active and drops it.
+    const payload: FiscalDeviceCreateBody & { isActive: boolean } = {
       name: device.name,
       deviceNumber: device.deviceNumber,
-      manufacturer: device.manufacturer,
-      connectionType: device.connectionType,
-      warehouseId: device.warehouseId,
+      manufacturer: device.manufacturer as FiscalManufacturer,
+      connectionType: device.connectionType as FiscalConnectionType,
+      warehouseId: device.warehouseId as string,
       isActive: device.isActive,
     }
     // A TCP device is opened by the LGR server at this address.
@@ -773,16 +776,13 @@ async function handleSave() {
     }
 
     if (isNew.value) {
-      const { data } = await httpClient.post(deviceUrl.value, payload)
+      const { fiscalDevice } = await createFiscalDevice(payload)
       markSaved()
       succeeded()
       showSuccess(t('pos.device.created'))
-      const newId = data.fiscalDevice?._id || data.fiscalDevice?.id || data._id || data.id
-      if (newId) {
-        router.replace({ name: 'pos.devices.detail', params: { id: newId } })
-      }
+      router.replace({ name: 'pos.devices.detail', params: { id: fiscalDevice._id } })
     } else {
-      await httpClient.put(`${deviceUrl.value}/${deviceId.value}`, payload)
+      await updateFiscalDevice(deviceId.value, payload)
       markSaved()
       succeeded()
       showSuccess(t('pos.device.saved'))
@@ -799,7 +799,7 @@ async function handleSave() {
 async function programOperator(op: any) {
   op.programming = true
   try {
-    await httpClient.post(`${deviceUrl.value}/${deviceId.value}/program-operator`, {
+    await programOperatorOn(deviceId.value, {
       operatorNumber: op.number,
       name: op.name,
       password: op.password,
@@ -815,10 +815,9 @@ async function programOperator(op: any) {
 async function readOperator(op: any) {
   op.reading = true
   try {
-    const { data } = await httpClient.post(`${deviceUrl.value}/${deviceId.value}/read-operator`, {
+    const { operator: result } = await readOperatorOn(deviceId.value, {
       operatorNumber: op.number,
     })
-    const result = data.operator || data
     if (result.name !== undefined) op.name = result.name.trim()
     if (result.password !== undefined) op.password = result.password.trim()
     showSuccess(t('pos.device.operators.wasRead', { n: op.number }))
@@ -833,7 +832,7 @@ async function readOperator(op: any) {
 async function printXReport() {
   reportLoading.xReport = true
   try {
-    await httpClient.post(`${deviceUrl.value}/${deviceId.value}/x-report`)
+    await xReportOn(deviceId.value)
     showSuccess(t('pos.device.reports.xPrinted'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('pos.device.reports.xFailed'))
@@ -849,7 +848,7 @@ async function printZReport(confirmed: boolean) {
   sessionsUnderZ.value = []
   reportLoading.zReport = true
   try {
-    await httpClient.post(`${deviceUrl.value}/${deviceId.value}/z-report`, confirmed ? { confirmed: true } : {})
+    await zReportOn(deviceId.value, confirmed ? { confirmed: true } : {})
     showSuccess(t('pos.device.reports.zPrinted'))
   } catch (e: any) {
     if (e?.response?.data?.code === 'sessions_open') sessionsUnderZ.value = e.response.data.sessions
@@ -862,7 +861,7 @@ async function printZReport(confirmed: boolean) {
 async function printOperatorReport() {
   reportLoading.operatorReport = true
   try {
-    await httpClient.post(`${deviceUrl.value}/${deviceId.value}/operator-report`, {
+    await operatorReportOn(deviceId.value, {
       operatorNumber: reportParams.operatorNumber,
     })
     showSuccess(t('pos.device.reports.operatorPrinted'))
@@ -876,7 +875,7 @@ async function printOperatorReport() {
 async function printFmReportByDate() {
   reportLoading.fmReportDate = true
   try {
-    await httpClient.post(`${deviceUrl.value}/${deviceId.value}/fm-report`, {
+    await fmReportOn(deviceId.value, {
       type: 'by_date',
       startDate: reportParams.fmDateFrom,
       endDate: reportParams.fmDateTo,
@@ -893,7 +892,7 @@ async function printFmReportByDate() {
 async function printFmReportByNumber() {
   reportLoading.fmReportNumber = true
   try {
-    await httpClient.post(`${deviceUrl.value}/${deviceId.value}/fm-report`, {
+    await fmReportOn(deviceId.value, {
       type: 'by_number',
       startNumber: reportParams.fmStartNumber,
       endNumber: reportParams.fmEndNumber,
@@ -910,7 +909,7 @@ async function printFmReportByNumber() {
 async function printEjReport() {
   reportLoading.ejReport = true
   try {
-    await httpClient.post(`${deviceUrl.value}/${deviceId.value}/ej-report`, {
+    await ejReportOn(deviceId.value, {
       startDate: reportParams.ejDateFrom,
       endDate: reportParams.ejDateTo,
     })
@@ -926,8 +925,7 @@ async function printEjReport() {
 async function readPaymentNames() {
   paymentLoading.reading = true
   try {
-    const { data } = await httpClient.get(`${deviceUrl.value}/${deviceId.value}/payment-names`)
-    paymentNames.value = data.paymentNames || []
+    paymentNames.value = (await readPaymentNamesOf(deviceId.value)).paymentNames
   } catch (e: any) {
     showError(e?.response?.data?.message || t('pos.device.paymentTypes.readFailed'))
   } finally {
@@ -941,8 +939,7 @@ async function nameCashOnDeliverySlot() {
   if (!slot) return
   paymentLoading.naming = true
   try {
-    const { data } = await httpClient.post(`${deviceUrl.value}/${deviceId.value}/payment-names`, { code: slot.code, name: slot.name })
-    const named = data.paymentName || { code: slot.code, name: slot.name }
+    const { paymentName: named } = await namePaymentSlot(deviceId.value, { code: slot.code, name: slot.name })
     if (paymentNames.value) {
       paymentNames.value = paymentNames.value.map(p => (p.code === named.code ? { ...p, ...named } : p))
     } else {

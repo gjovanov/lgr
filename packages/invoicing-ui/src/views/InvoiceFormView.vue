@@ -36,8 +36,7 @@ import DocumentForm from '../components/document-form/DocumentForm.vue'
 import { DOCUMENT_CONFIGS } from '../composables/document-form/configs'
 import { useDocumentRouteKey } from '../composables/document-form/useDocumentRouteKey'
 import { handOverDocument, takeHandedDocument } from '../composables/document-form/document-preread'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
-import { useAppStore } from '../store/app.store'
+import { getDocument } from '../api/documents'
 
 type SalesDocType = 'invoice' | 'credit_note' | 'debit_note'
 const TYPES: SalesDocType[] = ['invoice', 'credit_note', 'debit_note']
@@ -45,7 +44,6 @@ const TYPE_COLORS: Record<SalesDocType, string> = { invoice: 'primary', credit_n
 
 const route = useRoute()
 const router = useRouter()
-const appStore = useAppStore()
 const { formKey, adopt } = useDocumentRouteKey()
 
 const isEdit = computed(() => !!route.params.id)
@@ -66,15 +64,15 @@ async function resolveType() {
     try {
       // FR-30.10: the document is read once. What this read gets is handed to the form, which fills itself from it.
       const id = String(route.params.id)
-      const data = takeHandedDocument(id) ?? (await httpClient.get(`${appStore.orgUrl()}/invoices/${id}`)).data
+      const data = takeHandedDocument<Awaited<ReturnType<typeof getDocument>>>(id) ?? (await getDocument(id))
       handOverDocument(id, data)
       // Incoming documents belong to the purchase form — bounce over (links from the
       // contact ledger etc. route by type only, not by direction).
-      if (data.invoice?.direction === 'incoming') {
+      if (data.invoice.direction === 'incoming') {
         router.replace({ name: 'invoicing.purchases.edit', params: { id: route.params.id as string } })
         return
       }
-      const t = data.invoice?.type as string
+      const t = data.invoice.type
       // A quote has a form of its own: the contact-ledger report drills every document in here
       // by its id, and the invoice form mounted on a proforma or an offer would issue it as one.
       const quoteForm = ({ proforma: 'invoicing.proforma.edit', offer: 'invoicing.offer.edit' } as Record<string, string>)[t]

@@ -266,7 +266,7 @@ import { formatDate, formatDateTime, intlLocale } from 'ui-shared/format'
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { getReservation, repeatReservation } from '../api/reservations'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { appHref } from 'ui-shared/nav/navigate'
 import EntityFormShell, { type FormAction, type StatusDef } from 'ui-shared/components/EntityFormShell.vue'
@@ -475,7 +475,7 @@ async function load() {
   if (!id) return
   loading.value = true
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/reservations/${id}`)
+    const data = await getReservation(id)
     res.value = data.reservation
     detail.value = data.detail
     notFound.value = false
@@ -497,8 +497,8 @@ async function reserveAgain() {
   if (!res.value) return
   repeating.value = true
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoicing/reservations/${res.value._id}/repeat`, {})
-    onRepeated(data.reservation, data.created !== false)
+    const { reservation, created } = await repeatReservation(res.value._id, {})
+    onRepeated(reservation, created)
   } catch (e: any) {
     if (isShortage(e)) {
       repeatError.value = reservationErrorMessage(e, t)

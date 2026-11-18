@@ -3,7 +3,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { intlLocale } from 'ui-shared/format'
 import { askConfirm } from 'ui-shared/composables/confirm'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { listContacts, type Contact } from '../../api/contacts'
+import { listWarehouses } from '../../api/warehouses'
+import type { OrderRoutes } from '../../api/orders'
 import { createIdempotentAction, type IdempotentAction } from 'ui-shared/composables/idempotency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
@@ -26,8 +28,8 @@ import { contactName, resStatusColor, type ContactPool } from './shared'
  * state is taken when the load resolves (FR-31.2).
  */
 export interface OrderFormSpec {
-  /** Where the orders live under `/invoicing`. */
-  api: 'orders' | 'internal-orders'
+  /** The order's routes: `api/orders#supplierOrderRoutes` or `api/internal-orders#customerOrderRoutes`. */
+  routes: OrderRoutes
   /** The list the form goes back to after a delete. */
   listRoute: 'invoicing.orders' | 'invoicing.internalOrders'
   /** Which order this is, for what Cancel and Complete release (`cascadeSummary`). */
@@ -89,7 +91,7 @@ export interface OrderFormBase extends FormFeedback {
   onContactSearch: (text: string, pool: ContactPool) => void
   fetchContacts: (pool: ContactPool, search?: string) => Promise<void>
   withKnown: (list: any[], pool: ContactPool) => any[]
-  adoptContact: (c: any, pool: ContactPool) => string | null
+  adoptContact: (c: Contact, pool: ContactPool) => string | null
   warehouses: Ref<Warehouse[]>
   fetchWarehouses: () => Promise<void>
   warehouseName: (id: string) => string
@@ -132,7 +134,6 @@ export function useOrderFormBase(spec: OrderFormSpec): OrderFormBase {
 
   function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
   function fmtCurrency(amount: number) { return formatCurrency(amount, spec.currency() || baseCurrency.value, localeCode.value) }
-  const ordersUrl = () => `${orgUrl()}/invoicing/${spec.api}`
 
   // ── the reservations, the invoices and the orders on the other side, as the order's GET returns them ──
   const reservations = ref<any[]>([])
@@ -181,8 +182,7 @@ export function useOrderFormBase(spec: OrderFormSpec): OrderFormBase {
       const params: Record<string, any> = { size: 20, fields: 'list', count: 'none' }
       if (pool === 'supplier') params.type = 'supplier'
       if (search) params.search = search
-      const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params })
-      const items = data.contacts || []
+      const items = (await listContacts(params)).contacts
       // Keep already-selected ids resolvable by merging known entries in.
       const merged = withKnown(items, pool)
       if (pool === 'supplier') supplierOptions.value = merged
@@ -194,9 +194,8 @@ export function useOrderFormBase(spec: OrderFormSpec): OrderFormBase {
   }
 
   /** A contact chosen in the wide picker: its name is known from now on, and it is among the pool's options. */
-  function adoptContact(c: any, pool: ContactPool): string | null {
-    const id = c?._id || c?.id
-    if (!id) return null
+  function adoptContact(c: Contact, pool: ContactPool): string | null {
+    const id = c._id
     const name = contactName(c)
     contactNames.value[id] = name
     const options = pool === 'supplier' ? supplierOptions : clientOptions
@@ -206,8 +205,7 @@ export function useOrderFormBase(spec: OrderFormSpec): OrderFormBase {
 
   async function fetchWarehouses() {
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } })
-      warehouses.value = data.warehouses || []
+      warehouses.value = (await listWarehouses({ size: 1000 })).warehouses
     } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
   }
   function warehouseName(id: string) { return warehouses.value.find((w) => w._id === String(id))?.name || '—' }
@@ -220,15 +218,14 @@ export function useOrderFormBase(spec: OrderFormSpec): OrderFormBase {
 
   async function fetchPeekedNumber() {
     try {
-      const { data } = await httpClient.get(`${ordersUrl()}/peek-next`)
-      peekedNumber.value = data.next || ''
+      peekedNumber.value = (await spec.routes.peekNext()).next
     } catch { /* A preview only: the number is drawn on save. */ }
   }
 
   async function deleteOrder() {
     if (!(await askConfirm({ text: t(spec.deleteConfirmKey), confirm: t('common.delete'), danger: true }))) return
     try {
-      await httpClient.delete(`${ordersUrl()}/${route.params.id}`)
+      await spec.routes.remove(route.params.id as string)
       showSuccess(t('common.deletedSuccessfully'))
       void router.push({ name: spec.listRoute })
     } catch (e: any) {
@@ -240,7 +237,7 @@ export function useOrderFormBase(spec: OrderFormSpec): OrderFormBase {
   async function doAction(path: string, successKey: string, opts: { onError?: (message: string) => void } = {}): Promise<boolean> {
     loading.value = true
     try {
-      const { data } = await httpClient.post(`${ordersUrl()}/${route.params.id}/${path}`)
+      const data = await spec.routes.act(route.params.id as string, path)
       showSuccess(spec.actionSaid?.(data) || t(successKey))
       await spec.reload(path)
       return true

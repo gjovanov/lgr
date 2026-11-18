@@ -1,19 +1,14 @@
 import { ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { checkIssueStock, createIssueTransfers, prepareDocumentIssue, sendDocumentIssue } from '../api/issue'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { useAppStore } from '../store/app.store'
 import {
-  checkStock,
   confirmsPaymentOnIssue,
-  createTransfers as createTransferMovements,
   dispatchOverlapOf,
   ISSUED_KEY,
   issuedReceiptNotice,
-  prepareIssue,
-  sendIssue,
   shortagesOfCheck,
   shortagesOfRefusal,
   type DispatchOverlap,
@@ -33,7 +28,6 @@ export type { LineShortage } from './document-issue'
 
 /** The availability check and the transfer dialog it can open (the cash-sale form's pre-create check too). */
 export function useStockTransfer() {
-  const appStore = useAppStore()
   const open = ref(false)
   const shortfalls = ref<any[]>([])
   const proposals = ref<any[]>([])
@@ -50,7 +44,7 @@ export function useStockTransfer() {
 
   /** Ask; when a warehouse is short, open the dialog with the answer and say so (false). */
   async function check(lines: StockCheckLine[]): Promise<boolean> {
-    const answer = await checkStock(httpClient, appStore.orgUrl(), lines)
+    const answer = await checkIssueStock(lines)
     if (answer.sufficient) return true
     show(answer)
     return false
@@ -58,7 +52,7 @@ export function useStockTransfer() {
 
   /** The transfer movements the confirmed dialog asks for; the document confirms them as it issues. */
   function createTransfers(confirmed: any[]): Promise<string[]> {
-    return createTransferMovements(httpClient, appStore.orgUrl(), confirmed)
+    return createIssueTransfers(confirmed)
   }
 
   return { open, shortfalls, proposals, allResolvable, confirming, show, check, createTransfers }
@@ -88,7 +82,6 @@ export interface UseDocumentIssueOptions {
 
 export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
   const { t } = useI18n()
-  const appStore = useAppStore()
   const { showSuccess, showError, withdraw } = useSnackbar()
   const transfer = useStockTransfer()
   // #155: one Idempotency-Key per Issue attempt (ui-shared/composables/idempotency).
@@ -184,7 +177,7 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
     if (loading) loading.value = true
     lastShortages.value = []
     try {
-      const { invoice, check, overlap } = await prepareIssue(httpClient, appStore.orgUrl(), doc._id, flags)
+      const { invoice, check, overlap } = await prepareDocumentIssue(doc._id, flags)
       const type = doc.type || invoice.type
       // FR-22.61b, before anything else is asked: its answer decides whether this invoice takes any stock at all.
       if (overlap) return ask(overlap, { _id: doc._id, type }, then)
@@ -204,7 +197,7 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
       // Stock sufficient — send directly. #155: an unanswered attempt keeps its key, so issuing
       // again returns that issue — never a second dispatch or number.
       const sendBody = flags.acknowledgeOverlap ? { acknowledgeOverlap: true } : {}
-      const issued = await issueAttempt.run({ id: doc._id, ...sendBody }, headers => sendIssue(httpClient, appStore.orgUrl(), doc._id, sendBody, headers))
+      const issued = await issueAttempt.run({ id: doc._id, ...sendBody }, headers => sendDocumentIssue(doc._id, sendBody, headers))
       if (!issued?.receiptError) showSuccess(t(ISSUED_KEY[type] || ISSUED_KEY.invoice))
       await finish(issued, type, then)
       return 'issued'
@@ -256,7 +249,7 @@ export function useDocumentIssue(opts: UseDocumentIssueOptions = {}) {
       const transferIds = await transfer.createTransfers(confirmed)
       // Send invoice with pending transfer IDs (backend confirms transfers first)
       const sendBody = { pendingTransferIds: transferIds, ...(acknowledgeOverlap ? { acknowledgeOverlap: true } : {}) }
-      const issued = await issueAttempt.run({ id, ...sendBody }, headers => sendIssue(httpClient, appStore.orgUrl(), id, sendBody, headers))
+      const issued = await issueAttempt.run({ id, ...sendBody }, headers => sendDocumentIssue(id, sendBody, headers))
       if (!issued?.receiptError) showSuccess(t(ISSUED_KEY[type] || ISSUED_KEY.invoice))
       pending = null
       transfer.open.value = false

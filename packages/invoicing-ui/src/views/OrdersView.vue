@@ -74,7 +74,7 @@ import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { deleteOrder, runOrderAction } from '../api/orders'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -148,7 +148,7 @@ function statusColor(s: string) {
 async function sendOrder(item: Item) {
   loading.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/invoicing/orders/${item._id}/send`)
+    await runOrderAction(item._id, 'send')
     showSuccess(t('invoicing.orderSent'))
     await fetchItems()
   } catch (e: any) {
@@ -161,7 +161,7 @@ async function sendOrder(item: Item) {
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/invoicing/orders/${selectedId.value}`)
+    await deleteOrder(selectedId.value)
     showSuccess(t('common.deletedSuccessfully'))
     await fetchItems()
     deleteDialog.value = false

@@ -179,7 +179,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { deleteDocument, getDocumentSummary, receiveBill, voidDocument } from '../api/documents'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { stockRefusalMessage } from 'ui-shared/composables/stock-refusals'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
@@ -316,8 +316,7 @@ async function fetchSummary() {
     if (dateFrom.value) params.startDate = dateFrom.value
     if (dateTo.value) params.endDate = dateTo.value
     if (tagFilter.value.length) params.tags = tagFilter.value.join(',')
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoices/summary`, { params })
-    summary.value = data.summary
+    summary.value = (await getDocumentSummary(params)).summary
   } catch {
     /* KPIs are non-critical — never block the list */
   } finally {
@@ -445,9 +444,9 @@ async function receiveInvoice(item: Invoice) {
   if (receivingRows.has(item._id)) return
   receivingRows.add(item._id)
   try {
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/receive`)
+    const { invoice } = await receiveBill(item._id)
     // A bill made from goods receipts books no stock: its receipts did (FR-22.31).
-    showSuccess(t(data?.invoice?.stockSource?.marker ? 'invoicing.linkDelivery.received' : (RECEIVED_KEY[item.type] || RECEIVED_KEY.invoice)))
+    showSuccess(t(invoice.stockSource?.marker ? 'invoicing.linkDelivery.received' : (RECEIVED_KEY[item.type] || RECEIVED_KEY.invoice)))
     await refresh()
   } catch (e: any) {
     receiptOverlap.value = receiptOverlapOf(e, item._id)
@@ -487,7 +486,7 @@ async function doVoid() {
   if (!item) return
   loading.value = true
   try {
-    await httpClient.post(`${appStore.orgUrl()}/invoices/${item._id}/void`)
+    await voidDocument(item._id)
     showSuccess(t(VOIDED_KEY[item.type] || VOIDED_KEY.invoice))
     voidDialog.value = false
     await refresh()
@@ -538,7 +537,7 @@ function rowActions(item: Invoice): RowAction[] {
 function confirmDelete(item: Invoice) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/invoices/${selectedId.value}`)
+    await deleteDocument(selectedId.value)
     showSuccess(t('common.deletedSuccessfully'))
     await refresh()
     deleteDialog.value = false

@@ -23,7 +23,7 @@
         >
           <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
           <template #item.number="{ item }">
-            <entity-link :label="item.number || ''" :href="opens ? `/inventory/movements/${item._id || item.id}` : undefined" />
+            <entity-link :label="item.number || ''" :href="opens ? `/inventory/movements/${item._id}` : undefined" />
           </template>
           <template #item.type="{ item }">
             <v-chip size="x-small" label :color="typeColor(item.type)">{{ $t(`warehouse.movementTypes.${item.type}`, item.type) }}</v-chip>
@@ -45,7 +45,7 @@
 import { formatDate } from 'ui-shared/format'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { listContactMovements, type StockMovementRow } from '../api/movements'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useAccess } from 'ui-shared/access/useAccess'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -58,7 +58,6 @@ import EntityLink from 'ui-shared/components/EntityLink'
 const props = defineProps<{
   modelValue: boolean
   contactId: string
-  orgUrl: string
 }>()
 const emit = defineEmits<{ 'update:modelValue': [v: boolean] }>()
 
@@ -68,7 +67,7 @@ const opens = computed(() => useAccess().can('movements.view'))
 // FR-27.11.C.2: a movement's total is its lines' costs summed; the server sends it only with `products.costs`.
 const seesCosts = computed(() => useAccess().can('products.costs'))
 
-const items = ref<any[]>([])
+const items = ref<StockMovementRow[]>([])
 const total = ref(0)
 const page = ref(0)
 const pageSize = ref(25)
@@ -87,14 +86,9 @@ async function fetch() {
   if (!props.contactId) return
   loading.value = true
   try {
-    const params = new URLSearchParams({
-      contactId: props.contactId,
-      page: String(page.value),
-      size: String(pageSize.value),
-    })
-    const { data } = await httpClient.get(`${props.orgUrl}/warehouse/movement?${params.toString()}`)
-    items.value = data.stockMovements || []
-    total.value = data.total || 0
+    const data = await listContactMovements({ contactId: props.contactId, page: page.value, size: pageSize.value })
+    items.value = data.stockMovements
+    total.value = data.total
   } catch {
     items.value = []
     total.value = 0
