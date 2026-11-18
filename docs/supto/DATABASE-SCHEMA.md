@@ -222,14 +222,40 @@
 | lastName | String | Фамилия |
 | operatorCode | String | 4-цифрен код на оператор (уникален) |
 | position | String | Длъжност |
-| role | String | Системна роля |
+| roleId | ObjectId | Ролята на потребителя в организацията (ref Role) — една за организация |
 | roleHistory[] | Array | История на ролите |
-| roleHistory[].role | String | Роля |
+| roleHistory[].roleId | ObjectId | Роля (ref Role) |
+| roleHistory[].roleName | String | Наименование на ролята към момента на присвояването |
+| roleHistory[].role | String | Ключ на ролята — само в записи отпреди модела с роли (FR-27) |
 | roleHistory[].startDate | Date | Начална дата |
 | roleHistory[].endDate | Date | Крайна дата |
-| roleHistory[].assignedBy | ObjectId | Присвоена от |
+| roleHistory[].assignedBy | ObjectId | Присвоена от (ref User) |
+| roleHistory[].assignedAt | Date | Дата на присвояване |
 | isActive | Boolean | Активен |
 | deactivatedAt | Date | Дата на деактивиране |
+
+Какво може да прави потребителят, се определя от ролята му (колекция `roles`). При смяна на ролята текущият запис в `roleHistory[]` получава крайна дата и се добавя нов с `roleId` и `roleName`. Записите отпреди модела с роли съдържат ключа на тогавашната роля (`role`) и се пазят непроменени.
+
+Полетата на предишния модел на достъп — `role` (системна роля), `permissions` (списък с права) и `permissionSetIds` (набори от права) — не се записват и не се четат. Миграция `0017-legacy-access-archive` ги премести в `legacyArchive` (с дата `archivedAt`) и ги премахна от записите. Наборите от права (`permissionsets`) са копирани в `permissionsets_archive`. Миграция `0020-legacy-access-archive-drop` изтрива архива (`legacyArchive`), наборите от права и копието им.
+
+### Role (Роли)
+| Поле | Тип | Описание |
+|------|-----|----------|
+| orgId | ObjectId | Организация |
+| name | String | Наименование (уникално в организацията) |
+| description | String | Описание |
+| isBuiltin | Boolean | Вградена роля (от шаблон) |
+| templateKey | String | Ключ на шаблона на вградена роля (`admin`, `manager`, `accountant`, `hr_manager`, `warehouse_manager`, `sales`, `seller`, `sales_consultant`, `member`, `nra_auditor`) |
+| edited | Boolean | Вградената роля е редактирана: възможностите ѝ са записаните в `caps`, а не тези на шаблона |
+| all | Boolean | Всички възможности — само ролята Administrator |
+| caps[] | Array | Възможности (`функционалност.действие`, напр. `cash-sales.storno`) |
+| landing | String | Начална страница за потребителите на ролята |
+| legacyKey | String | Достъпът, от който миграция `0015-roles-from-sets` е създала ролята (само за така създадени роли) |
+| version | Number | Версия, увеличава се при всяка промяна на ролята (в JWT: `rv`) |
+| createdAt | Date | Дата на създаване |
+| updatedAt | Date | Дата на модификация |
+
+Уникални индекси: `{orgId, name}`; `{orgId, templateKey}` за вградените роли. Вградена роля, която не е редактирана, дава възможностите на шаблона си (`packages/config/src/access/templates.ts`). Създаването, промяната и изтриването на роля се записват в одитния дневник (`module: admin`, `entityType: role`, в `changes` — възможностите преди и след промяната). Присвояването на роля на потребител се записва с `entityType: user` и промени на полетата `role` (старото и новото наименование) и `caps`.
 
 ### Sequence (Брояч за УНП)
 | Поле | Тип | Описание |

@@ -238,6 +238,9 @@ tests (`packages/tests/`, `packages/e2e/`), which state fixtures. Four rules, on
   test-org copy's admins and `scripts/register-docs-in-pv.ts`: a person without a role is no Administrator.
 - Found after rebasing on master: `scripts/lib/daily-import.ts#gateGrantSession` judged a server that answers no
   `access` by the session's `role` claim (`claim === 'admin'`). It now stops such a session: no claim decides.
+- **The SUPTO documents** (`docs/supto/`, the description that goes to the NRA; the owner's follow-up to answer 4 on
+  #529) describe the role model since Phase 3: roles of capabilities, the ten built-in roles, the token's `rid`/`rv`,
+  `roleHistory` by `roleId`/`roleName`, and the legacy fields archived by 0017 and dropped by 0020.
 
 ## 3. Rollback window
 
