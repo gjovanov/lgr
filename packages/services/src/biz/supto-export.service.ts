@@ -219,9 +219,9 @@ export async function exportNomenclature(orgId: string, repos?: RepositoryRegist
     r.workstations.findMany({ orgId } as any, { code: 1 }),
   ])
 
-  // FR-27 P3-5 (#529): an operator's role is their role (a built-in by its key, any other by its name), not the legacy
-  // key, which a person given a role since is not written.
-  const roles = await roleDisplaysOf(users.map((u: any) => ({ _id: u._id ?? u.id, roleId: u.roleId, role: u.role })))
-  const withRoles = users.map((u: any) => ({ ...u, role: roles.get(String(u._id ?? u.id)) || u.role || '' }))
+  // FR-27 P3-5 (#529): an operator's role is their role (a built-in by its key, any other by its name). FR-27 P3-9: no
+  // legacy key to fall back on; an operator without a role shows none.
+  const roles = await roleDisplaysOf(users.map((u: any) => ({ _id: u._id ?? u.id, roleId: u.roleId })))
+  const withRoles = users.map((u: any) => ({ ...u, role: roles.get(String(u._id ?? u.id)) || '' }))
   return { products, contacts, warehouses, users: withRoles, workstations }
 }

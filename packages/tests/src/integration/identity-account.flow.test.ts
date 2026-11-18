@@ -3,7 +3,7 @@ import { Elysia } from 'elysia'
 import { createHash, randomBytes } from 'crypto'
 import { config } from 'config'
 import { setupTestDB, teardownTestDB } from '../setup'
-import { createTestOrg, createTestUser } from '../helpers/factories'
+import { builtinRoleIdOf, createTestOrg, createTestUser } from '../helpers/factories'
 import { createApiApp } from '../../../portal-api/src/api.js'
 import { AuthToken, Code, Identity, Invite, OrgApp, User } from 'db/models'
 import { mongoose } from 'db/connection'
@@ -395,7 +395,7 @@ describe('accepting an invitation while signed in', () => {
     const [home, target] = [await org('home'), await org('target')]
     const { identity } = await person(email, [home], opts)
     const inviter = await createTestUser(target._id, {} as any)
-    const invite = await inviteDao.createInvite({ orgId: target.id, inviterId: String(inviter._id), targetEmail: email.toUpperCase(), assignRole: 'accountant' })
+    const invite = await inviteDao.createInvite({ orgId: target.id, inviterId: String(inviter._id), targetEmail: email.toUpperCase(), assignRoleId: await builtinRoleIdOf(target._id, 'accountant') })
     return { identity, target, invite }
   }
 

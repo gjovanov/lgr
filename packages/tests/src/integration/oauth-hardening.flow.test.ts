@@ -14,7 +14,7 @@ import {
   type OAuthUserInfo,
 } from 'services/biz/oauth.service'
 import { inviteDao } from 'services/dao/invite.dao'
-import { roleKeyOf } from '../helpers/factories'
+import { builtinRoleIdOf, roleKeyOf } from '../helpers/factories'
 import { Role, User } from 'db/models'
 
 /**
@@ -77,7 +77,7 @@ describe('S-17 — OAuth may not self-enrol into an organisation', () => {
   it('admits a stranger holding a valid invite, with the invite’s role', async () => {
     const { org, ownerId } = await seedOrg('invited-org')
     const invite = await inviteDao.createInvite({
-      orgId: String(org._id), inviterId: ownerId, maxUses: 1, assignRole: 'accountant',
+      orgId: String(org._id), inviterId: ownerId, maxUses: 1, assignRoleId: await builtinRoleIdOf(org._id, 'accountant'),
     })
 
     // Verified: an invite admits a stranger, but only a provider-verified address founds a new person.
@@ -320,7 +320,7 @@ describe('S-20 — an OAuth email links an existing account only when the provid
   it('still admits a stranger holding an UNPINNED invite — it is a bearer secret', async () => {
     const { org, ownerId } = await seedOrg('unpinned-org')
     const invite = await inviteDao.createInvite({
-      orgId: String(org._id), inviterId: ownerId, maxUses: 1, assignRole: 'accountant',
+      orgId: String(org._id), inviterId: ownerId, maxUses: 1, assignRoleId: await builtinRoleIdOf(org._id, 'accountant'),
     })
     const info: OAuthUserInfo = { ...stranger, email: 'contractor@elsewhere.example', emailVerified: true }
     const { user, isNew } = await getOrCreateUser(info, 'unpinned-org', invite.code)
@@ -336,7 +336,7 @@ describe('S-20 — an OAuth email links an existing account only when the provid
     // The invite itself is untouched, so the person can complete it with a password instead.
     const { org, ownerId } = await seedOrg('unpinned-unverified')
     const invite = await inviteDao.createInvite({
-      orgId: String(org._id), inviterId: ownerId, maxUses: 1, assignRole: 'accountant',
+      orgId: String(org._id), inviterId: ownerId, maxUses: 1, assignRoleId: await builtinRoleIdOf(org._id, 'accountant'),
     })
     const info: OAuthUserInfo = { ...stranger, email: 'contractor@elsewhere.example', emailVerified: false }
     const err = await captureRejection(getOrCreateUser(info, 'unpinned-unverified', invite.code))

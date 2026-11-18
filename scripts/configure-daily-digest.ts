@@ -75,7 +75,7 @@ let recipients = current.recipients || []
 if (emails.length) {
   const users: any[] = await User.find(
     { orgId: org._id, email: { $in: emails }, isActive: true },
-    { email: 1, firstName: 1, lastName: 1, username: 1, role: 1 },
+    { email: 1, firstName: 1, lastName: 1, username: 1 },
   ).lean()
 
   const found = new Map(users.map(u => [String(u.email).toLowerCase(), u]))
@@ -86,7 +86,7 @@ if (emails.length) {
   }
   recipients = users.map(u => ({ userId: u._id }))
   for (const u of users) {
-    console.log(`  recipient: ${u.email} → ${u.username} [${u.role}]`)
+    console.log(`  recipient: ${u.email} → ${u.username}`)
   }
 }
 

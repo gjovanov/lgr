@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { setupTestDB, teardownTestDB } from '../setup'
-import { createTestOrg, createTestUser } from '../helpers/factories'
+import { builtinRoleIdOf, createTestOrg, createTestUser } from '../helpers/factories'
 import { getOrCreateUser, registerWithOAuth } from 'services/biz/oauth.service'
 import { tokenize } from 'services/biz/auth.service'
 import { inviteDao } from 'services/dao/invite.dao'
@@ -96,16 +96,16 @@ describe('S-23: OAuth-created users are provisioned like registered ones', () =>
     const invite = await inviteDao.createInvite({
       orgId: String(org._id),
       inviterId: String(inviter._id),
-      assignRole: 'accountant',
+      assignRoleId: await builtinRoleIdOf(org._id, 'accountant'),
       targetEmail: 'newbie@claims.test',
-    } as any)
+    })
 
     const { user, isNew } = await getOrCreateUser(google('g-newbie', 'newbie@claims.test') as any, org.slug, invite.code)
 
     expect(isNew).toBe(true)
     const stored = await User.findById(user.id).lean().exec()
     expect(stored!.operatorCode).toMatch(/^\d{4}$/)
-    // FR-27 P3-5: the history names the role by id and name (an invitation from before names its legacy key only).
+    // FR-27 P3-5: the history names the role by id and name.
     const accountant: any = await Role.findOne({ orgId: org._id, isBuiltin: true, templateKey: 'accountant' }).lean().exec()
     expect(String(stored!.roleHistory?.[0]?.roleId)).toBe(String(accountant._id))
     expect(stored!.roleHistory?.[0]?.roleName).toBe(accountant.name)

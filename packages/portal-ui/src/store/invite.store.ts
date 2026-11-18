@@ -8,7 +8,6 @@ export interface Invite {
   code: string
   status: string
   targetEmail?: string
-  assignRole?: string
   assignRoleId?: string
   maxUses: number
   useCount: number
@@ -24,7 +23,6 @@ export interface InviteInfo {
   isValid: boolean
   status: string
   targetEmail?: string | null
-  assignRole?: string
 }
 
 export const useInviteStore = defineStore('invite', () => {

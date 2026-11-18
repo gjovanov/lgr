@@ -13,6 +13,9 @@ paths:
   - "packages/portal-ui/**"
   - "packages/config/src/**"
   - "scripts/access-model.ts"
+  - "packages/db/src/models/user.model.ts"
+  - "packages/db/src/models/invite.model.ts"
+  - "packages/db/src/models/role.model.ts"
 ---
 
 # Rules and traps: Access: people, orgs, sessions, roles
@@ -69,7 +72,7 @@ Why each one exists, and what was built around it: [`docs/history/access.md`](..
 
 - **UI.** A session without the portal (`page-registry#holdsPortal`, `PORTAL_CAPS`) has no Portal tile and lands in its first app (`portalGuard`, `landingWithoutPortal`). The Products list's export is `exportsCatalog` (`products.export`). `isTransferOnly` gives the movement form Transfer only; `writesInventory` makes Products, Categories and Warehouses read-only.
 
-- **Migration `0014-seller-permission-sets`** seeded both system sets in every org (released; it writes through the driver). Sets have no model since P3-6, and migration 0017 (#820) archives them.
+- **Migration `0014-seller-permission-sets`** seeded both system sets in every org (released; it writes through the driver). Sets have no model since P3-6, migration 0017 (#820) archives them, and 0020 (P3-9) drops them.
 
 ## One access model: Phase 0 (FR-27, #529)
 
@@ -106,6 +109,17 @@ Why each one exists, and what was built around it: [`docs/history/access.md`](..
 - ⚠ FR-27 P3-5: only the role model is written. No projection (`legacy`), no `needsRelease`, no "Role · <name>" set,
   and nothing of the legacy model on a person or an invitation (`role`, `permissions`, `permissionSetIds`,
   `assignRole`; the schemas have no defaults for them). What a role or person from before holds stays, frozen, until P3-7.
+
+- ⚠ **FR-27 P3-9 (#529): the legacy access paths are gone, and never come back.** No schema names `User.role` /
+  `permissions` / `permissionSetIds` / `legacyArchive`, `Invite.assignRole` / `legacyArchive`, or `Role.legacy` /
+  `needsRelease`. Migration 0017 took the fields off every person and invitation into `legacyArchive`; 0020
+  (`0020-legacy-access-archive-drop`) unsets the archive and any leftover field, and deletes the permission sets
+  (`permissionsets`, `permissionsets_archive`), dropping each collection only once no other org's sets are left in
+  it. A path put back reads nothing, and with a default writes the legacy model back on every save. Released
+  migrations (0014, 0015, 0017, 0020) and the test factory read and write the fields through the driver. One-way: the
+  only way back is the backup taken before 0020 runs (a mongodump of `users`, `invites`, `permissionsets`,
+  `permissionsets_archive`), or the one taken before 0017, restored by hand. `scripts/access-model.ts --give-roles`
+  (0015 for the people from before roles) is refused: there are none left to read.
 
 - Read off the legacy role (the built-in of that key): recorded only when it grants exactly what the person's
   legacy fields do, and those are left alone. ⚠ So an org whose system set was edited changes nobody's access: that

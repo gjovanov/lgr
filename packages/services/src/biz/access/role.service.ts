@@ -338,18 +338,18 @@ export async function seedBuiltinRoles(orgId: unknown): Promise<void> {
   }
 }
 
-/** Where a person's first role came from: chosen (named, or the org's default) or the built-in role of a legacy key. */
+/** Where a person's first role came from: chosen (named, or the org's default) or the built-in role of a key. */
 export interface StartingRole {
   role: any
-  /** Chosen: named, or the org's default. Otherwise the built-in role of a legacy key (an invite from before P3-5). */
+  /** Chosen: named, or the org's default. Otherwise the built-in role of a key a caller named (`legacyRole`). */
   chosen: boolean
 }
 
 /**
  * The role a person joining the org starts with (FR-27.3): the one named (an invite's, a create's), else, when no
- * legacy key was named either, the org's default role, else the built-in role of the legacy key (an invite stored
- * before FR-27 P3-5 that names only `assignRole`, a script's `--role`), else the built-in Member. Null in an org that
- * has no roles.
+ * key was named either, the org's default role, else the built-in role of the key (`legacyRole`: the founder's
+ * `admin`, a script's `--role`), else the built-in Member. Null in an org that has no roles. FR-27 P3-9: an invitation
+ * names its role by id only (its legacy `assignRole` went with migrations 0017 and 0020).
  */
 export async function startingRoleOf(orgId: unknown, opts: { roleId?: unknown; legacyRole?: string }): Promise<StartingRole | null> {
   if (opts.roleId) {

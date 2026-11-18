@@ -99,7 +99,6 @@ describe('Invite Flow', () => {
       inviterId: user._id,
       status: 'active',
       useCount: 0,
-      assignRole: 'member',
       expiresAt: new Date(Date.now() - 1000),
     })
     const result = inviteDao.validate(invite)
@@ -167,9 +166,8 @@ describe('Invite Flow', () => {
     const invite = await inviteDao.createInvite({
       orgId: String(org._id),
       inviterId: String(user._id),
-      assignRole: 'accountant',
       assignRoleId: String(accountant._id),
-    } as any)
+    })
 
     const result = await register({
       email: 'counter@test.com',

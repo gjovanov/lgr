@@ -114,21 +114,43 @@ export async function allowSalesWithoutPrinter(orgId: Types.ObjectId | string): 
 let testPasswordHash: Promise<string> | undefined
 const defaultPasswordHash = () => (testPasswordHash ??= Bun.password.hash('test123'))
 
-export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<IUser> = {}): Promise<IUser> {
+/**
+ * The legacy fields a test names a person's access by (`role`, `permissions`, `permissionSetIds`): the fixture's words
+ * for an access, which 0015 turns into the person's role. FR-27 P3-9 (#529): no schema has them any more, so the
+ * factory writes them through the driver, as 0015 reads them.
+ */
+export interface LegacyAccess {
+  role?: string
+  permissions?: string[]
+  permissionSetIds?: unknown[]
+}
+export type TestUser = IUser & LegacyAccess
+
+export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<IUser> & LegacyAccess = {}): Promise<TestUser> {
   const ts = uniqueTs()
-  const role = overrides.role || 'admin'
+  const { role: roleOverride, permissions, permissionSetIds, ...rest } = overrides
+  // A key named but undefined is undefined, as the spread over the defaults made it before.
+  const role = 'role' in overrides ? roleOverride : 'admin'
+  const legacy: LegacyAccess = {
+    role,
+    permissions: 'permissions' in overrides ? permissions : DEFAULT_ROLE_PERMISSIONS[(role || 'admin') as keyof typeof DEFAULT_ROLE_PERMISSIONS] || [],
+    ...('permissionSetIds' in overrides ? { permissionSetIds: permissionSetIds?.map(id => (/^[0-9a-f]{24}$/i.test(String(id)) ? new Types.ObjectId(String(id)) : id)) } : {}),
+  }
   const defaults = {
     email: `user-${ts}@test.com`,
     username: `user-${ts}`,
     password: await defaultPasswordHash(),
     firstName: 'Test',
     lastName: 'User',
-    role,
     orgId,
     isActive: true,
-    permissions: DEFAULT_ROLE_PERMISSIONS[role as keyof typeof DEFAULT_ROLE_PERMISSIONS] || [],
   }
-  const user = await User.create({ ...defaults, ...overrides })
+  const user = await User.create({ ...defaults, ...rest })
+  // The legacy fields, raw (no schema path names them since FR-27 P3-9), and on the returned document for the tests
+  // that read them back. A field set to undefined is not written, as Mongoose left it out.
+  const stored = Object.fromEntries(Object.entries(legacy).filter(([, v]) => v !== undefined))
+  if (Object.keys(stored).length) await User.collection.updateOne({ _id: user._id }, { $set: stored })
+  Object.assign(user, legacy)
   // FR-27 Phase 3, P3-4 (#529): every person has a role, as production does since 0015 and `seed-user` since #790:
   // exactly the access their legacy fields give (the built-in role of `role`, or an imported one for other claims),
   // by 0015's own code, scoped to the org. A test that passes `roleId` keeps it. Behaviour is unchanged while the org
@@ -139,7 +161,14 @@ export async function createTestUser(orgId: Types.ObjectId, overrides: Partial<I
     const roleId = (await User.findById(user._id, { roleId: 1 }).lean().exec() as any)?.roleId
     if (roleId) user.roleId = roleId
   }
-  return user as IUser
+  return user as TestUser
+}
+
+/** FR-27 P3-9 (#529): the id of the org's built-in role of a key, for an invitation, which names its role by id only. */
+export async function builtinRoleIdOf(orgId: unknown, key: string): Promise<string> {
+  const role: any = await Role.findOne({ orgId, isBuiltin: true, templateKey: key }, { _id: 1 }).lean().exec()
+  if (!role) throw new Error(`no built-in role "${key}" in org ${String(orgId)}`)
+  return String(role._id)
 }
 
 /**
@@ -164,8 +193,8 @@ export async function roleKeyOf(userId: unknown): Promise<string | undefined> {
 export async function createTestPerson(
   orgId: Types.ObjectId,
   claims: { role?: string; permissions?: string[]; areas?: string[] },
-  overrides: Partial<IUser> = {},
-): Promise<IUser> {
+  overrides: Partial<IUser> & LegacyAccess = {},
+): Promise<TestUser> {
   const role = claims.role ?? 'member'
   // FR-27 P3-6: permission sets have no model; 0015 reads them through the driver, so the set is written that way.
   const setId = new Types.ObjectId()
@@ -173,7 +202,7 @@ export async function createTestPerson(
     _id: setId, orgId: new Types.ObjectId(String(orgId)), name: `Test access ${uniqueTs()}`, permissions: claims.permissions ?? [],
     isAdmin: false, isDefault: false, isSystem: false, ...(claims.areas ? { areas: claims.areas } : {}),
   })
-  return createTestUser(orgId, { role, permissions: claims.permissions ?? [], permissionSetIds: [setId], ...overrides } as any)
+  return createTestUser(orgId, { role, permissions: claims.permissions ?? [], permissionSetIds: [setId], ...overrides })
 }
 
 // Account codes are unique per org. A random 4-digit code collided now and then (two draws in one
@@ -771,7 +800,6 @@ export async function createTestInvite(
     code: `INV-${ts}-${Math.random().toString(36).slice(2, 8)}`,
     useCount: 0,
     status: 'active',
-    assignRole: 'member',
   }
   return Invite.create({ ...defaults, ...overrides }) as Promise<IInvite>
 }

@@ -68,7 +68,7 @@ async function invitationsFor(email: string) {
     .exec()
   const orgs = await Org.find({ _id: { $in: invites.map(i => i.orgId) } }, { name: 1, slug: 1 }).lean().exec()
   const byId = new Map(orgs.map(o => [String(o._id), o]))
-  // FR-27 P3-5: the role an invitation gives, for display; one from before names only its legacy key.
+  // FR-27 P3-5: the role an invitation gives, for display. One that names none shows none (FR-27 P3-9: no legacy key).
   const roleIds = invites.map(i => i.assignRoleId).filter(Boolean)
   const roles = roleIds.length ? await Role.find({ _id: { $in: roleIds } }, { name: 1, isBuiltin: 1, templateKey: 1 }).lean().exec() : []
   const roleOf = new Map(roles.map(r => [String(r._id), roleDisplay(r)]))
@@ -79,7 +79,7 @@ async function invitationsFor(email: string) {
       orgId: String(i.orgId),
       name: byId.get(String(i.orgId))!.name,
       slug: byId.get(String(i.orgId))!.slug,
-      role: (i.assignRoleId && roleOf.get(String(i.assignRoleId))) || i.assignRole || '',
+      role: (i.assignRoleId && roleOf.get(String(i.assignRoleId))) || '',
       expiresAt: i.expiresAt,
     }))
 }

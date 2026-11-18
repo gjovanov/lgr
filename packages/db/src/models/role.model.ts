@@ -12,9 +12,9 @@ import { replicate } from '../replication/declare.js'
  * - **Imported** (`legacyKey`): what migration 0015 made for a person whose access no built-in role matched: their
  *   sets, or their role plus extra permissions. `legacyKey` is that access, so the migration finds the role again.
  * - **`all`**: the Administrator, every capability there is and any added later. Never edited or emptied.
- * - **`legacy`**: what a release that reads no roles gives the role's people (FR-27 §4 step 3): the role key,
- *   permissions and areas `tokenize()` read. FR-27 P3-5 (#529): no longer written, nor `needsRelease`; a role from
- *   before keeps both, frozen, for a rollback. P3-7 archives them.
+ * - ⚠ No legacy projection: `legacy` (the role key, permissions and areas a release that read no roles served) and
+ *   `needsRelease` were last written before FR-27 P3-5 and are no schema paths since P3-9 (#529). A role from before
+ *   may still carry them in the database, read by nothing; migration 0015 writes `legacy` through the driver.
  *
  * Replicated like permission sets (class R).
  */
@@ -29,10 +29,7 @@ export interface IRole extends Document {
   all: boolean
   caps: string[]
   landing?: string
-  legacy?: { role: string; permissions: string[]; areas?: string[]; setId?: Types.ObjectId }
   legacyKey?: string
-  /** The projection does not say all the role grants: the legacy model serves its people less (FR-27 §4 step 4). */
-  needsRelease?: boolean
   /** Bumped on every change of what the role grants: the token's `rv` (FR-27.5). */
   version: number
   createdAt: Date
@@ -49,18 +46,7 @@ const roleSchema = new Schema<IRole>(
     all: { type: Boolean, default: false },
     caps: [{ type: String }],
     landing: String,
-    legacy: {
-      // Not required: FR-27 P3-5 writes no projection, and a nested path's `required` holds on every document.
-      role: { type: String },
-      permissions: { type: [{ type: String }], default: undefined },
-      // ⚠ `default: undefined`: absent and `[]` are opposites (FR-26), as on a permission set.
-      areas: { type: [String], default: undefined },
-      // The permission set that carried the projection (FR-27 §4 step 3). FR-27 P3-6: sets have no model any more.
-      setId: { type: Schema.Types.ObjectId },
-    },
     legacyKey: String,
-    // FR-27 P3-5: no longer written (no default); a role from before keeps its value.
-    needsRelease: { type: Boolean },
     version: { type: Number, default: 1 },
   },
   { timestamps: true },

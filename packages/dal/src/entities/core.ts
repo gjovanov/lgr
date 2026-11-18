@@ -105,15 +105,12 @@ export interface IUser extends TenantEntity {
   firstName: string
   middleName?: string
   lastName: string
-  role: string
   operatorCode?: string
   position?: string
   roleHistory: IRoleHistoryEntry[]
   avatar?: string
   isActive: boolean
   deactivatedAt?: Date
-  permissionSetIds?: string[]
-  permissions: string[]
   preferences: IUserPreferences
   oauthProviders: IOAuthProvider[]
   lastLoginAt?: Date
@@ -130,7 +127,6 @@ export interface IInvite extends TenantEntity {
   maxUses?: number
   useCount: number
   status: InviteStatus
-  assignRole: string
   expiresAt?: Date
 }
 
