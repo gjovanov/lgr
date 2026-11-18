@@ -93,7 +93,7 @@ test.beforeAll(async () => {
   expect(doc.a1.number).toMatch(/^ORDI-/)
 
   // A role that reads the orders and prints a sheet, and does not work on orders.
-  const { user } = await api.post('/user', { email: `${readerName}@acme.com`, username: readerName, password: PASSWORD, firstName: 'E2E', lastName: 'Reader', role: 'member' })
+  const { user } = await api.post('/user', { email: `${readerName}@acme.com`, username: readerName, password: PASSWORD, firstName: 'E2E', lastName: 'Reader', roleKey: 'member' })
   expect(user?._id || user?.id, 'the reader was made').toBeTruthy()
   made.users.push(String(user._id || user.id))
 })

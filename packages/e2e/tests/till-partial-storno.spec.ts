@@ -60,7 +60,7 @@ test.describe('FR-23 R3 — the till\'s partial storno', () => {
 
     admin = await apiLogin()
     managerName = `e2e-part-${Date.now().toString(36)}`
-    await ok(admin, 'POST', '/user', { email: `${managerName}@lgr.test`, username: managerName, password: PASSWORD, firstName: 'E2E', lastName: 'Part', role: 'manager' })
+    await ok(admin, 'POST', '/user', { email: `${managerName}@lgr.test`, username: managerName, password: PASSWORD, firstName: 'E2E', lastName: 'Part', roleKey: 'manager' })
     manager = await apiLogin('acme-corp', managerName, PASSWORD)
     till = await openTillSession(manager)
 

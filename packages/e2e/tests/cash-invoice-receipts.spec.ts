@@ -80,7 +80,7 @@ test.describe('FR-23 — a receipt for a payment on an invoice', () => {
     admin = await apiLogin()
     // A fiscal receipt names its operator: a user created through the API gets a code.
     cashierName = `e2e-counter-${Date.now().toString(36)}`
-    await ok(admin, 'POST', '/user', { email: `${cashierName}@lgr.test`, username: cashierName, password: PASSWORD, firstName: 'E2E', lastName: 'Counter', role: 'manager' })
+    await ok(admin, 'POST', '/user', { email: `${cashierName}@lgr.test`, username: cashierName, password: PASSWORD, firstName: 'E2E', lastName: 'Counter', roleKey: 'manager' })
     cashier = await apiLogin('acme-corp', cashierName, PASSWORD)
     till = await openTillSession(cashier)
 
@@ -287,7 +287,7 @@ test.describe('FR-23 — a receipt for a payment on an invoice', () => {
   test('no open session: the draft stays a draft and says what to do', async ({ page }) => {
     // Someone who never opened one. The seeded admin may have: the specs share a database.
     const clerk = `e2e-clerk-${Date.now().toString(36)}`
-    await ok(admin, 'POST', '/user', { email: `${clerk}@lgr.test`, username: clerk, password: PASSWORD, firstName: 'E2E', lastName: 'Clerk', role: 'manager' })
+    await ok(admin, 'POST', '/user', { email: `${clerk}@lgr.test`, username: clerk, password: PASSWORD, firstName: 'E2E', lastName: 'Clerk', roleKey: 'manager' })
     const { id } = await draft('cash')
     const before = (await device()).frames
 

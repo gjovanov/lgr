@@ -71,12 +71,12 @@ test.beforeAll(async () => {
   for (const w of walkers) {
     const created = await api(admin, 'POST', '/user', {
       email: `${w.username}@walk.invalid`, username: w.username, password: PASSWORD, firstName: 'Walk', lastName: w.key,
-      role: w.how === 'created with the role' ? w.role : 'member',
+      roleKey: w.how === 'created with the role' ? w.role : 'member',
     })
     expect(created.status, `create ${w.key}: ${JSON.stringify(created.json)}`).toBeLessThan(300)
     w.id = String(created.json?.user?._id ?? created.json?.user?.id)
     if (w.how === 'member, then role changed') {
-      const changed = await api(admin, 'PUT', `/user/${w.id}`, { role: w.role })
+      const changed = await api(admin, 'PUT', `/user/${w.id}`, { roleKey: w.role })
       expect(changed.status, `role change ${w.key}`).toBeLessThan(300)
     }
   }

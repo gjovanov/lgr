@@ -82,7 +82,7 @@ describe('a linked master', () => {
     expect(((await Identity.findById(m.clerk.identity._id).lean()) as any).firstName).toBe('Boris')
 
     // The membership is the master's: a role change, with the person's fields sent back unchanged.
-    const role = await edit({ role: 'manager', firstName: 'Boris', lastName: 'Shop', email: m.clerk.identity.email })
+    const role = await edit({ roleKey: 'manager', firstName: 'Boris', lastName: 'Shop', email: m.clerk.identity.email })
     expect(role.status).toBe(200)
     // FR-27 P3-5: the built-in role of that key, by id; the legacy key is not written.
     expect(await roleKeyOf(m.clerk.member._id)).toBe('manager')

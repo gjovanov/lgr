@@ -71,7 +71,7 @@ test.describe('The printer, while the cashier moves around', () => {
     const { warehouse } = await ok(admin, 'POST', '/warehouse/warehouse', { name: `Walk ${run}`, code: `WK-${run}`, type: 'store' })
     warehouseId = warehouse.id || warehouse._id
     const { user } = await ok(admin, 'POST', '/user', {
-      email: `${username}@lgr.test`, username, password: PASSWORD, firstName: 'E2E', lastName: 'Walk', role: 'sales',
+      email: `${username}@lgr.test`, username, password: PASSWORD, firstName: 'E2E', lastName: 'Walk', roleKey: 'sales',
     })
     userId = user.id || user._id
     cashier = await apiLogin('acme-corp', username, PASSWORD)
