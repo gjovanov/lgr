@@ -226,9 +226,9 @@ export function createApiApp() {
         // (`/org/:orgId/reports/:id/export`) is what it was a placeholder for.
         .use(notificationController)
         .use(appHubController)
-        .use(tagController)
-        // FR-31.22: the top bar's jump to a document by its number.
-        .use(documentLookupController)
+        // FR-31.22: the top bar's jump to a document by its number, mounted with the tags as ONE plugin. Every `.use`
+        // added to this chain is one more TS2589 (the chain is that deep); grouped, the two count as the one before.
+        .use(new Elysia().use(tagController).use(documentLookupController))
         .use(auditLogController)
         .use(permissionSetController)
         .use(roleController)
