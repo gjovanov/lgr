@@ -621,7 +621,7 @@ export type Family = (typeof FAMILIES)[number]
 export interface SessionAnswer {
   status: number
   body: {
-    user?: { role?: string | null; orgId?: string | null } | null
+    user?: { orgId?: string | null } | null
     org?: { id?: string | null } | null
     access?: { all?: boolean | null; caps?: unknown[] | null; role?: { name?: string | null } | null } | null
   } | null
@@ -637,8 +637,8 @@ export const sessionOrgId = (me: SessionAnswer): string | null => me.body?.org?.
  *
  * The role decides, read live: `/auth/me` answers it as `access`, and `access.all` is the Administrator's. Since
  * FR-27 P3-5 (#529) a session names its role (`rid`, `rv`) and carries no `role`, `permissions` or `areas`, so the
- * claim says nothing there, and this check used to stop every Administrator on it. Only a server that answers no
- * `access` at all (one from before FR-27.5) is still judged by the claim.
+ * claim says nothing there, and this check used to stop every Administrator on it. A server that answers no `access`
+ * is stopped: a role claim decides nothing since FR-27 P3-6 deleted the legacy model (P3-8's grep test, #529).
  */
 export function gateGrantSession(org: string, me: SessionAnswer): Finding[] {
   if (me.status !== 200 || !sessionOrgId(me)) return [finding('stop', `/auth/me answered ${me.status}`)]
@@ -648,9 +648,7 @@ export function gateGrantSession(org: string, me: SessionAnswer): Finding[] {
     if (access.all === true) return [finding('ok', `signed in to ${org} as "${role}": its role grants everything`)]
     return [finding('stop', `this session's role is not the full grant (${access.caps?.length ?? '?'} capabilities, role "${role}"): it may be shown less than the records hold`)]
   }
-  const claim = me.body?.user?.role
-  if (claim) return [finding(claim === 'admin' ? 'ok' : 'stop', `signed in to ${org} as role "${claim}"; the token's claims decide`)]
-  return [finding('stop', `the session of ${org} names no grant: /auth/me answered neither what its role allows nor a role claim (a membership without a role, or an answer this check cannot read)`)]
+  return [finding('stop', `the session of ${org} names no grant: /auth/me did not answer what its role allows (a membership without a role, a server from before FR-27, or an answer this check cannot read)`)]
 }
 
 /**
