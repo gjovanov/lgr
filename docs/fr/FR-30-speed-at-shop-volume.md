@@ -391,6 +391,10 @@ The demo organization is small, so production proves that nothing changed, and t
 
 **Turned off in the grids**, because the server never sorted by them (they are names looked up after the page): the contact on Sales invoices and Bills, the article's SKU and name and the warehouse on Stock levels.
 
+### FR-30.5 (draft), prepared 2026-11-17, due on or after 2026-11-23
+
+`scripts/index-usage.ts` reads `$indexStats` and the index sizes per collection (counters only, on the primary) and lists the indexes with no use since the member started. Migration `0019-drop-unused-indexes` drops what the production reading puts in its `UNUSED_INDEXES`, and `KEPT` names any unused index kept with its reason; the schemas lose the same declarations in the same pull request. Both lists are empty until the reading, a week after slice A was deployed. Its number is the next free one when it merges.
+
 ### Slice B (FR-30.6 to .10), 2026-11-17
 
 **What was built.**

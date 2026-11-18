@@ -18,6 +18,7 @@ import { rolesFromSets } from './migrations/0015-roles-from-sets.js'
 import { dropUnreadTextIndexes } from './migrations/0016-drop-unread-text-indexes.js'
 import { legacyAccessArchive } from './migrations/0017-legacy-access-archive.js'
 import { productSearchField } from './migrations/0018-product-search-field.js'
+import { dropUnusedIndexes } from './migrations/0019-drop-unused-indexes.js'
 import FINGERPRINTS from './fingerprints.json' with { type: 'json' }
 
 /**
@@ -49,6 +50,7 @@ export const RELEASED: Migration[] = [
   dropUnreadTextIndexes,
   legacyAccessArchive,
   productSearchField,
+  dropUnusedIndexes,
 ]
 
 /** {@link RELEASED}, each carrying its file's fingerprint, which the runner checksums. */
