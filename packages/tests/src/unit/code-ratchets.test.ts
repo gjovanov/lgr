@@ -70,7 +70,6 @@ const RAW_DRIVER_FILES: Record<string, string> = {
  */
 const MAX_LINES = 1000
 const LARGE_FILES: Record<string, number> = {
-  'invoicing-ui/src/composables/document-form/useDocumentForm.ts': 2274,
   'services/src/biz/cash-register/register.service.ts': 1542,
   'inventory-ui/src/views/MovementFormView.vue': 1407,
   'services/src/biz/cash-sale-invoice.service.ts': 1379,
