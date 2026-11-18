@@ -735,6 +735,9 @@ invoiceSchema.index(
   { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } },
 )
 invoiceSchema.index({ orgId: 1, contactId: 1 })
+// FR-31.22: the top bar's jump to a document finds an issued one by the draft number it had (`document-lookup.service`).
+// Partial: only an issued document keeps one, and the lookup states the condition so the index serves it.
+invoiceSchema.index({ orgId: 1, draftNumber: 1 }, { partialFilterExpression: { draftNumber: { $exists: true } } })
 // FR-28.2: which suppliers sold an article, and which articles a supplier sold. The Products list reads
 // purchases from the bills themselves (`product-suppliers.service.ts`), so both questions need an index
 // of their own: `contactId` alone cannot say "incoming", and no index named a line's article.

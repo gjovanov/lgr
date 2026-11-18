@@ -353,6 +353,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatNumber, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -409,11 +410,10 @@ const orgCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 /** The asset's own currency (an asset of the books written off before the euro is in lev); a new one's, the org's. */
 const currency = computed(() => assetCurrency(loaded.value, orgCurrency.value))
 const localeCode = computed(() => {
-  const map: Record<string, string> = { en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' }
-  return map[appStore.locale] || 'en-US'
+  return intlLocale(appStore.locale)
 })
 const money = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? formatCurrency(n, currency.value, localeCode.value) : '')
-const number = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? n.toLocaleString(localeCode.value, { maximumFractionDigits: 2 }) : '')
+const number = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) ? formatNumber(n, { maxDecimals: 2 }) : '')
 
 // #675: the model's own values (`fixed-asset.model.ts`); the form sent `straight-line` and other names it rejects.
 const depreciationMethods = computed(() => DEPRECIATION_METHODS.map(value => ({ value, title: t(`accounting.depreciationMethods.${value}`) })))
@@ -438,8 +438,8 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   icon: 'mdi-domain',
   getFormData: () => ({ ...form.value }),
   getPreviewFields: () => [
-    { label: 'Code', value: form.value.code || '' },
-    { label: 'Name', value: form.value.name || '' },
+    { label: t('common.code'), value: form.value.code || '' },
+    { label: t('common.name'), value: form.value.name || '' },
   ],
   setFormData: (data) => { form.value = { ...form.value, ...data } },
   isEdit: () => isEdit.value,

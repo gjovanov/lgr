@@ -12,6 +12,7 @@ import { eventBus } from 'services/events/event-bus'
 import { Invoice, StockLevel, StockMovement } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import { templateGrant } from 'config/access'
 // The proforma is the body the proforma form sends (`invoicing-ui` is a private app package).
 import { buildPayload } from '../../../invoicing-ui/src/composables/document-form/document-payload'
 import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
@@ -155,7 +156,8 @@ describe('a proforma is issued from the proforma series (FR-22.22)', () => {
   it('once issued it can be emailed; a draft still cannot', async () => {
     const w = await world()
     const id = await w.proforma()
-    const user = { role: 'admin', permissions: PERMISSIONS }
+    // The Administrator's session, as the controller decides by it (FR-27 P3-6: its role's grant).
+    const user = { access: templateGrant('admin') }
     expect(emailRequestBlock({ user, to: 'client@example.com', invoice: await w.load(id) })?.status).toBe(422)
 
     await w.call('POST', `/${id}/send`, {})

@@ -130,9 +130,7 @@ onMounted(async () => {
         inviteOrgName.value = data.orgName
         inviteOrgSlug.value = data.orgSlug
       }
-    } catch {
-      // ignore
-    }
+    } catch { /* An invite that cannot be read: the form registers without it, and says nothing it does not know. */ }
   }
 
   // `?oauth=1` says only that a sign-up MAY be in progress. Who is signing up comes from the

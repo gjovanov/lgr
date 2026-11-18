@@ -15,6 +15,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from 'ui-shared/format'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient, setRefusalTranslator, UNEXPECTED_ERROR_CODE } from 'ui-shared/composables/useHttpClient'
@@ -74,7 +75,13 @@ watch(() => props.orgId, id => {
   if (id) timer = setInterval(() => void load(id), 120_000)
 }, { immediate: true })
 
-const REFUSALS: Record<string, string> = { org_home_elsewhere: 'home.writeRefused', series_frozen: 'home.seriesFrozen' }
+const REFUSALS: Record<string, string> = {
+  org_home_elsewhere: 'home.writeRefused',
+  series_frozen: 'home.seriesFrozen',
+  // FR-29.23, FR-29.26: "try again", never a sign-out.
+  session_check_unavailable: 'common.sessionCheckUnavailable',
+  query_timeout: 'common.queryTimeout',
+}
 /**
  * The shell's words for a coded refusal (FR-31.9): the home's, the stock refusals' (`warehouse.refusals.*`, with what
  * the refusal names), and the last fallback for an answer that says nothing a person can read. Any other code keeps
@@ -94,7 +101,7 @@ onUnmounted(() => {
   stopListening()
 })
 
-const when = (v?: string | null) => (v ? new Date(v).toLocaleString(locale.value) : t('home.unknown'))
+const when = (v?: string | null) => (v ? formatDateTime(v) : t('home.unknown'))
 
 const kind = computed(() => {
   const s = status.value

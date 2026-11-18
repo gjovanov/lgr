@@ -8,7 +8,7 @@ import { config } from 'config'
 import { mongoose } from 'db/connection'
 import { forgetAllHomes, homeNewOrg } from 'db/home/home'
 import { AuditLog, EmailLog, Invoice, Order, Org, Outbox } from 'db/models'
-import type { CapabilityId, Grant } from 'config/access'
+import { templateGrant, type CapabilityId, type Grant } from 'config/access'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { MAX_DOCS_PER_MAIL, MAX_SELECTION, chunkDocuments, planForOneAddress } from 'config/doc-email'
 import { drainOne } from 'services/biz/relay/outbox-worker'
@@ -107,7 +107,8 @@ async function world() {
   await Org.updateOne({ _id: org._id }, { $set: { email: 'office@example.test' } })
   const orgId = String(org._id)
   const admin = await createTestUser(org._id, { role: 'admin' } as any)
-  const user = { id: String(admin._id), role: 'admin', permissions: [...DEFAULT_ROLE_PERMISSIONS.admin] }
+  // FR-27 P3-6: the session the controller decides by carries its role's grant, here the Administrator's.
+  const user = { id: String(admin._id), access: templateGrant('admin') }
   const contact = await createTestContact(org._id, { companyName: 'Buyer One', email: 'accounts@buyer.test' } as any)
   let seq = 0
   /** An issued sales invoice, unless told otherwise. */

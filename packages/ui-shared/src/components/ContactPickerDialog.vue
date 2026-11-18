@@ -11,7 +11,7 @@
           {{ $t('invoicing.searchContact') }}
         </v-toolbar-title>
         <v-spacer />
-        <v-btn icon="mdi-close" variant="text" size="small" @click="emit('update:modelValue', false)" />
+        <v-btn :aria-label="$t('common.close')" :title="$t('common.close')" icon="mdi-close" variant="text" size="small" @click="emit('update:modelValue', false)" />
       </v-toolbar>
 
       <v-card-text class="pa-3">
@@ -128,6 +128,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   entityKey: 'contacts',
   filters,
   defaultSize: 25,
+  // FR-30.7: the picker's rows, not whole contacts.
+  listFields: true,
 })
 
 const headers = computed(() => [

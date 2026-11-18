@@ -1,9 +1,11 @@
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { tierLabel } from 'config/price-tiers'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { reportError } from 'ui-shared/composables/report-error'
 import { createIdempotentAction } from 'ui-shared/composables/idempotency'
 import { flushPriceLookups } from 'ui-shared/composables/price-lookups'
 import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
@@ -33,6 +35,7 @@ import { shortageMatches, shortageQuantity, type LineShortage } from '../documen
 import { receiptRefusalKey, receiptRefusalMessage } from 'ui-shared/cash-register/receipt-refusal'
 import { canRecordPayment } from '../document-row-actions'
 import { receiptOverlapOf, type ReceiptOverlap } from '../receipt-overlap'
+import { takeHandedDocument } from './document-preread'
 import {
   buildPayload as buildPayloadPure,
   buildProductUpdates,
@@ -141,7 +144,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   const defaultVatRate = computed(() => appStore.currentOrg?.settings?.taxConfig?.defaultVatRate ?? 0)
   const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
   const localeCode = computed(
-    () => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[appStore.locale] || 'en-US',
+    () => intlLocale(appStore.locale),
   )
 
   const isEdit = computed(() => !!route.params.id)
@@ -339,8 +342,8 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     icon: config.pendingIcon,
     getFormData: () => ({ ...form, lines: [...form.lines] }),
     getPreviewFields: () => [
-      { label: 'Date', value: form.issueDate || '' },
-      { label: 'Currency', value: form.currency || '' },
+      { label: t('common.date'), value: form.issueDate || '' },
+      { label: t('common.currency'), value: form.currency || '' },
     ],
     setFormData: (data) => {
       Object.assign(form, data)
@@ -801,7 +804,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       // Back to automatic: every line resolves its own price again, as on a contact change.
       form.lines.forEach((l, i) => {
         l.pricePinned = false
-        if (l.productId) resolvePriceForLine(i)
+        if (l.productId) void resolvePriceForLine(i) // it keeps the line's price on a failure
       })
       return
     }
@@ -845,7 +848,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   }
 
   function setLastPrice(line: Line, lp: { price: number; invoiceNumber: string; issueDate: string }) {
-    const date = lp.issueDate ? new Date(lp.issueDate).toLocaleDateString(localeCode.value) : ''
+    const date = lp.issueDate ? formatDate(lp.issueDate) : ''
     setChosenPrice(line, { type: 'contact', name: t('invoicing.lastPrice.step', { number: lp.invoiceNumber, date }), price: lp.price })
   }
 
@@ -961,7 +964,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     try {
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/product-category`, { params: { size: 0 } })
       grCategories.value = data.productCategories || []
-    } catch { /* */ }
+    } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
   }
 
   /**
@@ -978,7 +981,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   // lines that name a product and stage nothing yet, and load the category options.
   watch(grColumnsVisible, async (on) => {
     if (!on) return
-    if (!grCategories.value.length) fetchGRCategories()
+    if (!grCategories.value.length) void fetchGRCategories() // reference data, never rejects
     await seedUnseededLines()
   })
 
@@ -1023,7 +1026,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     priceOptionsCache.clear()
     if (config.reResolveOnChange || docPriceKey.value || useLastPrice.value) void reResolveLinePrices()
     // Narrow the related-invoice candidates to the newly chosen contact.
-    if (config.showRelatedInvoice) fetchInvoices()
+    if (config.showRelatedInvoice) void fetchInvoices() // reference data, never rejects
   }
 
   function onContactCreated(contact: any) {
@@ -1052,9 +1055,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
             // The doc-level tax-rate / warehouse controls show what the copied lines carry.
             syncDocLevelFromLines()
           }
-        } catch {
-          /* */
-        }
+        } catch (e) { reportError(e) }
       },
     )
   }
@@ -1579,7 +1580,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       if (created) payMethodMemory?.write(form.paymentMethod || '')
       if (!persistOpts.quiet) showSuccess(t(config.successKey))
       if (!staysOnSave) {
-        router.push({ name: config.listRouteName })
+        void router.push({ name: config.listRouteName })
         return id
       }
       if (String(route.params.id || '') !== id) {
@@ -1773,7 +1774,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   function openNote(type: 'credit_note' | 'debit_note') {
     const id = route.params.id
     if (!id) return
-    router.push({
+    void router.push({
       name: config.direction === 'incoming' ? 'invoicing.purchases.new' : 'invoicing.sales.new',
       query: { type, relatedInvoiceId: String(id) },
     })
@@ -1816,15 +1817,17 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
         ...(config.contactFetchParams || {}),
         size: 20,
         prefer: config.direction === 'incoming' ? 'supplier' : 'customer',
+        // FR-30.7: the picker's rows: the party block's addresses and tax numbers, without the notes and mirrors.
+        fields: 'list',
+        // FR-30.12: a type-ahead shows no total, so nothing is counted.
+        count: 'none',
       }
       if (search) params.search = search
       const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params })
       contacts.value = data.contacts || []
       // A filtered result may drop the currently selected contact — keep it resolvable.
       if (form.contactId) await ensureSelectedContactLoaded(form.contactId)
-    } catch {
-      /* */
-    } finally {
+    } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
       loadingContacts.value = false
     }
   }
@@ -1871,9 +1874,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       // The endpoint paginates with size=10 by default — request all for the per-line DDL.
       const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } })
       warehouses.value = data.warehouses || []
-    } catch {
-      /* */
-    }
+    } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
   }
 
   /**
@@ -1895,9 +1896,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       invoices.value = data.invoices || []
       // A filtered result may drop the currently selected invoice — keep it resolvable.
       if (form.relatedInvoiceId) await ensureSelectedRelatedInvoiceLoaded(form.relatedInvoiceId)
-    } catch {
-      /* */
-    }
+    } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
   }
 
   let relatedSearchTimer: ReturnType<typeof setTimeout> | null = null
@@ -1914,9 +1913,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     try {
       const { data } = await httpClient.get(`${orgUrl()}/invoices/${id}`)
       if (data.invoice) invoices.value = [data.invoice, ...invoices.value]
-    } catch {
-      /* */
-    }
+    } catch { /* The list keeps what it had: the picked id stays on the form. */ }
   }
 
   async function fetchPeekedNumber() {
@@ -1948,6 +1945,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
       resolvedPrice: l.unitPrice || undefined,
       productUpdate: {},
       priceTiers: [],
+      // FR-30.10: the article's name as the document's read gave it, so the line reads no article to show it. It names
+      // its article only while the line still holds that article (`ProductLineDescription#known`).
+      ...(l.productId && typeof l.productName === 'string' ? { knownProduct: { id: String(l.productId), name: l.productName } } : {}),
       // Marks the line as loaded from a persisted document — the price combobox must
       // not overwrite its historical price with the currently-resolved one.
       loaded: true,
@@ -1962,7 +1962,9 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
   async function loadDocument(): Promise<boolean> {
     feedback.loadStarted()
     try {
-      const { data } = await httpClient.get(`${orgUrl()}/invoices/${route.params.id}`)
+      // FR-30.10: what the view read to choose this form, when it did; else the document is read here.
+      const id = String(route.params.id)
+      const data = takeHandedDocument(id) ?? (await httpClient.get(`${orgUrl()}/invoices/${id}`)).data
       const inv = data.invoice
       // What was just loaded is the clean state (FR-22.13, FR-31.2), with whatever it awaits: the contact, a bill's
       // seeded lines. An edit made while it loaded stays an edit. After a save that stays on the document (FR-22.16)
@@ -2045,7 +2047,7 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
           null
         if (candidate) onDocWarehouseChange(candidate)
         else seedPlaceOfDeal()
-        fetchPeekedNumber()
+        void fetchPeekedNumber() // a preview, never rejects
         // FR-22.26: how this user last paid a document of this type.
         const method = rememberedPaymentMethod()
         if (method !== null) form.paymentMethod = method

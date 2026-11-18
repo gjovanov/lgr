@@ -188,8 +188,15 @@ for (const line of flagged) console.log(`  ${line}`)
 
 if (verify) {
   // §5.1's gate: what is stored emits what was filed, the developer field aside.
-  const res = await fetch(`${api}/api/org/${orgId}/payroll/run?size=0`, { headers: { authorization: `Bearer ${token}` } })
-  const runs: any[] = (await res.json()).payrollRuns ?? []
+  // Page by page: a list answer carries at most 1 000 rows (FR-30.8).
+  const runs: any[] = []
+  for (let page = 0; ; page++) {
+    const res = await fetch(`${api}/api/org/${orgId}/payroll/run?size=500&page=${page}`, { headers: { authorization: `Bearer ${token}` } })
+    const body = await res.json()
+    const rows: any[] = body.payrollRuns ?? []
+    runs.push(...rows)
+    if (rows.length < 500 || runs.length >= (body.total ?? 0)) break
+  }
   const runOf = new Map(runs.filter(r => r.source === 'imported').map(r => [r.periodCode, r]))
   const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i])
   const tallyGate = { empl: { equal: 0, differ: [] as string[] }, nra: { equal: 0, differ: [] as string[] }, sums: { equal: 0, differ: [] as string[] }, people: { equal: 0, differ: [] as string[] } }

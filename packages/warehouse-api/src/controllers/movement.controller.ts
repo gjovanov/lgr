@@ -1,7 +1,9 @@
 import { Elysia, t } from 'elysia'
+import { AnObject } from 'services/http/body-schemas'
 import { movementWarehouseRefusal } from 'config/movement-warehouses'
 import { sideIsExternal } from 'config/external-warehouse'
 import { chooseListSort } from 'config/list-sorts'
+import { listProjection } from 'config/list-rows'
 import { can, grantOf, type AccessCaller } from 'services/biz/access/evaluate'
 import { seesBills } from 'services/biz/access/partition'
 import { redactMovementLine, redactMovementTotals, seesCosts, sortsByMovementTotal } from 'config/access'
@@ -183,9 +185,11 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
     const sort = usual ? chooseListSort('movements', undefined, undefined) : chooseListSort('movements', query.sortBy, query.sortOrder)
 
     const byRef = MOVEMENT_SORT_BY_REF[sort.key]
+    // FR-30.7: `fields=list` (the grid) reads a line's article and quantity only; the lines never leave the server.
+    const select = listProjection('movements', query.fields)
     const result = byRef
-      ? await findPageSortedBy(r.stockMovements, filter, byRef, sort.order, page, size, { date: -1 })
-      : await r.stockMovements.findAll(filter, { page, size, sort: { [sort.field]: sort.order } })
+      ? await findPageSortedBy(r.stockMovements, filter, byRef, sort.order, page, size, { date: -1 }, select)
+      : await r.stockMovements.findAll(filter, { page, size, sort: { [sort.field]: sort.order } }, { select })
 
     // Manual lookups to replace .populate()
     const fromWhIds = new Set<string>()
@@ -201,8 +205,8 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
 
     const allWhIds = new Set([...fromWhIds, ...toWhIds])
     const [warehouses, contacts] = await Promise.all([
-      allWhIds.size > 0 ? r.warehouses.findMany({ orgId, id: { $in: [...allWhIds] } } as any) : [],
-      contactIds.size > 0 ? r.contacts.findMany({ orgId, id: { $in: [...contactIds] } } as any) : [],
+      allWhIds.size > 0 ? r.warehouses.findMany({ orgId, id: { $in: [...allWhIds] } } as any, undefined, { select: ['name', 'isExternal'] }) : [],
+      contactIds.size > 0 ? r.contacts.findMany({ orgId, id: { $in: [...contactIds] } } as any, undefined, { select: ['companyName', 'firstName', 'lastName'] }) : [],
     ])
 
     const warehouseMap = new Map(warehouses.map(w => [w.id, w]))
@@ -267,7 +271,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
       }))
     })
 
-    return { stockMovements, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages }
+    return { stockMovements, total: result.total, page: result.page, size: result.size, totalPages: result.totalPages, ...(result.truncated ? { truncated: true } : {}) }
   }, { isSignIn: true })
   .post(
     '/',
@@ -336,7 +340,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
           batchNumber: t.Optional(t.String()),
           serialNumbers: t.Optional(t.Array(t.String())),
           productUpdate: t.Optional(t.Any()),
-          priceTiers: t.Optional(t.Array(t.Any())),
+          priceTiers: t.Optional(t.Array(AnObject)),
         })),
         totalAmount: t.Number(),
         reference: t.Optional(t.String()),
@@ -421,7 +425,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         totalAmount: t.Number(),
         reference: t.Optional(t.String()),
         notes: t.Optional(t.String()),
-        productUpdates: t.Optional(t.Array(t.Any())),
+        productUpdates: t.Optional(t.Array(AnObject)),
       }),
     },
   )
@@ -564,7 +568,7 @@ export const movementController = new Elysia({ prefix: '/org/:orgId/warehouse/mo
         reference: t.Optional(t.String()),
         notes: t.Optional(t.String()),
         // Goods receipts only: inline product-master updates applied atomically with the edit.
-        productUpdates: t.Optional(t.Array(t.Any())),
+        productUpdates: t.Optional(t.Array(AnObject)),
       }),
     },
   )

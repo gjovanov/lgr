@@ -617,6 +617,61 @@ export const unread = (what: string): Finding => finding('stop', `could not read
 export const FAMILIES = ['contacts', 'receipts', 'transfers', 'writeoffs', 'till', 'invoices'] as const
 export type Family = (typeof FAMILIES)[number]
 
+/** What `GET /api/auth/me` answered, as far as the grant check reads it. */
+export interface SessionAnswer {
+  status: number
+  body: {
+    user?: { orgId?: string | null } | null
+    org?: { id?: string | null } | null
+    access?: { all?: boolean | null; caps?: unknown[] | null; role?: { name?: string | null } | null } | null
+  } | null
+}
+/** A list's first page, as far as the grant check reads it. */
+export interface ListAnswer { status: number; body: Record<string, any> | null }
+
+/** The org a session is in, by `/auth/me`. */
+export const sessionOrgId = (me: SessionAnswer): string | null => me.body?.org?.id ?? me.body?.user?.orgId ?? null
+
+/**
+ * Is the session's grant the full one?
+ *
+ * The role decides, read live: `/auth/me` answers it as `access`, and `access.all` is the Administrator's. Since
+ * FR-27 P3-5 (#529) a session names its role (`rid`, `rv`) and carries no `role`, `permissions` or `areas`, so the
+ * claim says nothing there, and this check used to stop every Administrator on it. A server that answers no `access`
+ * is stopped: a role claim decides nothing since FR-27 P3-6 deleted the legacy model (P3-8's grep test, #529).
+ */
+export function gateGrantSession(org: string, me: SessionAnswer): Finding[] {
+  if (me.status !== 200 || !sessionOrgId(me)) return [finding('stop', `/auth/me answered ${me.status}`)]
+  const access = me.body?.access
+  if (access) {
+    const role = access.role?.name ?? '?'
+    if (access.all === true) return [finding('ok', `signed in to ${org} as "${role}": its role grants everything`)]
+    return [finding('stop', `this session's role is not the full grant (${access.caps?.length ?? '?'} capabilities, role "${role}"): it may be shown less than the records hold`)]
+  }
+  return [finding('stop', `the session of ${org} names no grant: /auth/me did not answer what its role allows (a membership without a role, a server from before FR-27, or an answer this check cannot read)`)]
+}
+
+/**
+ * Is the session shown what the records hold? A role may be shown a product without its cost figures or some price
+ * levels: the call still succeeds, and what is read is less than what is stored.
+ */
+export function gateGrantReads(products: ListAnswer, levels: ListAnswer): Finding[] {
+  const list: any[] = products.body?.products ?? []
+  const tiered = list.find(p => Array.isArray(p.priceTiers) && p.priceTiers.length)
+  const level = (levels.body?.stockLevels ?? [])[0]
+  const reads: Record<string, boolean> = {
+    'the purchase price': list.length > 0 && list.every(p => 'purchasePrice' in p),
+    'the selling price': list.length > 0 && list.every(p => 'sellingPrice' in p),
+    "each tier's margin": !!tiered && tiered.priceTiers.every((t: any) => 'percent' in t),
+    'the cost tier': !!tiered && tiered.priceTiers.some((t: any) => String(t.name).replace(/\s+/g, '') === 'Доставнацена'),
+    'the average cost': !!level && 'avgCost' in level,
+  }
+  const blind = Object.entries(reads).filter(([, ok]) => !ok).map(([what]) => what)
+  if (products.status !== 200 || levels.status !== 200) return [finding('stop', `the product list answered ${products.status}, the stock levels ${levels.status}`)]
+  if (blind.length) return [finding('stop', `this session does not see ${blind.join(', ')}: a read that is shown less makes a wrong write`)]
+  return [finding('ok', `it reads everything: ${Object.keys(reads).join(', ')} (${products.body?.total ?? '?'} products)`)]
+}
+
 /** The history of a store since the previous run, against the day about to be booked. */
 export function gateHistory(d: PullDiff, outside: ReturnType<typeof newOutsideDay>, period: string): Finding[] {
   const out: Finding[] = [finding('ok', `history: compared ${d.compared}, same ${d.same}, new ${d.onlyNew.length}`)]

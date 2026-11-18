@@ -16,6 +16,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -63,7 +64,7 @@ const kind = computed(() => (status.value?.state === 'restricted' ? 'error' : st
 function day(value?: string): string {
   if (!value) return ''
   const d = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value)
-  return Number.isFinite(d.getTime()) ? d.toLocaleDateString(locale.value) : value
+  return Number.isFinite(d.getTime()) ? formatDate(d) : value
 }
 
 const text = computed(() => {

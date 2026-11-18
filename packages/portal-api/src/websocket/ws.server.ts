@@ -1,12 +1,13 @@
 import type { Elysia } from 'elysia'
 import { taskStore } from 'services/background/task.store'
 import { asSessionUser } from 'services/biz/session-token'
-import { liveSessionUser } from 'services/biz/identity/session.service'
+import { SessionCheckUnavailableError, liveSessionUser } from 'services/biz/identity/session.service'
 import { logger } from 'services/logger'
 import { verifyToken } from '../auth/verify-token.js'
 
 /**
- * `/ws/tasks` — background-task progress and notifications for the signed-in user (#154).
+ * `/ws/tasks` — background-task progress for the signed-in user (#154). (Its `notification` message had no
+ * sender but a test, and went with `sendNotification` in FR-32.9.)
  *
  * Protocol:
  *   Client → Server:
@@ -17,7 +18,6 @@ import { verifyToken } from '../auth/verify-token.js'
  *     { type: 'error', code, message }
  *     { type: 'pong', timestamp }
  *     { type: 'task:update', data }   one of THIS user's tasks moved
- *     { type: 'notification', data }
  *
  * ⚠ Until #154 the socket subscribed to whichever user its `?userId=` named, with no credential at
  * all. User ids are ObjectIds and not secret, so anyone could read anyone's task progress. The
@@ -96,7 +96,16 @@ export async function handleTasksMessage(ws: any, raw: any): Promise<void> {
     if (st?.userId) return // already authenticated; a second auth cannot move the subscription
     // The same three steps every HTTP auth plugin takes: signature, session shape (no identity-only
     // or oauth_pending token), and revocation (a password change ends every session).
-    const user = await liveSessionUser(asSessionUser(await verifyToken(msg.token)))
+    let user: ReturnType<typeof asSessionUser>
+    try {
+      user = await liveSessionUser(asSessionUser(await verifyToken(msg.token)))
+    } catch (e) {
+      // FR-29.23: the session could not be checked just now. The socket is refused like any unchecked one, and the
+      // client's reconnect asks again: nothing about the session was decided.
+      if (!(e instanceof SessionCheckUnavailableError)) throw e
+      refuse(ws, e.message)
+      return
+    }
     if (!user) {
       refuse(ws, 'A signed-in session is required.')
       return
@@ -151,8 +160,4 @@ export function setupWebSocket(app: Elysia<any, any, any, any, any, any, any, an
     message(ws, message: any) { void handleTasksMessage(ws, message) },
     close(ws) { handleTasksClose(ws) },
   })
-}
-
-export function sendNotification(userId: string, notification: object) {
-  broadcast(userId, { type: 'notification', data: notification })
 }

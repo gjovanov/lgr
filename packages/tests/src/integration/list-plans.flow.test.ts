@@ -256,18 +256,83 @@ describe('FR-30.2: a list sorts only as it declares', () => {
       list,
       Object.entries(LIST_SORTS[list].keys).filter(([, k]) => !('index' in k.served)).map(([key]) => key).sort(),
     ]))
-    // A new key here is a decision (FR-30.2): an index, or a reason the filtered rows are few enough.
+    // A new key here is a decision (FR-30.2): an index, or a reason the filtered rows are few enough. `_id` is on
+    // every list for what reads the whole list in pages (the suite below), and no grid offers it.
     expect(unindexed).toEqual({
-      products: ['isActive', 'minStockLevel', 'purchasePrice', 'sellingPrice', 'type', 'unit'],
-      invoices: ['amountDue', 'currency', 'reference', 'status', 'subtotal', 'taxTotal', 'total', 'type'],
-      stockLevels: ['quantity'],
-      movements: ['contactName', 'fromWarehouseName', 'status', 'toWarehouseName', 'total'],
+      products: ['_id', 'isActive', 'minStockLevel', 'purchasePrice', 'sellingPrice', 'type', 'unit'],
+      invoices: ['_id', 'amountDue', 'currency', 'reference', 'status', 'subtotal', 'taxTotal', 'total', 'type'],
+      stockLevels: ['_id', 'quantity'],
+      movements: ['_id', 'contactName', 'fromWarehouseName', 'status', 'toWarehouseName', 'total'],
     })
     for (const list of Object.keys(LIST_SORTS) as ListSortId[]) {
       for (const [key, { served }] of Object.entries(LIST_SORTS[list].keys)) {
         const why = 'scan' in served ? served.scan : 'aggregate' in served ? served.aggregate : served.index
         expect({ list, key, why: why.length > 5 }).toEqual({ list, key, why: true })
       }
+    }
+  })
+})
+
+/**
+ * The import and audit tooling reads a WHOLE list over the API, in pages (`fetchAll` in `scripts/compare-stock-api.ts`,
+ * `.claude/skills/daily-import/predict.ts` and seven more): `page=N&size=…&sortBy=_id&sortOrder=asc`, until a page
+ * adds nothing. It asks for the id because pages need an order with no ties: rows whose sort keys are equal come in
+ * whatever order the database finds them, which may differ for another skip, so a page can repeat a row and leave
+ * another out, and nothing tells the reader (its loop just ends). Every list's default sort has ties (a name, the
+ * moment a batch was inserted, a movement's day). The id is the one key every list has that has none.
+ */
+describe('a whole list read in pages by the id, as the import and audit tooling reads it', () => {
+  const SIZE = 60
+
+  /** `fetchAll` as the scripts have it: page after page, each row once, until a page adds nothing. */
+  async function fetchAll(path: string, key: string): Promise<{ ids: string[]; total: number | undefined; pages: number }> {
+    const ids: string[] = []
+    const seen = new Set<string>()
+    const sep = path.includes('?') ? '&' : '?'
+    let total: number | undefined
+    let pages = 0
+    for (let page = 0; page < 50; page++) {
+      const { status, json } = await get(`${path}${sep}page=${page}&size=${SIZE}&sortBy=_id&sortOrder=asc`)
+      expect({ path, page, status }).toEqual({ path, page, status: 200 })
+      const items: any[] = json[key] || []
+      total = json.total
+      let added = 0
+      for (const it of items) { const id = String(it._id); if (!seen.has(id)) { seen.add(id); ids.push(id); added++ } }
+      if (!items.length || !added) break
+      pages++
+    }
+    return { ids, total, pages }
+  }
+
+  const idsOf = async (model: { find(f: any, p: any): any }, filter: Record<string, unknown>) =>
+    ((await model.find(filter, { _id: 1 }).sort({ _id: 1 }).lean()) as Array<{ _id: unknown }>).map((d) => String(d._id))
+
+  const WHOLE: Array<{ name: string; path: () => string; key: string; own: () => Promise<string[]> }> = [
+    { name: 'Products', path: () => '/warehouse/product', key: 'products', own: () => idsOf(Product, { orgId }) },
+    { name: 'Stock levels of a warehouse', path: () => `/warehouse/stock-level?warehouseId=${warehouseA}`, key: 'stockLevels', own: () => idsOf(StockLevel, { orgId, warehouseId: warehouseA }) },
+    { name: 'Documents', path: () => '/invoices', key: 'invoices', own: () => idsOf(Invoice, { orgId }) },
+    { name: 'Movements', path: () => '/warehouse/movement', key: 'stockMovements', own: () => idsOf(StockMovement, { orgId }) },
+  ]
+
+  for (const list of WHOLE) {
+    it(`${list.name}: every row once, in the id's order, over several pages`, async () => {
+      const own = await list.own()
+      expect(own.length).toBeGreaterThan(SIZE * 3)
+      const { ids, total, pages } = await fetchAll(list.path(), list.key)
+      const ascending = ids.every((id, i) => i === 0 || ids[i - 1]! < id)
+      expect({ list: list.name, rows: ids.length, total, pages, ascending, same: ids.join() === own.join() })
+        .toEqual({ list: list.name, rows: own.length, total: own.length, pages: Math.ceil(own.length / SIZE), ascending: true, same: true })
+    })
+  }
+
+  it('and the page query sorts by the id, in the order asked', async () => {
+    for (const [collection, path] of [
+      ['products', '/warehouse/product'], ['invoices', '/invoices'], ['stocklevels', '/warehouse/stock-level'], ['stockmovements', '/warehouse/movement'],
+    ] as const) {
+      const asc = await pageFind(collection, `${path}?page=1&size=${PAGE}&sortBy=_id&sortOrder=asc`)
+      expect({ path, status: asc.status, sort: asc.command.sort }).toEqual({ path, status: 200, sort: { _id: 1 } })
+      const desc = await pageFind(collection, `${path}?page=1&size=${PAGE}&sortBy=_id&sortOrder=desc`)
+      expect({ path, status: desc.status, sort: desc.command.sort }).toEqual({ path, status: 200, sort: { _id: -1 } })
     }
   })
 })

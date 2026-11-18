@@ -31,6 +31,7 @@ import { useRoute, useRouter } from 'vue-router'
 import DocumentForm from '../components/document-form/DocumentForm.vue'
 import { DOCUMENT_CONFIGS } from '../composables/document-form/configs'
 import { useDocumentRouteKey } from '../composables/document-form/useDocumentRouteKey'
+import { handOverDocument, takeHandedDocument } from '../composables/document-form/document-preread'
 import type { DocType } from '../composables/document-form/types'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useAppStore } from '../store/app.store'
@@ -63,7 +64,10 @@ async function resolveType() {
   ready.value = false
   if (isEdit.value) {
     try {
-      const { data } = await httpClient.get(`${appStore.orgUrl()}/invoices/${route.params.id}`)
+      // FR-30.10: the document is read once. What this read gets is handed to the form, which fills itself from it.
+      const id = String(route.params.id)
+      const data = takeHandedDocument(id) ?? (await httpClient.get(`${appStore.orgUrl()}/invoices/${id}`)).data
+      handOverDocument(id, data)
       // Outgoing documents belong to the sales form — bounce over.
       if (data.invoice?.direction === 'outgoing') {
         router.replace({ name: 'invoicing.sales.edit', params: { id: route.params.id as string } })

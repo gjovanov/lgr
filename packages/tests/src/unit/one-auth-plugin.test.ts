@@ -44,3 +44,34 @@ describe('FR-24.30: one auth plugin for every domain API', () => {
     }
   })
 })
+
+/**
+ * FR-32.25 (#797): the portal's `AuthService` and the domains' `AppAuthService` are one chain,
+ * `services/http/session-auth.ts`. They were two copies of the same ~120 lines, so a fix to the 401, the tenant guard
+ * or the home gate had to land twice. Each plugin is now that chain under its own name; neither declares a hook.
+ */
+describe('FR-32.25: one session auth chain for both plugins', () => {
+  const PLUGINS = ['portal-api/src/auth/auth.service.ts', 'services/src/http/app-auth.service.ts']
+
+  for (const file of PLUGINS) {
+    it(`${file} is the chain of services/http/session-auth.ts`, () => {
+      const code = readFileSync(join(PACKAGES, file), 'utf8')
+      expect(code).toMatch(/=\s*sessionAuth\(\{\s*name:\s*'Service\.(App)?Auth'/)
+      expect(code).not.toMatch(/\.(derive|onTransform|onBeforeHandle|macro|use)\(/)
+    })
+  }
+
+  it('the chain is written in one place', () => {
+    const chains: string[] = []
+    for (const pkg of readdirSync(PACKAGES).filter(p => p.endsWith('-api') || p === 'services')) {
+      const src = join(PACKAGES, pkg, 'src')
+      if (!statSync(src, { throwIfNoEntry: false })?.isDirectory()) continue
+      for (const file of sources(src)) {
+        // The chain's two gates: the role decides (`decideAccess`), then the org's home (`homeGate`).
+        const code = readFileSync(file, 'utf8')
+        if (/\bdecideAccess\(/.test(code) && /\bhomeGate\(/.test(code)) chains.push(relative(PACKAGES, file).replace(/\\/g, '/'))
+      }
+    }
+    expect(chains).toEqual(['services/src/http/session-auth.ts'])
+  })
+})

@@ -9,6 +9,7 @@ import { emailRequestBlock } from 'invoicing-api/src/lib/email-guards'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import { templateGrant } from 'config/access'
 // The rules the document lists offer their row actions by (`invoicing-ui` is a private app package).
 import {
   canConvert, canCopy, canCorrect, canDelete, canEmail, canIssue, canRecordPayment, canVoid,
@@ -170,7 +171,8 @@ describe('a row offers exactly what the API allows (FR-22.23)', () => {
   })
 
   it('email: an issued outgoing document, as the email gate decides', () => {
-    const user = { role: 'admin', permissions: DEFAULT_ROLE_PERMISSIONS.admin }
+    // The Administrator's session, as the controller decides by it (FR-27 P3-6: its role's grant).
+    const user = { access: templateGrant('admin') }
     for (const [direction, statuses] of [['outgoing', SALES], ['incoming', BILLS]] as const) {
       for (const status of statuses) {
         const row = { type: 'invoice', direction, status }

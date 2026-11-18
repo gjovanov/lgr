@@ -23,13 +23,15 @@ export interface ProductListQuery {
    * (`findProductIdsBySupplierCode`). Only the caller who may see supplier data passes them.
    */
   supplierCodeIds?: string[][]
+  /** FR-30.11: every article of the org carries the search field (`productSearchFieldComplete`): the search reads it alone. */
+  searchComplete?: boolean
 }
 
 export function buildProductListFilter(orgId: string, q: ProductListQuery): Record<string, any> {
   const filter: Record<string, any> = { orgId }
   if (q.category) filter.category = q.category
   if (q.type) filter.type = q.type
-  if (q.search) Object.assign(filter, buildProductSearchFilter(q.search, { alsoIds: q.supplierCodeIds }))
+  if (q.search) Object.assign(filter, buildProductSearchFilter(q.search, { alsoIds: q.supplierCodeIds, complete: q.searchComplete }))
   if (q.tags) {
     const tagList = Array.isArray(q.tags) ? q.tags : q.tags.split(',')
     filter.tags = { $in: tagList }

@@ -41,7 +41,7 @@ let asked = false
 export function pinShown(): boolean {
   if (!asked) {
     asked = true
-    pinOffered().then(v => { pinAtTill.value = v })
+    pinOffered().then(v => { pinAtTill.value = v }, (e: unknown) => console.warn('[till] could not ask whether a PIN is offered', e))
   }
   return pinAtTill.value
 }

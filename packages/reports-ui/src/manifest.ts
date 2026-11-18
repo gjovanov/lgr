@@ -11,18 +11,18 @@ export const manifest: ModuleManifest = {
   pendingChanges: false,
   menu: null,
   routes: [
-      { path: '', name: 'reports.hub', component: () => import('./views/ReportsHubView.vue'), meta: { breadcrumb: [{ title: 'Reports' }] } },
+      { path: '', name: 'reports.hub', component: () => import('./views/ReportsHubView.vue') },
 
       // ── Moved from invoicing-ui (FR-6.19) ──
-      { path: 'export', name: 'reports.export', component: () => import('./views/ReportingExportView.vue'), meta: { breadcrumb: [{ title: 'Reports', to: '/' }, { title: 'Export' }] } },
-      { path: 'aging', name: 'reports.aging', component: () => import('./views/InvoiceAgingView.vue'), meta: { breadcrumb: [{ title: 'Reports', to: '/' }, { title: 'Aging Report' }] } },
+      { path: 'export', name: 'reports.export', component: () => import('./views/ReportingExportView.vue') },
+      { path: 'aging', name: 'reports.aging', component: () => import('./views/InvoiceAgingView.vue') },
 
       // ── SUPTO / НАП tables 18.1–18.9 (FR-06 P2) ──
       // One view, nine catalog cards. It drives the existing `/supto/export/:tableId`
       // endpoint because those workbooks are legally prescribed — see supto.report.ts.
-      { path: 'supto/:table', name: 'reports.supto', component: () => import('./views/SuptoTableView.vue'), meta: { breadcrumb: [{ title: 'Reports', to: '/' }, { title: 'SUPTO' }] } },
+      { path: 'supto/:table', name: 'reports.supto', component: () => import('./views/SuptoTableView.vue') },
 
       // ── Registry-driven (FR-6.9) ──
-      { path: ':id', name: 'reports.runner', component: () => import('./views/ReportRunnerView.vue'), meta: { breadcrumb: [{ title: 'Reports', to: '/' }, { title: 'Report' }] } },
+      { path: ':id', name: 'reports.runner', component: () => import('./views/ReportRunnerView.vue') },
     ],
 }

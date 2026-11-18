@@ -22,6 +22,7 @@ import { fileController } from './controllers/file.controller.js'
 import { notificationController } from './controllers/notification.controller.js'
 import { appHubController } from './controllers/app-hub.controller.js'
 import { tagController } from './controllers/tag.controller.js'
+import { documentLookupController } from './controllers/document-lookup.controller.js'
 import { auditLogController } from './controllers/audit-log.controller.js'
 import { roleController } from './controllers/role.controller.js'
 import { dashboardController } from './controllers/dashboard.controller.js'
@@ -224,7 +225,9 @@ export function createApiApp() {
         // (`/org/:orgId/reports/:id/export`) is what it was a placeholder for.
         .use(notificationController)
         .use(appHubController)
-        .use(tagController)
+        // FR-31.22: the top bar's jump to a document by its number, mounted with the tags as ONE plugin. Every `.use`
+        // added to this chain is one more TS2589 (the chain is that deep); grouped, the two count as the one before.
+        .use(new Elysia().use(tagController).use(documentLookupController))
         .use(auditLogController)
         .use(roleController)
         .use(dashboardController)

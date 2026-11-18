@@ -561,6 +561,10 @@ export const config = {
      * `page.pdf` itself already gives up after 30 s.
      */
     renderTimeoutMs: Number(process.env.PDF_RENDER_TIMEOUT_MS) || 60_000,
+    /** FR-30.20 (D-6): renders at once in one process; the rest wait, inside their deadline. */
+    concurrency: Number(process.env.PDF_RENDER_CONCURRENCY) || 2,
+    /** FR-30.19 (D-7): how long the process's one Chrome lives without a render before it is closed. */
+    browserIdleMs: Number(process.env.PDF_BROWSER_IDLE_MS) || 5 * 60_000,
   },
   digest: {
     /**
@@ -571,6 +575,15 @@ export const config = {
     checkIntervalMs: process.env.DIGEST_CHECK_INTERVAL_MS !== undefined
       ? Number(process.env.DIGEST_CHECK_INTERVAL_MS)
       : 10 * 60 * 1000, // 10 minutes
+  },
+  postings: {
+    /**
+     * FR-29.16: how often the `postings` scheduler retries the journal entries still owed. Every pod runs it (the
+     * posting key decides). 0 disables it; a posting is still tried at once after its commit.
+     */
+    drainIntervalMs: process.env.POSTINGS_DRAIN_INTERVAL_MS !== undefined
+      ? Number(process.env.POSTINGS_DRAIN_INTERVAL_MS)
+      : 60 * 1000,
   },
   desktop: {
     /**

@@ -19,7 +19,7 @@
         <v-text-field v-model="dateFrom" type="date" :label="$t('files.audit.from')" density="compact" variant="outlined" hide-details clearable style="max-width: 180px" @update:model-value="reload" />
         <v-text-field v-model="dateTo" type="date" :label="$t('files.audit.to')" density="compact" variant="outlined" hide-details clearable style="max-width: 180px" @update:model-value="reload" />
         <v-spacer />
-        <v-btn variant="text" icon="mdi-refresh" @click="reload" />
+        <v-btn :aria-label="$t('common.refresh')" :title="$t('common.refresh')" variant="text" icon="mdi-refresh" @click="reload" />
       </v-card-text>
     </v-card>
 
@@ -36,7 +36,7 @@
       item-value="_id"
       @update:options="onOptions"
     >
-      <template #item.timestamp="{ item }">{{ new Date(item.timestamp).toLocaleString() }}</template>
+      <template #item.timestamp="{ item }">{{ formatDateTime(item.timestamp) }}</template>
       <template #item.action="{ item }"><v-chip size="x-small" :color="actionColor(item.action)" label>{{ item.action }}</v-chip></template>
       <template #item.actor="{ item }">{{ actorName(item) }}</template>
       <template #expanded-row="{ columns, item }">
@@ -56,6 +56,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'

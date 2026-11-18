@@ -24,7 +24,7 @@ FROM oven/bun:1.4.4-slim@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3
 # /root/.cache here: mode 700, so the app could not start a browser once it stopped being root.
 ENV PUPPETEER_CACHE_DIR=/app/.cache/puppeteer
 
-# Puppeteer/Chromium system libs — required by md-to-pdf for PDF export.
+# Puppeteer/Chromium system libs — required by the PDF export (reporting, Puppeteer).
 # The bun:slim image omits these, which causes libglib-2.0.so.0 not found.
 # ⚠ This layer is reused until the base digest, this list or OS_REFRESH changes. The packages are
 # not pinned, so the deploy script passes the month: the first deploy of a month reinstalls them

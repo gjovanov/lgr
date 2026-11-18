@@ -109,7 +109,7 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
         if (e.key === storageKey(currentOrgId.value, currentUserId.value)) {
           try {
             entries.value = e.newValue ? JSON.parse(e.newValue) : []
-          } catch { /* ignore */ }
+          } catch { /* Another tab wrote what this one cannot read: this tab keeps its own list. */ }
         }
       }
     })
@@ -124,7 +124,7 @@ export const usePendingChangesStore = defineStore('pendingChanges', () => {
 
   function acknowledgeDialog() {
     if (!currentUserId.value) return
-    try { localStorage.setItem(dialogAckKey(currentUserId.value), 'true') } catch { /* ignore */ }
+    try { localStorage.setItem(dialogAckKey(currentUserId.value), 'true') } catch { /* Storage refused (quota, private browsing): the dialog shows again next time, which is all it costs. */ }
   }
 
   function requestLeaveDecision(): Promise<LeaveDecision> {

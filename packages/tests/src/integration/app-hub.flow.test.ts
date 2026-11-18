@@ -3,12 +3,15 @@ import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { register } from 'services/biz/auth.service'
 import { getAvailableApps, activateApp, deactivateApp } from 'services/biz/app-hub.service'
-import { orgAppDao } from 'services/dao/org-app.dao'
 import { Org, OrgApp } from 'db/models'
 import { APP_IDS } from 'config/constants'
 import { ALL } from 'config/access'
 import { capsOfPermissions } from '../helpers/permission-caps'
 
+
+// FR-32.9: read from the model, as the service does (the OrgApp DAO class only tests used is gone).
+const isAppEnabled = async (orgId: string, appId: string) => !!(await OrgApp.findOne({ orgId, appId, enabled: true }).lean())
+const enabledApps = (orgId: string) => OrgApp.find({ orgId, enabled: true }).lean()
 
 beforeAll(async () => {
   await setupTestDB()
@@ -127,7 +130,7 @@ describe('App Hub Flow', () => {
       expect(result.name).toBe('Accounting')
 
       // Verify in DB
-      const isEnabled = await orgAppDao.isAppEnabled(orgId, 'accounting')
+      const isEnabled = await isAppEnabled(orgId, 'accounting')
       expect(isEnabled).toBe(true)
     })
 
@@ -148,8 +151,8 @@ describe('App Hub Flow', () => {
       const userId = String(user._id)
 
       // org is on free plan by default, all 6 apps auto-activated on registration
-      const enabledApps = await orgAppDao.findByOrg(orgId)
-      expect(enabledApps).toHaveLength(APP_IDS.length)
+      const enabled = await enabledApps(orgId)
+      expect(enabled).toHaveLength(APP_IDS.length)
     })
 
     it('should throw if org not found', async () => {
@@ -192,7 +195,7 @@ describe('App Hub Flow', () => {
       expect(result.enabled).toBe(false)
 
       // Verify in DB
-      const isEnabled = await orgAppDao.isAppEnabled(orgId, 'accounting')
+      const isEnabled = await isAppEnabled(orgId, 'accounting')
       expect(isEnabled).toBe(false)
     })
 
@@ -205,47 +208,6 @@ describe('App Hub Flow', () => {
 
       const result = await activateApp(orgId, 'accounting', userId)
       expect(result.enabled).toBe(true)
-    })
-  })
-
-  describe('OrgApp DAO', () => {
-    it('should find enabled apps by org', async () => {
-      const { org, user } = await registerAdmin()
-      const orgId = String(org._id)
-
-      // Every app auto-activated on registration
-      const apps = await orgAppDao.findByOrg(orgId)
-      expect(apps).toHaveLength(APP_IDS.length)
-    })
-
-    it('should not return disabled apps in findByOrg', async () => {
-      const { org, user } = await registerAdmin()
-      const orgId = String(org._id)
-
-      await orgAppDao.deactivateApp(orgId, 'accounting')
-
-      const apps = await orgAppDao.findByOrg(orgId)
-      expect(apps).toHaveLength(APP_IDS.length - 1)
-    })
-
-    it('should find by org and app', async () => {
-      const { org, user } = await registerAdmin()
-      const orgId = String(org._id)
-
-      const found = await orgAppDao.findByOrgAndApp(orgId, 'accounting')
-      expect(found).not.toBeNull()
-      expect(found!.appId).toBe('accounting')
-    })
-
-    it('should check if app is enabled', async () => {
-      const { org, user } = await registerAdmin()
-      const orgId = String(org._id)
-
-      // Auto-activated on registration
-      expect(await orgAppDao.isAppEnabled(orgId, 'accounting')).toBe(true)
-
-      await orgAppDao.deactivateApp(orgId, 'accounting')
-      expect(await orgAppDao.isAppEnabled(orgId, 'accounting')).toBe(false)
     })
   })
 })

@@ -12,6 +12,7 @@ import { AuditLog, Contact, InternalOrder, Order, ProductSupplier } from 'db/mod
 import { mongoose } from 'db/connection'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import { templateGrant } from 'config/access'
 import { accessRefusal } from 'services/biz/access/evaluate'
 import { getInternalOrderSuggestions } from 'services/biz/reservation-ops.service'
 import { previewOrderFromProducts } from 'services/biz/orders-from-products.service'
@@ -508,7 +509,8 @@ describe('the default supplier of an article (FR-28.11): the recorded preference
 
 describe('the order preview offers a recorded supplier, and agrees with the customer-order hint (FR-28.11)', () => {
   const rowOf = async (w: Awaited<ReturnType<typeof world>>, product: any, kind: 'supplier' | 'customer' = 'supplier') => {
-    const caller = { id: String(w.user._id), orgId: w.orgId, role: 'admin', permissions: DEFAULT_ROLE_PERMISSIONS.admin, ownRecordsModules: [] } as any
+    // The Administrator's session, as the controller passes it: its role's grant (FR-27 P3-6).
+    const caller = { id: String(w.user._id), orgId: w.orgId, access: templateGrant('admin') } as any
     const res = await previewOrderFromProducts(w.orgId, caller, { productIds: [String(product._id)], kind })
     return res.rows[0]
   }

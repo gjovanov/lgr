@@ -74,6 +74,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from 'ui-shared/format'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -116,7 +117,7 @@ const lastNumbers = ref<{
   devices?: DeviceWitness[]
 } | null>(null)
 
-const fmtDate = (v?: string | null) => (v ? new Date(v).toLocaleString() : '—')
+const fmtDate = (v?: string | null) => (v ? formatDateTime(v) : '—')
 const deviceReading = (d: DeviceWitness) => d.reading.state === 'read'
   ? t('servers.lastNumbers.devices.read', { n: d.reading.lastDocument, at: fmtDate(d.reading.readAt) })
   : d.reading.state === 'error'

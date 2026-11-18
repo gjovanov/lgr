@@ -81,7 +81,8 @@ export const inviteController = new Elysia()
       if (!can(user, 'invites.manage')) return status(403, { message: 'Admin only' })
 
       const filter: Record<string, any> = { orgId }
-      const result = await paginateQuery(Invite, filter, query)
+      // FR-27 P3-7: an invite's `legacyArchive` (migration 0017) is kept for a hand restore, never sent.
+      const result = await paginateQuery(Invite, filter, query, { select: '-legacyArchive' })
       return { invites: result.items, ...result }
     },
     { isSignIn: true },

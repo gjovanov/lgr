@@ -101,7 +101,7 @@ export function startControlSocket(path: string, secret: string, handlers: Contr
   if (process.platform !== 'win32') chmodSync(path, 0o600)
   return {
     close: () => {
-      server.stop(true)
+      void server.stop(true) // closing: what is left in flight is cut, on purpose
       rmSync(path, { force: true })
     },
   }

@@ -190,12 +190,21 @@ Each PR keeps `bun run test`, `build`, `check:web` and the FR-27 walks green
   factory's `createTestPerson` writes its set through the driver, which 0015 reads.
 
 ### P3-7 · The data contract (one-way)
-- Migration 0016: the legacy fields move to an archive and are unset:
-  - `User.permissions`, `permissionSetIds` and the legacy `role` go to `User.legacyArchive`;
-  - `Invite.assignRole` goes to `Invite.legacyArchive`;
-  - the `PermissionSet` collection is copied to `permissionsets_archive`.
-  It is idempotent and scoped by `orgFilter`, like every migration.
-- The archive is kept for **one release**, then 0017 drops it (§5).
+- Merges only after P3-5 is **released**: until then the app still writes the fields this moves.
+- Migration **0017** (`0017-legacy-access-archive`; 0016 went to FR-30's text indexes): the legacy fields move to an
+  archive and are unset:
+  - `User.permissions`, `permissionSetIds` and the legacy `role` go to `User.legacyArchive` (with `archivedAt`);
+  - `Invite.assignRole` goes to `Invite.legacyArchive` (with `archivedAt`);
+  - the `permissionsets` collection is copied to `permissionsets_archive` (each set with `archivedAt`). The sets
+    themselves stay: dropping the source is the follow-up's, not this migration's.
+  It is idempotent and scoped by `orgFilter`, like every migration, and has a dry run (`bun run migrate --dry-run`).
+  The archive holds exactly what was there (a missing field stays missing), and no answer carries it
+  (`USER_PUBLIC_PROJECTION`, the invite list).
+- ⚠ The schemas must stop defaulting the legacy fields first (P3-5/P3-6): Mongoose writes a default back on any
+  `save()` of a loaded document, so with `role: { default: 'member' }` an archived person would get `role: 'member'`,
+  `permissions: []` and `permissionSetIds: []` again on their next save, and an invite `assignRole: 'member'`.
+- The archive is kept for **one release**, then **0018** drops it (§5): `legacyArchive` on users and invites,
+  `permissionsets_archive`, and the `permissionsets` collection itself.
 
 ### P3-8 · The grep test (acceptance 2)
 - `unit/access-no-legacy.test.ts` fails on any file outside `config/access/`, `services/biz/access/` and
@@ -204,7 +213,7 @@ Each PR keeps `bun run test`, `build`, `check:web` and the FR-27 walks green
   - reads `permissions`, `areas` or `role` from a token or session;
   - imports `compileLegacy`.
 
-**Done (draft PR #838, stacked on P3-6 / #837):** `unit/access-no-legacy.test.ts` scans every `.ts` / `.vue` of `packages/*` and
+**Done (draft PR #838, on master after P3-6 / #837):** `unit/access-no-legacy.test.ts` scans every `.ts` / `.vue` of `packages/*` and
 `scripts/`, comments left out, outside the homes: `config/access/`, `services/biz/access/`, `packages/migrations/`, and the
 tests (`packages/tests/`, `packages/e2e/`), which state fixtures. Four rules, one test each:
 - **role-key check**: a built-in key (`ROLES`) compared with a `role` (`role === 'admin'`, `'x' !== session.role`), a key
@@ -212,7 +221,8 @@ tests (`packages/tests/`, `packages/e2e/`), which state fixtures. Four rules, on
   (`User.find({ role: 'admin' })`). A books split's own `role` (`org.split.role`) is not one;
 - **legacy claim read**: `permissions`, `areas` or `role` read off `user`, `session`, `claims`, `payload`, `token`,
   `viewer`, `who`, `caller`, `actor`, `me`, and any `permissions.includes(…)`;
-- **legacy compiler**: `compileLegacy`, `legacyClaimsOf`, `LEGACY_BRIDGE` (P3-6's frozen-file test pins the importers);
+- **legacy compiler**: `compileLegacy`, `legacyClaimsOf`, `LEGACY_BRIDGE` (P3-6's frozen-file test pins the importers,
+  and lists this test among them: it names the compiler to forbid it);
 - **stored legacy role**: a person's stored `role` (`u.role`, `person.role`, …), allowed only for display, listed with why:
   - `identity/session.service.ts#roleDisplaysOf`: a membership's label in the org picker and switcher;
   - `supto-export.service.ts`: the Н-18 operators table's role column (an audit page's names);
@@ -226,6 +236,8 @@ tests (`packages/tests/`, `packages/e2e/`), which state fixtures. Four rules, on
 - Found on the way, and gone in P3-6 rather than listed: `app-hub.service`'s legacy tiles (`role === 'admin'`, the
   token's permissions), and the legacy-key fallbacks of `administratorFilter`, `setup-facts` (a master's admins), the
   test-org copy's admins and `scripts/register-docs-in-pv.ts`: a person without a role is no Administrator.
+- Found after rebasing on master: `scripts/lib/daily-import.ts#gateGrantSession` judged a server that answers no
+  `access` by the session's `role` claim (`claim === 'admin'`). It now stops such a session: no claim decides.
 
 ## 3. Rollback window
 

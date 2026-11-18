@@ -1,7 +1,8 @@
 <template>
   <v-container fluid>
     <!-- Header: title + actions -->
-    <div class="d-flex align-center mb-4 ga-2 flex-wrap">
+    <!-- The title and its buttons wrap: on a phone the buttons go under the title, and among themselves. -->
+    <div class="d-flex align-center mb-4 ga-2 flex-wrap" :data-testid="headerTestid">
       <div>
         <h1 class="text-h5">{{ title }}</h1>
         <div v-if="subtitle" class="text-body-2 text-medium-emphasis">{{ subtitle }}</div>
@@ -58,6 +59,7 @@
           </div>
 
           <GridColumnPickerDialog
+            v-if="colDialogOpen"
             v-model="colDialogOpen"
             :entries="colEntries"
             @toggle="toggleCol"
@@ -76,7 +78,7 @@
             :loading="loading"
             :page="pagination.page + 1"
             :items-per-page="pagination.size"
-            :items-per-page-options="itemsPerPageOptions"
+            :items-per-page-options="sizeOptions"
             :item-value="itemValue"
             :density="density"
             hover
@@ -124,14 +126,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, toRef, useSlots } from 'vue'
+import { computed, ref, toRef, useSlots, defineAsyncComponent } from 'vue'
 import { useRoute } from 'vue-router'
 import StatCard, { type StatCardDef } from './StatCard.vue'
 import EmptyState from './EmptyState.vue'
 import ListLoadError from './ListLoadError.vue'
-import GridColumnPickerDialog from './GridColumnPickerDialog.vue'
+// FR-30.23: the drag library comes with the picker, when it opens, and not with the screen.
+const GridColumnPickerDialog = defineAsyncComponent(() => import('./GridColumnPickerDialog.vue'))
 import { useGridColumns } from '../composables/useGridColumns'
 import type { PaginationState } from '../composables/usePaginatedTable'
+import { pageSizeOptions } from '../composables/page-sizes'
 
 interface EmptyDef {
   icon?: string
@@ -178,6 +182,8 @@ const props = withDefaults(defineProps<{
    */
   selectable?: boolean
   selected?: string[]
+  /** A `data-testid` for the title row, for a list whose tests measure it (Movements, FR-31.19). */
+  headerTestid?: string
 }>(), {
   view: 'list',
   itemValue: '_id',
@@ -199,6 +205,9 @@ const emit = defineEmits<{
   'kpi-click': [kpi: StatCardDef]
   'update:selected': [ids: string[]]
 }>()
+
+/** FR-30.9: "All" only while the list's total is within the ceiling of an answer. */
+const sizeOptions = computed(() => pageSizeOptions(props.itemsPerPageOptions ?? [], props.pagination.total))
 
 /** FR-31.7: ask for the same page again, as the table itself would (`update:options`, which every list binds). */
 function retry() {

@@ -331,7 +331,13 @@
       "internalOrders": "Noch keine Kundenbestellungen",
       "internalOrdersHint": "Erstellen Sie eine Kundenbestellung für zukünftige Lieferung — reservieren Sie Bestand oder erwartete Ware.",
       "reservations": "Noch keine Reservierungen",
-      "reservationsHint": "Reservierungen verknüpfen Kundenbedarf mit Lagerbestand oder mit Ware, die aus Lieferantenbestellungen erwartet wird."
+      "reservationsHint": "Reservierungen verknüpfen Kundenbedarf mit Lagerbestand oder mit Ware, die aus Lieferantenbestellungen erwartet wird.",
+      "movements": "Noch keine Lagerbewegungen",
+      "movementsHint": "Erfassen Sie einen Wareneingang, eine Auslieferung oder eine Umlagerung, um zu beginnen.",
+      "stockLevels": "Noch kein Bestand",
+      "stockLevelsHint": "Der Bestand erscheint hier, sobald ein Wareneingang bestätigt ist.",
+      "inventoryCounts": "Noch keine Inventuren",
+      "inventoryCountsHint": "Beginnen Sie eine Inventur, um die Regale mit den Büchern zu vergleichen."
     }
   },
   "common": {
@@ -480,7 +486,10 @@
       "forbidden": "Ihre Rolle darf diese Liste nicht sehen.",
       "failed": "Die Liste konnte nicht geladen werden. Bitte gleich erneut versuchen."
     },
-    "exportInReport": "Öffnet den Bericht zu dieser Liste, der nach Excel und PDF exportiert"
+    "exportInReport": "Öffnet den Bericht zu dieser Liste, der nach Excel und PDF exportiert",
+    "sessionCheckUnavailable": "Die Sitzung konnte gerade nicht geprüft werden. Sie sind weiterhin angemeldet: Versuchen Sie es gleich noch einmal.",
+    "queryTimeout": "Das hat zu lange gedauert und wurde abgebrochen. Versuchen Sie es erneut oder grenzen Sie die Anfrage ein.",
+    "apply": "Anwenden"
   },
   "export": {
     "aggregated": "Nach Produkt aggregieren",
@@ -893,6 +902,37 @@
         "reporting_month_invalid": "Geben Sie einen Monat ein.",
         "date_invalid": "Geben Sie ein Datum ein.",
         "link_incomplete": "Jede Verknüpfung braucht eine Art und eine Nummer."
+      },
+      "postings": {
+        "owed": "{count} Buchungssätze werden von Belegen geschuldet und sind noch nicht gebucht. Sie werden von selbst erneut versucht.",
+        "failed": "{count} Buchungssätze konnten nach allen Versuchen nicht gebucht werden.",
+        "show": "Anzeigen",
+        "hide": "Ausblenden",
+        "retry": "Erneut versuchen",
+        "columns": {
+          "document": "Beleg",
+          "event": "Buchung",
+          "state": "Status",
+          "attempts": "Versuche",
+          "lastError": "Letzter Fehler",
+          "createdAt": "Geschuldet seit"
+        },
+        "events": {
+          "invoice_posted": "Ausgestellter Beleg",
+          "payment_recorded": "Zahlung",
+          "stock_movement_confirmed": "Lagerbewegung",
+          "pos_session_closed": "Kassenschicht geschlossen"
+        },
+        "states": {
+          "queued": "Wartet",
+          "failed": "Fehlgeschlagen"
+        },
+        "outcomes": {
+          "done": "Gebucht",
+          "retry": "Nicht gebucht: wird erneut versucht",
+          "failed": "Nicht gebucht",
+          "not_due": "Wird gerade gebucht"
+        }
       }
     },
     "paymentCodes": {
@@ -936,6 +976,7 @@
     "default": "Standard"
   },
   "payroll": {
+    "legacyNotComputed": "Überstunden, Prämien und Zulagen werden hier nicht berechnet: das Bruttogehalt ist das Grundgehalt.",
     "timesheetTypes": {
       "regular": "Regulär",
       "overtime": "Überstunden",
@@ -1817,7 +1858,8 @@
       "loopback": "der Server selbst",
       "desktop": "der Desktop {name}",
       "lan": "das Netzwerk des Geschäfts"
-    }
+    },
+    "systemActor": "System"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",
@@ -2555,7 +2597,16 @@
     "lineRefusal": {
       "short": "Nicht genug Bestand: {available} verfügbar, {requested} benötigt"
     },
-    "searchInvoiceNumber": "Nach Nummer suchen"
+    "searchInvoiceNumber": "Nach Nummer suchen",
+    "transfer": {
+      "covered": "Gedeckt",
+      "shortBy": "Es fehlen {n}",
+      "available": "Verfügbar",
+      "quantity": "Umbuchungsmenge",
+      "needed": "Benötigt",
+      "total": "Umbuchung gesamt",
+      "notCovered": "Einige Artikel sind nicht vollständig gedeckt. Passen Sie die Umbuchungsmengen an, um fortzufahren."
+    }
   },
   "warehouse": {
     "sku": "Artikelnr.",
@@ -3005,12 +3056,30 @@
       "dispatch_not_invoiceable": "Dieser Warenausgang wurde von {number} gebucht, das storniert ist. Er ist keine Lieferung und wird nicht fakturiert.",
       "orphan": "Dieser Warenausgang gehört zu einem Dokument, das es nicht mehr gibt. Er ist keine Lieferung und wird nicht fakturiert.",
       "dispatch_is_reversal": "Dieser Warenausgang bucht die Ware eines entfernten Dokuments aus. Er ist keine Lieferung und wird nicht fakturiert."
+    },
+    "bulkPricing": {
+      "intro": "Wählen Sie Artikel-Tags und ändern Sie den Verkaufspreis um einen Prozentsatz. Optional auch alle Sonderpreise.",
+      "introCustom": "Wählen Sie Sonderpreis-Tags (z. B. „Stammkunden“). Nur Sonderpreise mit diesen Tags werden geändert.",
+      "productTags": "Artikel-Tags",
+      "sellingPercent": "Verkaufspreis %",
+      "decreaseHint": "Negativ = Senkung",
+      "alsoCustom": "Auch Sonderpreise ändern",
+      "customPercent": "Sonderpreis %",
+      "customDefaultsHint": "Standard: wie Verkaufspreis %",
+      "customPriceTags": "Sonderpreis-Tags",
+      "adjustPercent": "Änderung %",
+      "confirmProducts": "Verkaufspreis um {percent}% ändern für Artikel mit dem Tag {tags}.",
+      "confirmAlsoCustom": "Auch Sonderpreise um {percent}% ändern.",
+      "confirmCustom": "Sonderpreise um {percent}% ändern für den Tag {tags}.",
+      "decreaseWarning": "Damit werden die Preise gesenkt.",
+      "result": "{products} Artikel aktualisiert, {prices} Preise geändert."
     }
   },
   "pricing": {
     "explainPrice": "Preis erklären",
     "priceBreakdown": "Preisaufschlüsselung",
-    "customerPrice": "Kundenpreis"
+    "customerPrice": "Kundenpreis",
+    "manualOverride": "Manuell überschrieben"
   },
   "defaultCategories": {
     "electronics": "Elektronik",
@@ -5411,6 +5480,39 @@
       "previewHint": "Die Seiten, die ihren Personen angeboten werden, so wie die Rolle hier steht (vor dem Speichern).",
       "previewNone": "Keine Seite: die Person sieht nur ihr Konto.",
       "portal": "Portal"
+    }
+  },
+  "shell": {
+    "apps": "Apps",
+    "portal": "Portal",
+    "theme": "Helles oder dunkles Design",
+    "menu": "Menü",
+    "jump": {
+      "open": "Beleg nach Nummer finden (Strg+K)",
+      "label": "Belegnummer",
+      "hint": "Nummer eingeben oder einfügen, dann Enter drücken",
+      "none": "Kein Beleg hat die Nummer {number}.",
+      "several": "Mehrere Belege haben die Nummer {number}. Bitte einen wählen:",
+      "prefix": "Nummern, die mit {number} beginnen:",
+      "more": "Nur die ersten {n} werden angezeigt: geben Sie mehr von der Nummer ein.",
+      "failed": "Die Suche hat nicht geantwortet. Bitte erneut versuchen.",
+      "viaDraft": "Entwurf {number}",
+      "kind": {
+        "invoice": "Rechnung",
+        "creditNote": "Gutschrift",
+        "debitNote": "Belastungsanzeige",
+        "proforma": "Proformarechnung",
+        "offer": "Angebot",
+        "bill": "Eingangsrechnung",
+        "cashSale": "Barverkauf",
+        "cashStorno": "Storno eines Barverkaufs",
+        "paymentReceipt": "Zahlungsbeleg",
+        "paymentStorno": "Storno einer Zahlung",
+        "supplierOrder": "Lieferantenbestellung",
+        "customerOrder": "Kundenauftrag",
+        "reservation": "Reservierung",
+        "movement": "Lagerbewegung"
+      }
     }
   }
 }

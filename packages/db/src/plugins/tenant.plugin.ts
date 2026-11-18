@@ -1,6 +1,7 @@
 import type { Schema } from 'mongoose'
 import { homeWriteGuard } from '../home/write-guard.js'
 import { referenceGuard } from './reference-guard.js'
+import { queryTimeLimitPlugin } from './query-time-limit.js'
 
 /**
  * Adds `orgId` to a schema, and (FR-20.4) the write guard that refuses writes to an org whose home
@@ -45,4 +46,6 @@ export function tenantPlugin(schema: Schema) {
   homeWriteGuard(schema)
   // Inside a request, a document may not be made to point at another org's record.
   referenceGuard(schema)
+  // FR-29.26: a request's reads have a time limit (logged only, until `QUERY_TIME_LIMIT_MODE=enforce`).
+  queryTimeLimitPlugin(schema)
 }

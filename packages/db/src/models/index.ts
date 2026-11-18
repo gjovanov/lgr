@@ -5,11 +5,11 @@ export { Tag, type ITag } from './tag.model.js'
 export { Org, type IOrg, settingsForClient, orgForClient } from './org.model.js'
 export { OrgHome, type IOrgHome, type OrgHomeState } from './org-home.model.js'
 export { OrgLogo, type IOrgLogo } from './org-logo.model.js'
-export { User, type IUser, type IOAuthProvider, type IRoleHistoryEntry } from './user.model.js'
+export { User, type IUser, type IOAuthProvider, type IRoleHistoryEntry, type IUserLegacyArchive } from './user.model.js'
 export { Identity, type IIdentity, type IIdentityProvider, type PasswordSetBy } from './identity.model.js'
 export { AuthToken, type IAuthToken, type AuthTokenPurpose } from './auth-token.model.js'
 export { Role, type IRole } from './role.model.js'
-export { Invite, type IInvite, type InviteStatus } from './invite.model.js'
+export { Invite, type IInvite, type IInviteLegacyArchive, type InviteStatus } from './invite.model.js'
 export { Code, type ICode, type CodeType } from './code.model.js'
 export { OAuthHandoff, type IOAuthHandoff } from './oauth-handoff.model.js'
 export { LoginThrottle, type ILoginThrottle } from './login-throttle.model.js'
@@ -39,6 +39,7 @@ export { Journal, type IJournal } from './journal.model.js'
 export { Account, type IAccount } from './account.model.js'
 export { FiscalYear, type IFiscalYear } from './fiscal-year.model.js'
 export { FiscalPeriod, type IFiscalPeriod } from './fiscal-period.model.js'
+export { PostingJob, type IPostingJob, type PostingEvent, type PostingState } from './posting-job.model.js'
 export { JournalEntry, BOOKS_IMPORT, IMPORTED_OPENING, LEDGERS, POSTED_BOOKS, type IJournalEntry, type IJournalEntryLine, type Ledger } from './journal-entry.model.js'
 export { AccountingAnalytic, ANALYTIC_KINDS, type IAccountingAnalytic, type AnalyticKind } from './accounting-analytic.model.js'
 export { FixedAsset, type IFixedAsset } from './fixed-asset.model.js'
@@ -52,7 +53,10 @@ export { FiscalPosition, type IFiscalPosition, type IFiscalPositionTaxMap } from
 
 // Invoicing
 export { Contact, type IContact } from './contact.model.js'
-export { Invoice, INVOICE_NUMBER_KEY, type IInvoice } from './invoice.model.js'
+export {
+  Invoice, INVOICE_NUMBER_KEY, type IInvoice, type IInvoiceLine, type IInvoicePayment, type IPriceStep, type IInvoiceCashSaleRef,
+  type IInvoiceAddress, type IInvoiceRecurringConfig,
+} from './invoice.model.js'
 export { Order, type IOrder, type IOrderSupplierGroup, type IOrderLine, type IOrderAllocation, type IOrderReservation } from './order.model.js'
 export { InternalOrder, type IInternalOrder, type IInternalOrderLine } from './internal-order.model.js'
 export { Reservation, type IReservation } from './reservation.model.js'
@@ -139,3 +143,4 @@ export { FencedImportItem, FENCED_IMPORT_OUTCOMES, type IFencedImportItem, type 
 
 // Infrastructure
 export { Sequence, type ISequence } from './sequence.model.js'
+export { SchedulerLease, type ISchedulerLease } from './scheduler-lease.model.js'

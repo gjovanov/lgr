@@ -1,69 +1,60 @@
 <template>
-  <v-container fluid>
-    <div class="d-flex align-center mb-4">
-      <h1 class="text-h5">{{ $t('nav.inventoryCount') }}</h1>
-      <v-spacer />
-      <div class="d-flex ga-2">
-        <responsive-btn v-cap="'inventory-counts.create'" color="primary" icon="mdi-plus" :to="{ name: 'inventory.inventory-counts.new' }">{{ $t('common.create') }}</responsive-btn>
-      </div>
-    </div>
+  <!-- FR-31.19: on the shared list shell, so the list has the column picker and remembers its columns (keyed by the
+       route name, `inventory.inventory-counts`, which does not change). -->
+  <ListScaffold
+    :title="$t('nav.inventoryCount')"
+    :headers="headers"
+    :items="items"
+    :loading="loading"
+    :pagination="pagination"
+    :has-active-filters="!!debouncedSearch"
+    :empty="{ icon: 'mdi-clipboard-check', title: $t('list.empty.inventoryCounts'), description: $t('list.empty.inventoryCountsHint') }"
+    :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
+    density="default"
+    @update:options="onUpdateOptions"
+  >
+    <template #actions>
+      <responsive-btn v-cap="'inventory-counts.create'" color="primary" icon="mdi-plus" :to="{ name: 'inventory.inventory-counts.new' }">{{ $t('common.create') }}</responsive-btn>
+    </template>
 
-    <v-card class="mb-4">
-      <v-card-text class="pb-4">
-        <v-row>
-          <v-col cols="12" md="4">
-            <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
-          </v-col>
-        </v-row>
-      </v-card-text>
-    </v-card>
+    <template #filters>
+      <v-card class="mb-4">
+        <v-card-text class="pb-4">
+          <v-row>
+            <v-col cols="12" md="4">
+              <v-text-field v-model="search" prepend-inner-icon="mdi-magnify" :label="$t('common.search')" clearable hide-details density="compact" />
+            </v-col>
+          </v-row>
+        </v-card-text>
+      </v-card>
+    </template>
 
-    <v-card>
-      <v-card-text>
-        <v-data-table-server
-          :headers="headers"
-          :items="items"
-          :items-length="pagination.total"
-          :loading="loading"
-          :page="pagination.page + 1"
-          :items-per-page="pagination.size"
-          @update:options="onUpdateOptions"
-          item-value="_id"
-          hover
-        >
-          <!-- FR-31.7: a request that failed or was refused is said, with Retry; never "no data". -->
-          <template v-if="pagination.loadError" #no-data>
-            <ListLoadError :failure="pagination.loadError" @retry="fetchItems" />
-          </template>
-          <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
-          <template #item.type="{ item }">
-            <v-chip size="small" label>{{ $t(`warehouse.countType.${item.type || 'full'}`) }}</v-chip>
-          </template>
-          <template #item.status="{ item }">
-            <v-chip size="small" label :color="item.status === 'completed' ? 'success' : item.status === 'in_progress' ? 'warning' : 'grey'">
-              {{ $t(`warehouse.countStatus.${item.status}`) }}
-            </v-chip>
-          </template>
-          <template #item.varianceCount="{ item }">
-            <span :class="item.varianceCount > 0 ? 'text-error font-weight-bold' : ''">{{ item.varianceCount || 0 }}</span>
-          </template>
-          <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.inventory-counts.edit', params: { id: item._id } }" />
-            <v-btn v-if="item.status === 'in_progress'" v-cap="['inventory-counts.create', 'inventory-counts.edit']" icon="mdi-check-all" size="small" variant="text" color="success" :title="$t('warehouse.completeCount')" :loading="completing === item._id" :disabled="completing !== null && completing !== item._id" data-testid="complete-count" @click="complete(item)" />
-          </template>
-        </v-data-table-server>
-      </v-card-text>
-    </v-card>
-
-  </v-container>
+    <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
+    <template #item.type="{ item }">
+      <v-chip size="small" label>{{ $t(`warehouse.countType.${item.type || 'full'}`) }}</v-chip>
+    </template>
+    <template #item.status="{ item }">
+      <v-chip size="small" label :color="item.status === 'completed' ? 'success' : item.status === 'in_progress' ? 'warning' : 'grey'">
+        {{ $t(`warehouse.countStatus.${item.status}`) }}
+      </v-chip>
+    </template>
+    <template #item.varianceCount="{ item }">
+      <span :class="item.varianceCount > 0 ? 'text-error font-weight-bold' : ''">{{ item.varianceCount || 0 }}</span>
+    </template>
+    <template #item.actions="{ item }">
+      <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.inventory-counts.edit', params: { id: item._id } }" />
+      <v-btn v-if="item.status === 'in_progress'" v-cap="['inventory-counts.create', 'inventory-counts.edit']" icon="mdi-check-all" size="small" variant="text" color="success" :title="$t('warehouse.completeCount')" :loading="completing === item._id" :disabled="completing !== null && completing !== item._id" data-testid="complete-count" @click="complete(item)" />
+    </template>
+  </ListScaffold>
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
-import ListLoadError from 'ui-shared/components/ListLoadError.vue'
+import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'

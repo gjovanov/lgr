@@ -79,7 +79,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="(line, idx) in form.lines" :key="idx">
+          <tr v-for="(line, idx) in form.lines" :key="rowKey(line)">
             <td style="min-width: 200px">
               <v-select
                 v-model="line.accountId"
@@ -126,7 +126,7 @@
               />
             </td>
             <td v-if="entryStatus === 'draft'">
-              <v-btn icon="mdi-close" size="x-small" variant="text" @click="removeLine(idx)" />
+              <v-btn :aria-label="$t('common.close')" :title="$t('common.close')" icon="mdi-close" size="x-small" variant="text" @click="removeLine(idx)" />
             </td>
           </tr>
         </tbody>
@@ -163,6 +163,8 @@
 </template>
 
 <script setup lang="ts">
+import { rowKey } from 'ui-shared/composables/row-key'
+import { intlLocale } from 'ui-shared/format'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -189,8 +191,7 @@ const { loadError, refusal, loadStarted, loadFailed, refused, succeeded, dismiss
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
-  const map: Record<string, string> = { en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' }
-  return map[appStore.locale] || 'en-US'
+  return intlLocale(appStore.locale)
 })
 
 const formRef = ref()
@@ -267,8 +268,8 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   icon: 'mdi-book-open-page-variant',
   getFormData: () => ({ ...form, lines: [...form.lines], header: JSON.parse(JSON.stringify(header.value)) }),
   getPreviewFields: () => [
-    { label: 'Date', value: form.date },
-    { label: 'Ref', value: form.reference },
+    { label: t('common.date'), value: form.date },
+    { label: t('accounting.reference'), value: form.reference },
   ],
   setFormData: (data) => {
     const { header: savedHeader, ...rest } = data as any

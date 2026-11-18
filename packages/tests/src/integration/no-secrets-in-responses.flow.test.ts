@@ -148,13 +148,24 @@ beforeAll(async () => {
     await mongoose.model(name).collection.insertOne(doc)
     seeded.push(...paths.map(p => `${name}.${p}`))
   }
+
+  // FR-27 P3-7: the legacy access migration 0017 archives is no secret, but it is kept for a hand restore only, and no
+  // answer carries it either: on every person of the org (the admin's own row included) and on an invite.
+  await db.collection('users').updateMany({ orgId: orgOid }, {
+    $set: { legacyArchive: { role: markOf('User', 'legacyArchive.role'), permissions: [markOf('User', 'legacyArchive.permissions')], archivedAt: new Date() } },
+  })
+  await db.collection('invites').insertOne({
+    orgId: orgOid, code: 's14-archived', inviterId: admin._id, status: 'active', useCount: 0,
+    legacyArchive: { assignRole: markOf('Invite', 'legacyArchive.assignRole'), archivedAt: new Date() },
+  } as any)
+  seeded.push('User.legacyArchive.role', 'User.legacyArchive.permissions', 'Invite.legacyArchive.assignRole')
 }, 120_000)
 
 afterAll(async () => { await teardownTestDB() }, 60_000)
 
 describe('S-14: no route hands out a secret', () => {
   it('has secrets to look for: the password, the provider tokens, the credential and code hashes', () => {
-    for (const p of ['User.password', 'User.oauthProviders.refreshToken', 'Identity.password', 'LocalCredential.verifier', 'AuthToken.tokenHash', 'Code.token', 'Org.settings.integrations.googleDrive.refreshToken']) {
+    for (const p of ['User.password', 'User.oauthProviders.refreshToken', 'Identity.password', 'LocalCredential.verifier', 'AuthToken.tokenHash', 'Code.token', 'Org.settings.integrations.googleDrive.refreshToken', 'User.legacyArchive.role', 'Invite.legacyArchive.assignRole']) {
       expect(seeded).toContain(p)
     }
   })

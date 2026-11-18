@@ -14,7 +14,7 @@
             </template>
             <v-list-item-title>
               <a :href="noteHref(n.id)" target="_blank" rel="noopener" class="font-weight-medium">{{ n.number }}</a>
-              · {{ String(n.date || '').slice(0, 10) }}
+              · {{ formatDate(n.date || '') }}
               <v-chip v-if="n.noCustomer" size="x-small" label class="ml-1" data-testid="dispatch-no-customer">{{ $t('invoicing.linkNote.noCustomer') }}</v-chip>
             </v-list-item-title>
             <v-list-item-subtitle>{{ $t('invoicing.linkNote.noteLines', { n: n.lineCount, quantity: n.quantity }, n.lineCount) }}</v-list-item-subtitle>
@@ -63,6 +63,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'

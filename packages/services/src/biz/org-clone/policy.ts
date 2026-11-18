@@ -38,6 +38,7 @@ export const NEVER_CLONED: Readonly<Record<string, string>> = {
   EmailLog: 'a log of mail sent to real people',
   Notification: "a person's inbox",
   PersonalDataKey: 'sealed personal data (FR-25): its key row is never copied, and a source that holds one is refused',
+  PostingJob: 'an owed journal entry (FR-29.15): the copy carries its documents and their entries as they stand, and owes nothing it did not do',
 }
 
 /**

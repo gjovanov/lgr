@@ -27,7 +27,9 @@ const READ_ONLY: Record<string, string> = {
   'cash-register-preflight.ts': 'reports what FR-21\'s copy (0008) would meet, and its parity over the copies (FR-21.21): writes nothing',
   'cash-register-field-check.ts': 'FR-21 §8.4\'s check around a release: counts, SUPTO 18.1–18.5, the digest and the journal, written nowhere',
   'count-issue-leftovers.ts': 'FR-29.12: counts documents issued with a draft movement and drafts with a booked one, through the native driver: writes nothing',
+  'report-unposted.ts': 'FR-29.18: lists the issued documents, payments, movements and till sessions with no journal entry, through the native driver: writes nothing',
   'compare-sales-register.ts': 'FR-25 R3\'s gate: a books org\'s filed sales rows against the rows derived from its branches\' documents, counts only: writes nothing',
+  'index-usage.ts': 'FR-30.5: reads `$indexStats` and the index sizes, counters only: writes nothing',
 }
 
 const sources = () =>

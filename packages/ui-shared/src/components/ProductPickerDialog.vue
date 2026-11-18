@@ -36,6 +36,7 @@
         />
 
         <GridColumnPickerDialog
+          v-if="colDialogOpen"
           v-model="colDialogOpen"
           :entries="colEntries"
           @toggle="toggleCol"
@@ -102,13 +103,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, toRef, watch } from 'vue'
+import { intlLocale } from '../format/format'
+import { computed, nextTick, ref, toRef, watch, defineAsyncComponent } from 'vue'
 import { useGridColumns } from '../composables/useGridColumns'
 import { useProductList } from '../composables/product-list/useProductList'
 import { useProductColumns, PRODUCT_CELL_KEYS } from '../composables/product-list/useProductColumns'
 import ProductFilterBar from './product-list/ProductFilterBar.vue'
 import ProductCell from './product-list/ProductCell.vue'
-import GridColumnPickerDialog from './GridColumnPickerDialog.vue'
+import { pageSizeOptions } from '../composables/page-sizes'
+// FR-30.23: the drag library comes with the picker, when it opens, and not with the screen.
+const GridColumnPickerDialog = defineAsyncComponent(() => import('./GridColumnPickerDialog.vue'))
 
 /**
  * FR-28.23 — the product dialog is the Products list in a window ("Details").
@@ -127,7 +131,7 @@ const props = withDefaults(defineProps<{
   modelValue: boolean
   orgUrl: string
   baseCurrency?: string
-  /** A BCP 47 tag (`en-US`). */
+  /** A formatting locale (`intlLocale` of ui-shared/format); nothing means the app language. */
   locale?: string
   /** A tick column and "Add N articles": the screen takes several at once (FR-28.28). */
   multiple?: boolean
@@ -154,7 +158,7 @@ const emit = defineEmits<{
 const list = useProductList({
   orgUrl: () => props.orgUrl,
   baseCurrency: () => props.baseCurrency || 'EUR',
-  locale: () => props.locale || 'en-US',
+  locale: () => props.locale || intlLocale(),
   source: props.source,
   // It opens sorted by name, as the inline search does, and lists active articles.
   defaultSize: 25,
@@ -195,14 +199,17 @@ const {
 const suppliersShown = computed(() => effectiveHeaders.value.some((h: any) => h.key === 'suppliers'))
 watch(suppliersShown, (shown) => { if (shown && props.modelValue) void list.fetchSupplierFacts() })
 
-/** "All" only where the server can answer it: the till's catalog pages at 200 at most. */
-const pageSizes = computed(() => [
+/**
+ * "All" only where the server can answer it: the till's catalog pages at 200 at most, and a list answer carries at most
+ * a thousand rows (FR-30.9).
+ */
+const pageSizes = computed(() => pageSizeOptions([
   { value: 10, title: '10' },
   { value: 25, title: '25' },
   { value: 50, title: '50' },
   { value: 100, title: '100' },
   ...(props.source === 'till' ? [] : [{ value: -1, title: '$vuetify.dataFooter.itemsPerPageAll' }]),
-])
+], list.pagination.total))
 
 // ── what is ticked, and what the keyboard has under it ──
 const selectedIds = ref<string[]>([])

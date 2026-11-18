@@ -94,7 +94,7 @@
                 <div class="py-1">
                   <div>{{ o.allocation.orderNumber }} · {{ o.allocation.warehouseName }}</div>
                   <div class="text-caption text-medium-emphasis">
-                    {{ o.allocation.supplierName }}<template v-if="o.allocation.expectedDate"> · {{ $t('invoicing.expectedDate') }} {{ o.allocation.expectedDate.split('T')[0] }}</template>
+                    {{ o.allocation.supplierName }}<template v-if="o.allocation.expectedDate"> · {{ $t('invoicing.expectedDate') }} {{ formatDate(o.allocation.expectedDate) }}</template>
                     · {{ $t('invoicing.freeQty') }}: {{ o.free }}
                   </div>
                 </div>
@@ -128,6 +128,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'

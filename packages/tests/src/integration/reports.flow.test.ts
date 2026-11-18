@@ -13,7 +13,8 @@ import {
   canAccessReport,
   validateParams,
 } from 'services/biz/report-registry'
-import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import { templateGrant } from 'config/access'
+import { capsOfPermissions } from '../helpers/permission-caps'
 import type { Types } from 'mongoose'
 
 /**
@@ -33,9 +34,9 @@ afterEach(async () => {
   await clearCollections()
 })
 
-/** A caller shaped like the JWT payload the controller passes to the gate. */
-function caller(role: keyof typeof DEFAULT_ROLE_PERMISSIONS) {
-  return { role, permissions: DEFAULT_ROLE_PERMISSIONS[role] }
+/** A session of a built-in role, as the controller passes it to the gate: its role's grant (FR-27 P3-6). */
+function caller(role: string) {
+  return { access: templateGrant(role) }
 }
 
 describe('Report registry — shape', () => {
@@ -210,7 +211,7 @@ describe('inventory-valuation handler', () => {
     const e = entry()
     expect(canAccessReport(e, caller('warehouse_manager'))).toBe(true)
     // A payroll-only user holds no inventory.read and must not reach the handler.
-    expect(canAccessReport(e, { role: 'member', permissions: ['payroll.read'] })).toBe(false)
+    expect(canAccessReport(e, { access: capsOfPermissions('payroll.read') } as any)).toBe(false)
   })
 
   it('accepts its declared params and drops anything else', () => {

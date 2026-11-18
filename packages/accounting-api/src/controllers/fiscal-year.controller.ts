@@ -7,6 +7,9 @@ import { clientCreate, clientUpdate } from 'services/biz/server-owned'
 // A PUT never carries `orgId`: a document does not move between orgs (FR-20.7). `updateInOrg`
 // drops it too; this answers 422 instead of ignoring it. What else a body may not choose (the
 // fields the server sets) is refused in the handlers: `services/biz/server-owned.ts`.
+// FR-32.18 (#797): a create declares its body as an object. Its values are the model's to judge: the document goes
+// through `clientCreate` and the model's validators, and a value the model refuses answers 422 naming the field.
+const createBody = t.Object({}, { additionalProperties: true })
 const updateBody = t.Object({ orgId: t.Optional(t.Never()) }, { additionalProperties: true })
 
 export const fiscalYearController = new Elysia({ prefix: '/org/:orgId/accounting/fiscal-year' })
@@ -36,7 +39,7 @@ export const fiscalYearController = new Elysia({ prefix: '/org/:orgId/accounting
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'create', module: 'accounting', entityType: 'fiscal_year', entityId: item.id, entityName: (item as any).name })
 
     return { fiscalYear: item }
-  }, { isSignIn: true })
+  }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
     const r = getRepos()
     const existing = await r.fiscalYears.findByIdInOrg(params.id, params.orgId)

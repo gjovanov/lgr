@@ -31,16 +31,16 @@
           item-value="_id"
           hover
         >
-          <template #item.validFrom="{ item }">{{ item.validFrom?.split('T')[0] || '-' }}</template>
-          <template #item.validTo="{ item }">{{ item.validTo?.split('T')[0] || '-' }}</template>
+          <template #item.validFrom="{ item }">{{ formatDate(item.validFrom) || '-' }}</template>
+          <template #item.validTo="{ item }">{{ formatDate(item.validTo) || '-' }}</template>
           <template #item.isActive="{ item }">
             <v-icon :color="item.isActive !== false ? 'success' : 'grey'">
               {{ item.isActive !== false ? 'mdi-check-circle' : 'mdi-close-circle' }}
             </v-icon>
           </template>
           <template #item.actions="{ item }">
-            <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.price-lists.edit', params: { id: item._id } }" />
-            <v-btn v-cap="'price-lists.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
+            <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" :to="{ name: 'inventory.price-lists.edit', params: { id: item._id } }" />
+            <v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" v-cap="'price-lists.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>
@@ -61,6 +61,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
@@ -68,6 +69,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 interface Item { _id: string; name: string; currency: string; validFrom?: string; validTo?: string; isActive: boolean; itemCount?: number; items?: any[] }
@@ -87,10 +89,15 @@ const filters = computed(() => {
 })
 
 const url = computed(() => `${appStore.orgUrl()}/warehouse/price-list`)
+// FR-31.18: the list's place (search, page, size, sort) in the address; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+])
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'priceLists',
   filters,
+  urlSync: true,
 })
 
 const headers = computed(() => [

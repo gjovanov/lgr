@@ -12,8 +12,7 @@ import { sessionFor, tokenize } from 'services/biz/auth.service'
 import { forgetMember, forgetRole } from 'services/biz/access/live'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 import { typedPriceRefusal, withArticleUnits } from 'services/biz/sales-lines'
-import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
-import type { CapabilityId } from 'config/access'
+import { templateGrant, type CapabilityId } from 'config/access'
 import { forgetDevices, tillApp, tillWorld } from '../helpers/till-world'
 
 /**
@@ -181,11 +180,12 @@ describe('rule 1 on a sales document: the Seller saves a price the form could ha
   })
 
   it('the rule asks nothing of a bill, of a save without lines, or of a session that may type', async () => {
-    const seller = { id: String(users.seller._id), orgId: shopId, role: 'seller', permissions: [...DEFAULT_ROLE_PERMISSIONS.seller] }
+    // A session of the built-in Seller and Sales Consultant: their roles' grants (FR-27 P3-6).
+    const seller = { id: String(users.seller._id), orgId: shopId, access: templateGrant('seller') }
     const lines = [{ productId: bolt, unitPrice: 1.23, quantity: 1 }]
     expect(await typedPriceRefusal(shopId, seller as any, { direction: 'incoming', lines })).toBeNull()
     expect(await typedPriceRefusal(shopId, seller as any, { direction: 'outgoing', lines: [] })).toBeNull()
-    expect(await typedPriceRefusal(shopId, { ...seller, role: 'sales_consultant' } as any, { direction: 'outgoing', lines })).toBeNull()
+    expect(await typedPriceRefusal(shopId, { ...seller, access: templateGrant('sales_consultant') } as any, { direction: 'outgoing', lines })).toBeNull()
     expect((await typedPriceRefusal(shopId, seller as any, { direction: 'outgoing', lines }))?.code).toBe('price_not_offered')
     // Another organization's article offers nothing here.
     const elsewhere = await createTestOrg()

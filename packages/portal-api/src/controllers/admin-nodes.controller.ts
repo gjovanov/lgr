@@ -6,6 +6,10 @@ import { nodeToWire, presenceOfNodes } from 'services/biz/node/node.service'
 import { isSysAdmin } from 'services/biz/sys-admin'
 import { alarmsOfNodes } from 'services/biz/node/node-alarms'
 import { HomeHoldError, heldHomes, holdAfterRestore, releaseHold } from 'services/biz/home/home-hold.service'
+import { postingHealth } from 'services/biz/postings/posting.service'
+import { auditHealth } from 'services/biz/audit-log.service'
+import { lastIndexReport } from 'db/indexes/verify'
+import { schedulerHealth } from 'services/scheduler/registry'
 
 /**
  * The sys-admin Nodes page's API (FR-20 plan step P2-3a): every master registered with global,
@@ -66,6 +70,29 @@ export const adminNodesController = new Elysia({ prefix: '/admin/nodes' })
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!isSysAdmin(user)) return status(403, { message: 'This page requires a system administrator' })
       return await holdAfterRestore({ execute: false })
+    },
+    { isSignIn: true },
+  )
+  /**
+   * FR-29.17: this server's health beyond "it answers", across every org homed here: the journal entries still owed and
+   * failed, and the schedulers. Counts only.
+   *
+   * ⚠ Not `/api/health`: that one is public, polled by desktops, says nothing and never reads the database (`api.ts`).
+   * A master's own count is in its control socket's `/status` (`postings`).
+   */
+  .get(
+    '/health',
+    async ({ user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!isSysAdmin(user)) return status(403, { message: 'This page requires a system administrator' })
+      return {
+        postings: await postingHealth(),
+        // FR-29.21: audit writes that failed in this process.
+        audit: auditHealth(),
+        // FR-29.24/.25: the declared indexes that did not build at start, guard indexes flagged.
+        indexes: lastIndexReport(),
+        schedulers: schedulerHealth().map(s => ({ name: s.name, where: s.where, state: s.state, lastOkAt: s.lastOkAt, failures: s.failures, skippedOverlap: s.skippedOverlap, skippedLease: s.skippedLease, lastError: s.lastError })),
+      }
     },
     { isSignIn: true },
   )
