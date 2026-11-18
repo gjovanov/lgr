@@ -1,4 +1,3 @@
-import type { IndexDescriptionInfo } from 'mongodb'
 import type { Migration } from '../types.js'
 
 /**
@@ -29,7 +28,7 @@ export const dropUnusedIndexes: Migration = {
     const present = new Set((await db.listCollections({}, { nameOnly: true }).toArray()).map((c: { name: string }) => c.name))
     for (const [collection, names] of Object.entries(UNUSED_INDEXES)) {
       if (!present.has(collection)) continue
-      const have = new Set((await db.collection(collection).indexes()).map((i: IndexDescriptionInfo) => i.name))
+      const have = new Set((await db.collection(collection).indexes()).map((i: { name?: string }) => i.name))
       for (const name of names) {
         if (!have.has(name)) continue
         await db.collection(collection).dropIndex(name)
