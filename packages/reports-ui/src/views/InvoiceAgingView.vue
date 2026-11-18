@@ -73,6 +73,7 @@
 </template>
 
 <script setup lang="ts">
+import { intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -101,7 +102,7 @@ const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 function fmt(val: number | undefined) { return formatCurrency(val || 0, baseCurrency.value, localeCode.value) }
 function contactHref(contactId: string) { return appHref('invoicing', `/invoicing/contacts/${contactId}/edit`) }
 

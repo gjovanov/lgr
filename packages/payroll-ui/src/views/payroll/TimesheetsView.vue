@@ -47,7 +47,7 @@
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
       <template #item.actions="{ item }">
-        <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'payroll.timesheets.edit', params: { id: item._id } }" />
+        <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" :to="{ name: 'payroll.timesheets.edit', params: { id: item._id } }" />
       </template>
     </v-data-table-server>
 
@@ -60,6 +60,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 
@@ -81,10 +82,20 @@ const filters = computed(() => {
   return f
 })
 
+// FR-31.18: the list's place (search, employee, period, page, size, sort) in the address; declared before
+// usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'employee', ref: filterEmployee, sanitize: (v: string) => (/^[0-9a-f]{24}$/i.test(v) ? v : undefined) },
+  { key: 'from', ref: filterDateFrom, codec: 'date' },
+  { key: 'to', ref: filterDateTo, codec: 'date' },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/payroll/timesheet`),
   entityKey: 'timesheets',
   filters,
+  urlSync: true,
 })
 
 const headers = [

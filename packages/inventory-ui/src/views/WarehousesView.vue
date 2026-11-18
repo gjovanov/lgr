@@ -51,7 +51,7 @@
           </template>
           <template #item.actions="{ item }">
             <v-btn :icon="writes ? 'mdi-pencil' : 'mdi-eye'" size="small" variant="text" :to="{ name: 'inventory.warehouses.edit', params: { id: item._id } }" />
-            <v-btn v-if="writes" icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
+            <v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" v-if="writes" icon="mdi-delete" size="small" variant="text" color="error" @click="confirmDelete(item)" />
           </template>
         </v-data-table-server>
       </v-card-text>
@@ -81,6 +81,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
 interface IAddress { street: string; city: string; state: string; postalCode: string; country: string }
@@ -110,10 +111,15 @@ const filters = computed(() => {
 })
 
 const url = computed(() => `${appStore.orgUrl()}/warehouse/warehouse`)
+// FR-31.18: the list's place (search, page, size, sort) in the address; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+])
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'warehouses',
   filters,
+  urlSync: true,
 })
 
 const headers = computed(() => [

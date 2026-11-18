@@ -47,7 +47,7 @@
       >
         <div class="timeline-entry">
           <div class="d-flex align-center ga-1 mb-1">
-            <span class="text-caption font-weight-medium">{{ entry.userName || 'System' }}</span>
+            <span class="text-caption font-weight-medium">{{ entry.system || !entry.userName ? $t('admin.systemActor') : entry.userName }}</span>
             <span class="text-caption text-medium-emphasis">{{ formatRelativeTime(entry.timestamp) }}</span>
           </div>
           <div v-if="entry.type === 'note'" class="text-body-2">{{ entry.text }}</div>
@@ -66,8 +66,10 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from '../format/format'
 import { ref, onMounted, watch } from 'vue'
 import { httpClient } from '../composables/useHttpClient.js'
+import { reportError } from '../composables/report-error.js'
 
 interface NoteEntry {
   id: string
@@ -75,6 +77,8 @@ interface NoteEntry {
   text?: string
   action?: string
   userName?: string
+  /** FR-29.20: an entry the system wrote (a job, an event). */
+  system?: boolean
   timestamp: Date
   changes?: { field: string; oldValue: any; newValue: any }[]
 }
@@ -110,13 +114,12 @@ async function fetchEntries() {
       text: log.action === 'note' ? log.changes?.[0]?.newValue : undefined,
       action: log.action,
       userName: log.userName || log.userId,
+      system: !!log.system,
       timestamp: new Date(log.timestamp || log.createdAt),
       changes: log.changes?.filter((c: any) => c.field !== 'note'),
     }))
     entries.value = logs
-  } catch {
-    // Silently fail — audit log might not have entries
-  } finally {
+  } catch (e) { reportError(e) } finally {
     loading.value = false
   }
 }
@@ -134,9 +137,7 @@ async function submitNote() {
     })
     newNote.value = ''
     await fetchEntries()
-  } catch {
-    // Silent fail
-  } finally {
+  } catch (e) { reportError(e) } finally {
     saving.value = false
   }
 }
@@ -151,7 +152,7 @@ function formatRelativeTime(date: Date): string {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   if (days < 30) return `${days}d ago`
-  return date.toLocaleDateString()
+  return formatDate(date)
 }
 
 watch(() => props.entityId, () => {

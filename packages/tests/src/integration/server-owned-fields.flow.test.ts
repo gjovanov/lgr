@@ -13,7 +13,7 @@ import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { mongoose } from 'db/connection'
 import {
   BankAccount, ExchangeRate, FiscalPeriod, FiscalYear, FixedAsset, BankReconciliation, CashOrder, PaymentOrder,
-  Payslip, Timesheet, InventoryCount, PriceList, StockLevel, StockMovement, Warehouse,
+  Payslip, Timesheet, InventoryCount, PriceList, StockLevel, StockMovement, Warehouse, User,
 } from 'db/models'
 import { SERVER_OWNED, type OwnedModel } from 'services/biz/server-owned'
 
@@ -414,5 +414,16 @@ describe('the other body-storing routes rely on their schemas', () => {
     expect(now.deactivatedAt).toBeUndefined()
     expect(now.address?.city ?? null).not.toBe('Never')
     expect(new Date(now.createdAt).getFullYear()).toBeGreaterThan(2019)
+  })
+  it('a person\'s legacy archive (FR-27 P3-7) is the migration\'s: a save neither sets nor changes it, and the answer leaves it out', async () => {
+    const archive = { role: 'manager', permissions: ['inventory.write'], archivedAt: new Date('2026-11-01T00:00:00.000Z') }
+    await mongoose.connection.db!.collection('users').updateOne({ _id: w.other._id }, { $set: { legacyArchive: archive } })
+    const res = await w.call('PUT', `/user/${id(w.other)}`, { firstName: 'Renamed', legacyArchive: { role: 'admin', archivedAt: '2020-01-01T00:00:00.000Z' } })
+    expect(`${res.status} ${res.text.slice(0, 200)}`).toStartWith('200')
+    expect(res.json.user.firstName).toBe('Renamed')
+    expect(res.json.user.legacyArchive).toBeUndefined()
+    const now: any = await User.findById(w.other._id).lean().exec()
+    expect(now.firstName).toBe('Renamed')
+    expect(now.legacyArchive).toEqual(archive)
   })
 })

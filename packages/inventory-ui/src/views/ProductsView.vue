@@ -108,7 +108,7 @@
       :kind="orderKind"
       :org-url="appStore.orgUrl()"
       :selection="orderSelection"
-      :locale="intlLocale()"
+      :locale="listLocale()"
       @created="onOrderCreated"
     />
 
@@ -127,6 +127,7 @@
 </template>
 
 <script setup lang="ts">
+import { intlLocale } from 'ui-shared/format'
 import { ref, onMounted, toRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -159,11 +160,11 @@ const selectedId = ref('')
 // FR-28.22: the filters, the request and its paging, the three side calls that fill a page's cells (stock and
 // supply, supplier facts) and what a cell says are the product list's own (`useProductList`), shared with the
 // product dialog. This page keeps what is its own: the URL (FR-05), the row menu, delete and export.
-const intlLocale = () => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale as string] || 'en-US')
+const listLocale = () => intlLocale(appStore.locale as string)
 const list = useProductList({
   orgUrl: () => appStore.orgUrl(),
   baseCurrency: () => appStore.currentOrg?.baseCurrency || 'EUR',
-  locale: intlLocale,
+  locale: listLocale,
   urlSync: true,
 })
 

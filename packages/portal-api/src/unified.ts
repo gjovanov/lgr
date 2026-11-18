@@ -202,6 +202,13 @@ if (config.front.controlSocket && config.front.secret) {
         pendingRequests: app.server?.pendingRequests ?? 0,
         pendingWebSockets: app.server?.pendingWebSockets ?? 0,
         schedulers: schedulerHealth(),
+        // FR-29.17: the journal entries still owed and failed here, counts only.
+        postings: await (await import('services/biz/postings/posting.service')).postingHealth().catch((e: unknown) => {
+          logger.warn({ err: e }, 'The status could not count the owed postings')
+          return null
+        }),
+        // FR-29.21: audit writes that failed in this process.
+        audit: (await import('services/biz/audit-log.service')).auditHealth(),
         // FR-20.22: what the status page shows. Unknown is never drift 0.
         clock: (() => {
           const trust = clockTrusted()
@@ -458,6 +465,11 @@ setTimeout(async () => {
     // tasks whose process stopped (a deploy, a crash), so no screen polls a dead task for a week.
     { name: 'task-heartbeat', intervalMs: owner.HEARTBEAT_MS, tick: owner.heartbeatOwnedTasks },
     { name: 'orphaned-task-reaper', intervalMs: 60_000, immediate: true, tick: () => owner.failOrphanedTasks() },
+    // FR-29.16: the journal entries still owed (`postingjobs`), tried again with a growing delay. Every pod may run it.
+    {
+      name: 'postings', intervalMs: config.postings.drainIntervalMs, immediate: true,
+      ...lazy(() => import('services/biz/postings/posting.service'), m => m.drainPostings()),
+    },
   ])
 }, 100)
 

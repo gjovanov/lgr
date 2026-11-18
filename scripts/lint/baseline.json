@@ -57,9 +57,6 @@
   "packages/fiscal/src/eltrade.ts": {
     "lgr/catch-drops-error": 6
   },
-  "packages/fiscal/src/ws-tremol-printer.ts": {
-    "lgr/no-empty-catch": 1
-  },
   "packages/invoicing-api/src/controllers/aging-report.controller.ts": {
     "lgr/no-as-any": 1
   },
@@ -138,20 +135,8 @@
   "packages/invoicing-api/src/lib/reservation-convert.ts": {
     "lgr/no-as-any": 2
   },
-  "packages/invoicing-ui/src/composables/document-form/useDocumentForm.ts": {
-    "typescript/no-floating-promises": 6
-  },
   "packages/invoicing-ui/src/pos/composables/useTillPin.ts": {
     "lgr/catch-drops-error": 2
-  },
-  "packages/invoicing-ui/src/pos/till-rules.ts": {
-    "typescript/no-floating-promises": 1
-  },
-  "packages/invoicing-ui/src/pos/views/PosDeviceDetailView.vue": {
-    "lgr/no-empty-catch": 1
-  },
-  "packages/invoicing-ui/src/pos/views/PosTerminalView.vue": {
-    "lgr/no-empty-catch": 2
   },
   "packages/migrations/src/cli.ts": {
     "lgr/catch-drops-error": 1
@@ -259,8 +244,7 @@
     "lgr/no-as-any": 3
   },
   "packages/portal-api/src/front/control-socket.ts": {
-    "lgr/catch-drops-error": 2,
-    "typescript/no-floating-promises": 1
+    "lgr/catch-drops-error": 2
   },
   "packages/portal-api/src/lib/server-error.ts": {
     "lgr/no-as-any": 1
@@ -279,13 +263,11 @@
     "lgr/no-as-any": 9
   },
   "packages/portal-api/src/websocket/desktop.ts": {
-    "lgr/no-as-any": 1,
-    "typescript/no-floating-promises": 1
+    "lgr/no-as-any": 1
   },
   "packages/portal-api/src/websocket/fiscal-bridge.ts": {
     "lgr/catch-drops-error": 2,
-    "lgr/no-as-any": 1,
-    "typescript/no-floating-promises": 2
+    "lgr/no-as-any": 1
   },
   "packages/portal-api/src/websocket/uplink.ts": {
     "lgr/catch-drops-error": 1,
@@ -351,7 +333,7 @@
     "lgr/catch-drops-error": 4
   },
   "packages/services/src/biz/auto-journal.service.ts": {
-    "lgr/no-as-any": 12
+    "lgr/no-as-any": 9
   },
   "packages/services/src/biz/backup/backup-restore.service.ts": {
     "lgr/no-as-any": 8
@@ -759,31 +741,11 @@
   "packages/services/src/dao/invite.dao.ts": {
     "lgr/no-as-any": 4
   },
-  "packages/services/src/dao/org-app.dao.ts": {
-    "lgr/no-as-any": 3
-  },
-  "packages/services/src/events/handlers.ts": {
-    "lgr/no-as-any": 9
-  },
-  "packages/services/src/logger/logger.ts": {
-    "lgr/no-empty-catch": 1
-  },
   "packages/ui-shared/src/access/live-grant.ts": {
     "lgr/catch-drops-error": 1
   },
-  "packages/ui-shared/src/composables/useContactLedger.ts": {
-    "typescript/no-floating-promises": 2
-  },
   "packages/ui-shared/src/composables/useFiscalBridge.ts": {
-    "lgr/catch-drops-error": 2,
-    "lgr/no-empty-catch": 9,
-    "typescript/no-floating-promises": 2
-  },
-  "packages/ui-shared/src/composables/usePaginatedTable.ts": {
-    "typescript/no-floating-promises": 3
-  },
-  "packages/ui-shared/src/composables/usePendingChanges.ts": {
-    "typescript/no-floating-promises": 1
+    "lgr/catch-drops-error": 2
   },
   "packages/ui-shared/src/plugins/index.ts": {
     "lgr/catch-drops-error": 1
@@ -842,8 +804,5 @@
   },
   "packages/warehouse-api/src/lib/opening-stock.ts": {
     "lgr/no-as-any": 2
-  },
-  "packages/web/src/main.ts": {
-    "typescript/no-floating-promises": 1
   }
 }

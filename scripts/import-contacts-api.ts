@@ -36,6 +36,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { signIn } from './lib/lgr-api.js'
+import { readWholeList } from './lib/whole-list.js'
 import {
   collectPartnerUses, idsOf, planPartnerContacts,
   type ContactBody, type LgrContact, type PartnerDirectory, type PlanItem, type UsedDocument,
@@ -114,8 +115,15 @@ async function main() {
   const ownEik = idsOf(me?.org?.taxNumber, me?.org?.vatNumber)[0]
   console.log(`auth: → org ${orgSlug} (${s.orgId})`)
 
-  const listed = await s.get('/invoicing/contact?size=0&sortBy=createdAt&sortOrder=asc')
-  const contacts: LgrContact[] = (listed.contacts ?? listed.items ?? []).map((c: any) => ({
+  // Every contact, read by the id (`lib/whole-list`): a list answer carries at most 1 000 rows (FR-30.8), so the list
+  // is read in pages, and only the id orders pages without ties. Read by `createdAt`, which every contact of a seeded
+  // batch shares, a page repeated contacts and left as many out, and a contact that was not read is planned as a
+  // create: a second copy of a company that is on file. The read throws rather than answer with less than the list.
+  // Then the order the plan was always given: the oldest first.
+  const stamp = (c: any) => `${String(c.createdAt ?? '')}|${String(c._id ?? c.id)}`
+  const listedRows: any[] = (await readWholeList(s.get, '/invoicing/contact', 'contacts'))
+    .sort((a, b) => (stamp(a) < stamp(b) ? -1 : stamp(a) > stamp(b) ? 1 : 0))
+  const contacts: LgrContact[] = listedRows.map((c: any) => ({
     id: String(c._id ?? c.id), type: c.type, companyName: c.companyName, aliases: c.aliases, isActive: c.isActive,
     taxId: c.taxId, taxNumber: c.taxNumber, vatNumber: c.vatNumber, phone: c.phone, notes: c.notes, representative: c.representative,
     addresses: (c.addresses ?? []).map((a: any) => ({ street: a.street, city: a.city })),

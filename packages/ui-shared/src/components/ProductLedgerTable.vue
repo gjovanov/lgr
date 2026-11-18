@@ -32,7 +32,7 @@
       items-per-page="-1"
       hide-default-footer
     >
-      <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+      <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
       <template #item.documentRef="{ item }">
         <entity-link :label="item.documentRef || ''" :href="documentHref(item)" />
       </template>
@@ -86,6 +86,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from '../format/format'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useAccess } from '../access/useAccess'
 import { useI18n } from 'vue-i18n'
@@ -134,7 +135,7 @@ const headers = computed(() => [
 ])
 
 function fmtCurrency(amount: number) {
-  return formatCurrency(amount, props.baseCurrency || 'EUR', props.localeCode || 'en-US')
+  return formatCurrency(amount, props.baseCurrency || 'EUR', props.localeCode)
 }
 
 /** Ledger rows link back to the document that produced them. */

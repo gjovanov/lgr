@@ -46,6 +46,7 @@
 </template>
 
 <script setup lang="ts">
+import { intlLocale } from 'ui-shared/format'
 /**
  * Record a payment on a sales or purchase document — one dialog for both lists (FR-22.7), which
  * used to carry a copy each. It opens on what the document still owes, by the method the document
@@ -109,7 +110,7 @@ watch(
 )
 
 function fmt(amount: number) {
-  const locale = ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[appStore.locale] || 'en-US'
+  const locale = intlLocale(appStore.locale)
   return formatCurrency(amount, props.document?.currency || appStore.currentOrg?.baseCurrency || 'EUR', locale)
 }
 

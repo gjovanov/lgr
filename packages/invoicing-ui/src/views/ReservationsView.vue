@@ -72,11 +72,11 @@
     </template>
     <template #item.dates="{ item }">
       <div v-if="item.expectedDate" class="text-caption">
-        {{ $t('invoicing.expectedDate') }}: <span class="text-no-wrap">{{ item.expectedDate?.split('T')[0] }}</span>
+        {{ $t('invoicing.expectedDate') }}: <span class="text-no-wrap">{{ formatDate(item.expectedDate) }}</span>
         <v-icon v-if="item.late" size="14" color="error" :title="$t('invoicing.lateDelivery')">mdi-clock-alert-outline</v-icon>
       </div>
       <div v-if="item.requestedDeliveryDate" class="text-caption">
-        {{ $t('invoicing.requestedDeliveryDate') }}: <span class="text-no-wrap">{{ item.requestedDeliveryDate?.split('T')[0] }}</span>
+        {{ $t('invoicing.requestedDeliveryDate') }}: <span class="text-no-wrap">{{ formatDate(item.requestedDeliveryDate) }}</span>
       </div>
     </template>
     <template #item.status="{ item }">
@@ -145,6 +145,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

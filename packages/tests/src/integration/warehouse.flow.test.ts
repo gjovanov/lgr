@@ -5,7 +5,7 @@ import { StockLevel, StockMovement, Product, Warehouse, InventoryCount, PriceLis
 import { Types } from 'mongoose'
 import { adjustStock, confirmMovement, getStockValuation } from 'services/biz/warehouse.service'
 import { paginateQuery } from 'services/utils/pagination'
-import { stockMovementDao } from 'services/dao/warehouse/stock-movement.dao'
+import { nextMovementNumber } from 'services/biz/movement-number'
 
 beforeAll(async () => {
   await setupTestDB()
@@ -283,14 +283,14 @@ describe('Movement multi-product and contact filtering', () => {
     const productA = await createTestProduct(org._id, { name: 'Product A', sku: `SKU-A-${Date.now()}` })
     const productB = await createTestProduct(org._id, { name: 'Product B', sku: `SKU-B-${Date.now()}` })
 
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'confirmed',
       date: new Date(), toWarehouseId: warehouse._id,
       lines: [{ productId: productA._id, quantity: 10, unitCost: 5, totalCost: 50 }],
       totalAmount: 50, createdBy: user._id,
     })
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'receipt', status: 'confirmed',
       date: new Date(), toWarehouseId: warehouse._id,
@@ -312,7 +312,7 @@ describe('Movement multi-product and contact filtering', () => {
     const productC = await createTestProduct(org._id, { name: 'Product C', sku: `SKU-C-${Date.now()}` })
 
     for (const [p, q] of [[productA, 10], [productB, 20], [productC, 30]] as const) {
-      const mv = await stockMovementDao.getNextMovementNumber(String(org._id))
+      const mv = await nextMovementNumber(String(org._id))
       await StockMovement.create({
         orgId: org._id, movementNumber: mv, type: 'receipt', status: 'confirmed',
         date: new Date(), toWarehouseId: warehouse._id,
@@ -339,7 +339,7 @@ describe('Movement multi-product and contact filtering', () => {
     const product = await createTestProduct(org._id)
     const contact = await createTestContact(org._id, { companyName: 'ACME Corp' })
 
-    const mv = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv = await nextMovementNumber(String(org._id))
     await StockMovement.create({
       orgId: org._id, movementNumber: mv, type: 'receipt', status: 'confirmed',
       date: new Date(), toWarehouseId: warehouse._id, contactId: contact._id,
@@ -382,14 +382,14 @@ describe('Movement multi-product and contact filtering', () => {
     const warehouse = await createTestWarehouse(org._id)
     const product = await createTestProduct(org._id)
 
-    const mv1 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv1 = await nextMovementNumber(String(org._id))
     await StockMovement.create({
       orgId: org._id, movementNumber: mv1, type: 'receipt', status: 'confirmed',
       date: new Date('2026-01-15'), toWarehouseId: warehouse._id,
       lines: [{ productId: product._id, quantity: 10, unitCost: 5, totalCost: 50 }],
       totalAmount: 50, createdBy: user._id,
     })
-    const mv2 = await stockMovementDao.getNextMovementNumber(String(org._id))
+    const mv2 = await nextMovementNumber(String(org._id))
     await StockMovement.create({
       orgId: org._id, movementNumber: mv2, type: 'receipt', status: 'confirmed',
       date: new Date('2026-03-10'), toWarehouseId: warehouse._id,

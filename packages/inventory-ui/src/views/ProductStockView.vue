@@ -1,7 +1,7 @@
 <template>
   <v-container fluid>
     <div class="d-flex align-center flex-wrap ga-2 mb-4">
-      <v-btn icon variant="text" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
+      <v-btn icon variant="text" :aria-label="$t('common.back')" :title="$t('common.back')" @click="router.back()"><v-icon>mdi-arrow-left</v-icon></v-btn>
       <h1 class="text-h5 ml-2">{{ $t('warehouse.productStock') }}: {{ product?.name || '' }}</h1>
       <v-spacer />
       <!-- FR-22.47: the same actions as on the article's other tabs. -->
@@ -31,7 +31,7 @@
               <template #item.incoming="{ item }">
                 <span v-if="item.incoming > 0" class="text-info font-weight-medium">{{ item.incoming }}</span>
                 <span v-else class="text-medium-emphasis">0</span>
-                <div v-if="item.expectedDate" class="text-caption text-medium-emphasis">{{ String(item.expectedDate).slice(0, 10) }}</div>
+                <div v-if="item.expectedDate" class="text-caption text-medium-emphasis">{{ formatDate(item.expectedDate) }}</div>
                 <div v-if="item.planned > 0" class="text-caption text-medium-emphasis">+{{ item.planned }} {{ $t('warehouse.supply.planned') }}</div>
               </template>
               <template #item.reservedIncoming="{ item }">
@@ -64,7 +64,7 @@
                     </td>
                     <td>{{ row.supplierName }}</td>
                     <td>{{ row.warehouseName }}</td>
-                    <td class="text-no-wrap">{{ row.expectedDate ? String(row.expectedDate).slice(0, 10) : '—' }}</td>
+                    <td class="text-no-wrap">{{ row.expectedDate ? formatDate(row.expectedDate) : '—' }}</td>
                     <td class="text-end">{{ row.ordered }}</td>
                     <td class="text-end">{{ row.received }}</td>
                     <td class="text-end font-weight-medium">{{ row.outstanding }}</td>
@@ -185,7 +185,7 @@
               hover
               density="compact"
             >
-              <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+              <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
               <template #item.documentRef="{ item }">
                 <entity-link :label="item.documentRef || ''" :href="documentHref(item)" />
               </template>
@@ -269,7 +269,7 @@
               <template #item.movementNumber="{ item }">
                 <entity-link :label="item.movementNumber" :to="{ name: 'inventory.movements.view', params: { id: item._id } }" />
               </template>
-              <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+              <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
               <template #item.type="{ item }">
                 <v-chip size="x-small" label :color="eventColor(item.type)">{{ eventLabel(item.type) }}</v-chip>
               </template>
@@ -312,7 +312,7 @@
                 <v-chip size="x-small" :color="item.status === 'completed' ? 'success' : item.status === 'in_progress' ? 'info' : 'warning'">{{ item.status }}</v-chip>
               </template>
               <!-- The model's field is `date` — `countDate` never existed and rendered blank. -->
-              <template #item.date="{ item }">{{ item.date?.split('T')[0] || '' }}</template>
+              <template #item.date="{ item }">{{ formatDate(item.date) || '' }}</template>
               <template #item.productVariance="{ item }">
                 <span v-if="item.productVariance !== undefined" :class="item.productVariance > 0 ? 'text-success' : item.productVariance < 0 ? 'text-error' : ''">
                   {{ item.productVariance > 0 ? '+' : '' }}{{ item.productVariance }}
@@ -333,11 +333,13 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { reportError } from 'ui-shared/composables/report-error'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { appHref } from 'ui-shared/nav/navigate'
@@ -354,7 +356,7 @@ const seesCosts = computed(() => useAccess().can('products.costs'))
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 const productId = computed(() => route.params.id as string)
 const product = ref<any>(null)
@@ -535,14 +537,14 @@ async function fetchProduct() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product/${productId.value}`)
     product.value = data.product || data
-  } catch { /* */ }
+  } catch (e) { reportError(e) }
 }
 
 async function fetchWarehouses() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`)
     warehouses.value = data.warehouses || []
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 async function fetchStockData() {
@@ -557,7 +559,7 @@ async function fetchStockData() {
     stockLevels.value = levelsRes.data.stockLevels || []
     stockMovements.value = movementsRes.data.stockMovements || []
     stockCounts.value = countsRes.data.inventoryCounts || []
-  } catch { /* */ }
+  } catch (e) { reportError(e) }
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/product-supply/${productId.value}`)
     supply.value = data.supply
@@ -630,7 +632,7 @@ watch(contactSearch, (q) => {
         ...c,
         displayName: c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ') || c.email || c._id,
       }))
-    } catch { /* */ } finally {
+    } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
       contactLoading.value = false
     }
   }, 300)

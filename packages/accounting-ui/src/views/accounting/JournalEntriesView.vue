@@ -22,6 +22,8 @@
     </template>
 
     <template #filters>
+      <!-- FR-29.17: the entries the org's documents still owe, and "Try again". -->
+      <OwedPostings @posted="fetchItems" />
       <FilterBar v-model:search="search">
         <v-col cols="12" sm="6" md="2">
           <v-select v-model="statusFilter" :label="$t('common.status')" :items="statusOptions" clearable />
@@ -49,7 +51,7 @@
       <entity-link :label="item.entryNumber" :to="{ name: 'accounting.journal-entry-edit', params: { id: item._id } }" />
     </template>
     <template #item.date="{ item }">
-      {{ item.date?.split('T')[0] }}
+      {{ formatDate(item.date) }}
     </template>
     <template #item.status="{ item }">
       <v-chip size="small" :color="statusColor(item.status)">
@@ -168,7 +170,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(line, idx) in form.lines" :key="idx">
+                <tr v-for="(line, idx) in form.lines" :key="rowKey(line)">
                   <td style="min-width: 200px">
                     <v-select
                       v-model="line.accountId"
@@ -230,7 +232,7 @@
                     />
                   </td>
                   <td>
-                    <v-btn
+                    <v-btn :aria-label="$t('common.close')" :title="$t('common.close')"
                       icon="mdi-close"
                       size="x-small"
                       variant="text"
@@ -288,6 +290,8 @@
 </template>
 
 <script setup lang="ts">
+import { rowKey } from 'ui-shared/composables/row-key'
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -305,6 +309,7 @@ import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import FilterBar from 'ui-shared/components/FilterBar.vue'
+import OwedPostings from './OwedPostings.vue'
 
 const appStore = useAppStore()
 const store = useAccountingStore()
@@ -313,8 +318,7 @@ const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
-  const map: Record<string, string> = { en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' }
-  return map[appStore.locale] || 'en-US'
+  return intlLocale(appStore.locale)
 })
 
 const { search, debouncedSearch } = useSearchDebounce()

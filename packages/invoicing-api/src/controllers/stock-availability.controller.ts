@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia'
+import { AnObject } from 'services/http/body-schemas'
 import { AppAuthService } from '../auth/app-auth.service.js'
-import { checkCrossWarehouseAvailability, createTransferMovements } from 'services/biz/stock-transfer.service'
+import { checkCrossWarehouseAvailability, createTransferMovements, type TransferProposal } from 'services/biz/stock-transfer.service'
 
 export const stockAvailabilityController = new Elysia({ prefix: '/org/:orgId/invoicing/stock-availability' })
   .use(AppAuthService)
@@ -29,13 +30,13 @@ export const stockAvailabilityController = new Elysia({ prefix: '/org/:orgId/inv
     '/create-transfers',
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      const transferIds = await createTransferMovements(orgId, body.proposals, user.id)
+      const transferIds = await createTransferMovements(orgId, body.proposals as TransferProposal[], user.id)
       return { transferIds }
     },
     {
       isSignIn: true,
       body: t.Object({
-        proposals: t.Array(t.Any()),
+        proposals: t.Array(AnObject),
       }),
     },
   )

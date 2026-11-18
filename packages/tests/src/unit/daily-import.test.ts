@@ -7,8 +7,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  diffPulls, gateAuditAfter, gateAuditBefore, gateBooked, gateCompare, gateDry, gateHistory, gatePredict, gatePrices,
-  gateSameDay, gateScan, newOutsideDay, numberGaps, parseContactsLog, parseInvoicesLog, parsePull, parseReceiptsLog, sameDay, scanDay,
+  diffPulls, gateAuditAfter, gateAuditBefore, gateBooked, gateCompare, gateDry, gateGrantReads, gateGrantSession, gateHistory, gatePredict, gatePrices,
+  gateSameDay, gateScan, newOutsideDay, numberGaps, parseContactsLog, parseInvoicesLog, parsePull, parseReceiptsLog, sameDay, scanDay, sessionOrgId,
   FAMILIES, type Finding,
 } from '../../../../scripts/lib/daily-import'
 
@@ -371,5 +371,83 @@ describe('the contacts family', () => {
     const p = parsePull('partners      7012 entries: КЛИЕНТИ 1224, ПАРТНЬОРИ 5788\n')
     expect(p.partners).toEqual({ entries: 7012, groups: 'КЛИЕНТИ 1224, ПАРТНЬОРИ 5788' })
     expect(parsePull('invoicem  14  3000101867..3000101880\n').partners).toBeNull()
+  })
+})
+
+describe('grant: is the session shown everything the records hold', () => {
+  const me = (body: Record<string, unknown>, status = 200) => ({ status, body: { org: { id: 'o1' }, ...body } })
+  const SESSION = { id: 'u1', orgId: 'o1', rid: 'r1', rv: 1 }
+  const ADMINISTRATOR = { all: true, caps: [], landing: '/', role: { id: 'r1', name: 'Administrator', version: 1 } }
+
+  it('passes the Administrator of a server whose session names its role and carries no claims (FR-27 P3-5)', () => {
+    // What /auth/me answers since the token holds `rid`/`rv` and no `role`: the grant is the access block's.
+    const gate = gateGrantSession('test-org', me({ user: SESSION, access: ADMINISTRATOR }))
+    expect(levels(gate)).toEqual(['ok'])
+    expect(gate[0]!.text).toBe('signed in to test-org as "Administrator": its role grants everything')
+  })
+
+  it('passes it on a server that still issues the claim too', () => {
+    expect(levels(gateGrantSession('test-org', me({ user: { ...SESSION, role: 'admin' }, access: ADMINISTRATOR })))).toEqual(['ok'])
+  })
+
+  it('stops a role that is not the full grant, whatever a claim says, and tells how much it holds', () => {
+    const seller = { all: false, caps: ['products.view', 'invoices.view', 'invoices.create'], role: { name: 'Seller' } }
+    for (const user of [SESSION, { ...SESSION, role: 'admin' }]) {
+      const gate = gateGrantSession('test-org', me({ user, access: seller }))
+      expect(levels(gate)).toEqual(['stop'])
+      expect(gate[0]!.text).toContain('3 capabilities, role "Seller"')
+    }
+  })
+
+  it("judges a server that answers no access block by the token's own claim", () => {
+    expect(levels(gateGrantSession('test-org', me({ user: { ...SESSION, role: 'admin' } })))).toEqual(['ok'])
+    const member = gateGrantSession('test-org', me({ user: { ...SESSION, role: 'member' } }))
+    expect(levels(member)).toEqual(['stop'])
+    expect(member[0]!.text).toContain('role "member"')
+  })
+
+  it('stops a session that names no grant at all: no access block and no claim', () => {
+    for (const body of [{ user: SESSION }, { user: SESSION, access: null }]) {
+      const gate = gateGrantSession('test-org', me(body))
+      expect(levels(gate)).toEqual(['stop'])
+      expect(gate[0]!.text).toContain('names no grant')
+    }
+  })
+
+  it('stops when /auth/me does not answer, or names no org', () => {
+    expect(gateGrantSession('test-org', me({ user: SESSION, access: ADMINISTRATOR }, 401)).map(f => f.text)).toEqual(['/auth/me answered 401'])
+    expect(levels(gateGrantSession('test-org', { status: 200, body: { user: { rid: 'r1' }, access: ADMINISTRATOR } }))).toEqual(['stop'])
+    expect(sessionOrgId({ status: 200, body: { user: { orgId: 'o2' } } })).toBe('o2')
+  })
+
+  const product = (over: Record<string, unknown> = {}) => ({ name: 'БОЛТ ТЕСТ М8', purchasePrice: 1, sellingPrice: 2, priceTiers: [{ name: 'Доставна цена', percent: 0, finalPrice: 1 }, { name: 'Цена 1', percent: 20, finalPrice: 1.2 }], ...over })
+  const page = (products: unknown[], total = products.length) => ({ status: 200, body: { products, total } })
+  const stock = (rows: unknown[]) => ({ status: 200, body: { stockLevels: rows } })
+  const LEVEL = { productId: 'p1', quantity: 5, avgCost: 1 }
+
+  it('passes a session that reads the costs and every price level', () => {
+    const gate = gateGrantReads(page([product(), product()], 4321), stock([LEVEL]))
+    expect(levels(gate)).toEqual(['ok'])
+    expect(gate[0]!.text).toContain('(4321 products)')
+  })
+
+  it('stops a session shown products without their cost figures, and names what it does not see', () => {
+    const { purchasePrice: _cost, ...noCost } = product()
+    const { avgCost: _avg, ...noAvg } = LEVEL
+    const gate = gateGrantReads(page([product(), noCost]), stock([noAvg]))
+    expect(levels(gate)).toEqual(['stop'])
+    expect(gate[0]!.text).toContain('does not see the purchase price, the average cost:')
+  })
+
+  it('stops a session shown price levels without their margin, or without the cost level', () => {
+    const noMargin = product({ priceTiers: [{ name: 'Доставна цена', finalPrice: 1 }] })
+    expect(texts(gateGrantReads(page([noMargin]), stock([LEVEL])), 'stop')).toContain("each tier's margin")
+    const noCostLevel = product({ priceTiers: [{ name: 'Цена 1', percent: 20, finalPrice: 1.2 }] })
+    expect(texts(gateGrantReads(page([noCostLevel]), stock([LEVEL])), 'stop')).toContain('does not see the cost tier:')
+  })
+
+  it('stops when a list refuses the session, and when the org has nothing to prove it on', () => {
+    expect(gateGrantReads({ status: 403, body: { message: 'Forbidden' } }, stock([LEVEL])).map(f => f.text)).toEqual(['the product list answered 403, the stock levels 200'])
+    expect(levels(gateGrantReads(page([]), stock([])))).toEqual(['stop'])
   })
 })

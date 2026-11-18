@@ -6,6 +6,8 @@ import { getRepos } from 'services/context'
 import { buildProductSearchFilter } from 'services/biz/search.utils'
 import { createAuditEntry, generateCorrelationId, recordAuditEntry } from 'services/biz/audit-log.service'
 import { eventBus } from 'services/events/event-bus'
+import { inTransaction } from 'services/biz/transaction'
+import { enqueuePosting } from 'services/biz/postings/posting.service'
 import { nextRegistryNumber } from 'services/biz/sequence-registry'
 import { assertDispatchAvailable } from 'services/biz/invoicing.service'
 import { logger } from 'services/logger'
@@ -942,28 +944,33 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       let updated: any
       let lost: string | undefined
       try {
-        updated = await POSSession.findOneAndUpdate(
-          holdsIt,
-          {
-            $set: {
-              status: 'closed',
-              closedAt: new Date(),
-              // Legacy fields keep their cash-only meaning — the JE handler reads `difference`.
-              closingBalance: cashLine.counted,
-              expectedBalance: cashLine.expected,
-              difference: cashLine.difference,
-              closingBreakdown: breakdown,
-              notes: b.notes ?? session.notes,
-              fiscalStatus,
-              ...(zReportNumber ? { zReportNumber } : {}),
-              ...(zReport ? { zReport } : {}),
-              ...(fiscalClosedAt ? { fiscalClosedAt } : {}),
-              ...(device ? { fiscalDeviceId: device.id } : {}),
+        // FR-29.15: the close and the journal entry it owes are stored in one transaction.
+        updated = await inTransaction(async txn => {
+          const closed = await POSSession.findOneAndUpdate(
+            holdsIt,
+            {
+              $set: {
+                status: 'closed',
+                closedAt: new Date(),
+                // Legacy fields keep their cash-only meaning — the JE handler reads `difference`.
+                closingBalance: cashLine.counted,
+                expectedBalance: cashLine.expected,
+                difference: cashLine.difference,
+                closingBreakdown: breakdown,
+                notes: b.notes ?? session.notes,
+                fiscalStatus,
+                ...(zReportNumber ? { zReportNumber } : {}),
+                ...(zReport ? { zReport } : {}),
+                ...(fiscalClosedAt ? { fiscalClosedAt } : {}),
+                ...(device ? { fiscalDeviceId: device.id } : {}),
+              },
+              $unset: { fiscalError: 1, closeLeaseUntil: 1 },
             },
-            $unset: { fiscalError: 1, closeLeaseUntil: 1 },
-          },
-          { new: true },
-        ).exec()
+            { new: true, session: txn },
+          ).exec()
+          if (closed) await enqueuePosting(orgId, { event: 'pos.session.closed', sessionId: id, userId: user.id }, { session: txn })
+          return closed
+        })
         if (!updated) lost = 'its lease lapsed, and somebody else has the session now'
       } catch (e: any) {
         lost = e?.message

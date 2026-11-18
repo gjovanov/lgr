@@ -262,6 +262,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, formatDateTime, intlLocale } from 'ui-shared/format'
 import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -311,16 +312,16 @@ const againDialog = ref(false)
 const repeatError = ref('')
 const repeating = ref(false)
 
-const localeCode = computed(() => (({ en: 'en-GB', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[String(locale.value)] || 'en-GB'))
+const localeCode = computed(() => (intlLocale(String(locale.value))))
 function fmtDate(d: string | Date | null | undefined) {
   if (!d) return ''
   const date = new Date(d)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(localeCode.value)
+  return Number.isNaN(date.getTime()) ? '' : formatDate(date)
 }
 function fmtDateTime(d: string | Date | null | undefined) {
   if (!d) return ''
   const date = new Date(d)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString(localeCode.value)
+  return Number.isNaN(date.getTime()) ? '' : formatDateTime(date)
 }
 function statusColor(s: string) {
   return ({ active: 'primary', fulfilled: 'success', cancelled: 'error' } as Record<string, string>)[s] || 'grey'

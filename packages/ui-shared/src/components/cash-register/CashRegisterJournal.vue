@@ -134,6 +134,7 @@
 </template>
 
 <script setup lang="ts">
+import { intlLocale } from '../../format/format'
 /**
  * FR-21.13 — „Касови продажби": the cash-register journal.
  *
@@ -280,7 +281,7 @@ const headers = computed(() => [
   { title: t('common.actions'), key: 'actions', sortable: false },
 ])
 
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[props.locale || 'en'] || 'en-US')
+const localeCode = computed(() => intlLocale(props.locale || 'en'))
 function fmtCurrency(amount: number, currency?: string) {
   return formatCurrency(amount, currency || 'EUR', localeCode.value)
 }

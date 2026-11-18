@@ -67,13 +67,15 @@ export const statsController = new Elysia({ prefix: '/org/:orgId/stats' })
     const { orgId, id: contactId } = params
 
     // Batch: 3 parallel queries
-    const [invoiceResult, movementCount] = await Promise.all([
-      r.invoices.findAll({ orgId, contactId, ...NOT_PAYMENT_RECEIPT } as any, { page: 0, size: 10000 }),
+    // FR-30.8: every document of the contact, but only the four fields the figures read. It read up to 10 000 whole
+    // documents, lines and all, and the list's ceiling would now cut such a read short.
+    const [invoices, movementCount] = await Promise.all([
+      r.invoices.findMany({ orgId, contactId, ...NOT_PAYMENT_RECEIPT } as any, undefined, { select: ['type', 'status', 'amountDue', 'total'] }),
       r.stockMovements.count({ orgId, contactId } as any),
     ])
 
-    const invoiceCount = invoiceResult.total
-    const openBalance = invoiceResult.items.reduce((s: number, inv: any) => {
+    const invoiceCount = invoices.length
+    const openBalance = invoices.reduce((s: number, inv: any) => {
       // A quote (a proforma, an offer) owes nothing (FR-22.22).
       if (!isQuoteType(inv.type) && ['draft', 'sent', 'partially_paid', 'overdue'].includes(inv.status)) {
         return s + (inv.amountDue || inv.total || 0)

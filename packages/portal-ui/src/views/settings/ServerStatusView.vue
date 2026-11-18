@@ -209,6 +209,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from 'ui-shared/format'
 import { computed, onMounted, onBeforeUnmount, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -232,7 +233,7 @@ const s = ref<any | null>(null)
 const loading = ref(false)
 const elsewhere = ref(false)
 
-const when = (v: string) => new Date(v).toLocaleString()
+const when = (v: string) => formatDateTime(v)
 const gb = (b: number) => (b / 2 ** 30).toFixed(1)
 
 const diskText = computed(() => {

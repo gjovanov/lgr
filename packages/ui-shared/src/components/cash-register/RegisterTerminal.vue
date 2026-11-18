@@ -106,7 +106,7 @@
         <v-card-text>
           <slot name="cart-top" />
           <v-list v-if="lines.length" density="compact">
-            <v-list-item v-for="(line, idx) in lines" :key="idx" :data-testid="`cart-line-${idx}`">
+            <v-list-item v-for="(line, idx) in lines" :key="rowKey(line)" :data-testid="`cart-line-${idx}`">
               <v-list-item-title class="register-line-name">{{ line.name ?? line.description }}</v-list-item-title>
               <v-list-item-subtitle class="d-flex align-center ga-1 flex-wrap">
                 <template v-if="!readonly">
@@ -130,11 +130,11 @@
                   <v-btn icon="mdi-minus" size="x-small" variant="text" :aria-label="$t('pos.decreaseQty')" @click="setQuantity(idx, Number(line.quantity || 0) - 1)" />
                   <!-- #145: a large quantity is typed, not clicked. A pick leaves the cursor here (`pick`);
                        Enter hands it back to the search, and the move away commits what was typed. -->
-                  <v-text-field
+                  <DecimalField
                     :key="qtyResets[idx] || 0"
                     :model-value="line.quantity"
-                    type="number"
-                    inputmode="decimal"
+                    :decimals="QTY_DECIMALS"
+                    :min-decimals="0"
                     min="0"
                     hide-details
                     density="compact"
@@ -190,8 +190,11 @@
 </template>
 
 <script setup lang="ts">
+import { rowKey } from '../../composables/row-key'
+import { formatMoney, intlLocale } from '../../format/format'
+import DecimalField from '../DecimalField.vue'
+import { QTY_DECIMALS } from '../../composables/price-precision'
 import { computed, nextTick, onMounted, ref, toRaw, watch, type ComponentPublicInstance } from 'vue'
-import { numberFormat } from '../../composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { useDisplay } from 'vuetify'
 import { httpClient } from '../../composables/useHttpClient'
@@ -263,7 +266,7 @@ const emit = defineEmits<{
 const { t, locale } = useI18n()
 
 /** The app's language as a BCP 47 tag, for the figures the dialog prints. */
-const localeTag = computed(() => ({ en: 'en-US', bg: 'bg-BG', de: 'de-DE', mk: 'mk-MK' } as Record<string, string>)[String(locale.value)] || 'en-US')
+const localeTag = computed(() => intlLocale(String(locale.value)))
 
 // ── FR-28.25: Details ──
 const detailsOpen = ref(false)
@@ -351,7 +354,7 @@ function onQuantityTyped(idx: number, typed: string) {
 }
 
 function fmt(n: number, decimals = 2) {
-  return numberFormat(undefined, { style: 'currency', currency: props.currency || 'EUR', minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n || 0)
+  return formatMoney(n || 0, props.currency || 'EUR', { decimals })
 }
 
 /**

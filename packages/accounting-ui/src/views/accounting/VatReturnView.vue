@@ -49,7 +49,7 @@
           <v-divider />
           <v-card-text class="text-body-2">
             <div v-if="taxReturn.source">{{ $t(`accounting.vat.source.${taxReturn.source}`) }}</div>
-            <div v-if="taxReturn.filedAt">{{ $t('accounting.vat.filedAt') }}: {{ taxReturn.filedAt.split('T')[0] }}</div>
+            <div v-if="taxReturn.filedAt">{{ $t('accounting.vat.filedAt') }}: {{ formatDate(taxReturn.filedAt) }}</div>
             <div v-if="filedByName">{{ $t('accounting.vat.filedBy') }}: {{ filedByName }}</div>
             <div v-if="taxReturn.ack?.number">{{ $t('accounting.vat.ackNumber') }}: {{ taxReturn.ack.number }}</div>
             <v-btn v-if="taxReturn.ack?.fileId" class="mt-2" size="small" variant="text" prepend-icon="mdi-download" @click="downloadAck">
@@ -80,7 +80,7 @@
       @update:options="onUpdateOptions"
     >
       <template #item.rowNo="{ item }">{{ item.rowNo || '' }}</template>
-      <template #item.docDate="{ item }">{{ item.docDate?.split('T')[0] }}</template>
+      <template #item.docDate="{ item }">{{ formatDate(item.docDate) }}</template>
       <template #item.base="{ item }">{{ rowBase(item) }}</template>
       <template #item.vat="{ item }">{{ rowVat(item) }}</template>
       <!-- Read only: the row stays as filed, and its entry is found, never stored on it. -->
@@ -138,6 +138,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -184,7 +185,7 @@ const canFile = computed(() => can('vat.file'))
 /** The files name a person, so they go to who files them or audits them, as the server's read rule says. */
 const canDownload = computed(() => can(['vat.file', 'audit-log.lookup']))
 
-const localeCode = computed(() => ({ en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' } as Record<string, string>)[appStore.locale] || 'en-US')
+const localeCode = computed(() => intlLocale(appStore.locale))
 const money = (cents = 0) => formatCurrency(cents / 100, currency.value, localeCode.value)
 
 const filledCells = computed(() => VAT_CELLS

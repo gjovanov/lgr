@@ -96,6 +96,8 @@ export interface IProduct extends Document {
   barcodeLower?: string
   descriptionLower?: string
   categoryLower?: string
+  /** FR-30.11: the five mirrors joined (`plugins/search-field.ts`), the one field the product search reads. */
+  searchLower?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -196,6 +198,8 @@ const productSchema = new Schema<IProduct>(
     barcodeLower: { type: String, index: true },
     descriptionLower: String,
     categoryLower: { type: String, index: true },
+    // FR-30.11: the five mirrors joined, the one field the product search reads (`plugins/search-field.ts`).
+    searchLower: String,
   },
   { timestamps: true },
 )
@@ -209,6 +213,7 @@ productSchema.plugin(loweredFieldsPlugin, {
     description: 'descriptionLower',
     category: 'categoryLower',
   },
+  joined: { field: 'searchLower', parts: ['nameLower', 'skuLower', 'barcodeLower', 'descriptionLower', 'categoryLower'] },
 })
 productSchema.index({ orgId: 1, sku: 1 }, { unique: true })
 productSchema.index({ orgId: 1, barcode: 1 })
@@ -219,6 +224,9 @@ productSchema.index({ orgId: 1, categoryId: 1 })
 // (the API's), each a page read off the index instead of the organization's every article sorted in memory.
 productSchema.index({ orgId: 1, createdAt: -1 })
 productSchema.index({ orgId: 1, name: 1 })
+// FR-30.11: the search. Its unanchored pattern is tested on these keys, so a search's matches ("active" included) and
+// their ids are read from the keys alone, and only the page is fetched.
+productSchema.index({ orgId: 1, searchLower: 1, isActive: 1, _id: 1 })
 productSchema.index({ orgId: 1, tags: 1 })
 productSchema.index({ orgId: 1, 'priceTiers.tags': 1 })
 productSchema.index({ orgId: 1, 'priceTiers.contactIds': 1 })

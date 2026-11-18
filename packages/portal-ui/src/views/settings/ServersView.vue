@@ -147,7 +147,7 @@
             <code>{{ address.address.url }}</code>
             <v-chip size="small" variant="tonal" :color="address.address.state === 'active' ? 'success' : address.address.state === 'requested' ? 'info' : undefined">{{ $t(`servers.address.state.${address.address.state}`) }}</v-chip>
             <span v-if="address.address.state === 'refused' && address.address.reason" class="text-body-2 text-medium-emphasis">{{ address.address.reason }}</span>
-            <span v-if="address.address.state === 'retired' && address.address.noticeUntil" class="text-body-2 text-medium-emphasis">{{ $t('servers.address.noticeUntil', { when: new Date(address.address.noticeUntil).toLocaleDateString() }) }}</span>
+            <span v-if="address.address.state === 'retired' && address.address.noticeUntil" class="text-body-2 text-medium-emphasis">{{ $t('servers.address.noticeUntil', { when: formatDate(address.address.noticeUntil) }) }}</span>
           </div>
           <div v-if="!address.address || ['refused', 'retired'].includes(address.address.state)" class="d-flex align-center flex-wrap ga-2 mt-2">
             <v-btn v-if="address.request.ok" v-cap="'servers.manage'" size="small" color="primary" variant="tonal" :loading="addressBusy" data-test="org-address-request" @click="requestAddress">{{ $t('servers.address.request', { url: address.request.url }) }}</v-btn>
@@ -289,7 +289,7 @@
           </template>
         </template>
         <template #item.lastSeenAt="{ item }">
-          {{ item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleString() : '—' }}
+          {{ item.lastSeenAt ? formatDateTime(item.lastSeenAt) : '—' }}
         </template>
         <template #item.actions="{ item }">
           <v-btn
@@ -427,7 +427,7 @@
               </v-list-item>
             </v-list>
             <v-alert type="warning" variant="tonal" density="compact" class="my-3" data-test="promote-loss">
-              {{ promotePre.lossFrom ? $t('servers.promote.loss', { when: new Date(promotePre.lossFrom).toLocaleString() }) : $t('servers.promote.lossUnknown') }}
+              {{ promotePre.lossFrom ? $t('servers.promote.loss', { when: formatDateTime(promotePre.lossFrom) }) : $t('servers.promote.lossUnknown') }}
               <div v-if="promotePre.files.referenced > promotePre.files.held" class="mt-1">{{ $t('servers.promote.files', { missing: promotePre.files.referenced - promotePre.files.held }) }}</div>
             </v-alert>
             <div class="text-subtitle-2">{{ $t('servers.promote.hardware') }}</div>
@@ -436,7 +436,7 @@
               <v-radio value="destroyed" :label="$t('servers.promote.hardwareDestroyed')" data-test="hardware-destroyed" />
             </v-radio-group>
             <p v-if="promoteHardware === 'off' && !promotePre.silentLongEnough" class="text-caption text-error mt-1">
-              {{ $t('servers.promote.silence', { since: promotePre.silenceSince ? new Date(promotePre.silenceSince).toLocaleString() : '—' }) }}
+              {{ $t('servers.promote.silence', { since: promotePre.silenceSince ? formatDateTime(promotePre.silenceSince) : '—' }) }}
             </p>
             <v-checkbox v-model="promoteTills" :label="$t('servers.promote.tills')" density="compact" hide-details data-test="tills-disconnected" />
             <v-text-field v-model="promoteSlug" :label="$t('servers.promote.slug', { slug: appStore.currentOrg?.slug ?? '' })" density="compact" class="mt-2" data-test="promote-slug" />
@@ -469,7 +469,7 @@
             </v-list>
             <v-alert type="warning" variant="tonal" density="compact" class="my-3" data-test="reseed-warning">
               {{ $t('servers.reseed.warn') }}
-              <div v-if="reseedPre.lastPageAt" class="mt-1">{{ $t('servers.reseed.asOf', { when: new Date(reseedPre.lastPageAt).toLocaleString() }) }}</div>
+              <div v-if="reseedPre.lastPageAt" class="mt-1">{{ $t('servers.reseed.asOf', { when: formatDateTime(reseedPre.lastPageAt) }) }}</div>
               <div v-if="reseedPre.files.referenced > reseedPre.files.held" class="mt-1">{{ $t('servers.reseed.files', { missing: reseedPre.files.referenced - reseedPre.files.held }) }}</div>
             </v-alert>
             <v-text-field v-model="reseedSlug" :label="$t('servers.promote.slug', { slug: appStore.currentOrg?.slug ?? '' })" density="compact" data-test="reseed-slug" />
@@ -565,6 +565,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, formatDateTime } from 'ui-shared/format'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useNodeAlarms } from 'ui-shared/composables/useNodeAlarms'
@@ -974,7 +975,7 @@ interface FencedExportRow {
   collisions: number
 }
 const fencedExports = ref<FencedExportRow[]>([])
-const fmtDate = (v?: string | null, day = false) => (v ? (day ? new Date(v).toLocaleDateString() : new Date(v).toLocaleString()) : '—')
+const fmtDate = (v?: string | null, day = false) => (v ? (day ? formatDate(v) : formatDateTime(v)) : '—')
 const docTypeLabel = (type?: string) => (type && te(`invoicing.docType.${type}`) ? t(`invoicing.docType.${type}`) : (type ?? ''))
 
 let fencedTimer: ReturnType<typeof setTimeout> | null = null
