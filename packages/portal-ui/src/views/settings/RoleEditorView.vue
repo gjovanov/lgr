@@ -7,7 +7,7 @@
       <v-chip v-if="role?.edited" size="small" color="info" variant="tonal" class="ml-1">{{ $t('access.ui.edited') }}</v-chip>
       <v-spacer />
       <v-btn v-if="role && !role.isBuiltin && !people.length" variant="text" color="error" class="mr-2" data-testid="role-delete" @click="remove">{{ $t('access.ui.deleteRole') }}</v-btn>
-      <v-btn v-if="role && !role.all" color="primary" :loading="saving" data-testid="role-save" @click="save">{{ $t('common.save') }}</v-btn>
+      <v-btn v-if="role && !locked" color="primary" :loading="saving" data-testid="role-save" @click="save">{{ $t('common.save') }}</v-btn>
     </div>
 
     <v-progress-linear v-if="loading" indeterminate class="mb-4" />
@@ -15,12 +15,12 @@
     <template v-if="role">
       <v-row>
         <v-col cols="12" md="5">
-          <v-text-field v-model="form.name" :label="$t('access.ui.name')" :disabled="role.all" data-testid="role-name" />
+          <v-text-field v-model="form.name" :label="$t('access.ui.name')" :disabled="locked" data-testid="role-name" />
         </v-col>
         <v-col cols="12" md="7">
-          <v-text-field v-model="form.description" :label="$t('access.ui.description')" :disabled="role.all" :placeholder="role.isBuiltin && role.templateKey ? $t(`access.roles.${role.templateKey}.description`) : ''" />
+          <v-text-field v-model="form.description" :label="$t('access.ui.description')" :disabled="locked" :placeholder="role.isBuiltin && role.templateKey ? $t(`access.roles.${role.templateKey}.description`) : ''" />
         </v-col>
-        <v-col v-if="!role.all" cols="12" md="5">
+        <v-col v-if="!locked" cols="12" md="5">
           <!-- FR-27.4: where the role's people start; only pages the role opens are offered. -->
           <v-autocomplete
             v-model="form.landing"
@@ -37,6 +37,8 @@
       </v-row>
 
       <v-alert v-if="role.all" type="info" variant="tonal" class="mb-4">{{ $t('access.ui.administratorFixed') }}</v-alert>
+      <!-- #529 (owner, 2026-11-18): the NRA Auditor (Read Only) is locked as the Administrator is. -->
+      <v-alert v-else-if="locked" type="info" variant="tonal" class="mb-4" data-testid="role-locked">{{ $t('access.ui.nraAuditorFixed') }}</v-alert>
       <v-alert v-if="role.unknownCaps?.length" type="warning" variant="tonal" class="mb-4">
         {{ $t('access.ui.unknownCaps') }}: {{ role.unknownCaps.join(', ') }}
       </v-alert>
@@ -77,7 +79,7 @@
                           type="radio"
                           :name="`level-${f.id}`"
                           :checked="levelOf(f, grant) === level"
-                          :disabled="role.all || !offers(f, level)"
+                          :disabled="locked || !offers(f, level)"
                           :data-cap="`${f.id}:${level}`"
                           @change="setLevel(f, level)"
                         >
@@ -90,7 +92,7 @@
                       :key="c"
                       :model-value="selected.has(c)"
                       :label="actionLabel(c)"
-                      :disabled="role.all"
+                      :disabled="locked"
                       density="compact"
                       hide-details
                       class="d-inline-flex mr-3"
@@ -168,6 +170,11 @@ const selected = ref(new Set<CapabilityId>())
 const openGroups = ref<string[]>(['invoicing', 'inventory'])
 
 const grant = computed<Grant>(() => (role.value?.all ? { all: true } : { caps: selected.value }))
+/**
+ * #529: a role the org cannot edit (the server's `isLockedRole`, sent as `locked`): the Administrator and the NRA
+ * Auditor (Read Only). Shown, never editable; the server refuses an edit too (409).
+ */
+const locked = computed(() => !!role.value?.all || !!role.value?.locked)
 const summary = computed(() => summarize(grant.value))
 /** FR-27.9: the portal's pages by the label its menu gives them (`DefaultLayout`). */
 const PORTAL_LABELS: Record<string, string> = {

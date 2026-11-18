@@ -5423,7 +5423,7 @@
         "description": "Liest die Belege und Berichte der Organisation; ändert nichts."
       },
       "nra_auditor": {
-        "description": "Der Steuerprüfer: liest alles und exportiert die SUPTO-Tabellen."
+        "description": "Der Steuerprüfer: liest Verkäufe, Lager, Buchhaltung und das Prüfprotokoll und exportiert die SUPTO-Tabellen. Ändert keine Daten."
       }
     },
     "ui": {
@@ -5438,6 +5438,7 @@
       "builtin": "Integriert",
       "edited": "Bearbeitet",
       "administratorFixed": "Der Administrator hat alles, auch was spätere Versionen hinzufügen, und wird nicht bearbeitet.",
+      "nraAuditorFixed": "Der NRA-Prüfer (nur Lesen) ist das in der SUPTO-Dokumentation beschriebene Prüfprofil: Er liest und exportiert und wird nicht bearbeitet.",
       "unknownCaps": "Optionen, die diese Version nicht mehr kennt (nicht gewährt)",
       "extras": "Extras",
       "alwaysIncluded": "Immer enthalten: das eigene Konto, Benachrichtigungen, Sprache, Favoriten, der Name der Organisation und ihre Personen.",

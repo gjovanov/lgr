@@ -10,7 +10,7 @@ import { mongoose } from 'db/connection'
 import { AuditLog, Org, Role, User, type IUser } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'
 import { PRICE_CAPS, grantOfRole, sameGrant, templateGrant, withPriceLevels } from 'config/access'
-import { RoleRefusal, setRoleCapsBySystem } from 'services/biz/access/role.service'
+import { RoleRefusal, listRoles, setRoleCapsBySystem } from 'services/biz/access/role.service'
 import { rolesFromSets } from 'migrations/migrations/0015-roles-from-sets'
 
 /**
@@ -229,5 +229,65 @@ describe("#529: a sys-admin sets a role's price levels by script, as the editor 
     expect(refused).toBeInstanceOf(RoleRefusal)
     expect((refused as RoleRefusal).body.code).toBe('administrator_role_fixed')
     expect(((await Role.findById(admin._id).lean().exec()) as any).version).toBe(admin.version)
+  })
+})
+
+describe('#529 (owner, 2026-11-18): the NRA Auditor (Read Only) role is locked as the Administrator is', () => {
+  // admin1 gave up the Administrator role above ("the last active Administrator"): admin2 is the org's Administrator.
+  it('refuses a capability change, a rename and a delete, and writes nothing', async () => {
+    const auditor = await builtin('nra_auditor')
+    const write = await call('PUT', `/roles/${auditor._id}`, tokens.admin2, { caps: [...templateGrant('nra_auditor').caps as Set<string>, 'sales-docs.edit'] })
+    expect(write.status).toBe(409)
+    expect(write.json.code).toBe('nra_auditor_role_fixed')
+    const rename = await call('PUT', `/roles/${auditor._id}`, tokens.admin2, { name: 'Inspector' })
+    expect([rename.status, rename.json.code]).toEqual([409, 'nra_auditor_role_fixed'])
+    expect((await call('DELETE', `/roles/${auditor._id}`, tokens.admin2)).json.code).toBe('builtin_role')
+    const stored: any = await Role.findById(auditor._id).lean().exec()
+    expect(stored).toMatchObject({ name: 'NRA Auditor (Read Only)', edited: false, version: auditor.version })
+    expect(sameGrant(grantOfRole(stored), templateGrant('nra_auditor'))).toBe(true)
+  })
+
+  it('a script is refused too (setRoleCapsBySystem)', async () => {
+    const auditor = await builtin('nra_auditor')
+    let refused: unknown
+    try { await setRoleCapsBySystem(orgId, String(auditor._id), [], 'scripts/role-price-levels.ts') } catch (e) { refused = e }
+    expect(refused).toBeInstanceOf(RoleRefusal)
+    expect((refused as RoleRefusal).body.code).toBe('nra_auditor_role_fixed')
+    expect(((await Role.findById(auditor._id).lean().exec()) as any).version).toBe(auditor.version)
+  })
+
+  it('the Administrator lock is unchanged, and the two show as locked; the other built-in roles do not', async () => {
+    const admin = await builtin('admin')
+    expect((await call('PUT', `/roles/${admin._id}`, tokens.admin2, { caps: [] })).json.code).toBe('administrator_role_fixed')
+    expect((await call('PUT', `/roles/${admin._id}`, tokens.admin2, { name: 'Boss' })).json.code).toBe('administrator_role_fixed')
+    const r = await call('GET', '/roles', tokens.admin2)
+    const locked = r.json.roles.filter((x: any) => x.locked).map((x: any) => x.templateKey).sort()
+    expect(locked).toEqual(['admin', 'nra_auditor'])
+    expect(r.json.roles.filter((x: any) => x.isBuiltin && !x.locked)).toHaveLength(8)
+  })
+
+  it('another built-in role is still edited and renamed', async () => {
+    const hr = await builtin('hr_manager')
+    const r = await call('PUT', `/roles/${hr._id}`, tokens.admin2, { name: 'People Office', caps: ['payroll-runs.view'] })
+    expect(r.status).toBe(200)
+    expect(r.json.role).toMatchObject({ name: 'People Office', edited: true, locked: false })
+    expect(r.json.role.caps).toContain('payroll-runs.view')
+  })
+
+  it('an NRA Auditor role an org changed before the lock keeps what it holds: refused, never rewritten', async () => {
+    // As an org on production may have left it: edited (a write capability added) and renamed, before this release.
+    const theirs: any = await Role.findOne({ orgId: other._id, isBuiltin: true, templateKey: 'nra_auditor' }).lean().exec()
+    const caps = [...templateGrant('nra_auditor').caps as Set<string>, 'sales-docs.edit'].sort()
+    await Role.updateOne({ _id: theirs._id }, { $set: { name: 'Inspector', edited: true, caps } }).exec()
+
+    let refused: unknown
+    try { await setRoleCapsBySystem(String(other._id), String(theirs._id), [], 'scripts/role-price-levels.ts') } catch (e) { refused = e }
+    expect((refused as RoleRefusal).body.code).toBe('nra_auditor_role_fixed')
+
+    const view = (await listRoles(String(other._id))).find(x => x.id === String(theirs._id))!
+    expect(view).toMatchObject({ name: 'Inspector', edited: true, locked: true })
+    expect(view.caps).toContain('sales-docs.edit')
+    const stored: any = await Role.findById(theirs._id).lean().exec()
+    expect([...stored.caps].sort()).toEqual(caps)
   })
 })
