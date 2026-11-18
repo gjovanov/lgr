@@ -55,7 +55,7 @@
             <td>{{ line.productName || line.productId }}</td>
             <td class="text-end">{{ line.systemQuantity }}</td>
             <td>
-              <v-text-field v-model.number="line.countedQuantity" type="number" min="0" density="compact" hide-details variant="underlined" :disabled="readonly" />
+              <DecimalField v-model="line.countedQuantity" :decimals="QTY_DECIMALS" :min-decimals="0" min="0" density="compact" hide-details variant="underlined" :disabled="readonly" />
             </td>
             <td class="text-end" :class="(line.countedQuantity - line.systemQuantity) !== 0 ? 'text-error font-weight-bold' : 'text-success'">
               {{ line.countedQuantity - line.systemQuantity }}
@@ -75,11 +75,14 @@
 
 <script setup lang="ts">
 import { rowKey } from 'ui-shared/composables/row-key'
+import DecimalField from 'ui-shared/components/DecimalField.vue'
+import { QTY_DECIMALS } from 'ui-shared/composables/price-precision'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { reportError } from 'ui-shared/composables/report-error'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePendingChanges } from 'ui-shared/composables/usePendingChanges'
 import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
@@ -187,8 +190,9 @@ async function loadProducts() {
   if (!form.value.warehouseId) return
   try {
     // size: 0 = ALL stock levels. The default page (10) used to silently seed a "full"
-    // count with ten products. Large warehouses take a moment here — that is the point.
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, { params: { warehouseId: form.value.warehouseId, size: 0 } })
+    // count with ten products. `fields=count` is the endpoint's lean "all" (FR-30.8): past the list ceiling of a
+    // thousand rows, each level narrow.
+    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/stock-level`, { params: { warehouseId: form.value.warehouseId, size: 0, fields: 'count' } })
     form.value.lines = (data.stockLevels || []).map((s: any) => ({
       productId: s.productId,
       productName: s.productName || s.productSku,
@@ -196,7 +200,7 @@ async function loadProducts() {
       countedQuantity: s.quantity || 0,
       avgCost: s.avgCost || 0,
     }))
-  } catch { /* */ }
+  } catch (e) { reportError(e) }
 }
 
 async function handleSubmit() {
@@ -256,7 +260,7 @@ async function completeCount() {
 }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } }); warehouses.value = data.warehouses || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } }); warehouses.value = data.warehouses || [] } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 onMounted(async () => {

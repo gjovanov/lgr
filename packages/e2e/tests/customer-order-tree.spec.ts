@@ -600,15 +600,15 @@ test.describe('A line\'s price is picked from the article\'s prices, as on an in
     // The user lands on the draft. Its form loads the article's prices for this client and must leave the line's alone.
     await page.waitForURL(new RegExp(`/invoicing/invoices/${idOf(invoice)}/edit$`))
     const line = page.locator('tr').filter({ has: page.getByTestId('price-combobox') }).first()
-    await expect(line.getByTestId('price-combobox')).toContainText('8.00000', { timeout: 15000 })
+    await expect(line.getByTestId('price-combobox')).toContainText('8.00', { timeout: 15000 })
     await pricesLoaded
-    await expect(line.getByTestId('price-combobox')).toContainText('8.00000')
+    await expect(line.getByTestId('price-combobox')).toContainText('8.00')
 
     // A quantity edited on it reads the prices again, and still leaves the line's alone; so does the save.
     const again = page.waitForResponse((r: any) => r.url().includes('/pricing/options') && r.url().includes(idOf(priced)))
     await line.locator('input[type="number"]').first().fill('1')
     await again
-    await expect(line.getByTestId('price-combobox')).toContainText('8.00000')
+    await expect(line.getByTestId('price-combobox')).toContainText('8.00')
     const put = page.waitForResponse((r: any) => r.request().method() === 'PUT' && r.url().includes(`/invoices/${idOf(invoice)}`))
     await page.getByRole('button', { name: /^save$/i }).first().click()
     expect((await put).status()).toBe(200)

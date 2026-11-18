@@ -161,8 +161,8 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   icon: 'mdi-bank',
   getFormData: () => ({ ...form.value }),
   getPreviewFields: () => [
-    { label: 'Name', value: form.value.name || '' },
-    { label: 'IBAN', value: form.value.iban || '' },
+    { label: t('common.name'), value: form.value.name || '' },
+    { label: t('accounting.iban'), value: form.value.iban || '' },
   ],
   setFormData: (data) => { form.value = { ...form.value, ...data } },
   isEdit: () => isEdit.value,

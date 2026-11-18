@@ -186,7 +186,9 @@ describe('a master signs the person in', () => {
 
   it('offers the button only when linked, and turns the code into its own session', async () => {
     const p = await aPersonAndTheirServer()
-    expect((await call(p.app, 'GET', '/api/auth/idp/config')).status).toBe(404) // global
+    // FR-30.27: on global it answers that it offers nothing (it was a 404, a failed request on every sign-in page).
+    const off = await call(p.app, 'GET', '/api/auth/idp/config')
+    expect({ status: off.status, body: await off.json() }).toEqual({ status: 200, body: { enabled: false } })
     const one = pkce()
     const code = await aCode(p, one.challenge) // consent on lgrai.app, before the role changes
     await asMaster(p)

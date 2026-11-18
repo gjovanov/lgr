@@ -187,8 +187,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, formatNumber, intlLocale } from 'ui-shared/format'
 import { computed, reactive, ref, watch } from 'vue'
-import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
@@ -269,7 +269,7 @@ const loading = ref(false)
 const failed = ref(false)
 const busy = ref(false)
 
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 /** The server leaves the price out for a caller who may not see costs (FR-28.6): no column for it then. */
 const hasPrices = computed(() => facts.value.some((s) => s.lastUnitPrice !== undefined) || documents.value.some((d) => d.unitPrice !== undefined))
@@ -295,8 +295,8 @@ const rows = computed<Row[]>(() => {
     || a.supplierName.localeCompare(b.supplierName))
 })
 
-const fmtDate = (iso: string) => (iso ? new Date(iso).toLocaleDateString(localeCode.value) : '')
-const fmtQty = (n: number) => numberFormat(localeCode.value, { maximumFractionDigits: 3 }).format(n || 0)
+const fmtDate = (iso: string) => (iso ? formatDate(iso) : '')
+const fmtQty = (n: number) => formatNumber(n || 0, { lang: localeCode.value, maxDecimals: 3 })
 const fmtPrice = (amount: number, currency?: string) => formatUnitPrice(amount, currency || baseCurrency.value, localeCode.value)
 const kindLabel = (kind: 'bill' | 'receipt') => t(kind === 'bill' ? 'warehouse.supplierFacts.kindBill' : 'warehouse.supplierFacts.kindReceipt')
 const contactHref = (id: string) => appHref('invoicing', `/invoicing/contacts/${id}/edit`)

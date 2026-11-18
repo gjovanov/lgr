@@ -149,6 +149,7 @@
 </template>
 
 <script setup lang="ts">
+import { intlLocale } from 'ui-shared/format'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -196,7 +197,7 @@ function today(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[appStore.locale] || 'en-US')
+const localeCode = computed(() => intlLocale(appStore.locale))
 function fmt(v: number) {
   return formatCurrency(v, state.value?.cashSale.currency || 'EUR', localeCode.value)
 }
@@ -245,13 +246,15 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 async function fetchContacts(search?: string) {
   loadingContacts.value = true
   try {
-    const params: Record<string, any> = { type: 'customer', size: 20 }
+    // FR-30.7: the picker's rows, not whole contacts.
+    // FR-30.12: a type-ahead shows no total, so nothing is counted.
+    const params: Record<string, any> = { type: 'customer', size: 20, fields: 'list', count: 'none' }
     if (search) params.search = search
     const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`, { params })
     const list = data.contacts || []
     const chosen = contacts.value.find(c => c._id === contactId.value)
     contacts.value = chosen && !list.some((c: any) => c._id === chosen._id) ? [chosen, ...list] : list
-  } catch { /* */ } finally {
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
     loadingContacts.value = false
   }
 }
@@ -273,7 +276,7 @@ async function ensureContactLoaded(id: string) {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact/${id}`)
     if (data.contact) contacts.value = [data.contact, ...contacts.value]
-  } catch { /* */ }
+  } catch { /* The list keeps what it had: the picked id stays on the form. */ }
 }
 
 async function load() {

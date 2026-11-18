@@ -498,3 +498,109 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     `e2e/line-identity.spec.ts` removes the second of three lines: the third line's row is the same element afterwards,
     keeps a quantity typed into it, and nothing loads its article or prices again. Run against the position keys, it
     fails.
+- **B1** (FR-31.13 to .15): one format, and no English.
+  - `ui-shared/format` (`src/format/format.ts`) is the one formatter: `intlLocale()` (all four languages),
+    `formatMoney`, `formatNumber`, `formatDate` / `formatDateTime`, and `formatPrice` / `priceDecimals` (D-5),
+    `formatQuantity`, `formatUnit`, `dayInZone`. Its language is the app's (`plugins/i18n#declareLanguage` sets it);
+    each function takes another in `opts.lang`. `useCurrency.formatCurrency` is that `formatMoney`.
+  - D-3: `dd.MM.yyyy` in bg, de and mk (no „г."), `dd/MM/yyyy` in en, 24-hour times; built from the date's parts, so no
+    browser or ICU version changes it. A day stored at midnight UTC (a document's date) is that day wherever the browser
+    is, as the lists that cut the ISO string showed it. D-4: ICU's own order per language (bg, de, mk: the amount, then
+    the currency; en: the currency first), with the point for decimals of 2026-11-12 (`number-display.ts`). English
+    numbers are `en-US` (`$5.00`, not `US$5.00`). D-5: `PriceCombobox` shows two decimals, more only when the price has
+    more, up to five (it showed five always).
+  - The 41 local language → locale maps, the calls without a locale, the `Intl` formatters of the views and the ISO
+    dates the lists cut out of a timestamp (`?.split('T')[0]` in 29 templates) go through it. `unit/one-formatter.test.ts`
+    holds the table per language and fails on a formatting locale named, a `toLocale*` call, an `Intl` formatter or a
+    `numberFormat(` outside `ui-shared/src/format/` (and its `number-display.ts`): the allow-list is empty.
+  - FR-31.15: the 41 Pending Changes labels in 20 files are their fields' keys (`unit/pending-labels.test.ts` fails on
+    a literal; `PermissionSetsView`, which FR-27 P3-3 removes, is the one exception and goes with the file). The bulk
+    price adjustment, the stock transfer dialog, the app switcher and the price trail's "Manual override" (stored as
+    before, read as `pricing.manualOverride`) speak the session's language, and so does the journal analysis view.
+    `e2e/bg-walk.spec.ts` reads the headings, labels, buttons, tabs and hints of ten daily screens in a Bulgarian
+    browser and finds none of its English words.
+  - *Decision:* the till's cash register journal and its document keep their `YYYY-MM-DD HH:mm` (§10 leaves the till's
+    flow out), and the three e2e specs that read a price field's five decimals (customer-order-tree, invoicing-product-autocomplete, pos-redirects) now read its two.
+- **B2** (FR-31.16, .17): decimal fields in the four daily grids, and the app's own confirm dialog.
+  - `DecimalField` now takes a decimal comma as a point on every system (a typed comma is typed as a point, a pasted
+    `12,5` is pasted as `12.5`: a number field dropped the comma, so „2,5" became 25), and `minDecimals`: at least that
+    many at rest, more only when the figure has them. It stays a `type="number"` field, so the grids' e2e tests, which
+    find their fields by that, pass unmodified.
+  - In the document line table the quantity (3 decimals, `config/price-precision#QTY_DECIMALS`), the typed price
+    (4, at least 2) and the discount (2); in the movement form the quantity and the unit cost; in the count form the
+    counted quantity; in the till's cart the quantity. A loaded figure is shown to the field's decimals and never written
+    back unless typed (`e2e/fields-and-dialogs.spec.ts` saves a 1.23456 / 0.04723 line untouched).
+  - `ui-shared/composables/confirm.ts#askConfirm({ text, confirm, danger })` returns the answer;
+    `components/ConfirmDialogHost.vue` (in `web/App.vue`) draws it, its button named for the action. The three
+    `confirm()` calls (delete a supplier order, delete a customer order, take over a reservation) use it.
+  - `unit/fields-and-dialogs.test.ts` fails on a browser `confirm`/`alert`/`prompt` in UI source, on more raw
+    `type="number"` inputs than the ceiling (85 after this slice, 92 at the audit), and on a daily grid's quantity, price
+    or discount that is not a `DecimalField`. `e2e/fields-and-dialogs.spec.ts`: a comma and a point, the wheel, the
+    untouched save, and both order deletions through the app's dialog with no browser dialog.
+  - *Decision:* quantities show as many decimals as they have (`5`, `2.5`), not a fixed three, so a column of whole
+    pieces reads as it did and the grids' tests read `5` as before.
+- **B3** (FR-31.18, .19): lists keep their place; Movements, Stock levels and Inventory counts on the shared list shell.
+  - The seventeen lists of §1.9 pass `urlSync: true` to `usePaginatedTable`: the page, the page size and the sort are in
+    the address. Each filter a control on the page sets is a `useListQueryState` key, declared before the table: the
+    search (`q`) on Categories, Warehouses, Price lists, Accounts, Bank accounts, Exchange rates, Fixed assets, Employees,
+    Payroll runs, Payslips, Timesheets and Desktops; and `analytics` / `quantitative` (Accounts), `taxCategory` / `origin`
+    (Fixed assets), `tags` (Employees), `employee` / `from` / `to` (Timesheets), `status` / `active` (POS devices),
+    `status` / `from` / `to` (POS sessions), `revoked` (Desktops). A value the filter does not offer is dropped. VAT
+    returns, Users and Invites have no filter: their page, size and sort. The per-tab memory of FR-05 brings the place
+    back on a form's own Back as well as the browser's.
+  - Movements, Stock levels and Inventory counts are on `ListScaffold`: the column picker and the remembered columns,
+    keyed by their unchanged route names. Their addresses keep the same keys. Movements keeps its tick column and e-mail
+    bar (the shell's `selectable` and `bulk-bar`), its board and a product's ledger (the shell's other views), and no
+    longer fetches the contact list it never read; its Export (A5) and its dates (B1) were already done.
+    `ListScaffold` takes `header-testid` for the title row the movements fit test measures.
+  - `unit/list-place.test.ts` fails on a table on `usePaginatedTable` without `urlSync: true` (a picker dialog and a
+    VAT return's own rows are the two listed exceptions), on a settable filter of the seventeen left out of the address
+    or declared after the table, and on the three lists leaving the shell, their route names or their keys.
+    `e2e/list-place.spec.ts`: Categories (a search and page two, by the form's Back and the browser's), Warehouses (a
+    search) and Accounts (page two, and the address opened as it stands); Movements' column picker survives a reload,
+    its address keeps `type` and `status`, and no contact list is asked for.
+  - *Decision:* a filter with no control on its page (Employees' status and department, Payroll runs' status) stays out
+    of the address: nothing sets it, so nothing is lost. Desktops' auto-refresh is how the page behaves, not which rows
+    it shows, and stays out too. The three moved lists keep the default row density they had, not the shell's compact
+    one, so their rows look as they did.
+- **B4** (FR-31.21; FR-31.20 not built): icon buttons have names.
+  - The 61 icon-only buttons that named themselves in no way (an `icon="mdi-…"` or a `<v-icon>` inside, with no
+    `aria-label`, `title` or tooltip) now carry a translated `aria-label` and a `title`, which is the tooltip: delete,
+    close, edit, refresh, download, view, back, expand, copy, the form sidebar's toggle and its notes and activity, the app
+    switcher, the theme toggle and the menus of the shell. `unit/icon-button-names.test.ts` fails on a new one.
+  - The exceptions are three views FR-27 P3-3 takes apart (`UsersView`, `InvitesView`, `PermissionSetsView`), not this
+    FR's to touch; they go with the files.
+  - *Not built: FR-31.20 (room at 1366x768).* D-6 asks the owner to see a screenshot of each layout before it ships
+    (the new invoice's folded party block and sticky line header, Products' one row per article, Sales invoices' foldable
+    KPI row, the top bar's "More"). With no owner answer on #796, the layouts stay as they are, and the slice says so
+    rather than ship a look nobody approved. It is a change in the browser alone, buildable once D-6 is answered.
+- **B5** (FR-31.22): jump to a document by its number.
+  - `GET /api/org/:orgId/lookup/documents?number=…` (`portal-api/controllers/document-lookup.controller.ts`, the work in
+    `services/biz/document-lookup.service.ts`, the shapes in `config/document-lookup.ts`). It matches the number exactly
+    (as typed and in capitals, since every series is written in capitals), then, when nothing matches exactly, as the
+    start of a number, at most 20 listed and `more` when there are others. Over invoices of every type, supplier orders,
+    customer orders, reservations and movements; an issued invoice or order is also found by its `draftNumber`.
+  - A family is searched only when the caller may open its page, by the page's capability: sales documents
+    (`sales-docs.view`), quotes (`proforma.view`), bills (`bills.view`), the till's documents (`cash-sales.view`), the
+    orders and reservations (`orders.view`; a supplier order also `orders.browse`), movements (`movements.view`). The
+    route's rule is `self` in both tables (`route-permission.ts`, `config/access/routes.ts`); a document the caller may
+    not open is never in the answer.
+  - Every query reads through an index on the number: the unique `{ orgId, <number> }` keys,
+    `Invoice { orgId, direction, invoiceNumber }`, and a new partial `{ orgId, draftNumber }` on invoices, supplier orders
+    and customer orders (built by Mongoose's autoIndex on start; no migration). A spelling is an exact value or an
+    anchored, escaped prefix, which an index reads as a range.
+  - The top bar: `ui-shell/components/DocumentJump.vue`, a magnifier button that opens the field under it. Enter opens
+    the one match (`ui-shell/document-route.ts#documentRoute`, by route name: a till document as the cash-register
+    journal opens it), lists several with the kind, the date, the contact and the draft number it was found by, or says
+    there is none. Ctrl+K (⌘K) opens it from any screen (D-7); no key of the document line table or of a form is K, and
+    the physical key decides in a Cyrillic layout.
+  - `integration/document-lookup.flow.test.ts`: exact (any case), prefix with the limit, a draft number, several, none,
+    another org's number, a role that reads only sales documents and one that reads only movements; and the explain:
+    the database's profiler over every lookup shows no collection scan, and the draft numbers through their index.
+    `unit/document-jump.test.ts`: every match's route name is declared by its module, every text in four languages, the
+    icons shipped, the shortcut.
+  - *Decision:* the field sits behind a button rather than open in the bar. The bar has no room for it at 1366 px
+    (FR-31.20 is not built), and the button is in the bar on every screen; Ctrl+K types straight into it.
+  - *Decision:* the families are the page's capability, not the route's read rule. The movements route also answers a
+    seller (`sales-docs.view`, for a contact's movements), but the movement page does not open for one: the lookup finds
+    what the caller can open, never more.

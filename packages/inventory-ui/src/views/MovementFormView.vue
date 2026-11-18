@@ -158,12 +158,12 @@
                 <v-chip v-if="line.stockQty != null" size="small" label color="info" variant="tonal">{{ line.stockQty }}</v-chip>
                 <span v-else class="text-grey">&mdash;</span>
               </td>
-              <td><v-text-field v-model.number="line.quantity" type="number" density="compact" hide-details variant="underlined" :disabled="readonly" /></td>
+              <td><DecimalField v-model="line.quantity" :decimals="QTY_DECIMALS" :min-decimals="0" density="compact" hide-details variant="underlined" :disabled="readonly" /></td>
               <td v-if="seesCosts">
-                <v-text-field
-                  v-model.number="line.unitCost"
-                  type="number"
-                  step="0.0001"
+                <DecimalField
+                  v-model="line.unitCost"
+                  :decimals="PRICE_DECIMALS"
+                  :min-decimals="2"
                   density="compact"
                   hide-details
                   variant="underlined"
@@ -370,6 +370,9 @@
 
 <script setup lang="ts">
 import { rowKey } from 'ui-shared/composables/row-key'
+import { intlLocale } from 'ui-shared/format'
+import DecimalField from 'ui-shared/components/DecimalField.vue'
+import { PRICE_DECIMALS, QTY_DECIMALS } from 'ui-shared/composables/price-precision'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -474,7 +477,7 @@ const statusDef = computed<StatusDef>(() => ({
 }))
 
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 
 const emptyLine = () => ({
@@ -696,8 +699,8 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   getFormData: () => ({ ...form.value, lines: form.value.lines.map(({ stockQty: _stockQty, ...line }: any) => line) }),
   // The pending-changes panel shows the values: the type by its name, not as „receipt".
   getPreviewFields: () => [
-    { label: 'Type', value: t(`warehouse.movementTypes.${form.value.type}`) },
-    { label: 'Date', value: form.value.date },
+    { label: t('common.type'), value: t(`warehouse.movementTypes.${form.value.type}`) },
+    { label: t('common.date'), value: form.value.date },
   ],
   // A draft saved before the warehouses became `null` when empty may carry ''.
   setFormData: (data) => {
@@ -1311,14 +1314,14 @@ async function fetchWarehouses() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000, external: 'include' } })
     warehouses.value = data.warehouses || []
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 async function fetchCategories() {
   try {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category?size=0`)
     categories.value = data.productCategories || []
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 // ── GR-with-update helpers ──

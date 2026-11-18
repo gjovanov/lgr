@@ -46,6 +46,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -72,6 +73,6 @@ const rows = computed(() => orderInvoiceRows(props.invoices))
 function fmtDate(d: string | undefined) {
   if (!d) return ''
   const date = new Date(d)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString(props.localeCode)
+  return Number.isNaN(date.getTime()) ? '' : formatDate(date)
 }
 </script>

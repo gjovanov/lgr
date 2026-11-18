@@ -42,7 +42,7 @@
         {{ formatCurrency(item.salary?.baseSalary) }}
       </template>
       <template #item.actions="{ item }">
-        <v-btn icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
+        <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" @click="openDialog(item)" />
       </template>
     </v-data-table-server>
 
@@ -118,7 +118,7 @@
                 <v-col cols="3"><v-text-field v-model="ded.name" :label="$t('common.name')" /></v-col>
                 <v-col cols="2"><v-text-field v-model.number="ded.amount" :label="$t('common.amount')" type="number" /></v-col>
                 <v-col cols="2"><v-text-field v-model.number="ded.percentage" :label="$t('common.percentage')" type="number" /></v-col>
-                <v-col cols="2"><v-btn icon="mdi-delete" size="small" color="error" variant="text" @click="form.deductions.splice(i, 1)" /></v-col>
+                <v-col cols="2"><v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" icon="mdi-delete" size="small" color="error" variant="text" @click="form.deductions.splice(i, 1)" /></v-col>
               </v-row>
               <v-btn variant="outlined" prepend-icon="mdi-plus" @click="form.deductions.push({ type: '', name: '', amount: 0, percentage: 0 })">
                 {{ $t('payroll.addDeduction') }}
@@ -130,7 +130,7 @@
                 <v-col cols="4"><v-text-field v-model="ben.name" :label="$t('common.name')" /></v-col>
                 <v-col cols="3"><v-text-field v-model="ben.type" :label="$t('common.type')" /></v-col>
                 <v-col cols="3"><v-text-field v-model.number="ben.value" :label="$t('common.value')" type="number" /></v-col>
-                <v-col cols="2"><v-btn icon="mdi-delete" size="small" color="error" variant="text" @click="form.benefits.splice(i, 1)" /></v-col>
+                <v-col cols="2"><v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" icon="mdi-delete" size="small" color="error" variant="text" @click="form.benefits.splice(i, 1)" /></v-col>
               </v-row>
               <v-btn variant="outlined" prepend-icon="mdi-plus" @click="form.benefits.push({ name: '', type: '', value: 0 })">
                 {{ $t('payroll.addBenefit') }}
@@ -160,6 +160,7 @@ import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import CurrencyInput from 'ui-shared/components/CurrencyInput'
 import TagInput from 'ui-shared/components/TagInput.vue'
@@ -183,10 +184,18 @@ const filters = computed(() => {
   return f
 })
 
+// FR-31.18: the list's place (search, tags, page, size, sort) in the address; declared before usePaginatedTable. The
+// status and department filters have no control on the page, so nothing sets them and they stay out of the address.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'tags', ref: tagFilter, codec: 'csv' },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/payroll/employee`),
   entityKey: 'employees',
   filters,
+  urlSync: true,
 })
 
 const dialog = ref(false)

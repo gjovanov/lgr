@@ -68,7 +68,7 @@
             <td><v-text-field v-model.number="item.price" type="number" step="0.01" density="compact" hide-details variant="underlined" /></td>
             <td><v-text-field v-model.number="item.minQuantity" type="number" density="compact" hide-details variant="underlined" /></td>
             <td><v-text-field v-model.number="item.discount" type="number" suffix="%" density="compact" hide-details variant="underlined" /></td>
-            <td><v-btn icon="mdi-close" size="x-small" variant="text" @click="form.items.splice(idx, 1)" /></td>
+            <td><v-btn :aria-label="$t('common.close')" :title="$t('common.close')" icon="mdi-close" size="x-small" variant="text" @click="form.items.splice(idx, 1)" /></td>
           </tr>
         </tbody>
       </v-table>
@@ -145,7 +145,7 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   entityType: 'priceList',
   icon: 'mdi-tag-multiple',
   getFormData: () => ({ ...form.value }),
-  getPreviewFields: () => [{ label: 'Name', value: form.value.name }],
+  getPreviewFields: () => [{ label: t('common.name'), value: form.value.name }],
   setFormData: (data) => { form.value = { ...form.value, ...data } },
   isEdit: () => isEdit.value,
   entityId: () => route.params.id as string,

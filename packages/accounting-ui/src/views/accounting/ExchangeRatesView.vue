@@ -30,7 +30,7 @@
         {{ item.rate.toFixed(6) }}
       </template>
       <template #item.date="{ item }">
-        {{ item.date?.split('T')[0] }}
+        {{ formatDate(item.date) }}
       </template>
       <template #item.source="{ item }">
         <v-chip v-if="item.source" size="small" variant="outlined">
@@ -38,8 +38,8 @@
         </v-chip>
       </template>
       <template #item.actions="{ item }">
-        <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="navigateToEdit(item)" />
-        <v-btn v-cap="'exchange-rates.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
+        <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" @click.stop="navigateToEdit(item)" />
+        <v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" v-cap="'exchange-rates.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
       </template>
     </v-data-table-server>
 
@@ -61,6 +61,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -69,6 +70,7 @@ import { type ExchangeRate } from '../../store/accounting.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 
@@ -86,10 +88,15 @@ const filters = computed(() => {
 })
 
 const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/exchange-rate`)
+// FR-31.18: the list's place (search, page, size, sort) in the address; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+])
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'exchangeRates',
   filters,
+  urlSync: true,
 })
 
 const deleteDialog = ref(false)

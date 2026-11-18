@@ -37,12 +37,13 @@
         <span v-if="item.cells?.['01-60']" class="text-success">{{ money(item, '01-60') }} {{ $t('accounting.vat.refundable') }}</span>
         <span v-else>{{ money(item, '01-50') }} {{ $t('accounting.vat.payable') }}</span>
       </template>
-      <template #item.filedAt="{ item }">{{ item.filedAt?.split('T')[0] }}</template>
+      <template #item.filedAt="{ item }">{{ formatDate(item.filedAt) }}</template>
     </v-data-table-server>
   </v-container>
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -74,6 +75,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   defaultSize: 25,
   defaultSortBy: 'periodCode',
   defaultSortOrder: 'desc',
+  // FR-31.18: the page and its size in the address, so Back from a month returns to the same page.
+  urlSync: true,
 })
 
 const headers = computed(() => [
@@ -87,7 +90,7 @@ const headers = computed(() => [
   { title: t('accounting.vat.filedAt'), key: 'filedAt', sortable: false },
 ])
 
-const localeCode = computed(() => ({ en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' } as Record<string, string>)[appStore.locale] || 'en-US')
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 /** A cell holds cents, in the month's currency. */
 function money(item: VatReturn, code: string): string {

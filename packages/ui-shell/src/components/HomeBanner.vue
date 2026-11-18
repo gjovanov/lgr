@@ -15,6 +15,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from 'ui-shared/format'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient, setRefusalTranslator, UNEXPECTED_ERROR_CODE } from 'ui-shared/composables/useHttpClient'
@@ -100,7 +101,7 @@ onUnmounted(() => {
   stopListening()
 })
 
-const when = (v?: string | null) => (v ? new Date(v).toLocaleString(locale.value) : t('home.unknown'))
+const when = (v?: string | null) => (v ? formatDateTime(v) : t('home.unknown'))
 
 const kind = computed(() => {
   const s = status.value

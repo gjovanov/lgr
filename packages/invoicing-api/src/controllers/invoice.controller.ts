@@ -3,9 +3,11 @@ import { can, grantOf, type AccessCaller } from 'services/biz/access/evaluate'
 import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, writesKind } from 'config/access'
 import { QUOTE_CONVERTS_TO, isQuoteType } from 'config/constants'
 import { chooseListSort } from 'config/list-sorts'
+import { listProjection } from 'config/list-rows'
 import { keepStoredTrails, withVisibleTrails } from 'services/biz/access/price-trails'
 import { typedPriceRefusal, withArticleUnits } from 'services/biz/sales-lines'
 import { Elysia, t } from 'elysia'
+import { AnObject } from 'services/http/body-schemas'
 import { seesOrders } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
@@ -349,6 +351,23 @@ function stockFailureAnswer(e: IssueStockError, otherwise: number | null): [numb
 // Produce a viewable history when legacy rows have no statusHistory yet, using
 // the known status-change timestamps (createdAt, sentAt, paidAt). Read-only synthesis —
 // does not persist.
+/**
+ * FR-30.10: a document's lines with their article's name and SKU (`productName`, `productSku`), read in one query. A
+ * line whose article is gone gets empty ones, as the form showed when its read of the article failed.
+ */
+async function withLineArticles(orgId: string, lines: any[] | undefined): Promise<any[] | undefined> {
+  if (!Array.isArray(lines) || !lines.length) return undefined
+  const ids = [...new Set(lines.map((l) => (l?.productId ? String(l.productId) : '')).filter(Boolean))]
+  if (!ids.length) return undefined
+  const products = await getRepos().products.findMany({ orgId, id: { $in: ids } }, undefined, { select: ['name', 'sku'] })
+  const byId = new Map(products.map((p: any) => [String(p.id), p]))
+  return lines.map((l) => {
+    if (!l?.productId) return l
+    const p: any = byId.get(String(l.productId))
+    return { ...l, productName: p?.name ?? '', productSku: p?.sku ?? '' }
+  })
+}
+
 function synthesizeStatusHistory(invoice: any): any[] {
   if (Array.isArray(invoice.statusHistory) && invoice.statusHistory.length > 0) {
     return invoice.statusHistory
@@ -648,7 +667,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           lastName: 'lastNameLower',
         },
       })
-      const matchingContacts = await r.contacts.findMany({ orgId, ...contactFilter } as any)
+      // Their ids only: the search read every matching contact whole (FR-30.7).
+      const matchingContacts = await r.contacts.findMany({ orgId, ...contactFilter } as any, undefined, { select: ['id'] })
       const contactIds = matchingContacts.map((c: any) => c.id || c._id)
 
       if (contactIds.length > 0 && invoiceFilter.$or) {
@@ -714,7 +734,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // FR-30.2: a sort the list declares (`config/list-sorts`: the № column is `invoiceNumber`), else the newest first.
     const sort = chooseListSort('invoices', query.sortBy, query.sortOrder)
 
-    const result = await r.invoices.findAll(filter, { page, size, sort: { [sort.field]: sort.order } })
+    // FR-30.7: `fields=list` (the grids) answers rows, without the lines; without it, the whole document as before.
+    const result = await r.invoices.findAll(filter, { page, size, sort: { [sort.field]: sort.order } }, { select: listProjection('invoices', query.fields) })
 
     // #171: a cash sale lists the invoices issued for it (the link lives only on the invoices).
     const cashSaleIds = result.items.filter((i: any) => i.type === 'cash_sale').map((i: any) => String(i.id))
@@ -734,8 +755,9 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     }
 
     const [contacts, relatedInvoices] = await Promise.all([
-      contactIds.size > 0 ? r.contacts.findMany({ orgId, id: { $in: [...contactIds] } } as any) : [],
-      relatedInvoiceIds.size > 0 ? r.invoices.findMany({ orgId, id: { $in: [...relatedInvoiceIds] } } as any) : [],
+      // What the rows take of them, and no more (FR-30.7): a related document was read with its lines.
+      contactIds.size > 0 ? r.contacts.findMany({ orgId, id: { $in: [...contactIds] } } as any, undefined, { select: ['companyName', 'firstName', 'lastName', 'email'] }) : [],
+      relatedInvoiceIds.size > 0 ? r.invoices.findMany({ orgId, id: { $in: [...relatedInvoiceIds] } } as any, undefined, { select: ['invoiceNumber', 'type'] }) : [],
     ])
 
     const contactMap = new Map(contacts.map(c => [c.id, c]))
@@ -1228,7 +1250,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           country: t.Optional(t.String()),
         })),
         // Purchase bills only: inline product-master updates applied atomically with the bill.
-        productUpdates: t.Optional(t.Array(t.Any())),
+        productUpdates: t.Optional(t.Array(AnObject)),
       }),
     },
   )
@@ -1244,10 +1266,13 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (invoice.contactId) {
       contact = await r.contacts.findByIdInOrg(String(invoice.contactId), orgId)
     }
+    // FR-30.10: each line names its article, so the form reads no article per line to show it (30 reads for 30 lines).
+    const lines = await withLineArticles(orgId, invoice.lines)
 
     return {
       invoice: {
         ...invoice,
+        ...(lines ? { lines } : {}),
         // FR-22.31: a bill made from goods receipts links them, and its form compares its prices
         // with what they were received at.
         ...(isReceiptLinked(invoice) ? { receipts: await linkedReceiptsOf(orgId, invoice) } : {}),
@@ -1562,7 +1587,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         tags: t.Optional(t.Array(t.String())),
         terms: t.Optional(t.String()),
         // Purchase bills only: inline product-master updates applied atomically with the edit.
-        productUpdates: t.Optional(t.Array(t.Any())),
+        productUpdates: t.Optional(t.Array(AnObject)),
       }),
     },
   )
@@ -1749,7 +1774,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
 
     // A bill issued here books its goods as `/receive` does, so it answers the same question first.
     const overlap = await receiptsOverlapping(orgId, invoice)
-    // `/send` has no schema, so this reads the answer itself: only the answer counts as one.
+    // `/send`'s schema takes any value here, so this reads the answer itself: only the answer counts as one.
     if (overlap && (body as any)?.acknowledgeOverlap !== true) return status(409, receiptOverlapRefusal(invoice, overlap))
     // FR-22.61b: the mirror question, of a sales invoice typed for goods a stock note already delivered. Asked here,
     // before the tender, the claim and the dispatch: a refusal leaves the draft as it was.
@@ -1892,7 +1917,19 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (settlement.action !== 'none') return { invoice: await r.invoices.findOne({ id, orgId } as any) }
 
     return { invoice: updated }
-  }, { isSignIn: true, fiscalDevice: deviceFromCounter })
+  }, {
+    isSignIn: true,
+    fiscalDevice: deviceFromCounter,
+    // FR-32.18: what an issue may say, and nothing it must (the Issue button sends none). `acknowledgeOverlap` takes any
+    // value: only `true` answers the overlap question, and anything else is asked again (409 `receipt_overlap` /
+    // `dispatch_overlap`), as it was before the route had a schema. A 422 there would change an answer FR-32.27 keeps.
+    // No `additionalProperties`: nothing else is read, and a schema that keeps undeclared fields is the body-as-document
+    // controllers' (`unit/server-owned.test.ts`).
+    body: t.Optional(t.Object({
+      pendingTransferIds: t.Optional(t.Array(t.String())),
+      acknowledgeOverlap: t.Optional(t.Unknown()),
+    })),
+  })
   .post('/:id/receive', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()

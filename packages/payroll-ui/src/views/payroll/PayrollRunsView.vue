@@ -42,8 +42,8 @@
       <template #item.actions="{ item }">
         <v-btn v-if="item.status === 'draft'" icon="mdi-calculator" size="small" variant="text" color="info" @click="calculate(item._id)" title="Calculate" />
         <v-btn v-if="item.status === 'calculated'" icon="mdi-check-circle" size="small" variant="text" color="success" @click="approve(item._id)" title="Approve" />
-        <v-btn icon="mdi-pencil" size="small" variant="text" :to="{ name: 'payroll.runs.edit', params: { id: item._id } }" />
-        <v-btn icon="mdi-chevron-down" size="small" variant="text" @click="toggleExpand(item._id)" />
+        <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" :to="{ name: 'payroll.runs.edit', params: { id: item._id } }" />
+        <v-btn :aria-label="$t('common.expand')" :title="$t('common.expand')" icon="mdi-chevron-down" size="small" variant="text" @click="toggleExpand(item._id)" />
       </template>
       <template #expanded-row="{ columns, item }">
         <tr>
@@ -78,6 +78,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
@@ -85,6 +86,7 @@ import { useAppStore } from '../../store/app.store'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 
@@ -103,10 +105,17 @@ const filters = computed(() => {
   return f
 })
 
+// FR-31.18: the list's place (search, page, size, sort) in the address; declared before usePaginatedTable. The status
+// filter has no control on the page, so nothing sets it and it stays out of the address.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+])
+
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/payroll/run`),
   entityKey: 'payrollRuns',
   filters,
+  urlSync: true,
 })
 
 const expanded = ref<string[]>([])
@@ -148,7 +157,7 @@ function toggleExpand(id: string) {
   else expanded.value.push(id)
 }
 
-const day = (value?: string) => (value ? new Date(value).toLocaleDateString() : '')
+const day = (value?: string) => (value ? formatDate(value) : '')
 
 function statusColor(status: string) {
   const colors: Record<string, string> = { draft: 'grey', calculated: 'info', approved: 'success', paid: 'primary' }

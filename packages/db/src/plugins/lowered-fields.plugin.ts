@@ -1,10 +1,13 @@
 import type { Schema } from 'mongoose'
+import { searchFieldPlugin, type SearchFieldConfig } from './search-field.js'
 
 export interface LoweredFieldsConfig {
   /** Source-field → target lowered-field map. Target should also be added to the schema. */
   fields: Record<string, string>
   /** Locale for `toLocaleLowerCase`. Defaults to 'bg' so Cyrillic case-folding works deterministically. */
   locale?: string
+  /** FR-30.11: the mirrors joined into one indexed search field, kept beside them (`search-field.ts`). */
+  joined?: SearchFieldConfig
 }
 
 function lower(value: unknown, locale: string): string | string[] | undefined {
@@ -83,4 +86,7 @@ export function loweredFieldsPlugin(schema: Schema, config: LoweredFieldsConfig)
   schema.pre('findOneAndUpdate', applyToUpdate)
   schema.pre('updateOne', applyToUpdate)
   schema.pre('updateMany', applyToUpdate)
+
+  // After the mirrors' hooks: the joined field is built from them.
+  if (config.joined) searchFieldPlugin(schema, config.joined, entries.map(([src]) => src))
 }

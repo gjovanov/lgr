@@ -55,7 +55,7 @@
       </v-card-text>
     </v-card>
 
-    <GridColumnPickerDialog v-model="colDialogOpen" :entries="colEntries" @toggle="toggleCol" @reorder="reorderCols" @reset="resetCols" />
+    <GridColumnPickerDialog v-if="colDialogOpen" v-model="colDialogOpen" :entries="colEntries" @toggle="toggleCol" @reorder="reorderCols" @reset="resetCols" />
 
     <v-data-table-server
       :headers="effectiveHeaders"
@@ -105,7 +105,7 @@
         {{ taxCategoryRoman(item.taxCategory) ?? '' }}
       </template>
       <template #item.taxDepreciationRate="{ item }">
-        {{ typeof item.taxDepreciationRate === 'number' ? `${item.taxDepreciationRate.toLocaleString(localeCode)} %` : '' }}
+        {{ typeof item.taxDepreciationRate === 'number' ? `${formatNumber(item.taxDepreciationRate, { maxDecimals: 3 })} %` : '' }}
       </template>
       <template #item.inServiceDate="{ item }">
         {{ dayOf(item.inServiceDate) ?? '' }}
@@ -113,8 +113,8 @@
       <template #item.actions="{ item }">
         <!-- An asset of the books takes no action here: it opens read-only from its row. -->
         <template v-if="!item.imported">
-          <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="navigateToEdit(item)" />
-          <v-btn v-cap="'fixed-assets.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
+          <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" @click.stop="navigateToEdit(item)" />
+          <v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" v-cap="'fixed-assets.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
         </template>
       </template>
     </v-data-table-server>
@@ -137,7 +137,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { formatNumber, intlLocale } from 'ui-shared/format'
+import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
@@ -146,10 +147,12 @@ import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import { useGridColumns } from 'ui-shared/composables/useGridColumns'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
-import GridColumnPickerDialog from 'ui-shared/components/GridColumnPickerDialog.vue'
+// FR-30.23: the drag library comes with the picker, when it opens, and not with the screen.
+const GridColumnPickerDialog = defineAsyncComponent(() => import('ui-shared/components/GridColumnPickerDialog.vue'))
 import { TAX_CATEGORIES, dayOf, taxCategoryRoman } from 'config/fixed-asset-tax'
 import { assetCurrency, fixedAssetFilters, refusalKey, statusColor, statusLabelKey } from './fixed-asset-form'
 
@@ -179,8 +182,7 @@ const { showSuccess, showError } = useSnackbar()
 
 const orgCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
-  const map: Record<string, string> = { en: 'en-US', bg: 'bg-BG', mk: 'mk-MK', de: 'de-DE' }
-  return map[appStore.locale] || 'en-US'
+  return intlLocale(appStore.locale)
 })
 /** Each asset in its own currency: an asset of the books written off before the euro is in lev. */
 const money = (n: unknown, item: FixedAssetRow) => (typeof n === 'number' ? formatCurrency(n, assetCurrency(item, orgCurrency.value), localeCode.value) : '')
@@ -201,10 +203,18 @@ const originItems = computed(() => [
 const filters = computed(() => fixedAssetFilters({ search: debouncedSearch.value, taxCategory: taxCategory.value, origin: origin.value }))
 
 const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/fixed-asset`)
+// FR-31.18: the list's place (search, tax category, origin, page, size, sort) in the address; declared before
+// usePaginatedTable. A value the filter does not offer is dropped.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+  { key: 'taxCategory', ref: taxCategory, sanitize: (v: string) => (v === 'none' || TAX_CATEGORIES.some(c => c.code === v) ? v : undefined) },
+  { key: 'origin', ref: origin, sanitize: (v: string) => (v === 'imported' || v === 'native' ? v : undefined) },
+])
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'fixedAssets',
   filters,
+  urlSync: true,
 })
 
 const deleteDialog = ref(false)

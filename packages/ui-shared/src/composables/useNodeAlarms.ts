@@ -1,3 +1,4 @@
+import { formatUnit } from '../format/format'
 /**
  * FR-20.101 (plan step P3-8): a master's alarms as both pages say them, the Servers page of an org
  * and the sys-admin Nodes page. A duration in the viewer's language through `Intl`, never hand-made
@@ -19,7 +20,7 @@ export function useNodeAlarms() {
   function duration(secs: number): string {
     const s = Math.abs(secs)
     const [n, unit] = s >= 2 * 86400 ? [Math.round(s / 86400), 'day'] : s >= 2 * 3600 ? [Math.round(s / 3600), 'hour'] : s >= 120 ? [Math.round(s / 60), 'minute'] : [Math.round(s), 'second']
-    return new Intl.NumberFormat(locale.value, { style: 'unit', unit, unitDisplay: 'long' }).format(n)
+    return formatUnit(n, unit, { lang: locale.value })
   }
   function alarmText(a: NodeAlarm): string {
     if (a.kind === 'backup_stale' && a.value === null) return t('servers.alarm.backup_none')

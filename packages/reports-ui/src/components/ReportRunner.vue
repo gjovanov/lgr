@@ -153,6 +153,7 @@
         </div>
 
         <GridColumnPickerDialog
+          v-if="colDialogOpen"
           v-model="colDialogOpen"
           :entries="colEntries"
           @toggle="toggleCol"
@@ -279,15 +280,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
-import { numberFormat } from 'ui-shared/composables/number-display'
+import { formatDate, formatMoney, formatNumber } from 'ui-shared/format'
+import { ref, computed, watch, onMounted, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useListQueryState, type QueryParamDef } from 'ui-shared/composables/useListQueryState'
 import { useGridColumns } from 'ui-shared/composables/useGridColumns'
 import { decodeBlobError } from 'ui-shared/composables/useInvoicingExport'
-import GridColumnPickerDialog from 'ui-shared/components/GridColumnPickerDialog.vue'
+// FR-30.23: the drag library comes with the picker, when it opens, and not with the screen.
+const GridColumnPickerDialog = defineAsyncComponent(() => import('ui-shared/components/GridColumnPickerDialog.vue'))
 import DateField from 'ui-shared/components/DateField.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
 import EmptyState from 'ui-shared/components/EmptyState.vue'
@@ -423,12 +425,7 @@ const activeFilterMeta = computed(() => {
 })
 
 function money(value: number, currency: string): string {
-  const tag = NUMBER_LOCALE[appStore.locale] || 'en-US'
-  try {
-    return numberFormat(tag, { style: 'currency', currency, maximumFractionDigits: 2 }).format(value || 0)
-  } catch {
-    return `${(value || 0).toFixed(2)} ${currency}`
-  }
+  return formatMoney(value || 0, currency, { lang: appStore.locale })
 }
 
 // ── period params ──
@@ -486,22 +483,20 @@ function periodField(key: string, field: keyof PeriodValue) {
   })
 }
 
-const NUMBER_LOCALE: Record<string, string> = { en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }
-
 function formatCell(value: any, type: ColumnType | undefined): string {
   if (value === null || value === undefined || value === '') return ''
-  const tag = NUMBER_LOCALE[appStore.locale] || 'en-US'
+  const lang = appStore.locale
   switch (type) {
     case 'money':
-      return numberFormat(tag, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value) || 0)
+      return formatNumber(Number(value) || 0, { lang, decimals: 2 })
     case 'quantity':
-      return numberFormat(tag, { maximumFractionDigits: 3 }).format(Number(value) || 0)
+      return formatNumber(Number(value) || 0, { lang, maxDecimals: 3 })
     case 'percent':
-      return `${numberFormat(tag, { maximumFractionDigits: 2 }).format(Number(value) || 0)}%`
+      return `${formatNumber(Number(value) || 0, { lang, maxDecimals: 2 })}%`
     case 'int':
       return String(Math.round(Number(value) || 0))
     case 'date':
-      return String(value).split('T')[0]
+      return formatDate(value, { lang })
     case 'status':
       return statusLabel(String(value))
     default:

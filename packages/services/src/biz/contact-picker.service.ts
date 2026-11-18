@@ -1,6 +1,8 @@
 import { Invoice } from 'db/models'
 import { mongoose } from 'db/connection'
 import { getRepos } from '../context.js'
+import { ttlCache } from '../utils/ttl-cache.js'
+import type { Projection } from 'dal'
 
 const { Types } = mongoose
 
@@ -43,22 +45,42 @@ export async function recentContactIds(orgId: string, side: PickerSide, limit = 
   return rows.map((row: any) => String(row._id))
 }
 
+/**
+ * FR-30.15 (D-4): the ranking is kept five minutes per organization and side. It aggregated the org's documents of a
+ * year on every form that opened (about 45 ms on a shop-year); a contact first used in the last five minutes may
+ * still sort by name until then.
+ */
+export const PICKER_RANKING_TTL_MS = 5 * 60_000
+const rankings = ttlCache<string[]>(PICKER_RANKING_TTL_MS)
+export function rankedContactIds(orgId: string, side: PickerSide): Promise<string[]> {
+  return rankings.get(`${orgId}:${side}`, () => recentContactIds(orgId, side))
+}
+/** Forget the kept rankings (a test that rewrites an org's documents). */
+export function forgetPickerRankings(): void {
+  rankings.forget()
+}
+
 export interface PickerPage {
   items: any[]
   total: number
   page: number
   size: number
   totalPages: number
+  /** FR-30.12: on a page read without its count, whether rows follow it. */
+  hasMore?: boolean
 }
 
-/** One page of `filter`'s contacts in the picker's order (see above). */
-export async function pickerContacts(orgId: string, filter: Record<string, any>, side: PickerSide, page: number, size: number): Promise<PickerPage> {
+/** One page of `filter`'s contacts in the picker's order (see above); `select`: the picker's rows (FR-30.7). */
+export async function pickerContacts(orgId: string, filter: Record<string, any>, side: PickerSide, page: number, size: number, select?: Projection, opts: { count?: false } = {}): Promise<PickerPage> {
   const r = getRepos()
-  const want = (page + 1) * size
-  const recent = await recentContactIds(orgId, side)
+  // FR-30.12: a type-ahead counts nothing; one row past the page says whether more follow.
+  const counted = opts.count !== false
+  const end = (page + 1) * size
+  const want = counted ? end : end + 1
+  const recent = await rankedContactIds(orgId, side)
   const rank = new Map(recent.map((id, i) => [id, i]))
 
-  const used = recent.length ? await r.contacts.findMany({ ...filter, id: { $in: recent } } as any) : []
+  const used = recent.length ? await r.contacts.findMany({ ...filter, id: { $in: recent } } as any, undefined, select ? { select } : undefined) : []
   used.sort((a: any, b: any) => (rank.get(String(a.id)) ?? 0) - (rank.get(String(b.id)) ?? 0))
   const out: any[] = used.slice(0, want)
   const exclude = used.map((c: any) => c.id)
@@ -73,10 +95,17 @@ export async function pickerContacts(orgId: string, filter: Record<string, any>,
       page: 0,
       size: want - out.length,
       sort: BY_NAME as any,
-    })
+      // The rows up to this page's end, to cut the page from: a page past the ceiling's reach is still that page.
+      unbounded: true,
+    }, select ? { select } : undefined)
     out.push(...rest.items)
   }
 
-  const total = (await r.contacts.findAll(filter as any, { page: 0, size: 1 })).total
+  if (!counted) {
+    const hasMore = out.length > end
+    const seen = Math.min(out.length, end) + (hasMore ? 1 : 0)
+    return { items: out.slice(page * size, end), total: seen, page, size, totalPages: Math.ceil(seen / size), hasMore }
+  }
+  const total = await r.contacts.count(filter as any)
   return { items: out.slice(page * size, want), total, page, size, totalPages: Math.ceil(total / size) }
 }

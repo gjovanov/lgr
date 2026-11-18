@@ -37,7 +37,7 @@
     <template #item.number="{ item }">
       <entity-link :label="item.number" :to="{ name: 'invoicing.orders.edit', params: { id: item._id } }" />
     </template>
-    <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
+    <template #item.issueDate="{ item }">{{ formatDate(item.issueDate) }}</template>
     <template #item.supplierNames="{ item }">
       <v-chip v-for="name in item.supplierNames" :key="name" size="x-small" variant="tonal" class="mr-1">{{ name }}</v-chip>
     </template>
@@ -70,6 +70,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'

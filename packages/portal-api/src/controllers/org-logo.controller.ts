@@ -78,8 +78,9 @@ export const orgLogoController = new Elysia({ prefix: '/org/:orgId/logo' })
     if (!user) return status(401, { message: 'Unauthorized' })
 
     const meta = await getOrgLogoMeta(orgId)
-    // 404 is the "this org uses the bundled logo" answer — the UI shows its placeholder.
-    if (!meta) return status(404, { message: 'No logo' })
+    // FR-30.27: no logo is an answer, not an error: 204, and the UI shows its placeholder. A 404 here was logged by the
+    // browser as a failed request on every visit to Settings → Organization.
+    if (!meta) return new Response(null, { status: 204 })
 
     const etag = `"${meta.hash}"`
     if (request.headers.get('if-none-match') === etag) {

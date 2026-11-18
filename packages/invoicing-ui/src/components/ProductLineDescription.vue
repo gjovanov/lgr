@@ -83,8 +83,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatNumber, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
-import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -113,6 +113,11 @@ const props = defineProps<{
   allowCreate?: boolean
   /** The warehouse whose stock the hits show (the document's); none: the sum over the warehouses. */
   stockWarehouseId?: string | null
+  /**
+   * FR-30.10: the article as the document's read named it (`GET /invoices/:id` gives each line its article's name). Used
+   * while the line holds that article, so a saved document reads no article per line; another article is read.
+   */
+  known?: { id: string; name: string } | null
 }>()
 
 const emit = defineEmits<{
@@ -129,7 +134,7 @@ const emit = defineEmits<{
 const appStore = useAppStore()
 const { t } = useI18n()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 const rootRef = ref<HTMLElement>()
 const inputRef = ref<any>()
@@ -204,7 +209,7 @@ function positionOverlay() {
   }
 }
 
-const fmtQty = (n: number) => numberFormat(localeCode.value, { maximumFractionDigits: 3 }).format(n || 0)
+const fmtQty = (n: number) => formatNumber(n || 0, { lang: localeCode.value, maxDecimals: 3 })
 
 /** FR-28.24: the hit's second line — SKU · unit · stock · price. The stock fills in when its call has answered. */
 function hitLine(p: Product): string {
@@ -349,6 +354,7 @@ async function resolveProductName(pid: string | undefined) {
   if (!pid) { linkedProductName.value = ''; return }
   const found = products.value.find((p) => p._id === pid)
   if (found) { linkedProductName.value = found.name; return }
+  if (props.known && props.known.id === String(pid)) { linkedProductName.value = props.known.name; return }
   try {
     const orgId = appStore.currentOrg?.id
     if (!orgId) return

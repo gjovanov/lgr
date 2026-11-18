@@ -42,10 +42,10 @@
     <template #item.contactName="{ item }">
       <span class="cell-clip order-client" :title="item.contactName">{{ item.contactName }}</span>
     </template>
-    <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
+    <template #item.issueDate="{ item }">{{ formatDate(item.issueDate) }}</template>
     <template #item.requestedDeliveryDate="{ item }">
       <span :class="item.late ? 'text-error font-weight-medium' : ''">
-        {{ item.requestedDeliveryDate?.split('T')[0] }}
+        {{ formatDate(item.requestedDeliveryDate) }}
         <v-icon v-if="item.late" size="14" color="error">mdi-alert-circle-outline</v-icon>
       </span>
     </template>
@@ -94,6 +94,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'

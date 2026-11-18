@@ -6,7 +6,7 @@
       :back-label="$t('files.backToHub')"
     >
       <template #actions>
-        <v-btn variant="text" icon="mdi-refresh" :loading="loading" @click="reload" />
+        <v-btn :aria-label="$t('common.refresh')" :title="$t('common.refresh')" variant="text" icon="mdi-refresh" :loading="loading" @click="reload" />
       </template>
     </HubPageHeader>
 

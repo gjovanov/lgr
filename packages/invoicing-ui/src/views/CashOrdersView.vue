@@ -89,6 +89,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
@@ -112,7 +113,7 @@ const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 const { search, debouncedSearch } = useSearchDebounce()
 const dialog = ref(false)
@@ -163,9 +164,9 @@ const { markSaved } = useDialogPendingChanges({
   dialogVisible: dialog,
   getFormData: () => ({ ...form.value }),
   getPreviewFields: () => [
-    { label: 'Type', value: form.value.type },
-    { label: 'Party', value: form.value.party },
-    { label: 'Amount', value: String(form.value.amount) },
+    { label: t('common.type'), value: form.value.type },
+    { label: t('invoicing.party'), value: form.value.party },
+    { label: t('common.amount'), value: String(form.value.amount) },
   ],
   setFormData: (data) => { form.value = { ...form.value, ...data } },
   isEdit: () => editing.value,
@@ -187,7 +188,6 @@ const headers = computed(() => [
 
 function accountTitle(item: Account) { return `${item.code} - ${item.name}` }
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
-function formatDate(d: string) { return d ? d.split('T')[0] : '' }
 
 function openCreate() {
   editing.value = false
@@ -234,7 +234,7 @@ async function doDelete() {
 async function fetchAccounts() {
   // Every account (`size: 0`), as the accounting store asks for them: the API's first page of ten left the cash
   // account and its counter-account unpickable in a chart of 35 (FR-31.10).
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/account`, { params: { size: 0 } }); accounts.value = data.accounts || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/account`, { params: { size: 0 } }); accounts.value = data.accounts || [] } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 onMounted(() => { fetchItems(); fetchAccounts() })

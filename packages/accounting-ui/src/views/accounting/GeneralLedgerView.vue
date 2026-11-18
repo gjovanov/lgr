@@ -51,7 +51,7 @@
           :loading="loading"
         >
           <template #item.date="{ item }">
-            {{ item.date?.split('T')[0] }}
+            {{ formatDate(item.date) }}
           </template>
           <template #item.entryNumber="{ item }">
             <entity-link v-if="item.entryNumber" :label="item.entryNumber" :to="{ name: 'accounting.journal-entries' }" />
@@ -86,6 +86,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useAppStore } from '../../store/app.store'
 import { useAccountingStore } from '../../store/accounting.store'
@@ -98,8 +99,7 @@ const store = useAccountingStore()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
-  const map: Record<string, string> = { en: 'en-US', mk: 'mk-MK', de: 'de-DE' }
-  return map[appStore.locale] || 'en-US'
+  return intlLocale(appStore.locale)
 })
 
 const selectedAccount = ref('')

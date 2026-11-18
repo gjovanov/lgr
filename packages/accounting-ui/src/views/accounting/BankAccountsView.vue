@@ -32,7 +32,7 @@
       </v-card-text>
     </v-card>
 
-    <GridColumnPickerDialog v-model="colDialogOpen" :entries="colEntries" @toggle="toggleCol" @reorder="reorderCols" @reset="resetCols" />
+    <GridColumnPickerDialog v-if="colDialogOpen" v-model="colDialogOpen" :entries="colEntries" @toggle="toggleCol" @reorder="reorderCols" @reset="resetCols" />
 
     <v-data-table-server
       :headers="effectiveHeaders"
@@ -62,8 +62,8 @@
         </v-icon>
       </template>
       <template #item.actions="{ item }">
-        <v-btn icon="mdi-pencil" size="small" variant="text" @click.stop="navigateToEdit(item)" />
-        <v-btn v-cap="'bank-accounts.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
+        <v-btn :aria-label="$t('common.edit')" :title="$t('common.edit')" icon="mdi-pencil" size="small" variant="text" @click.stop="navigateToEdit(item)" />
+        <v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" v-cap="'bank-accounts.delete'" icon="mdi-delete" size="small" variant="text" color="error" @click.stop="confirmDelete(item)" />
       </template>
     </v-data-table-server>
 
@@ -85,7 +85,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { intlLocale } from 'ui-shared/format'
+import { ref, computed, onMounted, watch, defineAsyncComponent } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../../store/app.store'
@@ -95,10 +96,12 @@ import { formatCurrency } from 'ui-shared/composables/useCurrency'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
+import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import { useGridColumns } from 'ui-shared/composables/useGridColumns'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
-import GridColumnPickerDialog from 'ui-shared/components/GridColumnPickerDialog.vue'
+// FR-30.23: the drag library comes with the picker, when it opens, and not with the screen.
+const GridColumnPickerDialog = defineAsyncComponent(() => import('ui-shared/components/GridColumnPickerDialog.vue'))
 import { currentMonth } from './books-chart'
 
 const appStore = useAppStore()
@@ -109,8 +112,7 @@ const { showSuccess, showError } = useSnackbar()
 
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const localeCode = computed(() => {
-  const map: Record<string, string> = { en: 'en-US', mk: 'mk-MK', de: 'de-DE' }
-  return map[appStore.locale] || 'en-US'
+  return intlLocale(appStore.locale)
 })
 
 const { search, debouncedSearch } = useSearchDebounce()
@@ -122,10 +124,15 @@ const filters = computed(() => {
 })
 
 const url = computed(() => `/org/${appStore.currentOrg?.id}/accounting/bank-account`)
+// FR-31.18: the list's place (search, page, size, sort) in the address; declared before usePaginatedTable.
+useListQueryState([
+  { key: 'q', ref: search, mirror: debouncedSearch },
+])
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url,
   entityKey: 'bankAccounts',
   filters,
+  urlSync: true,
 })
 
 const deleteDialog = ref(false)
