@@ -6,8 +6,8 @@ import { apiLogin, apiDelete, apiGet, apiPost } from './helpers/api'
  * FR-26: the Seller („Продавач") and the Sales Consultant („Търговски консултант"), as the person
  * at the counter sees them (§2.1). What the server refuses is `integration/seller-roles.flow`'s.
  *
- * Each role's user has no permission set: the role's defaults carry its permissions and its areas,
- * exactly as an org that has not run migration 0014 yet would issue them.
+ * Each role's user is created with its built-in role (`roleKey`): the role's grant decides what
+ * they open (FR-27).
  *
  * Serial: the tests share the two users, whose creation is the expensive part.
  */
@@ -41,13 +41,15 @@ test.describe('The Seller and the Sales Consultant', () => {
     }
   })
 
-  test('the App Hub API gives each Invoicing and Inventory, and the claim names their areas', async () => {
+  test('the App Hub API gives each Invoicing and Inventory, and the grant names their areas', async () => {
     for (const [role, username] of Object.entries(users)) {
       const session = await apiLogin('acme-corp', username, PASSWORD)
       const { apps } = await apiGet(session, '/apps')
       expect({ role, apps: apps.map((a: any) => a.id).sort() }).toEqual({ role, apps: ['inventory', 'invoicing'] })
-      const claims = JSON.parse(Buffer.from(session.token.split('.')[1], 'base64url').toString('utf8'))
-      expect({ role, areas: claims.areas }).toEqual({ role, areas: role === 'seller' ? [] : ['orders'] })
+      // FR-27 P3-5 (#529): the token carries the role, not its areas; the sign-in answer's grant
+      // says what the role opens. The Sales Consultant's own area is the customer orders.
+      const orders = (session.access?.caps ?? []).filter((c: string) => c.startsWith('orders.'))
+      expect({ role, all: session.access?.all, orders: orders.length > 0 }).toEqual({ role, all: false, orders: role !== 'seller' })
     }
   })
 

@@ -37,6 +37,11 @@ test('removing the second of three lines leaves the third line’s row as it was
 
   // The third line's row, marked as an element; and a quantity typed into it that is not stored yet.
   await rows.nth(2).evaluate((el) => { (el as HTMLElement).dataset.e2eMark = 'third' })
+  // A saved line asks for its prices only once its price is opened (FR-30.10): opened, the row holds the loaded
+  // options a reused row would load again.
+  const opened = page.waitForResponse(r => r.url().includes('/pricing/options') && r.url().includes(String(products[2].productId)))
+  await rows.nth(2).getByTestId('price-combobox').locator('input').first().focus()
+  await opened
   const qty = rows.nth(2).locator('td').nth(2).locator('input')
   // The price follows the quantity once the typing stops (FR-31.5): that lookup is the typing's, and is let finish.
   const looked = page.waitForResponse(r => /\/pricing\/options\?.*quantity=7/.test(r.url()))

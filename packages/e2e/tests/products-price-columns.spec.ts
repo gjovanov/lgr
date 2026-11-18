@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test'
 import { loginForApp } from './helpers/login'
-import { columnValues, headerTitles } from './helpers/table'
+import { closeColumnPicker, columnValues, headerTitles } from './helpers/table'
 
 /**
  * The Products list's price tiers: a column per slot — Доставна цена, Цена на едро, Цена 0..Цена 10.
@@ -79,7 +79,7 @@ test('shows the trade-discount price, Цена на едро and Цена 1, 2, 
   for (const t of ['Цена 3', 'Purchase Price']) {
     await dialog.locator('.v-list-item').filter({ has: page.locator('.v-list-item-title', { hasText: new RegExp(`^${t}$`) }) }).getByRole('checkbox').click()
   }
-  await dialog.getByRole('button', { name: 'Close' }).click()
+  await closeColumnPicker(dialog)
   await expect.poll(async () => headerTitles(table)).toContain('Цена 3')
   // The purchase price keeps its decimals too. It is its own figure, not the slot beside it.
   await expect.poll(() => columnValues(table, 'Purchase Price')).toEqual(Array(4).fill('€0.05'))

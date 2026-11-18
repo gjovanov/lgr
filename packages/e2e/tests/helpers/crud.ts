@@ -147,8 +147,10 @@ export async function deleteFirstRow(page: Page) {
   if (await appears(deleteBtn, 2000)) {
     await deleteBtn.click()
     await page.waitForTimeout(300)
-    // Confirm deletion in the confirm dialog if present
-    const confirmBtn = page.getByRole('button', { name: /confirm|yes|delete|ok/i })
+    // Confirm deletion in the confirm dialog if present, inside the dialog: the row's own icon button
+    // is named "Delete" too (FR-31 B4), and a page-wide locator matching both is a strict-mode
+    // error that `appears` reads as "no dialog", leaving the dialog open and nothing deleted.
+    const confirmBtn = page.getByRole('dialog').getByRole('button', { name: /confirm|yes|delete|ok/i })
     if (await appears(confirmBtn, 2000)) {
       await confirmBtn.click()
     }

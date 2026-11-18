@@ -201,9 +201,12 @@ test.describe('A pending change from before the move', () => {
     await expect.poll(() => page.evaluate((key: string) => localStorage.getItem(key), `lgr_pending_changes_${session.orgId}_${userId}`)).toBe('[]')
   })
 
-  // The form is up before the shell has the person's profile. Left in that window it went into a
-  // list that was not loaded yet: nothing was written, and the load then replaced it.
-  test('a form left before the profile has answered is kept', async ({ page }) => {
+  // The form used to be up before the shell had the person's profile. Left in that window it went
+  // into a list that was not loaded yet: nothing was written, and the load then replaced it.
+  // FR-27 P3-5 (#529): the token carries no grant, so the router waits for `/auth/me` before it
+  // shows any page (`ui-shared/access/live-grant.ts`), and that window is closed: held, the form is
+  // not up; answered, it is, and what is left on it is kept.
+  test('a form waits for the profile, and what is left on it is kept', async ({ page }) => {
     const session = await apiLogin()
     const { id: userId } = claimsOf(session)
     const NEW_NAME = 'Left while the profile was on its way'
@@ -217,11 +220,13 @@ test.describe('A pending change from before the move', () => {
 
     await page.goto('/inventory/categories/new')
     const name = page.getByRole('textbox', { name: /^Name/ })
+    await page.waitForTimeout(1500)
+    await expect(name, 'no form before the profile has answered').toHaveCount(0)
+    letGo()
     await expect(name).toBeVisible({ timeout: 15000 })
     await page.waitForTimeout(700) // the form takes its clean state half a second after it mounts
     await name.fill(NEW_NAME)
     await page.reload()
-    letGo()
 
     await expect.poll(() => page.evaluate((key: string) => localStorage.getItem(key), `lgr_pending_changes_${session.orgId}_${userId}`)).toContain(NEW_NAME)
   })

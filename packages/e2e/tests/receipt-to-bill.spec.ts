@@ -385,6 +385,9 @@ test.describe('a new bill in another currency (FR-22.32a)', () => {
     })
     await page.goto('/invoicing/bills/new', { waitUntil: 'networkidle' })
     await openSelect(page, /Доставчик/)
+    // The picker shows one page of contacts and asks the server for what is typed (FR-31 A4): with the contacts other
+    // specs made, this one is not on the first page untyped.
+    await page.getByRole('combobox', { name: /Доставчик/ }).fill(w.supplier.companyName)
     await page.getByRole('option').filter({ hasText: w.supplier.companyName }).first().click()
     await openSelect(page, /Валута/)
     await page.getByRole('option', { name: /USD/ }).first().click()

@@ -14,7 +14,6 @@
     :has-active-filters="hasActiveFilters"
     :empty="{ icon: 'mdi-swap-horizontal', title: $t('list.empty.movements'), description: $t('list.empty.movementsHint') }"
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
-    density="default"
     fit
     selectable
     :selected="ticked"

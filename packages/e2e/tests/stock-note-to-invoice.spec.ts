@@ -246,7 +246,8 @@ test('an invoice that says something else is told how, and takes the note\'s lin
   // Its quantity is the note's from now on: the form's save is refused in the user's words.
   await lineQuantity(page.locator('.line-table tbody tr').first()).fill('5')
   await page.getByRole('button', { name: 'Save', exact: true }).first().click()
-  await expect(page.getByText(`„${w.article}“ was dispatched 3 and is invoiced 5`)).toBeVisible()
+  // Said at the top of the form until closed (FR-31.8), and on the message line too (`useFormFeedback`).
+  await expect(page.getByTestId('form-refusal')).toContainText(`„${w.article}“ was dispatched 3 and is invoiced 5`)
   expect((await invoiceOf(w, typed.id)).lines[0].quantity).toBe(3)
 })
 

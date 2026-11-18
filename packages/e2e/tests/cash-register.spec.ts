@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginForApp } from './helpers/login'
 import { apiLogin } from './helpers/api'
+import { closeColumnPicker } from './helpers/table'
 import { cashRegisterExport, closeTillSession, createBackOfficeCashSale, journal, ringTillSale, stockOf } from './helpers/cash-register'
 
 /**
@@ -171,7 +172,7 @@ test.describe('FR-21 — one cash register, one journal', () => {
     await page.getByRole('button', { name: 'Columns' }).click()
     const picker = page.locator('.v-overlay--active .v-card').filter({ hasText: 'Columns' })
     await picker.locator('.v-list-item').filter({ has: page.getByText('Session', { exact: true }) }).locator('input[type="checkbox"]').check()
-    await picker.getByRole('button', { name: 'Close' }).click()
+    await closeColumnPicker(picker)
     await expect(header('Session')).toBeVisible()
 
     await page.reload()

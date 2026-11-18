@@ -10,7 +10,6 @@
     :has-active-filters="!!debouncedSearch"
     :empty="{ icon: 'mdi-clipboard-check', title: $t('list.empty.inventoryCounts'), description: $t('list.empty.inventoryCountsHint') }"
     :empty-filtered="{ title: $t('list.noMatches'), description: $t('list.adjustFilters') }"
-    density="default"
     @update:options="onUpdateOptions"
   >
     <template #actions>
