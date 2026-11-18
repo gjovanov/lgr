@@ -760,8 +760,8 @@ async function handleSave() {
 
   saving.value = true
   try {
-    // The selects offer the kinds the schemas name. ⚠ A cleared warehouse is sent as null, which the schemas refuse
-    // (422, said at the top of the form). `isActive` is the update's; the create makes a device active and drops it.
+    // The selects offer the kinds the schemas name. The warehouse is required (the model's), so the form's rule has it
+    // set before a save. `isActive` is both schemas': the create keeps the Active switch too.
     const payload: FiscalDeviceCreateBody & { isActive: boolean } = {
       name: device.name,
       deviceNumber: device.deviceNumber,

@@ -618,6 +618,9 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
   companyName… }` when the contact exists and the stored id when it is gone: read it by `typeof`, as
   `document-payload#contactIdOf` and `load#loadDocument` do. The model has no `supplierInvoiceNumber` (a bill's number
   is `reference`) and no `date` (a document's day is `issueDate`).
-- ⚠ **`PUT /fiscal/device/:id` does not name `status`.** The device list's and the till's status writes
-  (`api/fiscal-devices#recordFiscalDeviceStatus`) are dropped with a 200: they store nothing, and the device's status
-  is what its bridge records. Name it in the schema to make them count.
+- **`PUT /fiscal/device/:id` names `status`** (fixed 2026-11-18: it did not, and the device list's and the till's
+  status writes, `api/fiscal-devices#recordFiscalDeviceStatus`, were dropped with a 200). It takes the model's enum,
+  `online | offline | error`; anything else is a 422. ⚠ **A written `error` stops sales**: a device in `error` that no
+  bridge holds makes every sale on it a 503 until a connect or an `online`/`offline` write clears it. The create takes
+  the form's `isActive` (default true). A device's warehouse is the model's required field: both schemas refuse `null`,
+  and the form cannot clear it.
