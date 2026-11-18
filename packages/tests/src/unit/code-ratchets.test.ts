@@ -20,8 +20,8 @@ import { join, resolve } from 'node:path'
 const ROOT = resolve(import.meta.dir, '..', '..', '..', '..')
 const PACKAGES = join(ROOT, 'packages')
 
-const CONTROLLER_MODEL_CALLS = 277
-const AS_ANY = 2135
+const CONTROLLER_MODEL_CALLS = 256
+const AS_ANY = 1978
 
 const COPY = 'copies, compares or replays documents as they are stored, which Mongoose would cast, default and hook'
 const HOME = "writes the org's home or legal-series state below the home guard, on purpose (home-write-guard's RAW_WRITE_SITES)"
@@ -70,7 +70,6 @@ const RAW_DRIVER_FILES: Record<string, string> = {
  */
 const MAX_LINES = 1000
 const LARGE_FILES: Record<string, number> = {
-  'invoicing-api/src/controllers/invoice.controller.ts': 2494,
   'invoicing-ui/src/composables/document-form/useDocumentForm.ts': 2274,
   'invoicing-ui/src/views/InternalOrderFormView.vue': 1564,
   'invoicing-ui/src/views/OrderFormView.vue': 1544,

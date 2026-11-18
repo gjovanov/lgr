@@ -88,8 +88,7 @@
     "lgr/no-as-any": 51
   },
   "packages/invoicing-api/src/controllers/invoice.controller.ts": {
-    "lgr/catch-drops-error": 1,
-    "lgr/no-as-any": 186
+    "lgr/no-as-any": 34
   },
   "packages/invoicing-api/src/controllers/number-clash.controller.ts": {
     "lgr/no-as-any": 1

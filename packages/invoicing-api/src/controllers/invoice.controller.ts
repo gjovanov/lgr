@@ -1,190 +1,73 @@
 import { FiscalRoute, deviceFromAuthorSession, deviceFromCounter, deviceFromDeadReceipt } from 'fiscal/fiscal-route'
-import { can, grantOf, type AccessCaller } from 'services/biz/access/evaluate'
+import { can, grantOf } from 'services/biz/access/evaluate'
 import { DOC_KINDS, kindOfDocument, partitionFilter, readableDirection, readsKind, writesKind } from 'config/access'
-import { QUOTE_CONVERTS_TO, isQuoteType } from 'config/constants'
 import { chooseListSort } from 'config/list-sorts'
 import { listProjection } from 'config/list-rows'
-import { keepStoredTrails, withVisibleTrails } from 'services/biz/access/price-trails'
-import { typedPriceRefusal, withArticleUnits } from 'services/biz/sales-lines'
+import { withVisibleTrails } from 'services/biz/access/price-trails'
 import { Elysia, t } from 'elysia'
 import { AnObject } from 'services/http/body-schemas'
-import { seesOrders } from 'services/biz/access/partition'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
-import { reverseInvoiceStockMovement, stockBookingRefusal, validateStockAvailability } from 'services/biz/invoicing.service'
+import { reverseInvoiceStockMovement, stockBookingRefusal } from 'services/biz/invoicing.service'
 import { issueDocument, IssueLostError, IssueStockError } from 'services/biz/issue-document.service'
-import { MovementClaimedError, StockBookingRefusedError } from 'services/biz/warehouse.service'
 import { syncOrderForInvoice } from 'services/biz/reservation.service'
-import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
-import { buildSearchFilter } from 'services/biz/search.utils'
-import { upsertTags } from 'services/biz/tag.service'
+import { createAuditEntry } from 'services/biz/audit-log.service'
 import { eventBus } from 'services/events/event-bus'
 import { inTransaction } from 'services/biz/transaction'
 import { enqueuePosting } from 'services/biz/postings/posting.service'
-import { getNextNumber, ensureSequenceAtLeast, getDisplayPrefix, getCurrentNumber } from 'services/biz/sequence.service'
+import { getNextNumber, getCurrentNumber } from 'services/biz/sequence.service'
 import { getInvoiceSummary } from 'services/biz/invoice-summary.service'
 import { sequenceDefFor, resolveSequencePrefix, type SequenceGroup } from 'services/biz/sequence-registry'
-import { Invoice, Org, POSSession, Reservation } from 'db/models'
-import { assertJoinedSaleTender, assertOperatorFor, assertPrinterConnected, assertSaleMayOpen, finishInterruptedDocuments, noOpenSession, openSessionOf, tillContext, tillSettings } from '../lib/cash-register-till.js'
-import {
-  keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt,
-  type PreparedReceipt,
-} from '../lib/counter-receipt.js'
-import { issueTender, prepareIssueRefund, prepareRefund, refund, refundOutcome, refundedBy, type PreparedRefund } from '../lib/counter-refund.js'
-import { computePosTotals } from 'config/pos-totals'
-import { cashSaleLineAmounts } from 'config/line-amounts'
+import { Invoice } from 'db/models'
+import { finishInterruptedDocuments } from '../lib/cash-register-till.js'
+import { keyedReceipt, prepareIssueReceipt, prepareReceipt, printReceipt, receiptOutcome, settleKeyedReceipt } from '../lib/counter-receipt.js'
+import { prepareRefund, refund } from '../lib/counter-refund.js'
+import { paymentReceiptAnswer, paymentRefundAnswer } from '../lib/counter-payment.js'
+import { counterAtIssue } from '../lib/counter-issue.js'
+import { cashSaleTill } from '../lib/cash-register-sale.js'
 import { assertHomeIsHere } from 'db/home/home'
-import { licenceGate } from 'services/biz/licence/master-licence.service'
-import { InvoiceWriteLost, createInvoiceWithProductUpdates, updateInvoiceWithProductUpdates } from 'services/biz/invoice-with-update.service'
-import { GRValidationError } from 'services/biz/product-update.service'
-import { syncCashSettlement } from 'services/biz/cash-settlement.service'
-import { documentAmounts, editedAmounts } from 'services/biz/document-amounts'
-import { dueFollowsTotal, fitsDue, heldOn, isBeingVoided, issueLeaseFree, notBeingVoided, outstandingOf, paymentPipeline, unclaimedDraft } from 'services/biz/invoice-payment'
+import { fitsDue, isBeingVoided, issueLeaseFree, notBeingVoided, paymentPipeline, unclaimedDraft } from 'services/biz/invoice-payment'
 import {
-  DELIVERY_RECEIPT_OWED, DOCUMENT_CHANGED, DOCUMENT_CLAIMED, PAYMENT_IN_PROGRESS, freezeRefusal, freezeUnderNotes, inDoubtRefusal, isImportedDocument, owedByMovingToDelivery, owesDeliveryReceipt,
-  paymentRefusal, printsOnPayment, receiptFacts, receiptInDoubt,
+  DELIVERY_RECEIPT_OWED, DOCUMENT_CLAIMED, freezeRefusal, freezeUnderNotes, inDoubtRefusal, owesDeliveryReceipt,
+  paymentRefusal, receiptFacts, receiptInDoubt,
 } from 'services/biz/cash-register/payment-receipt.service'
-import { deviceTotals, movesPrintedMoney } from 'services/biz/cash-register/receipt-lines'
-import { NOT_PAYMENT_RECEIPT, printsHere } from 'services/biz/sale-counting'
 import { isImmutableRegisterDocument, REGISTER_DOCUMENT_IMMUTABLE } from 'services/biz/cash-register/immutability'
+import { readIdempotencyKey, requestHash, IdempotencyError, LEASE_MS } from 'services/biz/hot-path-key'
 import {
-  readIdempotencyKey, requestHash, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion,
-  IdempotencyError, LEASE_MS, WAIT_MS,
-} from 'services/biz/hot-path-key'
-import {
-  CashSaleInvoiceError, createInvoiceForCashSale, getCashSaleInvoicing, checkInvoiceForCashSaleEdit,
-  issueFieldsFor, invoicingByCashSale, invoicedCashSaleIds, liveInvoiceNumbersFor,
-  cashSaleCandidates, attachInvoiceToCashSale,
+  CashSaleInvoiceError, createInvoiceForCashSale, getCashSaleInvoicing, cashSaleCandidates, attachInvoiceToCashSale,
 } from 'services/biz/cash-sale-invoice.service'
-import { logger } from 'services/logger'
-import { PendingTransferError, checkPendingTransfers, confirmTransferMovements, discardPendingTransfers } from 'services/biz/stock-transfer.service'
-import {
-  RegisterRefusal, insertRegisterDocument, originOf, runSaleSteps, settleKeyedDocument, type RegisterContext,
-} from 'services/biz/cash-register/register.service'
-import {
-  ReceiptBillError, applyLinkedBillPrices, checkLinkedBillEdit, isReceiptLinked, linkedReceiptsOf, receiptsOverlapping, releaseReceiptLinks,
-  type ReceiptOverlap,
-} from 'services/biz/receipt-bill.service'
-import {
-  DispatchInvoiceError, checkLinkedInvoiceEdit, dispatchesOverlapping, isDispatchLinked, linkedDispatchesOf, releaseDispatchLinks,
-  type DispatchOverlap,
-} from 'services/biz/dispatch-invoice.service'
-import { PAYMENT_STORNO, REGISTER_TYPES } from 'services/biz/cash-register/pos-union'
-import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
+import { RegisterRefusal } from 'services/biz/cash-register/register.service'
+import { applyLinkedBillPrices, isReceiptLinked, linkedReceiptsOf, receiptsOverlapping, releaseReceiptLinks } from 'services/biz/receipt-bill.service'
+import { isDispatchLinked, linkedDispatchesOf, releaseDispatchLinks } from 'services/biz/dispatch-invoice.service'
+import { PAYMENT_STORNO } from 'services/biz/cash-register/pos-union'
 import { billStockReceipts, isSupplierBill } from 'services/biz/bill-stock-receipt.service'
+import { answered, type Status } from 'services/biz/document/refused'
+import { ISSUE_IN_PROGRESS, draftTaken, rawOf, whoHolds } from 'services/biz/document/document-claims'
+import {
+  auditOverlapAcknowledged, orderLinkRefusal, receiptOverlapRefusal, round2, statusEntry, stockFailureAnswer,
+} from 'services/biz/document/document-checks'
+import { listFilter, listRows, synthesizeStatusHistory, withLineArticles } from 'services/biz/document/document-list'
+import { createDocument } from 'services/biz/document/create-document.service'
+import { updateDocument } from 'services/biz/document/update-document.service'
+import { sendDocument } from 'services/biz/document/send-document.service'
+import { convertQuote } from 'services/biz/document/convert-quote.service'
 
 /**
- * Why a bill in `currency` may not update its products, or null when it may. A product's prices
- * are kept in the org's currency and nothing here converts, so a USD price would land on it as if
- * it were EUR. Refused, not dropped: the form offers no update on such a bill, so a client that
- * sends one should hear about it.
+ * FR-32.21 (#797): the routes of a document. A handler reads its request, says who may, calls a service and answers
+ * what it says. Creating, updating and issuing a document are `services/biz/document` (`createDocument`,
+ * `updateDocument`, `sendDocument` around `issueDocument`), with what reaches the device beside the till
+ * (`../lib/cash-register-sale`, `../lib/counter-issue`). `unit/invoice-handler-size.test.ts` holds every handler here
+ * to 80 lines.
  */
-async function foreignCurrencyRefusal(orgId: string, currency: string | undefined) {
-  if (!currency) return null
-  const org: any = await Org.findById(orgId, { 'settings.baseCurrency': 1 }).lean().exec()
-  const base = org?.settings?.baseCurrency
-  if (!base || currency === base) return null
-  return { code: 'foreign_currency_bill', message: `A bill in ${currency} updates no product: product prices are kept in ${base}` }
-}
 
-// ── Idempotent create, issue and payment (FR-20.37, #155) ───────────────────────────────────
-
-type Status = (code: number, body: Record<string, unknown>) => any
-
-interface CreateCtx {
-  orgId: string
-  user: any
-  isCashSale: boolean
-  skipStockMovement: boolean
-  allowNegativeStock: boolean
-  /** FR-21.31: the author's open session, which a back-office cash sale joins. */
-  joined?: any | null
-  /** Whether a joined sale prints on its session's device, which says how; absent, it prints nothing. */
-  receipt?: 'fiscal' | 'text'
-}
+// The checks a document is made against, and the list's payment-method filter, live in services; these names are
+// still imported from here.
+export { validateRelatedInvoiceRef, validateReservationLineRefs } from 'services/biz/document/document-checks'
+export { buildPaymentMethodFilter, onlyRegisterTypes } from 'services/biz/document/document-list'
 
 const reused = (status: Status, e: IdempotencyError) => status(e.statusCode, { code: e.code, message: e.message })
 /** A refusal of the invoice-for-a-cash-sale rules (#171), as a route answers it. */
 const refused = (status: Status, e: CashSaleInvoiceError) => status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
-
-/**
- * FR-21 (D-4): a back-office cash sale is a cash-register document, written by the one service
- * that writes the till's. It brings its own work after the dispatch, the order the sale consumes, and
- * its request flags. The transfers the cash-sale form asked for (FR-21.24) go on the document.
- *
- * FR-21.31 (D-13): when its author has an open session, it joins it. The session's drawer takes the
- * money (its totals, its close JE) and, when the request asks for a receipt, the session's device
- * prints it as the till's would, as the device says (`decideSaleMode`). `tillContext` may refuse (a device in
- * error), so a joined sale's context is built before its document is.
- */
-async function cashSaleContext(c: CreateCtx): Promise<RegisterContext> {
-  const till = c.joined ? await tillContext(c.orgId, c.user, c.joined, { needsOperator: false }) : null
-  return {
-    ...(till ? { session: till.session, printer: c.receipt ? till.printer : null } : {}),
-    orgId: c.orgId,
-    user: c.user,
-    allowNegative: c.allowNegativeStock,
-    skipStock: c.skipStockMovement,
-    audit: { module: 'invoicing', entityType: 'invoice' },
-    afterStock: async (doc: any) => syncOrderForInvoice(c.orgId, doc, c.user.id),
-  }
-}
-
-/** A cash sale's answer, or the service's refusal, as the route answers it. */
-async function cashSaleAnswer(c: CreateCtx, run: () => Promise<any>, status: Status) {
-  try {
-    const doc = await run()
-    return { invoice: await getRepos().invoices.findOne({ id: String(doc._id), orgId: c.orgId } as any) }
-  } catch (e: any) {
-    if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
-    throw e
-  }
-}
-
-/**
- * Finish a keyed create a crash interrupted: derive its order counters and mark it complete.
- * (A cash sale is finished by the cash-register service instead, see `settleCreate`.)
- */
-async function finishCreate(c: CreateCtx, id: string, status: Status) {
-  const r = getRepos()
-  const invoice: any = await r.invoices.findOne({ id, orgId: c.orgId } as any)
-  await syncOrderForInvoice(c.orgId, invoice, c.user.id)
-  const done = await Invoice.findOneAndUpdate(
-    { _id: id, orgId: c.orgId, completedAt: { $exists: false } },
-    { $set: { completedAt: new Date() }, $unset: { leaseUntil: 1 } },
-  ).exec()
-  if (done) createAuditEntry({ orgId: c.orgId, userId: c.user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: invoice.invoiceNumber })
-  return { invoice: await r.invoices.findOne({ id, orgId: c.orgId } as any) }
-}
-
-/** A create whose key is already on a document: replay it, finish it, or wait for it. */
-async function settleCreate(existing: any, hash: string, c: CreateCtx, status: Status) {
-  try {
-    assertSameRequest(existing.requestHash, hash)
-  } catch (e: any) {
-    if (e instanceof IdempotencyError) return reused(status, e)
-    throw e
-  }
-  const id = String(existing._id)
-  const replay = async () => ({ invoice: await getRepos().invoices.findOne({ id, orgId: c.orgId } as any) })
-  // Documents created before this field existed, or by a request that finished, are complete.
-  if (existing.completedAt || !existing.leaseUntil) return replay()
-  if (existing.type === 'cash_sale') {
-    // FR-21.31: a joined sale resumes in ITS session, with the receipt it asked for.
-    const reg = existing.register || {}
-    const resume: CreateCtx = reg.joinedFrom && reg.sessionId
-      ? { ...c, joined: await POSSession.findOne({ _id: reg.sessionId, orgId: c.orgId }).lean().exec(), receipt: reg.fiscal?.mode }
-      : c
-    return cashSaleAnswer(c, () => settleKeyedDocument(existing, hash, async () => cashSaleContext(resume), runSaleSteps), status)
-  }
-  for (let round = 0; round < 2; round++) {
-    if (await takeLease(Invoice, c.orgId, existing._id)) return finishCreate(c, id, status)
-    const { doc, leaseLapsed } = await waitForCompletion(Invoice, c.orgId, existing._id)
-    if (doc?.completedAt) return replay()
-    if (!doc || !leaseLapsed) break
-  }
-  return status(409, { code: 'idempotency_in_progress', message: 'This document is still being created — retry with the same Idempotency-Key.' })
-}
 
 // Numbering (sequence keys, display prefixes, allocation) lives in services so the
 // doc-import engine can use it without importing from a controller. Re-exported here
@@ -202,16 +85,12 @@ export {
   getNextDraftInvoiceNumber,
 } from 'services/biz/invoice-numbering.service'
 import {
-  TYPE_PREFIX,
   sequenceKeyFor,
   prefixFor,
   draftSequenceKeyFor,
   draftPrefixFor,
   resolveDisplayPrefix,
-  getNextInvoiceNumber,
-  getNextDraftInvoiceNumber,
   peekNextInvoiceNumber,
-  issuableRefusal,
 } from 'services/biz/invoice-numbering.service'
 
 // Order/reservation back-references a line may carry (all optional: bills carry the
@@ -226,280 +105,6 @@ const orderRefBody = t.Object({
   internalOrderId: t.Optional(t.String()),
   internalOrderLineId: t.Optional(t.String()),
 })
-
-/**
- * Guard for reservation-consuming lines: only outgoing SALES invoices may reference a
- * reservation (bills book receipts via allocations; converted proformas would
- * double-count), and the total live invoiced quantity per reservation must stay within
- * the reserved quantity. Returns an error message, or null when the payload is fine.
- */
-export async function validateReservationLineRefs(
-  orgId: string,
-  payload: { type?: string; direction?: string; lines?: any[] },
-  excludeInvoiceId?: string,
-): Promise<string | null> {
-  const withRes = (payload.lines || []).filter((l: any) => l.orderRef?.reservationId || l.orderRef?.internalOrderId || l.orderRef?.internalOrderLineId)
-  if (!withRes.length) return null
-  const direction = payload.type === 'cash_sale' ? 'outgoing' : payload.direction
-  if (direction === 'incoming') {
-    return 'Purchase documents cannot reference reservations — bills book receipts via order allocations'
-  }
-  if (payload.type && payload.type !== 'invoice') {
-    return 'Only sales invoices can consume reservations'
-  }
-
-  const byRes = new Map<string, number>()
-  for (const l of withRes) {
-    if (!l.orderRef?.reservationId) continue
-    const rid = String(l.orderRef.reservationId)
-    byRes.set(rid, (byRes.get(rid) || 0) + (Number(l.quantity) || 0))
-  }
-  if (!byRes.size) return null
-
-  const resDocs = await Reservation.find(
-    { orgId, _id: { $in: [...byRes.keys()] } } as any,
-    { reservationNumber: 1, quantity: 1, status: 1 },
-  ).lean().exec()
-  const found = new Map(resDocs.map((r: any) => [String(r._id), r]))
-
-  const others = await Invoice.find(
-    {
-      orgId,
-      direction: 'outgoing',
-      type: 'invoice',
-      status: { $nin: ['voided', 'cancelled'] },
-      ...(excludeInvoiceId ? { _id: { $ne: excludeInvoiceId } } : {}),
-      'lines.orderRef.reservationId': { $in: [...byRes.keys()] },
-    } as any,
-    { lines: 1 },
-  ).lean().exec()
-  const otherByRes = new Map<string, number>()
-  for (const inv of others) {
-    for (const line of (inv as any).lines || []) {
-      const rid = line.orderRef?.reservationId ? String(line.orderRef.reservationId) : ''
-      if (!rid || !byRes.has(rid)) continue
-      otherByRes.set(rid, (otherByRes.get(rid) || 0) + (Number(line.quantity) || 0))
-    }
-  }
-
-  for (const [rid, qty] of byRes) {
-    const res: any = found.get(rid)
-    if (!res) return `Reservation ${rid} not found`
-    if (res.status === 'cancelled') return `Reservation ${res.reservationNumber} is cancelled`
-    const already = otherByRes.get(rid) || 0
-    if (qty + already > (res.quantity || 0) + 1e-9) {
-      return `Reservation ${res.reservationNumber}: invoiced quantity ${qty + already} exceeds reserved ${res.quantity} (remaining: ${Math.max(0, (res.quantity || 0) - already)})`
-    }
-  }
-  return null
-}
-
-/**
- * Credit/debit notes must reference the issued invoice they correct (FR-01). Validates the
- * effective (post-update) type/direction/contact/relatedInvoiceId combination and returns an
- * error message, or null when the document is fine. Non-note types never fail this check.
- */
-export async function validateRelatedInvoiceRef(
-  orgId: string,
-  doc: { type?: string; direction?: string; contactId?: string | null; relatedInvoiceId?: string | null },
-): Promise<string | null> {
-  if (doc.type !== 'credit_note' && doc.type !== 'debit_note') return null
-  const kind = doc.type === 'credit_note' ? 'credit' : 'debit'
-  if (!doc.relatedInvoiceId) return `Related invoice is required for ${kind} notes`
-
-  const r = getRepos()
-  const related: any = await r.invoices.findOne({ id: doc.relatedInvoiceId, orgId } as any)
-  if (!related) return 'Related invoice not found'
-  if (related.type !== 'invoice') {
-    return `Related document ${related.invoiceNumber} is not an invoice — ${kind} notes must reference an invoice`
-  }
-  if (doc.direction && related.direction !== doc.direction) {
-    return `Related invoice ${related.invoiceNumber} is a ${related.direction === 'incoming' ? 'purchase' : 'sales'} document — pick one from the same side`
-  }
-  if (['draft', 'voided', 'cancelled'].includes(related.status)) {
-    return `Related invoice ${related.invoiceNumber} is ${related.status} — only issued invoices can be corrected`
-  }
-  if (doc.contactId && related.contactId && String(related.contactId) !== String(doc.contactId)) {
-    return `Related invoice ${related.invoiceNumber} belongs to a different contact`
-  }
-  return null
-}
-
-function statusEntry(toStatus: string, fromStatus?: string, userId?: string, reason?: string) {
-  return {
-    status: toStatus,
-    fromStatus,
-    changedAt: new Date(),
-    changedBy: userId,
-    reason,
-  }
-}
-
-/**
- * How an issue whose booking failed is answered (FR-29.8, FR-29.32): a cost-layer refusal as the 422
- * with its code and names (FR-29.6), a movement being confirmed from the list as its 409, anything
- * else as `/send` always answered a booking that failed. `/receive` passes `null` for that last one:
- * it never caught one, and the error goes on to the handler as before.
- */
-function stockFailureAnswer(e: IssueStockError, otherwise: number | null): [number, Record<string, unknown>] | null {
-  const failure = e.failure
-  if (failure instanceof StockBookingRefusedError) return [422, failure.toBody()]
-  if (failure instanceof MovementClaimedError) return [409, { code: failure.code, message: failure.message }]
-  return otherwise === null ? null : [otherwise, { message: failure?.message ?? String(failure) }]
-}
-
-// Produce a viewable history when legacy rows have no statusHistory yet, using
-// the known status-change timestamps (createdAt, sentAt, paidAt). Read-only synthesis —
-// does not persist.
-/**
- * FR-30.10: a document's lines with their article's name and SKU (`productName`, `productSku`), read in one query. A
- * line whose article is gone gets empty ones, as the form showed when its read of the article failed.
- */
-async function withLineArticles(orgId: string, lines: any[] | undefined): Promise<any[] | undefined> {
-  if (!Array.isArray(lines) || !lines.length) return undefined
-  const ids = [...new Set(lines.map((l) => (l?.productId ? String(l.productId) : '')).filter(Boolean))]
-  if (!ids.length) return undefined
-  const products = await getRepos().products.findMany({ orgId, id: { $in: ids } }, undefined, { select: ['name', 'sku'] })
-  const byId = new Map(products.map((p: any) => [String(p.id), p]))
-  return lines.map((l) => {
-    if (!l?.productId) return l
-    const p: any = byId.get(String(l.productId))
-    return { ...l, productName: p?.name ?? '', productSku: p?.sku ?? '' }
-  })
-}
-
-function synthesizeStatusHistory(invoice: any): any[] {
-  if (Array.isArray(invoice.statusHistory) && invoice.statusHistory.length > 0) {
-    return invoice.statusHistory
-  }
-  const entries: any[] = []
-  if (invoice.createdAt) {
-    entries.push({ status: 'draft', changedAt: invoice.createdAt, reason: 'created (reconstructed)' })
-  }
-  if (invoice.sentAt) {
-    const sentStatus = invoice.direction === 'incoming' ? 'received' : 'sent'
-    entries.push({ status: sentStatus, fromStatus: 'draft', changedAt: invoice.sentAt, reason: 'reconstructed' })
-  }
-  if (invoice.paidAt && invoice.status === 'paid') {
-    entries.push({ status: 'paid', changedAt: invoice.paidAt, reason: 'reconstructed' })
-  }
-  if (invoice.status && !entries.find(e => e.status === invoice.status)) {
-    entries.push({ status: invoice.status, changedAt: invoice.updatedAt || invoice.createdAt, reason: 'reconstructed' })
-  }
-  return entries
-}
-
-
-const PAYMENT_METHODS = ['cash', 'bank_transfer', 'card', 'cash_on_delivery', 'other']
-
-const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
-/** The document as stored, ids and all: what the receipt's and the storno's steps read. */
-const rawOf = (id: string, orgId: string): Promise<any> => Invoice.findOne({ _id: id, orgId }).lean().exec()
-
-const ISSUE_IN_PROGRESS = { code: 'issue_in_progress', message: 'This document is already being issued' }
-
-/** FR-23: it would fit, but a receipt is taking that money: printing right now, or held for a person. */
-async function receiptPrinting(status: Status, orgId: string, id: string) {
-  const doubt = await receiptInDoubt(orgId, id)
-  return status(409, doubt ? inDoubtRefusal(doubt) : { ...PAYMENT_IN_PROGRESS })
-}
-
-/** Why a claim on this document was refused: who holds it now. `otherwise`: nobody does. */
-async function holderOf(orgId: string, id: string, otherwise?: (doc: any) => Record<string, unknown>): Promise<Record<string, unknown>> {
-  const doc: any = await Invoice.findOne({ _id: id, orgId }, { status: 1, voidingUntil: 1, 'issue.leaseUntil': 1 }).lean().exec()
-  if (doc?.issue?.leaseUntil && new Date(doc.issue.leaseUntil).getTime() >= Date.now()) return ISSUE_IN_PROGRESS
-  if (isBeingVoided(doc)) return { ...DOCUMENT_CLAIMED }
-  if (otherwise) return otherwise(doc)
-  const doubt = await receiptInDoubt(orgId, id)
-  return doubt ? inDoubtRefusal(doubt) : { ...PAYMENT_IN_PROGRESS }
-}
-
-const whoHolds = async (status: Status, orgId: string, id: string, otherwise?: (doc: any) => Record<string, unknown>) =>
-  status(409, await holderOf(orgId, id, otherwise))
-
-/** A draft's write that lost: an issue, a void or an attach holds it, or it is no longer the draft that was read. */
-const draftTaken = (status: Status, orgId: string, id: string) => whoHolds(status, orgId, id, () => ({ ...DOCUMENT_CHANGED }))
-
-/**
- * Whether the settlement rule may add money on this document (`syncCashSettlement`'s `settles`). Where LGR
- * prints it may not: that money goes through the payment action, which prints. An imported document never
- * prints, so nothing else would settle it, and neither does an org where LGR prints nothing.
- *
- * ⚠ `atIssue`: the re-issue of a number issued twice settles as it is issued, and only then. It prints
- * nothing, its money was taken under the number it replaces, and its credit note gives that back (FR-20.51).
- * Read as an edit it would have nothing to record what was taken.
- */
-async function ruleSettles(orgId: string, doc: any, atIssue = false): Promise<boolean> {
-  if (isImportedDocument(doc) || (atIssue && doc?.stockSource?.detectedBy === 'number_clash')) return true
-  return !(await printsHere(orgId))
-}
-
-/**
- * FR-23: what the issue decided to take is no longer what the document owes or how it says it is paid. A
- * receipt printed from the document as it stands rang 36 for a customer who handed over 24.
- */
-function tenderMoved(doc: any, tender: { method?: string; amount?: number }): boolean {
-  return Math.abs(outstandingOf(doc) - (Number(tender.amount) || 0)) >= 0.005 || doc.paymentMethod !== tender.method
-}
-
-/** The document changed under its issue, so nothing prints. A person takes what it says now. */
-function nothingPrinted(doc: any): { receiptError?: string; receiptCode?: string } {
-  // Paid since: nothing is left to take, and nothing to say about it.
-  if (outstandingOf(doc) <= 0) return {}
-  return {
-    receiptCode: 'issue_tender_moved',
-    receiptError: doc.type === 'credit_note'
-      ? 'This credit note changed while it was being issued, so its refund stopped, and what did not print did not go back. It stands issued: give that with Refund.'
-      : doc.paymentMethod === 'cash_on_delivery'
-        ? 'This document changed while it was being issued, so no receipt printed. It stands issued and unpaid: print its receipt on its page.'
-        : 'This document changed while it was being issued, so no receipt printed and nothing was paid. It stands issued and unpaid: take the payment with Pay.',
-  }
-}
-
-/**
- * The same of a refund at issue, part of which may have gone back: what the issue decided, less what its
- * stornos gave. ⚠ Between two stornos nothing holds the note, and on a retry nothing holds it at all. A
- * printed storno freezes its total, so only the method and money taken by hand can move by then, but a second
- * part in another method than the first is a refund nobody asked for.
- */
-function refundMoved(note: any, stornos: any[]): boolean {
-  const tender = note.issue?.tender
-  return !!tender && tenderMoved(note, { method: tender.method, amount: (Number(tender.amount) || 0) - refundedBy(stornos) })
-}
-
-/**
- * FR-23 §2.7: a credit note moved to correct another invoice. Its stornos cite the receipts of the one it
- * corrects now, so once one stands this moves with its money: the device's storno would cite a receipt of
- * an invoice the note no longer names.
- */
-const correctsAnother = (doc: any, edit: any) =>
-  doc.type === 'credit_note' && edit.relatedInvoiceId !== undefined && String(edit.relatedInvoiceId ?? '') !== String(doc.relatedInvoiceId ?? '')
-
-/**
- * A refusal that answers for the key: the client keeps or drops its key by it, so it is never turned
- * into a 200 with a `receiptError`, as a refusal of the receipt is once the document is issued.
- */
-const answersForTheKey = (e: RegisterRefusal) => e.body.code === 'idempotency_in_progress' || e.body.code === 'idempotency_key_reused'
-
-/**
- * Filter documents by payment method. A document matches when any of its recorded
- * payments (`payments[].method`) uses one of the requested methods, or — for documents
- * carrying only the header-level method (unpaid / imported docs) — when `paymentMethod` does.
- * Accepts "cash,card" or an array. Returns null when nothing valid was requested.
- */
-/** A list's type filter names cash-register documents only: a cash sale, a storno, or both. */
-export function onlyRegisterTypes(type: unknown): boolean {
-  const list = typeof type === 'string' ? [type] : Array.isArray((type as any)?.$in) ? (type as any).$in : []
-  return list.length > 0 && list.every((t: string) => (REGISTER_TYPES as readonly string[]).includes(t))
-}
-
-export function buildPaymentMethodFilter(raw: string | string[]): Record<string, any> | null {
-  const list = (Array.isArray(raw) ? raw : String(raw).split(','))
-    .map(s => String(s).trim())
-    .filter(s => PAYMENT_METHODS.includes(s))
-  if (!list.length) return null
-  return { $or: [{ 'payments.method': { $in: list } }, { paymentMethod: { $in: list } }] }
-}
 
 /**
  * The field to sort documents on, given the key of the grid column the user clicked. The grids'
@@ -541,78 +146,93 @@ export async function getNextCompanionNumber(orgId: string, kind: CompanionDocKi
   return `${display}-${year}-${seqPart}`
 }
 
-/**
- * FR-22.31c: the receipts an unlinked bill may be for. The answer to it is `{ acknowledgeOverlap:
- * true }`, or linking the bill to one of them; the UI offers both (`ReceiptOverlapDialog.vue`).
- */
-function receiptOverlapRefusal(bill: any, overlap: ReceiptOverlap) {
-  const numbers = overlap.receipts.map(r => r.number).join(', ')
-  return {
-    code: 'receipt_overlap',
-    message: `${bill.invoiceNumber} may be for goods already in stock (${numbers}): link it to the delivery, or receive it anyway`,
-    ...overlap,
-  }
+// ── A payment (FR-20.37, FR-23) ─────────────────────────────────────────────────────────────
+
+interface PaymentBody {
+  date: string
+  amount: number
+  method: string
+  reference?: string
+  bankAccountId?: string
 }
 
-/** Someone was shown these receipts and booked the goods again anyway: that stays on the record. */
-function auditOverlapAcknowledged(orgId: string, userId: string, id: string, number: string, overlap: ReceiptOverlap) {
-  createAuditEntry({
-    orgId, userId, action: 'receive_overlap_acknowledged', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: number,
-    changes: [{ field: 'receipts', oldValue: null, newValue: overlap.receipts.map(r => r.number).join(', ') }],
+/** The payment this key already recorded: the invoice comes back, the payment is not added again. */
+async function replayPayment(status: Status, orgId: string, id: string, doc: any, key: string | undefined, hash: string | undefined) {
+  const prior = (doc?.payments || []).find((p: any) => p.clientKey === key)
+  if (!prior) return null
+  if (prior.requestHash !== hash) {
+    return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
+  }
+  return { invoice: await getRepos().invoices.findOne({ id, orgId } as any) }
+}
+
+/**
+ * The payment where nothing prints: its row, written by one atomic pipeline update with the journal entry it owes,
+ * then its audit row and its event.
+ */
+async function recordPayment(
+  status: Status,
+  c: { orgId: string; id: string; user: any; body: PaymentBody; key?: string; hash?: string; invoice: any },
+) {
+  const { orgId, id, user, body, key, hash, invoice } = c
+  const { ObjectId } = (Invoice.base as any).Types
+  const oid = (v: string) => new ObjectId(v)
+  // Its own id, so that its journal entry finds this row and no other (`payment.recorded`).
+  const paymentId = new ObjectId()
+  const row = {
+    _id: paymentId,
+    date: new Date(body.date),
+    amount: body.amount,
+    method: body.method,
+    ...(body.reference !== undefined ? { reference: body.reference } : {}),
+    ...(key ? { clientKey: key, requestHash: hash } : {}),
+  }
+  // FR-20.4: a raw driver write, which the Mongoose write guard cannot see — so it asks first.
+  await assertHomeIsHere(orgId)
+  const pipeline = paymentPipeline(row, { at: new Date(), by: String(user.id) })
+  // FR-29.15: the payment and the journal entry it owes are stored in one transaction.
+  const after = await inTransaction(async session => {
+    const doc = await Invoice.collection.findOneAndUpdate(
+      {
+        _id: oid(id), orgId: oid(orgId),
+        status: { $nin: ['voided', 'cancelled', 'paid'] },
+        // The key, when sent, is part of the filter: a second request with it matches nothing.
+        ...(key ? { 'payments.clientKey': { $ne: key } } : {}),
+        ...fitsDue(body.amount),
+      },
+      pipeline as any,
+      { returnDocument: 'after', session },
+    )
+    if (doc) await enqueuePosting(orgId, { event: 'payment.recorded', invoiceId: id, paymentId: String(paymentId), userId: user.id }, { session })
+    return doc
   })
-}
-
-/**
- * FR-22.61b: the stock notes an unlinked sales invoice may be for. The answer to it is `{ acknowledgeOverlap:
- * true }`, or linking the invoice to one of them; the UI offers both (`DispatchOverlapDialog.vue`).
- */
-function dispatchOverlapRefusal(invoice: any, overlap: DispatchOverlap) {
-  const numbers = overlap.notes.map(n => n.number).join(', ')
-  return {
-    code: 'dispatch_overlap',
-    message: `${invoice.invoiceNumber} may be for goods that already left stock (${numbers}): link it to the stock note, or issue it anyway`,
-    ...overlap,
-  }
-}
-
-/** Someone was shown these stock notes and dispatched the goods again anyway: that stays on the record. */
-function auditDispatchOverlapAcknowledged(orgId: string, userId: string, id: string, number: string, overlap: DispatchOverlap) {
-  createAuditEntry({
-    orgId, userId, action: 'issue_overlap_acknowledged', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: number,
-    changes: [{ field: 'stockNotes', oldValue: null, newValue: overlap.notes.map(n => n.number).join(', ') }],
-  })
-}
-
-/** FR-26.6: a document's order links, head and lines, as comparable keys. */
-const ORDER_HEAD_FIELDS = ['orderId', 'orderGroupId', 'internalOrderId'] as const
-function lineOrderKey(ref: Record<string, unknown> | null | undefined): string {
-  if (!ref) return ''
-  const parts = Object.entries(ref).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${String(v)}`).sort()
-  return parts.join('&')
-}
-
-const ORDERS_REFUSED = { code: 'area_required', area: 'orders', message: 'Orders and reservations are not part of your role: this document may not be linked to one.' } as const
-
-/**
- * FR-26.6 `orders` (FR-27.6: `seesOrders`, the area on the legacy model, the orders capabilities on a role): may a
- * session without them write these order links? A create may carry none. An edit may keep the ones the document has
- * (the form round-trips `orderRef` verbatim, so an invoice converted from an order saves unchanged) and may add or
- * change none.
- */
-function orderLinkRefusal(user: AccessCaller, body: any, existing?: any): typeof ORDERS_REFUSED | null {
-  if (seesOrders(user as any)) return null
-  for (const f of ORDER_HEAD_FIELDS) {
-    if (body?.[f] === undefined) continue
-    if (String(body[f] || '') !== String(existing?.[f] || '')) return ORDERS_REFUSED
-  }
-  if (Array.isArray(body?.lines)) {
-    const kept = new Set(((existing?.lines ?? []) as any[]).map(l => lineOrderKey(l.orderRef)).filter(Boolean))
-    for (const l of body.lines) {
-      const k = lineOrderKey(l?.orderRef)
-      if (k && !kept.has(k)) return ORDERS_REFUSED
+  if (!after) {
+    // A concurrent request with this key won, the invoice became paid/voided meanwhile, or
+    // another payment took what was left of it.
+    const current: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
+    if (key) {
+      const replayed = await replayPayment(status, orgId, id, current, key, hash)
+      if (replayed) return replayed
     }
+    const lost = await paymentRefusal(orgId, current, body.amount)
+    return lost ? status(lost.statusCode, lost.body) : status(400, { message: 'Cannot record payment on this invoice' })
   }
-  return null
+  const updated = await getRepos().invoices.findOne({ id, orgId } as any)
+
+  createAuditEntry({ orgId, userId: user.id, action: 'record_payment', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: invoice?.invoiceNumber })
+
+  // Emit for cross-module journal entry creation
+  eventBus.emit('payment.recorded', {
+    invoiceId: id,
+    orgId,
+    userId: user.id,
+    amount: body.amount,
+    method: body.method,
+    date: body.date,
+    paymentId: String(paymentId),
+  })
+
+  return { invoice: updated }
 }
 
 export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
@@ -654,80 +274,8 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
-    const filter: Record<string, any> = { orgId }
-    if (query.search) {
-      // Two-stage search: search invoices by their fields + contacts by name
-      const searchStr = query.search as string
-      const invoiceFilter = buildSearchFilter(searchStr, ['invoiceNumber', 'notes', 'reference'])
-      // Also find contacts matching the search
-      const contactFilter = buildSearchFilter(searchStr, ['companyName', 'firstName', 'lastName'], {
-        lowered: {
-          companyName: 'companyNameLower',
-          firstName: 'firstNameLower',
-          lastName: 'lastNameLower',
-        },
-      })
-      // Their ids only: the search read every matching contact whole (FR-30.7).
-      const matchingContacts = await r.contacts.findMany({ orgId, ...contactFilter } as any, undefined, { select: ['id'] })
-      const contactIds = matchingContacts.map((c: any) => c.id || c._id)
-
-      if (contactIds.length > 0 && invoiceFilter.$or) {
-        // Combine: invoice fields match OR contactId in matching contacts
-        filter.$or = [...invoiceFilter.$or, { contactId: { $in: contactIds } }]
-      } else if (contactIds.length > 0 && invoiceFilter.$and) {
-        filter.$or = [invoiceFilter, { contactId: { $in: contactIds } }]
-      } else {
-        Object.assign(filter, invoiceFilter)
-      }
-    }
-    if (query.type) filter.type = query.type
-    // `types` (comma-separated) supports the Reporting Outgoing tab → invoice + credit_note + debit_note in one query.
-    if (query.types) {
-      const list = String(query.types).split(',').map(s => s.trim()).filter(Boolean)
-      if (list.length === 1) filter.type = list[0]
-      else if (list.length > 1) filter.type = { $in: list }
-    }
-    // FR-23: a payment's receipt is not a document of these lists. It has its own, the journal.
-    if (!filter.type) Object.assign(filter, NOT_PAYMENT_RECEIPT)
-    if (query.direction) filter.direction = query.direction
-    // FR-27.6 (FR-26.6): the kinds the role reads, whatever the list asks for.
-    const part = partitionFilter(grantOf(user as any))
-    if (part && 'direction' in part) filter.direction = part.direction
-    else if (part) filter.$and = [...(filter.$and ?? []), part]
-    if (query.status) {
-      const list = String(query.status).split(',').map(s => s.trim()).filter(Boolean)
-      if (list.length === 1) filter.status = list[0]
-      else if (list.length > 1) filter.status = { $in: list }
-    }
-    if (query.contactId) filter.contactId = query.contactId
-    if (query.tags) {
-      const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
-      filter.tags = { $in: tagList }
-    }
-    if (query.paymentMethod) {
-      const cond = buildPaymentMethodFilter(query.paymentMethod as string | string[])
-      // $and, not $or — the search branch above may already own filter.$or.
-      if (cond) (filter.$and ||= []).push(cond)
-    }
-    if (query.startDate || query.endDate) {
-      // A cash-register document carries the moment of sale, so it is counted in the org's days,
-      // as the journal counts it: `new Date(endDate)` is 00:00 UTC and lost the last day's till
-      // sales. Every other document keeps a date-only issueDate.
-      const window = onlyRegisterTypes(filter.type)
-        ? localDayWindow(query.startDate, query.endDate, (await r.orgs.findById(orgId) as any)?.settings?.timezone || BULGARIAN_TIME_ZONE)
-        : null
-      if (window) filter.issueDate = window
-      else {
-        filter.issueDate = {}
-        if (query.startDate) filter.issueDate.$gte = new Date(query.startDate as string)
-        if (query.endDate) filter.issueDate.$lte = new Date(query.endDate as string)
-      }
-    }
-    // Cash sales list: `invoiced=yes` keeps the cash sales an invoice was issued for, `no` the rest.
-    if (query.invoiced === 'yes' || query.invoiced === 'no') {
-      const ids = (await invoicedCashSaleIds(orgId)).map(String)
-      filter.id = query.invoiced === 'yes' ? { $in: ids } : { $nin: ids }
-    }
+    // The list's query, within the kinds the role reads (`services/biz/document/document-list`).
+    const filter = await listFilter(orgId, query, user)
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
@@ -737,61 +285,7 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     // FR-30.7: `fields=list` (the grids) answers rows, without the lines; without it, the whole document as before.
     const result = await r.invoices.findAll(filter, { page, size, sort: { [sort.field]: sort.order } }, { select: listProjection('invoices', query.fields) })
 
-    // #171: a cash sale lists the invoices issued for it (the link lives only on the invoices).
-    const cashSaleIds = result.items.filter((i: any) => i.type === 'cash_sale').map((i: any) => String(i.id))
-    const invoicing = cashSaleIds.length ? await invoicingByCashSale(orgId, cashSaleIds) : new Map()
-    // FR-23: what a Pay on the row prints, as the server will decide it.
-    const printing = await printsOnPayment(orgId, result.items)
-
-    // Manual batch lookups to replace .populate()
-    const contactIds = new Set<string>()
-    const relatedInvoiceIds = new Set<string>()
-    for (const item of result.items) {
-      if (item.contactId) contactIds.add(item.contactId)
-      if ((item as any).convertedInvoiceId) relatedInvoiceIds.add((item as any).convertedInvoiceId)
-      if ((item as any).proformaId) relatedInvoiceIds.add((item as any).proformaId)
-      if ((item as any).offerId) relatedInvoiceIds.add((item as any).offerId)
-      if ((item as any).relatedInvoiceId) relatedInvoiceIds.add((item as any).relatedInvoiceId)
-    }
-
-    const [contacts, relatedInvoices] = await Promise.all([
-      // What the rows take of them, and no more (FR-30.7): a related document was read with its lines.
-      contactIds.size > 0 ? r.contacts.findMany({ orgId, id: { $in: [...contactIds] } } as any, undefined, { select: ['companyName', 'firstName', 'lastName', 'email'] }) : [],
-      relatedInvoiceIds.size > 0 ? r.invoices.findMany({ orgId, id: { $in: [...relatedInvoiceIds] } } as any, undefined, { select: ['invoiceNumber', 'type'] }) : [],
-    ])
-
-    const contactMap = new Map(contacts.map(c => [c.id, c]))
-    const invoiceMap = new Map(relatedInvoices.map(i => [i.id, i]))
-
-    const invoices = result.items.map((item: any) => {
-      const contact = item.contactId ? contactMap.get(item.contactId) : null
-      const convertedInv = item.convertedInvoiceId ? invoiceMap.get(item.convertedInvoiceId) : null
-      const proformaInv = item.proformaId ? invoiceMap.get(item.proformaId) : null
-      const offerInv = item.offerId ? invoiceMap.get(item.offerId) : null
-      const relatedInv = item.relatedInvoiceId ? invoiceMap.get(item.relatedInvoiceId) : null
-      return {
-        ...item,
-        number: item.invoiceNumber,
-        contactName: contact
-          ? ((contact as any).companyName || [(contact as any).firstName, (contact as any).lastName].filter(Boolean).join(' ') || '')
-          : '',
-        // FR-10 (#19): the list-row "send by email" action prefills the recipient from here,
-        // so opening the dialog costs no extra round trip. The contacts are already loaded.
-        contactEmail: contact ? ((contact as any).email || '') : '',
-        convertedInvoiceNumber: convertedInv?.invoiceNumber || '',
-        // An offer becomes a proforma or an invoice: the row links to the form of what it became.
-        convertedInvoiceType: convertedInv?.type || '',
-        proformaNumber: proformaInv?.invoiceNumber || '',
-        offerNumber: offerInv?.invoiceNumber || '',
-        relatedInvoiceNumber: relatedInv?.invoiceNumber || '',
-        ...(item.type === 'cash_sale'
-          ? { invoices: invoicing.get(String(item.id))?.invoices || [], invoicingState: invoicing.get(String(item.id))?.state || 'none' }
-          : {}),
-        ...(item.cashSaleRef ? { cashSaleId: String(item.cashSaleRef.cashSaleId), cashSaleNumber: item.cashSaleRef.number } : {}),
-        statusHistory: synthesizeStatusHistory(item),
-        printsOnPayment: printing.get(String(item.id)) ?? [],
-      }
-    })
+    const invoices = await listRows(orgId, result.items)
     const { items: _raw, ...pagination } = result
     return { invoices, ...pagination }
   }, { isSignIn: true })
@@ -834,7 +328,6 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     '/',
     async ({ params: { orgId }, body, user, status, headers }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      const r = getRepos()
 
       // #155: a retried create with its Idempotency-Key returns the document it made. Hashed
       // before anything below rewrites the body.
@@ -857,306 +350,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
       }
       const unlinked = orderLinkRefusal(user, body)
       if (unlinked) return status(403, unlinked)
-      const createCtx: CreateCtx = {
-        orgId,
-        user,
-        isCashSale: body.type === 'cash_sale',
-        skipStockMovement: (body as any).skipStockMovement === true,
-        allowNegativeStock: (body as any).allowNegativeStock === true,
-      }
-      if (key) {
-        const existing = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
-        // FR-21.10: a key a till sale holds is found here too. A POS row's key travelled with it
-        // into its document (0008/0009), and a different request with it is answered 422.
-        if (existing) return settleCreate(existing, hash!, createCtx, status)
-      }
 
-      // FR-20.55: on a master whose licence has run out, no new invoice, proforma or cash sale. A
-      // credit or debit note, an incoming bill, and the retry of a create that already happened (just
-      // above) go through. Asked here, with the body, because the auth plugins never read one.
-      const unlicensed = await licenceGate('POST', '/api/org/:orgId/invoices', orgId, body)
-      if (unlicensed) return status(402, unlicensed)
-
-      // Sanitize empty string IDs to undefined
-      if (!body.contactId) body.contactId = undefined
-
-      // #171: only `POST /:id/to-invoice` makes an invoice for a cash sale — the link carries
-      // the rules that keep the sale from counting twice, so a plain create never sets it.
-      delete (body as any).cashSaleRef
-      delete (body as any).taxEventDate
-      for (const l of (body.lines || []) as any[]) delete l.cashSaleLineId
-      // `stockSource` makes a document move no stock at all. Only the paths that establish what
-      // already moved the goods write it — the cash-sale invoice, the import's stock-note match,
-      // `/invoicing/bills/from-receipt` — never a client (FR-22.31).
-      delete (body as any).stockSource
-
-      // Inline product-master updates ride alongside the bill in one Mongo transaction.
-      // Purchase bills only; not reachable from desktop/SQLite (desktop-ui has no bills form).
-      const productUpdates = (body as any).productUpdates as any[] | undefined
-      delete (body as any).productUpdates
-      const withProductUpdates = Array.isArray(productUpdates) && productUpdates.length > 0
-      if (withProductUpdates && !(body.type === 'invoice' && body.direction === 'incoming')) {
-        return status(422, { message: 'productUpdates is only supported for purchase bills' })
-      }
-      if (withProductUpdates) {
-        const refusal = await foreignCurrencyRefusal(orgId, body.currency)
-        if (refusal) return status(422, refusal)
-      }
-
-      // Reservation-consuming lines: sales invoices only, capped at the reserved quantity.
-      const refErr = await validateReservationLineRefs(orgId, { type: body.type, direction: body.direction, lines: body.lines })
-      if (refErr) return status(422, { message: refErr })
-
-      // Credit/debit notes must reference the issued invoice they correct (same side + contact).
-      const relErr = await validateRelatedInvoiceRef(orgId, {
-        type: body.type,
-        direction: body.direction,
-        contactId: body.contactId,
-        relatedInvoiceId: body.relatedInvoiceId,
-      })
-      if (relErr) return status(422, { message: relErr })
-
-      // #724: an outgoing article line's unit is its article's (the form locks it there); a note keeps the unit its
-      // invoice sold the article in. Before the amounts, which carry the lines into the document.
-      body.lines = (await withArticleUnits(orgId, body.direction, body.lines as any[], undefined, { relatedInvoiceId: body.relatedInvoiceId })) as any
-
-      // Compute defaults for fields the form may not provide
-      const { lines, taxTotal, totalBase } = documentAmounts(body as any)
-      const exchangeRate = body.exchangeRate || 1
-      const dueDate = body.dueDate || body.issueDate
-
-      const isCashSale = body.type === 'cash_sale'
-      const initialStatus = isCashSale ? 'paid' : 'draft'
-      // Import-time stock controls (cash sales only) — behavioral flags, not doc fields.
-      const skipStockMovement = (body as any).skipStockMovement === true
-      const allowNegativeStock = (body as any).allowNegativeStock === true
-      delete (body as any).skipStockMovement
-      delete (body as any).allowNegativeStock
-      // FR-21.24: the transfers a cash sale asked for, confirmed before it dispatches. On the document
-      // under their own name until they are: `pendingTransferIds` there means "already confirmed".
-      const pendingTransferIds = isCashSale && !skipStockMovement ? (body as any).pendingTransferIds as string[] | undefined : undefined
-      delete (body as any).pendingTransferIds
-      /**
-       * #454: the form drew these transfers up for this sale, and a sale refused before it is written never
-       * confirms them. Left in draft they stay in the movements list, and move goods if somebody confirms
-       * them. The next press draws up its own. ⚠ Only on a refusal, which is a definitive answer: never
-       * re-sent with the same body (`ui-shared/composables/idempotency#isOutcomeUnknown`).
-       */
-      const discardRequested = () => discardPendingTransfers(orgId, pendingTransferIds, { createdBy: user.id })
-      // #724 (FR-27 `sales-docs.manual-price`): a line price this session's role may not type is refused, before
-      // anything is written or numbered. A definitive answer, so the transfers drawn up for it go (#454).
-      const typed = await typedPriceRefusal(orgId, user as any, { direction: body.direction, contactId: body.contactId, relatedInvoiceId: body.relatedInvoiceId, lines: body.lines })
-      if (typed) {
-        await discardRequested()
-        return status(403, typed)
-      }
-      if (pendingTransferIds?.length) {
-        // Checked before the insert, so a refused list draws no CS number.
-        try {
-          await checkPendingTransfers(orgId, pendingTransferIds)
-        } catch (e: any) {
-          if (e instanceof PendingTransferError) {
-            await discardRequested()
-            return status(e.statusCode, { code: e.code, message: e.message })
-          }
-          throw e
-        }
-      }
-
-      // FR-21 (D-4): a cash sale is a cash-register document, written by the one service. It keeps
-      // this route's contract — the payload, the answer, the key — and leaves by the service's
-      // failure rule: no device and no drawer here, so a failure before it completes removes it.
-      // ⚠ A keyed one is INSERTED under a placeholder before its CS number is drawn: a legal
-      // sequence, where every losing duplicate of a racing retry would otherwise burn a number.
-      if (isCashSale) {
-        const origin = originOf(body)
-        // #573: each line's VAT and gross are the server's, from its terms, as the cash-sale form computes
-        // them. They are what the total is shared out by per rate, on a joined sale's receipt and in the
-        // VAT it books, and the request's could be anything. An imported day keeps its file's.
-        const saleLines = origin === 'import' ? lines : lines.map((l: any) => ({ ...l, ...cashSaleLineAmounts(l) }))
-        // FR-21.30: a cash sale entered here is totalled as the till totals one — the same function,
-        // the same tolerance — and stored with the server's figures, so a joined sale's receipt
-        // and its document agree to the cent. An imported day keeps the totals of its file.
-        const pos = origin === 'import'
-          ? null
-          : computePosTotals(saleLines.map((l: any) => ({
-              quantity: Number(l.quantity) || 0, unitPrice: Number(l.unitPrice) || 0,
-              taxRate: Number(l.taxRate) || 0, discount: Number(l.discount) || 0,
-            })))
-        if (pos && Math.abs(pos.total - Number(body.total)) > 0.02) {
-          await discardRequested()
-          return status(422, {
-            code: 'cash_sale_total_mismatch',
-            message: `Total mismatch: calculated ${pos.total.toFixed(2)}, received ${Number(body.total).toFixed(2)}`,
-          })
-        }
-        // #554: its VAT and net as the device books them, out of the gross per rate its lines give it.
-        if (pos) Object.assign(pos, deviceTotals({ total: pos.total, discountTotal: pos.discountTotal, lines: saleLines }))
-        // FR-21.31 (D-13): a sale entered here by someone with an open session joins it. An imported
-        // till day never does: it is a day's takings, not one drawer's sale.
-        createCtx.joined = origin === 'backoffice' ? await openSessionOf(orgId, user.id) : null
-        const { requireConnectedDevice } = await tillSettings(orgId)
-        // #492 (owner, 2026-11-08, option 2): where LGR prints, every cash sale goes through a drawer. One entered
-        // here by someone with no open session is refused as a cash invoice at the counter is (FR-23 R1), before
-        // anything is written. Before, it went through printing nothing, its money in no drawer. An imported till
-        // day joins nothing and is not refused; where LGR prints nothing, a sale with no session is a back-office
-        // document, as it always was.
-        if (origin === 'backoffice' && !createCtx.joined && requireConnectedDevice) {
-          const refusal = await noOpenSession(orgId, user.id, 'a cash sale prints its receipt')
-          await discardRequested()
-          return status(refusal.statusCode, refusal.body)
-        }
-        // ⚠ Where LGR prints, a sale that joins a drawer prints. With no `receipt` one got past the gate with the
-        // device gone: 200, paid, in the drawer, and nothing on the device. An imported day joins nothing, so it
-        // never comes this far, and where LGR prints nothing it still takes asking.
-        createCtx.receipt = (body as any).receipt ?? (createCtx.joined && requireConnectedDevice ? 'fiscal' : undefined)
-        let context: RegisterContext
-        try {
-          context = await cashSaleContext(createCtx)
-          // A sale that asked its session's device for a receipt is refused when nothing would
-          // print it, as the till's is — before anything is written.
-          if (createCtx.joined && createCtx.receipt) {
-            await assertPrinterConnected(orgId, String(createCtx.joined.warehouseId), context)
-            await assertOperatorFor(user, context.printer)
-            assertJoinedSaleTender((body as any).paymentMethod || 'cash', context.printer)
-            // FR-20.49 — Прил. 29 т. 8, as at the till: no receipt opens on a device not reached in two hours. A NEW
-            // sale only: a keyed retry was settled above, and refusing it now would strand its receipt.
-            await assertSaleMayOpen(orgId, createCtx.joined.warehouseId)
-          }
-        } catch (e: any) {
-          if (e instanceof RegisterRefusal) {
-            await discardRequested()
-            return status(e.statusCode, e.body)
-          }
-          throw e
-        }
-        const joined = createCtx.joined
-        const printer = context.printer ?? null
-        const fields = {
-          ...body,
-          lines: saleLines,
-          dueDate,
-          orgId,
-          direction: 'outgoing',
-          status: 'paid',
-          statusHistory: [statusEntry('paid', undefined, user.id, 'cash_sale_created')],
-          taxTotal: pos ? pos.taxTotal : taxTotal,
-          ...(pos ? { subtotal: pos.subtotal, discountTotal: pos.discountTotal, total: pos.total } : {}),
-          totalBase: pos ? +(pos.total * exchangeRate).toFixed(2) : totalBase,
-          billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
-          amountPaid: pos ? pos.total : body.total,
-          amountDue: 0,
-          paidAt: new Date(),
-          createdBy: user.id,
-          // §3.2: a PlusMinus till day (the CLI import tags it, its reference names the day) or a sale
-          // entered here.
-          register: {
-            ...(pendingTransferIds?.length ? { transfersToConfirm: pendingTransferIds } : {}),
-            ...(joined
-            ? {
-                // FR-21.31: the drawer's sale, as the till's are: its totals, its close JE, SUPTO, a
-                // storno through a till of that session's warehouse. Its lines keep their own
-                // warehouses for stock (§6 edge 14).
-                origin: 'pos',
-                joinedFrom: 'backoffice',
-                sessionId: joined._id,
-                warehouseId: joined.warehouseId,
-                cashierId: user.id,
-                ...(user.operatorCode ? { operatorCode: user.operatorCode } : {}),
-                ...(printer ? { fiscalDeviceNumber: printer.deviceNumber } : {}),
-                // Until its turn on the device, which decides (`decideSaleMode`).
-                isFiscal: !!printer,
-                fiscal: printer ? { state: 'pending', mode: 'fiscal' } : { state: 'none' },
-                changeDue: 0,
-              }
-            : { origin }),
-          },
-          // The drawer counts payments: a joined sale sent with its header method only gets its row.
-          ...(joined && !(body as any).payments?.length
-            ? { payments: [{ date: new Date(), method: (body as any).paymentMethod || 'cash', amount: pos ? pos.total : body.total }] }
-            : {}),
-        }
-        return cashSaleAnswer(createCtx, async () => {
-          const outcome = await insertRegisterDocument(orgId, fields, key ? { key, hash: hash! } : undefined)
-          // A racing duplicate of this keyed request won the insert: answer as it does.
-          if ('existing' in outcome) return settleKeyedDocument(outcome.existing, hash!, async () => context, runSaleSteps)
-          await upsertTags(orgId, 'invoice', body.tags)
-          return runSaleSteps(context, String(outcome.inserted._id))
-        }, status)
-      }
-
-      // Allocate + create with retry on duplicate-key. A collision indicates the sequence
-      // counter drifted (e.g. legacy data) — the reconcile-on-allocate path inside
-      // getNextInvoiceNumber catches up, so a retry usually succeeds on the 2nd attempt.
-      // Drafts use a separate per-type DRAFT_* counter.
-      let invoice: any
-      let invoiceNumber = ''
-      let lastErr: any
-      let updatedProductIds: string[] = []
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const draftNum = await getNextDraftInvoiceNumber(orgId, body.direction, body.type)
-        // Every type but a cash sale (above) is created a draft, under a draft number.
-        invoiceNumber = draftNum || (await getNextInvoiceNumber(orgId, body.direction, body.type))
-        try {
-          const docFields = {
-            ...body,
-            lines,
-            dueDate,
-            invoiceNumber,
-            orgId,
-            direction: body.direction,
-            status: initialStatus,
-            statusHistory: [statusEntry(initialStatus, undefined, user.id, 'created')],
-            numberHistory: [{ number: invoiceNumber, allocatedAt: new Date(), status: initialStatus }],
-            taxTotal,
-            totalBase,
-            billingAddress: body.billingAddress || { street: '-', city: '-', postalCode: '-', country: '-' },
-            amountPaid: 0,
-            amountDue: body.total,
-            ...(key ? { clientKey: key, requestHash: hash, leaseUntil: new Date(Date.now() + LEASE_MS) } : {}),
-            createdBy: user.id,
-          }
-          if (withProductUpdates) {
-            const res = await createInvoiceWithProductUpdates(docFields as any, productUpdates!)
-            updatedProductIds = res.updatedProductIds
-            invoice = await r.invoices.findOne({ id: res.invoiceId, orgId } as any)
-          } else {
-            invoice = await r.invoices.create(docFields as any)
-          }
-          break
-        } catch (e: any) {
-          lastErr = e
-          if (e instanceof GRValidationError) return status(422, { message: e.message })
-          // A racing duplicate of this keyed request won the insert: answer as it does.
-          // (The DAL's DuplicateError names the index's fields in its message.)
-          if (key && (isDuplicateKey(e) || /clientKey/.test(String(e?.message ?? '')))) {
-            const existing = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
-            if (existing) return settleCreate(existing, hash!, createCtx, status)
-          }
-          if (e?.code !== 'DUPLICATE') throw e
-          // Duplicate on (orgId, invoiceNumber) — reconcile bumps the counter; retry.
-        }
-      }
-      if (!invoice) {
-        return status(409, { message: `Could not allocate invoice number after 3 attempts: ${lastErr?.message || 'duplicate'}` })
-      }
-      await upsertTags(orgId, 'invoice', body.tags)
-
-      createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: invoice.id, entityName: (invoice as any).invoiceNumber })
-
-      // Audit: one entry per product-master update, correlated to the bill.
-      for (const pid of updatedProductIds) {
-        createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: pid, correlationId: invoice.id })
-      }
-
-      // Order/reservation-linked creates (API imports, conversion round-trips) derive
-      // their counters immediately.
-      await syncOrderForInvoice(orgId, invoice, user.id)
-
-      if (key) {
-        await Invoice.updateOne({ _id: invoice.id, orgId }, { $set: { completedAt: new Date() }, $unset: { leaseUntil: 1 } }).exec()
-      }
-      return { invoice }
+      // The key's replay, the licence, the checks, the number and the write (`createDocument`); a cash sale's
+      // session and device beside the till (`cashSaleTill`).
+      return answered(status, await createDocument({ orgId, user, body, key, hash }, cashSaleTill()))
     },
     {
       isSignIn: true, fiscalDevice: deviceFromAuthorSession,
@@ -1292,238 +489,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
-      const r = getRepos()
-
-      // Sanitize empty string IDs to undefined
-      if (!body.contactId) body.contactId = undefined
-
-      const existing = await r.invoices.findOne({ id, orgId } as any)
-      if (!existing) return status(404, { message: 'Invoice not found' })
-      // FR-21.11: a till document or a storno is corrected by a storno, never edited.
-      if (isImmutableRegisterDocument(existing as any)) return status(409, { ...REGISTER_DOCUMENT_IMMUTABLE })
-      // FR-26.6: the order links it has are kept; without `orders` none is added or changed.
-      const unlinked = orderLinkRefusal(user, body, existing)
-      if (unlinked) return status(403, unlinked)
-      // #724: a line price this session's role may not type is refused (FR-27 `sales-docs.manual-price`; the
-      // document's own lines are not this save's figures), and an outgoing article line's unit is its article's.
-      if (Array.isArray((body as any).lines)) {
-        const typed = await typedPriceRefusal(orgId, user as any, {
-          direction: (existing as any).direction,
-          contactId: body.contactId !== undefined ? body.contactId : (existing as any).contactId,
-          relatedInvoiceId: body.relatedInvoiceId !== undefined ? body.relatedInvoiceId : (existing as any).relatedInvoiceId,
-          lines: (body as any).lines,
-        }, { stored: (existing as any).lines, excludeId: id })
-        if (typed) return status(403, typed)
-        ;(body as any).lines = await withArticleUnits(orgId, (existing as any).direction, (body as any).lines, (existing as any).lines, {
-          relatedInvoiceId: body.relatedInvoiceId !== undefined ? body.relatedInvoiceId : (existing as any).relatedInvoiceId,
-        })
-      }
-      // ⚠ What is due is derived, never taken (#454): from the total and what was paid, below, or
-      // from the sale for an invoice for one. A client's figure was written as sent whenever the
-      // total stayed put. Dropped HERE, before anything below derives its own. Still accepted by
-      // the schema, so an older form that sends it is not refused.
-      delete (body as any).amountDue
-      // What the request leaves out, as `POST` derives it, and every write below carries it. ⚠ Before the
-      // freeze reads the request: a total only derived here still moves what a receipt printed. An
-      // invoice for a cash sale takes all of it from the sale, below.
-      // #573: a cash sale's line amounts are the server's, as when it was made. An imported day keeps its file's.
-      // FR-27.11.C.4: a role shown a redacted trail does not overwrite the stored one on a line it did not reprice.
-      if (Array.isArray((body as any).lines)) (body as any).lines = keepStoredTrails(grantOf(user as any), (body as any).lines, (existing as any).lines)
-      if (existing.type === 'cash_sale' && body.lines && originOf(existing) !== 'import') {
-        ;(body as any).lines = body.lines.map((l: any) => ({ ...l, ...cashSaleLineAmounts(l) }))
-      }
-      if (!(existing as any).cashSaleRef?.cashSaleId) Object.assign(body, editedAmounts(existing as any, body as any))
-      // FR-23 §2.7: a printed receipt cannot change, so what it printed cannot either. Anything else
-      // on the document stays editable, as on every other.
-      const movesMoney = (existing as any).direction === 'outgoing' && existing.status !== 'draft' && (movesPrintedMoney(existing as any, body as any) || correctsAnother(existing, body))
-      if (movesMoney) {
-        // A receipt whose request died is no reason to refuse, if it never printed.
-        await finishInterruptedDocuments(orgId, user, id)
-        const frozen = await freezeRefusal(orgId, id)
-        if (frozen) return status(409, frozen)
-      }
-
-      // Inline product-master updates (purchase bills only) — extracted before the $set below.
-      const productUpdates = (body as any).productUpdates as any[] | undefined
-      delete (body as any).productUpdates
-
-      // ⚠ Every document is editable in every status, including after it has been posted to
-      // the general ledger. There used to be a 409 here when a posted JournalEntry referenced
-      // the invoice, with void/credit-note as the remediation; it was removed deliberately.
-      //
-      // The consequence is NOT cosmetic and is not handled anywhere downstream: the
-      // JournalEntry keeps the amounts it was posted with, so an edit to totals, lines, tax
-      // or dates leaves the ledger disagreeing with the document it was derived from. Trial
-      // balance, P&L and balance sheet all read the JE, not the invoice — they will report
-      // the pre-edit figures with nothing marking them stale. Repost is a manual act.
-      //
-      // Requested with that trade-off stated and chosen; see the commit for the decision.
-      // If accounting integrity is wanted back, the fix is to re-post on edit (void the old
-      // JE + post a new one), not to restore the block — the block only moved the problem to
-      // whoever needed to correct a document.
-
-      // Reservation-consuming lines: sales invoices only, capped at the reserved quantity
-      // across all live invoices (this document's previous version excluded).
-      if (body.lines) {
-        const refErr = await validateReservationLineRefs(
-          orgId,
-          { type: existing.type, direction: (existing as any).direction, lines: body.lines },
-          id,
-        )
-        if (refErr) return status(422, { message: refErr })
-      }
-
-      // Credit/debit notes must keep a valid related-invoice reference. Validate the
-      // EFFECTIVE values (body wins, existing fills the gaps) so a partial PUT can't
-      // silently clear or corrupt the link.
-      const relErr = await validateRelatedInvoiceRef(orgId, {
-        type: existing.type,
-        direction: (existing as any).direction,
-        contactId: body.contactId !== undefined ? body.contactId : (existing as any).contactId,
-        relatedInvoiceId: body.relatedInvoiceId !== undefined ? body.relatedInvoiceId : (existing as any).relatedInvoiceId,
-      })
-      if (relErr) return status(422, { message: relErr })
-
-      // #171: an invoice issued for a cash sale keeps the sale's lines, prices and payment — the
-      // service says what an edit may still change and recomputes the rest. Any other document
-      // cannot gain the link through an edit.
-      if ((existing as any).cashSaleRef?.cashSaleId) {
-        try {
-          Object.assign(body, await checkInvoiceForCashSaleEdit(orgId, existing, body as any))
-        } catch (e: any) {
-          if (e instanceof CashSaleInvoiceError) return refused(status, e)
-          throw e
-        }
-      } else {
-        delete (body as any).cashSaleRef
-        delete (body as any).taxEventDate
-        for (const l of (body.lines || []) as any[]) delete l.cashSaleLineId
-      }
-      // An edit can neither give a document a stock source nor take one away (see POST).
-      delete (body as any).stockSource
-      // FR-22.31 (D-2): a bill made from goods receipts bills what they received, whole.
-      if (isReceiptLinked(existing)) {
-        try {
-          await checkLinkedBillEdit(orgId, existing, body as any)
-        } catch (e: any) {
-          if (e instanceof ReceiptBillError) return status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
-          throw e
-        }
-      }
-      // FR-22.61: an invoice made from stock notes invoices what they delivered, whole.
-      if (isDispatchLinked(existing)) {
-        try {
-          await checkLinkedInvoiceEdit(orgId, existing, body as any)
-        } catch (e: any) {
-          if (e instanceof DispatchInvoiceError) return status(e.statusCode, { code: e.code, message: e.message, ...(e.details || {}) })
-          throw e
-        }
-      }
-      // A cash sale's line ids are what its invoices point at, and a PUT of `lines` replaces them.
-      if (existing.type === 'cash_sale' && body.lines !== undefined) {
-        const invoiced = await liveInvoiceNumbersFor(orgId, id)
-        if (invoiced.length) {
-          return status(409, {
-            code: 'cash_sale_invoiced',
-            message: `${existing.invoiceNumber} is invoiced by ${invoiced.join(', ')} — void those invoices before changing its lines`,
-          })
-        }
-      }
-
-      // Keep the canonical number/status fields owned by the controller — never let edits
-      // overwrite them through the body schema (defence in depth: schema already excludes them).
-      delete (body as any).invoiceNumber
-      delete (body as any).status
-      delete (body as any).draftNumber
-      delete (body as any).numberHistory
-      if ((body as any).paymentMethod === 'cash_on_delivery' && await owedByMovingToDelivery(orgId, existing)) {
-        ;(body as any).deliveryReceiptOwed = true
-      }
-
-      let updated: any
-      if (Array.isArray(productUpdates) && productUpdates.length > 0) {
-        if (!(existing.type === 'invoice' && (existing as any).direction === 'incoming')) {
-          return status(422, { message: 'productUpdates is only supported for purchase bills' })
-        }
-        // A bill made from goods receipts updates no product: its receipts brought the goods in at
-        // their costs, and receiving the bill carries its prices forward (FR-22 D-2,
-        // `applyLinkedBillPrices`). Its form offers no product update; this refuses an older one.
-        if (isReceiptLinked(existing)) {
-          return status(422, {
-            code: 'receipt_linked_bill',
-            message: `${(existing as any).invoiceNumber} is made from goods receipts (${(existing as any).stockSource?.docNumber}) — it updates no product`,
-          })
-        }
-        const refusal = await foreignCurrencyRefusal(orgId, (body as any).currency ?? (existing as any).currency)
-        if (refusal) return status(422, refusal)
-        // Bill $set + product bulk-update in one transaction; no stock movement here
-        // (bills touch stock only via /receive). Not reachable from desktop/SQLite.
-        let updatedProductIds: string[] = []
-        try {
-          const res = await updateInvoiceWithProductUpdates({
-            orgId, invoiceId: id, update: body as any, productUpdates, ...(existing.status === 'draft' ? { where: unclaimedDraft() } : {}),
-          })
-          updatedProductIds = res.updatedProductIds
-        } catch (e: any) {
-          if (e instanceof GRValidationError) return status(422, { message: e.message })
-          if (e instanceof InvoiceWriteLost) return draftTaken(status, orgId, id)
-          throw e
-        }
-        updated = await r.invoices.findOne({ id, orgId } as any)
-        for (const pid of updatedProductIds) {
-          createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'product', entityId: pid, correlationId: id })
-        }
-      } else if (existing.status === 'draft') {
-        updated = await r.invoices.updateInOrg(id, orgId, body as any, unclaimedDraft())
-        if (!updated) return draftTaken(status, orgId, id)
-      } else if (movesMoney) {
-        // ⚠ The read above is a check, and this is what makes it hold. A receipt that took its hold
-        // since prints the old total, and one that finished since has paid it, and both would leave
-        // the document disagreeing with the device. A payment fits the total it reads, so the other
-        // order is safe: of an edit and a payment one gives way. ⚠ And an issue still holds its claim
-        // here, past its own write: nothing stands on this document until its receipt does, and an
-        // edit in that gap printed 36 for a receipt of 24.
-        const writing = new Date()
-        updated = await r.invoices.updateInOrg(id, orgId, body as any, {
-          'receiptHolds.0': { $exists: false }, amountPaid: (existing as any).amountPaid ?? null, $and: [issueLeaseFree(writing), notBeingVoided(writing)],
-        })
-        if (!updated) {
-          const frozen = await freezeRefusal(orgId, id)
-          if (frozen) return status(409, frozen)
-          const now: any = await Invoice.findOne({ _id: id, orgId }, { receiptHolds: 1, voidingUntil: 1, 'issue.leaseUntil': 1 }).lean().exec()
-          if (heldOn(now) > 0) return receiptPrinting(status, orgId, id)
-          if (now?.issue?.leaseUntil && new Date(now.issue.leaseUntil).getTime() >= Date.now()) return status(409, ISSUE_IN_PROGRESS)
-          return status(409, { ...(isBeingVoided(now) ? DOCUMENT_CLAIMED : DOCUMENT_CHANGED) })
-        }
-      } else {
-        updated = await r.invoices.updateInOrg(id, orgId, body as any)
-      }
-
-      createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (updated as any)?.invoiceNumber || (existing as any)?.invoiceNumber, changes: diffChanges(existing as any, updated as any) })
-
-      // Quantity edits on ORD-linked documents shift the derived reservation/receipt state.
-      await syncOrderForInvoice(orgId, updated || existing, user.id)
-
-      // An issued invoice edited to cash (or its total changed while cash) is paid; one edited
-      // away from cash gives back the payment that rule recorded. Drafts are untouched.
-      // ⚠ FR-23: where LGR prints the rule does not settle. That money goes through the payment
-      // action, which prints, and an edit must not take it silently. An imported document never
-      // prints, so the rule stays its own.
-      let settled = false
-      if ((existing as any).direction === 'outgoing' && existing.type === 'invoice' && existing.status !== 'draft') {
-        const settlement = await syncCashSettlement(orgId, id, user.id, { settles: await ruleSettles(orgId, updated ?? existing) })
-        settled = settlement.action !== 'none'
-        if (settled) updated = await r.invoices.findOne({ id, orgId } as any)
-      }
-      // Whatever that rule left alone: a note, a bill, a draft, an invoice paid by bank. A cash sale owes
-      // nothing, and an invoice for one is the service's above.
-      const owes = existing.type !== 'cash_sale' && !(existing as any).cashSaleRef?.cashSaleId
-      if (!settled && owes && updated && round2((updated as any).total) !== round2((existing as any).total)) {
-        await Invoice.updateOne({ _id: id, orgId }, dueFollowsTotal({ at: new Date(), by: String(user.id) }) as any).exec()
-        updated = await r.invoices.findOne({ id, orgId } as any)
-      }
-
-      return { invoice: updated }
+      // FR-23: a receipt whose request died is finished (on its device) before an edit that moves printed money is
+      // refused for it (`updateDocument`).
+      const finishInterrupted = () => finishInterruptedDocuments(orgId, user, id)
+      return answered(status, await updateDocument({ orgId, id, user, body, finishInterrupted }))
     },
     {
       isSignIn: true, fiscalDevice: deviceFromDeadReceipt,
@@ -1631,7 +600,6 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
   }, { isSignIn: true })
   .post('/:id/send', async ({ params: { orgId, id }, body, user, status, headers }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    const r = getRepos()
 
     let key: string | undefined
     try {
@@ -1641,282 +609,10 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     }
     const hash = key ? requestHash(`invoice.send:${id}`, body ?? {}) : undefined
 
-    /** The issued document, with what its receipt came to (FR-23). */
-    const withReceipt = async (receipt: any) => ({ invoice: await r.invoices.findOne({ id, orgId } as any), ...receiptOutcome(receipt) })
-    /** The same of a refund: its last storno says what became of it, and all of them are named. */
-    const withStornos = async (stornos: any[]) => (stornos.length
-      ? { ...await withReceipt(stornos.at(-1)), stornos: refundOutcome(stornos), refunded: refundedBy(stornos) }
-      : { invoice: await r.invoices.findOne({ id, orgId } as any) })
-    /** Refused once it was issued. What a refund's earlier parts did stands, and the refusal says so (`refund`). */
-    const refusedAfterIssue = async (e: RegisterRefusal) => ({
-      invoice: await r.invoices.findOne({ id, orgId } as any),
-      receiptError: e.message,
-      ...(e.body.stornos ? { refunded: e.body.refunded, stornos: e.body.stornos } : {}),
-    })
-    /** What an issue's refund answers. What printed stands, and it says when the rest stopped because the note moved. */
-    const withIssuedRefund = async (stornos: any[]) => {
-      const now = await rawOf(id, orgId)
-      return { ...await withStornos(stornos), ...(refundMoved(now, stornos) ? nothingPrinted(now) : {}) }
-    }
-    /** Whether an issue's refund may print its next part. */
-    const stillAsIssued = async (stornos: any[]) => !refundMoved(await rawOf(id, orgId), stornos)
-    /**
-     * FR-23 §2.4: the receipt, now that the document has the number it names. Issued is issued: a
-     * failure here leaves it issued and unpaid, says why, and the Pay button takes the money.
-     *
-     * ⚠ The last word before the device. A lapsed lease or a retry holds no claim, and an edit of the
-     * method holds none at all, so what the issue decided is checked against the document as it stands:
-     * moved, nothing prints. The issue's claim goes here, whichever way this ended; a crash lets it lapse.
-     */
-    const printAtIssue = async (prepared: PreparedReceipt | PreparedRefund) => {
-      try {
-        const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
-        if (tenderMoved(doc, doc.issue?.tender ?? prepared.tender)) {
-          return { invoice: await r.invoices.findOne({ id, orgId } as any), ...nothingPrinted(doc) }
-        }
-        // ⚠ And a lapsed lease let the page's press through: what `prepared` read of the receipts is from before
-        // the claim, and a second delivery receipt books the sale on the device twice.
-        if (prepared.tender.method === 'cash_on_delivery' && !(await owesDeliveryReceipt(orgId, doc))) {
-          return { invoice: await r.invoices.findOne({ id, orgId } as any) }
-        }
-        const keyed = key ? { key, hash: hash! } : undefined
-        // R2: a credit note gives back what the issue decided, on as many stornos as it draws on.
-        if (doc.type === 'credit_note') return await withIssuedRefund(await refund(orgId, user, doc, prepared.tender, prepared as PreparedRefund, keyed, stillAsIssued))
-        return await withReceipt(await printReceipt(orgId, prepared as PreparedReceipt, doc, keyed))
-      } catch (e: any) {
-        if (!(e instanceof RegisterRefusal)) throw e
-        if (answersForTheKey(e)) return status(e.statusCode, e.body)
-        return await refusedAfterIssue(e)
-      } finally {
-        // A failure here must not answer for a receipt that printed: the lease lapses by itself.
-        await Invoice.updateOne({ _id: id, orgId }, { $set: { 'issue.leaseUntil': null } }).exec().catch(() => undefined)
-      }
-    }
-    /**
-     * A retry of an issue that went through: its receipt comes back, printed once, and one the first
-     * attempt never finished, or never started, is finished here. ⚠ For what the issue decided, not for
-     * what the document says by now: the customer handed over what it said then.
-     */
-    const replayIssued = async () => {
-      try {
-        const doc: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
-        const receipt = key ? await keyedReceipt(orgId, key) : null
-        // A refund goes on from whichever of its stornos the first attempt reached, for what the issue
-        // decided, whatever has gone back since.
-        if (receipt?.type === PAYMENT_STORNO) return await withIssuedRefund(await refund(orgId, user, doc, { ...issueTender(doc), amount: doc.issue?.tender?.amount ?? doc.total }, null, { key: key!, hash: hash! }, stillAsIssued))
-        if (receipt) return await withReceipt(await settleKeyedReceipt(orgId, user, receipt, hash!))
-        if (doc.issue?.tender && tenderMoved(doc, doc.issue.tender)) {
-          return { invoice: await r.invoices.findOne({ id, orgId } as any), ...nothingPrinted(doc) }
-        }
-        const prepared = doc.type === 'credit_note' ? await prepareIssueRefund(orgId, user, doc) : await prepareIssueReceipt(orgId, user, doc)
-        if (prepared) return await printAtIssue(prepared)
-      } catch (e: any) {
-        if (!(e instanceof RegisterRefusal)) throw e
-        if (answersForTheKey(e)) return status(e.statusCode, e.body)
-        return refusedAfterIssue(e)
-      }
-      return { invoice: await r.invoices.findOne({ id, orgId } as any) }
-    }
-
-    /**
-     * The issue this key already made, or the one still running under it: the issued document
-     * comes back, never a second dispatch or a second number. Null when the holder's lease
-     * lapsed (a crash) — the caller then takes the claim over and finishes the issue.
-     */
-    const replayIssue = async (): Promise<any> => {
-      const deadline = Date.now() + WAIT_MS
-      for (;;) {
-        const doc = await Invoice.findOne({ _id: id, orgId }).lean().exec() as any
-        if (!doc || doc.issue?.clientKey !== key) return null
-        if (doc.issue.requestHash !== hash) {
-          return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
-        }
-        if (doc.status !== 'draft') return replayIssued()
-        if (!doc.issue.leaseUntil || new Date(doc.issue.leaseUntil).getTime() < Date.now()) return null
-        if (Date.now() >= deadline) {
-          return status(409, { code: 'idempotency_in_progress', message: 'This document is still being issued — retry with the same Idempotency-Key.' })
-        }
-        await new Promise(res => setTimeout(res, 150))
-      }
-    }
-
-    const invoice = await r.invoices.findOne({ id, orgId } as any)
-    if (!invoice) return status(404, { message: 'Invoice not found' })
-    if (key && (invoice as any).issue?.clientKey === key) {
-      const replayed = await replayIssue()
-      if (replayed) return replayed
-    }
-    /**
-     * The dialog draws up the transfers before it issues, and each retry from it draws new ones, so what a
-     * request that will not issue leaves in draft stays in the movements list, and moves goods if somebody
-     * confirms it. ⚠ Only on a refusal that means this request will not issue. Never on `issue_in_progress`,
-     * where the holder may confirm those same ids, nor on a bill's overlap question, whose answer sends them again,
-     * nor any id the document already carries: that one was confirmed for it.
-     */
-    const discardAsked = () => {
-      const carried = ((invoice as any).pendingTransferIds ?? []).map(String)
-      const asked = (body as any)?.pendingTransferIds
-      return discardPendingTransfers(orgId, Array.isArray(asked) ? asked.filter((t: unknown) => !carried.includes(String(t))) : asked)
-    }
-
-    if (invoice.status !== 'draft') {
-      await discardAsked()
-      return status(400, { message: 'Invoice is not in draft status' })
-    }
-
-    // FR-20.81 (P3-6d): no issued number while the series waits for a lost site's last numbers.
-    // Refused here, before the claim and the dispatch, never at the allocation after them.
-    const frozen = await issuableRefusal(orgId, invoice.direction as string, invoice.type as string)
-    if (frozen) {
-      await discardAsked()
-      return status(409, { code: frozen.code, message: frozen.message })
-    }
-
-    // A bill issued here books its goods as `/receive` does, so it answers the same question first.
-    const overlap = await receiptsOverlapping(orgId, invoice)
-    // `/send`'s schema takes any value here, so this reads the answer itself: only the answer counts as one.
-    if (overlap && (body as any)?.acknowledgeOverlap !== true) return status(409, receiptOverlapRefusal(invoice, overlap))
-    // FR-22.61b: the mirror question, of a sales invoice typed for goods a stock note already delivered. Asked here,
-    // before the tender, the claim and the dispatch: a refusal leaves the draft as it was.
-    const noteOverlap = await dispatchesOverlapping(orgId, invoice)
-    if (noteOverlap && (body as any)?.acknowledgeOverlap !== true) {
-      // ⚠ Unlike the bill's question, this one is answered by starting the issue again: an invoice linked to the
-      // note takes no stock at all, and one issued anyway is checked for stock afresh. So the transfers this request
-      // drew up are not sent again, and would stay in draft for somebody to confirm.
-      await discardAsked()
-      return status(409, dispatchOverlapRefusal(invoice, noteOverlap))
-    }
-
-    // FR-23 §2.3: a document paid at the counter prints, in the open session of whoever issues it.
-    // No session, no device: refused here, with no number drawn, no stock moved, no claim taken. R2: a
-    // credit note the same way, with no receipt to storno or more than it still holds on top.
-    let counter: PreparedReceipt | PreparedRefund | null
-    try {
-      counter = invoice.type === 'credit_note' ? await prepareIssueRefund(orgId, user, await rawOf(id, orgId)) : await prepareIssueReceipt(orgId, user, invoice)
-    } catch (e: any) {
-      if (!(e instanceof RegisterRefusal)) throw e
-      await discardAsked()
-      return status(e.statusCode, e.body)
-    }
-
-    /**
-     * ⚠ CLAIM the draft before anything moves. Two Issue clicks (or a retry) used to both pass
-     * the `draft` check above, so both dispatched the stock, both drew an issued number and both
-     * posted a journal entry. Exactly one request holds this claim; a crashed holder's lease
-     * lapses and the next Issue finishes what it started.
-     *
-     * ⚠ And a compare-and-set on what it read: the tender, the stock and the receipt below are decided
-     * from that read, so a draft edited between the read and this claim is refused with nothing moved
-     * and no number drawn. From the claim on `unclaimedDraft` refuses the edit instead.
-     */
-    const now = new Date()
-    const claimed = await Invoice.findOneAndUpdate(
-      { _id: id, orgId, updatedAt: (invoice as any).updatedAt ?? null, ...unclaimedDraft(now) },
-      { $set: { issue: { clientKey: key, requestHash: hash, leaseUntil: new Date(now.getTime() + LEASE_MS) } } },
-      { new: true },
-    ).exec()
-    if (!claimed) {
-      if (key) {
-        const replayed = await replayIssue()
-        if (replayed) return replayed
-      }
-      const held = await holderOf(orgId, id, doc => (doc?.status === 'draft' ? { ...DOCUMENT_CHANGED } : ISSUE_IN_PROGRESS))
-      if (held !== ISSUE_IN_PROGRESS) await discardAsked()
-      return status(409, held)
-    }
-    /** Give the draft back — a failed issue must not leave it claimed. */
-    const release = () => Invoice.updateOne({ _id: id, orgId, status: 'draft' }, { $unset: { issue: 1 } }).exec()
-
-    // #171: a draft invoice for a cash sale is issued paid — the cash sale took its money — and
-    // posts nothing: no stock (its `stockSource` stops the dispatch below), no journal entry.
-    const forCashSale = !!(invoice as any).cashSaleRef?.cashSaleId
-    const newStatus = forCashSale ? 'paid' : invoice.direction === 'incoming' ? 'received' : 'sent'
-
-    // Confirm pending transfer movements before dispatch (cross-warehouse transfers)
-    const pendingTransferIds = (body as any)?.pendingTransferIds as string[] | undefined
-    if (pendingTransferIds?.length && !(invoice as any).pendingTransferIds?.length) {
-      try {
-        await confirmTransferMovements(orgId, pendingTransferIds, { forDocumentId: String(id) })
-      } catch (e: any) {
-        await release()
-        // #454: this request will not issue, so what it did not confirm stays a draft nobody will. A transfer it
-        // did confirm is a real movement and stays (`discardPendingTransfers` touches drafts only).
-        await discardAsked()
-        if (e instanceof PendingTransferError) return status(e.statusCode, { code: e.code, message: e.message })
-        return status(400, { message: `Transfer confirmation failed: ${e.message}` })
-      }
-    }
-
-    // FR-29.8: the stock, the issued number and the status in one transaction (`issueDocument`). What an earlier
-    // attempt left is finished there: a completed movement of this document stands, a draft one is booked afresh,
-    // never skipped (FR-29.9). The number is drawn last, so an issue that fails draws none (FR-29.11).
-    const updateData: any = { 'issue.completedAt': new Date() }
-    // ⚠ FR-23: what will print keeps its claim past this write, because nothing else stands on the document
-    // until its receipt does: an edit in that gap rang one amount and booked another. `printAtIssue` lets
-    // go of it. What prints nothing, an invoice for a cash sale and a quote among them, is done here.
-    if (counter) updateData['issue.tender'] = { method: counter.tender.method, amount: counter.tender.amount }
-    else updateData['issue.leaseUntil'] = null
-    if (pendingTransferIds?.length) updateData.pendingTransferIds = pendingTransferIds
-    if (forCashSale) Object.assign(updateData, await issueFieldsFor(orgId, invoice))
-    // FR-23: in the issue's own write, so whatever happens to its receipt the fact stands.
-    if (counter?.tender.method === 'cash_on_delivery') updateData.deliveryReceiptOwed = true
-    let issued: Awaited<ReturnType<typeof issueDocument>>
-    try {
-      issued = await issueDocument({
-        orgId, invoice, userId: user.id, status: newStatus,
-        heldBy: { 'issue.leaseUntil': (claimed as any).issue?.leaseUntil },
-        fields: updateData,
-        // FR-29.15: what the `invoice.posted` below owes, stored with the issue.
-        owesPosting: !forCashSale && !isQuoteType(invoice.type),
-      })
-    } catch (e: any) {
-      await release()
-      if (e instanceof IssueStockError) {
-        const [code, answer] = stockFailureAnswer(e, 400)!
-        return status(code, answer)
-      }
-      // The lease lapsed under a long issue and another request took the draft: it is theirs to finish.
-      if (e instanceof IssueLostError) return status(409, await holderOf(orgId, id, () => ({ ...DOCUMENT_CHANGED })))
-      throw e
-    }
-    const { invoice: updated, issuedNumber, draftNumber } = issued
-
-    // ORD-linked documents: re-derive the order's reservation/receipt state
-    // (dispatch consumes holds; incoming bills book receipts).
-    await syncOrderForInvoice(orgId, updated || invoice, user.id)
-    // A bill made from goods receipts, issued here rather than by `/receive` (FR-22 D-2).
-    if (invoice.direction === 'incoming') await applyLinkedBillPrices(orgId, updated || invoice, user.id)
-
-    createAuditEntry({ orgId, userId: user.id, action: 'send', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: issuedNumber, changes: { draftNumber: { from: draftNumber, to: null }, invoiceNumber: { from: draftNumber, to: issuedNumber } } })
-    if (overlap) auditOverlapAcknowledged(orgId, user.id, id, issuedNumber, overlap)
-    if (noteOverlap) auditDispatchOverlapAcknowledged(orgId, user.id, id, issuedNumber, noteOverlap)
-
-    // The sale's revenue belongs to its cash sale: an invoice for one posts no second entry.
-    if (forCashSale) return { invoice: updated }
-    // An issued quote — a proforma or an offer — is no sale (FR-22.22): no receivable, no revenue,
-    // nothing paid. The invoice it is converted into posts when that invoice is issued.
-    if (isQuoteType(invoice.type)) return { invoice: updated }
-
-    // Emit for cross-module journal entry creation
-    eventBus.emit('invoice.posted', {
-      invoiceId: id,
-      orgId,
-      userId: user.id,
-      direction: invoice.direction,
-      total: invoice.total,
-      contactId: invoice.contactId as string,
-    })
-
-    // FR-23 §2.4: where LGR prints, the receipt and its payment are the settlement. Not in
-    // `syncCashSettlement`: the import conversion comes through there, and never prints.
-    if (counter) return printAtIssue(counter)
-
-    // A cash invoice is paid the moment it is issued — no separate "record payment" step. ⚠ Where LGR prints
-    // nothing got here to settle but what an edit made cash since this request read it, with no receipt.
-    const settlement = await syncCashSettlement(orgId, id, user.id, { settles: await ruleSettles(orgId, updated ?? invoice, true) })
-    if (settlement.action !== 'none') return { invoice: await r.invoices.findOne({ id, orgId } as any) }
-
-    return { invoice: updated }
+    // The issue (`sendDocument`, around FR-29.8's `issueDocument`); its receipt on the device of whoever issues it
+    // (`counterAtIssue`, FR-23).
+    const counter = counterAtIssue(orgId, id, user, key, hash)
+    return answered(status, await sendDocument({ orgId, id, user, body, key, hash, counter }))
   }, {
     isSignIn: true,
     fiscalDevice: deviceFromCounter,
@@ -2021,46 +717,6 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         return status(e.statusCode, { code: e.code, message: e.message })
       }
       const hash = key ? requestHash(`invoice.payment:${id}`, body) : undefined
-      /** The payment this key already recorded: the invoice comes back, the payment is not added again. */
-      const replayPayment = async (doc: any) => {
-        const prior = (doc?.payments || []).find((p: any) => p.clientKey === key)
-        if (!prior) return null
-        if (prior.requestHash !== hash) {
-          return status(422, { code: 'idempotency_key_reused', message: 'This Idempotency-Key was already used for a different request' })
-        }
-        return { invoice: await r.invoices.findOne({ id, orgId } as any) }
-      }
-      /** FR-23: what a payment that printed answers, and one whose receipt failed: nothing was recorded. */
-      const receiptAnswer = async (receipt: any) => {
-        if (receipt.register?.fiscal?.inDoubt) return status(409, inDoubtRefusal(receipt))
-        if (receipt.register?.fiscal?.state === 'failed') {
-          return status(503, {
-            code: 'fiscal_error',
-            receiptId: String(receipt._id),
-            message: `The receipt was not printed, so no payment was recorded: ${receipt.register.receiptError}`,
-          })
-        }
-        return { invoice: await r.invoices.findOne({ id, orgId } as any), ...receiptOutcome(receipt) }
-      }
-      /**
-       * R2: what a refund answers. All it printed stands; a part that did not stops the rest, and the
-       * answer says how much went back. Nothing printed answers as a receipt that did not.
-       */
-      const refundAnswer = async (stornos: any[]) => {
-        const last = stornos.at(-1)
-        if (!last) return { invoice: await r.invoices.findOne({ id, orgId } as any) }
-        const refunded = refundedBy(stornos)
-        if (last.register?.fiscal?.inDoubt) return status(409, { ...inDoubtRefusal(last), refunded })
-        if (last.register?.fiscal?.state === 'failed') {
-          return status(503, {
-            code: 'fiscal_error',
-            receiptId: String(last._id),
-            refunded,
-            message: `The storno was not printed, so this part of the refund was not recorded: ${last.register.receiptError}`,
-          })
-        }
-        return { invoice: await r.invoices.findOne({ id, orgId } as any), ...receiptOutcome(last), stornos: refundOutcome(stornos) }
-      }
       /** The tender of this request: in cents, as a fiscal receipt has no others, dated as it prints. */
       const tenderOf = () => ({ method: body.method, amount: round2(body.amount), date: new Date(), ...(body.reference ? { reference: body.reference } : {}) })
 
@@ -2071,14 +727,14 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
         const receipt = await keyedReceipt(orgId, key)
         if (receipt) {
           try {
-            if (receipt.type === PAYMENT_STORNO) return await refundAnswer(await refund(orgId, user, await rawOf(id, orgId), tenderOf(), null, { key, hash: hash! }))
-            return await receiptAnswer(await settleKeyedReceipt(orgId, user, receipt, hash!))
+            if (receipt.type === PAYMENT_STORNO) return await paymentRefundAnswer(status, orgId, id, await refund(orgId, user, await rawOf(id, orgId), tenderOf(), null, { key, hash: hash! }))
+            return await paymentReceiptAnswer(status, orgId, id, await settleKeyedReceipt(orgId, user, receipt, hash!))
           } catch (e: any) {
             if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
             throw e
           }
         }
-        const replayed = await replayPayment(invoice)
+        const replayed = await replayPayment(status, orgId, id, invoice, key, hash)
         if (replayed) return replayed
       }
       // FR-23: what a request that died left on this document comes first: its receipt may have
@@ -2100,76 +756,19 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
           // R2: a refund in cash or by card prints a storno of a receipt that paid its invoice.
           const note = await rawOf(id, orgId)
           const preparedRefund = await prepareRefund(orgId, user, note, tender, false)
-          if (preparedRefund) return await refundAnswer(await refund(orgId, user, note, tender, preparedRefund, key ? { key, hash: hash! } : undefined))
+          if (preparedRefund) return await paymentRefundAnswer(status, orgId, id, await refund(orgId, user, note, tender, preparedRefund, key ? { key, hash: hash! } : undefined))
         }
         const prepared = await prepareReceipt(orgId, user, invoice, tender, false)
         if (prepared) {
           const doc = await Invoice.findOne({ _id: id, orgId }).lean().exec()
-          return await receiptAnswer(await printReceipt(orgId, prepared, doc, key ? { key, hash: hash! } : undefined))
+          return await paymentReceiptAnswer(status, orgId, id, await printReceipt(orgId, prepared, doc, key ? { key, hash: hash! } : undefined))
         }
       } catch (e: any) {
         if (e instanceof RegisterRefusal) return status(e.statusCode, e.body)
         throw e
       }
 
-      const { ObjectId } = (Invoice.base as any).Types
-      const oid = (v: string) => new ObjectId(v)
-      // Its own id, so that its journal entry finds this row and no other (`payment.recorded`).
-      const paymentId = new ObjectId()
-      const row = {
-        _id: paymentId,
-        date: new Date(body.date),
-        amount: body.amount,
-        method: body.method,
-        ...(body.reference !== undefined ? { reference: body.reference } : {}),
-        ...(key ? { clientKey: key, requestHash: hash } : {}),
-      }
-      // FR-20.4: a raw driver write, which the Mongoose write guard cannot see — so it asks first.
-      await assertHomeIsHere(orgId)
-      const pipeline = paymentPipeline(row, { at: new Date(), by: String(user.id) })
-      // FR-29.15: the payment and the journal entry it owes are stored in one transaction.
-      const after = await inTransaction(async session => {
-        const doc = await Invoice.collection.findOneAndUpdate(
-          {
-            _id: oid(id), orgId: oid(orgId),
-            status: { $nin: ['voided', 'cancelled', 'paid'] },
-            // The key, when sent, is part of the filter: a second request with it matches nothing.
-            ...(key ? { 'payments.clientKey': { $ne: key } } : {}),
-            ...fitsDue(body.amount),
-          },
-          pipeline as any,
-          { returnDocument: 'after', session },
-        )
-        if (doc) await enqueuePosting(orgId, { event: 'payment.recorded', invoiceId: id, paymentId: String(paymentId), userId: user.id }, { session })
-        return doc
-      })
-      if (!after) {
-        // A concurrent request with this key won, the invoice became paid/voided meanwhile, or
-        // another payment took what was left of it.
-        const current: any = await Invoice.findOne({ _id: id, orgId }).lean().exec()
-        if (key) {
-          const replayed = await replayPayment(current)
-          if (replayed) return replayed
-        }
-        const lost = await paymentRefusal(orgId, current, body.amount)
-        return lost ? status(lost.statusCode, lost.body) : status(400, { message: 'Cannot record payment on this invoice' })
-      }
-      const updated = await r.invoices.findOne({ id, orgId } as any)
-
-      createAuditEntry({ orgId, userId: user.id, action: 'record_payment', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: (invoice as any)?.invoiceNumber })
-
-      // Emit for cross-module journal entry creation
-      eventBus.emit('payment.recorded', {
-        invoiceId: id,
-        orgId,
-        userId: user.id,
-        amount: body.amount,
-        method: body.method,
-        date: body.date,
-        paymentId: String(paymentId),
-      })
-
-      return { invoice: updated }
+      return recordPayment(status, { orgId, id, user, body, key, hash, invoice })
     },
     {
       isSignIn: true, fiscalDevice: deviceFromCounter,
@@ -2362,131 +961,11 @@ export const invoiceController = new Elysia({ prefix: '/org/:orgId/invoices' })
     },
     { isSignIn: true, body: t.Object({ cashSaleId: t.String() }) },
   )
-  /**
-   * FR-22.22: a quote becomes the next document, once. A proforma becomes an invoice; an offer becomes a
-   * proforma or an invoice (`target`: the invoice when none is named, the only target a proforma has).
-   *
-   * The new document is a DRAFT under a number of its own draft series, as a draft made by hand is
-   * (FR-22.3): issuing it draws the issued number, so no number of a series is left on no document. It
-   * carries the deal over — the lines and prices, how it is paid, where it is made, what it is filed
-   * under, the validity as its due date — and names where it came from: `proformaId`, `offerId` (a
-   * proforma made from an offer passes the offer on to its invoice). Nothing moves: no stock, no entry,
-   * until the invoice is issued.
-   *
-   * ⚠ Once, even for two presses at once (a double click, two tabs, „→ Проформа" and „→ Фактура" on one
-   * offer): the quote is marked converted by a compare-and-set AFTER its new draft exists, and the press
-   * that loses takes its draft back and is told what won. A crash in between leaves an unlinked draft a
-   * person can delete, never a quote converted into nothing.
-   */
+  // FR-22.22: a quote becomes the next document, once: a proforma an invoice, an offer a proforma or an invoice
+  // (`target`). A draft under its own draft number, taken once even for two presses at once (`convertQuote`).
   .post('/:id/convert', async ({ params: { orgId, id }, body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
-    const r = getRepos()
-
-    const quote = await r.invoices.findOne({ id, orgId } as any)
-    if (!quote) return status(404, { message: 'Invoice not found' })
-    if (!isQuoteType(quote.type) || quote.direction !== 'outgoing') {
-      return status(400, { code: 'not_a_quote', message: 'Only a proforma or an offer can be converted' })
-    }
-    const offered = QUOTE_CONVERTS_TO[quote.type]
-    const target = (body as any)?.target ?? offered[0]
-    if (!offered.includes(target)) {
-      return status(400, { code: 'conversion_not_offered', message: `A ${quote.type} is converted into ${offered.map(t => `a ${t}`).join(' or ')}, not into a ${target}` })
-    }
-    if (quote.status === 'converted') {
-      return status(400, { code: 'already_converted', message: `${quote.invoiceNumber} is already converted` })
-    }
-    // A quote withdrawn is not accepted after all. The lists never offered it; the route converted one anyway.
-    if (['voided', 'cancelled'].includes(quote.status)) {
-      return status(400, { code: 'quote_withdrawn', message: `${quote.invoiceNumber} is ${quote.status}: it can no longer be converted` })
-    }
-    // FR-27.6: what it becomes is a document of its own kind, which the role must make. A role that works
-    // proformas and makes no sales documents converted one into an invoice all the same.
-    const targetKind = kindOfDocument({ direction: quote.direction, type: target })
-    if (!writesKind(grantOf(user as any), targetKind, 'create')) {
-      const feature = targetKind === 'sales' ? 'sales-docs' : targetKind
-      return status(403, { code: 'capability_required', capabilities: [`${feature}.create`], message: 'The document this converts into is not one your role makes.' })
-    }
-
-    // FR-22.3: a DRAFT, so a number of the draft series, as a draft made by hand takes (POST /). It took one
-    // from the ISSUED series, and issuing it took another: the first was left on no document.
-    const number = (await getNextDraftInvoiceNumber(orgId, quote.direction, target))
-      || (await getNextInvoiceNumber(orgId, quote.direction, target))
-    // The offer behind it: this one, or the one the proforma was made from.
-    const offerId = quote.type === 'offer' ? quote.id : (quote as any).offerId
-
-    const created = await r.invoices.create({
-      orgId,
-      type: target,
-      direction: quote.direction,
-      contactId: quote.contactId,
-      invoiceNumber: number,
-      numberHistory: [{ number, allocatedAt: new Date(), status: 'draft' }],
-      issueDate: new Date(),
-      // A quote keeps its validity as its dueDate (B-11): the invoice's due date, the proforma's validity.
-      dueDate: quote.dueDate,
-      currency: quote.currency,
-      exchangeRate: quote.exchangeRate,
-      reference: quote.reference,
-      lines: quote.lines,
-      subtotal: quote.subtotal,
-      discountTotal: quote.discountTotal,
-      taxTotal: quote.taxTotal,
-      total: quote.total,
-      totalBase: quote.totalBase,
-      amountDue: quote.total,
-      notes: quote.notes,
-      terms: quote.terms,
-      footer: quote.footer,
-      // FR-22.22: the deal the customer accepted — how it is paid, where it is made, what it is
-      // filed under. A card proforma used to become an invoice with no method, so issuing it left
-      // the card sale unpaid (FR-22.19).
-      paymentMethod: (quote as any).paymentMethod,
-      placeOfTransaction: (quote as any).placeOfTransaction,
-      tags: (quote as any).tags || [],
-      billingAddress: quote.billingAddress,
-      shippingAddress: quote.shippingAddress,
-      ...(quote.type === 'proforma' ? { proformaId: quote.id } : {}),
-      ...(offerId ? { offerId } : {}),
-      status: 'draft',
-      statusHistory: [statusEntry('draft', undefined, user.id, `converted_from_${quote.type} ${quote.invoiceNumber}`)],
-      createdBy: user.id,
-    } as any)
-
-    // Once: the quote is taken by a compare-and-set on what it was read as.
-    const taken = await Invoice.findOneAndUpdate(
-      { _id: id, orgId, type: quote.type, status: quote.status, convertedInvoiceId: null },
-      {
-        $set: { status: 'converted', convertedInvoiceId: created.id },
-        $push: { statusHistory: statusEntry('converted', quote.status, user.id, `converted_to ${created.invoiceNumber}`) },
-      },
-    ).exec()
-    if (!taken) {
-      // Another press won (or the quote was voided meanwhile): its draft goes, a gap in a draft series only.
-      await r.invoices.deleteInOrg(created.id, orgId)
-      const now: any = await Invoice.findOne({ _id: id, orgId }, { status: 1, convertedInvoiceId: 1 }).lean().exec()
-      const won: any = now?.convertedInvoiceId
-        ? await Invoice.findOne({ _id: now.convertedInvoiceId, orgId }, { invoiceNumber: 1, type: 1 }).lean().exec()
-        : null
-      return status(409, {
-        code: 'already_converted',
-        ...(won ? { convertedInvoiceId: String(won._id), convertedInvoiceNumber: won.invoiceNumber, convertedInvoiceType: won.type } : {}),
-        message: won
-          ? `${quote.invoiceNumber} was converted into ${won.invoiceNumber} meanwhile`
-          : `${quote.invoiceNumber} changed meanwhile (${now?.status ?? 'deleted'}): it can no longer be converted`,
-      })
-    }
-
-    // An invoice may have inherited order/reservation refs from the quote's lines — derive the counters
-    // (the quote itself never counts: reservation aggregation is scoped to type 'invoice').
-    if (target === 'invoice') await syncOrderForInvoice(orgId, created, user.id)
-
-    createAuditEntry({ orgId, userId: user.id, action: 'create', module: 'invoicing', entityType: 'invoice', entityId: created.id, entityName: created.invoiceNumber, correlationId: id })
-    createAuditEntry({
-      orgId, userId: user.id, action: 'convert', module: 'invoicing', entityType: 'invoice', entityId: id, entityName: quote.invoiceNumber,
-      changes: { status: { from: quote.status, to: 'converted' }, [target]: { to: created.invoiceNumber } }, correlationId: id,
-    })
-
-    return { invoice: created }
+    return answered(status, await convertQuote(orgId, id, user, body?.target))
   }, {
     isSignIn: true,
     // Optional: a proforma's convert, and every caller before the offer, sends none.

@@ -10,6 +10,7 @@ paths:
   - "packages/services/src/biz/contact-ledger*"
   - "packages/services/src/biz/dispatch-invoice*"
   - "packages/services/src/biz/document-*"
+  - "packages/services/src/biz/document/**"
   - "packages/db/src/models/invoice*"
   - "packages/reporting/**"
 ---
@@ -565,3 +566,20 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
   `seller-roles.flow`, `access-price-levels.flow`, `reports-p2.flow`,
   `e2e/tests/contact-ledger-movements.spec.ts` (the page, and the dialog of a new invoice, bill and
   proforma).
+
+## The document services (2026-11-18, FR-32.21, #797)
+
+- **Where it lives.** Creating, updating and issuing a document are `services/biz/document`: `createDocument`
+  (`POST /invoices`), `updateDocument` (`PUT /invoices/:id`) and `sendDocument` (`POST /invoices/:id/send`, around
+  FR-29.8's `issueDocument`), with `convertQuote` and the list's `listFilter` / `listRows`. A handler of
+  `invoice.controller.ts` reads its request, says who may, calls one and answers what it says;
+  `unit/invoice-handler-size.test.ts` holds every handler there to 80 lines (they were up to 326).
+- ⚠ **A route that calls a document service answers through `answered(status, …)`.** A service refuses by returning
+  `refuse(code, body)` (`services/biz/document/refused`), never by calling the route's `status`: returned as it is, a
+  `Refused` is a 200 whose body is `{ statusCode, body }`. A helper that takes a `Status` (`whoHolds`, `draftTaken`,
+  `receiptPrinting`) takes `refuse` inside a service and `status` inside a route.
+- ⚠ **What reaches a device stays in `invoicing-api`, and the route hands it in.** `services` does not depend on
+  `fiscal`: a cash sale's drawer and receipt (`lib/cash-register-sale#cashSaleTill`), the receipt or refund at issue
+  (`lib/counter-issue#counterAtIssue`) and finishing a dead receipt before an edit (`finishInterruptedDocuments`) are
+  passed to the service by the route, which calls them by name. That call is how `unit/fiscal-route-declared` sees the
+  route reach a device: a port passed as a plain object would hide it.
