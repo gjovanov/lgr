@@ -251,7 +251,6 @@ import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ListScaffold from 'ui-shared/components/ListScaffold.vue'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
@@ -280,6 +279,10 @@ import { sessionViewer } from 'ui-shared/composables/useStorageIdentity'
 import { useAccess } from 'ui-shared/access/useAccess'
 import { useMovementPrint } from '../composables/useMovementPrint'
 import { mailsMovements } from '../composables/movement-email-access'
+import { confirmMovement as confirmStockMovement, deleteMovement } from '../api/movements'
+import { listProducts } from '../api/products'
+import { listProductCategories } from '../api/product-categories'
+import { listWarehouses } from '../api/warehouses'
 
 interface Item { _id: string; number?: string; type: string; date: string; fromWarehouseName?: string; toWarehouseName?: string; fromWarehouseId?: string; toWarehouseId?: string; fromExternal?: boolean; toExternal?: boolean; contactName?: string; contactId?: string; status: string; total?: number; lines?: any[]; notes?: string; bill?: { id: string; number: string }; sale?: { id: string; number: string } }
 interface Warehouse { _id: string; name: string; isExternal?: boolean }
@@ -377,10 +380,7 @@ async function handleKanbanMove(itemId: string, from: string, to: string) {
     if (!item || !writesMovement(item)) return
     try {
       // FR-04 (#11): same createCount opt-in as the list/form confirm actions.
-      await httpClient.post(
-        `${appStore.orgUrl()}/warehouse/movement/${itemId}/confirm`,
-        (item as any)?.type === 'adjustment' ? { createCount: true } : {},
-      )
+      await confirmStockMovement(itemId, item.type === 'adjustment' ? { createCount: true } : {})
       showSuccess(t('common.completedSuccessfully'))
       await fetchItems()
     } catch (e: any) {
@@ -504,8 +504,7 @@ watch(productSearchQuery, (q) => {
   }, 300)
 })
 const productLookup = latestOnly(async (signal, q: string) => {
-  const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product`, { params: { search: q, size: 10 }, signal })
-  return data
+  return listProducts({ search: q, size: 10 }, signal)
 })
 
 watch(selectedProducts, (prods) => {
@@ -515,10 +514,7 @@ watch(selectedProducts, (prods) => {
 async function confirmMovement(item: Item) {
   try {
     // FR-04 (#11): manual adjustments auto-create their completed inventory count.
-    await httpClient.post(
-      `${appStore.orgUrl()}/warehouse/movement/${item._id}/confirm`,
-      (item as any).type === 'adjustment' ? { createCount: true } : {},
-    )
+    await confirmStockMovement(item._id, item.type === 'adjustment' ? { createCount: true } : {})
     await fetchItems()
     showSuccess(t('common.completedSuccessfully'))
   } catch (e: any) {
@@ -535,7 +531,7 @@ async function doDelete() {
   deleting.value = true
   try {
     const gone = deleteTarget.value._id
-    await httpClient.delete(`${appStore.orgUrl()}/warehouse/movement/${gone}`)
+    await deleteMovement(gone)
     deleteDialog.value = false
     // A deleted draft is no longer ticked: the bar would count a movement that is not there.
     ticked.value = ticked.value.filter(id => id !== gone)
@@ -553,16 +549,15 @@ async function fetchWarehouses() {
   // ⚠ `external: 'include'`: unasked, the route answers only the warehouses that keep stock. And every
   // one of them: the route's own page size is 10, which left the eleventh warehouse out of the filter.
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`, { params: { size: 1000, external: 'include' } })
-    warehouses.value = data.warehouses || []
+    warehouses.value = (await listWarehouses({ size: 1000, external: 'include' })).warehouses
   } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 // FR-31.19: the contact list this page once fetched is gone. Nothing on the page read it.
 async function fetchCategories() {
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-category`, { params: { isActive: 'true' } })
-    categoryOptions.value = (data.productCategories || []).map((c: { name: string }) => c.name)
+    const { productCategories } = await listProductCategories({ isActive: 'true' })
+    categoryOptions.value = productCategories.map(c => c.name)
   } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 

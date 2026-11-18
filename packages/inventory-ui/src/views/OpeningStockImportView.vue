@@ -59,12 +59,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import { listWarehouses } from '../api/warehouses'
+import { getOpeningStockStatus, startOpeningStockImport } from '../api/opening-stock'
 
 const { t } = useI18n()
-const appStore = useAppStore()
 const { showError } = useSnackbar()
 
 const warehouses = ref<{ _id: string; name: string }[]>([])
@@ -80,9 +79,9 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
 
 onMounted(async () => {
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`)
-    warehouses.value = data.warehouses || data.data || []
-    const def = warehouses.value.find((w: any) => w.isDefault) || warehouses.value[0]
+    const { warehouses: found } = await listWarehouses()
+    warehouses.value = found
+    const def = found.find(w => w.isDefault) || found[0]
     if (def) warehouseId.value = def._id
   } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 })
@@ -95,16 +94,11 @@ async function doImport() {
   statusText.value = t('openingStock.uploading')
   try {
     const f = Array.isArray(file.value) ? file.value[0] : file.value
-    const fd = new FormData()
-    fd.append('file', f as File)
-    fd.append('warehouseId', warehouseId.value)
-    const { data } = await httpClient.post(`${appStore.orgUrl()}/warehouse/opening-stock`, fd, {
-      headers: { 'Content-Type': undefined },
-    })
+    const data = await startOpeningStockImport(f as File, warehouseId.value)
     const taskId = data.taskId
     for (let i = 0; i < 600; i++) {
       await sleep(2000)
-      const { data: s } = await httpClient.get(`${appStore.orgUrl()}/warehouse/opening-stock/status/${taskId}`)
+      const s = await getOpeningStockStatus(taskId)
       progress.value = s.progress ?? 0
       statusText.value = t('openingStock.processing', { rows: data.rows })
       if (s.status === 'completed') { result.value = s.result; break }

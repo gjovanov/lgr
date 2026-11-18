@@ -65,7 +65,7 @@ import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { deletePriceList } from '../api/price-lists'
 import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
@@ -114,7 +114,7 @@ const headers = computed(() => [
 function confirmDelete(item: Item) { selectedId.value = item._id; deleteDialog.value = true }
 async function doDelete() {
   try {
-    await httpClient.delete(`${appStore.orgUrl()}/warehouse/price-list/${selectedId.value}`)
+    await deletePriceList(selectedId.value)
     await fetchItems()
     deleteDialog.value = false
     showSuccess(t('common.deletedSuccessfully'))

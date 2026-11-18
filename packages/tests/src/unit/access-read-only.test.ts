@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from 'bun:test'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join, posix, relative } from 'node:path'
 import { setSession } from 'ui-shared/session/session'
 import { setLiveAccess } from 'ui-shared/access/live-grant'
 import { capShows, vCap } from 'ui-shared/access/v-cap'
@@ -14,6 +14,10 @@ import { CAPABILITIES, type CapabilityId } from 'config/access'
  *
  * The ratchet: a view that shows a write control or sends a write, and consults the session's access nowhere, is
  * listed in `NOT_YET`. The list only shrinks: a new view must consult access, and one fixed must leave the list.
+ *
+ * FR-32.24: a view that sends its write through a function of a typed API module (`src/api/`) writes too. The write
+ * functions are read from the modules themselves (one that calls `httpClient.post|put|patch|delete`), so a new module
+ * is covered without a list.
  */
 
 class MemoryStorage {
@@ -157,7 +161,60 @@ const NOT_YET = new Set([
   'portal-ui/src/views/settings/RolesView.vue',
 ])
 
-const offends = (text: string) => WRITES.some(r => r.test(text)) && !CONSULTS.some(r => r.test(text))
+/**
+ * FR-32.24: the write functions of every UI package's API modules, by module (`inventory-ui/src/api/warehouses`). A
+ * module's exported function writes when its own body sends a write: `httpClient.post|put|patch|delete`.
+ */
+function walkTs(dir: string, out: string[] = []): string[] {
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name)
+    if (statSync(p).isDirectory()) walkTs(p, out)
+    else if (p.endsWith('.ts')) out.push(p)
+  }
+  return out
+}
+const SENDS_WRITE = WRITES[0]
+function writeFunctionsOf(source: string): string[] {
+  const starts = [...source.matchAll(/export\s+(?:async\s+)?function\s+(\w+)|export\s+const\s+(\w+)\s*=\s*(?:async\s*)?(?:\(|function\b)/g)]
+  return starts
+    .filter((m, i) => SENDS_WRITE.test(source.slice(m.index!, i + 1 < starts.length ? starts[i + 1].index! : source.length)))
+    .map(m => m[1] ?? m[2])
+}
+const API_WRITES = new Map<string, Set<string>>(
+  readdirSync(join(ROOT, 'packages'))
+    .filter(p => p.endsWith('-ui'))
+    .flatMap(p => {
+      try { return walkTs(join(ROOT, 'packages', p, 'src', 'api')) } catch { return [] }
+    })
+    .map(p => [relative(join(ROOT, 'packages'), p).split('\\').join('/').replace(/\.ts$/, ''), new Set(writeFunctionsOf(readFileSync(p, 'utf8')))]),
+)
+
+/** The module an import names, by its path from `packages/` without the extension; null when it is not an API module. */
+function apiModuleOf(file: string, spec: string, modules: Map<string, Set<string>>): string | null {
+  const pkg = file.split('/')[0]
+  const path = spec.startsWith('@/') ? `${pkg}/src/${spec.slice(2)}` : spec.startsWith('.') ? posix.normalize(posix.join(posix.dirname(file), spec)) : null
+  if (!path) return null
+  const bare = path.replace(/\.ts$/, '')
+  return modules.has(bare) ? bare : modules.has(`${bare}/index`) ? `${bare}/index` : null
+}
+
+/** FR-32.24: the view calls a write function it imports from an API module (under the name it imports it as). */
+function writesThroughModule(file: string, text: string, modules = API_WRITES): boolean {
+  for (const m of text.matchAll(/import\s*\{([^}]*)\}\s*from\s*'([^']+)'/g)) {
+    const mod = apiModuleOf(file, m[2], modules)
+    if (!mod) continue
+    const names = modules.get(mod)!
+    for (const part of m[1].split(',')) {
+      const [name, local] = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/).map(s => s.trim())
+      if (!name || !names.has(name)) continue
+      if (new RegExp(`\\b${local ?? name}\\s*\\(`).test(text.slice(0, m.index) + text.slice(m.index! + m[0].length))) return true
+    }
+  }
+  return false
+}
+
+const writes = (v: { file: string; text: string }) => WRITES.some(r => r.test(v.text)) || writesThroughModule(v.file, v.text)
+const offends = (v: { file: string; text: string }) => writes(v) && !CONSULTS.some(r => r.test(v.text))
 
 describe('FR-27.7: every view that writes consults access (the ratchet)', () => {
   it('finds the views', () => {
@@ -165,14 +222,41 @@ describe('FR-27.7: every view that writes consults access (the ratchet)', () => 
   })
 
   it('a view that writes and consults nothing is on the list', () => {
-    const missing = VIEWS.filter(v => offends(v.text) && !PERSONAL.has(v.file) && !PAGE_GATED.has(v.file) && !NOT_YET.has(v.file)).map(v => v.file)
+    const missing = VIEWS.filter(v => offends(v) && !PERSONAL.has(v.file) && !PAGE_GATED.has(v.file) && !NOT_YET.has(v.file)).map(v => v.file)
     expect(missing).toEqual([])
   })
 
   it('and leaves it once it does (or is gone)', () => {
     const byFile = new Map(VIEWS.map(v => [v.file, v.text]))
-    const stale = [...NOT_YET, ...PERSONAL, ...PAGE_GATED].filter(f => !byFile.has(f) || !offends(byFile.get(f)!))
+    const stale = [...NOT_YET, ...PERSONAL, ...PAGE_GATED].filter(f => !byFile.has(f) || !offends({ file: f, text: byFile.get(f)! }))
     expect(stale).toEqual([])
+  })
+
+  it('a view that writes through an API module writes (FR-32.24)', () => {
+    // The write functions are read from the modules: a write is one, a read is not.
+    const warehouses = API_WRITES.get('inventory-ui/src/api/warehouses')
+    expect(warehouses?.has('deleteWarehouse')).toBe(true)
+    expect(warehouses?.has('listWarehouses')).toBe(false)
+    const planted = ['export async function a() { return httpClient.get(u) }', 'export const b = async (x: X) => httpClient.put(u, x)'].join('\n')
+    expect(writeFunctionsOf(planted)).toEqual(['b'])
+    // The two inventory screens whose only write goes through a module are seen writing, and pass by their `v-cap`.
+    for (const file of ['inventory-ui/src/views/BulkPriceAdjustmentView.vue', 'inventory-ui/src/views/OpeningStockImportView.vue']) {
+      const view = VIEWS.find(v => v.file === file)!
+      expect({ file, writes: writes(view), offends: offends(view) }).toEqual({ file, writes: true, offends: false })
+    }
+  })
+
+  it('a planted view that writes through a module and consults nothing offends (a positive control)', () => {
+    const file = 'inventory-ui/src/views/PlantedView.vue'
+    const planted = `<template><v-btn @click="go">Go</v-btn></template>
+<script setup lang="ts">
+import { listWarehouses, deleteWarehouse as drop } from '../api/warehouses'
+async function go() { await listWarehouses(); await drop('x') }
+</script>`
+    expect(offends({ file, text: planted })).toBe(true)
+    // The same view with the control gated passes; one that only reads does not write.
+    expect(offends({ file, text: planted.replace('<v-btn ', `<v-btn v-cap="'warehouses.delete'" `) })).toBe(false)
+    expect(writes({ file, text: planted.replace("await drop('x')", '') })).toBe(false)
   })
 
   it('every capability a view names is one the catalogue knows', () => {

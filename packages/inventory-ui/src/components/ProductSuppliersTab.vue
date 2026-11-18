@@ -190,13 +190,17 @@
 import { formatDate, formatNumber, intlLocale } from 'ui-shared/format'
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAccess } from 'ui-shared/access/useAccess'
 import EntityLink from 'ui-shared/components/EntityLink'
 import { appHref } from 'ui-shared/nav/navigate'
 import { useAppStore } from '../store/app.store'
 import { formatUnitPrice } from '../composables/product-price-columns'
+import {
+  clearRecordedSupplier, getProductSuppliers, recordSupplier,
+  type RecordedSupplier as Recorded, type RecordedSupplierBody, type SupplierDocument as Doc, type SupplierFact as Fact,
+} from '../api/product-suppliers'
+import { listContacts } from '../api/contacts'
 
 /**
  * FR-28.7 / FR-28.9 — an article's Suppliers tab: one row per supplier, with what a person recorded and what the
@@ -214,36 +218,6 @@ import { formatUnitPrice } from '../composables/product-price-columns'
  * cancels); the star saves at once. Every save replaces the recorded fields as a whole and reloads the tab, so a
  * preference that moved shows where it went.
  */
-interface Fact {
-  supplierId: string
-  supplierName: string
-  lastPurchasedAt: string
-  lastUnitPrice?: number
-  currency?: string
-  quantity: number
-  documents: number
-  lastDocument: { kind: 'bill' | 'receipt'; id: string; number: string }
-}
-interface Recorded {
-  supplierId: string
-  supplierName: string
-  supplierActive: boolean
-  preferred: boolean
-  supplierSku?: string
-  leadTimeDays?: number
-  note?: string
-}
-interface Doc {
-  kind: 'bill' | 'receipt'
-  id: string
-  number: string
-  date: string
-  supplierId: string
-  supplierName: string
-  quantity: number
-  unitPrice?: number
-  currency?: string
-}
 interface Row {
   supplierId: string
   supplierName: string
@@ -315,11 +289,11 @@ async function load(quiet = false) {
   if (!quiet) loading.value = true
   failed.value = false
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/product-supplier/${props.productId}`)
+    const data = await getProductSuppliers(props.productId)
     if (mine !== request) return
-    facts.value = data.suppliers || []
-    recorded.value = data.recorded || []
-    documents.value = data.documents || []
+    facts.value = data.suppliers
+    recorded.value = data.recorded
+    documents.value = data.documents
   } catch {
     if (mine !== request) return
     facts.value = []
@@ -355,13 +329,11 @@ const ERROR_KEYS: Record<string, string> = {
 }
 const failure = (e: any) => showError(ERROR_KEYS[e?.response?.data?.code] ? t(ERROR_KEYS[e.response.data.code]) : t('warehouse.recordedSuppliers.errors.generic'))
 
-const urlOf = (supplierId: string) => `${appStore.orgUrl()}/warehouse/product/${props.productId}/suppliers/${supplierId}`
-
 /** Replace the recorded fields of one supplier as a whole (the server's PUT), then reload what the tab shows. */
-async function put(supplierId: string, body: { preferred: boolean; supplierSku?: string; leadTimeDays?: number; note?: string }): Promise<boolean> {
+async function put(supplierId: string, body: RecordedSupplierBody): Promise<boolean> {
   busy.value = true
   try {
-    await httpClient.put(urlOf(supplierId), body)
+    await recordSupplier(props.productId, supplierId, body)
     await load(true)
     return true
   } catch (e) {
@@ -398,7 +370,7 @@ async function togglePreferred(row: Row) {
 async function clear(row: Row) {
   busy.value = true
   try {
-    await httpClient.delete(urlOf(row.supplierId))
+    await clearRecordedSupplier(props.productId, row.supplierId)
     if (editing.value === row.supplierId) editing.value = null
     await load(true)
     showSuccess(t(row.fact ? 'warehouse.recordedSuppliers.clearedKeepsFacts' : 'warehouse.recordedSuppliers.cleared'))
@@ -427,11 +399,9 @@ async function searchSuppliers(q: string) {
   const mine = ++searchRequest
   searching.value = true
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/invoicing/contact`, {
-      params: { type: 'supplier', size: 20, sortBy: 'companyName', sortOrder: 'asc', ...(q ? { search: q } : {}) },
-    })
+    const { contacts } = await listContacts({ type: 'supplier', size: 20, sortBy: 'companyName', sortOrder: 'asc', ...(q ? { search: q } : {}) })
     if (mine === searchRequest) {
-      found.value = (data.contacts || []).filter((c: any) => c.isActive !== false).map((c: any) => ({ _id: c._id, name: contactName(c) }))
+      found.value = contacts.filter(c => c.isActive !== false).map(c => ({ _id: c._id, name: contactName(c) }))
     }
   } catch { /* the field keeps what it has */ } finally {
     if (mine === searchRequest) searching.value = false
