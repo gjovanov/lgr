@@ -100,7 +100,7 @@ export async function handleTasksMessage(ws: any, raw: any): Promise<void> {
     try {
       user = await liveSessionUser(asSessionUser(await verifyToken(msg.token)))
     } catch (e) {
-      // FR-29.23: the session could not be checked just now. The socket is refused as any unchecked one, and the
+      // FR-29.23: the session could not be checked just now. The socket is refused like any unchecked one, and the
       // client's reconnect asks again: nothing about the session was decided.
       if (!(e instanceof SessionCheckUnavailableError)) throw e
       refuse(ws, e.message)

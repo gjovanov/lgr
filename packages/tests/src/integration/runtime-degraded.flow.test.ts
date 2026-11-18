@@ -51,7 +51,7 @@ function failingIdentityReads(times: number) {
 
 describe('FR-29.23: a lookup that fails is not an answer', () => {
   it('a read that throws once costs one 503 and no sign-out; the next request passes', async () => {
-    const person = await Identity.create({ email: `p-${Date.now()}@lookup.test`, isActive: true, tokenVersion: 2 } as any)
+    const person = await Identity.create({ email: `p-${Date.now()}@lookup.test`, firstName: 'Ana', lastName: 'Lookup', isActive: true, tokenVersion: 2 } as any)
     const iid = String(person._id)
     forgetIdentity(iid)
     const restore = failingIdentityReads(1)
@@ -74,10 +74,10 @@ describe('FR-29.23: a lookup that fails is not an answer', () => {
   it('a person who is gone or switched off is signed out, as before; a positive answer is remembered', async () => {
     const gone = String(new mongoose.Types.ObjectId())
     expect(await identityStillValid(gone, 0)).toBe(false)
-    const off = await Identity.create({ email: `off-${Date.now()}@lookup.test`, isActive: false, tokenVersion: 0 } as any)
+    const off = await Identity.create({ email: `off-${Date.now()}@lookup.test`, firstName: 'Ana', lastName: 'Lookup', isActive: false, tokenVersion: 0 } as any)
     expect(await identityStillValid(String(off._id), 0)).toBe(false)
 
-    const on = await Identity.create({ email: `on-${Date.now()}@lookup.test`, isActive: true, tokenVersion: 0 } as any)
+    const on = await Identity.create({ email: `on-${Date.now()}@lookup.test`, firstName: 'Ana', lastName: 'Lookup', isActive: true, tokenVersion: 0 } as any)
     expect(await identityStillValid(String(on._id), 0)).toBe(true)
     // Remembered: a failing read within the minute is not even made.
     const restore = failingIdentityReads(1)
