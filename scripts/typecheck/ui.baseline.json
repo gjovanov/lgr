@@ -22,7 +22,7 @@
     "TS2345": 1,
     "TS2365": 1
   },
-  "packages/invoicing-ui/src/composables/document-form/useDocumentForm.ts": {
+  "packages/invoicing-ui/src/composables/document-form/parts/state.ts": {
     "TS2339": 2
   },
   "packages/invoicing-ui/src/composables/order-tree/customer-order-tree.ts": {
