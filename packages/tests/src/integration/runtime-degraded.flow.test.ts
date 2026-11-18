@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
-import { Schema } from 'mongoose'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { captureRejection } from '../helpers/capture-rejection'
 import { Identity, PostingJob } from 'db/models'
@@ -94,7 +93,7 @@ describe('FR-29.24/.25: declared indexes are verified', () => {
   it('two rows that clash keep a declared unique index from building, and the verification says so', async () => {
     const coll = mongoose.connection.db!.collection('ixprobes')
     await coll.insertMany([{ code: 'A' }, { code: 'A' }])
-    const schema = new Schema({ code: String }, { collection: 'ixprobes' })
+    const schema = new mongoose.Schema({ code: String }, { collection: 'ixprobes' })
     schema.index({ code: 1 }, { unique: true })
     const Probe = mongoose.models.IxProbe ?? mongoose.model('IxProbe', schema)
     const report = await verifyIndexes({ models: [Probe.modelName] })
