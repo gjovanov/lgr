@@ -5477,6 +5477,33 @@
     "apps": "Apps",
     "portal": "Portal",
     "theme": "Light or dark theme",
-    "menu": "Menu"
+    "menu": "Menu",
+    "jump": {
+      "open": "Find a document by its number (Ctrl+K)",
+      "label": "Document number",
+      "hint": "Type or paste a number, then press Enter",
+      "none": "No document has the number {number}.",
+      "several": "Several documents have the number {number}. Choose one:",
+      "prefix": "Numbers that begin with {number}:",
+      "more": "Only the first {n} are listed: type more of the number.",
+      "failed": "The search did not answer. Try again.",
+      "viaDraft": "draft {number}",
+      "kind": {
+        "invoice": "Invoice",
+        "creditNote": "Credit note",
+        "debitNote": "Debit note",
+        "proforma": "Proforma invoice",
+        "offer": "Offer",
+        "bill": "Bill",
+        "cashSale": "Cash sale",
+        "cashStorno": "Cash sale storno",
+        "paymentReceipt": "Payment receipt",
+        "paymentStorno": "Payment storno",
+        "supplierOrder": "Supplier order",
+        "customerOrder": "Customer order",
+        "reservation": "Reservation",
+        "movement": "Stock movement"
+      }
+    }
   }
 }

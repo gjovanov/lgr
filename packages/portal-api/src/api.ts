@@ -22,6 +22,7 @@ import { fileController } from './controllers/file.controller.js'
 import { notificationController } from './controllers/notification.controller.js'
 import { appHubController } from './controllers/app-hub.controller.js'
 import { tagController } from './controllers/tag.controller.js'
+import { documentLookupController } from './controllers/document-lookup.controller.js'
 import { auditLogController } from './controllers/audit-log.controller.js'
 import { permissionSetController } from './controllers/permission-set.controller.js'
 import { roleController } from './controllers/role.controller.js'
@@ -226,6 +227,8 @@ export function createApiApp() {
         .use(notificationController)
         .use(appHubController)
         .use(tagController)
+        // FR-31.22: the top bar's jump to a document by its number.
+        .use(documentLookupController)
         .use(auditLogController)
         .use(permissionSetController)
         .use(roleController)
