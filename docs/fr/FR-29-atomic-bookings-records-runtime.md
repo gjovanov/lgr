@@ -441,7 +441,7 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     moment) race to open the period, and the loser's entry was lost. It is now retried by the drain.
   - Tests: `integration/posting-exactly-once.flow` (13). `cash-invoice-receipts.flow`'s ledger block: a hold moved to
     the entry's write, and a second event for one receipt now posts nothing (FR-29.14) where it posted a second entry.
-- **Slice E** (branch `feat/794-fr29-e-audit`):
+- **Slice E** (branch `feat/794-fr29-e-audit-trail`):
   - FR-29.19 is built. `createAuditEntry`'s `changes` is `AuditChanges`: the array, or a map `{ field: { from, to } }`,
     stored as the array (`changesOf`). The sixteen call sites are unchanged and now type-check (the backend baseline
     shrank by their sixteen errors). No row that exists is rewritten.
