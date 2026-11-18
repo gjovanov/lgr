@@ -87,7 +87,8 @@ export interface HitSearchResult {
  * could open a dialog of 12. A deactivated article is one Status change away in Details.
  */
 export async function searchProductHits(orgUrl: string, text: string, signal?: AbortSignal): Promise<HitSearchResult> {
-  const { data } = await httpClient.get(`${orgUrl}/warehouse/product`, { params: { search: text, size: SEARCH_HITS, isActive: "true" }, signal })
+  // FR-30.12: one row past the ten says whether more match; the total is counted only then ("Show all N results").
+  const { data } = await httpClient.get(`${orgUrl}/warehouse/product`, { params: { search: text, size: SEARCH_HITS, isActive: "true", count: 'when-more' }, signal })
   const products: any[] = data.products || []
   return { products, total: Number(data.total) || products.length }
 }

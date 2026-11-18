@@ -114,7 +114,42 @@ export const PRODUCT_SEARCH_LOWERED: Record<string, string> = {
   category: 'categoryLower',
 }
 
-export function buildProductSearchFilter(search: string, opts: { alsoIds?: string[][] } = {}): Record<string, any> {
+export function buildProductSearchFilter(search: string, opts: { alsoIds?: string[][]; complete?: boolean } = {}): Record<string, any> {
+  if (!productSearchFieldOn()) return legacyProductSearchFilter(search, opts)
+  const keywords = searchKeywords(search)
+  if (!keywords.length) return {}
+  const clauses = keywords.map((k, idx) => {
+    const pattern = expandHomoglyphs(escapeRegex(k.toLocaleLowerCase('bg')))
+    const or: Record<string, any>[] = [{ [PRODUCT_SEARCH_FIELD]: { $regex: pattern } }]
+    // An article the field is not on yet (a raw driver write, a row from before the backfill) is read by its mirrors.
+    // Only while the org has one (`complete`, `productSearchFieldComplete`): that branch reads documents, not keys.
+    if (!opts.complete) or.push({ [PRODUCT_SEARCH_FIELD]: null, $or: Object.values(PRODUCT_SEARCH_LOWERED).map((m) => ({ [m]: { $regex: pattern } })) })
+    if (or.length === 1 && !opts.alsoIds?.[idx]?.length) return or[0]!
+    const also = opts.alsoIds?.[idx]
+    if (also?.length) or.push({ _id: { $in: also } })
+    return { $or: or }
+  })
+  return clauses.length === 1 ? clauses[0]! : { $and: clauses }
+}
+
+/**
+ * FR-30.11: the product search reads one field, `searchLower` (the five mirrors joined by a character nobody types,
+ * `db/plugins/search-field.ts`), with an index on `{ orgId, searchLower }`. A pattern is tested on the index's keys, so
+ * a search reads only its matches, and a search without a match reads no article. The five-field search read every
+ * article of the org, twice (the page and its count).
+ *
+ * The switch back (§5's rollback): `PRODUCT_SEARCH_FIELD=off` runs the five-field search, as before. The field is
+ * harmless when it is not read.
+ */
+export const PRODUCT_SEARCH_FIELD = 'searchLower'
+export const PRODUCT_SEARCH_INDEX = { orgId: 1, searchLower: 1, isActive: 1, _id: 1 } as const
+
+export function productSearchFieldOn(): boolean {
+  return process.env.PRODUCT_SEARCH_FIELD !== 'off'
+}
+
+/** The five-field search: what FR-30.11's equivalence test holds the joined field to, and the switch back. */
+export function legacyProductSearchFilter(search: string, opts: { alsoIds?: string[][] } = {}): Record<string, any> {
   return buildSearchFilter(search, PRODUCT_SEARCH_FIELDS, { lowered: PRODUCT_SEARCH_LOWERED, homoglyphs: true, alsoIds: opts.alsoIds })
 }
 

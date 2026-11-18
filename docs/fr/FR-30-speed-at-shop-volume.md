@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-16. Slices A (FR-30.1 to .4), B (FR-30.6 to .10), F (FR-30.19, .20) and G (FR-30.21 to .27) built, §11. The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-16. Slices A (FR-30.1 to .4), B (FR-30.6 to .10), C (FR-30.11 to .13), D (FR-30.14 to .16), F (FR-30.19, .20) and G (FR-30.21 to .27) built, §11. The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | FR-05 and FR-22 (`ListScaffold`, `usePaginatedTable`, grid state in the URL, the click-budget walks), FR-28 (the product search, its explain test and request-count test), FR-06 (the reports registry), FR-24 (one SPA, `scripts/check-web-bundle.ts`), the lowered search mirrors (`db/src/plugins/lowered-fields.plugin.ts`) |
 | **Touches** | `db` (indexes on `Product`, `Invoice`, `StockLevel`, `StockMovement`; the lowered-fields plugin), `packages/migrations` (dropping indexes), `dal-mongo` and `services` (pagination, search, the stock-levels report, the contact ledger, dashboards), `invoicing-api` and `warehouse-api` (list endpoints), `reporting` (PDF), `ui-shared` (the list engine, the icon set, locales), `invoicing-ui` and `inventory-ui` (document open, the count form), `portal-api` (static files, two small endpoints), `packages/server` (the on-prem master's static files) |
 | **Tracking** | [gjovanov/lgr#795](https://github.com/gjovanov/lgr/issues/795) |
@@ -412,6 +412,28 @@ The demo organization is small, so production proves that nothing changed, and t
 **Tests.** `integration/list-projection.flow.test.ts` (the keys of a row with and without `fields=list` on every list, the size of 100 rows, the ceiling, the lean "all", the chart, the contact's figures, a document's line names); `unit/list-rows.test.ts` (the ceiling's arithmetic, the size control, the hand-over); `e2e/list-requests.spec.ts` (the list walk's request count, `fields=list` on the wire, a 3-line and a 30-line invoice opened with the same number of requests and the document read once, a line's options asked for when its price is opened, a bookmarked "All", "All" offered within the ceiling only).
 
 **Decisions.** "No price tiers" (FR-30.7) is read as "no price slot's filters": the Products grid shows each slot's price in a column of its own (FR-22.44), so a row keeps the slot's name and price. A remembered "All" is read as 100 and not refetched as "All" once the total is known: §4 says it is read as the largest option.
+
+### Slice C (FR-30.11 to .13), 2026-11-17
+
+**What was built.**
+- **One indexed search field (FR-30.11).** `Product.searchLower`: the five lowered mirrors joined by U+001F, a character nobody types, so no keyword matches across two of them. Kept by the lowered-fields plugin (`joined`, `db/plugins/search-field.ts`) after the mirrors: a save and an `insertMany` compute it; an update that names a source or a mirror refreshes it afterwards in the database from the stored mirrors, in the update's session; a `bulkWrite` gets the same refresh right after it, in its session (so inside its transaction), without touching the caller's list of operations. Index `{ orgId, searchLower, isActive, _id }`.
+- **The read.** The search tests its pattern on the index keys only. The repository (`findAll` with `hint`) first reads the matches' ids from the keys (up to 300, nothing fetched): none, nothing more is read; few, they are the count and the page is read by id; many, they are counted from the keys and the page is the planner's own plan (the sort's index, stopping at the page's last row). Through the search index alone a common word fetched every match to sort it (125 ms for `болт`), which is why the hint is not used for the page then.
+- **Articles without the field.** A search also reads them by their mirrors while the org has one (`productSearchFieldComplete`: one index read at `searchLower: null`). Migration `0018-product-search-field` fills the field on every article written before (a master has no operator to run a script); `scripts/backfill-product-search-field.ts` does the same by hand, with a dry run. Both are idempotent.
+- **The switch back.** `PRODUCT_SEARCH_FIELD=off` runs the five-field search, as before.
+- **A type-ahead does not count (FR-30.12).** `count=none` reads one row more than the page and no count (`hasMore`); `count=when-more` counts only when more follow. The line search uses `when-more`, because it shows "Show all N results" (FR-28.25, and `e2e/product-search.spec` holds N); with the search field that count is read from the keys. The document forms' and the order forms' contact type-aheads and the cash-sale invoice dialog's use `none` (the picker's ranking included). `useContactSearch` keeps its request: `unit/form-composables.test.ts` holds its parameters.
+- **The stock-level search (FR-30.13)** is the product search (`buildProductSearchFilter`, Cyrillic in any case) and reads the matching articles' ids only.
+
+**Measured** (`LGR_PERF=1` on `product-search-field.flow`: 23 370 articles, through the API with its request overhead, median of 7, a developer laptop).
+
+| Search | Five fields | One field |
+|---|---|---|
+| `болт` (about a third of the catalogue) | 86 ms | 40 ms |
+| `поцинкован` (46 articles) | 472 ms | 39 ms |
+| `zzzz-nothing` | 70 ms | 30 ms, no article read |
+
+**Tests.** `integration/product-search-field.flow.test.ts`: the two builders over one fixture for 36 keywords (Cyrillic, Latin, mixed case, look-alike letters, digits, several words, punctuation, none) give the same ids; no keyword bridges two parts; the profiler on the route (the matches read from the keys, no article for a search without a match, the page by id); the field on create, `insertMany`, `findOneAndUpdate`, `updateOne`, `updateMany` whose filter the update moves, `$unset`, `bulkWrite` in a transaction; an article without the field still found; the backfill's dry run and two runs; migration 0018 twice; the switch; the type-ahead modes; the stock-level search.
+
+**Decisions.** FR-30.12 says one query per keystroke. The line search keeps its "Show all N results", so when more than ten match it also counts, from the index keys (no article read). The search is not given its index when a keyword also finds articles by a supplier's code (FR-28.10): that branch is answered by `_id`, which those keys cannot.
 
 ### Slice D (FR-30.14 to .16), 2026-11-17
 
