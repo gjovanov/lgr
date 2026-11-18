@@ -15,6 +15,9 @@ const isLocaleChunk = (url: string, lang: string) => new RegExp(`/ui/${lang}-[A-
 
 test('the sign-in page loads with no failed request and a clean console', async ({ page }) => {
   const problems: string[] = []
+  // The global analytics tag (`spa-fallback.ts#GLOBAL_ANALYTICS_TAG`) is a third-party script a CI runner cannot
+  // reach; it is answered with an empty script, so the page is judged on its own requests (an abort would count as one).
+  await page.route('https://purestat.ai/**', route => route.fulfill({ status: 200, contentType: 'application/javascript', body: '' }))
   page.on('console', (m) => { if (m.type() === 'error') problems.push(`console: ${m.text()}`) })
   page.on('requestfailed', (r) => problems.push(`failed: ${r.url()}`))
   page.on('response', (r) => { if (r.status() >= 400) problems.push(`${r.status()}: ${r.url()}`) })
