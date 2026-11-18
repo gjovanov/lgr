@@ -284,7 +284,7 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
     await page.goto('/invoicing/invoices')
     await restoreEntry(page, NOTE)
     await restoredOnTheForm(page, product)
-    await expect(page.getByTestId('price-combobox')).toContainText('10.50000')
+    await expect(page.getByTestId('price-combobox')).toContainText('10.50')
 
     // A cash sale is issued as it is saved, and the journal is where the next one starts.
     await page.getByRole('button', { name: /^save$/i }).first().click()
@@ -308,7 +308,7 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
     await restoredOnTheForm(page, product)
     await expect(page.getByText(open.number)).toHaveCount(0)
     await expect(page.getByTestId('cart-qty').locator('input')).toHaveValue('2')
-    await expect(page.getByTestId('price-combobox')).toContainText('10.50000')
+    await expect(page.getByTestId('price-combobox')).toContainText('10.50')
     expect(await stockOf(product)).toBe(before)
 
     await page.getByRole('button', { name: /^save$/i }).first().click()
@@ -331,7 +331,7 @@ test.describe('A draft of a new cash sale, left on the old form', () => {
     await page.getByRole('button', { name: 'Increase quantity' }).click()
     await expect(page.getByTestId('cart-qty').locator('input')).toHaveValue('3')
     await page.waitForLoadState('networkidle')
-    await expect(page.getByTestId('price-combobox')).toContainText('12.50000')
+    await expect(page.getByTestId('price-combobox')).toContainText('12.50')
 
     await page.getByRole('button', { name: /^save$/i }).first().click()
     await expect(page).toHaveURL(/\/invoicing\/cash-sales$/, { timeout: 15000 })

@@ -4,6 +4,8 @@ import { getRepos } from 'services/context'
 import { ensureFiscalPeriod, JournalEntryRefusedError, postJournalEntry, voidJournalEntry } from 'services/biz/accounting.service'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { listJournalEntries, withHeaderReferences } from 'services/biz/journal-header.service'
+import { openPostings, retryPosting } from 'services/biz/postings/posting.service'
+import { Invoice, POSSession, StockMovement } from 'db/models'
 import {
   BOOKS_SOURCE_MODULE, JOURNAL_HEADER_FIELDS, headerProblems, headerUpdateOf, isAsBooked, mergedHeader,
   type HeaderProblem, type JournalHeaderInput,
@@ -98,6 +100,21 @@ function headerRefusal(problems: HeaderProblem[]) {
   }
 }
 
+/** The documents owed postings are for, as the list names them: an invoice's number and kind, a movement's or a session's number. */
+async function postingDocuments(orgId: string, rows: { invoiceId?: string; movementId?: string; sessionId?: string }[]) {
+  const ids = (key: 'invoiceId' | 'movementId' | 'sessionId') => [...new Set(rows.map(r => r[key]).filter((v): v is string => !!v))]
+  const [invoices, movements, sessions] = await Promise.all([
+    ids('invoiceId').length ? Invoice.find({ orgId, _id: { $in: ids('invoiceId') } }, { invoiceNumber: 1, type: 1, direction: 1 }).lean().exec() : [],
+    ids('movementId').length ? StockMovement.find({ orgId, _id: { $in: ids('movementId') } }, { movementNumber: 1 }).lean().exec() : [],
+    ids('sessionId').length ? POSSession.find({ orgId, _id: { $in: ids('sessionId') } }, { sessionNumber: 1 }).lean().exec() : [],
+  ])
+  return {
+    invoice: new Map(invoices.map(i => [String(i._id), { number: i.invoiceNumber, type: i.type, direction: i.direction }])),
+    movement: new Map(movements.map(m => [String(m._id), m.movementNumber])),
+    session: new Map(sessions.map(s => [String(s._id), s.sessionNumber])),
+  }
+}
+
 export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/journal' })
   .use(AppAuthService)
   .get('/', async ({ params: { orgId }, query, user, status }) => {
@@ -105,6 +122,37 @@ export const journalController = new Elysia({ prefix: '/org/:orgId/accounting/jo
     // FR-25a: the entries without their lines, and the header's filters (`journal-header.service.ts`).
     const result = await listJournalEntries(orgId, query)
     return { journalEntries: result.items, ...result }
+  }, { isSignIn: true })
+  /**
+   * FR-29.17 (D-5): the journal entries this organization's documents still owe, queued or failed after every retry,
+   * with the document each is for. The banner and the list on the journal entries page.
+   */
+  .get('/postings', async ({ params: { orgId }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const open = await openPostings(orgId)
+    const docs = await postingDocuments(orgId, open.postings)
+    return {
+      owed: open.owed,
+      failed: open.failed,
+      postings: open.postings.map(p => ({
+        ...p,
+        document: p.invoiceId
+          ? { kind: 'invoice', id: p.invoiceId, ...docs.invoice.get(p.invoiceId) }
+          : p.movementId
+            ? { kind: 'movement', id: p.movementId, number: docs.movement.get(p.movementId) }
+            : p.sessionId
+              ? { kind: 'pos_session', id: p.sessionId, number: docs.session.get(p.sessionId) }
+              : undefined,
+      })),
+    }
+  }, { isSignIn: true })
+  /** FR-29.17: "try again" on an owed or failed posting, at once. It makes the entry the event would have made. */
+  .post('/postings/:id/retry', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    const outcome = /^[0-9a-f]{24}$/i.test(id) ? await retryPosting(orgId, id) : null
+    if (!outcome) return status(404, { code: 'posting_not_found', message: 'Posting not found' })
+    createAuditEntry({ orgId, userId: user.id, action: 'retry', module: 'accounting', entityType: 'posting', entityId: id, entityName: outcome })
+    return { outcome }
   }, { isSignIn: true })
   .post(
     '/',

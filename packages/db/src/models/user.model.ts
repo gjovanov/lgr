@@ -22,6 +22,18 @@ export interface IRoleHistoryEntry {
   assignedAt: Date
 }
 
+/**
+ * FR-27 P3-7 (#529): the legacy access fields as migration 0017 found them on this membership, and when it took them
+ * off. A key is here only if the field was there. Nothing reads it: it is kept for one release, so the fields can be
+ * put back by hand, and then dropped (0018). ⚠ Never in a response (`USER_PUBLIC_PROJECTION`).
+ */
+export interface IUserLegacyArchive {
+  role?: string
+  permissions?: string[]
+  permissionSetIds?: Types.ObjectId[]
+  archivedAt: Date
+}
+
 export interface IUser extends Document {
   _id: Types.ObjectId
   email: string
@@ -57,6 +69,8 @@ export interface IUser extends Document {
    * a user without one signs in on its own password, as every user did before.
    */
   identityId?: Types.ObjectId
+  /** FR-27 P3-7: see {@link IUserLegacyArchive}. Written only by migration 0017. */
+  legacyArchive?: IUserLegacyArchive
   createdAt: Date
   updatedAt: Date
 }
@@ -110,6 +124,19 @@ const userSchema = new Schema<IUser>(
     ],
     lastLoginAt: Date,
     identityId: { type: Schema.Types.ObjectId, ref: 'Identity' },
+    // Exactly what was there: no array is made up where the field was absent (`default: undefined`).
+    legacyArchive: {
+      type: new Schema<IUserLegacyArchive>(
+        {
+          role: String,
+          permissions: { type: [String], default: undefined },
+          permissionSetIds: { type: [Schema.Types.ObjectId], default: undefined },
+          archivedAt: { type: Date, required: true },
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
   },
   { timestamps: true },
 )
@@ -124,7 +151,7 @@ userSchema.index({ identityId: 1, orgId: 1 }, { unique: true, partialFilterExpre
 replicate(userSchema, {
   class: 'S',
   // The membership is the home's. ⚠ `identityId` is applied only where global sanctioned the link.
-  home: ['username', 'middleName', 'role', 'operatorCode', 'position', 'roleHistory', 'permissionSetIds', 'roleId', 'permissions', 'avatar', 'isActive', 'deactivatedAt', 'preferences', 'identityId', 'createdAt', 'updatedAt'],
+  home: ['username', 'middleName', 'role', 'operatorCode', 'position', 'roleHistory', 'permissionSetIds', 'roleId', 'permissions', 'avatar', 'isActive', 'deactivatedAt', 'preferences', 'identityId', 'legacyArchive', 'createdAt', 'updatedAt'],
   // The person is global's: email and names come from the identity feed, and a password or a
   // provider link is never on a master.
   global: ['email', 'firstName', 'lastName', 'password', 'oauthProviders'],

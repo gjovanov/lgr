@@ -40,7 +40,7 @@
             {{ item.useCount }} / {{ item.maxUses || '∞' }}
           </template>
           <template #item.createdAt="{ item }">
-            {{ new Date(item.createdAt).toLocaleDateString() }}
+            {{ formatDate(item.createdAt) }}
           </template>
           <template #item.actions="{ item }">
             <v-btn
@@ -132,6 +132,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useInviteStore } from '../../store/invite.store'
@@ -153,6 +154,8 @@ const inviteResult = ref<InviteResult | null>(null)
 const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginatedTable({
   url: computed(() => `${appStore.orgUrl()}/invite`),
   entityKey: 'invites',
+  // FR-31.18: the page, its size and the sort in the address.
+  urlSync: true,
 })
 const showCreateDialog = ref(false)
 const copySnackbar = ref(false)

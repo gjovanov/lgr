@@ -9,13 +9,13 @@
     <!-- Date range filter -->
     <v-row class="mb-4">
       <v-col cols="12" md="3">
-        <v-text-field v-model="dateFrom" label="From" type="date" density="compact" hide-details />
+        <v-text-field v-model="dateFrom" :label="$t('invoicing.dateFrom')" type="date" density="compact" hide-details />
       </v-col>
       <v-col cols="12" md="3">
-        <v-text-field v-model="dateTo" label="To" type="date" density="compact" hide-details />
+        <v-text-field v-model="dateTo" :label="$t('invoicing.dateTo')" type="date" density="compact" hide-details />
       </v-col>
       <v-col cols="12" md="2">
-        <v-btn color="primary" @click="fetchData" :loading="loading">Apply</v-btn>
+        <v-btn color="primary" @click="fetchData" :loading="loading">{{ $t('common.apply') }}</v-btn>
       </v-col>
     </v-row>
 
@@ -23,7 +23,7 @@
 
     <ChartView v-else type="bar" :data="chartData" :height="400" />
 
-    <div v-if="!loading && !data.length" class="text-center pa-8 text-medium-emphasis">No data for selected period</div>
+    <div v-if="!loading && !data.length" class="text-center pa-8 text-medium-emphasis">{{ $t('common.noData') }}</div>
   </v-container>
 </template>
 
@@ -33,8 +33,10 @@ import ViewSwitcher from 'ui-shared/components/ViewSwitcher'
 import PivotTable from 'ui-shared/components/PivotTable'
 import ChartView from 'ui-shared/components/ChartView'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 
+const { t } = useI18n()
 const appStore = useAppStore()
 
 const viewMode = ref('pivot')
@@ -57,8 +59,8 @@ const chartData = computed(() => {
   return {
     labels: months,
     datasets: [
-      { label: 'Debit', data: debitByMonth, backgroundColor: 'rgba(33,150,243,0.6)' },
-      { label: 'Credit', data: creditByMonth, backgroundColor: 'rgba(244,67,54,0.6)' },
+      { label: t('accounting.debit'), data: debitByMonth, backgroundColor: 'rgba(33,150,243,0.6)' },
+      { label: t('accounting.credit'), data: creditByMonth, backgroundColor: 'rgba(244,67,54,0.6)' },
     ],
   }
 })

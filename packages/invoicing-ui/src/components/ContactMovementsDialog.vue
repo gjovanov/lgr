@@ -5,7 +5,7 @@
         <v-icon class="mr-2">mdi-swap-horizontal</v-icon>
         {{ $t('invoicing.movements') }}
         <v-spacer />
-        <v-btn icon="mdi-close" variant="text" size="small" @click="emit('update:modelValue', false)" />
+        <v-btn :aria-label="$t('common.close')" :title="$t('common.close')" icon="mdi-close" variant="text" size="small" @click="emit('update:modelValue', false)" />
       </v-card-title>
 
       <v-card-text>
@@ -21,7 +21,7 @@
           data-testid="contact-movements"
           @update:options="onUpdateOptions"
         >
-          <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+          <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
           <template #item.number="{ item }">
             <entity-link :label="item.number || ''" :href="opens ? `/inventory/movements/${item._id || item.id}` : undefined" />
           </template>
@@ -42,6 +42,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'

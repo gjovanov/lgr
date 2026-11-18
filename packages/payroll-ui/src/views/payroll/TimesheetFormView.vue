@@ -96,8 +96,8 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   icon: 'mdi-clock-outline',
   getFormData: () => ({ ...form.value }),
   getPreviewFields: () => [
-    { label: 'Date', value: form.value.date || '' },
-    { label: 'Hours', value: String(form.value.hoursWorked || 0) },
+    { label: t('common.date'), value: form.value.date || '' },
+    { label: t('payroll.hoursWorked'), value: String(form.value.hoursWorked || 0) },
   ],
   setFormData: (data) => { form.value = { ...form.value, ...data } },
   isEdit: () => isEdit.value,

@@ -132,7 +132,7 @@
               <span class="text-caption">{{ $t('invoicing.address') }} {{ i + 1 }}</span>
               <v-chip v-if="addr.type" size="x-small" class="ml-2" label>{{ addr.type }}</v-chip>
               <v-spacer />
-              <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="form.addresses.splice(i, 1)" />
+              <v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" icon="mdi-delete" variant="text" size="x-small" color="error" @click="form.addresses.splice(i, 1)" />
             </div>
             <v-row dense>
               <v-col cols="12" md="3"><v-select v-model="addr.type" :label="$t('common.type')" :items="['billing', 'shipping', 'office']" density="compact" /></v-col>
@@ -164,7 +164,7 @@
             <div class="d-flex align-center mb-2">
               <span class="text-caption">{{ $t('invoicing.bankAccount') }} {{ i + 1 }}</span>
               <v-spacer />
-              <v-btn icon="mdi-delete" variant="text" size="x-small" color="error" @click="form.bankDetails.splice(i, 1)" />
+              <v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" icon="mdi-delete" variant="text" size="x-small" color="error" @click="form.bankDetails.splice(i, 1)" />
             </div>
             <v-row dense>
               <v-col cols="12" md="4"><v-text-field v-model="bank.bankName" :label="$t('invoicing.bankName')" density="compact" /></v-col>
@@ -193,7 +193,7 @@
               <v-col cols="4"><v-text-field v-model="rate.name" :label="$t('common.name')" density="compact" /></v-col>
               <v-col cols="3"><v-text-field v-model.number="rate.rate" :label="$t('settings.ratePercent')" type="number" suffix="%" density="compact" /></v-col>
               <v-col cols="3"><v-checkbox v-model="rate.default" :label="$t('settings.default')" density="compact" hide-details /></v-col>
-              <v-col cols="2"><v-btn icon="mdi-delete" size="small" color="error" variant="text" @click="form.vatRates.splice(i, 1)" /></v-col>
+              <v-col cols="2"><v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" icon="mdi-delete" size="small" color="error" variant="text" @click="form.vatRates.splice(i, 1)" /></v-col>
             </v-row>
             <v-btn variant="outlined" prepend-icon="mdi-plus" size="small" @click="form.vatRates.push({ name: '', rate: 0, default: false })">
               {{ $t('settings.addVatRate') }}
@@ -450,10 +450,12 @@ function setLogoObjectUrl(blob: Blob | null) {
 
 async function loadLogo() {
   try {
-    const { data } = await httpClient.get(`${appStore.orgUrl()}/logo`, { responseType: 'blob' })
-    setLogoObjectUrl(data as Blob)
+    const res = await httpClient.get(`${appStore.orgUrl()}/logo`, { responseType: 'blob' })
+    // 204 (FR-30.27): this org prints the bundled letterhead.
+    const blob = res.status === 204 ? null : (res.data as Blob)
+    setLogoObjectUrl(blob && blob.size ? blob : null)
   } catch {
-    // 404 — this org prints the bundled letterhead.
+    // No logo to show.
     setLogoObjectUrl(null)
   }
 }

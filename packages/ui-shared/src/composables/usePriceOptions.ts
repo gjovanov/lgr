@@ -1,3 +1,4 @@
+import { formatNumber } from '../format/format'
 import { tierLabel, type TierLabelForm } from 'config/price-tiers'
 import { httpClient } from './useHttpClient'
 
@@ -56,6 +57,6 @@ export function priceStepLabel(step: { type?: string; label?: string }, locale?:
 
 export function formatPriceItem(option: PriceOption, currency?: string): string {
   // Legacy price tiers carry 4-decimal unit prices (e.g. 0.0071) — never round them away.
-  const price = option.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4, useGrouping: false })
+  const price = formatNumber(option.price, { minDecimals: 2, maxDecimals: 4, grouping: false })
   return `${price} — ${option.name}`
 }

@@ -29,7 +29,7 @@
             </span>
           </div>
           <div v-if="subscription?.currentPeriodEnd" class="text-body-2 text-medium-emphasis mt-1">
-            Current period ends: {{ new Date(subscription.currentPeriodEnd).toLocaleDateString() }}
+            Current period ends: {{ formatDate(subscription.currentPeriodEnd) }}
           </div>
         </div>
         <v-btn
@@ -98,6 +98,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { httpClient } from 'ui-shared/composables/useHttpClient'

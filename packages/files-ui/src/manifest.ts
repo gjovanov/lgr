@@ -11,12 +11,12 @@ export const manifest: ModuleManifest = {
   pendingChanges: false,
   menu: null,
   routes: [
-      { path: '', name: 'files.hub', component: () => import('./views/FilesHubView.vue'), meta: { breadcrumb: [{ title: 'Files' }] } },
-      { path: 'upload', name: 'files.upload', component: () => import('./views/FileUploadView.vue'), meta: { breadcrumb: [{ title: 'Files', to: '/' }, { title: 'Upload' }] } },
-      { path: 'documents', name: 'files.documents', component: () => import('./views/DocumentsView.vue'), meta: { breadcrumb: [{ title: 'Files', to: '/' }, { title: 'Documents' }] } },
-      { path: 'audit', name: 'files.audit', component: () => import('./views/UploadAuditView.vue'), meta: { breadcrumb: [{ title: 'Files', to: '/' }, { title: 'Audit' }] } },
+      { path: '', name: 'files.hub', component: () => import('./views/FilesHubView.vue') },
+      { path: 'upload', name: 'files.upload', component: () => import('./views/FileUploadView.vue') },
+      { path: 'documents', name: 'files.documents', component: () => import('./views/DocumentsView.vue') },
+      { path: 'audit', name: 'files.audit', component: () => import('./views/UploadAuditView.vue') },
       // FR-13.42 (#24) — the archive index. Reachable by `nra_auditor` (Приложение 29 т. 19);
       // the server's `readGate` is the control, this route carries no gate of its own.
-      { path: 'archives', name: 'files.archives', component: () => import('./views/ArchivesView.vue'), meta: { breadcrumb: [{ title: 'Files', to: '/' }, { title: 'Archives' }] } },
+      { path: 'archives', name: 'files.archives', component: () => import('./views/ArchivesView.vue') },
     ],
 }

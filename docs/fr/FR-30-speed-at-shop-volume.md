@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Specified 2026-11-16. Slice A built (FR-30.1 to .4, §11). The defaults in §9 stand unless the owner answers otherwise on the issue. |
+| **Status** | Specified 2026-11-16. Slices A (FR-30.1 to .4), B (FR-30.6 to .10), C (FR-30.11 to .13), D (FR-30.14 to .16), F (FR-30.19, .20) and G (FR-30.21 to .27) built, §11. The defaults in §9 stand unless the owner answers otherwise on the issue. |
 | **Builds on** | FR-05 and FR-22 (`ListScaffold`, `usePaginatedTable`, grid state in the URL, the click-budget walks), FR-28 (the product search, its explain test and request-count test), FR-06 (the reports registry), FR-24 (one SPA, `scripts/check-web-bundle.ts`), the lowered search mirrors (`db/src/plugins/lowered-fields.plugin.ts`) |
 | **Touches** | `db` (indexes on `Product`, `Invoice`, `StockLevel`, `StockMovement`; the lowered-fields plugin), `packages/migrations` (dropping indexes), `dal-mongo` and `services` (pagination, search, the stock-levels report, the contact ledger, dashboards), `invoicing-api` and `warehouse-api` (list endpoints), `reporting` (PDF), `ui-shared` (the list engine, the icon set, locales), `invoicing-ui` and `inventory-ui` (document open, the count form), `portal-api` (static files, two small endpoints), `packages/server` (the on-prem master's static files) |
 | **Tracking** | [gjovanov/lgr#795](https://github.com/gjovanov/lgr/issues/795) |
@@ -387,4 +387,98 @@ The demo organization is small, so production proves that nothing changed, and t
 
 **Sorts no index serves** (`scan` in the table, held by the test as a list): Products by type, unit, active, minimum, purchase and selling price; documents by status, type, currency, reference, subtotal, tax, total, amount due; Stock levels by quantity; Movements by status and total (and by the three looked-up names, an aggregation). Each still reads the filtered rows, as before. They stay offered: dropping them from the grids, or indexing them, is the owner's call (FR-30.2).
 
+**The id, on every list, for what reads a whole list in pages.** The import and audit tooling (`fetchAll` in nine scripts and skills) sends `page=N&sortBy=_id&sortOrder=asc` until a page adds nothing. It needs an order with no ties: rows whose sort keys are equal can come in another order for another skip, so a page repeats a row and leaves another out, and the reader is not told. Every default sort above has ties. The first version of the table did not declare the id, so those reads would have run on the default sort; the table declares it now (`scan`: read in the id's order through the collection's `_id` index, as before this slice), no grid offers it, and `unit/list-sorts.test.ts` holds every `sortBy` the scripts and skills send to the table.
+
 **Turned off in the grids**, because the server never sorted by them (they are names looked up after the page): the contact on Sales invoices and Bills, the article's SKU and name and the warehouse on Stock levels.
+
+### Slice B (FR-30.6 to .10), 2026-11-17
+
+**What was built.**
+- **One request per list open (FR-30.6).** Measured first: on master the 15 lists the new walk opens (`e2e/list-requests.spec.ts`: Sales invoices, Bills, Proforma, Offers, Contacts, Products, Stock levels, Movements, Warehouses, Inventory counts, Orders, Internal orders, Reservations, Payment orders, Cash orders) each already send their list request once, on a full load and on a move inside the app. FR-31.4 (#810) made the view's `onMounted` call the latest question, which aborts the table's mount-time call before axios has sent it. No de-duplication was added on top: it would change what `unit/latest-only.test.ts` holds (two calls, two requests). The walk holds the count.
+- **Rows (FR-30.7, D-1).** `config/list-rows.ts`: per list, what a row leaves out, as an exclusion (a field a grid reads that nobody listed is still sent). With `fields=list`: invoices without `lines`; articles without the legacy price arrays, variants, pictures, a slot's filters and the search mirrors (a slot keeps its name, percent, final price and lock, which the grid's price columns and the cost redaction read); contacts without `notes` and the mirrors (a document's party block reads the picked contact's addresses and tax numbers, so they stay); movements read a line's article and quantity only (the list never sent lines). Asked for by the grids (`usePaginatedTable({ listFields: true })` on Sales invoices, Bills, Proforma, Offers, the Reports tabs, Contacts, Stock levels, Movements; `useProductList` on Products and its picker) and the contact pickers (the document forms, the order forms, the cash-sale invoice dialog, `ContactPickerDialog`; `useContactSearch` keeps its request, which `unit/form-composables.test.ts` holds as it is). Without the parameter every answer is as it was. The lookups behind a page read what the row takes (a contact's name, a related document's number, an article's name and SKU, a warehouse's name), and the invoice list's search by contact name reads the matching ids only.
+- **A ceiling (FR-30.8, D-2).** `LIST_CEILING = 1000`, applied where every list reads its page: the repository's `findAll`, `paginateQuery`, and the sorted-page helpers (a sort by a price slot, by stock, by a looked-up name). "All" (`size <= 0`) and any size above it read at most 1 000 rows; a cut answer says `truncated: true` with the real `total`, and an answer that was not cut has no such key. Declared exceptions (`PageRequest.unbounded`): the stock levels' lean "all" for the count form (`fields=count`: the article's id, name, SKU and unit, quantity and average cost; the count form uses it now, ahead of slice E), and the chart of accounts (every accounting picker looks an account up in it; its tree needs every account). The contact's figures (`/stats/contact/:id`) read four fields of each document instead of up to 10 000 whole ones. `scripts/import-contacts-api.ts` and `scripts/import-payroll.ts` page by 500.
+- **"All" in the browser (FR-30.9).** `ui-shared/composables/page-sizes.ts`: the size control offers "All" only while the list's total is within the ceiling (`ListScaffold`, the product picker); a stored or bookmarked `size=-1` opens at 100, the largest option; a list on "All" whose answer comes back cut moves to 100 by itself.
+- **A document opens with a fixed number of requests (FR-30.10).** `GET /invoices/:id` gives each line its article's `productName` and `productSku` (one query), and the line's article field uses it (`ProductLineDescription#known`) while the line holds that article. The orders' forms use the names their read already carried (`lookup.products`). A line that keeps its price (loaded, or pinned) asks for its price options when its price control is first focused (`PriceCombobox`), not as it mounts; a line that applies the resolved price asks at once, and a change of contact still re-resolves. The sales and purchase views read the document to choose the form and hand that answer to the form (`document-preread.ts`), which read it a second time.
+
+**Measured.**
+
+| What | Before | After |
+|---|---|---|
+| 100 invoice rows of 12 lines (`list-projection.flow`, `LGR_PERF=1`) | 561.2 KB | 88.6 KB with `fields=list` (budget 120 KB) |
+| Opening a list (15 lists, full load and move) | 1 request each (since FR-31.4) | 1 |
+| "All" on a list of 1 100 contacts | 1 100 whole documents | 1 000 rows, `truncated: true`, `total: 1100` |
+| Opening a saved 3-line / 30-line invoice | the document read twice, an article and a set of price options per line (70 for 30 lines in the audit) | 3 API requests for either, moving to it inside the app (the document once, the contact picker, the warehouses) |
+
+**Tests.** `integration/list-projection.flow.test.ts` (the keys of a row with and without `fields=list` on every list, the size of 100 rows, the ceiling, the lean "all", the chart, the contact's figures, a document's line names); `unit/list-rows.test.ts` (the ceiling's arithmetic, the size control, the hand-over); `e2e/list-requests.spec.ts` (the list walk's request count, `fields=list` on the wire, a 3-line and a 30-line invoice opened with the same number of requests and the document read once, a line's options asked for when its price is opened, a bookmarked "All", "All" offered within the ceiling only).
+
+**Decisions.** "No price tiers" (FR-30.7) is read as "no price slot's filters": the Products grid shows each slot's price in a column of its own (FR-22.44), so a row keeps the slot's name and price. A remembered "All" is read as 100 and not refetched as "All" once the total is known: §4 says it is read as the largest option.
+
+### Slice C (FR-30.11 to .13), 2026-11-17
+
+**What was built.**
+- **One indexed search field (FR-30.11).** `Product.searchLower`: the five lowered mirrors joined by U+001F, a character nobody types, so no keyword matches across two of them. Kept by the lowered-fields plugin (`joined`, `db/plugins/search-field.ts`) after the mirrors: a save and an `insertMany` compute it; an update that names a source or a mirror refreshes it afterwards in the database from the stored mirrors, in the update's session; a `bulkWrite` gets the same refresh right after it, in its session (so inside its transaction), without touching the caller's list of operations. Index `{ orgId, searchLower, isActive, _id }`.
+- **The read.** The search tests its pattern on the index keys only. The repository (`findAll` with `hint`) first reads the matches' ids from the keys (up to 300, nothing fetched): none, nothing more is read; few, they are the count and the page is read by id; many, they are counted from the keys and the page is the planner's own plan (the sort's index, stopping at the page's last row). Through the search index alone a common word fetched every match to sort it (125 ms for `болт`), which is why the hint is not used for the page then.
+- **Articles without the field.** A search also reads them by their mirrors while the org has one (`productSearchFieldComplete`: one index read at `searchLower: null`). Migration `0018-product-search-field` fills the field on every article written before (a master has no operator to run a script); `scripts/backfill-product-search-field.ts` does the same by hand, with a dry run. Both are idempotent.
+- **The switch back.** `PRODUCT_SEARCH_FIELD=off` runs the five-field search, as before.
+- **A type-ahead does not count (FR-30.12).** `count=none` reads one row more than the page and no count (`hasMore`); `count=when-more` counts only when more follow. The line search uses `when-more`, because it shows "Show all N results" (FR-28.25, and `e2e/product-search.spec` holds N); with the search field that count is read from the keys. The document forms' and the order forms' contact type-aheads and the cash-sale invoice dialog's use `none` (the picker's ranking included). `useContactSearch` keeps its request: `unit/form-composables.test.ts` holds its parameters.
+- **The stock-level search (FR-30.13)** is the product search (`buildProductSearchFilter`, Cyrillic in any case) and reads the matching articles' ids only.
+
+**Measured** (`LGR_PERF=1` on `product-search-field.flow`: 23 370 articles, through the API with its request overhead, median of 7, a developer laptop).
+
+| Search | Five fields | One field |
+|---|---|---|
+| `болт` (about a third of the catalogue) | 86 ms | 40 ms |
+| `поцинкован` (46 articles) | 472 ms | 39 ms |
+| `zzzz-nothing` | 70 ms | 30 ms, no article read |
+
+**Tests.** `integration/product-search-field.flow.test.ts`: the two builders over one fixture for 36 keywords (Cyrillic, Latin, mixed case, look-alike letters, digits, several words, punctuation, none) give the same ids; no keyword bridges two parts; the profiler on the route (the matches read from the keys, no article for a search without a match, the page by id); the field on create, `insertMany`, `findOneAndUpdate`, `updateOne`, `updateMany` whose filter the update moves, `$unset`, `bulkWrite` in a transaction; an article without the field still found; the backfill's dry run and two runs; migration 0018 twice; the switch; the type-ahead modes; the stock-level search.
+
+**Decisions.** FR-30.12 says one query per keystroke. The line search keeps its "Show all N results", so when more than ten match it also counts, from the index keys (no article read). The search is not given its index when a keyword also finds articles by a supplier's code (FR-28.10): that branch is answered by `_id`, which those keys cannot.
+
+### Slice D (FR-30.14 to .16), 2026-11-17
+
+**What was built.**
+- **The stock-levels report limits before it joins (FR-30.14).** Without the reorder filter, the report sorts by value and cuts at its row cap before it joins the article and the warehouse; the joins then read one article and one warehouse per row kept. An article or a category narrows the levels in the first `$match` (a category is resolved to its articles' ids, descendants included, first). With "below minimum", which compares with the article's minimum, the joins still come first, but on the levels the article and category filters left.
+- **The picker's ranking (FR-30.15, D-4)** is kept five minutes per organization and side (`rankedContactIds`, `services/utils/ttl-cache.ts`, per process). A contact first used in the last five minutes may still sort by name until then.
+- **Dashboards (FR-30.16).** The KPI summary's first stage matches the statuses its tiles count (`SUMMARY_STATUSES`: sent, received, partially paid, overdue, paid, draft); a voided, cancelled or converted document is no longer read and dropped by each facet. The dashboard's stock value is at most a minute old (`cachedStockValuationTotals`).
+
+**Measured** (`LGR_PERF=1` on `stock-levels-report.flow`: 15 400 articles in three warehouses, 46 200 levels, a developer laptop, the handler itself, median of 5).
+
+| Stock-levels report, no filter | Before | After |
+|---|---|---|
+| time | 9 120 ms | 392 ms (budget 500) |
+| articles read by the joins | one per level | one per row kept (at most the cap + 1) |
+
+**Tests.** `integration/stock-levels-report.flow.test.ts`: the rows, totals and meta equal the old pipeline's (frozen in `helpers/stock-levels-report-legacy.ts`) for twelve parameter sets (none, zero rows, rolled up, below minimum, a warehouse, an article, a category with descendants, combinations) in two outputs; the joins read at most the cap + 1 articles; a category narrows the first stage; the ranking aggregated once for two forms; the cache's lifetime and a failed read not kept; the summary's first stage and its figures with voided and cancelled documents beside them; the stock value read once a minute.
+
+### Slice F (FR-30.19, .20), 2026-11-17
+
+**What was built** (`reporting/src/pdf/base.pdf.ts`).
+- **One Chrome per process (FR-30.19, D-7).** The first render starts it; it closes after `PDF_BROWSER_IDLE_MS` (5 minutes) without a render, on a timer that never keeps the process alive. Each render opens a browser context of its own and closes it afterwards, so two renders share no page, storage or cache. A browser that disconnects (a crash, a kill) is forgotten at once, and `markdownToPdf`'s retry starts another.
+- **The guards stay.** The deadline (`PDF_RENDER_TIMEOUT_MS`) now counts from when the render was asked for; a stalled render still fails and its Chrome is killed (`closePdfBrowser`), so the next starts a fresh one; the page lock, the no-network flags, the retry and the empty-PDF check are as they were.
+- **A limit on renders at once (FR-30.20, D-6).** `PDF_RENDER_CONCURRENCY` (2) renders at a time per process; the rest wait for a slot inside their deadline.
+
+**Measured** (a developer laptop, 11 renders of a one-page document in one process, then ten at once).
+
+| | Before (the audit) | After |
+|---|---|---|
+| The first PDF of a process | about 6 s | 767 ms here (the launch) |
+| A PDF after that | 0.8 to 0.9 s, a launch each | 219 ms median, no launch |
+| Ten at once | ten launches | 1.4 s in all, one launch |
+
+**Tests.** `unit/pdf-shared-browser.test.ts`: no launch over ten renders after the first; two renders at once in two contexts, neither the default, both closed after; a browser killed mid-render, and the render beside it still prints through the retry; ten at once all arrive with at most two rendering together; a render waiting for its turn fails at its own deadline. The renderer's own tests (`pdf-render-deadline`, `pdf-page-lock`, `pdf-renderer`) are unchanged.
+
+### Slice G (FR-30.21 to .27), 2026-11-17
+
+**What was built.**
+- **Icons (FR-30.21, D-5).** `scripts/build-icon-subset.ts` collects the `mdi-…` names the UI sources use (every package's `src`, the web shell), Vuetify's own (`vuetify/lib/iconsets/mdi`) and an allow-list (empty: no name is built at runtime), and writes a subset font (`subset-font`, a dev dependency), its stylesheet and the names into `ui-shared/src/styles/icons/`, committed. The templates keep their string names. `unit/icon-subset.test.ts` fails on a name used and not shipped. 320 of 7 447 icons: 17.4 KB woff2, against 393.8 KB. Rollback: import `@mdi/font/css/materialdesignicons.css` again in `plugins/vuetify.ts`.
+- **One language per session (FR-30.22).** English left the entry chunk: every catalogue loads on demand, the session's own before the app mounts, another when the person switches. A catalogue that does not arrive falls back to English.
+- **The drag library with its picker (FR-30.23).** The grid and line column pickers are async components, mounted when opened (`ListScaffold`, the product picker, the document lines, the accounting lists, the report runner).
+- **Caching (FR-30.24).** A file whose name carries Vite's hash is served `public, max-age=31536000, immutable` (`spa-fallback.ts#uiStaticPlugin`); any other keeps the plugin's default; the shell stays `no-store`.
+- **The budget (FR-30.25).** `check-web-bundle.ts` counts the first load's styles (gzipped, 60 KB) and the fonts they ask for (40 KB), each and with the JavaScript (450 KB in all).
+- **Compression without an ingress (FR-30.26).** The web build writes `.br` and `.gz` beside each text asset (`packages/web/scripts/compress-assets.ts`); the server sends the one the browser accepts for a hashed file. An on-prem master's ingress passes it through.
+- **Not there is not an error (FR-30.27).** `GET /api/auth/idp/config` answers `{ enabled: false }`, 200, where "Sign in with LGR" is not offered (it was a 404 on every visit to the sign-in page); an org without a logo answers 204, and Settings → Organization shows its placeholder. `integration/sign-in-with-lgr.flow` asserted the 404 and now asserts the 200: the one changed assertion, the behaviour FR-30.27 changes.
+
+**Measured.** The icon font: 393.8 KB → 17.4 KB. The bundle's figures are what CI's `check:web` prints on the pull request (recorded there).
+
+**Tests.** `unit/icon-subset.test.ts`, `integration/static-cache.flow.test.ts` (hash detection, immutable and not, Brotli and gzip with their types, both static modes), `e2e/first-load.spec.ts` (a clean sign-in page, one language, the picker's chunk only on opening it, the cache headers), `integration/sign-in-with-lgr.flow` (the 200).

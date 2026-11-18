@@ -2,6 +2,7 @@ import type { Filter, IProduct } from 'dal'
 import { getRepos } from '../context.js'
 import type { AccessCaller } from './access/evaluate.js'
 import { buildProductListFilter } from './product-list-filter.js'
+import { productSearchFieldComplete } from './product-search-field.js'
 import { hasStockFilter, parseStockFilter, productIdsPassingStockFilter, type StockFilter } from './product-stock-filter.js'
 import { canSeeSupplierFacts, findProductIdsBySuppliers, findProductIdsWithoutSupplier } from './product-suppliers.service.js'
 import { findProductIdsBySupplierCode } from './recorded-suppliers.service.js'
@@ -35,7 +36,13 @@ export const SUPPLIER_FILTER_REFUSAL: ProductListRefusal = {
 
 export type ResolvedProductListFilter =
   | { refusal: ProductListRefusal }
-  | { refusal?: undefined; filter: Filter<IProduct> & Record<string, any>; stock: StockFilter }
+  | {
+    refusal?: undefined
+    filter: Filter<IProduct> & Record<string, any>
+    stock: StockFilter
+    /** FR-30.11: the search reads the search field alone (no supplier code joins it): the list may read its index. */
+    indexedSearch?: boolean
+  }
 
 /** The id list a querystring carries: what is not an ObjectId matches nothing. */
 const idList = (v: unknown): string[] => String(v ?? '').split(',').filter((id) => /^[0-9a-f]{24}$/i.test(id))
@@ -53,6 +60,7 @@ export async function resolveProductListFilter(
   // term (the Supplier filter does that job).
   const searchText = typeof query.search === 'string' ? query.search : ''
   const codeHits = searchText && canSeeSupplierFacts(user) ? await findProductIdsBySupplierCode(orgId, searchText) : []
+  const searchComplete = searchText ? await productSearchFieldComplete(orgId) : false
 
   // FR-22.48: the Products list asks for active or deactivated articles; without the param every caller (the
   // pickers, the API clients) still gets both. The Movements list filters by the same rules.
@@ -63,6 +71,7 @@ export async function resolveProductListFilter(
     tags: query.tags as string | string[] | undefined,
     isActive: query.isActive as string | undefined,
     ...(codeHits.some((ids) => ids.length) ? { supplierCodeIds: codeHits } : {}),
+    searchComplete,
   })
 
   // FR-28.3: filter by supplier and by quantity. Who we buy from is incoming-document data, so a caller who may
@@ -95,5 +104,5 @@ export async function resolveProductListFilter(
     if (restrict) filter.id = { $in: [...(restrict as Set<string>)] }
     if (byStock) filter.id = { $in: [...await productIdsPassingStockFilter(r.products, orgId, filter, stock)] }
   }
-  return { filter, stock }
+  return { filter, stock, indexedSearch: searchComplete && !codeHits.some((ids) => ids.length) }
 }

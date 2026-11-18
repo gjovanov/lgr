@@ -331,7 +331,13 @@
       "internalOrders": "No customer orders yet",
       "internalOrdersHint": "Create a client order for future delivery — reserve stock or incoming goods against it.",
       "reservations": "No reservations yet",
-      "reservationsHint": "Reservations link client demand to stock on hand or to goods expected on supplier orders."
+      "reservationsHint": "Reservations link client demand to stock on hand or to goods expected on supplier orders.",
+      "movements": "No stock movements yet",
+      "movementsHint": "Record a goods receipt, a dispatch or a transfer to get started.",
+      "stockLevels": "No stock yet",
+      "stockLevelsHint": "Stock appears here once a goods receipt is confirmed.",
+      "inventoryCounts": "No inventory counts yet",
+      "inventoryCountsHint": "Start a count to compare the shelves with the books."
     }
   },
   "common": {
@@ -480,7 +486,8 @@
       "forbidden": "Your role may not see this list.",
       "failed": "The list could not be loaded. Try again in a moment."
     },
-    "exportInReport": "Opens this list's report, which exports to Excel and PDF"
+    "exportInReport": "Opens this list's report, which exports to Excel and PDF",
+    "apply": "Apply"
   },
   "export": {
     "aggregated": "Aggregate by product",
@@ -893,6 +900,37 @@
         "reporting_month_invalid": "Enter a month.",
         "date_invalid": "Enter a date.",
         "link_incomplete": "Each link needs a type and a number."
+      },
+      "postings": {
+        "owed": "{count} journal entries are owed by documents and not posted yet. They are tried again by themselves.",
+        "failed": "{count} journal entries could not be posted after every retry.",
+        "show": "Show",
+        "hide": "Hide",
+        "retry": "Try again",
+        "columns": {
+          "document": "Document",
+          "event": "Posting",
+          "state": "State",
+          "attempts": "Attempts",
+          "lastError": "Last error",
+          "createdAt": "Owed since"
+        },
+        "events": {
+          "invoice_posted": "Issued document",
+          "payment_recorded": "Payment",
+          "stock_movement_confirmed": "Stock movement",
+          "pos_session_closed": "Till session closed"
+        },
+        "states": {
+          "queued": "Waiting",
+          "failed": "Failed"
+        },
+        "outcomes": {
+          "done": "Posted",
+          "retry": "Not posted: it will be tried again",
+          "failed": "Not posted",
+          "not_due": "It is being posted right now"
+        }
       }
     },
     "paymentCodes": {
@@ -936,6 +974,7 @@
     "default": "Default"
   },
   "payroll": {
+    "legacyNotComputed": "Overtime, bonuses and allowances are not computed here: the gross pay is the base salary.",
     "timesheetTypes": {
       "regular": "Regular",
       "overtime": "Overtime",
@@ -1247,7 +1286,8 @@
       "loopback": "the server itself",
       "desktop": "the desktop {name}",
       "lan": "the shop's network"
-    }
+    },
+    "systemActor": "System"
   },
   "validation": {
     "required": "This field is required",
@@ -1985,7 +2025,16 @@
     "lineRefusal": {
       "short": "Not enough stock: {available} available, {requested} needed"
     },
-    "searchInvoiceNumber": "Search by number"
+    "searchInvoiceNumber": "Search by number",
+    "transfer": {
+      "covered": "Covered",
+      "shortBy": "Short by {n}",
+      "available": "Available",
+      "quantity": "Transfer Qty",
+      "needed": "Needed",
+      "total": "Total transfer",
+      "notCovered": "Some products are not fully covered. Adjust transfer quantities to proceed."
+    }
   },
   "pos": {
     "cartEmpty": "Cart is empty",
@@ -3005,12 +3054,30 @@
       "dispatch_not_invoiceable": "This dispatch was booked by {number}, which is voided. It is no delivery, and no invoice is made from it.",
       "orphan": "This dispatch belongs to a document that no longer exists. It is no delivery, and no invoice is made from it.",
       "dispatch_is_reversal": "This dispatch takes out the goods of a removed document. It is no delivery, and no invoice is made from it."
+    },
+    "bulkPricing": {
+      "intro": "Select product tags and adjust the selling price by a percentage. Optionally adjust all custom prices too.",
+      "introCustom": "Select custom price tags (e.g. \"loyal-customers\"). Only custom prices with matching tags will be adjusted.",
+      "productTags": "Product Tags",
+      "sellingPercent": "Selling Price %",
+      "decreaseHint": "Negative = decrease",
+      "alsoCustom": "Also adjust custom prices",
+      "customPercent": "Custom Price %",
+      "customDefaultsHint": "Defaults to selling %",
+      "customPriceTags": "Custom Price Tags",
+      "adjustPercent": "Adjust %",
+      "confirmProducts": "Adjust the selling price by {percent}% for products tagged {tags}.",
+      "confirmAlsoCustom": "Also adjust custom prices by {percent}%.",
+      "confirmCustom": "Adjust custom prices by {percent}% for tag {tags}.",
+      "decreaseWarning": "This lowers the prices.",
+      "result": "Updated {products} products, adjusted {prices} prices."
     }
   },
   "pricing": {
     "explainPrice": "Explain price",
     "priceBreakdown": "Price Breakdown",
-    "customerPrice": "Customer price"
+    "customerPrice": "Customer price",
+    "manualOverride": "Manual override"
   },
   "defaultCategories": {
     "electronics": "Electronics",
@@ -5411,6 +5478,39 @@
       "previewHint": "The pages its people are offered, as the role stands here (before Save).",
       "previewNone": "No page: the person sees their account only.",
       "portal": "Portal"
+    }
+  },
+  "shell": {
+    "apps": "Apps",
+    "portal": "Portal",
+    "theme": "Light or dark theme",
+    "menu": "Menu",
+    "jump": {
+      "open": "Find a document by its number (Ctrl+K)",
+      "label": "Document number",
+      "hint": "Type or paste a number, then press Enter",
+      "none": "No document has the number {number}.",
+      "several": "Several documents have the number {number}. Choose one:",
+      "prefix": "Numbers that begin with {number}:",
+      "more": "Only the first {n} are listed: type more of the number.",
+      "failed": "The search did not answer. Try again.",
+      "viaDraft": "draft {number}",
+      "kind": {
+        "invoice": "Invoice",
+        "creditNote": "Credit note",
+        "debitNote": "Debit note",
+        "proforma": "Proforma invoice",
+        "offer": "Offer",
+        "bill": "Bill",
+        "cashSale": "Cash sale",
+        "cashStorno": "Cash sale storno",
+        "paymentReceipt": "Payment receipt",
+        "paymentStorno": "Payment storno",
+        "supplierOrder": "Supplier order",
+        "customerOrder": "Customer order",
+        "reservation": "Reservation",
+        "movement": "Stock movement"
+      }
     }
   }
 }

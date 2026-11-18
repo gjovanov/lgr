@@ -90,6 +90,7 @@
                     <ProductLineDescription
                       :description="lineOf(node).description"
                       :product-id="lineOf(node).productId"
+                      :known="knownOf(lineOf(node).productId)"
                       price-field="sellingPrice"
                       class="flex-grow-1"
                       style="min-width: 0"
@@ -432,7 +433,7 @@
           <v-icon color="warning">mdi-shield-search</v-icon>
           {{ $t('invoicing.coverShortages') }}
           <v-spacer />
-          <v-btn icon="mdi-refresh" size="small" variant="text" :loading="loadingSuggestions" @click="loadSuggestions" />
+          <v-btn :aria-label="$t('common.refresh')" :title="$t('common.refresh')" icon="mdi-refresh" size="small" variant="text" :loading="loadingSuggestions" @click="loadSuggestions" />
         </v-card-title>
         <v-card-text>
           <div v-if="loadingSuggestions" class="text-center pa-4"><v-progress-circular indeterminate /></div>
@@ -463,7 +464,7 @@
                 <v-chip size="x-small" variant="tonal">{{ sugLookup.warehouses?.[inc.warehouseId] || '' }}</v-chip>
                 <span class="text-caption">
                   {{ inc.unreserved }}
-                  <template v-if="inc.expectedDate"> · {{ inc.expectedDate.split('T')[0] }}</template>
+                  <template v-if="inc.expectedDate"> · {{ formatDate(inc.expectedDate) }}</template>
                 </span>
                 <v-icon v-if="inc.late" size="14" color="error" :title="$t('invoicing.lateDelivery')">mdi-clock-alert-outline</v-icon>
                 <v-text-field v-model.number="inc._qty" type="number" min="0" density="compact" variant="underlined" hide-details style="max-width: 100px" />
@@ -481,7 +482,7 @@
                 <span class="text-caption">
                   {{ sugLookup.contacts?.[p.contactId] || '' }}
                   <template v-if="p.internalOrderNumber"> · {{ p.internalOrderNumber }}</template>
-                  <template v-if="p.requestedDeliveryDate"> · {{ p.requestedDeliveryDate.split('T')[0] }}</template>
+                  <template v-if="p.requestedDeliveryDate"> · {{ formatDate(p.requestedDeliveryDate) }}</template>
                   · {{ $t('invoicing.releasableQty') }}: {{ p.releasable }}
                 </span>
                 <v-text-field v-model.number="p._qty" type="number" min="0" density="compact" variant="underlined" hide-details style="max-width: 100px" />
@@ -570,6 +571,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
+import { askConfirm } from 'ui-shared/composables/confirm'
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -658,7 +661,7 @@ const readonly = computed(() => ['completed', 'cancelled', 'delivered'].includes
 const canReserve = computed(() => ['confirmed', 'partially_delivered'].includes(orderStatus.value))
 
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => (({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 const rules = { required: (v: string) => !!v || t('validation.required') }
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
@@ -739,6 +742,7 @@ function takeReservations(data: any) {
   reservations.value = data.reservations || []
   linkedInvoices.value = data.lookup?.invoices || {}
   if (data.lookup?.contacts) Object.assign(contactNames.value, data.lookup.contacts)
+  if (data.lookup?.products) knownProducts.value = data.lookup.products
   if (data.lookup?.orders) {
     for (const [oid, info] of Object.entries<any>(data.lookup.orders)) orderNumbers.value[oid] = info.orderNumber
   }
@@ -778,6 +782,16 @@ const supplierOptions = ref<any[]>([])
 const loadingContacts = ref(false)
 const warehouses = ref<Array<{ _id: string; name: string; isDefault?: boolean }>>([])
 const contactNames = ref<Record<string, string>>({})
+/**
+ * FR-30.10: the articles as the order's read named them (`lookup.products`), so a line reads no article to show its
+ * name. A line given another article reads that one, as before.
+ */
+const knownProducts = ref<Record<string, { name: string }>>({})
+function knownOf(productId?: string | null): { id: string; name: string } | null {
+  const p = productId ? knownProducts.value[String(productId)] : undefined
+  return p ? { id: String(productId), name: p.name } : null
+}
+
 
 let contactSearchTimer: ReturnType<typeof setTimeout> | null = null
 function onContactSearch(text: string, pool: 'client' | 'supplier') {
@@ -788,7 +802,9 @@ function onContactSearch(text: string, pool: 'client' | 'supplier') {
 async function fetchContacts(pool: 'client' | 'supplier', search?: string) {
   loadingContacts.value = true
   try {
-    const params: Record<string, any> = { size: 20 }
+    // FR-30.7: the picker's rows, not whole contacts.
+    // FR-30.12: a type-ahead shows no total, so nothing is counted.
+    const params: Record<string, any> = { size: 20, fields: 'list', count: 'none' }
     if (pool === 'supplier') params.type = 'supplier'
     if (search) params.search = search
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/contact`, { params })
@@ -800,7 +816,7 @@ async function fetchContacts(pool: 'client' | 'supplier', search?: string) {
     if (pool === 'client') clientOptions.value = merged
     else supplierOptions.value = merged
     for (const c of items) contactNames.value[c._id] = c.companyName || [c.firstName, c.lastName].filter(Boolean).join(' ')
-  } catch { /* */ } finally {
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ } finally {
     loadingContacts.value = false
   }
 }
@@ -809,7 +825,7 @@ async function fetchWarehouses() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/warehouse/warehouse`, { params: { size: 1000 } })
     warehouses.value = data.warehouses || []
-  } catch { /* */ }
+  } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 function warehouseName(id: string) { return warehouses.value.find((w) => w._id === String(id))?.name || '—' }
 
@@ -1091,8 +1107,8 @@ const { markSaved, markClean, tryRestore, isDirty, snapshot: snapshotPending } =
   icon: 'mdi-account-clock-outline',
   getFormData: () => JSON.parse(JSON.stringify(form)),
   getPreviewFields: () => [
-    { label: 'Date', value: form.issueDate || '' },
-    { label: 'Lines', value: String(form.lines.length) },
+    { label: t('common.date'), value: form.issueDate || '' },
+    { label: t('invoicing.lineItems'), value: String(form.lines.length) },
   ],
   setFormData: (data) => Object.assign(form, data),
   isEdit: () => isEdit.value,
@@ -1265,7 +1281,7 @@ async function convertOrder() {
 }
 
 async function deleteOrder() {
-  if (!confirm(t('invoicing.deleteInternalOrderConfirm'))) return
+  if (!(await askConfirm({ text: t('invoicing.deleteInternalOrderConfirm'), confirm: t('common.delete'), danger: true }))) return
   try {
     await httpClient.delete(`${orgUrl()}/invoicing/internal-orders/${route.params.id}`)
     showSuccess(t('common.deletedSuccessfully'))
@@ -1386,8 +1402,8 @@ function reserveFromOrder(line: any, inc: any) {
     allocationId: inc.allocationId,
   }))
 }
-function preempt(line: any, p: any) {
-  if (!confirm(t('invoicing.preemptConfirm', { number: p.reservationNumber }))) return
+async function preempt(line: any, p: any) {
+  if (!(await askConfirm({ text: t('invoicing.preemptConfirm', { number: p.reservationNumber }), confirm: t('invoicing.preempt') }))) return
   return coverAction(() => httpClient.post(`${orgUrl()}/invoicing/reservations/${p.reservationId}/preempt`, {
     internalOrderId: route.params.id,
     internalOrderLineId: line.lineId,
@@ -1533,7 +1549,7 @@ async function fetchPeekedNumber() {
   try {
     const { data } = await httpClient.get(`${orgUrl()}/invoicing/internal-orders/peek-next`)
     peekedNumber.value = data.next || ''
-  } catch { /* */ }
+  } catch { /* A preview only: the number is drawn on save. */ }
 }
 
 onMounted(async () => {

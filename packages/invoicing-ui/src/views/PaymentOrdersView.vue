@@ -168,6 +168,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
@@ -199,7 +200,7 @@ const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 const { search, debouncedSearch } = useSearchDebounce()
 const viewMode = ref('list')
@@ -266,8 +267,8 @@ const { markSaved } = useDialogPendingChanges({
   dialogVisible: dialog,
   getFormData: () => ({ ...form.value }),
   getPreviewFields: () => [
-    { label: 'Type', value: form.value.type },
-    { label: 'Amount', value: String(form.value.amount) },
+    { label: t('common.type'), value: form.value.type },
+    { label: t('common.amount'), value: String(form.value.amount) },
   ],
   setFormData: (data) => { form.value = { ...form.value, ...data } },
   isEdit: () => editing.value,
@@ -312,7 +313,6 @@ const kanbanItems = computed(() => {
 
 function bankAccountTitle(item: BankAccount) { return item.name + (item.iban ? ` (${item.iban})` : ` (${item.accountNumber})`) }
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
-function formatDate(d: string) { return d ? d.split('T')[0] : '' }
 function statusColor(s: string) { return ({ draft: 'grey', approved: 'info', executed: 'success', cancelled: 'error' }[s] || 'grey') }
 
 function openCreate() {
@@ -361,7 +361,7 @@ async function execute(item: Item) {
 
 async function fetchBankAccounts() {
   // Every bank account (`size: 0`), not the API's first page of ten (FR-31.10).
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/bank-account`, { params: { size: 0 } }); bankAccounts.value = data.bankAccounts || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/accounting/bank-account`, { params: { size: 0 } }); bankAccounts.value = data.bankAccounts || [] } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 /**

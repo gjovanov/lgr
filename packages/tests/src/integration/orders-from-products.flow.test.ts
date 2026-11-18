@@ -7,7 +7,8 @@ import { tokenize } from 'services/biz/auth.service'
 import { orderController } from 'invoicing-api/src/controllers/order.controller'
 import { productController } from 'warehouse-api/src/controllers/product.controller'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
-import { AuditLog, Order, Product, Reservation, StockLevel } from 'db/models'
+import { AuditLog, Order, Product, Reservation, Role, StockLevel } from 'db/models'
+import { grantOfRole } from 'config/access'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { can } from 'services/biz/access/evaluate'
@@ -283,9 +284,12 @@ describe('the preview: the defaults of the dialog (FR-28.16)', () => {
 describe('who may see what (FR-28.21): the keys are absent, not hidden', () => {
   it('a role that may create an order but not read bills gets no supplier suggestion and no cost-derived price', async () => {
     const w = await world()
-    // The role the case needs, stated: it may create, it may not read bills.
-    expect(can({ ...NO_BILLS } as any, 'orders.create')).toBe(true)
-    expect(can({ ...NO_BILLS } as any, 'bills.view')).toBe(false)
+    // The role the case needs, stated: it may create, it may not read bills. FR-27 P3-6: the claims are the
+    // fixture's words; what decides is the role made of them, as the person `token` signs holds it.
+    const person = await createTestPerson(w.org._id, NO_BILLS)
+    const access = grantOfRole((await Role.findById(person.roleId).lean().exec()) as any)
+    expect(can({ access }, 'orders.create')).toBe(true)
+    expect(can({ access }, 'bills.view')).toBe(false)
 
     await w.bill(w.alfa, [[w.bolt, 10, 0.12]])
     await createTestStockLevel(w.org._id, w.bolt._id, w.main._id, { quantity: 4, availableQuantity: 4 })

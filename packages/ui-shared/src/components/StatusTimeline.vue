@@ -25,6 +25,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from '../format/format'
 import { computed } from 'vue'
 
 const props = defineProps<{
@@ -47,6 +48,6 @@ function colorFor(status: string): string {
 function fmtDate(d: string | Date): string {
   const date = new Date(d)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleString()
+  return formatDateTime(date)
 }
 </script>

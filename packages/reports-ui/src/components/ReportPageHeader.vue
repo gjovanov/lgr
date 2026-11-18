@@ -26,9 +26,8 @@ import { useRouter } from 'vue-router'
  * that fails outright when the page was reached from a ★ favorite, a shared link, or one of
  * the invoicing redirect stubs — there is no in-app history to go back to.
  *
- * `AppShell` never renders `AppBreadcrumb`, so the routes' `meta.breadcrumb` is inert and
- * cannot serve this purpose. Wiring breadcrumbs into the shell would change every app;
- * this stays inside reports-ui.
+ * The shell draws no breadcrumb (FR-32.9 deleted the unmounted component and the routes'
+ * inert `meta.breadcrumb`). Adding one would change every app; this stays inside reports-ui.
  *
  * Navigation is an explicit push to the hub rather than `router.back()`, so the button
  * always lands in the same, predictable place regardless of how the page was entered.

@@ -202,6 +202,7 @@
 </template>
 
 <script setup lang="ts">
+import { intlLocale } from '../../format/format'
 /**
  * FR-21.13 — one cash-register sale or storno in full (`GET /cash-register/documents/:id`), from
  * whichever store holds it: its lines (an imported free-text line included, which counts and moves
@@ -264,7 +265,7 @@ const documentLink = computed(() => (doc.value && props.documentRoute && doc.val
 // FR-27.5: the session's grant (the role, live, in an org on `roles`), as the server's storno and settle doors decide.
 const canStorno = computed(() => canStornoJournalRow(doc.value?.row, accessGrant()))
 
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[props.locale || 'en'] || 'en-US')
+const localeCode = computed(() => intlLocale(props.locale || 'en'))
 function fmtCurrency(amount: number, currency?: string, digits?: number) {
   return formatCurrency(amount, currency || 'EUR', localeCode.value, digits)
 }

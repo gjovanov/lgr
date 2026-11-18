@@ -201,6 +201,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from 'ui-shared/format'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -258,7 +259,7 @@ const summary = computed(() => headerSummary(form.value, key => t(key)))
 const switches = computed(() => Object.entries(props.entry?.docOptions ?? {}).map(([k, v]) => switchLabel(k, String(v))))
 
 const money = (n: number) => formatCurrency(n, props.entry?.docCurrency || props.currency, props.localeCode)
-const stamp = (v?: string) => (v ? new Date(v).toLocaleString(props.localeCode) : '')
+const stamp = (v?: string) => (v ? formatDateTime(v) : '')
 const sourceLine = computed(() => {
   const s = props.entry?.source
   if (!s) return ''

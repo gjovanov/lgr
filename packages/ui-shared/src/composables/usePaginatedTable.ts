@@ -3,6 +3,7 @@ import { httpClient } from './useHttpClient'
 import { latestOnly } from './latest-only'
 import { loadFailureOf, type LoadFailure } from './load-failure'
 import { useListQueryState, ALLOWED_PAGE_SIZES } from './useListQueryState'
+import { ALL_ROWS, LARGEST_PAGE_SIZE, pageSizeFromUrl } from './page-sizes'
 import { capsOfSortKey, sortRefusal } from 'config/access'
 import { accessGrant } from '../access/useAccess'
 
@@ -40,6 +41,11 @@ export interface UsePaginatedTableOptions {
    * registers against already-hydrated values.
    */
   urlSync?: boolean
+  /**
+   * FR-30.7: ask for the list's rows (`fields=list`) instead of whole documents. Only for an endpoint that declares a
+   * list projection (`config/list-rows`) and a grid whose cells and row actions read nothing it leaves out.
+   */
+  listFields?: boolean
 }
 
 export function usePaginatedTable(options: UsePaginatedTableOptions) {
@@ -83,7 +89,8 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
     })
     useListQueryState([
       { key: 'page', ref: pageUrl as unknown as Ref<any>, codec: 'int', default: 1, sanitize: v => (v >= 1 ? v : undefined) },
-      { key: 'size', ref: sizeUrl as unknown as Ref<any>, codec: 'int', default: defaultSize, sanitize: v => (ALLOWED_PAGE_SIZES.includes(v) ? v : undefined) },
+      // FR-30.9: a remembered or bookmarked "All" opens at the largest page; "All" is offered again for a small list.
+      { key: 'size', ref: sizeUrl as unknown as Ref<any>, codec: 'int', default: defaultSize, sanitize: v => pageSizeFromUrl(v, ALLOWED_PAGE_SIZES) },
       { key: 'sortBy', ref: sortByUrl as unknown as Ref<any>, default: defaultSortBy, sanitize: sortKeyFromUrl },
       { key: 'sortOrder', ref: sortOrderUrl as unknown as Ref<any>, default: defaultSortOrder, sanitize: v => (v === 'asc' || v === 'desc' ? v : undefined) },
     ])
@@ -100,19 +107,24 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
    */
   const request = latestOnly((signal, url: string, params: Record<string, any>) => httpClient.get(url, { params, signal }))
 
+  /**
+   * FR-30.6: one request per list open. Vuetify's table asks for its page when it mounts (`update:options`) and the view
+   * asks again in `onMounted`. The second call is the latest question (FR-31.4): it aborts the first before axios has
+   * sent it, so the browser sends one request (`e2e/list-requests.spec.ts` counts them on every list the walk opens).
+   */
   async function fetchItems() {
     const url = getUrl()
     if (!url || url.includes('/undefined')) return
     loading.value = true
-    // Vuetify uses -1 for "All". Send size=0 over the wire so the server returns
-    // the unbounded result set (DAL treats size <= 0 as no-pagination).
-    const wireSize = pagination.value.size === -1 ? 0 : pagination.value.size
+    // Vuetify uses -1 for "All": the server takes size 0 for "All", up to its ceiling (FR-30.8).
+    const wireSize = pagination.value.size === ALL_ROWS ? 0 : pagination.value.size
     const params: Record<string, any> = {
       page: pagination.value.page,
       size: wireSize,
       sortBy: pagination.value.sortBy,
       sortOrder: pagination.value.sortOrder,
       ...(filters?.value || {}),
+      ...(options.listFields ? { fields: 'list' } : {}),
     }
     let answer
     try {
@@ -137,6 +149,13 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
     // A newer request owns the rows and the spinner.
     if (!answer.latest) return
     const { data } = answer.value
+    // FR-30.9: "All" on a list that grew past the ceiling was cut: the largest page instead, from the first.
+    if (data.truncated && pagination.value.size === ALL_ROWS) {
+      pagination.value.size = LARGEST_PAGE_SIZE
+      pagination.value.page = 0
+      queueMicrotask(() => void fetchItems())
+      return
+    }
     items.value = data[entityKey] || data.items || []
     pagination.value.total = data.total ?? 0
     pagination.value.totalPages = data.totalPages ?? 0
@@ -155,14 +174,14 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
       pagination.value.sortBy = opts.sortBy[0].key
       pagination.value.sortOrder = opts.sortBy[0].order || 'desc'
     }
-    fetchItems()
+    void fetchItems() // never rejects: a failure is `pagination.loadError`
   }
 
   if (isRef(options.url)) {
     watch(options.url, (newUrl, oldUrl) => {
       if (newUrl && !newUrl.includes('/undefined') && newUrl !== oldUrl) {
         pagination.value.page = 0
-        fetchItems()
+        void fetchItems()
       }
     })
   }
@@ -170,7 +189,7 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
   if (filters) {
     watch(filters, () => {
       pagination.value.page = 0
-      fetchItems()
+      void fetchItems()
     }, { deep: true })
   }
 

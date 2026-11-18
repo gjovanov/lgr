@@ -21,7 +21,7 @@
             <v-radio v-for="c in offer.candidates" :key="c.id" :value="c.id">
               <template #label>
                 <span class="font-weight-medium me-2">{{ c.number }}</span>
-                <span class="text-medium-emphasis me-2">{{ String(c.issueDate).slice(0, 10) }}</span>
+                <span class="text-medium-emphasis me-2">{{ formatDate(c.issueDate) }}</span>
                 <span class="me-2">{{ formatCurrency(c.total, c.currency, localeCode) }}</span>
                 <v-chip v-if="c.state === 'partial'" size="x-small" variant="tonal">{{ $t('invoicing.cashSaleInvoice.statePartial') }}</v-chip>
               </template>
@@ -42,6 +42,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -63,7 +64,7 @@ const emit = defineEmits<{
 const { t, te } = useI18n()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[appStore.locale] || 'en-US')
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 interface Offer {
   eligible: boolean; code?: string; reason?: string; day: string; considered: number

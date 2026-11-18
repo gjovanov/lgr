@@ -98,8 +98,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatNumber as formatNumberOf } from '../format/format'
 import { computed, ref } from 'vue'
-import { numberFormat } from '../composables/number-display'
 
 export interface PivotMeasure {
   field: string
@@ -210,7 +210,7 @@ function formatHeader(field: string): string {
 
 function formatNumber(val: number | undefined): string {
   if (val == null) return '—'
-  return Number.isInteger(val) ? numberFormat().format(val) : numberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val)
+  return Number.isInteger(val) ? formatNumberOf(val) : formatNumberOf(val, { decimals: 2 })
 }
 </script>
 

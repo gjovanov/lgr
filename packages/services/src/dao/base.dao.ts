@@ -8,15 +8,24 @@ export interface PaginatedResult<T> {
   totalPages: number
 }
 
+/**
+ * The base of the four DAO classes still in use (org, user, invite, sign-in code). FR-32.9 (#797): the other 24,
+ * which only tests imported, are gone, and these move onto repositories as their controllers are touched; the
+ * class goes with the last of them.
+ *
+ * ⚠ Its READS are lean (FR-32.9, the open item "BaseDao read methods missing .lean()"): they return the stored
+ * document as a plain object, with no `save()`, `toJSON()` or `id` virtual. Typed as `T` for the callers that read
+ * fields; a caller that needs a document asks the model itself. The writes are unchanged.
+ */
 export class BaseDao<T extends Document> {
   constructor(protected model: Model<T>) {}
 
   async findById(id: string | Types.ObjectId): Promise<T | null> {
-    return this.model.findById(id).exec()
+    return this.model.findById(id).lean<T>().exec()
   }
 
   async findOne(filter: FilterQuery<T>): Promise<T | null> {
-    return this.model.findOne(filter).exec()
+    return this.model.findOne(filter).lean<T>().exec()
   }
 
   async findAll(
@@ -26,12 +35,12 @@ export class BaseDao<T extends Document> {
     sort: Record<string, 1 | -1> = { createdAt: -1 },
   ): Promise<PaginatedResult<T>> {
     if (size === 0) {
-      const items = await this.model.find(filter).sort(sort).exec()
+      const items = await this.model.find(filter).sort(sort).lean<T[]>().exec()
       return { items, total: items.length, page: 0, size: 0, totalPages: 1 }
     }
     const skip = page * size
     const [items, total] = await Promise.all([
-      this.model.find(filter).sort(sort).skip(skip).limit(size).exec(),
+      this.model.find(filter).sort(sort).skip(skip).limit(size).lean<T[]>().exec(),
       this.model.countDocuments(filter).exec(),
     ])
     return {
@@ -53,7 +62,7 @@ export class BaseDao<T extends Document> {
   }
 
   async findAllByOrgId(orgId: string | Types.ObjectId): Promise<T[]> {
-    return this.model.find({ orgId } as FilterQuery<T>).exec()
+    return this.model.find({ orgId } as FilterQuery<T>).lean<T[]>().exec()
   }
 
   async create(data: Partial<T>): Promise<T> {

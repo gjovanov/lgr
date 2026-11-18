@@ -188,6 +188,9 @@ const orderSchema = new Schema<IOrder>(
 orderSchema.plugin(tenantPlugin)
 orderSchema.index({ orgId: 1, orderNumber: 1 }, { unique: true })
 orderSchema.index({ orgId: 1, status: 1 })
+// FR-31.22: the top bar's jump to a document finds an issued one by the draft number it had (`document-lookup.service`).
+// Partial: only an issued document keeps one, and the lookup states the condition so the index serves it.
+orderSchema.index({ orgId: 1, draftNumber: 1 }, { partialFilterExpression: { draftNumber: { $exists: true } } })
 orderSchema.index({ orgId: 1, 'supplierGroups.supplierId': 1 })
 // FR-28.17: one document per request. A PARTIAL index, not a sparse one: `orgId` is on every document, so a sparse
 // compound index would hold every document under a null `requestId` and refuse the second.

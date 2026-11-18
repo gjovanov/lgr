@@ -27,6 +27,9 @@ export interface InvoiceSummary {
   drafts: { count: number }
 }
 
+/** The statuses the summary's tiles count: what is owed, what is overdue, what was paid, the drafts. */
+export const SUMMARY_STATUSES = ['sent', 'received', 'partially_paid', 'overdue', 'paid', 'draft']
+
 export async function getInvoiceSummary(
   orgId: string,
   f: InvoiceSummaryFilters = {},
@@ -53,6 +56,10 @@ export async function getInvoiceSummary(
     if (f.startDate) match.issueDate.$gte = new Date(f.startDate)
     if (f.endDate) match.issueDate.$lte = new Date(f.endDate)
   }
+
+  // FR-30.16: only the statuses a tile counts (outstanding, overdue, paid, drafts). Every other document (voided,
+  // cancelled, converted, issued and applied notes…) was read and dropped by each facet.
+  match.status = { $in: SUMMARY_STATUSES }
 
   const since30 = new Date(Date.now() - 30 * 86400000)
   // Outstanding/overdue measure what's still owed; paid measures completed value.

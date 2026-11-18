@@ -8,7 +8,9 @@ function createLogger() {
         transport: { target: 'pino-pretty', options: { colorize: true } },
       })
     }
-  } catch {}
+  } catch {
+    // pino-pretty is a dev dependency: where it is not installed the plain JSON logger below stands.
+  }
   return pino({ level: process.env.LOG_LEVEL || 'info' })
 }
 

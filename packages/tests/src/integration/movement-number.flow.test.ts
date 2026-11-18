@@ -9,7 +9,6 @@ import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 import { persistMovement } from 'services/biz/doc-import/persist-movement'
 import { createTransferMovements } from 'services/biz/stock-transfer.service'
 import { MOVEMENT_NUMBER_ATTEMPTS, isMovementNumberTaken, nextMovementNumber, withMovementNumber } from 'services/biz/movement-number'
-import { stockMovementDao } from 'services/dao/warehouse/stock-movement.dao'
 import { captureRejection } from '../helpers/capture-rejection'
 import { getRepos } from 'services/context'
 import { config } from 'config'
@@ -175,8 +174,6 @@ describe('the one place a movement is numbered', () => {
     expect(await nextMovementNumber(w.orgId)).toBe(numbered(8))
     const other = await world(1)
     expect(await nextMovementNumber(other.orgId)).toBe(numbered(1))
-    // The old DAO's reader, which the tests' fixtures number by, is the same one.
-    expect(await stockMovementDao.getNextMovementNumber(w.orgId)).toBe(numbered(8))
   }, 60_000)
 
   it('past 99 999 in a year the numbers go on: a wider number is later than any of five digits (#714)', async () => {

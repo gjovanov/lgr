@@ -4,6 +4,7 @@ import type { IBatchRepository } from 'dal'
 import { DuplicateError, ValidationError } from 'dal'
 import { toEntity, toDocument } from './entity-mapper.js'
 import { translateFilter } from './filter-translator.js'
+import { pageUnderCeiling } from 'config/list-rows'
 
 /**
  * A DAL projection as Mongoose takes it. `id` is the document's `_id`, which Mongo returns unless it
@@ -16,6 +17,25 @@ export function toProjection(select: Projection | undefined): Record<string, 0 |
     : Object.entries(select as Record<string, 0 | 1>)
   if (!entries.length) return undefined
   return Object.fromEntries(entries.map(([f, v]) => [f === 'id' ? '_id' : f, v]))
+}
+
+/** FR-30.11: up to this many matches, a hinted read fetches them through its index; above, the planner's plan does. */
+const HINTED_PAGE_MAX = 300
+
+/**
+ * Run a read through `hint`, or without one when the store has no such index (a database whose index is still being
+ * built as the server starts): the same read, served as the planner chooses.
+ */
+type IndexHint = Record<string, 1 | -1> | string
+
+async function withHint<R>(hint: IndexHint | undefined, run: (h?: IndexHint) => Promise<R>): Promise<R> {
+  if (!hint) return run()
+  try {
+    return await run(hint)
+  } catch (err: any) {
+    if (/hint/i.test(String(err?.message ?? ''))) return run()
+    throw err
+  }
 }
 
 /** The caller's session as the driver takes it, or none. */
@@ -60,31 +80,81 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
     const mongoFilter = translateFilter(filter)
     const projection = toProjection(opts?.select)
     const sort = page?.sort ?? { createdAt: -1 }
-    const size = page?.size ?? 10
     const pageNum = page?.page ?? 0
+    // FR-30.8: "All" (`size <= 0`) and any size above the ceiling are the ceiling, unless the caller reads every row on
+    // purpose. It used to be up to 100 000 whole documents: 81.6 MB for the Products list.
+    const { take, asked } = pageUnderCeiling(page?.size ?? 10, page?.unbounded)
 
-    if (size <= 0) {
-      // size <= 0 means "all items, no pagination". Hard backstop at 100k for sanity.
-      const MAX_ROWS = 100_000
-      const docs = await this.model.find(mongoFilter, projection, withSession(opts)).sort(sort).limit(MAX_ROWS).lean().exec()
-      if (docs.length >= MAX_ROWS) {
-        // Surface as a soft warning; clients asking for "all" on huge collections should paginate.
-        console.warn(`[dal-mongo] findAll on ${this.model.modelName} returned ${MAX_ROWS}+ rows — consider pagination`)
-      }
+    if (asked === Infinity) {
+      const q = this.model.find(mongoFilter, projection, withSession(opts)).sort(sort)
+      const docs = await (take === Infinity ? q : q.limit(take)).lean().exec()
+      // Cut only when the ceiling was reached: then the real total is counted, and the answer says it was cut.
+      const total = docs.length < take ? docs.length : await this.model.countDocuments(mongoFilter, withSession(opts)).exec()
       return {
         items: docs.map(d => toEntity<T>(d)),
-        total: docs.length,
+        total,
         page: 0,
         size: docs.length,
         totalPages: 1,
+        ...(total > docs.length ? { truncated: true as const } : {}),
       }
     }
 
+    const size = take
     const skip = pageNum * size
-    const [docs, total] = await Promise.all([
-      this.model.find(mongoFilter, projection, withSession(opts)).sort(sort).skip(skip).limit(size).lean().exec(),
-      this.model.countDocuments(mongoFilter, withSession(opts)).exec(),
-    ])
+    const hint = opts?.hint
+    // FR-30.2: the page through the index the list declares for its sort (by name), when the caller names it; the
+    // count stays the planner's.
+    const pageIndex: IndexHint | undefined = hint ?? opts?.index
+    const find = (h?: IndexHint, extra = 0) => {
+      const q = this.model.find(mongoFilter, projection, withSession(opts)).sort(sort).skip(skip).limit(size + extra)
+      return (h ? q.hint(h) : q).lean().exec()
+    }
+    const count = (h?: IndexHint) => this.model.countDocuments(mongoFilter, withSession(opts, h ? { hint: h } : undefined)).exec()
+
+    /*
+     * FR-30.11: a read through an index named for it (the product search) first reads the matches' ids from that
+     * index's keys alone (a search's filter is on the index's fields, and the index ends with `_id`), up to
+     * `HINTED_PAGE_MAX` of them. Few: they are the count, and the page is read by id. None: nothing is fetched. Many:
+     * they are counted from the keys, and the page is the planner's own plan (the sort's index, stopping at the page's
+     * last row). Through the search index alone a common word fetched every match to sort them: 125 ms for `болт` on
+     * a shop's catalogue.
+     */
+    if (hint) {
+      const matched = await withHint(hint, (h) => {
+        const q = this.model.find(mongoFilter, { _id: 1 }, withSession(opts)).limit(HINTED_PAGE_MAX + 1)
+        return (h ? q.hint(h) : q).lean().exec()
+      })
+      const few = matched.length <= HINTED_PAGE_MAX
+      const total = few ? matched.length : await withHint(hint, count)
+      const docs = total <= skip
+        ? []
+        : few
+          ? await this.model.find({ _id: { $in: matched.map((d: any) => d._id) } }, projection, withSession(opts)).sort(sort).skip(skip).limit(size).lean().exec()
+          : await find()
+      const hasMore = total > skip + docs.length
+      return {
+        items: docs.map(d => toEntity<T>(d)),
+        total,
+        page: pageNum,
+        size,
+        totalPages: Math.ceil(total / size),
+        ...(page?.count !== undefined ? { hasMore } : {}),
+        ...(asked > size && total - skip > size ? { truncated: true as const } : {}),
+      }
+    }
+
+    // FR-30.12: a type-ahead's page: one row more than it holds tells whether more follow, and nothing is counted.
+    if (page?.count === false || page?.count === 'when-more') {
+      const rows = await withHint(pageIndex, (h) => find(h, 1))
+      const hasMore = rows.length > size
+      const docs = hasMore ? rows.slice(0, size) : rows
+      const seen = skip + docs.length + (hasMore ? 1 : 0)
+      const total = hasMore && page.count === 'when-more' ? await withHint(hint, count) : seen
+      return { items: docs.map(d => toEntity<T>(d)), total, page: pageNum, size, totalPages: Math.ceil(total / size), hasMore }
+    }
+
+    const [docs, total] = await Promise.all([withHint(pageIndex, (h) => find(h)), withHint(hint, count)])
 
     return {
       items: docs.map(d => toEntity<T>(d)),
@@ -92,6 +162,7 @@ export class MongoRepository<T extends BaseEntity> implements IBatchRepository<T
       page: pageNum,
       size,
       totalPages: Math.ceil(total / size),
+      ...(asked > size && total - skip > size ? { truncated: true as const } : {}),
     }
   }
 

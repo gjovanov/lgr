@@ -115,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+import { intlLocale } from '../../format/format'
 /**
  * #145 / FR-21 — STORNO a sale from the cash-register journal: the goods go back to the warehouse,
  * and for a till sale the refund leaves the register and the fiscal
@@ -231,7 +232,7 @@ const reasons = computed(() => ['operator_error', 'customer_return', 'price_redu
   .map(value => ({ value, title: t(`pos.storno.reasons.${value}`) })))
 
 function fmtCurrency(amount: number) {
-  const code = ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' } as Record<string, string>)[props.locale || 'en'] || 'en-US'
+  const code = intlLocale(props.locale || 'en')
   return formatCurrency(amount, props.sale?.currency || 'EUR', code)
 }
 

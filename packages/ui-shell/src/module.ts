@@ -5,7 +5,7 @@ import { canOpenPage, pageById, type PageViewer } from 'ui-shared/nav/page-regis
  * FR-24.3: what a UI module is, as data. Each package exports one (`src/manifest.ts`), and the one
  * SPA's router is composed from them (`packages/web/src/routes.ts`).
  *
- * ⚠ Paths in `routes`, `menu`, breadcrumbs and back-to values are relative to the MODULE
+ * ⚠ Paths in `routes`, `menu` and back-to values are relative to the MODULE
  * ("/orders"), never to a router's base. Where the module sits in the router is the path of its
  * shell record (`packages/web/src/routes.ts`), and `inModule` (ui-shared/nav/open-page) adds it.
  */

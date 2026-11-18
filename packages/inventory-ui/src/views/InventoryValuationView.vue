@@ -87,11 +87,12 @@
 </template>
 
 <script setup lang="ts">
+import { formatNumber, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted, watch } from 'vue'
-import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
+import { reportError } from 'ui-shared/composables/report-error'
 import { useCurrency } from 'ui-shared/composables/useCurrency'
 import ReportExportButton from 'ui-shared/components/ReportExportButton.vue'
 import EntityLink from 'ui-shared/components/EntityLink'
@@ -104,7 +105,7 @@ const appStore = useAppStore()
 const seesCosts = computed(() => useAccess().can('products.costs'))
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 const loading = ref(false)
 const items = ref<any[]>([])
@@ -125,7 +126,7 @@ const unitAggregation = computed(() => {
 })
 
 function fmtCurrency(val: number) { return formatCurrency(val, baseCurrency.value, localeCode.value) }
-function fmtQty(val: number) { return numberFormat(localeCode.value, { maximumFractionDigits: 2 }).format(val) }
+function fmtQty(val: number) { return formatNumber(val, { lang: localeCode.value, maxDecimals: 2 }) }
 
 function costingLabel(method: string) {
   const labels: Record<string, string> = {
@@ -155,12 +156,12 @@ async function fetchValuation() {
     const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/cost-layer/valuation`, { params })
     items.value = data.items || []
     totalValue.value = data.totalValue || 0
-  } catch { /* */ }
+  } catch (e) { reportError(e) }
   finally { loading.value = false }
 }
 
 async function fetchWarehouses() {
-  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* */ }
+  try { const { data } = await httpClient.get(`${appStore.orgUrl()}/warehouse/warehouse`); warehouses.value = data.warehouses || [] } catch { /* Reference data: a refusal leaves the choice empty, and the HTTP client says a network failure or a 5xx. */ }
 }
 
 

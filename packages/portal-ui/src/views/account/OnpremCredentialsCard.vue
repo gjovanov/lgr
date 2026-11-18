@@ -90,6 +90,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -133,7 +134,7 @@ const cardError = ref('')
 const done = ref('')
 
 const kindsOf = (org: OrgRow): Kind[] => (org.operatorCode ? ['password', 'pin'] : ['password'])
-const when = (iso: string) => new Date(iso).toLocaleDateString(locale.value)
+const when = (iso: string) => formatDate(iso)
 const required = (v: string) => !!v || t('validation.required')
 const shape = (v: string) =>
   editing.value?.kind === 'pin'

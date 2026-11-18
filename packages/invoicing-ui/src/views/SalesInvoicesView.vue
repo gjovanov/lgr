@@ -95,8 +95,8 @@
       <entity-link v-if="item.contactId" class="cell-clip" :title="item.contactName" :label="item.contactName" :to="{ name: 'invoicing.contacts.edit', params: { id: item.contactId } }" />
       <span v-else class="cell-clip" :title="item.contactName">{{ item.contactName }}</span>
     </template>
-    <template #item.issueDate="{ item }">{{ item.issueDate?.split('T')[0] }}</template>
-    <template #item.dueDate="{ item }">{{ item.dueDate?.split('T')[0] }}</template>
+    <template #item.issueDate="{ item }">{{ formatDate(item.issueDate) }}</template>
+    <template #item.dueDate="{ item }">{{ formatDate(item.dueDate) }}</template>
     <template #item.status="{ item }">
       <StatusChip :status="item.status" :history="item.statusHistory" :color-fn="statusColor" />
     </template>
@@ -129,7 +129,7 @@
             <span class="text-body-2 text-medium-emphasis">{{ inv.contactName }}</span>
             <div class="d-flex align-center ga-1 mt-1">
               <v-chip size="x-small" :color="isOverdue(inv) ? 'error' : 'default'" variant="tonal">
-                {{ inv.dueDate?.split('T')[0] || '-' }}
+                {{ formatDate(inv.dueDate) || '-' }}
               </v-chip>
             </div>
           </div>
@@ -202,6 +202,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'
@@ -265,7 +266,7 @@ const appStore = useAppStore()
 const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 
 // FR-10 (#19): the row-level "send by email" action.
 const {
@@ -349,6 +350,8 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   entityKey: 'invoices',
   filters,
   urlSync: true,
+  // FR-30.7: rows, not whole documents.
+  listFields: true,
 })
 
 // ── KPI summary ────────────────────────────────────────────────────────────
