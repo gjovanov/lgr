@@ -480,7 +480,8 @@
       "forbidden": "Ihre Rolle darf diese Liste nicht sehen.",
       "failed": "Die Liste konnte nicht geladen werden. Bitte gleich erneut versuchen."
     },
-    "exportInReport": "Öffnet den Bericht zu dieser Liste, der nach Excel und PDF exportiert"
+    "exportInReport": "Öffnet den Bericht zu dieser Liste, der nach Excel und PDF exportiert",
+    "apply": "Anwenden"
   },
   "export": {
     "aggregated": "Nach Produkt aggregieren",
@@ -2587,7 +2588,16 @@
     "lineRefusal": {
       "short": "Nicht genug Bestand: {available} verfügbar, {requested} benötigt"
     },
-    "searchInvoiceNumber": "Nach Nummer suchen"
+    "searchInvoiceNumber": "Nach Nummer suchen",
+    "transfer": {
+      "covered": "Gedeckt",
+      "shortBy": "Es fehlen {n}",
+      "available": "Verfügbar",
+      "quantity": "Umbuchungsmenge",
+      "needed": "Benötigt",
+      "total": "Umbuchung gesamt",
+      "notCovered": "Einige Artikel sind nicht vollständig gedeckt. Passen Sie die Umbuchungsmengen an, um fortzufahren."
+    }
   },
   "warehouse": {
     "sku": "Artikelnr.",
@@ -3037,12 +3047,30 @@
       "dispatch_not_invoiceable": "Dieser Warenausgang wurde von {number} gebucht, das storniert ist. Er ist keine Lieferung und wird nicht fakturiert.",
       "orphan": "Dieser Warenausgang gehört zu einem Dokument, das es nicht mehr gibt. Er ist keine Lieferung und wird nicht fakturiert.",
       "dispatch_is_reversal": "Dieser Warenausgang bucht die Ware eines entfernten Dokuments aus. Er ist keine Lieferung und wird nicht fakturiert."
+    },
+    "bulkPricing": {
+      "intro": "Wählen Sie Artikel-Tags und ändern Sie den Verkaufspreis um einen Prozentsatz. Optional auch alle Sonderpreise.",
+      "introCustom": "Wählen Sie Sonderpreis-Tags (z. B. „Stammkunden“). Nur Sonderpreise mit diesen Tags werden geändert.",
+      "productTags": "Artikel-Tags",
+      "sellingPercent": "Verkaufspreis %",
+      "decreaseHint": "Negativ = Senkung",
+      "alsoCustom": "Auch Sonderpreise ändern",
+      "customPercent": "Sonderpreis %",
+      "customDefaultsHint": "Standard: wie Verkaufspreis %",
+      "customPriceTags": "Sonderpreis-Tags",
+      "adjustPercent": "Änderung %",
+      "confirmProducts": "Verkaufspreis um {percent}% ändern für Artikel mit dem Tag {tags}.",
+      "confirmAlsoCustom": "Auch Sonderpreise um {percent}% ändern.",
+      "confirmCustom": "Sonderpreise um {percent}% ändern für den Tag {tags}.",
+      "decreaseWarning": "Damit werden die Preise gesenkt.",
+      "result": "{products} Artikel aktualisiert, {prices} Preise geändert."
     }
   },
   "pricing": {
     "explainPrice": "Preis erklären",
     "priceBreakdown": "Preisaufschlüsselung",
-    "customerPrice": "Kundenpreis"
+    "customerPrice": "Kundenpreis",
+    "manualOverride": "Manuell überschrieben"
   },
   "defaultCategories": {
     "electronics": "Elektronik",

@@ -40,7 +40,7 @@
             {{ item.useCount }} / {{ item.maxUses || '∞' }}
           </template>
           <template #item.createdAt="{ item }">
-            {{ new Date(item.createdAt).toLocaleDateString() }}
+            {{ formatDate(item.createdAt) }}
           </template>
           <template #item.actions="{ item }">
             <v-btn
@@ -132,6 +132,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useInviteStore } from '../../store/invite.store'

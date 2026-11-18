@@ -321,6 +321,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime as dateTime } from 'ui-shared/format'
 /**
  * FR-13.27 (#24) — `admin/backup`, beside `admin/audit-log` and deliberately NOT under
  * `settings/`: that group is the org owner's self-service area, and restoring is not
@@ -416,7 +417,7 @@ function humanBytes(n?: number): string {
 function formatDateTime(v: string): string {
   if (!v) return ''
   const d = new Date(v)
-  return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleString()
+  return Number.isNaN(d.getTime()) ? String(v) : dateTime(d)
 }
 
 /**

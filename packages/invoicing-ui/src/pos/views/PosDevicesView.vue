@@ -105,6 +105,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime as dateTime } from 'ui-shared/format'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
@@ -190,7 +191,7 @@ const headers = computed(() => [
 function formatDateTime(dateStr: string) {
   if (!dateStr) return '-'
   const d = new Date(dateStr)
-  return d.toLocaleString()
+  return dateTime(d)
 }
 
 const connectedDeviceId = ref<string | null>(null)

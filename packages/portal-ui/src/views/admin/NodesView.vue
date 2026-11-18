@@ -101,12 +101,13 @@
           <v-chip v-for="a in item.alarms ?? []" :key="a.kind + (a.orgId ?? '')" size="x-small" color="warning" variant="tonal">{{ alarmText(a) }}</v-chip>
         </div>
       </template>
-      <template #item.lastSeenAt="{ item }">{{ item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleString() : '—' }}</template>
+      <template #item.lastSeenAt="{ item }">{{ item.lastSeenAt ? formatDateTime(item.lastSeenAt) : '—' }}</template>
     </v-data-table>
   </v-container>
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from 'ui-shared/format'
 import { computed, defineComponent, h, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { VChip } from 'vuetify/components'

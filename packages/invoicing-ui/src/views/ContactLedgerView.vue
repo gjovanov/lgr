@@ -42,7 +42,7 @@
           density="compact"
           hover
         >
-          <template #item.date="{ item }">{{ item.date?.split('T')[0] }}</template>
+          <template #item.date="{ item }">{{ formatDate(item.date) }}</template>
           <template #item.documentNumber="{ item }">
             <entity-link v-if="item.documentId && !isMovementRow(item)" :label="item.documentNumber || ''" :to="documentRoute(item)" />
             <span v-else>{{ item.documentNumber }}</span>
@@ -113,6 +113,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, intlLocale } from 'ui-shared/format'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '../store/app.store'
@@ -129,7 +130,7 @@ const router = useRouter()
 const appStore = useAppStore()
 const { formatCurrency } = useCurrency()
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE', bg: 'bg-BG' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 function fmtCurrency(val: number | undefined) { return formatCurrency(val || 0, baseCurrency.value, localeCode.value) }
 
 const contactId = computed(() => route.params.id as string)

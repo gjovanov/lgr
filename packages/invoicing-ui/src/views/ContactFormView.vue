@@ -273,8 +273,8 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   icon: 'mdi-contacts',
   getFormData: () => ({ ...form }),
   getPreviewFields: () => [
-    { label: 'Company', value: form.companyName },
-    { label: 'Type', value: form.type },
+    { label: t('invoicing.companyName'), value: form.companyName },
+    { label: t('common.type'), value: form.type },
   ],
   setFormData: (data) => Object.assign(form, data),
   isEdit: () => isEdit.value,

@@ -30,7 +30,7 @@
         {{ item.rate.toFixed(6) }}
       </template>
       <template #item.date="{ item }">
-        {{ item.date?.split('T')[0] }}
+        {{ formatDate(item.date) }}
       </template>
       <template #item.source="{ item }">
         <v-chip v-if="item.source" size="small" variant="outlined">
@@ -61,6 +61,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'

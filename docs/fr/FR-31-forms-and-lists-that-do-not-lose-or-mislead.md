@@ -498,6 +498,29 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     `e2e/line-identity.spec.ts` removes the second of three lines: the third line's row is the same element afterwards,
     keeps a quantity typed into it, and nothing loads its article or prices again. Run against the position keys, it
     fails.
+- **B1** (FR-31.13 to .15): one format, and no English.
+  - `ui-shared/format` (`src/format/format.ts`) is the one formatter: `intlLocale()` (all four languages),
+    `formatMoney`, `formatNumber`, `formatDate` / `formatDateTime`, and `formatPrice` / `priceDecimals` (D-5),
+    `formatQuantity`, `formatUnit`, `dayInZone`. Its language is the app's (`plugins/i18n#declareLanguage` sets it);
+    each function takes another in `opts.lang`. `useCurrency.formatCurrency` is that `formatMoney`.
+  - D-3: `dd.MM.yyyy` in bg, de and mk (no „г."), `dd/MM/yyyy` in en, 24-hour times; built from the date's parts, so no
+    browser or ICU version changes it. A day stored at midnight UTC (a document's date) is that day wherever the browser
+    is, as the lists that cut the ISO string showed it. D-4: ICU's own order per language (bg, de, mk: the amount, then
+    the currency; en: the currency first), with the point for decimals of 2026-11-12 (`number-display.ts`). English
+    numbers are `en-US` (`$5.00`, not `US$5.00`). D-5: `PriceCombobox` shows two decimals, more only when the price has
+    more, up to five (it showed five always).
+  - The 41 local language → locale maps, the calls without a locale, the `Intl` formatters of the views and the ISO
+    dates the lists cut out of a timestamp (`?.split('T')[0]` in 29 templates) go through it. `unit/one-formatter.test.ts`
+    holds the table per language and fails on a formatting locale named, a `toLocale*` call, an `Intl` formatter or a
+    `numberFormat(` outside `ui-shared/src/format/` (and its `number-display.ts`): the allow-list is empty.
+  - FR-31.15: the 41 Pending Changes labels in 20 files are their fields' keys (`unit/pending-labels.test.ts` fails on
+    a literal; `PermissionSetsView`, which FR-27 P3-3 removes, is the one exception and goes with the file). The bulk
+    price adjustment, the stock transfer dialog, the app switcher and the price trail's "Manual override" (stored as
+    before, read as `pricing.manualOverride`) speak the session's language, and so does the journal analysis view.
+    `e2e/bg-walk.spec.ts` reads the headings, labels, buttons, tabs and hints of ten daily screens in a Bulgarian
+    browser and finds none of its English words.
+  - *Decision:* the till's cash register journal and its document keep their `YYYY-MM-DD HH:mm` (§10 leaves the till's
+    flow out), and the three e2e specs that read a price field's five decimals (customer-order-tree, invoicing-product-autocomplete, pos-redirects) now read its two.
 - **B2** (FR-31.16, .17): decimal fields in the four daily grids, and the app's own confirm dialog.
   - `DecimalField` now takes a decimal comma as a point on every system (a typed comma is typed as a point, a pasted
     `12,5` is pasted as `12.5`: a number field dropped the comma, so „2,5" became 25), and `minDecimals`: at least that

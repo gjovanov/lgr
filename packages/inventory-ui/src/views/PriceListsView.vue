@@ -31,8 +31,8 @@
           item-value="_id"
           hover
         >
-          <template #item.validFrom="{ item }">{{ item.validFrom?.split('T')[0] || '-' }}</template>
-          <template #item.validTo="{ item }">{{ item.validTo?.split('T')[0] || '-' }}</template>
+          <template #item.validFrom="{ item }">{{ formatDate(item.validFrom) || '-' }}</template>
+          <template #item.validTo="{ item }">{{ formatDate(item.validTo) || '-' }}</template>
           <template #item.isActive="{ item }">
             <v-icon :color="item.isActive !== false ? 'success' : 'grey'">
               {{ item.isActive !== false ? 'mdi-check-circle' : 'mdi-close-circle' }}
@@ -61,6 +61,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../store/app.store'

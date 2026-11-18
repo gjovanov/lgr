@@ -1,53 +1,31 @@
-import { numberFormat } from './number-display'
+import { formatMoney } from '../format/format'
+
 const CURRENCY_SYMBOLS: Record<string, string> = {
-  EUR: '\u20AC', USD: '$', GBP: '\u00A3', CHF: 'CHF', MKD: '\u0434\u0435\u043D',
-  BGN: '\u043B\u0432', RSD: '\u0434\u0438\u043D', JPY: '\u00A5', CNY: '\u00A5', AUD: 'A$',
-  CAD: 'C$', SEK: 'kr', NOK: 'kr', DKK: 'kr', PLN: 'z\u0142',
-  CZK: 'K\u010D', HUF: 'Ft', HRK: 'kn', BAM: 'KM',
+  EUR: '€', USD: '$', GBP: '£', CHF: 'CHF', MKD: 'ден',
+  BGN: 'лв', RSD: 'дин', JPY: '¥', CNY: '¥', AUD: 'A$',
+  CAD: 'C$', SEK: 'kr', NOK: 'kr', DKK: 'kr', PLN: 'zł',
+  CZK: 'Kč', HUF: 'Ft', HRK: 'kn', BAM: 'KM',
+}
+
+/**
+ * An amount of money, through the one formatter (FR-31.13, `ui-shared/format#formatMoney`): the same on every screen.
+ *
+ * `lang` is a language (`bg`) or a formatting locale's language part; nothing means the app's language. The many call
+ * sites that pass one keep working, and none names a formatting locale any more.
+ */
+export function formatCurrency(amount: number, currency = 'EUR', lang?: string, maxDecimals = 2): string {
+  return formatMoney(amount, currency, { lang, decimals: maxDecimals })
+}
+
+export function getCurrencySymbol(currency: string): string {
+  return CURRENCY_SYMBOLS[currency] || currency
 }
 
 export function useCurrency() {
-  function formatCurrency(amount: number, currency = 'EUR', locale = 'en', maxDecimals = 2): string {
-    try {
-      return numberFormat(locale, {
-        style: 'currency',
-        currency,
-        minimumFractionDigits: maxDecimals,
-        maximumFractionDigits: maxDecimals,
-      }).format(amount)
-    } catch {
-      const symbol = CURRENCY_SYMBOLS[currency] || currency
-      return `${symbol} ${amount.toFixed(maxDecimals)}`
-    }
-  }
-
   function parseCurrency(value: string): number {
     const cleaned = value.replace(/[^0-9.,\-]/g, '').replace(',', '.')
     return parseFloat(cleaned) || 0
   }
 
-  function getCurrencySymbol(currency: string): string {
-    return CURRENCY_SYMBOLS[currency] || currency
-  }
-
   return { formatCurrency, parseCurrency, getCurrencySymbol }
-}
-
-// Direct named exports for convenience
-export function formatCurrency(amount: number, currency = 'EUR', locale = 'en', maxDecimals = 2): string {
-  try {
-    return numberFormat(locale, {
-      style: 'currency',
-      currency,
-      minimumFractionDigits: maxDecimals,
-      maximumFractionDigits: maxDecimals,
-    }).format(amount)
-  } catch {
-    const symbol = CURRENCY_SYMBOLS[currency] || currency
-    return `${symbol} ${amount.toFixed(maxDecimals)}`
-  }
-}
-
-export function getCurrencySymbol(currency: string): string {
-  return CURRENCY_SYMBOLS[currency] || currency
 }

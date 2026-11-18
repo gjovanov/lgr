@@ -362,7 +362,7 @@
             <template #append><v-btn :aria-label="$t('common.download')" :title="$t('common.download')" size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(activeDoc))" /></template>
           </v-list-item>
           <v-divider />
-          <v-list-item v-for="v in versionData?.versions || []" :key="v.name" :title="v.name" :subtitle="new Date(v.archivedAt).toLocaleString()">
+          <v-list-item v-for="v in versionData?.versions || []" :key="v.name" :title="v.name" :subtitle="formatDateTime(v.archivedAt)">
             <template #append><v-btn :aria-label="$t('common.download')" :title="$t('common.download')" size="x-small" variant="text" icon="mdi-download" @click="download(downloadUrl(activeDoc, v.name))" /></template>
           </v-list-item>
           <v-list-item v-if="!(versionData?.versions || []).length" :title="$t('files.noVersions')" />
@@ -430,6 +430,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from 'ui-shared/format'
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'

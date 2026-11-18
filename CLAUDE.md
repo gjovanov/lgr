@@ -2984,6 +2984,13 @@ prints: „One list of actions for a document's two bars" below.
   - **A line grid keys its rows by the line** (FR-31.12): `:key="rowKey(line)"` (`ui-shared/composables/row-key.ts`, a
     `WeakMap` on the line object, never a field on it), never by position: removing a row gave the rows below it to
     other lines, with their open menus, typed text and focus, and made them load again.
+  - **One formatter** (FR-31.13): money, numbers and dates go through `ui-shared/format` (`formatMoney`,
+    `formatNumber`, `formatDate` / `formatDateTime`, `formatPrice`, `intlLocale()`), in the app's language
+    (`declareLanguage` sets it). ⚠ No UI file names a formatting locale (`'bg-BG'`) or calls `toLocale*`, `Intl.*Format`
+    or `numberFormat(` outside `ui-shared/src/format/`: `unit/one-formatter.test.ts` fails, with an empty allow-list.
+    Dates are `dd.MM.yyyy` (bg, de, mk) and `dd/MM/yyyy` (en); a list shows `formatDate(x)`, never `x.split('T')[0]`.
+  - **No English labels** (FR-31.15): a Pending Changes label is the field's own key (`t('common.name')`);
+    `unit/pending-labels.test.ts` fails on a literal, and `e2e/bg-walk.spec.ts` reads ten daily screens in Bulgarian.
   - **The app asks, never the browser** (FR-31.17): `await askConfirm({ text, confirm: t('common.delete'), danger: true })`
     (`ui-shared/composables/confirm.ts`). ⚠ `unit/fields-and-dialogs.test.ts` fails on `confirm(`, `alert(` or
     `prompt(` of the browser, and on a new raw `type="number"` input: a figure is a `DecimalField`, which takes a comma.

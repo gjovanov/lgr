@@ -14,7 +14,7 @@
             </template>
             <v-list-item-title>
               <a :href="receiptHref(r.id)" target="_blank" rel="noopener" class="font-weight-medium">{{ r.number }}</a>
-              · {{ String(r.date || '').slice(0, 10) }}
+              · {{ formatDate(r.date || '') }}
               <v-chip v-if="r.noSupplier" size="x-small" label class="ml-1" data-testid="receipt-no-supplier">{{ $t('invoicing.linkDelivery.noSupplier') }}</v-chip>
             </v-list-item-title>
             <v-list-item-subtitle>{{ $t('invoicing.linkDelivery.receiptLines', { n: r.lineCount }) }} · {{ formatCurrency(r.total, baseCurrency, locale) }}</v-list-item-subtitle>
@@ -58,6 +58,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'

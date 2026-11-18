@@ -215,7 +215,7 @@
              shown, not edited: the dialog on the cash sale is where the quantities are chosen. -->
         <template v-if="cashSaleRef">
           <v-alert type="info" variant="tonal" density="compact" class="mb-3" icon="mdi-cash-register">
-            {{ $t('invoicing.cashSaleInvoice.banner', { number: cashSaleRef.number, date: String(cashSaleRef.issueDate || '').slice(0, 10) }) }}
+            {{ $t('invoicing.cashSaleInvoice.banner', { number: cashSaleRef.number, date: formatDate(cashSaleRef.issueDate || '') }) }}
             <router-link class="ml-1" :to="{ name: 'invoicing.cash-sales.edit', params: { id: cashSaleRef.cashSaleId } }">
               {{ $t('invoicing.cashSaleInvoice.openCashSale') }}
             </router-link>
@@ -394,7 +394,7 @@
                 <v-checkbox-btn v-model="billReceipts.selected.value" :value="r.id" />
               </template>
               <v-list-item-title>
-                {{ r.number }} · {{ String(r.date || '').slice(0, 10) }}
+                {{ r.number }} · {{ formatDate(r.date || '') }}
                 <v-chip v-if="r.noSupplier" size="x-small" label class="ml-1" data-testid="receipt-no-supplier">{{ $t('invoicing.linkDelivery.noSupplier') }}</v-chip>
               </v-list-item-title>
               <v-list-item-subtitle>{{ $t('invoicing.linkDelivery.receiptLines', { n: r.lineCount }) }} · {{ doc.fmtCurrency(r.total) }}</v-list-item-subtitle>
@@ -438,7 +438,7 @@
                 <v-checkbox-btn :model-value="invoiceDispatches.selected.value" :value="n.id" @update:model-value="invoiceDispatches.onSelect" />
               </template>
               <v-list-item-title>
-                {{ n.number }} · {{ String(n.date || '').slice(0, 10) }}
+                {{ n.number }} · {{ formatDate(n.date || '') }}
                 <v-chip v-if="n.noCustomer" size="x-small" label class="ml-1" data-testid="dispatch-no-customer">{{ $t('invoicing.linkNote.noCustomer') }}</v-chip>
               </v-list-item-title>
               <v-list-item-subtitle>{{ $t('invoicing.linkNote.noteLines', { n: n.lineCount, quantity: n.quantity }, n.lineCount) }}</v-list-item-subtitle>
@@ -508,6 +508,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -693,7 +694,7 @@ const emailSubject = computed(() => {
 })
 
 const formatEmailedAt = computed(() =>
-  lastEmailedAt.value ? new Date(lastEmailedAt.value).toLocaleDateString(localeCode.value) : '',
+  lastEmailedAt.value ? formatDate(lastEmailedAt.value) : '',
 )
 
 function openEmailDialog() {

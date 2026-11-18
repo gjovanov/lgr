@@ -122,8 +122,8 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   icon: 'mdi-warehouse',
   getFormData: () => ({ ...form.value }),
   getPreviewFields: () => [
-    { label: 'Name', value: form.value.name },
-    { label: 'Code', value: form.value.code || '' },
+    { label: t('common.name'), value: form.value.name },
+    { label: t('common.code'), value: form.value.code || '' },
   ],
   setFormData: (data) => { form.value = { ...form.value, ...data } },
   isEdit: () => isEdit.value,

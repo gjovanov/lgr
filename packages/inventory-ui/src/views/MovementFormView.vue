@@ -370,6 +370,7 @@
 
 <script setup lang="ts">
 import { rowKey } from 'ui-shared/composables/row-key'
+import { intlLocale } from 'ui-shared/format'
 import DecimalField from 'ui-shared/components/DecimalField.vue'
 import { PRICE_DECIMALS, QTY_DECIMALS } from 'ui-shared/composables/price-precision'
 import { ref, computed, watch, onMounted } from 'vue'
@@ -476,7 +477,7 @@ const statusDef = computed<StatusDef>(() => ({
 }))
 
 const baseCurrency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
-const localeCode = computed(() => ({ en: 'en-US', mk: 'mk-MK', de: 'de-DE' }[appStore.locale] || 'en-US'))
+const localeCode = computed(() => intlLocale(appStore.locale))
 function fmtCurrency(amount: number) { return formatCurrency(amount, baseCurrency.value, localeCode.value) }
 
 const emptyLine = () => ({
@@ -698,8 +699,8 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   getFormData: () => ({ ...form.value, lines: form.value.lines.map(({ stockQty: _stockQty, ...line }: any) => line) }),
   // The pending-changes panel shows the values: the type by its name, not as „receipt".
   getPreviewFields: () => [
-    { label: 'Type', value: t(`warehouse.movementTypes.${form.value.type}`) },
-    { label: 'Date', value: form.value.date },
+    { label: t('common.type'), value: t(`warehouse.movementTypes.${form.value.type}`) },
+    { label: t('common.date'), value: form.value.date },
   ],
   // A draft saved before the warehouses became `null` when empty may carry ''.
   setFormData: (data) => {

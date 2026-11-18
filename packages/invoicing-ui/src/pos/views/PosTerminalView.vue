@@ -18,7 +18,7 @@
         <div>
           <h1 class="text-h5">{{ $t('nav.csTerminal') }}</h1>
           <span class="text-caption text-medium-emphasis">
-            {{ $t('pos.session') }}: {{ activeSession.sessionNumber }} | {{ activeSession.openedAt?.split('T')[0] }}
+            {{ $t('pos.session') }}: {{ activeSession.sessionNumber }} | {{ formatDate(activeSession.openedAt) }}
           </span>
         </div>
         <div class="d-flex align-center flex-wrap ga-3">
@@ -203,8 +203,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate, formatMoney } from 'ui-shared/format'
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
-import { numberFormat } from 'ui-shared/composables/number-display'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import { computePosTotals, tillLineAmounts, tillTotals } from 'config/pos-totals'
@@ -296,7 +296,7 @@ const paymentMethods = [
 ]
 
 function orgUrl() { return `/org/${appStore.currentOrg?.id}` }
-function fmt(n: number, decimals = 2) { return numberFormat(undefined, { style: 'currency', currency: currency.value, minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n) }
+function fmt(n: number, decimals = 2) { return formatMoney(n, currency.value, { decimals }) }
 
 const activeSession = computed<Session | null>(() => sessions.value.find(s => s.status === 'open') || null)
 

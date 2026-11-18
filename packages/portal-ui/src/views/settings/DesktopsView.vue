@@ -93,7 +93,7 @@
       </template>
 
       <template #item.lastSeenAt="{ item }">
-        {{ item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleString() : '—' }}
+        {{ item.lastSeenAt ? formatDateTime(item.lastSeenAt) : '—' }}
       </template>
 
       <!--
@@ -316,6 +316,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from 'ui-shared/format'
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { httpClient } from 'ui-shared/composables/useHttpClient'

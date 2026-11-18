@@ -168,7 +168,7 @@
                       <tr v-if="deviceStatus.fiscalMemoryNumber"><td>{{ t('pos.device.status.fiscalMemory') }}</td><td>{{ deviceStatus.fiscalMemoryNumber }}</td></tr>
                       <tr v-if="deviceStatus.firmwareVersion"><td>{{ t('pos.device.status.firmware') }}</td><td>{{ deviceStatus.firmwareVersion }}</td></tr>
                       <tr v-if="deviceStatus.fiscalized !== undefined"><td>{{ t('pos.device.status.fiscalized') }}</td><td>{{ deviceStatus.fiscalized ? t('common.yes') : t('pos.device.status.notFiscalized') }}</td></tr>
-                      <tr v-if="deviceStatus.dateTime"><td>{{ t('pos.device.status.clock') }}</td><td>{{ new Date(deviceStatus.dateTime).toLocaleString() }}</td></tr>
+                      <tr v-if="deviceStatus.dateTime"><td>{{ t('pos.device.status.clock') }}</td><td>{{ formatDateTime(deviceStatus.dateTime) }}</td></tr>
                       <tr v-if="deviceStatus.lastReceiptNumber !== undefined"><td>{{ t('pos.device.status.lastDocument') }}</td><td>{{ deviceStatus.lastReceiptNumber }}</td></tr>
                       <tr><td>{{ t('pos.device.status.paper') }}</td><td>{{ deviceStatus.paperPresent ? t('pos.device.status.paperOk') : t('pos.device.status.paperOut') }}</td></tr>
                       <tr v-if="deviceStatus.errors?.length"><td>{{ t('pos.device.status.errors') }}</td><td class="text-error">{{ deviceStatus.errors.join(', ') }}</td></tr>
@@ -391,8 +391,8 @@
           <p class="mb-3">{{ clockConfirm.message }}</p>
           <v-table density="compact">
             <tbody>
-              <tr><td style="width: 200px">{{ t('pos.device.clock.deviceTime') }}</td><td>{{ clockConfirm.deviceTime ? new Date(clockConfirm.deviceTime).toLocaleString() : '—' }}</td></tr>
-              <tr><td>{{ t('pos.device.clock.serverTime') }}</td><td>{{ new Date(clockConfirm.serverTime).toLocaleString() }}</td></tr>
+              <tr><td style="width: 200px">{{ t('pos.device.clock.deviceTime') }}</td><td>{{ clockConfirm.deviceTime ? formatDateTime(clockConfirm.deviceTime) : '—' }}</td></tr>
+              <tr><td>{{ t('pos.device.clock.serverTime') }}</td><td>{{ formatDateTime(clockConfirm.serverTime) }}</td></tr>
             </tbody>
           </v-table>
           <p class="text-caption text-medium-emphasis mt-3">{{ t('pos.device.clock.confirmHint') }}</p>
@@ -408,6 +408,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDateTime } from 'ui-shared/format'
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

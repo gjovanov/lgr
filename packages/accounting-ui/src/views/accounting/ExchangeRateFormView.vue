@@ -106,8 +106,8 @@ const { markSaved, markLoaded, tryRestore } = usePendingChanges({
   icon: 'mdi-currency-usd',
   getFormData: () => ({ ...form.value }),
   getPreviewFields: () => [
-    { label: 'From', value: form.value.fromCurrency || '' },
-    { label: 'To', value: form.value.toCurrency || '' },
+    { label: t('accounting.fromCurrency'), value: form.value.fromCurrency || '' },
+    { label: t('accounting.toCurrency'), value: form.value.toCurrency || '' },
   ],
   setFormData: (data) => { form.value = { ...form.value, ...data } },
   isEdit: () => isEdit.value,

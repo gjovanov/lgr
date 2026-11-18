@@ -78,6 +78,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from 'ui-shared/format'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePayrollStore } from '../../store/payroll.store'
@@ -148,7 +149,7 @@ function toggleExpand(id: string) {
   else expanded.value.push(id)
 }
 
-const day = (value?: string) => (value ? new Date(value).toLocaleDateString() : '')
+const day = (value?: string) => (value ? formatDate(value) : '')
 
 function statusColor(status: string) {
   const colors: Record<string, string> = { draft: 'grey', calculated: 'info', approved: 'success', paid: 'primary' }

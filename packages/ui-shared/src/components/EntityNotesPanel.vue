@@ -66,6 +66,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatDate } from '../format/format'
 import { ref, onMounted, watch } from 'vue'
 import { httpClient } from '../composables/useHttpClient.js'
 import { reportError } from '../composables/report-error.js'
@@ -148,7 +149,7 @@ function formatRelativeTime(date: Date): string {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   if (days < 30) return `${days}d ago`
-  return date.toLocaleDateString()
+  return formatDate(date)
 }
 
 watch(() => props.entityId, () => {

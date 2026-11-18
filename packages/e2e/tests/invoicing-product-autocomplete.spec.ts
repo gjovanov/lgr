@@ -38,19 +38,19 @@ test.describe('Invoicing Product Autocomplete', () => {
     await expect(found).toBeVisible({ timeout: 5000 })
     await found.scrollIntoViewIfNeeded()
     await found.click({ force: true })
-    await expect(row.getByTestId('price-combobox')).toContainText('10.00000', { timeout: 5000 })
+    await expect(row.getByTestId('price-combobox')).toContainText('10.00', { timeout: 5000 })
 
     await lineUnitPrice(row).click()
     await lineUnitPrice(row).press('Tab')
 
     await lineQuantity(row).fill('5')
     await lineQuantity(row).press('Tab')
-    await expect(row.getByTestId('price-combobox')).toContainText('8.00000', { timeout: 5000 })
+    await expect(row.getByTestId('price-combobox')).toContainText('8.00', { timeout: 5000 })
 
     // And back: the tier's price was resolved, not chosen, so it is not the line's to keep.
     await lineQuantity(row).fill('1')
     await lineQuantity(row).press('Tab')
-    await expect(row.getByTestId('price-combobox')).toContainText('10.00000', { timeout: 5000 })
+    await expect(row.getByTestId('price-combobox')).toContainText('10.00', { timeout: 5000 })
   })
 
   // A resolved price comes back by itself; one the person typed must not be replaced by it.
@@ -73,12 +73,12 @@ test.describe('Invoicing Product Autocomplete', () => {
 
     await lineUnitPrice(row).fill('123.45')
     await lineUnitPrice(row).press('Tab')
-    await expect(row.getByTestId('price-combobox')).toContainText('123.45000')
+    await expect(row.getByTestId('price-combobox')).toContainText('123.45')
 
     await lineQuantity(row).fill('3')
     await lineQuantity(row).press('Tab')
     await page.waitForLoadState('networkidle')
-    await expect(row.getByTestId('price-combobox')).toContainText('123.45000')
+    await expect(row.getByTestId('price-combobox')).toContainText('123.45')
 
     // A page load leaves the form under Pending changes.
     await page.reload()
@@ -86,7 +86,7 @@ test.describe('Invoicing Product Autocomplete', () => {
     await restoreEntry(page, /EUR/)
     await expect(page).toHaveURL(/\/invoicing\/invoices\/new/, { timeout: 15000 })
     await page.waitForLoadState('networkidle')
-    await expect(row.getByTestId('price-combobox')).toContainText('123.45000')
+    await expect(row.getByTestId('price-combobox')).toContainText('123.45')
 
     await page.getByRole('button', { name: /^save$/i }).first().click()
     await expect(page).toHaveURL(/\/invoicing\/invoices\/[^/]+\/edit/, { timeout: 15000 })
