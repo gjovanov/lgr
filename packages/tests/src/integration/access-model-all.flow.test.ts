@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { join } from 'node:path'
-import { Types } from 'mongoose'
 import { setupTestDB, teardownTestDB, testDbUri } from '../setup'
 import { Org, User } from 'db/models'
 import { mongoose } from 'db/connection'
 import { createTestOrg, createTestUser } from '../helpers/factories'
+
+const { Types } = mongoose
 
 /**
  * FR-27 P3-6 (#529) — `scripts/access-model.ts`, run as a script against the test database. The legacy model and
