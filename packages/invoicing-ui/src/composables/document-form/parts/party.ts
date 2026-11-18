@@ -6,7 +6,7 @@
  */
 import { ref, watch } from 'vue'
 import { getDocument, listDocuments, type DocumentContact, type DocumentListParams } from '../../../api/documents'
-import { getContact, listContacts, type Contact } from '../../../api/contacts'
+import { getContact, listContacts } from '../../../api/contacts'
 import { getProduct } from '../../../api/products'
 import { listWarehouses } from '../../../api/warehouses'
 import { reportError } from 'ui-shared/composables/report-error'
@@ -52,8 +52,8 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
     if (config.showRelatedInvoice) void fetchInvoices() // reference data, never rejects
   }
 
-  /** The contact the create dialog made: the route's answer (`ContactAutocompleteWithCreate`). */
-  function onContactCreated(contact: Contact) {
+  /** The contact the create dialog made: the route's answer (`ContactAutocompleteWithCreate`), named by its `_id`. */
+  function onContactCreated(contact: { _id: string }) {
     contacts.value.push(contact)
     form.contactId = contact._id
     onContactChange(form.contactId)
@@ -202,8 +202,8 @@ export function useFormParty(s: FormState, lines: FormLines, pricing: FormPricin
 
   // ── contact picker dialog (wide server-searched table, mirrors the product picker) ──
   const contactPickerOpen = ref(false)
-  /** A row of the wide picker (`ContactPickerDialog`): the list route's contact. */
-  function onContactPicked(c: Contact) {
+  /** A row of the wide picker (`ContactPickerDialog`): the list route's contact, named by its `_id`. */
+  function onContactPicked(c: { _id: string }) {
     const id = c._id
     if (!contacts.value.some((x: any) => x._id === id)) contacts.value = [c, ...contacts.value]
     form.contactId = id
