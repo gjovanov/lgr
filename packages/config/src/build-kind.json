@@ -1,0 +1,4 @@
+{
+  "about": "FR-20 plan F.4.4: what kind of build this tree makes. Every build embeds this file: the API's bundle (services/biz/crypto/test-keys.ts), the supervisor (packages/server/src/build_kind.rs) and the image. Only a TEST build (testKeys true) also trusts the licence and identity keys named at run time in LGR_TEST_LICENCE_KEYS and LGR_TEST_IDP_KEYS. It is made for the field lanes' throwaway global, which signs with keys made for one run. Committed false and kept so by a unit test; check-package, the server release workflow and deploy-prod.sh each refuse a test build.",
+  "testKeys": false
+}

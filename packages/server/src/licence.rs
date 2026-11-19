@@ -11,6 +11,10 @@
 //! ⚠ What is kept here is not trusted for being here. The API verifies each file again whenever it
 //! changes, and it is the API that restricts a till (`master-licence.service.ts`); this check is
 //! for the operator, who learns at import that a file is wrong, and for global's bugs.
+//!
+//! A TEST build (`build_kind`, FR-20 plan F.4.4) also trusts the keys named in
+//! `LGR_TEST_LICENCE_KEYS` in `config/api.env`, as the API does: the field lanes' throwaway global
+//! signs with keys made for one run. Any other build ignores them.
 
 use anyhow::{anyhow, bail, Result};
 use base64::Engine;
@@ -58,18 +62,42 @@ fn kid_of(der: &[u8]) -> String {
     B64URL.encode(ring::digest::digest(&ring::digest::SHA256, der).as_ref())[..16].to_string()
 }
 
-/// The keys built into this release: `(kid, raw Ed25519 public key)`.
-pub fn built_in_keys() -> Vec<(String, Vec<u8>)> {
-    let file: serde_json::Value = serde_json::from_str(KEYS).expect("licence-keys.json is JSON");
-    file["keys"]
-        .as_array()
+/// Base64 Ed25519 SPKIs as `(kid, raw public key)`; anything else is no key.
+fn spki_keys(spkis: impl IntoIterator<Item = impl AsRef<str>>) -> Vec<(String, Vec<u8>)> {
+    spkis
         .into_iter()
-        .flatten()
-        .filter_map(|k| {
-            let der = base64::engine::general_purpose::STANDARD.decode(k["spki"].as_str()?).ok()?;
+        .filter_map(|b64| {
+            let der = base64::engine::general_purpose::STANDARD.decode(b64.as_ref().trim()).ok()?;
             (der.len() == 44 && der[..12] == SPKI_PREFIX).then(|| (kid_of(&der), der[12..].to_vec()))
         })
         .collect()
+}
+
+/// The keys built into this release: `(kid, raw Ed25519 public key)`.
+pub fn built_in_keys() -> Vec<(String, Vec<u8>)> {
+    let file: serde_json::Value = serde_json::from_str(KEYS).expect("licence-keys.json is JSON");
+    spki_keys(file["keys"].as_array().into_iter().flatten().filter_map(|k| k["spki"].as_str()))
+}
+
+/// Where an operator names the licence keys a test build also trusts: `config/api.env`, which the API
+/// gets as its environment.
+pub const TEST_KEYS_ENV: &str = "LGR_TEST_LICENCE_KEYS";
+
+/// The keys a licence is verified with here: the built-in ones, and in a test build also those named
+/// in `LGR_TEST_LICENCE_KEYS` (`config/api.env`, comma-separated base64 SPKI DER).
+pub fn trusted_keys(data: &Path) -> Vec<(String, Vec<u8>)> {
+    trusted_keys_as(data, crate::build_kind::test_keys())
+}
+
+fn trusted_keys_as(data: &Path, test_build: bool) -> Vec<(String, Vec<u8>)> {
+    let mut keys = built_in_keys();
+    if test_build {
+        let text = std::fs::read_to_string(data.join("config").join("api.env")).unwrap_or_default();
+        if let Some(list) = crate::config::parse_env(&text).get(TEST_KEYS_ENV) {
+            keys.extend(spki_keys(list.split(',')));
+        }
+    }
+    keys
 }
 
 fn hex24(s: &str) -> bool {
@@ -121,9 +149,9 @@ pub fn verify_with(jws: &str, keys: &[(String, Vec<u8>)]) -> Result<Licence> {
     Ok(licence)
 }
 
-/// Keep `jws` for this master (`this_node`), verified with the built-in keys.
+/// Keep `jws` for this master (`this_node`), verified with the keys this build trusts.
 pub fn keep(data: &Path, jws: &str, this_node: &str) -> Result<Kept> {
-    keep_with(data, jws, this_node, &built_in_keys())
+    keep_with(data, jws, this_node, &trusted_keys(data))
 }
 
 pub fn keep_with(data: &Path, jws: &str, this_node: &str, keys: &[(String, Vec<u8>)]) -> Result<Kept> {
@@ -151,7 +179,7 @@ pub fn keep_with(data: &Path, jws: &str, this_node: &str, keys: &[(String, Vec<u
 
 /// What `lgr-server status` shows: every licence held, or why a file is not one.
 pub fn list(data: &Path) -> serde_json::Value {
-    let keys = built_in_keys();
+    let keys = trusted_keys(data);
     let mut out = vec![];
     for entry in std::fs::read_dir(dir(data)).into_iter().flatten().flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -253,6 +281,28 @@ mod tests {
         // No temporary file is left behind.
         let names: Vec<String> = std::fs::read_dir(dir(data.path())).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
         assert_eq!(names, vec![format!("{ORG}.jws")]);
+    }
+
+    #[test]
+    fn a_test_build_alone_trusts_the_licence_keys_the_operator_names() {
+        let data = tempfile::tempdir().unwrap();
+        let s = Signer::new();
+        let spki = base64::engine::general_purpose::STANDARD.encode([&SPKI_PREFIX[..], &s.keys()[0].1[..]].concat());
+        std::fs::create_dir_all(data.path().join("config")).unwrap();
+        std::fs::write(data.path().join("config").join("api.env"), format!("# the lane's global\n{TEST_KEYS_ENV}=not-a-key, {spki} ,\n")).unwrap();
+        let jws = s.sign(claims(ORG, NODE, 100));
+        // Any other build: the built-in keys alone, whatever the operator's file names.
+        assert_eq!(trusted_keys_as(data.path(), false), built_in_keys());
+        assert!(keep_with(data.path(), &jws, NODE, &trusted_keys_as(data.path(), false)).is_err());
+        // A test build: the built-in keys and the named one. The junk entry is no key.
+        let keys = trusted_keys_as(data.path(), true);
+        assert_eq!(keys.len(), built_in_keys().len() + 1);
+        assert_eq!(keys.last(), s.keys().first());
+        assert!(keep_with(data.path(), &jws, NODE, &keys).unwrap().changed);
+        // With no file, a test build trusts the built-in keys alone.
+        assert_eq!(trusted_keys_as(tempfile::tempdir().unwrap().path(), true), built_in_keys());
+        // This tree is no test build, so `keep` itself refuses the named key.
+        assert!(keep(data.path(), &s.sign(claims(ORG, NODE, 200)), NODE).unwrap_err().to_string().contains("does not know"));
     }
 
     #[test]

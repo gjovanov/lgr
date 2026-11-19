@@ -21,7 +21,7 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import {
-  ENTRIES, MANIFEST, REPO_ROOT, SCRIPT_ALLOW_LIST, UI_MODULES, describeFile, listFiles, serverBuildOptions,
+  ENTRIES, MANIFEST, REPO_ROOT, SCRIPT_ALLOW_LIST, UI_MODULES, describeFile, isTestKeysTree, listFiles, serverBuildOptions,
   type ServerManifest,
 } from './lib/server-package.ts'
 
@@ -66,12 +66,15 @@ if (import.meta.main) {
   for (const m of UI_MODULES) cpSync(join(REPO_ROOT, 'packages', m, 'dist'), join(OUT, 'ui', m), { recursive: true })
 
   const dirty = git('status', '--porcelain').length > 0
+  // What the bundles embedded: the same file, read in the same run.
+  const testKeys = isTestKeysTree()
   const manifest: ServerManifest = {
     name: 'lgr-server',
     format: 1,
     commit: git('rev-parse', 'HEAD'),
     commitDate: git('log', '-1', '--format=%cI'),
     dirty,
+    testKeys,
     bun: { version: Bun.version, revision: Bun.revision },
     entries: Object.fromEntries(ENTRIES.map(e => [e.name, `app/${e.name}.js`])),
     scripts: [...SCRIPT_ALLOW_LIST],
@@ -81,6 +84,6 @@ if (import.meta.main) {
   writeFileSync(join(OUT, MANIFEST), JSON.stringify(manifest, null, 2) + '\n')
 
   const bytes = manifest.files.reduce((n, f) => n + f.size, 0)
-  console.log(`Built ${relative(process.cwd(), OUT) || OUT}: ${manifest.files.length} files, ${(bytes / 1e6).toFixed(1)} MB, commit ${manifest.commit.slice(0, 12)}${dirty ? ' (DIRTY working tree: not a release)' : ''}`)
+  console.log(`Built ${relative(process.cwd(), OUT) || OUT}: ${manifest.files.length} files, ${(bytes / 1e6).toFixed(1)} MB, commit ${manifest.commit.slice(0, 12)}${dirty ? ' (DIRTY working tree: not a release)' : ''}${testKeys ? ' (a TEST build: it trusts keys named at run time, never a release)' : ''}`)
   for (const [name, path] of Object.entries(manifest.entries)) console.log(`  ${name.padEnd(8)} ${path} ${(statSync(join(OUT, path)).size / 1e6).toFixed(1)} MB`)
 }

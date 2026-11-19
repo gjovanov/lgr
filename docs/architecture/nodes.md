@@ -420,6 +420,23 @@ An org runs on its own server under a licence: a JWS that global signs, naming t
 and the date it is paid through. A master verifies it with the public keys built into its package
 (`packages/config/src/licence-keys.json`, which the supervisor reads too). A key rotates only through a
 release.
+- **Test builds** (FR-20 plan F.4.4): the field lanes' throwaway global signs with keys made for one
+  run, which no package knows.
+  - A build made from a tree whose `packages/config/src/build-kind.json` says `"testKeys": true`
+    also trusts keys named at run time:
+    - `LGR_TEST_LICENCE_KEYS` for licences;
+    - `LGR_TEST_IDP_KEYS` for "Sign in with LGR" assertions.
+
+    Each is a comma-separated list of base64 Ed25519 SPKI DER. On a master they go in
+    `config/api.env`, which the API and the supervisor both read.
+  - Every build embeds that file: the API's bundle (`services/biz/crypto/test-keys.ts`), the
+    supervisor (`build_kind.rs`) and the image.
+  - Any other build ignores both variables. A test build says what it is: a warning at every
+    start, `testKeys` in `lgr-server status` and in the package manifest.
+  - ⚠ The committed file says false, and a unit test keeps it so. A test build is never released:
+    - `check:package` refuses its package (`--allow-test-keys` lets the lanes' own builds through);
+    - the server release workflow refuses the commit in `adopt` and in `package`;
+    - `deploy-prod.sh` refuses to build it.
 - **Who is entitled** (`licence-issue.service.ts`): an Enterprise subscription that is active or
   trialing, paid through its period's end, or a pilot a sys-admin issued (`OrgLicence`,
   `/admin/licences`). The later date wins. A `past_due` subscription is not renewed, so its masters

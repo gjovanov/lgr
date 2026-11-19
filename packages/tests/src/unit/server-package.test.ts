@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
-  CLOUD_SECRET_NAMES, MANIFEST, NEVER_PACKAGED, REPO_ROOT, SCRIPT_ALLOW_LIST, describeFile, listFiles,
+  CLOUD_SECRET_NAMES, MANIFEST, NEVER_PACKAGED, REPO_ROOT, SCRIPT_ALLOW_LIST, describeFile, isTestKeysTree, listFiles,
   type ServerManifest,
 } from '../../../../scripts/lib/server-package.ts'
 import { checkPackage, foreignOriginHits, issuedDocumentHits, secretNameHits } from '../../../../scripts/check-package.ts'
@@ -33,7 +33,7 @@ const CLEAN: Record<string, string> = {
 }
 
 /** A package directory holding `files`, with a manifest that lists exactly them unless told otherwise. */
-function makePackage(files: Record<string, string>, opts: { scripts?: string[]; after?: Record<string, string> } = {}): string {
+function makePackage(files: Record<string, string>, opts: { scripts?: string[]; after?: Record<string, string>; testKeys?: boolean | null } = {}): string {
   const dir = join(scratch, `p${n++}`)
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(dir, path)), { recursive: true })
@@ -41,12 +41,15 @@ function makePackage(files: Record<string, string>, opts: { scripts?: string[]; 
   }
   const manifest: ServerManifest = {
     name: 'lgr-server', format: 1, commit: '0'.repeat(40), commitDate: '2026-10-24T00:00:00Z', dirty: false,
+    testKeys: opts.testKeys ?? false,
     bun: { version: Bun.version, revision: Bun.revision },
     entries: { server: 'app/server.js', migrate: 'app/migrate.js' },
     scripts: opts.scripts ?? ['assign-din-tags'],
     ui: ['portal'],
     files: listFiles(dir).map(p => describeFile(dir, p)),
   }
+  // null: a manifest that does not say whether it is a test build.
+  if (opts.testKeys === null) delete (manifest as Partial<ServerManifest>).testKeys
   writeFileSync(join(dir, MANIFEST), JSON.stringify(manifest))
   for (const [path, text] of Object.entries(opts.after ?? {})) {
     mkdirSync(dirname(join(dir, path)), { recursive: true })
@@ -112,6 +115,35 @@ describe('check-package refuses what a master must not carry', () => {
     const dir = join(scratch, 'not-a-package')
     mkdirSync(dir, { recursive: true })
     expect(rulesOf(dir)).toEqual([`manifest ${MANIFEST}`])
+  })
+
+  it('refuses a test build, and a manifest that does not say, unless told to let a test build through (FR-20 plan F.4.4)', () => {
+    const test = makePackage(CLEAN, { testKeys: true })
+    expect(rulesOf(test)).toEqual([`test-keys ${MANIFEST}`])
+    expect(checkPackage(test)[0].detail).toContain('TEST build')
+    expect(checkPackage(test, { allowTestKeys: true })).toEqual([])
+    expect(rulesOf(makePackage(CLEAN, { testKeys: null }))).toEqual([`test-keys ${MANIFEST}`])
+    // The control: a release build passes with or without the flag.
+    expect(checkPackage(makePackage(CLEAN), { allowTestKeys: true })).toEqual([])
+  })
+
+  it('every release path refuses a tree that makes a test build: the release workflow (adopt + package) and deploy-prod.sh', () => {
+    const guard = `jq -e '.testKeys == false' packages/config/src/build-kind.json`
+    const workflow = readFileSync(join(REPO_ROOT, '.github', 'workflows', 'server-release.yml'), 'utf8')
+    expect(workflow.split(guard).length - 1).toBe(2)
+    const deploy = readFileSync(join(REPO_ROOT, 'scripts', 'deploy-prod.sh'), 'utf8')
+    for (const text of [`jq -r '.testKeys'`, 'packages/config/src/build-kind.json']) expect(deploy).toContain(text)
+    expect(deploy).toMatch(/if \[\[ \$DO_BUILD == 1 && \$DO_APP == 1 \]\]; then test_keys_gate; fi/)
+  })
+
+  it('reads a test build from the tree it was built from, and this tree is none', () => {
+    expect(isTestKeysTree()).toBe(false)
+    const tree = join(scratch, 'tree')
+    mkdirSync(join(tree, 'packages', 'config', 'src'), { recursive: true })
+    for (const [text, want] of [['{"testKeys": true}', true], ['{"testKeys": false}', false], ['{"testKeys": "true"}', false], ['{}', false]] as const) {
+      writeFileSync(join(tree, 'packages', 'config', 'src', 'build-kind.json'), text)
+      expect(isTestKeysTree(tree)).toBe(want)
+    }
   })
 })
 

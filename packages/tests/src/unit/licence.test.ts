@@ -9,6 +9,9 @@ import {
 } from 'services/biz/licence/licence-token'
 import { licenceStatus, nextLocalDate } from 'services/biz/licence/licence-state'
 import { LICENSED_ACTIONS, licensedAction } from 'services/biz/licence/licence-gate'
+import { TEST_KEYS_BUILD, testTrustKeys } from 'services/biz/crypto/test-keys'
+import { BUILT_IN_IDP_KEYS } from 'services/biz/idp/idp-token'
+import { generateKeyPairSync } from 'node:crypto'
 
 /**
  * FR-20.55 (plan step P2-3b) — a licence's token, its dates on the org's calendar, and what an
@@ -49,6 +52,39 @@ describe('the token', () => {
     expect(acceptedKeys(false).has(key.kid)).toBe(true)
     expect(acceptedKeys(true).has(key.kid)).toBe(false)
     expect([...acceptedKeys(true).keys()]).toEqual([...BUILT_IN_KEYS.keys()])
+  })
+})
+
+describe('a test build (FR-20 plan F.4.4)', () => {
+  const spki = (type: 'ed25519' | 'x25519') =>
+    (generateKeyPairSync(type as 'ed25519').publicKey.export({ format: 'der', type: 'spki' }) as Buffer).toString('base64')
+
+  it('is never committed: this tree builds packages that trust their built-in keys alone', () => {
+    // ⚠ config/src/build-kind.json must say "testKeys": false. A test build is made only for the field lanes.
+    expect(TEST_KEYS_BUILD).toBe(false)
+    expect(BUILT_IN_KEYS.size).toBe(1)
+    expect(BUILT_IN_IDP_KEYS.size).toBe(1)
+  })
+
+  it('alone trusts the keys named at run time; any other build ignores them, junk included', () => {
+    const a = spki('ed25519')
+    const b = spki('ed25519')
+    expect(testTrustKeys(` ${a}, ,${b} `, true)).toEqual([a, b])
+    expect(testTrustKeys(`${a},${b}`, false)).toEqual([])
+    expect(testTrustKeys('not-a-key', false)).toEqual([])
+    expect(testTrustKeys(undefined, true)).toEqual([])
+    expect(testTrustKeys('  ', true)).toEqual([])
+    // This tree's own default: not a test build.
+    expect(testTrustKeys(a)).toEqual([])
+  })
+
+  it('refuses at start an entry that is not an Ed25519 public key', () => {
+    const a = spki('ed25519')
+    expect(() => testTrustKeys(`${a},not-a-key`, true)).toThrow('test trust key 2 is not a base64 Ed25519 public key')
+    expect(() => testTrustKeys(spki('x25519'), true)).toThrow('test trust key 1')
+    // A PRIVATE key never passes for a public one.
+    const pkcs8 = (generateKeyPairSync('ed25519').privateKey.export({ format: 'der', type: 'pkcs8' }) as Buffer).toString('base64')
+    expect(() => testTrustKeys(pkcs8, true)).toThrow('test trust key 1')
   })
 })
 

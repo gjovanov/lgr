@@ -1,5 +1,6 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify, type KeyObject } from 'node:crypto'
 import keyFile from 'config/licence-keys'
+import { TEST_LICENCE_KEYS_ENV, testTrustKeys } from '../crypto/test-keys.js'
 
 /**
  * FR-20.55 (plan step P2-3b) — an org's licence on a master: a compact JWS (EdDSA) that global
@@ -54,9 +55,13 @@ function publicKeyFromSpki(b64: string): KeyObject {
   return createPublicKey({ key: Buffer.from(b64, 'base64'), format: 'der', type: 'spki' })
 }
 
-/** The built-in keys, by kid. */
+/**
+ * The built-in keys, by kid. A test build also includes those named in `LGR_TEST_LICENCE_KEYS`
+ * (`crypto/test-keys.ts`); any other build includes the file's keys and nothing else.
+ */
 export const BUILT_IN_KEYS: ReadonlyMap<string, KeyObject> = new Map(
-  (keyFile as { keys: Array<{ spki: string }> }).keys.map(k => [kidOf(Buffer.from(k.spki, 'base64')), publicKeyFromSpki(k.spki)] as const),
+  [...(keyFile as { keys: Array<{ spki: string }> }).keys.map(k => k.spki), ...testTrustKeys(process.env[TEST_LICENCE_KEYS_ENV])]
+    .map(spki => [kidOf(Buffer.from(spki, 'base64')), publicKeyFromSpki(spki)] as const),
 )
 
 /** A key that signs: its id and its private half. */

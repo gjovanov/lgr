@@ -13,7 +13,10 @@
  *   - makes a built SPA load a script, a style, a font or a beacon from another origin (AC 66);
  *   - carries a script that can write an issued document, judged from its source and everything
  *     it imports in the repository (AC 67);
- *   - was bundled with `process.env.NODE_ENV` inlined, which compiles every production guard out.
+ *   - was bundled with `process.env.NODE_ENV` inlined, which compiles every production guard out;
+ *   - is a TEST build (`testKeys`, FR-20 plan F.4.4), which trusts licence and identity keys named at
+ *     run time, or does not say whether it is one. `--allow-test-keys` lets a test build through
+ *     this one rule, for the field lanes' own builds.
  *
  * Prints every finding and exits 1, or exits 0 when there are none. The script check reads the
  * repository, so it runs where the package was built (CI), at the manifest's commit.
@@ -26,7 +29,7 @@ import {
 } from './lib/server-package.ts'
 
 export interface Finding {
-  rule: 'manifest' | 'gitignored' | 'secret-file' | 'secret-name' | 'foreign-origin' | 'script' | 'node-env'
+  rule: 'manifest' | 'gitignored' | 'secret-file' | 'secret-name' | 'foreign-origin' | 'script' | 'node-env' | 'test-keys'
   path: string
   detail: string
 }
@@ -166,7 +169,7 @@ export function gitIgnored(paths: string[], repo: string = REPO_ROOT): string[] 
   return r.stdout.toString().split('\n').map(s => s.trim()).filter(Boolean)
 }
 
-export function checkPackage(dir: string, opts: { repo?: string } = {}): Finding[] {
+export function checkPackage(dir: string, opts: { repo?: string; allowTestKeys?: boolean } = {}): Finding[] {
   const repo = opts.repo ?? REPO_ROOT
   const findings: Finding[] = []
   const add = (rule: Finding['rule'], path: string, detail: string) => findings.push({ rule, path, detail })
@@ -182,6 +185,11 @@ export function checkPackage(dir: string, opts: { repo?: string } = {}): Finding
   } catch {
     add('manifest', MANIFEST, 'is not JSON')
     return findings
+  }
+  if (manifest.testKeys !== false && !opts.allowTestKeys) {
+    add('test-keys', MANIFEST, manifest.testKeys === true
+      ? 'is a TEST build: it trusts licence and identity keys named at run time, and never ships'
+      : 'does not say whether it is a test build (testKeys): build it again')
   }
 
   const onDisk = listFiles(dir).filter(p => p !== MANIFEST)
@@ -237,8 +245,9 @@ export function checkPackage(dir: string, opts: { repo?: string } = {}): Finding
 }
 
 if (import.meta.main) {
-  const dir = resolve(process.argv[2] ?? join(REPO_ROOT, 'dist', 'lgr-server'))
-  const findings = checkPackage(dir)
+  const args = process.argv.slice(2)
+  const dir = resolve(args.find(a => !a.startsWith('--')) ?? join(REPO_ROOT, 'dist', 'lgr-server'))
+  const findings = checkPackage(dir, { allowTestKeys: args.includes('--allow-test-keys') })
   for (const f of findings) console.log(`${f.rule.padEnd(15)} ${f.path}: ${f.detail}`)
   if (findings.length) {
     console.log(`\n${findings.length} finding(s): ${dir} may not ship.`)
