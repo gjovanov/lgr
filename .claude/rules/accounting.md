@@ -102,6 +102,12 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
   one, and a re-import replaces months: anything in the title block that is not known is a filter.
   The file's own counts and totals must hold, and its ЕИК must be the org's.
 
+- ⚠ **A held day is sent around, never left out of its month** (2026-11-19). An archive record that
+  cannot be read holds its whole day (`plusminus-archive.ts`, `hold`), and the import sends that month
+  as a request per run of the days around it, each covering only its run (`journalRequests`). The month
+  sent whole without that day, or a document dropped alone, deletes what LGR holds of it as `gone`. So
+  the journal names its held days as a filter line too: an importer from before held days refuses it.
+
 - ⚠ **Every reading of the books leaves out the shadow ledger.** `sumPostedLines` is the one for
   balances; anything else spreads `POSTED_BOOKS` from `db/models`. Unset `ledger` is books, so it is
   a `$ne`, never an equality.

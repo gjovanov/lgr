@@ -17,7 +17,9 @@
  * employees under 421/425) are skipped during the walk. Payroll is `scripts/lib/payroll-archive.ts`, sealed by its callers.
  */
 import { createGunzip } from 'node:zlib'
-import { parseAnalyticsFile, type AnalyticItem, type ParsedChartRow, type ParsedJournal } from './plusminus-exports.js'
+import {
+  heldBeyondLimits, heldFilter, parseAnalyticsFile, type AnalyticItem, type HeldDay, type HeldRecord, type ParsedChartRow, type ParsedJournal,
+} from './plusminus-exports.js'
 import type { ImportDocument, ImportDocumentProps, ImportLink, ImportOperation, ImportSource, LedgerCurrency, OpeningAnalyticLine } from './import.types.js'
 import { EUR_CHANGEOVER } from './registry.js'
 import { localInstant } from '../local-day.js'
@@ -183,6 +185,30 @@ export function archiveNumber(v: FieldValue | undefined): number | undefined {
 const asText = (v: FieldValue | undefined) => (v === undefined ? '' : String(v).trim())
 const iso = (d: string) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
 
+/** Where a journal record is, as a refusal names it: its document's type and number, and its line. */
+function placeOf(rec: RawRecord): { doc: string; line: string } {
+  const f = rec.f
+  const d = asText(f['ДЕБИТ']), k = asText(f['КРЕДИТ'])
+  return {
+    doc: [asText(f['ДОКУМЕНТ']), asText(f['ДОКУМ.No'])].filter(Boolean).join(' '),
+    line: d || k ? `Дт ${d || '-'} Кт ${k || '-'}` : 'the header',
+  }
+}
+
+/** The refusal of a record's figure that is no number: where it is, and the words the refusal says it in. */
+function figureRefusal(rec: RawRecord, field: string): HeldRecord {
+  const { doc, line } = placeOf(rec)
+  const at = `${rec.date}\\${rec.seq}`, value = asText(rec.f[field])
+  return { at, doc, line, field, value, reason: `plusminus-archive: ${at} (${doc ? `${doc}, ` : ''}${line}), ${field}: "${value}" is not a number` }
+}
+
+/** The refusal of an operation that names one account: `field` is the one it lacks. */
+function oneAccountRefusal(rec: RawRecord): HeldRecord {
+  const { doc, line } = placeOf(rec)
+  const at = `${rec.date}\\${rec.seq}`
+  return { at, doc, line, field: asText(rec.f['ДЕБИТ']) ? 'КРЕДИТ' : 'ДЕБИТ', value: '', reason: `plusminus-archive: ${at} is an operation with one account` }
+}
+
 /**
  * A number of a journal record, or a refusal that says WHERE it is.
  *
@@ -194,12 +220,61 @@ function recordNumber(rec: RawRecord, field: string): number | undefined {
   try {
     return archiveNumber(rec.f[field])
   } catch {
-    const f = rec.f
-    const doc = [asText(f['ДОКУМЕНТ']), asText(f['ДОКУМ.No'])].filter(Boolean).join(' ')
-    const d = asText(f['ДЕБИТ']), k = asText(f['КРЕДИТ'])
-    const line = d || k ? `Дт ${d || '-'} Кт ${k || '-'}` : 'the header'
-    throw new Error(`plusminus-archive: ${rec.date}\\${rec.seq} (${doc ? `${doc}, ` : ''}${line}), ${field}: "${asText(f[field])}" is not a number`)
+    throw new Error(figureRefusal(rec, field).reason)
   }
+}
+
+/** The figures `journalFromRecords` reads of an operation, in the order it reads them. */
+const OPERATION_FIGURES = ['СУМА', 'КОЛИЧЕСТВО', 'КУРС', 'СУМАВАЛ'] as const
+
+/**
+ * Every refusal a journal record makes, in the order `journalFromRecords` meets them: it stops at the first, and this goes
+ * on, so that a record with two figures to retype names both. None, for a record that reads (or that the journal skips).
+ */
+function refusalsOf(rec: RawRecord): HeldRecord[] {
+  const f = rec.f
+  const d = asText(f['ДЕБИТ']), k = asText(f['КРЕДИТ'])
+  const figures = (fields: readonly string[]) => fields.flatMap(field => {
+    try {
+      archiveNumber(f[field])
+      return []
+    } catch {
+      return [figureRefusal(rec, field)]
+    }
+  })
+  if (!d && !k) return asText(f['ДОКУМЕНТ']) || asText(f['ДОКУМ.No']) ? figures(['СУМА']) : []
+  return [...(!d || !k ? [oneAccountRefusal(rec)] : []), ...figures(OPERATION_FIGURES)]
+}
+
+/**
+ * The days of `records` that a record of cannot be read, each with what is on it, in date order. More of them than a typo
+ * explains (`heldBeyondLimits`) refuses the records whole, with the refusal they make when nothing is held.
+ */
+function daysToHold(records: RawRecord[]): HeldDay[] {
+  const days = new Map<string, HeldDay>()
+  let first: HeldRecord | undefined
+  for (const rec of records) {
+    const refusals = refusalsOf(rec)
+    if (!refusals.length) continue
+    first ??= refusals[0]
+    const date = iso(rec.date)
+    const day = days.get(date) ?? { date, documents: 0, operations: 0, records: [] }
+    day.records.push(...refusals)
+    days.set(date, day)
+  }
+  if (!first) return []
+  // What leaves the journal with each day, counted as `journalFromRecords` counts what stays.
+  for (const rec of records) {
+    const day = days.get(iso(rec.date))
+    if (!day) continue
+    const f = rec.f
+    if (asText(f['ДЕБИТ']) || asText(f['КРЕДИТ'])) day.operations++
+    else if (asText(f['ДОКУМЕНТ']) || asText(f['ДОКУМ.No'])) day.documents++
+  }
+  const held = [...days.values()].sort((a, b) => a.date.localeCompare(b.date))
+  const beyond = heldBeyondLimits(held)
+  if (beyond) throw new Error(`${first.reason}; ${beyond}`)
+  return held
 }
 
 // ── a document's header, beyond what the export shows (FR-25a) ──────────────────────────────────
@@ -351,13 +426,43 @@ export function propsOf(f: Record<string, FieldValue>): ImportDocumentProps | un
 
 // ── the journal ──────────────────────────────────────────────────────────────────────────────────
 
+/** How `journalFromRecords` and `journalOfYear` take a record they cannot read. */
+export interface JournalOptions {
+  /**
+   * Hold the DAY of a record that cannot be read (a figure that is no number, an operation with one account), rather than
+   * refuse the whole: every record dated that day leaves the journal and its counts, and `held` names the day, what left with
+   * it and why, each record in the words of its refusal. A document is never dropped on its own, and nothing is guessed:
+   * the import leaves what LGR holds of a held day as it is (`plusminus-exports.ts#journalRequests`). More held days than a
+   * typo explains refuse the whole, as without this (`heldBeyondLimits`).
+   */
+  hold?: boolean
+}
+
+export interface ArchiveJournal {
+  documents: ImportDocument[]
+  counts: { documents: number; operations: number }
+  withoutHeader: ParsedJournal['withoutHeader']
+  /** Only with `hold`, and only when a day is held. */
+  held?: HeldDay[]
+}
+
 /**
  * The journal of the records, grouped exactly as `parseJournalExport` groups the GUI export's rows (its rules, copied): a header
  * (a record with neither ДЕБИТ nor КРЕДИТ) starts a document; an operation joins it only when the document directly before it is its
  * own (same date, type, number); an operation with neither type nor number is a document of its own; any other is a document
  * "without header" (PlusMinus lost the header, the operation stayed).
+ *
+ * No document spans two days (an operation joins only a document of its own date), so the journal of the records without a
+ * held day's is, day by day, the journal of all of them: what is left of every other day is exactly what it was.
  */
-export function journalFromRecords(records: RawRecord[]): { documents: ImportDocument[]; counts: { documents: number; operations: number }; withoutHeader: ParsedJournal['withoutHeader'] } {
+export function journalFromRecords(records: RawRecord[], options: JournalOptions = {}): ArchiveJournal {
+  const held = options.hold ? daysToHold(records) : []
+  if (!held.length) return groupRecords(records)
+  const days = new Set(held.map(h => h.date))
+  return { ...groupRecords(records.filter(r => !days.has(iso(r.date)))), held }
+}
+
+function groupRecords(records: RawRecord[]): ArchiveJournal {
   const documents: ImportDocument[] = []
   const withoutHeader: ParsedJournal['withoutHeader'] = []
   let current: ImportDocument | null = null
@@ -374,7 +479,7 @@ export function journalFromRecords(records: RawRecord[]): { documents: ImportDoc
       documents.push(current)
       continue
     }
-    if (!d || !k) throw new Error(`plusminus-archive: ${rec.date}\\${rec.seq} is an operation with one account`)
+    if (!d || !k) throw new Error(oneAccountRefusal(rec).reason)
     const op: ImportOperation = { d, k, amount: recordNumber(rec, 'СУМА') ?? 0 }
     const ad = f['АНАЛДЕБ'] === undefined ? '' : String(f['АНАЛДЕБ']), ak = f['АНАЛКРЕ'] === undefined ? '' : String(f['АНАЛКРЕ'])
     if (ad.trim()) op.ad = ad
@@ -404,20 +509,25 @@ export const currencyOfYear = (year: number): LedgerCurrency => (`${year}-01-01`
 /**
  * A year's journal in `ParsedJournal`'s shape, ready for the import: the whole year when it is over, else up to `asOf` (YYYY-MM-DD,
  * the archive's day). The import replaces every month of `period`, so it never reaches past what the archive holds.
+ *
+ * With `hold`, a year with a held day says so twice: in `held`, and in a filter line (`heldFilter`) that an importer from before
+ * held days refuses, where it would send the day's month whole and delete what LGR holds of the day. A year with none is the
+ * same journal as without `hold`, to the byte.
  */
-export function journalOfYear(b: ArchiveBooks, year: number, asOf: string): ParsedJournal {
+export function journalOfYear(b: ArchiveBooks, year: number, asOf: string, options: JournalOptions = {}): ParsedJournal {
   const from = `${year}0101`, to = `${year}1231`
-  const j = journalFromRecords(b.records.filter(r => r.date >= from && r.date <= to))
+  const j = journalFromRecords(b.records.filter(r => r.date >= from && r.date <= to), options)
   const end = asOf < `${year}-12-31` ? asOf : `${year}-12-31`
   return {
     eik: b.eik,
     period: { from: `${year}-01-01`, to: end },
     currency: currencyOfYear(year),
-    filters: [],
+    filters: j.held ? [heldFilter(j.held)] : [],
     documents: j.documents,
     counts: j.counts,
     declared: { ...j.counts },
     withoutHeader: j.withoutHeader,
+    ...(j.held ? { held: j.held } : {}),
   }
 }
 

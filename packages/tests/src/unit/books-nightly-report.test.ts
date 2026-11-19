@@ -3,11 +3,14 @@ import { gzipSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ImportDocument } from 'services/biz/accounting-books/import.types'
+import type { HeldDay } from 'services/biz/accounting-books/plusminus-exports'
 import {
   continuityOfFiles,
   docsRootDown,
   documentChanges,
   documentChangesText,
+  heldDaysText,
+  heldText,
   importedDocuments,
   isSplitImport,
   labelOf,
@@ -16,13 +19,15 @@ import {
   parseImport,
   parseImported,
   problems,
+  problemsWhileHeld,
   serializeImported,
   splitProblems,
   sumImports,
   summarize,
   summarizeOrgs,
+  withHeldDays,
 } from '../../../../scripts/lib/books-nightly-report'
-import { stepLines } from '../../../../scripts/lib/books-import-print'
+import { heldDayLine, stepLines } from '../../../../scripts/lib/books-import-print'
 
 /**
  * What the unattended books run reads out of `import-accounting-books.ts`. The lines are the importer's own,
@@ -351,5 +356,98 @@ describe('books nightly: a split, imported into each org of it', () => {
     expect(continuityOfFiles(2026, before, opening.map(l => (l.code === '501' ? { ...l, debit: 1099 } : l)))).toEqual({ checked: 4, equal: 3, differing: ['501'] })
     // Inside one currency there is no rate.
     expect(continuityOfFiles(2025, { opening: [{ code: '501', debit: 10, credit: 0 }], documents: [] }, [{ code: '501', debit: 10, credit: 0 }]).differing).toEqual([])
+  })
+})
+
+/**
+ * A day the archive held (`pull-books.ts`: a figure it cannot read). The importer prints a line for it and sends nothing of
+ * it; the run reads the line, says the day in the subject and the mail, and keeps the day's documents from the import
+ * before. Invented days, documents and records.
+ */
+describe('books nightly: a held day', () => {
+  const reason = 'plusminus-archive: 20260304\\00000002 (+ФЕ 77, Дт 304 Кт 401), КОЛИЧЕСТВО: "„7" is not a number'
+  const held: HeldDay = {
+    date: '2026-03-04', documents: 2, operations: 5,
+    records: [{ at: '20260304\\00000002', doc: '+ФЕ 77', line: 'Дт 304 Кт 401', field: 'КОЛИЧЕСТВО', value: '„7', reason }],
+  }
+  const withHeld = rerun.replace('journal total:', `${heldDayLine(held)}\n  ${reason}\njournal total:`)
+
+  it('the importer\'s line reads back, changes nothing the run counts or stops on, and the year says it', () => {
+    expect(heldDayLine(held)).toBe('journal 2026-03: 04 held (2 documents, 5 operations): kept as LGR holds it')
+    const r = parseImport(withHeld)
+    expect(r.held).toEqual([{ date: '2026-03-04', documents: 2, operations: 5 }])
+    expect(r.months).toHaveLength(1)
+    expect(problems(r)).toEqual([])
+    const plain = summarize(2026, parseImport(rerun))
+    expect(summarize(2026, r)).toEqual({ ...plain, text: `${plain.text} · HELD 2026-03-04` })
+    // an import that holds nothing reads exactly as before
+    expect(parseImport(rerun)).not.toHaveProperty('held')
+  })
+
+  it('a month sent as runs around the day is read run by run, and each run is checked', () => {
+    const runs = [
+      month('2026-03', { coverage: { from: '2026-03-01', to: '2026-03-03' }, entries: 10, balanced: 10 }),
+      month('2026-03', { coverage: { from: '2026-03-05', to: '2026-03-31' }, entries: 20, balanced: 19 }),
+    ]
+    const r = parseImport([withHeld, ...runs].join('\n'))
+    expect(r.months).toHaveLength(3)
+    expect(problems(r)).toEqual(['2026-03: 1 entries not balanced'])
+  })
+
+  it('every org of a split holds the same day, and the group says it once', () => {
+    const one = parseImport(withHeld)
+    expect(sumImports([one, one]).held).toEqual([{ date: '2026-03-04', documents: 2, operations: 5 }])
+    expect(sumImports([parseImport(rerun), parseImport(rerun)])).not.toHaveProperty('held')
+    const text = summarizeOrgs(2026, [{ org: 'store-a', parsed: one }, { org: 'store-b', parsed: one }]).text.split('\n')
+    expect(text[0].endsWith(' · HELD 2026-03-04')).toBe(true)
+  })
+
+  it('while the year before holds a day, a continuity that differs is said, not stopped on', () => {
+    const r = parseImport(rerun.replace('"differing":[]', '"differing":["304","401"]'))
+    expect(problemsWhileHeld(2026, r, [])).toEqual({ problems: ['opening: continuity differs on 2 accounts'], notices: [] })
+    expect(problemsWhileHeld(2026, r, ['2025-12-30'])).toEqual({
+      problems: [],
+      notices: ['opening 2026: the continuity differs on 2 accounts while 2025 holds 2025-12-30: it is checked again once the day is imported'],
+    })
+    // anything else still stops the run
+    const unbalanced = parseImport([rerun.replace('"differing":[]', '"differing":["304"]'), month('2026-02', { balanced: 1897 })].join('\n'))
+    expect(problemsWhileHeld(2026, unbalanced, ['2025-12-30']).problems).toEqual(['2026-02: 1 entries not balanced'])
+    expect(problemsWhileHeld(2026, parseImport(rerun), ['2025-12-30'])).toEqual({ problems: [], notices: [] })
+  })
+
+  it('the mail names each record, and says that the accountant must retype it and that the day stays as LGR held it', () => {
+    expect(heldDaysText(1)).toBe('1 day HELD')
+    expect(heldDaysText(2)).toBe('2 days HELD')
+    expect(heldText([])).toEqual([])
+    const oneAccount = 'plusminus-archive: 20260306\\00000001 is an operation with one account'
+    const text = heldText([held, { date: '2026-03-06', documents: 0, operations: 1, records: [{ ...held.records[0], at: '20260306\\00000001', field: 'КРЕДИТ', value: '', reason: oneAccount }] }])
+    expect(text[0]).toStartWith('2 days HELD: ')
+    expect(text[0]).toContain('The accountant must retype it in PlusMinus.')
+    expect(text[0]).toContain('Until then the day stays in LGR as LGR held it: nothing of it is added, changed or deleted.')
+    expect(text.slice(1)).toEqual([
+      '2026-03-04 (2 documents, 5 operations):',
+      `  ${reason}`,
+      '2026-03-06 (0 documents, 1 operations):',
+      `  ${oneAccount}`,
+    ])
+  })
+
+  it('the documents kept for the next run carry the held day from the import before: never gone, and changed once it is back', () => {
+    const doc = (date: string, docNumber: string, total = 120): ImportDocument => ({
+      date, docType: '-ФЕ', docNumber, total, ops: [{ d: '411', k: '702', ad: 'КЛИЕНТИ:Примерна фирма ЕООД', amount: total }],
+    })
+    const before = importedDocuments([doc('2026-03-03', '2000000001'), doc('2026-03-04', '2000000002'), doc('2026-03-05', '2000000003')])
+    // the journal of an archive that holds the 4th has nothing of it
+    const pulled = importedDocuments([doc('2026-03-03', '2000000001'), doc('2026-03-05', '2000000003', 121)])
+    expect(documentChanges(before, pulled).map(c => [c.kind, c.label])).toEqual([['gone', '2026-03-04 -ФЕ 2000000002'], ['changed', '2026-03-05 -ФЕ 2000000003']])
+    const kept = withHeldDays(pulled, before, ['2026-03-04'])
+    expect(documentChanges(before, kept).map(c => [c.kind, c.label])).toEqual([['changed', '2026-03-05 -ФЕ 2000000003']])
+    // kept through the file, then the figure retyped and the document edited: changed, not new
+    const file = parseImported(serializeImported({ archive: '20260306.arz', sha12: 'ABCDEF012345', at: '2026-03-06T20:00:00.000Z', documents: kept }))!
+    const back = importedDocuments([doc('2026-03-03', '2000000001'), doc('2026-03-04', '2000000002', 130), doc('2026-03-05', '2000000003', 121)])
+    expect(documentChanges(file.documents, back).map(c => [c.kind, c.label])).toEqual([['changed', '2026-03-04 -ФЕ 2000000002']])
+    // nothing held, or nothing known of the import before: what was pulled, as it was
+    expect(withHeldDays(pulled, before, [])).toBe(pulled)
+    expect(withHeldDays(pulled, undefined, ['2026-03-04'])).toBe(pulled)
   })
 })

@@ -6,6 +6,13 @@
 //                     [--years 2025,2026]                       default: asOf's year and the one before
 //                     [--dest DIR]                              default: $ACC_DOCS_ROOT/books/<yyyymmdd>
 //                     [--no-payroll]
+//                     [--no-hold]                               refuse the archive on a journal figure it cannot read, as before
+//
+// A journal record whose figure cannot be read (a typo such as a quote in a quantity), or an operation with one account, HOLDS its
+// day: no document of the day is in journal-<YYYY>.json, its `held` names the day with each record in the words the refusal used,
+// and the import leaves what LGR holds of that day as it is (plusminus-exports.ts#journalRequests). Printed below the year's
+// counts. More than a typo explains (> 3 days a year, > 10 records) refuses the archive whole, as --no-hold always does. The
+// chart, the openings and the analytics never hold: an opening left out would change balances.
 //
 // Writes, under the day folder (a re-run writes the same bytes and says `same`):
 //   journal-<YYYY>.json              ParsedJournal (services/biz/accounting-books/plusminus-exports.ts), the year's booked currency
@@ -26,12 +33,14 @@ import { sealBundle, unsealBundle } from '../../../packages/services/src/biz/bac
 import {
   analyticNodes, analyticOpenings, analyticsFileRows, chartOfYear, journalOfYear, readArchiveBooks,
 } from '../../../packages/services/src/biz/accounting-books/plusminus-archive'
+import { heldBeyondLimits } from '../../../packages/services/src/biz/accounting-books/plusminus-exports'
 import { personnelOfArchive, readArchivePayroll, sheetsOfArchive } from '../../../scripts/lib/payroll-archive'
 import { sealKey, unsealKeyFile } from './seal-key'
 
 const args = process.argv.slice(2)
 const opt = (f: string) => { const i = args.indexOf(f); return i >= 0 ? args[i + 1] : undefined }
 const withPayroll = !args.includes('--no-payroll')
+const hold = !args.includes('--no-hold')
 
 const archives = opt('--archive') ? null : join(need('ACC_DOCS_ROOT'), 'archives')
 const archive = opt('--archive') ?? (() => {
@@ -76,8 +85,13 @@ const json = (v: unknown) => JSON.stringify(v, null, 1) + '\n'
 
 const perYear: Record<string, unknown> = {}
 const roots = analyticNodes(books.analytics)
-for (const year of years) {
-  const journal = journalOfYear(books, year, asOf)
+// Every year read before any is written: the cap on held days is the archive's, not a year's.
+const journals = years.map(year => journalOfYear(books, year, asOf, { hold }))
+const held = journals.flatMap(j => j.held ?? [])
+const beyond = heldBeyondLimits(held)
+if (beyond) throw new Error(`${held[0].records[0].reason}; ${beyond}`)
+for (const [i, year] of years.entries()) {
+  const journal = journals[i]
   write(`journal-${year}.json`, json(journal))
   write(`chart-${year}.json`, json({ eik: books.eik, year, rows: chartOfYear(books.accounts, year) }))
   const openings: Record<string, unknown[]> = {}
@@ -86,8 +100,15 @@ for (const year of years) {
     if (lines.length) openings[r.root] = lines
   }
   write(`opening-analytics-${year}.json`, json({ eik: books.eik, year, roots: openings }))
-  perYear[year] = { period: journal.period, currency: journal.currency, ...journal.counts, withoutHeader: journal.withoutHeader.length, openingRoots: Object.keys(openings).length }
+  perYear[year] = {
+    period: journal.period, currency: journal.currency, ...journal.counts, withoutHeader: journal.withoutHeader.length, openingRoots: Object.keys(openings).length,
+    ...(journal.held ? { held: journal.held.map(h => h.date) } : {}),
+  }
   console.log(`${year} ${journal.currency}: ${journal.counts.documents} documents, ${journal.counts.operations} operations${journal.withoutHeader.length ? `, ${journal.withoutHeader.length} without header` : ''}; analytic openings on ${Object.keys(openings).length} roots`)
+  for (const h of journal.held ?? []) {
+    console.log(`${year}: ${h.date} HELD (${h.documents} documents, ${h.operations} operations): a figure cannot be read, so the day is not in the journal and LGR keeps it as it holds it. The accountant must retype:`)
+    for (const r of h.records) console.log(`  ${r.reason}`)
+  }
 }
 for (const r of roots) write(`ap_${r.root}_${books.eik}.json`, JSON.stringify(analyticsFileRows(r.root, r.nodes)))
 console.log(`analytics: ${roots.length} roots, ${roots.reduce((n, r) => n + r.nodes.length, 0)} rows (ПЕРСОНАЛ not read)`)

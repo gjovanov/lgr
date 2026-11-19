@@ -12,6 +12,7 @@ import {
   journalOfYear,
   readArchiveBooks,
   walkDump,
+  type ArchiveBooks,
   type RawRecord,
 } from 'services/biz/accounting-books/plusminus-archive'
 import { assertWholeJournal } from 'services/biz/accounting-books/plusminus-exports'
@@ -149,6 +150,114 @@ describe('the books', () => {
     // and what reads is read as before
     expect(refusal([header, line({ 'КОЛИЧЕСТВО': '12' })])).toBe('')
     expect(journalFromRecords([header, line({ 'КОЛИЧЕСТВО': ' 12,5 ' })]).documents[0].ops[0].qty).toBe(12.5)
+  })
+
+  /**
+   * `hold`: the rest of the archive is imported, the day of a record it cannot read is not. Every value is invented, the
+   * stray character included.
+   */
+  describe('a record that cannot be read holds its day (`hold`)', () => {
+    type Fields = Record<string, string | number>
+    const rec = (date: string, seq: string, f: Fields): RawRecord => ({ date, seq, f })
+    const head = (date: string, number: string, over: Fields = {}) => rec(date, '00000001', { 'ДОКУМЕНТ': '+ФЕ', 'ДОКУМ.No': number, 'СУМА': 60, 'ТИП': '1', ...over })
+    const op = (date: string, seq: string, number: string, over: Fields = {}) =>
+      rec(date, seq, { 'ДОКУМЕНТ': '+ФЕ', 'ДОКУМ.No': number, 'ДЕБИТ': '304', 'КРЕДИТ': '401', 'СУМА': '50.00', 'КОЛИЧЕСТВО': '5', ...over })
+    /** Three days; `on4th` changes the first operation of the 4th, `head4th` its header. */
+    const days = (on4th: Fields = {}, head4th: Fields = {}): RawRecord[] => [
+      head('20250403', '900001'), op('20250403', '00000002', '900001'),
+      head('20250404', '900002', head4th), op('20250404', '00000002', '900002', on4th), op('20250404', '00000003', '900002', { 'ДЕБИТ': '4531', 'КОЛИЧЕСТВО': '', 'СУМА': '10' }),
+      rec('20250407', '00000001', { 'ДЕБИТ': '603', 'КРЕДИТ': '241', 'СУМА': '10' }),
+    ]
+    const notOn4th = (records: RawRecord[]) => records.filter(r => r.date !== '20250404')
+    const refusal = (run: () => unknown): string => {
+      try {
+        run()
+        return ''
+      } catch (e) {
+        return (e as Error).message
+      }
+    }
+    const QTY = 'plusminus-archive: 20250404\\00000002 (+ФЕ 900002, Дт 304 Кт 401), КОЛИЧЕСТВО: "„12" is not a number'
+
+    it('without it, the archive is refused at the first such record, word for word as before', () => {
+      expect(refusal(() => journalFromRecords(days({ 'КОЛИЧЕСТВО': '„12' })))).toBe(QTY)
+      expect(refusal(() => journalFromRecords(days({ 'КОЛИЧЕСТВО': '„12' }), { hold: false }))).toBe(QTY)
+    })
+
+    it('one figure holds exactly its day: every other day is the journal it was, and the counts add up to the whole', () => {
+      const bad = days({ 'КОЛИЧЕСТВО': '„12' })
+      const j = journalFromRecords(bad, { hold: true })
+      expect(j.documents).toEqual(journalFromRecords(notOn4th(bad)).documents)
+      expect(j.documents.map(d => d.date)).toEqual(['2025-04-03', '2025-04-07'])
+      expect(j.withoutHeader).toEqual([])
+      expect(j.held).toEqual([{
+        date: '2025-04-04', documents: 1, operations: 2,
+        records: [{ at: '20250404\\00000002', doc: '+ФЕ 900002', line: 'Дт 304 Кт 401', field: 'КОЛИЧЕСТВО', value: '„12', reason: QTY }],
+      }])
+      const whole = journalFromRecords(days())
+      expect(j.counts).toEqual({ documents: 1, operations: 2 })
+      expect({ documents: j.counts.documents + j.held![0].documents, operations: j.counts.operations + j.held![0].operations }).toEqual(whole.counts)
+    })
+
+    it('a header\'s own total holds its day', () => {
+      const j = journalFromRecords(days({}, { 'СУМА': 'шейсет' }), { hold: true })
+      expect(j.held?.map(h => h.date)).toEqual(['2025-04-04'])
+      expect(j.held![0].records).toEqual([{
+        at: '20250404\\00000001', doc: '+ФЕ 900002', line: 'the header', field: 'СУМА', value: 'шейсет',
+        reason: 'plusminus-archive: 20250404\\00000001 (+ФЕ 900002, the header), СУМА: "шейсет" is not a number',
+      }])
+    })
+
+    it('so does an operation with one account, named by the account it lacks', () => {
+      const oneAccount = days({ 'КРЕДИТ': '' })
+      const reason = 'plusminus-archive: 20250404\\00000002 is an operation with one account'
+      expect(refusal(() => journalFromRecords(oneAccount))).toBe(reason)
+      const j = journalFromRecords(oneAccount, { hold: true })
+      expect(j.held![0]).toMatchObject({ date: '2025-04-04', documents: 1, operations: 2 })
+      expect(j.held![0].records).toEqual([{ at: '20250404\\00000002', doc: '+ФЕ 900002', line: 'Дт 304 Кт -', field: 'КРЕДИТ', value: '', reason }])
+      expect(j.documents).toEqual(journalFromRecords(notOn4th(oneAccount)).documents)
+    })
+
+    it('a record with two figures to retype names both, in the order they are read', () => {
+      const j = journalFromRecords(days({ 'СУМА': '5o.00', 'КУРС': 'x' }), { hold: true })
+      expect(j.held![0].records.map(r => [r.at, r.field, r.value])).toEqual([['20250404\\00000002', 'СУМА', '5o.00'], ['20250404\\00000002', 'КУРС', 'x']])
+    })
+
+    it('more than a typo explains refuses the archive whole: the first refusal, and why nothing is held', () => {
+      // A day a record: an operation of no document whose amount cannot be read.
+      const badDay = (date: string, n = 1) => Array.from({ length: n }, (_, i) => rec(date, String(i + 1).padStart(8, '0'), { 'ДЕБИТ': '603', 'КРЕДИТ': '241', 'СУМА': 'x' }))
+      const first = 'plusminus-archive: 20250102\\00000001 (Дт 603 Кт 241), СУМА: "x" is not a number'
+      const four = ['20250102', '20250203', '20250304', '20250405'].flatMap(d => badDay(d))
+      expect(refusal(() => journalFromRecords(four, { hold: true })))
+        .toBe(`${first}; 4 days of 2025 would be held (more than 3): that looks like a change in the archive's format, not a typo, so no day is held`)
+      expect(journalFromRecords(four.slice(0, 3), { hold: true }).held).toHaveLength(3)
+      // three days in each of two years are three a year
+      expect(journalFromRecords([...four.slice(0, 3), ...['20260102', '20260203', '20260304'].flatMap(d => badDay(d))], { hold: true }).held).toHaveLength(6)
+      // records: eleven on one day is too many, ten is not
+      expect(refusal(() => journalFromRecords(badDay('20250102', 11), { hold: true })))
+        .toBe(`${first}; 11 records cannot be read (more than 10): that looks like a change in the archive's format, not a typo, so no day is held`)
+      expect(journalFromRecords(badDay('20250102', 10), { hold: true }).held![0].records).toHaveLength(10)
+    })
+
+    it('with nothing to hold, the journal of a year is the one without `hold`, to the byte', async () => {
+      const b = await readArchiveBooks(archive, '20250101', '20261231')
+      for (const year of [2025, 2026]) {
+        expect(JSON.stringify(journalOfYear(b, year, '2026-11-05', { hold: true }))).toBe(JSON.stringify(journalOfYear(b, year, '2026-11-05')))
+      }
+    })
+
+    it('a year that holds a day says so in `held` and in a filter line, which only its own `held` lets through', () => {
+      const books: ArchiveBooks = { company: 'ТЕСТ ООД', eik: '999999999', records: days({ 'КОЛИЧЕСТВО': '„12' }), span: null, accounts: null, analytics: null }
+      const y = journalOfYear(books, 2025, '2025-12-31', { hold: true })
+      expect(y.held?.map(h => h.date)).toEqual(['2025-04-04'])
+      expect(y.filters).toEqual(['Held days, not to be replaced: 2025-04-04'])
+      expect(y.declared).toEqual(y.counts)
+      expect(() => assertWholeJournal(y)).not.toThrow()
+      expect(() => assertWholeJournal(JSON.parse(JSON.stringify(y)))).not.toThrow()
+      // read by an importer that knows no held day, it is a filtered export
+      expect(refusal(() => assertWholeJournal({ ...y, held: undefined }))).toContain('This export is filtered (1 filter line(s)')
+      expect(refusal(() => journalOfYear(books, 2025, '2025-12-31'))).toBe(QTY)
+    })
   })
 
   describe('the rest of a document header (FR-25a)', () => {

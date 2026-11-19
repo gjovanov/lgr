@@ -91,6 +91,11 @@ shape; nothing else spells them) · `plusminus-exports` (the parsers, import-pur
 - ⚠ **The exports refuse rather than guess.** A journal filtered to one account looks like a whole
   one, and a re-import replaces months: anything in the title block that is not known is a filter.
   The file's own counts and totals must hold, and its ЕИК must be the org's.
+- ⚠ **A held day is sent around, never left out of its month** (2026-11-19). An archive record that
+  cannot be read holds its whole day (`plusminus-archive.ts`, `hold`), and the import sends that month
+  as a request per run of the days around it, each covering only its run (`journalRequests`). The month
+  sent whole without that day, or a document dropped alone, deletes what LGR holds of it as `gone`. So
+  the journal names its held days as a filter line too: an importer from before held days refuses it.
 - ⚠ **Every reading of the books leaves out the shadow ledger.** `sumPostedLines` is the one for
   balances; anything else spreads `POSTED_BOOKS` from `db/models`. Unset `ledger` is books, so it is
   a `$ne`, never an equality.
@@ -106,4 +111,5 @@ shape; nothing else spells them) · `plusminus-exports` (the parsers, import-pur
   `entries` is the proof of a re-import) and `scripts/compare-accounting-books.ts`, which prints
   "equal" or counts, never an amount, so its output can go in a public PR.
 - **Tests:** `unit/accounting-books.test.ts`, `integration/accounting-books-import.flow.test.ts` (every
-  row of §1.4 as a made-up fixture), `dal/repos/journal-entry.repo.test.ts`.
+  row of §1.4 as a made-up fixture), `dal/repos/journal-entry.repo.test.ts`. Held days:
+  `unit/books-held-days.test.ts`, `integration/accounting-books-held-day.flow.test.ts`.

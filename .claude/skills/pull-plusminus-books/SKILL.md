@@ -51,6 +51,13 @@ bun .claude/skills/pull-plusminus-books/verify-exports.ts --archive … --export
   sealing. `roomler exec` would not do: it caps a call's whole output near 256 KB.
 - ⚠ The archive is NAMED after the day it was written, and it holds what was booked up to that moment. `20261105.arz`, written at
   01:08 on 11-05, holds the books to 11-04. `meta.json`'s `span.last` is the last date that has an operation.
+- **A figure the archive cannot read holds its DAY, not the archive** (2026-11-19). Until then one mistyped
+  figure (a stray character typed into a quantity, a total that is no number) or an operation with one account refused the
+  whole archive, and the books stood still until the accountant retyped it. Now `pull-books.ts` leaves that day out of
+  `journal-<year>.json`, names it in the journal's `held` with each record in the words of the old refusal, and prints it under
+  the year's counts. Nothing is guessed, and no document is ever dropped on its own: its stored entry would be deleted as gone.
+  `--no-hold` refuses as before. More than 3 held days a year, or more than 10 such records, is a change of format, not a typo,
+  and refuses the archive whole. The chart, the openings and the analytics never hold: an opening left out changes balances.
 
 ## Import
 
@@ -71,6 +78,11 @@ bun run scripts/import-vat-files.ts --org <home org> --dir "$ACC_FILINGS_DIR/nap
 ```
 
 - `--books` replaces `--chart/--analytics/--opening/--opening-analytics/--journal`, and mixing them is refused.
+- **A held day** prints `journal YYYY-MM: DD held (n documents, m operations): kept as LGR holds it`, with its records under it.
+  Its month goes as one request per run of the days around it, a `journal YYYY-MM` line each with its `coverage`, so LGR keeps
+  what it holds of that day exactly as it is: nothing added, changed or deleted. The other days import as they would have.
+  ⚠ The journal also names its held days as a filter line: an importer from before held days (an older checkout) refuses the
+  file as filtered, rather than replace the month whole and delete the held day as gone.
 - **Books split over the stores (FR-25 R7):** import the same day folder into EVERY org of the split, one `--org` at a
   time, each with `--finish`. Each keeps its share: a store its own series' sales, the home everything else and the
   opening. A store answers the opening with `outcome: unchanged, lines: 0`. Per year, the orgs' `journal total`
@@ -150,6 +162,12 @@ bun .claude/skills/pull-plusminus-books/nightly.ts --check-mail  # SendGrid sand
   were. Without that file, or the last import's own day folder, the mail says the documents are not listed.
 - It imports each archive once: `nightly-state.json` beside the day folders remembers the last one by SHA, and `nightly.log`
   has a line a run. After each year's import, a dry rerun must report everything unchanged, or the run fails.
+- **A held day does not fail the run.** The rest is imported, the archive counts as imported, and the mail says
+  `N day(s) HELD` in its subject, then each record, that the accountant must retype it, and that the day stays in LGR as LGR
+  held it until then. Every archive that still holds the day mails again. The kept documents carry the held day's from the
+  import before, so the list never calls them gone, and says what changed once the day is back. While the year before holds a
+  day, the year's continuity is not checked for a split (the file's closing is short of that day) and is said rather than
+  stopped on for one org (LGR's closing still has the day as it was).
 - **Several orgs (FR-25 R7).** `BOOKS_NIGHTLY_ORGS=<home>,<store>` imports the archive into every org of a split; unset,
   `BOOKS_NIGHTLY_ORG` alone runs exactly as before. Per year and per org: import, the same stop rules, a dry rerun. A failure
   in one org stops that org's later years only, and the run still fails (exit 1) with the org named in the subject and the
