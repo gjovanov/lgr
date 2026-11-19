@@ -73,6 +73,12 @@ const MARKER = `snapshot-reconcile:${date}`
 
 const round2 = (v: number) => +v.toFixed(2)
 /**
+ * A quantity keeps its decimals. Goods sold by weight or length carry three, and rounding a quantity to cents, the
+ * way money is rounded, cannot zero one: a zero-out of a level at -x.xx5 booked x.xx, left -0.005 behind, and the
+ * next run's line for that residue rounded to 0, a line that moves nothing. Six places strip floating-point noise only.
+ */
+const roundQty = (v: number) => +v.toFixed(6)
+/**
  * A true-up line's unit cost: the average cost, else the delivery price („Доставна цена", which is what an import
  * opens a level's average cost with), else the purchase price. It read the purchase price second while an import
  * wrote the delivery price there too; since 2026-11-15 that is „Цена 2" / 1.2, an approximation no level is costed at.
@@ -162,7 +168,7 @@ async function main() {
     // diff >0: LGR too low, need increase. <0: LGR too high, need decrease.
     if (Math.abs(diff) <= 0.001) continue
     const unitCost = costOf(p)
-    const entry = { productId: idOf(p), sku: p.sku, name: p.name, quantity: round2(Math.abs(diff)), unitCost, totalCost: round2(Math.abs(diff) * unitCost), _before: lgrQty, _snapshot: snapshotQty }
+    const entry = { productId: idOf(p), sku: p.sku, name: p.name, quantity: roundQty(Math.abs(diff)), unitCost, totalCost: round2(Math.abs(diff) * unitCost), _before: lgrQty, _snapshot: snapshotQty }
     if (diff > 0) increase.push(entry); else decrease.push(entry)
   }
 
@@ -192,19 +198,19 @@ async function main() {
       const twins = looseToExact.get(loose(name))
       if (twins?.length && !twins.some(k => productNames.has(k))) { namingTwins++; continue }
       const unitCost = costOf(p)
-      const entry = { productId: pid, sku: p.sku, name: p.name, quantity: round2(Math.abs(q)), unitCost, totalCost: round2(Math.abs(q) * unitCost), _before: q, _snapshot: 0 }
+      const entry = { productId: pid, sku: p.sku, name: p.name, quantity: roundQty(Math.abs(q)), unitCost, totalCost: round2(Math.abs(q) * unitCost), _before: q, _snapshot: 0 }
       if (q > 0) zeroDown.push(entry); else zeroUp.push(entry)
     }
     if (namingTwins) console.log(`--zero-lgr-only: ${namingTwins} product(s) with stock left alone — the article exists in the snapshot under a different spelling and no other LGR product holds it (rename/merge by hand)`)
   }
 
   console.log(`no-match (skipped — not matched to any LGR product by exact name): ${noMatch}`)
-  console.log(`\nINCREASE batch (LGR too low): ${increase.length} lines, Σqty ${round2(increase.reduce((s, l) => s + l.quantity, 0))}, Σcost ${round2(increase.reduce((s, l) => s + l.totalCost, 0))}`)
+  console.log(`\nINCREASE batch (LGR too low): ${increase.length} lines, Σqty ${roundQty(increase.reduce((s, l) => s + l.quantity, 0))}, Σcost ${round2(increase.reduce((s, l) => s + l.totalCost, 0))}`)
   for (const l of increase) console.log(`  + ${l.sku}  "${l.name}"  ${l._before} -> ${l._snapshot}  (+${l.quantity}) @${l.unitCost}`)
-  console.log(`\nDECREASE batch (LGR too high): ${decrease.length} lines, Σqty ${round2(decrease.reduce((s, l) => s + l.quantity, 0))}, Σcost ${round2(decrease.reduce((s, l) => s + l.totalCost, 0))}`)
+  console.log(`\nDECREASE batch (LGR too high): ${decrease.length} lines, Σqty ${roundQty(decrease.reduce((s, l) => s + l.quantity, 0))}, Σcost ${round2(decrease.reduce((s, l) => s + l.totalCost, 0))}`)
   for (const l of decrease) console.log(`  - ${l.sku}  "${l.name}"  ${l._before} -> ${l._snapshot}  (-${l.quantity}) @${l.unitCost}`)
   if (ZERO_LGR_ONLY) {
-    console.log(`\nZERO-OUT (LGR holds stock for a product PlusMinus no longer has): lower ${zeroDown.length} (Σqty ${round2(zeroDown.reduce((s, l) => s + l.quantity, 0))}, Σcost ${round2(zeroDown.reduce((s, l) => s + l.totalCost, 0))}), raise ${zeroUp.length} (Σqty ${round2(zeroUp.reduce((s, l) => s + l.quantity, 0))})`)
+    console.log(`\nZERO-OUT (LGR holds stock for a product PlusMinus no longer has): lower ${zeroDown.length} (Σqty ${roundQty(zeroDown.reduce((s, l) => s + l.quantity, 0))}, Σcost ${round2(zeroDown.reduce((s, l) => s + l.totalCost, 0))}), raise ${zeroUp.length} (Σqty ${roundQty(zeroUp.reduce((s, l) => s + l.quantity, 0))})`)
     for (const l of [...zeroDown, ...zeroUp]) console.log(`  0 ${l.sku}  "${l.name}"  ${l._before} -> 0 @${l.unitCost}`)
   }
 

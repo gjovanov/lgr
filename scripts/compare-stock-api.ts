@@ -92,6 +92,8 @@ async function login() {
 
 /** Strip a "<label>:" prefix (СТОКИ:/УСЛУГИ:/a kit-component label) and inch/quote marks. Fallback-only. */
 const aggr = (s: string) => collapse(s.replace(/^[^:]+:/, '').replace(/["']/g, ''))
+/** A quantity at or under this, either way, is no quantity: the matched differences and the two tails use it alike. */
+const QTY_TOL = 0.001
 
 async function fetchAll(path: string, key: string, idOf: (x: any) => string, pageSize = 1000): Promise<any[]> {
   const seen = new Set<string>()
@@ -139,15 +141,18 @@ async function main() {
   console.log(`snapshot: ${snapRows.length} rows, ${match.names.size} unique names, ${snapRows.length - match.names.size} rows share a name with another spelling, ${snapRows.filter(r => r.qty === 0).length} zero-qty`)
 
   const missingInLgr: SnapRow[] = match.missing
+  // One tolerance for every "is there stock" question. A level that float arithmetic leaves at 1e-15 is zero, the same
+  // way a difference of 1e-15 is no difference; `!== 0` counted such a level as an article with stock.
+  const nonzero = (q: number) => Math.abs(q) > QTY_TOL
   const qtyDiffs = match.lines
-    .filter(l => Math.abs(l.diff) > 0.001)
+    .filter(l => nonzero(l.diff))
     .map(l => ({ name: String(l.product.name), sku: l.product.sku as string, file: l.snapshotQty, lgr: l.lgrQty, diff: Math.round(l.diff * 10000) / 10000 }))
   const lgrOnly: Array<{ name: string; sku: string; qty: number }> = match.lgrOnly.map((p: any) => ({ name: p.name, sku: p.sku, qty: qtyOf(p) }))
 
   qtyDiffs.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
 
   console.log(`\nMatched (exact name): ${match.names.size - missingInLgr.length} | missing in LGR: ${missingInLgr.length} | LGR not in snapshot: ${lgrOnly.length} | names with twin products: ${match.twinNames}`)
-  console.log(`Qty diffs on matched products (tol 0.001): ${qtyDiffs.length}`)
+  console.log(`Qty diffs on matched products (tol ${QTY_TOL}): ${qtyDiffs.length}`)
   for (const d of qtyDiffs.slice(0, 60)) console.log(`  ${d.sku ?? '?'}  "${d.name}"  file=${d.file}  lgr=${d.lgr}  diff=${d.diff}`)
 
   // second pass: reconcile the two tails via the aggressive normalization (see header).
@@ -170,9 +175,9 @@ async function main() {
   console.log(`\nAfter prefix/quote-mark reconciliation (fallback pass, not a primary match):`)
   console.log(`  ${reconciled} confirmed same stock under a different-looking name (not a real gap)`)
   if (reconciledDiffs.length) { console.log(`  ${reconciledDiffs.length} same item, DIFFERENT qty — investigate:`); for (const s of reconciledDiffs) console.log('    ~', s) }
-  console.log(`  truly missing in LGR: ${stillMissing.filter(r => r.qty !== 0).length} nonzero (+${stillMissing.filter(r => r.qty === 0).length} zero-qty)`)
-  for (const r of stillMissing.filter(r => r.qty !== 0).sort((a, b) => Math.abs(b.qty) - Math.abs(a.qty)).slice(0, 20)) console.log(`    "${r.name}" qty=${r.qty}`)
-  console.log(`  truly LGR-only: ${stillLgrOnly.filter(r => r.qty !== 0).length} nonzero (+${stillLgrOnly.filter(r => r.qty === 0).length} zero-qty)`)
-  for (const r of stillLgrOnly.filter(r => r.qty !== 0).sort((a, b) => Math.abs(b.qty) - Math.abs(a.qty)).slice(0, 20)) console.log(`    ${r.sku} "${r.name}" qty=${r.qty}`)
+  console.log(`  truly missing in LGR: ${stillMissing.filter(r => nonzero(r.qty)).length} nonzero (+${stillMissing.filter(r => !nonzero(r.qty)).length} zero-qty)`)
+  for (const r of stillMissing.filter(r => nonzero(r.qty)).sort((a, b) => Math.abs(b.qty) - Math.abs(a.qty)).slice(0, 20)) console.log(`    "${r.name}" qty=${r.qty}`)
+  console.log(`  truly LGR-only: ${stillLgrOnly.filter(r => nonzero(r.qty)).length} nonzero (+${stillLgrOnly.filter(r => !nonzero(r.qty)).length} zero-qty)`)
+  for (const r of stillLgrOnly.filter(r => nonzero(r.qty)).sort((a, b) => Math.abs(b.qty) - Math.abs(a.qty)).slice(0, 20)) console.log(`    ${r.sku} "${r.name}" qty=${r.qty}`)
 }
 main().catch(e => { console.error('FAILED', e); process.exit(1) })
