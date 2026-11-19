@@ -148,6 +148,10 @@ Shared rules for every entity below:
   export (Excel / PDF through the list export).
 - **i18n**: every new label in en, bg, de and mk; the blocks are named below, all under the existing `accounting.*`,
   `invoicing.*` and `settings.*` trees. A missing key renders literally, so the four files ship together.
+- **e2e**: what an org that keeps books shows is tested in the `books` Playwright project, on the org
+  `packages/tests/src/helpers/books-org.ts` makes in the e2e database right after the seed, through the books import's own
+  writers (#814). `packages/e2e/scripts/nightly.ts` runs it and sets `E2E_BOOKS_ORG`; without that the project's specs
+  skip.
 
 ### 3.1 Chart of accounts — `Account`
 
@@ -161,7 +165,9 @@ and delete with 422 `books_as_booked`.
   (switch, disabled). In a books org the whole form is read-only.
 - Grid: add columns `balanceSide`, `quantitative` (hidden by default); filter "has analytics", "quantitative".
 - i18n: `accounting.accountBooks.*`.
-- e2e later: a books org's account opens read-only; an LGR-native account saves.
+- e2e: `books-chart.spec.ts` (a books org's account opens read-only, with its balance side and its analytics, whose chip
+  opens that root; the server refuses a change) and `account-form.spec.ts` (an account of LGR's own is made through its
+  form, opens again as saved and keeps an edit).
 
 ### 3.2 Analytics — `AccountingAnalytic` (new views)
 
@@ -182,8 +188,9 @@ import does.
   for an LGR-native one (key required, unique within the analytic).
 - Actions: deactivate (soft, `isActive: false`) for an LGR-native analytic only; no delete of an analytic a line points at.
 - i18n: `accounting.analytics.*` (title, columns, kinds, properties).
-- e2e later: the tree opens a root and lists its items; an imported analytic's properties are shown read-only; linking a
-  contact to an LGR-native analytic saves.
+- e2e: `books-chart.spec.ts` (the tree opens a root and lists its items; an imported analytic's properties are shown
+  read-only, and the server refuses a change; a contact linked to an analytic of LGR's own, in an org that keeps no
+  books, saves and shows again).
 
 ### 3.3 Bank accounts — `BankAccount`
 
@@ -196,7 +203,7 @@ payment orders use them. ⚠ The key is `accounting.bankAccountBooks.*`: `accoun
 - Form: unchanged fields; add a read-only "Analytic" link (the `БАНКОВИ СМЕТКИ:<iban>` analytic that points here).
 - Grid: add "bank operations this month" (count of entries with `bankOperation`) as an optional column.
 - i18n: `accounting.bankAccount.analytic`.
-- e2e later: the analytic link opens the analytic.
+- e2e: `books-chart.spec.ts` (the analytic link opens the analytic, which names the bank account back).
 
 ### 3.4 Fixed assets — `FixedAsset` and its schedule
 
@@ -211,7 +218,7 @@ whether the import made the asset (`imported`), and takes `taxCategory` (`1`–`
 service (else bought), at the yearly rate, runs the term exactly where it agrees with the rate, and ends when the tax value
 is written off or with the month of the disposal. An imported asset's `currentValue` is labelled as the value the books
 start from, in its own currency. ⚠ The keys are `accounting.fixedAssetBooks.*`: `accounting.fixedAsset` is a string.
-Still planned: the `АМ` link that fills the book schedule (§4.2), and the e2e below.
+Still planned: the `АМ` link that fills the book schedule (§4.2).
 
 - Route / views: `/accounting/fixed-assets` (`FixedAssetsView.vue`), `/fixed-assets/:id/edit` (`FixedAssetFormView.vue`);
   both exist.
@@ -231,8 +238,9 @@ Still planned: the `АМ` link that fills the book schedule (§4.2), and the e2e
 - Validation: rate × years ≈ 100 hint when they disagree (the source always agrees).
 - i18n: `accounting.fixedAsset.tax.*`, `accounting.fixedAsset.properties`, `accounting.fixedAsset.schedule.*`.
 - e2e: `fixed-asset-form.spec.ts` (an asset kept in LGR saves its book and tax sides, opens again as saved and keeps an
-  edit; the tax schedule shows a row per year; the register finds it by code, tax category and origin). Later: an
-  imported asset opens read-only, which needs an org that keeps books in the e2e database.
+  edit; the tax schedule shows a row per year; the register finds it by code, tax category and origin) and
+  `books-chart.spec.ts` (an imported asset opens read-only, as booked, with its properties and its analytic, and with the
+  lock in the register; the server refuses an edit).
 
 ### 3.5 Contacts — `Contact.representative`
 
@@ -251,8 +259,8 @@ bound and the trim on the server (`config/party-identity`).
 - i18n: `invoicing.representative` (built), `invoicing.moveRepresentative`. Not under `invoicing.contact.*`: that key is
   a string ("Contact"), and a key cannot be a string and a block at once.
 - e2e: `contact-representative.spec.ts` (a representative typed saves trimmed and the list finds the contact by it; the
-  move action takes only that notes line, can be undone, and stores nothing until the save). Later: the representative
-  on a printed invoice.
+  move action takes only that notes line, can be undone, and stores nothing until the save) and
+  `party-identity-print.spec.ts` (the representative on a printed invoice: in the form's block and in the PDF).
 
 ### 3.6 Journal entries — the document header
 
@@ -279,8 +287,9 @@ bound and the trim on the server (`config/party-identity`).
   `accounting.journalEntry.links.*`, `accounting.paymentCodes.*`.
 - e2e: `journal-entry-document.spec.ts` (an entry made in LGR saves its document, payment, VAT and a link, and opens
   again with them; a notice without the invoice it corrects is refused in the form; an emptied field is removed; the
-  journal's filters). Later: an imported entry shows its header and refuses edits; the unpaid filter lists a part-paid
-  invoice; a link opens its document. These need an org that keeps books in the e2e database.
+  journal's filters) and `books-journal.spec.ts` (an imported entry shows its header, as booked, and refuses edits, in
+  the form and on the server; the unpaid filter lists a part-paid invoice and not a paid one; a link opens its document,
+  which links back).
 
 ### 3.7 The company — `Org`
 
@@ -297,7 +306,8 @@ for byte as before (`unit/print-party-identity.test.ts` pins the hashes).
   `representative` under its name.
 - i18n: `settings.representative`, `settings.placeOfIssue`, `settings.activityCode`.
 - e2e: `org-settings-save.spec.ts` (the three save trimmed and survive a reload; one cleared is removed; an activity
-  code that is not one is refused in the form). Later: a new invoice prints them.
+  code that is not one is refused in the form) and `party-identity-print.spec.ts` (a new invoice shows and prints the
+  company's МОЛ, and its place of issue where the document names no place of its own).
 
 ### 3.8 The VAT register — `VatRegisterEntry`
 
@@ -306,7 +316,7 @@ for byte as before (`unit/print-party-identity.test.ts` pins the hashes).
   a filter "declared in another month" from the entry's `reportingMonth`.
 - No edits: filed rows are frozen (`frozen`).
 - i18n: `accounting.vatRegister.entry`, `accounting.vatRegister.otherMonth`.
-- e2e later: a row opens its journal entry.
+- e2e: `books-journal.spec.ts` (a row of a filed month opens its journal entry).
 
 ## 4. Deferred
 
