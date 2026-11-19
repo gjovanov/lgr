@@ -20,6 +20,14 @@ export function stepLines(step: string, answer: any): string[] {
   ]
 }
 
+/**
+ * A held day of the journal (`ParsedJournal.held`): the import sends nothing of it, so what LGR holds of that day stays as it
+ * is. The unattended run reads the line back (`books-nightly-report.ts#parseImport`). Counts and a date only.
+ */
+export function heldDayLine(h: { date: string; documents: number; operations: number }): string {
+  return `journal ${h.date.slice(0, 7)}: ${h.date.slice(8, 10)} held (${h.documents} documents, ${h.operations} operations): kept as LGR holds it`
+}
+
 /** `ДАТАЕКСП unreadable ×2, СМЕТКА unknown_account 209 ×1, vanished ×1`, in the order first met. */
 export function assetProblemsText(problems: readonly { key?: string; reason: string; code?: string }[]): string {
   const counts = new Map<string, number>()

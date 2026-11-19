@@ -17,7 +17,7 @@
  * - **Someone else's books.** The PC holds other companies'; the file says whose it is (`ЕИК:`), and
  *   the server compares that with the org's.
  */
-import { EUR_CHANGEOVER } from './registry.js'
+import { EUR_CHANGEOVER, monthsBetween } from './registry.js'
 import type { ImportDocument, ImportOperation, LedgerCurrency } from './import.types.js'
 
 export type Matrix = unknown[][]
@@ -123,7 +123,10 @@ export interface ParsedJournal {
   period: ExportPeriod
   /** What the file says its amounts are in. Unset: an older export, in the currency of its period. */
   currency?: LedgerCurrency
-  /** Title-block lines that are not ours: a filter, whatever its wording. */
+  /**
+   * Title-block lines that are not ours: a filter, whatever its wording. A journal that holds days names them here too
+   * (`heldFilter`), so that an importer from before held days refuses it as filtered.
+   */
   filters: string[]
   documents: ImportDocument[]
   counts: { documents: number; operations: number }
@@ -134,6 +137,12 @@ export interface ParsedJournal {
    * `Брой документи` does not count them: the operation is in the books, its document is not.
    */
   withoutHeader: { at: string; date: string; docType: string; docNumber: string }[]
+  /**
+   * Days of an archive's journal that are not imported, because a figure on them cannot be read (`plusminus-archive.ts`,
+   * with `hold`). Their documents are in neither `documents` nor the counts, and the import leaves what LGR holds of
+   * those days as it is (`journalRequests`). Unset: nothing is held, as in every GUI export.
+   */
+  held?: HeldDay[]
 }
 
 /**
@@ -315,12 +324,20 @@ export function parseJournalExport(matrix: Matrix): ParsedJournal {
   return parsed
 }
 
-/** A journal fit to replace months with: the whole of them, in one currency, in the currency of its dates. */
+/**
+ * A journal fit to replace months with: the whole of them, in one currency, in the currency of its dates. Whole but for
+ * its held days, when it has any: each a real day, named once, of which no document is left in the journal, and few
+ * enough to be typos.
+ */
 export function assertWholeJournal(j: ParsedJournal): void {
-  if (j.filters.length) {
-    throw new ExportRefused('filtered_export', `This export is filtered (${j.filters.length} filter line(s) in its title), and a re-import replaces whole months. Export the journal with no filter.`)
+  const held = checkedHeldDays(j)
+  const own = held.length ? heldFilter(held) : undefined
+  const filters = j.filters.filter(line => line !== own)
+  if (filters.length) {
+    throw new ExportRefused('filtered_export', `This export is filtered (${filters.length} filter line(s) in its title), and a re-import replaces whole months. Export the journal with no filter.`)
   }
-  if (j.counts.operations > 0 && j.declared.documents === 0) {
+  // A held day's documents are rows the archive has: a journal whose every document is on a held day is no filtered one.
+  if (j.counts.operations > 0 && j.declared.documents === 0 && !held.some(h => h.documents > 0)) {
     throw new ExportRefused('filtered_export', 'This export has no document rows. Export the journal with the documents.')
   }
   const beforeChangeover = j.period.to < EUR_CHANGEOVER
@@ -335,7 +352,10 @@ export function assertWholeJournal(j: ParsedJournal): void {
   }
 }
 
-/** A journal's documents by the month they belong to, in file order. */
+/**
+ * A journal's documents by the month they belong to, in file order. A held day has none here to sort: its documents are
+ * never in a journal's `documents` (`assertWholeJournal`), and `journalRequests` keeps the requests off it.
+ */
 export function documentsByMonth(documents: ImportDocument[]): Map<string, ImportDocument[]> {
   const out = new Map<string, ImportDocument[]>()
   for (const doc of documents) {
@@ -345,6 +365,146 @@ export function documentsByMonth(documents: ImportDocument[]): Map<string, Impor
     else out.set(month, [doc])
   }
   return new Map([...out.entries()].sort(([a], [b]) => a.localeCompare(b)))
+}
+
+// ── Held days: an archive's journal, around a figure it cannot read ─────────────────────────────
+
+/**
+ * One record of a held day that the archive cannot read: where it is, and the refusal it makes when nothing is held,
+ * word for word (`plusminus-archive.ts#journalFromRecords`).
+ */
+export interface HeldRecord {
+  /** `<yyyymmdd>\<seq>`: the record's key in the archive. */
+  at: string
+  /** The document's type and number, as the refusal names them; empty for an operation with no document. */
+  doc: string
+  /** `Дт 304 Кт 401`, or `the header`. */
+  line: string
+  /** СУМА, КОЛИЧЕСТВО, КУРС or СУМАВАЛ; ДЕБИТ or КРЕДИТ when it is the account an operation lacks. */
+  field: string
+  /** The field's text as the archive holds it. */
+  value: string
+  reason: string
+}
+
+/** A day of an archive's journal that is not imported (`ParsedJournal.held`). */
+export interface HeldDay {
+  /** YYYY-MM-DD */
+  date: string
+  /** The day's documents (header records) and operations, counted as `counts` counts the rest. */
+  documents: number
+  operations: number
+  records: HeldRecord[]
+}
+
+/**
+ * More held days than this in a year, or more unreadable records than this in an archive, is no typo: the archive is
+ * refused whole, as it was before days were held.
+ */
+export const MAX_HELD_DAYS_A_YEAR = 3
+export const MAX_UNREADABLE_RECORDS = 10
+
+/**
+ * Why these days cannot be held, or nothing when they may be: more of them than a typo explains. A record is counted once,
+ * whatever number of its figures cannot be read.
+ */
+export function heldBeyondLimits(days: readonly { date: string; records: readonly { at: string }[] }[]): string | undefined {
+  const tail = 'that looks like a change in the archive\'s format, not a typo, so no day is held'
+  const records = new Set(days.flatMap(d => d.records.map(r => r.at))).size
+  if (records > MAX_UNREADABLE_RECORDS) return `${records} records cannot be read (more than ${MAX_UNREADABLE_RECORDS}): ${tail}`
+  const byYear = new Map<string, number>()
+  for (const d of days) byYear.set(d.date.slice(0, 4), (byYear.get(d.date.slice(0, 4)) ?? 0) + 1)
+  for (const [year, n] of byYear) {
+    if (n > MAX_HELD_DAYS_A_YEAR) return `${n} days of ${year} would be held (more than ${MAX_HELD_DAYS_A_YEAR}): ${tail}`
+  }
+  return undefined
+}
+
+/**
+ * The filter line of a journal that holds days (`ParsedJournal.filters`). An importer from before held days reads it as a
+ * filtered export and refuses the file, where it would have sent the held day's month whole, and deleted what LGR holds
+ * of that day as gone. `assertWholeJournal` takes it only beside the `held` it names.
+ */
+export const heldFilter = (held: readonly HeldDay[]) => `Held days, not to be replaced: ${held.map(h => h.date).join(', ')}`
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+/** A real calendar day as YYYY-MM-DD: `2026-02-30` is none, whichever way an engine parses it. */
+function isDay(s: unknown): s is string {
+  if (typeof s !== 'string' || !DAY.test(s)) return false
+  const t = Date.parse(`${s}T00:00:00.000Z`)
+  return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === s
+}
+const isCount = (n: unknown) => Number.isInteger(n) && (n as number) >= 0
+
+/** A journal's held days, once each is known to be one. Refused: anything a person could not trust to stand for a day. */
+function checkedHeldDays(j: ParsedJournal): readonly HeldDay[] {
+  const held = j.held ?? []
+  if (!Array.isArray(held)) throw new ExportRefused('held_days', 'The journal\'s held days are not a list.')
+  const days = new Set<string>()
+  for (const h of held) {
+    const whole = !!h && isDay(h.date) && !days.has(h.date) && isCount(h.documents) && isCount(h.operations)
+      && Array.isArray(h.records) && h.records.length > 0 && h.records.every(r => !!r && typeof r.at === 'string' && typeof r.reason === 'string')
+    if (!whole) throw new ExportRefused('held_days', `A held day of this journal is not one (${days.size + 1} of ${held.length}): pull the archive again.`)
+    days.add(h.date)
+  }
+  const beyond = heldBeyondLimits(held)
+  if (beyond) throw new ExportRefused('held_days', `This journal holds more days than a typo explains: ${beyond}.`)
+  const left = j.documents.find(d => days.has(d.date)) ?? j.withoutHeader.find(w => days.has(w.date))
+  if (left) throw new ExportRefused('held_days', `The journal holds ${left.date}, and still has a document of that day.`)
+  return held
+}
+
+const dayAfter = (day: string) => new Date(Date.parse(`${day}T00:00:00.000Z`) + 86_400_000).toISOString().slice(0, 10)
+const lastDayOf = (month: string) => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10)
+
+/** The days from `from` to `to` (YYYY-MM-DD, both included) that are not in `held`, as the longest runs they make, in order. */
+export function daysAround(from: string, to: string, held: Iterable<string>): ExportPeriod[] {
+  if (!isDay(from) || !isDay(to)) throw new Error(`daysAround: "${from}" to "${to}" is no range of days`)
+  const skip = new Set(held)
+  const runs: ExportPeriod[] = []
+  let start: string | undefined
+  let last = ''
+  for (let day = from; day <= to; day = dayAfter(day)) {
+    if (skip.has(day)) {
+      if (start) runs.push({ from: start, to: last })
+      start = undefined
+    } else start ??= day
+    last = day
+  }
+  if (start) runs.push({ from: start, to: last })
+  return runs
+}
+
+/** One request of a journal's import: a month, the days of it the request covers, and their documents. */
+export interface JournalRequest {
+  month: string
+  coverage: ExportPeriod
+  documents: ImportDocument[]
+}
+
+/**
+ * What the import sends of a journal: every month of its period, the empty ones too (an empty month in the file empties it
+ * in the books), each as one request covering the file's period, as it always was.
+ *
+ * A month with a held day goes as one request per run of the days around it, each covering only its run. The server judges
+ * an entry gone only inside what a request covers (`import.service.ts#coveredDays`), so what LGR holds of a held day is
+ * neither inserted, updated nor deleted, and every other day keeps its keys: an `importKey` names its date, and counts a
+ * repeat (`#2`) only within it. A month whose covered days are all held is not sent.
+ */
+export function journalRequests(j: ParsedJournal): JournalRequest[] {
+  const byMonth = documentsByMonth(j.documents)
+  const held = (j.held ?? []).map(h => h.date)
+  return monthsBetween(j.period.from, j.period.to).flatMap(month => {
+    const documents = byMonth.get(month) ?? []
+    const first = `${month}-01` > j.period.from ? `${month}-01` : j.period.from
+    const last = lastDayOf(month) < j.period.to ? lastDayOf(month) : j.period.to
+    if (!held.some(day => day >= first && day <= last)) return [{ month, coverage: j.period, documents }]
+    const requests = daysAround(first, last, held).map(run => ({ month, coverage: run, documents: documents.filter(d => d.date >= run.from && d.date <= run.to) }))
+    // A document in no run would be sent in none, and so never imported: the server's refusal of it, said here instead.
+    const stray = documents.find(d => !requests.some(r => d.date >= r.coverage.from && d.date <= r.coverage.to))
+    if (stray) throw new ExportRefused('document_outside_month', `A document of ${stray.date} is outside what the file covers.`)
+    return requests
+  })
 }
 
 // ── The chart („Сметкоплан") ────────────────────────────────────────────────────────────────────

@@ -3,17 +3,27 @@
  * `import-accounting-books.ts`: the importer prints one JSON line a step (`chart: {…}`, `analytics: {…}`,
  * `opening 2026: {…}`, `journal 2026-01: {…}`, `journal total: {…}`, `finish: {…}`), and the run decides from
  * those alone whether anything changed and whether it has to stop. Also how it asks whether its docs root answers at
- * all, when a docs root that does not answer is worth a mail, and which documents an import changed.
+ * all, when a docs root that does not answer is worth a mail, which documents an import changed, and what it says of
+ * a day the archive held (`journal 2026-03: 04 held (…): kept as LGR holds it`).
  */
 import { gunzipSync, gzipSync } from 'node:zlib'
-import { documentsByMonth } from '../../packages/services/src/biz/accounting-books/plusminus-exports.js'
+import { documentsByMonth, type HeldDay } from '../../packages/services/src/biz/accounting-books/plusminus-exports.js'
 import { headerContentOf, planMonth, sha256 } from '../../packages/services/src/biz/accounting-books/journal-plan.js'
 import { exchangeRateOf, ledgerCurrencyOn } from '../../packages/services/src/biz/accounting-books/registry.js'
 import type { ImportDocument, ImportOperation, OpeningLine } from '../../packages/services/src/biz/accounting-books/import.types.js'
 
+/** A day the import held (`books-import-print.ts#heldDayLine`), as the run reads it back. */
+export interface HeldImportDay {
+  date: string
+  documents: number
+  operations: number
+}
+
 export interface ParsedImport {
   steps: Record<string, any>
   months: any[]
+  /** The days the import left as LGR holds them (`ParsedJournal.held`), in the order printed. Only when there are any. */
+  held?: HeldImportDay[]
 }
 
 export interface YearResult {
@@ -22,17 +32,27 @@ export interface YearResult {
   text: string
 }
 
+const HELD_LINE = /^journal (\d{4}-\d{2}): (\d{2}) held \((\d+) documents, (\d+) operations\): kept as LGR holds it$/
+
 export function parseImport(out: string): ParsedImport {
   const steps: Record<string, any> = {}
   const months: any[] = []
+  const held: HeldImportDay[] = []
   for (const line of out.split(/\r?\n/)) {
+    const h = HELD_LINE.exec(line)
+    if (h) {
+      held.push({ date: `${h[1]}-${h[2]}`, documents: Number(h[3]), operations: Number(h[4]) })
+      continue
+    }
     const m = /^(chart|analytics|finish|journal total|opening \d{4}|journal \d{4}-\d{2}): (\{.*\})$/.exec(line)
     if (!m) continue
     if (/^journal \d/.test(m[1])) months.push(JSON.parse(m[2]))
     else steps[m[1].startsWith('opening') ? 'opening' : m[1]] = JSON.parse(m[2])
   }
-  return { steps, months }
+  return { steps, months, ...(held.length ? { held } : {}) }
 }
+
+const continuityProblem = (accounts: number) => `opening: continuity differs on ${accounts} accounts`
 
 /** What a run has to stop on. A step with no line counts: the importer stopped before it. */
 export function problems(r: ParsedImport): string[] {
@@ -45,11 +65,27 @@ export function problems(r: ParsedImport): string[] {
   const o = r.steps.opening
   if (o?.balanced === false) out.push('opening: not balanced')
   if (o?.unknownAccounts?.length) out.push(`opening: ${o.unknownAccounts.length} unknown accounts`)
-  if (o?.continuity?.differing?.length) out.push(`opening: continuity differs on ${o.continuity.differing.length} accounts`)
+  if (o?.continuity?.differing?.length) out.push(continuityProblem(o.continuity.differing.length))
   return out
 }
 
-/** Counts only: the mail and the log carry no name and no amount. */
+/**
+ * What a year's import has to stop on, and what it only has to say, while the year before holds days (`heldBefore`, its
+ * dates). LGR's closing of that year is then not the archive's (a held day stays as LGR held it), so an opening whose
+ * continuity differs is said rather than stopped on: the first archive with the figure retyped checks it again. With
+ * nothing held the year before, exactly `problems`.
+ */
+export function problemsWhileHeld(year: number, r: ParsedImport, heldBefore: readonly string[]): { problems: string[]; notices: string[] } {
+  const all = problems(r)
+  const differing = r.steps.opening?.continuity?.differing?.length ?? 0
+  if (!heldBefore.length || !differing) return { problems: all, notices: [] }
+  return {
+    problems: all.filter(p => p !== continuityProblem(differing)),
+    notices: [`opening ${year}: the continuity differs on ${differing} accounts while ${year - 1} holds ${heldBefore.join(', ')}: it is checked again once the day is imported`],
+  }
+}
+
+/** Counts only: the mail and the log carry no name and no amount. A held day is a date. */
 export function summarize(year: number, r: ParsedImport): YearResult {
   const { chart: c = {}, analytics: a = {}, opening: o = {}, finish: f = {} } = r.steps
   const j = r.steps['journal total'] ?? {}
@@ -58,7 +94,42 @@ export function summarize(year: number, r: ParsedImport): YearResult {
   const text = `${year}: journal ${j.new ?? 0} new, ${j.changed ?? 0} changed, ${j.gone ?? 0} gone (${j.entries ?? 0} entries)`
     + ` · opening ${o.outcome ?? '?'} · chart ${(c.created ?? 0) + (c.updated ?? 0)} · analytics ${(a.created ?? 0) + (a.updated ?? 0)}`
     + `, contacts ${a.contacts?.created ?? 0} · finish ${f.changed ?? 0} accounts`
+    + (r.held?.length ? ` · HELD ${r.held.map(h => h.date).join(', ')}` : '')
   return { year, changes, text }
+}
+
+// ── Held days: what the mail says, and what the next run compares with ─────────────────────────────
+
+/** `1 day HELD`, `2 days HELD`: what a subject says while the archive holds days. */
+export const heldDaysText = (n: number) => `${n} day${n === 1 ? '' : 's'} HELD`
+
+/**
+ * What a mail says of the days an import held: that the accountant must retype each record, and that until then the day
+ * stays as LGR held it; then each day with each record, in the words of the refusal it would have been without holding.
+ */
+export function heldText(held: readonly HeldDay[]): string[] {
+  if (!held.length) return []
+  return [
+    `${heldDaysText(held.length)}: a figure in the archive cannot be read, so nothing of ${held.length === 1 ? 'that day' : 'those days'} was imported.`
+      + ' The accountant must retype it in PlusMinus. Until then the day stays in LGR as LGR held it: nothing of it is added, changed or deleted.',
+    ...held.flatMap(h => [`${h.date} (${h.documents} documents, ${h.operations} operations):`, ...h.records.map(r => `  ${r.reason}`)]),
+  ]
+}
+
+/** The day an imported document is dated: its label starts with it (`labelOf`). */
+const dayOf = (doc: ImportedDocument) => doc.label.slice(0, 10)
+
+/**
+ * What LGR holds after an import that held days: the documents it sent, and of each held day the documents of the import
+ * before, which it left as they were. Kept for the next run to compare with, a held day's documents are never listed as
+ * gone, nor as new once the figure is retyped. Nothing held, or nothing known of the import before: `after` as it is.
+ */
+export function withHeldDays(after: ImportedDocuments, before: ImportedDocuments | undefined, held: Iterable<string>): ImportedDocuments {
+  const days = new Set(held)
+  if (!days.size || !before) return after
+  const out: ImportedDocuments = new Map(after)
+  for (const [key, doc] of before) if (days.has(dayOf(doc)) && !out.has(key)) out.set(key, doc)
+  return out
 }
 
 // ── Several orgs: books split over a group (FR-25 R7) ───────────────────────────────────────────────
@@ -93,12 +164,17 @@ function addUp(values: unknown[]): unknown {
   return present[0]
 }
 
-/** The orgs' imports of one year as one: each step's counts added up, the months side by side. */
+/**
+ * The orgs' imports of one year as one: each step's counts added up, the months side by side. A held day once: every org
+ * of a split is sent the same file, and each holds the same days.
+ */
 export function sumImports(parts: readonly ParsedImport[]): ParsedImport {
   const names = [...new Set(parts.flatMap(p => Object.keys(p.steps)))]
+  const held = [...new Map(parts.flatMap(p => p.held ?? []).map(h => [h.date, h] as const)).values()]
   return {
     steps: Object.fromEntries(names.map(name => [name, addUp(parts.map(p => p.steps[name]))])),
     months: parts.flatMap(p => p.months),
+    ...(held.length ? { held } : {}),
   }
 }
 

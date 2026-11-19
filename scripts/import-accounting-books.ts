@@ -8,6 +8,10 @@
  *
  * ⚠ Prove a re-import with a dry rerun, never a live one: `unchanged` equal to `entries` is the proof.
  *
+ * A books folder's journal can HOLD a day the archive has a figure on it cannot read (`pull-books.ts`): its month goes as a
+ * request per run of the days around it, each covering only its run, so the server neither replaces nor deletes what LGR
+ * holds of that day. Each held day prints `journal YYYY-MM: DD held (…): kept as LGR holds it`.
+ *
  * FR-25 R7: books split over a group of orgs are imported org by org, each with the SAME files, and each
  * keeps its share (`--org` one at a time, every org of the group). There, `journal total` also says how
  * many entries the whole file makes (`fileEntries`): the group's `entries` add up to it.
@@ -44,11 +48,11 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { readSheet } from './lib/plusminus-sheet.js'
 import { LgrApiError, signIn, type LgrSession } from './lib/lgr-api.js'
-import { stepLines } from './lib/books-import-print.js'
+import { heldDayLine, stepLines } from './lib/books-import-print.js'
 import {
   ExportRefused,
   assertWholeJournal,
-  documentsByMonth,
+  journalRequests,
   parseAnalyticsFile,
   parseChartExport,
   parseJournalExport,
@@ -57,7 +61,6 @@ import {
   type ParsedChartRow,
   type ParsedJournal,
 } from '../packages/services/src/biz/accounting-books/plusminus-exports.js'
-import { monthsBetween } from '../packages/services/src/biz/accounting-books/registry.js'
 import type { OpeningAnalyticLine, OpeningLine } from '../packages/services/src/biz/accounting-books/import.types.js'
 
 interface Args {
@@ -253,21 +256,22 @@ async function importJournal(session: LgrSession, file: string): Promise<void> {
   for (const w of journal.withoutHeader) {
     console.log(`  ${w.at}: ${w.docType} ${w.docNumber} of ${w.date} is an operation with no document in PlusMinus. Imported as a document of its own; ask the accountant.`)
   }
+  // A day the archive could not read (pull-books holds it): nothing of it is sent, so LGR keeps it as it holds it.
+  for (const h of journal.held ?? []) {
+    console.log(heldDayLine(h))
+    for (const r of h.records) console.log(`  ${r.reason}`)
+  }
 
-  const byMonth = documentsByMonth(journal.documents)
   const totals = { entries: 0, operations: 0, balanced: 0, new: 0, changed: 0, gone: 0, unchanged: 0, settles: 0 }
   // FR-25 R7: in an org of a split the counts above are its share; the whole file's entries come apart.
   let fileEntries: number | undefined
-  // Every month of the period, the empty ones too: an empty month in the file empties it in the books.
-  for (const month of monthsBetween(journal.period.from, journal.period.to)) {
-    const answer = await session.post('/accounting/import/journal', {
-      eik,
-      dryRun,
-      month,
-      coverage: journal.period,
-      documents: byMonth.get(month) ?? [],
-    })
-    show(`journal ${month}`, answer)
+  // Every month of the period, the empty ones too: an empty month in the file empties it in the books. A month with a held
+  // day goes as a request per run of the days around it, each covering only its run (`journalRequests`).
+  for (const { month, coverage, documents } of journalRequests(journal)) {
+    const answer = await session.post('/accounting/import/journal', { eik, dryRun, month, coverage, documents })
+    // A run of a month around a held day says which days it covers: a month then has a line per run.
+    const run = coverage.from !== journal.period.from || coverage.to !== journal.period.to
+    show(`journal ${month}`, run ? { coverage, ...answer } : answer)
     for (const key of Object.keys(totals) as (keyof typeof totals)[]) totals[key] += answer[key] ?? 0
     if (answer.split) fileEntries = (fileEntries ?? 0) + (answer.split.fileEntries ?? 0)
     if (answer.unknownDocTypes?.length) console.log(`  document types the registry does not know: ${JSON.stringify(answer.unknownDocTypes)}`)

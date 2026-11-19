@@ -30,6 +30,12 @@
 // The documents of the last import, by importKey, in books/nightly-documents.json.gz: the next import's mail lists the
 // documents it changed by date, type and number (no name, no amount), and keeps the whole list in books/<day>/changes-<sha>.txt.
 //
+// A figure the archive cannot read HOLDS its day (pull-books.ts): the rest is imported, the day stays in LGR as LGR held it,
+// and the run still succeeds and counts as this archive's import. Its mail says `N day(s) HELD` in the subject and lists each
+// record for the accountant to retype; the kept documents carry the held day's from the import before, so it is never listed
+// as gone. While the year before holds a day, that year's continuity is said, not stopped on (its closing in LGR is not the
+// archive's).
+//
 // Exit 0 when the run is fine (imported, nothing new, or the PC is off); 1 when it failed or the docs root did not answer.
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -40,23 +46,27 @@ import {
   docsRootDown,
   documentChanges,
   documentChangesText,
+  heldDaysText,
+  heldText,
   importedDocuments,
   isSplitImport,
   listsWithin,
   orgsOf,
   parseImport,
   parseImported,
-  problems,
+  problemsWhileHeld,
   serializeImported,
   splitProblems,
   summarize,
   summarizeOrgs,
+  withHeldDays,
   type DocsRootDown,
   type ImportedDocuments,
   type ImportedDocumentsFile,
   type OrgImport,
   type YearResult,
 } from '../../../scripts/lib/books-nightly-report'
+import type { HeldDay } from '../../../packages/services/src/biz/accounting-books/plusminus-exports'
 
 const here = import.meta.dir
 const repo = resolve(here, '../../..')
@@ -186,6 +196,11 @@ function journalsIn(dir: string): ImportedDocuments {
   return all
 }
 
+/** The days every configured year's journal in a books folder holds: a figure the archive cannot read (pull-books.ts). */
+function heldIn(dir: string): HeldDay[] {
+  return years.flatMap(year => (JSON.parse(readFileSync(join(dir, `journal-${year}.json`), 'utf8')).held ?? []) as HeldDay[])
+}
+
 /**
  * The documents the last import wrote: the file this run keeps, or else that import's own books folder while it still
  * holds that archive. Nothing when neither is that import's (the list is a convenience: it never fails a run).
@@ -199,6 +214,8 @@ function documentsImportedBefore(state: State): ImportedDocumentsFile | undefine
     const dir = join(books, last.archive.slice(0, 8))
     const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'))
     if (String(meta.archiveSha256 ?? '').slice(0, 12).toUpperCase() !== last.sha12) return undefined
+    // A held day's documents are not in that folder's journals, and that import left them in LGR: they cannot be listed.
+    if (heldIn(dir).length) return undefined
     return { ...last, documents: journalsIn(dir) }
   } catch {
     return undefined
@@ -207,11 +224,12 @@ function documentsImportedBefore(state: State): ImportedDocumentsFile | undefine
 
 /**
  * This import's documents, kept for the next run to compare with, and the ones that differ from the last import's: all of
- * them into the day folder, the first lines into the mail. A dry run writes neither and prints the whole list.
+ * them into the day folder, the first lines into the mail. A dry run writes neither and prints the whole list. A held day
+ * keeps the last import's documents, as LGR does (`withHeldDays`).
  */
-function listDocuments(before: ImportedDocumentsFile | undefined, current: Omit<ImportedDocumentsFile, 'documents'>, dir: string): string[] {
+function listDocuments(before: ImportedDocumentsFile | undefined, current: Omit<ImportedDocumentsFile, 'documents'>, dir: string, held: readonly string[]): string[] {
   try {
-    const after = journalsIn(dir)
+    const after = withHeldDays(journalsIn(dir), before?.documents, held)
     if (!dry) writeFileSync(documentsFile, serializeImported({ ...current, documents: after }))
     if (!before) return ['No record of the documents imported before this run, so they are not listed. The next import lists them.']
     const lines = documentChangesText(documentChanges(before.documents, after))
@@ -244,6 +262,9 @@ async function nightly(state: State): Promise<Outcome> {
   if (lastYear > Math.max(...years)) {
     notices.push(`The archive has operations in ${lastYear}, which BOOKS_NIGHTLY_YEARS (${years.join(',')}) does not import. Import that year by hand once, then add it.`)
   }
+  // The days pull-books held: no import touches them, and the mail names each record for the accountant to retype.
+  const held = heldIn(dir)
+  const heldOn = (year: number) => held.filter(h => h.date.startsWith(`${year}-`)).map(h => h.date)
 
   const results: YearResult[] = []
   // A failure stops that org's later years, never another org's: each is sent the whole archive, and what one wrote
@@ -260,8 +281,9 @@ async function nightly(state: State): Promise<Outcome> {
       const first = await run(dry ? base : [...base, '--execute'], creds)
       if (first.code !== 0) { fail(o, `import ${year}`, tail(`${first.out}\n${first.err}`)); continue }
       const did = parseImport(first.out)
-      const bad = problems(did)
-      if (bad.length) { fail(o, `import ${year}`, bad.join('\n')); continue }
+      const judged = problemsWhileHeld(year, did, heldOn(year - 1))
+      if (judged.problems.length) { fail(o, `import ${year}`, judged.problems.join('\n')); continue }
+      notices.push(...judged.notices)
       if (!dry) {
         const again = await run(base, creds)
         if (again.code !== 0) { fail(o, `dry rerun ${year}`, tail(`${again.out}\n${again.err}`)); continue }
@@ -275,26 +297,35 @@ async function nightly(state: State): Promise<Outcome> {
     // The group as a whole, which no one org of a split can see: shares that add up, and the year opening where the last closed.
     if (done.length === orgs.length && done.some(d => isSplitImport(d.parsed))) {
       const group = splitProblems(year, done)
-      const continuity = years.includes(year - 1) ? splitContinuity(dir, year) : null
-      if (continuity?.differing.length) group.push(`opening ${year}: continuity differs on ${continuity.differing.length} accounts (${continuity.differing.join(', ')})`)
+      const heldBefore = heldOn(year - 1)
+      // The year before's journal without its held day closes where the books do not: nothing to compare until it is back.
+      if (years.includes(year - 1) && heldBefore.length) {
+        notices.push(`opening ${year}: the split's continuity is not checked while ${year - 1} holds ${heldBefore.join(', ')}: it is checked again once the day is imported`)
+      } else {
+        const continuity = years.includes(year - 1) ? splitContinuity(dir, year) : null
+        if (continuity?.differing.length) group.push(`opening ${year}: continuity differs on ${continuity.differing.length} accounts (${continuity.differing.join(', ')})`)
+      }
       if (group.length) fail(org, `the split ${year}`, group.join('\n'))
     }
   }
 
+  const heldLines = held.length ? ['', ...heldText(held)] : []
   if (failures.length) {
-    // One org: exactly the failure it always mailed. Several: each named, and what the others did beside it.
-    if (orgs.length === 1) return failed(failures[0].step, failures[0].detail)
+    // One org: exactly the failure it always mailed, and the days held beside it. Several: each named, and what the others did.
+    if (orgs.length === 1) return failed(failures[0].step, [failures[0].detail, ...heldLines].join('\n'))
     return failed(
       failures.map(f => `${f.step} (${f.org})`).join('; '),
-      [...failures.map(f => `${f.org}, ${f.step}:\n${f.detail}`), '', 'The rest of the run, counts only:', ...results.map(r => r.text)].join('\n'),
+      [...failures.map(f => `${f.org}, ${f.step}:\n${f.detail}`), '', 'The rest of the run, counts only:', ...results.map(r => r.text), ...heldLines].join('\n'),
     )
   }
 
   if (!dry) state.imported = { archive, sha12, at: now() }
   const changes = results.reduce((n, r) => n + r.changes, 0)
-  const listed = listDocuments(before, { archive, sha12, at: state.imported?.at ?? now() }, dir)
+  const listed = listDocuments(before, { archive, sha12, at: state.imported?.at ?? now() }, dir, held.map(h => h.date))
+  const heldNote = held.length ? `, ${heldDaysText(held.length)}` : ''
   const report = [
     `${org} from ${archive} (written ${meta.asOf}; the last operation in it is dated ${meta.span?.last ?? '?'})${dry ? ', DRY RUN' : ''}`,
+    ...heldLines,
     '',
     ...results.map(r => r.text),
     '',
@@ -304,10 +335,11 @@ async function nightly(state: State): Promise<Outcome> {
   ].join('\n')
   return {
     kind: 'imported',
-    note: `${archive}: ${changes} change(s)${notices.length ? `, ${notices.length} notice(s)` : ''}`,
+    note: `${archive}: ${changes} change(s)${heldNote}${notices.length ? `, ${notices.length} notice(s)` : ''}`,
     report,
-    subject: `LGR books: ${org} ${meta.asOf}: ${changes} change(s)`,
-    worthMail: changes > 0 || notices.length > 0,
+    subject: `LGR books: ${org} ${meta.asOf}: ${changes} change(s)${heldNote}`,
+    // A held day is mailed with every archive that holds it: it stays out of LGR until someone retypes it.
+    worthMail: changes > 0 || notices.length > 0 || held.length > 0,
   }
 }
 
