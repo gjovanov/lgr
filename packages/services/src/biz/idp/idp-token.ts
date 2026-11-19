@@ -1,6 +1,7 @@
 import { randomBytes, type KeyObject } from 'node:crypto'
 import keyFile from 'config/idp-keys'
 import { keysFromSpki, signJws, verifyJws, type SigningKey } from '../crypto/ed-jws.js'
+import { TEST_IDP_KEYS_ENV, testTrustKeys } from '../crypto/test-keys.js'
 
 /**
  * FR-20.39 (plan step P2-4) — the assertion global hands a master when a person signs in to it with
@@ -38,7 +39,11 @@ export interface IdpAssertion {
   jti: string
 }
 
-export const BUILT_IN_IDP_KEYS: ReadonlyMap<string, KeyObject> = keysFromSpki((keyFile as { keys: Array<{ spki: string }> }).keys.map(k => k.spki))
+/** The built-in keys. A test build also includes those named in `LGR_TEST_IDP_KEYS` (`crypto/test-keys.ts`). */
+export const BUILT_IN_IDP_KEYS: ReadonlyMap<string, KeyObject> = keysFromSpki([
+  ...(keyFile as { keys: Array<{ spki: string }> }).keys.map(k => k.spki),
+  ...testTrustKeys(process.env[TEST_IDP_KEYS_ENV]),
+])
 
 const developmentKeys = new Map<string, KeyObject>()
 

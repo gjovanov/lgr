@@ -131,6 +131,18 @@ supto_gate() {
 }
 if [[ $DO_BUILD == 1 && $DO_APP == 1 ]]; then supto_gate; fi
 
+# ── FR-20 plan F.4.4: a test build is never deployed ─────────────────────────
+# A tree whose build-kind.json says "testKeys": true makes a TEST build, which trusts licence and
+# identity keys named at run time. Only the field lanes' throwaway global runs one.
+test_keys_gate() {
+  local file="$SRC/packages/config/src/build-kind.json"
+  [[ -f "$file" ]] || die "no $file: cannot tell whether $SHA makes a test build"
+  [[ "$(jq -r '.testKeys' "$file")" == false ]] \
+    || die "packages/config/src/build-kind.json does not say \"testKeys\": false. A TEST build trusts keys named at run time and is never deployed (FR-20 plan F.4.4)"
+  log "Not a test build"
+}
+if [[ $DO_BUILD == 1 && $DO_APP == 1 ]]; then test_keys_gate; fi
+
 # ── build + push ─────────────────────────────────────────────────────────────
 # `prune-docker-tags.sh --apply` keeps only the 2 newest local tags and trims the builder cache to
 # its budget — run BEFORE building so the push can never hit a full disk.

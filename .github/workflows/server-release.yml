@@ -93,6 +93,12 @@ jobs:
       tag: ${{ steps.v.outputs.tag }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # FR-20 plan F.4.4: a test build trusts licence and identity keys named at run time. It is made
+      # for the field lanes alone and never released, so a commit that makes one is refused here.
+      - name: Not a test build
+        run: |
+          jq -e '.testKeys == false' packages/config/src/build-kind.json >/dev/null \
+            || { echo '::error title=A test build::packages/config/src/build-kind.json does not say "testKeys": false. A test build trusts keys named at run time and is never released.'; exit 1; }
       - id: v
         uses: ./.github/actions/server-version
       - id: find
@@ -132,6 +138,11 @@ jobs:
       sign: ${{ steps.v.outputs.sign }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # FR-20 plan F.4.4, as in `adopt`. `check:package` refuses the package of a test build too.
+      - name: Not a test build
+        run: |
+          jq -e '.testKeys == false' packages/config/src/build-kind.json >/dev/null \
+            || { echo '::error title=A test build::packages/config/src/build-kind.json does not say "testKeys": false. A test build trusts keys named at run time and is never released.'; exit 1; }
       - id: v
         uses: ./.github/actions/server-version
         with:

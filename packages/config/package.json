@@ -33,6 +33,7 @@
     "./document-lookup": "./src/document-lookup.ts",
     "./licence-keys": "./src/licence-keys.json",
     "./idp-keys": "./src/idp-keys.json",
-    "./repoint-keys": "./src/repoint-keys.json"
+    "./repoint-keys": "./src/repoint-keys.json",
+    "./build-kind": "./src/build-kind.json"
   }
 }

@@ -145,11 +145,22 @@ export interface ServerManifest {
   commitDate: string
   /** Built from a working tree with uncommitted changes: never a release. */
   dirty: boolean
+  /**
+   * A TEST build (`config/src/build-kind.json`, FR-20 plan F.4.4): it trusts licence and identity
+   * keys named at run time. Never a release: `check-package.ts` refuses it.
+   */
+  testKeys: boolean
   bun: { version: string; revision: string }
   entries: Record<string, string>
   scripts: string[]
   ui: string[]
   files: ManifestFile[]
+}
+
+/** Whether the tree at `repo` makes a test build (`config/src/build-kind.json`, FR-20 plan F.4.4). */
+export function isTestKeysTree(repo: string = REPO_ROOT): boolean {
+  const kind = JSON.parse(readFileSync(join(repo, 'packages', 'config', 'src', 'build-kind.json'), 'utf8'))
+  return kind?.testKeys === true
 }
 
 /** Every file under `dir`, as POSIX paths relative to it, sorted. */

@@ -89,8 +89,14 @@ describe.skipIf(!enabled)('a built server package', () => {
     expect(result.out).toContain('JWT_SECRET is not set')
   }, 90_000)
 
+  it('is no test build: it trusts only the keys built into it (FR-20 plan F.4.4)', () => {
+    expect(manifest.testKeys).toBe(false)
+  })
+
   it('boots, serves the web app from its ui/, signs in and prints an invoice', async () => {
-    server = Bun.spawn(['bun', manifest.entries.server], { cwd: PKG, env: productionEnv(), stdout: 'pipe', stderr: 'pipe' })
+    // The test trust keys hold junk. A test build refuses to start on them; this one must not read them at all.
+    const junk = { LGR_TEST_LICENCE_KEYS: 'not-a-key', LGR_TEST_IDP_KEYS: 'not-a-key' }
+    server = Bun.spawn(['bun', manifest.entries.server], { cwd: PKG, env: { ...productionEnv(), ...junk }, stdout: 'pipe', stderr: 'pipe' })
     // Read as it comes, so a chatty server never fills the pipe, and a boot that hangs says where.
     let said = ''
     const keep = async (stream: ReadableStream<Uint8Array>) => {

@@ -388,6 +388,8 @@ impl Supervisor {
         serde_json::json!({
             "service": "lgr-server",
             "version": env!("CARGO_PKG_VERSION"),
+            // FR-20 plan F.4.4: a test build trusts licence keys named at run time.
+            "testKeys": crate::build_kind::test_keys(),
             "pid": std::process::id(),
             "uptimeSecs": self.started.elapsed().as_secs(),
             "front": self.front_now(),

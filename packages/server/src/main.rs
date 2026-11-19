@@ -7,6 +7,7 @@
 mod advert;
 mod arp;
 mod backoff;
+mod build_kind;
 mod child;
 mod certs;
 mod config;
@@ -280,6 +281,12 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
             Err(e) => return config_error(e),
         };
         tracing::info!(home = %paths.home.display(), package = %paths.package.display(), data = %paths.data.display(), "starting");
+        if build_kind::test_keys() {
+            tracing::warn!(
+                "a TEST build (config/src/build-kind.json): it trusts the licence keys named in {} (config/api.env). It must never serve a real org",
+                licence::TEST_KEYS_ENV
+            );
+        }
         // FR-20.13: a machine that cannot run a master is told why, before anything starts. Only what
         // makes running impossible or unsafe refuses (`preflight::blocks_start`): memory and disk are
         // the installers' floor, and a master that has run for months is never stopped at its next

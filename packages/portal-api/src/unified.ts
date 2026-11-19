@@ -7,6 +7,7 @@ import { connectDB } from 'db/connection'
 import { initServiceContext } from 'services/context'
 import { createMongoRepositories } from 'dal-mongo'
 import { logger } from 'services/logger'
+import { TEST_IDP_KEYS_ENV, TEST_KEYS_BUILD, TEST_LICENCE_KEYS_ENV, testTrustKeys } from 'services/biz/crypto/test-keys'
 
 // The whole API route table lives in `api.ts` so tests can mount it — see the header there.
 import { createApiApp } from './api.js'
@@ -166,6 +167,14 @@ logger.info(`LGR Unified running at http://${config.host}:${config.port}`)
 if (nodeRole() === 'global') logger.info(`Swagger docs at http://${config.host}:${config.port}/swagger`)
 if (nodeRole() === 'master' && !config.front.secret) {
   logger.warn('A master with no front secret: nothing stands between this listener and the network (FR-20.16)')
+}
+// FR-20 plan F.4.4: a test build trusts keys named at run time, and says so at every start.
+if (TEST_KEYS_BUILD) {
+  const licence = testTrustKeys(process.env[TEST_LICENCE_KEYS_ENV]).length
+  const idp = testTrustKeys(process.env[TEST_IDP_KEYS_ENV]).length
+  logger.warn(`A TEST build (config/src/build-kind.json): it trusts ${licence} licence and ${idp} identity key(s) named at run time. It must never serve a real org.`)
+} else if (process.env[TEST_LICENCE_KEYS_ENV] || process.env[TEST_IDP_KEYS_ENV]) {
+  logger.warn(`${TEST_LICENCE_KEYS_ENV} and ${TEST_IDP_KEYS_ENV} are ignored: this is not a test build`)
 }
 
 // ── The graceful stop and the control socket (FR-20.23, FR-20.16) ─────────────────────────
