@@ -113,3 +113,18 @@ shape; nothing else spells them) · `plusminus-exports` (the parsers, import-pur
 - **Tests:** `unit/accounting-books.test.ts`, `integration/accounting-books-import.flow.test.ts` (every
   row of §1.4 as a made-up fixture), `dal/repos/journal-entry.repo.test.ts`. Held days:
   `unit/books-held-days.test.ts`, `integration/accounting-books-held-day.flow.test.ts`.
+
+## A product's accounting group (2026-11-19, FR-25 R3, slice 1)
+
+`ProductGroupMap` names the goods group (an analytic under `СТОКИ:`) a product's sales book to, in the org that holds
+both the product and its share of the books (R7). `services/biz/accounting-books/product-groups.ts` holds the rules
+(import-pure), `product-groups.service.ts` the reads and the writes, and `scripts/learn-product-groups.ts --org <slug>
+[--from <day>] [--to <day>] [--execute]` runs them, a dry run by default that prints counts only. Plan and rules:
+FR-25 §3.6, §6.1 and §9, "R3 after R7: the plan".
+- ⚠ **Never change or remove a `ProductGroupMap` row the accountant owns**: `source: 'accountant'`, or any
+  row with a `reviewedAt`. Learning writes only `exact` and `learned` rows, and each write names the row as
+  it was read, so a row the accountant takes in the meantime is skipped and counted, never overwritten.
+- ⚠ **A conflict is never mapped.** A product whose documents name two groups gets no learned row, and
+  loses the one it had: it is for the review queue, which reads conflicts from the same evidence.
+- `rule` and `ai` rows are suggestions: coverage and posting go by `exact`, `learned` and `accountant`.
+- **Tests:** `unit/product-groups.test.ts`, `integration/product-groups.flow.test.ts`.

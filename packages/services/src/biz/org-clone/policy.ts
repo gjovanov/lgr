@@ -63,6 +63,7 @@ export const BOOKS_NEVER_CLONED: Readonly<Record<string, string>> = {
   FixedAsset: "the company's books: its fixed assets",
   Journal: "the company's books: its journals",
   JournalEntry: "the company's books: the ledger",
+  ProductGroupMap: "the company's books: the accounting group each product books to",
   TaxReturn: "the company's books: its VAT returns",
   VatRegisterEntry: "the company's books: its VAT registers",
 }

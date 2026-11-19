@@ -15,6 +15,7 @@ paths:
   - "scripts/*payroll*"
   - "scripts/*vat*"
   - "scripts/*books*"
+  - "scripts/*product-groups*"
 ---
 
 # Rules and traps: Accounting, payroll and sealed personal data
@@ -125,3 +126,15 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
   `scripts/import-accounting-books.ts` (dry run by default; a dry rerun with `unchanged` equal to
   `entries` is the proof of a re-import) and `scripts/compare-accounting-books.ts`, which prints
   "equal" or counts, never an amount, so its output can go in a public PR.
+
+## A product's accounting group (2026-11-19, FR-25 R3)
+
+- ⚠ **Never change or remove a `ProductGroupMap` row the accountant owns**: `source: 'accountant'`, or any
+  row with a `reviewedAt`. Learning writes only `exact` and `learned` rows, and each write names the row as
+  it was read, so a row the accountant takes in the meantime is skipped and counted, never overwritten.
+
+- ⚠ **A conflict is never mapped.** A product whose documents name two groups gets no learned row, and
+  loses the one it had: it is for the review queue, which reads conflicts from the same evidence.
+
+- `rule` and `ai` rows are suggestions: coverage and posting go by `exact`, `learned` and `accountant`
+  (`POSTABLE_SOURCES` in `product-groups.ts`).

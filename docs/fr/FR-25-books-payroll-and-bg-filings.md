@@ -297,15 +297,18 @@ Indexes: `{orgId, ledger, date}`, `{orgId, 'lines.analyticId', date}`, `{orgId, 
 
 `{ orgId, ledger, analyticId, quantity, value, avgCost, asOf }`, updated by the posting worker: on a debit to 304 add quantity and value, on a credit take `round2(quantity × value / quantity_on_hand)`. One writer per books org, so there is no race to reason about ([the stock-level lost update](https://github.com/gjovanov/lgr/pull/460) is the cautionary tale). A negative on-hand keeps the last average. Rebuildable at any time from the lines.
 
-### 3.6 `ProductGroupMap` (new, in the books org)
+Moved to R4 (§9, "R3 after R7"): until purchases post in shadow, the shadow's cost of sales is the books' own group average.
+
+### 3.6 `ProductGroupMap` (new, in the org that holds the product)
 
 ```ts
-{ orgId, sourceOrgId, productId, analyticId,
-  source: 'exact' | 'learned' | 'rule' | 'ai' | 'accountant', evidenceCount, reviewedBy?, reviewedAt? }
-// unique { orgId, sourceOrgId, productId }
+{ orgId, productId, analyticId,
+  source: 'exact' | 'learned' | 'rule' | 'ai' | 'accountant',
+  evidenceCount, conflictCount, lastEvidenceAt?, reviewedBy?, reviewedAt? }
+// unique { orgId, productId }, index { orgId, analyticId }
 ```
 
-Not a field on `Product`: a product belongs to one store, and the mapping is the books' decision about it.
+Not a field on `Product`: the mapping is the books' decision about a product. No `sourceOrgId`: since R7 a store's products and its share of the books are in one org, and every org of a split holds the whole analytic tree, so `analyticId` is an analytic of the same org. Nothing automatic changes a row with `source: 'accountant'` or a `reviewedAt`. `rule` and `ai` rows are suggestions and post nothing.
 
 ### 3.7 `PostingRule` (new)
 
@@ -531,7 +534,7 @@ The one person-level analytic in the journal is `ПЕРСОНАЛ:` on 425, the 
 Seeded in this order, each step only for what the last left unmapped, and everything reviewable:
 
 1. **`exact`**: the product's name is a group's name.
-2. **`learned`** from E4. For each document in both sources: a one-group document maps every product on it; otherwise a quantity unique on both sides maps that line. A product whose evidence disagrees goes to review with the counts.
+2. **`learned`** from E4. For each document in both sources: a one-group document maps every product on it; otherwise a quantity unique on both sides maps that line. A product whose evidence disagrees goes to review with the counts. As built, each rule has a guard (§9, "R3 after R7").
 3. **`rule`**: stems and the existing fastener tags (`DIN 933`, `ZN`…) as a suggestion.
 4. **`ai`**: the name against the group list, as the bill import does for suppliers' wording, a suggestion only.
 5. **`accountant`**: a review screen, sorted by sales value, so the accountant's first hour covers most of the money.
@@ -540,10 +543,10 @@ The sales side's coverage is not known until E1. Measuring it is the first thing
 
 ### 6.2 The worker
 
-`invoice.posted` and friends keep firing in the branch. A worker in the books org:
+`invoice.posted` and friends keep firing in the branch. A worker in the books org (since R7, the org that holds the document, §9 "R3 after R7"):
 
 - resolves each line's group; when one is unmapped the document waits in a **queue** in the accounting app, and nothing in the store is affected;
-- applies the matching `PostingRule`, takes cost from `GoodsGroupCost`, writes one entry and its `VatRegisterEntry`;
+- applies the matching `PostingRule`, takes cost from `GoodsGroupCost` (until R4, the books' own group average), writes one entry and its `VatRegisterEntry`;
 - runs on the global node only (FR-20: a branch's documents arrive there by replication);
 - is idempotent on `(sourceOrgId, sourceId)`, and a void or an edit writes a reversal, never a silent change. ⚠ Documents are editable in every status and an edit does not re-post today (CLAUDE.md, Draft+Issued): the worker has to notice, and a change after filing goes through the correction path, not through the frozen row.
 
@@ -794,8 +797,8 @@ Each is deployable alone and each has a gate. No release turns anything on in a 
 | **R1** | §3.1–3.4 models, books org, E1–E3, §5, Оборотна ведомост, Главна книга, Хронологична, Журнал | §5's gate, to the cent, 2025 and 2026 to date |
 | **R2** | Filed files as `VatRegisterEntry`, generators (VIES included), cell logic, VAT screen | 42 filed months regenerate equal (§7.1), and the 9 VIES files (§7.2) |
 | **P1** | §3.10–3.11 models and personal-data controls, E7–E9, §5.1, payroll reports. Needs the books org from R1 | §5.1's gate over 44 months, the personal-data flow test, and the key drill (§3.12) |
-| **R3** | §3.5–3.7, mapping + review, worker, shadow for sales and till, comparison | Sales register equal for a filed month, except the rows §12 explains |
-| **R4** | Purchases in LGR: bills through the existing OCR pipeline, expense analytic, VAT period, protocols (`-П`), customs | Purchase register + DEKLAR equal for a filed month |
+| **R3** | §3.6–3.7, mapping + review, worker, shadow for sales and till, comparison | Sales register equal for a filed month, except the rows §12 explains |
+| **R4** | Purchases in LGR: bills through the existing OCR pipeline, expense analytic, VAT period, protocols (`-П`), customs, `GoodsGroupCost` (§3.5) | Purchase register + DEKLAR equal for a filed month |
 | **P2** | The engine, `PayrollParameter`, `PostingRule` for `ЗАП`, the month's sheet, payroll in the comparison | §6.4's proof over 44 months, then `ЗАП` equal per account and analytic for two running months |
 | **R5** | Bank import with the accountant's rules (`bankImportRules`, 12 banks' formats), `settles`, cash book | Bank and cash ledgers equal for a month |
 | **P3** | обр. 1 and 6, ЕТЗ, чл. 73(6), служебни бележки, annual recalculation, Параграфи НАП, contract papers, leave | Each file equal to the last filed one, the annual ones on last year's data, and accepted by NRA's client (§7.4) |
@@ -952,6 +955,30 @@ What a later release should know:
 - **Typed in LGR as well as in PlusMinus.** While the stores issue in both, a document typed into LGR can carry an import's number. The gate matches the import and counts the other apart.
 - **A store outside LGR.** The third series belongs to a third store that keeps its own program (§12, question 1). Its rows are counted as that store's, by the series `link-books --external` names, and are no gap.
 - **A partner that differs is not always LGR's mistake.** Of the filed rows whose partner differed from LGR's, some were invoices the store re-issued under their number to another customer after the PDF was imported: the register was right, and `scripts/repair-invoice-customer.ts --printed` moves LGR's copy. Others carry a wrong number in the books' own partner card, the same on every row of that customer: the accountant corrects those. Read the store's current document before deciding which side is wrong.
+
+### R3 after R7: the plan
+
+R3 starts in `regal-pz` and `regal-sf` (owner, 2026-11-19) and follows R7's ownership: each store org posts its own sales documents, and the home also posts the tills' months and holds the VAT register. Everything writes `ledger: 'shadow'`, which every reading of the books leaves out (`POSTED_BOOKS`, `sumPostedLines`). The slices, in order:
+
+1. **The map and its coverage.** Built: `ProductGroupMap` (§3.6), learned from the org's own books and documents (§6.1), and `scripts/learn-product-groups.ts --org <slug> [--from <day>] [--to <day>] [--execute]`, a dry run by default. It prints counts only: the books' sales documents and where they belong, the pairs with LGR and what did not pair, what the pairs teach, the products by source, the conflicts and the unmapped, and per month the share of lines and of value with a group, for invoices and notes and for till sales.
+2. **A review queue** in the accounting app, sorted by sales value: the unmapped and the conflicting products, where the accountant sets the group (`source: 'accountant'`). Conflicts are not stored; the queue reads them from the same evidence.
+3. **`PostingRule` seeds and shadow posting** of the store's invoices and notes, as a batch over a period, idempotent on the source document, with a shadow `VatRegisterEntry` each, in the org that owns the document.
+4. **The tills' months** (`КП`) into the home. Needs §12, question 2.
+5. **The comparison,** books against shadow per month: the register's rows, each group's quantities, the documents only one ledger holds. A script first, then a page and a digest section.
+
+The event-driven worker (§6.2) comes after the batch is proven on filed months.
+
+Decisions:
+
+- **Ownership is R7's.** A document posts in the org that holds its books entries, and the map of its products is in the same org.
+- **Cost of sales in shadow** is the books' own group average as of the sale (`costBasis: 'books'`) until R4 brings purchases into shadow. `GoodsGroupCost` moves to R4.
+- **Learning, as built** (`services/biz/accounting-books/product-groups.ts`):
+  - Only a books sales document of the org's own series is paired, with LGR's invoice, debit or credit note of the same number, as the sales register's gate pairs them. A till's month, a store outside LGR and a number in no series are counted apart. What does not pair, on either side, is counted, never guessed.
+  - One group maps every product only when the books' total quantity equals LGR's goods lines'. A goods line the books carry as a service would otherwise take the group.
+  - A unique quantity maps a line only when the books have as many goods operations as LGR has goods lines. Booked one operation per group, a quantity can be the sum of two lines and equal a third line by chance.
+  - `exact` compares names in NFC, trimmed, with spaces collapsed, in lower case, and a Latin look-alike read as its Cyrillic letter. A name two active groups share maps nothing.
+  - A conflict maps nothing, and takes away a learned row it contradicts. A period that does not name a product leaves its row as it is, so learning runs over the whole of the books.
+  - It never changes a row with `source: 'accountant'` or a `reviewedAt`. `rule` and `ai` rows are replaced by evidence, and count as no coverage.
 
 ## 10. Tests
 
