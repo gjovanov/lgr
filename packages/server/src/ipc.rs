@@ -30,9 +30,19 @@ pub enum Request {
     #[serde(rename_all = "camelCase")]
     CaRotate { lead_secs: Option<i64> },
     /// Register with global (FR-20.2, plan step P2-1b) with a code an org admin minted on its
-    /// Servers page. Answers the registration, or global's refusal in its own words.
+    /// Servers page, or (plan step T-4) a field lane's reusable enrollment key: exactly one of the
+    /// two. Answers the registration, or global's refusal in its own words. Both are `Secret`s,
+    /// which `Debug` never prints; a line with only `code` is what an older command sends.
     #[serde(rename_all = "camelCase")]
-    Register { server: String, code: String, link_level: String, name: String },
+    Register {
+        server: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<crate::register::Secret>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        enrollment_key: Option<crate::register::Secret>,
+        link_level: String,
+        name: String,
+    },
     /// Keep a licence file an operator brought (FR-20.55, plan step P2-3b): an air-gapped master's.
     /// Verified as one from global would be, and answered with what it says.
     LicenceImport { jws: String },
@@ -259,6 +269,37 @@ mod tests {
         assert_eq!(serde_json::to_string(&Request::CaRotate { lead_secs: Some(3600) }).unwrap(), r#"{"cmd":"ca-rotate","leadSecs":3600}"#);
         assert_eq!(serde_json::from_str::<Request>(r#"{"cmd":"ca-rotate"}"#).unwrap(), Request::CaRotate { lead_secs: None });
         assert!(serde_json::from_str::<Request>(r#"{"cmd":"format-disk"}"#).is_err());
+    }
+
+    /// A registration carries a code, as it always did, or an enrollment key under its own field
+    /// (plan step T-4); `Debug` prints neither.
+    #[test]
+    fn a_registration_carries_a_code_or_a_key() {
+        use crate::register::Secret;
+        let by_code = Request::Register {
+            server: "https://global.test".into(),
+            code: Some(Secret::new("ABCD-EFGH")),
+            enrollment_key: None,
+            link_level: "control".into(),
+            name: "Shop".into(),
+        };
+        let line = r#"{"cmd":"register","server":"https://global.test","code":"ABCD-EFGH","linkLevel":"control","name":"Shop"}"#;
+        assert_eq!(serde_json::to_string(&by_code).unwrap(), line);
+        assert_eq!(serde_json::from_str::<Request>(line).unwrap(), by_code);
+
+        let by_key = Request::Register {
+            server: "https://global.test".into(),
+            code: None,
+            enrollment_key: Some(Secret::new("k3y-s3cr3t-value")),
+            link_level: "full".into(),
+            name: "Lane".into(),
+        };
+        let line = serde_json::to_string(&by_key).unwrap();
+        assert_eq!(line, r#"{"cmd":"register","server":"https://global.test","enrollmentKey":"k3y-s3cr3t-value","linkLevel":"full","name":"Lane"}"#);
+        assert_eq!(serde_json::from_str::<Request>(&line).unwrap(), by_key);
+
+        let shown = format!("{by_code:?} {by_key:?}");
+        assert!(!shown.contains("ABCD-EFGH") && !shown.contains("k3y-s3cr3t-value"), "{shown}");
     }
 
     /// A connection answers, survives a garbage line, and closes on an over-long one.

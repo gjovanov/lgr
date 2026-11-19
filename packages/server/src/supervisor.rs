@@ -478,13 +478,14 @@ impl Supervisor {
                         Request::Restart { child } => { let _ = reply.send(self.restart(&child).await); }
                         Request::CaRotate { lead_secs } => { let _ = reply.send(self.rotate_ca(lead_secs)); }
                         // Network calls, so off this loop: a stop or a status never waits behind one.
-                        Request::Register { server, code, link_level, name } => {
+                        Request::Register { server, code, enrollment_key, link_level, name } => {
                             let registrar = self.registrar.lock().unwrap().clone();
-                            match registrar {
-                                None => { let _ = reply.send(Response::error("this server registers once it has started")); }
-                                Some(r) => {
+                            match (registrar, crate::register::Credential::from_parts(code, enrollment_key)) {
+                                (None, _) => { let _ = reply.send(Response::error("this server registers once it has started")); }
+                                (Some(_), Err(e)) => { let _ = reply.send(Response::error(format!("{e:#}"))); }
+                                (Some(r), Ok(credential)) => {
                                     tokio::spawn(async move {
-                                        let ask = crate::register::Ask { server, code, link_level, name };
+                                        let ask = crate::register::Ask { server, credential, link_level, name };
                                         let answer = match crate::register::register(&r.data, &r.client, &ask).await {
                                             Ok(done) => {
                                                 r.wake.notify_waiters();
