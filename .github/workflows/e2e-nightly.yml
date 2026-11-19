@@ -32,6 +32,9 @@ on:
       - 'packages/e2e/scripts/night-findings.ts'
       - 'packages/e2e/scripts/master-stack.ts'
       - 'packages/e2e/tests/master-*.spec.ts'
+      # #814: the org that keeps imported books, which `nightly.ts` adds after the seed, and its fixture.
+      - 'packages/tests/src/helpers/books-org.ts'
+      - 'packages/e2e/tests/helpers/books-org.ts'
 
 concurrency:
   group: e2e-nightly-${{ github.ref }}

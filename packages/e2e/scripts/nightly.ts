@@ -5,11 +5,12 @@
  *   bun run build
  *   bun packages/tests/src/with-test-mongo.ts bun packages/e2e/scripts/nightly.ts [playwright args]
  *
- * `with-test-mongo.ts` owns the replica set. This seeds it, starts the OCR stub, the Eltrade stub and
- * the server, runs Playwright, and stops all three whatever Playwright says. Its exit code is
- * Playwright's.
+ * `with-test-mongo.ts` owns the replica set. This seeds it, adds the org that keeps imported books (#814), starts the
+ * OCR stub, the Eltrade stub and the server, runs Playwright, and stops all three whatever Playwright says. Its exit
+ * code is Playwright's.
  */
 import { join } from 'node:path'
+import { BOOKS_ORG, BOOKS_ORG_ENV } from '../tests/helpers/books-org'
 
 const ROOT = join(import.meta.dir, '..', '..', '..')
 const PORT = process.env.E2E_PORT || '4987'
@@ -71,6 +72,11 @@ try {
     cwd: ROOT, env, stdio: ['ignore', 'inherit', 'inherit'],
   })
   if ((await seed.exited) !== 0) throw new Error('the seed failed')
+  // The `books` project's org, through the books import's own writers: a second or two.
+  const books = Bun.spawn(['bun', '--env-file=.env.test', 'run', 'packages/tests/src/helpers/books-org.ts'], {
+    cwd: ROOT, env, stdio: ['ignore', 'inherit', 'inherit'],
+  })
+  if ((await books.exited) !== 0) throw new Error('the books org failed')
 
   start(['bun', 'packages/e2e/scripts/ocr-stub.ts'])
   start(['bun', 'packages/e2e/scripts/eltrade-tcp-stub.ts'])
@@ -84,7 +90,7 @@ try {
     ['bunx', 'playwright', 'test', '--workers=1', '--reporter=line,html,./scripts/night-summary.ts', ...process.argv.slice(2)],
     {
       cwd: join(ROOT, 'packages', 'e2e'),
-      env: { ...env, BASE_URL, PLAYWRIGHT_HTML_OPEN: 'never' },
+      env: { ...env, BASE_URL, PLAYWRIGHT_HTML_OPEN: 'never', [BOOKS_ORG_ENV]: BOOKS_ORG.slug },
       stdio: ['ignore', 'inherit', 'inherit'],
     },
   )
