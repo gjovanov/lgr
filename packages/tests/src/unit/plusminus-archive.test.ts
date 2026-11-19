@@ -125,6 +125,32 @@ describe('the books', () => {
     expect(j.withoutHeader).toEqual([{ at: 'archive 20251231\\00000005', date: '2025-12-31', docType: '+ББ', docNumber: '9' }])
   })
 
+  it('a figure that is no number refuses the journal and says where: the record, its document, the line and the field', () => {
+    // Every value is invented. A stray character typed before the digits is kept as text, which is how one reaches the archive.
+    const header: RawRecord = { date: '20250404', seq: '00000001', f: { 'ДОКУМЕНТ': '+ФЕ', 'ДОКУМ.No': '900001', 'СУМА': 60, 'ТИП': '1' } }
+    const line = (f: Record<string, string | number>): RawRecord => ({ date: '20250404', seq: '00000002', f: { 'ДОКУМЕНТ': '+ФЕ', 'ДОКУМ.No': '900001', 'ДЕБИТ': '304', 'КРЕДИТ': '401', 'СУМА': '50.00', ...f } })
+    const refusal = (records: RawRecord[]): string => {
+      try {
+        journalFromRecords(records)
+        return ''
+      } catch (e) {
+        return (e as Error).message
+      }
+    }
+
+    expect(refusal([header, line({ 'КОЛИЧЕСТВО': '„12' })])).toBe('plusminus-archive: 20250404\\00000002 (+ФЕ 900001, Дт 304 Кт 401), КОЛИЧЕСТВО: "„12" is not a number')
+    expect(refusal([header, line({ 'СУМА': '5o.00' })])).toBe('plusminus-archive: 20250404\\00000002 (+ФЕ 900001, Дт 304 Кт 401), СУМА: "5o.00" is not a number')
+    expect(refusal([header, line({ 'КУРС': 'x' })])).toBe('plusminus-archive: 20250404\\00000002 (+ФЕ 900001, Дт 304 Кт 401), КУРС: "x" is not a number')
+    expect(refusal([header, line({ 'СУМАВАЛ': '1,2,3' })])).toBe('plusminus-archive: 20250404\\00000002 (+ФЕ 900001, Дт 304 Кт 401), СУМАВАЛ: "1,2,3" is not a number')
+    // a header's own total
+    expect(refusal([{ ...header, f: { ...header.f, 'СУМА': 'шейсет' } }, line({})])).toBe('plusminus-archive: 20250404\\00000001 (+ФЕ 900001, the header), СУМА: "шейсет" is not a number')
+    // an operation of no document has its accounts to go by
+    expect(refusal([{ date: '20250404', seq: '00000009', f: { 'ДЕБИТ': '603', 'КРЕДИТ': '241', 'СУМА': 'abc' } }])).toBe('plusminus-archive: 20250404\\00000009 (Дт 603 Кт 241), СУМА: "abc" is not a number')
+    // and what reads is read as before
+    expect(refusal([header, line({ 'КОЛИЧЕСТВО': '12' })])).toBe('')
+    expect(journalFromRecords([header, line({ 'КОЛИЧЕСТВО': ' 12,5 ' })]).documents[0].ops[0].qty).toBe(12.5)
+  })
+
   describe('the rest of a document header (FR-25a)', () => {
     // Field names are PlusMinus's own; every value is invented.
     const header = (f: Record<string, string | number>): RawRecord => ({ date: '20250303', seq: '00000001', f: { 'ДОКУМЕНТ': '-ФЕ', 'ДОКУМ.No': '0000000101', 'СУМА': 120, 'ТИП': '1', ...f } })

@@ -183,6 +183,25 @@ export function archiveNumber(v: FieldValue | undefined): number | undefined {
 const asText = (v: FieldValue | undefined) => (v === undefined ? '' : String(v).trim())
 const iso = (d: string) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
 
+/**
+ * A number of a journal record, or a refusal that says WHERE it is.
+ *
+ * `archiveNumber` names only the value. One mistyped figure refuses the whole archive, and the refusal is all the
+ * nightly's mail carries: without the record, its document and the field, nobody can tell which of a year's entries
+ * to open and retype.
+ */
+function recordNumber(rec: RawRecord, field: string): number | undefined {
+  try {
+    return archiveNumber(rec.f[field])
+  } catch {
+    const f = rec.f
+    const doc = [asText(f['ДОКУМЕНТ']), asText(f['ДОКУМ.No'])].filter(Boolean).join(' ')
+    const d = asText(f['ДЕБИТ']), k = asText(f['КРЕДИТ'])
+    const line = d || k ? `Дт ${d || '-'} Кт ${k || '-'}` : 'the header'
+    throw new Error(`plusminus-archive: ${rec.date}\\${rec.seq} (${doc ? `${doc}, ` : ''}${line}), ${field}: "${asText(f[field])}" is not a number`)
+  }
+}
+
 // ── a document's header, beyond what the export shows (FR-25a) ──────────────────────────────────
 
 /** A number where one is optional: a value that is none is left out, never a reason to refuse the document. */
@@ -350,20 +369,20 @@ export function journalFromRecords(records: RawRecord[]): { documents: ImportDoc
     if (!d && !k) {
       if (!docType && !docNumber) continue // nothing to book: the export has no row for it either
       docs++
-      const total = archiveNumber(f['СУМА']), kind = asText(f['ТИП']), comment = asText(f['ТЕКСТ']), props = propsOf(f)
+      const total = recordNumber(rec, 'СУМА'), kind = asText(f['ТИП']), comment = asText(f['ТЕКСТ']), props = propsOf(f)
       current = { date, docType, docNumber, ...(kind ? { vatKind: kind } : {}), ...(total !== undefined ? { total } : {}), ...(comment ? { comment } : {}), ops: [], ...(props ? { props } : {}) }
       documents.push(current)
       continue
     }
     if (!d || !k) throw new Error(`plusminus-archive: ${rec.date}\\${rec.seq} is an operation with one account`)
-    const op: ImportOperation = { d, k, amount: archiveNumber(f['СУМА']) ?? 0 }
+    const op: ImportOperation = { d, k, amount: recordNumber(rec, 'СУМА') ?? 0 }
     const ad = f['АНАЛДЕБ'] === undefined ? '' : String(f['АНАЛДЕБ']), ak = f['АНАЛКРЕ'] === undefined ? '' : String(f['АНАЛКРЕ'])
     if (ad.trim()) op.ad = ad
     if (ak.trim()) op.ak = ak
-    const qty = archiveNumber(f['КОЛИЧЕСТВО']); if (qty !== undefined) op.qty = qty
+    const qty = recordNumber(rec, 'КОЛИЧЕСТВО'); if (qty !== undefined) op.qty = qty
     const cur = asText(f['ВАЛУТА']); if (cur) op.cur = cur
-    const rate = archiveNumber(f['КУРС']); if (rate !== undefined) op.rate = rate
-    const fx = archiveNumber(f['СУМАВАЛ']); if (fx !== undefined) op.fx = fx
+    const rate = recordNumber(rec, 'КУРС'); if (rate !== undefined) op.rate = rate
+    const fx = recordNumber(rec, 'СУМАВАЛ'); if (fx !== undefined) op.fx = fx
     const comment = asText(f['ТЕКСТ']); if (comment) op.comment = comment
     const journal = asText(f['НОМЕР']); if (journal) op.journal = journal
     const tax = asText(f['ДАНЪК']); if (tax) op.tax = tax
