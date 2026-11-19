@@ -11,6 +11,8 @@ export interface IBackgroundTask extends Document {
   params: object
   result?: object
   progress: number
+  /** What the task is doing now, as a code a screen translates (`updateProgress`'s `stage`, #772). */
+  stage?: string
   logs: string[]
   error?: string
   startedAt?: Date
@@ -30,6 +32,7 @@ const backgroundTaskSchema = new Schema<IBackgroundTask>({
   params: { type: Schema.Types.Mixed, default: {} },
   result: Schema.Types.Mixed,
   progress: { type: Number, default: 0 },
+  stage: String,
   logs: [{ type: String }],
   error: String,
   startedAt: Date,

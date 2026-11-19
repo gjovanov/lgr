@@ -404,7 +404,7 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
             filenameSuffix: stamp,
             actorUserId: user!.id,
             ...(operator ? {} : { offsite: false, mail: false }),
-            onProgress: (percent, message) => { void updateProgress(String(task.id), percent, message) },
+            onProgress: (percent, message, stage) => { void updateProgress(String(task.id), percent, message, stage) },
           })
           if (!outcome || outcome.status === 'failed') {
             await failJob(String(task.id), outcome?.reason || 'the backup did not run')
@@ -434,6 +434,10 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
    * ⚠ A `backup-create` task of this org and nothing else. The org's other background jobs (a
    * document analysis, an import) each have a route with its own permission, and this one must
    * not be a second door to their results.
+   *
+   * `stage` is what the run is doing now, as a code (`BackupStage`, #772): the screen says it in
+   * its reader's language, where `logs` are this server's own English lines. Both answers carry
+   * it, the stored row's too: the poll may reach a pod that never ran the job.
    */
   .get('/task/:taskId', async ({ params: { orgId, taskId }, user, status }) => {
     const denied = guard(user, orgId, status)
@@ -443,7 +447,7 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
     const live = taskStore.get(taskId)
     if (live && String(live.orgId) === String(orgId) && live.type === CREATE_TASK) {
       return {
-        status: live.status, progress: live.progress,
+        status: live.status, progress: live.progress, stage: live.stage,
         logs: live.logs.slice(-20), result: live.result, error: live.error,
       }
     }
@@ -452,7 +456,7 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
     const row: any = await BackgroundTask.findOne({ _id: taskId, orgId, type: CREATE_TASK }).lean().exec()
     if (!row) return status(404, { message: 'No such task' })
     return {
-      status: row.status, progress: row.progress,
+      status: row.status, progress: row.progress, stage: row.stage,
       logs: (row.logs || []).slice(-20), result: row.result, error: row.error,
     }
   }, { isSignIn: true })

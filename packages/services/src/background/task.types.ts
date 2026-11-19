@@ -7,6 +7,11 @@ export interface TaskInfo {
   params: Record<string, any>
   result?: Record<string, any>
   progress: number
+  /**
+   * What the task is doing now, as a code: the last `stage` an `updateProgress` named (#772). A screen says the code
+   * in the reader's language, where a log line stays as the server wrote it. Absent for a task that names no stages.
+   */
+  stage?: string
   logs: string[]
   error?: string
   startedAt?: Date

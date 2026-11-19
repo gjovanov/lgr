@@ -41,20 +41,28 @@ export async function startJob(
   return task
 }
 
+/**
+ * `stage` names what the task is doing now, as a code (#772): the task keeps it, in this process and on its row, for a
+ * screen to say in the reader's language. The log line stays as it is written here. A call that names no stage leaves
+ * the task's stage as it was.
+ */
 export async function updateProgress(
   taskId: string,
   progress: number,
   logMessage?: string,
+  stage?: string,
 ): Promise<void> {
   const task = taskStore.get(taskId)
   if (!task) return
 
   task.progress = progress
   if (logMessage) task.logs.push(logMessage)
+  if (stage) task.stage = stage
   taskStore.set(taskId, task)
 
   await BackgroundTask.findByIdAndUpdate(taskId, {
     progress,
+    ...(stage ? { stage } : {}),
     ...(logMessage ? { $push: { logs: logMessage } } : {}),
   })
 }

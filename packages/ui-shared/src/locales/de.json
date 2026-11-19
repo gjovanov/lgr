@@ -4329,6 +4329,8 @@
     "orgAdminTitle": "Hier können Sie Sicherungen dieser Organisation erstellen und herunterladen.",
     "orgAdminHint": "Eine hier erstellte Sicherung enthält die Datenbankzeilen ohne die Dokumentdateien und bleibt auf diesem Server. In 24 Stunden sind höchstens {n} möglich.",
     "adminOnly": "Dieser Bildschirm ist für die Administratoren der Organisation.",
+    "createFailed": "Die Sicherung ist fehlgeschlagen",
+    "verifyOk": "{file}: in Ordnung ({n} Dokumente)",
     "errors": {
       "backup_running": "Für diese Organisation wird gerade eine Sicherung erstellt. Warten Sie, bis sie fertig ist.",
       "backup_daily_limit": "Diese Organisation hat ihr Limit von {n} Sicherungen in 24 Stunden erreicht. Versuchen Sie es später erneut.",
@@ -4355,6 +4357,12 @@
     "variantName": {
       "data": "nur Datenbankzeilen",
       "full": "Zeilen und Dateien"
+    },
+    "stage": {
+      "exporting": "Sammlungen werden exportiert",
+      "packing": "Dokumente werden gepackt",
+      "verifying": "Wird geprüft",
+      "done": "Fertig"
     }
   },
   "fiscalYear": {
