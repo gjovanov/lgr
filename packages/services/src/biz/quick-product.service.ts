@@ -1,5 +1,5 @@
 import { mongoose } from 'db/connection'
-import { Org, Product, ProductCategory } from 'db/models'
+import { Org, Product, ProductCategory, defaultVatRateOf } from 'db/models'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 import { createAuditEntry } from './audit-log.service.js'
@@ -104,7 +104,8 @@ export async function createQuickProduct(
   }
 
   const org: any = await Org.findById(orgId, { settings: 1, slug: 1 }).lean().exec()
-  const taxRate = input.taxRate !== undefined && input.taxRate !== null ? num(input.taxRate) : num(org?.settings?.taxConfig?.defaultVatRate)
+  // The org is read as stored: one that never saved a default rate has the model's, not zero.
+  const taxRate = input.taxRate !== undefined && input.taxRate !== null ? num(input.taxRate) : defaultVatRateOf(org)
   const currency = org?.settings?.baseCurrency || 'EUR'
   const cost = Math.max(0, num(input.purchasePrice))
   const selling = input.sellingPrice !== undefined && input.sellingPrice !== null ? Math.max(0, num(input.sellingPrice)) : undefined

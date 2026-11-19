@@ -16,6 +16,9 @@ export interface PaginatedResult<T> {
  * ⚠ Its READS are lean (FR-32.9, the open item "BaseDao read methods missing .lean()"): they return the stored
  * document as a plain object, with no `save()`, `toJSON()` or `id` virtual. Typed as `T` for the callers that read
  * fields; a caller that needs a document asks the model itself. The writes are unchanged.
+ *
+ * ⚠ A lean read answers `undefined` for a key the model defaults and the document does not store. `OrgDao.findById`
+ * is the one read here that is not lean, for that reason: see there.
  */
 export class BaseDao<T extends Document> {
   constructor(protected model: Model<T>) {}

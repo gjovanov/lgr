@@ -3,7 +3,7 @@ import { withVisibleTrails } from 'services/biz/access/price-trails'
 import { getRepos } from 'services/context'
 import { resolvePrice } from 'services/biz/pricing.service'
 import { loadAllocationSupply } from 'services/biz/reservation.service'
-import { InternalOrder, Org } from 'db/models'
+import { InternalOrder, Org, defaultVatRateOf } from 'db/models'
 import { pinnedPriceOf } from 'config/order-line-price'
 import { getNextDraftInvoiceNumber } from '../controllers/invoice.controller.js'
 
@@ -169,7 +169,7 @@ export async function buildConversionInvoice(
 ): Promise<any> {
   const r = getRepos()
   const org: any = await Org.findById(orgId).lean().exec()
-  const defaultVat = org?.settings?.taxConfig?.defaultVatRate ?? 20
+  const defaultVat = defaultVatRateOf(org)
   const contactId = String(contact._id)
 
   let subtotal = 0
