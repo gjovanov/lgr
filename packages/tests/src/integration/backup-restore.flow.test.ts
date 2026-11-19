@@ -15,7 +15,7 @@ import {
   createTestWarehouse,
 } from '../helpers/factories'
 import { config } from 'config'
-import { BackupRun, Contact, DocFile, Product, RestoreRun, Sequence } from 'db/models'
+import { BackgroundTask, BackupRun, Contact, DocFile, Product, RestoreRun, Sequence } from 'db/models'
 import { backupController } from '../../../portal-api/src/controllers/backup.controller'
 import { runBackupForOrg } from 'services/biz/backup/backup-runner.service'
 import { inspectBundle, applyRestore } from 'services/biz/backup/backup-restore.service'
@@ -959,6 +959,135 @@ describe('manual create (FR-13.29)', () => {
       taskStore.delete(started.json.taskId)
       expect((await call(`/org/${a.orgId}/backup/task/${started.json.taskId}`, { token: a.token })).status).toBe(200)
       expect((await call(`/org/${b.orgId}/backup/task/${started.json.taskId}`, { token: b.token })).status).toBe(404)
+    })
+  })
+
+  // ── #772: what a run is doing, as a code the screen says in its own language ──
+  //
+  // The line under the screen's progress bar was the task's last log line, in the server's English
+  // whatever language the page was in. A run now names each stage with a code beside the line, the
+  // task keeps the code, and the task route answers it; the log line itself is unchanged.
+
+  describe('the stage of a run, for the screen to translate (#772)', () => {
+    const LOCALES = join(import.meta.dir, '..', '..', '..', 'ui-shared', 'src', 'locales')
+
+    it('a run reports each stage as a code beside its log line, and all four catalogues name every code', async () => {
+      const a = await orgWithAdmin('stage-run-co')
+      await createTestContact(a.org._id as Types.ObjectId, {} as any)
+      const recorder = () => {
+        const calls: Array<[number, string, string]> = []
+        const onProgress = (percent: number, message: string, stage: string) => { calls.push([percent, message, stage]) }
+        return { calls, onProgress }
+      }
+
+      // The rows and the document files: every stage there is.
+      const full = recorder()
+      const withFiles = await runBackupForOrg(a.orgId, DAY, { kind: 'full', variant: 'full', onProgress: full.onProgress })
+      expect(withFiles?.status).toBe('completed')
+      expect(full.calls).toEqual([
+        [10, 'Exporting collections', 'exporting'],
+        [40, 'Packing documents', 'packing'],
+        [60, 'Verifying', 'verifying'],
+        [100, 'Done', 'done'],
+      ])
+
+      // The rows only, which is what an org admin's button makes: nothing is packed, and no stage says it is.
+      const data = recorder()
+      const rowsOnly = await runBackupForOrg(a.orgId, '2026-09-11', { kind: 'full', variant: 'data', onProgress: data.onProgress })
+      expect(rowsOnly?.status).toBe('completed')
+      expect(data.calls).toEqual([
+        [10, 'Exporting collections', 'exporting'],
+        [60, 'Verifying', 'verifying'],
+        [100, 'Done', 'done'],
+      ])
+
+      // ⚠ The screen shows the English log line for a code its catalogue has no name for, which is the
+      // defect this closes. A stage added to the runner needs its name in every language.
+      for (const locale of ['en', 'bg', 'de', 'mk']) {
+        const names = JSON.parse(readFileSync(join(LOCALES, `${locale}.json`), 'utf8')).backup?.stage || {}
+        for (const [, , stage] of full.calls) {
+          const named = typeof names[stage] === 'string' && !!names[stage].trim()
+          expect({ locale, stage, named }).toEqual({ locale, stage, named: true })
+        }
+      }
+    })
+
+    it('a task keeps the stage it was last given, in this process and on its row; a call that names none changes nothing', async () => {
+      const a = await orgWithAdmin('stage-task-co')
+      const { startJob, updateProgress } = await import('services/background/task.service')
+      const { taskStore } = await import('services/background/task.store')
+      const stored = async (id: string): Promise<any> => BackgroundTask.findById(id).lean().exec()
+
+      // Every job but the backup calls it with two or three arguments. For those, nothing is different:
+      // the progress, the log line when there is one, and no stage anywhere.
+      const plain = await startJob(a.orgId, a.userId, 'doc-import-analyze', { files: 3 })
+      await updateProgress(plain.id, 30)
+      await updateProgress(plain.id, 60, '2/3 files')
+      const plainLive: any = taskStore.get(plain.id)
+      expect(plainLive.progress).toBe(60)
+      expect(plainLive.logs).toEqual(['Job started: doc-import-analyze', '2/3 files'])
+      expect('stage' in plainLive).toBe(false)
+      const plainRow = await stored(plain.id)
+      expect(plainRow.progress).toBe(60)
+      expect(plainRow.logs).toEqual(['Job started: doc-import-analyze', '2/3 files'])
+      expect('stage' in plainRow).toBe(false)
+
+      // A job that names its stages.
+      const staged = await startJob(a.orgId, a.userId, 'backup-create', { variant: 'data' })
+      await updateProgress(staged.id, 10, 'Exporting collections', 'exporting')
+      expect(taskStore.get(staged.id)?.stage).toBe('exporting')
+      expect(await stored(staged.id)).toMatchObject({
+        progress: 10, stage: 'exporting', logs: ['Job started: backup-create', 'Exporting collections'],
+      })
+
+      // A line with no stage of its own: the stage stands, the line is logged.
+      await updateProgress(staged.id, 20, 'a line about the same stage')
+      expect(taskStore.get(staged.id)?.stage).toBe('exporting')
+      expect(await stored(staged.id)).toMatchObject({ progress: 20, stage: 'exporting' })
+
+      await updateProgress(staged.id, 60, 'Verifying', 'verifying')
+      expect(taskStore.get(staged.id)?.stage).toBe('verifying')
+      const stagedRow = await stored(staged.id)
+      expect(stagedRow.stage).toBe('verifying')
+      // The log is the server's own, line by line, as before.
+      expect(stagedRow.logs).toEqual([
+        'Job started: backup-create', 'Exporting collections', 'a line about the same stage', 'Verifying',
+      ])
+
+      taskStore.delete(plain.id)
+      taskStore.delete(staged.id)
+    })
+
+    it('the task route answers the stage of a create: from the job in this process, and from its row once the process has forgotten it', async () => {
+      const a = await orgWithAdmin('stage-route-co')
+      config.backup.sysAdmins = []   // the org's own admin, whose screen #772 is about
+      const { taskStore } = await import('services/background/task.store')
+      await createTestContact(a.org._id as Types.ObjectId, {} as any)
+
+      const started = await call(`/org/${a.orgId}/backup/create`, {
+        method: 'POST', token: a.token, body: { variant: 'data' },
+      })
+      expect(started.status).toBe(200)
+      const taskId = started.json.taskId
+
+      // The job ran in this process, so this is the store's answer.
+      const live = await awaitTask(a.orgId, a.token, taskId)
+      expect(live).toMatchObject({ status: 'completed', progress: 100, stage: 'done' })
+      // ⚠ The stage, not the last line: the log ends with the task's own closing line, in English.
+      expect(live.logs.slice(-2)).toEqual(['Done', 'Job completed successfully'])
+
+      // Another pod answering the poll, or this one after a restart: only the row is left to ask.
+      // The run's writes to it are not awaited by anything the poll can see, so it is read until
+      // they have landed, a bounded number of times.
+      taskStore.delete(taskId)
+      let row: any = null
+      for (let i = 0; i < 60; i++) {
+        row = (await call(`/org/${a.orgId}/backup/task/${taskId}`, { token: a.token })).json
+        if (row?.status === 'completed' && row?.stage === 'done') break
+        await new Promise(r => setTimeout(r, 100))
+      }
+      expect(row).toMatchObject({ status: 'completed', progress: 100, stage: 'done' })
+      expect(row.logs).toContain('Done')
     })
   })
 })

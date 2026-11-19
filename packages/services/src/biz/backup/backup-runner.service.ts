@@ -57,6 +57,15 @@ export function attachmentCeiling(): number {
   return nodeRole() === 'master' ? Math.min(MAX_ATTACHMENT_BINARY_BYTES, config.relay.maxAttachmentBytes) : MAX_ATTACHMENT_BINARY_BYTES
 }
 
+/**
+ * What a run is doing, as a code beside each progress line (#772).
+ *
+ * The line is the log's, and stays English. A screen is in its reader's language, so it is given the code and says
+ * that (`backup.stage.<code>` in the web catalogue); for a code it has no word for it shows the line. A new stage
+ * therefore needs its name in every catalogue, which `integration/backup-restore.flow.test.ts` holds a run to.
+ */
+export type BackupStage = 'exporting' | 'packing' | 'verifying' | 'done'
+
 export interface BackupRunOutcome {
   status: 'completed' | 'failed'
   reason?: string
@@ -211,8 +220,11 @@ export async function runBackupForOrg(
      * copy". Defaults to pushing.
      */
     offsite?: boolean
-    /** Called with (percent, message) so a `BackgroundTask` can show progress (FR-13.29). */
-    onProgress?: (percent: number, message: string) => void
+    /**
+     * Called with (percent, message, stage) so a `BackgroundTask` can show progress (FR-13.29). `message` is the
+     * log line; `stage` is the same step as a code, for a screen to say in its own language (`BackupStage`).
+     */
+    onProgress?: (percent: number, message: string, stage: BackupStage) => void
   } = {},
 ): Promise<BackupRunOutcome | null> {
   const kind = opts.kind || 'full'
@@ -264,7 +276,7 @@ export async function runBackupForOrg(
     ).sort({ startedAt: -1 }).lean().exec()
     const coversFrom: Date | undefined = previous?.coversTo || previous?.completedAt || undefined
 
-    progress(10, 'Exporting collections')
+    progress(10, 'Exporting collections', 'exporting')
     const built = await buildBundle(orgId, {
       kind, date, coversFrom, coversTo, filenameSuffix: opts.filenameSuffix,
     })
@@ -277,7 +289,7 @@ export async function runBackupForOrg(
     // 68 MB of rows that would have restored its ledger.
     let files: Awaited<ReturnType<typeof import('./backup-files.service.js').buildFilesSidecar>> | null = null
     if (variant === 'full') {
-      progress(40, 'Packing documents')
+      progress(40, 'Packing documents', 'packing')
       const { buildFilesSidecar } = await import('./backup-files.service.js')
       // A master packs its whole upload tree; the cloud, `docs/` (FR-13.29).
       files = await buildFilesSidecar(orgId, built.filename.replace(/\.ndjson\.zst$/, ''), {
@@ -285,7 +297,7 @@ export async function runBackupForOrg(
       })
     }
 
-    progress(60, 'Verifying')
+    progress(60, 'Verifying', 'verifying')
     // Prove it before recording it. A bundle whose own manifest does not reproduce is not a
     // backup, and finding that out at restore time is the whole failure this FR exists to
     // prevent.
@@ -402,7 +414,7 @@ export async function runBackupForOrg(
       })
     }
 
-    progress(100, 'Done')
+    progress(100, 'Done', 'done')
     return {
       status: 'completed', runId: String(claimId), filename: built.filename,
       bytes: built.bytes, sha256: built.sha256, documentCount: built.manifest.documentCount,

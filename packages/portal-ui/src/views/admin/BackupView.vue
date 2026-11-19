@@ -339,6 +339,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useBackupStore } from '../../store/backup.store'
 import { useAppStore } from '../../store/app.store'
+import { backupTaskMessage } from './backup-task-message'
 
 const store = useBackupStore()
 const appStore = useAppStore()
@@ -425,6 +426,9 @@ function formatDateTime(v: string): string {
  *
  * ⚠ The request returns a task id, never the bundle: at year-10 volumes the build outlives
  * the ingress proxy timeout, which is the lesson the Files app's OCR sidecar already paid for.
+ *
+ * The line under the bar is the task's stage in this page's language (`backupTaskMessage`,
+ * #772): the task's log lines are the server's own English.
  */
 async function create() {
   creating.value = true
@@ -435,12 +439,12 @@ async function create() {
 
   const poll = async () => {
     try {
-      const t = await store.taskStatus(started.taskId)
-      taskProgress.value = t.progress || 0
-      taskMessage.value = (t.logs || []).slice(-1)[0] || ''
-      if (t.status === 'completed' || t.status === 'failed') {
+      const task = await store.taskStatus(started.taskId)
+      taskProgress.value = task.progress || 0
+      taskMessage.value = backupTaskMessage(task, t, te)
+      if (task.status === 'completed' || task.status === 'failed') {
         creating.value = false
-        if (t.status === 'failed') store.error = t.error || 'The backup failed'
+        if (task.status === 'failed') store.error = task.error || t('backup.createFailed')
         await store.listArchives()
         return
       }
@@ -456,8 +460,9 @@ async function create() {
 async function verify(run: any) {
   const res = await store.verifyArchive(run._id)
   if (res) {
+    // The problems are the server's own sentences about the bundle; the page's words are the catalogue's.
     taskMessage.value = res.ok
-      ? `${run.filename}: ok (${res.documentCount} documents)`
+      ? t('backup.verifyOk', { file: run.filename, n: res.documentCount })
       : `${run.filename}: ${res.problems.join('; ')}`
   }
 }

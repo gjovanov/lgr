@@ -4329,6 +4329,8 @@
     "orgAdminTitle": "You can make and download backups of this organisation here.",
     "orgAdminHint": "A backup made here holds the database records without the document files and stays on this server. Up to {n} can be made in 24 hours.",
     "adminOnly": "This screen is for the organisation’s administrators.",
+    "createFailed": "The backup failed",
+    "verifyOk": "{file}: ok ({n} documents)",
     "errors": {
       "backup_running": "A backup of this organisation is being made right now. Wait for it to finish.",
       "backup_daily_limit": "This organisation has reached its limit of {n} backups in 24 hours. Try again later.",
@@ -4355,6 +4357,12 @@
     "variantName": {
       "data": "records only",
       "full": "records and files"
+    },
+    "stage": {
+      "exporting": "Exporting collections",
+      "packing": "Packing documents",
+      "verifying": "Verifying",
+      "done": "Done"
     }
   },
   "fiscalYear": {
