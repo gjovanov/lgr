@@ -187,7 +187,7 @@ describe('the script', () => {
     await world()
     // The script builds no index and refuses to write without the unique ones: the app (here, the test) builds them.
     await Promise.all([Invoice, AuditLog].map(M => M.init()))
-    const out = mkdtempSync(join(tmpdir(), 'repair-cash-sale-invoice-vat-test-'))
+    const dir = mkdtempSync(join(tmpdir(), 'repair-cash-sale-invoice-vat-test-'))
     try {
       const dry = await cli('--org', 'cash-sale-vat-test')
       expect(dry.code).toBe(0)
@@ -196,31 +196,31 @@ describe('the script', () => {
       for (const private_ of ['3000700201', 'ТЕСТ КЛИЕНТ', '0.79', '0.13']) expect(dry.out).not.toContain(private_)
 
       expect((await cli('--org', 'cash-sale-vat-test', '--execute')).code).toBe(2)
-      expect((await cli('--org', 'cash-sale-vat-test', '--execute', '--expect', '3', '--out', out)).code).toBe(2)
+      expect((await cli('--org', 'cash-sale-vat-test', '--execute', '--expect', '3', '--out', dir)).code).toBe(2)
       expect((await read('attached')).taxTotal).toBe(0.14)
 
-      const run = await cli('--org', 'cash-sale-vat-test', '--execute', '--expect', '2', '--out', out)
+      const run = await cli('--org', 'cash-sale-vat-test', '--execute', '--expect', '2', '--out', dir)
       expect(run.code).toBe(0)
       expect(run.out).toContain('Repaired: 2 of 2 invoices')
       expect((await read('attached')).taxTotal).toBe(0.13)
-      const [file] = readdirSync(out)
+      const [file] = readdirSync(dir)
       expect(file).toMatch(/^repair-cash-sale-invoice-vat-cash-sale-vat-test-.+\.json$/)
-      expect(readFileSync(join(out, file), 'utf8')).toContain(String(ids.attached))
+      expect(readFileSync(join(dir, file), 'utf8')).toContain(String(ids.attached))
 
       expect((await cli('--org', 'cash-sale-vat-test')).out).toContain('Re-run with --execute --expect 0.')
-      const undoDry = await cli('--org', 'cash-sale-vat-test', '--undo', join(out, file))
+      const undoDry = await cli('--org', 'cash-sale-vat-test', '--undo', join(dir, file))
       expect(undoDry.code).toBe(0)
       expect(undoDry.out).toContain('to give their figures back')
       expect((await read('attached')).taxTotal).toBe(0.13)
-      expect((await cli('--org', 'cash-sale-vat-test', '--undo', join(out, file), '--execute')).code).toBe(0)
+      expect((await cli('--org', 'cash-sale-vat-test', '--undo', join(dir, file), '--execute')).code).toBe(0)
       expect((await read('attached')).taxTotal).toBe(0.14)
 
       const refused = await cli('--org', 'cash-sale-vat-test-missing')
       expect(refused.code).toBe(2)
       expect(refused.out).toContain('Refused (not_found)')
     } finally {
-      rmSync(out, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
     }
-    expect(existsSync(out)).toBe(false)
+    expect(existsSync(dir)).toBe(false)
   }, 120_000)
 })

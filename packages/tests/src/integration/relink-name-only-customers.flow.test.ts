@@ -199,7 +199,7 @@ describe('the script', () => {
     await world()
     // The script builds no index and refuses to write without the unique ones: the app (here, the test) builds them.
     await Promise.all([Invoice, StockMovement, AuditLog].map(M => M.init()))
-    const out = mkdtempSync(join(tmpdir(), 'relink-name-only-customers-test-'))
+    const dir = mkdtempSync(join(tmpdir(), 'relink-name-only-customers-test-'))
     try {
       const dry = await cli('--org', SLUG)
       expect(dry.code).toBe(0)
@@ -208,31 +208,31 @@ describe('the script', () => {
       for (const private_ of ['ДВОЙНИК', 'ПРЕКОР', '999000191', '3000700301']) expect(dry.out).not.toContain(private_)
 
       expect((await cli('--org', SLUG, '--execute')).code).toBe(2)
-      expect((await cli('--org', SLUG, '--execute', '--expect', '2', '--out', out)).code).toBe(2)
+      expect((await cli('--org', SLUG, '--execute', '--expect', '2', '--out', dir)).code).toBe(2)
       expect(await contactOf(d.paid)).toBe(String(c.bare._id))
 
-      const run = await cli('--org', SLUG, '--execute', '--expect', '3', '--out', out)
+      const run = await cli('--org', SLUG, '--execute', '--expect', '3', '--out', dir)
       expect(run.code).toBe(0)
       expect(run.out).toContain('Moved: 3 of 3 documents')
       expect(await contactOf(d.paid)).toBe(String(c.numbered._id))
-      const [file] = readdirSync(out)
+      const [file] = readdirSync(dir)
       expect(file).toMatch(/^relink-name-only-customers-name-only-twins-test-.+\.json$/)
-      expect(readFileSync(join(out, file), 'utf8')).toContain(String(d.paid._id))
+      expect(readFileSync(join(dir, file), 'utf8')).toContain(String(d.paid._id))
 
       expect((await cli('--org', SLUG)).out).toContain('Re-run with --execute --expect 0.')
-      const undoDry = await cli('--org', SLUG, '--undo', join(out, file))
+      const undoDry = await cli('--org', SLUG, '--undo', join(dir, file))
       expect(undoDry.code).toBe(0)
       expect(undoDry.out).toContain('to move back')
       expect(await contactOf(d.paid)).toBe(String(c.numbered._id))
-      expect((await cli('--org', SLUG, '--undo', join(out, file), '--execute')).code).toBe(0)
+      expect((await cli('--org', SLUG, '--undo', join(dir, file), '--execute')).code).toBe(0)
       expect(await contactOf(d.paid)).toBe(String(c.bare._id))
 
       const refused = await cli('--org', `${SLUG}-missing`)
       expect(refused.code).toBe(2)
       expect(refused.out).toContain('Refused (not_found)')
     } finally {
-      rmSync(out, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true })
     }
-    expect(existsSync(out)).toBe(false)
+    expect(existsSync(dir)).toBe(false)
   }, 120_000)
 })
