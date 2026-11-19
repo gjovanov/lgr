@@ -437,6 +437,17 @@ release.
     - `check:package` refuses its package (`--allow-test-keys` lets the lanes' own builds through);
     - the server release workflow refuses the commit in `adopt` and in `package`;
     - `deploy-prod.sh` refuses to build it.
+  - **Making one for the lanes:** dispatch the server release workflow with `test_keys`, and
+    `publish_release` off: `gh workflow run server-release.yml --ref <branch> -f version=<Cargo.toml's>
+    -f test_keys=true`. The server-version action makes each job's checkout a test build (the
+    committed file is untouched) and the run builds it as a pull request does: unsigned, installed on
+    the runners, and kept as the run's `windows` and `linux` artifacts for 14 days, which a lane takes
+    with `LGR_VMTEST_SERVER_ARTIFACT`. Its runs are named "a TEST build for the field lanes".
+    - It is never signed, released, pushed or adopted by a tag. The action refuses `test_keys` with
+      `publish_release` and on any event but a dispatch, and turns signing off. `sign` reads every
+      update bundle's manifest and supervisor and refuses a test build whatever the inputs said.
+    - Each building job reads back the kind it made, the API's manifest and the supervisor's
+      embedded file alike (`scripts/check-build-kind.ts`), so a run cannot ship half of one.
 - **Who is entitled** (`licence-issue.service.ts`): an Enterprise subscription that is active or
   trialing, paid through its period's end, or a pilot a sys-admin issued (`OrgLicence`,
   `/admin/licences`). The later date wins. A `past_due` subscription is not renewed, so its masters
