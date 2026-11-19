@@ -1281,3 +1281,39 @@ Published 2026-11-16 18:32 UTC from draft 446795926 (its `target_commitish` was 
 - Through `/api/desktop/download/0.1.13`, the page answers 200, and the MSI, the Windows installer and its `.sig` come back with the release's own sha256 digests.
 
 **What the second 72 h soak adds.** Its window (2026-11-13 to 2026-11-16) ran one till on desktop 0.1.12 and one on a build with #736, beside a Windows master updated from 0.1.12 to 0.1.13 at 36 h. At that update the till on 0.1.12 logged the refusal and was away 71 s, and the till with #736 logged none and was back in 17 s. That is #735's field proof.
+
+#### desktop-v0.1.14 (2026-11-19), against the hub's v20261119-f2b8ab78c12b
+
+**What changed:** one fix in the shell's two socket loops, found by the FR-20 soak trial of 2026-11-16, and two smaller fixes it brought along.
+
+- **#817 (#811): the hub's sockets are never read with a receive timeout.** On Windows a blocking receive whose timeout runs out as a frame arrives fails with error 997, and that frame is lost. Microsoft documents it for `SO_RCVTIMEO`: after such a timeout the connection *"is in an indeterminate state and should be closed"*. The fiscal bridge read its socket in 500 ms slices that way since 0.1.4, and presence in 5 s slices since 0.1.7, each reading the same socket again after a timeout. For the bridge the lost frame was a sale's first command: the link broke, the hub answered the sale `Fiscal bridge disconnected`, and the sale was saved without its receipt. Both loops now read through `socket.rs`. The socket is non-blocking: what the TLS and WebSocket layers already hold is read first, and only then does the loop wait on the socket (`WSAPoll` on Windows, `poll` elsewhere), a wait with nothing to time out. A send is a blocking write with a 15 s limit, and the socket is non-blocking again after it.
+- **The bridge's backoff starts over after a session that registered**, as presence's does since #742 (0.1.13). Its count went back to 0 only on a close frame or on silence, so after a broken link the first retry waited longer with every outage the app had seen, up to a minute. In #811 it waited 4 s.
+- **Both drop lines say what ended the link:** `bridge: … disconnected (device …), retrying: <cause>` and `presence: the server did not answer; retrying with backoff (<cause>)`. Their beginnings, which the field lanes match, are unchanged. An answer to a command that cannot be sent now ends the link at once, with that reason. It used to be ignored, and the next read failed instead.
+
+`packages/desktop` holds nothing else since 0.1.13: `socket.rs` is new, and `bridge.rs`, `presence.rs`, `main.rs` and `trust.rs` change. `packages/desktop-ui` changed only its `tsconfig.json`, for CI's type-check (#806). The shell's own pages are built with the shared plugins as they stood at `43042efa`. Those carry FR-30.21's icon subset (the 16 icons the pages use are all in it) and FR-31.13's formats that follow the language.
+
+**How it was found.** The 2 h soak trial for lgr-deploy#88 (2026-11-16: a Windows master updated from 0.1.12 to 0.1.13, both tills on desktop 0.1.13) saved one sale of 239 without its receipt, 36 minutes after the update, with the server up. That till's fiscal link broke for 4 s, and nothing else did: not its presence, not the other till, not the master. The till's log gave no reason, so the cause was found from the code. It was reproduced on Windows 11 with the same socket use and nothing else: 25 receives failed with error 997 in 37,482 sends timed to race a 500 ms timeout, each followed by exactly one lost message. With the reader waiting on a poll instead, there were none.
+
+**The proof is a test, not a lane.** The lanes met the loss about once in 300 till-hours (one sale of 17,849 across the soak lanes), and no lane runs that long. The test `frames_that_race_the_end_of_a_wait_all_arrive` sends real WebSocket frames on 128 connections for 150 s, each timed to arrive as the reader's wait runs out. Read the old way, 16 of 37,480 frames were lost, each after an error 997; through `socket.rs`, 0 of 37,478. The eleven socket tests (a plain socket, rustls with the pinned CA, and the platform's TLS) and the bridge's backoff test pass on Windows, Linux and macOS (Desktop CI runs 43981494324 and 43981572970).
+
+**Lanes:** the FR-14 desk lanes and the FR-20 shop lanes (23 checks), on LGR's own Windows 11 golden. They ran against the signed draft's own bytes (draft 450671307, run 44417755768, from `43042efa`), staged on the build host and checked against GitHub's digests, beside the published server 0.1.12. Harness `3a89f4c` (lgr-deploy master). All eight lanes were green on their first run (gate green 2026-11-19 02:03 UTC).
+- `shop-ubuntu` 23/23, `shop-win11` 23/23, `shop-ubuntu-nomcast` 22 PASS with its `rediscover` NA, `shop-win10` 23/23.
+- The desk lanes, cell for cell as on 0.1.13: code 12/0/7, key 11/0/8, msi/admin 13/0/6, ubuntu 3/0/16. `clock-skew` passed on the three Windows cells with the guest 180 min out.
+- **From the four tills' own logs:** 127 bridge drop lines and 56 presence outages, and every drop line names its cause: a server restart's close frame (`1012: server_restart`), a connection reset, a TLS stream that ended without its close, or no credential while the master was away. No error 997, and no refusal line.
+- **The bridge's backoff starts over.** After a session that registered, its first try came 1 s after a close frame (33 outages) and 2 s after an error (8 outages: 2.0 to 2.1 s from the drop to the next line, and in 7 of them the bridge was registered again by then). Three more errors were `rediscover`'s moves, where that first try spent 20 s at the master's old address. The waits were the same at a run's first outage and at its last, so the count did not carry over.
+- `clock-push` held its three-day skew to the end on all four shops.
+
+**The soak trial** (2 h, 2026-11-19). It ran on a harness with lgr-deploy#95, which brings the master's logs home (lgr-deploy#93's second item). A Windows master on the published server 0.1.12 was updated to 0.1.13 an hour in, with both tills on this draft. All 14 checks passed.
+- The two tills made 241 sales (120 and 121). Every one printed with its receipt and none was asked again. Each device's own receipt count equals its till's, and all 8 days closed with their Z.
+- In the tills' own logs the only drops came from the update's restart. All four links went within the same second: each bridge on the hub's `1012: server_restart` close frame, and each presence on a TLS stream that ended without its close. The bridges were registered again 9 s later and presence 11 s later, all inside the update's 20 s. Nothing else dropped in the two hours. There was no error 997 and no refusal line.
+
+Two hours cannot show #811's rate: they are 4 till-hours, against one loss in 300. What they show is no regression, and every drop line naming its cause.
+
+**Left open:** #869, whether the hub should hold a command a few seconds while a device's bridge reconnects (#811's point 4), for the owner to rule.
+
+Published 2026-11-19 04:38 UTC from draft 450671307 (its `target_commitish` was `43042efa`, the tested commit).
+- Its tag's run built nothing (run 44459698155): `build` and `release` were skipped, because the release was already published.
+- All 14 asset digests were the draft's before and after publishing. They equal the files the lanes ran, hashed on the build host when staged and again just before publishing.
+- Desktop CI on the tag (run 44459698177) passed on its first attempt: the three builds, and the Windows smoke with 14 cases passed.
+- Offered to the fleet by lgr-deploy `8fb76ef` (`DESKTOP_RELEASE_VERSION` 0.1.14). ArgoCD is Synced and Healthy, and both new pods read it.
+- Through `/api/desktop/download/0.1.14`, the page answers 200, and the MSI, the Windows installer and its `.sig` come back with the release's own sha256 digests.
