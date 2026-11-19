@@ -194,3 +194,30 @@ for (const kind of KINDS) {
     await expect(page).toHaveURL(new RegExp(`/${kind.list}/new$`))
   })
 }
+
+// #775: the print note's hint is the last line of its box, and the Notes field starts where that box
+// ends. Notes' label, once it floats, sits on the top edge of its field and reaches above it, so it
+// was drawn over the hint. It floats whenever Notes holds text, and a saved outgoing document always
+// does (the amount in words is written there), so the overlap showed on every saved invoice.
+for (const width of [1366, 390]) {
+  test(`invoice at ${width} px: the Notes label is clear of the print note's hint`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await loginForApp(page)
+    await page.goto('/invoicing/invoices/new')
+    await page.waitForLoadState('networkidle')
+
+    const notes = page.getByTestId('document-notes')
+    await notes.scrollIntoViewIfNeeded()
+    // (An auto-growing textarea has a second, hidden one that measures it.)
+    await notes.locator('textarea:not(.v-textarea__sizer)').fill('E2E: text in the notes')
+    // Leave the field, so the label floats for the text alone, as on a document that was opened.
+    await page.getByTestId('print-note').locator('textarea:not(.v-textarea__sizer)').focus()
+    // The label slides to its floated place over 150 ms: measure where it comes to rest.
+    await page.waitForTimeout(400)
+
+    const hint = await box(page.getByTestId('print-note').locator('.v-messages__message'))
+    const label = await box(notes.locator('.v-field-label--floating'))
+    expect(hint.height, 'the hint is shown').toBeGreaterThan(0)
+    expect(label.y, 'the Notes label starts below the last line of the hint').toBeGreaterThanOrEqual(hint.y + hint.height)
+  })
+}
