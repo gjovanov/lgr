@@ -37,7 +37,7 @@ const ORG_DATA = [
   'InventoryCount', 'Invite', 'Invoice', 'Journal', 'JournalEntry', 'LeaveBalance', 'Notification', 'OAuthHandoff',
   'OperationType', 'Order', 'OrgApp', 'OrgLogo', 'POSPaymentMethod', 'POSSession', 'POSTransaction',
   'PaymentOrder', 'PaymentTerm', 'PayrollElement', 'PayrollRun', 'Payslip', 'PersonalDataKey', 'PostingJob', 'PriceList', 'Product',
-  'ProductCategory', 'ProductSupplier', 'Reservation', 'Role', 'Sequence', 'StockLevel', 'StockLocation', 'StockLot',
+  'ProductCategory', 'ProductGroupMap', 'ProductSupplier', 'Reservation', 'Role', 'Sequence', 'StockLevel', 'StockLocation', 'StockLot',
   'StockMovement', 'SupplierProductAlias', 'Tag', 'TaxReturn', 'Timesheet', 'User', 'VatRegisterEntry', 'Warehouse',
   'Workstation',
 ]

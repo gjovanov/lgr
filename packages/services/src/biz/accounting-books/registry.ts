@@ -16,6 +16,8 @@ export type DocFamily = 'sales' | 'purchase' | 'vat' | 'bank' | 'stock' | 'payro
 export interface DocTypeDef {
   code: string
   family: DocFamily
+  /** A till's month, one document per device: no LGR document carries its number (§12, question 2). */
+  till?: true
 }
 
 export const DOC_TYPES: readonly DocTypeDef[] = [
@@ -25,7 +27,7 @@ export const DOC_TYPES: readonly DocTypeDef[] = [
   { code: '-ФИ', family: 'sales' },
   { code: '-ФИЕ', family: 'sales' },
   { code: '-ФА', family: 'sales' },
-  { code: 'КП', family: 'sales' },
+  { code: 'КП', family: 'sales', till: true },
   { code: 'НА', family: 'sales' },
   { code: 'ПЗИ', family: 'sales' },
   { code: '+Ф', family: 'purchase' },
