@@ -62,4 +62,17 @@ describe('a Stripe webhook', () => {
     expect(err).toBeTruthy()
     expect(String(err?.message)).toContain('Timestamp outside the tolerance zone')
   })
+
+  // Left to the SDK, an unset secret is refused as "Zero-length key is not supported", which names
+  // neither the setting nor the fix.
+  test('with no webhook secret configured, is refused saying which setting is missing', async () => {
+    config.stripe.webhookSecret = ''
+    try {
+      const err = await captureRejection(stripeService.handleWebhook(payload, sign(payload)))
+      expect(err).toBeTruthy()
+      expect(String(err?.message)).toBe('STRIPE_WEBHOOK_SECRET is not configured')
+    } finally {
+      config.stripe.webhookSecret = SECRET
+    }
+  })
 })

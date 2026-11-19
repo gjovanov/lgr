@@ -70,6 +70,8 @@ export const stripeService = {
   },
 
   async handleWebhook(payload: string, signature: string) {
+    // Left to the SDK, an unset secret is refused as "Zero-length key is not supported".
+    if (!config.stripe.webhookSecret) throw new Error('STRIPE_WEBHOOK_SECRET is not configured')
     // Under Bun the SDK is its worker build (the `bun` export condition), which verifies on SubtleCrypto:
     // there the synchronous `constructEvent` throws on every event. The async form works everywhere.
     const event = await getStripe().webhooks.constructEventAsync(payload, signature, config.stripe.webhookSecret)
