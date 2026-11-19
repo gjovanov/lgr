@@ -17,7 +17,8 @@ import { can } from 'services/biz/access/evaluate'
 import { onDevice, printDeviceReport, type DeviceReportRequest, type DeviceRow, type Status } from 'fiscal/device-command'
 import { FiscalTargetError, fiscalTcpPolicy, resolveFiscalTcpTarget } from 'fiscal/tcp-target'
 import { nodeRole } from 'config'
-import { holdServerDevice, rebindBridgePrinter, releaseServerDevice } from '../websocket/fiscal-bridge.js'
+import { rebindBridgePrinter } from '../websocket/fiscal-bridge.js'
+import { holdServerDevice, releaseServerDevice } from '../websocket/fiscal-server-holds.js'
 import { holderOf, livePresenceByDevice } from 'services/biz/fiscal-presence.service'
 
 /** A report from the device page, audited on the device (POS Sessions audits on the session). */

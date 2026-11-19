@@ -56,8 +56,8 @@ export const PRINTING_COMMANDS: ReadonlySet<string> = new Set([
 const tails = new Map<string, Promise<unknown>>()
 const holding = new AsyncLocalStorage<ReadonlySet<string>>()
 
-/** Whether this async context holds the device's turn. */
-function inDeviceTurn(deviceId: string): boolean {
+/** Whether this async context holds the device's turn. (#869: only an operation that does not is an outermost one.) */
+export function inDeviceTurn(deviceId: string): boolean {
   return !!holding.getStore()?.has(deviceId)
 }
 

@@ -30,6 +30,12 @@ export interface IFiscalDevice extends Document {
   workstationId?: Types.ObjectId
   status: string
   lastCommunicationAt?: Date
+  /**
+   * #869: when its bridge last went away by itself, with nobody holding the device after it (written with
+   * `status: 'offline'`). A request for the device within a minute of it waits up to 5 s for the bridge to come back,
+   * on whichever pod it lands (`fiscal/bridge-hold.ts`). A deliberate stop (a revocation, a takeover) writes none.
+   */
+  bridgeLostAt?: Date
   /** #450: the clock the scheduled sync would not set, left for a person (`config/fiscal-clock`). Cleared once set. */
   clockHeld?: { deviceTime: Date; serverTime: Date; stepMs: number; at: Date }
   firmwareVersion?: string
@@ -79,6 +85,7 @@ const fiscalDeviceSchema = new Schema<IFiscalDevice>(
       enum: ['online', 'offline', 'error'],
     },
     lastCommunicationAt: Date,
+    bridgeLostAt: Date,
     clockHeld: {
       type: new Schema({ deviceTime: Date, serverTime: Date, stepMs: Number, at: Date }, { _id: false }),
       default: undefined,
@@ -97,10 +104,10 @@ fiscalDeviceSchema.index({ orgId: 1, warehouseId: 1 })
 replicate(fiscalDeviceSchema, {
   class: 'S',
   // The configuration is the home's; whether the device answers is true only where it is plugged in, and so is what
-  // its clock read (#450: read by the node that holds it).
+  // its clock read (#450: read by the node that holds it), and when its bridge last went away (#869).
   home: ['deviceNumber', 'name', 'manufacturer', 'connectionType', 'connectionParams', 'warehouseId', 'workstationId', 'firmwareVersion', 'isActive', 'deactivatedAt', 'createdAt', 'updatedAt'],
   global: [],
-  node: ['status', 'lastCommunicationAt', 'clockHeld'],
+  node: ['status', 'lastCommunicationAt', 'bridgeLostAt', 'clockHeld'],
 })
 
 export const FiscalDevice = model<IFiscalDevice>('FiscalDevice', fiscalDeviceSchema)

@@ -79,7 +79,7 @@ const LARGE_FILES: Record<string, number> = {
   'services/src/biz/backup/backup-restore.service.ts': 1158,
   'services/src/biz/reservation-ops.service.ts': 1133,
   'portal-ui/src/views/settings/ServersView.vue': 1101,
-  'portal-api/src/websocket/fiscal-bridge.ts': 1100,
+  'portal-api/src/websocket/fiscal-bridge.ts': 1083,
   'config/src/index.ts': 1065,
   'services/src/biz/cash-register/payment-receipt.service.ts': 1061,
   'invoicing-api/src/controllers/invoice-export.controller.ts': 1027,

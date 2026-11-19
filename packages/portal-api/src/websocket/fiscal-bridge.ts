@@ -47,7 +47,8 @@ import { FiscalDevice } from 'db/models'
 import { WebSocketFiscalPrinter } from 'fiscal/ws-fiscal-printer'
 import { WsTremolFiscalPrinter } from 'fiscal/ws-tremol-printer'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
-import { disconnectDevice, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
+import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
+import { heartbeatServerHolds, releaseAllServerDevices } from './fiscal-server-holds.js'
 import type { IFiscalPrinter, FiscalExchangeOptions } from 'fiscal/types'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { requestVia } from '../front/front-guard.js'
@@ -218,6 +219,13 @@ const sameSocket = (a: any, b: any) => !!a && !!b && socketKey(a) === socketKey(
 
 /** Sockets that closed. A printer outlives its socket in whatever still holds it. */
 const goneSockets = new WeakSet<object>()
+
+/**
+ * #869: sockets this server closed on purpose (a revocation, a row that is no longer theirs). Their device is not
+ * "lost": nothing waits for them to come back (`fiscal/bridge-hold.ts`). Marked BEFORE the close, so whichever of the
+ * close event and the explicit `handleClose` runs first reads it.
+ */
+const deliberateCloses = new WeakSet<object>()
 
 /**
  * Create a sendCommand function for a specific WS connection.
@@ -446,6 +454,7 @@ function evict(held: any, taker: UserPrincipal, device: any, holder: BridgePrinc
   }
   unregisterPrinter(String(device._id))
   bridgeConnections.delete(bridgeKey(String(device.orgId), String(device.deviceNumber)))
+  deliberateCloses.add(socketKey(held))
   closeSocket(held, 'taken_over')
   auditTakeover(taker, device, holder?.label ?? null, holder)
 }
@@ -469,6 +478,7 @@ function dropLocal(held: any, reason: string, message: string | null): void {
       if (entry.deviceId) unregisterPrinter(entry.deviceId)
     }
   }
+  deliberateCloses.add(socketKey(held))
   closeSocket(held, reason)
 }
 
@@ -790,6 +800,7 @@ async function probeBridgeDevice(ws: any, device: any, printer: IFiscalPrinter):
  */
 export async function handleClose(ws: any) {
   goneSockets.add(socketKey(ws))
+  const lost = !deliberateCloses.has(socketKey(ws))
   // Always drop the auth state, registered or not — an unauthenticated socket that goes away
   // must not leave its deadline timer holding the event loop open.
   const auth = wsAuthMap.get(socketKey(ws))
@@ -802,7 +813,13 @@ export async function handleClose(ws: any) {
   const key = bridgeKey(orgId, deviceNumber)
 
   // A newer registration for the same device may already own the slot — leave it alone.
-  if (sameSocket(bridgeConnections.get(key), ws)) bridgeConnections.delete(key)
+  // #869: and when this socket IS the registered one, its printer goes NOW, before any await. A request that looks in
+  // the gap must see the device as unheld (and wait for its bridge, `fiscal/bridge-hold.ts`), never be handed a
+  // driver whose socket has closed. `lost` stamps when, so such a request knows the bridge has only just gone.
+  if (sameSocket(bridgeConnections.get(key), ws)) {
+    bridgeConnections.delete(key)
+    if (entry.deviceId) unregisterPrinter(entry.deviceId, { lost })
+  }
   wsDeviceMap.delete(socketKey(ws))
 
   // FR-24.45: let go of the presence row, only while it is still this socket's. A client that has
@@ -835,11 +852,14 @@ export async function handleClose(ws: any) {
         orgId,
         connectionType: { $in: ALL_BRIDGEABLE_TYPES },
       }).exec()
-      if (device) {
+      // ⚠ Asked again after the read: a bridge that registered here meanwhile owns the device now, and its printer
+      // must not be taken away.
+      if (device && !bridgeConnections.has(key)) {
         unregisterPrinter(String(device._id))
         // Offline only when nobody holds it on any pod: it may already be reconnected elsewhere.
+        // #869: and when the bridge went by itself, when, for a request on any pod to wait for it a few seconds.
         if (!(await livePresence({ orgId, deviceNumber: String(deviceNumber) }))) {
-          await FiscalDevice.findByIdAndUpdate(device._id, { status: 'offline' }).exec()
+          await FiscalDevice.findByIdAndUpdate(device._id, { status: 'offline', ...(lost ? { bridgeLostAt: new Date() } : {}) }).exec()
         }
       }
     } catch (e: any) {
@@ -910,46 +930,7 @@ export async function presenceTick(): Promise<void> {
   }
 }
 
-/**
- * FR-24.45: devices THIS pod opened itself over TCP (`kind: 'server'`). They hold a row like any
- * bridge, so a sibling pod does not open the same device and the device lists say who has it.
- */
-const serverHolds = new Map<string, { orgId: string; deviceNumber: string; deviceId: string; connId: string }>()
-
-/** Claim a device the server is about to open. Null when it is free; the holder's label when not. */
-export async function holdServerDevice(d: { orgId: string; deviceNumber: string; deviceId: string; label: string }): Promise<string | null> {
-  const key = bridgeKey(d.orgId, d.deviceNumber)
-  const connId = serverHolds.get(key)?.connId ?? randomUUID()
-  const claim = await claimPresence(
-    { orgId: d.orgId, deviceNumber: d.deviceNumber, deviceId: d.deviceId },
-    { kind: 'server', label: d.label },
-    { connId, podAddr: podAddr() },
-  )
-  if (!claim.ok) return claim.holder.label
-  serverHolds.set(key, { orgId: d.orgId, deviceNumber: d.deviceNumber, deviceId: d.deviceId, connId })
-  return null
-}
-
-/** Let go of a device the server opened. */
-export async function releaseServerDevice(orgId: string, deviceNumber: string): Promise<void> {
-  const key = bridgeKey(orgId, deviceNumber)
-  const hold = serverHolds.get(key)
-  if (!hold) return
-  serverHolds.delete(key)
-  await releasePresence({ orgId, deviceNumber }, hold.connId).catch(() => undefined)
-}
-
-async function heartbeatServerHolds(): Promise<void> {
-  if (!serverHolds.size) return
-  const holds = [...serverHolds.values()]
-  for (const lost of await heartbeatPresence(holds)) {
-    const hold = holds.find(h => h.connId === lost.connId)
-    if (!hold) continue
-    serverHolds.delete(bridgeKey(hold.orgId, hold.deviceNumber))
-    logger.warn({ deviceNumber: hold.deviceNumber, reason: lost.reason }, 'A server-opened fiscal device was taken by another holder')
-    await disconnectDevice(hold.deviceId).catch(() => undefined)
-  }
-}
+// FR-24.45's devices THIS pod opened over TCP live in `fiscal-server-holds.ts`.
 
 let heartbeat: ReturnType<typeof setInterval> | null = null
 
@@ -976,7 +957,7 @@ export async function closeAllBridges(code = 1012): Promise<number> {
     } catch { /* already gone */ }
     await handleClose(ws)
   }
-  for (const hold of [...serverHolds.values()]) await releaseServerDevice(hold.orgId, hold.deviceNumber)
+  await releaseAllServerDevices()
   if (sockets.length) logger.info({ closed: sockets.length, code }, 'Fiscal bridges closed for the stop: clients reconnect elsewhere')
   return sockets.length
 }
@@ -1055,6 +1036,8 @@ export async function stopDesktopBridges(desktopId: string): Promise<number> {
         message: 'This desktop has been removed from the organization.',
       }))
     } catch { /* already gone — the teardown proceeds */ }
+    // #869: a revoked till is not coming back, so nothing may wait for its bridge.
+    deliberateCloses.add(socketKey(ws))
     closeSocket(ws, 'desktop_revoked')
     // ⚠ `handleClose` explicitly, rather than relying on the close event: a socket that is
     // already dead fires nothing, and the point of this function is that revocation does not

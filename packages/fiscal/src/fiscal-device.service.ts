@@ -21,6 +21,23 @@ import { nodeRole } from 'config'
 const activeConnections = new Map<string, IFiscalPrinter>()
 
 /**
+ * #869: when this process last LOST each device's bridge (its socket closed and nobody took the device over), and the
+ * requests waiting for a printer to be registered again. A deliberate stop (a revocation, a takeover) is no loss, and
+ * nothing waits for it. A registration clears the stamp and wakes the waiters.
+ */
+const lostAt = new Map<string, number>()
+const waiters = new Map<string, Set<() => void>>()
+
+function setActive(deviceId: string, printer: IFiscalPrinter): void {
+  activeConnections.set(deviceId, printer)
+  lostAt.delete(deviceId)
+  const waiting = waiters.get(deviceId)
+  if (!waiting) return
+  waiters.delete(deviceId)
+  for (const wake of waiting) wake()
+}
+
+/**
  * Create a fiscal printer instance based on manufacturer.
  */
 export function createPrinter(
@@ -81,7 +98,7 @@ export async function connectDevice(
 
   const printer = createPrinter(manufacturer, config, deviceId)
   await printer.connect()
-  activeConnections.set(deviceId, printer)
+  setActive(deviceId, printer)
 
   logger.info({ deviceId, manufacturer }, 'Fiscal device connected and registered')
   return printer
@@ -174,16 +191,48 @@ export function getActiveDeviceIds(): string[] {
  * Unlike connectDevice(), this does NOT call printer.connect() — the caller manages the connection.
  */
 export function registerPrinter(deviceId: string, printer: IFiscalPrinter): void {
-  activeConnections.set(deviceId, printer)
+  setActive(deviceId, printer)
   logger.info({ deviceId }, 'Fiscal printer registered (external)')
 }
 
 /**
  * Unregister a printer without calling disconnect() (for browser bridge teardown).
+ *
+ * `lost`: its bridge went away by itself (#869), so a request for the device may wait a few seconds for it to come
+ * back (`bridge-hold.ts`). Not for a deliberate stop.
  */
-export function unregisterPrinter(deviceId: string): void {
+export function unregisterPrinter(deviceId: string, opts: { lost?: boolean } = {}): void {
   activeConnections.delete(deviceId)
-  logger.info({ deviceId }, 'Fiscal printer unregistered')
+  if (opts.lost) lostAt.set(deviceId, Date.now())
+  logger.info({ deviceId, ...(opts.lost ? { lost: true } : {}) }, 'Fiscal printer unregistered')
+}
+
+/** #869: when this process last lost the device's bridge (ms since the epoch); undefined when it has not, or it came back. */
+export function lostHereAt(deviceId: string): number | undefined {
+  return lostAt.get(deviceId)
+}
+
+/**
+ * #869: true as soon as a printer is registered for the device (at once when one already is), false once `ms` have
+ * passed without one.
+ */
+export function printerRegistered(deviceId: string, ms: number): Promise<boolean> {
+  if (activeConnections.has(deviceId)) return Promise.resolve(true)
+  return new Promise<boolean>((resolve) => {
+    let waiting = waiters.get(deviceId)
+    if (!waiting) waiters.set(deviceId, (waiting = new Set()))
+    const wake = () => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    const timer = setTimeout(() => {
+      const set = waiters.get(deviceId)
+      set?.delete(wake)
+      if (set && !set.size) waiters.delete(deviceId)
+      resolve(activeConnections.has(deviceId))
+    }, Math.max(0, ms))
+    waiting.add(wake)
+  })
 }
 
 /**

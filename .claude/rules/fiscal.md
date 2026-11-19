@@ -863,3 +863,17 @@ invoice still due until the courier pays).
   one payment type per storno, so with no method named a part goes by one method when one still holds it
   (`refundOfPart`). A line on a storno carries its discount, whole or in part. SUPTO version 5. Tests:
   `integration/till-partial-storno.flow.test.ts`, `unit/storno-lines.test.ts`; e2e `till-partial-storno.spec.ts`.
+
+## A sale waits for a bridge that has just dropped (#869, 2026-11-19)
+
+- ⚠ **A fiscal operation's printer is chosen only at its OUTERMOST start, never inside one.** A command already
+  handed to a socket that then dropped may have reached the device, and is never sent again: a second fiscal
+  receipt is the one failure this must not cause. A receipt whose bridge drops mid-print fails as it always did,
+  through the dead printer; the next sale, on the new bridge, voids what it left open.
+- ⚠ **A deliberate close is no loss** (`deliberateCloses`, marked BEFORE the close): a revocation, a takeover, a row
+  that is no longer this pod's, a socket replaced by its own principal. Nothing may wait for a till that is not
+  coming back.
+- ⚠ **A read never waits** (GET, HEAD): a status poll says what is true now.
+- ⚠ **`handleClose` unregisters the printer before its first await**, when its socket is the registered one. Before
+  #869 that came after a database read, and a sale in between was handed a driver whose socket had closed. The later
+  unregister asks again after its read, so a bridge that registered meanwhile keeps its printer.

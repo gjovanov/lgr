@@ -265,7 +265,6 @@
     "lgr/no-as-any": 1
   },
   "packages/portal-api/src/websocket/fiscal-bridge.ts": {
-    "lgr/catch-drops-error": 2,
     "lgr/no-as-any": 1
   },
   "packages/portal-api/src/websocket/uplink.ts": {

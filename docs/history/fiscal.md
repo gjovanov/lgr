@@ -963,3 +963,42 @@ invoice issued for a till sale, that sale's own). The door is `invoicing-api/src
   one payment type per storno, so with no method named a part goes by one method when one still holds it
   (`refundOfPart`). A line on a storno carries its discount, whole or in part. SUPTO version 5. Tests:
   `integration/till-partial-storno.flow.test.ts`, `unit/storno-lines.test.ts`; e2e `till-partial-storno.spec.ts`.
+
+## A sale waits for a bridge that has just dropped (#869, 2026-11-19)
+
+- **The owner's ruling (#869, #811's point 4):** a request that reaches a fiscal device whose bridge dropped a
+  moment ago waits for it, up to 5 s, then prints on the bridge that came back. Before it, a sale in that gap was
+  refused (`fiscal_device_not_connected`), or, holding the printer already, failed at its first command and was
+  saved without its receipt. Since desktop-v0.1.14 a bridge tries again 1 to 2 s after a drop, so a restart of LGR
+  Desktop or of the server, or a network blip, leaves a gap of a few seconds.
+- **`fiscal/bridge-hold.ts`**: `BRIDGE_HOLD_MS` 5 s, `BRIDGE_LOST_RECENT_MS` 60 s ("just" lost). Two halves:
+  - the routing layer (`fiscal-route.ts`, before `decideFiscal`): every declared route but a GET waits while the
+    device is held nowhere and was lost within the minute, until it is held HERE (a registration wakes it at once,
+    `printerRegistered`) or ELSEWHERE (a live presence row, looked for every 250 ms), then routes as FR-24.50 says:
+    a bridge that came back on another pod gets the request forwarded there. `deviceForWarehouse` offers a
+    just-lost device when the warehouse has none held;
+  - the print (`tillPrinter.operation`): an OUTERMOST operation picks its printer at its start, in its turn and
+    before its first command (`printerForOperation`): the registered one when the bridge dropped and came back while
+    the document waited for its turn, a wait of up to 5 s when it has just dropped HERE, else the one it holds.
+- **The stamp, twice.** `handleClose` unregisters the socket's printer synchronously with `{ lost: true }`
+  (`lostHereAt`, this process), and writes `FiscalDevice.bridgeLostAt` with `status: 'offline'` when no live row
+  remains (any pod; node-local, `replicate` lists it under `node`). A registration clears the process's stamp.
+- ⚠ **A fiscal operation's printer is chosen only at its OUTERMOST start, never inside one.** A command already
+  handed to a socket that then dropped may have reached the device, and is never sent again: a second fiscal
+  receipt is the one failure this must not cause. A receipt whose bridge drops mid-print fails as it always did,
+  through the dead printer; the next sale, on the new bridge, voids what it left open.
+- ⚠ **A deliberate close is no loss** (`deliberateCloses`, marked BEFORE the close): a revocation, a takeover, a row
+  that is no longer this pod's, a socket replaced by its own principal. Nothing may wait for a till that is not
+  coming back.
+- ⚠ **A read never waits** (GET, HEAD): a status poll says what is true now.
+- ⚠ **`handleClose` unregisters the printer before its first await**, when its socket is the registered one. Before
+  #869 that came after a database read, and a sale in between was handed a driver whose socket had closed. The later
+  unregister asks again after its read, so a bridge that registered meanwhile keeps its printer.
+- Not covered: a document already in print whose bridge comes back on ANOTHER pod cannot follow it, and fails as
+  before (a request cannot move once it has written). FR-24.50 forwards everything that has not started.
+- `fiscal-bridge.ts` was at its FR-32.26 line ceiling: FR-24.45's server-held TCP devices moved, unchanged, to
+  `websocket/fiscal-server-holds.ts` (1 100 → 1 083 lines).
+- Tests: `integration/bridge-hold.flow.test.ts` (14): the routing layer through the device controller (back here,
+  back on another pod, never back: the route's own answer after 5 s, lost long ago, a GET), the hub's stamp and a
+  revocation's none, a command in flight never sent through the next bridge, and three till sales on the Eltrade
+  simulator (one arriving in the gap, one that waited for its turn across a drop and a return, one dropped mid-print).
