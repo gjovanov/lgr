@@ -273,7 +273,9 @@ async fn link(host: &Host, body: &[u8]) -> Response<Body> {
                 };
                 let name = ask.name.filter(|n| !n.trim().is_empty()).or_else(crate::front::hostname).unwrap_or_else(|| "lgr-server".into());
                 let server = ask.server.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| crate::register::DEFAULT_SERVER.to_string());
-                let r = crate::register::Ask { server, code: code.to_string(), link_level: ask.level.clone(), name };
+                // A person's registration: always a code. Reusable keys are the field lanes', from the command (plan step T-4).
+                let credential = crate::register::Credential::Code(crate::register::Secret::new(code));
+                let r = crate::register::Ask { server, credential, link_level: ask.level.clone(), name };
                 match crate::register::register(&registrar.data, &registrar.client, &r).await {
                     Ok(_) => registrar.wake.notify_waiters(),
                     // Global's refusal in its own words: a used code, an expired one, another org's server.

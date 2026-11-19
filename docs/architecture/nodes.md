@@ -193,6 +193,12 @@ nothing of it exists on a master: every route below is 404 there.
 - **The field lanes** register with reusable keys, gated by `Org.settings.node.ephemeralKeysEnabled`.
   Their nodes are reaped after 24 h of silence, not the desktops' 15 minutes, so a master cut off on
   purpose survives the cell. A shop's master stays permanent even when a key adds another org to it.
+  - The master's side is `lgr-server register --key <key>`, or the key in `LGR_ENROLLMENT_KEY` with no
+    flag, which keeps it out of the process list (plan step T-4). The enroll body then carries
+    `enrollmentKey` instead of `code`, and nothing else changes.
+  - The command refuses `--code` while that variable holds a key, because the two register different
+    servers. Neither secret is ever printed: both travel as `register::Secret`, whose `Debug` is
+    `<redacted>`.
 
 ## The uplink, global's side (FR-20.52)
 

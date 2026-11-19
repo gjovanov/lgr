@@ -297,7 +297,9 @@ link (the old one stops working) and reopens the page with what was chosen befor
 - `lgr-server setup-token`: the link that opens the setup console.
 - `lgr-server setup reset`: open setup again, with a new link.
 - `lgr-server register --code XXXX-XXXX`: register with lgrai.app from the command line instead
-  (the code comes from the org's Servers page).
+  (the code comes from the org's Servers page). Its other form, `--key`, takes a reusable
+  enrollment key and is for test lanes only: lgrai.app removes a server registered that way after
+  24 hours without contact.
 - `lgr-server licence import <file>`: an air-gapped server's licence.
 
 ## Another machine with this server's address (Linux)

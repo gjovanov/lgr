@@ -101,10 +101,17 @@ enum Command {
         action: SetupAction,
     },
     /// Register this master with global for an org (FR-20.2), with the code its admin minted on the
-    /// Servers page. Run again with another org's code to add that org.
+    /// Servers page. Run again with another org's code to add that org. A field lane's throwaway
+    /// master gives a reusable enrollment key instead (plan step T-4): `--key`, or the variable
+    /// LGR_ENROLLMENT_KEY, which keeps it out of the process list. Global removes a server
+    /// registered that way after 24 h without contact.
     Register {
+        /// The single-use registration code from the org's Servers page.
+        #[arg(long, conflicts_with = "key")]
+        code: Option<String>,
+        /// A reusable enrollment key (test lanes only), instead of a code.
         #[arg(long)]
-        code: String,
+        key: Option<String>,
         /// lgrai.app, or a test global.
         #[arg(long, default_value = register::DEFAULT_SERVER)]
         server: String,
@@ -877,14 +884,23 @@ fn real_main(cli: Cli) -> Result<i32> {
             let answer = ask(ipc::Request::Stop)?;
             Ok(if answer.ok { 0 } else { 1 })
         }
-        Command::Register { code, server, link, name } => {
+        Command::Register { code, key, server, link, name } => {
+            let credential = register::Credential::from_cli(code, key, std::env::var(register::ENROLLMENT_KEY_ENV).ok())?;
+            let by_key = matches!(credential, register::Credential::Key(_));
             let name = name.or_else(front::hostname).unwrap_or_else(|| "LGR Server".to_string());
-            let answer = ask(ipc::Request::Register { server, code, link_level: link, name })?;
+            let (code, enrollment_key) = credential.into_parts();
+            let answer = ask(ipc::Request::Register { server, code, enrollment_key, link_level: link, name })?;
             if !answer.ok {
                 anyhow::bail!(answer.error.unwrap_or_default());
             }
             let r = answer.status.unwrap_or_default();
-            println!("Registered with {} as {} (link level {}).", r["server"].as_str().unwrap_or("?"), r["nodeId"].as_str().unwrap_or("?"), r["linkLevel"].as_str().unwrap_or("?"));
+            println!(
+                "Registered with {} as {} (link level {}{}).",
+                r["server"].as_str().unwrap_or("?"),
+                r["nodeId"].as_str().unwrap_or("?"),
+                r["linkLevel"].as_str().unwrap_or("?"),
+                if by_key { ", with an enrollment key" } else { "" },
+            );
             for o in r["orgs"].as_array().into_iter().flatten() {
                 println!("  {:<24} {}", o["slug"].as_str().unwrap_or("?"), o["name"].as_str().unwrap_or(""));
             }
@@ -1068,4 +1084,28 @@ fn run_script(name: &str, args: &[String]) -> Result<i32> {
         .status()
         .with_context(|| format!("running {}", script.display()))?;
     Ok(status.code().unwrap_or(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `register`'s two credentials as the command line reads them. What they mean, the variable
+    /// included, is `register::Credential::from_cli`'s (tested there).
+    fn register_flags(args: &[&str]) -> std::result::Result<(Option<String>, Option<String>), clap::Error> {
+        let argv = ["lgr-server", "register"].into_iter().chain(args.iter().copied());
+        match Cli::try_parse_from(argv)?.command {
+            Command::Register { code, key, .. } => Ok((code, key)),
+            _ => unreachable!("the command line names register"),
+        }
+    }
+
+    #[test]
+    fn register_takes_a_code_or_a_key_never_both() {
+        assert_eq!(register_flags(&["--code", "ABCD-EFGH"]).unwrap(), (Some("ABCD-EFGH".to_string()), None));
+        assert_eq!(register_flags(&["--key", "k3y-s3cr3t-value"]).unwrap(), (None, Some("k3y-s3cr3t-value".to_string())));
+        assert!(register_flags(&["--code", "ABCD-EFGH", "--key", "k3y-s3cr3t-value"]).is_err());
+        // Neither flag still parses: the key may be in LGR_ENROLLMENT_KEY, and `from_cli` refuses when it is not.
+        assert_eq!(register_flags(&[]).unwrap(), (None, None));
+    }
 }
