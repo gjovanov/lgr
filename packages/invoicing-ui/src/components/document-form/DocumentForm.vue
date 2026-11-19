@@ -303,9 +303,12 @@
         <v-row class="mt-4">
           <v-col cols="12" md="6">
             <!-- Free text printed under the number block. Saved with the document, so every
-                 later reprint carries it; an empty value prints nothing at all. -->
+                 later reprint carries it; an empty value prints nothing at all.
+                 The room under it (#775): its hint is the last line of its box, and the label of
+                 the field below floats up over its own top edge once that field holds text. -->
             <v-textarea
               v-model="printNote"
+              class="mb-3"
               data-testid="print-note"
               :label="$t('invoicing.printNote')"
               :hint="$t('invoicing.printNoteHint')"
