@@ -488,8 +488,7 @@ export async function orgDefaults(orgId: string): Promise<{ currency: string; va
   const org: any = await Org.findById(orgId, { settings: 1, baseCurrency: 1 }).lean().exec()
   return {
     currency: org?.settings?.baseCurrency || org?.baseCurrency || 'EUR',
-    // Read as stored: an org that never saved a default rate has the model's, not zero.
-    vat: defaultVatRateOf(org),
+    vat: defaultVatRateOf(org), // read as stored: an org that never saved a default rate has the model's, not zero
   }
 }
 
