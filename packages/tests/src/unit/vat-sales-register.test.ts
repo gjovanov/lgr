@@ -51,6 +51,16 @@ describe('the sales register row of a document', () => {
     expect(registerPartnerId(undefined)).toBe('')
   })
 
+  it('names a branch by its company\'s VAT number: a thirteen-digit БУЛСТАТ written as one is none', () => {
+    expect(rowOf(invoice({ partner: { vatNumber: 'BG 999 000 191 0012', taxId: '999 000 191 0012' } })).partnerVat).toBe('BG999000191')
+    expect(registerPartnerId({ vatNumber: 'BG9990001910012' })).toBe('BG999000191')
+    // Its БУЛСТАТ alone is what it is: the register names it so, as it names any ЕИК.
+    expect(registerPartnerId({ taxId: '9990001910012' })).toBe('9990001910012')
+    // A person's ten-digit number is one, and so is a foreign VAT number of any length.
+    expect(registerPartnerId({ vatNumber: 'BG9990001919' })).toBe('BG9990001919')
+    expect(registerPartnerId({ vatNumber: 'NL999000191B0012' })).toBe('NL999000191B0012')
+  })
+
   it('dates a document by its business day in Sofia', () => {
     // 21:30 UTC on the 30th is 00:30 on the 1st in Sofia (UTC+3 in summer time).
     const late = new Date('2026-09-30T21:30:00.000Z')

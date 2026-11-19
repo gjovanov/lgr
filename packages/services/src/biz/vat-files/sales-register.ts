@@ -82,9 +82,17 @@ export function sofiaPeriod(at: Date): string {
 const cents = (v: unknown) => Math.round((Number(v) || 0) * 100)
 const compact = (s: unknown) => String(s ?? '').replace(/\s+/g, '').toUpperCase()
 
-/** The partner's id as the register carries it: the VAT number, else the ЕИК or ЕГН. */
+/**
+ * The partner's id as the register carries it: the VAT number, else the ЕИК or ЕГН.
+ *
+ * A branch's thirteen-digit БУЛСТАТ written as its VAT number („BG 999 000 191 0012") is no VAT number: the company is
+ * registered for VAT, and its branches trade under its number, the first nine digits. The register names the company.
+ */
 export function registerPartnerId(partner: RegisterDocument['partner']): string {
-  return compact(partner?.vatNumber) || compact(partner?.taxId)
+  const vat = compact(partner?.vatNumber)
+  const branch = /^BG(\d{9})\d{4}$/.exec(vat)
+  if (branch) return `BG${branch[1]}`
+  return vat || compact(partner?.taxId)
 }
 
 /** The document's number as the register carries it: its last ten digits, or nothing. */

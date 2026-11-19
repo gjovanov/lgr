@@ -297,3 +297,53 @@ describe('the receipt backfill names a receipt by its supplier\'s other name', (
     expect(again.plans.map(p => p.movementNumber)).toEqual(['SM-2026-00002'])
   })
 })
+
+describe('matchContact — a contact holding no company number gives way to one that holds it (FR-25 R3)', () => {
+  let c: Record<string, any>
+  let id: string
+  const find = async (name: string, company_id?: string) =>
+    (await matchContact(id, { name, ...(company_id ? { company_id } : {}) } as any, 'customer', { create: false, enrich: false }))?.contactId
+  beforeAll(async () => {
+    const o = await createTestOrg({ name: 'Двойници', slug: 'contact-aliases-twins' } as any)
+    id = String(o._id)
+    const customer = (companyName: string, extra: Record<string, unknown> = {}) => createTestContact(o._id, { type: 'customer', companyName, ...extra } as any)
+    // Each name-only contact is made first: the older of two of the same name, as the import left them.
+    c = {
+      nameOnly: await customer('ДВОЙНИК ТЕСТ ЕООД'),
+      numbered: await customer('ДВОЙНИК ТЕСТ ЕООД', { taxId: '999000191', taxNumber: '999000191' }),
+      aliasNameOnly: await customer('ПРЕКОР ТЕСТ ЕООД'),
+      aliasNumbered: await customer('ПРЕКОР-1 ТЕСТ ЕООД', { aliases: ['Прекор Тест ЕООД'], vatNumber: 'BG999000282' }),
+      splitNameOnly: await customer('РАЗДВОЕН ТЕСТ ООД'),
+      splitA: await customer('РАЗДВОЕН А ООД', { aliases: ['Раздвоен Тест ООД'], taxId: '999000373' }),
+      splitB: await customer('РАЗДВОЕН Б ООД', { aliases: ['Раздвоен Тест ООД'], taxId: '999000464' }),
+      first: await customer('СТАР ТЕСТ ЕООД'),
+      second: await customer('СТАР ТЕСТ ЕООД'),
+      inUse: await customer('ИЗКЛЮЧЕН ТЕСТ ЕООД'),
+      switchedOff: await customer('ИЗКЛЮЧЕН ТЕСТ ЕООД', { taxId: '999000646', isActive: false }),
+    }
+  })
+
+  it('of two contacts of the same name, the one holding a number, though the other is older', async () => {
+    expect(await find('ДВОЙНИК ТЕСТ ЕООД')).toBe(String(c.numbered._id))
+  })
+
+  it('the one contact holding a number that keeps the name as another name, over a name-only contact named so', async () => {
+    expect(await find('ПРЕКОР ТЕСТ ЕООД')).toBe(String(c.aliasNumbered._id))
+  })
+
+  it('two holding a number that keep the name are not picked from: the contact named so stays', async () => {
+    expect(await find('РАЗДВОЕН ТЕСТ ООД')).toBe(String(c.splitNameOnly._id))
+  })
+
+  it('of two holding none, the older, as before', async () => {
+    expect(await find('СТАР ТЕСТ ЕООД')).toBe(String(c.first._id))
+  })
+
+  it('a switched-off contact holding a number does not take the name from one in use', async () => {
+    expect(await find('ИЗКЛЮЧЕН ТЕСТ ЕООД')).toBe(String(c.inUse._id))
+  })
+
+  it('a document carrying ANOTHER tax number is not the numbered contact\'s, so the name-only one takes it', async () => {
+    expect(await find('ДВОЙНИК ТЕСТ ЕООД', '999000555')).toBe(String(c.nameOnly._id))
+  })
+})
