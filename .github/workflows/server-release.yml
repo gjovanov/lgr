@@ -32,6 +32,16 @@ name: LGR Server
 #   pushes it to ghcr.io/gjovanov/lgr-server:<version>.
 #
 # A pull request that touches any of it builds it unsigned and installs it.
+#
+# **A test build** (FR-20 plan F.4.4) is a dispatch with `test_keys`: the field lanes' masters, which
+# must trust the keys their throwaway global (global-eph) makes for one run. The server-version action
+# makes each job's checkout one (build-kind.json says "testKeys": true there, never in a commit) and
+# builds it like a pull request: unsigned, installed, kept as this run's artifacts for 14 days. It is
+# never signed, released, pushed or adopted by a tag; `sign` reads the bytes and refuses one whatever
+# the inputs said, and each building job proves it made the kind of build it meant to
+# (scripts/check-build-kind.ts).
+
+run-name: ${{ inputs.test_keys && format('LGR Server {0}, a TEST build for the field lanes', inputs.version) || '' }}
 
 on:
   push:
@@ -43,6 +53,10 @@ on:
         required: true
       publish_release:
         description: 'Publish the GitHub release'
+        type: boolean
+        default: false
+      test_keys:
+        description: 'A TEST build for the field lanes: trusts keys named at run time; unsigned, never published'
         type: boolean
         default: false
   pull_request:
@@ -136,9 +150,11 @@ jobs:
       tag: ${{ steps.v.outputs.tag }}
       release: ${{ steps.v.outputs.release }}
       sign: ${{ steps.v.outputs.sign }}
+      test_keys: ${{ steps.v.outputs.test_keys }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # FR-20 plan F.4.4, as in `adopt`. `check:package` refuses the package of a test build too.
+      # It reads the COMMIT: a test build's checkout is made one by the next step, never committed.
       - name: Not a test build
         run: |
           jq -e '.testKeys == false' packages/config/src/build-kind.json >/dev/null \
@@ -148,13 +164,21 @@ jobs:
         with:
           version: ${{ inputs.version }}
           publish: ${{ inputs.publish_release }}
+          test_keys: ${{ inputs.test_keys }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
       - run: bun run build
       - run: bun run build:server
-      - run: bun run check:package
+      # A test build's package passes only as one; any other only as a release build.
+      - name: Check the package
+        env:
+          TEST_KEYS: ${{ steps.v.outputs.test_keys }}
+        run: |
+          set -euo pipefail
+          if [ "$TEST_KEYS" = true ]; then bun run check:package --allow-test-keys; else bun run check:package; fi
+          bun scripts/check-build-kind.ts --want "$TEST_KEYS" --package dist/lgr-server
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: server-package
@@ -182,6 +206,7 @@ jobs:
         with:
           version: ${{ inputs.version }}
           publish: ${{ inputs.publish_release }}
+          test_keys: ${{ inputs.test_keys }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
@@ -252,6 +277,13 @@ jobs:
         with:
           name: server-package
           path: dist/lgr-server
+      # FR-20 plan F.4.4: one kind of build in every part. The supervisor embeds build-kind.json and
+      # the API's package names it in its manifest: both read back from the bytes, against this job's.
+      - name: One kind of build
+        shell: bash
+        env:
+          TEST_KEYS: ${{ steps.v.outputs.test_keys }}
+        run: bun scripts/check-build-kind.ts --want "$TEST_KEYS" --package dist/lgr-server --supervisor packages/server/target/release/lgr-server.exe
 
       # mongod.exe links the VC++ runtime: shipped app-local beside it, from the runner's own
       # Visual Studio redistributable (roomler's way).
@@ -506,6 +538,7 @@ jobs:
         with:
           version: ${{ inputs.version }}
           publish: ${{ inputs.publish_release }}
+          test_keys: ${{ inputs.test_keys }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version-file: .bun-version
@@ -526,6 +559,11 @@ jobs:
         with:
           name: server-package
           path: dist/lgr-server
+      # As in `windows`.
+      - name: One kind of build
+        env:
+          TEST_KEYS: ${{ steps.v.outputs.test_keys }}
+        run: bun scripts/check-build-kind.ts --want "$TEST_KEYS" --package dist/lgr-server --supervisor packages/server/target/release/lgr-server
       - name: Assemble the home
         run: bun scripts/assemble-server-home.ts --target linux-x64 --version "$VERSION" --server-bin packages/server/target/release/lgr-server --package dist/lgr-server --out dist/home
 
@@ -577,6 +615,7 @@ jobs:
         with:
           version: ${{ inputs.version }}
           publish: ${{ inputs.publish_release }}
+          test_keys: ${{ inputs.test_keys }}
       # The master's own PDF reader runs its test from packages/tests below.
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -729,6 +768,7 @@ jobs:
         with:
           version: ${{ inputs.version }}
           publish: ${{ inputs.publish_release }}
+          test_keys: ${{ inputs.test_keys }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: linux
@@ -864,6 +904,26 @@ jobs:
           if find release -mindepth 1 -type d | grep -q .; then echo "::error::a directory came with the packages"; exit 1; fi
           # The image (.tar.zst) and its compose and k8s files are packages too (FR-20.12).
           if ls release | grep -vqE '\.(msi|zip|deb|tar\.gz|tar\.zst|yaml)(\.sha256)?$'; then echo "::error::something that is not a package came with them"; exit 1; fi
+
+      # FR-20 plan F.4.4: no key of roomler's ever signs a TEST build, whatever this run's inputs
+      # said. Read from the bytes: each update bundle's API manifest and its supervisor, the home the
+      # MSI and the .deb install too.
+      - name: Not a test build's bytes
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          bundles=(release/*.zip release/*.tar.gz)
+          [ ${#bundles[@]} -eq 2 ] || { echo "::error::expected 2 update bundles, found ${#bundles[@]}"; exit 1; }
+          for f in "${bundles[@]}"; do
+            out="$RUNNER_TEMP/kind/$(basename "$f")"
+            mkdir -p "$out"
+            case "$f" in
+              *.zip)    name="$(basename "$f" .zip)";    bin="$name/lgr-server.exe"; unzip -q "$f" "$bin" "$name/package/server-manifest.json" -d "$out" ;;
+              *.tar.gz) name="$(basename "$f" .tar.gz)"; bin="$name/lgr-server";     tar -xzf "$f" -C "$out" "$bin" "$name/package/server-manifest.json" ;;
+            esac
+            bun scripts/check-build-kind.ts --want false --package "$out/$name/package" --supervisor "$out/$bin"
+          done
+          rm -rf "$RUNNER_TEMP/kind"
 
       # FR-20.20: the update signature. A master installs a bundle only when minisign accepts it
       # against the key its own package carries (the desktop updater's, FR-14.28) AND the platform
