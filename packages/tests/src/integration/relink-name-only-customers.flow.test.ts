@@ -3,10 +3,12 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mongoose } from 'db/connection'
-import { AccountingAnalytic, AuditLog, Contact, Invoice, JournalEntry, StockMovement } from 'db/models'
+import { AccountingAnalytic, AuditLog, Contact, Invoice, JournalEntry, PaymentOrder, StockMovement } from 'db/models'
 import { matchContact } from 'services/biz/doc-import/matching'
 import { setupTestDB, teardownTestDB, testDbUri } from '../setup'
-import { createTestContact, createTestInvoice, createTestJournalEntry, createTestOrg, createTestStockMovement, createTestUser } from '../helpers/factories'
+import {
+  createTestContact, createTestInvoice, createTestJournalEntry, createTestOrg, createTestPaymentOrder, createTestStockMovement, createTestUser,
+} from '../helpers/factories'
 import { captureRejection } from '../helpers/capture-rejection'
 import {
   SCRIPT, applyNameOnlyCustomers, manifestOf, parseManifest, planNameOnlyCustomers, undoNameOnlyCustomers,
@@ -29,7 +31,7 @@ const oid = () => new mongoose.Types.ObjectId()
 const contactOf = async (doc: any) => String(((await Invoice.findById(doc._id).lean().exec()) as any).contactId)
 
 async function world() {
-  await Promise.all([Invoice, Contact, StockMovement, JournalEntry, AccountingAnalytic, AuditLog].map((M: any) => M.deleteMany({ orgId: org._id }).exec()))
+  await Promise.all([Invoice, Contact, StockMovement, JournalEntry, AccountingAnalytic, AuditLog, PaymentOrder].map((M: any) => M.deleteMany({ orgId: org._id }).exec()))
   const customer = (companyName: string, extra: Record<string, unknown> = {}) => createTestContact(org._id, { type: 'customer', companyName, ...extra } as any)
   // Each name-only contact is made first, as the import left them: the older of two of the same name.
   c = {
@@ -50,6 +52,8 @@ async function world() {
     session: await doc(c.bare, '3000700303', { register: { origin: 'pos', sessionId: oid() } }),
     booksElsewhere: await doc(c.bare, '3000700304'),
     booksUnlinked: await doc(c.bare, '3000700310'),
+    paidByOrder: await doc(c.bare, '3000700311'),
+    bill: await doc(c.bare, '3000700312', { direction: 'incoming' }),
     ownEntry: await doc(c.bare, '3000700305'),
     sale: await doc(c.bare, '3000700306', { type: 'cash_sale' }),
     alias: await doc(c.aliasBare, '3000700307'),
@@ -76,6 +80,8 @@ async function world() {
       { accountId: oid(), debit: 0, credit: 1, currency: 'EUR', exchangeRate: 1, baseDebit: 0, baseCredit: 1 },
     ],
   } as any)
+  // A payment order paying one document: moved, the document would leave the payment with the name-only contact.
+  await createTestPaymentOrder(org._id, c.bare._id, oid(), { invoiceIds: [d.paidByOrder._id] } as any)
   movement = await createTestStockMovement(org._id, { type: 'dispatch', status: 'completed', contactId: c.bare._id, invoiceId: d.paid._id } as any)
   stray = await createTestStockMovement(org._id, { type: 'dispatch', status: 'completed', contactId: c.bare._id } as any)
 }
@@ -97,15 +103,19 @@ describe('the dry run', () => {
       [String(c.aliasBare._id), String(c.aliasNumbered._id), ['INV-3000700307'], []],
     ])
     expect(plan.counts).toEqual({
-      nameOnly: 4, twins: 2, none: 1, several: 1, documents: 3, booksAgree: 1, notInBooks: 2, movements: 1,
+      nameOnly: 4, kept: 2, twins: 2, none: 1, several: 1, documents: 3, booksAgree: 1, notInBooks: 2, movements: 1,
       left: {
         'a cash sale or a receipt naming the contact: never rewritten': 1,
+        'an incoming document naming the contact: never moved': 1,
         'in a till session': 1,
+        'a till document, a payment order, a reservation or a POS transaction refers to it': 1,
         'the books file it under another contact': 1,
         'the books file it under a partner card linked to no contact': 1,
         'its own journal entry names the contact': 1,
         'a stock movement of the contact that is no moved document\'s': 1,
       },
+      // What still names the name-only contacts after the move, told and never changed.
+      stillNamed: { 'JournalEntry.lines.contactId': 1, 'PaymentOrder.contactId': 1 },
     })
   })
 
@@ -125,7 +135,7 @@ describe('the run', () => {
     expect(await contactOf(d.alias)).toBe(String(c.aliasNumbered._id))
     expect(String(((await StockMovement.findById(movement._id).lean().exec()) as any).contactId)).toBe(String(c.numbered._id))
     // What it left alone is as it was.
-    for (const k of ['session', 'booksElsewhere', 'booksUnlinked', 'ownEntry', 'sale']) expect(await contactOf(d[k])).toBe(String(c.bare._id))
+    for (const k of ['session', 'booksElsewhere', 'booksUnlinked', 'paidByOrder', 'bill', 'ownEntry', 'sale']) expect(await contactOf(d[k])).toBe(String(c.bare._id))
     expect(await contactOf(d.split)).toBe(String(c.splitBare._id))
     expect(String(((await StockMovement.findById(stray._id).lean().exec()) as any).contactId)).toBe(String(c.bare._id))
     expect(await Contact.find({ orgId: org._id }).sort({ _id: 1 }).lean().exec()).toEqual(before)

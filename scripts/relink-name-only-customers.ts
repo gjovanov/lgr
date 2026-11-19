@@ -47,10 +47,12 @@ async function relink(org: { id: string }): Promise<number> {
   row(c.nameOnly, 'customers holding no company number that outgoing documents name')
   row(c.none, '  no other contact holding a number carries the name: left alone')
   row(c.several, '  several contacts holding a number carry the name: left alone, a person chooses')
-  row(c.twins, '  exactly one does: kept twice, documents to move')
+  row(c.kept, '  exactly one does: kept twice')
+  row(c.twins, '    of them, with documents to move')
   row(c.documents, `documents to move (${c.booksAgree} filed in the books under the contact they move to, ${c.notInBooks} not in the books yet)`)
   row(c.movements, 'stock movements they made, moving with them')
   for (const [k, n] of Object.entries(c.left).sort(([a], [b]) => a.localeCompare(b))) row(n, `left: ${k}`)
+  for (const [k, n] of Object.entries(c.stillNamed).sort(([a], [b]) => a.localeCompare(b))) row(n, `name-only contacts still named by ${k} (never changed)`)
 
   if (!execute) {
     console.log(`\nDry run — nothing written. Re-run with --execute --expect ${c.documents}.`)

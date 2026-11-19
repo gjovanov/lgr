@@ -15,16 +15,19 @@
  * - exactly ONE other active customer contact of the org holds a number and carries its name: named exactly so
  *   (`companyNameLower`, as the import compares it), or keeping it as one of its other names (`aliasesLower`, a
  *   person's word, or the contacts import's). Two such contacts are refused, not picked from.
- * Each invoice, credit or debit note and proforma of the twin moves to that contact, with the stock movement it made. Its
- * address stays as the document has it. Left alone and counted: a document a till holds (a session, a receipt holding it,
- * a receipt that paid it, a cash sale naming the twin), one whose own journal entry names the twin, and one the books
- * file under another contact or under a partner card linked to none.
- * Never written: a contact (the twin stays as it is, with nothing naming it), a cash sale or a receipt (an issued sale
- * never is, FR-20.51), a journal entry, a VAT register row, a tax return.
+ * Each outgoing invoice, credit or debit note and proforma of the twin moves to that contact, with the stock movement it
+ * made. Its address stays as the document has it. Left alone and counted: a document a till holds (a session, a receipt
+ * holding or paying it, a cash sale naming the twin); one a payment order, a reservation or a POS transaction refers to,
+ * which would stay with the twin; one whose own journal entry names the twin; one the books file under another contact
+ * or under a partner card linked to none. What else still names each twin (its own entries, a books card, a price, an
+ * order) is counted and never changed.
+ * Never written: a contact (the twin stays as it is), a cash sale or a receipt (an issued sale never is, FR-20.51), a
+ * journal entry, a VAT register row, a tax return.
  */
 import { AccountingAnalytic, Contact, Invoice, JournalEntry, StockMovement } from '../../packages/db/src/models/index.js'
 import { normalizeName } from '../../packages/services/src/biz/doc-import/supplier-name.js'
 import { registerNumber } from '../../packages/services/src/biz/vat-files/sales-register.js'
+import { pointersTo } from './books-leftovers.js'
 import { auditRun, manifestHead, oid, parseManifestOf, type ManifestHead } from './repair-run.js'
 
 export const NAME = 'relink-name-only-customers'
@@ -39,6 +42,18 @@ const unpadded = (n: string) => n.replace(/^0+/, '')
 /** A contact holds a company number when any of its three number fields holds a digit. */
 export const holdsNumber = (c: { taxId?: unknown; taxNumber?: unknown; vatNumber?: unknown }) =>
   [c.taxId, c.taxNumber, c.vatNumber].some(v => /\d/.test(String(v ?? '')))
+
+/**
+ * What refers to a document and ties it to the contact it names: a till's document, a payment order, a reservation, a
+ * POS transaction. A link between two documents (a credit note to its invoice, a proforma to its invoice) and a posting
+ * job carry no contact, and the document's stock movement moves with it.
+ */
+const TIES = (model: string, path: string) =>
+  ['PaymentOrder', 'Reservation', 'Order', 'POSTransaction'].includes(model) ||
+  (model === 'Invoice' && /^(payments\.receiptId|receiptHolds\.|register\.)/.test(path))
+
+/** What names a twin and is counted already: its documents and its stock movements. */
+const COUNTED = (model: string, path: string) => (model === 'Invoice' || model === 'StockMovement') && path === 'contactId'
 
 export interface MovedDocument { id: string; invoiceNumber: string }
 
@@ -55,6 +70,9 @@ export interface Twin {
 export interface TwinCounts {
   /** Contacts of no number that outgoing documents name. */
   nameOnly: number
+  /** Exactly one other contact holding a number carries the name: kept twice. */
+  kept: number
+  /** Of those, the ones with documents to move. */
   twins: number
   /** No other contact holding a number carries the name. */
   none: number
@@ -66,6 +84,8 @@ export interface TwinCounts {
   notInBooks: number
   movements: number
   left: Record<string, number>
+  /** Of the twins whose documents move, how many each other record still names (`Model.path`): told, never changed. */
+  stillNamed: Record<string, number>
 }
 
 export interface TwinPlan { orgId: string; twins: Twin[]; counts: TwinCounts }
@@ -73,10 +93,12 @@ export interface TwinPlan { orgId: string; twins: Twin[]; counts: TwinCounts }
 /** The org's name-only customers, the one contact holding a number each is kept twice as, and what would move. Reads only. */
 export async function planNameOnlyCustomers(orgId: string): Promise<TwinPlan> {
   const org = oid(orgId)
-  const counts: TwinCounts = { nameOnly: 0, twins: 0, none: 0, several: 0, documents: 0, booksAgree: 0, notInBooks: 0, movements: 0, left: {} }
+  const counts: TwinCounts = { nameOnly: 0, kept: 0, twins: 0, none: 0, several: 0, documents: 0, booksAgree: 0, notInBooks: 0, movements: 0, left: {}, stillNamed: {} }
   const leave = (k: string, n = 1) => { if (n > 0) counts.left[k] = (counts.left[k] ?? 0) + n }
   const twins: Twin[] = []
+  const found: Array<{ a: any; b: string; docs: any[] }> = []
 
+  // The twins, and the documents of each that may move.
   const named = await Invoice.distinct('contactId', { orgId: org, direction: 'outgoing', type: { $in: DOC_TYPES } }).exec()
   const contacts: any[] = await Contact.find({ orgId: org, _id: { $in: named }, type: CUSTOMER })
     .select('companyName taxId taxNumber vatNumber').sort({ _id: 1 }).lean().exec()
@@ -94,8 +116,17 @@ export async function planNameOnlyCustomers(orgId: string): Promise<TwinPlan> {
 
     leave('a cash sale or a receipt naming the contact: never rewritten',
       await Invoice.countDocuments({ orgId: org, contactId: a._id, type: { $nin: DOC_TYPES } }).exec())
+    leave('an incoming document naming the contact: never moved',
+      await Invoice.countDocuments({ orgId: org, contactId: a._id, type: { $in: DOC_TYPES }, direction: { $ne: 'outgoing' } }).exec())
     const docs: any[] = await Invoice.find({ orgId: org, contactId: a._id, direction: 'outgoing', type: { $in: DOC_TYPES } })
       .select('invoiceNumber register receiptHolds cashSaleRef').sort({ _id: 1 }).lean().exec()
+    found.push({ a, b, docs })
+    counts.kept++
+  }
+
+  // What ties those documents to their contact, read once for all of them.
+  const tied = await pointersTo('Invoice', orgId, found.flatMap(f => f.docs.map(d => d._id)), (model, path) => !TIES(model, path))
+  for (const { a, b, docs } of found) {
     const ids = docs.map(d => d._id)
     // A document's own entry naming the twin, and the partner the books file each document's number under.
     const ownEntries = new Set((await JournalEntry.find({ orgId: org, sourceId: { $in: ids }, 'lines.contactId': a._id }, { sourceId: 1 }).lean().exec() as any[])
@@ -117,7 +148,7 @@ export async function planNameOnlyCustomers(orgId: string): Promise<TwinPlan> {
       if (d.register?.sessionId) { leave('in a till session'); continue }
       if ((d.receiptHolds ?? []).length) { leave('held by a payment receipt'); continue }
       if (d.cashSaleRef?.contactId && String(d.cashSaleRef.contactId) === String(a._id)) { leave('its cash sale names the same contact'); continue }
-      if (await Invoice.exists({ orgId: org, type: 'payment_receipt', 'register.paidInvoiceId': d._id })) { leave('paid through a till receipt'); continue }
+      if (tied.has(String(d._id))) { leave('a till document, a payment order, a reservation or a POS transaction refers to it'); continue }
       if (ownEntries.has(String(d._id))) { leave('its own journal entry names the contact'); continue }
       const said = booksSay(registerNumber(d.invoiceNumber))
       if (said.has('')) { leave('the books file it under a partner card linked to no contact'); continue }
@@ -136,6 +167,10 @@ export async function planNameOnlyCustomers(orgId: string): Promise<TwinPlan> {
     counts.documents += moved.length
     counts.movements += theirs.length
   }
+
+  // What else names the twins: their own entries, a books card, a price, an order. Told, never changed.
+  const still = await pointersTo('Contact', orgId, twins.map(t => t.fromId), COUNTED)
+  for (const paths of still.values()) for (const p of new Set(paths)) counts.stillNamed[p] = (counts.stillNamed[p] ?? 0) + 1
   return { orgId, twins, counts }
 }
 
