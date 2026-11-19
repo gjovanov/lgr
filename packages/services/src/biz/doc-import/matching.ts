@@ -91,6 +91,13 @@ const NAME_CANDIDATES = 20
  *   `Contact.aliases`): that is a person's word, so it comes before any guess, and after every contact that is
  *   really named so. Two contacts keeping the same other name are refused, not picked from.
  * - Otherwise one candidate is a match, and several are refused (`ambiguous`), never picked from.
+ *
+ * A contact holding no company number gives way, in the first two, to one in use that holds it (FR-25 R3). Such a
+ * contact is what an import made of a bare name when it knew no better; once the same company is on file with its
+ * number, under this name or keeping it as another name, the name-only one kept every later document off the register's
+ * partner. So the older name wins among those holding a number, then among those holding none, unless ONE contact
+ * keeping the name as another name holds a number (`scripts/relink-name-only-customers.ts` moves the documents that
+ * came before). A switched-off contact never takes a document from one in use this way.
  */
 async function matchContactByName(
   orgId: string,
@@ -99,13 +106,19 @@ async function matchContactByName(
   documentIds: Set<string>,
 ): Promise<{ contact?: any; ambiguous?: number }> {
   const sameCompany = (c: any) => !otherCompany(c, documentIds)
+  const holdsNumber = (c: any) => c.isActive !== false && taxIds(c.taxId, c.taxNumber, c.vatNumber).size > 0
   const exact = (await Contact.find({ orgId, ...typeIn, companyNameLower: name.toLocaleLowerCase('bg') } as any)
     .sort({ _id: 1 }).lean()).filter(sameCompany)
-  if (exact.length) return { contact: exact[0] }
+  const numbered = exact.find(holdsNumber)
+  if (numbered) return { contact: numbered }
 
   // Other names are stored cleaned (one space between words), so the document's is compared the same way.
   const known = (await Contact.find({ orgId, ...typeIn, aliasesLower: normalizeName(name) } as any)
     .sort({ _id: 1 }).limit(NAME_CANDIDATES + 1).lean()).filter(sameCompany)
+  if (exact.length) {
+    const knownNumbered = known.filter(holdsNumber)
+    return { contact: knownNumbered.length === 1 ? knownNumbered[0] : exact[0] }
+  }
   if (known.length === 1) return { contact: known[0] }
   if (known.length) return { ambiguous: known.length }
 
