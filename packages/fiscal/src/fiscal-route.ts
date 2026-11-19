@@ -1,7 +1,8 @@
 import { Elysia } from 'elysia'
 import { mongoose } from 'db/connection'
 import { FiscalDevice, Invoice, POSSession } from 'db/models'
-import { isDeviceConnected } from './fiscal-device.service.js'
+import { isDeviceConnected, lostHereAt } from './fiscal-device.service.js'
+import { holdForBridge, justLost } from './bridge-hold.js'
 import { POD_ID, livePresence } from 'services/biz/fiscal-presence.service'
 import { logger } from 'services/logger'
 
@@ -28,12 +29,18 @@ import { logger } from 'services/logger'
  *
  * ⚠ The forwarding itself (`forwardHttp` + the hop's HMAC) lives in portal-api; `unified.ts` hands it
  * in with `setFiscalForwarding`. Without it (a test app, a script) every request runs locally.
+ *
+ * #869: before any of that, a request that may print (anything but a GET) waits up to 5 s for a device
+ * whose bridge has just dropped, so the decision is taken on the bridge that came back, wherever it
+ * came back (`bridge-hold.ts`). Nothing has been sent to the device and nothing written while it waits.
  */
 
 export interface FiscalTarget {
   orgId: string
   deviceId: string
   deviceNumber: string
+  /** `FiscalDevice.bridgeLostAt`, when the resolver read one (#869). Absent: the hold reads the row itself. */
+  lostAt?: Date | null
 }
 
 export type FiscalResolver = (ctx: { user: any; params: any; body: any }) => Promise<FiscalTarget | null> | FiscalTarget | null
@@ -54,6 +61,14 @@ let forwarding: FiscalForwarding | null = null
 export function setFiscalForwarding(f: FiscalForwarding | null): void {
   forwarding = f
 }
+
+/** This process's own address as its presence rows record it, when the forwarding knows it (#869's waits). */
+export function fiscalSelf(): string | null {
+  return forwarding?.self?.() ?? null
+}
+
+/** #869: a read never waits for a bridge. It says what is true now, and a status poll must not stall. */
+const mayWaitForBridge = (request: Request) => request.method !== 'GET' && request.method !== 'HEAD'
 
 /** The raw JSON body of a declared route, kept so a forward carries it byte for byte. */
 const rawBodies = new WeakMap<Request, string>()
@@ -113,6 +128,7 @@ export const FiscalRoute = new Elysia({ name: 'Service.FiscalRoute' }).macro({
           logger.warn({ error: e?.message, path: new URL(request.url).pathname }, 'Fiscal route: the device could not be resolved; running here')
           return
         }
+        if (target && mayWaitForBridge(request)) await holdForBridge(target, { self: fiscalSelf() })
         if (!forwarding) return
         const decision = await decideFiscal(target, { hop, self: forwarding.self?.() ?? null })
         if ('refuse' in decision) return status(decision.refuse, { code: decision.code, message: MESSAGES[decision.code] })
@@ -147,20 +163,28 @@ export const deviceFromParams: FiscalResolver = async ({ params }) => {
 
 /**
  * The device of a warehouse that a sale there would print on: the one this process holds, else
- * the one a live row holds on another pod, else none (the sale's own rule then applies).
+ * the one a live row holds on another pod, else the one whose bridge has just dropped (#869: the
+ * request waits for it), else none (the sale's own rule then applies).
  */
 export async function deviceForWarehouse(orgId: string, warehouseId: unknown): Promise<FiscalTarget | null> {
   const wh = oid(String(warehouseId ?? ''))
   if (!wh) return null
-  const devices: any[] = await FiscalDevice.find({ orgId, warehouseId: wh, isActive: true }, { deviceNumber: 1 }).lean().exec()
+  const devices: any[] = await FiscalDevice.find({ orgId, warehouseId: wh, isActive: true }, { deviceNumber: 1, bridgeLostAt: 1 }).lean().exec()
   const local = devices.find(d => isDeviceConnected(String(d._id)))
-  const pick = local ?? (await firstHeld(orgId, devices))
-  return pick ? { orgId, deviceId: String(pick._id), deviceNumber: String(pick.deviceNumber) } : null
+  const pick = local ?? (await firstHeld(orgId, devices)) ?? lastLost(devices)
+  return pick ? { orgId, deviceId: String(pick._id), deviceNumber: String(pick.deviceNumber), ...(pick.bridgeLostAt ? { lostAt: pick.bridgeLostAt } : {}) } : null
 }
 
 async function firstHeld(orgId: string, devices: any[]): Promise<any | null> {
   for (const d of devices) if (await livePresence({ orgId, deviceNumber: String(d.deviceNumber) })) return d
   return null
+}
+
+/** #869: of the devices whose bridge was lost within the last minute (here, or as their row says), the latest. */
+function lastLost(devices: any[]): any | null {
+  const at = (d: any) => Math.max(lostHereAt(String(d._id)) ?? 0, d.bridgeLostAt ? new Date(d.bridgeLostAt).getTime() : 0)
+  const lost = devices.filter(d => justLost(at(d) || null)).sort((a, b) => at(b) - at(a))
+  return lost[0] ?? null
 }
 
 /** Opening a session: the warehouse in the body. */

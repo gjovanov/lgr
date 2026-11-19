@@ -36,7 +36,9 @@ import { fiscalCapabilities, lineNameMaxOf, unsupportedReason } from 'fiscal/cap
 import { receiptMode } from 'services/biz/cash-register/receipt-mode'
 import { mapTaxRateToVatGroup } from 'fiscal/vat-groups'
 import { fiscalOperation } from 'fiscal/in-flight'
-import { deviceTurn } from 'fiscal/device-turn'
+import { deviceTurn, inDeviceTurn } from 'fiscal/device-turn'
+import { printerForOperation } from 'fiscal/bridge-hold'
+import { fiscalSelf } from 'fiscal/fiscal-route'
 import { stagedPrint } from 'fiscal/print-stage'
 import { roundCents } from 'config/pos-totals'
 
@@ -210,7 +212,13 @@ export function formatNonFiscalLines(body: any, transactionNumber: string, opera
  */
 export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user: RegisterUser, session: { currency?: string } | null): RegisterPrinter {
   const r = getRepos()
-  const p = fiscal.printer
+  /**
+   * #869: the driver every method below talks to. It is chosen again at the start of each outermost operation, before
+   * anything of that operation is sent: a document that waited for the device's turn while its bridge dropped and came
+   * back prints on the new bridge, and one whose bridge has just dropped waits for it up to 5 s (`bridge-hold.ts`).
+   * ⚠ Never changed inside an operation (see `operation`).
+   */
+  let p = fiscal.printer
   const operatorCode = user.operatorCode as string
   const operatorName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
   return {
@@ -308,7 +316,16 @@ export function tillPrinter(orgId: string, fiscal: NonNullable<FiscalCtx>, user:
       await r.fiscalDevices.update(fiscal.deviceId, { status: 'error' } as any)
     },
     // Counted from the moment it is asked for, so a graceful stop waits for one still in the queue.
-    operation: (fn, opts) => fiscalOperation(() => deviceTurn(fiscal.deviceId, fn, opts)),
+    // #869: an OUTERMOST operation picks its printer first, in its turn and before its first command. One inside another
+    // keeps the printer it is in: a command of the outer one may already have reached the device through it.
+    operation: (fn, opts) => {
+      if (inDeviceTurn(fiscal.deviceId)) return fiscalOperation(() => deviceTurn(fiscal.deviceId, fn, opts))
+      const target = { orgId, deviceId: fiscal.deviceId, deviceNumber: fiscal.deviceNumber }
+      return fiscalOperation(() => deviceTurn(fiscal.deviceId, async () => {
+        p = await printerForOperation(p, target, { self: fiscalSelf() })
+        return fn()
+      }, opts))
+    },
     readServiceCash: p.readServiceCash && (() => p.readServiceCash!()),
     moveServiceCash: p.moveServiceCash && ((amount) => p.moveServiceCash!(amount)),
   }
