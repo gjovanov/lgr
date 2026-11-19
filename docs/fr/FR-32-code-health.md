@@ -417,6 +417,7 @@ Most of this FR is proven by CI, not in production.
 - **FR-32.9, .10: dead code out** (`feat/797-fr32-b-dead-code`).
   - The 24 DAO classes only tests imported are gone, with their four unit suites. That includes `org-app.dao.ts` and the `$text` query, which FR-30.4 had already removed.
   - The base class's reads are lean for the four left (org, user, invite, sign-in code). `GET /org/:orgId` reads the lean org as `toJSON()` gave it. The open item about `.lean()` is closed.
+    - Corrected 2026-11-19: that was not so for an org whose document lacks a setting nobody saved. `toJSON()` filled in the model's default; the lean read answered nothing, and the pages read "no default VAT rate" as 0. `orgDao.findById` answers the defaults again (`org-read-defaults.flow.test.ts`).
   - Nine files of `ui-shared` are deleted: the audit's eight, and `AuditLogPanel.vue`, which the new check found.
   - Also deleted: the shell's unmounted `AppBreadcrumb` and the 69 `meta.breadcrumb` of the module manifests (D-4), and `sendNotification` with its `notification` message (D-4).
   - `md-to-pdf` and the parity test's reference page (`tests/helpers/md-to-pdf-reference.ts`) moved to the tests package. `reporting` no longer depends on it.

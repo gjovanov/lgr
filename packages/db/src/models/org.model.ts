@@ -262,6 +262,9 @@ export interface IOrg extends Document {
   updatedAt: Date
 }
 
+/** The VAT rate an org has until it stores its own. */
+export const MODEL_DEFAULT_VAT_RATE = 20
+
 const orgSchema = new Schema<IOrg>(
   {
     name: { type: String, required: true },
@@ -310,7 +313,7 @@ const orgSchema = new Schema<IOrg>(
       environment: { type: String, enum: ['prod', 'dev'] },
       taxConfig: {
         vatEnabled: { type: Boolean, default: true },
-        defaultVatRate: { type: Number, default: 20 },
+        defaultVatRate: { type: Number, default: MODEL_DEFAULT_VAT_RATE },
         vatRates: [{ name: String, rate: Number }],
         taxIdLabel: { type: String, default: 'VAT ID' },
       },
@@ -462,6 +465,18 @@ replicate(orgSchema, {
 })
 
 export const Org = model<IOrg>('Org', orgSchema)
+
+/**
+ * An org's default VAT rate: the one it stores, else the model's.
+ *
+ * For a reader that holds the org as it is stored (`.lean()`). A document holds only the settings somebody saved,
+ * so a key the schema gained later is absent there and no default fills it in. Read as a plain number, such an
+ * org's rate is 0: a new article is then exempt, a line made for it carries no VAT, and nothing says so.
+ */
+export function defaultVatRateOf(org: { settings?: { taxConfig?: { defaultVatRate?: unknown } | null } | null } | null | undefined): number {
+  const rate = org?.settings?.taxConfig?.defaultVatRate
+  return typeof rate === 'number' && Number.isFinite(rate) ? rate : MODEL_DEFAULT_VAT_RATE
+}
 
 /**
  * An org's settings as a client may see them (S-29). `settings.integrations` reserves an access and

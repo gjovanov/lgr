@@ -1,7 +1,7 @@
 import { isRemovalReversalNote, noteSaysNoDelivery } from 'config/movement-notes'
 import { PURCHASE_BASIS_TIER_NAME, purchasePriceFromTier2, tierFinalPrice } from 'config/price-tiers'
 import { mongoose } from 'db/connection'
-import { Contact, Invoice, Org, Product, StockMovement } from 'db/models'
+import { Contact, Invoice, Org, Product, StockMovement, defaultVatRateOf } from 'db/models'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 import { createAuditEntry } from './audit-log.service.js'
@@ -488,7 +488,8 @@ export async function orgDefaults(orgId: string): Promise<{ currency: string; va
   const org: any = await Org.findById(orgId, { settings: 1, baseCurrency: 1 }).lean().exec()
   return {
     currency: org?.settings?.baseCurrency || org?.baseCurrency || 'EUR',
-    vat: num(org?.settings?.taxConfig?.defaultVatRate),
+    // Read as stored: an org that never saved a default rate has the model's, not zero.
+    vat: defaultVatRateOf(org),
   }
 }
 
