@@ -10,6 +10,7 @@ import {
   landInOrg,
   provisionNewOrg,
   sessionFor,
+  stampLastLogin,
 } from './auth.service.js'
 import {
   asIdentityClaims,
@@ -605,8 +606,7 @@ export async function getOrCreateUser(
     logger.info({ orgId: org._id, userId: user._id, provider: info.provider }, 'OAuth user created')
   }
 
-  user.lastLoginAt = new Date()
-  await user.save()
+  await stampLastLogin(user)
 
   // ⚠ S-23: the claims come from `tokenize()`, the same function password login uses. They were
   // built by hand here, from `user.permissions` (the role's defaults), so a user narrowed by a

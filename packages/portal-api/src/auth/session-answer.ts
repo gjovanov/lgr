@@ -1,5 +1,5 @@
 import { Identity, Org, type IIdentity, type IUser } from 'db/models'
-import { sessionFor, type SessionUser } from 'services/biz/auth.service'
+import { sessionFor, stampLastLogin, type SessionUser } from 'services/biz/auth.service'
 import { membershipsOf, type Membership } from 'services/biz/identity/session.service'
 import { accessAnswerFor } from 'services/biz/access/live'
 import { recordAuditEntry } from 'services/biz/audit-log.service'
@@ -99,8 +99,7 @@ export async function enterOrg(
   const token = await ctx.jwt.sign({ ...claims, exp: until })
   setSessionCookie(ctx.cookie, token, Math.max(0, until - now))
 
-  member.lastLoginAt = new Date()
-  await member.save()
+  await stampLastLogin(member)
   await Identity.updateOne({ _id: identity._id }, { $set: { lastOrgId: member.orgId } }).exec()
   await auditSignIn(claims, method)
 
