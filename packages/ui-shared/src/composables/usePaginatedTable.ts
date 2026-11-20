@@ -46,6 +46,11 @@ export interface UsePaginatedTableOptions {
    * list projection (`config/list-rows`) and a grid whose cells and row actions read nothing it leaves out.
    */
   listFields?: boolean
+  /**
+   * The latest answer whole, after its rows are set: for a list whose endpoint says more than its rows in the same
+   * answer (FR-25 R3: the product group review queue's summary). Never called for an answer a newer request replaced.
+   */
+  onAnswer?: (data: any) => void
 }
 
 export function usePaginatedTable(options: UsePaginatedTableOptions) {
@@ -161,6 +166,7 @@ export function usePaginatedTable(options: UsePaginatedTableOptions) {
     pagination.value.totalPages = data.totalPages ?? 0
     pagination.value.loadError = null
     loading.value = false
+    options.onAnswer?.(data)
   }
 
   /**
