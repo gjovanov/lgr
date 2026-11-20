@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test'
 import { join } from 'node:path'
+import { Elysia } from 'elysia'
+import jwt from '@elysiajs/jwt'
+import { config } from 'config'
+import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import type { Types } from 'mongoose'
 import { clearCollections, setupTestDB, teardownTestDB, testDbUri } from '../setup'
 import { createTestContact, createTestInvoice, createTestOrg, createTestProduct, createTestUser } from '../helpers/factories'
@@ -9,6 +13,10 @@ import { linkBooks } from 'services/biz/accounting-books/link-books.service'
 import { parseAnalyticsFile } from 'services/biz/accounting-books/plusminus-exports'
 import { seedPostingRules } from 'services/biz/accounting-books/posting-rule.service'
 import { postShadowSales } from 'services/biz/accounting-books/shadow-sales.service'
+import { analyticTrialBalance, chronology, documentJournal, mainBook, rebuildBalances, trialBalance } from 'services/biz/accounting-books/books-ledger'
+import { getBalanceSheet, getProfitLoss, getTrialBalance } from 'services/biz/accounting.service'
+import { compareSalesRegisterOf } from 'services/biz/vat-files/sales-register.service'
+import { createApiApp } from '../../../portal-api/src/api.js'
 import type { ImportDocument } from 'services/biz/accounting-books/import.types'
 
 /**
@@ -328,5 +336,69 @@ describe('the seed script', () => {
     expect(out).toMatch(/\s11 {2}the org holds already/)
     expect(out).toMatch(/\s1 {2}to add/)
     expect(await PostingRule.countDocuments({ orgId: world.store.id })).toBe(11)
+  })
+})
+
+describe('the shadow ledger is in no reading of the books (FR-25 R3)', () => {
+  const YEAR = { from: '2026-01-01', to: '2026-12-31' }
+  const signer = new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret }))
+
+  /** What every reading of one org's books says, through its own route or function. */
+  async function everything(orgId: string) {
+    const app = new Elysia().use(createApiApp())
+    const user = await createTestUser(orgId as never, { role: 'admin' } as never)
+    const token = await (signer as any).decorator.jwt.sign({
+      id: String(user._id), orgId, role: 'admin', email: user.email, username: user.username,
+      firstName: 'Test', lastName: 'User', permissions: DEFAULT_ROLE_PERMISSIONS.admin, ownRecordsModules: [],
+    })
+    const get = async (path: string) => {
+      const res = await app.handle(new Request(`http://localhost/api/org/${orgId}${path}`, { headers: { authorization: `Bearer ${token}` } }))
+      expect([path, res.status]).toEqual([path, 200])
+      return res.json() as any
+    }
+    const asOf = new Date('2026-12-31T23:59:59.000Z')
+    const revenue = (await Account.findOne({ orgId, code: '702' }).lean())!._id
+    const journal = await get('/accounting/journal?size=100&sortBy=entryNumber')
+    // The dashboard's period ends now: the clock, not the books.
+    const { periodEnd: _now, ...dashboard } = (await get('/dashboard/summary')).revenue
+    await rebuildBalances(orgId, false)
+    return {
+      trialBalance: await getTrialBalance(orgId, {}),
+      profitLoss: await getProfitLoss(orgId, new Date('2026-01-01T00:00:00.000Z'), asOf),
+      balanceSheet: await getBalanceSheet(orgId, asOf),
+      sixColumns: await trialBalance(orgId, YEAR),
+      analytic: await analyticTrialBalance(orgId, YEAR),
+      mainBook: await mainBook(orgId, YEAR),
+      chronology: await chronology(orgId, revenue, YEAR, 1000),
+      documents: await documentJournal(orgId, YEAR, undefined, 1000),
+      journalAnalysis: await get(`/accounting/reports/journal-analysis?dateFrom=${YEAR.from}&dateTo=${YEAR.to}`),
+      dashboard,
+      journal: { total: journal.total, numbers: journal.journalEntries?.map((e: any) => e.entryNumber) ?? journal.items?.map((e: any) => e.entryNumber) },
+      vat: await get('/accounting/vat/202603'),
+      vatRows: await get('/accounting/vat/202603/rows?size=100'),
+      gate: orgId === world.home.id ? await compareSalesRegisterOf(orgId, '202603') : undefined,
+      balances: (await Account.find({ orgId, balance: { $ne: 0 } }, { _id: 0, code: 1, balance: 1 }).sort({ code: 1 }).lean()),
+    }
+  }
+
+  it('the statements, the registers, the journal, the dashboard and the balances of both orgs read the same after a run', async () => {
+    const before = { home: await everything(world.home.id), store: await everything(world.store.id) }
+    // The books are there to be read: the store's revenue and its customer.
+    expect(before.store.sixColumns.rows.find((r: any) => r.code === '702')?.turnoverCredit).toBe(56)
+
+    for (const org of [world.store.id, world.home.id]) await postShadowSales(org, { ...MARCH_RUN, execute: true, by: world.userId })
+    expect(await JournalEntry.countDocuments({ ledger: 'shadow' })).toBe(4)
+    expect(await VatRegisterEntry.countDocuments({ orgId: world.home.id, ledger: 'shadow' })).toBe(4)
+
+    expect({ home: await everything(world.home.id), store: await everything(world.store.id) }).toEqual(before)
+  })
+
+  it('the journal shows the shadow ledger when asked for it, and only then', async () => {
+    await postShadowSales(world.store.id, { ...MARCH_RUN, execute: true, by: world.userId })
+    const { listJournalEntries } = await import('services/biz/journal-header.service')
+    const books = await listJournalEntries(world.store.id, { size: 100 })
+    const shadow = await listJournalEntries(world.store.id, { size: 100, ledger: 'shadow' })
+    expect(books.items.every((e: any) => e.ledger !== 'shadow')).toBe(true)
+    expect(shadow.items.map((e: any) => [e.ledger, e.sourceModule])).toEqual([0, 1, 2].map(() => ['shadow', 'shadow-sales']))
   })
 })

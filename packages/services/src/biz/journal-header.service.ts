@@ -5,7 +5,7 @@
  * The rules themselves (what a header may hold, how a link is matched) are `config/journal-header.ts`, which the entry
  * form shares. This file only asks Mongo.
  */
-import { AccountingAnalytic, JournalEntry } from 'db/models'
+import { AccountingAnalytic, BOOKS_LEDGER, JournalEntry } from 'db/models'
 import {
   NOTICE_REGISTER_VARIANTS, docNumberVariants, paymentCodeOf, pickLinkedEntry, pickRegisterEntry, type EntryCandidate,
 } from 'config/journal-header'
@@ -35,6 +35,8 @@ export interface JournalListQuery {
   notices?: unknown
   /** The entries reported in another month than their own (`reportingMonth`). */
   otherMonth?: unknown
+  /** `shadow`: LGR's own postings (FR-25 R3) and nothing else. Otherwise the books, which never show them. */
+  ledger?: unknown
   page?: unknown
   size?: unknown
   sortBy?: unknown
@@ -51,7 +53,8 @@ const flag = (v: unknown) => v === true || v === 'true' || v === '1'
  * no others. "Another month" compares the month an entry names with its own, on the few entries that name one.
  */
 export function journalListFilter(orgId: string, q: JournalListQuery): Record<string, any> {
-  const filter: Record<string, any> = { orgId }
+  // FR-25 R3: the shadow ledger is LGR's own posting, kept beside the books to be compared. A list shows it when asked.
+  const filter: Record<string, any> = { orgId, ...(q.ledger === 'shadow' ? { ledger: 'shadow' } : BOOKS_LEDGER) }
   if (typeof q.search === 'string' && q.search.trim()) {
     Object.assign(filter, buildSearchFilter(q.search, ['entryNumber', 'description', 'docNumber']))
   }
@@ -136,7 +139,7 @@ export async function withHeaderReferences<E extends { id?: string; links?: any[
     .map(l => ({ docType: l.docType, docNumber: { $in: docNumberVariants(l.docNumber) } }))
   const [docs, partner] = await Promise.all([
     branches.length
-      ? JournalEntry.find({ orgId, $or: branches }).select('docType docNumber partnerAnalyticId date docDate status').limit(500).lean()
+      ? JournalEntry.find({ orgId, ...BOOKS_LEDGER, $or: branches }).select('docType docNumber partnerAnalyticId date docDate status ledger').limit(500).lean()
       : Promise.resolve([] as any[]),
     entry.partnerAnalyticId
       ? AccountingAnalytic.findOne({ _id: entry.partnerAnalyticId, orgId }).select('name path').lean()
