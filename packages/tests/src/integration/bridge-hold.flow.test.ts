@@ -39,6 +39,8 @@ import { posController } from 'invoicing-api/src/controllers/pos.controller'
 let app: Elysia
 const forwarded: Array<{ to: string; path: string }> = []
 const registered: string[] = []
+/** Every stand-in socket a test opened (`fakeWs`): the hub keeps a bridge it registered until its socket closes. */
+const sockets: Array<{ raw: unknown }> = []
 
 beforeAll(async () => {
   await setupTestDB()
@@ -58,6 +60,10 @@ afterAll(async () => {
   await teardownTestDB()
 }, 60_000)
 afterEach(async () => {
+  // A bridge the hub registered (`registerOn`) is not in `registered`. Left open, its printer outlives this file, and
+  // the next file's scheduled clock sync (`clock-sync.flow`) holds it and then waits on its socket, which never answers.
+  // `handleClose` is a no-op for a socket it already closed.
+  for (const ws of sockets.splice(0)) await handleClose(ws)
   for (const id of registered.splice(0)) unregisterPrinter(id)
   forwarded.splice(0)
   await clearCollections()
@@ -234,7 +240,7 @@ describe('#869: the routing layer waits for a bridge that has just dropped', () 
 function fakeWs() {
   const sent: any[] = []
   const closed: Array<{ code?: number; reason?: string }> = []
-  return {
+  const ws = {
     raw: { id: Math.random() },
     send: (s: string) => { sent.push(JSON.parse(s)) },
     close: (code?: number, reason?: string) => { closed.push({ code, reason }) },
@@ -242,6 +248,8 @@ function fakeWs() {
     closed,
     has: (type: string) => sent.some(m => m.type === type),
   }
+  sockets.push(ws)
+  return ws
 }
 
 /** A cashier's browser relay for a Datecs (which sends nothing on its own once registered). */
