@@ -23,7 +23,8 @@ its header for the rules); the daily run is the CronJob `lgr-org-sync` in lgr-de
   (below) is the check.
 - **Never copied** (`policy.ts#NEVER_CLONED`): the file store (files, documents, archives, backups: the
   owner's 2026-11-09 rule), fiscal devices and workstations, enrolled desktops and their keys, invites,
-  mail logs, inboxes, sign-in credentials, sealed personal data (a source holding it is refused).
+  mail logs, inboxes, sign-in credentials, sealed personal data (a source holding it is refused, unless it keeps
+  books: a books org's payroll is never copied, so its key holds nothing the copy would carry).
 - **People:** a membership already in the test org is matched by WHO it is (the identity), not copied
   twice; a permission set or a role by name; an enabled app by app (the app creates those rows itself the first time
   anyone opens the hub, so a copy made right after a reset meets them). A membership the copy adds arrives **switched off**, except an admin's on the first copy

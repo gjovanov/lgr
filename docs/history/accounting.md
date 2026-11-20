@@ -230,3 +230,22 @@ slice 5, as built".
   would all count as filed and not in the shadow.
 - **Tests:** `unit/books-shadow-compare.test.ts`, `integration/shadow-sales.flow.test.ts` (before a run, after it, a
   void in a later month, the refusals, the script's output).
+
+## Payroll into the split's home (2026-11-20, FR-25 P1)
+
+The owner's word: payroll lives in the split's orgs too, and the books org that held it is dropped once everything
+is moved. It goes to the home, beside the `ЗАП` postings already there: one employer files one обр. 1 and one обр. 6 a
+month, and the contracts do not say who works where. Built before any person reaches the home, because a sync never
+deletes what a copy already holds. Design: FR-25 §9, "P1 into the home".
+- ⚠ **A books org's test copy leaves its payroll out, and only then may it hold a key.** Every model the payroll keeps
+  is in `BOOKS_NEVER_CLONED` (people, contracts, absences, leave, runs, payslips, timesheets, elements), and
+  `refusedSourceModels` stops refusing a books org that holds a `PersonalDataKey`. Any other org holding one is still
+  refused, and so is a books org the day it stops keeping books. A new sealed model (`SEALED_PATHS`) joins that list,
+  or `org-clone.flow.test.ts` fails.
+- ⚠ **A store of a split never takes payroll:** the import answers 409 `payroll_in_home`, on top of
+  `payroll_engine_not_set`. A store's share would declare part of the company.
+- **Who reads it is roles:** in the home, every member whose role holds `payroll-people` does, an Administrator
+  included. A person who should not gets a role without it.
+- **Tests:** `integration/org-clone.flow.test.ts` (a books org holding a key and payroll, copied without either; one
+  that stops keeping books, refused again; the sealed models all left out), `integration/payroll-bg.flow.test.ts` (a
+  store of a split refused, the home taken).

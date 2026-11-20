@@ -138,6 +138,23 @@ describe('importing a filed month', () => {
     expect(await Employee.countDocuments({ orgId: plainOrg })).toBe(0)
   })
 
+  it('in a split (FR-25 R7), only the home takes payroll: one employer files one обр. 1 and one обр. 6', async () => {
+    const home = await newOrg('bg')
+    const store = await newOrg('bg')
+    const split = { 'settings.accounting.books': { mode: 'books', split: { homeOrgId: new mongoose.Types.ObjectId(home) } } }
+    await Org.updateMany({ _id: { $in: [home, store].map(id => new mongoose.Types.ObjectId(id)) } }, { $set: split })
+    const tokenIn = async (org: string) => tokenFor(await createTestUser(new mongoose.Types.ObjectId(org)), 'admin', [], org)
+
+    const refused = await call('POST', 'import/employees', await tokenIn(store), { people: people(), dryRun: false }, store)
+    expect(refused.status).toBe(409)
+    expect((await refused.json()).code).toBe('payroll_in_home')
+    expect((await call('POST', 'import/months', await tokenIn(store), september(), store)).status).toBe(409)
+    expect(await Employee.countDocuments({ orgId: store })).toBe(0)
+
+    const taken = await call('POST', 'import/employees', await tokenIn(home), { people: people() }, home)
+    expect([taken.status, (await taken.json()).create]).toEqual([200, 2])
+  })
+
   it('a dry run is the default, and changes nothing', async () => {
     const before = await Employee.countDocuments({ orgId })
     const res = await call('POST', 'import/employees', hrToken, { people: people() })

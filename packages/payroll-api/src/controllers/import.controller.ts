@@ -18,10 +18,21 @@ import { lockedAnswer, PERSONAL_REFUSAL } from './answers.js'
  */
 const dry = (body: { dryRun?: boolean }) => body.dryRun !== false
 
-/** ⚠ A mistyped `--org` must not put a company's payroll in a store org: the org has to have asked for it. */
-const refusesImport = async (orgId: string) => (await getRepos().orgs.findById(orgId))?.settings?.payroll?.engine !== 'bg'
-
 const NOT_A_PAYROLL_ORG = { message: 'This org has no settings.payroll.engine: bg', code: 'payroll_engine_not_set' }
+const NOT_THE_HOME = { message: "A split's payroll lives in its home org, not in a store", code: 'payroll_in_home' }
+
+/**
+ * ⚠ A mistyped `--org` must not put a company's payroll in a store org: the org has to have asked for it.
+ * And in a split (FR-25 R7) the payroll is the home's (owner, 2026-11-20): one employer files one обр. 1
+ * and one обр. 6 a month, so a store holding part of it would declare part of the company.
+ */
+async function importRefusal(orgId: string) {
+  const org: any = await getRepos().orgs.findById(orgId)
+  if (org?.settings?.payroll?.engine !== 'bg') return NOT_A_PAYROLL_ORG
+  const books = org.settings?.accounting?.books
+  if (books?.mode === 'books' && books.split?.homeOrgId && String(books.split.homeOrgId) !== String(orgId)) return NOT_THE_HOME
+  return null
+}
 
 export const payrollImportController = new Elysia({ prefix: '/org/:orgId/payroll/import' })
   .use(AppAuthService)
@@ -30,7 +41,8 @@ export const payrollImportController = new Elysia({ prefix: '/org/:orgId/payroll
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!can(user, 'payroll-people.view')) return status(403, PERSONAL_REFUSAL)
-      if (await refusesImport(orgId)) return status(409, NOT_A_PAYROLL_ORG)
+      const refused = await importRefusal(orgId)
+      if (refused) return status(409, refused)
       try {
         const report = await importEmployees(orgId, body.people, { dryRun: dry(body) })
         if (!dry(body)) createAuditEntry({ orgId, userId: user.id, action: 'import', module: 'payroll', entityType: 'employee', entityId: orgId, entityName: `${report.create} new, ${report.update} changed` })
@@ -60,7 +72,8 @@ export const payrollImportController = new Elysia({ prefix: '/org/:orgId/payroll
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!can(user, 'payroll-people.view')) return status(403, PERSONAL_REFUSAL)
-      if (await refusesImport(orgId)) return status(409, NOT_A_PAYROLL_ORG)
+      const refused = await importRefusal(orgId)
+      if (refused) return status(409, refused)
       try {
         const report = await importContracts(orgId, body as any, { dryRun: dry(body) })
         if (!dry(body)) createAuditEntry({ orgId, userId: user.id, action: 'import', module: 'payroll', entityType: 'employment_contract', entityId: orgId, entityName: `${report.create} new, ${report.update} changed` })
@@ -93,7 +106,8 @@ export const payrollImportController = new Elysia({ prefix: '/org/:orgId/payroll
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!can(user, 'payroll-people.view')) return status(403, PERSONAL_REFUSAL)
-      if (await refusesImport(orgId)) return status(409, NOT_A_PAYROLL_ORG)
+      const refused = await importRefusal(orgId)
+      if (refused) return status(409, refused)
       if (!body.rows.every(isEmplRow)) return status(422, { message: 'A row is not an обр. 1 record', code: 'bad_row' })
       try {
         const { dryRun: _dryRun, ...month } = body

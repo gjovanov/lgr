@@ -599,6 +599,18 @@ describe('every model with an orgId takes a side', () => {
       expect(clonedModels(tenantCollections(), { settings: { accounting: { books: { mode } } } })).toEqual(CARRIED)
     }
   })
+
+  it('a books org\'s copy leaves out every model that holds a sealed value, so its key refuses nothing', async () => {
+    const { refusedSourceModels, REFUSED_SOURCE_MODELS } = await import('services/biz/org-clone/policy')
+    const { SEALED_PATHS } = await import('services/biz/personal-data/restore')
+    // A sealed model added later must join the payroll's side of BOOKS_NEVER_CLONED, or this fails.
+    for (const m of Object.keys(SEALED_PATHS)) expect(Object.keys(BOOKS_NEVER_CLONED)).toContain(m)
+    expect(refusedSourceModels({ settings: { accounting: { books: { mode: 'books' } } } })).toEqual([])
+    for (const mode of [undefined, 'own', 'branch']) {
+      expect(refusedSourceModels({ settings: { accounting: { books: { mode } } } })).toEqual(REFUSED_SOURCE_MODELS)
+    }
+    expect(refusedSourceModels(null)).toEqual(REFUSED_SOURCE_MODELS)
+  })
 })
 
 describe('a real org that keeps a company\'s books (FR-25 R7)', () => {
@@ -622,19 +634,31 @@ describe('a real org that keeps a company\'s books (FR-25 R7)', () => {
     await coll('ProductGroupMap').insertOne({ orgId: org, productId: new mongoose.Types.ObjectId(), analyticId: analytic.insertedId, source: 'learned', evidenceCount: 1, conflictCount: 0 })
     await coll('PostingRule').insertOne({ orgId: org, code: `sales.invoice.vat.${n}`, label: 'ДДС', isActive: true, match: { docKind: 'invoice', direction: 'outgoing' }, docType: '-ФЕ', operations: [{ debit: '411', credit: '4532', amount: 'vat' }], source: 'seed' })
     await coll('TaxReturn').insertOne({ orgId: org, period: '202503', kind: 'vat' })
+    // The company's payroll (owner, 2026-11-20: it lives in the split's home): its people, sealed, and what names them.
+    const employee = await coll('Employee').insertOne({ orgId: org, employeeNumber: `E-${n}`, firstName: 'Някой', lastName: `Служител ${n}`, personal: 'pd1.k.n.c', status: 'active' })
+    const contract = await coll('EmploymentContract').insertOne({ orgId: org, employeeId: employee.insertedId, number: String(n), pay: 'pd1.k.n.c' })
+    await coll('AbsenceEntry').insertOne({ orgId: org, employeeId: employee.insertedId, contractId: contract.insertedId, from: new Date('2025-03-03'), to: new Date('2025-03-04'), workingDays: 2, detail: 'pd1.k.n.c' })
+    await coll('LeaveBalance').insertOne({ orgId: org, employeeId: employee.insertedId, year: 2025, entitled: 20, carried: 0, taken: 2 })
+    await coll('PayrollElement').insertOne({ orgId: org, code: `E${n}`, label: 'Заплата', kind: 'earning', isActive: true })
+    const run = await coll('PayrollRun').insertOne({ orgId: org, periodCode: '202503', kind: 'salary', source: 'imported', status: 'imported', sealedItems: [{ employeeId: employee.insertedId, contractId: contract.insertedId, sealed: 'pd1.k.n.c' }] })
+    await coll('Payslip').insertOne({ orgId: org, employeeId: employee.insertedId, payrollRunId: run.insertedId, sealed: 'pd1.k.n.c' })
+    await coll('Timesheet').insertOne({ orgId: org, employeeId: employee.insertedId, date: new Date('2025-03-03'), hours: 8 })
   }
 
   const keepBooks = (orgId: unknown) => Org.updateOne({ _id: oid(orgId) }, { $set: { 'settings.accounting.books': { mode: 'books', split: { homeOrgId: oid(orgId) } } } })
   const BOOKS = Object.keys(BOOKS_NEVER_CLONED).sort()
 
-  it('never lets its books into the copy, and says so; the shop itself is copied as before', async () => {
+  it('never lets its books or its payroll into the copy, and says so; the shop itself is copied as before', async () => {
     const shop = await realShop('books')
     await keepBooks(shop.id)
     await giveBooks(shop.id)
+    // Its payroll is sealed under a key of its own. A books org holding one is copied, without either.
+    await coll('PersonalDataKey').insertOne({ orgId: oid(shop.id), sealed: 'x' })
     const { id, report } = await testCopyOf(shop)
 
     expect(report.totals.errors).toBe(0)
     for (const m of BOOKS) expect(await countOf(m, id)).toBe(0)
+    expect(await countOf('PersonalDataKey', id)).toBe(0)
     // The calendar is no ledger: a store's own years were copied before it kept books, and still are.
     for (const m of ['Contact', 'Invoice', 'Product', 'StockMovement', 'Warehouse', 'User', 'FiscalYear', 'FiscalPeriod']) expect(await countOf(m, id)).toBe(await countOf(m, shop.id))
     expect(report.notCloned.filter(n => BOOKS.includes(n.model)).map(n => [n.model, n.rows])).toEqual(BOOKS.map(m => [m, 1]))
@@ -668,6 +692,15 @@ describe('a real org that keeps a company\'s books (FR-25 R7)', () => {
     // What the test org typed in itself is no copy.
     await coll('Account').insertOne({ orgId: oid(id), code: '501', name: 'Каса', type: 'asset', balance: 0 })
     expect((await scanCopyForBooks(shop.id, id)).copied.Account).toBe(1)
+  })
+
+  it('an org that stops keeping books while it holds a key is refused again', async () => {
+    const shop = await realShop('stops')
+    await keepBooks(shop.id)
+    await coll('PersonalDataKey').insertOne({ orgId: oid(shop.id), sealed: 'x' })
+    const { id } = await testCopyOf(shop)
+    await Org.updateOne({ _id: shop.org._id }, { $unset: { 'settings.accounting.books': 1 } })
+    expect(((await captureRejection(assertCloneAllowed(shop.id, id))) as OrgCloneError)?.code).toBe('source_holds_sealed_data')
   })
 
   it('an org that keeps its own books the ordinary way is copied with them, as before', async () => {
