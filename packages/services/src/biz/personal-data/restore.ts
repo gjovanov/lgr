@@ -1,3 +1,4 @@
+import { mongoose } from 'db/connection'
 import { PersonalDataKey } from 'db/models'
 import { runItemPath } from './crypto.js'
 import { clearVaultCache, forOrg, keyRowOpens, PersonalDataLockedError, vaultFromRow, type OrgVault } from './personal-data.service.js'
@@ -42,6 +43,19 @@ export interface PersonalDataRestore {
 }
 
 /**
+ * The bundle's key row as the database holds one. A bundle line is JSON, so its ids and dates come back as strings.
+ * Written that way, the row would match no `findOne({ orgId })`, because mongoose casts the query and not what is
+ * stored. The org's vault would then make a key of its own, and every value restored with the row would never open.
+ * Cast by the model, as the restore casts every other section (`backup-restore.service.ts#castForModel`).
+ */
+function keyRowAsStored(row: any): any {
+  const stored: any = PersonalDataKey.castObject(row, { ignoreCastErrors: true })
+  const id = stored._id ?? row._id
+  stored._id = typeof id === 'string' && mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : id
+  return stored
+}
+
+/**
  * Called before a single write. Refuses a bundle whose personal data would come back unreadable on
  * this server, rather than restoring a company's payroll into something nobody can open.
  */
@@ -68,7 +82,7 @@ export async function planPersonalDataRestore(
       if (!bundleRow || remapTo) return { inserted: 0, merged: 0 }
       const live: any = await PersonalDataKey.findOne({ orgId }).lean().exec()
       if (!live) {
-        await PersonalDataKey.collection.insertOne(bundleRow)
+        await PersonalDataKey.collection.insertOne(keyRowAsStored(bundleRow))
         return { inserted: 1, merged: 0 }
       }
       // The org's keys were replaced since this bundle. Both sets stay, or its values would not open.
