@@ -407,6 +407,8 @@ describe('the comparison, books against shadow (FR-25 R3, slice 5)', () => {
     expect(out).toMatch(/\s2 {2}in both, compared/)
     expect(out).toContain(`${world.store.slug} 202604: the books against the shadow`)
     expect(out).toContain("The month's cost of sales over the compared documents: within 5%")
+    // April holds no document in both ledgers: nothing to judge, never "equal to the cent".
+    expect(out).toContain("The month's cost of sales over the compared documents: no document compared")
     expect(out).not.toContain(SERIES_STORE)
     expect(out).not.toContain('Тест')
     expect(out).not.toMatch(/\d+\.\d{2}/)
