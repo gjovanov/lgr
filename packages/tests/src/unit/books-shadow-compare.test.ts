@@ -71,7 +71,7 @@ describe('a month, the books against the shadow', () => {
       [entry('9000200005', sale([[G2, 3, 6]], 9, 1.8), { sourceId: 'd5' }), entry('9000200006', sale([[G2, 1, 2]], 3, 0.6), { sourceId: 'd6' })],
     )
     expect([r.documents.booksOnly, r.documents.shadowOnly, r.documents.compared]).toEqual([1, 2, 0])
-    expect(r.costOfSales).toEqual({ books: 0, shadow: 0, outcome: 'equal', booksOnly: 1, shadowOnly: 8 })
+    expect(r.costOfSales).toEqual({ books: 0, shadow: 0, outcome: 'none', booksOnly: 1, shadowOnly: 8 })
   })
 
   it('an invoice in one ledger and a notice in the other is not compared; a type one side does not carry pairs', () => {

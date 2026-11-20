@@ -74,7 +74,8 @@ export interface MonthComparison {
     /** Over the compared documents. */
     books: number
     shadow: number
-    outcome: 'equal' | keyof CostSpread
+    /** `none` when no document is compared: nothing to judge. */
+    outcome: 'none' | 'equal' | keyof CostSpread
     /** Over the documents one ledger holds alone. */
     booksOnly: number
     shadowOnly: number
@@ -150,7 +151,7 @@ export function compareMonth(books: readonly MonthEntry[], shadow: readonly Mont
     documents: { books: b.size, shadow: s.size, compared: 0, booksOnly: 0, shadowOnly: 0, typeDiffers: 0, noNumber: 0, severalInShadow: 0 },
     compared: { equal: 0, differs: 0, by: zeroes(DIFFERENCES), cost: { groups: 0, average: 0 }, costSpread: { within05: 0, within5: 0, more: 0 } },
     groups: [],
-    costOfSales: { books: 0, shadow: 0, outcome: 'equal', booksOnly: 0, shadowOnly: 0 },
+    costOfSales: { books: 0, shadow: 0, outcome: 'none', booksOnly: 0, shadowOnly: 0 },
   }
   const docs = result.documents
   for (const held of s.values()) if (held.sources.size > 1) docs.severalInShadow++
@@ -199,7 +200,7 @@ export function compareMonth(books: readonly MonthEntry[], shadow: readonly Mont
     }))
     .sort((x, y) => Math.abs(y.books.cost) - Math.abs(x.books.cost) || x.analyticId.localeCompare(y.analyticId))
   result.costOfSales = {
-    books: booksCost / 100, shadow: shadowCost / 100, outcome: outcomeOf(shadowCost, booksCost),
+    books: booksCost / 100, shadow: shadowCost / 100, outcome: docs.compared ? outcomeOf(shadowCost, booksCost) : 'none',
     booksOnly: booksOnlyCost / 100, shadowOnly: shadowOnlyCost / 100,
   }
   return result

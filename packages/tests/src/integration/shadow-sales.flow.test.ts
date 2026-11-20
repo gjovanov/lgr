@@ -352,7 +352,7 @@ describe('the comparison, books against shadow (FR-25 R3, slice 5)', () => {
     expect(before.documents).toEqual({ books: 2, shadow: 0, compared: 0, booksOnly: 2, shadowOnly: 0, typeDiffers: 0, noNumber: 0, severalInShadow: 0 })
     // R7: the import keeps the home's own sale in the home.
     expect(before.leftOut).toEqual({ till: 0, otherSeries: 0 })
-    expect(before.costOfSales).toEqual({ books: 0, shadow: 0, outcome: 'equal', booksOnly: 16.2, shadowOnly: 0 })
+    expect(before.costOfSales).toEqual({ books: 0, shadow: 0, outcome: 'none', booksOnly: 16.2, shadowOnly: 0 })
 
     await postShadowSales(world.store.id, { ...MARCH_RUN, execute: true, by: world.userId })
     const rows = await shadowRows(world.home.id)

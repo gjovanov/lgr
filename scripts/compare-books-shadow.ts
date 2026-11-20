@@ -47,7 +47,7 @@ function months(first: string, last: string): string[] {
 }
 
 const row = (n: number, label: string) => console.log(`${String(n).padStart(7)}  ${label}`)
-const SPREAD: Record<string, string> = { equal: 'equal to the cent', within05: 'within 0.5%', within5: 'within 5%', more: 'more than 5% apart' }
+const SPREAD: Record<string, string> = { none: 'no document compared', equal: 'equal to the cent', within05: 'within 0.5%', within5: 'within 5%', more: 'more than 5% apart' }
 
 function print(r: BooksShadowMonth): void {
   console.log(`\n${slug} ${r.period}: the books against the shadow`)
