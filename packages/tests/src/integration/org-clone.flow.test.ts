@@ -573,7 +573,7 @@ describe('every model with an orgId takes a side', () => {
     'CostLayer', 'Employee', 'EmploymentContract', 'ExchangeRate', 'FiscalPeriod', 'FiscalPosition', 'FiscalYear', 'FixedAsset',
     'InternalOrder', 'InventoryCount', 'Invoice', 'Journal', 'JournalEntry', 'LeaveBalance', 'OperationType', 'Order', 'OrgApp',
     'OrgLogo', 'POSPaymentMethod', 'POSSession', 'POSTransaction', 'PaymentOrder', 'PaymentTerm', 'PayrollElement', 'PayrollRun',
-    'Payslip', 'PriceList', 'Product', 'ProductCategory', 'ProductGroupMap', 'ProductSupplier', 'Reservation', 'Role', 'Sequence', 'StockLevel',
+    'Payslip', 'PostingRule', 'PriceList', 'Product', 'ProductCategory', 'ProductGroupMap', 'ProductSupplier', 'Reservation', 'Role', 'Sequence', 'StockLevel',
     'StockLocation', 'StockLot', 'StockMovement', 'SupplierProductAlias', 'Tag', 'TaxReturn', 'Timesheet', 'User',
     'VatRegisterEntry', 'Warehouse',
   ].sort()
@@ -620,6 +620,7 @@ describe('a real org that keeps a company\'s books (FR-25 R7)', () => {
     await coll('FixedAsset').insertOne({ orgId: org, code: `FA-${n}`, name: 'Машина', category: 'machinery', accountId: account.insertedId })
     await coll('VatRegisterEntry').insertOne({ orgId: org, period: '202503', side: 'sales', ledger: 'books', rowNo: n, docNumber: String(n) })
     await coll('ProductGroupMap').insertOne({ orgId: org, productId: new mongoose.Types.ObjectId(), analyticId: analytic.insertedId, source: 'learned', evidenceCount: 1, conflictCount: 0 })
+    await coll('PostingRule').insertOne({ orgId: org, code: `sales.invoice.vat.${n}`, label: 'ДДС', isActive: true, match: { docKind: 'invoice', direction: 'outgoing' }, docType: '-ФЕ', operations: [{ debit: '411', credit: '4532', amount: 'vat' }], source: 'seed' })
     await coll('TaxReturn').insertOne({ orgId: org, period: '202503', kind: 'vat' })
   }
 

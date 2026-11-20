@@ -49,8 +49,17 @@ export type Ledger = (typeof LEDGERS)[number]
  */
 export const POSTED_BOOKS = { status: 'posted', ledger: { $ne: 'shadow' } } as const
 
+/** Any entry of the books, whatever its status: what a list of entries shows unless it asks for the shadow ledger. */
+export const BOOKS_LEDGER = { ledger: { $ne: 'shadow' } } as const
+
 /** `sourceModule` of an entry imported from PlusMinus (FR-25 §5). */
 export const BOOKS_IMPORT = 'plusminus'
+
+/**
+ * `sourceModule` of LGR's own posting of a sales document into the shadow ledger (FR-25 R3,
+ * `accounting-books/shadow-sales.service.ts`). Its `sourceId` is the document, `postingKey` the posting.
+ */
+export const SHADOW_SALES = 'shadow-sales'
 
 /**
  * FR-25a: a document the entry's document points at, as the accountant's file links them: an invoice to the bank
@@ -171,6 +180,11 @@ export interface IJournalEntry extends Document {
    * Entries made before FR-29 carry none, and neither do those made by hand or by the books import.
    */
   postingKey?: string
+  /**
+   * FR-25 R3: on a shadow posting, the hash of what it books (`accounting-books/shadow-sales.ts#postingHashOf`). A run
+   * that would book the same leaves it; one that would book otherwise reverses it and posts anew.
+   */
+  postingHash?: string
   createdAt: Date
   updatedAt: Date
 }
@@ -283,6 +297,7 @@ const journalEntrySchema = new Schema<IJournalEntry>(
     importKey: String,
     importHash: String,
     postingKey: String,
+    postingHash: String,
   },
   { timestamps: true },
 )

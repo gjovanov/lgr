@@ -37,7 +37,10 @@ export interface IVatRegisterEntry extends Document {
    * so a document annulled in its own period has none.
    */
   cells: Record<string, number>
-  /** The document behind the row, once LGR posts forward (R3, R4). Imported rows have none. */
+  /**
+   * The document behind the row, once LGR posts forward (R3, R4): the org that holds it, its kind (`invoice`, an
+   * `Invoice` document), its id. Imported rows have none. One row per document and ledger (`vat_row_source_unique`).
+   */
   source?: { orgId?: Types.ObjectId; kind?: string; id?: Types.ObjectId }
   frozen: boolean
   createdAt: Date
@@ -77,6 +80,12 @@ vatRegisterEntrySchema.index({ orgId: 1, ledger: 1, period: 1, side: 1, rowNo: 1
 vatRegisterEntrySchema.index(
   { orgId: 1, ledger: 1, period: 1, side: 1, rowNo: 1 },
   { unique: true, name: 'vat_row_frozen_unique', partialFilterExpression: { frozen: true } },
+)
+// FR-25 R3: a row LGR posts names its document (`source`), and a document has one row in a ledger: of two shadow runs
+// at once, the second finds it. Partial: an imported row has no source, and is not in it.
+vatRegisterEntrySchema.index(
+  { orgId: 1, ledger: 1, 'source.orgId': 1, 'source.id': 1 },
+  { unique: true, name: 'vat_row_source_unique', partialFilterExpression: { 'source.id': { $type: 'objectId' } } },
 )
 
 replicate(vatRegisterEntrySchema, { class: 'R' })

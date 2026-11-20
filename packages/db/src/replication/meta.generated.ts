@@ -84,6 +84,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   POSPaymentMethod: { collection: 'pospaymentmethods', class: 'R', orgPath: 'orgId' },
   POSSession: { collection: 'possessions', class: 'R', orgPath: 'orgId' },
   PostingJob: { collection: 'postingjobs', class: 'R', orgPath: 'orgId' },
+  PostingRule: { collection: 'postingrules', class: 'R', orgPath: 'orgId' },
   POSTransaction: { collection: 'postransactions', class: 'R', orgPath: 'orgId' },
   PriceList: { collection: 'pricelists', class: 'R', orgPath: 'orgId' },
   Product: { collection: 'products', class: 'R', orgPath: 'orgId' },
