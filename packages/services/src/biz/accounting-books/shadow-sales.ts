@@ -31,7 +31,7 @@ import { REGISTER_DOC_TYPES, registerNumber, salesRegisterRow, sofiaDay, sofiaPe
 import { sha256 } from './journal-plan.js'
 import { GROUP_ANALYTIC, PARTNER_ANALYTIC, type PostingRuleData } from './posting-rule-seed.js'
 import { placeOf, type OrgSeries } from './product-groups.js'
-import { EUR_CHANGEOVER, roundCents } from './registry.js'
+import { EUR_CHANGEOVER, SALES_INVOICE_DOC_TYPE, roundCents } from './registry.js'
 
 // ── the input ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -211,7 +211,7 @@ export function postShadowSale(doc: ShadowDocument, input: PostingInput): Shadow
   if (doc.status === 'draft' || doc.status === 'cancelled') return refuse('not_issued', doc.status)
   const docNumber = registerNumber(doc.number)
   if (!docNumber) return refuse('no_register_number')
-  const place = placeOf({ docType: '-ФЕ', docNumber }, input.series)
+  const place = placeOf({ docType: SALES_INVOICE_DOC_TYPE, docNumber }, input.series)
   if (place !== 'own') return refuse('not_own_series', place)
   const day = sofiaDay(doc.issueDate)
   if (isoDay(day) < EUR_CHANGEOVER) return refuse('before_euro_changeover')
