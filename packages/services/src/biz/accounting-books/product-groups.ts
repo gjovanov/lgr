@@ -21,6 +21,7 @@ import { docTypeDef } from './registry.js'
  *     lines, maps every product on it to that group.
  *   - Otherwise the books must restate it line for line (as many goods operations as goods lines), and
  *     a line maps where its quantity is unique on both sides.
+ *   - What those two leave, `product-group-partition.ts` reads from the books' quantity per group (slice 1b).
  *   - A product whose documents name more than one group is a conflict: counted, never mapped.
  *   - `exact` goes first (§6.1): the product's name is the name of one active group.
  *
@@ -226,7 +227,7 @@ export interface DocumentEvidence {
 }
 
 /** Quantities as the books keep them, in thousandths, the sign dropped: a correction is negative on its side. */
-const qtyKey = (q: number) => Math.round(Math.abs(Number(q) || 0) * 1000)
+export const qtyKey = (q: number) => Math.round(Math.abs(Number(q) || 0) * 1000)
 
 function countBy<T>(items: readonly T[], key: (t: T) => number): Map<number, number> {
   const out = new Map<number, number>()
@@ -378,7 +379,7 @@ export interface ProductCounts {
   exactAmbiguous: number
   /** Proposed `learned`: every document of theirs names the same group. */
   learned: number
-  /** Their documents name more than one group: not mapped (to review). */
+  /** Their documents name more than one group, or contradict the one a run anchored them to: not mapped (to review). */
   conflicts: number
   /** Conflicts in which a single document disagrees with all the others. */
   conflictsOfOneDocument: number
@@ -419,6 +420,12 @@ export function planProductGroups(input: {
   evidence: Evidence
   activeGroups: ReadonlySet<string>
   existing: readonly MapRow[]
+  /**
+   * Per product, the documents whose quantities per group fit only without the group a run anchored it to (slice 1b,
+   * `product-group-partition.ts`). A learned product with any is a conflict; an exact one keeps its row and counts
+   * them in `conflictCount`. Unset: none.
+   */
+  contradicted?: ReadonlyMap<string, number>
 }): MapPlan {
   const plan: MapPlan = {
     create: [], update: [], remove: [], unchanged: 0, after: new Map(),
@@ -440,20 +447,27 @@ export function planProductGroups(input: {
     }
     const groups = input.evidence.get(productId)
     const exactGroup = input.exact.get(productId)
+    const against = input.contradicted?.get(productId) ?? 0
     // `undefined`: this run has nothing to say about it. `null`: it must not be mapped by learning.
     let desired: MapRow | null | undefined
     if (exactGroup) {
       c.exact++
       // A period that does not name the product keeps the counts an earlier one gave its row, as for a learned row.
-      if (!groups && row?.source === 'exact' && row.analyticId === exactGroup) {
+      if (!groups && !against && row?.source === 'exact' && row.analyticId === exactGroup) {
         plan.unchanged++
         plan.after.set(productId, row)
         continue
       }
       const own = groups?.get(exactGroup)
-      let others = 0
+      let others = against
       for (const [g, s] of groups ?? []) if (g !== exactGroup) others += s.docs
       desired = { productId, analyticId: exactGroup, source: 'exact', evidenceCount: own?.docs ?? 0, conflictCount: others, ...(own ? { lastEvidenceAt: own.last } : {}) }
+    } else if (against) {
+      // A document contradicts the group it was anchored to: a conflict, as if it named another.
+      desired = null
+      c.conflicts++
+      const docs = [...(groups?.values() ?? [])].map(s => s.docs).concat(against)
+      if (docs.reduce((a, b) => a + b, 0) - Math.max(...docs) === 1) c.conflictsOfOneDocument++
     } else if (groups?.size === 1) {
       const [[groupId, s]] = [...groups.entries()]
       if (input.activeGroups.has(groupId)) {
