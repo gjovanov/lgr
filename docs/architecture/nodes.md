@@ -504,13 +504,18 @@ A master holds none of the cloud's keys, so global sends its mail.
   `/api/node/v1/relay/mail`, through the egress proxy, with the node token the supervisor keeps in
   `state/node-token.json` (`node_token.rs`, 15 minutes, refreshed every 10). It retries what
   cannot go yet (global down, rate limited, mail turned off) and fails what global refuses for good,
-  or what is 7 days old.
+  or what is 45 days old: FR-20.60's 30-day outage, and 15 days to drain under the limits below
+  (AC 27). An item last written after now was written by a clock that has since gone back, its
+  retry time and its lease with it: it is taken at once rather than left waiting for that date. A
+  rate-limited item still waits the hours global asked for.
 - **Global** (`relay/mail-relay.service.ts`) sends it only when the org's admin turned mail on for
   that server on the Servers page (unset: on at Full, off at Control), for one of the server's own
   orgs, to one recipient, under 1 MB of body and 8 MB of attachments, within the server's limits
   (100 an hour, 500 a day), from global's own sender with the org's address as the reply-to.
-- **Once:** a receipt per `(server, outbox id)` is claimed before the send and kept 7 days, so a
-  retry whose answer was lost sends nothing. A failed send drops its claim, so the retry goes out.
+- **Once:** a receipt per `(server, outbox id)` is claimed before the send and kept 60 days, longer
+  than a master keeps an item (45), so a retry whose answer was lost sends nothing, even after a
+  month's outage. A failed send drops its claim, so the retry goes out. Migration 0021 lengthens the
+  window of an existing `relay_receipts` (it was 7 days).
 - A backup's manifest mail attaches no more than the relay carries on a master (8 MB): over it, the
   bundle is left out with a note, rather than the whole mail refused (`attachmentCeiling`).
 

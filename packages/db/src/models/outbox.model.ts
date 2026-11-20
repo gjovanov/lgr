@@ -7,7 +7,7 @@ import { replicate } from '../replication/declare.js'
  *
  * - **A deterministic id** where the work has one (`digest:<orgId>:<date>:<userId>`): enqueueing the
  *   same work twice keeps one item, so a re-run digest queues nothing. Ad-hoc mail gets a random one.
- * - **Each item leaves once.** Global keeps a receipt per `(node, id)` for 7 days, so an item retried
+ * - **Each item leaves once.** Global keeps a receipt per `(node, id)` for 60 days, so an item retried
  *   after an answer that never arrived is not sent again.
  * - ⚠ NODE STATE (`home/node-state.ts`), never the org's data: restored on another node, a queued
  *   mail would leave twice.

@@ -15,8 +15,9 @@ import { sendEmail } from '../email.service.js'
  * - **one recipient**, a subject, an HTML body under 1 MB, attachments under 8 MB;
  * - **a fixed sender**: global's own address, with the org's address as the reply-to;
  * - **per-server rate limits** (`config.relay`), counted from the receipts;
- * - **a 7-day dedupe** by the master's outbox id: a retry of an item whose answer never arrived
- *   answers with what happened, and sends nothing.
+ * - **a 60-day dedupe** by the master's outbox id (`RELAY_RECEIPT_KEEP_DAYS`, longer than a master
+ *   keeps an item): a retry of an item whose answer never arrived answers with what happened, and
+ *   sends nothing.
  */
 
 export interface RelayMailBody {

@@ -20,6 +20,7 @@ import { legacyAccessArchive } from './migrations/0017-legacy-access-archive.js'
 import { productSearchField } from './migrations/0018-product-search-field.js'
 import { dropUnusedIndexes } from './migrations/0019-drop-unused-indexes.js'
 import { legacyAccessArchiveDrop } from './migrations/0020-legacy-access-archive-drop.js'
+import { relayReceiptsKept60Days } from './migrations/0021-relay-receipts-kept-60-days.js'
 import FINGERPRINTS from './fingerprints.json' with { type: 'json' }
 
 /**
@@ -53,6 +54,7 @@ export const RELEASED: Migration[] = [
   productSearchField,
   dropUnusedIndexes,
   legacyAccessArchiveDrop,
+  relayReceiptsKept60Days,
 ]
 
 /** {@link RELEASED}, each carrying its file's fingerprint, which the runner checksums. */

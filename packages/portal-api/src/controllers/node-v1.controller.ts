@@ -203,7 +203,7 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
 
   /**
    * FR-20.59 (plan step P2-6): a mail from this master's outbox, sent by global on its behalf with
-   * global's own sender. The answer says what happened; the same outbox id within 7 days sends
+   * global's own sender. The answer says what happened; the same outbox id within 60 days sends
    * nothing again (`mail-relay.service.ts` holds the caps).
    */
   .post(

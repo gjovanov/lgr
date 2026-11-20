@@ -17,13 +17,22 @@ import { fetchWithTimeout } from '../outbound-fetch.js'
  *   5xx, is rate-limiting this server, or has mail turned off for it (the org's admin may turn it
  *   on: the queue then leaves).
  * - **Failed** for good when global refuses the mail itself (too large, a bad address, not this
- *   server's org), or after 7 days unsent. The EmailLog row says why.
- * - **Each item leaves once**: global keeps a receipt per outbox id for 7 days, so the retry of an
- *   item whose answer was lost sends nothing.
+ *   server's org), or after {@link GIVE_UP_DAYS} days unsent. The EmailLog row says why.
+ * - **Each item leaves once**: global keeps a receipt per outbox id for longer than an item may wait
+ *   here (`relay-receipt.model.ts`), so the retry of an item whose answer was lost sends nothing.
+ * - **A clock that went back strands nothing** (AC 27): an item last written after now was written by
+ *   a clock that has since been corrected, its retry time and its lease with it, and is taken now.
  */
 
 const LEASE_MS = 2 * 60_000
-const GIVE_UP_MS = 7 * 86_400_000
+/**
+ * FR-20.60: a master loses only the relayed services for a 30-day outage, and their work leaves when
+ * the uplink returns (FR-20.86, AC 27). Past that outage, 15 days more to drain under the relay's
+ * per-server caps. ⚠ Global's receipts must outlive it (`RELAY_RECEIPT_KEEP_DAYS`), or a retry after
+ * a lost answer could send twice.
+ */
+export const GIVE_UP_DAYS = 45
+const GIVE_UP_MS = GIVE_UP_DAYS * 86_400_000
 const MAX_BACKOFF_MS = 60 * 60_000
 const PER_TICK = 20
 
@@ -82,7 +91,7 @@ async function settle(item: any, state: 'sent' | 'failed', now: Date, error?: st
 
 async function retryLater(item: any, now: Date, delayMs: number, error: string): Promise<void> {
   if (now.getTime() - new Date(item.createdAt).getTime() > GIVE_UP_MS) {
-    await settle(item, 'failed', now, `Not sent in 7 days: ${error}`)
+    await settle(item, 'failed', now, `Not sent in ${GIVE_UP_DAYS} days: ${error}`)
     return
   }
   await Outbox.updateOne(
@@ -98,7 +107,15 @@ export async function drainOne(now = new Date(), fetchImpl: typeof fetch = fetch
   const token = readNodeToken(config.outbox.tokenFile, now.getTime())
   if (!token) return 'no_token'
   const item: any = await Outbox.findOneAndUpdate(
-    { $or: [{ state: 'queued', nextAt: { $lte: now } }, { state: 'sending', leaseUntil: { $lt: now } }] },
+    {
+      $or: [
+        { state: 'queued', nextAt: { $lte: now } },
+        { state: 'sending', leaseUntil: { $lt: now } },
+        // Last written by a clock that has gone back since (AC 27): its retry time or its lease was dated by that clock.
+        // Never "further ahead than a backoff": a rate-limited item waits the hours global asked for.
+        { state: { $in: ['queued', 'sending'] }, updatedAt: { $gt: now } },
+      ],
+    },
     { $set: { state: 'sending', leaseUntil: new Date(now.getTime() + LEASE_MS) }, $inc: { attempts: 1 } },
     { sort: { nextAt: 1 }, new: true },
   ).lean()
@@ -142,12 +159,13 @@ export async function drainOne(now = new Date(), fetchImpl: typeof fetch = fetch
 }
 
 /**
- * Items 7 days old that never left, whatever kept them (a master never registered, a week without
- * lgrai.app): failed, so the EmailLog stops saying "queued" about a mail that will not go.
+ * Items {@link GIVE_UP_DAYS} days old that never left, whatever kept them (a master never registered,
+ * an outage longer than FR-20.60's 30 days): failed, so the EmailLog stops saying "queued" about a
+ * mail that will not go.
  */
 export async function giveUp(now = new Date()): Promise<number> {
   const stale = await Outbox.find({ state: 'queued', createdAt: { $lt: new Date(now.getTime() - GIVE_UP_MS) } }).limit(100).lean()
-  for (const item of stale as any[]) await settle(item, 'failed', now, `Not sent in 7 days: ${item.lastError ?? 'lgrai.app was not reached'}`, 'queued')
+  for (const item of stale as any[]) await settle(item, 'failed', now, `Not sent in ${GIVE_UP_DAYS} days: ${item.lastError ?? 'lgrai.app was not reached'}`, 'queued')
   return stale.length
 }
 
