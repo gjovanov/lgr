@@ -128,3 +128,23 @@ FR-25 §3.6, §6.1 and §9, "R3 after R7: the plan".
   loses the one it had: it is for the review queue, which reads conflicts from the same evidence.
 - `rule` and `ai` rows are suggestions: coverage and posting go by `exact`, `learned` and `accountant`.
 - **Tests:** `unit/product-groups.test.ts`, `integration/product-groups.flow.test.ts`.
+
+## A product's group from the books' quantities per group (2026-11-20, FR-25 R3, slice 1b)
+
+Slice 1's two rules teach nothing from a document the accountant booked one operation per group rather than per line,
+which is most of them. `services/biz/accounting-books/product-group-partition.ts` (import-pure) reads those documents:
+it finds every split of LGR's goods lines between the entry's groups whose quantities sum to the books' per group, and
+teaches a product a group only when every split gives it that group, in passes until the anchors settle.
+`learnProductGroups` runs it after slice 1, `LearnReport.partition` counts what it did, and the script prints those
+counts. Rules, caps and the anchor rule: FR-25 §9, "Partition, as built".
+- ⚠ **A document that fits only against an automatic anchor never teaches a new row.** It is counted as
+  `anchor_contradicts` and goes to the conflict path: a learned product becomes a conflict and its row is taken away,
+  an exact row keeps its group with the document in its `conflictCount`. A document that fits only without the
+  accountant's rows teaches nothing, and the rows stay as they are (`accountant_contradicts`).
+- ⚠ **Partition's anchors are the run's own**: the accountant's rows, the exact names and what this run learns. Never
+  feed it the learned rows an earlier run stored: a run would depend on the one before it, and a second run would no
+  longer plan nothing.
+- ⚠ **Never leave a goods line out to make the sums meet.** A goods line the books carry as a service is exactly the
+  line that must not be taught: when LGR's goods total is not the books', the document teaches nothing.
+- **Tests:** `unit/product-group-partition.test.ts` (the search against trying every assignment, each guard, the
+  passes and restarts, shuffled input, a second run), `integration/product-groups-partition.flow.test.ts`.

@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 /**
- * FR-25 R3, slice 1: the accounting group each product of one org books to (`ProductGroupMap`), learned
- * from what the accountant typed for the org's own sales documents, and how much of its sales the map
- * covers. The rules are `packages/services/src/biz/accounting-books/product-groups.ts`.
+ * FR-25 R3, slices 1 and 1b: the accounting group each product of one org books to (`ProductGroupMap`),
+ * learned from what the accountant typed for the org's own sales documents, and how much of its sales the
+ * map covers. The rules are `packages/services/src/biz/accounting-books/product-groups.ts` and, for the
+ * books' quantities per group, `product-group-partition.ts`.
  *
  *   bun scripts/learn-product-groups.ts --org <slug> [--from YYYY-MM-DD] [--to YYYY-MM-DD]
  *       the dry run. Counts only, no names, numbers or amounts: the books' sales documents and where they
@@ -26,6 +27,7 @@ import { AuditLog, Org, ProductGroupMap } from '../packages/db/src/models/index.
 import { recordAuditEntry } from '../packages/services/src/biz/audit-log.service.js'
 import { ProductGroupsError, learnProductGroups, type LearnReport } from '../packages/services/src/biz/accounting-books/product-groups.service.js'
 import type { CoverageCell } from '../packages/services/src/biz/accounting-books/product-groups.js'
+import { PARTITION_LIMITS } from '../packages/services/src/biz/accounting-books/product-group-partition.js'
 import { assertScriptHome } from './lib/home-guard.js'
 import { requireUniqueIndexes } from './lib/require-indexes.js'
 
@@ -102,12 +104,30 @@ function print(r: LearnReport): void {
   const l = r.lines
   console.log(`  their goods lines: ${l.goods}; by one group ${l.byOneGroup}, by a unique quantity ${l.byQuantity}, not matched ${l.notMatched}, typed with no product ${l.noProduct}`)
 
+  const t = r.partition
+  console.log(`\nWhat the books' quantities per group add (partition): ${t.documents} documents slice 1 leaves a product line on`)
+  row(t.outcomes.unique, 'one split of the lines between the groups adds up: every product on it taught')
+  row(t.outcomes.partial, 'several splits; some products are in one group in all of them: those taught')
+  row(t.outcomes.ambiguous, 'several splits that agree on no product: nothing')
+  row(t.outcomes.none, 'no split gives every group the books\' quantity: nothing')
+  row(t.totalsDiffer, '  of them, the books\' goods total is not LGR\'s')
+  row(t.outcomes.anchor_contradicts, 'fits only without a group a product has by name or by another document: nothing, the product a conflict')
+  row(t.outcomes.accountant_contradicts, 'fits only without the accountant\'s rows: nothing')
+  row(t.outcomes.too_many_lines, `more than ${PARTITION_LIMITS.lines} goods items (a product's lines one item): not searched`)
+  row(t.outcomes.too_many_groups, `more than ${PARTITION_LIMITS.groups} goods groups: not searched`)
+  row(t.outcomes.budget, `the search ran out of its ${PARTITION_LIMITS.steps} steps: nothing`)
+  console.log(`  passes ${t.passes}, restarts ${t.restarts}; search steps ${t.steps.total}, the most for one document ${t.steps.max}`)
+  console.log(`  the product lines slice 1 left: ${t.lines.left}, of them taught ${t.lines.taught}`)
+  const tp = t.products
+  console.log(`  products named a group ${tp.voted}; learned with partition and not without ${tp.added}, learned without and not with ${tp.takenAway}; a group contradicted ${tp.contradicted}, distrusted ${tp.distrusted}`)
+  if (t.passLimit) console.log(`  ⚠ the passes ran out (${PARTITION_LIMITS.passes}) before the groups settled: partition taught nothing this run`)
+
   const c = r.products
   console.log(`\nProducts (the org's goods, services left out: ${c.goods})`)
   row(c.exact, 'exact: the name of one active group')
   row(c.exactAmbiguous, '  of no single group: the name of two or more (not mapped by name)')
   row(c.learned, 'learned: every document of theirs names the same group')
-  row(c.conflicts, 'conflict: their documents name more than one group (not mapped; to review)')
+  row(c.conflicts, 'conflict: their documents name more than one group, or contradict the one the run gave them (not mapped; to review)')
   row(c.conflictsOfOneDocument, '  of them, one document against all the others')
   row(c.inactiveGroup, 'their documents name a group that is no longer active (not mapped)')
   row(c.accountants, 'the accountant\'s (or reviewed) rows, left as they are')

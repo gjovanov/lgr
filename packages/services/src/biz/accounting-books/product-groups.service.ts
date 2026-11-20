@@ -5,16 +5,18 @@ import { committedFromFiles, markedImported } from '../vat-files/sales-register.
 import { sofiaDay } from '../vat-files/sales-register.js'
 import {
   NOT_A_DOCUMENT, NOT_ISSUED, SALES_DOCUMENT_TYPES, TILL_TYPES,
-  addCoverage, evidenceOfDocument, exactGroupsOf, newCoverage, pairDocuments, placeOf, planProductGroups, postsBy, rowsBySource, tallyEvidence,
+  addCoverage, evidenceOfDocument, exactGroupsOf, newCoverage, pairDocuments, placeOf, postsBy, rowsBySource,
   type BooksGoodsOp, type BooksSalesEntry, type CoverageCell, type CoverageKind, type EntryPlace, type EvidenceOutcome, type LgrSalesDocument,
   type LineCounts, type MapPlan, type MapRow, type OrgSeries, type PairingCounts, type ProductCounts,
 } from './product-groups.js'
+import { learnWithPartition, type PartitionCounts } from './product-group-partition.js'
 import { ANALYTIC_ROOTS, DOC_TYPES } from './registry.js'
 
 /**
  * FR-25 R3, slice 1: learns the product → accounting group map of one org from its own books and its
  * own documents, and measures what the map covers (`scripts/learn-product-groups.ts`). The rules are
- * in `product-groups.ts`, which boots nothing.
+ * in `product-groups.ts` and, for the books' quantity per group (slice 1b), `product-group-partition.ts`;
+ * neither boots anything.
  *
  * One org, the way R7 split the books: a store's sales documents and its products are in the same org,
  * so the map is too. Reads only that org. Writes only `ProductGroupMap`, and only with `execute`.
@@ -47,6 +49,8 @@ export interface LearnReport {
   /** Paired documents whose books name one group at another total quantity than LGR's. */
   oneGroupQuantityDiffers: number
   lines: LineCounts
+  /** What the books' quantity per group taught on the documents the two rules above leave a product line on (slice 1b). */
+  partition: PartitionCounts
   products: ProductCounts
   rows: ReturnType<typeof rowsBySource>
   planned: { create: number; update: number; remove: number; unchanged: number }
@@ -206,14 +210,17 @@ export async function learnProductGroups(orgId: string, opts: LearnOptions = {})
     evidenceCount: r.evidenceCount ?? 0, conflictCount: r.conflictCount ?? 0,
     ...(r.lastEvidenceAt ? { lastEvidenceAt: new Date(r.lastEvidenceAt) } : {}), ...(r.reviewedAt ? { reviewedAt: new Date(r.reviewedAt) } : {}),
   }))
-  const plan = planProductGroups({
+  // Slice 1's votes as they are, and what the books' quantity per group adds to them (slice 1b).
+  const learned = learnWithPartition({
+    paired,
+    slice1: taught,
     goodsProducts: goodsProducts.map(p => String(p._id)),
     exact: exact.byProduct,
     exactAmbiguous: exact.ambiguous,
-    evidence: tallyEvidence(taught),
     activeGroups: new Set([...groups.values()].filter(g => g.active).map(g => g.id)),
     existing,
   })
+  const plan = learned.plan
   const written = opts.execute ? await writePlan(org, plan) : undefined
 
   // What the map covers: every line of the period's documents and till sales that is not on a service.
@@ -243,6 +250,7 @@ export async function learnProductGroups(orgId: string, opts: LearnOptions = {})
     ...(from ? { from: isoDay(from) } : {}),
     to: isoDay(to),
     places, pairing, outcomes, oneGroupQuantityDiffers, lines,
+    partition: learned.counts,
     products: plan.products,
     rows: rowsBySource(plan.after),
     planned: { create: plan.create.length, update: plan.update.length, remove: plan.remove.length, unchanged: plan.unchanged },
