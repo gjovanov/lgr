@@ -81,6 +81,12 @@ contents:
     dst: /opt/lgr-server/installer/lgr-server-bundle.tar.gz
     file_info:
       mode: 0644
+  # #901: the PDF browser's AppArmor profile. Not straight into /etc/apparmor.d: the postinst copies it
+  # there only where AppArmor 4 is, since an older one fails to read it at every boot.
+  - src: packages/server/packaging/linux/apparmor/lgr-server-chrome
+    dst: /opt/lgr-server/installer/apparmor/lgr-server-chrome
+    file_info:
+      mode: 0644
   - src: packages/server/packaging/linux/lgr-server.service
     dst: /usr/lib/systemd/system/lgr-server.service
     file_info:

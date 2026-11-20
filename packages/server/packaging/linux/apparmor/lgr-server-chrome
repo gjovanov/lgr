@@ -1,0 +1,21 @@
+# LGR Server: the browser that prints the master's PDFs (#901).
+#
+# On Ubuntu 24.04 AppArmor lets a process make a user namespace only when a profile says it may
+# (kernel.apparmor_restrict_unprivileged_userns=1), and the browser's sandbox needs one: without this
+# profile it stops with "No usable sandbox!" and the master prints no PDF. This profile says it may, for
+# the browser of every installed version (the updater lays later ones down without apt), and confines
+# nothing else, as the profiles Ubuntu ships for the common browsers do.
+#
+# The package carries it in /opt/lgr-server/installer/apparmor/, and its postinst copies it here and loads
+# it only where AppArmor 4 is (`userns` is a 4.0 rule; an older AppArmor restricts nothing, and could not
+# read this file). Removing the package unloads it and takes it away.
+
+abi <abi/4.0>,
+include <tunables/global>
+
+profile lgr-server-chrome /opt/lgr-server/versions/*/chrome/chrome-headless-shell flags=(unconfined) {
+  userns,
+
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/lgr-server-chrome>
+}

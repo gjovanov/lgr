@@ -73,31 +73,87 @@ pub fn pdf_browser(paths: &Paths, operator: &BTreeMap<String, String>) -> Option
     operator.get("PUPPETEER_EXECUTABLE_PATH").map(PathBuf::from).or_else(|| paths.chrome.clone())
 }
 
-/// Whether the PDF browser starts at all: `--version` loads every library it links, then exits. On
-/// Linux those come from the machine, and a browser that is there can still not load: on Ubuntu 24.04
-/// apt once gave the .deb OSS4's stand-in for libasound2, which lacks a symbol Chrome needs, and no PDF
-/// printed while the log said they would (#896, nfpm.yaml). On Windows the package carries all it loads, and
-/// this is not asked. `Err` says why, in the browser's own first line.
-pub async fn pdf_browser_starts(browser: &Path) -> Result<(), String> {
+/// Whether the API's browser runs without its sandbox, as `chromeArgs()` in reporting's `base.pdf.ts`
+/// decides it: as root, or with `PDF_CHROME_NO_SANDBOX=1` in the API's environment, which is the
+/// operator's api.env (the API starts with nothing else, `env_clear`).
+pub fn pdf_without_sandbox(operator: &BTreeMap<String, String>) -> bool {
+    #[cfg(unix)]
+    let root = unsafe { libc::geteuid() } == 0;
+    #[cfg(not(unix))]
+    let root = false;
+    root || operator.get("PDF_CHROME_NO_SANDBOX").map(String::as_str) == Some("1")
+}
+
+/// Whether the PDF browser prints: a blank page printed to a file in `scratch`, the browser launched as the
+/// API launches it, with its sandbox unless `no_sandbox` (`pdf_without_sandbox`). A print needs what every
+/// render needs, and a browser that is there can lack either:
+/// - the libraries it links, which on Linux come from the machine: on Ubuntu 24.04 apt once gave the .deb
+///   OSS4's stand-in for libasound2, which lacks a symbol Chrome needs (#896, nfpm.yaml);
+/// - its sandbox, which 24.04's AppArmor refuses to a program no profile names (#901: the package ships one,
+///   packaging/linux/apparmor/).
+///
+/// `--version`, which this asked before, loads the libraries and never makes the sandbox, so it said "PDFs
+/// print" on a master where none did. On Windows the package carries all it loads, and this is not asked.
+/// `Err` says why, in the browser's own words. `scratch` is emptied first and removed after.
+pub async fn pdf_browser_prints(browser: &Path, no_sandbox: bool, scratch: &Path) -> Result<(), String> {
     if cfg!(windows) {
         return Ok(());
     }
-    let run = tokio::process::Command::new(browser)
-        .arg("--version")
+    let _ = std::fs::remove_dir_all(scratch);
+    if let Err(e) = std::fs::create_dir_all(scratch) {
+        return Err(format!("its test page has no folder ({}): {e}", scratch.display()));
+    }
+    let page = scratch.join("test-page.pdf");
+    let mut cmd = tokio::process::Command::new(browser);
+    if no_sandbox {
+        cmd.args(["--no-sandbox", "--disable-setuid-sandbox"]);
+    }
+    cmd.arg(format!("--user-data-dir={}", scratch.join("profile").display()))
+        .arg("--disable-dev-shm-usage")
+        .arg(format!("--print-to-pdf={}", page.display()))
+        .arg("about:blank")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .output();
-    match tokio::time::timeout(std::time::Duration::from_secs(20), run).await {
-        Err(_) => Err("it did not answer --version within 20 s".to_string()),
+        .kill_on_drop(true);
+    let printed = match tokio::time::timeout(std::time::Duration::from_secs(60), cmd.output()).await {
+        Err(_) => Err("it did not print its test page within 60 s".to_string()),
         Ok(Err(e)) => Err(format!("it cannot be run: {e}")),
-        Ok(Ok(out)) if out.status.success() => Ok(()),
         Ok(Ok(out)) => {
-            let said = String::from_utf8_lossy(&out.stderr);
-            let first: String = said.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").chars().take(300).collect();
-            Err(if first.is_empty() { format!("it ended with {}", out.status) } else { first })
+            if std::fs::read(&page).is_ok_and(|b| b.starts_with(b"%PDF")) {
+                Ok(())
+            } else {
+                let why = browser_reason(&String::from_utf8_lossy(&out.stderr));
+                Err(match (why.is_empty(), out.status.success()) {
+                    (false, _) => why,
+                    (true, true) => "it ended without printing its test page".to_string(),
+                    (true, false) => format!("it ended with {} without printing its test page", out.status),
+                })
+            }
         }
+    };
+    let _ = std::fs::remove_dir_all(scratch);
+    printed
+}
+
+/// What a browser that would not print said: its FATAL line (a sandbox it could not make), else its first
+/// line (a library it could not load), without Chrome's `[pid:tid:time:LEVEL:file(line)]` prefix.
+fn browser_reason(stderr: &str) -> String {
+    let lines: Vec<&str> = stderr.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let line = lines.iter().find(|l| l.contains(":FATAL:")).or(lines.first()).copied().unwrap_or("");
+    let line = match line.strip_prefix('[').and_then(|_| line.find("] ")) {
+        Some(at) => &line[at + 2..],
+        None => line,
+    };
+    line.chars().take(300).collect()
+}
+
+/// What a master's operator can do about a browser that does not print, said after its reason.
+pub fn pdf_browser_hint(why: &str) -> &'static str {
+    if why.contains("No usable sandbox") {
+        " (the .deb's AppArmor profile lets it make one where AppArmor 4 is: `aa-status` lists lgr-server-chrome once it is loaded, and an `apt install` of this version's .deb loads it, which an update the helper installs does not; or PDF_CHROME_NO_SANDBOX=1 in config/api.env prints without the sandbox)"
+    } else {
+        ""
     }
 }
 
@@ -396,7 +452,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn a_pdf_browser_that_cannot_load_says_why() {
+    async fn a_pdf_browser_that_cannot_print_says_why() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let fake = |name: &str, body: &str| {
@@ -405,18 +461,59 @@ mod tests {
             std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
             p
         };
-        // What OSS4's stand-in for libasound2 made of the package's Chrome on Ubuntu 24.04.
+        // A browser that prints writes the page where `--print-to-pdf=` says.
+        const PRINT: &str = r##"for a in "$@"; do case "$a" in --print-to-pdf=*) printf '%%PDF-1.4 test' >"${a#--print-to-pdf=}" ;; esac; done"##;
+        let scratch = dir.path().join("check");
+        let prints = |b: std::path::PathBuf, no_sandbox: bool| {
+            let scratch = scratch.clone();
+            async move { pdf_browser_prints(&b, no_sandbox, &scratch).await }
+        };
+
+        assert_eq!(prints(fake("fine", PRINT), false).await, Ok(()));
+        assert!(!scratch.exists(), "the test page's folder is removed after");
+
+        // What OSS4's stand-in for libasound2 made of the package's Chrome on Ubuntu 24.04 (#896).
         let broken = fake(
             "broken",
             "echo 'chrome-headless-shell: symbol lookup error: chrome-headless-shell: undefined symbol: snd_device_name_get_hint, version ALSA_0.9' >&2\nexit 127",
         );
-        let why = pdf_browser_starts(&broken).await.unwrap_err();
+        let why = prints(broken, false).await.unwrap_err();
         assert!(why.contains("undefined symbol: snd_device_name_get_hint"), "{why}");
-        assert_eq!(pdf_browser_starts(&fake("fine", "echo 'Chrome 140.0.7339.80'")).await, Ok(()));
-        let silent = pdf_browser_starts(&fake("silent", "exit 3")).await.unwrap_err();
+        assert_eq!(pdf_browser_hint(&why), "");
+
+        // What 24.04's AppArmor made of it next, for the lgr user, until the package carried a profile (#901):
+        // its FATAL line, not the warning before it, and without Chrome's prefix. Without its sandbox it prints.
+        let sandboxed = fake(
+            "sandboxed",
+            &format!(
+                "case \" $* \" in\n*\" --no-sandbox \"*) {PRINT} ;;\n*) echo '[1120/221800.123456:WARNING:sandbox_linux.cc(420)] something first' >&2\necho '[1120/221800.123457:FATAL:zygote_host_impl_linux.cc(128)] No usable sandbox! If you are running on Ubuntu 23.10+ or another Linux distro that has disabled unprivileged user namespaces with AppArmor, see the docs' >&2\nexit 133 ;;\nesac"
+            ),
+        );
+        let why = prints(sandboxed.clone(), false).await.unwrap_err();
+        assert!(why.starts_with("No usable sandbox! If you are running on Ubuntu 23.10+"), "{why}");
+        assert!(pdf_browser_hint(&why).contains("lgr-server-chrome"), "{why}");
+        assert_eq!(prints(sandboxed, true).await, Ok(()));
+
+        assert_eq!(prints(fake("noprint", "exit 0"), false).await, Err("it ended without printing its test page".to_string()));
+        let silent = prints(fake("silent", "exit 3"), false).await.unwrap_err();
         assert!(silent.starts_with("it ended with") && silent.contains('3'), "{silent}");
-        let missing = pdf_browser_starts(&dir.path().join("missing")).await.unwrap_err();
+        let missing = prints(dir.path().join("missing"), false).await.unwrap_err();
         assert!(missing.starts_with("it cannot be run"), "{missing}");
+        assert!(!scratch.exists(), "the test page's folder is removed after a failure too");
+    }
+
+    #[test]
+    fn the_api_runs_its_browser_without_a_sandbox_only_when_told_or_as_root() {
+        let told = BTreeMap::from([("PDF_CHROME_NO_SANDBOX".to_string(), "1".to_string())]);
+        assert!(pdf_without_sandbox(&told));
+        let other = BTreeMap::from([("PDF_CHROME_NO_SANDBOX".to_string(), "true".to_string())]);
+        #[cfg(unix)]
+        let root = unsafe { libc::geteuid() } == 0;
+        #[cfg(not(unix))]
+        let root = false;
+        // As `chromeArgs()` reads it: only `1` says so.
+        assert_eq!(pdf_without_sandbox(&other), root);
+        assert_eq!(pdf_without_sandbox(&BTreeMap::new()), root);
     }
 
     #[test]
