@@ -361,4 +361,18 @@ is `<home>` (FR-25 §9, "P1 into the home"). In order, each write on the owner's
    gate). People, contracts, months and elements equal `<books>`'s.
 4. **Who reads it:** every member of `<home>` whose role holds `payroll-people`, an Administrator included.
 5. **The drop of `<books>`**, with a fresh verified bundle in hand and after a check that the split holds everything
-   `<books>` holds: its ledger and VAT files per month, and its payroll.
+   `<books>` holds: its ledger and VAT files per month, and its payroll. On the build host, with `UPLOAD_DIR` pointed
+   at the folder that keeps the earlier bundle:
+
+   ```bash
+   bun scripts/drop-org.ts bundle --org <books> --id <its id> --subdir pre-retire --suffix pre-drop   # path + sha256
+   bun scripts/drop-org.ts drop   --org <books> --id <its id> --bundle <path> --sha256 <hex>          # dry: the rows per collection
+   bun scripts/drop-org.ts drop   --org <books> --id <its id> --bundle <path> --sha256 <hex> --execute
+   ```
+
+   The drop refuses unless the slug and the id name the same org, its home is here, every membership is switched off,
+   nothing outside it points at it, and the bundle verifies and holds at least every row the org holds now. A person's
+   `passwordSetByOrgId` may keep naming it: that field records which org's admin set a password, and nothing reads it.
+   The bundle does not carry the org's own document, so the drop writes that beside the bundle (`…-org.json`) before
+   it deletes anything, and it ends by counting what is left under the id, which must be 0. The people stay: they are
+   global, and the bundle carries them for a restore.

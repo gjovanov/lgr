@@ -43,6 +43,7 @@ const RAW_DRIVER_FILES: Record<string, string> = {
   'services/src/biz/personal-data/employee-personal.ts': UNNAMED,
   'services/src/biz/personal-data/restore.ts': UNNAMED,
   'services/src/biz/org-clone/clone.service.ts': COPY,
+  'services/src/biz/org-drop/org-drop.service.ts': 'deletes every row under an org id in every collection, with a model or without, and reads raw documents for its id (FR-25 §7)',
   'services/src/biz/move/fenced-import.service.ts': COPY,
   'services/src/biz/move/kept-import.service.ts': COPY,
   'services/src/biz/move/move-back.service.ts': COPY,
