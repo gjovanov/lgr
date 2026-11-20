@@ -275,3 +275,25 @@ describe('CLOUD_SECRET_NAMES is the sealed secrets\' key list', () => {
     expect([...CLOUD_SECRET_NAMES].sort()).toEqual([...keys].sort())
   })
 })
+
+describe('the .deb\'s dependencies, and the release job that installs it (#896)', () => {
+  const NFPM = Bun.YAML.parse(readFileSync(join(REPO_ROOT, 'packages', 'server', 'packaging', 'nfpm.yaml'), 'utf8')) as { depends: string[] }
+  const WORKFLOW = Bun.YAML.parse(readFileSync(join(REPO_ROOT, '.github', 'workflows', 'server-release.yml'), 'utf8')) as {
+    jobs: Record<string, { steps: Array<{ name?: string; run?: string }> }>
+  }
+
+  it('the real libasound2 comes first and the bare name carries a version: on 24.04 the name is also a stub that lacks symbols Chrome loads', () => {
+    const line = NFPM.depends.find((d) => d.includes('libasound2'))
+    expect(line).toBeDefined()
+    // 24.04 renamed the real package (t64): first, so a clean install takes it. 22.04 has no such name and takes
+    // the second alternative. The version is what makes an UPGRADE take it: the stub's Provides has none, so a
+    // machine that already holds the stub does not meet `libasound2 (>= 1.2)` and apt replaces it (measured).
+    expect(line!.split('|').map((a) => a.trim())).toEqual(['libasound2t64', 'libasound2 (>= 1.2)'])
+  })
+
+  it('the clean-container install starts the packaged browser: ldd finds the stub\'s soname and says nothing', () => {
+    const step = Object.values(WORKFLOW.jobs).flatMap((j) => j.steps).find((s) => s.name === 'Install the .deb on Ubuntu 22.04 and 24.04')
+    expect(step?.run).toBeDefined()
+    expect(step!.run).toMatch(/chrome\/chrome-headless-shell --version/)
+  })
+})

@@ -2,6 +2,7 @@ import { InternalOrder, Contact, Org, Product } from 'db/models'
 import { generateCustomerOrderPDF } from 'reporting/pdf/customer-order.pdf'
 import type { CustomerOrderCtx } from 'reporting/customer-order.i18n'
 import { orgLocalParts } from 'services/biz/digest/digest-time'
+import { logger } from 'services/logger'
 
 /**
  * The customer order's printed sheet (`InternalOrder`, ORDI-), assembled in one place so that
@@ -81,6 +82,8 @@ export async function renderInternalOrderPdf(
     if (!buffer) return { ok: false, status: 503, message: 'PDF renderer unavailable' }
     return { ok: true, buffer, filename: `${order.orderNumber}.pdf`, order }
   } catch (e: any) {
+    // As renderInvoicePdf's: the browser's own message, in the log (#896).
+    logger.error({ orgId, orderId: String(orderId), err: String(e?.message ?? e).slice(0, 300) }, 'The customer order PDF could not be rendered')
     return {
       ok: false,
       status: 503,

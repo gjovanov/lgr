@@ -3,6 +3,7 @@ import { generateInvoicePDF, HEADER_NOTE_MAX } from 'reporting/pdf/invoice.pdf'
 import { getOrgLogoDataUri } from 'services/biz/org-logo.service'
 import { paidByReceipts } from 'services/biz/cash-register/payment-receipt.service'
 import { orgFooterLine } from 'services/biz/org-footer-line'
+import { logger } from 'services/logger'
 
 // The issuer line of the page foot. It lives in `services` since the stock movement prints it too;
 // re-exported here, where the export and the email path have always read it.
@@ -117,6 +118,10 @@ export async function renderInvoicePdf(
     if (!buffer) return { ok: false, status: 503, message: 'PDF renderer unavailable' }
     return { ok: true, buffer, filename: `${(invoice as any).invoiceNumber}.pdf`, invoice }
   } catch (e: any) {
+    // The caller answers 503 and the person sees "temporarily unavailable". What is wrong (a library the
+    // browser cannot load, a sandbox the kernel refuses) is only in this message, so it goes to the log of
+    // the machine that cannot print: on a master that is the only place anyone looks (#896).
+    logger.error({ orgId, invoiceId: String(invoiceId), err: String(e?.message ?? e).slice(0, 300) }, 'The invoice PDF could not be rendered')
     return {
       ok: false,
       status: 503,

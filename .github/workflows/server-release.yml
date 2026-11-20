@@ -657,6 +657,9 @@ jobs:
               done
               lgr-server --version
               /opt/lgr-server/current/bin/mongod --version | head -1
+              # The browser starts too. ldd finds a library by its name, so a stub that only answers to
+              # the name passes it, and the binary then fails when it loads (#896).
+              /opt/lgr-server/current/chrome/chrome-headless-shell --version
               id lgr
               test "$(stat -c "%U %a" /var/lib/lgr)" = "lgr 750"
               test "$(stat -c "%U %a" /opt/lgr-server/current/lgr-server)" = "root 755"
