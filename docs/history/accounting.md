@@ -182,3 +182,27 @@ only. Plan, decisions and the dry run's counters: FR-25 §9, "R3, slice 3, as bu
   (`vat_row_source_unique`); a frozen row is never touched.
 - **Tests:** `unit/shadow-sales.test.ts`, `unit/shadow-cost-compare.test.ts`, `integration/shadow-sales.flow.test.ts`
   (a home and a store end to end, and every reading of their books the same after a run).
+
+## The review queue of a product's group (2026-11-20, FR-25 R3, slice 2)
+
+The accountant's page for the product → group map, `/accounting/product-groups`: the goods a store sold in a period
+by net sales value, each with its state (`conflict`, `unmapped`, `learned`, `exact`, `accountant`, `reviewed`) and
+the documents behind it, the conflicts and the unmapped by default. There the accountant sets a group, accepts a
+proposal, confirms a learned or exact row, or withdraws a decision. `services/biz/accounting-books/product-group-review.ts`
+holds the rules (import-pure), `product-group-review.service.ts` the cache, the queue and the writes, and
+`accounting-api` `product-group.controller.ts` the API. Design, the cache and the writes: FR-25 §9, "R3, slice 2, as
+built".
+- ⚠ **No write of the review queue reads its cache.** The evidence a pod keeps only lists; each write reads the row
+  from the database and is conditioned on the row the page showed (`expected`, its `updatedAt` or null), so a stale
+  listing is refused (409 `row_changed`), never written from.
+- ⚠ **The queue's cache key is everything a learning run reads** (`readStamps`: the books' sales entries, the sales
+  documents and the till's, the document files, the products, the goods groups, the accountant's rows, the books link,
+  the day). A new input to `loadLearning` joins the stamps, or the queue shows a reading that no longer holds for up to
+  30 minutes.
+- ⚠ **An evidence document's `day` is its UTC midnight: `formatDate(day)`, with no `timeZone`.** The formatter reads a
+  UTC midnight as that day wherever the browser is; a zone made it a moment, and east of UTC the page showed the day
+  before.
+- ⚠ **The org a sign-in returns has no `settings`; `/auth/me` brings them.** Until then `isBooksOrg` is false, so the
+  page waits for them (`settingsKnown`) before it says the org keeps no books or asks for the queue.
+- **Tests:** `unit/product-group-review.test.ts`, `unit/product-groups-page.test.ts`,
+  `integration/product-group-review.flow.test.ts` (the queue, the writes, the stale listing, who may write, other orgs).

@@ -17,6 +17,8 @@ export const manifest: ModuleManifest = {
       { labelKey: 'nav.accounts', icon: 'mdi-chart-bar', to: '/accounts' },
       // FR-25a §3.2: the books' analytic tree, beside the chart it hangs off.
       { labelKey: 'nav.analytics', icon: 'mdi-file-tree-outline', to: '/analytics' },
+      // FR-25 R3, slice 2: the products' goods groups the sales post to, for the accountant to review.
+      { labelKey: 'nav.productGroups', icon: 'mdi-tag-multiple-outline', to: '/product-groups' },
       { labelKey: 'nav.journalEntries', icon: 'mdi-book-open-variant', to: '/journal-entries' },
       { labelKey: 'nav.generalLedger', icon: 'mdi-book-multiple', to: '/general-ledger' },
       { labelKey: 'nav.fiscalYears', icon: 'mdi-calendar-range', to: '/fiscal-years' },
@@ -54,6 +56,8 @@ export const manifest: ModuleManifest = {
       // FR-25a §3.2: the books' analytics. No `new`: the import makes them.
       { path: 'analytics', name: 'accounting.analytics', component: () => import('./views/accounting/AnalyticsView.vue') },
       { path: 'analytics/:id', name: 'accounting.analytic', component: () => import('./views/accounting/AnalyticFormView.vue') },
+      // FR-25 R3, slice 2: the review queue of the product → goods group map.
+      { path: 'product-groups', name: 'accounting.product-groups', component: () => import('./views/accounting/ProductGroupsView.vue') },
       { path: 'journal-entries', name: 'accounting.journal-entries', component: () => import('./views/accounting/JournalEntriesView.vue') },
       { path: 'journal-entries/new', name: 'accounting.journal-entry-new', component: () => import('./views/accounting/JournalEntryFormView.vue') },
       { path: 'journal-entries/:id/edit', name: 'accounting.journal-entry-edit', component: () => import('./views/accounting/JournalEntryFormView.vue') },

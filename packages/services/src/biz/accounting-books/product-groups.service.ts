@@ -6,10 +6,11 @@ import { sofiaDay } from '../vat-files/sales-register.js'
 import {
   NOT_A_DOCUMENT, NOT_ISSUED, SALES_DOCUMENT_TYPES, TILL_TYPES,
   addCoverage, evidenceOfDocument, exactGroupsOf, newCoverage, pairDocuments, placeOf, postsBy, rowsBySource,
-  type BooksGoodsOp, type BooksSalesEntry, type CoverageCell, type CoverageKind, type EntryPlace, type EvidenceOutcome, type LgrSalesDocument,
-  type LineCounts, type MapPlan, type MapRow, type OrgSeries, type PairingCounts, type ProductCounts,
+  type BooksGoodsOp, type BooksSalesEntry, type CoverageCell, type CoverageDocument, type CoverageKind, type EntryPlace, type EvidenceOutcome,
+  type GoodsGroup, type GroupVote, type LgrSalesDocument, type LineCounts, type MapPlan, type MapRow, type OrgSeries, type PairedDocument,
+  type PairingCounts, type ProductCounts,
 } from './product-groups.js'
-import { learnWithPartition, type PartitionCounts } from './product-group-partition.js'
+import { learnWithPartition, type PartitionCounts, type PartitionLearning } from './product-group-partition.js'
 import { ANALYTIC_ROOTS, DOC_TYPES } from './registry.js'
 
 /**
@@ -20,6 +21,10 @@ import { ANALYTIC_ROOTS, DOC_TYPES } from './registry.js'
  *
  * One org, the way R7 split the books: a store's sales documents and its products are in the same org,
  * so the map is too. Reads only that org. Writes only `ProductGroupMap`, and only with `execute`.
+ *
+ * Slice 2's review queue (`product-group-review.service.ts`) reads through the same functions:
+ * `loadLearning` for the evidence, `eachSalesDocument` for the sales and their value, `goodsGroupsOf`
+ * and `asGoodsGroup` for which analytics are groups.
  */
 
 export class ProductGroupsError extends Error {
@@ -70,6 +75,22 @@ function parseDay(value: string | undefined, flag: string): Date | undefined {
   return d
 }
 
+/** Business days in Sofia, both ends included: `from` unset is from the first. */
+export interface LearnPeriod {
+  from?: Date
+  to: Date
+}
+
+/** The period of `from` and `to` (`YYYY-MM-DD`), `to` unset today in Sofia; refused (`bad_period`) when it is none. */
+export function periodOf(opts: Pick<LearnOptions, 'from' | 'to' | 'now'>): LearnPeriod {
+  const from = parseDay(opts.from, '--from')
+  const to = parseDay(opts.to, '--to') ?? sofiaDay(opts.now ?? new Date())
+  if (from && from > to) throw new ProductGroupsError(`--from ${isoDay(from)} is after --to ${isoDay(to)}`, 'bad_period')
+  return { ...(from ? { from } : {}), to }
+}
+
+export const inPeriodOf = (p: LearnPeriod) => (day: Date) => (!p.from || day >= p.from) && day <= p.to
+
 /** A range of `issueDate` or `date`, `margin` days wider on each side. */
 const rangeOf = (from: Date | undefined, to: Date, margin: number) => ({
   ...(from ? { $gte: new Date(from.getTime() - margin * DAY_MS) } : {}),
@@ -97,6 +118,61 @@ export async function seriesOf(orgId: string): Promise<OrgSeries> {
   }
 }
 
+// ── the goods groups and the products ────────────────────────────────────────────────────────────
+
+/** The root every goods group is under (`СТОКИ`). */
+export const GOODS_ROOT = ANALYTIC_ROOTS.find(r => r.kind === 'goods_group')!.root
+
+export interface GoodsGroupRow extends GoodsGroup {
+  path: string
+}
+
+/**
+ * An analytic as a goods group, or nothing: one under the goods root, the root itself not one, active unless switched
+ * off. The one rule learning reads its groups by and the review queue checks an accountant's choice by.
+ */
+export function asGoodsGroup(a: { _id: unknown; root?: string; path: string; name: string; isActive?: boolean }): GoodsGroupRow | undefined {
+  if (a.root !== GOODS_ROOT || a.path === GOODS_ROOT) return undefined
+  return { id: String(a._id), name: a.name, path: a.path, active: a.isActive !== false }
+}
+
+type AnalyticRow = { _id: unknown; root?: string; path: string; name: string; isActive?: boolean }
+
+/** The org's goods groups, by id, the inactive ones too. */
+export async function goodsGroupsOf(org: mongoose.Types.ObjectId): Promise<Map<string, GoodsGroupRow>> {
+  const analytics = await AccountingAnalytic.find({ orgId: org, root: GOODS_ROOT }).select('root path name isActive').lean<AnalyticRow[]>()
+  const out = new Map<string, GoodsGroupRow>()
+  for (const a of analytics) {
+    const g = asGoodsGroup(a)
+    if (g) out.set(g.id, g)
+  }
+  return out
+}
+
+/** One analytic of the org as a goods group, or nothing: what an accountant's choice is checked by. */
+export async function goodsGroupOf(org: mongoose.Types.ObjectId, analyticId: string): Promise<GoodsGroupRow | undefined> {
+  if (!mongoose.isValidObjectId(analyticId)) return undefined
+  const a = await AccountingAnalytic.findOne({ _id: oid(analyticId), orgId: org }).select('root path name isActive').lean<AnalyticRow>()
+  return a ? asGoodsGroup(a) : undefined
+}
+
+/** The org's products as a run reads its lines: a line on a product the org does not hold is typed, a service needs no group. */
+export interface ProductIndex {
+  productOf(id: unknown): string | undefined
+  isService(productId: string): boolean
+}
+
+export function productIndexOf(products: readonly { _id: unknown; type?: string }[]): ProductIndex {
+  const services = new Set(products.filter(p => p.type === 'service').map(p => String(p._id)))
+  const known = new Set(products.map(p => String(p._id)))
+  return {
+    productOf: id => (id && known.has(String(id)) ? String(id) : undefined),
+    isService: productId => services.has(productId),
+  }
+}
+
+// ── what a run reads, and what it learns from it ─────────────────────────────────────────────────
+
 interface EntryRow { docType?: string; docNumber?: string; registerDocType?: string; lines?: { opNo?: number; analyticId?: unknown; quantity?: number }[] }
 interface InvoiceRow {
   _id: unknown
@@ -108,7 +184,27 @@ interface InvoiceRow {
   statusHistory?: { reason?: string }[]
   lines?: { productId?: unknown; quantity?: number; unitPrice?: number; discount?: number }[]
 }
-interface MapRowDoc { _id: unknown; productId: unknown; analyticId: unknown; source: ProductGroupSource; evidenceCount?: number; conflictCount?: number; lastEvidenceAt?: Date; reviewedAt?: Date }
+export interface MapRowDoc {
+  _id: unknown
+  productId: unknown
+  analyticId: unknown
+  source: ProductGroupSource
+  evidenceCount?: number
+  conflictCount?: number
+  lastEvidenceAt?: Date
+  reviewedAt?: Date
+  reviewedBy?: unknown
+  updatedAt?: Date
+}
+
+/** A stored row as the rules read it. */
+export function mapRowOf(r: MapRowDoc): MapRow {
+  return {
+    id: String(r._id), productId: String(r.productId), analyticId: String(r.analyticId), source: r.source,
+    evidenceCount: r.evidenceCount ?? 0, conflictCount: r.conflictCount ?? 0,
+    ...(r.lastEvidenceAt ? { lastEvidenceAt: new Date(r.lastEvidenceAt) } : {}), ...(r.reviewedAt ? { reviewedAt: new Date(r.reviewedAt) } : {}),
+  }
+}
 
 /** The goods operations of a books entry: one per operation that names a goods group. */
 function goodsOf(e: EntryRow, groups: ReadonlyMap<string, unknown>): { goods: BooksGoodsOp[]; mixed: boolean } {
@@ -133,27 +229,46 @@ const zeroOutcomes = (): Record<EvidenceOutcome, number> => ({
   one_group: 0, line_for_line: 0, no_unique_quantity: 0, not_line_for_line: 0, no_goods_in_books: 0, no_goods_in_lgr: 0, two_groups_in_one_operation: 0,
 })
 
-/** Learn the map of `orgId` from the period's books and documents; write it with `execute`. */
-export async function learnProductGroups(orgId: string, opts: LearnOptions = {}): Promise<LearnReport> {
-  const from = parseDay(opts.from, '--from')
-  const to = parseDay(opts.to, '--to') ?? sofiaDay(opts.now ?? new Date())
-  if (from && from > to) throw new ProductGroupsError(`--from ${isoDay(from)} is after --to ${isoDay(to)}`, 'bad_period')
-  const inPeriod = (day: Date) => (!from || day >= from) && day <= to
+/** What a run reads of one org and what it learns from it, before anything is written. */
+export interface Learning {
+  period: LearnPeriod
+  org: mongoose.Types.ObjectId
+  /** The goods groups, by id, the inactive ones too. */
+  groups: Map<string, GoodsGroupRow>
+  products: ProductIndex
+  /** The org's products that are not a service. */
+  goodsProducts: string[]
+  places: Record<EntryPlace, number>
+  pairing: PairingCounts
+  paired: PairedDocument[]
+  /** Slice 1's votes, per paired document. */
+  slice1: { doc: LgrSalesDocument; votes: GroupVote[] }[]
+  outcomes: Record<EvidenceOutcome, number>
+  oneGroupQuantityDiffers: number
+  lines: LineCounts
+  exact: { byProduct: Map<string, string>; ambiguous: number }
+  activeGroups: Set<string>
+  /** The map as stored when the run read it. */
+  existing: MapRow[]
+  /** Slice 1 and partition: the evidence, the contradictions and the plan. */
+  learned: PartitionLearning
+}
+
+/** Read the period's books and documents of `orgId`, and learn from them (`learnProductGroups` without the writes). */
+export async function loadLearning(orgId: string, opts: Pick<LearnOptions, 'from' | 'to' | 'now'> = {}): Promise<Learning> {
+  const period = periodOf(opts)
+  const { from, to } = period
+  const inPeriod = inPeriodOf(period)
   const org = oid(orgId)
   const series = await seriesOf(orgId)
 
   // The groups: every analytic under the goods root, the root itself excluded.
-  const goodsRoot = ANALYTIC_ROOTS.find(r => r.kind === 'goods_group')!
-  const analytics = await AccountingAnalytic.find({ orgId: org, root: goodsRoot.root })
-    .select('path name isActive').lean<{ _id: unknown; path: string; name: string; isActive?: boolean }[]>()
-  const groups = new Map(analytics.filter(a => a.path !== goodsRoot.root).map(a => [String(a._id), { id: String(a._id), name: a.name, active: a.isActive !== false }]))
+  const groups = await goodsGroupsOf(org)
 
   // The products: services need no group, and a line on a product the org does not hold is typed.
-  const products = await Product.find({ orgId: org }).select('name type').lean<{ _id: unknown; name?: string; type?: string }[]>()
-  const services = new Set(products.filter(p => p.type === 'service').map(p => String(p._id)))
-  const known = new Set(products.map(p => String(p._id)))
-  const goodsProducts = products.filter(p => p.type !== 'service')
-  const productOf = (id: unknown) => (id && known.has(String(id)) ? String(id) : undefined)
+  const productRows = await Product.find({ orgId: org }).select('name type').lean<{ _id: unknown; name?: string; type?: string }[]>()
+  const products = productIndexOf(productRows)
+  const goodsRows = productRows.filter(p => p.type !== 'service')
 
   // The books: the org's own sales entries, as booked.
   const places: Record<EntryPlace, number> = { own: 0, till: 0, outside: 0, other_store: 0, no_series: 0 }
@@ -181,8 +296,8 @@ export async function learnProductGroups(orgId: string, opts: LearnOptions = {})
     documents.push({
       id: String(d._id), type: d.type, number: String(d.invoiceNumber ?? ''), day, imported: false, inPeriod: inPeriod(day),
       lines: (d.lines ?? []).map(l => {
-        const productId = productOf(l.productId)
-        return { ...(productId ? { productId } : {}), quantity: Number(l.quantity) || 0, ...(productId && services.has(productId) ? { service: true } : {}) }
+        const productId = products.productOf(l.productId)
+        return { ...(productId ? { productId } : {}), quantity: Number(l.quantity) || 0, ...(productId && products.isService(productId) ? { service: true } : {}) }
       }),
     })
   }
@@ -194,7 +309,7 @@ export async function learnProductGroups(orgId: string, opts: LearnOptions = {})
   const outcomes = zeroOutcomes()
   const lines: LineCounts = { goods: 0, byOneGroup: 0, byQuantity: 0, notMatched: 0, noProduct: 0 }
   let oneGroupQuantityDiffers = 0
-  const taught = paired.map(p => {
+  const slice1 = paired.map(p => {
     const ev = evidenceOfDocument(p)
     outcomes[ev.outcome]++
     if (ev.oneGroupQuantityDiffers) oneGroupQuantityDiffers++
@@ -203,54 +318,63 @@ export async function learnProductGroups(orgId: string, opts: LearnOptions = {})
   })
 
   // The plan.
-  const exact = exactGroupsOf(goodsProducts.map(p => ({ id: String(p._id), name: String(p.name ?? '') })), [...groups.values()])
+  const exact = exactGroupsOf(goodsRows.map(p => ({ id: String(p._id), name: String(p.name ?? '') })), [...groups.values()])
   const stored = await ProductGroupMap.find({ orgId: org }).lean<MapRowDoc[]>()
-  const existing: MapRow[] = stored.map(r => ({
-    id: String(r._id), productId: String(r.productId), analyticId: String(r.analyticId), source: r.source,
-    evidenceCount: r.evidenceCount ?? 0, conflictCount: r.conflictCount ?? 0,
-    ...(r.lastEvidenceAt ? { lastEvidenceAt: new Date(r.lastEvidenceAt) } : {}), ...(r.reviewedAt ? { reviewedAt: new Date(r.reviewedAt) } : {}),
-  }))
+  const existing = stored.map(mapRowOf)
+  const goodsProducts = goodsRows.map(p => String(p._id))
+  const activeGroups = new Set([...groups.values()].filter(g => g.active).map(g => g.id))
   // Slice 1's votes as they are, and what the books' quantity per group adds to them (slice 1b).
-  const learned = learnWithPartition({
-    paired,
-    slice1: taught,
-    goodsProducts: goodsProducts.map(p => String(p._id)),
-    exact: exact.byProduct,
-    exactAmbiguous: exact.ambiguous,
-    activeGroups: new Set([...groups.values()].filter(g => g.active).map(g => g.id)),
-    existing,
-  })
-  const plan = learned.plan
-  const written = opts.execute ? await writePlan(org, plan) : undefined
+  const learned = learnWithPartition({ paired, slice1, goodsProducts, exact: exact.byProduct, exactAmbiguous: exact.ambiguous, activeGroups, existing })
+  return {
+    period, org, groups, products, goodsProducts, places, pairing, paired, slice1, outcomes, oneGroupQuantityDiffers, lines, exact, activeGroups,
+    existing, learned,
+  }
+}
+
+/**
+ * Every document coverage reads in the period, as it reads it: the outgoing invoices, notes and till sales that are
+ * documents, and of each line its product (none when the org does not hold it), whether it is a service, and its NET
+ * value in the base currency. ⚠ `lineAmounts(…).taxable × rate`, never `lineTotal`: that is gross on a cash sale.
+ */
+export async function eachSalesDocument(org: mongoose.Types.ObjectId, period: LearnPeriod, products: ProductIndex, each: (doc: CoverageDocument) => void): Promise<void> {
+  const inPeriod = inPeriodOf(period)
+  const cursor = Invoice.find({
+    orgId: org, direction: 'outgoing', type: { $in: [...SALES_DOCUMENT_TYPES, ...TILL_TYPES] }, status: { $nin: NOT_A_DOCUMENT }, issueDate: rangeOf(period.from, period.to, 1),
+  }).select('type issueDate exchangeRate lines.productId lines.quantity lines.unitPrice lines.discount').lean<InvoiceRow[]>().cursor()
+  for await (const d of cursor) {
+    const day = sofiaDay(d.issueDate)
+    if (!inPeriod(day)) continue
+    const rate = Number(d.exchangeRate) || 1
+    each({
+      kind: TILL_TYPES.includes(d.type) ? 'till' : 'invoices',
+      day,
+      lines: (d.lines ?? []).map(l => {
+        const productId = products.productOf(l.productId)
+        // Unit prices are net; `lineTotal` is not to be summed for money (it is gross on a cash sale).
+        const value = lineAmounts({ quantity: l.quantity, unitPrice: l.unitPrice, discount: l.discount }, true).taxable * rate
+        return { ...(productId ? { productId } : {}), ...(productId && products.isService(productId) ? { service: true } : {}), value }
+      }),
+    })
+  }
+}
+
+/** Learn the map of `orgId` from the period's books and documents; write it with `execute`. */
+export async function learnProductGroups(orgId: string, opts: LearnOptions = {}): Promise<LearnReport> {
+  const l = await loadLearning(orgId, opts)
+  const plan = l.learned.plan
+  const written = opts.execute ? await writePlan(l.org, plan) : undefined
 
   // What the map covers: every line of the period's documents and till sales that is not on a service.
   const coverage = newCoverage()
   const posts = postsBy(plan.after)
-  const coverageCursor = Invoice.find({
-    orgId: org, direction: 'outgoing', type: { $in: [...SALES_DOCUMENT_TYPES, ...TILL_TYPES] }, status: { $nin: NOT_A_DOCUMENT }, issueDate: rangeOf(from, to, 1),
-  }).select('type issueDate exchangeRate lines.productId lines.quantity lines.unitPrice lines.discount').lean<InvoiceRow[]>().cursor()
-  for await (const d of coverageCursor) {
-    const day = sofiaDay(d.issueDate)
-    if (!inPeriod(day)) continue
-    const rate = Number(d.exchangeRate) || 1
-    addCoverage(coverage, {
-      kind: TILL_TYPES.includes(d.type) ? 'till' : 'invoices',
-      day,
-      lines: (d.lines ?? []).map(l => {
-        const productId = productOf(l.productId)
-        // Unit prices are net; `lineTotal` is not to be summed for money (it is gross on a cash sale).
-        const value = lineAmounts({ quantity: l.quantity, unitPrice: l.unitPrice, discount: l.discount }, true).taxable * rate
-        return { ...(productId ? { productId } : {}), ...(productId && services.has(productId) ? { service: true } : {}), value }
-      }),
-    }, posts)
-  }
+  await eachSalesDocument(l.org, l.period, l.products, doc => addCoverage(coverage, doc, posts))
 
   const months = (kind: CoverageKind) => [...coverage[kind].entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, cell]) => ({ month, cell }))
   return {
-    ...(from ? { from: isoDay(from) } : {}),
-    to: isoDay(to),
-    places, pairing, outcomes, oneGroupQuantityDiffers, lines,
-    partition: learned.counts,
+    ...(l.period.from ? { from: isoDay(l.period.from) } : {}),
+    to: isoDay(l.period.to),
+    places: l.places, pairing: l.pairing, outcomes: l.outcomes, oneGroupQuantityDiffers: l.oneGroupQuantityDiffers, lines: l.lines,
+    partition: l.learned.counts,
     products: plan.products,
     rows: rowsBySource(plan.after),
     planned: { create: plan.create.length, update: plan.update.length, remove: plan.remove.length, unchanged: plan.unchanged },

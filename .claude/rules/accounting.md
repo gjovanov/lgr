@@ -184,3 +184,24 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
   `scripts/post-shadow-sales.ts --org <slug> --from <day> --to <day> [--execute]`. Both are dry runs by default
   and print counts only; the dry run's self-check against the accountant's entries is what to read before any
   `--execute`.
+
+## The review queue of a product's group (2026-11-20, FR-25 R3, slice 2)
+
+- ⚠ **No write of the review queue reads its cache.** The evidence a pod keeps only lists; each write reads the row
+  from the database and is conditioned on the row the page showed (`expected`, its `updatedAt` or null), so a stale
+  listing is refused (409 `row_changed`), never written from.
+
+- ⚠ **The queue's cache key is everything a learning run reads** (`readStamps`: the books' sales entries, the sales
+  documents and the till's, the document files, the products, the goods groups, the accountant's rows, the books link,
+  the day). A new input to `loadLearning` joins the stamps, or the queue shows a reading that no longer holds for up to
+  30 minutes.
+
+- ⚠ **An evidence document's `day` is its UTC midnight: `formatDate(day)`, with no `timeZone`.** The formatter reads a
+  UTC midnight as that day wherever the browser is; a zone made it a moment, and east of UTC the page showed the day
+  before.
+
+- ⚠ **The org a sign-in returns has no `settings`; `/auth/me` brings them.** Until then `isBooksOrg` is false, so the
+  page waits for them (`settingsKnown`) before it says the org keeps no books or asks for the queue.
+
+- Confirm only an `exact` or a `learned` row: slice 3 posts by `POSTABLE_SOURCES`, so a reviewed `rule` or `ai` row
+  would be the accountant's and post nothing. The accountant sets those.

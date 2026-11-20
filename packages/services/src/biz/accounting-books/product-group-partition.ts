@@ -542,6 +542,13 @@ export interface PartitionLearning {
   evidence: Evidence
   /** Per product, the documents that contradict its automatic anchor. */
   contradicted: Map<string, number>
+  /**
+   * Per document, the votes partition added to slice 1's: what `evidence` holds beyond them. Empty when the passes ran
+   * out, as partition then taught nothing (slice 2's review queue shows a conflict's documents from these).
+   */
+  taughtBy: Map<string, GroupVote[]>
+  /** Per document that contradicts an automatic anchor, the products it blames: what `contradicted` counts. */
+  contradictedBy: Map<string, string[]>
   counts: PartitionCounts
 }
 
@@ -771,5 +778,7 @@ export function learnWithPartition(input: {
     contradicted: contradicted.size,
     distrusted: distrusted.size,
   }
-  return { plan, evidence: settled ? evidence : slice1Evidence, contradicted, counts }
+  const taughtBy = new Map<string, GroupVote[]>(settled ? [...taught].flatMap(([id, votes]): [string, GroupVote[]][] => (votes.size ? [[id, [...votes.values()]]] : [])) : [])
+  const contradictedBy = new Map<string, string[]>(settled ? [...excluded].map(([id, blamed]): [string, string[]] => [id, [...blamed]]) : [])
+  return { plan, evidence: settled ? evidence : slice1Evidence, contradicted, taughtBy, contradictedBy, counts }
 }
