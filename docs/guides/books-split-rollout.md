@@ -361,4 +361,27 @@ is `<home>` (FR-25 §9, "P1 into the home"). In order, each write on the owner's
    gate). People, contracts, months and elements equal `<books>`'s.
 4. **Who reads it:** every member of `<home>` whose role holds `payroll-people`, an Administrator included.
 5. **The drop of `<books>`**, with a fresh verified bundle in hand and after a check that the split holds everything
-   `<books>` holds: its ledger and VAT files per month, and its payroll.
+   `<books>` holds: its ledger and VAT files per month, and its payroll. On the build host, with `UPLOAD_DIR` pointed
+   at the folder that keeps the earlier bundle:
+
+   ```bash
+   bun scripts/drop-org.ts bundle --org <books> --id <its id> --subdir pre-retire --suffix pre-drop   # path + sha256
+   bun scripts/drop-org.ts drop   --org <books> --id <its id> --bundle <path> --sha256 <hex>          # dry: the rows per collection
+   bun scripts/drop-org.ts drop   --org <books> --id <its id> --bundle <path> --sha256 <hex> --execute
+   ```
+
+   The drop refuses unless:
+   - the slug and the id name the same org, and its home is here;
+   - every membership is switched off (with a `deactivatedAt`) and no invite is open;
+   - nothing outside it points at it: no other org, no person, no other org's membership and no global registry;
+   - none of its rows are node state;
+   - the bundle is a full one of this org, verifies against the sha256 it was written with, and holds every live row
+     with the same content.
+
+   A person's `passwordSetByOrgId` may keep naming it: that field records which org's admin set a password, and nothing
+   reads it.
+
+   Before any delete, the drop writes the org's own document, which no bundle carries, beside the bundle (`…-org.json`,
+   mode 600). The file also holds the org's operational records and leaves out its cloud-storage tokens. The drop
+   deletes only the rows it proved, by id. It deletes the org last, once nothing is left under the id. A run that stopped
+   part way can be run again with the same bundle. The people stay: they are global, and the bundle holds a copy of them.
