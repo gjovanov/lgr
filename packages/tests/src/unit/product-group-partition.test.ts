@@ -229,7 +229,7 @@ const run = (docs: readonly PairedDocument[], over: Partial<Parameters<typeof le
     exact: new Map(), exactAmbiguous: 0, activeGroups: GROUPS, existing: [], ...over,
   })
 const rowsOf = (r: PartitionLearning) => [...r.plan.after.values()].map(({ productId, analyticId, source, evidenceCount, conflictCount }) => ({ productId, analyticId, source, evidenceCount, conflictCount })).sort((a, b) => (a.productId < b.productId ? -1 : 1))
-const learned = (productId: string, analyticId: string, evidenceCount = 1) => ({ productId, analyticId, source: 'learned', evidenceCount, conflictCount: 0 })
+const learned = (productId: string, analyticId: string, evidenceCount = 1) => ({ productId, analyticId, source: 'learned' as const, evidenceCount, conflictCount: 0 })
 
 // What one pass learns anchors the next: d1 (one group) puts p1 in A, so d2 can only be 5 | 3 + 2, so p2 is B's,
 // and then d3's 3 and 3 can only be p2 in B and p4 in C.

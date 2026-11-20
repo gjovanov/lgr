@@ -138,3 +138,15 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 
 - `rule` and `ai` rows are suggestions: coverage and posting go by `exact`, `learned` and `accountant`
   (`POSTABLE_SOURCES` in `product-groups.ts`).
+
+- ⚠ **A document that fits only against an automatic anchor never teaches a new row.** It is counted as
+  `anchor_contradicts` and goes to the conflict path: a learned product becomes a conflict and its row is taken away,
+  an exact row keeps its group with the document in its `conflictCount`. A document that fits only without the
+  accountant's rows teaches nothing, and the rows stay as they are (`accountant_contradicts`).
+
+- ⚠ **Partition's anchors are the run's own**: the accountant's rows, the exact names and what this run learns. Never
+  feed it the learned rows an earlier run stored: a run would depend on the one before it, and a second run would no
+  longer plan nothing.
+
+- ⚠ **Never leave a goods line out to make the sums meet.** A goods line the books carry as a service is exactly the
+  line that must not be taught: when LGR's goods total is not the books', the document teaches nothing.

@@ -46,7 +46,7 @@ export interface PartitionLimits {
   lines: number
   /** Goods groups of one books entry. */
   groups: number
-  /** Steps of one search: a state it expands or decides. */
+  /** Search steps for one books entry, its searches together: each a state decided, and decided once. */
   steps: number
   /** Passes over the documents in one run, every restart's included. */
   passes: number
