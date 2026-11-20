@@ -13,7 +13,7 @@ import { assertBooksOrg, postingRulesOf } from './posting-rule.service.js'
 import { NOT_ISSUED, POSTABLE_SOURCES, SALES_DOCUMENT_TYPES, pairDocuments, placeOf, type BooksSalesEntry, type LgrSalesDocument } from './product-groups.js'
 import { ProductGroupsError, seriesOf } from './product-groups.service.js'
 import { DOC_TYPES, SHADOW_ENTRY_NUMBER_PREFIX } from './registry.js'
-import { DIFFERENCES, costOf, differencesOf, spreadOf, type ComparedLine, type CostSpread, type Difference } from './shadow-compare.js'
+import { DIFFERENCES, costOf, differencesOf, spreadOf, type ComparedLine, type CostDifference, type CostSpread, type Difference } from './shadow-compare.js'
 import {
   SHADOW_REFUSALS, parseShadowKey, planShadowAction, postShadowSale, shadowPostingKey,
   type ExistingShadowEntry, type PartnerFacts, type ProductFacts, type ShadowAction, type ShadowDocument, type ShadowOutcome, type ShadowRefusal,
@@ -61,6 +61,9 @@ export interface SelfCheck {
   differs: number
   /** Of those that differ, by where: a document can differ in several places. */
   by: Record<Difference, number>
+  /** Of those whose cost differs: the quantities per group differ (the map), or only the amounts (the average). */
+  cost: Record<CostDifference, number>
+  /** Of those whose cost differs, how far the document's cost is from the books'. */
   costSpread: CostSpread
   /** Postable documents no books entry of the org's own series pairs with. */
   booksMissing: number
@@ -143,27 +146,28 @@ export async function postShadowSales(orgId: string, opts: ShadowRunOptions): Pr
   const rules: readonly PostingRuleData[] = stored.length ? stored : SALES_POSTING_RULES
   const partnerRoots = [...new Set(rules.map(r => r.partnerRoot).filter((r): r is string => !!r))]
 
-  // The chart, the products and their groups, all of the posting org.
-  const accounts = new Map((await Account.find({ orgId: org }).select('code').lean<{ _id: unknown; code: string }[]>()).map(a => [a.code, String(a._id)]))
-  const groupRows = await AccountingAnalytic.find({ orgId: org, kind: 'goods_group' }).select('isActive unit').lean<{ _id: unknown; isActive?: boolean; unit?: string }[]>()
-  const groups = new Map(groupRows.map(g => [String(g._id), { id: String(g._id), active: g.isActive !== false, ...(g.unit ? { unit: g.unit } : {}) }]))
-  const maps = new Map((await ProductGroupMap.find({ orgId: org }).select('productId analyticId source').lean<{ productId: unknown; analyticId: unknown; source: string }[]>())
-    .map(m => [String(m.productId), m]))
-  const products = new Map<string, ProductFacts>()
-  for (const p of await Product.find({ orgId: org }).select('type').lean<{ _id: unknown; type?: string }[]>()) {
-    const id = String(p._id)
-    if (p.type === 'service') { products.set(id, { service: true }); continue }
-    const m = maps.get(id)
-    const group = m ? groups.get(String(m.analyticId)) : undefined
-    products.set(id, !m ? { service: false } : POSTABLE_SOURCES.has(m.source as never) ? { service: false, ...(group ? { group } : {}) } : { service: false, suggestionOnly: true })
-  }
-
   // The documents: issued (a voided one too), of a business day in the period.
   const docRows: any[] = await Invoice.find({
     orgId: org, direction: 'outgoing', type: { $in: SALES_DOCUMENT_TYPES }, status: { $nin: NOT_ISSUED },
     issueDate: { $gte: new Date(from.getTime() - DAY_MS), $lt: new Date(to.getTime() + 2 * DAY_MS) },
   }).select('invoiceNumber type direction status statusHistory tags issueDate currency subtotal discountTotal taxTotal total contactId cashSaleRef.cashSaleId lines.productId lines.quantity lines.unitPrice lines.discount lines.taxRate payments.date payments.amount payments.method payments.origin').lean()
   const docs = docRows.filter(d => { const day = sofiaDay(d.issueDate); return day >= from && day <= to })
+
+  // The chart, and the products the documents sell with their groups, all of the posting org.
+  const accounts = new Map((await Account.find({ orgId: org }).select('code').lean<{ _id: unknown; code: string }[]>()).map(a => [a.code, String(a._id)]))
+  const groupRows = await AccountingAnalytic.find({ orgId: org, kind: 'goods_group' }).select('isActive unit').lean<{ _id: unknown; isActive?: boolean; unit?: string }[]>()
+  const groups = new Map(groupRows.map(g => [String(g._id), { id: String(g._id), active: g.isActive !== false, ...(g.unit ? { unit: g.unit } : {}) }]))
+  const productIds = [...new Set(docs.flatMap(d => (d.lines ?? []).map((l: any) => l.productId).filter(Boolean).map(String)))].map(oid)
+  const maps = new Map((await ProductGroupMap.find({ orgId: org, productId: { $in: productIds } }).select('productId analyticId source').lean<{ productId: unknown; analyticId: unknown; source: string }[]>())
+    .map(m => [String(m.productId), m]))
+  const products = new Map<string, ProductFacts>()
+  for (const p of await Product.find({ orgId: org, _id: { $in: productIds } }).select('type').lean<{ _id: unknown; type?: string }[]>()) {
+    const id = String(p._id)
+    if (p.type === 'service') { products.set(id, { service: true }); continue }
+    const m = maps.get(id)
+    const group = m ? groups.get(String(m.analyticId)) : undefined
+    products.set(id, !m ? { service: false } : POSTABLE_SOURCES.has(m.source as never) ? { service: false, ...(group ? { group } : {}) } : { service: false, suggestionOnly: true })
+  }
   const contactIds = [...new Set(docs.map(d => d.contactId).filter(Boolean).map(String))]
   const contacts = new Map((await Contact.find({ orgId: org, _id: { $in: contactIds.map(oid) } }).select('taxId vatNumber companyName firstName lastName').lean<any[]>()).map(c => [String(c._id), c]))
   const partnerRows = await AccountingAnalytic.find({ orgId: org, root: { $in: partnerRoots }, contactId: { $in: contactIds.map(oid) } }).select('root contactId').lean<{ _id: unknown; root: string; contactId: unknown }[]>()
@@ -199,6 +203,8 @@ export async function postShadowSales(orgId: string, opts: ShadowRunOptions): Pr
 
   interface Work { doc: any; input: ShadowDocument; outcome: ShadowOutcome; action: ShadowAction; vat: VatPlan; days: Date[] }
   const work: Work[] = []
+  // Every document, written or not: the self-check reads a closed month too, which is what it is run on.
+  const checked: CheckedDocument[] = []
   const missingDays = new Set<string>()
   for (const d of docs) {
     const c = d.contactId ? contacts.get(String(d.contactId)) : undefined
@@ -221,6 +227,7 @@ export async function postShadowSales(orgId: string, opts: ShadowRunOptions): Pr
     if (voidDay) report.voided++
     if ('posting' in outcome) report.posts++
     else report.refused[outcome.refused]++
+    checked.push({ id: input.id, type: input.type, number: input.number, day: sofiaDay(input.issueDate), voided: !!voidDay, outcome, doc: d })
     const action = planShadowAction(outcome, existing.get(input.id) ?? [], voidDay)
     const entryDay = 'posting' in outcome ? outcome.posting.entry.date : undefined
     const days = action.action === 'post' ? [entryDay!]
@@ -240,7 +247,7 @@ export async function postShadowSales(orgId: string, opts: ShadowRunOptions): Pr
   }
   report.periodsToCreate = missingDays.size
 
-  if (!opts.execute) report.check = await selfCheck(orgId, series, from, to, work.map(w => ({ id: w.input.id, type: w.input.type, number: w.input.number, day: sofiaDay(w.input.issueDate), voided: w.input.status === 'voided', outcome: w.outcome, doc: w.doc })))
+  if (!opts.execute) report.check = await selfCheck(orgId, series, from, to, checked)
   else report.written = await write(orgId, homeOrg, opts.by!, work)
   return report
 }
@@ -357,11 +364,15 @@ async function write(orgId: string, homeOrg: string, by: string, work: { doc: an
 
 // ── the self-check ─────────────────────────────────────────────────────────────────────────────────────────────────
 
+/** A stored line's side: as written, or, on a line from before sides were stored, the one that carries the amount. */
+const sideOf = (l: { side?: string; debit?: number; credit?: number }): 'debit' | 'credit' =>
+  l.side === 'debit' || l.side === 'credit' ? l.side : Number(l.credit) && !Number(l.debit) ? 'credit' : 'debit'
+
 interface CheckedDocument { id: string; type: string; number: string; day: Date; voided: boolean; outcome: ShadowOutcome; doc: any }
 
 async function selfCheck(orgId: string, series: Awaited<ReturnType<typeof seriesOf>>, from: Date, to: Date, documents: CheckedDocument[]): Promise<SelfCheck> {
   const org = oid(orgId)
-  const check: SelfCheck = { compared: 0, equal: 0, differs: 0, by: zeroes(DIFFERENCES), costSpread: { within05: 0, within5: 0, more: 0 }, booksMissing: 0, voided: 0 }
+  const check: SelfCheck = { compared: 0, equal: 0, differs: 0, by: zeroes(DIFFERENCES), cost: { groups: 0, average: 0 }, costSpread: { within05: 0, within5: 0, more: 0 }, booksMissing: 0, voided: 0 }
   const accounts = new Map((await Account.find({ orgId: org }).select('code').lean<{ _id: unknown; code: string }[]>()).map(a => [String(a._id), a.code]))
   const salesTypes = DOC_TYPES.filter(d => d.family === 'sales').map(d => d.code)
   type Entry = BooksSalesEntry & { lines: ComparedLine[] }
@@ -374,8 +385,8 @@ async function selfCheck(orgId: string, series: Awaited<ReturnType<typeof series
     entries.push({
       docType: String(e.docType), docNumber: String(e.docNumber ?? ''), registerDocType: e.registerDocType, goods: [],
       lines: (e.lines ?? []).map((l: any) => ({
-        account: accounts.get(String(l.accountId)) ?? '', ...(l.analyticId ? { analyticId: String(l.analyticId) } : {}), side: l.side ?? (l.debit ? 'debit' : 'credit'),
-        amount: l.side === 'credit' ? Number(l.credit) || 0 : Number(l.debit) || 0, ...(typeof l.quantity === 'number' ? { quantity: l.quantity } : {}),
+        account: accounts.get(String(l.accountId)) ?? '', ...(l.analyticId ? { analyticId: String(l.analyticId) } : {}), side: sideOf(l),
+        amount: sideOf(l) === 'credit' ? Number(l.credit) || 0 : Number(l.debit) || 0, ...(typeof l.quantity === 'number' ? { quantity: l.quantity } : {}),
       })),
     })
   }
@@ -396,10 +407,13 @@ async function selfCheck(orgId: string, series: Awaited<ReturnType<typeof series
     }))
     const bookedLines = books.flatMap(e => e.lines)
     const diff = differencesOf(shadow, bookedLines)
-    if (!diff.size) { check.equal++; continue }
+    if (!diff.places.size) { check.equal++; continue }
     check.differs++
-    for (const k of diff) check.by[k]++
-    if (diff.has('cost')) check.costSpread[spreadOf(costOf(shadow), costOf(bookedLines))]++
+    for (const k of diff.places) check.by[k]++
+    if (diff.cost) {
+      check.cost[diff.cost]++
+      check.costSpread[spreadOf(costOf(shadow), costOf(bookedLines))]++
+    }
   }
   return check
 }
