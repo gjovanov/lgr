@@ -37,7 +37,7 @@ export const NEVER_CLONED: Readonly<Record<string, string>> = {
   Code: 'a one-time activation credential',
   EmailLog: 'a log of mail sent to real people',
   Notification: "a person's inbox",
-  PersonalDataKey: 'sealed personal data (FR-25): its key row is never copied, and a source that holds one is refused',
+  PersonalDataKey: 'sealed personal data (FR-25): its key row is never copied, and a source that holds one is refused unless it keeps books, whose payroll stays out of the copy',
   PostingJob: 'an owed journal entry (FR-29.15): the copy carries its documents and their entries as they stand, and owes nothing it did not do',
 }
 
@@ -54,18 +54,32 @@ export const NEVER_CLONED: Readonly<Record<string, string>> = {
  * Contacts stay carried: a store's customers and suppliers are the shop's, whoever made the card. So
  * do fiscal years and periods: they are the calendar, not the ledger, and a store's own years, typed
  * in before it kept books, were copied long ago. Counted as books, they would read as a leak.
+ *
+ * The company's payroll is part of it (owner, 2026-11-20: payroll lives in the split's home). Its
+ * people are sealed under the org's `PersonalDataKey`, which no copy ever gets, and a person is never
+ * test data: so every model the payroll keeps stays out, the sealed ones (`SEALED_PATHS` in
+ * `personal-data/restore.ts`) and those that only name a person (a leave balance, a timesheet). That
+ * is what lets a books org that holds a key be copied at all (`refusedSourceModels`).
  */
 export const BOOKS_NEVER_CLONED: Readonly<Record<string, string>> = {
+  AbsenceEntry: "the company's payroll: a person's absences, sick leave sealed",
   Account: "the company's books: the chart",
   AccountingAnalytic: "the company's books: the analytic tree names every customer and supplier",
   BankAccount: "the company's books: its bank accounts and their balances",
   BankReconciliation: "the company's books: reconciliations of its bank accounts",
+  Employee: "the company's payroll: its people, sealed under a key the copy never gets",
+  EmploymentContract: "the company's payroll: a person's employment and pay, sealed",
   FixedAsset: "the company's books: its fixed assets",
   Journal: "the company's books: its journals",
   JournalEntry: "the company's books: the ledger",
+  LeaveBalance: "the company's payroll: a person's leave",
+  PayrollElement: "the company's payroll: what a line of its payslips is, the accountant's set-up",
+  PayrollRun: "the company's payroll: each person's month, sealed",
+  Payslip: "the company's payroll: what one person received, sealed",
   PostingRule: "the company's books: how its documents are booked, the accountant's rules",
   ProductGroupMap: "the company's books: the accounting group each product books to",
-  TaxReturn: "the company's books: its VAT returns",
+  TaxReturn: "the company's books: its VAT returns and payroll declarations",
+  Timesheet: "the company's payroll: a person's hours",
   VatRegisterEntry: "the company's books: its VAT registers",
 }
 
@@ -97,8 +111,20 @@ export const KEPT_ON_RESET: readonly string[] = [
   'FiscalDevice', 'Workstation',
 ]
 
-/** A source org that holds any of these is refused: the engine does not know how to copy them safely. */
+/**
+ * A source org that holds any of these is refused: the engine does not know how to copy them safely.
+ * A wipe (`resetOrgData`) refuses a test org that holds one, too.
+ */
 export const REFUSED_SOURCE_MODELS: readonly string[] = ['PersonalDataKey']
+
+/**
+ * What refuses this source. Nothing, for an org that keeps books: its copy leaves out every model the
+ * payroll keeps (`BOOKS_NEVER_CLONED`), so the key it holds seals nothing a copy would carry. Read
+ * from the source's mode on every run: an org that stops keeping books is refused again.
+ */
+export function refusedSourceModels(source: { settings?: any } | null | undefined): readonly string[] {
+  return keepsBooks(source) ? [] : REFUSED_SOURCE_MODELS
+}
 
 /**
  * A deep copy of the plain objects and arrays of a document, with every other value (an ObjectId, a

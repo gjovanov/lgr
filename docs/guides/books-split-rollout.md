@@ -33,7 +33,7 @@ ids itself.
 | Contacts | linked to what each org already has, by number and of any type; made only for partners the org's own entries or opening name (step 6, "Contacts") |
 | VAT returns and registers | `<home>` |
 | The fixed-asset register: a `FixedAsset` per `ДА` analytic (FR-25a §4.2) | `<home>`. `<store>` keeps the `ДА` analytics and makes no asset |
-| Payroll (personal data) | stays in `<books>` |
+| Payroll (personal data) | stayed in `<books>`; since 2026-11-20 `<home>` (§7) |
 
 Each org is sent **the same files** and keeps its share. Each entry balances on its own, so each
 org's ledger is a share, and the company's books are **the sum of the two**. A store reads its
@@ -97,7 +97,8 @@ copied", with the counts. Before step 4 the store orgs keep no books, and nothin
   refuses an org that keeps books (FR-25 §3.11). Check nothing planned needs that.
 - **No books in the store orgs yet.** Count, per store org, its rows of the models a books-holding
   org never copies (`policy.ts#BOOKS_NEVER_CLONED`: accounts, analytics, journal entries, journals,
-  bank accounts, reconciliations, fixed assets, VAT returns and registers). Expect none. A row of its
+  bank accounts, reconciliations, fixed assets, VAT returns and registers, and since 2026-11-20 the
+  payroll: people, contracts, absences, leave, runs, payslips, timesheets, elements). Expect none. A row of its
   own from before is not the books, but its copy, made by an earlier sync, would be counted by the
   books scan in step 7: remove that copy from the test org first, or reset the test org.
 
@@ -326,8 +327,8 @@ stores, so it reads both stores' documents.
   (`split_member`), because it would turn the group's home into a books org of its own.
 - Never turn on LGR's own postings (`autoPost…`) in a store org that keeps books.
 - Never move the nightly's pin before the deploy: a client ahead of its server fails.
-- Never delete `<books>`: it holds payroll's personal data, and it is the way back. That is the
-  owner's to decide.
+- Never delete `<books>` before §7 has moved its payroll and proved the split holds the rest. The drop is the
+  owner's word, given with the bundle in hand.
 
 ---
 
@@ -342,6 +343,22 @@ first. Nothing in `<books>` was deleted: the frozen copy of the ledger and the p
 - **To open it again:** set each membership's `isActive` back to true and unset `deactivatedAt` (a script on the build
   host, or `scripts/seed-user.ts` linking the person again). The group proofs (`compare` over the org list) also need a
   temporary membership in it.
-- **Payroll** (FR-25 §3.11) has no live home while `<books>` is retired. Whoever brings it back chooses between reactivating
-  `<books>`, rebuilding it in another org (the clone policy must then keep it out of the test copies), and deleting it,
-  which is the owner's word and is done with the bundle in hand.
+- **Payroll** (FR-25 §3.11) had no live home while `<books>` was retired. The owner chose (2026-11-20): it lives in
+  `<home>`, and `<books>` is dropped once everything is moved (§7).
+
+---
+
+## 7. Payroll into the home, then the original books org dropped (2026-11-20)
+
+The owner's word: payroll lives in the split's orgs too, and `<books>` goes once everything is moved. In the split that
+is `<home>` (FR-25 §9, "P1 into the home"). In order, each write on the owner's word:
+
+1. **Deploy first** the release whose test copies leave a books org's payroll out (`BOOKS_NEVER_CLONED`) and whose import
+   refuses a store (`payroll_in_home`): a sync never deletes what a copy already holds.
+2. **`settings.payroll.engine: 'bg'` on `<home>`**, as a `$set` of that one key, never the settings block whole.
+3. **The import into `<home>`** from the same sealed files and pins as P1 (`scripts/import-payroll.ts`, with a session
+   holding `payroll.import` and `payroll.personal`): a dry run and its counts, then `--execute`, then `--verify` (§5.1's
+   gate). People, contracts, months and elements equal `<books>`'s.
+4. **Who reads it:** every member of `<home>` whose role holds `payroll-people`, an Administrator included.
+5. **The drop of `<books>`**, with a fresh verified bundle in hand and after a check that the split holds everything
+   `<books>` holds: its ledger and VAT files per month, and its payroll.

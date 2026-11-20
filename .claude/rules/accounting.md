@@ -224,3 +224,17 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 
 - **The command.** `scripts/compare-books-shadow.ts --org <store slug> --from YYYYMM [--to YYYYMM]`: read-only, counts
   only. Before `post-shadow-sales.ts --execute` has written a month, every books document of it is the books' alone.
+
+## Payroll into the split's home (2026-11-20, FR-25 P1)
+
+- ⚠ **A books org's test copy leaves its payroll out, and only then may it hold a key.** Every model the payroll keeps
+  is in `BOOKS_NEVER_CLONED` (people, contracts, absences, leave, runs, payslips, timesheets, elements), and
+  `refusedSourceModels` stops refusing a books org that holds a `PersonalDataKey`. Any other org holding one is still
+  refused, and so is a books org the day it stops keeping books. A new sealed model (`SEALED_PATHS`) joins that list,
+  or `org-clone.flow.test.ts` fails.
+
+- ⚠ **A store of a split never takes payroll:** the import answers 409 `payroll_in_home`, on top of
+  `payroll_engine_not_set`. A store's share would declare part of the company.
+
+- **Who reads it is roles:** in the home, every member whose role holds `payroll-people` does, an Administrator
+  included. A person who should not gets a role without it.

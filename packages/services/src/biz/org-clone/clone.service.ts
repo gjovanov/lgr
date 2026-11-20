@@ -18,7 +18,7 @@
  *    a company's books.
  * 2. **Nothing reaches outward.** Hardware, devices, credentials, invites, mail logs and inboxes
  *    are never copied (`policy.ts#NEVER_CLONED`); the daily digest and the nightly backup are
- *    switched off on the copy. A source that keeps a company's books keeps them too
+ *    switched off on the copy. A source that keeps a company's books keeps them too, and its payroll
  *    (`policy.ts#BOOKS_NEVER_CLONED`, FR-25 R7), and `scanCopyForBooks` proves the copy holds none.
  * 3. **No file store.** Files, documents, archives and backups are not copied, so a delete in the
  *    test org cannot reach a file of the real one.
@@ -52,6 +52,7 @@ import {
   copyOrder,
   keepsBooks,
   neverClonedFor,
+  refusedSourceModels,
   testOrgSettings,
 } from './policy.js'
 import { remapDoc, remapValue, type RemapEnv } from './remap.js'
@@ -161,7 +162,8 @@ export async function assertCloneAllowed(sourceOrgId: string, targetOrgId: strin
   }
   await assertHomeIsHere(String(srcOid), { fresh: true })
   await assertHomeIsHere(String(tgtOid), { fresh: true })
-  for (const name of REFUSED_SOURCE_MODELS) {
+  // A books org's payroll stays out of its copy (`BOOKS_NEVER_CLONED`), so its key refuses nothing.
+  for (const name of refusedSourceModels(source)) {
     const m = mongoose.models[name]
     if (m && (await m.collection.countDocuments({ orgId: srcOid }, { limit: 1 }))) {
       throw new OrgCloneError('source_holds_sealed_data', `${source.slug} holds ${name} rows (sealed personal data): the engine does not copy those`)

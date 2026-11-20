@@ -216,14 +216,14 @@ Four models (`Employee`, `PayrollRun`, `Payslip`, `Timesheet`), a UI and tests, 
 
 Recommendations, except where marked as the owner's. §12 lists what is decided and what is still open.
 
-- **D1. Books live per legal entity, in a dedicated books org while Accounting and Payroll stabilise, and then move into `regal-pz` and `regal-sf`** (owner, 2026-11-03). A new org (`regal-acc`) holds chart, analytics, entries, partners, VAT and payroll, and the two stores are its branches. Merging the two store orgs is rejected: a large migration of two diverging catalogs for no gain to this FR. ⚠ One EIK has one ledger, one VAT return and one обр. 6, so the move (R7) has a question of its own: what lands in each store org and what stays single. To keep that open, every row carries its branch from the first day (`branchOrgId`), and ids are never reissued. **Decided 2026-11-13 (§12, question 15): split by branch.** Each store org keeps the sales documents of its own series; one of them, the home (`regal-pz`), keeps everything else, the opening and the VAT files included. Payroll's personal data stays in the books org. The stores' ledgers are shares, and the legal entity's books are their sum (§3.1, R7).
+- **D1. Books live per legal entity, in a dedicated books org while Accounting and Payroll stabilise, and then move into `regal-pz` and `regal-sf`** (owner, 2026-11-03). A new org (`regal-acc`) holds chart, analytics, entries, partners, VAT and payroll, and the two stores are its branches. Merging the two store orgs is rejected: a large migration of two diverging catalogs for no gain to this FR. ⚠ One EIK has one ledger, one VAT return and one обр. 6, so the move (R7) has a question of its own: what lands in each store org and what stays single. To keep that open, every row carries its branch from the first day (`branchOrgId`), and ids are never reissued. **Decided 2026-11-13 (§12, question 15): split by branch.** Each store org keeps the sales documents of its own series; one of them, the home (`regal-pz`), keeps everything else, the opening and the VAT files included. Payroll first stayed in the books org; since 2026-11-20 it lives in the home too (owner). The stores' ledgers are shares, and the legal entity's books are their sum (§3.1, R7).
 - **D2. A single-org tenant is unchanged.** Unset means it keeps its own books, as today.
 - **D3. Group costing stays.** Book value of stock is per accounting group at the group's moving average, and inventory keeps its per-product cost. These are two different numbers on purpose, with a report showing the gap. СС 2 allows it where a group's items really are similar (§7.9). SAF-T will want quantities per article from 2029, which LGR has and the current books do not (§7.7). Whether to move to per-product cost later is the accountant's call with the evidence in hand, not a side effect of this work.
 - **D4. Import as booked, never recompute history.**
 - **D5. The product → group mapping is data, owned by the accountant.** LGR proposes, the accountant confirms. An unmapped product stops only that document's posting, never the sale.
 - **D6. Shadow first.** Posted entries go to a separate ledger until two consecutive filed months compare clean. PlusMinus stays the book of record until then.
 - **D7. LGR does not file.** It produces byte-exact files and records who filed them, when, and the acknowledgement. No credential for the NRA portal is stored.
-- **D8. Payroll moves to LGR, into the books org, by the same path as the books.** Import as filed (P1), calculate beside PlusMinus and compare (P2), produce the files and papers (P3), switch with R6. The ledger needs its result every month, so the books cannot leave PlusMinus while payroll stays.
+- **D8. Payroll moves to LGR, into the books org, by the same path as the books.** In a split, into its home (owner, 2026-11-20). Import as filed (P1), calculate beside PlusMinus and compare (P2), produce the files and papers (P3), switch with R6. The ledger needs its result every month, so the books cannot leave PlusMinus while payroll stays.
 - **D9. The start of the live ledger is a fiscal-year boundary, 2027-01-01,** unless the accountant wants an earlier month. Payroll starts with the January run: the annual tax recalculation and the annual справка are cleanest that way. If P2's gate is not met by then, payroll can start in any later month, because the year's runs are already imported.
 - **D10. Employees' personal data is its own class** (§3.11). One person's ЕГН, pay and sick days need a dedicated permission, are masked by default, and never reach a log, an audit payload, an email, a fixture or a store's server.
 - **D11. Scope is what the accountant opens** (§1.8): 29 screens out of 230, and one insured-person type, `01`. The budget-sector, piece-rate, brigade, civil-contract and HR modules stay out until someone asks. A type the engine does not know is refused, never calculated as `01`.
@@ -342,7 +342,7 @@ VatRegisterEntry { orgId, period /* 'YYYYMM' */, side: 'sales' | 'purchase', row
 
 ### 3.10 Payroll
 
-In the books org. The fields follow what the install keeps per person (the templates of its personnel report use 46).
+In the books org; in a split, in its home (owner, 2026-11-20). The fields follow what the install keeps per person (the templates of its personnel report use 46).
 
 ```ts
 Employee {            // existing, additive
@@ -404,7 +404,8 @@ Covers `Employee`, `EmploymentContract`, `AbsenceEntry`, `LeaveBalance`, `Payrol
 - **Masked by default.** Lists and gets answer the last digits of an ЕГН and an IBAN, and no ID card. Reading the whole value is a separate call, audit-logged with who and why. An ЕГН is never a login, a URL key or a display identifier (ЗЗЛД чл. 25ж).
 - **Encrypted at field level** (owner, 2026-11-03): §3.12.
 - **Never in:** logs, audit payloads (an employee number, not a name), `BackgroundTask` results, the digest, the Files app, emails other than a person's own payslip, a report export without `payroll.personal`, `docs/`, fixtures. A flow test posts a run and greps what was logged and audited for the fixture's ЕГН.
-- **Stays off the stores.** The books org is homed on global. A home move refuses `settings.accounting.books.mode: 'books'`, so a store's on-prem master (FR-20) never holds this data, and a store admin has no membership in it (D1).
+- **Stays off the stores' servers.** The org that holds it keeps books, and a home move refuses `settings.accounting.books.mode: 'books'`, so a store's on-prem master (FR-20) never holds this data. In a split that org is the home (owner, 2026-11-20), and every member there whose role holds `payroll-people` reads it, an Administrator included: a person who should not gets a role without it. A store of the split never holds payroll: the import refuses one (`payroll_in_home`).
+- **Never in a test copy.** A books org's copy leaves out every model the payroll keeps, and the key (`policy.ts#BOOKS_NEVER_CLONED`), so a books org holding a key is copied rather than refused (`refusedSourceModels`). Any other org holding a key is still refused.
 - **Backups and retention.** Org bundles already carry every `tenantPlugin` model, sealed off-site (FR-13). Retention is an allow-list of two collections (`TOUCHABLE`), so nothing here can be pruned by accident. A person's erasure request meets the statutory 50 years (ЗСч чл. 12); the UI says so. If the employer ceases with no successor, ведомости go to НОИ, so they must export in readable form.
 
 ### 3.12 Encrypting personal data
@@ -803,7 +804,7 @@ Each is deployable alone and each has a gate. No release turns anything on in a 
 | **R5** | Bank import with the accountant's rules (`bankImportRules`, 12 banks' formats), `settles`, cash book | Bank and cash ledgers equal for a month |
 | **P3** | обр. 1 and 6, ЕТЗ, чл. 73(6), служебни бележки, annual recalculation, Параграфи НАП, contract papers, leave | Each file equal to the last filed one, the annual ones on last year's data, and accepted by NRA's client (§7.4) |
 | **R6** | Amortization, month-end VAT entries, year-end close, period lock, the two conflicts of §7.9, switch over, payroll included | §6.3's bar, the head's written decision and updated policy (§7.9), then the accountant's say-so |
-| **R7** | The books move from `regal-acc` into `regal-pz` (the home) and `regal-sf`, split by branch (D1, §12 question 15): rebuilt by the importer from the archive into each org, not moved, so `regal-acc` stays as the rollback copy. Payroll's personal data stays in `regal-acc`. The test-org copies never carry a books-holding org's books. Runbook: `docs/guides/books-split-rollout.md` | Per org: the dry rerun unchanged, and the shares adding up to the file. The group: §5's gate over the summed books (`compare-accounting-books.ts --org <home> --org <store>`), the same verdict as `regal-acc`'s; no copy of the books in a test org; then the owner's say-so |
+| **R7** | The books move from `regal-acc` into `regal-pz` (the home) and `regal-sf`, split by branch (D1, §12 question 15): rebuilt by the importer from the archive into each org, not moved, so `regal-acc` stays as the rollback copy. Payroll's personal data stayed in `regal-acc`, and moves to the home on the owner's word of 2026-11-20 ("P1 into the home"). The test-org copies never carry a books-holding org's books. Runbook: `docs/guides/books-split-rollout.md` | Per org: the dry rerun unchanged, and the shares adding up to the file. The group: §5's gate over the summed books (`compare-accounting-books.ts --org <home> --org <store>`), the same verdict as `regal-acc`'s; no copy of the books in a test org; then the owner's say-so |
 | Later | ГДД and annual statements fully from LGR, SAF-T with `cnCode` and `nraCode` (due 2029, §7.7), e-invoicing (if it passes, 2028, §7.8), Intrastat, NSI statistics | |
 
 R1, then R2 and P1 in parallel, then R3. R4 and P2 can run side by side, then R5 and P3. Nothing in P1–P3 touches a store org.
@@ -848,6 +849,24 @@ What these taught, beyond §1.8 and §7.4:
 - 27 contracts were updated from the 11-05 personnel data: the same 27 that a re-import of the GUI exports updates. The archive also gives 12 of them a class percentage that no GUI export carries.
 - 202206 and 202207 hold one person each, whose sheet row only the GUI's export has. Those two months were left as they were.
 - ⚠ A re-import pins 202601 to the version that was filed (`--version 202601=20260211_084833`) and leaves out any month not filed yet (`--months`). 202610 was already on disk: written on 11-03, due on 11-25. People and contracts still read every month on disk. Folding the contracts with and without 202610 changed none of them.
+
+### P1 into the home (2026-11-20)
+
+The owner's word: payroll lives in `regal-pz` and `regal-sf` too, and `regal-acc` goes once everything is moved. In
+the split that means the home (question 15's table, §3.11). Built first, because a sync never deletes what a copy
+already holds:
+
+- **A books org's test copy leaves its payroll out.** Every model the payroll keeps joins `BOOKS_NEVER_CLONED`: the
+  people, contracts, absences, leave, runs, payslips, timesheets and the payroll elements. A books org that holds a
+  `PersonalDataKey` is then copied, without the key and without the payroll (`refusedSourceModels`); any other org
+  that holds one is still refused, and so is a books org the day it stops keeping books. A test fails when a sealed
+  model (`SEALED_PATHS`) is missing from the list.
+- **The import refuses a store of a split** with 409 `payroll_in_home`, on top of `payroll_engine_not_set`.
+
+Then, in this order, each write on the owner's word: `settings.payroll.engine: 'bg'` on the home; the import into it
+from the same sealed files and pins as P1 (a dry run, its counts, then `--execute` and `--verify`, §5.1's gate); the
+people, contracts, months and elements against `regal-acc`'s; and only then the drop of `regal-acc`, after a last
+check that the split holds everything it holds.
 
 ### R0 — repairs the import would hit first
 
@@ -1134,6 +1153,10 @@ read the same comparison and show the amounts.
 - **The developer field** on обр. 1 and обр. 6 carries the EIK of LGR's maker, from configuration (`PAYROLL_DEVELOPER_EIK`), never hardcoded.
 - **The books org:** `regal-acc` while the two apps stabilise, then into `regal-pz` and `regal-sf` (D1, R7).
 
+**Decided by the owner, 2026-11-20:**
+
+- **Payroll lives in `regal-pz` and `regal-sf` too**, and `regal-acc` is dropped after everything is moved. In the split that is the home (question 15's table): "P1 into the home" in §9.
+
 **Still open for the owner:**
 
 14. **A written processing agreement.** The company is the controller of its employees' data and LGR's operator becomes a processor (GDPR art. 28). The agreement above should be on paper before real payroll runs in LGR.
@@ -1150,6 +1173,6 @@ read the same comparison and show the amounts.
 | The chart and the analytic tree | every org, whole |
 | A partner's Contact | linked to a contact the org already has: a partner with a number by the digits of any number a contact holds, whatever its type (its own type first, then `both`, then the other type; the oldest of equals), one without a number by its name (`contact-match.ts`); made only for a partner the org's own entries or opening name, from what its analytic keeps of the file. What the first import made twice: `scripts/relink-books-contacts.ts`. What it linked on a number typed to fill the box: `scripts/relink-books-filler-links.ts` |
 | VAT returns and registers (`TaxReturn`, `VatRegisterEntry`) | the home |
-| Payroll's personal data (employees, contracts, runs, the sealed key) | **stays in `regal-acc`** |
+| Payroll's personal data (employees, contracts, runs, the sealed key) | the home, since 2026-11-20 (it stayed in `regal-acc` until then) |
 
-Payroll stays where it is because it is personal data (§3.11), kept off the stores: every admin of a store org would read it there, and a store org holding its sealed key would stop the store's own test copy (the copy refuses such a source). `regal-acc` keeps it, dormant otherwise, until the owner says to delete it. A store's ledger is therefore a share: each entry balances, and only the group's sum is the company's trial balance. `branchOrgId` stays as it was: the store when a series names one, else the org that holds the entry. The rollout, with its proofs and the way back: `docs/guides/books-split-rollout.md`.
+Payroll first stayed where it was because it is personal data (§3.11): every admin of a store org would read it there, and a store org holding its sealed key would stop the store's own test copy (the copy refused such a source). **On 2026-11-20 the owner moved it into the split, and `regal-acc` is dropped once everything is moved.** It goes to the home, beside the `ЗАП` postings that already went there: one employer files one обр. 1 and one обр. 6 a month, and the contracts do not say who works where (10 of the 29 name a workplace). A books org's test copy now leaves the payroll out instead of refusing the org, the import refuses a store of a split, and who reads it in the home is a matter of roles (§3.11). A store's ledger is therefore a share: each entry balances, and only the group's sum is the company's trial balance. `branchOrgId` stays as it was: the store when a series names one, else the org that holds the entry. The rollout, with its proofs and the way back: `docs/guides/books-split-rollout.md`.
