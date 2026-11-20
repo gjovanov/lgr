@@ -19,7 +19,7 @@
  */
 import { connectDB, disconnectDB } from '../packages/db/src/connection.js'
 import { AuditLog, FiscalPeriod, FiscalYear, JournalEntry, Org, Sequence, VatRegisterEntry } from '../packages/db/src/models/index.js'
-import { initServiceContext } from 'services/context'
+import { initServiceContext } from '../packages/services/src/context.js'
 import { recordAuditEntry } from '../packages/services/src/biz/audit-log.service.js'
 import { booksOrgsOf } from '../packages/services/src/biz/accounting-books/group-cost.service.js'
 import { ShadowSalesError, postShadowSales, type ShadowRunReport } from '../packages/services/src/biz/accounting-books/shadow-sales.service.js'
@@ -147,7 +147,7 @@ try {
       await requireUniqueIndexes([JournalEntry, VatRegisterEntry, Sequence, FiscalYear, FiscalPeriod, AuditLog])
       if (!org.ownerId) throw new ShadowSalesError('The org names no owner, and a written entry names its creator.', 'no_creator')
     }
-    const { createMongoRepositories } = await import('dal-mongo')
+    const { createMongoRepositories } = await import('../packages/dal-mongo/src/index.js')
     initServiceContext(await createMongoRepositories({ backend: 'mongo' }))
     const report = await postShadowSales(orgId, { from: args.from, to: args.to, execute, ...(org.ownerId ? { by: String(org.ownerId) } : {}) })
     print(report)
