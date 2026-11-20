@@ -330,6 +330,8 @@ export interface ReviewQueue {
 
 const fold = (s: string) => s.normalize('NFC').toLocaleLowerCase('bg')
 const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+/** Names in the order of the Bulgarian alphabet, case aside. */
+const byName = new Intl.Collator('bg', { sensitivity: 'base', numeric: true }).compare
 
 /**
  * The queue: every product the period sold, its state against the map as stored, sorted (by value, the most first,
@@ -370,8 +372,8 @@ export function buildQueue(input: {
   const order = query.sortOrder === 'asc' ? 1 : -1
   const by = query.sortBy ?? 'value'
   listed.sort((a, b) => {
-    const d = by === 'name' ? byText(a.name, b.name) : by === 'lines' ? a.p.lines - b.p.lines : a.p.value - b.p.value
-    return d ? d * order : byText(a.name, b.name) || byText(a.p.productId, b.p.productId)
+    const d = by === 'name' ? byName(a.name, b.name) : by === 'lines' ? a.p.lines - b.p.lines : a.p.value - b.p.value
+    return d ? d * order : byName(a.name, b.name) || byText(a.p.productId, b.p.productId)
   })
 
   // `size` 0 or less is the grids' "All": here the largest page, as every row carries its documents.

@@ -472,8 +472,11 @@ async function changed(org: mongoose.Types.ObjectId, productId: string): Promise
 
 const sameTime = (a: Date | undefined, b: Date) => !!a && new Date(a).getTime() === b.getTime()
 
-/** What this pod reads next for the org is the stamps as they are after a write. */
-function wrote(orgId: string): void {
+/**
+ * The pod reads the org's stamps again at its next request rather than within `STAMP_MS`: what a write here does, and
+ * what a test does after a change made beside the queue.
+ */
+export function forgetReviewStamps(orgId: string): void {
   const c = caches.get(orgId)
   if (c) c.stamps = undefined
 }
@@ -514,7 +517,7 @@ export async function setProductGroup(orgId: string, productId: string, body: { 
     if (!before) throw await changed(org, product.id)
     after = { ...before, ...set, updatedAt: now }
   }
-  wrote(orgId)
+  forgetReviewStamps(orgId)
 
   await recordAuditEntry({
     orgId, userId: by.id, operatorCode: by.operatorCode,
@@ -550,7 +553,7 @@ export async function confirmProductGroup(orgId: string, productId: string, body
     { new: false, timestamps: false },
   ).select(MAP_FIELDS).lean<MapRowDoc>()
   if (!before) throw await changed(org, product.id)
-  wrote(orgId)
+  forgetReviewStamps(orgId)
 
   await recordAuditEntry({
     orgId, userId: by.id, operatorCode: by.operatorCode,
@@ -593,7 +596,7 @@ export async function withdrawProductGroup(orgId: string, productId: string, bod
     delete after.reviewedAt
     delete after.reviewedBy
   }
-  wrote(orgId)
+  forgetReviewStamps(orgId)
 
   await recordAuditEntry({
     orgId, userId: by.id, operatorCode: by.operatorCode,
