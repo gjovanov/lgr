@@ -33,7 +33,7 @@ bun run scripts/seed-user.ts --org <slug> --email <e> --username <u> --password 
   these capabilities (the `config/access` catalogue), named `--set-name` (default `Service: <username>`), created if missing.
   A role of that name with other capabilities is refused, never reused.
 - `--permissions` — gone with the legacy model (FR-27 P3-6): refused (exit 2), naming `--caps`. What it was:
-  `--permissions accounting.import` is `--caps books-import.run` (`books-sync` in regal-acc, pull-plusminus-books).
+  `--permissions accounting.import` is `--caps books-import.run` (`books-sync` in regal-pz and regal-sf, pull-plusminus-books).
 - `--execute` — perform writes. **Without it the script is a dry-run** (prints the role it would give, no DB connection).
   It writes documents only: it connects without building indexes or collections, and refuses to write while a unique index on
   users, identities, roles or sequences is missing (`scripts/lib/require-indexes.ts`). Run from a checkout ahead of

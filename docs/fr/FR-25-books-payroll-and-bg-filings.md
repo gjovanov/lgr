@@ -868,6 +868,12 @@ from the same sealed files and pins as P1 (a dry run, its counts, then `--execut
 people, contracts, months and elements against `regal-acc`'s; and only then the drop of `regal-acc`, after a last
 check that the split holds everything it holds.
 
+**Done on 2026-11-20, in that order.** The import into the home passed §5.1's gate. Its people, months and elements
+equal `regal-acc`'s. So do its contracts, except two that `regal-acc` had kept stale: a re-import compared only a
+contract's clear fields, fixed in #897. Then `regal-acc` was dropped with `scripts/drop-org.ts`
+(`docs/guides/books-split-rollout.md` §7). Before the drop came a fresh verified full bundle, proven to hold every row
+the org held. The bundle and the org's own document are kept on the build host.
+
 ### R0 — repairs the import would hit first
 
 | # | Where | What is wrong |

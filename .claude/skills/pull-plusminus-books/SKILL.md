@@ -98,9 +98,11 @@ bun run scripts/import-vat-files.ts --org <home org> --dir "$ACC_FILINGS_DIR/nap
   accountant writes them: 202610 was on disk from 11-03, and is due on 11-25. People and contracts still read every month on disk
   (on 11-05 that changed no contract: they were folded with and without 202610).
 - `import-payroll.ts` takes `LGR_TOKEN` only, not `LGR_USERNAME`/`LGR_PASSWORD`.
-- ⚠ **`<org>` is the stores since FR-25 R7 (2026-11-14).** The original books org, `regal-acc`, is RETIRED: every membership in
-  it is switched off, so none of these commands can sign in there. The ledger commands go to each org of the split, the VAT
-  files and the payroll to the home org only (see the bullet above and `docs/guides/books-split-rollout.md` §6).
+- ⚠ **`<org>` is the stores since FR-25 R7 (2026-11-14).** The original books org, `regal-acc`, was DROPPED on 2026-11-20
+  (`scripts/drop-org.ts`, FR-25 §7): it no longer exists, so none of these commands can sign in there. The ledger commands go
+  to each org of the split, the VAT files and the payroll to the home org only (see the bullet above and
+  `docs/guides/books-split-rollout.md` §6). `nightly.ts` still defaults to it when `BOOKS_NIGHTLY_ORGS` is unset, and then
+  fails at sign-in.
 
 **regal-acc switched from the GUI exports to the archive on 2026-11-05, on the owner's word.** A re-import of the same day now
 reports everything `unchanged`. A later day reports only what was booked or corrected since.
@@ -195,7 +197,7 @@ bun .claude/skills/pull-plusminus-books/nightly.ts --check-mail  # SendGrid sand
 
 **The account.** `books-sync`, role member, with one permission set, „Service: books import": `accounting.import`
 and no area. It was made in regal-acc and, since FR-25 R7, has the same membership in the home and the store org; its
-regal-acc membership is switched off with the rest of that retired org.
+regal-acc membership went with that org when it was dropped (2026-11-20).
 - Every other route answers 403. Checked: contacts, accounts, journal, payroll employees and contracts, VAT.
 - Made with `scripts/seed-user.ts --role member --caps books-import.run --set-name "Service: books import"`.
 - Its password is only in the main checkout's gitignored `.secrets/lgr-books-sync.env`, beside `BOOKS_NIGHTLY_MAIL_TO`.
