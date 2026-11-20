@@ -387,7 +387,7 @@ export interface ProductCounts {
   inactiveGroup: number
   /** The accountant's rows, left as they are. */
   accountants: number
-  /** No row a line posts by after the run (none, or a suggestion). */
+  /** No row a line posts by after the run (none, a suggestion, or a row on a group switched off). */
   unmapped: number
 }
 
@@ -503,7 +503,7 @@ export function planProductGroups(input: {
       plan.after.set(productId, to)
     }
   }
-  const posts = postsBy(plan.after)
+  const posts = postsBy(plan.after, input.activeGroups)
   c.unmapped = input.goodsProducts.filter(id => !posts(id)).length
   return plan
 }
@@ -568,10 +568,13 @@ export function addCoverage(table: CoverageTable, doc: CoverageDocument, posts: 
   table[doc.kind].set(month, cell)
 }
 
-/** The map's rows a line posts by. */
-export function postsBy(after: ReadonlyMap<string, MapRow>): (productId: string) => boolean {
+/**
+ * The map's rows a line posts by: a row of a source that posts, on a goods group still active. Slice 3 refuses a line
+ * whose group was switched off (`group_inactive`), the accountant's row too, so a row on one covers nothing.
+ */
+export function postsBy(after: ReadonlyMap<string, MapRow>, activeGroups: ReadonlySet<string>): (productId: string) => boolean {
   return productId => {
     const r = after.get(productId)
-    return !!r && (isAccountants(r) || POSTABLE_SOURCES.has(r.source))
+    return !!r && (isAccountants(r) || POSTABLE_SOURCES.has(r.source)) && activeGroups.has(r.analyticId)
   }
 }

@@ -201,7 +201,12 @@ built".
   30 minutes.
 - ⚠ **An evidence document's `day` is its UTC midnight: `formatDate(day)`, with no `timeZone`.** The formatter reads a
   UTC midnight as that day wherever the browser is; a zone made it a moment, and east of UTC the page showed the day
-  before.
+  before. A decision's `reviewedAt` is the opposite, a moment: `formatDateTime` (fixed 2026-11-20; as a day alone, a
+  browser west of Sofia showed a decision made just after midnight there on the day before).
+- ⚠ **A row posts only on a goods group still active** (`postsBy(after, activeGroups)`, `stateOf`; fixed 2026-11-20).
+  Slice 3 refuses a line whose group was switched off (`group_inactive`), the accountant's row too, while the queue
+  listed such a row as done and its coverage counted it. Now it is the work again (`unmapped`, or `conflict`), its
+  group shown inactive, and its sales count as no group.
 - ⚠ **The org a sign-in returns has no `settings`; `/auth/me` brings them.** Until then `isBooksOrg` is false, so the
   page waits for them (`settingsKnown`) before it says the org keeps no books or asks for the queue.
 - **Tests:** `unit/product-group-review.test.ts`, `unit/product-groups-page.test.ts`,

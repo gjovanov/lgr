@@ -238,12 +238,33 @@ describe('coverage', () => {
       ['p3', { productId: 'p3', analyticId: 'G1', source: 'rule', evidenceCount: 0, conflictCount: 0, reviewedAt: day('2026-09-01') }],
     ])
     const t = newCoverage()
-    const posts = postsBy(after)
+    const posts = postsBy(after, new Set(['G1']))
     addCoverage(t, { kind: 'invoices', day: day('2026-09-30'), lines: [{ productId: 'p1', value: 30 }, { productId: 'p2', value: 10 }, { value: 10 }, { productId: 's1', service: true, value: 99 }] }, posts)
     addCoverage(t, { kind: 'invoices', day: day('2026-10-01'), lines: [{ productId: 'p3', value: -5 }] }, posts)
     addCoverage(t, { kind: 'till', day: day('2026-09-15'), lines: [{ productId: 'p1', value: 4 }] }, posts)
     expect(t.invoices.get('2026-09')).toEqual({ lines: 3, mappedLines: 1, noProduct: 1, value: 50, mappedValue: 30 })
     expect(t.invoices.get('2026-10')).toEqual({ lines: 1, mappedLines: 1, noProduct: 0, value: 5, mappedValue: 5 })
     expect(t.till.get('2026-09')).toEqual({ lines: 1, mappedLines: 1, noProduct: 0, value: 4, mappedValue: 4 })
+  })
+
+  it('a row on a group switched off covers nothing, the accountant\'s too: slice 3 refuses its lines', () => {
+    const after = new Map<string, MapRow>([
+      ['p1', { productId: 'p1', analyticId: 'G1', source: 'learned', evidenceCount: 1, conflictCount: 0 }],
+      ['p2', { productId: 'p2', analyticId: 'G2', source: 'accountant', evidenceCount: 0, conflictCount: 0, reviewedAt: day('2026-09-01') }],
+      ['p3', { productId: 'p3', analyticId: 'G2', source: 'learned', evidenceCount: 1, conflictCount: 0, reviewedAt: day('2026-09-01') }],
+      ['p4', { productId: 'p4', analyticId: 'G3', source: 'exact', evidenceCount: 0, conflictCount: 0 }],
+    ])
+    const posts = postsBy(after, new Set(['G1']))
+    expect(['p1', 'p2', 'p3', 'p4', 'p5'].map(posts)).toEqual([true, false, false, false, false])
+  })
+
+  it('the plan counts a product whose only row is on a group switched off as unmapped, and keeps the accountant\'s row', () => {
+    const mine: MapRow = { productId: 'p1', analyticId: 'G2', source: 'accountant', evidenceCount: 0, conflictCount: 0, reviewedAt: day('2026-09-01') }
+    const p = planProductGroups({
+      goodsProducts: ['p1'], exact: new Map(), exactAmbiguous: 0, evidence: new Map(), activeGroups: new Set(['G1']), existing: [mine],
+    })
+    expect(p.after.get('p1')).toEqual(mine)
+    expect([p.create, p.update, p.remove]).toEqual([[], [], []])
+    expect(p.products).toMatchObject({ accountants: 1, unmapped: 1 })
   })
 })
