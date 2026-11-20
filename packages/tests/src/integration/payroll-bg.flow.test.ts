@@ -397,6 +397,30 @@ describe('contracts and absences', () => {
     expect(await res.json()).toMatchObject({ keptManual: 1, create: 0, update: 0 })
   })
 
+  it('a re-import writes a class percent or an experience at start that changed, and leaves one the source does not state', async () => {
+    // An org of its own: the month calculated further down would count this contract.
+    const org = await newOrg('bg')
+    const token = await tokenFor(null, 'hr_manager', ['payroll.read', 'payroll.write', 'payroll.personal', 'payroll.import'], org)
+    expect((await call('POST', 'import/employees', token, { people: people(), dryRun: false }, org)).status).toBe(200)
+    const event = { source: 'etz', action: 'concluded', correction: 0, personId: FAKE_EGN, personIdKind: 0, firstName: 'И', middleName: '', lastName: 'П', contractDate: '2026-03-02', basis: '001', salary: 1 }
+    const reimport = async (snapshot: Record<string, unknown>) => (await call('POST', 'import/contracts', token, {
+      events: [event], snapshots: [{ personId: FAKE_EGN, asOf: '2026-03-31', ...snapshot }], people: [FAKE_EGN], dryRun: false,
+    }, org)).json()
+    const stored = async () => (await EmploymentContract.findOne({ orgId: org }).lean()) as any
+
+    expect(await reimport({ classPercent: 0.6, experience: { years: 2, months: 0, days: 0 } })).toMatchObject({ create: 1 })
+    expect(await reimport({ classPercent: 0.8, experience: { years: 2, months: 0, days: 0 } })).toMatchObject({ update: 1, unchanged: 0 })
+    expect((await stored()).classPercent).toBe(0.8)
+    expect(await reimport({ classPercent: 0.8, experience: { years: 3, months: 1, days: 0 } })).toMatchObject({ update: 1, unchanged: 0 })
+    expect((await stored()).experienceAtStart).toEqual({ years: 3, months: 1, days: 0 })
+    // The same experience written in another key order is the same experience.
+    expect(await reimport({ classPercent: 0.8, experience: { days: 0, months: 1, years: 3 } })).toMatchObject({ update: 0, unchanged: 1 })
+    // A source that leaves both out changes nothing: an update never unsets a field.
+    expect(await reimport({})).toMatchObject({ update: 0, unchanged: 1 })
+    expect([(await stored()).classPercent, (await stored()).experienceAtStart]).toEqual([0.8, { years: 3, months: 1, days: 0 }])
+    expect(await EmploymentContract.countDocuments({ orgId: org })).toBe(1)
+  })
+
   it('refuses a contract\'s pay to a writer without payroll.personal', async () => {
     expect((await call('GET', 'contract', writerToken)).status).toBe(403)
     expect((await contractFor(writerToken)).res.status).toBe(403)

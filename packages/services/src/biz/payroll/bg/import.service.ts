@@ -140,8 +140,21 @@ function sameContract(existing: any, fields: ReturnType<typeof contractFields>, 
     activityKid: doc.activityKid, qualificationGroup: doc.qualificationGroup, mainActivityRow: doc.mainActivityRow, hoursPerDay: doc.hoursPerDay, amendments: (doc.amendments ?? []).map((a: any) => [a.date, a.effectiveFrom, a.byLaw ?? false]),
     termination: doc.termination?.date ?? null,
   })
-  return clear(existing) === clear(fields) && comparable(pay) === comparable(wanted)
+  // What a contract carries beyond those, and the import writes too. Each one the source STATES must be what is stored:
+  // without this, a re-import that changed only a class percent or an experience at start reported the contract
+  // unchanged and never wrote it. One the source leaves out is not compared: the model's default stands in for it, and an
+  // update never unsets it (an undefined key leaves a `$set`).
+  const stated = STATED_CONTRACT_FIELDS.filter(key => fields[key] !== undefined && fields[key] !== null)
+  const said = (doc: any) => comparable(stated.map(key => (key === 'experienceAtStart' ? experienceOf(doc[key]) : doc[key])))
+  return clear(existing) === clear(fields) && said(existing) === said(fields) && comparable(pay) === comparable(wanted)
 }
+
+const STATED_CONTRACT_FIELDS = [
+  'socialSecurityType', 'healthSecurityType', 'daysPerWeek', 'statutoryHours', 'annualLeaveDays', 'classPercent', 'experienceAtStart', 'currency',
+] as const
+
+/** Years, months and days in that order: the source's key order is not the stored one. */
+const experienceOf = (value: any) => (value ? [value.years ?? 0, value.months ?? 0, value.days ?? 0] : undefined)
 
 /** Folds what the files say into contracts, and lists what they leave open for the accountant. */
 export async function importContracts(
