@@ -17,7 +17,8 @@ import { legalSeriesOf } from 'services/biz/move/promote.service'
 import { FENCED_CHUNK, fencedExportStatus, receiveFencedChunk } from 'services/biz/move/fenced-export.service'
 import { ReconcileRefused, mirrorIdsFor, reconcileReported } from 'services/biz/replication/reconcile'
 import { BSON } from 'services/biz/replication/pages'
-import { rewelcomeNode } from '../websocket/uplink.js'
+import { countTraffic, nodeRouteName } from 'services/biz/node/node-traffic'
+import { relinkNode, rewelcomeNode } from '../websocket/uplink.js'
 import { repointOrgDesktops } from '../websocket/desktop.js'
 import {
   DesktopDownloadError,
@@ -45,6 +46,19 @@ function failMove(status: any, e: unknown) {
 
 const OBJECT_ID = /^[0-9a-f]{24}$/
 
+/** A request's size as declared, or as parsed when it declared none (a chunked body). */
+function requestBytes(request: Request, body: unknown): number {
+  const declared = Number(request.headers.get('content-length'))
+  if (declared > 0) return declared
+  if (body === undefined || body === null) return 0
+  if (typeof body === 'string') return Buffer.byteLength(body)
+  try {
+    return Buffer.byteLength(JSON.stringify(body) ?? '')
+  } catch {
+    return 0
+  }
+}
+
 const versions = t.Object({
   app: t.Optional(t.String({ maxLength: 40 })),
   protocol: t.Optional(t.Integer({ minimum: 0, maximum: 1_000_000 })),
@@ -54,6 +68,13 @@ const versions = t.Object({
 
 export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
   .use(NodeAuth)
+  // FR-20.54 (AC 26): every request of an authenticated master, in global's record of its traffic, as
+  // it arrives: after `NodeAuth` named the node, before the body is validated. A request global then
+  // refuses (a 422 included, which skips the after-response hooks) was still sent.
+  .onTransform(({ node, request, route, body }: any) => {
+    if (!node?._id) return
+    countTraffic(String(node._id), node.linkLevel, 'http', nodeRouteName(request.method, String(route ?? '')), requestBytes(request, body))
+  })
 
   /**
    * Register this master for the org whose admin minted the code (or a field lane's reusable key).
@@ -65,7 +86,10 @@ export const nodeV1Controller = new Elysia({ prefix: '/node/v1' })
     '/enroll',
     async ({ body, status, request, headers }) => {
       try {
-        return await enrollNode({ ...body, ip: clientIp(headers as any) }, acceptableTokenAudiences(request, '/api/node/v1/enroll'))
+        const r = await enrollNode({ ...body, ip: clientIp(headers as any) }, acceptableTokenAudiences(request, '/api/node/v1/enroll'))
+        // FR-20.54: registered again, maybe at another level: its sockets here take it now.
+        relinkNode(r.nodeId, r.linkLevel)
+        return r
       } catch (e) {
         return fail(status, e)
       }

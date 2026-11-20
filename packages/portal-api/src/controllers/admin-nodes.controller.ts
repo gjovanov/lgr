@@ -3,6 +3,7 @@ import { nodeRole } from 'config'
 import { Org, ServerNode } from 'db/models'
 import { AuthService } from '../auth/auth.service.js'
 import { nodeToWire, presenceOfNodes } from 'services/biz/node/node.service'
+import { trafficOf } from 'services/biz/node/node-traffic'
 import { isSysAdmin } from 'services/biz/sys-admin'
 import { alarmsOfNodes } from 'services/biz/node/node-alarms'
 import { HomeHoldError, heldHomes, holdAfterRestore, releaseHold } from 'services/biz/home/home-hold.service'
@@ -95,6 +96,27 @@ export const adminNodesController = new Elysia({ prefix: '/admin/nodes' })
       }
     },
     { isSignIn: true },
+  )
+  /**
+   * FR-20.54 (AC 26): what a master sent lgrai.app, per UTC day, link level, channel and kind of message,
+   * with what each kind carries (`node-traffic.ts`). One day (`?day=YYYY-MM-DD`), or the last `days` (7).
+   */
+  .get(
+    '/:id/traffic',
+    async ({ user, params, query, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
+      if (!isSysAdmin(user)) return status(403, { message: 'This page requires a system administrator' })
+      const rows = await trafficOf(params.id, query.day ? { day: query.day } : { days: query.days ? Number(query.days) : 7 })
+      return { nodeId: params.id, rows }
+    },
+    {
+      isSignIn: true,
+      params: t.Object({ id: t.String({ minLength: 8, maxLength: 40 }) }),
+      query: t.Object({
+        day: t.Optional(t.String({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' })),
+        days: t.Optional(t.String({ pattern: '^[0-9]{1,2}$' })),
+      }),
+    },
   )
   .post(
     '/held/after-restore',

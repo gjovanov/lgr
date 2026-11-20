@@ -3,11 +3,11 @@
  * `Host` is `<label>.<ORG_ADDRESS_APEX>` is the org's server's, never lgrai.app's. It runs first, for
  * HTTP and for WebSocket upgrades, and nothing of lgrai.app's own app, headers or cookies touches it.
  *
- * - **An active address of an org homed on a master** registered for it: tunnelled to that master
- *   (`streams.ts`), behind the edge filter (`edge.ts`).
+ * - **An active address of an org homed on a master** registered for it at Full: tunnelled to that
+ *   master (`streams.ts`), behind the edge filter (`edge.ts`).
  * - **Anything else answers like an unknown label** (404): no such address, a requested or refused
- *   one, an org that lives on lgrai.app. A retired address answers that it was retired (410), for
- *   12 months.
+ *   one, an org that lives on lgrai.app, a master linked at Control (FR-20.54: no remote access
+ *   through lgrai.app). A retired address answers that it was retired (410), for 12 months.
  * - **The server is not connected:** a static notice (503), never a sign-in page (FR-20.75).
  * - A reserved label (`www`, …) is lgrai.app's own name: not an address, and passed on.
  *
@@ -61,7 +61,8 @@ async function routeOf(label: string, now = Date.now()): Promise<Route> {
   } else if (a?.state === 'active') {
     // An org that lives on lgrai.app has no address: its label answers like an unknown one.
     const home = await homeOf(a.orgId)
-    if (home.home !== 'global' && (await ServerNode.exists({ _id: home.home, status: 'active', orgIds: a.orgId }))) {
+    // FR-20.54: remote access through lgrai.app is Full only. A master linked at Control answers like no address.
+    if (home.home !== 'global' && (await ServerNode.exists({ _id: home.home, status: 'active', orgIds: a.orgId, linkLevel: 'full' }))) {
       route = { kind: 'node', nodeId: home.home, orgId: a.orgId }
     }
   }

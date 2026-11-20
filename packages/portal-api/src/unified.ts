@@ -184,7 +184,14 @@ const stopDeps = {
   closeControl: undefined as undefined | (() => void),
   // FR-24.44: once nothing fiscal is in flight, tills reconnect elsewhere at once.
   closeBridges: () => closeAllBridges(1012),
-  disconnect: async () => (await import('db/connection')).mongoose.disconnect(),
+  disconnect: async () => {
+    // FR-20.54: what this pod counted of the masters' traffic, written before it goes.
+    if (nodeRole() === 'global') {
+      await (await import('services/biz/node/node-traffic')).flushTraffic()
+        .catch((e: unknown) => logger.warn({ err: e instanceof Error ? e.message : String(e) }, 'Node traffic: not written before the stop'))
+    }
+    return (await import('db/connection')).mongoose.disconnect()
+  },
 }
 const stopNow = (reason: string) => { void gracefulStop(reason, stopDeps) }
 
@@ -482,6 +489,11 @@ setTimeout(async () => {
     {
       name: 'outbox', where: 'one', intervalMs: config.node.role === 'master' ? config.outbox.intervalMs : 0, immediate: true,
       ...lazy(() => import('services/biz/relay/outbox-worker'), m => m.outboxTick()),
+    },
+    // FR-20.54 (AC 26) — on lgrai.app, every pod writes what it counted of the masters' traffic.
+    {
+      name: 'node-traffic', where: 'every-pod', intervalMs: config.node.role === 'global' ? 30_000 : 0,
+      ...lazy(() => import('services/biz/node/node-traffic'), m => m.flushTraffic()),
     },
     // FR-20.23 — background tasks: this process's heartbeat on the tasks it runs, and failing the
     // tasks whose process stopped (a deploy, a crash), so no screen polls a dead task for a week.
