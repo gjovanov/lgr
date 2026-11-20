@@ -1010,6 +1010,25 @@ Built: `PostingRule`, its seed, the posting of one document, the books' cost of 
 3. A group sold before the books ever held it: what does PlusMinus cost it at?
 4. An invoice issued for a till sale: is it booked as a `-ФЕ` with its own cost, and does the till's `КП` month leave it out? Until §12, question 2 is answered, it waits (`till_sale_invoice`).
 
+**The first dry run on production** (2026-11-20; both stores' filed months and November to date; counts only, nothing written):
+
+- **Revenue and VAT equal the books** on every compared document of one store. In the other store they equal the books wherever the books hold the document's own amounts; the exceptions are the rows the sales register gate already counts apart.
+- **The group map holds.** A product sits in another group on 8 of the 1,352 compared documents.
+- **The cost does not.** On 1,285 documents only its amounts differ, and on 1,172 of them by more than 5%.
+- **The inputs are not the cause:**
+  - every 304 goods line carries its side and quantity;
+  - every month since January 2025 is imported;
+  - the 2026 opening and the year's movements are in euro;
+  - the entries' dates are their business days.
+- **LGR's own per-product cost** of the same invoices' dispatches is further from the books still: most beyond 20%, and mostly higher.
+- **Within one group and one day**, the books' unit cost is nearly the same on every sale, and it moves within a month.
+
+So question 1 is wider than the order of a day: how does PlusMinus cost a sale at all? Per item or per group; per store or for the company; in the order documents are entered or by their dates; recalculated at the month's end? Until it is answered, nothing is executed, and the dry run is the comparison.
+
+The cash lines differ on about one compared document in five (question 2). Of the documents that cannot post yet:
+- about four in ten have a product with no group, which is the review queue's work (slice 2);
+- about one in fourteen has a partner with several analytics under `КЛИЕНТИ`.
+
 ## 10. Tests
 
 - **Integration**, fictional data only: every row of §1.4 as a fixture, posted and checked per account and analytic; the moving-average table (purchase, sale, negative on-hand, backdated); a month re-imported with changed values; the branch link refused across different `taxNumber`; `isForeignOrg` still refuses a branch user on the books org; idempotent worker; void and edit after filing.
