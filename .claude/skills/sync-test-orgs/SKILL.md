@@ -77,7 +77,7 @@ and run with `bash`. `MONGODB_URI=mongodb://<u>:<p>@127.0.0.1:27117/lgr?authSour
 
 ## The one-time setup (done 2026-11-09), in order
 
-1. `mark --org regal-pz --env prod --execute`, and the same for `regal-sf` (and `regal-acc` if wanted).
+1. `mark --org regal-pz --env prod --execute`, and the same for `regal-sf`.
 2. `convert --org regal --to test-regal-pz --name "Test Regal PZ OOD" --source regal-pz --execute`. `regal`
    was an old test org: its people, permission sets, invites, enrolled desktops and test fiscal devices
    are kept; its other settings (the till's printer gate) stay as they were.

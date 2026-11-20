@@ -21,5 +21,5 @@ $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatt
   -ExecutionTimeLimit (New-TimeSpan -Hours 1) -MultipleInstances IgnoreNew
 $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
 Register-ScheduledTask -TaskName $Name -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force `
-  -Description "FR-25: the books PC's newest PlusMinus archive into regal-acc, books only (.claude/skills/pull-plusminus-books/nightly.ts)." | Out-Null
+  -Description "FR-25: the books PC's newest PlusMinus archive into the orgs of BOOKS_NIGHTLY_ORGS, books only (.claude/skills/pull-plusminus-books/nightly.ts)." | Out-Null
 Get-ScheduledTask -TaskName $Name | Get-ScheduledTaskInfo | Select-Object TaskName, NextRunTime, LastRunTime, LastTaskResult
