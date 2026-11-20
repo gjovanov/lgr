@@ -211,3 +211,22 @@ built".
   page waits for them (`settingsKnown`) before it says the org keeps no books or asks for the queue.
 - **Tests:** `unit/product-group-review.test.ts`, `unit/product-groups-page.test.ts`,
   `integration/product-group-review.flow.test.ts` (the queue, the writes, the stale listing, who may write, other orgs).
+
+## Books against shadow, a month at a time (2026-11-20, FR-25 R3, slice 5)
+
+The comparison §6.3 asks for, as a script first: for one store and one month, the store's own sales documents each
+ledger holds, the ones both hold (equal, or where they differ, by the dry run's own check), each goods group's quantity
+and cost over those, the month's cost of sales, the documents one ledger holds alone, and the home's sales register,
+the shadow's rows against the filed ones of the store's series. `services/biz/accounting-books/books-shadow-compare.ts`
+compares (import-pure), `books-shadow-compare.service.ts` reads, `scripts/compare-books-shadow.ts --org <store>
+--from YYYYMM [--to YYYYMM]` prints counts only. The page and the digest section come next. Design: FR-25 §9, "R3,
+slice 5, as built".
+- ⚠ **A document of a month is that month's entries under its number, each ledger's summed.** The books' invoice and
+  its annulment are one document, and so are the shadow's posting, its reversal and its next revision; a void in a
+  later month is that month's reversal, never a rewrite of the month of issue. A document whose entries of the month
+  cancel out is not held in that month. Read across months, a void would count twice.
+- ⚠ **The filed side of the register is the store's own rows only: a ten-digit number in its series, of a document
+  type.** The home's register also holds the other store's rows, the tills' months and the protocols; read whole, they
+  would all count as filed and not in the shadow.
+- **Tests:** `unit/books-shadow-compare.test.ts`, `integration/shadow-sales.flow.test.ts` (before a run, after it, a
+  void in a later month, the refusals, the script's output).

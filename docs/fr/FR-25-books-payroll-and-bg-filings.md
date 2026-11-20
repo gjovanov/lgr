@@ -964,7 +964,7 @@ R3 starts in `regal-pz` and `regal-sf` (owner, 2026-11-19) and follows R7's owne
 2. **A review queue** in the accounting app, sorted by sales value: the unmapped and the conflicting products, where the accountant sets the group (`source: 'accountant'`). Conflicts are not stored; the queue reads them from the same evidence. Built: "R3, slice 2, as built" below.
 3. **`PostingRule` seeds and shadow posting** of the store's invoices and notes, as a batch over a period, idempotent on the source document: the entry in the org that holds the document's books entries, its shadow `VatRegisterEntry` in the home, which holds the VAT files. Built: "R3, slice 3, as built" below.
 4. **The tills' months** (`КП`) into the home. Needs §12, question 2.
-5. **The comparison,** books against shadow per month: the register's rows, each group's quantities, the documents only one ledger holds. A script first, then a page and a digest section.
+5. **The comparison,** books against shadow per month: the register's rows, each group's quantities, the documents only one ledger holds. A script first, then a page and a digest section. The script is built: "R3, slice 5, as built" below.
 
 The event-driven worker (§6.2) comes after the batch is proven on filed months.
 
@@ -982,7 +982,7 @@ Decisions:
 - **Partition, as built** (slice 1b, `services/biz/accounting-books/product-group-partition.ts`). The accountant books a sale's cost one operation per group, so most paired documents give the two rules above nothing; each group's quantity is still the sum of its lines'. Partition reads the documents those rules leave a product line on (`not_line_for_line`, `no_unique_quantity`, and the unmatched lines of `line_for_line`, its matched lines fixed where it put them) and finds every split of LGR's goods lines between the entry's groups whose quantities, in thousandths and the sign dropped, sum to the books' per group (several operations of one group summed). It teaches a product a group only when every split gives it that group. Its guards:
   - **Strict sums.** LGR's goods total must be the books', and every goods line is placed, a line with no product too (it takes its quantity and teaches nothing). No line is left out to make the sums meet: a goods line the books carry as a service is exactly the line that must not be taught.
   - **One product, one group.** A product's lines on a document are one item.
-  - **Complete or nothing.** A document teaches only from a search that went to its end. More than 30 goods items (a product's lines one item), more than 12 groups, or more than 50 000 search steps for one entry, and it teaches nothing; each cut is counted on its own. Its latest search decides: a document out of steps under the anchors of a later pass keeps nothing it taught before.
+  - **Complete or nothing.** A document teaches only from a search that went to its end. More than 30 goods items (a product's lines one item), more than 12 groups, or more than 50 000 search steps for one entry, and it teaches nothing; each cut is counted on its own. Its latest search decides: a document out of steps under the anchors of a later pass keeps nothing it taught before. The 12 groups were measured on both stores' whole books (2026-11-20) and kept. At 24, no document is left out (at 12, 36 in one store and 16 in the other), and the longest search for one document still takes about a quarter of the budget. But the documents let in teach little and contradict much: 33 more products learned against 20 more conflicts, 18 of those one document against all the others. The share of the sales value with a group moves by less than a point either way.
   - **Anchors.** A product the run already maps is placed in its group: the accountant's rows hard; `exact` and this run's `learned` rows automatic. A learned row stored by an earlier run is no anchor, so a run depends only on the books, the documents, the names and the accountant's rows, and a second run plans nothing. A document never names a group for a product an anchor holds, so it never confirms the anchor it was given, and the two rules above keep their votes as they are.
   - **A contradicted anchor.** A document whose sums meet only when an automatic anchor is dropped teaches nothing (`anchor_contradicts`) and goes to the conflict path: a learned product becomes a conflict and its stored row is taken away; an exact row keeps its group and counts the document in its `conflictCount`. Only the anchors at fault are blamed: one whose own anchor alone, set aside, gives a fit, or one that no fit even without the automatic anchors puts in its group; when no single one is at fault, all of them are. A document that fits only without the accountant's rows teaches nothing either (`accountant_contradicts`), and the rows stay as they are. Why this rule rather than "the document wins": a document that sums only against an anchor is evidence against that anchor, never for a new row, and an automatic anchor is itself only evidence, so it takes the conflict path the way two documents that disagree do; the accountant's word and a product's name are not overruled by one document's arithmetic.
   - **Passes.** What a pass learns anchors the next, until no anchor changes. A vote found under some anchors holds under more of them, never under fewer, so between two restarts the anchors only grow. A contradiction restarts the passes from slice 1's anchors without the contradicting documents, and so does a pass that takes an anchor away (its product's learned row anchors nothing for the rest of the run): nothing learned through a dropped anchor survives it. Each restart drops a document or a product for good, so the passes end; they are bounded at 100 all the same, and when they run out partition teaches nothing.
@@ -1034,9 +1034,45 @@ Built: `PostingRule`, its seed, the posting of one document, the books' cost of 
 
 So question 1 is wider than the order of a day: how does PlusMinus cost a sale at all? Per item or per group; per store or for the company; in the order documents are entered or by their dates; recalculated at the month's end? Until it is answered, nothing is executed, and the dry run is the comparison.
 
+**Narrowed, the same day.** Every sale of 2026 in both stores was compared, group by group and day by day, with seven ways to cost it from the company's 304: the average at the start of the day, the same with the day's purchases, the last purchase price with and without the day, FIFO, the month's average, the average at the month's start. It was also compared with each product's own cost as LGR holds it.
+- **In January and February** the books cost a sale at the group's average at the start of its day, slice 3's method. That gives the books' cost of almost every sale, in both stores, on invoices and at the till.
+- **From 1 March it does not**, for every group, even one that bought nothing after the opening. Where it differs, the books' cost is higher on nearly every day, and the share it still gives shrinks month by month.
+- No other method gives it either, and no fixed factor does (the lev rate included).
+- The books' figure is still one per group and day for the whole company. It stays consistent with the revenue, and no group's value on hand goes below zero.
+
+So question 1 is now: **what changed in how PlusMinus costs a sale on 1 March 2026?** A method or a setting, a recalculation, a cost the store program keeps per store or per item?
+
 The cash lines differ on about one compared document in five (question 2). Of the documents that cannot post yet:
 - about four in ten have a product with no group, which is the review queue's work (slice 2);
 - about one in fourteen has a partner with several analytics under `КЛИЕНТИ`.
+
+### R3, slice 5: the comparison, as built
+
+Built, the script: `services/biz/accounting-books/books-shadow-compare.ts` (the comparison, import-pure),
+`books-shadow-compare.service.ts` (one store's month, read-only), and `scripts/compare-books-shadow.ts --org <store
+slug> --from YYYYMM [--to YYYYMM]`, which prints counts only. The page and the morning digest's section come next. They
+read the same comparison and show the amounts.
+
+- **A document is its number**, the register's digits with leading zeros dropped, as the gate and slice 1 pair them. Each
+  ledger's side is the sum of its entries of the month under that number: the books' sales entries of the store's own
+  series (the tills' months and other series counted apart), and the shadow's postings. An invoice and its annulment are
+  one document, and so are a posting, its reversal and its next revision. A void in a later month belongs to that month
+  as its reversal. A document whose entries of the month cancel out is not held in that month.
+- **Per month it counts:**
+  - the documents each ledger holds, the ones both hold, and those only one holds;
+  - a number one ledger holds as an invoice and the other as a notice, which is compared neither way;
+  - several LGR documents the shadow posted under one number.
+- **The documents both hold** are equal or differ, by the dry run's own check (`differencesOf`): revenue, VAT, cost (a
+  product in another group, or only the amounts), partner, cash, other, and how far the cost is.
+- **Each goods group**, over those documents: what each ledger takes out of `304`, credits less debits, in quantity and
+  in cost. It is equal, or its quantities differ, or the same quantity's cost is within 0.5%, within 5% or further. The
+  month's cost of sales (`D702`) over them is judged the same way. The documents one ledger holds alone book their cost
+  apart, so the month's whole figure reads as compared plus apart.
+- **The register:** the home's shadow rows of the store's documents against its filed rows of the store's own series (a
+  ten-digit number of a document type: the other store's rows, the tills' months and the protocols are not the
+  store's). Each row is equal, or differs as the gate names it, or is on one side only.
+- Until `post-shadow-sales.ts --execute` writes a month, its shadow side is empty: every books document is the books'
+  alone, and the dry run's self-check is the comparison.
 
 ## 10. Tests
 

@@ -13,6 +13,7 @@ import { linkBooks } from 'services/biz/accounting-books/link-books.service'
 import { parseAnalyticsFile } from 'services/biz/accounting-books/plusminus-exports'
 import { seedPostingRules } from 'services/biz/accounting-books/posting-rule.service'
 import { postShadowSales } from 'services/biz/accounting-books/shadow-sales.service'
+import { compareBooksShadowOf } from 'services/biz/accounting-books/books-shadow-compare.service'
 import { analyticTrialBalance, chronology, documentJournal, mainBook, rebuildBalances, trialBalance } from 'services/biz/accounting-books/books-ledger'
 import { getBalanceSheet, getProfitLoss, getTrialBalance } from 'services/biz/accounting.service'
 import { compareSalesRegisterOf } from 'services/biz/vat-files/sales-register.service'
@@ -336,6 +337,81 @@ describe('the seed script', () => {
     expect(out).toMatch(/\s11 {2}the org holds already/)
     expect(out).toMatch(/\s1 {2}to add/)
     expect(await PostingRule.countDocuments({ orgId: world.store.id })).toBe(11)
+  })
+})
+
+describe('the comparison, books against shadow (FR-25 R3, slice 5)', () => {
+  /** A filed row of the home's sales register, as the VAT import stores one. */
+  const filed = (row: any, over: Record<string, unknown> = {}) => VatRegisterEntry.create({
+    orgId: world.home.id, ledger: 'books', side: 'sales', period: '202603', rowNo: 0,
+    docTypeCode: row.docTypeCode, docNumber: row.docNumber, docDate: row.docDate, partnerVat: row.partnerVat, cells: row.cells, ...over,
+  })
+
+  it('before a run every books document of the store is the books\' alone; after it, each is compared, by group and in the register', async () => {
+    const before = await compareBooksShadowOf(world.store.id, '202603')
+    expect(before.documents).toEqual({ books: 2, shadow: 0, compared: 0, booksOnly: 2, shadowOnly: 0, typeDiffers: 0, noNumber: 0, severalInShadow: 0 })
+    // R7: the import keeps the home's own sale in the home.
+    expect(before.leftOut).toEqual({ till: 0, otherSeries: 0 })
+    expect(before.costOfSales).toEqual({ books: 0, shadow: 0, outcome: 'none', booksOnly: 16.2, shadowOnly: 0 })
+
+    await postShadowSales(world.store.id, { ...MARCH_RUN, execute: true, by: world.userId })
+    const rows = await shadowRows(world.home.id)
+    const row = (n: string) => rows.find(x => x.docNumber === `${SERIES_STORE}${n}`)!
+    await filed(row('00001'))
+    await filed(row('00002'), { cells: { '02-10': 2100, '02-11': 2100, '02-20': 400, '02-21': 400 } })
+    // The home's row, and a till's month: the store's comparison reads neither.
+    await filed(row('00001'), { docNumber: `${SERIES_HOME}00001` })
+    await filed(row('00001'), { docTypeCode: '81', docNumber: '0000000001' })
+
+    const r = await compareBooksShadowOf(world.store.id, '202603')
+    expect(r.documents).toEqual({ books: 2, shadow: 3, compared: 2, booksOnly: 0, shadowOnly: 1, typeDiffers: 0, noNumber: 0, severalInShadow: 0 })
+    expect(r.compared).toEqual({
+      equal: 1, differs: 1, by: { revenue: 0, vat: 0, cost: 1, partner: 0, cash: 0, other: 0 },
+      cost: { groups: 0, average: 1 }, costSpread: { within05: 0, within5: 1, more: 0 },
+    })
+    const paths = new Map((await AccountingAnalytic.find({ orgId: world.store.id }).lean()).map(a => [String(a._id), a.path]))
+    expect(r.groups.map(g => [paths.get(g.analyticId), g.books, g.shadow, g.outcome])).toEqual([
+      // The books' cost of the 4th is not the average the day starts with (0.50).
+      [G1, { quantity: 24, cost: 12.2 }, { quantity: 24, cost: 12 }, 'within5'],
+      [G2, { quantity: 2, cost: 4 }, { quantity: 2, cost: 4 }, 'equal'],
+    ])
+    // The credit notice is the shadow's alone: the books have not booked it.
+    expect(r.costOfSales).toEqual({ books: 16.2, shadow: 16, outcome: 'within5', booksOnly: 0, shadowOnly: -0.99 })
+    expect(r.register).toEqual({ shadow: 3, filed: 2, equal: 1, differs: { base: 1 }, filedOnly: 0, shadowOnly: 1, several: 0 })
+  })
+
+  it('a document voided after its month is in that month in full, and its reversal in the month of the void', async () => {
+    await postShadowSales(world.store.id, { ...MARCH_RUN, execute: true, by: world.userId })
+    await Invoice.updateOne({ _id: world.docs.inv2 }, { $set: { status: 'voided' }, $push: { statusHistory: { status: 'voided', changedAt: new Date('2026-04-02T10:00:00.000Z') } } })
+    await postShadowSales(world.store.id, { from: '2026-03-01', to: '2026-04-30', execute: true, by: world.userId })
+    const march = await compareBooksShadowOf(world.store.id, '202603')
+    expect([march.documents.compared, march.documents.shadowOnly]).toEqual([2, 1])
+    const april = await compareBooksShadowOf(world.store.id, '202604')
+    expect([april.documents.books, april.documents.shadow, april.documents.shadowOnly]).toEqual([0, 1, 1])
+    expect(april.costOfSales.shadowOnly).toBe(-5)
+  })
+
+  it('refuses an org that keeps no books, and a period that is not one', async () => {
+    const other = await createTestOrg({ slug: `sh-plain-${seq}` } as never)
+    expect(await compareBooksShadowOf(String(other._id), '202603').then(() => 'ok', e => e.code)).toBe('not_a_books_org')
+    expect(await compareBooksShadowOf(world.store.id, '2026-03').then(() => 'ok', e => e.code)).toBe('bad_period')
+  })
+
+  it('the script prints counts only', async () => {
+    await postShadowSales(world.store.id, { ...MARCH_RUN, execute: true, by: world.userId })
+    const proc = Bun.spawn(['bun', join(REPO, 'scripts', 'compare-books-shadow.ts'), '--org', world.store.slug, '--from', '202603', '--to', '202604'], {
+      cwd: REPO, env: { ...process.env, MONGODB_URI: testDbUri() }, stdout: 'pipe', stderr: 'pipe',
+    })
+    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+    expect([code, code ? out + err : '']).toEqual([0, ''])
+    expect(out).toMatch(/\s2 {2}in both, compared/)
+    expect(out).toContain(`${world.store.slug} 202604: the books against the shadow`)
+    expect(out).toContain("The month's cost of sales over the compared documents: within 5%")
+    // April holds no document in both ledgers: nothing to judge, never "equal to the cent".
+    expect(out).toContain("The month's cost of sales over the compared documents: no document compared")
+    expect(out).not.toContain(SERIES_STORE)
+    expect(out).not.toContain('Тест')
+    expect(out).not.toMatch(/\d+\.\d{2}/)
   })
 })
 

@@ -365,7 +365,7 @@ async function write(orgId: string, homeOrg: string, by: string, work: { doc: an
 // ── the self-check ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** A stored line's side: as written, or, on a line from before sides were stored, the one that carries the amount. */
-const sideOf = (l: { side?: string; debit?: number; credit?: number }): 'debit' | 'credit' =>
+export const sideOf = (l: { side?: string; debit?: number; credit?: number }): 'debit' | 'credit' =>
   l.side === 'debit' || l.side === 'credit' ? l.side : Number(l.credit) && !Number(l.debit) ? 'credit' : 'debit'
 
 interface CheckedDocument { id: string; type: string; number: string; day: Date; voided: boolean; outcome: ShadowOutcome; doc: any }
