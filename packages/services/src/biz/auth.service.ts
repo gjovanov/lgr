@@ -1,6 +1,6 @@
 import { Code, Identity, LocalCredential, Org, User, OrgApp, type IIdentity, type IOrg, type IUser } from 'db/models'
 import { giveStartingRole, seedBuiltinRoles, startingRoleOf } from './access/role.service'
-import { homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
+import { HomeElsewhereError, homeNewOrg, isHomeHere, unhomeNewOrg } from 'db/home/home'
 import { MODULES, APP_IDS } from 'config/constants'
 import { liveRoleOf } from './access/live'
 import { NO_ROLE_MESSAGE } from './access/evaluate'
@@ -533,12 +533,29 @@ async function loginAsPerson(input: LoginInput): Promise<LoginResult> {
   return landInOrg(landing.user, identity, org, memberships)
 }
 
+/**
+ * The membership's `lastLoginAt`, where this node may write it: a sign-in never fails on it.
+ *
+ * FR-20.4: only the org's home writes its memberships, and off that home the write guard refuses
+ * this save too. An org homed on its own server is still run from lgrai.app, whose Servers page
+ * is where its admin turns relays on, moves it back or asks for its address, so a NEW sign-in into
+ * it must work there. It did not: the refused save turned every one into "Invalid credentials".
+ * Only that refusal passes. Callers save what else they changed on `member` before this.
+ */
+export async function stampLastLogin(member: IUser): Promise<void> {
+  member.lastLoginAt = new Date()
+  try {
+    await member.save()
+  } catch (err) {
+    if (!(err instanceof HomeElsewhereError)) throw err
+  }
+}
+
 /** The session for one membership: its claims, the person's landing preference, the timestamps. Every sign-in that lands in an org goes through here (password, OAuth). */
 export async function landInOrg(member: IUser, identity: IIdentity | null, org: IOrg, memberships?: Membership[]): Promise<LoginResult> {
   // FR-27 P3-2: the role decides every request, so a membership without one is told so here, not by a 403 on each page.
   if (!member.roleId) throw new LoginRefusedError('no_role', NO_ROLE_MESSAGE)
-  member.lastLoginAt = new Date()
-  await member.save()
+  await stampLastLogin(member)
   if (identity) {
     // The person's own sign-in into this org: where they land next time.
     await Identity.updateOne({ _id: identity._id }, { $set: { lastLoginAt: new Date(), lastOrgId: member.orgId } }).exec()
