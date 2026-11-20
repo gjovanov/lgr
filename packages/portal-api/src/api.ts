@@ -36,6 +36,7 @@ import { fiscalPeriodController } from 'accounting-api/src/controllers/fiscal-pe
 import { fixedAssetController } from 'accounting-api/src/controllers/fixed-asset.controller.js'
 import { bankAccountController } from 'accounting-api/src/controllers/bank-account.controller.js'
 import { analyticController } from 'accounting-api/src/controllers/analytic.controller.js'
+import { productGroupController } from 'accounting-api/src/controllers/product-group.controller.js'
 import { reconciliationController } from 'accounting-api/src/controllers/reconciliation.controller.js'
 import { taxReturnController } from 'accounting-api/src/controllers/tax-return.controller.js'
 import { vatController } from 'accounting-api/src/controllers/vat.controller.js'
@@ -239,8 +240,9 @@ export function createApiApp() {
         .use(fiscalPeriodController)
         .use(fixedAssetController)
         .use(bankAccountController)
-        // FR-25a §3.2: the books' analytic tree.
-        .use(analyticController)
+        // FR-25a §3.2: the books' analytic tree; FR-25 R3 slice 2: the review queue of the products' groups in it.
+        // One `.use` for both: the chain is as long as the type checker follows.
+        .use(new Elysia().use(analyticController).use(productGroupController))
         .use(reconciliationController)
         .use(taxReturnController)
         .use(vatController)

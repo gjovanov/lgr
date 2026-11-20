@@ -778,7 +778,7 @@ export function learnWithPartition(input: {
     contradicted: contradicted.size,
     distrusted: distrusted.size,
   }
-  const taughtBy = new Map(settled ? [...taught].flatMap(([id, votes]) => (votes.size ? [[id, [...votes.values()]] as const] : [])) : [])
-  const contradictedBy = new Map(settled ? [...excluded].map(([id, blamed]) => [id, [...blamed]] as const) : [])
+  const taughtBy = new Map<string, GroupVote[]>(settled ? [...taught].flatMap(([id, votes]): [string, GroupVote[]][] => (votes.size ? [[id, [...votes.values()]]] : [])) : [])
+  const contradictedBy = new Map<string, string[]>(settled ? [...excluded].map(([id, blamed]): [string, string[]] => [id, [...blamed]]) : [])
   return { plan, evidence: settled ? evidence : slice1Evidence, contradicted, taughtBy, contradictedBy, counts }
 }
