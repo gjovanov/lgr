@@ -8,6 +8,7 @@ import { BlobFrameError, decodeBlobChunk, isBlobFrame, type BlobChunk } from 'se
 import { acceptChunk, blobUnavailable, wantBlobs } from 'services/biz/replication/mirror-blobs'
 import { config } from 'config'
 import { loadActiveNode, NodeError, sanitizeHealth, verifyNodeToken, type NodeTokenClaims } from 'services/biz/node/node.service'
+import { countTraffic } from 'services/biz/node/node-traffic'
 import { meetsMinimum } from 'services/biz/desktop/version'
 import { issueLicences, licenceTerms } from 'services/biz/licence/licence-issue.service'
 import { logger } from 'services/logger'
@@ -34,7 +35,8 @@ import { podAddr } from '../tunnel/pod.js'
  *   and simply takes its own place back.
  *
  * Close codes: 4400 a malformed hello, 4401 unauthenticated, 4403 revoked, 4408 silent too long,
- * 4409 replaced by the same supervisor's newer connection.
+ * 4409 replaced by the same supervisor's newer connection, 4410 welcomed again (an org's home or the
+ * link level changed).
  *
  * Control (FR-20.57, FR-20.58, plan step P2-3a): the master's `health` every 60 s on the interactive
  * socket is kept on its node; a master older than `NODE_MIN_MASTER_VERSION` is answered
@@ -44,6 +46,12 @@ import { podAddr } from '../tunnel/pod.js'
  * `welcome`, then an `entitlements` frame when the terms change (re-checked every 10 minutes, and at
  * once on this pod when a sys-admin changes a pilot) and once a day regardless. ⚠ Sent to an
  * outdated master too: an old build that cannot update must not also lose its licence.
+ *
+ * Link levels (FR-20.54, AC 26): every frame an authenticated master sends is counted in global's
+ * record of its traffic (`node-traffic.ts`), by channel and kind, at the level global holds for it.
+ * The level is re-read with the row: when it changes (the master registered again), the bulk socket
+ * is welcomed again (4410 `level_changed`), so the pump pages only what the new level allows, and
+ * below Full the interactive socket carries no remote user (its streams end, the tunnel finds none).
  */
 
 export const UPLINK_PATH = '/api/node/v1/uplink'
@@ -66,6 +74,8 @@ interface Conn {
   tick: ReturnType<typeof setInterval> | null
   nodeId: string | null
   claims: NodeTokenClaims | null
+  /** FR-20.54: the node's link level on global, as of its last re-read. */
+  level: string | null
   bootNonce: string | null
   lastFrameAt: number
   lastSeenWrite: number
@@ -92,9 +102,11 @@ const conns = new WeakMap<any, Conn>()
 const byNode = new Map<string, Set<any>>()
 
 // FR-20.73 (P3-4b): the tunnel to an org's address rides the node's interactive socket, when it may.
+// FR-20.54: remote access through lgrai.app is Full only.
 setTunnelSocketLookup(nodeId => {
   for (const ws of byNode.get(nodeId) ?? []) {
-    if (conns.get(key(ws))?.ch === 'interactive' && isTrusted(ws)) return ws
+    const conn = conns.get(key(ws))
+    if (conn?.ch === 'interactive' && conn.level === 'full' && isTrusted(ws)) return ws
   }
   return null
 })
@@ -132,6 +144,7 @@ export function handleUplinkOpen(ws: any, channel: unknown): void {
     tick: null,
     nodeId: null,
     claims: null,
+    level: null,
     bootNonce: null,
     lastFrameAt: Date.now(),
     lastSeenWrite: 0,
@@ -166,6 +179,7 @@ export async function handleUplinkMessage(ws: any, raw: any): Promise<void> {
   const bytes = raw instanceof Uint8Array ? raw : raw instanceof ArrayBuffer ? new Uint8Array(raw) : null
   // FR-20.73 (P3-4b): the tunnel's data, on the interactive socket of a node that may carry it.
   if (bytes && isTunFrame(bytes)) {
+    tally(conn, 'tun-data', bytes.byteLength)
     if (conn.nodeId && conn.ch === 'interactive' && isTrusted(ws)) onTunnelData(ws, bytes)
     return
   }
@@ -175,11 +189,14 @@ export async function handleUplinkMessage(ws: any, raw: any): Promise<void> {
       close(ws, CLOSE.unauthenticated, 'unauthenticated')
       return
     }
+    // FR-20.54: counted as sent, whatever global then answers (a Control master's page is refused).
+    tally(conn, isPage(bytes) ? 'page' : 'blob', bytes.byteLength)
     if (isPage(bytes)) await pageFrame(ws, conn, bytes)
     else await blobFrame(ws, conn, bytes)
     return
   }
   const msg = parse(raw)
+  tally(conn, typeof msg?.t === 'string' ? msg.t : 'other', frameBytes(raw, bytes))
   if (!msg || typeof msg.t !== 'string') {
     send(ws, { t: 'error', code: 'bad_message', message: 'A frame is a JSON object with a `t`.' })
     return
@@ -193,6 +210,8 @@ export async function handleUplinkMessage(ws: any, raw: any): Promise<void> {
       return
     }
     await hello(ws, conn, msg)
+    // Counted once it named its node.
+    tally(conn, 'hello', frameBytes(raw, bytes))
     return
   }
 
@@ -226,6 +245,22 @@ export async function handleUplinkMessage(ws: any, raw: any): Promise<void> {
 
 const ZSTD = [0x28, 0xb5, 0x2f, 0xfd]
 const isPage = (b: Uint8Array) => b.length > ZSTD.length && ZSTD.every((x, i) => b[i] === x)
+
+/** FR-20.54 (AC 26): one frame of an authenticated master, in global's record of its traffic. */
+function tally(conn: Conn, name: string, size: number): void {
+  if (conn.nodeId && conn.ch) countTraffic(conn.nodeId, conn.level, conn.ch, name, size)
+}
+
+/** A frame's size as received. A text frame Elysia parsed already is measured as its JSON. */
+function frameBytes(raw: any, bytes: Uint8Array | null): number {
+  if (bytes) return bytes.byteLength
+  if (typeof raw === 'string') return Buffer.byteLength(raw)
+  try {
+    return Buffer.byteLength(JSON.stringify(raw) ?? '')
+  } catch {
+    return 0
+  }
+}
 
 /**
  * One mirror page from an authenticated master, on its bulk socket (FR-20.64–20.66): applied, and
@@ -344,6 +379,7 @@ async function hello(ws: any, conn: Conn, msg: any): Promise<void> {
   conn.helloTimer = null
   conn.nodeId = node._id
   conn.claims = claims
+  conn.level = node.linkLevel
   conn.bootNonce = msg.bootNonce
   if (!byNode.has(node._id)) byNode.set(node._id, new Set())
   byNode.get(node._id)!.add(ws)
@@ -487,6 +523,8 @@ export async function tickConn(ws: any, now = Date.now()): Promise<void> {
     close(ws, revoked ? CLOSE.revoked : CLOSE.unauthenticated, revoked ? 'node_revoked' : 'key_rotated')
     return
   }
+  // FR-20.54: registered again at another level, on any pod.
+  if (relevel(ws, conn, node.linkLevel)) return
   const row: any = await NodePresence.findOne({ nodeId: conn.nodeId, channel: conn.ch }).lean()
   if (!row) {
     // Nobody holds the row (its holder closed, or the floor removed it): take it again.
@@ -538,6 +576,34 @@ export function rewelcomeNode(nodeId: string): number {
     if (conns.get(key(ws))?.ch !== 'bulk') continue
     close(ws, CLOSE.homeChanged, 'home_changed')
     n++
+  }
+  return n
+}
+
+/**
+ * FR-20.54: this socket's node is linked at `level` now. Below Full, a remote user's streams on the
+ * interactive socket end; a bulk socket is closed (4410 `level_changed`) and welcomed again, since its
+ * welcome told the pump which orgs to page. True when the socket was closed for it.
+ */
+function relevel(ws: any, conn: Conn, level: string): boolean {
+  if (conn.level === level) return false
+  logger.info({ nodeId: conn.nodeId, ch: conn.ch, from: conn.level, to: level }, 'Uplink: the link level changed')
+  conn.level = level
+  if (conn.ch === 'interactive' && level !== 'full') onTunnelSocketClosed(ws)
+  if (conn.ch !== 'bulk') return false
+  close(ws, CLOSE.homeChanged, 'level_changed')
+  return true
+}
+
+/**
+ * FR-20.54: a node registered again, maybe at another level. Its sockets on this process take the
+ * level at once; any other process does on its next tick. Returns how many sockets were closed.
+ */
+export function relinkNode(nodeId: string, level: string): number {
+  let n = 0
+  for (const ws of [...(byNode.get(nodeId) ?? [])]) {
+    const conn = conns.get(key(ws))
+    if (conn?.nodeId && relevel(ws, conn, level)) n++
   }
   return n
 }

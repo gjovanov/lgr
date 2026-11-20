@@ -128,6 +128,8 @@ export {
   NodeAssertion, type INodeAssertion,
 } from './node-enrollment.model.js'
 export { NodePresence, type INodePresence, UPLINK_CHANNELS, type UplinkChannel } from './node-presence.model.js'
+// What each master sent global, per day, level and channel (FR-20.54, AC 26). Global only.
+export { NodeTraffic, type INodeTraffic, TRAFFIC_CHANNELS, TRAFFIC_CARRIES, type TrafficChannel, type TrafficCarries } from './node-traffic.model.js'
 export { FiscalPresence, type IFiscalPresence, FISCAL_HOLDER_KINDS, type FiscalHolderKind } from './fiscal-presence.model.js'
 // A pilot licence a sys-admin issued for an org on a master (FR-20.55). Global only.
 export { OrgLicence, type IOrgLicence } from './org-licence.model.js'

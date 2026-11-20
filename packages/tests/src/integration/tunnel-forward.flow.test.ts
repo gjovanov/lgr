@@ -53,7 +53,8 @@ async function shop(label: string, opts: { connect?: boolean } = {}) {
   const admin = await createTestUser(org._id, { role: 'admin' } as any)
   const stub = makeNodeStub()
   const { code } = await mintNodeEnrollmentCode(String(org._id), String(admin._id))
-  await enrollNode({ ...nodeEnrollBody(stub, ENROLL), code } as any, [ENROLL])
+  // FR-20.54: remote access through lgrai.app is Full only.
+  await enrollNode({ ...nodeEnrollBody(stub, ENROLL, { linkLevel: 'full' }), code } as any, [ENROLL])
   const token = (await issueNodeToken(stub.assertion({ sub: stub.nodeId, audience: TOKEN }), [TOKEN])).token
   await OrgAddress.collection.insertOne({ label, orgId: org._id, state: 'active', requestedBy: 'u', requestedAt: new Date() } as any)
   await OrgHome.collection.insertOne({ orgId: org._id, home: stub.nodeId, epoch: 1, state: 'active', since: new Date() } as any)

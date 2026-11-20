@@ -76,12 +76,13 @@ const until = async <T>(f: () => T | undefined | null | false, ms = 5000): Promi
 }
 
 /** An org homed on a registered server with an active address, and the server connected. */
-async function shop(label = 'shop-a', opts: { connect?: boolean; state?: string; noticeUntil?: Date; home?: 'node' | 'global' } = {}) {
+async function shop(label = 'shop-a', opts: { connect?: boolean; state?: string; noticeUntil?: Date; home?: 'node' | 'global'; level?: 'full' | 'control' } = {}) {
   const org = await createTestOrg({ slug: label } as any)
   const admin = await createTestUser(org._id, { role: 'admin' } as any)
   const stub = makeNodeStub()
   const { code } = await mintNodeEnrollmentCode(String(org._id), String(admin._id))
-  await enrollNode({ ...nodeEnrollBody(stub, ENROLL), code } as any, [ENROLL])
+  // FR-20.54: remote access through lgrai.app is Full only.
+  await enrollNode({ ...nodeEnrollBody(stub, ENROLL, { linkLevel: opts.level ?? 'full' }), code } as any, [ENROLL])
   const token = (await issueNodeToken(stub.assertion({ sub: stub.nodeId, audience: TOKEN }), [TOKEN])).token
   await OrgAddress.collection.insertOne({ label, orgId: org._id, state: opts.state ?? 'active', requestedBy: 'u', requestedAt: new Date(), ...(opts.noticeUntil ? { noticeUntil: opts.noticeUntil } : {}) } as any)
   if ((opts.home ?? 'node') === 'node') {
@@ -124,6 +125,10 @@ describe('the address in the Host (FR-20.72)', () => {
     expect((await call(req('https://asked-only.lgrai.app/', { headers: AUTH })))!.status).toBe(404)
     await shop('lives-on-global', { home: 'global' })
     expect((await call(req('https://lives-on-global.lgrai.app/', { headers: AUTH })))!.status).toBe(404)
+    // FR-20.54: a server linked at Control is not reachable through lgrai.app, connected or not.
+    const control = await shop('control-shop', { level: 'control' })
+    expect((await call(req('https://control-shop.lgrai.app/', { headers: AUTH })))!.status).toBe(404)
+    expect(control.node.opens()).toHaveLength(0)
     await shop('retired-shop', { state: 'retired', noticeUntil: new Date(Date.now() + 86_400_000) })
     const retired = await call(req('https://retired-shop.lgrai.app/'))
     expect([retired!.status, await retired!.text()]).toEqual([410, expect.stringContaining('This address was retired')])

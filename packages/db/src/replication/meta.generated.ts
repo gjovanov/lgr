@@ -60,6 +60,7 @@ export const REPLICATION_META: Readonly<Record<string, Readonly<MetaEntry>>> = {
   NodeInstance: { collection: 'node_instance', class: 'N', orgPath: null },
   NodePresence: { collection: 'node_presence', class: 'N', orgPath: null },
   NodeState: { collection: 'node_state', class: 'N', orgPath: null },
+  NodeTraffic: { collection: 'node_traffic', class: 'N', orgPath: null },
   Notification: { collection: 'notifications', class: 'N', orgPath: 'orgId' },
   OAuthHandoff: { collection: 'oauthhandoffs', class: 'N', orgPath: 'orgId' },
   OAuthPendingRegistration: { collection: 'oauthpendingregistrations', class: 'N', orgPath: null },

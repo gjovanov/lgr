@@ -243,6 +243,26 @@ and `…?ch=bulk` (`portal-api/src/websocket/uplink.ts`, mounted on global only)
   - A master older than `NODE_MIN_MASTER_VERSION`, or naming no version, gets `master_outdated`.
     It stays connected for its update, and `isTrusted` is false.
   - `/admin/nodes` lists every master across orgs, for the `BACKUP_SYS_ADMINS` allow-list.
+- **What a master sent (FR-20.54, AC 26).** Global keeps a record of each master's traffic in
+  `node_traffic` (`services/biz/node/node-traffic.ts`): per UTC day, link level, channel
+  (`interactive`, `bulk`, `http`) and kind of message, how many and how many bytes, and what that kind
+  carries: `control`, `mail`, `documents`, `mirror`, `tunnel`, `move`, or `unknown`. It is what
+  proves "Control means control": at Control, a day holds `control` rows, and `mail` or `documents`
+  only for a relayed service the org turned on.
+  - Counted when received, whatever global then answered: a page global refused was still sent. Only
+    an authenticated master's traffic counts (frames after `hello`, requests with a node token).
+  - ⚠ A kind comes from a closed list in that file, never from what the master wrote: a frame type
+    or route not on it is `other`, which carries `unknown`. A new frame or `/api/node/v1` route goes
+    on the list with what it carries.
+  - Counted in memory and written every 30 s by the `node-traffic` scheduler on each pod (rows from
+    several pods add up), and once more on a graceful stop. Kept 90 days.
+  - `GET /api/admin/nodes/:id/traffic?day=YYYY-MM-DD` (or `?days=N`, 7 by default), for the
+    sys-admin list.
+- **The link level is re-read with the row (FR-20.54).** When a master registers again at another
+  level, its bulk socket is closed 4410 `level_changed` and welcomed again, so the pump pages only
+  what the new level allows; below Full its remote users' streams end, and an org's address answers
+  like none (remote access through lgrai.app is Full only). On the pod that took the registration at
+  once, on the others within a tick.
 - **Alarms (P3-8, FR-20.101).** The health frame also says the volume's size, how far back the
   oplog reaches (once it wraps: until then nothing is lost however long a capture stops), the
   server's clock (lgrai.app keeps the skew), its newest backup, the orgs it is fenced for, and what
