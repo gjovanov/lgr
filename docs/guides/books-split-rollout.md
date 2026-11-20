@@ -370,9 +370,18 @@ is `<home>` (FR-25 §9, "P1 into the home"). In order, each write on the owner's
    bun scripts/drop-org.ts drop   --org <books> --id <its id> --bundle <path> --sha256 <hex> --execute
    ```
 
-   The drop refuses unless the slug and the id name the same org, its home is here, every membership is switched off,
-   nothing outside it points at it, and the bundle verifies and holds at least every row the org holds now. A person's
-   `passwordSetByOrgId` may keep naming it: that field records which org's admin set a password, and nothing reads it.
-   The bundle does not carry the org's own document, so the drop writes that beside the bundle (`…-org.json`) before
-   it deletes anything, and it ends by counting what is left under the id, which must be 0. The people stay: they are
-   global, and the bundle carries them for a restore.
+   The drop refuses unless:
+   - the slug and the id name the same org, and its home is here;
+   - every membership is switched off (with a `deactivatedAt`) and no invite is open;
+   - nothing outside it points at it: no other org, no person, no other org's membership and no global registry;
+   - none of its rows are node state;
+   - the bundle is a full one of this org, verifies against the sha256 it was written with, and holds every live row
+     with the same content.
+
+   A person's `passwordSetByOrgId` may keep naming it: that field records which org's admin set a password, and nothing
+   reads it.
+
+   Before any delete, the drop writes the org's own document, which no bundle carries, beside the bundle (`…-org.json`,
+   mode 600). The file also holds the org's operational records and leaves out its cloud-storage tokens. The drop
+   deletes only the rows it proved, by id. It deletes the org last, once nothing is left under the id. A run that stopped
+   part way can be run again with the same bundle. The people stay: they are global, and the bundle holds a copy of them.
