@@ -73,6 +73,34 @@ pub fn pdf_browser(paths: &Paths, operator: &BTreeMap<String, String>) -> Option
     operator.get("PUPPETEER_EXECUTABLE_PATH").map(PathBuf::from).or_else(|| paths.chrome.clone())
 }
 
+/// Whether the PDF browser starts at all: `--version` loads every library it links, then exits. On
+/// Linux those come from the machine, and a browser that is there can still not load: on Ubuntu 24.04
+/// apt once gave the .deb OSS4's stand-in for libasound2, which lacks a symbol Chrome needs, and no PDF
+/// printed while the log said they would (#896, nfpm.yaml). On Windows the package carries all it loads, and
+/// this is not asked. `Err` says why, in the browser's own first line.
+pub async fn pdf_browser_starts(browser: &Path) -> Result<(), String> {
+    if cfg!(windows) {
+        return Ok(());
+    }
+    let run = tokio::process::Command::new(browser)
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true)
+        .output();
+    match tokio::time::timeout(std::time::Duration::from_secs(20), run).await {
+        Err(_) => Err("it did not answer --version within 20 s".to_string()),
+        Ok(Err(e)) => Err(format!("it cannot be run: {e}")),
+        Ok(Ok(out)) if out.status.success() => Ok(()),
+        Ok(Ok(out)) => {
+            let said = String::from_utf8_lossy(&out.stderr);
+            let first: String = said.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").chars().take(300).collect();
+            Err(if first.is_empty() { format!("it ended with {}", out.status) } else { first })
+        }
+    }
+}
+
 /// `KEY=VALUE` lines. Blank lines and `#` comments are skipped; values are taken as written.
 pub fn parse_env(text: &str) -> BTreeMap<String, String> {
     text.lines()
@@ -364,6 +392,31 @@ mod tests {
         std::fs::write(paths.data.join("config").join("api.env"), "PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium\n").unwrap();
         assert_eq!(api_spec(&paths, None, None).unwrap().env["PUPPETEER_EXECUTABLE_PATH"], "/usr/bin/chromium");
         assert_eq!(pdf_browser(&paths, &operator_env(&paths).unwrap()), Some(PathBuf::from("/usr/bin/chromium")));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_pdf_browser_that_cannot_load_says_why() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let fake = |name: &str, body: &str| {
+            let p = dir.path().join(name);
+            std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        // What OSS4's stand-in for libasound2 made of the package's Chrome on Ubuntu 24.04.
+        let broken = fake(
+            "broken",
+            "echo 'chrome-headless-shell: symbol lookup error: chrome-headless-shell: undefined symbol: snd_device_name_get_hint, version ALSA_0.9' >&2\nexit 127",
+        );
+        let why = pdf_browser_starts(&broken).await.unwrap_err();
+        assert!(why.contains("undefined symbol: snd_device_name_get_hint"), "{why}");
+        assert_eq!(pdf_browser_starts(&fake("fine", "echo 'Chrome 140.0.7339.80'")).await, Ok(()));
+        let silent = pdf_browser_starts(&fake("silent", "exit 3")).await.unwrap_err();
+        assert!(silent.starts_with("it ended with") && silent.contains('3'), "{silent}");
+        let missing = pdf_browser_starts(&dir.path().join("missing")).await.unwrap_err();
+        assert!(missing.starts_with("it cannot be run"), "{missing}");
     }
 
     #[test]

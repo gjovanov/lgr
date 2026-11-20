@@ -315,7 +315,18 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
         // FR-20.25: loud, never fatal. Without its browser a master still sells and books; it
         // prints no invoice or report as a PDF.
         match config::pdf_browser(&paths, &operator) {
-            Some(b) if b.exists() => tracing::info!(browser = %b.display(), "PDFs print with this browser"),
+            // Said once it has started, and asked in the background: a start never waits on it.
+            Some(b) if b.exists() => {
+                tokio::spawn(async move {
+                    match config::pdf_browser_starts(&b).await {
+                        Ok(()) => tracing::info!(browser = %b.display(), "PDFs print with this browser"),
+                        Err(why) => tracing::warn!(
+                            browser = %b.display(),
+                            "the PDF browser does not start, so no invoice or report prints as a PDF: {why}"
+                        ),
+                    }
+                });
+            }
             Some(b) => tracing::warn!(browser = %b.display(), "the PDF browser is not there: no invoice or report prints as a PDF"),
             None => tracing::warn!(
                 "no PDF browser: no invoice or report prints as a PDF (the package carries one in chrome/; LGR_SERVER_CHROME names another)"

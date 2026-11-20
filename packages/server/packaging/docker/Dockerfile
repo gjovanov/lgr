@@ -41,6 +41,8 @@ RUN groupadd --system --gid "${LGR_GID}" lgr \
 #   never installs another one.
 # - tini: PID 1. tzdata: TZ names the shop's zone. ca-certificates: the supervisor trusts lgrai.app
 #   through the OS's roots. The fonts are the package's Recommends (Cyrillic in printed documents).
+# - The PDF browser must start: its libraries are the ones apt chose here, and a stand-in that every
+#   library check passes once left an image whose Chrome could not load (#896, nfpm.yaml).
 RUN --mount=type=bind,source=lgr-server.deb,target=/tmp/lgr-server.deb \
     set -eux; \
     export DEBIAN_FRONTEND=noninteractive; \
@@ -53,6 +55,7 @@ RUN --mount=type=bind,source=lgr-server.deb,target=/tmp/lgr-server.deb \
     install -d -o lgr -g lgr -m 0750 /run/lgr-server; \
     test "$(readlink /opt/lgr-server/current)" = "versions/${VERSION}"; \
     test "$(id -u lgr):$(id -g lgr)" = "${LGR_UID}:${LGR_GID}"; \
+    /opt/lgr-server/current/chrome/chrome-headless-shell --version; \
     /opt/lgr-server/current/lgr-server --version
 
 # LGR_SERVER_IMAGE: what `update apply` and the status name when they say how this server updates.
