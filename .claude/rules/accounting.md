@@ -196,5 +196,12 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
   the day). A new input to `loadLearning` joins the stamps, or the queue shows a reading that no longer holds for up to
   30 minutes.
 
+- ⚠ **An evidence document's `day` is its UTC midnight: `formatDate(day)`, with no `timeZone`.** The formatter reads a
+  UTC midnight as that day wherever the browser is; a zone made it a moment, and east of UTC the page showed the day
+  before.
+
+- ⚠ **The org a sign-in returns has no `settings`; `/auth/me` brings them.** Until then `isBooksOrg` is false, so the
+  page waits for them (`settingsKnown`) before it says the org keeps no books or asks for the queue.
+
 - Confirm only an `exact` or a `learned` row: slice 3 posts by `POSTABLE_SOURCES`, so a reviewed `rule` or `ai` row
   would be the accountant's and post nothing. The accountant sets those.

@@ -1,5 +1,5 @@
 <template>
-  <v-container v-if="orgKnown && !books" fluid>
+  <v-container v-if="settingsKnown && !books" fluid>
     <h1 class="text-h5 mb-4">{{ $t('accounting.productGroups.title') }}</h1>
     <v-alert type="info" variant="tonal" data-testid="product-groups-not-books">{{ $t('accounting.productGroups.notBooks') }}</v-alert>
   </v-container>
@@ -47,7 +47,12 @@
     </template>
 
     <template #item.name="{ item }">
-      <entity-link class="cell-clip product-cell" :label="item.name || item.productId" :to="productPath(item.productId)" :title="item.name" />
+      <entity-link
+        class="cell-clip product-cell"
+        :label="item.name || item.productId"
+        :to="productPath(item.productId)"
+        :title="item.sku ? `${item.name} · ${item.sku}` : item.name"
+      />
     </template>
     <template #item.state="{ item }">
       <v-chip size="small" label :color="stateColor(item.state)">{{ $t(stateLabelKey(item.state)) }}</v-chip>
@@ -216,7 +221,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '../../store/app.store'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
@@ -280,9 +285,11 @@ const PAGE_SIZES = [
   { value: 100, title: '100' },
 ]
 
-const orgKnown = computed(() => !!appStore.currentOrg)
-// The session's org carries its settings (`/auth/me`), which the store's type does not name.
-const books = computed(() => isBooksOrg(appStore.currentOrg as { settings?: unknown } | null))
+// The org's settings come with `/auth/me` (the store's type does not name them); a sign-in's org has none yet. Until
+// they come the page neither asks for the queue nor says the org keeps no books.
+const sessionOrg = computed(() => appStore.currentOrg as { settings?: unknown } | null)
+const settingsKnown = computed(() => !!sessionOrg.value?.settings)
+const books = computed(() => isBooksOrg(sessionOrg.value))
 const currency = computed(() => appStore.currentOrg?.baseCurrency || 'EUR')
 const base = () => `${appStore.orgUrl()}/accounting/product-groups`
 
@@ -343,7 +350,8 @@ onBeforeUnmount(() => {
 const headers = computed(() => [
   { title: '', key: 'data-table-expand', sortable: false, width: 36 },
   { title: t('accounting.productGroups.product'), key: 'name', sortable: true },
-  { title: t('accounting.productGroups.sku'), key: 'sku', sortable: false },
+  // Hidden until the cog shows it (the name's title carries it): a row offering all three buttons fits 1366 px then.
+  { title: t('accounting.productGroups.sku'), key: 'sku', sortable: false, defaultHidden: true },
   { title: t('accounting.productGroups.state'), key: 'state', sortable: false },
   { title: t('accounting.productGroups.group'), key: 'group', sortable: false },
   { title: t('accounting.productGroups.value'), key: 'value', sortable: true, align: 'end' as const },
@@ -381,7 +389,9 @@ const emptyState = computed(() => (filter.value === 'todo' && !hasActiveFilters.
 
 // ── the rows' words ──
 
-const day = (d: string | undefined) => formatDate(d, { timeZone: 'UTC' })
+// A document's day comes as its UTC midnight, which the formatter reads as that day wherever the browser is: a zone
+// here would turn it into a moment and show the day before, east of UTC.
+const day = (d: string | undefined) => formatDate(d)
 const analyticPath = (id: string) => answer.value?.analytics[id]?.path ?? groups.value.find(g => g.id === id)?.path ?? id
 const analyticLabel = (id: string) => groupLabel(analyticPath(id))
 const isActiveGroup = (id: string) => groups.value.some(g => g.id === id && g.active)
@@ -473,17 +483,22 @@ function saveDialog() {
   if (row && analyticId) setGroup(row, analyticId)
 }
 
+// Who may set a group gets the picker's groups once the org is known to keep books: the rows' "use this group" too.
+watch(books, isBooks => {
+  if (isBooks && can('accounts.edit') && !groups.value.length) void loadGroups()
+}, { immediate: true })
+
 onMounted(() => {
-  if (books.value && can('accounts.edit')) void loadGroups()
   void fetchItems()
 })
 </script>
 
 <style scoped>
+/* FR-22.23: one line per row on a 1366 px laptop, with a row's three buttons; a wide screen shows more of each. */
 .product-cell {
-  --cell-clip: 26em;
+  --cell-clip: min(26em, 19vw);
 }
 .group-cell {
-  --cell-clip: 24em;
+  --cell-clip: min(24em, 17vw);
 }
 </style>

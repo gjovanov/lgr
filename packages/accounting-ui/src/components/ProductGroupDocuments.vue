@@ -12,7 +12,7 @@
       <tbody>
         <tr v-for="d in documents" :key="`${d.docId}:${d.rule}:${d.groupId ?? ''}`">
           <td><entity-link :label="d.number" :to="documentPath(d)" /></td>
-          <td>{{ formatDate(d.day, { timeZone: 'UTC' }) }}</td>
+          <td>{{ formatDate(d.day) }}</td>
           <td>{{ docType(d.type) }}</td>
           <td>{{ $t(ruleLabelKey(d.rule)) }}</td>
         </tr>
