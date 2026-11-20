@@ -423,4 +423,22 @@ describe('restoring a bundle', () => {
     await PersonalDataKey.collection.updateOne({ _id: live._id }, { $set: { keys: row.keys } })
     plan.finished(orgId)
   })
+
+  it('brings a lost key row back from a bundle line as the database holds one, and the org\'s values open with it', async () => {
+    const { raw, row } = await bundleOf(await createSealed())
+    // A bundle line is JSON (`backup-restore.service.ts#readBundle`): every id and date in it is a string.
+    const line = (doc: any) => JSON.parse(JSON.stringify(doc))
+    await PersonalDataKey.collection.deleteOne({ _id: row._id })
+    clearVaultCache()
+    const plan = await planPersonalDataRestore(new Map<string, any[]>([['Employee', [line(raw)]], ['PersonalDataKey', [line(row)]]]), null)
+    expect((await plan.applyKeyRow(orgId)).inserted).toBe(1)
+    plan.finished(orgId)
+
+    const stored: any = await PersonalDataKey.collection.findOne({ orgId: row.orgId })
+    expect(stored).toEqual(row)
+    expect(await PersonalDataKey.collection.countDocuments({ orgId: String(row.orgId) } as never)).toBe(0)
+    const opened = await (await forOrg(orgId)).open<any>('Employee', String(raw._id), 'personal', raw.personal)
+    expect(opened.nationalId).toBe(FAKE_EGN)
+    expect(await PersonalDataKey.collection.countDocuments({ orgId: row.orgId })).toBe(1)
+  })
 })
