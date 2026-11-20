@@ -393,14 +393,14 @@ const theOne = (candidates: EntryCandidate[]) => (candidates.length === 1 ? cand
 
 /**
  * The entry a link names (§3.6): by its type and number and this entry's partner, since a number is unique only per
- * partner (FR-25 §11); the link's date settles a tie. Never this entry itself, never a voided one.
+ * partner (FR-25 §11); the link's date settles a tie. The books' ledger only: never this entry itself, never a voided one.
  */
 export function pickLinkedEntry(
   link: { docType: string; docNumber: string; date?: Date | string | null },
   self: { id?: string; partnerAnalyticId?: string | null },
   candidates: EntryCandidate[],
 ): string | undefined {
-  let found = candidates.filter(c => c.id !== self.id && c.status !== 'voided' && c.docType === link.docType && sameDocNumber(c.docNumber, link.docNumber))
+  let found = candidates.filter(c => c.id !== self.id && c.status !== 'voided' && c.ledger !== 'shadow' && c.docType === link.docType && sameDocNumber(c.docNumber, link.docNumber))
   if (self.partnerAnalyticId) found = found.filter(c => !c.partnerAnalyticId || c.partnerAnalyticId === self.partnerAnalyticId)
   return theOne(onTheDay(found, link.date))
 }

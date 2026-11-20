@@ -132,6 +132,9 @@ export const lowerBg = (s: string) => s.toLocaleLowerCase('bg')
 /** The series an imported entry's number is drawn from. */
 export const ENTRY_NUMBER_PREFIX = 'PM'
 
+/** The series a shadow posting's number is drawn from (FR-25 R3). */
+export const SHADOW_ENTRY_NUMBER_PREFIX = 'SH'
+
 /**
  * FR-25a: how a document is paid (`ПЛАЩАНЕ`, which the file writes a second time as `ВИДПЛА`), by its code as booked.
  * Read off the accountant's whole journal, not guessed: a document coded `1` settles in cash on its own operations
@@ -148,6 +151,19 @@ export const VAT_OUTPUT_ACCOUNT = '4532'
 /** Where a bank account's money is booked: the local-currency one, and the foreign-currency one. */
 export const BANK_ACCOUNT_LOCAL = '503'
 export const BANK_ACCOUNT_FOREIGN = '504'
+
+/**
+ * FR-25 R3: the accounts a sales document is booked on (§1.4), as the posting rules are seeded with them
+ * (`posting-rule-seed.ts`). Data from then on: a rule names a code, and the accountant may change it.
+ */
+export const GOODS_ACCOUNT = '304'
+export const CUSTOMERS_ACCOUNT = '411'
+export const CASH_ACCOUNT = '501'
+export const GOODS_REVENUE_ACCOUNT = '702'
+export const SERVICES_REVENUE_ACCOUNT = '703'
+
+/** The books' sales invoice. A debit or credit notice is the same type, told apart by its register type (`registerDocType`). */
+export const SALES_INVOICE_DOC_TYPE = '-ФЕ'
 
 /**
  * The euro changeover. Anything before it is BGN in the source, and PlusMinus converts at read time;

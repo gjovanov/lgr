@@ -170,6 +170,8 @@ export interface IJournalEntry extends TenantEntity {
   importHash?: string
   /** FR-29.14: the posting an event handler made this entry for (`config/posting-keys`). */
   postingKey?: string
+  /** FR-25 R3: on a shadow posting, the hash of what it books. */
+  postingHash?: string
 }
 
 // ── FixedAsset ──

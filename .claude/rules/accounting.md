@@ -16,6 +16,8 @@ paths:
   - "scripts/*vat*"
   - "scripts/*books*"
   - "scripts/*product-groups*"
+  - "scripts/*posting-rules*"
+  - "scripts/*shadow*"
 ---
 
 # Rules and traps: Accounting, payroll and sealed personal data
@@ -150,3 +152,35 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 
 - ⚠ **Never leave a goods line out to make the sums meet.** A goods line the books carry as a service is exactly the
   line that must not be taught: when LGR's goods total is not the books', the document teaches nothing.
+
+## A store's sales posted into the shadow ledger (2026-11-20, FR-25 R3, slice 3)
+
+- ⚠ **A shadow posting carries its document's `sourceId`, `docType` and `docNumber`.** A lookup by any of
+  them (an invoice's own entries, the entry a link or a register row names) leaves the shadow ledger out
+  (`BOOKS_LEDGER`, `POSTED_BOOKS`, or `ledger !== 'shadow'` in a picker), or it finds two entries where it
+  wants one. The journal list shows shadow only when asked (`ledger=shadow`).
+
+- ⚠ **Shadow is written directly, as posted, and never through `postJournalEntry` or a path that moves
+  `Account.balance`.** Nothing reads it but the comparison, so nothing may be built from it.
+
+- ⚠ **A shadow posting is never written over.** It is idempotent on `postingKey`
+  `shadow:invoice:<document>:<revision>` and its `postingHash`: a document that books otherwise reverses the
+  live revision on its own day (the same lines, negative, on the same sides) and posts the next; a void reverses
+  it on the void's business day.
+
+- ⚠ **A credit notice and a reversal post negative amounts on the same sides** as the invoice, quantities too,
+  as the books do. The sign is the document's, never a rule's.
+
+- ⚠ **The shadow cost of sales is the books' own group average at the START of the sale's business day**
+  (`costBasis: 'books'`): the company's 304 lines per group path, summed in Mongo across every org of the split,
+  from the last imported opening. The sale's day never counts; no quantity on hand keeps the last average; a group
+  the books never held is refused (`no_cost`), not guessed.
+
+- ⚠ **The shadow register row goes in the HOME**, which holds the VAT files under R7, with `ledger: 'shadow'` and
+  `source: { orgId, kind: 'invoice', id }` naming the store's document. One row per document and ledger
+  (`vat_row_source_unique`); a frozen row is never touched.
+
+- **The commands.** `scripts/seed-posting-rules.ts --org <slug> [--execute]` once per books org, then
+  `scripts/post-shadow-sales.ts --org <slug> --from <day> --to <day> [--execute]`. Both are dry runs by default
+  and print counts only; the dry run's self-check against the accountant's entries is what to read before any
+  `--execute`.

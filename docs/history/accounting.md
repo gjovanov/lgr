@@ -148,3 +148,37 @@ counts. Rules, caps and the anchor rule: FR-25 §9, "Partition, as built".
   line that must not be taught: when LGR's goods total is not the books', the document teaches nothing.
 - **Tests:** `unit/product-group-partition.test.ts` (the search against trying every assignment, each guard, the
   passes and restarts, shuffled input, a second run), `integration/product-groups-partition.flow.test.ts`.
+
+## A store's sales posted into the shadow ledger (2026-11-20, FR-25 R3, slice 3)
+
+LGR books an org's own sales invoices, debit and credit notices the way the accountant does (§1.4), into
+`ledger: 'shadow'`, beside the books it imports, so that the two can be compared before LGR takes the books over
+(R6). `PostingRule` (§3.7) holds the patterns as data, seeded per books org by
+`accounting-books/posting-rule-seed.ts` (four rules a kind of document: the goods at the group's cost and their
+net, the services' net, the VAT and its register row, the cash paid at issue). `shadow-sales.ts` turns one
+document into an entry and its register row, or into the first reason it cannot post (import-pure);
+`group-cost.ts` + `group-cost.service.ts` give the books' own cost of a group as of a day; `shadow-compare.ts`
+says where a posting differs from the accountant's entry of the same number; `shadow-sales.service.ts` runs a
+period. Scripts: `scripts/seed-posting-rules.ts` and `scripts/post-shadow-sales.ts`, dry runs by default, counts
+only. Plan, decisions and the dry run's counters: FR-25 §9, "R3, slice 3, as built".
+- ⚠ **A shadow posting carries its document's `sourceId`, `docType` and `docNumber`.** A lookup by any of
+  them (an invoice's own entries, the entry a link or a register row names) leaves the shadow ledger out
+  (`BOOKS_LEDGER`, `POSTED_BOOKS`, or `ledger !== 'shadow'` in a picker), or it finds two entries where it
+  wants one. The journal list shows shadow only when asked (`ledger=shadow`).
+- ⚠ **Shadow is written directly, as posted, and never through `postJournalEntry` or a path that moves
+  `Account.balance`.** Nothing reads it but the comparison, so nothing may be built from it.
+- ⚠ **A shadow posting is never written over.** It is idempotent on `postingKey`
+  `shadow:invoice:<document>:<revision>` and its `postingHash`: a document that books otherwise reverses the
+  live revision on its own day (the same lines, negative, on the same sides) and posts the next; a void reverses
+  it on the void's business day.
+- ⚠ **A credit notice and a reversal post negative amounts on the same sides** as the invoice, quantities too,
+  as the books do. The sign is the document's, never a rule's.
+- ⚠ **The shadow cost of sales is the books' own group average at the START of the sale's business day**
+  (`costBasis: 'books'`): the company's 304 lines per group path, summed in Mongo across every org of the split,
+  from the last imported opening. The sale's day never counts; no quantity on hand keeps the last average; a group
+  the books never held is refused (`no_cost`), not guessed.
+- ⚠ **The shadow register row goes in the HOME**, which holds the VAT files under R7, with `ledger: 'shadow'` and
+  `source: { orgId, kind: 'invoice', id }` naming the store's document. One row per document and ledger
+  (`vat_row_source_unique`); a frozen row is never touched.
+- **Tests:** `unit/shadow-sales.test.ts`, `unit/shadow-cost-compare.test.ts`, `integration/shadow-sales.flow.test.ts`
+  (a home and a store end to end, and every reading of their books the same after a run).

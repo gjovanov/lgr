@@ -40,9 +40,16 @@ export { Account, type IAccount } from './account.model.js'
 export { FiscalYear, type IFiscalYear } from './fiscal-year.model.js'
 export { FiscalPeriod, type IFiscalPeriod } from './fiscal-period.model.js'
 export { PostingJob, type IPostingJob, type PostingEvent, type PostingState } from './posting-job.model.js'
-export { JournalEntry, BOOKS_IMPORT, IMPORTED_OPENING, LEDGERS, POSTED_BOOKS, type IJournalEntry, type IJournalEntryLine, type Ledger } from './journal-entry.model.js'
+export {
+  JournalEntry, BOOKS_IMPORT, BOOKS_LEDGER, IMPORTED_OPENING, LEDGERS, POSTED_BOOKS, SHADOW_SALES,
+  type IJournalEntry, type IJournalEntryLine, type Ledger,
+} from './journal-entry.model.js'
 export { AccountingAnalytic, ANALYTIC_KINDS, type IAccountingAnalytic, type AnalyticKind } from './accounting-analytic.model.js'
 export { ProductGroupMap, PRODUCT_GROUP_SOURCES, type IProductGroupMap, type ProductGroupSource } from './product-group-map.model.js'
+export {
+  PostingRule, POSTING_AMOUNTS, POSTING_LINE_KINDS, POSTING_RULE_SOURCES,
+  type IPostingRule, type IPostingRuleMatch, type IPostingRuleOperation, type PostingAmount, type PostingLineKind,
+} from './posting-rule.model.js'
 export { FixedAsset, type IFixedAsset } from './fixed-asset.model.js'
 export { BankAccount, type IBankAccount } from './bank-account.model.js'
 export { BankReconciliation, type IBankReconciliation } from './bank-reconciliation.model.js'

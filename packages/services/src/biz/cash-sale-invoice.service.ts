@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { mongoose } from 'db/connection'
-import { Invoice, Contact, StockMovement, JournalEntry } from 'db/models'
+import { BOOKS_LEDGER, Invoice, Contact, StockMovement, JournalEntry } from 'db/models'
 import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 import { createAuditEntry } from './audit-log.service.js'
@@ -1060,11 +1060,11 @@ function handPaymentRefusal(inv: any): { statusCode: number; code: string; messa
  * The invoice's OWN journal entries in `status` — what its issue posted (`invoice.posted`). A
  * payment's entry carries the same `sourceId`, so the entries its payments name are left out: the
  * automatic ones go with their payments (`retireAutomaticPayments`), and a payment entered by hand
- * refuses the attach before any of this.
+ * refuses the attach before any of this. A shadow posting (FR-25 R3) names the invoice too, and is none of them.
  */
 async function ownEntriesOf(orgId: string, inv: any, status: 'posted' | 'draft'): Promise<string[]> {
   const ofPayments = new Set((inv.payments || []).map((p: any) => idOf(p.journalEntryId)).filter(Boolean))
-  const rows: any[] = await JournalEntry.find({ orgId, sourceId: inv._id, status } as any, { _id: 1 }).lean().exec()
+  const rows: any[] = await JournalEntry.find({ orgId, sourceId: inv._id, status, ...BOOKS_LEDGER } as any, { _id: 1 }).lean().exec()
   return rows.map(e => idOf(e._id)).filter(id => !ofPayments.has(id))
 }
 

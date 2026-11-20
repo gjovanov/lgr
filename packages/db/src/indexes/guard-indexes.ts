@@ -31,6 +31,12 @@ export const GUARD_INDEXES: readonly GuardIndex[] = [
   { model: 'JournalEntry', key: { orgId: 1, postingKey: 1 }, guards: 'one entry per posting (FR-29.14)' },
   { model: 'PostingJob', key: { orgId: 1, postingKey: 1 }, guards: 'one owed posting per key (FR-29.15)' },
   { model: 'ProductGroupMap', key: { orgId: 1, productId: 1 }, guards: 'one accounting group per product (FR-25 §3.6)' },
+  { model: 'PostingRule', key: { orgId: 1, code: 1 }, guards: 'one posting rule per code: two seed runs insert it once (FR-25 §3.7)' },
+  {
+    model: 'VatRegisterEntry',
+    key: { orgId: 1, ledger: 1, 'source.orgId': 1, 'source.id': 1 },
+    guards: 'one VAT row per posted document and ledger: two shadow runs at once write it once (FR-25 R3)',
+  },
   { model: 'Sequence', key: { orgId: 1, prefix: 1, year: 1 }, guards: 'one counter per series and year' },
   { model: 'DigestRun', key: { orgId: 1, date: 1 }, guards: 'one digest per org and day, whichever pod sends it' },
   { model: 'BackupRun', key: { orgId: 1, kind: 1, date: 1, claimKey: 1 }, guards: 'one backup run per org, kind and day' },

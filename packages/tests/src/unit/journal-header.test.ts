@@ -210,6 +210,8 @@ describe('the entries a header names', () => {
     expect(pickLinkedEntry(link, self, [candidate({ id: 'bank', partnerAnalyticId: 'p1' })])).toBeUndefined()
     expect(pickLinkedEntry(link, self, [candidate({ id: 'a', status: 'voided' })])).toBeUndefined()
     expect(pickLinkedEntry(link, self, [candidate({ id: 'a', docType: '-ФЕ' })])).toBeUndefined()
+    // FR-25 R3: LGR's own posting of the same document is no entry of the books, and leaves the books' one the only one.
+    expect(pickLinkedEntry(link, self, [candidate({ id: 'a', partnerAnalyticId: 'p1' }), candidate({ id: 's', partnerAnalyticId: 'p1', ledger: 'shadow' })])).toBe('a')
   })
 
   it('settles a tie by the link\'s day, and links nothing it cannot settle', () => {
