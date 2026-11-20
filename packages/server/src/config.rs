@@ -148,12 +148,18 @@ fn browser_reason(stderr: &str) -> String {
     line.chars().take(300).collect()
 }
 
-/// What a master's operator can do about a browser that does not print, said after its reason.
-pub fn pdf_browser_hint(why: &str) -> &'static str {
-    if why.contains("No usable sandbox") {
-        " (the .deb's AppArmor profile lets it make one where AppArmor 4 is: `aa-status` lists lgr-server-chrome once it is loaded, and an `apt install` of this version's .deb loads it, which an update the helper installs does not; or PDF_CHROME_NO_SANDBOX=1 in config/api.env prints without the sandbox)"
-    } else {
-        ""
+/// What a master's operator can do about a browser that does not print, said after its reason. `image`: the
+/// server runs from its container image (`LGR_SERVER_IMAGE`), where no package script runs and the container,
+/// not the host's AppArmor, refuses the sandbox its user namespace (#905).
+pub fn pdf_browser_hint(why: &str, image: bool) -> &'static str {
+    match (why.contains("No usable sandbox"), image) {
+        (false, _) => "",
+        (true, false) => {
+            " (the .deb's AppArmor profile lets it make one where AppArmor 4 is: `aa-status` lists lgr-server-chrome once it is loaded, and an `apt install` of this version's .deb loads it, which an update the helper installs does not; or PDF_CHROME_NO_SANDBOX=1 in config/api.env prints without the sandbox)"
+        }
+        (true, true) => {
+            " (a container gets no user namespace for it from Docker's default seccomp profile, gjovanov/lgr#905; PDF_CHROME_NO_SANDBOX=1 in config/api.env prints without the sandbox)"
+        }
     }
 }
 
@@ -479,7 +485,8 @@ mod tests {
         );
         let why = prints(broken, false).await.unwrap_err();
         assert!(why.contains("undefined symbol: snd_device_name_get_hint"), "{why}");
-        assert_eq!(pdf_browser_hint(&why), "");
+        assert_eq!(pdf_browser_hint(&why, false), "");
+        assert_eq!(pdf_browser_hint(&why, true), "");
 
         // What 24.04's AppArmor made of it next, for the lgr user, until the package carried a profile (#901):
         // its FATAL line, not the warning before it, and without Chrome's prefix. Without its sandbox it prints.
@@ -491,7 +498,10 @@ mod tests {
         );
         let why = prints(sandboxed.clone(), false).await.unwrap_err();
         assert!(why.starts_with("No usable sandbox! If you are running on Ubuntu 23.10+"), "{why}");
-        assert!(pdf_browser_hint(&why).contains("lgr-server-chrome"), "{why}");
+        assert!(pdf_browser_hint(&why, false).contains("lgr-server-chrome"), "{why}");
+        // In the image no package script runs: the hint names what does work there, not the .deb's profile.
+        let in_image = pdf_browser_hint(&why, true);
+        assert!(in_image.contains("PDF_CHROME_NO_SANDBOX=1") && !in_image.contains("apt install"), "{in_image}");
         assert_eq!(prints(sandboxed, true).await, Ok(()));
 
         assert_eq!(prints(fake("noprint", "exit 0"), false).await, Err("it ended without printing its test page".to_string()));

@@ -903,7 +903,7 @@ jobs:
           healthy 300 || fail "the image did not come up healthy"
           docker exec lgr-smoke lgr-server status
           # #901: whether the API's browser prints in a container, where Docker's default seccomp refuses
-          # the user namespace its sandbox makes. Said, not yet required.
+          # the user namespace its sandbox makes. It does not (#905): said, not required until that is decided.
           pdf="$(docker logs lgr-smoke 2>&1 | grep -E 'PDFs print with this browser|the PDF browser does not print' | tail -1)" || true
           case "$pdf" in
             *"PDFs print with this browser"*) echo "the PDF browser: $pdf" ;;

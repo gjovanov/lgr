@@ -175,6 +175,11 @@ volume, which keeps it on that node. The setup link opens on the node itself, or
   is refused like any other.
 - `TZ` (in the compose and k8s files) is the shop's time zone, for the server's own maintenance
   times.
+- ⚠ **PDFs (gjovanov/lgr#905).** Under Compose the server prints no PDF as it ships: the PDF browser's
+  sandbox needs a user namespace, and Docker's default seccomp profile refuses a container one. At
+  every start the server says in `docker compose logs` whether PDFs print. `PDF_CHROME_NO_SANDBOX=1`
+  in `config/api.env` prints without the sandbox, the container then being the only boundary around
+  the browser.
 
 ### What never to do
 
