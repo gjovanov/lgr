@@ -210,3 +210,17 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 
 - Confirm only an `exact` or a `learned` row: slice 3 posts by `POSTABLE_SOURCES`, so a reviewed `rule` or `ai` row
   would be the accountant's and post nothing. The accountant sets those.
+
+## Books against shadow, a month at a time (2026-11-20, FR-25 R3, slice 5)
+
+- ⚠ **A document of a month is that month's entries under its number, each ledger's summed.** The books' invoice and
+  its annulment are one document, and so are the shadow's posting, its reversal and its next revision; a void in a
+  later month is that month's reversal, never a rewrite of the month of issue. A document whose entries of the month
+  cancel out is not held in that month. Read across months, a void would count twice.
+
+- ⚠ **The filed side of the register is the store's own rows only: a ten-digit number in its series, of a document
+  type.** The home's register also holds the other store's rows, the tills' months and the protocols; read whole, they
+  would all count as filed and not in the shadow.
+
+- **The command.** `scripts/compare-books-shadow.ts --org <store slug> --from YYYYMM [--to YYYYMM]`: read-only, counts
+  only. Before `post-shadow-sales.ts --execute` has written a month, every books document of it is the books' alone.
