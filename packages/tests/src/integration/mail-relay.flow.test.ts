@@ -8,11 +8,11 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { makeNodeStub, nodeEnrollBody } from '../helpers/node-stub'
 import { createApiApp } from '../../../portal-api/src/api.js'
-import { EmailLog, Org, Outbox, RelayReceipt, ServerNode } from 'db/models'
+import { EmailLog, Org, Outbox, RELAY_RECEIPT_KEEP_DAYS, RelayReceipt, ServerNode } from 'db/models'
 import { forgetAllHomes, homeNewOrg } from 'db/home/home'
 import { enrollNode, issueNodeToken, mintNodeEnrollmentCode } from 'services/biz/node/node.service'
 import { sendEmail } from 'services/biz/email.service'
-import { drainOne, giveUp } from 'services/biz/relay/outbox-worker'
+import { drainOne, giveUp, GIVE_UP_DAYS } from 'services/biz/relay/outbox-worker'
 import { sendDigestTo } from 'services/biz/digest/digest-runner.service'
 
 /**
@@ -240,7 +240,7 @@ describe('a master queues its mail and drains it through the relay', () => {
     expect(((await EmailLog.findOne({ outboxId: id }).lean()) as any).status).toBe('sent')
   })
 
-  it('a mail global refuses for good fails, and so does one 7 days old', async () => {
+  it('a mail global refuses for good fails, and so does one 45 days old: a month without lgrai.app does not (AC 27)', async () => {
     const m = await aMaster()
     token()
     await sendEmail({ to: 'customer@buyer.test', subject: 'Big', html: '<p>Hi</p>', orgId: m.orgId })
@@ -248,11 +248,54 @@ describe('a master queues its mail and drains it through the relay', () => {
     expect(await drainOne(new Date(), refused.impl)).toBe('failed')
     expect(((await EmailLog.findOne({ subject: 'Big' }).lean()) as any)).toMatchObject({ status: 'failed', error: expect.stringContaining('too_large') })
 
+    // FR-20.60: queued 31 days ago, lgrai.app still down. Kept, retried, and sent once it answers.
+    await sendEmail({ to: 'customer@buyer.test', subject: 'Month', html: '<p>Hi</p>', orgId: m.orgId })
+    const month: any = await Outbox.findOne({ 'payload.subject': 'Month' }).lean()
+    await Outbox.collection.updateOne({ _id: month._id }, { $set: { createdAt: new Date(Date.now() - 31 * 86_400_000) } })
+    expect(await giveUp()).toBe(0)
+    expect(await drainOne(new Date(), fakeGlobal('down').impl)).toBe('retry')
+    expect(((await Outbox.findById(month._id).lean()) as any).state).toBe('queued')
+    const ok = fakeGlobal({ status: 200, body: { state: 'sent' } })
+    expect(await drainOne(new Date(Date.now() + 120_000), ok.impl)).toBe('sent')
+    expect(ok.asked.map(a => a.body.subject)).toEqual(['Month'])
+    expect(((await EmailLog.findOne({ subject: 'Month' }).lean()) as any).status).toBe('sent')
+
     await sendEmail({ to: 'customer@buyer.test', subject: 'Old', html: '<p>Hi</p>', orgId: m.orgId })
     const old: any = await Outbox.findOne({ 'payload.subject': 'Old' }).lean()
-    await Outbox.collection.updateOne({ _id: old._id }, { $set: { createdAt: new Date(Date.now() - 8 * 86_400_000) } })
+    await Outbox.collection.updateOne({ _id: old._id }, { $set: { createdAt: new Date(Date.now() - (GIVE_UP_DAYS + 1) * 86_400_000) } })
     expect(await giveUp()).toBe(1)
-    expect(((await Outbox.findById(old._id).lean()) as any).state).toBe('failed')
+    expect(((await Outbox.findById(old._id).lean()) as any)).toMatchObject({ state: 'failed', lastError: expect.stringContaining(`Not sent in ${GIVE_UP_DAYS} days`) })
     expect(((await EmailLog.findOne({ subject: 'Old' }).lean()) as any).status).toBe('failed')
+  })
+
+  it('what a clock that has since gone back wrote is taken now; a rate-limited mail still waits the hours global asked (AC 27)', async () => {
+    const m = await aMaster()
+    token()
+    // Rate-limited for 6 hours, by the right clock: it waits.
+    await sendEmail({ to: 'customer@buyer.test', subject: 'Limited', html: '<p>Hi</p>', orgId: m.orgId })
+    const limited = fakeGlobal({ status: 429, body: { code: 'rate_limited', message: 'limit', retryAfterSecs: 6 * 3600 } })
+    expect(await drainOne(new Date(), limited.impl)).toBe('retry')
+    const waiting: any = await Outbox.findOne({ 'payload.subject': 'Limited' }).lean()
+    expect(waiting.nextAt.getTime()).toBeGreaterThan(Date.now() + 5 * 3_600_000)
+
+    // Queued, and another leased, while the clock was a month ahead: neither is due by its own dates.
+    const ahead = new Date(Date.now() + 30 * 86_400_000)
+    await sendEmail({ to: 'customer@buyer.test', subject: 'Queued ahead', html: '<p>Hi</p>', orgId: m.orgId })
+    await sendEmail({ to: 'customer@buyer.test', subject: 'Leased ahead', html: '<p>Hi</p>', orgId: m.orgId })
+    await Outbox.collection.updateOne({ 'payload.subject': 'Queued ahead' }, { $set: { createdAt: ahead, nextAt: ahead, updatedAt: ahead } })
+    await Outbox.collection.updateOne({ 'payload.subject': 'Leased ahead' }, { $set: { state: 'sending', leaseUntil: new Date(ahead.getTime() + 120_000), updatedAt: ahead } })
+
+    const ok = fakeGlobal({ status: 200, body: { state: 'sent' } })
+    expect(await drainOne(new Date(), ok.impl)).toBe('sent')
+    expect(await drainOne(new Date(), ok.impl)).toBe('sent')
+    expect(await drainOne(new Date(), ok.impl)).toBe('idle')
+    expect(ok.asked.map(a => a.body.subject).sort()).toEqual(['Leased ahead', 'Queued ahead'])
+    expect(((await Outbox.findById(waiting._id).lean()) as any).state).toBe('queued')
+  })
+
+  it("global's receipts outlive what a master keeps queued, so a retry after a month sends nothing twice (AC 27)", () => {
+    expect(RELAY_RECEIPT_KEEP_DAYS).toBeGreaterThan(GIVE_UP_DAYS)
+    const ttl = RelayReceipt.schema.indexes().find(([key]) => JSON.stringify(key) === '{"at":1}')
+    expect(ttl?.[1]).toMatchObject({ expireAfterSeconds: RELAY_RECEIPT_KEEP_DAYS * 86_400 })
   })
 })

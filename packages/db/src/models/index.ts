@@ -136,7 +136,7 @@ export { OrgLicence, type IOrgLicence } from './org-licence.model.js'
 export { OrgAddress, type IOrgAddress, type OrgAddressState } from './org-address.model.js'
 // A master's queued outbound work, and global's receipts for what it relayed (FR-20.59, FR-20.86).
 export { Outbox, type IOutbox, OUTBOX_KINDS, OUTBOX_STATES, type OutboxKind, type OutboxState } from './outbox.model.js'
-export { RelayReceipt, type IRelayReceipt } from './relay-receipt.model.js'
+export { RelayReceipt, RELAY_RECEIPT_KEEP_DAYS, type IRelayReceipt } from './relay-receipt.model.js'
 export { RelayJob, type IRelayJob, type RelayJobOp } from './relay-job.model.js'
 // "Sign in with LGR": the one-time codes a master redeems (FR-20.39). Global only.
 export { IdpCode, type IIdpCode } from './idp-code.model.js'

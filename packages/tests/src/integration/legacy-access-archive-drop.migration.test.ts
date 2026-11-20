@@ -71,10 +71,9 @@ async function world() {
 }
 
 describe('0020-legacy-access-archive-drop (FR-27 P3-9)', () => {
-  it('is registered last, after 0019', () => {
+  it('is registered right after 0019', () => {
     const ids = MIGRATIONS.map(m => m.id)
     expect(ids.indexOf('0020-legacy-access-archive-drop')).toBe(ids.indexOf('0019-drop-unused-indexes') + 1)
-    expect(ids.at(-1)).toBe('0020-legacy-access-archive-drop')
   })
 
   it('every org of the node: the archives are unset, the sets deleted, both collections dropped once empty', async () => {
