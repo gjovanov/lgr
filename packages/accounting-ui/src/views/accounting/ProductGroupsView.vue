@@ -401,8 +401,11 @@ function storedCaption(row: ReviewRow): string {
   const s = row.stored!
   const parts = [t(sourceLabelKey(s.source))]
   if (s.reviewedAt) {
+    // A decision is a moment, not a business day: with its time, on this browser's clock. As a day alone, the one
+    // a browser west of Sofia shows for a decision made just after midnight there is the day before.
     const who = reviewerName(s.reviewedBy)
-    parts.push(who ? t('accounting.productGroups.decidedBy', { who, at: day(s.reviewedAt) }) : day(s.reviewedAt))
+    const at = formatDateTime(s.reviewedAt)
+    parts.push(who ? t('accounting.productGroups.decidedBy', { who, at }) : at)
   }
   const group = answer.value?.analytics[s.analyticId]
   if (group && !group.active) parts.push(t('accounting.productGroups.inactive'))

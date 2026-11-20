@@ -124,6 +124,18 @@ describe('a product\'s state', () => {
     expect(stateOf(ev, 'p7', undefined)).toBe('unmapped')
   })
 
+  it('a row on a group switched off since is the work again, the accountant\'s and a confirmed one too', () => {
+    const off: ReviewEvidence = { ...ev, activeGroups: new Set(['g2', 'g3']) }
+    const decided = { reviewedAt: day('2026-01-02') }
+    expect(stateOf(off, 'p1', row('p1', 'g1', 'accountant', decided))).toBe('unmapped')
+    expect(stateOf(off, 'p1', row('p1', 'g1', 'learned', decided))).toBe('unmapped')
+    expect(stateOf(off, 'p1', row('p1', 'g1', 'learned'))).toBe('unmapped')
+    // Its documents still disagree: a conflict, as for a product with no row.
+    expect(stateOf(off, 'p4', row('p4', 'g1', 'accountant', decided))).toBe('conflict')
+    // The accountant's row on a group still active stays done.
+    expect(stateOf(off, 'p1', row('p1', 'g2', 'accountant', decided))).toBe('accountant')
+  })
+
   it('suggests the group a run would give, never an inactive one, nor the one already stored, nor over a decision', () => {
     const stored: StoredRow[] = []
     const plan = planAgainst(ev, stored)
@@ -181,6 +193,18 @@ describe('the queue', () => {
     expect(q.summary).toMatchObject({ products: 6, oneDocumentConflicts: 1, suggested: 1 })
     expect(q.summary.coverage.all).toMatchObject({ lines: 6, value: 63, postingLines: 2, postingValue: 6, afterLearningLines: 3, afterLearningValue: 36 })
     expect(q).toMatchObject({ total: 6, page: 0, pageSize: 25, totalPages: 1 })
+  })
+
+  it('the accountant\'s row on a group switched off is listed with the work, its row shown, and its sales count as no group', () => {
+    const off: ReviewEvidence = { ...ev, activeGroups: new Set(['g1', 'g3']) }
+    const q = buildQueue({ sales, names, evidence: off, stored, query: { states: ['conflict', 'unmapped'] } })
+    const p2 = q.rows.find(r => r.productId === 'p2')!
+    expect(p2.state).toBe('unmapped')
+    expect(p2.stored).toMatchObject({ analyticId: 'g2', source: 'accountant', reviewedBy: 'u1' })
+    expect(p2.suggestion).toBeUndefined()
+    expect(q.summary.byState).toMatchObject({ unmapped: 3, accountant: 0 })
+    // p2's 5 no longer posts, by the map as stored or after learning; p3's 1 still does.
+    expect(q.summary.coverage.all).toMatchObject({ postingLines: 1, postingValue: 1 })
   })
 
   it('a row carries its stored row, its suggestion, and per group its documents', () => {

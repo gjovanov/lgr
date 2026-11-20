@@ -366,7 +366,7 @@ export async function learnProductGroups(orgId: string, opts: LearnOptions = {})
 
   // What the map covers: every line of the period's documents and till sales that is not on a service.
   const coverage = newCoverage()
-  const posts = postsBy(plan.after)
+  const posts = postsBy(plan.after, l.activeGroups)
   await eachSalesDocument(l.org, l.period, l.products, doc => addCoverage(coverage, doc, posts))
 
   const months = (kind: CoverageKind) => [...coverage[kind].entries()].sort(([a], [b]) => a.localeCompare(b)).map(([month, cell]) => ({ month, cell }))

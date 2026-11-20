@@ -198,7 +198,12 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 
 - ⚠ **An evidence document's `day` is its UTC midnight: `formatDate(day)`, with no `timeZone`.** The formatter reads a
   UTC midnight as that day wherever the browser is; a zone made it a moment, and east of UTC the page showed the day
-  before.
+  before. A decision's `reviewedAt` is the opposite, a moment: `formatDateTime`, never the date-only `day()`.
+
+- ⚠ **A row posts only on a goods group still active** (`postsBy(after, activeGroups)`, `stateOf`). Slice 3 refuses
+  a line whose group was switched off (`group_inactive`), the accountant's row too. So such a row is listed with the
+  work (`unmapped`, or `conflict`), its group shown inactive, and coverage counts its sales as no group. A done state
+  on a row that cannot post hid the product from the accountant while every document of it waited.
 
 - ⚠ **The org a sign-in returns has no `settings`; `/auth/me` brings them.** Until then `isBooksOrg` is false, so the
   page waits for them (`settingsKnown`) before it says the org keeps no books or asks for the queue.

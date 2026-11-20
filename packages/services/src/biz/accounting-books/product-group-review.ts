@@ -123,14 +123,15 @@ export function planAgainst(ev: ReviewEvidence, stored: readonly MapRow[]): MapP
 
 // ── a product's state ────────────────────────────────────────────────────────────────────────────
 
-type StateEvidence = Pick<ReviewEvidence, 'evidence' | 'contradicted' | 'exact'>
+type ConflictEvidence = Pick<ReviewEvidence, 'evidence' | 'contradicted' | 'exact'>
+type StateEvidence = ConflictEvidence & Pick<ReviewEvidence, 'activeGroups'>
 
 /**
  * A conflict, read as `planProductGroups` reads one: its documents name more than one group, or a document
  * contradicts the group a run gives it. A product with a group by its name (`exact`) keeps its row in the plan, and a
  * document naming another group is such a contradiction (the plan counts it in `conflictCount`), so it is listed too.
  */
-export function isConflict(ev: StateEvidence, productId: string): boolean {
+export function isConflict(ev: ConflictEvidence, productId: string): boolean {
   if ((ev.contradicted.get(productId) ?? 0) > 0) return true
   const groups = ev.evidence.get(productId)
   if (!groups) return false
@@ -148,11 +149,16 @@ export function isOneDocumentConflict(ev: Pick<ReviewEvidence, 'evidence' | 'con
   return docs.reduce((a, b) => a + b, 0) - Math.max(...docs) === 1
 }
 
-/** The accountant's rows are done; a conflict comes before an automatic row; a row no line posts by is no group. */
-export function stateOf(ev: StateEvidence, productId: string, stored: Pick<MapRow, 'source' | 'reviewedAt'> | undefined): ReviewState {
-  if (stored && isAccountants(stored)) return stored.source === 'accountant' ? 'accountant' : 'reviewed'
+/**
+ * The accountant's rows are done; a conflict comes before an automatic row; a row no line posts by is no group. A row
+ * on a goods group switched off since is no group either, the accountant's too: slice 3 refuses its lines
+ * (`group_inactive`), so the product is the queue's work again, its row shown with the group it names.
+ */
+export function stateOf(ev: StateEvidence, productId: string, stored: Pick<MapRow, 'source' | 'reviewedAt' | 'analyticId'> | undefined): ReviewState {
+  const live = !!stored && ev.activeGroups.has(stored.analyticId)
+  if (live && isAccountants(stored)) return stored.source === 'accountant' ? 'accountant' : 'reviewed'
   if (isConflict(ev, productId)) return 'conflict'
-  if (stored?.source === 'exact' || stored?.source === 'learned') return stored.source
+  if (live && (stored.source === 'exact' || stored.source === 'learned')) return stored.source
   return 'unmapped'
 }
 
@@ -347,8 +353,8 @@ export function buildQueue(input: {
   const { sales, evidence: ev, query = {} } = input
   const byProduct = new Map(input.stored.map(r => [r.productId, r]))
   const plan = planAgainst(ev, input.stored)
-  const posts = postsBy(byProduct)
-  const postsAfter = postsBy(plan.after)
+  const posts = postsBy(byProduct, ev.activeGroups)
+  const postsAfter = postsBy(plan.after, ev.activeGroups)
 
   const byState = Object.fromEntries(REVIEW_STATES.map(s => [s, 0])) as Record<ReviewState, number>
   let oneDocumentConflicts = 0

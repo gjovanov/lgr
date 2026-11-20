@@ -260,6 +260,24 @@ describe('the queue', () => {
     const { groups } = await goodsGroupList(world.store.id)
     expect(groups.map(g => [g.path, g.active])).toEqual([[G1, true], [G2, true], [G3, false]])
   })
+
+  it('an accountant\'s row whose group is switched off is the work again, as slice 3 refuses its lines', async () => {
+    const { p2 } = world.products
+    const mine = await storedOf(p2)
+    const groupId = String(mine!.analyticId)
+    expect((await rowOf(p2))!.state).toBe('accountant')
+    // As a books import switches a group off. The pod reads its stamps again within seconds; a test does not wait.
+    await AccountingAnalytic.updateOne({ _id: groupId }, { $set: { isActive: false } })
+    forgetReviewCache()
+    const q = await queue(world.store.id)
+    expect(q.rows.find(r => r.productId === p2)).toMatchObject({ state: 'unmapped', stored: { analyticId: groupId, source: 'accountant' } })
+    expect(q.summary.byState).toEqual({ conflict: 1, unmapped: 3, learned: 0, exact: 0, accountant: 0, reviewed: 0 })
+    // Its sales were the one row that posted.
+    expect(q.summary.coverage.all).toMatchObject({ postingLines: 0, postingValue: 0 })
+    expect(q.analytics[groupId]).toMatchObject({ active: false })
+    // The default filter, the work, lists it.
+    expect((await queue(world.store.id, { state: 'conflict,unmapped' })).rows.map(r => r.productId)).toContain(p2)
+  })
 })
 
 describe('the accountant\'s writes', () => {
