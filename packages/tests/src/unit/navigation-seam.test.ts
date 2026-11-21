@@ -17,7 +17,7 @@ const PACKAGES = join(import.meta.dirname, '..', '..', '..')
 const PAGE_LOADS: Record<string, string> = {
   'ui-shared/src/nav/navigate.ts': 'the seam itself, the dev token handoff and the sign-out in another tab',
   'ui-shared/src/session/session.ts': 'sign-out: the session is gone, so is everything in the page',
-  'ui-shared/src/stores/app.store.ts': 'sign-out and a lost session on a domain app: the portal signs in',
+  'ui-shared/src/stores/app.store.ts': 'sign-out on a domain app: the portal signs in',
   'ui-shared/src/composables/useHttpClient.ts': 'a 401: the session lapsed (FR-24.5 SHOULD make this a push later)',
   'ui-shell/src/components/OrgSwitcher.vue': 'an org switch reloads into the other org (switch-guards.ts asks first)',
   'portal-ui/src/views/OrgPickerView.vue': 'entering an org: a new session',
@@ -67,5 +67,13 @@ describe('FR-24.5: every move goes through goTo', () => {
       const text = readFileSync(join(PACKAGES, rel), 'utf8')
       expect({ rel, loads: ASSIGNMENT.test(text) }).toEqual({ rel, loads: true })
     }
+  })
+
+  // #906: a refused session is useHttpClient's to move, to the sign-in page that brings the person back. The store
+  // also sent the tab to `/` once its profile failed, and whichever move the page asked for last won the race.
+  it('the app store loads the page only to sign out, never after a failed request', () => {
+    const text = readFileSync(join(PACKAGES, 'ui-shared/src/stores/app.store.ts'), 'utf8')
+    const loads = text.split(/\r?\n/).filter(line => ASSIGNMENT.test(line)).map(line => line.trim())
+    expect(loads).toEqual(["if (!onPortal()) window.location.href = portalHref('/auth/login')"])
   })
 })

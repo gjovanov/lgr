@@ -293,8 +293,13 @@ export const useAppStore = defineStore('app', () => {
   /**
    * The session's user and org from `/auth/me`. On the portal a failure is the caller's to handle
    * (its router and the account page). On a domain app's page it is not: a 401 has already signed
-   * this tab out (useHttpClient), and anything else (offline, a 5xx) is no reason to sign the
-   * person out of every tab.
+   * this tab out and sent it to the sign-in page, which brings the person back here (useHttpClient,
+   * FR-22.53), and anything else (offline, a 5xx) is no reason to sign the person out of every tab.
+   *
+   * ⚠ So a failure here moves the tab nowhere. The page's other requests are refused at the same
+   * moment, each sends the tab to that sign-in page, and the move asked for last wins. A move to `/`
+   * from here won whenever `/auth/me` was answered last, and from `/` a tab nobody is signed in to
+   * went on to the landing page, with the way back lost (#906).
    */
   async function fetchProfile() {
     if (onPortal()) {
@@ -306,7 +311,7 @@ export const useAppStore = defineStore('app', () => {
       const { data } = await httpClient.get(`/auth/me`)
       applyProfile(data)
     } catch {
-      if (!getToken()) window.location.href = portalHref('/')
+      // Nothing to do here: see above.
     }
   }
 
