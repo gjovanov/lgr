@@ -175,6 +175,39 @@ test.describe('Returning after sign-in (FR-22.53)', () => {
     await expect(page).toHaveURL(/\/invoicing\/invoices\?status=draft$/)
   })
 
+  // #906: the page's first requests are refused together, and each refusal sends the tab to the sign-in page. The move
+  // asked for LAST wins, so any other move a refusal sets off can take the tab elsewhere: a failed profile load sent it
+  // to `/`, and from there a tab nobody is signed in to goes on to the landing page, the way back lost. Which move came
+  // last was a race the night lost now and then. Here the sign-in page is held on its way, so the refused page is still
+  // running when every refusal has arrived, and the test reads every move the page asked for, not only the one that won.
+  test('a refused page asks for no move but the sign-in page', async ({ page }) => {
+    const { token, org } = await refusedSession()
+    await page.addInitScript(({ token, org }) => {
+      if (sessionStorage.getItem('e2e-seeded')) return
+      sessionStorage.setItem('e2e-seeded', '1')
+      localStorage.setItem('lgr_token', token)
+      localStorage.setItem('lgr_org', JSON.stringify(org))
+    }, { token, org })
+    const moves: string[] = []
+    page.on('request', request => {
+      if (!request.isNavigationRequest() || request.frame() !== page.mainFrame()) return
+      const url = new URL(request.url())
+      moves.push(url.pathname + url.search)
+    })
+    // A move that replaced a held one aborted it, and its route can no longer be continued: nothing to do then.
+    await page.route(/\/auth\/login\?next=/, async route => {
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      await route.continue().catch(() => undefined)
+    })
+
+    await page.goto('/invoicing/invoices?status=draft', { waitUntil: 'commit' })
+    await expect(page).toHaveURL(/\/auth\/login\?next=/, { timeout: 15000 })
+    expect(new URL(page.url()).searchParams.get('next')).toBe('/invoicing/invoices?status=draft')
+    await expect(page.locator('.v-alert')).toContainText(/continue where you left off/i)
+    expect(moves[0]).toBe('/invoicing/invoices?status=draft')
+    expect(moves.slice(1).filter(move => !move.startsWith('/auth/login?next='))).toEqual([])
+  })
+
   test('a sign-in link never sends the person to another site', async ({ page }) => {
     await page.goto('/auth/login?next=%2F%2Fevil.example%2Flogin', { waitUntil: 'networkidle' })
     await page.getByRole('textbox', { name: /username/i }).fill('admin@acme.com')
