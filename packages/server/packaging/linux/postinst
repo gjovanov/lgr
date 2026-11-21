@@ -30,6 +30,21 @@ chmod 0700 "$DATA/keys"
 # one than runs, never one that failed before.
 /opt/lgr-server/installer/lgr-server update install-bundle
 
+# #901: the PDF browser's sandbox needs a user namespace, which Ubuntu 24.04's AppArmor allows only a
+# program a profile names. The profile names the browser of every version and confines nothing else
+# (apparmor/lgr-server-chrome). It goes in only where AppArmor 4 is: `userns` is a 4.0 rule, and an
+# older AppArmor, which restricts nothing, would fail to read the file at every boot. A container
+# (no AppArmor of its own) gets the file and loads nothing. Never fatal: without the profile a master
+# still sells, and says at start that it prints no PDF.
+PROFILE=lgr-server-chrome
+if [ -f /etc/apparmor.d/abi/4.0 ] && [ -f "/opt/lgr-server/installer/apparmor/$PROFILE" ]; then
+  if install -m 0644 "/opt/lgr-server/installer/apparmor/$PROFILE" "/etc/apparmor.d/$PROFILE" \
+    && command -v apparmor_parser >/dev/null 2>&1 && aa-enabled --quiet 2>/dev/null; then
+    apparmor_parser -r -T -W "/etc/apparmor.d/$PROFILE" \
+      || echo "lgr-server: the AppArmor profile $PROFILE did not load, so the PDF browser has no sandbox here and prints no PDF; PDF_CHROME_NO_SANDBOX=1 in /var/lib/lgr/config/api.env prints without one" >&2
+  fi
+fi
+
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload >/dev/null 2>&1 || true
 fi

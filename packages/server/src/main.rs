@@ -315,14 +315,20 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
         // FR-20.25: loud, never fatal. Without its browser a master still sells and books; it
         // prints no invoice or report as a PDF.
         match config::pdf_browser(&paths, &operator) {
-            // Said once it has started, and asked in the background: a start never waits on it.
+            // Said once it has started, and asked in the background: a start never waits on it. A test page,
+            // printed with the sandbox the API's own renders get (#901: `--version` said yes where none printed).
             Some(b) if b.exists() => {
+                let no_sandbox = config::pdf_without_sandbox(&operator);
+                let scratch = paths.data.join("run").join("pdf-check");
+                let image = std::env::var("LGR_SERVER_IMAGE").is_ok_and(|i| !i.is_empty());
                 tokio::spawn(async move {
-                    match config::pdf_browser_starts(&b).await {
-                        Ok(()) => tracing::info!(browser = %b.display(), "PDFs print with this browser"),
+                    match config::pdf_browser_prints(&b, no_sandbox, &scratch).await {
+                        Ok(()) => tracing::info!(browser = %b.display(), sandbox = !no_sandbox, "PDFs print with this browser"),
                         Err(why) => tracing::warn!(
                             browser = %b.display(),
-                            "the PDF browser does not start, so no invoice or report prints as a PDF: {why}"
+                            sandbox = !no_sandbox,
+                            "the PDF browser does not print, so no invoice or report prints as a PDF: {why}{}",
+                            config::pdf_browser_hint(&why, image)
                         ),
                     }
                 });

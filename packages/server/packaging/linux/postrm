@@ -4,4 +4,14 @@ set -e
 if [ -d /run/systemd/system ]; then
   systemctl daemon-reload >/dev/null 2>&1 || true
 fi
+# #901: the PDF browser's AppArmor profile, which the postinst placed, goes with the package: unloaded,
+# then removed. Not on an upgrade (`upgrade` on a .deb, 1 on an .rpm), whose postinst places it again.
+if [ "$1" = remove ] || [ "$1" = purge ] || [ "$1" = 0 ]; then
+  if [ -f /etc/apparmor.d/lgr-server-chrome ]; then
+    if command -v apparmor_parser >/dev/null 2>&1; then
+      apparmor_parser -R /etc/apparmor.d/lgr-server-chrome >/dev/null 2>&1 || true
+    fi
+    rm -f /etc/apparmor.d/lgr-server-chrome
+  fi
+fi
 exit 0

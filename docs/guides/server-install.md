@@ -87,6 +87,16 @@ next start. Restart it when it suits the shop: `sudo systemctl restart lgr-serve
 
 `apt remove` stops the service and removes every version and **keeps the data**.
 
+On Ubuntu 24.04 the package also installs an AppArmor profile for its PDF browser,
+`/etc/apparmor.d/lgr-server-chrome` (gjovanov/lgr#901). The browser's sandbox needs a user namespace,
+which 24.04 lets a program make only when a profile says it may, and without one the server sells
+and books but prints no PDF. The profile goes in only where AppArmor 4 is (22.04 restricts nothing),
+covers the browser of every version, confines nothing else, and `apt remove` takes it away. At every
+start the server prints a test page with the browser, and `logs/lgr-server.log` says whether PDFs
+print and, if not, why. ⚠ An update the helper installs runs no package script, so a master installed
+from an older `.deb` gets the profile only with an `apt install` of a newer one; until then
+`PDF_CHROME_NO_SANDBOX=1` in [`config/api.env`](#settings-configapienv) prints without the sandbox.
+
 ## The tarball
 
 The tarball is the update bundle the .deb carries. Unpacked by hand, it is a home that runs where
@@ -165,6 +175,11 @@ volume, which keeps it on that node. The setup link opens on the node itself, or
   is refused like any other.
 - `TZ` (in the compose and k8s files) is the shop's time zone, for the server's own maintenance
   times.
+- ⚠ **PDFs (gjovanov/lgr#905).** Under Compose the server prints no PDF as it ships: the PDF browser's
+  sandbox needs a user namespace, and Docker's default seccomp profile refuses a container one. At
+  every start the server says in `docker compose logs` whether PDFs print. `PDF_CHROME_NO_SANDBOX=1`
+  in `config/api.env` prints without the sandbox, the container then being the only boundary around
+  the browser.
 
 ### What never to do
 
@@ -407,6 +422,7 @@ always wins, and setup never edits this file. Set something here only to change 
 | `BACKUP_HOUR` | The hour of the nightly backup, 0 to 23, in each organisation's own time zone (default 3). The server backs up every organisation it holds each night, from 0.1.11 (gjovanov/lgr#581: before it, none was ever due). |
 | `UPDATE_WINDOW`, `UPDATE_AUTO` | The nightly update window: see [Versions and updates](#versions-and-updates). |
 | `NIGHT_RESTART` | Linux: `off` stops the server restarting itself at night for a library a security update replaced. See [Security updates](#security-updates-on-ubuntu-and-debian). |
+| `PDF_CHROME_NO_SANDBOX=1` | Runs the PDF browser without its sandbox, for a machine that refuses it one: an Ubuntu 24.04 without the package's AppArmor profile (see [Ubuntu and Debian](#ubuntu-and-debian)). Only where the start check in `logs/lgr-server.log` says the browser does not print for its sandbox. |
 
 ## What is inside a version
 

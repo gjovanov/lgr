@@ -85,8 +85,8 @@ concurrency:
 #   (.github/actions/server-version), and `package` publishes it for the jobs after the builds.
 # - `windows` and `linux` start with the run. They compile the supervisor while `package` builds the
 #   UIs, and wait for it (.github/actions/wait-for-job) only at the step that downloads its bundle.
-# - `linux` builds and uploads; `linux-test` and `image` take its .deb from there in parallel,
-#   instead of `image` waiting out the whole systemd lane.
+# - `linux` builds and uploads; `linux-test`, `linux-apparmor` and `image` take its .deb from there in
+#   parallel, instead of `image` waiting out the whole systemd lane.
 jobs:
   # ⚠ A tag publishes what its rehearsal built; it does not rebuild. A release is cut as a signed
   # dispatch of this workflow (publish_release=false) that the field lanes test, then tagged on the
@@ -648,7 +648,19 @@ jobs:
             docker run --rm -e VERSION="$VERSION" -v "$PWD/out:/out:ro" --mount type=volume,dst=/var/lib/lgr "$image" bash -euo pipefail -c '
               export DEBIAN_FRONTEND=noninteractive
               apt-get update -qq
+              # AppArmor first, as a desktop or a server has it: 4.0 on 24.04, 3.0 on 22.04 (#901).
+              apt-get install -y -qq apparmor >/dev/null
               apt-get install -y -qq /out/*.deb >/dev/null
+              # #901: the AppArmor profile of the PDF browser goes in where AppArmor 4 is, and the parser
+              # reads it; nowhere else (an older AppArmor would fail on it at every boot). A container
+              # loads no profile, so this proves the file, and the field lanes prove what it allows.
+              case "$(. /etc/os-release && echo "$VERSION_ID")" in
+                24.04)
+                  test -f /etc/apparmor.d/lgr-server-chrome
+                  apparmor_parser -Q -K /etc/apparmor.d/lgr-server-chrome ;;
+                *)
+                  test ! -e /etc/apparmor.d/lgr-server-chrome ;;
+              esac
               # The postinst installed the bundle as a version and pointed current at it.
               test "$(readlink /opt/lgr-server/current)" = "versions/$VERSION"
               test "$(readlink /opt/lgr-server/lkg)" = "versions/$VERSION"
@@ -660,6 +672,10 @@ jobs:
               # The browser starts too. ldd finds a library by its name, so a stub that only answers to
               # the name passes it, and the binary then fails when it loads (#896).
               /opt/lgr-server/current/chrome/chrome-headless-shell --version
+              # And it prints a page. As root and without its sandbox: Docker refuses the user namespace
+              # the sandbox makes (the job below prints with it, on a real kernel).
+              /opt/lgr-server/current/chrome/chrome-headless-shell --no-sandbox --disable-dev-shm-usage --print-to-pdf=/tmp/page.pdf about:blank
+              test "$(head -c 4 /tmp/page.pdf)" = "%PDF"
               id lgr
               test "$(stat -c "%U %a" /var/lib/lgr)" = "lgr 750"
               test "$(stat -c "%U %a" /opt/lgr-server/current/lgr-server)" = "root 755"
@@ -713,6 +729,10 @@ jobs:
           test "$(readlink $root/current)" = "versions/$v1" || fail "current is $(readlink $root/current)"
           sudo systemctl start lgr-server
           api_up 240 || fail "the API did not come up under systemd"
+          # The supervisor's start check printed a page with the API's browser, sandbox and all (#901).
+          pdf_said() { sudo grep -hE 'PDFs print with this browser|the PDF browser does not print' /var/lib/lgr/logs/lgr-server.log 2>/dev/null | tail -1; }
+          until_ "the PDF browser check" 60 sh -c "sudo grep -qE 'PDFs print with this browser|the PDF browser does not print' /var/lib/lgr/logs/lgr-server.log"
+          pdf_said | grep -q 'PDFs print with this browser' || fail "the PDF browser does not print: $(pdf_said)"
           # FR-20.88 (P2-6c): the package pulled in poppler and tesseract with Bulgarian, and the
           # master's own reader runs on them: a text layer as the sidecar reads it, and a scan.
           tesseract --list-langs 2>/dev/null | grep -qx bul || fail "the package did not bring tesseract's Bulgarian"
@@ -751,6 +771,74 @@ jobs:
           ! systemctl is-active --quiet lgr-server || fail "the service still runs"
           sudo test -d /var/lib/lgr/keys || fail "the removal took the data"
           echo "installed, updated, rolled back, removed; the data stayed"
+
+  # #901: Ubuntu 24.04 lets a program make a user namespace only when an AppArmor profile says it may
+  # (kernel.apparmor_restrict_unprivileged_userns), and the PDF browser's sandbox needs one, so the .deb
+  # carries that profile (packaging/linux/apparmor/). Proved here on a real kernel, which the containers
+  # above are not: the restriction on, the .deb installed, and the supervisor's own start check prints
+  # a page with the sandbox; with the profile unloaded the same start prints none and says why; the
+  # removal takes the profile away. Nothing ships unless this passes (`sign`).
+  linux-apparmor:
+    needs: linux
+    # Explicit for the reason `linux-test` gives.
+    if: ${{ !cancelled() && needs.linux.result == 'success' }}
+    runs-on: ubuntu-24.04
+    # No checkout: it installs what `linux` made, and reads nothing else.
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux
+          path: out
+      - name: The PDF browser prints with its sandbox under 24.04's AppArmor
+        run: |
+          set -euo pipefail
+          log=/var/lib/lgr/logs/lgr-server.log
+          fail() { echo "::error::$1"; sudo journalctl -u lgr-server --no-pager -n 60 || true; sudo tail -n 40 "$log" || true; exit 1; }
+          loaded() { sudo grep -qE '^lgr-server-chrome \(' /sys/kernel/security/apparmor/profiles; }
+          lines() { sudo sh -c "cat $log 2>/dev/null | wc -l"; }
+          # What the supervisor said about its browser after the log's first $1 lines: one start's check.
+          said() {
+            local l
+            for _ in $(seq 1 40); do
+              l="$(sudo tail -n "+$(( $1 + 1 ))" "$log" 2>/dev/null | grep -E 'PDFs print with this browser|the PDF browser does not print' | tail -1)" || true
+              if [ -n "$l" ]; then echo "$l"; return 0; fi
+              sleep 3
+            done
+            return 1
+          }
+
+          # On, as on a shop's 24.04, whatever the runner image chose.
+          restricted=1
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1 || { restricted=; echo "::warning::this kernel has no user-namespace restriction: the profile's install and removal are proved, not what it allows"; }
+          sudo aa-enabled || fail "AppArmor is not enabled on this runner"
+
+          debs=(out/lgr-server_*_amd64.deb)
+          [ "${#debs[@]}" = 1 ] && [ -f "${debs[0]}" ] || fail "not one .deb in the linux artifact: ${debs[*]}"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "./${debs[0]}" >/dev/null
+          test -f /etc/apparmor.d/lgr-server-chrome || fail "the postinst did not place the profile"
+          loaded || fail "the postinst did not load the profile"
+
+          n=$(lines); sudo systemctl start lgr-server
+          line="$(said "$n")" || fail "the supervisor said nothing about its PDF browser"
+          echo "with the profile: $line"
+          grep -q 'PDFs print with this browser' <<< "$line" || fail "the browser does not print with its profile: $line"
+          grep -q 'sandbox=true' <<< "$line" || fail "the check ran without the sandbox: $line"
+
+          if [ -n "$restricted" ]; then
+            # The profile is what makes it print: unloaded, the same start prints nothing, and says why.
+            sudo apparmor_parser -R /etc/apparmor.d/lgr-server-chrome
+            n=$(lines); sudo systemctl restart lgr-server
+            line="$(said "$n")" || fail "the supervisor said nothing about its PDF browser without the profile"
+            echo "without the profile: $line"
+            grep -q 'No usable sandbox' <<< "$line" || fail "without the profile the browser did not fail on its sandbox: $line"
+            sudo apparmor_parser -r /etc/apparmor.d/lgr-server-chrome
+          fi
+
+          sudo apt-get remove -y -qq lgr-server >/dev/null
+          test ! -e /etc/apparmor.d/lgr-server-chrome || fail "the removal left the profile in /etc/apparmor.d"
+          ! loaded || fail "the removal left the profile loaded"
+          echo "the profile: placed, loaded, load-bearing, and gone with the package"
 
   # FR-20.12 (gjovanov/lgr#367, option A): a master from Compose or Kubernetes is the .deb's own home
   # in an image (packages/server/packaging/docker/), built from the .deb the linux job made and run
@@ -814,6 +902,13 @@ jobs:
           docker run -d --name lgr-smoke --network host -e TZ=Europe/Sofia --mount source=lgr-smoke,target=/var/lib/lgr "$img" >/dev/null
           healthy 300 || fail "the image did not come up healthy"
           docker exec lgr-smoke lgr-server status
+          # #901: whether the API's browser prints in a container, where Docker's default seccomp refuses
+          # the user namespace its sandbox makes. It does not (#905): said, not required until that is decided.
+          pdf="$(docker logs lgr-smoke 2>&1 | grep -E 'PDFs print with this browser|the PDF browser does not print' | tail -1)" || true
+          case "$pdf" in
+            *"PDFs print with this browser"*) echo "the PDF browser: $pdf" ;;
+            *) echo "::warning::the image's PDF browser does not print: ${pdf:-the supervisor said nothing about it}" ;;
+          esac
           # #356: the ARP watch, on the file capability the root install gave the binary, within the
           # container's bounding set (Docker's default keeps NET_RAW). Said, not required.
           echo "address check: $(docker exec lgr-smoke lgr-server status --json | jq -c '.addressCheck')"
@@ -873,14 +968,14 @@ jobs:
   # or what a rehearsal's sign job signed (`adopt`). Build provenance is made HERE, by the run that
   # built the bytes, so a tag that publishes a rehearsal's artifacts attests nothing it did not build.
   sign:
-    needs: [package, windows, linux, linux-test, image]
+    needs: [package, windows, linux, linux-test, linux-apparmor, image]
     # Every build passed, spelled out for the reason `linux-test` gives: with the implicit check a
     # skipped `adopt` would skip signing on every dispatch.
     if: >-
       ${{ !cancelled() && needs.package.outputs.sign == 'true' &&
           needs.package.result == 'success' && needs.windows.result == 'success' &&
           needs.linux.result == 'success' && needs.linux-test.result == 'success' &&
-          needs.image.result == 'success' }}
+          needs.linux-apparmor.result == 'success' && needs.image.result == 'success' }}
     runs-on: ubuntu-24.04
     environment: release
     permissions:
