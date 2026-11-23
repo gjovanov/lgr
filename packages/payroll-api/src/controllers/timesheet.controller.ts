@@ -3,7 +3,8 @@ import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges } from 'services/biz/audit-log.service'
 import { clientCreate, clientUpdate } from 'services/biz/server-owned'
-import { buildSearchFilter } from 'services/biz/search.utils'
+import { listSort, timesheetListFilter } from 'services/biz/payroll/list-export'
+import { EXPORT_FAILED, listExport } from './list-export.js'
 
 // A PUT never carries `orgId`: a document does not move between orgs (FR-20.7). `updateInOrg`
 // drops it too; this answers 422 instead of ignoring it. What else a body may not choose (the
@@ -19,21 +20,23 @@ const approval = (status: unknown, was: unknown, userId: string) =>
 
 export const timesheetController = new Elysia({ prefix: '/org/:orgId/payroll/timesheet' })
   .use(AppAuthService)
-  .get('/', async ({ params: { orgId }, query }) => {
+  .get('/', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
-    const filter: Record<string, any> = { orgId }
-    if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['notes'])
-      Object.assign(filter, searchFilter)
-    }
+    // #830: the one filter of this list, which its export applies too. The screen's employee and days filter it now;
+    // the search finds the employee or the entry's description (it looked in `notes`, which a timesheet has not).
+    const filter = await timesheetListFilter(orgId, query)
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = (query.sortBy as string) || 'createdAt'
-    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
 
-    const result = await r.timesheets.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+    const result = await r.timesheets.findAll(filter, { page, size, sort: listSort(query) })
     return { timesheets: result.items, ...result }
+  }, { isSignIn: true })
+  // #830: the list as Excel or PDF, on the list's filters.
+  .get('/export', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    return (await listExport('timesheets', orgId, query)) ?? status(500, EXPORT_FAILED)
   }, { isSignIn: true })
   .get('/:id', async ({ params, status }) => {
     const r = getRepos()

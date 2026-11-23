@@ -1131,7 +1131,17 @@
     "probationEndDate": "Probation End Date",
     "state": "State / Province",
     "street": "Street",
-    "searchEmployee": "Type to search an employee"
+    "searchEmployee": "Type to search an employee",
+    "payslip": "Payslip",
+    "paymentMethod": "Payment method",
+    "reference": "Reference",
+    "organization": "Organization",
+    "yearToDate": "Year to date",
+    "pdfFootnote": "This is a computer-generated document and does not require a signature.",
+    "exportTruncated": "The file holds the first {n} rows only.",
+    "pdfSealedHint": "This payslip is encrypted. Printing it is recorded, with the reason.",
+    "reasonEmployeeRequest": "For the employee",
+    "reasonAudit": "For an audit"
   },
   "hr": {
     "departments": "Departments",

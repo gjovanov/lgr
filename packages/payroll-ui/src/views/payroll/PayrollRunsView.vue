@@ -4,6 +4,7 @@
       <h1 class="text-h4">{{ $t('payroll.payrollRuns') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
+        <PayrollExportMenu cap="payroll-runs.view" :loading="exporting" @export="exportList" />
         <responsive-btn v-cap="'payroll-runs.create'" icon="mdi-plus" color="primary" :to="{ name: 'payroll.runs.new' }">
           {{ $t('common.create') }}
         </responsive-btn>
@@ -89,6 +90,8 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
+import PayrollExportMenu from '../../components/PayrollExportMenu.vue'
+import { usePayrollExport } from '../../composables/usePayrollExport'
 
 const { t } = useI18n()
 const store = usePayrollStore()
@@ -116,6 +119,28 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   entityKey: 'payrollRuns',
   filters,
   urlSync: true,
+})
+
+// #830: the list as Excel or PDF, on these filters: each run's totals, never a person's line.
+const { exporting, exportList } = usePayrollExport('run', {
+  filters,
+  pagination,
+  labels: () => ({
+    title: t('payroll.payrollRuns'),
+    columns: {
+      name: t('common.name'),
+      periodFrom: t('payroll.periodStart'),
+      periodTo: t('payroll.periodEnd'),
+      status: t('common.status'),
+      employeeCount: t('payroll.employeeCount'),
+      grossPay: t('payroll.grossPay'),
+      totalDeductions: t('payroll.totalDeductions'),
+      netPay: t('payroll.netPay'),
+      totalEmployerCost: t('payroll.totalCost'),
+      currency: t('payroll.currency'),
+    },
+    filters: { search: t('common.search'), status: t('common.status') },
+  }),
 })
 
 const expanded = ref<string[]>([])

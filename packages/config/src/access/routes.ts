@@ -273,6 +273,9 @@ export const EXACT_WRITES: ReadonlyMap<string, AccessRule> = new Map([
   ['POST payroll/contract/:id/reveal', any('payroll-people.reveal')],
   ['POST payroll/absence/:id/reveal', any('payroll-people.reveal')],
   ['POST payroll/payslip/:id/reveal', any('payroll-people.reveal')],
+  // #830: a payslip's PDF reads it as the list does; a sealed one is a reveal, and the controller asks for
+  // `payroll-people.reveal` on top and writes the audit row.
+  ['POST payroll/payslip/:id/pdf', any('payroll-people.view')],
   // FR-25 §5.1: the controller also asks for the people.
   ['POST payroll/import/employees', any('payroll-import.run')],
   ['POST payroll/import/contracts', any('payroll-import.run')],

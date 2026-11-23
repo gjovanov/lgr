@@ -159,4 +159,18 @@ test.describe('Payroll', () => {
     // Table should still be visible after filtering
     await expect(page.locator('.v-data-table')).toBeVisible()
   })
+
+  // #830: the list's Export downloads the list as Excel, on its filters.
+  test('should export the employees list to Excel', async ({ page }) => {
+    await loginForApp(page)
+    await page.goto('/payroll/employees')
+    await expect(page.locator('.v-data-table')).toBeVisible({ timeout: 10000 })
+
+    await page.getByTestId('payroll-export').click()
+    const [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 30000 }),
+      page.getByTestId('payroll-export-xlsx').click(),
+    ])
+    expect(download.suggestedFilename()).toMatch(/^employees-\d{4}-\d{2}-\d{2}\.xlsx$/)
+  })
 })

@@ -3,6 +3,7 @@
     <div class="d-flex align-center mb-4">
       <h1 class="text-h4">{{ $t('payroll.payslips') }}</h1>
       <v-spacer />
+      <PayrollExportMenu cap="payroll-people.view" :loading="exporting" @export="exportList" />
     </div>
 
     <v-row class="mb-4">
@@ -33,8 +34,9 @@
         <v-chip :color="statusColor(item.status)" size="small">{{ item.status }}</v-chip>
       </template>
       <template #item.actions="{ item }">
-        <!-- FR-31.11: no PDF button until a payslip prints: the one here did nothing (no route makes a payslip's PDF). -->
         <v-btn :aria-label="$t('common.view')" :title="$t('common.view')" icon="mdi-eye" size="small" variant="text" @click="viewDetail(item)" />
+        <!-- #830: the payslip's PDF; a sealed one asks why and is recorded (PayslipPdfButton). -->
+        <PayslipPdfButton :payslip="item" />
       </template>
     </v-data-table-server>
 
@@ -93,6 +95,7 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
+          <PayslipPdfButton :payslip="selectedPayslip" wide />
           <v-btn @click="detailDialog = false">{{ $t('common.close') }}</v-btn>
         </v-card-actions>
       </v-card>
@@ -109,6 +112,9 @@ import { usePaginatedTable } from 'ui-shared/composables/usePaginatedTable'
 import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import EntityLink from 'ui-shared/components/EntityLink'
+import PayrollExportMenu from '../../components/PayrollExportMenu.vue'
+import PayslipPdfButton from '../../components/PayslipPdfButton.vue'
+import { usePayrollExport } from '../../composables/usePayrollExport'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -131,6 +137,24 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   entityKey: 'payslips',
   filters,
   urlSync: true,
+})
+
+// #830: the list as Excel or PDF, on these filters: whose payslip, which month, its status. No amount, sealed or not.
+const { exporting, exportList } = usePayrollExport('payslip', {
+  filters,
+  pagination,
+  labels: () => ({
+    title: t('payroll.payslips'),
+    columns: {
+      employee: t('payroll.employee'),
+      employeeNumber: t('payroll.employeeNumber'),
+      periodFrom: t('payroll.periodStart'),
+      periodTo: t('payroll.periodEnd'),
+      status: t('common.status'),
+      paymentMethod: t('payroll.paymentMethod'),
+    },
+    filters: { search: t('common.search'), status: t('common.status') },
+  }),
 })
 
 const detailDialog = ref(false)

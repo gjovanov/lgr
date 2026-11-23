@@ -238,3 +238,14 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 
 - **Who reads it is roles:** in the home, every member whose role holds `payroll-people` does, an Administrator
   included. A person who should not gets a role without it.
+
+## The payroll lists export, and a payslip prints (2026-11-23, #830)
+
+- ⚠ **A payroll export prints no pay of a person and nothing sealed.** Its columns are a list of their own, narrower
+  than the list's answer: no base salary, no masked ЕГН, no payslip amount (sealed or not), no run line; a run's totals
+  stay. The screens show salary and a generic payslip's amounts to the same role, but a file of everyone's pay is the
+  owner's decision, and then a column each.
+
+- ⚠ **A sealed payslip's PDF is a reveal.** It needs `payroll-people.reveal` (the route rule asks only the list's
+  `payroll-people.view`, for the generic run's payslip) and a reason, and writes the row `/reveal` writes
+  (`action: 'reveal'`, field `sealed.pdf`, the reason, never the value) before the file leaves. No row, no file.
