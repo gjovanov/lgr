@@ -3,9 +3,9 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { allowSalesWithoutPrinter, createTestOrg, createTestUser, createTestContact, createTestProduct, createTestWarehouse, createTestStockLevel } from '../helpers/factories'
-import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
-import { emailRequestBlock } from 'invoicing-api/src/lib/email-guards'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { invoiceController } from 'api/src/invoicing/controllers/invoice.controller'
+import { emailRequestBlock } from 'api/src/invoicing/lib/email-guards'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { resolveDocPrefix } from 'services/biz/invoice-numbering.service'
 import { getCurrentNumber } from 'services/biz/sequence.service'
 import { eventBus } from 'services/events/event-bus'
@@ -13,9 +13,9 @@ import { Invoice, StockLevel, StockMovement } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { templateGrant } from 'config/access'
-// The proforma is the body the proforma form sends (`invoicing-ui` is a private app package).
-import { buildPayload } from '../../../invoicing-ui/src/composables/document-form/document-payload'
-import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
+// The proforma is the body the proforma form sends (`web/src/modules/invoicing` is not a workspace package).
+import { buildPayload } from '../../../web/src/modules/invoicing/composables/document-form/document-payload'
+import { DOCUMENT_CONFIGS } from '../../../web/src/modules/invoicing/composables/document-form/configs'
 
 /**
  * FR-22.22: a proforma can be issued. It takes its number from the proforma series — PRF-…, the

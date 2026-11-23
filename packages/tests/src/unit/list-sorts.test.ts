@@ -150,10 +150,10 @@ describe('the grids offer only the sorts their list declares', () => {
 
   // The views wrap their headers in `sortableHeaders`, so a column added later is held too.
   const VIEWS: Array<[string, ListSortId]> = [
-    ['invoicing-ui/src/views/SalesInvoicesView.vue', 'invoices'],
-    ['invoicing-ui/src/views/PurchaseInvoicesView.vue', 'invoices'],
-    ['inventory-ui/src/views/StockLevelsView.vue', 'stockLevels'],
-    ['inventory-ui/src/views/MovementsView.vue', 'movements'],
+    ['web/src/modules/invoicing/views/SalesInvoicesView.vue', 'invoices'],
+    ['web/src/modules/invoicing/views/PurchaseInvoicesView.vue', 'invoices'],
+    ['web/src/modules/inventory/views/StockLevelsView.vue', 'stockLevels'],
+    ['web/src/modules/inventory/views/MovementsView.vue', 'movements'],
   ]
   for (const [file, list] of VIEWS) {
     it(file, () => {

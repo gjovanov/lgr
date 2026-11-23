@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type ListPage } from './org-path'
 
-/** `warehouse-api/src/controllers/inventory-count.controller.ts`, `/org/:orgId/warehouse/inventory-count`. */
+/** `api/src/warehouse/controllers/inventory-count.controller.ts`, `/org/:orgId/warehouse/inventory-count`. */
 const BASE = '/warehouse/inventory-count'
 
 export interface InventoryCountLine {

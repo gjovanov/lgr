@@ -117,10 +117,14 @@ function walk(dir: string, out: string[] = []): string[] {
   }
   return out
 }
-const VIEWS = readdirSync(join(ROOT, 'packages'))
-  .filter(p => p.endsWith('-ui'))
-  .flatMap(p => {
-    try { return walk(join(ROOT, 'packages', p, 'src', 'views')) } catch { return [] }
+/** Each UI module's own folder: the web app's modules, and the desktop shell's pages. */
+const MODULE_DIRS = [
+  ...readdirSync(join(ROOT, 'packages', 'web', 'src', 'modules')).map(id => join(ROOT, 'packages', 'web', 'src', 'modules', id)),
+  ...readdirSync(join(ROOT, 'packages')).filter(p => p.endsWith('-ui')).map(p => join(ROOT, 'packages', p, 'src')),
+]
+const VIEWS = MODULE_DIRS
+  .flatMap(dir => {
+    try { return walk(join(dir, 'views')) } catch { return [] }
   })
   .map(p => ({ file: relative(join(ROOT, 'packages'), p).split('\\').join('/'), text: readFileSync(p, 'utf8') }))
 
@@ -131,12 +135,12 @@ const CONSULTS = [/\buseAccess\b/, /\bgrantOfViewer\b/, /\bv-cap\b/, /\bcap:\s*(
 
 /** The person's own: their account, their password, their sign-in. No role gates these. */
 const PERSONAL = new Set([
-  'portal-ui/src/views/account/AccountView.vue',
-  'portal-ui/src/views/account/OnpremCredentialsCard.vue',
-  'portal-ui/src/views/account/TillPinCard.vue',
-  'portal-ui/src/views/auth/ForgotPasswordView.vue',
-  'portal-ui/src/views/auth/ResetPasswordView.vue',
-  'portal-ui/src/views/idp/IdpAuthorizeView.vue',
+  'web/src/modules/portal/views/account/AccountView.vue',
+  'web/src/modules/portal/views/account/OnpremCredentialsCard.vue',
+  'web/src/modules/portal/views/account/TillPinCard.vue',
+  'web/src/modules/portal/views/auth/ForgotPasswordView.vue',
+  'web/src/modules/portal/views/auth/ResetPasswordView.vue',
+  'web/src/modules/portal/views/idp/IdpAuthorizeView.vue',
 ])
 
 /**
@@ -145,10 +149,10 @@ const PERSONAL = new Set([
  */
 const PAGE_GATED = new Set([
   // `/settings/billing` opens with `billing.manage`, which every Stripe call needs.
-  'portal-ui/src/views/settings/BillingView.vue',
+  'web/src/modules/portal/views/settings/BillingView.vue',
   // `/admin/nodes`, `/admin/licences`: lgrai.app's operators (the sys-admin list), not an org's roles.
-  'portal-ui/src/views/admin/NodesView.vue',
-  'portal-ui/src/views/admin/LicencesView.vue',
+  'web/src/modules/portal/views/admin/NodesView.vue',
+  'web/src/modules/portal/views/admin/LicencesView.vue',
 ])
 
 /**
@@ -157,12 +161,12 @@ const PAGE_GATED = new Set([
  */
 const NOT_YET = new Set([
   // `/settings/roles` opens with `roles.edit`; the role tools (#644) change these two views, so they wait for it.
-  'portal-ui/src/views/settings/RoleEditorView.vue',
-  'portal-ui/src/views/settings/RolesView.vue',
+  'web/src/modules/portal/views/settings/RoleEditorView.vue',
+  'web/src/modules/portal/views/settings/RolesView.vue',
 ])
 
 /**
- * FR-32.24: the write functions of every UI package's API modules, by module (`inventory-ui/src/api/warehouses`). A
+ * FR-32.24: the write functions of every UI package's API modules, by module (`web/src/modules/inventory/api/warehouses`). A
  * module's exported function writes when its own body sends a write: `httpClient.post|put|patch|delete`.
  */
 function walkTs(dir: string, out: string[] = []): string[] {
@@ -181,10 +185,9 @@ function writeFunctionsOf(source: string): string[] {
     .map(m => m[1] ?? m[2])
 }
 const API_WRITES = new Map<string, Set<string>>(
-  readdirSync(join(ROOT, 'packages'))
-    .filter(p => p.endsWith('-ui'))
-    .flatMap(p => {
-      try { return walkTs(join(ROOT, 'packages', p, 'src', 'api')) } catch { return [] }
+  MODULE_DIRS
+    .flatMap(dir => {
+      try { return walkTs(join(dir, 'api')) } catch { return [] }
     })
     .map(p => [relative(join(ROOT, 'packages'), p).split('\\').join('/').replace(/\.ts$/, ''), new Set(writeFunctionsOf(readFileSync(p, 'utf8')))]),
 )
@@ -234,20 +237,20 @@ describe('FR-27.7: every view that writes consults access (the ratchet)', () => 
 
   it('a view that writes through an API module writes (FR-32.24)', () => {
     // The write functions are read from the modules: a write is one, a read is not.
-    const warehouses = API_WRITES.get('inventory-ui/src/api/warehouses')
+    const warehouses = API_WRITES.get('web/src/modules/inventory/api/warehouses')
     expect(warehouses?.has('deleteWarehouse')).toBe(true)
     expect(warehouses?.has('listWarehouses')).toBe(false)
     const planted = ['export async function a() { return httpClient.get(u) }', 'export const b = async (x: X) => httpClient.put(u, x)'].join('\n')
     expect(writeFunctionsOf(planted)).toEqual(['b'])
     // The two inventory screens whose only write goes through a module are seen writing, and pass by their `v-cap`.
-    for (const file of ['inventory-ui/src/views/BulkPriceAdjustmentView.vue', 'inventory-ui/src/views/OpeningStockImportView.vue']) {
+    for (const file of ['web/src/modules/inventory/views/BulkPriceAdjustmentView.vue', 'web/src/modules/inventory/views/OpeningStockImportView.vue']) {
       const view = VIEWS.find(v => v.file === file)!
       expect({ file, writes: writes(view), offends: offends(view) }).toEqual({ file, writes: true, offends: false })
     }
   })
 
   it('a planted view that writes through a module and consults nothing offends (a positive control)', () => {
-    const file = 'inventory-ui/src/views/PlantedView.vue'
+    const file = 'web/src/modules/inventory/views/PlantedView.vue'
     const planted = `<template><v-btn @click="go">Go</v-btn></template>
 <script setup lang="ts">
 import { listWarehouses, deleteWarehouse as drop } from '../api/warehouses'

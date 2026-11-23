@@ -2,7 +2,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type Done, type ListPage } from './org-path'
 
 /**
- * `invoicing-api/src/controllers/invoice.controller.ts`, `/org/:orgId/invoices`: every document of the sales and the
+ * `api/src/invoicing/controllers/invoice.controller.ts`, `/org/:orgId/invoices`: every document of the sales and the
  * purchase side (invoices, notes, cash sales, proformas, offers, bills). Issuing one (`/:id/send`) and the stock check
  * in front of it are `./issue`.
  *

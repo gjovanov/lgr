@@ -12,7 +12,7 @@ import { seesBills } from 'services/biz/access/partition'
 export const agingReportController = new Elysia({ prefix: '/org/:orgId/invoicing/reports' })
   .use(AppAuthService)
   .get('/aging', async ({ params: { orgId }, query, user, status }) => {
-    // #493: this is the Reports app's aging page (reports-ui InvoiceAgingView), so it needs
+    // #493: this is the Reports app's aging page (the reports module's InvoiceAgingView), so it needs
     // `reports.read` as the Reports API does (FR-26.6). Without it a Seller, who has no Reports,
     // still read every customer's outstanding balance here. Every default role with invoicing holds
     // it; admins pass, as on every route.

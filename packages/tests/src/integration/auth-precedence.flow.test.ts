@@ -5,8 +5,8 @@ import { randomUUID } from 'crypto'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { withFakeGoogle } from '../helpers/fake-oauth-provider'
-import { createApiApp } from '../../../portal-api/src/api.js'
-import { isolationHeaders } from '../../../portal-api/src/isolation-headers.js'
+import { createApiApp } from '../../../api/src/api.js'
+import { isolationHeaders } from '../../../api/src/isolation-headers.js'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import type { Types } from 'mongoose'
@@ -139,7 +139,7 @@ describe('a verified signature is not a session by itself', () => {
 
 describe('S-07: CORS answers only the origins this app is served from', () => {
   async function preflight(origin: string) {
-    const { corsPlugin } = await import('../../../portal-api/src/cors.js')
+    const { corsPlugin } = await import('../../../api/src/cors.js')
     const withCors = new Elysia().use(corsPlugin()).use(createApiApp())
     return withCors.handle(
       new Request('http://localhost/api/auth/login', {

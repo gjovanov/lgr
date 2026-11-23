@@ -20,7 +20,7 @@ import { isQueryTimeout } from 'db/plugins/query-time-limit'
 /**
  * lgrai.app's analytics tag. ⚠ It is added to the portal's shell by the SERVER, and only on
  * `global` (FR-20 AC 66: a master serves no third-party script and no analytics beacon). It used
- * to sit in `portal-ui/index.html`, so every build carried it, including the package a master runs
+ * to sit in the portal's own `index.html` (before FR-24.21), so every build carried it, including the package a master runs
  * on a shop's LAN, where it would report that shop's visits to another origin.
  */
 export const GLOBAL_ANALYTICS_TAG = '<script defer data-domain="lgrai.app" src="https://purestat.ai/js/purestat.js"></script>'

@@ -3,7 +3,7 @@ import { orgPath } from './org-path'
 import type { InvoiceDocument } from './documents'
 
 /**
- * `invoicing-api/src/controllers/receipt-bill.controller.ts`, `/org/:orgId/invoicing/bills`: the supplier's bill for
+ * `api/src/invoicing/controllers/receipt-bill.controller.ts`, `/org/:orgId/invoicing/bills`: the supplier's bill for
  * goods already received (FR-22.31, FR-22.32). The rules are `services/biz/receipt-bill.service.ts`; receiving, voiding
  * and editing such a bill stay on `./documents`. A refusal carries its `code` (and what it is about).
  */

@@ -13,7 +13,7 @@ import { join, resolve } from 'node:path'
  * to the line of its closing brace. The route's options (its body schema) are not the handler.
  */
 const ROOT = resolve(import.meta.dir, '..', '..', '..', '..')
-const CONTROLLER = join(ROOT, 'packages', 'invoicing-api', 'src', 'controllers', 'invoice.controller.ts')
+const CONTROLLER = join(ROOT, 'packages', 'api', 'src', 'invoicing', 'controllers', 'invoice.controller.ts')
 const MAX_HANDLER_LINES = 80
 
 /** Where the brace that closes the one at `open` is, skipping strings, template literals and comments. */

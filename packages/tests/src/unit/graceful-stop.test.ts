@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { fiscalOperation } from 'fiscal/in-flight'
 import { newSchedulerHealth, runTick, stopSchedulers, useLeaseReleaser, useLeaseTaker, type SchedulerDef } from 'services/scheduler/registry'
-import { gracefulStop, isStopping, resetGracefulStopForTests } from '../../../portal-api/src/front/graceful-stop'
+import { gracefulStop, isStopping, resetGracefulStopForTests } from '../../../api/src/front/graceful-stop'
 
 afterEach(() => {
   resetGracefulStopForTests()

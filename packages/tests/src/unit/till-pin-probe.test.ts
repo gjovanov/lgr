@@ -20,7 +20,7 @@ describe('asking whether a PIN is on offer', () => {
       init?.signal?.addEventListener('abort', () => reject(new DOMException('timed out', 'TimeoutError')))
     })) as typeof fetch
 
-    const { pinOffered } = await import('../../../invoicing-ui/src/pos/composables/useTillPin?hung')
+    const { pinOffered } = await import('../../../web/src/modules/invoicing/pos/composables/useTillPin?hung')
     const answer = await Promise.race([pinOffered(), new Promise(resolve => setTimeout(() => resolve('still waiting'), 500))])
 
     expect(answer).toBe(false)

@@ -9,7 +9,7 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestFiscalYear } from '../helpers/factories'
 import { config } from 'config'
 import { ArchiveUnit, DocFile } from 'db/models'
-import { filesController } from '../../../files-api/src/controllers/file.controller'
+import { filesController } from '../../../api/src/files/controllers/file.controller'
 import { archiveFiscalYear, orgDocsDir } from 'services/biz/archive/archive.service'
 import type { Types } from 'mongoose'
 

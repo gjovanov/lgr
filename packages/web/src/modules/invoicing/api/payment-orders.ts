@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath } from './org-path'
 
-/** `invoicing-api/src/controllers/payment-order.controller.ts`, `/org/:orgId/invoicing/payment-order`. */
+/** `api/src/invoicing/controllers/payment-order.controller.ts`, `/org/:orgId/invoicing/payment-order`. */
 const BASE = '/invoicing/payment-order'
 
 /** A payment order as the routes answer it (the repository's entity). The model's type is `payment` or `receipt`. */

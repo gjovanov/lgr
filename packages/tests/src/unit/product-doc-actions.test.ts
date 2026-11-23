@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'bun:test'
 import { NEW_DOCUMENT_MENU, pageById, type PageViewer } from 'ui-shared/nav/page-registry'
 import type { Role } from 'config/constants'
-// The rules the Products list and the product page offer their actions by (`inventory-ui` is a
-// private app package).
+// The rules the Products list and the product page offer their actions by (`web/src/modules/inventory` is
+// not a workspace package).
 import {
   INACTIVE_KEY,
   productDocActions,
   withProduct,
-} from '../../../inventory-ui/src/composables/product-doc-actions'
+} from '../../../web/src/modules/inventory/composables/product-doc-actions'
 import { ALL, templateGrant } from 'config/access'
 
 /**

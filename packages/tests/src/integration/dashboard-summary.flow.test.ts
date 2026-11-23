@@ -3,7 +3,7 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestContact, createTestInvoice } from '../helpers/factories'
-import { dashboardController } from '../../../portal-api/src/controllers/dashboard.controller'
+import { dashboardController } from '../../../api/src/controllers/dashboard.controller'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 

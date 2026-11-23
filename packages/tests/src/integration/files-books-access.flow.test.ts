@@ -7,7 +7,7 @@ import {
   createTestOrg, createTestPerson, createTestUser, createTestWarehouse, createTestProduct, createTestContact, createTestInvoice,
 } from '../helpers/factories'
 import { uploadPath, useTempUploadDir } from '../helpers/upload-path'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import { config } from 'config'
 import { BackgroundTask, Contact, DocFile, Product, StockLevel, StockMovement } from 'db/models'
 import { tokenize } from 'services/biz/auth.service'

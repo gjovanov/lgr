@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath } from './org-path'
 
-/** `warehouse-api/src/controllers/opening-stock.controller.ts`, `/org/:orgId/warehouse/opening-stock`. */
+/** `api/src/warehouse/controllers/opening-stock.controller.ts`, `/org/:orgId/warehouse/opening-stock`. */
 const BASE = '/warehouse/opening-stock'
 
 /**

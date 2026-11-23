@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type ListPage } from './org-path'
 
-/** `warehouse-api/src/controllers/movement.controller.ts`, `/org/:orgId/warehouse/movement`: a contact's movements. */
+/** `api/src/warehouse/controllers/movement.controller.ts`, `/org/:orgId/warehouse/movement`: a contact's movements. */
 const BASE = '/warehouse/movement'
 
 /** A movement as the list answers it: the entity without its lines, with the names the grid shows. */

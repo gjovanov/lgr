@@ -4,7 +4,7 @@ import { emailMovements, previewMovementEmail } from '../lib/movement-email.js'
 
 /**
  * The movements list's ticked movements, by e-mail (2026-11-16): `config/doc-email`'s two endpoints for the kind
- * `movement`, as `invoicing-api/controllers/doc-email.controller.ts` has them for invoices and supplier orders.
+ * `movement`, as `api/src/invoicing/controllers/doc-email.controller.ts` has them for invoices and supplier orders.
  *
  * ⚠ Neither is named "send": `POST /invoices/:id/send` ISSUES a document.
  *

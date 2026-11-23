@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'bun:test'
 import { config } from 'config'
-import { configuredRelease } from '../../../portal-api/src/controllers/desktop-v1.controller.js'
+import { configuredRelease } from '../../../api/src/controllers/desktop-v1.controller.js'
 
 /**
  * #93 — the update offer a hub makes from its own configuration.

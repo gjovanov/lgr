@@ -5,7 +5,7 @@
  * and every import that looks a contact up by name then takes the other name for that contact.
  *
  * Import-pure, and shared by the contact form (`ui-shared/composables/contact-payload`) and the API
- * (`invoicing-api/controllers/contact.controller`), so both store the same thing for the same typing.
+ * (`api/src/invoicing/controllers/contact.controller`), so both store the same thing for the same typing.
  */
 
 /** The most other names one contact keeps. */

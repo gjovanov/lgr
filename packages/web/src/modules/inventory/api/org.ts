@@ -6,7 +6,7 @@ export interface OrgSettings {
   taxConfig?: { defaultVatRate?: number }
 }
 
-/** The org as `GET /org/:orgId` answers it (`portal-api/src/controllers/org.controller.ts`, `orgForClient`): the fields read here. */
+/** The org as `GET /org/:orgId` answers it (`api/src/controllers/org.controller.ts`, `orgForClient`): the fields read here. */
 export interface Org {
   name: string
   settings?: OrgSettings

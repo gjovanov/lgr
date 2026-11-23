@@ -8,7 +8,7 @@ import { FiscalDevice, Invoice, Journal, JournalEntry, Org, POSSession, Sequence
 import { createPOSSessionJournalEntry } from 'services/biz/auto-journal.service'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { buildSessionReport, formatSessionReport } from 'services/biz/cash-register/session-report'
-import { formatNonFiscalLines } from 'invoicing-api/src/lib/cash-register-till'
+import { formatNonFiscalLines } from 'api/src/invoicing/lib/cash-register-till'
 import { generateTable182 } from 'reporting/excel/supto.excel'
 
 /**

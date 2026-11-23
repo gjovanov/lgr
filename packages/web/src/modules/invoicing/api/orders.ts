@@ -4,7 +4,7 @@ import type { InvoiceDocument } from './documents'
 import type { Reservation } from './reservations'
 
 /**
- * `invoicing-api/src/controllers/order.controller.ts`, `/org/:orgId/invoicing/orders`: the supplier order (ORDO).
+ * `api/src/invoicing/controllers/order.controller.ts`, `/org/:orgId/invoicing/orders`: the supplier order (ORDO).
  * A role without the cost figures is answered every order without its expected prices (FR-27.11.C.1). A refused
  * reservation change carries its `code` (`composables/reservation-errors.ts` says it).
  */

@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type ListPage } from './org-path'
 
-/** `warehouse-api/src/controllers/product.controller.ts`, `/org/:orgId/warehouse/product`. */
+/** `api/src/warehouse/controllers/product.controller.ts`, `/org/:orgId/warehouse/product`. */
 const BASE = '/warehouse/product'
 
 /** A price tier of an article (`IProductPriceTier`). Dates are ISO text on the wire. */

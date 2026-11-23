@@ -7,8 +7,8 @@ import {
 import { ROLES, type Role } from 'config/constants'
 import { ALL, accessRuleFor, templateGrant, type CapabilityId } from 'config/access'
 import { accessRefusal } from 'services/biz/access/evaluate'
-import { manifest as inventory } from '../../../inventory-ui/src/manifest'
-import { manifest as invoicing } from '../../../invoicing-ui/src/manifest'
+import { manifest as inventory } from '../../../web/src/modules/inventory/manifest'
+import { manifest as invoicing } from '../../../web/src/modules/invoicing/manifest'
 
 /**
  * FR-26: what the Seller and the Sales Consultant see (§2.1), as the menus, „+ Нов", the portal

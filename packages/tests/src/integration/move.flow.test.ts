@@ -21,8 +21,8 @@ import { credentialAad } from 'services/biz/identity/onprem-credentials.service'
 import { PEOPLE_FIELDS, collectionDigests, importMoveBundle, orgHasData, writeMoveBundle } from 'services/biz/move/move-bundle'
 import { MoveError, abortMove, copied, copyFor, currentMove, moveTick, movesForNode, preflightMove, startMove } from 'services/biz/move/move.service'
 import { moveWorkerTick } from 'services/biz/move/move-worker.service'
-import { createApiApp } from '../../../portal-api/src/api.js'
-import { CLOSE, handleUplinkClose, handleUplinkMessage, handleUplinkOpen, rewelcomeNode, tickConn } from '../../../portal-api/src/websocket/uplink'
+import { createApiApp } from '../../../api/src/api.js'
+import { CLOSE, handleUplinkClose, handleUplinkMessage, handleUplinkOpen, rewelcomeNode, tickConn } from '../../../api/src/websocket/uplink'
 
 /**
  * Moving an org from lgrai.app to its master (FR-20.79, plan step P3-6a).

@@ -19,10 +19,10 @@ import { forgetLink } from 'services/biz/replication/engine'
 import { BLOB_CHUNK, BLOB_MAGIC, decodeBlobChunk, encodeBlobChunk } from 'services/biz/replication/blob-frame'
 import { blobFor, forgetFoundBlobs, readBlobAsk } from 'services/biz/replication/blob-source'
 import { blobPath, mirrorFilesStatus } from 'services/biz/replication/mirror-blobs'
-import { startControlSocket } from '../../../portal-api/src/front/control-socket'
-import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../portal-api/src/websocket/uplink'
-import { createApiApp } from '../../../portal-api/src/api.js'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { startControlSocket } from '../../../api/src/front/control-socket'
+import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../api/src/websocket/uplink'
+import { createApiApp } from '../../../api/src/api.js'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 
 /**
  * FR-20.66, FR-20.69 (plan step P3-3): an org homed on a master sends its files to global's mirror,

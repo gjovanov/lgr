@@ -10,7 +10,7 @@ import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service
 import { WsTremolFiscalPrinter } from 'fiscal/ws-tremol-printer'
 import { TREMOL_CMD, TremolFiscalPrinter, tremolFiscalized, tremolPayload } from 'fiscal/tremol'
 import { WebSocketFiscalPrinter } from 'fiscal/ws-fiscal-printer'
-import { formatNonFiscalLines } from 'invoicing-api/src/lib/cash-register-till'
+import { formatNonFiscalLines } from 'api/src/invoicing/lib/cash-register-till'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 

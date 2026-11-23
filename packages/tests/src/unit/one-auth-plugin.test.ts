@@ -5,7 +5,7 @@ import { join, relative } from 'path'
 /**
  * FR-24.30: one domain auth plugin. It used to be seven byte-identical copies, deduped by Elysia's
  * plugin name, so that the tenant guard ran from whichever copy was mounted first and a fix had to
- * land seven times. Now it is defined once (`services/http/app-auth.service.ts`) and each `*-api`
+ * land seven times. Now it is defined once (`services/http/app-auth.service.ts`) and each domain of `api`
  * package's `auth/app-auth.service.ts` only re-exports it.
  */
 
@@ -25,7 +25,7 @@ function sources(dir: string): string[] {
 describe('FR-24.30: one auth plugin for every domain API', () => {
   it('defines Service.AppAuth exactly once, in services', () => {
     const definitions: string[] = []
-    for (const pkg of readdirSync(PACKAGES).filter(p => p.endsWith('-api') || p === 'services')) {
+    for (const pkg of readdirSync(PACKAGES).filter(p => p === 'api' || p === 'services')) {
       const src = join(PACKAGES, pkg, 'src')
       if (!statSync(src, { throwIfNoEntry: false })?.isDirectory()) continue
       for (const file of sources(src)) {
@@ -35,9 +35,10 @@ describe('FR-24.30: one auth plugin for every domain API', () => {
     expect(definitions).toEqual(['services/src/http/app-auth.service.ts'])
   })
 
-  it("each package's auth/app-auth.service.ts is only the re-export", () => {
-    for (const pkg of readdirSync(PACKAGES).filter(p => p.endsWith('-api'))) {
-      const file = join(PACKAGES, pkg, 'src', 'auth', 'app-auth.service.ts')
+  it("each domain's auth/app-auth.service.ts is only the re-export", () => {
+    const API = join(PACKAGES, 'api', 'src')
+    for (const pkg of readdirSync(API).filter(d => statSync(join(API, d)).isDirectory())) {
+      const file = join(API, pkg, 'auth', 'app-auth.service.ts')
       if (!statSync(file, { throwIfNoEntry: false })) continue
       const code = readFileSync(file, 'utf8').split(/\r?\n/).filter(l => l.trim() && !l.trim().startsWith('//'))
       expect({ pkg, code }).toEqual({ pkg, code: ["export { AppAuthService } from 'services/http/app-auth.service'"] })
@@ -51,7 +52,7 @@ describe('FR-24.30: one auth plugin for every domain API', () => {
  * or the home gate had to land twice. Each plugin is now that chain under its own name; neither declares a hook.
  */
 describe('FR-32.25: one session auth chain for both plugins', () => {
-  const PLUGINS = ['portal-api/src/auth/auth.service.ts', 'services/src/http/app-auth.service.ts']
+  const PLUGINS = ['api/src/auth/auth.service.ts', 'services/src/http/app-auth.service.ts']
 
   for (const file of PLUGINS) {
     it(`${file} is the chain of services/http/session-auth.ts`, () => {
@@ -63,7 +64,7 @@ describe('FR-32.25: one session auth chain for both plugins', () => {
 
   it('the chain is written in one place', () => {
     const chains: string[] = []
-    for (const pkg of readdirSync(PACKAGES).filter(p => p.endsWith('-api') || p === 'services')) {
+    for (const pkg of readdirSync(PACKAGES).filter(p => p === 'api' || p === 'services')) {
       const src = join(PACKAGES, pkg, 'src')
       if (!statSync(src, { throwIfNoEntry: false })?.isDirectory()) continue
       for (const file of sources(src)) {

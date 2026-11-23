@@ -2,7 +2,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath } from './org-path'
 import type { PriceStep } from './documents'
 
-/** `warehouse-api/src/controllers/pricing.controller.ts`, `/org/:orgId/pricing`: a line's price, and the last ones. */
+/** `api/src/warehouse/controllers/pricing.controller.ts`, `/org/:orgId/pricing`: a line's price, and the last ones. */
 const BASE = '/pricing'
 
 /** The query of `GET /resolve`: the article, for whom, how many. */

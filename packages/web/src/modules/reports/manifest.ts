@@ -13,7 +13,7 @@ export const manifest: ModuleManifest = {
   routes: [
       { path: '', name: 'reports.hub', component: () => import('./views/ReportsHubView.vue') },
 
-      // ── Moved from invoicing-ui (FR-6.19) ──
+      // ── Moved from invoicing (FR-6.19) ──
       { path: 'export', name: 'reports.export', component: () => import('./views/ReportingExportView.vue') },
       { path: 'aging', name: 'reports.aging', component: () => import('./views/InvoiceAgingView.vue') },
 

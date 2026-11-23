@@ -1,10 +1,10 @@
 /**
  * Invoice/document numbering — sequence keys, display prefixes and number allocation.
  *
- * Extracted verbatim from `invoicing-api/src/controllers/invoice.controller.ts` so the
+ * Extracted verbatim from `api/src/invoicing/controllers/invoice.controller.ts` so the
  * doc-import engine (which lives in `services/biz/doc-import/`) can allocate numbers
  * without importing from a controller — that would invert the package dependency
- * (config ← db ← services ← *-api). The controller re-exports every symbol here, so
+ * (config ← db ← services ← api). The controller re-exports every symbol here, so
  * existing importers keep working unchanged.
  */
 import { Invoice } from 'db/models'

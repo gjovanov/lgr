@@ -5,8 +5,8 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import {
   allowSalesWithoutPrinter, createTestOrg, createTestUser, createTestContact, createTestWarehouse, createTestProduct, createTestStockLevel,
 } from '../helpers/factories'
-import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { invoiceController } from 'api/src/invoicing/controllers/invoice.controller'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { requestHash } from 'services/biz/hot-path-key'
 import { planDeleteDocFiles } from 'services/biz/files/doc-delete.service'
 import { eventBus } from 'services/events/event-bus'

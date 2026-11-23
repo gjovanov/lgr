@@ -15,7 +15,7 @@ import { join } from 'path'
 describe('Export column catalog ↔ backend allowlist', () => {
   it('every UI column key is in the backend ALLOWED_COLUMN_KEYS set', () => {
     const src = readFileSync(
-      join(import.meta.dir, '../../../../packages/invoicing-api/src/controllers/invoice-export.controller.ts'),
+      join(import.meta.dir, '../../../../packages/api/src/invoicing/controllers/invoice-export.controller.ts'),
       'utf-8',
     )
     const match = src.match(/ALLOWED_COLUMN_KEYS\s*=\s*new Set\(\s*\[([\s\S]*?)\]\s*\)/)

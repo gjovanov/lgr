@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-// PURE module — reached by path like document-payload: `invoicing-ui` is a private app package.
+// PURE module — reached by path like document-payload: `web/src/modules/invoicing` is not a workspace package.
 import {
   BASE_CHOICE,
   choiceKeyOf,
@@ -7,8 +7,8 @@ import {
   mapLimit,
   optionForChoice,
   type PriceOptionLike,
-} from '../../../invoicing-ui/src/composables/document-form/doc-price'
-import { lineAmounts } from '../../../invoicing-ui/src/composables/document-form/document-payload'
+} from '../../../web/src/modules/invoicing/composables/document-form/doc-price'
+import { lineAmounts } from '../../../web/src/modules/invoicing/composables/document-form/document-payload'
 
 /**
  * "One price for the whole document": the user picks a price NAME („Цена 3") once and every line

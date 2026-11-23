@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type ListPage } from './org-path'
 
-/** `warehouse-api/src/controllers/product-category.controller.ts`, `/org/:orgId/warehouse/product-category`. */
+/** `api/src/warehouse/controllers/product-category.controller.ts`, `/org/:orgId/warehouse/product-category`. */
 const BASE = '/warehouse/product-category'
 
 /** A category as the list answers it (the repository's entity). */

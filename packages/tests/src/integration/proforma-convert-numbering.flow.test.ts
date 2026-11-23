@@ -3,17 +3,17 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { allowSalesWithoutPrinter, createTestOrg, createTestUser, createTestContact } from '../helpers/factories'
-import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { invoiceController } from 'api/src/invoicing/controllers/invoice.controller'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { resolveDocPrefix } from 'services/biz/invoice-numbering.service'
 import { getCurrentNumber, setDisplayPrefix } from 'services/biz/sequence.service'
 import { Invoice } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
-// The form's own payload builder, reached by path (`invoicing-ui` is a private app package): the
+// The form's own payload builder, reached by path (`web/src/modules/invoicing` is not a workspace package): the
 // proforma below is the body the proforma form sends.
-import { buildPayload } from '../../../invoicing-ui/src/composables/document-form/document-payload'
-import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
+import { buildPayload } from '../../../web/src/modules/invoicing/composables/document-form/document-payload'
+import { DOCUMENT_CONFIGS } from '../../../web/src/modules/invoicing/composables/document-form/configs'
 
 /**
  * FR-22.3 (B-5): converting a proforma burned an invoice number. The converted DRAFT took a number

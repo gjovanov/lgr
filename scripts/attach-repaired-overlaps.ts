@@ -24,11 +24,11 @@
  * On prod it needs the release that carries #343. ⚠ The pod's filesystem is read-only (2026-10-28):
  * a file cannot be copied into it. Run it on the build host from a checkout at the deployed commit,
  * through a port-forward, with `MONGODB_URI` pointing at it (the field check's way), and from
- * `packages/portal-api`, where the workspace packages resolve:
- *   cp scripts/attach-repaired-overlaps.ts packages/portal-api/.attach.ts
- *   cd packages/portal-api && bun .attach.ts            # then --execute; then rm .attach.ts
+ * `packages/api`, where the workspace packages resolve:
+ *   cp scripts/attach-repaired-overlaps.ts packages/api/.attach.ts
+ *   cd packages/api && bun .attach.ts            # then --execute; then rm .attach.ts
  */
-// From db, not 'mongoose': portal-api (where this runs on prod) resolves db, not mongoose itself.
+// From db, not 'mongoose': packages/api (where this runs on prod) resolves db, not mongoose itself.
 import { mongoose } from 'db/connection'
 import { assertHomeIsHere, isHomeHere } from 'db/home/home'
 import { Invoice, Org, User } from 'db/models'
@@ -70,7 +70,7 @@ async function main() {
 
   const found: any[] = await Org.find(ORG_SLUG ? { slug: ORG_SLUG } : {}).select('_id slug').lean()
   if (ORG_SLUG && !found.length) throw new Error(`org "${ORG_SLUG}" not found`)
-  // FR-20.4: write only where the org's home is. Runs from portal-api in the pod, so it checks the
+  // FR-20.4: write only where the org's home is. Runs from packages/api in the pod, so it checks the
   // home directly rather than through scripts/lib/home-guard.
   const orgs: any[] = []
   for (const o of found) {

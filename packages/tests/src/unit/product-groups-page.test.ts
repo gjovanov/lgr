@@ -32,7 +32,7 @@ import {
   type ReviewRow,
   type ReviewSummary,
   type StoredGroup,
-} from '../../../accounting-ui/src/views/accounting/product-groups-page'
+} from '../../../web/src/modules/accounting/views/accounting/product-groups-page'
 
 /** FR-25 R3, slice 2: the review queue page's rules, without a browser. Fictional data only. */
 

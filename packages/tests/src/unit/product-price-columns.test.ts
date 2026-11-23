@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { PRICE_TIER_NAMES, MAX_PRICE_TIERS } from 'config/constants'
 import { useGridColumns } from 'ui-shared/composables/useGridColumns'
-// The Products list's price-tier columns (`inventory-ui` is a private app package).
+// The Products list's price-tier columns (`web/src/modules/inventory` is not a workspace package).
 import {
   DEFAULT_TIER_COLUMNS,
   TIER_COLUMNS,
   formatUnitPrice,
   tierPrice,
-} from '../../../inventory-ui/src/composables/product-price-columns'
+} from '../../../web/src/modules/inventory/composables/product-price-columns'
 import { tierForSortKey } from 'services/biz/product-tier-sort'
 
 /**

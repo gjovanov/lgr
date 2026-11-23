@@ -27,7 +27,7 @@ import { useRouter } from 'vue-router'
  * the invoicing redirect stubs — there is no in-app history to go back to.
  *
  * The shell draws no breadcrumb (FR-32.9 deleted the unmounted component and the routes'
- * inert `meta.breadcrumb`). Adding one would change every app; this stays inside reports-ui.
+ * inert `meta.breadcrumb`). Adding one would change every app; this stays inside the reports module.
  *
  * Navigation is an explicit push to the hub rather than `router.back()`, so the button
  * always lands in the same, predictable place regardless of how the page was entered.

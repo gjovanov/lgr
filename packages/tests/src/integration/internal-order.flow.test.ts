@@ -17,7 +17,7 @@ import {
   completeInternalOrder,
   cancelInternalOrder,
 } from 'services/biz/reservation-ops.service'
-import { validateReservationLineRefs } from 'invoicing-api/src/controllers/invoice.controller'
+import { validateReservationLineRefs } from 'api/src/invoicing/controllers/invoice.controller'
 
 const { Types } = mongoose
 

@@ -10,7 +10,7 @@ import { posix, win32, resolve, sep } from 'path'
  * by us. A browser strips path components before sending; `curl`, a script, or anything else
  * speaking HTTP does not. So a part named
  *
- *     ../../../../app/packages/portal-api/src/unified.ts
+ *     ../../../../app/packages/api/src/unified.ts
  *
  * resolved cleanly out of the uploads tree and overwrote application source — or
  * `lgr-seal.key`, the one credential `.gitignore` spends a paragraph keeping off GitHub.

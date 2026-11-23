@@ -6,8 +6,8 @@ import {
   createTestOrg, createTestUser, createTestContact, createTestProduct, createTestWarehouse, createTestAccount,
   createTestBankAccount, createTestEmployee, createTestFiscalYear, createTestPayrollRun, createTestStockLevel,
 } from '../helpers/factories'
-import { createApiApp } from '../../../portal-api/src/api'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { createApiApp } from '../../../api/src/api'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { mongoose } from 'db/connection'

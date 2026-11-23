@@ -425,7 +425,7 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
   )
 
   /**
-   * Poll a `POST /create` job. Same shape as `files-api`'s `/files/task/:taskId`.
+   * Poll a `POST /create` job. Same shape as the files API's `/files/task/:taskId` (`api/src/files`).
    *
    * ⚠ Reads the in-process store first and falls back to the row, because the two answer
    * different questions: the store knows about the job running in THIS pod right now, the row
@@ -489,7 +489,7 @@ export const backupController = new Elysia({ prefix: '/org/:orgId/backup' })
       const denied = requireSysAdmin(user, orgId, status)
       if (denied) return denied
 
-      // Same shape as `files-api/src/controllers/file.controller.ts:40-51`: Elysia's `t.Files()`
+      // Same shape as `api/src/files/controllers/file.controller.ts:40-51`: Elysia's `t.Files()`
       // validator is brittle, so take what it parsed and otherwise re-read the form.
       const raw = (body as any)?.file || (body as any)?.files
       let file: File | null = raw instanceof File ? raw : Array.isArray(raw) && raw[0] instanceof File ? raw[0] : null

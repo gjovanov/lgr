@@ -52,7 +52,7 @@ const BIN = process.env.LGR_DESKTOP_BIN || ''
 const CDP_PORT = Number(process.env.LGR_DESKTOP_CDP_PORT || 9222)
 const HUB_PORT = Number(process.env.LGR_STUB_PORT || 4099)
 const START_PATH = '/pos/'
-/** Where the hub redirects it, as the real one does (`portal-api/src/lib/pos-redirect.ts`). */
+/** Where the hub redirects it, as the real one does (`api/src/lib/pos-redirect.ts`). */
 const LANDS_ON = '/invoicing/cash-sales/new'
 /** Nine characters, `XXXX-XXXX`, uppercase and digits — what `is_enrollment_code` accepts. */
 const CODE = 'K7Y2-9QR4'

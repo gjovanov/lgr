@@ -7,7 +7,7 @@ import {
   type ServerManifest,
 } from '../../../../scripts/lib/server-package.ts'
 import { checkPackage, foreignOriginHits, issuedDocumentHits, secretNameHits } from '../../../../scripts/check-package.ts'
-import { GLOBAL_ANALYTICS_TAG, MASTER_NODE_TAG, portalShellFor } from '../../../portal-api/src/spa-fallback.js'
+import { GLOBAL_ANALYTICS_TAG, MASTER_NODE_TAG, portalShellFor } from '../../../api/src/spa-fallback.js'
 import { MASTER_NODE_TAG as UI_MASTER_NODE_TAG, servedByMaster } from '../../../ui-shared/src/nav/node-role.js'
 
 /**

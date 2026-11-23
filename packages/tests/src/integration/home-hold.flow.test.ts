@@ -9,7 +9,7 @@ import { forgetAllHomes, homeOf, isHomeHere } from 'db/home/home'
 import { heldHomes, holdAfterRestore, noteReportedHomes, releaseHold } from 'services/biz/home/home-hold.service'
 import { recordOrgState } from 'services/biz/node/node.service'
 import { alarmsOfNodes } from 'services/biz/node/node-alarms'
-import { adminNodesController } from '../../../portal-api/src/controllers/admin-nodes.controller'
+import { adminNodesController } from '../../../api/src/controllers/admin-nodes.controller'
 
 /**
  * An org's home record fails closed on lgrai.app (FR-20.3, AC 55, plan step P3-8d):

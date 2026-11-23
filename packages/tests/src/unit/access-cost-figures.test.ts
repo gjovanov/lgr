@@ -21,10 +21,14 @@ function walk(dir: string, out: string[] = []): string[] {
   }
   return out
 }
-const FILES = readdirSync(join(ROOT, 'packages'))
-  .filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell')
-  .flatMap(p => {
-    try { return walk(join(ROOT, 'packages', p, 'src')) } catch { return [] }
+const FILES = [
+  ...readdirSync(join(ROOT, 'packages'))
+    .filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell')
+    .map(p => join(ROOT, 'packages', p, 'src')),
+  join(ROOT, 'packages', 'web', 'src', 'modules'),
+]
+  .flatMap(dir => {
+    try { return walk(dir) } catch { return [] }
   })
   .map(p => ({ file: relative(join(ROOT, 'packages'), p).split('\\').join('/'), text: readFileSync(p, 'utf8') }))
 
@@ -35,8 +39,8 @@ const CONSULTS = [/\bseesCosts\b/, /products\.costs/, /\bcapOfTier\b/, /\bcanSee
 
 /** The books' own figures: Accounting's cost of a fixed asset follows the accounting features, not the price levels. */
 const BOOKS = new Set([
-  'accounting-ui/src/views/accounting/FixedAssetFormView.vue',
-  'accounting-ui/src/views/accounting/FixedAssetsView.vue',
+  'web/src/modules/accounting/views/accounting/FixedAssetFormView.vue',
+  'web/src/modules/accounting/views/accounting/FixedAssetsView.vue',
 ])
 
 const template = (text: string) => text.split('<script')[0]

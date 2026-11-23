@@ -2,7 +2,7 @@
  * `admin/backup` — the FR-13.27 operator screen (gjovanov/lgr#31 P2).
  *
  * ⚠ #31 recorded backup as "not worth an e2e until the Phase 4 operator screen lands". It has
- * landed — `portal-ui/src/views/admin/BackupView.vue`, routed at `admin/backup`, shipped with
+ * landed — `web/src/modules/portal/views/admin/BackupView.vue`, routed at `admin/backup`, shipped with
  * the object-storage work. So this spec is writable now, and the issue's note is stale.
  *
  * What it covers is the half of `backup.store.ts` that its own header warns about: "any

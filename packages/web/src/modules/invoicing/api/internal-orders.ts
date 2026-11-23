@@ -4,7 +4,7 @@ import type { Conversion, OrderInvoiceRef, OrderRoutes, SupplierOrder } from './
 import type { Reservation } from './reservations'
 
 /**
- * `invoicing-api/src/controllers/internal-order.controller.ts`, `/org/:orgId/invoicing/internal-orders`: the client's
+ * `api/src/invoicing/controllers/internal-order.controller.ts`, `/org/:orgId/invoicing/internal-orders`: the client's
  * order (ORDI). A refused reservation change carries its `code` (`composables/reservation-errors.ts` says it).
  */
 const BASE = '/invoicing/internal-orders'

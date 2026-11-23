@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
-// PURE module — no Vue, importable directly by relative path. `invoicing-ui` is a private
-// app package (not a workspace dependency / not symlinked in node_modules), so we reach the
+// PURE module — no Vue, importable directly by relative path. `web/src/modules/invoicing` is a folder of the
+// web app (not a workspace dependency / not symlinked in node_modules), so we reach the
 // source file by path rather than by package name. The module has zero runtime imports
 // (only `import type`, which bun elides), so this loads cleanly.
 import {
@@ -12,8 +12,8 @@ import {
   MAX_PRICE_TIERS,
   resolvesSalesPrice,
   type DocumentFormState,
-} from '../../../invoicing-ui/src/composables/document-form/document-payload'
-import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
+} from '../../../web/src/modules/invoicing/composables/document-form/document-payload'
+import { DOCUMENT_CONFIGS } from '../../../web/src/modules/invoicing/composables/document-form/configs'
 import { seedFromProduct, setTierPrice } from 'ui-shared/composables/gr-product-update'
 
 /**

@@ -27,7 +27,7 @@ import { queryTimeLimitPlugin } from './query-time-limit.js'
  *      token. Only something holding the request's identity can compare the two.
  *
  * Tenancy is enforced at the auth layer instead: `services/biz/tenant-guard.ts#isForeignOrg`,
- * registered as a `beforeHandle` hook by `portal-api/src/auth/auth.service.ts` and the seven
+ * registered as a `beforeHandle` hook by `api/src/auth/auth.service.ts` and the seven
  * `services/http/app-auth.service.ts` (one since FR-24.30), rejects any request whose `:orgId` differs from the token's.
  * It applies to every route of every controller that authenticates, with nothing to opt into.
  * `tests/src/integration/tenant-isolation.flow.test.ts` asserts the property over the real

@@ -3,7 +3,7 @@ import type { ClockHeld } from 'config/fiscal-clock'
 import { orgPath, type ListPage } from './org-path'
 
 /**
- * `portal-api/src/controllers/fiscal-device.controller.ts`, `/org/:orgId/fiscal/device`: the org's fiscal devices.
+ * `api/src/controllers/fiscal-device.controller.ts`, `/org/:orgId/fiscal/device`: the org's fiscal devices.
  *
  * ⚠ A report, an operator or a payment name is a command to the device (FR-24.50: the route runs where the device is
  * held). Each sends exactly the body its schema declares; the Z-report also runs through a session's close.

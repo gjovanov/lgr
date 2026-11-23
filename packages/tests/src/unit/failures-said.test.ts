@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { loadFailureOf } from 'ui-shared/composables/load-failure'
 import { useFormFeedback } from 'ui-shared/composables/useFormFeedback'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
-import { shortageMatches, shortageQuantity, shortagesOfCheck, shortagesOfRefusal } from '../../../invoicing-ui/src/composables/document-issue'
+import { shortageMatches, shortageQuantity, shortagesOfCheck, shortagesOfRefusal } from '../../../web/src/modules/invoicing/composables/document-issue'
 
 // FR-31.6 to .9 (#796): a failure is said on the screen, says what it is, and stays.
 

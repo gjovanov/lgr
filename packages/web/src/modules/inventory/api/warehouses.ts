@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type ListPage } from './org-path'
 
-/** `warehouse-api/src/controllers/warehouse.controller.ts`, `/org/:orgId/warehouse/warehouse`. */
+/** `api/src/warehouse/controllers/warehouse.controller.ts`, `/org/:orgId/warehouse/warehouse`. */
 const BASE = '/warehouse/warehouse'
 
 /** The four kinds the create and update schemas accept. */

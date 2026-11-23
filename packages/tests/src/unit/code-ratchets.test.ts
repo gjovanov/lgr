@@ -57,11 +57,11 @@ const RAW_DRIVER_FILES: Record<string, string> = {
   'services/src/biz/backup/backup-restore.service.ts': UNNAMED,
   'services/src/biz/backup/backup-status.service.ts': "reads the database's own statistics, which no model has",
   'services/src/biz/access/live.ts': UNNAMED,
-  'portal-api/src/api.ts': UNNAMED,
-  'portal-api/src/unified.ts': MIGRATIONS,
-  'portal-api/src/websocket/uplink.ts': UNNAMED,
+  'api/src/api.ts': UNNAMED,
+  'api/src/unified.ts': MIGRATIONS,
+  'api/src/websocket/uplink.ts': UNNAMED,
   'migrations/src/cli.ts': MIGRATIONS,
-  'invoicing-api/src/controllers/invoice.controller.ts': PIPELINE,
+  'api/src/invoicing/controllers/invoice.controller.ts': PIPELINE,
 }
 
 /**
@@ -72,20 +72,20 @@ const RAW_DRIVER_FILES: Record<string, string> = {
 const MAX_LINES = 1000
 const LARGE_FILES: Record<string, number> = {
   'services/src/biz/cash-register/register.service.ts': 1542,
-  'inventory-ui/src/views/MovementFormView.vue': 1407,
+  'web/src/modules/inventory/views/MovementFormView.vue': 1407,
   'services/src/biz/cash-sale-invoice.service.ts': 1379,
   'fiscal/src/eltrade.ts': 1357,
-  'invoicing-api/src/controllers/pos.controller.ts': 1196,
+  'api/src/invoicing/controllers/pos.controller.ts': 1196,
   'services/src/biz/oauth.service.ts': 1162,
   'services/src/biz/backup/backup-restore.service.ts': 1158,
   'services/src/biz/reservation-ops.service.ts': 1133,
-  'portal-ui/src/views/settings/ServersView.vue': 1101,
-  'portal-api/src/websocket/fiscal-bridge.ts': 1083,
+  'web/src/modules/portal/views/settings/ServersView.vue': 1101,
+  'api/src/websocket/fiscal-bridge.ts': 1083,
   'config/src/index.ts': 1065,
   'services/src/biz/cash-register/payment-receipt.service.ts': 1061,
-  'invoicing-api/src/controllers/invoice-export.controller.ts': 1027,
+  'api/src/invoicing/controllers/invoice-export.controller.ts': 1027,
   'services/src/biz/receipt-bill.service.ts': 1025,
-  'inventory-ui/src/views/ProductFormView.vue': 1016,
+  'web/src/modules/inventory/views/ProductFormView.vue': 1016,
   'services/src/biz/doc-import/parse-table.ts': 1014,
   'services/src/biz/accounting-books/import.service.ts': 1002,
 }
@@ -116,7 +116,7 @@ const RAW = /\.collection\.(find|insert|update|delete|aggregate|bulkWrite|count|
 
 describe('counts that only go down (FR-32.16, .17)', () => {
   it('direct model calls in controllers', () => {
-    const count = sources('*-api/src/controllers/**/*.ts').reduce((n, [, text]) => n + modelCalls(text), 0)
+    const count = sources('api/src/**/controllers/**/*.ts').reduce((n, [, text]) => n + modelCalls(text), 0)
     expect({ count, ratchet: CONTROLLER_MODEL_CALLS }).toEqual({ count: CONTROLLER_MODEL_CALLS, ratchet: CONTROLLER_MODEL_CALLS })
   })
 

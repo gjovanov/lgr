@@ -2,7 +2,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type ListPage } from './org-path'
 
 /**
- * The accounting routes the invoicing screens read: the chart of accounts (`accounting-api/src/controllers/
+ * The accounting routes the invoicing screens read: the chart of accounts (`api/src/accounting/controllers/
  * account.controller.ts`, `/org/:orgId/accounting/account`) and the bank accounts (`bank-account.controller.ts`,
  * `/org/:orgId/accounting/bank-account`), for the cash and payment orders' pickers.
  */

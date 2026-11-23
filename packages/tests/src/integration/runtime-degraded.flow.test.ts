@@ -13,7 +13,7 @@ import {
   type SchedulerDef,
 } from 'services/scheduler/registry'
 import { taskStore, FINISHED_TASK_TTL_MS } from 'services/background/task.store'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 
 /**
  * FR-29 slice F (#794): a server that says when it is degraded (§1.6, §2.7, §6 "Lookups", "Indexes", "registry").

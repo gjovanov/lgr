@@ -3,7 +3,7 @@ import { describe, it, expect } from 'bun:test'
 import {
   EMAIL_RE, RESEND_WINDOW_MS, emailRequestBlock, internalOrderEmailAccess, internalOrderEmailSkip, invoiceEmailSkip, isValidRecipient,
   mayEmailInternalOrders, mayEmailInvoices, mayEmailOrders, orderEmailAccess, orderEmailSkip,
-} from 'invoicing-api/src/lib/email-guards'
+} from 'api/src/invoicing/lib/email-guards'
 import * as docEmail from 'config/doc-email'
 import { accessRuleFor, templateGrant, type CapabilityId, type Grant } from 'config/access'
 import { ROLES, type Role } from 'config/constants'

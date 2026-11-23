@@ -12,7 +12,7 @@ import { forgetAllHomes } from 'db/home/home'
 import { defaultOrgSettings, register } from 'services/biz/auth.service'
 import { createOrgForPerson } from 'services/biz/identity/account.service'
 import { registerWithOAuth, type OAuthUserInfo } from 'services/biz/oauth.service'
-import { tillSettings } from 'invoicing-api/src/lib/cash-register-till'
+import { tillSettings } from 'api/src/invoicing/lib/cash-register-till'
 import { NEVER, ALWAYS_OFF, planGateOff, printerGateOff, writeGateOff } from '../../../../scripts/printer-gate-off'
 import { captureRejection } from '../helpers/capture-rejection'
 

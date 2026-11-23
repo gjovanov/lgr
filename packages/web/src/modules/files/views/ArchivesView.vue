@@ -38,7 +38,7 @@
           <span class="text-grey text-caption"> ({{ ratio(item) }})</span>
         </template>
         <!--
-          ⚠ Mirrors the Backups table (portal-ui/views/admin/BackupView.vue) deliberately, and
+          ⚠ Mirrors the Backups table (web/src/modules/portal/views/admin/BackupView.vue) deliberately, and
           for a sharper version of the same reason: NOTHING off-site must never render as a
           neutral dash.
 

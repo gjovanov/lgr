@@ -14,14 +14,14 @@ export interface MadeDocument {
   invoiceNumber?: string
 }
 
-/** `invoicing-api/src/controllers/receipt-bill.controller.ts`, `POST /bills/from-receipt`, as its schema declares it. */
+/** `api/src/invoicing/controllers/receipt-bill.controller.ts`, `POST /bills/from-receipt`, as its schema declares it. */
 export interface BillFromReceiptBody {
   movementIds: string[]
   /** The supplier of a receipt that names none (FR-22.31a). */
   contactId?: string
 }
 
-/** `invoicing-api/src/controllers/dispatch-invoice.controller.ts`, `POST /sales/from-dispatch`, as its schema declares it. */
+/** `api/src/invoicing/controllers/dispatch-invoice.controller.ts`, `POST /sales/from-dispatch`, as its schema declares it. */
 export interface SaleFromDispatchBody {
   movementIds: string[]
   /** „Словом" is written in this language, as the invoice form writes it. */
@@ -101,7 +101,7 @@ export interface ProductSupply {
   reservations: SupplyReservation[]
 }
 
-/** `invoicing-api/src/controllers/product-supply.controller.ts`, `GET /invoicing/product-supply/:productId`. */
+/** `api/src/invoicing/controllers/product-supply.controller.ts`, `GET /invoicing/product-supply/:productId`. */
 export async function getProductSupply(productId: string): Promise<{ supply: ProductSupply }> {
   const { data } = await httpClient.get(orgPath(`/invoicing/product-supply/${productId}`))
   return data

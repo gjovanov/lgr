@@ -19,7 +19,7 @@ import {
   paramErrors,
   paramsPayload,
   rootLabelKey,
-} from '../../../accounting-ui/src/views/accounting/books-chart'
+} from '../../../web/src/modules/accounting/views/accounting/books-chart'
 
 /** FR-25a §3.1–3.3: the accounting screens' rules about the books, without a browser. */
 

@@ -13,7 +13,7 @@ import { join, resolve } from 'node:path'
  * its work there again.
  */
 const PACKAGES = resolve(import.meta.dir, '..', '..', '..')
-const UI = join(PACKAGES, 'invoicing-ui', 'src')
+const UI = join(PACKAGES, 'web', 'src', 'modules', 'invoicing')
 const MAX_LINES = 900
 const FORMS = ['views/OrderFormView.vue', 'views/InternalOrderFormView.vue']
 

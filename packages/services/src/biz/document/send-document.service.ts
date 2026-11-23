@@ -26,7 +26,7 @@ import { refuse } from './refused.js'
  *
  * ⚠ FR-23: a document paid at the counter prints as it is issued, in the session of whoever issues it. Printing
  * reaches the device, which `services` does not: those steps are the API's, handed in as an `IssueCounter`
- * (`invoicing-api/src/lib/counter-issue.ts`), and this calls them where the route did.
+ * (`api/src/invoicing/lib/counter-issue.ts`), and this calls them where the route did.
  */
 
 /** What the counter takes at this issue: a receipt's or a refund's tender, decided before the claim. */

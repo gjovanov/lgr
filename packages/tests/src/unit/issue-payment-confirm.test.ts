@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { confirmsPaymentOnIssue } from '../../../invoicing-ui/src/composables/document-issue'
+import { confirmsPaymentOnIssue } from '../../../web/src/modules/invoicing/composables/document-issue'
 import en from '../../../ui-shared/src/locales/en.json'
 import bg from '../../../ui-shared/src/locales/bg.json'
 import de from '../../../ui-shared/src/locales/de.json'

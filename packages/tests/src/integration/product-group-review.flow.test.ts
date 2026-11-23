@@ -16,7 +16,7 @@ import {
   ProductGroupReviewError, confirmProductGroup, forgetReviewCache, forgetReviewStamps, goodsGroupList, reviewQueue, setProductGroup, withdrawProductGroup,
 } from 'services/biz/accounting-books/product-group-review.service'
 import type { ImportDocument } from 'services/biz/accounting-books/import.types'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 
 /**
  * FR-25 R3, slice 2: the accountant's review queue of the product → accounting group map, over one store's share of

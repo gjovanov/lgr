@@ -4,7 +4,7 @@ import type { InvoiceDocument } from './documents'
 import type { OverlappingDispatch } from '../composables/document-issue'
 
 /**
- * `invoicing-api/src/controllers/dispatch-invoice.controller.ts`, `/org/:orgId/invoicing/sales`: the customer's invoice
+ * `api/src/invoicing/controllers/dispatch-invoice.controller.ts`, `/org/:orgId/invoicing/sales`: the customer's invoice
  * for goods a stock note already delivered (FR-22.61, FR-22.62), the sales twin of `./bills`. Linking an invoice to its
  * notes, and the question asked before an issue, are `./issue`. A refusal carries its `code`.
  */

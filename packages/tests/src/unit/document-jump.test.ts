@@ -27,7 +27,7 @@ const CASES: LookupMatch[] = [
 
 describe('where a match opens', () => {
   it('each family on its own page, by a route name the module declares', () => {
-    const manifests = read('invoicing-ui', 'src', 'manifest.ts') + read('inventory-ui', 'src', 'manifest.ts')
+    const manifests = read('web', 'src', 'modules', 'invoicing', 'manifest.ts') + read('web', 'src', 'modules', 'inventory', 'manifest.ts')
     for (const m of CASES) {
       for (const readsDocuments of [true, false]) {
         const to = documentRoute(m, readsDocuments)

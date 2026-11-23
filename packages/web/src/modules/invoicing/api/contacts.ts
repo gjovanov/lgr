@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type Done, type ListPage } from './org-path'
 
-/** `invoicing-api/src/controllers/contact.controller.ts`, `/org/:orgId/invoicing/contact`. */
+/** `api/src/invoicing/controllers/contact.controller.ts`, `/org/:orgId/invoicing/contact`. */
 const BASE = '/invoicing/contact'
 
 /** The three kinds the create and update schemas accept. */

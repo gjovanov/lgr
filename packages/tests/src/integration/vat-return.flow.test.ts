@@ -12,7 +12,7 @@ import { generateMonthFiles, readFiledMonth, type VatFile } from 'services/biz/v
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser, createTestPerson } from '../helpers/factories'
 import { tokenize } from 'services/biz/auth.service'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import { captureRejection } from '../helpers/capture-rejection'
 
 /**

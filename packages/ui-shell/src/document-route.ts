@@ -12,7 +12,7 @@ export interface DocumentRoute {
 
 /**
  * The page a match opens, by route name (the names the e2e suite and the column choice depend on, FR-31.23). A till
- * document opens as the cash-register journal opens it (`invoicing-ui/pos/till-rules.ts#journalRoute`): a cash sale
+ * document opens as the cash-register journal opens it (`web/src/modules/invoicing/pos/till-rules.ts#journalRoute`): a cash sale
  * made in the back office in its form for whoever reads the documents, anything else on its journal page.
  */
 export function documentRoute(m: LookupMatch, readsDocuments: boolean): DocumentRoute {

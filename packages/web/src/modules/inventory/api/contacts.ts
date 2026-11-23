@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type ListPage } from './org-path'
 
-/** `invoicing-api/src/controllers/contact.controller.ts`, `/org/:orgId/invoicing/contact`: the inventory screens' pickers. */
+/** `api/src/invoicing/controllers/contact.controller.ts`, `/org/:orgId/invoicing/contact`: the inventory screens' pickers. */
 const BASE = '/invoicing/contact'
 
 /** A contact as the list answers it: the fields the pickers name it by. */

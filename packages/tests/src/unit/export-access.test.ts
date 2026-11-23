@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 // Import-pure module (no db/models) — this file must never boot Mongoose,
 // same reasoning as amount-in-words.test.ts.
-import { canExport, canWrite } from 'invoicing-api/src/lib/export-access'
+import { canExport, canWrite } from 'api/src/invoicing/lib/export-access'
 import { templateGrant } from 'config/access'
 import { capsOfPermissions } from '../helpers/permission-caps'
 

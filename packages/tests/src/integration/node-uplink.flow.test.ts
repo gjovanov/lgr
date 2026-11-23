@@ -3,7 +3,7 @@ import { Elysia } from 'elysia'
 import { config } from 'config'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import { makeNodeStub, nodeEnrollBody, type NodeStub } from '../helpers/node-stub'
 import { NodePresence, OrgHome, ServerNode } from 'db/models'
 import { enrollNode, issueNodeToken, mintNodeEnrollmentCode, revokeNodeForOrg } from 'services/biz/node/node.service'
@@ -19,7 +19,7 @@ import {
   notifyNodeRevoked,
   setupUplinkWS,
   tickConn,
-} from '../../../portal-api/src/websocket/uplink'
+} from '../../../api/src/websocket/uplink'
 
 /**
  * The uplink, global's side (FR-20.52, plan step P2-2a).

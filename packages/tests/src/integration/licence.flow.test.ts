@@ -10,7 +10,7 @@ import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { makeNodeStub, nodeEnrollBody } from '../helpers/node-stub'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import { Invoice, OrgLicence, POSSession } from 'db/models'
 import { forgetAllHomes, homeNewOrg } from 'db/home/home'
 import { enrollNode, issueNodeToken, mintNodeEnrollmentCode } from 'services/biz/node/node.service'
@@ -18,7 +18,7 @@ import { entitlementsOf, issueLicences, issuerKey } from 'services/biz/licence/l
 import { forgetLicences, licenceOf } from 'services/biz/licence/master-licence.service'
 import { acceptedKeys, signLicence, verifyLicence } from 'services/biz/licence/licence-token'
 import { LICENSED_ACTIONS } from 'services/biz/licence/licence-gate'
-import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../portal-api/src/websocket/uplink'
+import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../api/src/websocket/uplink'
 
 /**
  * FR-20.55 (plan step P2-3b) — an org's licence to run on a master.

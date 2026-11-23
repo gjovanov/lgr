@@ -3,7 +3,7 @@ import { orgPath } from './org-path'
 import type { ReservationSources } from '../composables/reservation-form'
 
 /**
- * `invoicing-api/src/controllers/reservation.controller.ts`, `/org/:orgId/invoicing/reservations`: a client's
+ * `api/src/invoicing/controllers/reservation.controller.ts`, `/org/:orgId/invoicing/reservations`: a client's
  * reservation of an article, on stock or on what a supplier order brings (RES-, #203). Every change goes through
  * `services/biz/reservation-ops.service.ts`; a refusal carries its `code` and what it is about
  * (`composables/reservation-errors.ts` says it).

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { Elysia, t } from 'elysia'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import { isPublicRoute, PUBLIC_ROUTE_KEYS } from 'services/biz/public-routes'
 
 /**
@@ -106,7 +106,7 @@ describe('anonymous access', () => {
    * would show up only as a table of 422s again.
    */
   it('rejects the anonymous caller before the body is validated', async () => {
-    const { AuthService } = await import('../../../portal-api/src/auth/auth.service.js')
+    const { AuthService } = await import('../../../api/src/auth/auth.service.js')
     const guarded = new Elysia({ prefix: '/api' }).use(
       new Elysia({ prefix: '/org/:orgId/probe' })
         .use(AuthService as any)

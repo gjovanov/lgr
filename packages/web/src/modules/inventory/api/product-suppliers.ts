@@ -2,7 +2,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath } from './org-path'
 
 /**
- * FR-28.7 / FR-28.9: an article's suppliers (`warehouse-api/src/controllers/product-supplier.controller.ts`). What
+ * FR-28.7 / FR-28.9: an article's suppliers (`api/src/warehouse/controllers/product-supplier.controller.ts`). What
  * the documents say is read; what a person recorded is written, a supplier at a time.
  */
 

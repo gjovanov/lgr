@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createI18nPlugin } from 'ui-shared/plugins/i18n'
-import { backupTaskMessage } from '../../../portal-ui/src/views/admin/backup-task-message'
+import { backupTaskMessage } from '../../../web/src/modules/portal/views/admin/backup-task-message'
 
 /**
  * #772: while a backup is being made, the line under the progress bar says what the run is doing in the page's
@@ -124,7 +124,7 @@ describe('the same line, said by the app\'s own translator from the real catalog
 })
 
 describe('the backup page words nothing itself (#772)', () => {
-  const view = readFileSync(join(PACKAGES, 'portal-ui', 'src', 'views', 'admin', 'BackupView.vue'), 'utf8')
+  const view = readFileSync(join(PACKAGES, 'web', 'src', 'modules', 'portal', 'views', 'admin', 'BackupView.vue'), 'utf8')
 
   it('takes the line about the task from the rule above', () => {
     expect(view).toContain('backupTaskMessage(task, t, te)')

@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath } from './org-path'
 
-/** `invoicing-api/src/controllers/sequence-config.controller.ts`, `/org/:orgId/invoicing/sequences`. */
+/** `api/src/invoicing/controllers/sequence-config.controller.ts`, `/org/:orgId/invoicing/sequences`. */
 const BASE = '/invoicing/sequences'
 
 /** One series of numbers (a group and its variant), as the list answers it for the current year. */

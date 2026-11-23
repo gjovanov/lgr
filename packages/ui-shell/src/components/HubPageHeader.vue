@@ -41,7 +41,7 @@ import { inModule } from 'ui-shared/nav/open-page'
  * subtitle, spacer, then whatever controls the page puts in the `actions` slot — so adopting
  * it is a wrap rather than a redesign.
  *
- * NOTE: `reports-ui/src/components/ReportPageHeader.vue` is the same idea, predating this and
+ * NOTE: `web/src/modules/reports/components/ReportPageHeader.vue` is the same idea, predating this and
  * used in 8 views. Consolidating those onto this is a clean follow-up; they were left alone
  * rather than touching 8 working screens for a navigation fix in another app.
  */

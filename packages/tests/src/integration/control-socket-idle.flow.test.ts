@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { startControlSocket } from '../../../portal-api/src/front/control-socket'
+import { startControlSocket } from '../../../api/src/front/control-socket'
 
 /**
  * The control socket's slow answers. Bun closes a connection idle for 10 s (at ~12 s, its timer ticks

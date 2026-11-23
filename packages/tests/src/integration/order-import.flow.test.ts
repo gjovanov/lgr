@@ -7,7 +7,7 @@ import {
   createTestProduct,
   createTestContact,
 } from '../helpers/factories'
-import { createDraftInvoice, convertDraftInvoice, splitAcrossAllocations, type DraftResult } from 'invoicing-api/src/lib/bill-import'
+import { createDraftInvoice, convertDraftInvoice, splitAcrossAllocations, type DraftResult } from 'api/src/invoicing/lib/bill-import'
 import { Order, Invoice, Reservation, StockLevel, SupplierProductAlias, normalizeAlias } from 'db/models'
 import { config } from 'config'
 import { mongoose } from 'db/connection'

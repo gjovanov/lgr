@@ -6,8 +6,8 @@ import { createTestContact, createTestProduct, createTestStockLevel } from '../h
 import type { SimReceipt } from '../helpers/eltrade-simulator'
 import { Invoice } from 'db/models'
 import { computePosTotals, roundCents, tillLineAmounts, tillTotals } from 'config/pos-totals'
-import { computeTotals } from '../../../invoicing-ui/src/composables/document-form/document-payload'
-import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
+import { computeTotals } from '../../../web/src/modules/invoicing/composables/document-form/document-payload'
+import { DOCUMENT_CONFIGS } from '../../../web/src/modules/invoicing/composables/document-form/configs'
 
 /**
  * #554 — the VAT a sale stores is the VAT its fiscal device took out.

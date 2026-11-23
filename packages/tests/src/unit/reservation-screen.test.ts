@@ -4,11 +4,11 @@ import { join } from 'node:path'
 import {
   allocationKey, defaultSourceKey, demandKey, keyOfReservation, releaseOutcome, sourceBody, sourceOptions, stockKey,
   type ReservationSources,
-} from '../../../invoicing-ui/src/composables/reservation-form'
+} from '../../../web/src/modules/invoicing/composables/reservation-form'
 import {
   ORDER_ERROR_CODES, RESERVATION_ERROR_CODES, isShortage, reservationErrorMessage,
-} from '../../../invoicing-ui/src/composables/reservation-errors'
-import { CANCEL_REASONS, reservationHistory } from '../../../invoicing-ui/src/composables/reservation-history'
+} from '../../../web/src/modules/invoicing/composables/reservation-errors'
+import { CANCEL_REASONS, reservationHistory } from '../../../web/src/modules/invoicing/composables/reservation-history'
 
 /**
  * FR-22.37 — the rules behind the reservation dialogs and page: which source a new reservation
@@ -126,7 +126,7 @@ describe('a refused reservation, in the user\'s language', () => {
   })
 
   it('knows the supplier-order controller\'s own codes', () => {
-    const controller = readFileSync(join(PACKAGES, 'invoicing-api', 'src', 'controllers', 'order.controller.ts'), 'utf8')
+    const controller = readFileSync(join(PACKAGES, 'api', 'src', 'invoicing', 'controllers', 'order.controller.ts'), 'utf8')
     // `awaiting_receipt` is Convert's, said by useConversionFeedback.
     const sent = [...new Set([...controller.matchAll(/code: '([a-z_]+)'/g)].map((m) => m[1]))].filter((c) => c !== 'awaiting_receipt').sort()
     expect(sent).toEqual([...ORDER_ERROR_CODES].sort())

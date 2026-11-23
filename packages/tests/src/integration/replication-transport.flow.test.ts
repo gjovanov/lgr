@@ -14,8 +14,8 @@ import { enableOrgs } from 'services/biz/replication/capture'
 import { captureOn, forgetLink } from 'services/biz/replication/engine'
 import { pageFor, readPageAsk, readResendAsk, replicationStatus, resendFor } from 'services/biz/replication/control'
 import { BSON, buildPage, decodePage, rejournal } from 'services/biz/replication/pages'
-import { startControlSocket } from '../../../portal-api/src/front/control-socket'
-import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../portal-api/src/websocket/uplink'
+import { startControlSocket } from '../../../api/src/front/control-socket'
+import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../api/src/websocket/uplink'
 
 /**
  * The mirror's transport (FR-20.64, FR-20.67, plan step P3-2b): the API builds a page over its

@@ -2,7 +2,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath } from './org-path'
 
 /**
- * `invoicing-api/src/controllers/invoice-export.controller.ts`, `POST /org/:orgId/invoicing/export/:id/email`: one
+ * `api/src/invoicing/controllers/invoice-export.controller.ts`, `POST /org/:orgId/invoicing/export/:id/email`: one
  * document mailed as the PDF Print makes. Not "send": `/invoices/:id/send` issues a document.
  */
 

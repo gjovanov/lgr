@@ -3,7 +3,7 @@ import type { Filter, IBatchRepository, IProduct, PageResult, Projection } from 
 import { findPageSortedBy } from './sorted-page.js'
 
 /**
- * The Products list sorts by a price tier's column (`inventory-ui/.../product-price-columns.ts`).
+ * The Products list sorts by a price tier's column (`web/src/modules/inventory/.../product-price-columns.ts`).
  * A tier's price is an element of `priceTiers[]`, which a plain find cannot sort by.
  */
 

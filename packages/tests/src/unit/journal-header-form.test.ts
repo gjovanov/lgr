@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   emptyHeaderForm, formProblems, hasHeader, headerFormOf, headerPayloadOf, headerSummary, switchLabel,
-} from '../../../accounting-ui/src/views/accounting/journal-header-form'
+} from '../../../web/src/modules/accounting/views/accounting/journal-header-form'
 import { HEADER_PROBLEM_CODES, REGISTER_DOC_TYPES } from 'config/journal-header'
 
 /**
@@ -86,10 +86,10 @@ describe('every word the header shows is in every locale', () => {
   /** The keys the card, the grid, the form and the VAT register name: written out, so a typo in a view fails here. */
   const keysInSources = () => {
     const files = [
-      'accounting-ui/src/components/JournalDocumentCard.vue',
-      'accounting-ui/src/views/accounting/JournalEntriesView.vue',
-      'accounting-ui/src/views/accounting/JournalEntryFormView.vue',
-      'accounting-ui/src/views/accounting/VatReturnView.vue',
+      'web/src/modules/accounting/components/JournalDocumentCard.vue',
+      'web/src/modules/accounting/views/accounting/JournalEntriesView.vue',
+      'web/src/modules/accounting/views/accounting/JournalEntryFormView.vue',
+      'web/src/modules/accounting/views/accounting/VatReturnView.vue',
     ]
     const keys = new Set<string>()
     for (const f of files) {

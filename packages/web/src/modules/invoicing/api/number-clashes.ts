@@ -2,7 +2,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath } from './org-path'
 
 /**
- * `invoicing-api/src/controllers/number-clash.controller.ts`, `/org/:orgId/invoicing/number-clashes`: a legal number
+ * `api/src/invoicing/controllers/number-clash.controller.ts`, `/org/:orgId/invoicing/number-clashes`: a legal number
  * issued twice (FR-20.51), and its correction (`services/biz/number-clash.service.ts`).
  */
 const BASE = '/invoicing/number-clashes'

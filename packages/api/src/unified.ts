@@ -68,7 +68,7 @@ if (config.node.role === 'master') {
 
 /**
  * Where the built SPA is (FR-24.21: one, `packages/web`). From the repository: `packages/web/dist`,
- * beside this package (the server runs in `packages/portal-api`). A server package sets
+ * beside this package (the server runs in `packages/api`). A server package sets
  * `LGR_UI_ROOT` to its `ui/` directory, which holds it as `ui/web` (FR-20 P0b-9, FR-24.24).
  */
 const uiRoot = process.env.LGR_UI_ROOT?.replace(/[\\/]+$/, '')

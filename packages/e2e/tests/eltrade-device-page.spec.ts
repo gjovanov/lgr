@@ -13,7 +13,7 @@ import { loginForApp } from './helpers/login'
  * ED123456): run the project with `--workers=1`.
  *
  *   bun packages/e2e/scripts/eltrade-tcp-stub.ts &
- *   cd packages/portal-api && FISCAL_TCP_ALLOW_LOOPBACK=1 bun src/unified.ts
+ *   cd packages/api && FISCAL_TCP_ALLOW_LOOPBACK=1 bun src/unified.ts
  *   cd packages/e2e && bunx playwright test --project=cash-register-fiscal --workers=1
  */
 test.describe.configure({ mode: 'serial' })

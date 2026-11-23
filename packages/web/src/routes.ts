@@ -1,6 +1,6 @@
 import { defineComponent, h } from 'vue'
 import { RouterView, type RouteRecordRaw } from 'vue-router'
-import { portalRoutes } from '../../portal-ui/src/routes'
+import { portalRoutes } from './modules/portal/routes'
 import { MODULES } from './modules'
 
 /** A module's shell record renders its routes in place: the layout above it is the one shell. */

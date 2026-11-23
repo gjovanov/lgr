@@ -35,7 +35,7 @@ const self = (why: string, floor?: readonly Cap[]): AccessRule => (floor ? { sel
 const DEVICE_WRITES: readonly Cap[] = ['devices.edit', 'devices.report', 'devices.z-report', 'devices.sync-time', 'devices.name-payments']
 /**
  * Mailing a list's ticked documents is work on their kind, and the kind is in the body: a sales document, a quote, a
- * bill, a supplier order or a customer order (`invoicing-api/lib/email-guards.ts`; both orders are the `orders`
+ * bill, a supplier order or a customer order (`api/src/invoicing/lib/email-guards.ts`; both orders are the `orders`
  * work). A session holding none of these mails none.
  */
 const DOC_EMAIL_WORK: readonly Cap[] = [
@@ -139,7 +139,7 @@ export const READ_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['supto', self('admin or nra_auditor')],
   ['fiscal', member('device names and states, for the tills; connection details only with devices.edit (sanitizeDevice)')],
   ['file', any('files.view')],
-  ['files', self('files-api: admin, or admin.settings; the archives also for nra_auditor; the diff of a snapshot also takes what reading stock takes (compareRefusal)')],
+  ['files', self('the files API: admin, or admin.settings; the archives also for nra_auditor; the diff of a snapshot also takes what reading stock takes (compareRefusal)')],
   ['digest', self('admin role (FR-11): admin.settings deliberately does not suffice')],
   ['backup', self('the Administrator of this org (guard): its own backups, made, listed, verified and downloaded; restoring, uploading a bundle and the restore history take requireSysAdmin')],
   ['desktops', self(ADMIN_OR_SETTINGS)],
@@ -236,7 +236,7 @@ export const WRITE_PREFIXES: ReadonlyArray<readonly [string, AccessRule]> = [
   ['trade/pos', any('till.sell')],
   ['pos', any('till.sell')],
 
-  ['files', self('files-api: admin, or admin.settings; booking, undoing, reconciling or analysing a document also takes the write permission of what it books (booksRefusal)')],
+  ['files', self('the files API: admin, or admin.settings; booking, undoing, reconciling or analysing a document also takes the write permission of what it books (booksRefusal)')],
   ['fiscal', self('the devices.* capability of each command (fiscal-device.controller)', DEVICE_WRITES)],
   ['user', self('admin role (S-21)', ['users.edit'])],
   ['invite', self(ADMIN, ['invites.manage'])],

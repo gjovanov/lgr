@@ -94,7 +94,7 @@
 <script setup lang="ts">
 /**
  * Shared address + bank-details sub-editor. Extracted verbatim from the duplicated
- * markup in invoicing-ui's ContactFormView and ContactAutocompleteWithCreate (now in
+ * markup in the invoicing module's ContactFormView and ContactAutocompleteWithCreate (now in
  * ui-shared) so the exact same fields/behavior render in both places (and any future
  * contact editor).
  *

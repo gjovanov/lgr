@@ -11,15 +11,15 @@ import { capsOfPermissions } from '../helpers/permission-caps'
 
 /** A grant with these capabilities added: what a legacy role's NAME gave on top of its permissions (FR-27 P3-6). */
 const withCaps = (g: Grant, ...caps: CapabilityId[]): Grant => ({ caps: new Set([...(g.caps ?? []), ...caps]) })
-import { manifest as accounting } from '../../../accounting-ui/src/manifest'
-import { manifest as inventory } from '../../../inventory-ui/src/manifest'
-import { manifest as invoicing } from '../../../invoicing-ui/src/manifest'
-import { journalRoute, pinAtTill, tillLanding, tillRedirect, type TillSession } from '../../../invoicing-ui/src/pos/till-rules'
-import { pinOffered } from '../../../invoicing-ui/src/pos/composables/useTillPin'
-import { manifest as payroll, payrollLanding } from '../../../payroll-ui/src/manifest'
-import { manifest as reports } from '../../../reports-ui/src/manifest'
-import { manifest as files } from '../../../files-ui/src/manifest'
-import { posRedirect } from '../../../portal-api/src/lib/pos-redirect'
+import { manifest as accounting } from '../../../web/src/modules/accounting/manifest'
+import { manifest as inventory } from '../../../web/src/modules/inventory/manifest'
+import { manifest as invoicing } from '../../../web/src/modules/invoicing/manifest'
+import { journalRoute, pinAtTill, tillLanding, tillRedirect, type TillSession } from '../../../web/src/modules/invoicing/pos/till-rules'
+import { pinOffered } from '../../../web/src/modules/invoicing/pos/composables/useTillPin'
+import { manifest as payroll, payrollLanding } from '../../../web/src/modules/payroll/manifest'
+import { manifest as reports } from '../../../web/src/modules/reports/manifest'
+import { manifest as files } from '../../../web/src/modules/files/manifest'
+import { posRedirect } from '../../../api/src/lib/pos-redirect'
 import { MODULES } from '../../../web/src/modules'
 import { routes as oneSpaRoutes } from '../../../web/src/routes'
 
@@ -74,7 +74,7 @@ function sources(dir: string): string[] {
 
 /** Which module a source file's back-to values belong to. */
 function moduleOf(rel: string): ModuleManifest | undefined {
-  const id = rel.split('/')[0].replace(/-ui$/, '')
+  const id = rel.split('/')[3] // web/src/modules/<id>/…
   return MANIFESTS.find(m => m.id === id)
 }
 
@@ -122,8 +122,8 @@ describe('FR-24.4: every app-relative path resolves in its own module', () => {
   it('back-to values in the views and form configs', () => {
     const misses: string[] = []
     const pattern = /back-to="(\/[^"]*)"|backTo:\s*'(\/[^']*)'/g
-    for (const root of ['accounting-ui', 'inventory-ui', 'invoicing-ui', 'payroll-ui', 'reports-ui', 'files-ui']) {
-      for (const file of sources(join(PACKAGES, root, 'src'))) {
+    for (const id of ['accounting', 'inventory', 'invoicing', 'payroll', 'reports', 'files']) {
+      for (const file of sources(join(PACKAGES, 'web', 'src', 'modules', id))) {
         const rel = relative(PACKAGES, file).replace(/\\/g, '/')
         const m = moduleOf(rel)
         for (const hit of readFileSync(file, 'utf8').matchAll(pattern)) {
@@ -502,14 +502,14 @@ describe('what a person reads about the till', () => {
       expect({ l, found: strings(messages).filter(([, s]) => gone.test(s)).map(([k]) => k) }).toEqual({ l, found: [] })
     }
     // The server's refusals, in its own words.
-    for (const file of ['portal-api/src/controllers/fiscal-device.controller.ts', 'fiscal/src/device-command.ts', 'fiscal/src/fiscal-device.service.ts']) {
+    for (const file of ['api/src/controllers/fiscal-device.controller.ts', 'fiscal/src/device-command.ts', 'fiscal/src/fiscal-device.service.ts']) {
       expect({ file, found: readFileSync(join(PACKAGES, file), 'utf8').match(/(opened|connect it|connect) from the POS/) }).toEqual({ file, found: null })
     }
   })
 })
 
 describe('the till\'s pages', () => {
-  const VIEWS = ['invoicing-ui/src/pos/views', 'invoicing-ui/src/pos/components', 'ui-shared/src/components/cash-register'].flatMap(dir =>
+  const VIEWS = ['web/src/modules/invoicing/pos/views', 'web/src/modules/invoicing/pos/components', 'ui-shared/src/components/cash-register'].flatMap(dir =>
     readdirSync(join(PACKAGES, dir)).filter(f => f.endsWith('.vue')).map(f => ({
       view: f,
       src: readFileSync(join(PACKAGES, dir, f), 'utf8').replace(/<style[\s\S]*$/, '').replace(/<!--[\s\S]*?-->/g, ''),

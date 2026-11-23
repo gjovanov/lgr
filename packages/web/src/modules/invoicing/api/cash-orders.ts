@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath } from './org-path'
 
-/** `invoicing-api/src/controllers/cash-order.controller.ts`, `/org/:orgId/invoicing/cash-order`. */
+/** `api/src/invoicing/controllers/cash-order.controller.ts`, `/org/:orgId/invoicing/cash-order`. */
 const BASE = '/invoicing/cash-order'
 
 /** A cash order as the routes answer it (the repository's entity). */

@@ -335,7 +335,7 @@ import { useDesktopStore, type Desktop, type MintedCode } from '../../store/desk
  * if a non-admin reaches it.
  *
  * ⚠ It uses `v-data-table-server` rather than `ListScaffold`. `ListScaffold` (and with it
- * `useGridColumns`' column picker) lives in the domain UIs — portal-ui has never used it, and
+ * `useGridColumns`' column picker) lives in the domain UIs — the portal has never used it, and
  * introducing it here for one page would be a bigger change than the page.
  */
 

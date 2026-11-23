@@ -3,7 +3,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { config } from 'config'
 import { logger } from 'services/logger'
-import { renderInvoicePdf } from 'invoicing-api/src/lib/invoice-pdf'
+import { renderInvoicePdf } from 'api/src/invoicing/lib/invoice-pdf'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestContact, createTestInvoice, createTestOrg } from '../helpers/factories'
 

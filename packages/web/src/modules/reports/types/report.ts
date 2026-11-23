@@ -3,7 +3,7 @@
  * `POST /reports/:id/run`.
  *
  * This MIRRORS `services/src/biz/report-registry.types.ts` and deliberately does not import
- * it: no other `*-ui` package depends on `services`, and adding that edge would put one
+ * it: no other UI module depends on `services`, and adding that edge would put one
  * `import` away from pulling mongoose into the browser bundle — the exact hazard FR-6.6
  * calls out. The duplication is a dozen lines of types with no logic; the compile-time
  * check that they still agree is the integration test over the catalog endpoint.

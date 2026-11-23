@@ -12,10 +12,10 @@ import { tillCatalog } from './helpers/cash-register'
  * These specs need the OCR sidecar to be deterministic, so they run against the stub:
  *
  *   bun packages/e2e/scripts/ocr-stub.ts &
- *   cd packages/portal-api && OCR_SERVER_URL=http://localhost:8199 bun src/unified.ts
+ *   cd packages/api && OCR_SERVER_URL=http://localhost:8199 bun src/unified.ts
  *   cd packages/e2e && bunx playwright test --project=doc-import
  *
- * (The API must be started from `packages/portal-api` — it resolves the built UI dists
+ * (The API must be started from `packages/api` — it resolves the built UI dists
  * relative to its own directory.)
  *
  * ⚠ Playwright needs **Node** on PATH: its workers are spawned with `process.execPath`, so

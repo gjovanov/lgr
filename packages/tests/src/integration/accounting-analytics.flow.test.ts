@@ -9,7 +9,7 @@ import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { Account, AccountingAnalytic, AuditLog, JournalEntry, Org } from 'db/models'
 import { mongoose } from 'db/connection'
 import { lowerBg } from 'services/biz/accounting-books/registry'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 
 /**
  * FR-25a §3.1–3.3: the analytics of the books over HTTP, and what the chart and the bank accounts gained with them.

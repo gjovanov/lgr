@@ -27,7 +27,7 @@ import { logger } from 'services/logger'
  * dead run's row stays live for a few seconds under another `podId`. A hop there would only come back
  * here (lgr#555: on a master it went to the egress proxy, which answered 501).
  *
- * ⚠ The forwarding itself (`forwardHttp` + the hop's HMAC) lives in portal-api; `unified.ts` hands it
+ * ⚠ The forwarding itself (`forwardHttp` + the hop's HMAC) lives in the API (`api/src`); `unified.ts` hands it
  * in with `setFiscalForwarding`. Without it (a test app, a script) every request runs locally.
  *
  * #869: before any of that, a request that may print (anything but a GET) waits up to 5 s for a device

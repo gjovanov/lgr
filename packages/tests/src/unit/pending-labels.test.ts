@@ -16,7 +16,7 @@ const PACKAGES = resolve(import.meta.dir, '../../..')
  * FR-27 P3-3 removes this view (the permission sets go with the grant); it is another agent's to touch until then.
  * The exception goes with the file.
  */
-const LEAVING = ['portal-ui/src/views/settings/PermissionSetsView.vue']
+const LEAVING = ['web/src/modules/portal/views/settings/PermissionSetsView.vue']
 
 function* sources(dir: string): Generator<string> {
   for (const name of readdirSync(dir)) {
@@ -50,8 +50,9 @@ describe('Pending Changes labels are the fields’ own keys (FR-31.15)', () => {
   it('no getPreviewFields hands the panel a string literal as a label', () => {
     const offenders: string[] = []
     let blocks = 0
-    for (const pkg of readdirSync(PACKAGES).filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell')) {
-      for (const file of sources(join(PACKAGES, pkg, 'src'))) {
+    const roots = [join(PACKAGES, 'web', 'src', 'modules'), ...readdirSync(PACKAGES).filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell').map(p => join(PACKAGES, p, 'src'))]
+    for (const root of roots) {
+      for (const file of sources(root)) {
         const rel = relative(PACKAGES, file).replace(/\\/g, '/')
         if (LEAVING.includes(rel)) continue
         const text = readFileSync(file, 'utf8')

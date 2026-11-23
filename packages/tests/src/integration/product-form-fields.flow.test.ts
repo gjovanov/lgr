@@ -5,8 +5,8 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestProduct } from '../helpers/factories'
-import { productController } from 'warehouse-api/src/controllers/product.controller'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { productController } from 'api/src/warehouse/controllers/product.controller'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { Product, ProductCategory } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS, PRODUCT_TARIFF_CODE_MAX, PRODUCT_TYPES } from 'config/constants'
@@ -148,7 +148,7 @@ describe('a change of type', () => {
 
 describe('the product form and the update route name the same fields', () => {
   // The form's own state: every key of it is sent on a save (`{ ...form, priceTiers }`).
-  const view = readFileSync(join(import.meta.dir, '../../../inventory-ui/src/views/ProductFormView.vue'), 'utf8')
+  const view = readFileSync(join(import.meta.dir, '../../../web/src/modules/inventory/views/ProductFormView.vue'), 'utf8')
   const block = view.slice(view.indexOf('const form = reactive({'), view.indexOf('\n})', view.indexOf('const form = reactive({')))
   const formFields = [...block.slice(block.indexOf('{') + 1).matchAll(/(?:^|,)\s*([A-Za-z]+):/gm)].map(m => m[1])
 

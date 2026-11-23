@@ -23,7 +23,7 @@ import { compareJournalAccounts, compareJournalAnalytics } from 'services/biz/ac
 import { REPORT_REGISTRY, listReportsFor, reportById } from 'services/biz/report-registry'
 import type { ImportDocument, JournalBody } from 'services/biz/accounting-books/import.types'
 import { capsOfPermissions } from '../helpers/permission-caps'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 
 /**
  * FR-25 §5: a company's books, imported as booked. Fictional data only, in the shape of the journal:

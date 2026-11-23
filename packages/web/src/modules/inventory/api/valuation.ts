@@ -12,7 +12,7 @@ export interface ValuationItem {
 }
 
 /**
- * `GET /warehouse/cost-layer/valuation` (`warehouse-api/src/controllers/cost-layer.controller.ts`): the stock at its
+ * `GET /warehouse/cost-layer/valuation` (`api/src/warehouse/controllers/cost-layer.controller.ts`): the stock at its
  * cost, of one warehouse or of all. Cost figures through and through: a role without them is refused (403).
  */
 export async function getValuation(params: { warehouseId?: string }): Promise<{ items: ValuationItem[]; totalValue: number }> {

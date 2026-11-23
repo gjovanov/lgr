@@ -13,7 +13,7 @@ import {
   DESKTOP_TICK_MS,
   UPDATE_REQUEST_TTL_MS,
   tickDesktops,
-} from '../../../portal-api/src/websocket/desktop'
+} from '../../../api/src/websocket/desktop'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { config } from 'config'
@@ -82,7 +82,7 @@ describe('the liveness route the probe depends on', () => {
      * ⚠ The body is asserted to be the SMALLEST TRUE THING. Anyone can read this route, so a
      * version string or a hostname here would be free reconnaissance.
      */
-    const { createApiApp } = await import('../../../portal-api/src/api.js')
+    const { createApiApp } = await import('../../../api/src/api.js')
     const app = createApiApp()
     const res = await app.handle(new Request('http://localhost/api/health'))
 
@@ -100,7 +100,7 @@ describe('the liveness route the probe depends on', () => {
     // ⚠ Liveness, not readiness. A check that fails when Mongo is slow turns a degraded hub
     // into an unreachable one — and the desktop's answer to "unreachable" is to stop showing
     // the app. This passes with no DB work having happened in this test at all.
-    const { createApiApp } = await import('../../../portal-api/src/api.js')
+    const { createApiApp } = await import('../../../api/src/api.js')
     const res = await createApiApp().handle(new Request('http://localhost/api/health'))
     expect(res.status).toBe(200)
   })
@@ -254,7 +254,7 @@ describe('a revoked desktop is told at once (FR-14.22)', () => {
   it('the revoke route sends the notice down its socket and closes it', async () => {
     // ⚠ `notifyDesktopRevoked` was written and never called: the first field lane (vmtest T-0)
     // revoked a desktop, and its shell still did not know two minutes later.
-    const { desktopController } = await import('../../../portal-api/src/controllers/desktop.controller')
+    const { desktopController } = await import('../../../api/src/controllers/desktop.controller')
     const { org, desktop, token } = await seedDesktop()
     const ws = fakeWs()
     handleDesktopOpen(ws)

@@ -6,25 +6,25 @@ import { captureRejection } from '../helpers/capture-rejection'
 import {
   allowSalesWithoutPrinter, createTestOrg, createTestUser, createTestContact, createTestProduct, createTestWarehouse, createTestStockLevel,
 } from '../helpers/factories'
-import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
-import { stockAvailabilityController } from 'invoicing-api/src/controllers/stock-availability.controller'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { invoiceController } from 'api/src/invoicing/controllers/invoice.controller'
+import { stockAvailabilityController } from 'api/src/invoicing/controllers/stock-availability.controller'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { getCurrentNumber } from 'services/biz/sequence.service'
 import { Invoice, StockLevel } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
-// The UI's own modules, reached by path (`invoicing-ui` is a private app package): the issue
+// The UI's own modules, reached by path (`web/src/modules/invoicing` is not a workspace package): the issue
 // requests the list and the document form both make, and the form's payload and note prefill.
-import { createTransfers, prepareIssue, sendIssue, type IssueClient } from '../../../invoicing-ui/src/composables/document-issue'
-import { buildPayload, noteFromInvoice } from '../../../invoicing-ui/src/composables/document-form/document-payload'
-import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
+import { createTransfers, prepareIssue, sendIssue, type IssueClient } from '../../../web/src/modules/invoicing/composables/document-issue'
+import { buildPayload, noteFromInvoice } from '../../../web/src/modules/invoicing/composables/document-form/document-payload'
+import { DOCUMENT_CONFIGS } from '../../../web/src/modules/invoicing/composables/document-form/configs'
 
 /**
  * FR-22 slice 2a — the document form issues, and starts a note from an invoice.
  *
  * FR-22.17: issuing from the form takes exactly the list's path: the document as stored, the
  * availability check for its stocked lines, the transfer the check proposes when a warehouse is
- * short, then `/send`. The requests are one module (`invoicing-ui/composables/document-issue`),
+ * short, then `/send`. The requests are one module (`web/src/modules/invoicing/composables/document-issue`),
  * which the list and the form both call — and this test calls it against the real routes.
  * FR-22 §5.2: an issue the server refuses leaves the draft a draft — no number burned.
  *

@@ -50,7 +50,7 @@ const CONTROL_PORT = PORT + 1
  *
  * `/pos/` on purpose: the path the tills in the field store, which the POS app's move into
  * Invoicing left to a server-side redirect. The hub answers it the way the real one does
- * (`portal-api/src/lib/pos-redirect.ts`), so the walk proves the shell follows that 302 into a page.
+ * (`api/src/lib/pos-redirect.ts`), so the walk proves the shell follows that 302 into a page.
  */
 const START_PATH = process.env.LGR_STUB_START_PATH || '/pos/'
 const TERMINAL_PATH = '/invoicing/cash-sales/new'

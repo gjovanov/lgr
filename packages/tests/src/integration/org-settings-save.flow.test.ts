@@ -3,15 +3,15 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
-import { orgController } from '../../../portal-api/src/controllers/org.controller'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { orgController } from '../../../api/src/controllers/org.controller'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { Org } from 'db/models'
 import { mongoose } from 'db/connection'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import {
   orgSavePayload, tickDefaultRate, vatRowsOf, type OrgSaveForm,
-} from '../../../portal-ui/src/views/settings/org-save-payload'
+} from '../../../web/src/modules/portal/views/settings/org-save-payload'
 
 /**
  * `PUT /org/:orgId`, the save of Settings → Organization: it writes what it is sent, and nothing else.
@@ -280,7 +280,7 @@ const COMPANY = {
 
 /**
  * #816: what the page lets a person change, and answered "Saved" for, without storing it. Each case saves through the
- * page's own payload (`portal-ui/src/views/settings/org-save-payload.ts`) and reads the stored document.
+ * page's own payload (`web/src/modules/portal/views/settings/org-save-payload.ts`) and reads the stored document.
  */
 describe('what the page changes is stored (#816)', () => {
   it('the Default box: the ticked row\'s rate becomes the org\'s default rate; no tick keeps the stored one', async () => {

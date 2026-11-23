@@ -19,9 +19,9 @@ import { getPrinter, isDeviceConnected, lostHereAt, registerPrinter, unregisterP
 import { deviceForWarehouse, setFiscalForwarding } from 'fiscal/fiscal-route'
 import { BRIDGE_HOLD_MS, BRIDGE_LOST_RECENT_MS, justLost } from 'fiscal/bridge-hold'
 import { deviceTurn } from 'fiscal/device-turn'
-import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
-import { handleClose, handleMessage, stopDesktopBridges } from '../../../portal-api/src/websocket/fiscal-bridge'
-import { posController } from 'invoicing-api/src/controllers/pos.controller'
+import { fiscalDeviceController } from '../../../api/src/controllers/fiscal-device.controller'
+import { handleClose, handleMessage, stopDesktopBridges } from '../../../api/src/websocket/fiscal-bridge'
+import { posController } from 'api/src/invoicing/controllers/pos.controller'
 
 /**
  * #869 (the owner's ruling, 2026-11-19): a request for a fiscal device whose bridge has JUST dropped waits for it, up to

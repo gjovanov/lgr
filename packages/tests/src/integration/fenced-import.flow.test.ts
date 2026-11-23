@@ -13,7 +13,7 @@ import { forgetAllHomes } from 'db/home/home'
 import { fencedExportPath, fencedExportsOf, receiveFencedChunk, writeFencedExport } from 'services/biz/move/fenced-export.service'
 import { bookingOf, fencedImportTick, requestFencedImport } from 'services/biz/move/fenced-import.service'
 import { receiptBillingState } from 'services/biz/receipt-bill.service'
-import { freezeRefusal, receiptInDoubt } from 'services/biz/cash-register/payment-receipt.service'; import { settleInDoubt } from 'services/biz/cash-register/settle.service'; import { deviceless, finishInterruptedDocuments } from 'invoicing-api/src/lib/cash-register-till'
+import { freezeRefusal, receiptInDoubt } from 'services/biz/cash-register/payment-receipt.service'; import { settleInDoubt } from 'services/biz/cash-register/settle.service'; import { deviceless, finishInterruptedDocuments } from 'api/src/invoicing/lib/cash-register-till'
 
 /**
  * The audited import of a fenced export (FR-20.84, plan step P3-6e, second half): a replaced

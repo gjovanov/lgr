@@ -4,7 +4,7 @@ import type { PriceStep } from './documents'
 import type { FiscalCapabilities } from './fiscal-devices'
 
 /**
- * `invoicing-api/src/controllers/pos.controller.ts`, `/org/:orgId/trade/pos`: the till's sessions and its sales.
+ * `api/src/invoicing/controllers/pos.controller.ts`, `/org/:orgId/trade/pos`: the till's sessions and its sales.
  *
  * ⚠ What opens a session, rings a sale or closes the day reaches the fiscal device: it is sent with the attempt's
  * `Idempotency-Key` (`headers`), so a retry whose answer never came gets that session, sale or close back, never a

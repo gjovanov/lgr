@@ -15,11 +15,11 @@ import { join, relative } from 'path'
 
 const PACKAGES = join(import.meta.dirname, '..', '..', '..')
 const ENTRY_POINTS = ['getPrinter', 'getFiscalContext', 'connectDevice', 'disconnectDevice', 'rebindBridgePrinter', 'getDeviceStatus']
-const EXEMPT_FILES = new Set(['portal-api/src/controllers/numbering.controller.ts'])
+const EXEMPT_FILES = new Set(['api/src/controllers/numbering.controller.ts'])
 /** Elysia's context helpers, which every handler calls: a top-level function of the same name is not them. */
 const CONTEXT_NAMES = new Set(['status', 'set', 'redirect', 'error'])
 /** Not routes: the bridge's own socket handlers hold the device by definition. */
-const NOT_ROUTES = new Set(['portal-api/src/websocket/fiscal-bridge.ts'])
+const NOT_ROUTES = new Set(['api/src/websocket/fiscal-bridge.ts'])
 
 function sources(dir: string): string[] {
   const out: string[] = []
@@ -34,7 +34,7 @@ function sources(dir: string): string[] {
 
 const files = readdirSync(PACKAGES)
   // The driver's helpers (`fiscal/device-command#onDevice`) are walked too; only the APIs have routes.
-  .filter(p => p.endsWith('-api') || p === 'fiscal')
+  .filter(p => p === 'api' || p === 'fiscal')
   .flatMap(p => (statSync(join(PACKAGES, p, 'src'), { throwIfNoEntry: false })?.isDirectory() ? sources(join(PACKAGES, p, 'src')) : []))
   .map(f => ({ rel: relative(PACKAGES, f).replace(/\\/g, '/'), text: readFileSync(f, 'utf8') }))
 

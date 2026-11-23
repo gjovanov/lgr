@@ -46,7 +46,7 @@ export class FiscalUnsupportedError extends Error {
 /**
  * A payment method no fiscal receipt can carry: a bank transfer, "other", anything LGR does not
  * know. The doors that print refuse one before anything is written (`payment_method_not_fiscal`,
- * `invoicing-api/lib/cash-register-till.ts`); this is what stops one that got past them, before the
+ * `api/src/invoicing/lib/cash-register-till.ts`); this is what stops one that got past them, before the
  * receipt opens. ⚠ Never answered with a method that is close: the device records what it prints.
  */
 export class FiscalPaymentMethodError extends Error {

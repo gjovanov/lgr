@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import { cashSaleLineAmounts, lineAmounts } from 'config/line-amounts'
-import { buildPayloadLines, lineAmounts as formLineAmounts } from '../../../invoicing-ui/src/composables/document-form/document-payload'
-import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
+import { buildPayloadLines, lineAmounts as formLineAmounts } from '../../../web/src/modules/invoicing/composables/document-form/document-payload'
+import { DOCUMENT_CONFIGS } from '../../../web/src/modules/invoicing/composables/document-form/configs'
 
 /**
  * #573 — the server stores a back-office cash sale's line amounts by the rule its form sends them with. One

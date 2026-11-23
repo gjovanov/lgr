@@ -16,7 +16,7 @@ import {
 } from '../helpers/factories'
 import { config } from 'config'
 import { BackgroundTask, BackupRun, Contact, DocFile, Product, RestoreRun, Sequence } from 'db/models'
-import { backupController } from '../../../portal-api/src/controllers/backup.controller'
+import { backupController } from '../../../api/src/controllers/backup.controller'
 import { runBackupForOrg } from 'services/biz/backup/backup-runner.service'
 import { inspectBundle, applyRestore } from 'services/biz/backup/backup-restore.service'
 import { bundleDir } from 'services/biz/backup/backup-bundle.service'

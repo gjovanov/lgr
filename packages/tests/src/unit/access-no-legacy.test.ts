@@ -60,7 +60,7 @@ const RULES: ReadonlyArray<{ id: string; re: RegExp }> = [
  */
 const DISPLAY_ONLY: ReadonlyArray<{ file: string; rule: string; why: string }> = [
   {
-    file: 'packages/portal-api/src/auth/session-answer.ts', rule: 'stored legacy role',
+    file: 'packages/api/src/auth/session-answer.ts', rule: 'stored legacy role',
     why: "orgList: the org menu's role label, a membership's `role` as `roleDisplaysOf` already made it (the role's name)",
   },
   {
@@ -95,7 +95,7 @@ describe('FR-27 acceptance 2: the legacy model decides nothing', () => {
   it('finds the sources, in every package and the scripts', () => {
     expect(files.length).toBeGreaterThan(500)
     expect(files.some(f => f.rel.startsWith('scripts/'))).toBe(true)
-    expect(files.some(f => f.rel.startsWith('packages/portal-ui/'))).toBe(true)
+    expect(files.some(f => f.rel.startsWith('packages/web/src/modules/portal/'))).toBe(true)
   })
 
   for (const rule of RULES) {

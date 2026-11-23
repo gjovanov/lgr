@@ -7,8 +7,8 @@ import {
   allowSalesWithoutPrinter, createTestOrg, createTestUser, createTestContact, createTestWarehouse, createTestProduct, createTestStockLevel,
   createTestJournalEntry,
 } from '../helpers/factories'
-import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { invoiceController } from 'api/src/invoicing/controllers/invoice.controller'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { Invoice, JournalEntry, StockLevel, StockMovement } from 'db/models'
 import { getRepos } from 'services/context'
 import { reverseInvoiceStockMovement } from 'services/biz/invoicing.service'

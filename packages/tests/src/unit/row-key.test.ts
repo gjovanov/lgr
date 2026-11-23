@@ -36,13 +36,13 @@ describe('a line’s key (FR-31.12)', () => {
 
   it('the eight grids of §1.6 key their rows by it', () => {
     const grids: [string, RegExp][] = [
-      ['invoicing-ui/src/components/document-form/DocumentLineTable.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
-      ['inventory-ui/src/views/MovementFormView.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
-      ['inventory-ui/src/views/InventoryCountFormView.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
-      ['inventory-ui/src/views/PriceListFormView.vue', /v-for="\(item, idx\) in form\.items" :key="rowKey\(item\)"/],
-      ['inventory-ui/src/views/ProductFormView.vue', /v-for="\(tier, i\) in priceTiers" :key="rowKey\(tier\)"/],
-      ['accounting-ui/src/views/accounting/JournalEntryFormView.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
-      ['accounting-ui/src/views/accounting/JournalEntriesView.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
+      ['web/src/modules/invoicing/components/document-form/DocumentLineTable.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
+      ['web/src/modules/inventory/views/MovementFormView.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
+      ['web/src/modules/inventory/views/InventoryCountFormView.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
+      ['web/src/modules/inventory/views/PriceListFormView.vue', /v-for="\(item, idx\) in form\.items" :key="rowKey\(item\)"/],
+      ['web/src/modules/inventory/views/ProductFormView.vue', /v-for="\(tier, i\) in priceTiers" :key="rowKey\(tier\)"/],
+      ['web/src/modules/accounting/views/accounting/JournalEntryFormView.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
+      ['web/src/modules/accounting/views/accounting/JournalEntriesView.vue', /v-for="\(line, idx\) in form\.lines" :key="rowKey\(line\)"/],
       ['ui-shared/src/components/cash-register/RegisterTerminal.vue', /v-for="\(line, idx\) in lines" :key="rowKey\(line\)"/],
     ]
     for (const [file, keyed] of grids) {

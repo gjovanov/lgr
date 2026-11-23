@@ -54,7 +54,7 @@ export interface ProductLedgerParams {
   sortOrder?: string
 }
 
-/** `GET /warehouse/product-ledger/:productId` (`warehouse-api/src/controllers/product-ledger.controller.ts`). */
+/** `GET /warehouse/product-ledger/:productId` (`api/src/warehouse/controllers/product-ledger.controller.ts`). */
 export async function getProductLedger(
   productId: string,
   params: ProductLedgerParams,

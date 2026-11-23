@@ -13,7 +13,7 @@ import {
 } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
 import { migrateTill } from '../helpers/migrate-till'
-import { posController } from 'invoicing-api/src/controllers/pos.controller'
+import { posController } from 'api/src/invoicing/controllers/pos.controller'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { Invoice, POSSession, POSTransaction, StockMovement } from 'db/models'

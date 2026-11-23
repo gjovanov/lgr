@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 // Import-pure modules (no db/models): this file must never boot Mongoose, as `doc-email-guards.test.ts`.
-import { MOVEMENT_EMAIL_WORK, MOVEMENT_READS, mayEmailMovements, movementEmailSkip } from 'warehouse-api/src/lib/movement-email-guards'
-import { writesTransfersOnly } from 'warehouse-api/src/lib/movement-access'
+import { MOVEMENT_EMAIL_WORK, MOVEMENT_READS, mayEmailMovements, movementEmailSkip } from 'api/src/warehouse/lib/movement-email-guards'
+import { writesTransfersOnly } from 'api/src/warehouse/lib/movement-access'
 import { accessRuleFor, templateGrant, type CapabilityId, type Grant } from 'config/access'
 import { DOC_EMAIL_BLOCKS, DOC_EMAIL_SKIPS } from 'config/doc-email'
 import { ROLES, type Role } from 'config/constants'

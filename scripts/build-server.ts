@@ -6,7 +6,7 @@
  * never `COPY . .`:
  *
  *   server-manifest.json   what it is: the commit, the Bun, its scripts and SPAs, every file's sha256
- *   app/server.js          packages/portal-api/src/unified.ts, bundled
+ *   app/server.js          packages/api/src/unified.ts, bundled
  *   app/migrate.js         packages/migrations/src/cli.ts, bundled (`--status`, `--accept-changed`)
  *   app/scripts/<name>.js  the vetted scripts (`SCRIPT_ALLOW_LIST`), bundled
  *   app/<name>-<hash>.*    files a bundle imports (the PDF letterhead), beside it

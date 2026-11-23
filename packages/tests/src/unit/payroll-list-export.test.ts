@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { payrollExportPath, wordsOf } from '../../../payroll-ui/src/composables/payroll-export'
+import { payrollExportPath, wordsOf } from '../../../web/src/modules/payroll/composables/payroll-export'
 import { buildPayslipMarkdown, payslipLabels, PAYSLIP_PDF_LABELS, type PayslipPdfData } from 'reporting/pdf/payslip.pdf'
 import { exportLabels, listSort } from 'services/biz/payroll/list-export'
 
@@ -8,7 +8,7 @@ import { exportLabels, listSort } from 'services/biz/payroll/list-export'
  * `integration/payroll-list-export.flow.test.ts`.
  */
 
-describe('the export\'s address (payroll-ui)', () => {
+describe('the export\'s address (the payroll module)', () => {
   it('carries the list\'s filters and order, the format, the language and the screen\'s words', () => {
     const path = payrollExportPath('/org/o1', 'timesheet', {
       filters: { search: 'Ана', employeeId: 'e1', dateFrom: '2026-01-01', dateTo: '', status: null, tags: ['a', 'b'], none: [] },

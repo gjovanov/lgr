@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type ListPage } from './org-path'
 
-/** `warehouse-api/src/controllers/movement.controller.ts`, `/org/:orgId/warehouse/movement`. */
+/** `api/src/warehouse/controllers/movement.controller.ts`, `/org/:orgId/warehouse/movement`. */
 const BASE = '/warehouse/movement'
 
 /** The kinds `POST /`'s schema accepts. */

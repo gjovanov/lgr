@@ -69,6 +69,6 @@ describe('the workflow', () => {
     const matched = dirs.filter(d => re.test(`packages/${d}/src/x.ts`)).sort()
     const ui = dirs.filter(d => d.endsWith('-ui') || ['ui-shared', 'ui-shell', 'web', 'e2e'].includes(d)).sort()
     expect(matched).toEqual(ui)
-    for (const backend of ['services', 'invoicing-api', 'db', 'config', 'tests']) expect(matched).not.toContain(backend)
+    for (const backend of ['services', 'api', 'db', 'config', 'tests']) expect(matched).not.toContain(backend)
   })
 })

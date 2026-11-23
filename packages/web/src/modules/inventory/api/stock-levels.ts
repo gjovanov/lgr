@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type ListPage } from './org-path'
 
-/** `warehouse-api/src/controllers/stock-level.controller.ts`, `/org/:orgId/warehouse/stock-level`. */
+/** `api/src/warehouse/controllers/stock-level.controller.ts`, `/org/:orgId/warehouse/stock-level`. */
 const BASE = '/warehouse/stock-level'
 
 /**

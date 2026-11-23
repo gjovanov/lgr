@@ -14,7 +14,7 @@
  * Integrity (BCC) is checked on the server, which owns the protocol; this only has to find
  * frame boundaries — unambiguous, because inside a valid answer 01h and 03h never occur.
  * Mirrors `packages/fiscal/src/isl-frame.ts` deliberately rather than importing it: no
- * `*-ui` package depends on a server package.
+ * UI module depends on a server package.
  */
 
 const PREAMBLE = 0x01

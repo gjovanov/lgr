@@ -13,7 +13,7 @@ import { resolve } from 'path'
  * `pdf-product-credit.test.ts`), so this reads the source, like `session-keys.test.ts`.
  */
 
-const STORE = resolve(import.meta.dir, '../../../accounting-ui/src/store/accounting.store.ts')
+const STORE = resolve(import.meta.dir, '../../../web/src/modules/accounting/store/accounting.store.ts')
 
 describe('the accounting store lists every account', () => {
   it('asks the API for all of them, not its first page', () => {

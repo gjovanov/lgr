@@ -3,7 +3,7 @@ import { useAccess } from 'ui-shared/access/useAccess'
 
 /**
  * What mails a stock movement: the work on movements, or a Seller's transfers (FR-26.7). The server's own list
- * (`warehouse-api/lib/movement-email-guards.ts#MOVEMENT_EMAIL_WORK`, the rule both mail routes are reached by);
+ * (`api/src/warehouse/lib/movement-email-guards.ts#MOVEMENT_EMAIL_WORK`, the rule both mail routes are reached by);
  * `unit/movement-email-guards.test.ts` holds the two together.
  */
 export const MOVEMENT_EMAIL_CAPS: readonly CapabilityId[] = ['movements.create', 'movements.edit', 'movements.delete', 'movements.create:transfer']

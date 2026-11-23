@@ -21,11 +21,11 @@ import { moveWorkerTick } from 'services/biz/move/move-worker.service'
 import { movesForNode } from 'services/biz/move/move.service'
 import { generateUNP, getNextNumber } from 'services/biz/sequence.service'
 import { issuableRefusal } from 'services/biz/invoice-numbering.service'
-import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { invoiceController } from 'api/src/invoicing/controllers/invoice.controller'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { blobPath } from 'services/biz/replication/mirror-blobs'
 import { homeStatus } from 'services/biz/home/home-status.service'
-import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../portal-api/src/websocket/uplink'
+import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../api/src/websocket/uplink'
 
 /**
  * Promoting lgrai.app's mirror when an org's master is lost for good (FR-20.81, plan step P3-6d).

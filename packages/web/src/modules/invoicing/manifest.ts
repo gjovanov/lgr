@@ -165,7 +165,7 @@ export const manifest: ModuleManifest = {
       // ── The till's first home here, `/invoicing/pos/*` (FR-24 Phase 0) ──
       // Named redirects, as the credit notes' above: a bookmark, a desktop's start path, a sign-in's
       // return and the three names no page carries any more all still land. `/pos/*` is the server's
-      // to answer (`portal-api/src/lib/pos-redirect.ts`), and it sends each to the same page.
+      // to answer (`api/src/lib/pos-redirect.ts`), and it sends each to the same page.
       { path: 'pos', redirect: { name: 'invoicing.cash-sales.new' } },
       { path: 'pos/terminal', name: 'pos.terminal', redirect: { name: 'invoicing.cash-sales.new' } },
       { path: 'pos/orders', name: 'pos.orders', redirect: { name: 'invoicing.cash-sales' } },

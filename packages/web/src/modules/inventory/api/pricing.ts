@@ -2,7 +2,7 @@ import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath } from './org-path'
 
 /**
- * The body of `POST /warehouse/bulk-pricing/adjust` (`warehouse-api/src/controllers/bulk-pricing.controller.ts`), as
+ * The body of `POST /warehouse/bulk-pricing/adjust` (`api/src/warehouse/controllers/bulk-pricing.controller.ts`), as
  * its schema declares it. By the articles' tags: their selling price, and their customer and tag prices when asked. By
  * a price tag: the tag prices with that tag.
  */

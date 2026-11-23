@@ -9,7 +9,7 @@ import { PORTAL_PAGES } from 'ui-shared/nav/page-registry'
  * invitation names a role by its id, and the permission sets screen is a redirect to Roles & access.
  */
 
-const PORTAL = join(import.meta.dir, '..', '..', '..', 'portal-ui', 'src')
+const PORTAL = join(import.meta.dir, '..', '..', '..', 'web', 'src', 'modules', 'portal')
 const read = (rel: string) => readFileSync(join(PORTAL, rel), 'utf8')
 
 describe('the permission sets screen is gone', () => {

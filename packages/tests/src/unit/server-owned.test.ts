@@ -182,7 +182,7 @@ describe('no controller stores a body as the document unguarded', () => {
   const root = new URL('../../../', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')
   const controllers = async () => {
     const out: Array<{ file: string; text: string }> = []
-    for await (const f of new Glob('*-api/src/controllers/*.ts').scan(root)) out.push({ file: f.replace(/\\/g, '/'), text: await Bun.file(root + f).text() })
+    for await (const f of new Glob('api/src/**/controllers/*.ts').scan(root)) out.push({ file: f.replace(/\\/g, '/'), text: await Bun.file(root + f).text() })
     return out.sort((a, b) => a.file.localeCompare(b.file))
   }
   // A store call handed the body itself: spread, or cast, with nothing in between.
@@ -194,21 +194,21 @@ describe('no controller stores a body as the document unguarded', () => {
    * `server-owned-fields.flow` proves that on a real route).
    */
   const DECLARED = [
-    'accounting-api/src/controllers/fiscal-position.controller.ts',
-    'accounting-api/src/controllers/journal-config.controller.ts',
-    'accounting-api/src/controllers/payment-term.controller.ts',
-    'accounting-api/src/controllers/tax-return.controller.ts',
-    'invoicing-api/src/controllers/contact.controller.ts',
+    'api/src/accounting/controllers/fiscal-position.controller.ts',
+    'api/src/accounting/controllers/journal-config.controller.ts',
+    'api/src/accounting/controllers/payment-term.controller.ts',
+    'api/src/accounting/controllers/tax-return.controller.ts',
+    'api/src/controllers/fiscal-device.controller.ts',
+    'api/src/controllers/pos-payment-method.controller.ts',
+    'api/src/invoicing/controllers/contact.controller.ts',
     // FR-32.21: the invoice controller's PUT hands its declared body to `services/biz/document#updateDocument`, which stores it.
-    'payroll-api/src/controllers/run.controller.ts',
-    'portal-api/src/controllers/fiscal-device.controller.ts',
-    'portal-api/src/controllers/pos-payment-method.controller.ts',
-    'warehouse-api/src/controllers/movement.controller.ts',
-    'warehouse-api/src/controllers/operation-type.controller.ts',
-    'warehouse-api/src/controllers/product-category.controller.ts',
-    'warehouse-api/src/controllers/stock-location.controller.ts',
-    'warehouse-api/src/controllers/stock-lot.controller.ts',
-    'warehouse-api/src/controllers/warehouse.controller.ts',
+    'api/src/payroll/controllers/run.controller.ts',
+    'api/src/warehouse/controllers/movement.controller.ts',
+    'api/src/warehouse/controllers/operation-type.controller.ts',
+    'api/src/warehouse/controllers/product-category.controller.ts',
+    'api/src/warehouse/controllers/stock-location.controller.ts',
+    'api/src/warehouse/controllers/stock-lot.controller.ts',
+    'api/src/warehouse/controllers/warehouse.controller.ts',
   ]
 
   it('a store call takes the body itself only in a controller reviewed for it', async () => {
@@ -220,8 +220,8 @@ describe('no controller stores a body as the document unguarded', () => {
     // `{ additionalProperties: true }` on a body is what "takes any field" looks like. Two
     // schemas keep it for other reasons: neither is stored as a document.
     const NOT_A_DOCUMENT = new Set([
-      'payroll-api/src/controllers/import.controller.ts', // rows of an import file, mapped field by field
-      'portal-api/src/controllers/node-v1.controller.ts', // a node's report, read field by field
+      'api/src/payroll/controllers/import.controller.ts', // rows of an import file, mapped field by field
+      'api/src/controllers/node-v1.controller.ts', // a node's report, read field by field
     ])
     const open = (await controllers()).filter(c => /additionalProperties:\s*true/.test(c.text) && !NOT_A_DOCUMENT.has(c.file))
     expect(open.length).toBe(Object.keys(SERVER_OWNED).length)

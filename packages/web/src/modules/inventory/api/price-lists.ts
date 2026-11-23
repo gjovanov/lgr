@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath } from './org-path'
 
-/** `warehouse-api/src/controllers/price-list.controller.ts`, `/org/:orgId/warehouse/price-list`. */
+/** `api/src/warehouse/controllers/price-list.controller.ts`, `/org/:orgId/warehouse/price-list`. */
 const BASE = '/warehouse/price-list'
 
 export interface PriceListItem {

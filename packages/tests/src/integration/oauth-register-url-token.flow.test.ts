@@ -4,7 +4,7 @@ import jwt from '@elysiajs/jwt'
 import { config } from 'config'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { withFakeGoogle, googleCallbackRequest } from '../helpers/fake-oauth-provider'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import { Org, User } from 'db/models'
 import { isPublicRoute } from 'services/biz/public-routes'
 

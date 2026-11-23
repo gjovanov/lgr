@@ -2,7 +2,7 @@ import type { PRODUCT_TYPES } from 'config/constants'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type ListPage } from './org-path'
 
-/** `warehouse-api/src/controllers/product.controller.ts`, `/org/:orgId/warehouse/product`. */
+/** `api/src/warehouse/controllers/product.controller.ts`, `/org/:orgId/warehouse/product`. */
 const BASE = '/warehouse/product'
 
 /** What an article is: the schemas' `PRODUCT_TYPE`, the list `config/constants#PRODUCT_TYPES`. */

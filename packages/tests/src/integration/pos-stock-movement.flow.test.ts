@@ -13,7 +13,7 @@ import {
   allowSalesWithoutPrinter,
 } from '../helpers/factories'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
-import { posController } from 'invoicing-api/src/controllers/pos.controller'
+import { posController } from 'api/src/invoicing/controllers/pos.controller'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { Org, StockLevel, StockMovement } from 'db/models'

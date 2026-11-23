@@ -4,16 +4,16 @@ import jwt from '@elysiajs/jwt'
 import { mongoose } from 'db/connection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestContact, createTestInvoice } from '../helpers/factories'
-import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
-import { emailRequestBlock } from 'invoicing-api/src/lib/email-guards'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { invoiceController } from 'api/src/invoicing/controllers/invoice.controller'
+import { emailRequestBlock } from 'api/src/invoicing/lib/email-guards'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { templateGrant } from 'config/access'
-// The rules the document lists offer their row actions by (`invoicing-ui` is a private app package).
+// The rules the document lists offer their row actions by (`web/src/modules/invoicing` is not a workspace package).
 import {
   canConvert, canCopy, canCorrect, canDelete, canEmail, canIssue, canRecordPayment, canVoid,
-} from '../../../invoicing-ui/src/composables/document-row-actions'
+} from '../../../web/src/modules/invoicing/composables/document-row-actions'
 
 /**
  * FR-22.23: a document list row offers an action exactly when the API allows it. The sales list

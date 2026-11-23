@@ -1,7 +1,7 @@
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { orgPath, type ListPage } from './org-path'
 
-/** `warehouse-api/src/controllers/warehouse.controller.ts`, `/org/:orgId/warehouse/warehouse`: the pickers' list. */
+/** `api/src/warehouse/controllers/warehouse.controller.ts`, `/org/:orgId/warehouse/warehouse`: the pickers' list. */
 const BASE = '/warehouse/warehouse'
 
 /** A warehouse as the list answers it (the repository's entity): what the pickers name and choose it by. */

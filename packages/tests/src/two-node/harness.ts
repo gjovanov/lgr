@@ -128,7 +128,7 @@ export async function startNode(role: 'global' | 'master', scratch: string, opts
     ...opts.env,
   })
   const cmd = pkg ? ['bun', join(pkg, 'app', 'server.js')] : ['bun', 'src/unified.ts']
-  const cwd = pkg ? pkg : join(REPO, 'packages', 'portal-api')
+  const cwd = pkg ? pkg : join(REPO, 'packages', 'api')
   const proc = Bun.spawn(cmd, { cwd, env, stdout: 'pipe', stderr: 'pipe' })
   let log = ''
   const collect = async (s: ReadableStream<Uint8Array>) => { for await (const c of s) log = (log + new TextDecoder().decode(c)).slice(-20_000) }
