@@ -166,7 +166,11 @@ export async function startNode(role: 'global' | 'master', scratch: string, opts
 export async function startTwoNodes(): Promise<TwoNodes> {
   const scratch = mkdtempSync(join(tmpdir(), 'lgr-two-node-'))
   const ca = makeTestCa(join(scratch, 'ca'))
-  const [global, master] = await Promise.all([startNode('global', scratch), startNode('master', scratch)])
+  // The master is ASKED for the API docs, so the AC 66 cell proves it refuses them anyway (S-11).
+  const [global, master] = await Promise.all([
+    startNode('global', scratch),
+    startNode('master', scratch, { env: { SWAGGER_ENABLED: 'true' } }),
+  ])
   const front: TlsFront = tlsFront({ hostname: '127.0.0.1', port: Number(new URL(global.url).port) }, ca)
   const chaos = await chaosProxy({ hostname: '127.0.0.1', port: front.port })
   return {

@@ -29,7 +29,8 @@ SPA (AC 66), a packaged script whose import graph touches `Invoice`/`POSTransact
 - **lgrai.app's analytics tag is added by the server** to the portal shell, on `global` only
   (`spa-fallback.ts#portalShellFor`); `portal-ui/index.html` carries no origin, so no build does. Swagger
   (its page loads Scalar from a CDN) is served on `global` only. Both are AC 66: a master serves no
-  third-party script.
+  third-party script. (Since S-11, 2026-11-23, global serves it in production only with
+  `SWAGGER_ENABLED=true`: `portal-api/src/api-docs.ts`.)
 - The static plugins are **awaited** before `listen`: unawaited, every asset answered 404 for ~180 ms
   after `/api/health` said ready.
 - `bun build --compile --target=bun-windows-x64-baseline` (2026-10-24 spike): one 127 MB executable,

@@ -135,7 +135,8 @@ All controllers (portal + 7 domains) are mounted in a single Elysia server at `p
 - Serves the built web app (`packages/web/dist`, or a server package's `ui/web`): its files under `/ui/`
 - SPA fallback answers every non-API, non-asset path with its `index.html`: a module's path gets the
   variant without lgrai.app's analytics tag (FR-24.18), `/pos/*` a 302 to the till's pages in Invoicing
-- Swagger docs at `/swagger`
+- Swagger docs at `/swagger` (`portal-api/src/api-docs.ts`, S-11): on global outside production; under
+  `NODE_ENV=production` only with `SWAGGER_ENABLED=true`; never on a master (FR-20 AC 66)
 - WebSocket server for real-time updates
 
 Domain API packages (`accounting-api/`, `invoicing-api/`, etc.) export controllers that `unified.ts` imports directly. They can also run standalone on separate ports (legacy mode) but this is deprecated.
