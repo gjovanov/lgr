@@ -906,7 +906,8 @@ jobs:
           # #905: Docker's default seccomp refuses a container the user namespace the PDF browser's sandbox
           # makes, so the image runs the browser without it unless told otherwise. The start check prints a
           # page that way and says why, and the API is given the same setting.
-          pdf_lines() { docker logs lgr-smoke 2>&1 | grep -E 'PDFs print with this browser|the PDF browser does not print' || true; }
+          # (docker logs carries the console's colours, `sandbox\e[0m\e[2m=\e[0mfalse`: taken out first)
+          pdf_lines() { docker logs lgr-smoke 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | grep -E 'PDFs print with this browser|the PDF browser does not print' || true; }
           # What the API child (Bun) was given: its environment, read as the same user.
           api_sandbox() { docker exec lgr-smoke sh -c 'for p in /proc/[0-9]*; do case "$(readlink "$p/exe" 2>/dev/null)" in */bin/bun) tr "\0" "\n" < "$p/environ" 2>/dev/null ;; esac; done' | grep '^PDF_CHROME_NO_SANDBOX=' | sort -u || true; }
           for _ in $(seq 1 24); do [ "$(pdf_lines | wc -l)" -ge 1 ] && break; sleep 5; done
