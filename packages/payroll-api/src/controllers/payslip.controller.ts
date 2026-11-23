@@ -116,7 +116,7 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
         if (!logged) return status(503, RECORD_REFUSAL)
       }
 
-      return new Response(buffer, {
+      return new Response(new Uint8Array(buffer), {
         headers: { 'content-type': 'application/pdf', 'content-disposition': `attachment; filename="payslip-${params.id}.pdf"` },
       })
     },

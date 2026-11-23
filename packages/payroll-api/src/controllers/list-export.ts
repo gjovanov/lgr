@@ -59,7 +59,8 @@ export async function listExport(
   }
   // A file cut at the cap says so, rather than passing for the whole list.
   if (table.truncated) headers['x-truncated'] = String(cap)
-  return new Response(buffer, { headers })
+  // A copy as a plain byte array: the DOM types take no `Buffer<ArrayBufferLike>` as a body.
+  return new Response(new Uint8Array(buffer), { headers })
 }
 
 /** What a list's `/export` answers when the file could not be made (the renderer gave nothing back). */
