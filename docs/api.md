@@ -52,7 +52,8 @@ Returns JWT token and user profile. The `orgSlug` lookup is case-insensitive.
 A user's role is named by `roleId` (the org's role) or `roleKey` (a built-in role's template key, the same in every
 org: `admin`, `manager`, `accountant`, `hr_manager`, `warehouse_manager`, `sales`, `seller`, `sales_consultant`,
 `member`, `nra_auditor`), never both (422 `role_id_and_key`); an unknown key is 422 `unknown_role_key`. A legacy
-`role` key is still read as `roleKey` in this release and logged; the next release refuses it (422 `legacy_role_field`).
+`role` key is refused, 422 `legacy_role_field` (#866), whatever else the body names; so are `permissions` and
+`permissionSetIds` on an update.
 
 ## Accounting
 

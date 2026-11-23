@@ -214,10 +214,13 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   is not, resolved to that org's built-in role (`role.service#namedRoleId`). An unknown key is 422 `unknown_role_key`,
   `roleId` with `roleKey` 422 `role_id_and_key`, either with the legacy `role` 422 `role_and_legacy`. Tests and e2e
   files send `roleKey`.
-  - ⚠ A legacy `role` key on `POST`/`PUT /user` is still the built-in role of that key in this release, and every use
-    is logged at warn (`legacy role field on a user route`: the route, the org and the key, never the person). The
-    next release refuses it, 422 `legacy_role_field`, as invitations refuse `assignRole`: read that release's logs
-    first. A new caller sends `roleKey`.
+  - A legacy `role` key on `POST`/`PUT /user` was still the built-in role of that key from 2026-11-18, and every use
+    was logged at warn (`legacy role field on a user route`: the route, the org and the key, never the person), so
+    that release's logs would show whether anything besides our tests still sent it.
+  - #866 then refused it, 422 `legacy_role_field`, as invitations refuse `assignRole`, alone or beside
+    `roleId`/`roleKey`. The conversion, its warn log and `role_and_legacy` went; `legacy-not-written`,
+    `roles-onboarding`, `seller-roles` and `user-role-key` assert the 422. It was held until the production logs over
+    several days showed no legacy-`role` warning other than our own tests.
 - **How a role is named outside the roles screens** (`config/access/roles.ts#roleDisplay`: the org menu, the org picker,
   an invitation, the SUPTO operators export): a built-in role by its template key, which the SPA translates, while it
   still carries its template's name; else the role's own name, as on the Roles screen.
