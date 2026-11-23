@@ -193,7 +193,7 @@ Every model (except `Org`) uses the `tenantPlugin` which:
 | **FixedAsset** | `name`, `assetNumber`, `accountId`, `purchaseDate`, `purchasePrice`, `depreciationMethod`, `usefulLifeYears`, `salvageValue`, `accumulatedDepreciation` | `{ orgId, assetNumber }` (unique) |
 | **BankAccount** | `name`, `bankName`, `accountNumber`, `iban`, `currency`, `accountId` (FK), `balance` | `{ orgId, accountNumber }` (unique) |
 | **BankReconciliation** | `bankAccountId` (FK), `statementDate`, `statementBalance`, `status`, `reconciledItems[]` | `{ orgId, bankAccountId, statementDate }` |
-| **TaxReturn** | `type`, `period`, `status`, `taxableAmount`, `taxAmount`, `attachments[]` | `{ orgId, type, 'period.from' }` |
+| **TaxReturn** | `type`, `period`, `status`, `taxableAmount`, `taxAmount`, `attachments[]` | `{ orgId, kind, periodCode, supersedesId }` (unique, partial) |
 | **ExchangeRate** | `fromCurrency`, `toCurrency`, `rate`, `date`, `source` (`manual`, `api`) | `{ orgId, fromCurrency, toCurrency, date: -1 }` |
 
 ## Invoicing Models
@@ -308,9 +308,9 @@ Every model (except `Org`) uses the `tenantPlugin` which:
 
 | Model | Key Fields | Indexes |
 |-------|-----------|---------|
-| **PayrollRun** | `name`, `period` (from/to), `status` (`draft`, `calculated`, `approved`, `paid`, `cancelled`), `currency`, `items[]` (employeeId, baseSalary, grossPay, deductions[], netPay, employerContributions[]), `totals`, `journalEntryId` | `{ orgId, 'period.from': -1 }` |
+| **PayrollRun** | `name`, `period` (from/to), `status` (`draft`, `calculated`, `approved`, `paid`, `cancelled`), `currency`, `items[]` (employeeId, baseSalary, grossPay, deductions[], netPay, employerContributions[]), `totals`, `journalEntryId` | `{ orgId, status }` |
 | **Payslip** | `payrollRunId` (FK), `employeeId` (FK), `period`, `earnings[]`, `deductions[]`, `grossPay`, `totalDeductions`, `netPay`, `yearToDate`, `status` (`generated`, `sent`, `paid`) | `{ orgId, employeeId, 'period.from': -1 }` |
-| **Timesheet** | `employeeId` (FK), `date`, `hoursWorked`, `overtimeHours`, `type` (`regular`, `overtime`, `holiday`, `sick`, `vacation`), `projectId`, `status` (`submitted`, `approved`, `rejected`) | `{ orgId, employeeId, date: -1 }` |
+| **Timesheet** | `employeeId` (FK), `date`, `hoursWorked`, `overtimeHours`, `type` (`regular`, `overtime`, `holiday`, `sick`, `vacation`), `projectId`, `status` (`submitted`, `approved`, `rejected`) | `{ orgId }` |
 
 ## HR Models
 

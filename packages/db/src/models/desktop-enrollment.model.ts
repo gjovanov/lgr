@@ -51,7 +51,6 @@ const codeSchema = new Schema<IDesktopEnrollmentCode>(
 )
 
 codeSchema.plugin(tenantPlugin)
-codeSchema.index({ orgId: 1, createdAt: -1 })
 /**
  * ⚠ A floor, not the expiry check. Mongo's TTL monitor runs about once a minute, so a document
  * outlives `expiresAt` by up to that long; the redemption path compares the date itself. Kept for

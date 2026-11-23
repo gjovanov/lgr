@@ -84,7 +84,7 @@ const docFileSchema = new Schema<IDocFile>(
     docType: { type: String, required: true, index: true },
     docNumber: { type: String, required: true },
     docNumberLower: { type: String },
-    docDate: { type: String, required: true, index: true },
+    docDate: { type: String, required: true },
     originalName: { type: String, required: true },
     currentPath: { type: String, required: true },
     currentChecksum: { type: String, required: true },

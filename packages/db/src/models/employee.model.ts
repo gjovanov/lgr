@@ -132,7 +132,6 @@ employeeSchema.plugin(tenantPlugin)
 employeeSchema.index({ orgId: 1, employeeNumber: 1 }, { unique: true })
 employeeSchema.index({ orgId: 1, department: 1 })
 employeeSchema.index({ orgId: 1, status: 1 })
-employeeSchema.index({ orgId: 1, managerId: 1 })
 employeeSchema.index({ orgId: 1, tags: 1 })
 employeeSchema.index({ orgId: 1, nationalIdHmac: 1 }, { sparse: true })
 // FR-30.4: no text index. Nothing ran a `$text` query, and every write kept one up; migration 0016 drops it.

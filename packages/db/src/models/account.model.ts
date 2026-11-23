@@ -49,7 +49,6 @@ const accountSchema = new Schema<IAccount>(
 accountSchema.plugin(tenantPlugin)
 accountSchema.index({ orgId: 1, code: 1 }, { unique: true })
 accountSchema.index({ orgId: 1, type: 1 })
-accountSchema.index({ orgId: 1, parentId: 1 })
 // FR-30.4: no text index. Nothing ran a `$text` query, and every write kept one up; migration 0016 drops it.
 
 replicate(accountSchema, { class: 'R' })

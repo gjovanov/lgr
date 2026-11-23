@@ -185,7 +185,6 @@ const payrollRunSchema = new Schema<IPayrollRun>(
 )
 
 payrollRunSchema.plugin(tenantPlugin)
-payrollRunSchema.index({ orgId: 1, 'period.from': -1 })
 payrollRunSchema.index({ orgId: 1, status: 1 })
 // A filed month has one imported run: two would count its people twice. A correction is an engine run.
 payrollRunSchema.index(

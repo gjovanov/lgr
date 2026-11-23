@@ -32,7 +32,7 @@ const productCategorySchema = new Schema<IProductCategory>(
     isActive: { type: Boolean, default: true },
     deactivatedAt: Date,
     isSystem: { type: Boolean, default: false },
-    nameLower: { type: String, index: true },
+    nameLower: { type: String },
     descriptionLower: String,
   },
   { timestamps: true },

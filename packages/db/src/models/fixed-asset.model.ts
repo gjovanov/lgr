@@ -118,7 +118,6 @@ const fixedAssetSchema = new Schema<IFixedAsset>(
 
 fixedAssetSchema.plugin(tenantPlugin)
 fixedAssetSchema.index({ orgId: 1, code: 1 }, { unique: true })
-fixedAssetSchema.index({ orgId: 1, category: 1 })
 // One imported asset per analytic and org. Partial: an asset kept by hand has no key, so the index holds none of them,
 // and building it on a collection from before this needs nothing cleaned first.
 fixedAssetSchema.index({ orgId: 1, importKey: 1 }, { unique: true, partialFilterExpression: { importKey: { $type: 'string' } } })

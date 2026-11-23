@@ -16,7 +16,7 @@ export interface ICode extends Document {
 
 const codeSchema = new Schema<ICode>(
   {
-    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     orgId: { type: Schema.Types.ObjectId, ref: 'Org', required: true },
     token: { type: String, required: true },
     type: { type: String, enum: ['user_activation'], required: true },

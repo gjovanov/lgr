@@ -748,7 +748,6 @@ invoiceSchema.index({ orgId: 1, direction: 1, issueDate: -1 })
 invoiceSchema.index({ orgId: 1, dueDate: 1, status: 1 })
 invoiceSchema.index({ orgId: 1, tags: 1 })
 invoiceSchema.index({ orgId: 1, orderId: 1 })
-invoiceSchema.index({ orgId: 1, internalOrderId: 1 })
 invoiceSchema.index({ orgId: 1, 'lines.orderRef.reservationId': 1 })
 // The invoices of a cash sale (#171). Partial: only the few invoices that carry the link.
 invoiceSchema.index(
@@ -770,7 +769,6 @@ invoiceSchema.index(
 // FR-21: the cash-register journal lists by type and date; Invoice had no `type` index at all.
 invoiceSchema.index({ orgId: 1, type: 1, issueDate: -1 })
 invoiceSchema.index({ orgId: 1, 'register.sessionId': 1 }, { partialFilterExpression: { 'register.sessionId': { $exists: true } } })
-invoiceSchema.index({ orgId: 1, 'register.unp': 1 }, { partialFilterExpression: { 'register.unp': { $type: 'string' } } })
 // FR-23: the receipts that paid a document.
 invoiceSchema.index({ orgId: 1, 'register.paidInvoiceId': 1 }, { partialFilterExpression: { 'register.paidInvoiceId': { $exists: true } } })
 // FR-23 R2: the stornos of a credit note, on every load of one.

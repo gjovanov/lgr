@@ -391,9 +391,52 @@ The demo organization is small, so production proves that nothing changed, and t
 
 **Turned off in the grids**, because the server never sorted by them (they are names looked up after the page): the contact on Sales invoices and Bills, the article's SKU and name and the warehouse on Stock levels.
 
-### FR-30.5 (draft), prepared 2026-11-17, due on or after 2026-11-23
+### FR-30.5, read 2026-11-23 (#868)
 
-`scripts/index-usage.ts` reads `$indexStats` and the index sizes per collection (counters only, on the primary) and lists the indexes with no use since the member started. Migration `0019-drop-unused-indexes` drops what the production reading puts in its `UNUSED_INDEXES`, and `KEPT` names any unused index kept with its reason; the schemas lose the same declarations in the same pull request. Both lists are empty until the reading, a week after slice A was deployed. Its number is the next free one when it merges.
+`scripts/index-usage.ts` reads `$indexStats` and the index sizes per collection (counters only, on the primary) and lists the indexes with no use since the member started. `0019-drop-unused-indexes` was released as the empty scaffold and ran on production on 2026-11-18, dropping nothing. A released migration is never edited, so the drops are migration **`0022-drop-unused-indexes-fr30-5`**: it drops by name, skips a collection or an index that is not there, is idempotent, and has a dry run (`bun run migrate --dry-run` lists each index it would drop). The schemas lose the same declarations in the same pull request, so no start builds them back; what is kept stays declared, and `integration/drop-unused-indexes-fr30-5.migration.test.ts` holds both.
+
+**The reading.** Production's primary, 2026-11-23 about 19:20 CET, `--json`. Most counters ran from 2026-10-31T21:50Z, the member's start: 23 days, weekends and the weekly jobs included, the 31 October month-end just before. 481 indexes; **80** had no use and were not unique (not counting `_id_`): 32 556 KB.
+
+**Decided.** An index stays if it is a TTL index (`$indexStats` does not count the expiry deletes), if its counter ran for less than 7 days, if it serves month-end or year-end work none of which ran inside the window, or if a query in the code reads it on data global does not have yet or on a master (store masters run the same code with other data). Everything else goes: no code path reads it, or another index with the same or a better prefix serves the read.
+
+**Dropped: 33 indexes, 22 080 KB.**
+
+| Collection | Index | Size | Why nothing needs it |
+|---|---|---|---|
+| `products` | `orgId_1_priceTiers.tags_1` | 10 788 KB | No query by a slot's tags: a price is resolved on the article read by its id |
+| `products` | `categoryLower_1` | 3 928 KB | A search reads `searchLower` (FR-30.11); the five-field fallback's `$or` has the unindexed description beside it |
+| `auditlogs` | `orgId_1_operatorCode_1_timestamp_-1` | 2 952 KB | The audit page has no operator filter; the SUPTO export filters documents by operator, not the trail |
+| `contacts` | `taxIdLower_1`, `vatNumberLower_1`, `emailLower_1`, `firstNameLower_1`, `lastNameLower_1` | 3 496 KB | Read only inside the search's `$or`, whose other branches (phone, aliases, representative) no index serves. Exact lookups use `orgId_1_taxId_1`, `orgId_1_vatNumber_1`, `orgId_1_email_1`. `companyNameLower_1` stays: the document import matches a name on it |
+| `invoices` | `orgId_1_internalOrderId_1` | 184 KB | Its one read (a customer order's documents) is an `$or` with `lines.orderRef.internalOrderId`, which has no index, so the planner cannot use it |
+| `invoices` | `orgId_1_register.unp_1` | 24 KB | No lookup by УНП; the till journal's search is a case-insensitive pattern in an `$or` with `reference` |
+| `docfiles` | `docDate_1` | 64 KB | Every read names the org: `orgId_1_docDate_1_docType_1` |
+| `files` | `orgId_1_module_1` | 64 KB | `GET /file`'s module filter has no caller |
+| `accounts` | `orgId_1_parentId_1` | 56 KB | The chart's tree is built in memory |
+| `warehouses` | `nameLower_1`, `codeLower_1`, `orgId_1_tags_1` | 108 KB | A handful per org, read through the org; no page sends a tag filter |
+| `postransactions` | `orgId_1_sessionId_1`, `orgId_1_type_1_createdAt_-1`, `orgId_1_unpNumber_1` | 96 KB | Frozen since FR-21: only migrations and the restore read it, by the org |
+| `employees` | `orgId_1_managerId_1` | 36 KB | Nothing filters or sorts by the manager |
+| `fixedassets` | `orgId_1_category_1` | 36 KB | No filter by category; the register's sort ends in `_id`, which this index cannot give |
+| `payrollruns` | `orgId_1_period.from_-1` | 36 KB | A run is found by its id or `periodCode`; the grid's period column sorts by `period` |
+| `productcategories` | `nameLower_1` | 36 KB | Not under the org. The one exact read (`quick-product`) names the org, whose few categories `orgId_1` finds |
+| `taxreturns` | `orgId_1_type_1_period.from_-1` | 36 KB | The VAT flow reads by `kind` and `periodCode` (`tax_return_period_unique`) |
+| `desktopenrollmentcodes` | `orgId_1_createdAt_-1` | 32 KB | No list of codes: one is read by its id or its hash |
+| `din_catalog` | `baseNumber_1`, `categoryIndex_1` | 44 KB | Read whole by the scripts, upserted by `din` (unique) |
+| `codes` | `userId_1` | 24 KB | `userId_1_type_1` has the same prefix |
+| `costlayers` | `orgId_1_productId_1_warehouseId_1_isExhausted_1_receivedAt_-1` | 24 KB | LIFO's read is the FIFO index (`receivedAt_1`) read backwards |
+| `journals` | `orgId_1_type_1` | 4 KB | The journals list filters by its search only |
+| `stocklocations` | `orgId_1_barcode_1`, `orgId_1_parentId_1` | 8 KB | The list filters by its search only; the path walk reads a parent by its id |
+| `timesheets` | `orgId_1_employeeId_1_date_-1` | 4 KB | The list filters by its search only; no payroll step reads a timesheet |
+
+**Kept: 47 indexes, 10 476 KB**, each with its reason in the migration's `KEPT`.
+- *TTL* (15): `auth_tokens.expiresAt_1`, `codes.validTo_1`, `desktopassertions.expiresAt_1`, `desktopenrollmentcodes.expiresAt_1`, `idp_codes.expiresAt_1`, `login_throttles.updatedAt_1`, `node_assertions.expiresAt_1`, `node_enrollment_codes.expiresAt_1`, `node_presence.heartbeatAt_1`, `node_traffic.lastAt_1`, `oauthhandoffs.expiresAt_1`, `oauthpendingregistrations.expiresAt_1`, `onprem_credentials.removedAt_1`, `relay_jobs.createdAt_1`, `relay_receipts.at_1`.
+- *Counted for less than 7 days* (5): the three `draftNumber` indexes (`invoices`, `orders`, `internalorders`, since 2026-11-18: the top bar's jump by draft number, FR-31.22), `invoices.orgId_1_direction_1_invoiceNumber_1` (since 2026-11-17: the № column, FR-30.2), `node_traffic.nodeId_1_day_1` (since 2026-11-20).
+- *Month-end and year-end work* (7): `absenceentries.orgId_1_employeeId_1_from_1` (the payroll run), `payslips.orgId_1_employeeId_1_period.from_-1` (the run's year so far), `journalentries.orgId_1_fiscalPeriodId_1` (the trial balance of a period or year, 3 144 KB), `accounts.orgId_1_type_1` (the profit and loss), `bankreconciliations.orgId_1_bankAccountId_1_statementDate_-1`, `archiveunits.orgId_1_createdAt_-1` (the year's archive), `products.orgId_1_categoryId_1` (the stock-levels report by product group, 3 944 KB).
+- *A query reads it, on data global does not have yet* (8): `auditlogs.orgId_1_correlationId_1` (the audit page's related entries, 1 632 KB), `invoices.orgId_1_tags_1` (the documents lists' tag filter, 540 KB), `employees.orgId_1_tags_1` and `orgId_1_department_1` (the Employees list's filter and sort), `payrollruns.orgId_1_status_1` (the runs list's sort), `internalorders.orgId_1_requestedDeliveryDate_1` (the Customer orders list's sort), `productsuppliers.orgId_1_supplierId_1` (the Products list's supplier filter), `costlayers.…_expiryDate_1` (FEFO costing).
+- *Masters, moves and replication* (12): `outbox.state_1_nextAt_1`, `emaillogs.outboxId_1` (a master's outbox), `relay_jobs.nodeId_1_op_1_createdAt_1`, `relay_receipts.nodeId_1_at_1` (the relays' caps per server), `repl_journal.coll_1_docId_1` (a master's capture of a delete), `mirror_blobs.orgId_1_state_1`, `org_moves.from_1_state_1`, `org_moves.to_1_state_1` (`movesForNode`), `invoices.orgId_1_importedFrom.exportId_1` (a fenced import's undo, FR-20.84), `desktopenrollmentkeys.orgId_1_createdAt_-1`, `desktopenrollmentkeyuses.orgId_1_keyId_1_createdAt_-1` (pairing a till), `identities.migration.runId_1` (an identity migration's rollback).
+
+**Run.** After the deploy, by hand on global: `bun run migrate --dry-run`, then `bun run migrate`. The masters run it on their next update. Rollback: the previous release declares the indexes again, and its first start builds them back; nothing is lost.
+
+**Seen on the way, not changed here.** A customer order's linked documents (`internal-order.controller`) read every document of the org: the `$or`'s `lines.orderRef.internalOrderId` branch has no index. An index on it would let both branches be served; it is a decision for its own pull request.
 
 ### Slice B (FR-30.6 to .10), 2026-11-17
 

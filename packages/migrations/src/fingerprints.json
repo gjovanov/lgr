@@ -20,5 +20,6 @@
   "0018-product-search-field": "b052e14a60acc9fa06399bc2f7ad987a2c4c5b15f1370d0918c35603b60fe3e0",
   "0019-drop-unused-indexes": "6c73979aeb9f100e45957016cf6a0a86fab54e8ca94451c5cd933530e731b16b",
   "0020-legacy-access-archive-drop": "77944d06f1f2c75632104d4f634465168e7f988014f4e4581ae053505262c7ad",
-  "0021-relay-receipts-kept-60-days": "1b7e02c287f243e996ed571a7cda607bdc434492084230b9afb36ebf2b111f51"
+  "0021-relay-receipts-kept-60-days": "1b7e02c287f243e996ed571a7cda607bdc434492084230b9afb36ebf2b111f51",
+  "0022-drop-unused-indexes-fr30-5": "373513c6b75639a090bab6cefa75a2a4e6750deab8ece4401bcb2e03aaa08dcc"
 }

@@ -41,8 +41,6 @@ const dinCatalogSchema = new Schema<IDinCatalog>(
 )
 
 dinCatalogSchema.index({ din: 1 }, { unique: true })
-dinCatalogSchema.index({ baseNumber: 1 })
-dinCatalogSchema.index({ categoryIndex: 1 })
 
 replicate(dinCatalogSchema, { class: 'G' })
 

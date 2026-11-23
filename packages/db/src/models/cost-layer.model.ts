@@ -46,8 +46,7 @@ const costLayerSchema = new Schema<ICostLayer>(
 costLayerSchema.plugin(tenantPlugin)
 // FIFO consumption: oldest non-exhausted layers first
 costLayerSchema.index({ orgId: 1, productId: 1, warehouseId: 1, isExhausted: 1, receivedAt: 1 })
-// LIFO consumption: newest non-exhausted layers first
-costLayerSchema.index({ orgId: 1, productId: 1, warehouseId: 1, isExhausted: 1, receivedAt: -1 })
+// LIFO consumption, newest first, reads the FIFO index backwards (FR-30.5: migration 0022 dropped its own)
 // FEFO consumption: earliest expiry first
 costLayerSchema.index({ orgId: 1, productId: 1, warehouseId: 1, isExhausted: 1, expiryDate: 1 })
 // Lookup by source movement
