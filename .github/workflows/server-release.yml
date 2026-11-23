@@ -877,7 +877,8 @@ jobs:
       # It comes up healthy, its setup console answers on the host's loopback and the link's token
       # opens it, mongod and the console listen on loopback only, `update apply` says an image is
       # updated by its tag and so does the status, `docker stop` is the service's own graceful stop,
-      # and it comes back on the same volume with its database clean.
+      # and it comes back on the same volume with its database clean. Its PDF browser prints, without its
+      # sandbox by the image's default, and an explicit PDF_CHROME_NO_SANDBOX=0 keeps the sandbox (#905).
       - name: Run the image as Compose runs it
         run: |
           set -euo pipefail
@@ -902,13 +903,18 @@ jobs:
           docker run -d --name lgr-smoke --network host -e TZ=Europe/Sofia --mount source=lgr-smoke,target=/var/lib/lgr "$img" >/dev/null
           healthy 300 || fail "the image did not come up healthy"
           docker exec lgr-smoke lgr-server status
-          # #901: whether the API's browser prints in a container, where Docker's default seccomp refuses
-          # the user namespace its sandbox makes. It does not (#905): said, not required until that is decided.
-          pdf="$(docker logs lgr-smoke 2>&1 | grep -E 'PDFs print with this browser|the PDF browser does not print' | tail -1)" || true
-          case "$pdf" in
-            *"PDFs print with this browser"*) echo "the PDF browser: $pdf" ;;
-            *) echo "::warning::the image's PDF browser does not print: ${pdf:-the supervisor said nothing about it}" ;;
-          esac
+          # #905: Docker's default seccomp refuses a container the user namespace the PDF browser's sandbox
+          # makes, so the image runs the browser without it unless told otherwise. The start check prints a
+          # page that way and says why, and the API is given the same setting.
+          pdf_lines() { docker logs lgr-smoke 2>&1 | grep -E 'PDFs print with this browser|the PDF browser does not print' || true; }
+          # What the API child (Bun) was given: its environment, read as the same user.
+          api_sandbox() { docker exec lgr-smoke sh -c 'for p in /proc/[0-9]*; do case "$(readlink "$p/exe" 2>/dev/null)" in */bin/bun) tr "\0" "\n" < "$p/environ" 2>/dev/null ;; esac; done' | grep '^PDF_CHROME_NO_SANDBOX=' | sort -u || true; }
+          for _ in $(seq 1 24); do [ "$(pdf_lines | wc -l)" -ge 1 ] && break; sleep 5; done
+          pdf="$(pdf_lines | tail -1)"
+          echo "the PDF browser: ${pdf:-the supervisor said nothing about it}"
+          grep -q 'PDFs print with this browser' <<< "$pdf" || fail "the image's PDF browser does not print: ${pdf:-the supervisor said nothing about it}"
+          { grep -q 'sandbox=false' <<< "$pdf" && grep -q "the server image's default" <<< "$pdf"; } || fail "the check did not print by the image's default: $pdf"
+          [ "$(api_sandbox)" = PDF_CHROME_NO_SANDBOX=1 ] || fail "the API was not given PDF_CHROME_NO_SANDBOX=1: '$(api_sandbox)'"
           # #356: the ARP watch, on the file capability the root install gave the binary, within the
           # container's bounding set (Docker's default keeps NET_RAW). Said, not required.
           echo "address check: $(docker exec lgr-smoke lgr-server status --json | jq -c '.addressCheck')"
@@ -931,6 +937,10 @@ jobs:
           for _ in $(seq 1 36); do state="$(docker exec lgr-smoke lgr-server status --json | jq -r '.update.state // empty')"; [ -n "$state" ] && break; sleep 5; done
           [ "$state" = image ] || fail "the update status is '$state', not image"
 
+          # #905: an explicit PDF_CHROME_NO_SANDBOX=0 is honoured, never taken for unset: the next start keeps
+          # the sandbox, says so, and gives the API the 0. (config/ is the operator's: written as root.)
+          docker exec -u 0 lgr-smoke sh -c 'mkdir -p /var/lib/lgr/config && echo PDF_CHROME_NO_SANDBOX=0 >> /var/lib/lgr/config/api.env && chmod 0644 /var/lib/lgr/config/api.env'
+
           start=$(date +%s); docker stop -t 30 lgr-smoke >/dev/null; took=$(( $(date +%s) - start ))
           exited="$(docker inspect -f '{{.State.ExitCode}}' lgr-smoke)"
           [ "$exited" = 0 ] || fail "the supervisor exited $exited on SIGTERM"
@@ -939,6 +949,17 @@ jobs:
           healthy 300 || fail "the image did not come back on its volume"
           if docker exec lgr-smoke grep -qi 'unclean shutdown' /var/lib/lgr/logs/mongod.log; then fail "mongod was not stopped cleanly"; fi
           echo "stopped in $took s, and back on its volume"
+          for _ in $(seq 1 24); do [ "$(pdf_lines | wc -l)" -ge 2 ] && break; sleep 5; done
+          pdf="$(pdf_lines | tail -1)"
+          [ "$(pdf_lines | wc -l)" -ge 2 ] || fail "the second start said nothing about its PDF browser"
+          echo "with PDF_CHROME_NO_SANDBOX=0: $pdf"
+          { grep -q 'sandbox=true' <<< "$pdf" && grep -q 'PDF_CHROME_NO_SANDBOX=0 in config/api.env' <<< "$pdf"; } || fail "an explicit 0 did not keep the sandbox: $pdf"
+          [ "$(api_sandbox)" = PDF_CHROME_NO_SANDBOX=0 ] || fail "the API was not given PDF_CHROME_NO_SANDBOX=0: '$(api_sandbox)'"
+          case "$pdf" in
+            *"No usable sandbox"*) echo "the default is load-bearing: with the sandbox this container prints nothing" ;;
+            *"PDFs print with this browser"*) echo "::warning::this container granted the sandbox its user namespace: the image's default was not needed here" ;;
+            *) echo "::warning::with the sandbox the browser failed for another reason: $pdf" ;;
+          esac
           docker rm -f lgr-smoke >/dev/null && docker volume rm lgr-smoke >/dev/null
 
       - name: The image and its Compose and k8s files, for the release

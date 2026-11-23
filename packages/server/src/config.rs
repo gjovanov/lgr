@@ -73,19 +73,101 @@ pub fn pdf_browser(paths: &Paths, operator: &BTreeMap<String, String>) -> Option
     operator.get("PUPPETEER_EXECUTABLE_PATH").map(PathBuf::from).or_else(|| paths.chrome.clone())
 }
 
-/// Whether the API's browser runs without its sandbox, as `chromeArgs()` in reporting's `base.pdf.ts`
-/// decides it: as root, or with `PDF_CHROME_NO_SANDBOX=1` in the API's environment, which is the
-/// operator's api.env (the API starts with nothing else, `env_clear`).
-pub fn pdf_without_sandbox(operator: &BTreeMap<String, String>) -> bool {
-    #[cfg(unix)]
-    let root = unsafe { libc::geteuid() } == 0;
-    #[cfg(not(unix))]
-    let root = false;
-    root || operator.get("PDF_CHROME_NO_SANDBOX").map(String::as_str) == Some("1")
+/// The setting that runs the API's PDF browser without its sandbox. `chromeArgs()` in reporting's
+/// `base.pdf.ts` reads it, and takes `1` only: any other value keeps the sandbox.
+pub const PDF_NO_SANDBOX: &str = "PDF_CHROME_NO_SANDBOX";
+
+/// Whether this server runs from its container image (`LGR_SERVER_IMAGE`, which the Dockerfile sets).
+pub fn in_image() -> bool {
+    std::env::var("LGR_SERVER_IMAGE").is_ok_and(|i| !i.is_empty())
+}
+
+/// Where the API's `PDF_CHROME_NO_SANDBOX` came from (#905).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxSetBy {
+    /// Nobody: the API gets none, and its browser keeps its sandbox.
+    Nobody,
+    /// The operator's `config/api.env`.
+    ApiEnv,
+    /// The container's own environment (Compose's `environment:`, a pod's `env:`). Read only in the image.
+    Container,
+    /// The image's default, `1`: Docker's default seccomp profile refuses a container the user namespace
+    /// the sandbox needs, so with it the image printed no PDF at all (#905). The container is the boundary.
+    ImageDefault,
+}
+
+/// How the API's PDF browser runs, with its sandbox or without, and why (#901, #905).
+///
+/// - Outside the image (the .deb, Windows, a dev machine): what `config/api.env` says, as before. The
+///   supervisor's own environment never reaches the API (`env_clear`), so it is not read.
+/// - In the image: `config/api.env`, else the container's environment, else `1`. ⚠ A value set there
+///   always wins over the default, `0` included: `PDF_CHROME_NO_SANDBOX=0` is how an operator whose host
+///   grants the container a user namespace (a seccomp or AppArmor profile) keeps the sandbox. An empty
+///   value is no value.
+/// - As root `chromeArgs()` runs the browser without its sandbox whatever the setting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PdfSandbox {
+    /// The `PDF_CHROME_NO_SANDBOX` the API gets, if any.
+    pub value: Option<String>,
+    pub set_by: SandboxSetBy,
+    /// The API runs as root.
+    pub root: bool,
+}
+
+impl PdfSandbox {
+    /// `operator`: config/api.env (with what setup chose); `image`: `in_image()`; `container`: the
+    /// supervisor's own `PDF_CHROME_NO_SANDBOX`; `root`: it runs as root.
+    pub fn resolve(operator: &BTreeMap<String, String>, image: bool, container: Option<&str>, root: bool) -> Self {
+        let given = |v: Option<&str>| v.map(str::trim).filter(|v| !v.is_empty()).map(str::to_string);
+        let (value, set_by) = if let Some(v) = given(operator.get(PDF_NO_SANDBOX).map(String::as_str)) {
+            (Some(v), SandboxSetBy::ApiEnv)
+        } else if !image {
+            (None, SandboxSetBy::Nobody)
+        } else if let Some(v) = given(container) {
+            (Some(v), SandboxSetBy::Container)
+        } else {
+            (Some("1".to_string()), SandboxSetBy::ImageDefault)
+        };
+        Self { value, set_by, root }
+    }
+
+    /// This process's: the image, its environment and its user, read here.
+    pub fn here(operator: &BTreeMap<String, String>) -> Self {
+        #[cfg(unix)]
+        let root = unsafe { libc::geteuid() } == 0;
+        #[cfg(not(unix))]
+        let root = false;
+        Self::resolve(operator, in_image(), std::env::var(PDF_NO_SANDBOX).ok().as_deref(), root)
+    }
+
+    /// Whether the browser runs without its sandbox, as `chromeArgs()` decides it.
+    pub fn off(&self) -> bool {
+        self.root || self.value.as_deref() == Some("1")
+    }
+
+    /// How it runs and why, for the start check's line: "with its sandbox", "without its sandbox: …".
+    pub fn says(&self) -> String {
+        let setting = || {
+            let place = if self.set_by == SandboxSetBy::Container { "the container's environment" } else { "config/api.env" };
+            format!("{PDF_NO_SANDBOX}={} in {place}", self.value.as_deref().unwrap_or(""))
+        };
+        if self.root {
+            return "without its sandbox: the server runs as root, where Chrome makes none".to_string();
+        }
+        match (self.off(), self.set_by) {
+            (true, SandboxSetBy::ImageDefault) => format!(
+                "without its sandbox: the server image's default, the container being the boundary (gjovanov/lgr#905; {PDF_NO_SANDBOX}=0 keeps the sandbox where the host grants the container a user namespace)"
+            ),
+            (true, _) => format!("without its sandbox: {}", setting()),
+            (false, SandboxSetBy::Nobody) => "with its sandbox".to_string(),
+            (false, _) if self.value.as_deref() == Some("0") => format!("with its sandbox: {}", setting()),
+            (false, _) => format!("with its sandbox: {} (only 1 turns it off)", setting()),
+        }
+    }
 }
 
 /// Whether the PDF browser prints: a blank page printed to a file in `scratch`, the browser launched as the
-/// API launches it, with its sandbox unless `no_sandbox` (`pdf_without_sandbox`). A print needs what every
+/// API launches it, with its sandbox unless `no_sandbox` (`PdfSandbox::off`). A print needs what every
 /// render needs, and a browser that is there can lack either:
 /// - the libraries it links, which on Linux come from the machine: on Ubuntu 24.04 apt once gave the .deb
 ///   OSS4's stand-in for libasound2, which lacks a symbol Chrome needs (#896, nfpm.yaml);
@@ -150,7 +232,8 @@ fn browser_reason(stderr: &str) -> String {
 
 /// What a master's operator can do about a browser that does not print, said after its reason. `image`: the
 /// server runs from its container image (`LGR_SERVER_IMAGE`), where no package script runs and the container,
-/// not the host's AppArmor, refuses the sandbox its user namespace (#905).
+/// not the host's AppArmor, refuses the sandbox its user namespace (#905). There the image runs the browser
+/// without its sandbox unless told otherwise (`PdfSandbox`), so a sandbox failure means someone asked for it.
 pub fn pdf_browser_hint(why: &str, image: bool) -> &'static str {
     match (why.contains("No usable sandbox"), image) {
         (false, _) => "",
@@ -158,7 +241,7 @@ pub fn pdf_browser_hint(why: &str, image: bool) -> &'static str {
             " (the .deb's AppArmor profile lets it make one where AppArmor 4 is: `aa-status` lists lgr-server-chrome once it is loaded, and an `apt install` of this version's .deb loads it, which an update the helper installs does not; or PDF_CHROME_NO_SANDBOX=1 in config/api.env prints without the sandbox)"
         }
         (true, true) => {
-            " (a container gets no user namespace for it from Docker's default seccomp profile, gjovanov/lgr#905; PDF_CHROME_NO_SANDBOX=1 in config/api.env prints without the sandbox)"
+            " (the container gets no user namespace for it: Docker's default seccomp profile refuses one, and so can the host's AppArmor, gjovanov/lgr#905. Grant it one with the profiles the install guide's container section names, or take PDF_CHROME_NO_SANDBOX out, and the image prints without the sandbox)"
         }
     }
 }
@@ -309,6 +392,8 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
         operator.insert("MONGODB_URI".to_string(), uri.to_string());
     }
     let wait = api_stop_wait(&operator);
+    // #905: in the image, `1` unless the operator or the container said otherwise; elsewhere what api.env says.
+    let pdf_sandbox = PdfSandbox::here(&operator).value;
     let mut env = os_env();
     // A master's defaults, then what the operator set, then what nobody may override.
     env.extend([
@@ -321,6 +406,9 @@ pub fn api_spec(paths: &Paths, mongo_uri: Option<&str>, front: Option<&crate::fr
         env.insert("PUPPETEER_EXECUTABLE_PATH".to_string(), chrome.to_string_lossy().into_owned());
     }
     env.extend(operator);
+    if let Some(v) = pdf_sandbox {
+        env.insert(PDF_NO_SANDBOX.to_string(), v);
+    }
     env.extend(api_secrets(&paths.data)?);
     env.extend([
         ("NODE_ENV".to_string(), "production".to_string()),
@@ -500,8 +588,9 @@ mod tests {
         assert!(why.starts_with("No usable sandbox! If you are running on Ubuntu 23.10+"), "{why}");
         assert!(pdf_browser_hint(&why, false).contains("lgr-server-chrome"), "{why}");
         // In the image no package script runs: the hint names what does work there, not the .deb's profile.
+        // There the sandbox is off unless asked for (#905): it says how to grant the namespace, or to stop asking.
         let in_image = pdf_browser_hint(&why, true);
-        assert!(in_image.contains("PDF_CHROME_NO_SANDBOX=1") && !in_image.contains("apt install"), "{in_image}");
+        assert!(in_image.contains("take PDF_CHROME_NO_SANDBOX out") && in_image.contains("seccomp") && !in_image.contains("apt install"), "{in_image}");
         assert_eq!(prints(sandboxed, true).await, Ok(()));
 
         assert_eq!(prints(fake("noprint", "exit 0"), false).await, Err("it ended without printing its test page".to_string()));
@@ -512,18 +601,78 @@ mod tests {
         assert!(!scratch.exists(), "the test page's folder is removed after a failure too");
     }
 
+    fn api_env(value: &str) -> BTreeMap<String, String> {
+        BTreeMap::from([(PDF_NO_SANDBOX.to_string(), value.to_string())])
+    }
+
     #[test]
-    fn the_api_runs_its_browser_without_a_sandbox_only_when_told_or_as_root() {
-        let told = BTreeMap::from([("PDF_CHROME_NO_SANDBOX".to_string(), "1".to_string())]);
-        assert!(pdf_without_sandbox(&told));
-        let other = BTreeMap::from([("PDF_CHROME_NO_SANDBOX".to_string(), "true".to_string())]);
-        #[cfg(unix)]
-        let root = unsafe { libc::geteuid() } == 0;
-        #[cfg(not(unix))]
-        let root = false;
-        // As `chromeArgs()` reads it: only `1` says so.
-        assert_eq!(pdf_without_sandbox(&other), root);
-        assert_eq!(pdf_without_sandbox(&BTreeMap::new()), root);
+    fn outside_the_image_the_browser_keeps_its_sandbox_unless_told_or_as_root() {
+        // The .deb, Windows, a dev machine: as before #905. Nothing set, the sandbox; the container's
+        // environment is not read (the API never sees the supervisor's).
+        let none = PdfSandbox::resolve(&BTreeMap::new(), false, Some("1"), false);
+        assert_eq!(none, PdfSandbox { value: None, set_by: SandboxSetBy::Nobody, root: false });
+        assert!(!none.off());
+        assert_eq!(none.says(), "with its sandbox");
+
+        // An explicit 1 in api.env is honoured as today.
+        let told = PdfSandbox::resolve(&api_env("1"), false, None, false);
+        assert_eq!((told.value.as_deref(), told.set_by), (Some("1"), SandboxSetBy::ApiEnv));
+        assert!(told.off());
+        assert_eq!(told.says(), "without its sandbox: PDF_CHROME_NO_SANDBOX=1 in config/api.env");
+
+        // As `chromeArgs()` reads it: only `1` says so, and it says which value it saw.
+        let other = PdfSandbox::resolve(&api_env("true"), false, None, false);
+        assert!(!other.off());
+        assert!(other.says().contains("PDF_CHROME_NO_SANDBOX=true") && other.says().contains("only 1 turns it off"), "{}", other.says());
+
+        // As root, never a sandbox, whatever was set.
+        let root = PdfSandbox::resolve(&api_env("0"), false, None, true);
+        assert!(root.off());
+        assert!(root.says().contains("as root"), "{}", root.says());
+    }
+
+    #[test]
+    fn in_the_image_the_browser_runs_without_its_sandbox_unless_told_to_keep_it() {
+        // #905: nothing set, the image's default.
+        let default = PdfSandbox::resolve(&BTreeMap::new(), true, None, false);
+        assert_eq!(default, PdfSandbox { value: Some("1".into()), set_by: SandboxSetBy::ImageDefault, root: false });
+        assert!(default.off());
+        assert!(default.says().starts_with("without its sandbox: the server image's default"), "{}", default.says());
+        assert!(default.says().contains("PDF_CHROME_NO_SANDBOX=0 keeps the sandbox"), "{}", default.says());
+        // An empty value is no value.
+        assert_eq!(PdfSandbox::resolve(&api_env(""), true, Some(" "), false).set_by, SandboxSetBy::ImageDefault);
+
+        // An explicit 0 in api.env is honoured, not taken for unset: the sandbox stays, and the API gets the 0.
+        let kept = PdfSandbox::resolve(&api_env("0"), true, None, false);
+        assert_eq!((kept.value.as_deref(), kept.set_by), (Some("0"), SandboxSetBy::ApiEnv));
+        assert!(!kept.off());
+        assert_eq!(kept.says(), "with its sandbox: PDF_CHROME_NO_SANDBOX=0 in config/api.env");
+
+        // So is the container's own environment (Compose `environment:`, a pod's `env:`)...
+        let from_container = PdfSandbox::resolve(&BTreeMap::new(), true, Some("0"), false);
+        assert_eq!((from_container.value.as_deref(), from_container.set_by), (Some("0"), SandboxSetBy::Container));
+        assert!(!from_container.off());
+        assert_eq!(from_container.says(), "with its sandbox: PDF_CHROME_NO_SANDBOX=0 in the container's environment");
+        // ...under api.env, which always wins.
+        let both = PdfSandbox::resolve(&api_env("1"), true, Some("0"), false);
+        assert_eq!(both.set_by, SandboxSetBy::ApiEnv);
+        assert!(both.off());
+        assert_eq!(both.says(), "without its sandbox: PDF_CHROME_NO_SANDBOX=1 in config/api.env");
+    }
+
+    #[test]
+    fn the_api_gets_the_sandbox_setting_api_env_gives_it_outside_the_image() {
+        // This test process is not the image (CI sets no LGR_SERVER_IMAGE): nothing is added.
+        if in_image() {
+            return;
+        }
+        let (_dir, paths) = layout();
+        assert!(!api_spec(&paths, None, None).unwrap().env.contains_key(PDF_NO_SANDBOX));
+        std::fs::create_dir_all(paths.data.join("config")).unwrap();
+        std::fs::write(paths.data.join("config").join("api.env"), "PDF_CHROME_NO_SANDBOX=1\n").unwrap();
+        assert_eq!(api_spec(&paths, None, None).unwrap().env[PDF_NO_SANDBOX], "1");
+        std::fs::write(paths.data.join("config").join("api.env"), "PDF_CHROME_NO_SANDBOX=0\n").unwrap();
+        assert_eq!(api_spec(&paths, None, None).unwrap().env[PDF_NO_SANDBOX], "0");
     }
 
     #[test]

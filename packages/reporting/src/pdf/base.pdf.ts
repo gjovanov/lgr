@@ -80,9 +80,11 @@ function pageOptions(options?: MarkdownToPdfOptions) {
 }
 
 /**
- * Chrome runs with its sandbox, except as root (the container image), where it cannot start
- * one. `PDF_CHROME_NO_SANDBOX=1` is for a non-root host whose kernel refuses the user
- * namespaces the sandbox needs (some hardened Linux CI runners).
+ * Chrome runs with its sandbox, except as root, where it cannot start one, or with
+ * `PDF_CHROME_NO_SANDBOX=1` (only `1`: `0` or anything else keeps it), for a host that refuses
+ * the user namespaces the sandbox needs: some hardened Linux CI runners, and a container. On a
+ * master the supervisor builds this environment: from the server image it passes `1` unless the
+ * operator set a value (gjovanov/lgr#905, `PdfSandbox` in packages/server/src/config.rs).
  */
 function chromeArgs(): string[] {
   const isRoot = typeof process.getuid === 'function' && process.getuid() === 0

@@ -581,6 +581,17 @@ A master renders its PDFs with **`chrome-headless-shell`**, at the build the rep
   reviewed.
 - CI's package boot prints its invoice with the Linux build. A Linux master still needs the
   libraries the tree's `deb.deps` lists, and fonts with Cyrillic (P1-7's packages).
+- **Its sandbox (#901, #905).** Chrome's sandbox needs a user namespace. Ubuntu 24.04 grants one to a
+  program only when an AppArmor profile names it, so the .deb ships `lgr-server-chrome` (#904). A
+  container gets none from Docker's default seccomp profile, so since 2026-11-23 the supervisor gives
+  the API `PDF_CHROME_NO_SANDBOX=1` when it runs from the image (`LGR_SERVER_IMAGE`) and nobody set
+  the variable (`config.rs#PdfSandbox`), the container being the boundary. The start check prints its
+  test page the same way and names the mode it printed in. Outside the image nothing is added. The
+  trade-off and how to keep the sandbox are in `docs/guides/server-install.md`, "PDFs in a container".
+- ⚠ **In the image an explicit `PDF_CHROME_NO_SANDBOX` always wins over the default, `0` included**
+  (`config/api.env` first, then the container's own environment, read only in the image). `0` is how an
+  operator whose host grants the namespace keeps the sandbox, so never fold it into "unset"; an empty
+  value is unset. `chromeArgs()` turns the sandbox off for `1` only, and as root whatever is set.
 
 ## Masters registered with global (2026-10-25, FR-20.2, plan step P2-1)
 

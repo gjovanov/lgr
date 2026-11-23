@@ -84,6 +84,9 @@ spec:
             # The shop's time zone, for the server's own maintenance times (e.g. Europe/Sofia).
             - name: TZ
               value: UTC
+            # PDFs print without the PDF browser's sandbox in the image (gjovanov/lgr#905). To keep it,
+            # give the pod a Localhost seccomp (and AppArmor) profile that allows user namespaces, and
+            # PDF_CHROME_NO_SANDBOX=0. The install guide's "PDFs in a container" says how.
           # A machine with 4 GB is the floor. A memory LIMIT is honoured: the server sizes mongod's
           # cache for the limit, not for the node.
           resources:
