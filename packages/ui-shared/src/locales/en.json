@@ -2416,6 +2416,7 @@
       "number": "Device Number",
       "numberHint": "The device's serial number (ИН на ФУ) as printed on its receipts, e.g. ED123456 — every УНП starts with it",
       "numberLength": "Must be 8 characters",
+      "numberFixed": "Fixed once the device is created: receipts, sessions and the SUPTO export keep this number. A different device is added as a new one",
       "manufacturer": "Manufacturer",
       "connectionType": "Connection Type",
       "ip": "IP address or host",

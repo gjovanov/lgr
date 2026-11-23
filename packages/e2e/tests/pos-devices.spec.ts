@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test'
 import { appears } from './helpers/vuetify'
 import { loginForApp } from './helpers/login'
+import { apiDelete, apiLogin, apiPost } from './helpers/api'
+
+const API = process.env.BASE_URL || 'http://localhost:4001'
 
 test.describe('Devices', () => {
   test('should navigate to the Devices page and verify heading renders', async ({ page }) => {
@@ -56,6 +59,44 @@ test.describe('Devices', () => {
 
     // Verify Create/Save button is present
     await expect(page.getByRole('button', { name: /Create|Save/i })).toBeVisible()
+  })
+
+  test('an existing device shows its number read-only, and its save does not send it', async ({ page }) => {
+    // The number is fixed once the device exists (receipts, sessions and the SUPTO export keep it as text): the PUT
+    // refuses another one (422 `device_number_immutable`), so the form neither offers nor sends it.
+    const admin = await apiLogin()
+    const { warehouses } = await (await fetch(`${API}/api/org/${admin.orgId}/warehouse/warehouse?size=1`, {
+      headers: { Authorization: `Bearer ${admin.token}` },
+    })).json()
+    const deviceNumber = `N${Date.now().toString(36).toUpperCase()}`.slice(0, 8).padEnd(8, '0')
+    const created = await apiPost(admin, '/fiscal/device', {
+      deviceNumber, name: `E2E fixed number ${deviceNumber}`, manufacturer: 'datecs', connectionType: 'browser',
+      warehouseId: warehouses[0]._id || warehouses[0].id,
+    })
+    expect(created.status).toBe(200)
+    const { fiscalDevice } = await created.json()
+    const id = String(fiscalDevice._id || fiscalDevice.id)
+
+    try {
+      await loginForApp(page)
+      await page.goto(`/invoicing/configuration/devices/${id}`)
+      await page.waitForLoadState('networkidle')
+
+      const number = page.getByTestId('device-number').locator('input')
+      await expect(number).toHaveValue(deviceNumber, { timeout: 15000 })
+      await expect(number).not.toBeEditable()
+
+      await page.getByRole('textbox', { name: 'Name', exact: true }).first().fill(`E2E fixed number ${deviceNumber} renamed`)
+      const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes(`/fiscal/device/${id}`))
+      await page.getByRole('button', { name: /^save$/i }).first().click()
+      const answer = await put
+      expect(answer.status()).toBe(200)
+      const body = answer.request().postDataJSON()
+      expect(body.name).toBe(`E2E fixed number ${deviceNumber} renamed`)
+      expect(body).not.toHaveProperty('deviceNumber')
+    } finally {
+      await apiDelete(admin, `/fiscal/device/${id}`)
+    }
   })
 
   test('should verify operator table renders on Operators tab for existing device', async ({ page }) => {
