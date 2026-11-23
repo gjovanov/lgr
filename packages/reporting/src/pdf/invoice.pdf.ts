@@ -34,8 +34,17 @@ const LINE_COLS: LineCol[] = [
   { key: 'unitPrice', align: 'right', cell: (l) => money(l.unitPrice) },
   { key: 'discount', align: 'right', cell: (l) => (Number(l.discount) ? money(l.discount) : '') },
   { key: 'taxRate', align: 'right', cell: (l) => (l.taxRate == null ? '' : `${l.taxRate}%`) },
-  { key: 'lineTotal', align: 'right', cell: (l) => money(l.lineTotal) },
+  // „Стойност" is the line's NET value: quantity × the (net) unit price, less the discount, the figures the
+  // totals box adds up to the tax base. A stored `lineTotal` is GROSS on every document (#598, imported ones
+  // since migration 0023), so the column prints `lineTotal − taxAmount`: an imported invoice prints the line
+  // value its paper shows, and an LGR-made one stops printing its VAT inside it.
+  { key: 'lineTotal', align: 'right', cell: (l) => money(lineNet(l)) },
 ]
+
+/** A line's net value: its gross `lineTotal` less its VAT. */
+function lineNet(l: any): number {
+  return (Number(l.lineTotal) || 0) - (Number(l.taxAmount) || 0)
+}
 
 /** The description is the one column that wraps; every other one is fitted to its contents. */
 function sizing(c: LineCol): string {

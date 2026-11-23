@@ -517,13 +517,32 @@ key of their own, so `outgoingOnly` (FR-26.6) still decides what a session sees.
 - ⚠ **With a product search the summary is per line, from the documents' own money.** Each matching
   line takes the share of its document's `subtotal` / `taxTotal` / `total` that its terms (quantity ×
   price, discount, rate) weigh among the document's lines. Never sum the stored `lineTotal`: an
-  imported invoice line's is NET (`map-invoice.ts`, `document-amounts.ts`) where a form's is gross,
-  so the table's Total column mixes the two. A search that finds every line gives exactly the
-  unfiltered summary, and a test holds that.
+  imported document's header is the paper's, and its lines' rounded VAT can sum a cent or two away
+  from it. (Until #598 an imported line's `lineTotal` was also NET where a form's is gross; it is
+  gross everywhere now.) A search that finds every line gives exactly the unfiltered summary, and a
+  test holds that.
 
 - Tests: `integration/contact-ledger.flow.test.ts` (the `#526` block), the Seller case in
   `seller-roles.flow.test.ts`, `e2e/tests/contact-ledger-search.spec.ts`. ⚠ A new e2e spec runs
   nowhere until a project in `playwright.config.ts` lists it by name.
+
+## One meaning for a line's `lineTotal`: gross, imported documents too (2026-11-23, #598)
+
+- ⚠ **`lineTotal` is gross on every document; the net is `lineTotal − taxAmount`.** The mapper
+  stores the line value plus its VAT (VAT and header unchanged; with no net total on the document, as
+  from the PlusMinus API, the subtotal is the lines' nets). Migration `0023-imported-line-totals-gross`
+  converts the lines imported before.
+- ⚠ **0023 decides per LINE, by the line's own terms, never per document.** It takes invoices,
+  credit and debit notes tagged `ocr-import` or whose first status says `ocr_import`, both directions
+  (a cash sale is 0007/0011's). A line is net when its `lineTotal` is nearer `quantity × unitPrice ×
+  (1 − discount%)` than that plus its `taxAmount`, within half the VAT (at least a cent); gross the
+  other way round; without VAT when the VAT rounds to 0.00; neither when far from both (left alone,
+  counted, and named by `--dry-run`). A copy ("Копирай" carries the tag) and an imported draft saved
+  through the form are gross already, and stay. Only `lineTotal` is written, each write guarded by the
+  values it read; a second run changes nothing. It logs per org: documents and lines converted, lines
+  already gross, without VAT, matching neither.
+- **The print** (`invoice.pdf.ts`): „Стойност" prints `lineTotal − taxAmount`, the net the totals box
+  adds up to the tax base, on every invoice.
 
 ## The contact ledger shows the stock movements (2026-11-12)
 

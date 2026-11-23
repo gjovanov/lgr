@@ -165,8 +165,10 @@ describe('ORD-aware purchase invoice import', () => {
     // Catalog name shown, supplier wording preserved for learning/audit.
     expect(stored.lines[0].description).toBe('ВИНТ М4Х70 - DIN 963')
     expect(stored.lines[0].sourceText).toBe(SUPPLIER_WORDING)
-    // Line totals still sum to the document's net line total.
-    expect(+(stored.lines[0].lineTotal + stored.lines[1].lineTotal).toFixed(2)).toBe(50)
+    // The parts' nets (lineTotal − taxAmount, #598) still sum to the document's net line value.
+    const netOf = (l: any) => l.lineTotal - l.taxAmount
+    expect(+(netOf(stored.lines[0]) + netOf(stored.lines[1])).toFixed(2)).toBe(50)
+    expect(+(stored.lines[0].lineTotal + stored.lines[1].lineTotal).toFixed(2)).toBe(60)
     expect(stored.tags).toContain('ord:ORD-2026-00001')
 
     // Convert → received: stock receipt + order receipt booking + holds.

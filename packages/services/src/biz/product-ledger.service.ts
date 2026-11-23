@@ -481,6 +481,7 @@ async function computeSalesSummary(
     pipeline.push({ $match: { 'lines.warehouseId': new Types.ObjectId(warehouseId) } })
   }
 
+  // Gross on every document: a cash sale's since FR-21.5, an imported invoice's since #598.
   pipeline.push({
     $group: {
       _id: '$type',

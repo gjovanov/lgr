@@ -227,7 +227,9 @@ describe('OCR invoice import (PlusMinus migration)', () => {
     const doc: any = await Invoice.findById(invoice.id).lean()
     expect(doc.lines[0].unitPrice).toBeCloseTo(64 / 3000, 6)
     expect(+(doc.lines[0].quantity * doc.lines[0].unitPrice).toFixed(2)).toBe(64)
-    expect(doc.lines[0].lineTotal).toBe(64)
+    // #598: the line value (64, net) plus its VAT; the net is lineTotal − taxAmount.
+    expect(doc.lines[0].taxAmount).toBe(12.8)
+    expect(doc.lines[0].lineTotal).toBe(76.8)
     expect(doc.lines[1].unitPrice).toBe(0.0071)
   })
 

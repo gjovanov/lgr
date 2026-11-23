@@ -110,6 +110,10 @@ auto-detected from the header when omitted and echoed back in the response. Two 
 number/date/quantity checks instead of the VAT/totals ones. ⚠ The sidecar image must be
 rebuilt for the new skills: `./scripts/deploy-prod.sh --ocr`.
 
+⚠ **An imported line's `lineTotal` is GROSS** (2026-11-23, #598): `map-invoice.ts` stores the paper's net
+line value plus its VAT, as every document LGR makes stores it; the net is `lineTotal − taxAmount`.
+Migration `0023` converted the lines imported net before. The story is `docs/history/invoicing.md`.
+
 **Prefixes are never hardcoded.** `services/biz/sequence-registry.ts` is the single table
 behind `/invoicing/configuration/sequences` AND every allocation path
 (`invoice-numbering.service`, order / internal-order / reservation / companion numbering).

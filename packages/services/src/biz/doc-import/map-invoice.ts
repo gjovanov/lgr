@@ -194,14 +194,18 @@ export async function mapInvoiceExtraction(
     const qty = num(li.quantity)
     let price = num(li.unit_price)
     const taxRate = li.vat_rate != null ? num(li.vat_rate) : 20
-    const lineTotal = li.total != null ? num(li.total) : +(qty * price).toFixed(2)
-    // Legacy PDFs display the unit price rounded to 4 decimals but the line total is
-    // exact (3000 × 0.0213 ≠ 64.00). Derive a price that reproduces the total so
+    // The document's line value is NET, on the PDFs and in the PlusMinus API alike.
+    const net = li.total != null ? num(li.total) : +(qty * price).toFixed(2)
+    // Legacy PDFs display the unit price rounded to 4 decimals but the line value is
+    // exact (3000 × 0.0213 ≠ 64.00). Derive a price that reproduces it so
     // qty × unitPrice recomputations (form totals, payload) agree with the document.
-    if (li.total != null && qty > 0 && Math.abs(qty * price - lineTotal) > 0.001) {
-      price = +(lineTotal / qty).toFixed(6)
+    if (li.total != null && qty > 0 && Math.abs(qty * price - net) > 0.001) {
+      price = +(net / qty).toFixed(6)
     }
-    const taxAmount = +((lineTotal * taxRate) / 100).toFixed(2)
+    const taxAmount = +((net * taxRate) / 100).toFixed(2)
+    // ⚠ `lineTotal` is GROSS, as on every document LGR makes (#598): the net plus its VAT. It was the
+    // net until migration 0023, and every reader takes it as gross. The net is `lineTotal − taxAmount`.
+    const lineTotal = +(net + taxAmount).toFixed(2)
     const unit = normalizeUomBg(match?.unit || li.unit)
     // Alias/AI matches carry the supplier's wording — show OUR catalog name and keep
     // the original in sourceText (exact matches keep the extracted text verbatim).
@@ -210,18 +214,19 @@ export async function mapInvoiceExtraction(
     const orderLine = match && orderGroup ? workingByProduct.get(match.productId) : null
     if (orderLine) {
       // One invoice line per warehouse allocation part; the last part absorbs the
-      // rounding residue so the parts still sum to the document's line total.
+      // rounding residue so the parts' nets still sum to the document's line value.
       const parts = splitAcrossAllocations(orderLine, qty, opts.warehouseId)
-      let remainingTotal = lineTotal
+      let remainingNet = net
       parts.forEach((part, idx) => {
         const isLast = idx === parts.length - 1
-        const partTotal = isLast ? +remainingTotal.toFixed(2) : +(part.quantity * price).toFixed(2)
-        remainingTotal -= partTotal
+        const partNet = isLast ? +remainingNet.toFixed(2) : +(part.quantity * price).toFixed(2)
+        remainingNet -= partNet
+        const partTax = +((partNet * taxRate) / 100).toFixed(2)
         lines.push({
           productId: match!.productId, description: displayDesc, quantity: part.quantity,
           unit, unitPrice: price, discount: 0, taxRate,
-          taxAmount: +((partTotal * taxRate) / 100).toFixed(2),
-          lineTotal: partTotal,
+          taxAmount: partTax,
+          lineTotal: +(partNet + partTax).toFixed(2),
           warehouseId: part.warehouseId,
           sourceText: desc,
           orderRef: {
@@ -247,7 +252,8 @@ export async function mapInvoiceExtraction(
     }
   })
 
-  const subtotal = ext.net_total != null ? num(ext.net_total) : +lines.reduce((s, l) => s + l.lineTotal, 0).toFixed(2)
+  // A line's net is its gross less its VAT. The PlusMinus API gives no net total, so this is its subtotal.
+  const subtotal = ext.net_total != null ? num(ext.net_total) : +lines.reduce((s, l) => s + (l.lineTotal - l.taxAmount), 0).toFixed(2)
   const taxTotal = ext.vat_total != null ? num(ext.vat_total) : +lines.reduce((s, l) => s + l.taxAmount, 0).toFixed(2)
   const total = ext.gross_total != null ? num(ext.gross_total) : +(subtotal + taxTotal).toFixed(2)
   const currency = clean(ext.currency) || 'BGN'
