@@ -2,18 +2,18 @@ import { Elysia, t } from 'elysia'
 import { AppAuthService } from '../auth/app-auth.service.js'
 import { getRepos } from 'services/context'
 import { createAuditEntry, diffChanges, recordAuditEntry } from 'services/biz/audit-log.service'
-import { buildSearchFilter } from 'services/biz/search.utils'
+import { employeeListFilter, listSort } from 'services/biz/payroll/list-export'
 import { can } from 'services/biz/access/evaluate'
 import { upsertTags } from 'services/biz/tag.service'
 import { forOrg } from 'services/biz/personal-data/personal-data.service'
 import {
   cleanPersonalPatch,
   employeeView,
-  nationalIdLookup,
   revealEmployeeFields,
   sealedEmployeeFields,
 } from 'services/biz/personal-data/employee-personal'
 import { lockedAnswer, PERSONAL_REFUSAL, RECORD_REFUSAL, REVEAL_REASON } from './answers.js'
+import { EXPORT_FAILED, listExport } from './list-export.js'
 
 /** FR-25 §3.11: a write is about one person whatever it changes. The route rule has already asked for `payroll.write`. */
 const personalRefusal = (status: any) => status(403, PERSONAL_REFUSAL)
@@ -67,31 +67,20 @@ export const employeeController = new Elysia({ prefix: '/org/:orgId/payroll/empl
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
-    const filter: Record<string, any> = { orgId }
-    if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['firstName', 'middleName', 'lastName', 'email'])
-      Object.assign(filter, searchFilter)
-      // An exact ЕГН finds its person through the lookup value, and nothing is opened to do it.
-      if (/^\d{9,10}$/.test(String(query.search).trim())) {
-        const lookup = await nationalIdLookup(orgId, String(query.search))
-        if (lookup) filter.$or = [...(filter.$or ?? []), lookup]
-      }
-    }
-    if (query.status) filter.status = query.status
-    if (query.department) filter.department = query.department
-    if (query.tags) {
-      const tagList = Array.isArray(query.tags) ? query.tags : (query.tags as string).split(',')
-      filter.tags = { $in: tagList }
-    }
+    // #830: the one filter of this list, which its export applies too.
+    const filter = await employeeListFilter(orgId, query)
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = (query.sortBy as string) || 'createdAt'
-    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
 
-    const result = await r.employees.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+    const result = await r.employees.findAll(filter, { page, size, sort: listSort(query) })
     const items = result.items.map(employeeView)
     return { ...result, employees: items, items }
+  }, { isSignIn: true })
+  // #830: the list as Excel or PDF, on the list's filters. What it never prints: `services/biz/payroll/list-export.ts`.
+  .get('/export', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    return (await listExport('employees', orgId, query)) ?? status(500, EXPORT_FAILED)
   }, { isSignIn: true })
   .post(
     '/',

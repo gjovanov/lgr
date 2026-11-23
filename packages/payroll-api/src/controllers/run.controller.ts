@@ -4,12 +4,13 @@ import { getRepos } from 'services/context'
 import { config } from 'config'
 import { createAuditEntry, diffChanges, recordAuditEntry } from 'services/biz/audit-log.service'
 import { approvePayroll, calculatePayroll, PayrollRunRefusedError } from 'services/biz/payroll.service'
-import { buildSearchFilter } from 'services/biz/search.utils'
+import { listSort, runListFilter } from 'services/biz/payroll/list-export'
 import { can } from 'services/biz/access/evaluate'
 import { emitImportedDeclaration } from 'services/biz/payroll/bg/import.service'
 import { openRunItems, runDocument } from 'services/biz/payroll/bg/run.service'
 import { runView } from 'services/biz/payroll/bg/views'
 import { PERSONAL_REFUSAL, RECORD_REFUSAL, REVEAL_REASON, payrollAnswer } from './answers.js'
+import { EXPORT_FAILED, listExport } from './list-export.js'
 
 const DaysBody = t.Object({
   worked: t.Number({ minimum: 0 }),
@@ -44,22 +45,21 @@ export const payrollRunController = new Elysia({ prefix: '/org/:orgId/payroll/ru
     if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
 
-    const filter: Record<string, any> = { orgId }
-    if (query.search) {
-      const searchFilter = buildSearchFilter(query.search as string, ['name', 'period'])
-      Object.assign(filter, searchFilter)
-    }
-    if (query.status) filter.status = query.status
+    // #830: the one filter of this list, which its export applies too.
+    const filter = runListFilter(orgId, query)
 
     const page = Math.max(0, Number(query.page) || 0)
     const size = query.size !== undefined ? Number(query.size) : 10
-    const sortBy = (query.sortBy as string) || 'createdAt'
-    const sortOrder = (query.sortOrder as string) === 'asc' ? 1 : -1
 
-    const result = await r.payrollRuns.findAll(filter, { page, size, sort: { [sortBy]: sortOrder } })
+    const result = await r.payrollRuns.findAll(filter, { page, size, sort: listSort(query) })
     // FR-25 §3.11: `payroll.read` is a run's totals. No line of anyone's without `payroll.personal`.
     const items = result.items.map(run => runView(run, can(user, 'payroll-people.view')))
     return { ...result, payrollRuns: items, items }
+  }, { isSignIn: true })
+  // #830: the list as Excel or PDF, on the list's filters: each run's totals, never a person's line.
+  .get('/export', async ({ params: { orgId }, query, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
+    return (await listExport('runs', orgId, query)) ?? status(500, EXPORT_FAILED)
   }, { isSignIn: true })
   .post(
     '/',

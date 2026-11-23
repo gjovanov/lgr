@@ -4,6 +4,7 @@
       <h1 class="text-h4">{{ $t('payroll.employees') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
+        <PayrollExportMenu cap="payroll-people.view" :loading="exporting" @export="exportList" />
         <responsive-btn v-cap="'payroll-people.edit'" icon="mdi-plus" color="primary" @click="openDialog()">
           {{ $t('common.create') }}
         </responsive-btn>
@@ -151,6 +152,8 @@
 
 <script setup lang="ts">
 import EmployeePersonalNotice from '../../components/EmployeePersonalNotice.vue'
+import PayrollExportMenu from '../../components/PayrollExportMenu.vue'
+import { usePayrollExport } from '../../composables/usePayrollExport'
 import { useEmployeePersonal } from '../../composables/useEmployeePersonal'
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -196,6 +199,25 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   entityKey: 'employees',
   filters,
   urlSync: true,
+})
+
+// #830: the list as Excel or PDF, on these filters. No pay and no identifier: `services/biz/payroll/list-export.ts`.
+const { exporting, exportList } = usePayrollExport('employee', {
+  filters,
+  pagination,
+  labels: () => ({
+    title: t('payroll.employees'),
+    columns: {
+      employeeNumber: t('payroll.employeeNumber'),
+      name: t('common.name'),
+      department: t('payroll.department'),
+      position: t('payroll.position'),
+      employmentType: t('payroll.employmentType'),
+      status: t('common.status'),
+      contractStartDate: t('payroll.contractStartDate'),
+    },
+    filters: { search: t('common.search'), status: t('common.status'), department: t('payroll.department'), tags: t('common.tags') },
+  }),
 })
 
 const dialog = ref(false)

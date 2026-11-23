@@ -4,6 +4,7 @@
       <h1 class="text-h4">{{ $t('payroll.timesheets') }}</h1>
       <v-spacer />
       <div class="d-flex ga-2">
+        <PayrollExportMenu cap="payroll-people.view" :loading="exporting" @export="exportList" />
         <responsive-btn v-cap="'payroll-people.edit'" icon="mdi-plus" color="primary" :to="{ name: 'payroll.timesheets.new' }">
           {{ $t('common.create') }}
         </responsive-btn>
@@ -63,6 +64,8 @@ import { useSearchDebounce } from 'ui-shared/composables/useSearchDebounce'
 import { useListQueryState } from 'ui-shared/composables/useListQueryState'
 import ResponsiveBtn from 'ui-shared/components/ResponsiveBtn'
 import EntityLink from 'ui-shared/components/EntityLink'
+import PayrollExportMenu from '../../components/PayrollExportMenu.vue'
+import { usePayrollExport } from '../../composables/usePayrollExport'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -96,6 +99,25 @@ const { items, loading, pagination, fetchItems, onUpdateOptions } = usePaginated
   entityKey: 'timesheets',
   filters,
   urlSync: true,
+})
+
+// #830: the list as Excel or PDF, on these filters (the employee and the days included).
+const { exporting, exportList } = usePayrollExport('timesheet', {
+  filters,
+  pagination,
+  labels: () => ({
+    title: t('payroll.timesheets'),
+    columns: {
+      employee: t('payroll.employee'),
+      date: t('common.date'),
+      hoursWorked: t('payroll.hoursWorked'),
+      overtimeHours: t('payroll.overtime'),
+      type: t('common.type'),
+      status: t('common.status'),
+      description: t('common.description'),
+    },
+    filters: { search: t('common.search'), employee: t('payroll.employee'), status: t('common.status') },
+  }),
 })
 
 const headers = [

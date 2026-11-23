@@ -1125,7 +1125,17 @@
     "probationEndDate": "Ende der Probezeit",
     "state": "Bundesland / Provinz",
     "street": "Straße",
-    "searchEmployee": "Tippen, um einen Mitarbeiter zu suchen"
+    "searchEmployee": "Tippen, um einen Mitarbeiter zu suchen",
+    "payslip": "Gehaltsabrechnung",
+    "paymentMethod": "Zahlungsart",
+    "reference": "Referenz",
+    "organization": "Organisation",
+    "yearToDate": "Seit Jahresbeginn",
+    "pdfFootnote": "Dieses Dokument wurde maschinell erstellt und ist ohne Unterschrift gültig.",
+    "exportTruncated": "Die Datei enthält nur die ersten {n} Zeilen.",
+    "pdfSealedHint": "Diese Gehaltsabrechnung ist verschlüsselt. Das Drucken wird mit dem Grund protokolliert.",
+    "reasonEmployeeRequest": "Für den Mitarbeiter",
+    "reasonAudit": "Für eine Prüfung"
   },
   "hr": {
     "departments": "Abteilungen",

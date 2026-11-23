@@ -249,3 +249,22 @@ deletes what a copy already holds. Design: FR-25 §9, "P1 into the home".
 - **Tests:** `integration/org-clone.flow.test.ts` (a books org holding a key and payroll, copied without either; one
   that stops keeping books, refused again; the sealed models all left out), `integration/payroll-bg.flow.test.ts` (a
   store of a split refused, the home taken).
+
+## The payroll lists export, and a payslip prints (2026-11-23, #830)
+
+FR-32.12 took away the Export menus of Employees, Payroll runs, Payslips and Timesheets and the payslip's PDF button,
+which did nothing. They are back, and they work. Each list's `GET …/export?format=xlsx|pdf` takes the list's own query
+(one filter per list in `services/biz/payroll/list-export.ts`, which the list's GET uses too) and the screen's words
+(`labels`), and prints through the house-style generators the analytics grid and the reports use; a file the cap cut
+answers `x-truncated`. A payslip's PDF is `POST payroll/payslip/:id/pdf` (`reporting/pdf/payslip.pdf.ts`).
+- ⚠ **A payroll export prints no pay of a person and nothing sealed.** Its columns are a list of their own, narrower
+  than the list's answer: no base salary, no masked ЕГН, no payslip amount (sealed or not), no run line; a run's totals
+  stay. The screens show salary and a generic payslip's amounts to the same role, but a file of everyone's pay is the
+  owner's decision, and then a column each.
+- ⚠ **A sealed payslip's PDF is a reveal.** It needs `payroll-people.reveal` (the route rule asks only the list's
+  `payroll-people.view`, for the generic run's payslip) and a reason, and writes the row `/reveal` writes
+  (`action: 'reveal'`, field `sealed.pdf`, the reason, never the value) before the file leaves. No row, no file.
+- The searches now find what they say: a payslip's and a timesheet's search look for the employee (they looked in
+  `employeeName` and `notes`, which neither model has), and the timesheets' employee and days filter the list.
+- **Tests:** `integration/payroll-list-export.flow.test.ts`, `unit/payroll-list-export.test.ts`, and the Employees
+  export in `e2e/tests/payroll.spec.ts`.
