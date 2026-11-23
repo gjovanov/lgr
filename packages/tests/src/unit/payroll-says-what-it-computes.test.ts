@@ -5,8 +5,9 @@ import { join, resolve } from 'node:path'
 
 /**
  * FR-32.12 (#797, D-5): the generic payroll run computes no overtime, bonuses or allowances, and its form and its
- * payslips say so; the controls that did nothing (the four lists' Export, the payslip's PDF) are gone, filed as
- * #830. And a TODO left in the source names where it is tracked, so the open item cannot grow back unseen.
+ * payslips say so; the controls that did nothing (the four lists' Export, the payslip's PDF) were removed, filed as
+ * #830, and #830 brought them back wired to real routes. And a TODO left in the source names where it is tracked,
+ * so the open item cannot grow back unseen.
  */
 const PACKAGES = resolve(import.meta.dir, '..', '..', '..')
 const read = (rel: string) => readFileSync(join(PACKAGES, rel), 'utf8')
@@ -34,12 +35,16 @@ describe('payroll says what it computes (FR-32.12)', () => {
     expect(service).not.toMatch(/TODO: calculate from timesheets/)
   })
 
+  // #830 put the controls back, working: each list's Export goes to its export route, the payslip's PDF to its own.
   it('no payroll list offers an Export that does nothing, and no payslip a PDF that does nothing', () => {
     for (const v of ['EmployeesView', 'PayrollRunsView', 'PayslipsView', 'TimesheetsView']) {
       const src = read(`payroll-ui/src/views/payroll/${v}.vue`)
-      expect(src).not.toContain('ExportMenu')
+      expect(src).toContain('@export="exportList"')
+      expect(src).toMatch(/const \{ exporting, exportList \} = usePayrollExport\(/)
+      expect(src).not.toContain('handleExport')
       expect(src).not.toContain('downloadPdf(')
     }
+    expect(read('payroll-ui/src/views/payroll/PayslipsView.vue')).toContain('<PayslipPdfButton')
   })
 })
 
