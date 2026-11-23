@@ -39,6 +39,11 @@ services:
     command: ["bun", "run", "start:unified"]
     environment:
       HOST: "0.0.0.0"
+      # The image runs as production by default (S-24, #920), and production refuses this file's
+      # development secrets (JWT_SECRET's default is published; DESKTOP_TOKEN_SECRET and
+      # NODE_TOKEN_SECRET are not set). This is the local development stack, so it says so. To run
+      # it as production, remove this line and set those three secrets (`openssl rand -base64 48`).
+      NODE_ENV: "development"
       MONGODB_URI: "mongodb://mongo:27017/lgr?replicaSet=rs0&directConnection=true"
       JWT_SECRET: "${JWT_SECRET:-lgr-dev-secret-change-in-production}"
       UPLOAD_DIR: "/app/uploads"

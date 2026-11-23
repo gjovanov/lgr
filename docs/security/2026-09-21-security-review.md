@@ -59,7 +59,7 @@ day.
 | **S-21** | **Critical** | **An org admin could read, rewrite and deactivate any org's users — `/org/:orgId/user/:userId` looked the user up by `_id` alone** | **Fixed 2026-10-02** |
 | S-22 | Low | A stale `auth` cookie overrode the bearer token; any validly signed JWT counted as a session | **Fixed 2026-10-04** |
 | S-23 | Medium | An OAuth sign-in ignored permission sets: a narrowed user got the role's full rights, own-records limits were dropped, and the fiscal operator code was missing | **Fixed 2026-10-04** |
-| S-24 | High | Production ran without `NODE_ENV=production`: the S-02 secret guards never ran, desktop tokens were signed with the committed dev key, and session cookies lacked `Secure` | **Fixed 2026-10-05** (config) |
+| S-24 | High | Production ran without `NODE_ENV=production`: the S-02 secret guards never ran, desktop tokens were signed with the committed dev key, and session cookies lacked `Secure` | **Fixed 2026-10-05** (config); the image defaults to production since 2026-11-23 (#920) |
 | **S-25** | **Critical** | **By-id routes in 21 controllers ignored the org: any signed-in user could read, change, delete or move another org's records** ([GHSA-mfh7-36vq-fhhp](https://github.com/gjovanov/lgr/security/advisories/GHSA-mfh7-36vq-fhhp)) | **Fixed 2026-10-23** |
 | S-26 | Medium | PDF rendering served the app's working directory over HTTP on every interface while a document printed ([GHSA-76q2-87cq-2rvm](https://github.com/gjovanov/lgr/security/advisories/GHSA-76q2-87cq-2rvm)) | **Fixed 2026-10-23** |
 | **S-27** | **Critical** | **The two import upload endpoints wrote a file wherever its name pointed: any signed-in user could write any file in the container, as root** ([GHSA-f2fv-8rm4-9c9x](https://github.com/gjovanov/lgr/security/advisories/GHSA-f2fv-8rm4-9c9x)) | **Fixed 2026-10-23** |
@@ -600,7 +600,8 @@ run-time read (`serverBuildOptions`). `LGR_SERVER_IMAGE` was not used: it names 
 image, and a master serves no docs anyway. A host name was not used either, since feature code reads
 the role from `nodeRole()`, never from a host. ⚠ A global started without `NODE_ENV=production` serves
 the docs, just as it skips the secret guards. S-24's "`ENV NODE_ENV=production` in the Dockerfile" is
-still the fix for that case.
+still the fix for that case. **Done 2026-11-23 (#920):** the image's runtime stage sets it, so such a
+global now has to opt out of production by setting `NODE_ENV` itself (see S-24).
 
 **Why a flag and not "system administrators only":** a sys-admin check would have to admit a browser's
 page load by its session cookie, under the same-site and `__Host-` rules of the auth plugins (S-22,
@@ -1290,7 +1291,7 @@ membership work.
 
 ---
 
-## S-24 — Production ran without `NODE_ENV=production` (High, **fixed 2026-10-05**, config)
+## S-24 — Production ran without `NODE_ENV=production` (High, **fixed 2026-10-05**, config; image 2026-11-23)
 
 > Not in the original review. Found on 2026-10-04 by the S-07 field test: production still answered
 > a CORS preflight from `http://localhost:4021`, an origin the allow-list admits only outside
@@ -1328,10 +1329,27 @@ in the app was false in production:
 - `Set-Cookie: auth=…; Max-Age=86400; Path=/; HttpOnly; Secure; SameSite=Lax`;
 - the S-07/S-08/S-22 field test passes 9/9.
 
-⚠ **Still worth doing:** `ENV NODE_ENV=production` in the Dockerfile, so that no deployment of the
-image can run as development by omission. Check the `lgr-qa` namespace first: it is not managed
-from lgr-deploy, and an image that turns the guards on would refuse to start there unless its
-secrets are set too.
+### The image defaults to production (2026-11-23, #920)
+
+Found again by S-11's fix (#916): a global started from the image without `lgr-config` would still
+have run as development, so every guard above depended on a config map being present. The root
+`Dockerfile`'s runtime stage now sets `ENV NODE_ENV=production`; `lgr-config` and the supervisor merely
+agree with it.
+
+- **Only the runtime stage.** `deps` and `web` set nothing: under `NODE_ENV=production`, `bun install`
+  leaves out the devDependencies the SPA is built with. `unit/image-layers.test.ts` holds both facts.
+- **What it changes, by consumer:**
+  - *lgrai.app* (`scripts/deploy-prod.sh`): nothing. `lgr-config` already sets `NODE_ENV: production`.
+  - *Masters*: nothing. They run the `lgr-server` image (`packages/server/packaging/docker/Dockerfile`,
+    built from the .deb), not this one, and the supervisor sets `NODE_ENV=production` for the API
+    after the operator's `api.env` in every install (`packages/server/src/config.rs`).
+  - *The root `docker-compose.yml`*: its `app` service is the local development stack (a published
+    `JWT_SECRET` default, no desktop or node token secret), which production would refuse. It now sets
+    `NODE_ENV: "development"` explicitly, with a comment saying how to run it as production instead.
+  - *CI*: no job builds or runs this image (`server-release.yml` builds the `lgr-server` image).
+- ⚠ **`lgr-qa`**, if it still runs this image, is not managed from lgr-deploy: its next image refuses
+  to start there unless it sets strong `JWT_SECRET`, `DESKTOP_TOKEN_SECRET` and `NODE_TOKEN_SECRET`, or
+  `NODE_ENV` itself.
 
 ---
 
