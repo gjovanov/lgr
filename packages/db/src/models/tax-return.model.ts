@@ -154,7 +154,6 @@ const taxReturnSchema = new Schema<ITaxReturn>(
 )
 
 taxReturnSchema.plugin(tenantPlugin)
-taxReturnSchema.index({ orgId: 1, type: 1, 'period.from': -1 })
 // One return per period, and one per return it corrects. A hand-made return has no `kind` and is not in it.
 taxReturnSchema.index(
   { orgId: 1, kind: 1, periodCode: 1, supersedesId: 1 },

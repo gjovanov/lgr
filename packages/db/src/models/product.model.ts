@@ -197,7 +197,7 @@ const productSchema = new Schema<IProduct>(
     skuLower: { type: String, index: true },
     barcodeLower: { type: String, index: true },
     descriptionLower: String,
-    categoryLower: { type: String, index: true },
+    categoryLower: { type: String },
     // FR-30.11: the five mirrors joined, the one field the product search reads (`plugins/search-field.ts`).
     searchLower: String,
   },
@@ -228,7 +228,6 @@ productSchema.index({ orgId: 1, name: 1 })
 // their ids are read from the keys alone, and only the page is fetched.
 productSchema.index({ orgId: 1, searchLower: 1, isActive: 1, _id: 1 })
 productSchema.index({ orgId: 1, tags: 1 })
-productSchema.index({ orgId: 1, 'priceTiers.tags': 1 })
 productSchema.index({ orgId: 1, 'priceTiers.contactIds': 1 })
 
 replicate(productSchema, { class: 'R' })

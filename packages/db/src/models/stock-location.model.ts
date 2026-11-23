@@ -49,8 +49,6 @@ const stockLocationSchema = new Schema<IStockLocation>(
 
 stockLocationSchema.plugin(tenantPlugin)
 stockLocationSchema.index({ orgId: 1, warehouseId: 1 })
-stockLocationSchema.index({ orgId: 1, parentId: 1 })
-stockLocationSchema.index({ orgId: 1, barcode: 1 }, { sparse: true })
 
 // Compute fullPath on save by walking the parent chain
 stockLocationSchema.pre('save', async function () {

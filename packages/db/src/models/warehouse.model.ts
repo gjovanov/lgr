@@ -54,8 +54,8 @@ const warehouseSchema = new Schema<IWarehouse>(
     isActive: { type: Boolean, default: true },
     deactivatedAt: Date,
     tags: [String],
-    nameLower: { type: String, index: true },
-    codeLower: { type: String, index: true },
+    nameLower: { type: String },
+    codeLower: { type: String },
   },
   { timestamps: true },
 )
@@ -65,7 +65,6 @@ warehouseSchema.plugin(loweredFieldsPlugin, {
   fields: { name: 'nameLower', code: 'codeLower' },
 })
 warehouseSchema.index({ orgId: 1, code: 1 }, { unique: true })
-warehouseSchema.index({ orgId: 1, tags: 1 })
 
 replicate(warehouseSchema, { class: 'R' })
 

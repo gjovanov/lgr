@@ -71,7 +71,6 @@ auditLogSchema.index({ orgId: 1, module: 1, timestamp: -1 })
 auditLogSchema.index({ orgId: 1, action: 1, timestamp: -1 })
 auditLogSchema.index({ orgId: 1, userId: 1, timestamp: -1 })
 auditLogSchema.index({ orgId: 1, correlationId: 1 })
-auditLogSchema.index({ orgId: 1, operatorCode: 1, timestamp: -1 })
 
 replicate(auditLogSchema, { class: 'R' })
 

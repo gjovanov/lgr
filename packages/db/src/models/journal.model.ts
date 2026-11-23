@@ -41,7 +41,6 @@ const journalSchema = new Schema<IJournal>(
 
 journalSchema.plugin(tenantPlugin)
 journalSchema.index({ orgId: 1, code: 1 }, { unique: true })
-journalSchema.index({ orgId: 1, type: 1 })
 
 replicate(journalSchema, { class: 'R' })
 

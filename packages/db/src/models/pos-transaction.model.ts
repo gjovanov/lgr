@@ -197,10 +197,7 @@ posTransactionSchema.index(
   { unique: true, partialFilterExpression: { clientKey: { $type: 'string' } } },
 )
 posTransactionSchema.index({ orgId: 1, transactionNumber: 1 }, { unique: true })
-posTransactionSchema.index({ orgId: 1, sessionId: 1 })
 posTransactionSchema.index({ orgId: 1, createdAt: -1 })
-posTransactionSchema.index({ orgId: 1, unpNumber: 1 }, { sparse: true })
-posTransactionSchema.index({ orgId: 1, type: 1, createdAt: -1 })
 
 replicate(posTransactionSchema, { class: 'R' })
 

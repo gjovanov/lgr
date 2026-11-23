@@ -43,7 +43,6 @@ const timesheetSchema = new Schema<ITimesheet>(
 )
 
 timesheetSchema.plugin(tenantPlugin)
-timesheetSchema.index({ orgId: 1, employeeId: 1, date: -1 })
 
 replicate(timesheetSchema, { class: 'R' })
 
