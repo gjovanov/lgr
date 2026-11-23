@@ -1526,6 +1526,7 @@
       "number": "Gerätenummer",
       "numberHint": "Die Seriennummer des Geräts (ИН на ФУ), wie sie auf seinen Belegen steht, z. B. ED123456 — jede УНП beginnt damit",
       "numberLength": "Muss 8 Zeichen lang sein",
+      "numberFixed": "Nach dem Anlegen fest: Belege, Sitzungen und der SUPTO-Export behalten diese Nummer. Ein anderes Gerät wird neu angelegt",
       "manufacturer": "Hersteller",
       "connectionType": "Verbindungsart",
       "ip": "IP-Adresse oder Host",

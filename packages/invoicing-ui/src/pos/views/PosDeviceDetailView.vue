@@ -41,9 +41,11 @@
                 :label="t('pos.device.number')"
                 :rules="[rules.required, rules.deviceNumber]"
                 maxlength="8"
-                :hint="t('pos.device.numberHint')"
+                :readonly="!isNew"
+                :hint="isNew ? t('pos.device.numberHint') : t('pos.device.numberFixed')"
                 persistent-hint
                 density="compact"
+                data-testid="device-number"
                 @blur="device.deviceNumber = device.deviceNumber.trim().toUpperCase()"
               />
             </v-col>
@@ -762,9 +764,10 @@ async function handleSave() {
   try {
     // The selects offer the kinds the schemas name. The warehouse is required (the model's), so the form's rule has it
     // set before a save. `isActive` is both schemas': the create keeps the Active switch too.
-    const payload: FiscalDeviceCreateBody & { isActive: boolean } = {
+    // ⚠ The number is the create's only: fixed once the device exists (the PUT refuses another one, 422
+    // `device_number_immutable`), so an update never sends it.
+    const payload: Omit<FiscalDeviceCreateBody, 'deviceNumber'> & { isActive: boolean } = {
       name: device.name,
-      deviceNumber: device.deviceNumber,
       manufacturer: device.manufacturer as FiscalManufacturer,
       connectionType: device.connectionType as FiscalConnectionType,
       warehouseId: device.warehouseId as string,
@@ -776,7 +779,7 @@ async function handleSave() {
     }
 
     if (isNew.value) {
-      const { fiscalDevice } = await createFiscalDevice(payload)
+      const { fiscalDevice } = await createFiscalDevice({ ...payload, deviceNumber: device.deviceNumber })
       markSaved()
       succeeded()
       showSuccess(t('pos.device.created'))

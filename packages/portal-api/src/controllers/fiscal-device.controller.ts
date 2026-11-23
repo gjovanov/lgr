@@ -56,6 +56,18 @@ const ManufacturerSchema = t.Union([
  */
 const DeviceStatusSchema = t.Union([t.Literal('online'), t.Literal('offline'), t.Literal('error')])
 
+/**
+ * A device's number is fixed once it is created. Other records keep it as TEXT, not as the device's id: a receipt's and
+ * a sale's `fiscalDeviceNumber` (which a dead receipt and a refund find their device by, and the SUPTO export filters
+ * and prints), a POS session's `deviceFloat.deviceNumber`, and the live presence rows, keyed by `(orgId, deviceNumber)`.
+ * A new number would orphan every one of them, so the PUT refuses one (422) rather than drop it and answer 200, as it
+ * did. The same number is accepted: the form sent it on every save.
+ */
+const DEVICE_NUMBER_IMMUTABLE = {
+  code: 'device_number_immutable',
+  message: 'A fiscal device\'s number cannot be changed after it is created. Add the other device as a new one.',
+} as const
+
 /** Strip connection params for non-admin users (M1: sensitive data exposure) */
 function sanitizeDevice(device: any, runsDevices: boolean) {
   if (runsDevices) return device
@@ -190,6 +202,10 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     const existing = await r.fiscalDevices.findOne({ id, orgId } as any) as any
     if (!existing) return status(404, { message: 'Fiscal device not found' })
 
+    // The number is never written here: the same one is no change, another one is refused (DEVICE_NUMBER_IMMUTABLE).
+    const { deviceNumber, ...changes } = body
+    if (deviceNumber !== undefined && deviceNumber !== existing.deviceNumber) return status(422, DEVICE_NUMBER_IMMUTABLE)
+
     // The device as it will be after this save: `connectionParams` replaces the stored ones whole.
     const targetError = await tcpTargetError(
       body.connectionType ?? existing.connectionType,
@@ -197,7 +213,7 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
     )
     if (targetError) return status(400, targetError)
 
-    const updated = await r.fiscalDevices.updateInOrg(id, orgId, body as any)
+    const updated = await r.fiscalDevices.updateInOrg(id, orgId, changes as any)
 
     // A live connection still runs the driver of the OLD manufacturer — replace it.
     if (body.manufacturer && body.manufacturer !== existing.manufacturer && isDeviceConnected(id)) {
@@ -218,6 +234,8 @@ export const fiscalDeviceController = new Elysia({ prefix: '/org/:orgId/fiscal/d
   }, {
     isSignIn: true, fiscalDevice: deviceFromParams,
     body: t.Object({
+      // Named so that a different one is refused (422) rather than dropped with a 200; never stored by this route.
+      deviceNumber: t.Optional(t.String()),
       name: t.Optional(t.String()),
       // The device form always sent it; without it here Elysia dropped it, so a device saved
       // under the wrong manufacturer could never be corrected.

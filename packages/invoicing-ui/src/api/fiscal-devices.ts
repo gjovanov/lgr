@@ -100,7 +100,11 @@ export async function createFiscalDevice(body: FiscalDeviceCreateBody): Promise<
   return data
 }
 
-/** The body of `PUT /:id`, as its schema declares it. ⚠ A field it does not name is dropped, and the route answers 200. */
+/**
+ * The body of `PUT /:id`, as its schema declares it. ⚠ A field it does not name is dropped, and the route answers 200.
+ * No `deviceNumber`: it is fixed once the device is created, and the route refuses a different one (422
+ * `device_number_immutable`).
+ */
 export interface FiscalDeviceUpdateBody {
   name?: string
   manufacturer?: FiscalManufacturer

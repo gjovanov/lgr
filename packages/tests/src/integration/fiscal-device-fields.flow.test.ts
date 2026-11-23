@@ -145,3 +145,55 @@ describe('a device\'s warehouse, which the model requires', () => {
     expect({ name: stored.name, warehouseId: String(stored.warehouseId) }).toEqual({ name: 'Каса 1', warehouseId })
   })
 })
+
+/**
+ * A device's number is fixed once it is created: receipts and sales (`fiscalDeviceNumber`), a POS session's float, the
+ * presence rows and the SUPTO export keep it as text. The PUT used to drop it and answer 200, so the form said "saved"
+ * over a number that was never stored. The same number is accepted (the form sent it on every save); another is 422.
+ */
+describe('a device\'s number, fixed after the create', () => {
+  test('a PUT that restates the stored number saves the rest (200)', async () => {
+    const { orgId, warehouseId, tok } = await orgWithWarehouse()
+    const id = await createDevice(orgId, warehouseId, tok)
+
+    const res = await call('PUT', `/org/${orgId}/fiscal/device/${id}`, tok, { deviceNumber: 'DT000001', name: 'Каса 2' })
+    expect(res.status).toBe(200)
+    const stored: any = await FiscalDevice.findById(id).lean()
+    expect({ deviceNumber: stored.deviceNumber, name: stored.name }).toEqual({ deviceNumber: 'DT000001', name: 'Каса 2' })
+  })
+
+  test('a PUT with another number is refused (422 device_number_immutable) and nothing changes', async () => {
+    const { orgId, warehouseId, tok } = await orgWithWarehouse()
+    const id = await createDevice(orgId, warehouseId, tok)
+
+    for (const deviceNumber of ['DT000009', 'dt000001', '']) {
+      const res = await call('PUT', `/org/${orgId}/fiscal/device/${id}`, tok, { deviceNumber, name: 'Каса 2' })
+      expect({ deviceNumber, status: res.status, code: res.json?.code }).toEqual({ deviceNumber, status: 422, code: 'device_number_immutable' })
+    }
+    const stored: any = await FiscalDevice.findById(id).lean()
+    expect({ deviceNumber: stored.deviceNumber, name: stored.name }).toEqual({ deviceNumber: 'DT000001', name: 'Каса 1' })
+  })
+
+  test('a number another device holds is refused the same way, never a duplicate-key error', async () => {
+    const { orgId, warehouseId, tok } = await orgWithWarehouse()
+    const id = await createDevice(orgId, warehouseId, tok)
+    await createDevice(orgId, warehouseId, tok, { deviceNumber: 'DT000002' })
+
+    const res = await call('PUT', `/org/${orgId}/fiscal/device/${id}`, tok, { deviceNumber: 'DT000002' })
+    expect({ status: res.status, code: res.json?.code }).toEqual({ status: 422, code: 'device_number_immutable' })
+    const numbers = (await FiscalDevice.find({ orgId }).lean()).map((d: any) => d.deviceNumber).sort()
+    expect(numbers).toEqual(['DT000001', 'DT000002'])
+  })
+
+  test('the device form\'s update, which no longer sends the number, saves and keeps it', async () => {
+    const { orgId, warehouseId, tok } = await orgWithWarehouse()
+    const id = await createDevice(orgId, warehouseId, tok)
+
+    const res = await call('PUT', `/org/${orgId}/fiscal/device/${id}`, tok, {
+      name: 'Каса 3', manufacturer: 'datecs', connectionType: 'browser', warehouseId, isActive: true,
+    })
+    expect(res.status).toBe(200)
+    const stored: any = await FiscalDevice.findById(id).lean()
+    expect({ deviceNumber: stored.deviceNumber, name: stored.name }).toEqual({ deviceNumber: 'DT000001', name: 'Каса 3' })
+  })
+})
