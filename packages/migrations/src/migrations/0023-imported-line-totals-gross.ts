@@ -1,5 +1,6 @@
-import type { Db } from 'mongodb'
 import type { Migration, MigrationContext } from '../types.js'
+
+type Db = MigrationContext['db']
 
 /**
  * One meaning for an imported document's `lineTotal`: gross, as on every document LGR makes itself (#598).
