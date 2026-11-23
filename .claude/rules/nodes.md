@@ -472,6 +472,18 @@ Desktops pin a master's own CA (FR-20.31), so it is never replaced silently.
 - ⚠ The identity keys are not the licence keys, and the JWS types differ (`lgr-idp+jws`): an
   assertion can never pass for a licence. Both use `services/biz/crypto/ed-jws.ts`.
 
+- ⚠ **On the setup console, lgrai.app's redirect back is a cross-site navigation, and the console's
+  `SameSite=Strict` session does not come with one.** Until 2026-11-23, Cancel and Continue both landed
+  on 403 "Setup needs its link", and a reload did not help because the browser keeps the cross-site
+  start. Only a test that presses the button in a real browser could see it: the HTTP-level checks
+  carry the cookie themselves. The console now answers that one request, a cookieless
+  `GET /auth/idp/callback` whose Fetch Metadata says `cross-site`, `navigate` and `document`, with
+  `IDP_RETURN_PAGE` (`ingress.rs`). That page requests the same address again from the console's own
+  origin, and that request needs the cookie like any other, so nothing without the session reaches
+  the API. ⚠ Never fix it with `SameSite=Lax`: then any other site's top-level GET carries the setup
+  session. The desktop is not affected, because its shell takes the flow over with `lgr://login`
+  (`web.rs`, `finish_master_idp`).
+
 ## The identity feed (2026-10-25, FR-20.43/44, plan step P2-5)
 
 - ⚠ The payload is email, names, `tokenVersion` and active, nothing else (FR-20.44). A new field
