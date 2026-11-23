@@ -58,7 +58,9 @@ RUN --mount=type=bind,source=lgr-server.deb,target=/tmp/lgr-server.deb \
     /opt/lgr-server/current/chrome/chrome-headless-shell --version; \
     /opt/lgr-server/current/lgr-server --version
 
-# LGR_SERVER_IMAGE: what `update apply` and the status name when they say how this server updates.
+# LGR_SERVER_IMAGE: what `update apply` and the status name when they say how this server updates, and
+# what makes the supervisor run the PDF browser without its sandbox unless told otherwise (#905: a
+# container gets no user namespace for it; PDF_CHROME_NO_SANDBOX=0 keeps it, config.rs#PdfSandbox).
 ENV LGR_SERVER_DATA=/var/lib/lgr \
     LGR_SERVER_IMAGE=ghcr.io/gjovanov/lgr-server
 VOLUME ["/var/lib/lgr"]

@@ -175,11 +175,81 @@ volume, which keeps it on that node. The setup link opens on the node itself, or
   is refused like any other.
 - `TZ` (in the compose and k8s files) is the shop's time zone, for the server's own maintenance
   times.
-- ⚠ **PDFs (gjovanov/lgr#905).** Under Compose the server prints no PDF as it ships: the PDF browser's
-  sandbox needs a user namespace, and Docker's default seccomp profile refuses a container one. At
-  every start the server says in `docker compose logs` whether PDFs print. `PDF_CHROME_NO_SANDBOX=1`
-  in `config/api.env` prints without the sandbox, the container then being the only boundary around
-  the browser.
+- **PDFs** print without the PDF browser's sandbox in a container, unless you grant it one: see
+  [PDFs in a container](#pdfs-in-a-container-the-browsers-sandbox).
+
+### PDFs in a container: the browser's sandbox
+
+The server prints every PDF (an invoice, its e-mail attachment, the exports) with its own headless
+Chrome. Chrome's sandbox needs a user namespace, and a container does not get one as it ships:
+Docker's default seccomp profile refuses `clone`/`unshare` with `CLONE_NEWUSER` to a container
+without `CAP_SYS_ADMIN`, and on an AppArmor host (Ubuntu 24.04) the container's AppArmor profile can
+refuse it as well. With the sandbox the browser stops with `No usable sandbox!` and every PDF answers
+503 (gjovanov/lgr#905).
+
+So **the image runs the browser without its sandbox by default.** The supervisor gives the API
+`PDF_CHROME_NO_SANDBOX=1` when it runs from the image and nobody set the variable, and its start
+check prints its test page the same way. The container is then the boundary around the browser.
+The .deb, Windows and the tarball are not affected: there the sandbox stays on unless you set the
+variable yourself.
+
+At every start `docker compose logs` (or `kubectl logs`) says how the browser printed:
+
+```
+INFO PDFs print with this browser, without its sandbox: the server image's default, the container being the boundary (…) sandbox=false
+INFO PDFs print with this browser, with its sandbox: PDF_CHROME_NO_SANDBOX=0 in config/api.env sandbox=true
+```
+
+**What it costs.** The sandbox is what keeps a compromised renderer away from the rest of the
+machine. Without it, a renderer that a crafted document compromised through a Chrome flaw would run
+with the container's rights. Those rights include the database files, the server's keys and the
+backups on the volume. The way in is narrow: every page is built from the server's own templates,
+with what people typed printed as text, and it is printed with scripts off and every request the
+page makes cancelled (`lockPage`). The browser also runs behind a proxy that does not exist, so it
+reaches no network. Keep the image up to date, because each release carries a current Chrome. If
+your policy wants the sandbox anyway, grant the container its namespace and set the variable back.
+
+**Keeping the sandbox.** Two steps, both needed:
+
+1. **Grant the container a user namespace**, without giving it anything more:
+   - **Docker Compose, seccomp.** Make a copy of Docker's default seccomp profile for your Docker
+     version (moby's `profiles/seccomp/default.json`). In the copy, allow `clone`, `clone3` and
+     `unshare` for everyone, where the default allows them only with `CAP_SYS_ADMIN`. Put it beside
+     the compose file and name it under the service:
+     ```yaml
+         security_opt:
+           - seccomp=./lgr-server-seccomp.json
+     ```
+   - **An AppArmor host (Ubuntu 23.10 and later).** Load a profile on the host that allows `userns,`.
+     A copy of `docker-default` with that one rule added will do. Name it as well:
+     `- apparmor=lgr-server` under `security_opt`. The host loads it at every boot from
+     `/etc/apparmor.d/`, and the image cannot bring it.
+   - **Kubernetes.** Put the seccomp profile on every node that may run the pod
+     (`/var/lib/kubelet/seccomp/profiles/lgr-server.json`), and name it in the pod's
+     `securityContext`: `seccompProfile: {type: Localhost, localhostProfile: profiles/lgr-server.json}`.
+     On AppArmor nodes, load the profile on each node and add
+     `appArmorProfile: {type: Localhost, localhostProfile: lgr-server}` (Kubernetes 1.30 and later).
+     `k8s.yaml` sets no `seccompProfile`, which is Unconfined unless the kubelet's default says
+     otherwise, but containerd's AppArmor profile on a 24.04 node can still refuse the namespace.
+     This was not measured.
+
+   ⚠ Never `seccomp=unconfined`, `--privileged` or `CAP_SYS_ADMIN` for this. Each of them opens far
+   more of the kernel to the whole container than the sandbox closes.
+2. **Set the variable back**: `PDF_CHROME_NO_SANDBOX=0` in `config/api.env`, or in the compose
+   file's `environment:` (a pod's `env:`) beside the profile. Then restart the container.
+   - A value in `config/api.env` wins over the container's environment.
+   - Either one wins over the image's default.
+   - `0` is a value, not "unset". An empty value counts as unset.
+   - Only `1` turns the sandbox off. Any other value keeps it, and the start line names the value
+     it read.
+
+Then check the start line. `with its sandbox: PDF_CHROME_NO_SANDBOX=0 …` followed by `PDFs print`
+means the sandbox works. `the PDF browser does not print … No usable sandbox!` means the container
+still has no namespace: fix the profile, or remove the line, and the image prints without the sandbox
+again.
+
+A container master that set `PDF_CHROME_NO_SANDBOX=1` by hand before this needs nothing: the line
+can stay or go.
 
 ### What never to do
 
@@ -422,7 +492,7 @@ always wins, and setup never edits this file. Set something here only to change 
 | `BACKUP_HOUR` | The hour of the nightly backup, 0 to 23, in each organisation's own time zone (default 3). The server backs up every organisation it holds each night, from 0.1.11 (gjovanov/lgr#581: before it, none was ever due). |
 | `UPDATE_WINDOW`, `UPDATE_AUTO` | The nightly update window: see [Versions and updates](#versions-and-updates). |
 | `NIGHT_RESTART` | Linux: `off` stops the server restarting itself at night for a library a security update replaced. See [Security updates](#security-updates-on-ubuntu-and-debian). |
-| `PDF_CHROME_NO_SANDBOX=1` | Runs the PDF browser without its sandbox, for a machine that refuses it one: an Ubuntu 24.04 without the package's AppArmor profile (see [Ubuntu and Debian](#ubuntu-and-debian)). Only where the start check in `logs/lgr-server.log` says the browser does not print for its sandbox. |
+| `PDF_CHROME_NO_SANDBOX` | `1` runs the PDF browser without its sandbox, for a machine that refuses it one: an Ubuntu 24.04 without the package's AppArmor profile (see [Ubuntu and Debian](#ubuntu-and-debian)). Set it only where the start check in `logs/lgr-server.log` says the browser does not print for its sandbox. Only `1` turns the sandbox off. **In the container image it is `1` unless set**, and `0` keeps the sandbox where the host grants the container a user namespace (see [PDFs in a container](#pdfs-in-a-container-the-browsers-sandbox)). |
 
 ## What is inside a version
 

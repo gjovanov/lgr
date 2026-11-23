@@ -402,6 +402,11 @@ Desktops pin a master's own CA (FR-20.31), so it is never replaced silently.
   bump, `unit/pdf-browser.test.ts` fails until `--update-lock` is run and its four digests
   reviewed.
 
+- ⚠ **In the image an explicit `PDF_CHROME_NO_SANDBOX` always wins over the default, `0` included**
+  (`config/api.env` first, then the container's own environment, read only in the image). `0` is how an
+  operator whose host grants the namespace keeps the sandbox, so never fold it into "unset"; an empty
+  value is unset. `chromeArgs()` turns the sandbox off for `1` only, and as root whatever is set.
+
 ## Masters registered with global (2026-10-25, FR-20.2, plan step P2-1)
 
 - ⚠ **Every node route is 404 on a master**, and `NODE_TOKEN_SECRET` is required in production on

@@ -32,6 +32,10 @@ services:
     environment:
       # The shop's time zone, for the server's own maintenance times (e.g. Europe/Sofia).
       TZ: ${TZ:-UTC}
+      # PDFs print without the PDF browser's sandbox here: Docker's default seccomp profile refuses a
+      # container the user namespace it needs (gjovanov/lgr#905). To keep it, grant one with
+      # `security_opt` (a seccomp profile, and an AppArmor one on Ubuntu 24.04) and set
+      # PDF_CHROME_NO_SANDBOX: "0". The install guide's "PDFs in a container" says how.
     volumes:
       - lgr-data:/var/lib/lgr
     # Rotated, so months of logs never fill a shop PC's disk.
