@@ -203,7 +203,7 @@ nothing of it exists on a master: every route below is 404 there.
 ## The uplink, global's side (FR-20.52)
 
 A registered master holds two sockets to global, `wss://lgrai.app/api/node/v1/uplink?ch=interactive`
-and `…?ch=bulk` (`portal-api/src/websocket/uplink.ts`, mounted on global only).
+and `…?ch=bulk` (`api/src/websocket/uplink.ts`, mounted on global only).
 - **The URL carries no credential.** The first frame is `hello`, with a node access token, the
   URL's channel and the supervisor's per-boot `bootNonce`. It must arrive within 10 s, and nothing
   else is heard before it.

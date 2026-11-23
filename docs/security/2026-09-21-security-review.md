@@ -82,7 +82,7 @@ day.
 
 ## S-01 — `isSignIn` was a no-op; 172 of 366 routes answered anonymously (Critical, **fixed**)
 
-**Where:** `portal-api/src/auth/auth.service.ts`, the seven `*/src/auth/app-auth.service.ts` copies.
+**Where:** `api/src/auth/auth.service.ts`, the seven `*/src/auth/app-auth.service.ts` copies.
 
 Both auth plugins declared their guard through Elysia's 1.0 function-form macro:
 
@@ -238,7 +238,7 @@ await Bun.write(canonicalPath, buf)
 `file.name` is the `filename=` of a multipart part — chosen by the caller. Browsers strip path
 components before sending; `curl` and every other HTTP client do not. `join()` does not help:
 normalising `..` is precisely what it is for. A part named
-`../../../../app/packages/portal-api/src/unified.ts` resolved cleanly out of the uploads tree,
+`../../../../app/packages/api/src/unified.ts` resolved cleanly out of the uploads tree,
 as did `..\..\lgr-seal.key`.
 
 `docDate` **was** already validated (`files-api/.../file.controller.ts:84`) — the filename was
@@ -287,7 +287,7 @@ and has no extension allow-list.
 
 ## S-04 — OAuth `state` generated but never verified (High, **fixed**)
 
-**Where:** `services/src/biz/oauth.service.ts`, `portal-api/src/controllers/oauth.controller.ts`
+**Where:** `services/src/biz/oauth.service.ts`, `api/src/controllers/oauth.controller.ts`
 
 `buildAuthUrl` minted `{ orgSlug, mode, nonce: crypto.randomUUID() }`; `parseState`
 base64-decoded whatever came back from the provider and `JSON.parse`d it. The nonce was never
@@ -317,7 +317,7 @@ one, invite-code round-trip, and a hostile state asserted down to known string f
 
 ## S-05 — JWT delivered in a URL query string (High, **fixed 2026-09-29**)
 
-**Where:** `portal-api/src/controllers/oauth.controller.ts:91`
+**Where:** `api/src/controllers/oauth.controller.ts:91`
 
 ```ts
 Response.redirect(`${config.oauth.frontendUrl}/auth/oauth-callback?token=${token}`, 302)
@@ -352,7 +352,7 @@ exempt), `e2e/tests/oauth.spec.ts` (a planted token signs nobody in and is strip
 
 ## S-06 — `/auth/register` returns the activation token (High, **fixed 2026-10-02**)
 
-**Where:** `portal-api/src/controllers/auth.controller.ts:22`, `services/biz/auth.service.ts:170`
+**Where:** `api/src/controllers/auth.controller.ts:22`, `services/biz/auth.service.ts:170`
 
 ```ts
 return { message: 'Registration successful. Please check your email…', userId, activationToken }
@@ -408,7 +408,7 @@ the link from the sign-in page.
 
 ## S-07 — CORS reflects any origin with credentials (Medium, **fixed 2026-10-04**)
 
-**Where:** `portal-api/src/unified.ts:42` — `cors({ origin: true, credentials: true })`
+**Where:** `api/src/unified.ts:42` — `cors({ origin: true, credentials: true })`
 
 Echoes back whatever `Origin` the caller sends, with credentials allowed. Today
 `sameSite: 'lax'` on the auth cookie is what actually prevents exploitation; the day someone
@@ -418,7 +418,7 @@ authenticated calls as a logged-in user. Pin to the known frontend origins
 
 ### Fix
 
-`portal-api/src/cors.ts#corsPlugin()` answers only:
+`api/src/cors.ts#corsPlugin()` answers only:
 - **The configured frontend and app URLs** (`OAUTH_FRONTEND_URL`, `APP_URL`), normalised to
   origins.
 - **`CORS_ORIGINS`**, a comma-separated list for a deliberate extra. A malformed entry is skipped,
@@ -485,7 +485,7 @@ a day after the last write), in `services/biz/login-throttle.service.ts`:
 
 **The address is the one our proxy saw.** lgrai.app reaches the pod only through the mars nginx,
 which sets `X-Real-IP $remote_addr` (replacing the client's) and appends to `X-Forwarded-For`. The
-new `portal-api/src/auth/client-ip.ts` reads `X-Real-IP`, then the LAST `X-Forwarded-For` hop.
+new `api/src/auth/client-ip.ts` reads `X-Real-IP`, then the LAST `X-Forwarded-For` hop.
 Trusting the first hop, which the client writes, would let anyone choose whose address a failure is
 charged to, and lock that person out. `desktop-v1.controller.ts` had exactly that copy; it now uses
 the shared helper.
@@ -581,7 +581,7 @@ as kept on purpose.
 
 ### Fix
 
-`portal-api/src/api-docs.ts` decides who is served the docs, and `unified.ts` mounts what it returns:
+`api/src/api-docs.ts` decides who is served the docs, and `unified.ts` mounts what it returns:
 
 - **A master: never**, as before (AC 66). `SWAGGER_ENABLED` does not change that.
 - **Global in production: only when an operator asks**, with `SWAGGER_ENABLED=true` (or `1`).
@@ -629,8 +629,8 @@ correlation id; return the id and a generic string.
 
 ### Fix
 
-The line had moved, unchanged, to `portal-api/src/spa-fallback.ts#spaErrorHandler`. A 500 now
-says only what `portal-api/src/lib/server-error.ts` lets through:
+The line had moved, unchanged, to `api/src/spa-fallback.ts#spaErrorHandler`. A 500 now
+says only what `api/src/lib/server-error.ts` lets through:
 
 - **Every 500 carries a `ref`** (ten hex characters). The log line has the same `ref`, the method,
   the path without its query string, and the whole error. Before, it had the error alone, so a
@@ -851,7 +851,7 @@ and no matching invite.
 > Not in the original review — the WebSocket surface was not covered by it. Found while planning
 > FR-14, recorded as FR-14.25, and fixed as its own chunk.
 
-**Where:** `portal-api/src/websocket/fiscal-bridge.ts`, mounted at `unified.ts:103`.
+**Where:** `api/src/websocket/fiscal-bridge.ts`, mounted at `unified.ts:103`.
 
 ```ts
 case 'fiscal:bridge:register': {
@@ -878,7 +878,7 @@ about `/ws`.
 ### Fix
 
 - The register message **carries the user's JWT**, verified with the same plugin and secret the
-  routes use (`portal-api/src/auth/verify-token.ts`), and the caller must hold **`pos.write`** in
+  routes use (`api/src/auth/verify-token.ts`), and the caller must hold **`pos.write`** in
   the device's own org. The **org is taken from the token**, never from the message; a message
   naming a different one is refused rather than ignored.
 - The **upgrade stays tokenless on purpose** — a credential in a URL lands in ingress and proxy
@@ -908,8 +908,8 @@ printing.
 > but it is the same shape and deserves its own look". It is a sign-in, the victim's, into an
 > account the attacker owns.
 
-**Where:** `portal-api/src/controllers/oauth.controller.ts:131` (the callback in `mode=register`),
-`POST /api/oauth/register-oauth` (same file, `:175`), `portal-ui/src/views/auth/RegisterView.vue:105`.
+**Where:** `api/src/controllers/oauth.controller.ts:131` (the callback in `mode=register`),
+`POST /api/oauth/register-oauth` (same file, `:175`), `web/src/modules/portal/views/auth/RegisterView.vue:105`.
 
 ```ts
 const pendingToken = await jwt.sign({ type: 'oauth_pending', email, name, provider, providerId, avatarUrl })
@@ -1121,7 +1121,7 @@ of its statements are out of date, and found one gap the fix left latent.
 > Not in the original review. Found on 2026-10-02 while planning the multi-org sign-in, which makes
 > every per-org `User` row a credential worth guarding.
 
-**Where:** `portal-api/src/controllers/user.controller.ts`: `GET`, `PUT` and `DELETE /:userId`, and
+**Where:** `api/src/controllers/user.controller.ts`: `GET`, `PUT` and `DELETE /:userId`, and
 `services/src/dao/user.dao.ts#findByIdSafe`.
 
 ```ts
@@ -1183,7 +1183,7 @@ tenant-isolation probe to `/:id` routes with a seeded foreign record would measu
 > Not in the original review. Found while planning the multi-org sign-in, which will keep a
 > separate session in each browser tab.
 
-**Where:** the token derivation in `portal-api/src/auth/auth.service.ts` and the seven
+**Where:** the token derivation in `api/src/auth/auth.service.ts` and the seven
 `*-api/src/auth/app-auth.service.ts` copies, and the session cookie in five controller blocks.
 
 ```ts
@@ -1211,7 +1211,7 @@ const user  = (await jwt.verify(token)) ? (payload as UserTokenized) : null
     `Bearer ` counts as no header, because some scripts send one on login.
   - `asSessionUser`: a verified payload is a session only with a string `id` and `orgId` and no
     `type`.
-- **`portal-api/src/auth/session-cookie.ts#sessionCookie()`** replaces the five blocks, so the
+- **`api/src/auth/session-cookie.ts#sessionCookie()`** replaces the five blocks, so the
   cookie lives exactly as long as the token.
 
 Nothing in the SPAs relies on the cookie, because every API call carries the bearer header. The
@@ -1537,7 +1537,7 @@ answered as it does to an admin. S-28 had closed the same gap for writes.
 > ([GHSA-5qqr-5jf7-pq2q](https://github.com/gjovanov/lgr/security/advisories/GHSA-5qqr-5jf7-pq2q)).
 
 **Where:** `POST` / `PUT /org/:orgId/fiscal/device` and `/fiscal/device/:id/connect`
-(`portal-api/src/controllers/fiscal-device.controller.ts`), and `connectDevice` /
+(`api/src/controllers/fiscal-device.controller.ts`), and `connectDevice` /
 `buildConnectionConfig` in `fiscal/src/fiscal-device.service.ts`.
 
 **What was wrong:** an earlier hardening (labelled H6 in the code) checked a TCP device's address on
@@ -1580,7 +1580,7 @@ create, but only when one was given, and only by string prefix (`127.`, `169.254
 > written up here once the fix had been verified on production.
 
 **Where:** `POST /org/:orgId/doc-import/convert` with `target: 'movement'`
-(`invoicing-api/src/controllers/doc-import.controller.ts`).
+(`api/src/invoicing/controllers/doc-import.controller.ts`).
 
 **What was wrong:** the route took movement ids from the body and passed each to `confirmMovement`,
 which reads by id alone. The tenant guard checks the org in the path against the caller's, and the
@@ -1615,7 +1615,7 @@ sweep did not see it.
 > written up here once the fix had been verified on production.
 
 **Where:** `POST /org/:orgId/permission-sets`, `PUT /:id`, `DELETE /:id` and `POST /migrate`
-(`portal-api/src/controllers/permission-set.controller.ts`).
+(`api/src/controllers/permission-set.controller.ts`).
 
 **What was wrong:** the four routes were open to the admin role or to `admin.settings`, and nothing held the
 editor to what they grant. Whatever a set grants, everyone who holds it gets, the editor among them.
@@ -1659,7 +1659,7 @@ set, granted.
 > the import dialog already had, and written up here once the fix had been verified on production.
 
 **Where:** `POST /org/:orgId/files/commit-batch`, `/:id/commit`, `/delete-batch` and `/:id/reconcile`
-(`files-api/src/controllers/file.controller.ts`).
+(`api/src/files/controllers/file.controller.ts`).
 
 **What was wrong:** the Files app is gated on the admin role or `admin.settings`, and these four routes asked
 for nothing else. What a document goes on to do is not the document store's business: committing one issues
@@ -1712,7 +1712,7 @@ could be booked without it.
 
 **Where:** `POST /org/:orgId/files/analyze-batch` and `/:id/analyze`; `POST /:id/compare` and
 `GET /:id/compare/download`; and the diff that `POST /upload` runs on a snapshot
-(`files-api/src/controllers/file.controller.ts`).
+(`api/src/files/controllers/file.controller.ts`).
 
 **What was wrong:** the Files app is gated on the admin role or `admin.settings`, and these routes asked for
 nothing else. Analysing a document writes nothing to the books (since #499 it creates and edits no contact),

@@ -312,7 +312,7 @@ Two layers, each enough without the other.
 - **Closed means refused, at once.** A connection to a closed address is reset in 2 to 3 ms, never
   left to time out. ⚠ The first form of the guard dropped silently, and it closed the fleet hosts'
   public web as well. The portal's page carries a script from one of those addresses (the analytics
-  tag the global node adds, `portal-api/src/spa-fallback.ts`), so each Playwright page waited for
+  tag the global node adds, `api/src/spa-fallback.ts`), so each Playwright page waited for
   it until the test's 30 s were over, and failed three times; on mars and on a hosted runner the
   script simply loads. The pattern to remember: a page that names an address which neither answers
   nor refuses never finishes loading.

@@ -30,7 +30,7 @@ SPA (AC 66), a packaged script whose import graph touches `Invoice`/`POSTransact
   (`spa-fallback.ts#portalShellFor`); `portal-ui/index.html` carries no origin, so no build does. Swagger
   (its page loads Scalar from a CDN) is served on `global` only. Both are AC 66: a master serves no
   third-party script. (Since S-11, 2026-11-23, global serves it in production only with
-  `SWAGGER_ENABLED=true`: `portal-api/src/api-docs.ts`.)
+  `SWAGGER_ENABLED=true`: `api/src/api-docs.ts`.)
 - The static plugins are **awaited** before `listen`: unawaited, every asset answered 404 for ~180 ms
   after `/api/health` said ready.
 - `bun build --compile --target=bun-windows-x64-baseline` (2026-10-24 spike): one 127 MB executable,
@@ -74,7 +74,7 @@ A throwaway instance gets its data from `scripts/seed-fieldtest.ts` and nothing 
 
 ## The API behind the supervisor (FR-20 plan step P1-3)
 
-On a master the API answers the supervisor alone (`portal-api/src/front/`). The supervisor sets
+On a master the API answers the supervisor alone (`api/src/front/`). The supervisor sets
 `LGR_FRONT_SECRET` (per boot, ≥ 32 characters), `LGR_FRONT_HOSTS` and `LGR_CONTROL_SOCKET`. With no
 secret (global, a developer's machine, the tests) the front checks are off, and no `X-LGR-*` header
 is ever read as a stamp.
@@ -502,7 +502,7 @@ its database is on the same disk as everything else.
 
 An operator signs in at a till with **operator code + PIN** (6–12 digits, `pinRuleViolation`
 refuses runs and repeats). Routes are under `/api/auth/local`, and **every one answers 404 off a
-master**, but the `/methods` probe, which says no (`portal-api/src/controllers/local-auth.controller.ts`).
+master**, but the `/methods` probe, which says no (`api/src/controllers/local-auth.controller.ts`).
 - **Where.** Only a paired desktop on the LAN ingress (`x-lgr-source: lan` plus its token: the
   desktop's org is the org signed in to), or the console. ⚠ Never the tunnel. `frontSource` is the
   supervisor's stamp, and a master with no front offers no PIN at all.
@@ -525,7 +525,7 @@ master**, but the `/methods` probe, which says no (`portal-api/src/controllers/l
   - The till's `/invoicing/pin` (`PosPinView`) opens when a tab has no session on one of the till's
     pages, and from the menu ("Switch operator");
   - a "Till PIN" card under the portal's account (`TillPinCard`, hidden on a 404).
-  - ⚠ Those calls use plain `fetch` (`invoicing-ui/src/pos/composables/useTillPin.ts`), never the shared
+  - ⚠ Those calls use plain `fetch` (`web/src/modules/invoicing/pos/composables/useTillPin.ts`), never the shared
     HTTP client. They run with no session, or with the last operator's, and the client's 401
     recovery would sign the tab out or send it to the portal.
 - ⚠ **A master's PASSWORD sign-in backs off too.** There the password is the person's local
@@ -624,7 +624,7 @@ own `master-<16 base32>` id) and `NodeEnrollment*` / `NodeAssertion`. The model 
 
 ## The uplink, global's side (2026-10-25, FR-20.52, plan step P2-2a)
 
-`/api/node/v1/uplink?ch=interactive|bulk` (`portal-api/src/websocket/uplink.ts`) is a registered
+`/api/node/v1/uplink?ch=interactive|bulk` (`api/src/websocket/uplink.ts`) is a registered
 master's socket to global. It is mounted on global only. The protocol is in
 `docs/architecture/nodes.md`.
 - **Authentication:** the first frame is `hello` (a node token, the channel, a `bootNonce`), within
@@ -1005,7 +1005,7 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
     server block `org-addresses.lgrai.app.conf`. ⚠ A name with its own record (`qa`) wins over
     the wildcard. `harvex` was retired the same day: its record and vhost are gone, so the name now
     reaches LGR and answers the unknown-label 404.
-- **The tunnel, lgrai.app's side (FR-20.72–20.74, FR-20.78, P3-4b; `portal-api/src/tunnel/`).** A
+- **The tunnel, lgrai.app's side (FR-20.72–20.74, FR-20.78, P3-4b; `api/src/tunnel/`).** A
   global-only `onRequest`, registered FIRST in `unified.ts`, handles every `Host` of the form
   `<label>.<ORG_ADDRESS_APEX>` whose label is not reserved. Such a request belongs to the org's
   server, never to lgrai.app: once a hook returns a `Response`, none of lgrai.app's later hooks,
@@ -1366,7 +1366,7 @@ gave a customer. So, on a master, for an org written there, the legal series LOC
 - **Locked by hand** (#549, the runbook after a revert nothing sees, server-install.md):
   `POST /api/org/:orgId/numbering/lock {note?}`, admin, master only (404 on lgrai.app), reason
   `restored`, detail `locked by <name>: <note>`, audited once, idempotent. The UI is
-  `portal-ui/views/settings/LastNumbersCard.vue`, shared by the Servers page (lgrai.app, after a
+  `web/src/modules/portal/views/settings/LastNumbersCard.vue`, shared by the Servers page (lgrai.app, after a
   promotion) and the master's status page (`on-server`: the lock button, and the record card a
   master never had: its Servers page shows only "not here").
   - ⚠ A sign seen again does not lock again: replication stays refused until a re-seed, and the
@@ -1676,7 +1676,7 @@ any member of the org may, nothing in it is secret, and it is in the PIN scope t
   - `org_home_elsewhere` → `home.writeRefused`, `series_frozen` → `home.seriesFrozen`. Strings:
     `home.*`, ×4.
 - The org's own address (P3-4) shows a static notice while its server is offline, never a sign-in
-  (`portal-api/src/tunnel/notice.ts`).
+  (`api/src/tunnel/notice.ts`).
 - Tests: `home-status.flow` (4).
 
 ## The mirror's files (2026-10-27, FR-20.66, FR-20.69, plan step P3-3)

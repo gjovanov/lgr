@@ -48,7 +48,7 @@ AI-vs-candidates; batched `$in` queries, one regex per leftover) · `parse-text`
 raw-text fields) · `xlsx` (salesAnalysis / storeOperations parsers + sniffer) ·
 `map-invoice` / `map-cash-sale` / `map-movement` (**mapping only, no writes**) ·
 `dedupe` · `analyze` · `commit` · `persist` / `persist-movement` · `ocr-client`.
-`invoicing-api/src/lib/bill-import.ts` is now a re-export shim.
+`api/src/invoicing/lib/bill-import.ts` is now a re-export shim.
 
 **API** — `/org/:orgId/doc-import/`: `POST /extract` (multipart, PDF→sidecar or XLSX→parser,
 `forceOcr`, 4-way concurrency, per-file timeouts) · `POST /analyze` → job (**persists

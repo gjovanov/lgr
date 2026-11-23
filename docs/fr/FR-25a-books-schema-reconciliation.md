@@ -299,7 +299,7 @@ stores them trimmed and unsets one sent empty. The invoice form and both compani
 issue where a document names no place of its own (the companions print no place). A company that sets none prints byte
 for byte as before (`unit/print-party-identity.test.ts` pins the hashes).
 
-- Route / view: Settings → Organization (`portal-ui/src/views/settings/OrganizationView.vue`, exists), "Company Identity" card.
+- Route / view: Settings → Organization (`web/src/modules/portal/views/settings/OrganizationView.vue`, exists), "Company Identity" card.
 - Form: add `representative` (text), `placeOfIssue` (text, a town), `activityCode` (text, digits and dots) next to the tax
   and VAT numbers. The API already takes them (`PUT /org/:orgId`) and `/auth/me` returns them.
 - Print: invoice and companion forms print `placeOfIssue` where they print the place of transaction, and the issuer's

@@ -67,7 +67,7 @@ interface IPaymentOrder extends Document {
 
 **Base URL:** `/api/org/:orgId/invoicing/payment-order`
 
-**Controller:** `packages/invoicing-api/src/controllers/payment-order.controller.ts`
+**Controller:** `packages/api/src/invoicing/controllers/payment-order.controller.ts`
 
 | Method | Path | Description | Auth | Query Params |
 |--------|------|-------------|------|-------------|

@@ -1,9 +1,9 @@
 ---
 paths:
-  - "packages/accounting-api/**"
-  - "packages/accounting-ui/**"
-  - "packages/payroll-api/**"
-  - "packages/payroll-ui/**"
+  - "packages/api/src/accounting/**"
+  - "packages/web/src/modules/accounting/**"
+  - "packages/api/src/payroll/**"
+  - "packages/web/src/modules/payroll/**"
   - "packages/services/src/biz/payroll/**"
   - "packages/services/src/biz/personal-data/**"
   - "packages/services/src/biz/vat-files/**"

@@ -16,7 +16,7 @@ Status: draft for implementation · Date: 2026-08-21 · Depends on: nothing · F
 all six document kinds:
 
 - `packages/db/src/models/invoice.model.ts:167` — `type: ['invoice','proforma','credit_note','debit_note','cash_sale']`, `:168` `direction: ['outgoing','incoming']`, `:256` `relatedInvoiceId` (optional, **no validation anywhere**), `:291` unique index `{orgId, invoiceNumber}`.
-- `packages/invoicing-api/src/controllers/invoice.controller.ts:201` — single `/org/:orgId/invoices` controller. `type` and `direction` are body/query params; the list endpoint already supports `types` CSV → `$in` (`:234-238`). The per-type experience is **client-side**: each view pins its own filter (`SalesInvoicesView.vue:288` `{direction:'outgoing', type:'invoice'}`, `CreditNotesView.vue:177` `{type:'credit_note'}` — note: **no direction filter** on the CN/DN views).
+- `packages/api/src/invoicing/controllers/invoice.controller.ts:201` — single `/org/:orgId/invoices` controller. `type` and `direction` are body/query params; the list endpoint already supports `types` CSV → `$in` (`:234-238`). The per-type experience is **client-side**: each view pins its own filter (`SalesInvoicesView.vue:288` `{direction:'outgoing', type:'invoice'}`, `CreditNotesView.vue:177` `{type:'credit_note'}` — note: **no direction filter** on the CN/DN views).
 
 **Numbering** (`packages/services/src/biz/sequence-registry.ts:53-76`):
 
@@ -42,9 +42,9 @@ credit note would today be numbered from the outgoing CRN series.
 - SUPTO: sales invoices/CNs/DNs feed **no** NRA table directly (only `cash_sale` → 18.1, receipts → 18.6-18.8) — **no SUPTO impact**.
 
 **UI:** separate routes/views/nav entries for Sales Invoices, Credit Notes, Debit Notes, Bills
-(`packages/invoicing-ui/src/router/index.ts:17-27,48-55`; nav groups in
-`packages/invoicing-ui/src/layouts/DefaultLayout.vue:63-121`). Forms are thin wrappers around a
-config-driven `DocumentForm` (`packages/invoicing-ui/src/composables/document-form/configs.ts`)
+(`packages/web/src/modules/invoicing/router/index.ts:17-27,48-55`; nav groups in
+`packages/web/src/modules/invoicing/layouts/DefaultLayout.vue:63-121`). Forms are thin wrappers around a
+config-driven `DocumentForm` (`packages/web/src/modules/invoicing/composables/document-form/configs.ts`)
 — this is what makes the merge cheap. The CN/DN related-invoice picker is a plain
 `v-autocomplete` **without a required rule**, loading only the server-default **10** invoices
 with no search (`DocumentUpperSection.vue:29-37`, `useDocumentForm.ts:854-861`).
@@ -197,7 +197,7 @@ crediting cash sales (related invoice stays restricted to `type='invoice'`); des
     `ContactLedgerDialog`, `ReportingTabGrid.vue:171-173` — and **fix the pre-existing dead
     route name** `invoicing.purchase-invoices.edit` → `invoicing.purchases.edit`
     (`ReportingTabGrid.vue:171`; today clicking an incoming row throws).
-  - Nav (`invoicing-ui/src/layouts/DefaultLayout.vue:64-73,83-89`): Outgoing Documents children
+  - Nav (`web/src/modules/invoicing/layouts/DefaultLayout.vue:64-73,83-89`): Outgoing Documents children
     become *Sales Documents*, *Proforma* (+ *Cash Sales* after FR-03); Incoming Documents child
     becomes *Purchase Documents*. Remove the Credit Notes / Debit Notes entries and the
     matching `PAGE_REGISTRY` rows (`ui-shared/src/nav/page-registry.ts`) — redirects keep old

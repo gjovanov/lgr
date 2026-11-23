@@ -61,7 +61,7 @@ interface ICashOrder extends Document {
 
 **Base URL:** `/api/org/:orgId/invoicing/cash-order`
 
-**Controller:** `packages/invoicing-api/src/controllers/cash-order.controller.ts`
+**Controller:** `packages/api/src/invoicing/controllers/cash-order.controller.ts`
 
 | Method | Path | Description | Auth | Query Params |
 |--------|------|-------------|------|-------------|

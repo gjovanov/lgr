@@ -81,7 +81,7 @@ The dropped specs remain readable at `bc48d04`.
 
 ### 1.3 Two live web exposures found on the way (fixed in P1, independent of the desktop)
 
-- **`/ws/fiscal-bridge` authenticates nothing** (`portal-api/src/websocket/fiscal-bridge.ts:115-140`,
+- **`/ws/fiscal-bridge` authenticates nothing** (`api/src/websocket/fiscal-bridge.ts:115-140`,
   mounted at `unified.ts:103`).
   - It registers a bridge from `{deviceNumber, orgId}` alone, and a new registration
     **disconnects the till's current bridge**.

@@ -9,7 +9,7 @@
 
 ## 0. The short version
 
-1. **The API is already one process.** `portal-api/src/unified.ts` mounts every controller, and the six domain `*-api` packages have no `listen` of their own. They are folders of controllers plus six copies of one auth plugin.
+1. **The API is already one process.** `api/src/unified.ts` mounts every controller, and the six domain `*-api` packages have no `listen` of their own. They are folders of controllers plus six copies of one auth plugin.
 2. **What is split is the web UI: eight SPAs, each its own document.** Crossing from one to another is a full page load, and a page load closes the Web Serial port. That is the printer that disconnects. `useFiscalBridge` was written to survive navigation (module-level state, nothing on unmount), and it does, inside one SPA.
 3. **Merging the eight is cheap.** A throwaway spike composed all eight route tables into one Vite build on the first try: 22 s against 134 s, 9 MB against 52 MB, and 12 KB more gzipped JS on first load (§1.2).
 4. **The merge does not make LGR scale by itself.** The API was one process before it and will be one process after it, so the merge removes nothing that stops a second pod. What stops one is in-process state, above all the fiscal bridge. ⚠ **`replicas: 2` today breaks every till** (§6.1). FR-20 already built most of what is needed, so §6 is smaller than it looks.
@@ -155,6 +155,7 @@ The API needs no merging at runtime. This phase removes the copies.
 
 - **FR-24.30** The seven `app-auth.service.ts` MUST become one import. They are byte-identical, so this is a dedupe, proved by `tenant-isolation.flow.test.ts` and the permission suites passing unmodified.
 - **FR-24.31** Rename-only, one commit each, no content change: `packages/*-ui` into `packages/web/src/modules/<id>`, and `packages/*-api` plus `portal-api` into `packages/api` (Q-1). At a quiet moment with no open PR on those paths, so `git log --follow` keeps working. ⚠ `portal-api` is named 158 times in 112 files, and in `workingDir` in lgr-deploy's Deployment, so the image and the manifest must change together.
+  - Done in #421. **`packages/api`** (the package `api`): its `src/` is portal-api's `src/` as it was, so `src/unified.ts` stays the entry point and `bun run start` runs from `packages/api`; each domain's `src/` is `src/<domain>/` (`accounting`, `invoicing`, `warehouse`, `payroll`, `reports`, `files`). **`packages/web/src/modules/<id>`**: each `<id>-ui/src`, the portal's as `portal`. One pure `git mv` commit per package, then the paths. `desktop-ui`, `ui-shell` and `ui-shared` stay. The image's `WORKDIR` is `/app/packages/api`, and lgr-deploy's Deployment stops naming a `workingDir`, so the image decides and a rollback to an older tag still starts.
 
 ## 6. Several pods
 

@@ -51,7 +51,7 @@ already silently stripped; a new block must be added there), and the DAO does
 > Sending "the full block" never was enough: the page has no control for the Backups section
 > or for the server's own, so each save of the page removed them from the stored block.
 
-**Settings UI**: `portal-ui/src/views/settings/OrganizationView.vue` — one form of 9
+**Settings UI**: `web/src/modules/portal/views/settings/OrganizationView.vue` — one form of 9
 cards; a new card slots at line 225 (between Modules and the read-only Subscription),
 with matching edits in the `form` reactive (`:378`), `save()` payload (`:399-414`) and
 `onMounted` hydration (`:449`). Routes/nav have **no client-side role gating**; the

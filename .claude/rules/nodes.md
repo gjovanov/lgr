@@ -13,8 +13,8 @@ paths:
   - "packages/services/src/biz/licence/**"
   - "packages/services/src/biz/idp/**"
   - "packages/services/src/biz/desktop/**"
-  - "packages/portal-api/src/front/**"
-  - "packages/portal-api/src/controllers/desktop*"
+  - "packages/api/src/front/**"
+  - "packages/api/src/controllers/desktop*"
   - "packages/tests/src/two-node/**"
   - "packages/migrations/**"
   - "scripts/build-server.ts"
@@ -351,7 +351,7 @@ authentication, and PAC off Windows.
   to `PIN_SCOPE_ORG`, or a till breaks on it. ⚠ Keep `/auth/switch` out: it would mint a FULL
   session from a PIN session.
 
-- ⚠ Those calls use plain `fetch` (`invoicing-ui/src/pos/composables/useTillPin.ts`), never the shared
+- ⚠ Those calls use plain `fetch` (`web/src/modules/invoicing/pos/composables/useTillPin.ts`), never the shared
   HTTP client. They run with no session, or with the last operator's, and the client's 401
   recovery would sign the tab out or send it to the portal.
 
@@ -698,7 +698,7 @@ Desktops pin a master's own CA (FR-20.31), so it is never replaced silently.
   the wildcard. `harvex` was retired the same day: its record and vhost are gone, so the name now
   reaches LGR and answers the unknown-label 404.
 
-- **The tunnel, lgrai.app's side (FR-20.72–20.74, FR-20.78, P3-4b; `portal-api/src/tunnel/`).** A
+- **The tunnel, lgrai.app's side (FR-20.72–20.74, FR-20.78, P3-4b; `api/src/tunnel/`).** A
   global-only `onRequest`, registered FIRST in `unified.ts`, handles every `Host` of the form
   `<label>.<ORG_ADDRESS_APEX>` whose label is not reserved. Such a request belongs to the org's
   server, never to lgrai.app: once a hook returns a `Response`, none of lgrai.app's later hooks,
@@ -968,7 +968,7 @@ mirror holds ALL of it. Global: `services/biz/move/move-back.service.ts`; the ma
 - **Locked by hand** (#549, the runbook after a revert nothing sees, server-install.md):
   `POST /api/org/:orgId/numbering/lock {note?}`, admin, master only (404 on lgrai.app), reason
   `restored`, detail `locked by <name>: <note>`, audited once, idempotent. The UI is
-  `portal-ui/views/settings/LastNumbersCard.vue`, shared by the Servers page (lgrai.app, after a
+  `web/src/modules/portal/views/settings/LastNumbersCard.vue`, shared by the Servers page (lgrai.app, after a
   promotion) and the master's status page (`on-server`: the lock button, and the record card a
   master never had: its Servers page shows only "not here").
 
@@ -1125,7 +1125,7 @@ the server: `move-worker.service.ts#reseedHere`.
 ## Read-only where the org is not written (2026-10-27, FR-20.75, plan step P3-5, first half)
 
 - The org's own address (P3-4) shows a static notice while its server is offline, never a sign-in
-  (`portal-api/src/tunnel/notice.ts`).
+  (`api/src/tunnel/notice.ts`).
 
 ## The mirror's files (2026-10-27, FR-20.66, FR-20.69, plan step P3-3)
 

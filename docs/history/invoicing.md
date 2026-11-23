@@ -125,7 +125,7 @@ stock movements (kind `movement`: each as its printed sheet, by the warehouse AP
 routes, see its bullet below). The dialog, the composable and the engine take a kind as a name and
 two routes. FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is untouched.
 
-- **Two routes**: `invoicing-api/controllers/doc-email.controller.ts`, everything they decide in
+- **Two routes**: `api/src/invoicing/controllers/doc-email.controller.ts`, everything they decide in
   `lib/doc-email.ts`. The wire types and the dialog's planning are **`config/doc-email`**
   (import-pure, read by the server and the UI alike).
   - `POST /org/:orgId/invoicing/export/email/preview { kind, ids }` → `{ documents: [{ id,
@@ -167,7 +167,7 @@ two routes. FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is unt
 - **UI**: `ui-shared/components/BatchEmailBar.vue` (the bar in `ListScaffold`'s `#bulk-bar`, and
   the dialog's owner), `BatchEmailDialog.vue`, `composables/useBatchEmail.ts` (the state and the
   requests, without words; unit-tested with an injected `post`). Invoicing wraps them once:
-  `invoicing-ui/components/DocEmailBar.vue` + `composables/doc-email-access.ts`, which asks the
+  `web/src/modules/invoicing/components/DocEmailBar.vue` + `composables/doc-email-access.ts`, which asks the
   same `writesKind` the server does. A role that only reads ticks and clears, and sees no button.
   - **„До клиента / доставчика"** (the default when a document has a partner): a line per partner
     with the address on its card, each editable. A line left empty is not sent and its documents
@@ -196,14 +196,14 @@ two routes. FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is unt
     sheet is titled, in sentence case (`customerOrderDocName`: „Потвърждение на поръчка",
     „Поръчка (отказана)"), and states no total. `entityType: 'internal_order'`, audit module
     `invoicing`. An order keeps no send history, so the outbox worker needed no branch.
-  - UI: `invoicing-ui/views/InternalOrdersView.vue` is a `fit`, `selectable` `ListScaffold` with
+  - UI: `web/src/modules/invoicing/views/InternalOrdersView.vue` is a `fit`, `selectable` `ListScaffold` with
     `<DocEmailBar kind="internal-order">`; the button shows to
     `useDocEmailAccess().internalOrders()`, which `unit/doc-email-access` holds to the server's
     rule. ⚠ The list has nine columns beside its tick: the client's name is clipped at 9em (whole
     in its `title`) and a row's icons sit in one unwrapped row, which is what keeps a draft's row
     (four icons) one line at 1366 px.
 - **Stock movements** (kind `movement`, the movements list): each ticked movement as its printed
-  sheet. `warehouse-api/controllers/movement-email.controller.ts`, everything the two routes
+  sheet. `api/src/warehouse/controllers/movement-email.controller.ts`, everything the two routes
   decide in `lib/movement-email.ts`.
   - `POST /org/:orgId/warehouse/movement/email/preview { kind: 'movement', ids }` and
     `POST /org/:orgId/warehouse/movement/email { kind: 'movement', to, items: [{ id }], subject?,
@@ -225,7 +225,7 @@ two routes. FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is unt
     'stock_movement'`, audit module `warehouse`. ⚠ A movement keeps no `emailedTo` history, so the
     outbox worker needed NO branch: a master's queued mail settles its `EmailLog` rows by
     `outboxId` like any other.
-  - UI: `inventory-ui/views/MovementsView.vue` places its own table, so it carries the tick
+  - UI: `web/src/modules/inventory/views/MovementsView.vue` places its own table, so it carries the tick
     column (`show-select`, the ids) and `<BatchEmailBar kind="movement" …>` itself.
     `composables/movement-email-access.ts` names the server's capabilities again (the UI cannot
     import the warehouse API) and `unit/movement-email-access` holds the two together. ⚠ With the
@@ -269,7 +269,7 @@ two routes. FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is unt
 
 „Издай фактура" on a paid cash sale issues the customer's invoice for it:
 `GET`/`POST /org/:orgId/invoices/:id/to-invoice`, `services/biz/cash-sale-invoice.service.ts`, the dialog
-`invoicing-ui/src/components/CashSaleInvoiceDialog.vue`.
+`web/src/modules/invoicing/components/CashSaleInvoiceDialog.vue`.
 
 - The cash sale moved the goods and took the money; the invoice is the tax document of that sale.
   So it **moves no stock** (`stockSource` = `cash_sale:<number>`), is **born paid** (payment rows
@@ -309,7 +309,7 @@ two routes. FR-10's single route above (`SendEmailDialog`, `useRowEmail`) is unt
   an issued sales invoice written before the day's till export arrived — the till sold the goods,
   the invoice dispatched them again. `GET /invoices/:id/cash-sale-candidates` (the cash sales of
   its day it fits), `POST /invoices/:id/attach-to-cash-sale {cashSaleId}`, the dialog
-  `invoicing-ui/src/components/AttachToCashSaleDialog.vue`. Attached, it becomes what R0 issues:
+  `web/src/modules/invoicing/components/AttachToCashSaleDialog.vue`. Attached, it becomes what R0 issues:
   its dispatch comes back ONCE (a reversal at cost, noted „Attached to cash sale …"), then it
   carries `cashSaleRef` and the `stockSource` marker, is paid by the till (`cash_register`
   payments replace `cash_on_issue`/`card_on_issue`, whose entries are retired), and its
@@ -532,7 +532,7 @@ prints: „One list of actions for a document's two bars" below.
     data". An error on the message line (`useSnackbar`) stays until closed, and messages queue.
   - The shell's translator (`HomeBanner`, `setRefusalTranslator`) is asked for EVERY coded answer, not a 409's only,
     and for `UNEXPECTED_ERROR_CODE`, the last fallback: the server's English is shown only for a code it does not know.
-- **One issue path** (FR-22.17): `invoicing-ui/composables/document-issue.ts` holds the requests (the
+- **One issue path** (FR-22.17): `web/src/modules/invoicing/composables/document-issue.ts` holds the requests (the
   document, `/stock-availability/check`, `create-transfers`, `/send`) with no Vue in it — the
   integration test drives the same functions — and `useDocumentIssue` adds the transfer dialog, the
   idempotent `/send` and the messages. The sales list's „Изпрати", the form's „Издай" / „Запази и
@@ -644,7 +644,7 @@ it prints, and the sheet lost its „Общо без ДДС" box.
   article's page header on every tab (`inventory-ui/ProductDocActions`, in `EntityFormShell`'s
   `#header-actions` slot and in the stock view's header). The page reads the article AS STORED: its
   „Активен" switch means nothing until it is saved.
-- **Rules**: `inventory-ui/composables/product-doc-actions.ts` (pure, `unit/product-doc-actions.test`).
+- **Rules**: `web/src/modules/inventory/composables/product-doc-actions.ts` (pure, `unit/product-doc-actions.test`).
   Each action IS the „+ Нов" form's PAGE_REGISTRY row, so it is offered exactly to whom that form's
   Save is (§5.8: Заприходи `inventory.write`; Продай and Резервирай `invoicing.write`). A service
   (`trackInventory: false`) is never received or reserved; a deactivated article's Продай and
@@ -791,7 +791,7 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
   `refuse(code, body)` (`services/biz/document/refused`), never by calling the route's `status`: returned as it is, a
   `Refused` is a 200 whose body is `{ statusCode, body }`. A helper that takes a `Status` (`whoHolds`, `draftTaken`,
   `receiptPrinting`) takes `refuse` inside a service and `status` inside a route.
-- ⚠ **What reaches a device stays in `invoicing-api`, and the route hands it in.** `services` does not depend on
+- ⚠ **What reaches a device stays in `api/src/invoicing`, and the route hands it in.** `services` does not depend on
   `fiscal`: a cash sale's drawer and receipt (`lib/cash-register-sale#cashSaleTill`), the receipt or refund at issue
   (`lib/counter-issue#counterAtIssue`) and finishing a dead receipt before an edit (`finishInterruptedDocuments`) are
   passed to the service by the route, which calls them by name. That call is how `unit/fiscal-route-declared` sees the

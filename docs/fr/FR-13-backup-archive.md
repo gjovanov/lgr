@@ -641,9 +641,9 @@ org**. There is no cross-org identity and no platform operator. Therefore:
 - **The allow-list MUST be empty by default.** An unset `config.backup.sysAdmins` means the
   restore routes 403 for everyone, including org admins. Failing closed is the point.
 
-**FR-13.27 — where it lives.** A new route `admin/backup` → `portal-ui/src/views/admin/
+**FR-13.27 — where it lives.** A new route `admin/backup` → `web/src/modules/portal/views/admin/
 BackupView.vue`, beside the existing `admin/audit-log` → `views/admin/AuditLogView.vue`
-(`portal-ui/src/router/index.ts:39`). It **MUST NOT** go under `settings/` — that group
+(`web/src/modules/portal/router/index.ts:39`). It **MUST NOT** go under `settings/` — that group
 (Organization, Users, Invites, Billing, Permission Sets) is the org owner's self-service area,
 and this is not self-service. ⚠ Portal routes carry **no client-side role gating** today; the
 server 403s. Hiding the nav entry is presentation only — **the allow-list check on the server
@@ -678,7 +678,7 @@ unchanged. The bundles a person asks for are also pruned in a class of their own
 (`BACKUP_KEEP_MANUAL_PER_ORG`, 5), so they never count against the nights.
 
 **FR-13.30 — restore from file: getting the bytes in.** Upload is multipart, matching the Files
-app pattern (`files-ui/src/views/FileUploadView.vue:340` — `FormData` +
+app pattern (`web/src/modules/files/views/FileUploadView.vue:340` — `FormData` +
 `Content-Type: multipart/form-data`). ⚠ **`config.upload.maxFileSize` is `50_000_000`**
 (`config/index.ts:95`): a `full` bundle exceeds it **today**, and a `data` bundle exceeds it
 around **year 8**. The route **MUST** therefore either carry its own higher cap or accept an

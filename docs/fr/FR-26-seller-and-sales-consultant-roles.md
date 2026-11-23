@@ -26,7 +26,7 @@ The request names the new label „Нова стоково движение". �
 
 - **Her membership.** Role `admin`, one permission set: the org's own `Administrator` set, `isAdmin: true`, same org. `tokenize()` gives an `isAdmin` set every permission (`services/biz/auth.service.ts:632`), `reports.read` included.
 - **The org.** Its `reports` app row is enabled.
-- **The code.** `GET /org/:orgId/apps` lists the apps the session's permissions open (`services/biz/app-hub.service.ts:47`). The App Hub draws every app it gets (`portal-ui/src/views/AppHubView.vue`), and so does the app switcher (`ui-shell/src/components/AppSwitcher.vue`). No request-time step narrows a session's permissions (`session-token.ts#asSessionUser`, `identity/session.service.ts#liveSessionUser`).
+- **The code.** `GET /org/:orgId/apps` lists the apps the session's permissions open (`services/biz/app-hub.service.ts:47`). The App Hub draws every app it gets (`web/src/modules/portal/views/AppHubView.vue`), and so does the app switcher (`ui-shell/src/components/AppSwitcher.vue`). No request-time step narrows a session's permissions (`session-token.ts#asSessionUser`, `identity/session.service.ts#liveSessionUser`).
 - **A live check, as the demo org's Administrator.** The session holds `reports.read`. `/apps` returns `accounting inventory invoicing payroll reports files`. The hub and the switcher show „Справки", the Reports app lists 27 reports, and the console shows no errors.
 
 So it does not reproduce from her data or from the deployed code.
@@ -89,8 +89,8 @@ So it does not reproduce from her data or from the deployed code.
    - The nearest role, `sales` (`constants.ts:65`), sees all of Invoicing, reads all of Inventory and opens Reports.
 2. **The server decides by route prefix** (`services/biz/route-permission.ts`).
    - Reads under `invoicing` need any invoicing permission (`:173`). Writes under `warehouse` need `inventory.write` (`:103`).
-   - Bills share `/invoices` with sales invoices: only `direction` tells them apart (`invoicing-api/src/controllers/invoice.controller.ts`, the list's `direction` filter, ~`:559`). No prefix can separate them.
-3. **The UI asks `canOpenPage`** (`ui-shared/src/nav/page-registry.ts:254`). The invoicing menu filters every entry through it (`invoicing-ui/src/pos/till-rules.ts#withTillRules`). **The inventory menu filters nothing**: `inventory-ui/src/manifest.ts` lists its eleven entries to anyone in Inventory.
+   - Bills share `/invoices` with sales invoices: only `direction` tells them apart (`api/src/invoicing/controllers/invoice.controller.ts`, the list's `direction` filter, ~`:559`). No prefix can separate them.
+3. **The UI asks `canOpenPage`** (`ui-shared/src/nav/page-registry.ts:254`). The invoicing menu filters every entry through it (`web/src/modules/invoicing/pos/till-rules.ts#withTillRules`). **The inventory menu filters nothing**: `web/src/modules/inventory/manifest.ts` lists its eleven entries to anyone in Inventory.
 4. **Sequences.**
    - The server already lets only admin and manager in (`route-permission.ts:172`).
    - The page row has no rule (`page-registry.ts:85`). Every invoicing user gets a menu entry the server refuses.
@@ -98,16 +98,16 @@ So it does not reproduce from her data or from the deployed code.
    - The switcher's Portal tile is hard-coded, both mobile and desktop (`AppSwitcher.vue`).
    - `portalPagesFor` offers Dashboard to any invoicing reader, and Organization and Users to anyone holding a back-office permission (`page-registry.ts:276`).
 6. **The movement form.**
-   - It defaults to `receipt` and offers four types (`inventory-ui/src/views/MovementFormView.vue:372,380`).
+   - It defaults to `receipt` and offers four types (`web/src/modules/inventory/views/MovementFormView.vue:372,380`).
    - The list's button reads „Нова стокова разписка" (`nav.newDocPage.goodsReceipt`, `MovementsView.vue:11`), and so does the ★/search row (`page-registry.ts:108`).
 7. **Products' Export menu is a stub** (`ProductsView.vue:14`; `onExport` at `:325` only logs). No product export route exists.
 8. **The reports API never checks `reports.read`.**
-   - `/reports/catalog`, `/:id/run` and `/:id/export` gate on each report's own module permission (`reports-api/src/controllers/report.controller.ts:170,181,219` → `canAccessReport`).
+   - `/reports/catalog`, `/:id/run` and `/:id/export` gate on each report's own module permission (`api/src/reports/controllers/report.controller.ts:170,181,219` → `canAccessReport`).
    - So hiding the tile does not keep anyone out. `purchase-documents` and `order-sheet` would read bills and orders past any restriction set in this FR.
 9. **The role and the sets can disagree, and the sets win:** `tokenize()` uses a user's permission sets whenever one resolves.
-   1. **A role change keeps the sets.** It rewrites only the user's own `permissions` (`portal-api/src/controllers/user.controller.ts:183-204`). A user on the `Administrator` set who is made a Seller stays an administrator in all but the role name.
+   1. **A role change keeps the sets.** It rewrites only the user's own `permissions` (`api/src/controllers/user.controller.ts:183-204`). A user on the `Administrator` set who is made a Seller stays an administrator in all but the role name.
    2. **An invite gets the org's default set.** An invite accepted with any non-admin role gets „Member (Read Only)" (`services/biz/identity/account.service.ts:243-249`), not its role's set. An invited Seller would read Accounting and open Reports.
-   3. **A session keeps what it was issued with for 24 h** (`portal-api/src/auth/session-cookie.ts:4`). A demoted administrator stays one until it expires.
+   3. **A session keeps what it was issued with for 24 h** (`api/src/auth/session-cookie.ts:4`). A demoted administrator stays one until it expires.
 
 ### 2.3 Design: areas
 
@@ -196,7 +196,7 @@ The route table:
 
 **FR-26.7 — transfers only.**
 - Writes under `warehouse/movement` need `inventory.write` or `inventory.transfer`: a rule placed ahead of `warehouse`.
-- For a caller without `inventory.write`, the controller (`warehouse-api/src/controllers/movement.controller.ts`) refuses with 403:
+- For a caller without `inventory.write`, the controller (`api/src/warehouse/controllers/movement.controller.ts`) refuses with 403:
   - create (`POST /`) and edit (`PUT /:id`) with any type but `transfer`;
   - confirm (`POST /:id/confirm`) and delete (`DELETE /:id`) of a movement that is not a transfer;
   - `POST /with-update`, which only books receipts.

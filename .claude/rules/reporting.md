@@ -1,12 +1,12 @@
 ---
 paths:
   - "packages/reporting/**"
-  - "packages/reports-api/**"
-  - "packages/reports-ui/**"
+  - "packages/api/src/reports/**"
+  - "packages/web/src/modules/reports/**"
   - "packages/services/src/biz/reports/**"
   - "packages/services/src/biz/report-registry*"
   - "packages/services/src/biz/digest/**"
-  - "packages/portal-api/src/controllers/export*"
+  - "packages/api/src/controllers/export*"
 ---
 
 # Rules and traps: Reports, exports, PDFs and the digest
@@ -121,7 +121,7 @@ declared but never written), plus a per-currency reconciliation summary.
   the numbers reconcile) · stock ≤ 0 · corrections with the sign rule (`fromWarehouseId ⇒
   −|qty|`) · sales with no linked movement · duplicate suspects · edited-after-issue · ops.
 
-- Endpoints (portal-api `digest.controller.ts`, admin-only via the raw role guard):
+- Endpoints (`api/src/controllers/digest.controller.ts`, admin-only via the raw role guard):
   `POST /digest/test` (**sends to the caller only**, never the recipient list; 503 when
   unconfigured), `GET /digest/preview`, `GET /digest/last-run`.
 

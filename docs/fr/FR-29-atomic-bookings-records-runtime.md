@@ -94,7 +94,7 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
 - **Indexes (R8).** `connectDB` (`db/src/connection.ts`) leaves `autoIndex` on, so Mongoose builds each schema's indexes in the background after connect. Nothing awaits the builds or reads their errors; one model (`FiscalPresence`) awaits its own. Several guards are unique indexes: a document's number, the digest's `{ orgId, date }` claim, a movement's number, FR-28's `requestId`. A unique index that cannot build over rows that already clash is simply absent, and the code that waits for a duplicate-key error never gets one.
 - **Time limits (P13).** `maxTimeMS` is used nowhere in the backend. A slow list or report runs to its end on the single database member after its caller has gone.
 - **Two pods (T6).**
-  - `services/src/scheduler/registry.ts` runs each job on `setInterval` with no "still running" check: a tick slower than its interval overlaps itself. Every pod runs every job (twenty are registered in `portal-api/src/unified.ts`). Some claim their work in the database (the digest's unique index, a background task's owner); the registry does not say which.
+  - `services/src/scheduler/registry.ts` runs each job on `setInterval` with no "still running" check: a tick slower than its interval overlaps itself. Every pod runs every job (twenty are registered in `api/src/unified.ts`). Some claim their work in the database (the digest's unique index, a background task's owner); the registry does not say which.
   - `services/src/background/task.store.ts` is a `Map` that no production code empties.
   - A task's progress reaches only the sockets of the pod that runs it.
   - Limits that are counted in memory count per pod.
@@ -493,6 +493,6 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     followed by a restart.
   - FR-29.28: the task store forgets a finished task after 10 minutes; the three task routes fall back to the
     `BackgroundTask` row, as they did.
-  - FR-29.29: limits counted in memory: the tunnel edge's anonymous rate limit (`portal-api/src/tunnel/edge.ts`), per
+  - FR-29.29: limits counted in memory: the tunnel edge's anonymous rate limit (`api/src/tunnel/edge.ts`), per
     process, on a master, which runs one. The sign-in throttle and the desktop codes count in the database.
   - FR-29.30 (MAY) is not built. FR-29.31 is the main session's measurement after the rollout.

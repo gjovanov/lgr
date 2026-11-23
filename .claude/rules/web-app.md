@@ -3,7 +3,7 @@ paths:
   - "packages/web/**"
   - "packages/ui-shared/**"
   - "packages/ui-shell/**"
-  - "packages/*-ui/**"
+  - "packages/desktop-ui/**"
   - "packages/e2e/**"
   - "packages/config/src/list-sorts*"
   - "packages/db/src/plugins/lowered-fields*"
@@ -29,10 +29,10 @@ Why each one exists, and what was built around it: [`docs/history/web-app.md`](.
 - `openPage` to the same view is a push plus a remount (`viewKey`), never a page load.
 
 - **The one SPA, `packages/web`** (Phase 2; since Phase 3 the ONLY web build, FR-24.21). Its router is
-  `portal-ui/src/routes.ts` (the portal's routes and `portalGuard`) plus every manifest (`web/src/modules.ts`)
+  `web/src/modules/portal/routes.ts` (the portal's routes and `portalGuard`) plus every manifest (`web/src/modules.ts`)
   under ONE shell record (`OneShell` → `ModuleLayout`), so a move between modules never remounts the layout.
   One guard: portal rules for portal routes, an org session for a module's, after the till's rules
-  (`invoicing-ui/src/pos/till-rules.ts#tillRedirect`).
+  (`web/src/modules/invoicing/pos/till-rules.ts#tillRedirect`).
 
 - **Phase 3 deleted the seven split builds** (2026-11-01): each module's `index.html`, `vite.config.ts`,
   `main.ts`, `App.vue`, router and `DefaultLayout`; `UI_MODULES`/`moduleUiConfig`; the `dev:*-ui` /
@@ -145,7 +145,7 @@ search still reads such an article by its mirrors, slower, until migration 0018 
 ## Document lists: one row menu, fit 1366 px, a Create that says what (2026-10-26, FR-22 slice 2b: FR-22.23–.27, .50)
 
 - **One menu per row** (FR-22.23/.24): `ui-shared/RowActionsMenu` (⋮, `row-action-<key>`). The
-  rules are `invoicing-ui/composables/document-row-actions.ts` — pure, and
+  rules are `web/src/modules/invoicing/composables/document-row-actions.ts` — pure, and
   `integration/document-row-actions.flow` holds each one against the real routes. ⚠ Void is offered
   on an ISSUED document (`sent`/`received`; an invoice for a cash sale when `paid`) and asks first;
   Delete on a DRAFT only. The lists had it the other way round („Анулирай" on drafts only, Delete on
@@ -172,12 +172,12 @@ search still reads such an article by its mirrors, slower, until migration 0018 
 
 ## Typed API modules (FR-32.24, #797)
 
-- **A screen of `inventory-ui` or `invoicing-ui` makes no HTTP call itself.** It calls a function
-  of `<package>/src/api/<resource>.ts`, which takes the body its route's schema declares and returns
+- **A screen of the inventory or invoicing module makes no HTTP call itself.** It calls a function
+  of `web/src/modules/<module>/api/<resource>.ts`, which takes the body its route's schema declares and returns
   the answer its handler returns; the screen reads that answer as typed, never `data.x || data` or
   `_id || id`. A new call is a new function there, written from its controller. A composable is a
   screen here too (the document form's parts, the order forms' base). `unit/ui-api-modules.test.ts`
-  fails on a file of either package outside `src/api/` that imports or calls the HTTP client or
+  fails on a file of either module outside its `api/` that imports or calls the HTTP client or
   reads an id both ways.
 - **A route that reaches a fiscal device keeps its `Idempotency-Key`.** Its module function takes
   the attempt's `headers` (`createIdempotentAction#run`/`headers`) and sends them as the screen did:
@@ -189,7 +189,7 @@ search still reads such an article by its mirrors, slower, until migration 0018 
   read from the modules, so a new module needs no list; but a write function must send its request in
   its own body (a module function that only calls another helper that writes is not seen). Such a view
   must consult access (`v-cap`, a form action's `cap`, …) like any other: the bulk price adjustment
-  and the opening-stock import pass by their `v-cap`. ⚠ `invoicing-ui/src/api/issue.ts` hands the
+  and the opening-stock import pass by their `v-cap`. ⚠ `web/src/modules/invoicing/api/issue.ts` hands the
   client to `composables/document-issue.ts` (whose functions the integration tests drive with
   theirs): its functions are not seen as writes. A view issues through `useDocumentIssue`, never by
   importing them.

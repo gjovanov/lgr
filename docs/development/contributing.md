@@ -25,8 +25,8 @@ packages/
   dal-mongo/    MongoDB implementations
   db/           Mongoose models (cloud only)
   services/     Business logic
-  *-api/        Elysia controllers per module
-  *-ui/         Vue 3 frontends per module
+  api/          The unified Elysia server; src/<domain>/ holds each module's controllers
+  web/          The Vue 3 SPA; src/modules/<id>/ holds each module's views and stores
   desktop-ui/   The desktop shell's own pages
   desktop/      Tauri shell (Rust) - opens the cloud app
   tests/        Integration tests

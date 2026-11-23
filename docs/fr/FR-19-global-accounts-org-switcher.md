@@ -40,7 +40,7 @@ password, because each org's copy of it was theirs to set.
 
 ## What the UI does (Phase 3, Phase 4 UI)
 
-- **Sign-in** (`portal-ui/views/auth/LoginView.vue`): username or email, password with show/hide,
+- **Sign-in** (`web/src/modules/portal/views/auth/LoginView.vue`): username or email, password with show/hide,
   "Forgot password?", provider buttons from `GET /api/oauth/providers`, the org field behind a
   link. A sign-in with nothing to land in goes to the picker (`/orgs`), and a pending invitation
   goes to `/invite/:code`. OAuth refusals come back as `?error=<code>`, and only known codes are

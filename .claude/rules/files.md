@@ -1,16 +1,16 @@
 ---
 paths:
-  - "packages/files-api/**"
-  - "packages/files-ui/**"
+  - "packages/api/src/files/**"
+  - "packages/web/src/modules/files/**"
   - "packages/ocr-server/**"
   - "packages/services/src/biz/files/**"
   - "packages/services/src/biz/doc-import/**"
   - "packages/services/src/biz/backup/**"
   - "packages/services/src/biz/*storage*"
   - "packages/services/src/biz/file*"
-  - "packages/portal-api/src/controllers/file*"
-  - "packages/portal-api/src/controllers/backup*"
-  - "packages/portal-api/src/controllers/integrations*"
+  - "packages/api/src/controllers/file*"
+  - "packages/api/src/controllers/backup*"
+  - "packages/api/src/controllers/integrations*"
   - "scripts/backup*"
   - "scripts/configure-backup.ts"
 ---

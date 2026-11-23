@@ -1,10 +1,10 @@
 ---
 paths:
-  - "packages/warehouse-api/**"
-  - "packages/inventory-ui/**"
-  - "packages/invoicing-api/src/controllers/*order*"
-  - "packages/invoicing-api/src/controllers/*reservation*"
-  - "packages/invoicing-ui/src/views/**/*Order*"
+  - "packages/api/src/warehouse/**"
+  - "packages/web/src/modules/inventory/**"
+  - "packages/api/src/invoicing/controllers/*order*"
+  - "packages/api/src/invoicing/controllers/*reservation*"
+  - "packages/web/src/modules/invoicing/views/**/*Order*"
   - "packages/services/src/biz/*pric*"
   - "packages/services/src/biz/*product*"
   - "packages/services/src/biz/*order*"
@@ -140,7 +140,7 @@ Why each one exists, and what was built around it: [`docs/history/warehouse.md`]
   onHand / reserved / available / incoming / reservedIncoming / planned, the expected deliveries (sent
   or partly received ORDO lines, outstanding quantity, the clients holding it) and the product's
   reservations. A draft ORDO is `planned`, never `incoming`: nothing was ordered yet. Shown on the
-  product's Stock tab (`inventory-ui ProductStockView`), linking into invoicing via `appHref`.
+  product's Stock tab (the inventory module's `ProductStockView`), linking into invoicing via `appHref`.
 
 - ⚠ `/reservations/new` (the „+ Нов" entry) is a REDIRECT to the list with `?new=1`, which the
   list strips once the dialog is open. A route rendering the list itself would give the grid
@@ -268,7 +268,7 @@ Why each one exists, and what was built around it: [`docs/history/warehouse.md`]
   reference, note, the lines (№, name, unit, quantity) and two signature lines. ⚠ No price and no
   total: a line's `unitCost` is a cost not every role sees (on a sale's dispatch, the sale price),
   and the sheet leaves the org. UI: Print on the movement form and on each row of the list
-  (`inventory-ui/composables/useMovementPrint.ts`), downloaded as the tab's session.
+  (`web/src/modules/inventory/composables/useMovementPrint.ts`), downloaded as the tab's session.
 
 - **Tests**: `unit/external-warehouse.test.ts`, `unit/stock-movement-document.test.ts`,
   `integration/external-warehouse.flow.test.ts`, `e2e/tests/external-warehouse.spec.ts`
