@@ -3,7 +3,7 @@
 Full-repo review of `lgr` @ `master`. Covers the auth layer, tenant guard, document store,
 config/secret handling, OAuth, container build and dependencies.
 
-**S-01**–**S-10**, **S-12**, **S-14**, **S-15** and **S-17**–**S-41** are fixed. The rest are open, ordered by
+**S-01**–**S-12**, **S-14**, **S-15** and **S-17**–**S-41** are fixed. The rest are open, ordered by
 severity below.
 
 ⚠ **S-17 and S-18 were not in the original review.** S-17 was found while fixing S-04, in the same
@@ -46,7 +46,7 @@ day.
 | S-08 | Medium | No rate limiting or lockout on `/auth/login`; account enumeration | **Fixed 2026-10-04** |
 | S-09 | Medium | Password minimum is 6 characters | **Fixed 2026-11-09** |
 | S-10 | Medium | `.dockerignore` does not exclude the secrets `.gitignore` protects | Fixed 2026-10-21 (root user: fixed 2026-10-23) |
-| S-11 | Medium | Swagger served unauthenticated in production | Open |
+| S-11 | Medium | Swagger served unauthenticated in production | **Fixed 2026-11-23** (#916) |
 | S-12 | Medium | Raw `err.message` returned on 500 | **Fixed 2026-11-09** |
 | S-13 | Low | Live credentials in a OneDrive-synced working copy | Open |
 | S-14 | Low | `User.password` has no `select: false` | **Fixed 2026-11-09** (by a sweep of every route) |
@@ -562,10 +562,61 @@ writes to the code and `/etc` were refused (`EROFS`), and a PDF rendered with Ch
 
 ---
 
-## S-11 — Swagger served unauthenticated in production (Medium, open)
+## S-11 — Swagger served unauthenticated in production (Medium, **fixed 2026-11-23**)
 
 **Where:** `unified.ts:74` — full route inventory and body schemas for every module, free to
 anyone who can reach the port. Gate on `NODE_ENV !== 'production'`.
+
+**What was still served:** on lgrai.app, `/swagger` (Scalar's page) and `/swagger/json` (the OpenAPI
+document): every route of the table with its body schema, to a caller with no credential. S-15 had
+stopped the routes themselves from describing their schemas to such a caller; this document still
+described them all. A master served neither since FR-20 P0b-9 (#195), because the page loads its
+viewer from a CDN and a master serves no third-party script (AC 66). #49's comments recorded global's
+as kept on purpose.
+
+- **Who read it:** nothing in the repository. No test but the two-node AC 66 cell, no script, code
+  generator, Postman collection, desktop shell, health check or deploy smoke fetches it (the smoke asks
+  for `/`, `/app-hub` and an unknown API route; health is `/api/health`). Whether a person or an outside
+  integrator opens lgrai.app's `/swagger` is not known from here.
+
+### Fix
+
+`portal-api/src/api-docs.ts` decides who is served the docs, and `unified.ts` mounts what it returns:
+
+- **A master: never**, as before (AC 66). `SWAGGER_ENABLED` does not change that.
+- **Global in production: only when an operator asks**, with `SWAGGER_ENABLED=true` (or `1`).
+- **Global anywhere else** (`bun run dev`, the tests): served, as before. `SWAGGER_ENABLED=false` (or
+  `0`) turns it off there too.
+- Any other value of `SWAGGER_ENABLED` is ignored, so a typo falls back to the environment's default,
+  which in production is off.
+- Off, `/swagger` and `/swagger/json` get what any unknown page gets: the web app's shell (200), whose
+  router shows its own "not found", and a 404 where no web app is served. Neither carries the document.
+
+**"Production" is `NODE_ENV=production`.** It is the signal every production-only guard already
+reads: `requiredSecret` (S-02), the CORS allow-list's dev origins (S-07), the `Secure` cookies. Global
+sets it in `lgr-config` (S-24). The supervisor sets it on every master after the operator's settings,
+so `config/api.env` cannot override it (`packages/server/src/config.rs`). A server package keeps it a
+run-time read (`serverBuildOptions`). `LGR_SERVER_IMAGE` was not used: it names a master's container
+image, and a master serves no docs anyway. A host name was not used either, since feature code reads
+the role from `nodeRole()`, never from a host. ⚠ A global started without `NODE_ENV=production` serves
+the docs, just as it skips the secret guards. S-24's "`ENV NODE_ENV=production` in the Dockerfile" is
+still the fix for that case.
+
+**Why a flag and not "system administrators only":** a sys-admin check would have to admit a browser's
+page load by its session cookie, under the same-site and `__Host-` rules of the auth plugins (S-22,
+FR-20.72), for a page that nothing in LGR uses. A flag an operator sets for the time they need the
+document is the smaller change, and it needs no code to undo.
+
+⚠ **If lgrai.app's docs are wanted after all**, set `SWAGGER_ENABLED: "true"` in `lgr-config`
+(lgr-deploy) and restart the pod. No image change is needed.
+
+**Tests:** `integration/api-docs.flow.test.ts` (7) mounts the plugin as `unified.ts` does, behind the
+real error handler. Production with no flag, with a value that is not an opt-in, and with an opt-out
+serves neither path (the shell, or 404 without one). `true`/`1` serves both, and the document lists the
+app's routes. Development, the tests and an unset `NODE_ENV` serve them. A master serves neither,
+whatever the flags say. With the old mount (Swagger on every global), the production cases fail. The
+two-node cell (both nodes run with `NODE_ENV=production`) now asserts that neither node serves
+`/swagger` or `/swagger/json`, with the master given `SWAGGER_ENABLED=true`.
 
 ---
 

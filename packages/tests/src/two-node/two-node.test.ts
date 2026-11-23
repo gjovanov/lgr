@@ -18,15 +18,21 @@ describe.skipIf(!enabled)('a global and a master', () => {
   beforeAll(async () => { nodes = await startTwoNodes() }, 300_000)
   afterAll(async () => { await nodes?.stop() }, 120_000)
 
-  it('global serves lgrai.app\'s analytics tag and its API docs; the master neither (AC 66)', async () => {
+  // S-11: both run with NODE_ENV=production, so global serves its API docs only when SWAGGER_ENABLED asks,
+  // and here it does not. The master is asked (harness.ts) and serves none anyway: AC 66.
+  it('global serves lgrai.app\'s analytics tag and, in production, no API docs; the master neither, even when asked (AC 66, S-11)', async () => {
     const shell = async (url: string) => (await fetch(url)).text()
     const globalShell = await shell(`${nodes.global.url}/`)
     const masterShell = await shell(`${nodes.master.url}/`)
     expect(globalShell).toContain('purestat.ai')
     expect(masterShell).toContain('<div id="app">')
     expect(masterShell).not.toMatch(/(src|href)="(https?:)?\/\//)
-    expect(await shell(`${nodes.global.url}/swagger`)).toContain('LGR Unified API')
-    expect(await shell(`${nodes.master.url}/swagger`)).not.toContain('LGR Unified API')
+    for (const node of [nodes.global, nodes.master]) {
+      for (const path of ['/swagger', '/swagger/json']) {
+        expect({ node: node.url, path, docs: (await shell(`${node.url}${path}`)).includes('LGR Unified API') })
+          .toEqual({ node: node.url, path, docs: false })
+      }
+    }
   })
 
   // A till stores `/pos/` as its start path whichever node it is paired with, and a master runs its

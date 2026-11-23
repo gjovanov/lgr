@@ -22,7 +22,7 @@ browser / LGR Desktop
 unified API (portal-api, :4001) ─────── MongoDB (replica set rs0)
   /api/*      portal + every domain package's controllers
   /ws/*       tasks · fiscal-bridge · desktop
-  /swagger    API docs
+  /swagger    API docs (global, outside production or with SWAGGER_ENABLED=true: S-11)
   /ui/*       the web app's files (packages/web)
   every other path   the web app's index.html: the portal at /, each module at its prefix
                      (accounting · inventory · invoicing · payroll · reports · files)

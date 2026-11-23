@@ -1,7 +1,6 @@
 import { Elysia } from 'elysia'
 import { corsPlugin } from './cors.js'
 import { isolationHeaders } from './isolation-headers.js'
-import swagger from '@elysiajs/swagger'
 import { config, nodeRole } from 'config'
 import { connectDB } from 'db/connection'
 import { initServiceContext } from 'services/context'
@@ -11,6 +10,8 @@ import { TEST_IDP_KEYS_ENV, TEST_KEYS_BUILD, TEST_LICENCE_KEYS_ENV, testTrustKey
 
 // The whole API route table lives in `api.ts` so tests can mount it — see the header there.
 import { createApiApp } from './api.js'
+// S-11: who is served the API docs is decided there, so a test can mount it.
+import { apiDocs, apiDocsServed } from './api-docs.js'
 // Same reason for the SPA serving: `spa-fallback.flow.test.ts` drives it with the real plugins.
 import { oneSpaShell, spaErrorHandler, uiStaticPlugin, webBuildId } from './spa-fallback.js'
 
@@ -95,31 +96,9 @@ const app = new Elysia()
   .onError(spaErrorHandler(oneSpa))
   // FR-24.14: the one SPA's build on every answer, so an open tab sees a deploy happened.
   .onRequest(({ set }) => { if (buildId) set.headers['x-lgr-build'] = buildId })
-  // API docs on lgrai.app only: the page loads its viewer from a CDN, and a master serves no
-  // third-party script (FR-20 AC 66).
-  .use(
-    nodeRole() !== 'global' ? new Elysia() : swagger({
-      documentation: {
-        info: { title: 'LGR Unified API', version: '0.1.0', description: 'LGR ERP — All modules unified' },
-        tags: [
-          { name: 'Auth', description: 'Authentication & OAuth' },
-          { name: 'Org', description: 'Organization management' },
-          { name: 'Users', description: 'User management' },
-          { name: 'Invites', description: 'Invitation management' },
-          { name: 'Apps', description: 'App Hub' },
-          { name: 'Billing', description: 'Stripe billing' },
-          { name: 'Files', description: 'File management' },
-          { name: 'Notifications', description: 'Notifications' },
-          { name: 'Accounting', description: 'Chart of Accounts, Journal Entries, Reports' },
-          { name: 'Invoicing', description: 'Invoices, Contacts, Payments' },
-          { name: 'Warehouse', description: 'Products, Stock, Movements' },
-          { name: 'Payroll', description: 'Employees, Payroll Runs, Payslips' },
-          { name: 'Fiscal', description: 'Fiscal Devices, Workstations, SUPTO' },
-          { name: 'POS', description: 'Point of Sale' },
-        ],
-      },
-    }),
-  )
+  // API docs (S-11): on lgrai.app only, since the page loads its viewer from a CDN and a master serves
+  // no third-party script (FR-20 AC 66); and in production only when `SWAGGER_ENABLED` asks. See api-docs.ts.
+  .use(apiDocs())
 
   // All routes under /api — the table itself is in `api.ts`
   .use(createApiApp())
@@ -164,7 +143,8 @@ if (config.supto.mode === 'production') {
 app.listen({ hostname: config.host, port: config.port })
 
 logger.info(`LGR Unified running at http://${config.host}:${config.port}`)
-if (nodeRole() === 'global') logger.info(`Swagger docs at http://${config.host}:${config.port}/swagger`)
+if (apiDocsServed()) logger.info(`Swagger docs at http://${config.host}:${config.port}/swagger`)
+else if (nodeRole() === 'global') logger.info('API docs are not served (S-11): SWAGGER_ENABLED=true serves them in production')
 if (nodeRole() === 'master' && !config.front.secret) {
   logger.warn('A master with no front secret: nothing stands between this listener and the network (FR-20.16)')
 }
