@@ -6,21 +6,15 @@
   // `unit/typecheck-config.test.ts` holds this list to the packages.
   "extends": "../../tsconfig.server.json",
   "include": [
-    "../../packages/accounting-api/src/**/*.ts",
+    "../../packages/api/src/**/*.ts",
     "../../packages/config/src/**/*.ts",
     "../../packages/dal/src/**/*.ts",
     "../../packages/dal-mongo/src/**/*.ts",
     "../../packages/db/src/**/*.ts",
-    "../../packages/files-api/src/**/*.ts",
     "../../packages/fiscal/src/**/*.ts",
-    "../../packages/invoicing-api/src/**/*.ts",
     "../../packages/migrations/src/**/*.ts",
     "../../packages/ocr-server/src/**/*.ts",
-    "../../packages/payroll-api/src/**/*.ts",
-    "../../packages/portal-api/src/**/*.ts",
     "../../packages/reporting/src/**/*.ts",
-    "../../packages/reports-api/src/**/*.ts",
-    "../../packages/services/src/**/*.ts",
-    "../../packages/warehouse-api/src/**/*.ts"
+    "../../packages/services/src/**/*.ts"
   ]
 }

@@ -1,24 +1,10 @@
 {
-  // FR-32.3: the web app's packages (the one SPA, its modules and the two shared UI libraries) as
+  // FR-32.3: the web app (the one SPA, its modules in `web/src/modules/`) and the two shared UI libraries as
   // ONE program for `vue-tsc`, the way `scripts/typecheck.ts` checks them. Each package's own
   // tsconfig.json has the same options (`tsconfig.dom.json`). `desktop-ui` is a program of its
   // own: it has its own `@/` alias. `unit/typecheck-config.test.ts` holds this list to the packages.
   "extends": "../../tsconfig.dom.json",
   "include": [
-    "../../packages/accounting-ui/src/**/*.ts",
-    "../../packages/accounting-ui/src/**/*.vue",
-    "../../packages/files-ui/src/**/*.ts",
-    "../../packages/files-ui/src/**/*.vue",
-    "../../packages/inventory-ui/src/**/*.ts",
-    "../../packages/inventory-ui/src/**/*.vue",
-    "../../packages/invoicing-ui/src/**/*.ts",
-    "../../packages/invoicing-ui/src/**/*.vue",
-    "../../packages/payroll-ui/src/**/*.ts",
-    "../../packages/payroll-ui/src/**/*.vue",
-    "../../packages/portal-ui/src/**/*.ts",
-    "../../packages/portal-ui/src/**/*.vue",
-    "../../packages/reports-ui/src/**/*.ts",
-    "../../packages/reports-ui/src/**/*.vue",
     "../../packages/ui-shared/src/**/*.ts",
     "../../packages/ui-shared/src/**/*.vue",
     "../../packages/ui-shell/src/**/*.ts",
