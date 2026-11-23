@@ -95,14 +95,14 @@ describe('FR-27 P3-5: a person carries none of the legacy model', () => {
     expect('assignRole' in (await rawInvite())!).toBe(false)
   })
 
-  it('an admin creates a member: by role id, or a legacy key naming the built-in role; neither writes the key', async () => {
+  it('an admin creates a member by role id or key, writing no legacy key; a legacy key is refused (422), nobody made', async () => {
     const accountant: any = await Role.findOne({ orgId: org._id, isBuiltin: true, templateKey: 'accountant' }).lean().exec()
     const byId = await call('POST', `/org/${orgId}/user`, adminToken, {
       email: 'byid@nolegacy.test', username: 'byid', password: 'a-long-password-1', firstName: 'By', lastName: 'Id', roleId: String(accountant._id),
     })
     expect(byId.status).toBe(200)
     const byKey = await call('POST', `/org/${orgId}/user`, adminToken, {
-      email: 'bykey@nolegacy.test', username: 'bykey', password: 'a-long-password-1', firstName: 'By', lastName: 'Key', role: 'accountant',
+      email: 'bykey@nolegacy.test', username: 'bykey', password: 'a-long-password-1', firstName: 'By', lastName: 'Key', roleKey: 'accountant',
     })
     expect(byKey.status).toBe(200)
     for (const username of ['byid', 'bykey']) {
@@ -111,16 +111,24 @@ describe('FR-27 P3-5: a person carries none of the legacy model', () => {
       expect(await legacyFieldsOf(u._id)).toEqual([])
       expect(u.roleHistory.at(-1).roleName).toBe(accountant.name)
     }
+    // #866: the legacy key is refused, as invitations refuse `assignRole`.
+    const legacy = await call('POST', `/org/${orgId}/user`, adminToken, {
+      email: 'legacy@nolegacy.test', username: 'legacykey', password: 'a-long-password-1', firstName: 'Le', lastName: 'Gacy', role: 'accountant',
+    })
+    expect({ status: legacy.status, code: legacy.json?.code }).toEqual({ status: 422, code: 'legacy_role_field' })
+    expect(await User.countDocuments({ orgId: org._id, username: 'legacykey' })).toBe(0)
+    expect(await Identity.countDocuments({ email: 'legacy@nolegacy.test' })).toBe(0)
   })
 
-  it('the legacy sets and permissions are refused on an update (422), and a legacy key is the built-in role', async () => {
+  it('the legacy sets, permissions and role key are refused on an update (422); a role key moves the person', async () => {
     const u: any = await User.findOne({ orgId: org._id, username: 'byid' }).lean().exec()
-    for (const body of [{ permissions: ['invoicing.read'] }, { permissionSetIds: [] }]) {
+    for (const body of [{ permissions: ['invoicing.read'] }, { permissionSetIds: [] }, { role: 'manager' }]) {
       const r = await call('PUT', `/org/${orgId}/user/${u._id}`, adminToken, body)
       expect({ status: r.status, code: r.json?.code }).toEqual({ status: 422, code: 'legacy_role_field' })
     }
+    expect(String((await User.findById(u._id).lean().exec() as any).roleId)).toBe(String(u.roleId))
     const manager: any = await Role.findOne({ orgId: org._id, isBuiltin: true, templateKey: 'manager' }).lean().exec()
-    expect((await call('PUT', `/org/${orgId}/user/${u._id}`, adminToken, { role: 'manager' })).status).toBe(200)
+    expect((await call('PUT', `/org/${orgId}/user/${u._id}`, adminToken, { roleKey: 'manager' })).status).toBe(200)
     const after: any = await User.findById(u._id).lean().exec()
     expect(String(after.roleId)).toBe(String(manager._id))
     expect(await legacyFieldsOf(u._id)).toEqual([])

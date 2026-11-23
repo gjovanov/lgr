@@ -160,12 +160,18 @@ describe('FR-27.3: a member an admin creates', () => {
     expect(made.permissionSetIds).toBeUndefined()
   })
 
-  it('with a legacy role named, the built-in role of that name', async () => {
+  it('with a legacy role named, 422 legacy_role_field and nobody made (#866)', async () => {
     const r = await call('POST', `/org/${orgId}/user`, adminToken, { ...body('mgr'), role: 'manager' })
+    expect({ status: r.status, code: r.json?.code }).toEqual({ status: 422, code: 'legacy_role_field' })
+    expect(await User.countDocuments({ orgId: org._id, username: 'mgr' })).toBe(0)
+  })
+
+  it('with a role key named, the built-in role of that key; no legacy key written', async () => {
+    const r = await call('POST', `/org/${orgId}/user`, adminToken, { ...body('mgr'), roleKey: 'manager' })
+    expect(r.status).toBe(200)
     const made: any = await User.findById(r.json.user._id ?? r.json.user.id).lean().exec()
     const manager: any = await Role.findOne({ orgId: org._id, templateKey: 'manager' }).lean().exec()
     expect(String(made.roleId)).toBe(String(manager._id))
-    // FR-27 P3-5: the key names the built-in role; it is not written.
     expect(made.role).toBeUndefined()
   })
 })

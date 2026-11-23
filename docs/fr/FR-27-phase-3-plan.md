@@ -116,19 +116,23 @@ Each PR keeps `bun run test`, `build`, `check:web` and the FR-27 walks green
   P3-5 has the sign-in answers carry the grant and the router wait for it. (3) `POST /permission-sets/migrate` (the
   Migrate button's route) wrote `permissionSetIds`: it answers 410 `legacy_model`. (4) `PUT /user` refuses `permissions`
   and `permissionSetIds` (422 `legacy_role_field`); a legacy `role` key on `POST`/`PUT /user` names the built-in role of
-  that key and is not written.
+  that key and is not written (until #866, which refuses it: see below).
 - **After review (#529, the owner's answers 2 to 4, one PR).**
   - **`roleKey` on `POST`/`PUT /user`** (answer 3). A body names the role by `roleId` or by `roleKey`, a built-in role's
     template key (FR-27.3: scripts and API callers name a role by key; a role id differs per org), resolved to that
     org's built-in role of the template (`role.service#namedRoleId`). An unknown key is 422 `unknown_role_key` (with the
-    keys); `roleId` with `roleKey` is 422 `role_id_and_key`; either with the legacy `role` is 422 `role_and_legacy`. The
+    keys); `roleId` with `roleKey` is 422 `role_id_and_key`; either with the legacy `role` was 422 `role_and_legacy` (until #866). The
     e2e files and tests that sent `role` (the FR-27 field walks among them) send `roleKey`; the four tests that state the
     conversion itself (`legacy-not-written`, `roles-onboarding`, `seller-roles`, `user-role-key`) keep `role`.
-  - **The legacy `role` key still converts in this release, and each use is logged** (warn, `legacy role field on a
-    user route`: the route, the org, the key; nothing about the person), so the release shows whether anything besides
-    our tests still sends it. ⚠ **The next release refuses it: 422 `legacy_role_field`**, the code invitations already
-    answer for `assignRole` (`invite.controller.ts`). Read the logs of the release first; those four tests then assert
-    the 422.
+  - **The legacy `role` key still converted in that release, and each use was logged** (warn, `legacy role field on a
+    user route`: the route, the org, the key; nothing about the person), so the release would show whether anything
+    besides our tests still sent it.
+  - **#866 refuses it: 422 `legacy_role_field`**, the code invitations already answer for `assignRole`
+    (`invite.controller.ts`), alone or beside `roleId`/`roleKey` (`role_and_legacy` is gone). The conversion and its
+    warn log are removed from `role.service#namedRoleId`; the schema declares `role` only so that it reaches the
+    refusal. Those four tests assert the 422, and the e2e specs and the Users screen already sent `roleKey`/`roleId`.
+    ⚠ Held as a draft until the production logs over several days show no legacy-`role` warning other than our own
+    tests: access to them was refused on 2026-11-23, so that reading has not happened yet.
   - **A renamed built-in role shows its own name** (answer 4). `roleDisplay` gives the template key only while the role
     still carries its template's name (`templateOf(key).name`); a built-in the org renamed (`updateRole` renames any but
     the Administrator) shows that name in the org menu, the org picker, an invitation and the SUPTO operators export,

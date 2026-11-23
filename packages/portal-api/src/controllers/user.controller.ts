@@ -4,7 +4,6 @@ import { AuthService } from '../auth/auth.service.js'
 import { publicUser, userDao, USER_PUBLIC_PROJECTION } from 'services/dao/user.dao'
 import { User } from 'db/models'
 import { paginateQuery } from 'services/utils/pagination'
-import { ROLES } from 'config/constants'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { RoleRefusal, assertAssignable, assertNotLastAdministrator, assignRole, giveStartingRole, namedRoleId, startingRoleOf } from 'services/biz/access/role.service'
 
@@ -25,13 +24,6 @@ const refused = (err: unknown) =>
   err instanceof IdentityError ? { status: err.status, body: { code: err.code, message: err.message } } : null
 
 /**
- * Derived from `ROLES` rather than re-listed, so a role can never be accepted here without a
- * `DEFAULT_ROLE_PERMISSIONS` entry to go with it — which is exactly how `hr_manager` and
- * `sales` came to be assignable while granting no permissions.
- */
-const roleValues = ROLES.map(r => t.Literal(r))
-
-/**
  * FR-27.3 (#529): a body names the person's role by `roleId`, or by `roleKey` (a built-in role's template key, the same
  * in every org: `role.service#namedRoleId` checks it, 422 `unknown_role_key`). Free text in the schema so that an
  * unknown key gets that code, not the schema's bare 422.
@@ -40,6 +32,12 @@ const roleKeyField = t.Optional(t.String({ minLength: 1, maxLength: 64 }))
 
 /** FR-27 P3-5: the legacy sets and permissions cannot be written any more; refused, never dropped. */
 const LEGACY_FIELDS = { code: 'legacy_role_field', message: 'Give the person a role (roleId): permission sets and permissions are no longer written.' }
+
+/**
+ * #866: the legacy role key is refused, never dropped or converted, as invitations refuse `assignRole`: a caller that
+ * named one and got 200 would believe the person has it. Until 2026-11 it named the built-in role of that key.
+ */
+const LEGACY_ROLE = { code: 'legacy_role_field', message: 'Name the role by its id (roleId) or its key (roleKey): a legacy role (role) is no longer accepted.' }
 
 export const userController = new Elysia({ prefix: '/org/:orgId/user' })
   .use(AuthService)
@@ -71,6 +69,7 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
     async ({ params: { orgId }, body, user, status }) => {
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!can(user, 'users.edit')) return status(403, { message: 'Admin only' })
+      if (body.role !== undefined) return status(422, LEGACY_ROLE)
 
       // ⚠ Multi-org: an admin never attaches a person who already has an account (here or, before
       // the migration, as a user anywhere). Whoever could then set their password would have every
@@ -80,11 +79,11 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         return status(r.status, r.body)
       }
       // FR-27.3: a role named here (`roleId`, or `roleKey`: the built-in role of that key) must be one the admin may
-      // give, before anything is created. A legacy `role` key is still the built-in role of that key, logged (#529).
+      // give, before anything is created.
       const { roleId: _roleId, roleKey: _roleKey, role: _legacyKey, ...fields } = body
       let roleId: string | undefined
       try {
-        roleId = await namedRoleId(orgId, body, 'POST /user')
+        roleId = await namedRoleId(orgId, body)
         if (roleId) await assertAssignable(user as any, orgId, roleId)
       } catch (e) {
         if (e instanceof RoleRefusal) return status(e.status, e.body)
@@ -152,9 +151,8 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         middleName: t.Optional(t.String()),
         lastName: t.String({ minLength: 1 }),
         position: t.Optional(t.String()),
-        // FR-27 P3-5: a legacy key names the built-in role of that key; it is not written. Logged; the next release
-        // refuses it (422 `legacy_role_field`): send `roleKey`.
-        role: t.Optional(t.Union(roleValues)),
+        // #866: declared only to be refused (422 `legacy_role_field`): a schema drops what it does not name.
+        role: t.Optional(t.Unknown()),
         // FR-27.3: the person's role, by id or by its built-in template key; one of the two.
         roleId: t.Optional(t.String()),
         roleKey: roleKeyField,
@@ -191,11 +189,11 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
       delete updateData.permissionSetIds
 
       if (body.permissions !== undefined || body.permissionSetIds !== undefined) return status(422, LEGACY_FIELDS)
-      // FR-27.3: the person's one role, by `roleId` or `roleKey` (a legacy `role` key is still the built-in role of
-      // that key, logged, #529). role.service holds it to FR-27.8 (not your own, nothing beyond your own, the
-      // Administrator's only an Administrator's, never the last Administrator's).
+      if (body.role !== undefined) return status(422, LEGACY_ROLE)
+      // FR-27.3: the person's one role, by `roleId` or `roleKey`. role.service holds it to FR-27.8 (not your own,
+      // nothing beyond your own, the Administrator's only an Administrator's, never the last Administrator's).
       try {
-        const roleId = await namedRoleId(orgId, body, 'PUT /user/:userId')
+        const roleId = await namedRoleId(orgId, body)
         if (roleId) await assignRole(user as any, orgId, userId, roleId)
       } catch (e) {
         if (e instanceof RoleRefusal) return status(e.status, e.body)
@@ -264,11 +262,9 @@ export const userController = new Elysia({ prefix: '/org/:orgId/user' })
         middleName: t.Optional(t.String()),
         lastName: t.Optional(t.String()),
         position: t.Optional(t.String()),
-        // FR-27 P3-5: a legacy key names the built-in role of that key; it is not written. Logged; the next release
-        // refuses it (422 `legacy_role_field`): send `roleKey`.
-        role: t.Optional(t.Union(roleValues)),
         isActive: t.Optional(t.Boolean()),
-        // FR-27 P3-5: declared only to be refused (422 `legacy_role_field`): a schema drops what it does not name.
+        // FR-27 P3-5 and #866: declared only to be refused (422 `legacy_role_field`): a schema drops what it does not name.
+        role: t.Optional(t.Unknown()),
         permissions: t.Optional(t.Array(t.String())),
         permissionSetIds: t.Optional(t.Array(t.String())),
         roleId: t.Optional(t.String()),

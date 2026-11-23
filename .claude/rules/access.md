@@ -128,12 +128,11 @@ Why each one exists, and what was built around it: [`docs/history/access.md`](..
 - **A user route names the role by `roleId` or `roleKey`** (FR-27.3, #529, the owner's answer 3): `POST`/`PUT /user`
   take `roleKey`, a built-in role's template key (`seller`, `manager`…), which is the same in every org where a role id
   is not, resolved to that org's built-in role (`role.service#namedRoleId`). An unknown key is 422 `unknown_role_key`,
-  `roleId` with `roleKey` 422 `role_id_and_key`, either with the legacy `role` 422 `role_and_legacy`. Tests and e2e
-  files send `roleKey`.
-  - ⚠ A legacy `role` key on `POST`/`PUT /user` is still the built-in role of that key in this release, and every use
-    is logged at warn (`legacy role field on a user route`: the route, the org and the key, never the person). The
-    next release refuses it, 422 `legacy_role_field`, as invitations refuse `assignRole`: read that release's logs
-    first. A new caller sends `roleKey`.
+  `roleId` with `roleKey` 422 `role_id_and_key`. Tests and e2e files send `roleKey`.
+  - ⚠ A legacy `role` key on `POST`/`PUT /user` is refused, 422 `legacy_role_field` (#866), as invitations refuse
+    `assignRole`: never converted, never dropped, alone or beside `roleId`/`roleKey`. The schema declares it
+    (`t.Unknown()`) only so that it reaches the refusal. From 2026-11-18 until #866 it named the built-in role of that
+    key and each use was logged at warn; that conversion, its log and `role_and_legacy` are gone.
 
 - **How a role is named outside the roles screens** (`config/access/roles.ts#roleDisplay`: the org menu, the org picker,
   an invitation, the SUPTO operators export): a built-in role by its template key, which the SPA translates, while it

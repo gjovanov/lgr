@@ -16,8 +16,8 @@ import { logger } from 'services/logger'
  *
  * - `POST`/`PUT /user` name a role by `roleKey`, a built-in role's template key, which is the same in every org (a role
  *   id is not). An unknown key is 422 `unknown_role_key`; `roleId` with `roleKey` is 422 `role_id_and_key`.
- * - A legacy `role` key is still the built-in role of that key for this release, and each use is logged (warn: the
- *   route, the org, the key; nothing about the person). The next release refuses it (422 `legacy_role_field`).
+ * - A legacy `role` key is refused, 422 `legacy_role_field` (#866), as invitations refuse `assignRole`. From
+ *   2026-11-18 until then it named the built-in role of that key, and each use was logged at warn.
  * - A built-in role the org renamed shows its own name in the org menu and the SUPTO operators export, as on the
  *   Roles screen; one that still carries its template's name shows its key, as before.
  *
@@ -86,12 +86,10 @@ describe('FR-27.3: a role named by its key on the user routes', () => {
     expect(String((await User.findById(u._id).lean().exec() as any).roleId)).toBe(String(u.roleId))
   })
 
-  it('a role named twice is refused: roleId with roleKey, or either with the legacy role', async () => {
+  it('a role named twice is refused: roleId with roleKey', async () => {
     const seller = String((await builtin('seller'))._id)
     const both = await call('POST', `/org/${orgId}/user`, adminToken, { ...person('twice'), roleId: seller, roleKey: 'seller' })
     expect({ status: both.status, code: both.json?.code }).toEqual({ status: 422, code: 'role_id_and_key' })
-    const withLegacy = await call('POST', `/org/${orgId}/user`, adminToken, { ...person('twice'), roleKey: 'seller', role: 'seller' })
-    expect({ status: withLegacy.status, code: withLegacy.json?.code }).toEqual({ status: 422, code: 'role_and_legacy' })
     expect(await User.countDocuments({ orgId: org._id, username: 'twice' })).toBe(0)
 
     const u: any = await User.findOne({ orgId: org._id, username: 'bykey' }).lean().exec()
@@ -99,32 +97,26 @@ describe('FR-27.3: a role named by its key on the user routes', () => {
     expect({ status: edit.status, code: edit.json?.code }).toEqual({ status: 422, code: 'role_id_and_key' })
   })
 
-  it('a legacy role key still converts this release, and each use is logged with the route, the org and the key only', async () => {
-    const warn = spyOn(logger, 'warn')
-    try {
-      const r = await call('POST', `/org/${orgId}/user`, adminToken, { ...person('legacy'), role: 'seller' })
-      expect(r.status).toBe(200)
-      const made: any = await User.findById(madeId(r)).lean().exec()
-      expect(String(made.roleId)).toBe(String((await builtin('seller'))._id))
-      expect((await call('PUT', `/org/${orgId}/user/${made._id}`, adminToken, { role: 'member' })).status).toBe(200)
-
-      const logged = warn.mock.calls.map(c => c[0] as any).filter(o => o && typeof o === 'object' && 'route' in o)
-      expect(logged).toEqual([
-        { route: 'POST /user', orgId, key: 'seller' },
-        { route: 'PUT /user/:userId', orgId, key: 'member' },
-      ])
-      // Nothing about the person: no address, no name, no id.
-      expect(JSON.stringify(warn.mock.calls)).not.toContain('legacy@rolekey.test')
-      expect(JSON.stringify(warn.mock.calls)).not.toContain(String(made._id))
-    } finally {
-      warn.mockRestore()
+  it('#866: a legacy role key is refused, 422 legacy_role_field, alone or with roleKey, whatever its value; nothing written', async () => {
+    for (const extra of [{ role: 'seller' }, { roleKey: 'seller', role: 'seller' }, { role: 'not-a-role' }]) {
+      const r = await call('POST', `/org/${orgId}/user`, adminToken, { ...person('legacy'), ...extra })
+      expect({ status: r.status, code: r.json?.code }).toEqual({ status: 422, code: 'legacy_role_field' })
     }
+    expect(await User.countDocuments({ orgId: org._id, username: 'legacy' })).toBe(0)
+
+    const u: any = await User.findOne({ orgId: org._id, username: 'bykey' }).lean().exec()
+    for (const extra of [{ role: 'member' }, { roleKey: 'member', role: 'member' }]) {
+      const r = await call('PUT', `/org/${orgId}/user/${u._id}`, adminToken, extra)
+      expect({ status: r.status, code: r.json?.code }).toEqual({ status: 422, code: 'legacy_role_field' })
+    }
+    expect(String((await User.findById(u._id).lean().exec() as any).roleId)).toBe(String(u.roleId))
   })
 
-  it('roleKey is not logged', async () => {
+  it('#866: nothing on the user routes logs a legacy-role warning any more', async () => {
     const warn = spyOn(logger, 'warn')
     try {
       expect((await call('POST', `/org/${orgId}/user`, adminToken, { ...person('quiet'), roleKey: 'member' })).status).toBe(200)
+      expect((await call('POST', `/org/${orgId}/user`, adminToken, { ...person('loud'), role: 'member' })).status).toBe(422)
       expect(warn.mock.calls.map(c => c[0] as any).filter(o => o && typeof o === 'object' && 'route' in o)).toEqual([])
     } finally {
       warn.mockRestore()

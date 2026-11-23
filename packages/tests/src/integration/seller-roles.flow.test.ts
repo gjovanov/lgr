@@ -443,14 +443,19 @@ describe('the App Hub', () => {
 })
 
 describe('assigning a role takes effect (FR-26.9)', () => {
-  it('a legacy role key on PUT /user is the built-in role of that key, live, with the stored sets left as they were (FR-27 P3-5)', async () => {
+  it('a legacy role key on PUT /user is refused (422, #866); a role key is the built-in role, live, the stored sets left as they were', async () => {
     const admins = new mongoose.Types.ObjectId()
     const custom = new mongoose.Types.ObjectId()
     const { user, token } = await member('manager')
     await mongoose.connection.db!.collection('users').updateOne({ _id: user._id as any }, { $set: { permissionSetIds: [admins, custom] } })
     expect((await request('GET', '/apps', token)).status).toBe(200)
+    const before = await User.findById(user._id).lean()
 
-    const changed = await request('PUT', `/user/${user._id}`, tokens.admin, { role: 'seller' })
+    const legacy = await request('PUT', `/user/${user._id}`, tokens.admin, { role: 'seller' })
+    expect({ status: legacy.status, code: legacy.json?.code }).toEqual({ status: 422, code: 'legacy_role_field' })
+    expect(String((await User.findById(user._id).lean())!.roleId)).toBe(String(before!.roleId))
+
+    const changed = await request('PUT', `/user/${user._id}`, tokens.admin, { roleKey: 'seller' })
     expect(changed.status).toBe(200)
     const after = await User.findById(user._id).lean()
     // Nothing of the legacy model is written: the sets stay, frozen, and decide nothing.

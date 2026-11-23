@@ -5,7 +5,6 @@ import {
 import { Org, Role, User, type IRoleHistoryEntry } from 'db/models'
 import { mongoose } from 'db/connection'
 import { createAuditEntry, recordAuditEntry } from '../audit-log.service'
-import { logger } from '../../logger/logger.js'
 import { grantOf, type AccessCaller } from './evaluate'
 import { forgetMember, forgetRole } from './live'
 
@@ -405,30 +404,22 @@ export async function assertAssignable(actor: Actor, orgId: string, roleId: stri
 }
 
 /**
- * FR-27.3 (#529): what a `POST`/`PUT /user` body names as the person's role: `roleId` (the org's role), `roleKey` (the
+ * FR-27.3 (#529): what a `POST`/`PUT /user` body names as the person's role: `roleId` (the org's role) or `roleKey` (the
  * org's built-in role of that template key, which scripts and API callers can name in every org, since a role id
- * differs per org), or a legacy `role` key. Undefined when none is named. One of the three, never two (422).
+ * differs per org). Undefined when neither is named. One of the two, never both (422).
  *
- * The legacy `role` is still the built-in role of that key for this release, and each use is logged (warn: the route,
- * the org, the key; nothing about the person), so the release shows whether anything besides our tests still sends it.
- * ⚠ The next release refuses it, 422 `legacy_role_field`, as invitations already refuse `assignRole`.
+ * #866: a legacy `role` key is no longer read here. The user routes refuse it (422 `legacy_role_field`), as invitations
+ * refuse `assignRole`.
  */
-export async function namedRoleId(
-  orgId: string,
-  body: { roleId?: string; roleKey?: string; role?: string },
-  route: string,
-): Promise<string | undefined> {
-  const { roleId, roleKey, role: legacyKey } = body
+export async function namedRoleId(orgId: string, body: { roleId?: string; roleKey?: string }): Promise<string | undefined> {
+  const { roleId, roleKey } = body
   if (roleId && roleKey) refuse(422, 'role_id_and_key', 'Name the role once: by its id (roleId) or by its key (roleKey), not both.')
-  if (legacyKey && (roleId || roleKey)) refuse(422, 'role_and_legacy', 'Name the role once (roleId or roleKey): not with the legacy role.')
   if (roleId) return roleId
-  const key = roleKey ?? legacyKey
-  if (!key) return undefined
-  if (!templateOf(key)) {
-    refuse(422, 'unknown_role_key', `No built-in role has the key "${key}".`, { keys: ROLE_TEMPLATES.map(t => t.key) })
+  if (!roleKey) return undefined
+  if (!templateOf(roleKey)) {
+    refuse(422, 'unknown_role_key', `No built-in role has the key "${roleKey}".`, { keys: ROLE_TEMPLATES.map(t => t.key) })
   }
-  if (legacyKey) logger.warn({ route, orgId, key: legacyKey }, 'legacy role field on a user route: send roleKey (FR-27, #529)')
-  const builtin = await Role.findOne({ orgId, isBuiltin: true, templateKey: key }, { _id: 1 }).lean().exec()
+  const builtin = await Role.findOne({ orgId, isBuiltin: true, templateKey: roleKey }, { _id: 1 }).lean().exec()
   if (!builtin) refuse(422, 'role_not_found', 'This organization has no built-in role of that key.')
   return String(builtin!._id)
 }
