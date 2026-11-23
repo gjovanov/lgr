@@ -12,7 +12,7 @@ name: e2e smoke
 #   flaky here is a test nobody can trust to say "red" on a pull request.
 # - Its budget is five minutes (D-2), as the step's limit: Playwright and the server it tests.
 #
-# Which pull requests: those that change a UI package (`*-ui`, `ui-shared`, `ui-shell`, `web`) or the
+# Which pull requests: those that change a UI package (`web` with its modules, `desktop-ui`, `ui-shared`, `ui-shell`) or the
 # e2e package. The job runs on every pull request and decides in its first step, rather than through
 # an `on.paths` filter, so that the check exists on every pull request. A check that is required and
 # never reported holds a pull request for ever; this one, on a pull request that touches no UI path,

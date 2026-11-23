@@ -35,7 +35,7 @@ services:
     ports:
       - "80:4001"
       - "4001:4001"
-    working_dir: /app/packages/portal-api
+    working_dir: /app/packages/api
     command: ["bun", "run", "start:unified"]
     environment:
       HOST: "0.0.0.0"
