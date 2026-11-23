@@ -114,7 +114,8 @@ test('the company\'s representative, town of issue and activity code are saved a
   expect(org.settings.taxConfig.taxIdLabel).toBe(LABEL)
   expect(org.settings.taxConfig.defaultVatRate).toBe(before.settings.taxConfig.defaultVatRate)
   expect(org.settings.dailyDigest.sections).toMatchObject({ backups: true, server: false })
-  // and so is everything the person did not change: the modules the page has no switch for among it.
+  // and so is everything the person did not change: the modules and the payroll block among it, which the page no
+  // longer shows or sends (#816).
   expect(comparable(org)).toEqual(comparable(planted))
 
   // The page shows the three again.
