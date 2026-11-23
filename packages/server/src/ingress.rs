@@ -310,7 +310,9 @@ where
 /// - **The one-time token opens a session.** `GET /__lgr/setup` serves a page that reads the token
 ///   from the URL's fragment (never sent to any server, never logged) and trades it for an
 ///   `HttpOnly` cookie. Every other request needs that cookie, which is stripped before the API
-///   sees the request.
+///   sees the request. The one exception is lgrai.app's redirect back after "Sign in with LGR",
+///   which the `SameSite=Strict` cookie does not come with: it gets a page that asks for the same
+///   address again from here (`IDP_RETURN_PAGE`), and that request needs the cookie like any other.
 /// - **Setup itself** (`setup.rs`) is the console's own: `/__lgr/setup/app` and
 ///   `/__lgr/setup/api/*` are answered here and never reach the API. Everything else goes to the
 ///   API stamped `console`, which is how the first admin is made (FR-20.17).
@@ -339,6 +341,61 @@ fetch('/__lgr/setup/session', { method: 'POST', headers: { 'content-type': 'appl
   .catch(() => { document.getElementById('m').textContent = 'This setup link does not open setup. As an administrator, run "lgr-server setup-token" for the current one.' })
 </script>
 "#;
+
+/// The path lgrai.app sends "Sign in with LGR" back to (FR-20.39; `redirectAllowed` takes no other).
+const IDP_CALLBACK: &str = "/auth/idp/callback";
+
+/// lgrai.app's redirect back to the console after "Sign in with LGR" (FR-20.39), asked for again.
+///
+/// ⚠ The session cookie is `SameSite=Strict`, and a browser does not send such a cookie with a
+/// navigation another site started, which is exactly what that redirect is. Refused, the person
+/// who pressed the button in setup's browser was left on "Setup needs its link" with the code in
+/// the address bar, after Cancel and after Continue alike, and a reload changed nothing: the
+/// browser keeps the navigation's cross-site start. This page asks for the same address again,
+/// from the console's own origin. The cookie comes with that request, and the API serves the
+/// sign-in page as it always did.
+///
+/// It carries nothing and opens nothing: a request without the session still reaches no API, and
+/// the page that loads next is what checks the state and the verifier its tab started with. It
+/// asks once per state, so a browser that sent the second request cross-site as well stops here
+/// with a message instead of loading itself forever.
+const IDP_RETURN_PAGE: &str = r#"<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>LGR Server setup</title><link rel="icon" href="data:,">
+<body style="font-family:system-ui,sans-serif;margin:3rem;max-width:40rem">
+<p id="m">Signing in…</p>
+<script>
+let again = true
+try {
+  const key = 'lgr_setup_idp_return', state = new URLSearchParams(location.search).get('state') || ''
+  again = sessionStorage.getItem(key) !== state
+  if (again) sessionStorage.setItem(key, state); else sessionStorage.removeItem(key)
+} catch {}
+if (again) location.replace(location.href)
+else document.getElementById('m').textContent = 'This sign-in did not get back to setup. Sign in again from setup.'
+</script>
+"#;
+
+/// Is this lgrai.app's redirect back: a top-level navigation another site started, to the callback,
+/// without the session? Read from the Fetch Metadata the browser sets, which a page cannot write.
+/// Only `cross-site`: the cookie comes with a same-site navigation and with one the person started.
+fn is_idp_return(method: &Method, path: &str, headers: &HeaderMap) -> bool {
+    let is = |name: &str, want: &str| headers.get(name).and_then(|v| v.to_str().ok()) == Some(want);
+    method == Method::GET
+        && path == IDP_CALLBACK
+        && is("sec-fetch-site", "cross-site")
+        && is("sec-fetch-mode", "navigate")
+        && is("sec-fetch-dest", "document")
+}
+
+/// One of the console's own pages: HTML, never cached, and no address of it sent on as a referrer.
+fn page(html: &'static str) -> Response<Body> {
+    let mut r = text(StatusCode::OK, html);
+    r.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
+    r.headers_mut().insert("cache-control", HeaderValue::from_static("no-store"));
+    r.headers_mut().insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    r
+}
 
 /// Equal, in time that depends on the length only.
 fn same(a: &[u8], b: &[u8]) -> bool {
@@ -402,16 +459,14 @@ impl Console {
             return text(StatusCode::FORBIDDEN, "The setup console answers to its own address only.");
         }
         match (req.method(), req.uri().path()) {
-            (&Method::GET, "/__lgr/setup") => {
-                let mut r = text(StatusCode::OK, SETUP_PAGE);
-                r.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8"));
-                r.headers_mut().insert("cache-control", HeaderValue::from_static("no-store"));
-                return r;
-            }
+            (&Method::GET, "/__lgr/setup") => return page(SETUP_PAGE),
             (&Method::POST, "/__lgr/setup/session") => return self.open_session(req).await,
             _ => {}
         }
         if self.session_of(req.headers()).is_none() {
+            if is_idp_return(req.method(), req.uri().path(), req.headers()) {
+                return page(IDP_RETURN_PAGE);
+            }
             return text(StatusCode::FORBIDDEN, "Setup needs its link. As an administrator, run \"lgr-server setup-token\".");
         }
         // Setup's own steps: answered here, never forwarded (FR-20.18: the API serves no setup).
@@ -732,6 +787,51 @@ mod tests {
         let c = Arc::new(Console::new(port, token.into(), up, marker));
         tokio::spawn(c.serve_until_complete(listener, Connections::default(), Duration::from_millis(100)));
         port
+    }
+
+    #[tokio::test]
+    async fn global_s_redirect_back_is_asked_for_again_from_the_console_s_own_origin() {
+        let dir = tempfile::tempdir().unwrap();
+        let port = console_round("the-setup-token", echo_upstream().await, dir.path().join("setup-complete")).await;
+        let host = format!("127.0.0.1:{port}");
+        let get = |path: &str, extra: &str| format!("GET {path} HTTP/1.1\r\nHost: {host}\r\n{extra}Connection: close\r\n\r\n");
+        let fetch = |site: &str, mode: &str, dest: &str| format!("Sec-Fetch-Site: {site}\r\nSec-Fetch-Mode: {mode}\r\nSec-Fetch-Dest: {dest}\r\n");
+        let back = "/auth/idp/callback?code=the-code&state=the-state";
+        let cross = fetch("cross-site", "navigate", "document");
+
+        // lgrai.app's redirect back, which the SameSite=Strict session does not come with: a page
+        // that asks for the same address again, repeating nothing of it.
+        let (status, head, body) = raw(port, &get(back, &cross)).await;
+        assert_eq!(status, 200, "{body}");
+        let head = head.to_ascii_lowercase();
+        assert!(head.contains("text/html") && head.contains("cache-control: no-store") && head.contains("referrer-policy: no-referrer"), "{head}");
+        assert!(body.contains("location.replace(location.href)") && !body.contains("the-code"), "{body}");
+
+        // Asked again from the console's own origin, still without the session: refused, as before.
+        // That is also why the page cannot load itself again and again.
+        assert_eq!(raw(port, &get(back, &fetch("same-origin", "navigate", "document"))).await.0, 403);
+        // That path only, and only a top-level navigation another site started.
+        for (request, what) in [
+            (get("/auth/idp/callback/", &cross), "another path"),
+            (get("/auth/idp/callbacks?code=c", &cross), "a longer path"),
+            (get("/api/auth/idp/redeem", &cross), "the API"),
+            (get(back, &fetch("same-site", "navigate", "document")), "a same-site navigation"),
+            (get(back, &fetch("none", "navigate", "document")), "one the person started"),
+            (get(back, &fetch("cross-site", "navigate", "iframe")), "a frame"),
+            (get(back, &fetch("cross-site", "no-cors", "image")), "a subresource"),
+            (get(back, ""), "a client that sends no fetch metadata"),
+            (format!("POST {back} HTTP/1.1\r\nHost: {host}\r\n{cross}Content-Length: 0\r\nConnection: close\r\n\r\n"), "a POST"),
+        ] {
+            assert_eq!(raw(port, &request).await.0, 403, "{what}");
+        }
+
+        // With the session, the second request reaches the API as any other does.
+        let cookie = format!("{SESSION_COOKIE}={}", crate::front::setup_session("the-setup-token"));
+        let (status, _, body) = raw(port, &get(back, &format!("Cookie: {cookie}\r\n{}", fetch("same-origin", "navigate", "document")))).await;
+        assert_eq!(status, 200, "{body}");
+        let seen: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(seen["headers"]["x-lgr-source"], "console");
+        assert!(seen["headers"].get("cookie").is_none(), "the session went on to the API: {seen}");
     }
 
     #[tokio::test]
