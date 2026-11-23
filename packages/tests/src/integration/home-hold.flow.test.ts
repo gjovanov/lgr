@@ -4,7 +4,7 @@ import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg } from '../helpers/factories'
 import { config } from 'config'
-import { Org, OrgHome, ServerNode } from 'db/models'
+import { AuditLog, GlobalAuditEntry, Org, OrgHome, ServerNode } from 'db/models'
 import { forgetAllHomes, homeOf, isHomeHere } from 'db/home/home'
 import { heldHomes, holdAfterRestore, noteReportedHomes, releaseHold } from 'services/biz/home/home-hold.service'
 import { recordOrgState } from 'services/biz/node/node.service'
@@ -205,7 +205,15 @@ describe('the sys-admin routes (P3-8d)', () => {
     expect((await call(`/admin/nodes/held/${orgId}/release`, orgAdmin, 'POST', {})).status).toBe(403)
     const released = await call(`/admin/nodes/held/${orgId}/release`, ops, 'POST', {})
     expect(released.json).toEqual({ home: { home: NODE, epoch: 2, state: 'active' } })
+    // FR-29.21: the settle is audited. The org's home is its server, so global keeps the entry, never in the trail.
+    const kept: any[] = await GlobalAuditEntry.find({ orgId: org._id }).lean().exec()
+    expect(kept.map(e => [e.action, e.module, e.entityType, String(e.entityId), String(e.userId), e.operatorCode, e.home, e.homeState])).toEqual([
+      ['release', 'admin', 'org_home', orgId, '6a0000000000000000000001', undefined, NODE, 'active'],
+    ])
+    expect(kept[0].changes.map((c: any) => [c.field, c.oldValue, c.newValue])).toEqual([['state', 'hold', 'active'], ['home', null, NODE], ['epoch', null, 2]])
+    expect(await AuditLog.countDocuments({ orgId: org._id }).exec()).toBe(0)
     expect((await call(`/admin/nodes/held/${orgId}/release`, ops, 'POST', {})).status).toBe(409)
+    expect(await GlobalAuditEntry.countDocuments({ orgId: org._id }).exec()).toBe(1)
     ;(config.node as any).role = 'master'
     expect((await call('/admin/nodes/held', ops)).status).toBe(404)
   }, 60_000)

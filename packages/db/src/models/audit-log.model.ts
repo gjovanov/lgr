@@ -34,35 +34,43 @@ export interface IAuditLog extends Document {
 /** An entry a sys-admin script wrote on the server: it names the script, not a person. */
 export const isScriptVia = (via: unknown): boolean => typeof via === 'string' && via.startsWith('scripts/')
 
-const auditLogSchema = new Schema<IAuditLog>({
-  // Who: a person, always, but for a sys-admin script run on the server (`via: 'scripts/<name>.ts'`), which acts as
-  // nobody in the org (FR-27: `access-model.ts`, `restore-administrator.ts`). `via` names it instead.
-  // FR-29.20: or the system, which names its job or event in `actor` instead.
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: function (this: any) { return !isScriptVia(this?.via) && this?.actor?.kind !== 'system' } },
-  actor: {
-    type: new Schema({ kind: { type: String, enum: ['system'], required: true }, name: { type: String, required: true } }, { _id: false }),
-    required: false,
-  },
-  operatorCode: String,
-  action: { type: String, required: true },
-  module: { type: String, required: true },
-  entityType: { type: String, required: true },
-  // Mixed: usually an ObjectId, but config-style entities (sequence prefixes like
-  // "CASH_SALE") audit with their string key.
-  entityId: { type: Schema.Types.Mixed, required: true },
-  entityName: String,
-  unpNumber: String,
-  correlationId: Schema.Types.ObjectId,
-  changes: [{
-    field: String,
-    oldValue: Schema.Types.Mixed,
-    newValue: Schema.Types.Mixed,
-  }],
-  ipAddress: String,
-  userAgent: String,
-  via: String,
-  timestamp: { type: Date, default: Date.now },
-})
+/**
+ * An entry's fields, but its org: the org's trail here, and the entries global keeps for itself about an org whose
+ * home is elsewhere (`GlobalAuditEntry`). A function, so each schema gets its own definitions.
+ */
+export function auditEntryFields() {
+  return {
+    // Who: a person, always, but for a sys-admin script run on the server (`via: 'scripts/<name>.ts'`), which acts as
+    // nobody in the org (FR-27: `access-model.ts`, `restore-administrator.ts`). `via` names it instead.
+    // FR-29.20: or the system, which names its job or event in `actor` instead.
+    userId: { type: Schema.Types.ObjectId, ref: 'User', required: function (this: any) { return !isScriptVia(this?.via) && this?.actor?.kind !== 'system' } },
+    actor: {
+      type: new Schema({ kind: { type: String, enum: ['system'], required: true }, name: { type: String, required: true } }, { _id: false }),
+      required: false,
+    },
+    operatorCode: String,
+    action: { type: String, required: true },
+    module: { type: String, required: true },
+    entityType: { type: String, required: true },
+    // Mixed: usually an ObjectId, but config-style entities (sequence prefixes like
+    // "CASH_SALE") audit with their string key.
+    entityId: { type: Schema.Types.Mixed, required: true },
+    entityName: String,
+    unpNumber: String,
+    correlationId: Schema.Types.ObjectId,
+    changes: [{
+      field: String,
+      oldValue: Schema.Types.Mixed,
+      newValue: Schema.Types.Mixed,
+    }],
+    ipAddress: String,
+    userAgent: String,
+    via: String,
+    timestamp: { type: Date, default: Date.now },
+  }
+}
+
+const auditLogSchema = new Schema<IAuditLog>(auditEntryFields())
 
 auditLogSchema.plugin(tenantPlugin)
 auditLogSchema.index({ orgId: 1, timestamp: -1 })

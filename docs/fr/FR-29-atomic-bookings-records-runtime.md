@@ -466,6 +466,13 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     they pass the same map through the same function.
   - Decision (FR-29.21's health): as slice D's, the count is in the sys-admin health (`GET /api/admin/nodes/health`,
     `audit`) and a master's `/status`, not in the public `/api/health`. It counts this process's failures since start.
+  - FR-29.21, 2026-11-23 (found by the FR-20 field lanes): on lgrai.app, every entry about an org whose home is a
+    server (a sign-in into it, a change on its Servers page) was refused by the write guard, so the count above rose
+    on every such sign-in and the entry was lost. Global keeps it now in `GlobalAuditEntry` (node state, class `N`),
+    with where the home was, and counts it apart (`auditHealth().keptOnGlobal`); the audit page, its filters and a
+    correlation on lgrai.app read both. It never goes into the org's trail, which a move back compares with the
+    server's. `recordAuditEntry` keeps one only when its caller asks (`keepOnGlobal`: the sign-in, a settled home
+    hold), so a caller that needs the trail is still refused. Test: `integration/audit-kept-on-global.flow`.
 - **Slice F** (branch `feat/794-fr29-f-runtime`, on slice E):
   - FR-29.23: `identityStillValid` has three outcomes. A read that throws is `SessionCheckUnavailableError` (503
     `session_check_unavailable`, `spaErrorHandler`), never remembered; the SPA says "try again" in four languages
@@ -491,6 +498,12 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     leases of the jobs not mid-tick (2026-11-23, found by the FR-20 field lanes): kept, a lease held the next process
     off until it lapsed, a minute for most jobs, and for as long as the clock had been wrong when a clock put back was
     followed by a restart.
+  - Decision (FR-29.27, 2026-11-23): what a graceful stop cannot cover is accepted. A process that stops without one (a
+    crash, a kill, a power cut) keeps its leases until they lapse, three intervals after its last renewal and at least
+    a minute; one written while the clock was ahead lapses that much later. The next process skips those jobs until then
+    (`skippedLease`). There is no takeover, because a process cannot tell a dead holder from a live one that is slow or
+    whose clock is wrong, and taking an unlapsed lease would run a `one` job twice. The operator's note is in
+    `docs/guides/server-install.md` ("After a crash or a power cut").
   - FR-29.28: the task store forgets a finished task after 10 minutes; the three task routes fall back to the
     `BackgroundTask` row, as they did.
   - FR-29.29: limits counted in memory: the tunnel edge's anonymous rate limit (`portal-api/src/tunnel/edge.ts`), per
