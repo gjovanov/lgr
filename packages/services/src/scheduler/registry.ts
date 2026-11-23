@@ -52,6 +52,8 @@ export interface SchedulerHealth {
 const health = new Map<string, SchedulerHealth>()
 const timers: ReturnType<typeof setInterval>[] = []
 const running = new Set<string>()
+/** The `one` jobs whose lease this process took at its last tick: what its graceful stop gives back. */
+const leased = new Set<string>()
 
 /** This process, as a lease names it. */
 export const SCHEDULER_HOLDER = `${hostname()}#${process.pid}`
@@ -89,6 +91,45 @@ export function useLeaseTaker(taker: LeaseTaker, holder?: string): void {
 }
 let currentHolder = SCHEDULER_HOLDER
 
+/** Gives back the leases `holder` holds of the jobs named; how many it gave back. Replaceable for tests. */
+export type LeaseReleaser = (names: string[], holder: string) => Promise<number>
+
+/** Lapses the leases in the database, so the next taker gets each at once. Only `holder`'s: never another process's. */
+export const releaseLeasesInDb: LeaseReleaser = async (names, holder) => {
+  const { SchedulerLease } = await import('db/models')
+  const r = await SchedulerLease.updateMany({ _id: { $in: names }, holder }, { $set: { leaseUntil: new Date(0) } }).exec()
+  return r.modifiedCount
+}
+
+let leaseReleaser: LeaseReleaser = releaseLeasesInDb
+/** Tests only: how a graceful stop gives the leases back. */
+export function useLeaseReleaser(releaser: LeaseReleaser): void {
+  leaseReleaser = releaser
+}
+
+/**
+ * The graceful stop (FR-20.23): gives back the leases of the `one` jobs this process holds and is not running now, so
+ * the process that comes next takes each job at its first tick. Until 2026-11-23 a stop kept them, and the next
+ * process skipped every tick until they lapsed (`leaseMsOf`: a minute for a 10 s job, three intervals for a longer
+ * one), since a lease names its holder by pid. A master restarted a few seconds after a move's flip kept the org
+ * frozen, refusing its writes, for that minute; its mail, identity changes and replication waited as long.
+ *
+ * Call it once the timers are halted, so no tick starts after it. A tick still running keeps its lease, which lapses
+ * as before: another process must not run that job beside it. Never throws.
+ */
+export async function releaseSchedulerLeases(): Promise<string[]> {
+  const names = [...leased].filter(n => !running.has(n))
+  if (!names.length) return []
+  try {
+    await leaseReleaser(names, currentHolder)
+    for (const n of names) leased.delete(n)
+    return names
+  } catch (e: any) {
+    logger.warn({ schedulers: names, error: String(e?.message ?? e).slice(0, 300) }, 'Scheduler leases not given back: they lapse by themselves')
+    return []
+  }
+}
+
 export function schedulerHealth(): SchedulerHealth[] {
   return [...health.values()].map(h => ({ ...h }))
 }
@@ -116,9 +157,11 @@ export async function runTick(def: SchedulerDef, h: SchedulerHealth): Promise<vo
         return
       }
       if (!held) {
+        leased.delete(def.name)
         h.skippedLease++
         return
       }
+      leased.add(def.name)
     }
     h.lastRunAt = new Date()
     h.runs++
@@ -176,6 +219,8 @@ export function stopSchedulers(): void {
   haltSchedulers()
   health.clear()
   running.clear()
+  leased.clear()
   leaseTaker = takeSchedulerLease
+  leaseReleaser = releaseLeasesInDb
   currentHolder = SCHEDULER_HOLDER
 }

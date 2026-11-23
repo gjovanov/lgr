@@ -8,7 +8,10 @@ import { GUARD_INDEXES, sameKey } from 'db/indexes/guard-indexes'
 import { verifyIndexes } from 'db/indexes/verify'
 import { isQueryTimeout, queryTimeLimitNow, shapeOf, QUERY_TIME_LIMIT_MS, QUERY_TIME_LIMIT_LONG_MS } from 'db/plugins/query-time-limit'
 import { SessionCheckUnavailableError, forgetIdentity, identityStillValid, liveSessionUser } from 'services/biz/identity/session.service'
-import { leaseMsOf, newSchedulerHealth, runTick, stopSchedulers, takeSchedulerLease, useLeaseTaker, type SchedulerDef } from 'services/scheduler/registry'
+import {
+  leaseMsOf, newSchedulerHealth, releaseLeasesInDb, releaseSchedulerLeases, runTick, stopSchedulers, takeSchedulerLease, useLeaseTaker,
+  type SchedulerDef,
+} from 'services/scheduler/registry'
 import { taskStore, FINISHED_TASK_TTL_MS } from 'services/background/task.store'
 import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
 
@@ -20,7 +23,7 @@ import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
  * - FR-29.24/.25: the declared indexes are verified, a clash that keeps a unique index from building is reported, and
  *   the guard list matches what the models declare.
  * - FR-29.26: a request's reads have a time limit (shape-only logging, the 503).
- * - FR-29.27: a tick does not overlap itself; a `one` job runs under a lease.
+ * - FR-29.27: a tick does not overlap itself; a `one` job runs under a lease, which a graceful stop gives back.
  * - FR-29.28: the task store forgets a finished task.
  *
  * NOTE: no `.rejects` / `.resolves` (Bun-on-Windows deadlock, see Known Issues).
@@ -187,6 +190,62 @@ describe('FR-29.27: a tick does not overlap itself, and a `one` job runs under a
     expect(runs).toBe(1)
     expect(leaseMsOf(1000)).toBe(60_000)
     expect(leaseMsOf(60_000)).toBe(180_000)
+  })
+
+  it('a stop gives back the leases it holds: the process after a restart runs the job at its first tick', async () => {
+    let runs = 0
+    const def: SchedulerDef = { name: 'job-z', intervalMs: 10_000, where: 'one', tick: async () => { runs++ } }
+    useLeaseTaker(takeSchedulerLease, 'host#1')
+    await runTick(def, newSchedulerHealth(def))
+    expect(runs).toBe(1)
+    expect(await releaseSchedulerLeases()).toEqual(['job-z'])
+    expect(await releaseSchedulerLeases()).toEqual([])
+    // Another pid: a minute before the lease would have lapsed.
+    useLeaseTaker(takeSchedulerLease, 'host#2')
+    const next = newSchedulerHealth(def)
+    await runTick(def, next)
+    expect(runs).toBe(2)
+    expect(next.skippedLease).toBe(0)
+  })
+
+  it('a lease taken by a clock 30 days ahead, then put back and restarted, holds off nobody', async () => {
+    // As the clock stood when the job last ticked: the lease ends 30 days past the real time.
+    const ahead = 30 * 86_400_000
+    let runs = 0
+    const def: SchedulerDef = { name: 'job-c', intervalMs: 10_000, where: 'one', tick: async () => { runs++ } }
+    useLeaseTaker((name, holder, ms) => takeSchedulerLease(name, holder, ms + ahead), 'host#1')
+    await runTick(def, newSchedulerHealth(def))
+    // Without the stop's release, the next process waits for the clock to catch up.
+    expect(await takeSchedulerLease('job-c', 'host#2', 60_000)).toBe(false)
+    expect(await releaseSchedulerLeases()).toEqual(['job-c'])
+    useLeaseTaker(takeSchedulerLease, 'host#2')
+    await runTick(def, newSchedulerHealth(def))
+    expect(runs).toBe(2)
+  })
+
+  it('a lease is given back only by its holder, and not while its tick runs', async () => {
+    expect(await takeSchedulerLease('job-q', 'host#2', 60_000)).toBe(true)
+    expect(await releaseLeasesInDb(['job-q'], 'host#1')).toBe(0)
+    expect(await takeSchedulerLease('job-q', 'host#3', 60_000)).toBe(false)
+
+    // A tick still running when the stop comes keeps its lease: no other process may run the job beside it.
+    let finish!: () => void
+    let begun!: () => void
+    const started = new Promise<void>(r => { begun = r })
+    const def: SchedulerDef = {
+      name: 'job-r', intervalMs: 10_000, where: 'one',
+      tick: () => new Promise<void>(r => { finish = r; begun() }),
+    }
+    useLeaseTaker(takeSchedulerLease, 'host#1')
+    const tick = runTick(def, newSchedulerHealth(def))
+    await started
+    expect(await releaseSchedulerLeases()).toEqual([])
+    expect(await takeSchedulerLease('job-r', 'host#2', 60_000)).toBe(false)
+    finish()
+    await tick
+    // Finished: the stop's second pass gives it back.
+    expect(await releaseSchedulerLeases()).toEqual(['job-r'])
+    expect(await takeSchedulerLease('job-r', 'host#2', 60_000)).toBe(true)
   })
 })
 

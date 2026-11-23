@@ -487,7 +487,10 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     it answers 503 `query_timeout`. Raw driver calls are not covered.
   - FR-29.27: the registry skips a tick while the previous one of the same job runs in the process (logged, counted).
     Every job says `where`; a `one` job runs under a `SchedulerLease` (`scheduler_leases`, class N, no org), taken by a
-    conditional write and renewed each tick. The table of the 21 jobs is in the PR.
+    conditional write and renewed each tick. The table of the 21 jobs is in the PR. A graceful stop gives back the
+    leases of the jobs not mid-tick (2026-11-23, found by the FR-20 field lanes): kept, a lease held the next process
+    off until it lapsed, a minute for most jobs, and for as long as the clock had been wrong when a clock put back was
+    followed by a restart.
   - FR-29.28: the task store forgets a finished task after 10 minutes; the three task routes fall back to the
     `BackgroundTask` row, as they did.
   - FR-29.29: limits counted in memory: the tunnel edge's anonymous rate limit (`portal-api/src/tunnel/edge.ts`), per

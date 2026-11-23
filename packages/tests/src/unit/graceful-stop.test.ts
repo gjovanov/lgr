@@ -3,9 +3,13 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test'
 import { fiscalOperation } from 'fiscal/in-flight'
+import { newSchedulerHealth, runTick, stopSchedulers, useLeaseReleaser, useLeaseTaker, type SchedulerDef } from 'services/scheduler/registry'
 import { gracefulStop, isStopping, resetGracefulStopForTests } from '../../../portal-api/src/front/graceful-stop'
 
-afterEach(() => resetGracefulStopForTests())
+afterEach(() => {
+  resetGracefulStopForTests()
+  stopSchedulers()
+})
 
 function harness(pending = 0) {
   const events: string[] = []
@@ -20,6 +24,7 @@ function harness(pending = 0) {
       waitMs: 2000,
       closeControl: () => events.push('control closed'),
       disconnect: async () => { events.push('database closed') },
+      stopCapture: async () => { events.push('capture stopped') },
       exit: (code: number) => { exitCode = code; events.push(`exit ${code}`); resolve(code) },
     }
     ;(harness as any).deps = deps
@@ -58,6 +63,34 @@ describe('gracefulStop', () => {
     const started = Date.now()
     await gracefulStop('test', h.deps)
     expect(Date.now() - started).toBeGreaterThanOrEqual(280)
+    expect(h.code()).toBe(0)
+  })
+
+  test('gives back the leases of its schedulers and stops the capture, before the database closes', async () => {
+    const h = harness()
+    const given: string[][] = []
+    useLeaseTaker(async () => true, 'host#1')
+    useLeaseReleaser(async (names, holder) => {
+      given.push(names)
+      h.events.push(`leases of ${holder} given back: ${names.join(',')}`)
+      return names.length
+    })
+    const def: SchedulerDef = { name: 'job-o', intervalMs: 10_000, where: 'one', tick: async () => {} }
+    await runTick(def, newSchedulerHealth(def))
+    await gracefulStop('test', h.deps)
+    expect(given).toEqual([['job-o']])
+    const at = (e: string) => h.events.indexOf(e)
+    expect(at('leases of host#1 given back: job-o')).toBeGreaterThan(at('listener stopped (close=false)'))
+    expect(at('capture stopped')).toBeGreaterThan(at('leases of host#1 given back: job-o'))
+    expect(at('database closed')).toBeGreaterThan(at('capture stopped'))
+  })
+
+  test('a capture that does not answer holds the stop up two seconds at most', async () => {
+    const h = harness()
+    h.deps.stopCapture = () => new Promise(() => {})
+    const started = Date.now()
+    await gracefulStop('test', h.deps)
+    expect(Date.now() - started).toBeLessThan(3000)
     expect(h.code()).toBe(0)
   })
 
