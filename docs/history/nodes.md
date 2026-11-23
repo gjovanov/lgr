@@ -903,6 +903,14 @@ Operator page: `docs/architecture/nodes.md#moving-an-org-to-its-master-fr-2079`.
 - ⚠ **The audit trail is org data**, refused like any other write once the org is frozen or gone: the
   start's entry is AWAITED before the freeze (`recordAuditEntry`, so it is in the copy), an abort's
   after the unfreeze, and the master writes the arrival once the org is home there.
+- **Global's own audit entries** (2026-11-23, FR-29.21, found by the FR-20 field lanes): what global
+  did about an org homed on a server (a sign-in on lgrai.app, a change on the Servers page) was refused
+  by the write guard and only counted as an audit write failure. Global keeps such an entry now in
+  `GlobalAuditEntry` (`global_audit_entries`, node state, class `N`), with where the home was
+  (`home`, `homeState`, `homeEpoch`); the audit page, its filters and a correlation read it beside
+  the trail on global. Not in the trail: the move back compares the trail with the server's
+  (`homeDigests`). `recordAuditEntry` keeps one only with `keepOnGlobal` (the sign-in and the hold
+  settle ask for it). Test: `integration/audit-kept-on-global.flow`.
 - ⚠ **Global's own org-scoped records are refused by the write guard during the freeze too**
   (`DesktopEnrollmentCode/Key` carry `tenantPlugin`): those revocations, `homeEpochHighWater` and
   `mirror_state` are raw writes, listed in `home-write-guard.flow`'s `RAW_WRITE_SITES`.
@@ -983,6 +991,9 @@ so nothing is re-enrolled. Global's half: `services/biz/desktop/repoint.service.
     `:orgId`: the tenant guard and the home gate key on that name and would refuse a sys-admin
     settling an org on hold. Global's audit log cannot take it (the org is on hold): the row keeps
     `released`, and the log line says who. The Nodes page raises `home_hold` per server.
+    Since 2026-11-23 (FR-29.21) it can, and the route records the settle (`release` / `adopt`,
+    `entityType: 'org_home'`): in the trail when the org is home on global after it, otherwise in
+    `GlobalAuditEntry` (above, beside the move's audit trail).
 - **An org's address on the internet (FR-20.72, P3-4a; `services/biz/address/org-address.service.ts`).**
   `OrgAddress {label, orgId, state: requested | active | refused | retired}`, global's record about the
   org: node state, never in a bundle, no `tenantPlugin` (so the write guard does not see it).

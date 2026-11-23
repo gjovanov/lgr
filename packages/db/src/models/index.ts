@@ -28,6 +28,7 @@ export {
   type IRestoreSequenceClamp,
 } from './restore-run.model.js'
 export { AuditLog, type IAuditLog } from './audit-log.model.js'
+export { GlobalAuditEntry, type IGlobalAuditEntry } from './global-audit-entry.model.js'
 export { File, type IFile } from './file.model.js'
 export { DocFile, type IDocFile, type DocType, type DocFileStatus } from './doc-file.model.js'
 export { Notification, type INotification } from './notification.model.js'

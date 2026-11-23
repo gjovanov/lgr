@@ -8,7 +8,7 @@ import { isSysAdmin } from 'services/biz/sys-admin'
 import { alarmsOfNodes } from 'services/biz/node/node-alarms'
 import { HomeHoldError, heldHomes, holdAfterRestore, releaseHold } from 'services/biz/home/home-hold.service'
 import { postingHealth } from 'services/biz/postings/posting.service'
-import { auditHealth } from 'services/biz/audit-log.service'
+import { auditHealth, recordAuditEntry } from 'services/biz/audit-log.service'
 import { lastIndexReport } from 'db/indexes/verify'
 import { schedulerHealth } from 'services/scheduler/registry'
 
@@ -135,7 +135,16 @@ export const adminNodesController = new Elysia({ prefix: '/admin/nodes' })
       if (!user) return status(401, { message: 'Unauthorized' })
       if (!isSysAdmin(user)) return status(403, { message: 'This page requires a system administrator' })
       try {
-        return { home: await releaseHold(orgId, (user as any).email || String((user as any).id), { adopt: body.adopt === true }) }
+        const adopt = body.adopt === true
+        const home = await releaseHold(orgId, (user as any).email || String((user as any).id), { adopt })
+        // FR-29.21: the settle in the org's audit, and while its home is elsewhere in global's own entries
+        // (`keepOnGlobal`). Awaited, so the entry is there by the time the answer is. No operator code: a
+        // sys-admin's is a code of their own org, never this one's.
+        await recordAuditEntry({
+          orgId, userId: String(user.id), action: adopt ? 'adopt' : 'release', module: 'admin', entityType: 'org_home', entityId: orgId,
+          entityName: 'home hold', changes: { state: { from: 'hold', to: home.state }, home: { to: home.home }, epoch: { to: home.epoch } },
+        }, { keepOnGlobal: true })
+        return { home }
       } catch (e) {
         if (e instanceof HomeHoldError) return status(e.statusCode, { code: e.code, message: e.message })
         throw e

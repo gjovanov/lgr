@@ -18,8 +18,9 @@
  * ⚠ A hold never changes who is home or the epoch: it only stops writes. Releasing restores the state
  * the row had (`hold.from`). Adopting is the one path that rewrites the record, and only to a record a
  * server registered for the org reported itself.
- * ⚠ Global's audit log cannot take these: the org is on hold, so nothing of its data is written here.
- * The row keeps the last release (`released`), and the log line says who.
+ * The org is on hold, so nothing of its data is written here: the row keeps the last release (`released`), and the log
+ * line says who. A sys-admin's settle is audited by its route (`release` / `adopt`, FR-29.21): into the org's trail
+ * when the org is home here after it, into global's own entries (`GlobalAuditEntry`) while its home is elsewhere.
  */
 import { nodeRole } from 'config'
 import { forgetAllHomes, homeOf } from 'db/home/home'
