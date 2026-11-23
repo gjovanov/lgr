@@ -50,8 +50,8 @@ function reckon(l: AmountLine): { net: number; discount: number; tax: number } {
 }
 
 /**
- * A line as the model wants it stored. `lineTotal` is gross, as a form's is (FR-21.5). What the client
- * sent stands: an imported line's `lineTotal` is net.
+ * A line as the model wants it stored. `lineTotal` is gross, as a form's is (FR-21.5), and as an imported
+ * line's is since #598 (migration 0023). What the client sent stands.
  */
 export function withLineAmounts<L extends AmountLine>(l: L): L & { unit: string; description: string; taxAmount: number; lineTotal: number } {
   const { net, discount, tax } = reckon(l)

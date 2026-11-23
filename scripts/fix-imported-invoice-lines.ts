@@ -7,7 +7,8 @@
  *     only space runs may differ) and sets productId + warehouseId on the line.
  *  2. REPRICE lines whose displayed 4-decimal unit price does not reproduce the exact
  *     line total (legacy PDFs round the price for display: 3000 × 0.0213 ≠ 64.00) —
- *     sets unitPrice = lineTotal / qty at 6 decimals. Stored lineTotal/taxAmount and
+ *     sets unitPrice = net / qty at 6 decimals, the net being lineTotal − taxAmount
+ *     (lineTotal is gross since #598). Stored lineTotal/taxAmount and
  *     the invoice totals are untouched (they were always correct).
  *
  * Writes a full JSON backup of every touched invoice next to the repo root before
@@ -93,12 +94,15 @@ for (const inv of invoices) {
       }
     }
     // 0.001 threshold: even sub-half-cent per-line residues (5 × 0.1176 = 0.588 vs 0.59)
-    // sum to visible cents across an invoice — the line total is the authoritative value.
-    if (line.quantity > 0 && line.lineTotal > 0 && Math.abs(line.quantity * line.unitPrice - line.lineTotal) > 0.001) {
-      const newPrice = +(line.lineTotal / line.quantity).toFixed(6)
+    // sum to visible cents across an invoice — the line's value is the authoritative one.
+    // ⚠ That value is the NET, `lineTotal − taxAmount`: `lineTotal` is gross on every line
+    // since #598 (migration 0023). Reading it as the net would price every line at its gross.
+    const net = +((Number(line.lineTotal) || 0) - (Number(line.taxAmount) || 0)).toFixed(2)
+    if (line.quantity > 0 && net > 0 && Math.abs(line.quantity * line.unitPrice - net) > 0.001) {
+      const newPrice = +(net / line.quantity).toFixed(6)
       repriced++
       changed = true
-      console.log(`  ~ ${inv.invoiceNumber} "${(line.description || '').slice(0, 30)}" price ${line.unitPrice} → ${newPrice} (qty ${line.quantity} × price must equal ${line.lineTotal})`)
+      console.log(`  ~ ${inv.invoiceNumber} "${(line.description || '').slice(0, 30)}" price ${line.unitPrice} → ${newPrice} (qty ${line.quantity} × price must equal ${net})`)
       line.unitPrice = newPrice
     }
     lines.push(line)

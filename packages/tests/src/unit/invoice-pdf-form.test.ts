@@ -276,3 +276,30 @@ describe('a printed draft', () => {
     expect(html).not.toContain('draft-watermark')
   })
 })
+
+describe('„Стойност" prints the line\'s net value (#598)', () => {
+  const linesTable = (html: string) => {
+    const at = html.indexOf('<table class="lines">')
+    return html.slice(at, html.indexOf('</table>', at))
+  }
+
+  it('an LGR-made line, stored gross, prints its net: what the tax base adds up', () => {
+    const table = linesTable(build({
+      lines: [{ description: 'Гайка', quantity: 40, unit: 'pcs', unitPrice: 0.1, taxRate: 20, taxAmount: 0.8, lineTotal: 4.8 }],
+      subtotal: 4, taxTotal: 0.8, total: 4.8,
+    }))
+    expect(table).toContain('<td class="a-right fit">4.00</td>')
+    expect(table).not.toContain('4.80')
+  })
+
+  it('an imported line prints the value its paper shows, as it did before 0023 made it gross', () => {
+    const paper = { description: 'Шайба', quantity: 3000, unit: 'pcs', unitPrice: 64 / 3000, taxRate: 20, taxAmount: 12.8 }
+    const table = linesTable(build({ lines: [{ ...paper, lineTotal: 76.8 }], subtotal: 64, taxTotal: 12.8, total: 76.8 }))
+    expect(table).toContain('<td class="a-right fit">64.00</td>')
+    expect(table).not.toContain('76.80')
+  })
+
+  it('a line stored without its VAT prints what it holds', () => {
+    expect(linesTable(build())).toContain('<td class="a-right fit">120.00</td>')
+  })
+})

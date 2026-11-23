@@ -164,9 +164,10 @@ function lineWeights(l: string): { net: any; tax: any; gross: any } {
  * (`{ _id: { direction, type }, subtotal, taxTotal, total }`).
  *
  * Each line takes the share of its document's net, VAT and gross that its terms weigh among all the document's
- * lines. The stored line amounts are not read, because they do not mean one thing: an imported line's `lineTotal`
- * is net where a form's is gross (`document-amounts.ts`). So a document whose every line matches counts exactly as
- * the unfiltered summary counts it, and the rest of the document's money stays out.
+ * lines. The stored line amounts are not summed: an imported document's header is the paper's, and its lines'
+ * rounded VAT can sum a cent or two away from it. So a document whose every line matches counts exactly as the
+ * unfiltered summary counts it, and the rest of the document's money stays out. (Until #598 an imported line's
+ * `lineTotal` was also net where a form's is gross; every line's is gross now, so the rows' Total column agrees.)
  */
 function productLinesSummary(matchStage: Record<string, any>, productIds: unknown[]): any[] {
   const all = (k: 'net' | 'tax' | 'gross') => ({ $sum: { $map: { input: '$lines', as: 'l', in: lineWeights('$$l')[k] } } })

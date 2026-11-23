@@ -150,7 +150,8 @@ export async function createInvoiceJournalEntry(
   const rate = invoice.exchangeRate || 1
   const lines: JELine[] = []
 
-  // Revenue/expense lines from invoice lines
+  // Revenue/expense lines from invoice lines. A line's `lineTotal` is gross on every document, imported ones
+  // included since #598 (migration 0023), so its net is `lineTotal − taxAmount`.
   let totalRevenue = 0
   let totalTax = 0
   for (const line of (invoice.lines || [])) {
