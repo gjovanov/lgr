@@ -29,6 +29,7 @@
 // ⚠ No `std::io::{Read, Write}` import: `serialport::SerialPort` has `Read + Write` as supertraits
 // and brings their methods with it. Importing them too is an unused-import warning, which
 // `ci.yml`'s clippy `-D warnings` treats as an error.
+use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -38,6 +39,7 @@ use tungstenite::Message;
 
 use crate::framing::{Collect, HeuristicCollector, IslCollector};
 use crate::socket::HubSocket;
+use crate::wake::{Wake, Woke};
 use crate::{enroll, presence};
 
 /// ISL read budget. Mirrors `useFiscalBridge.ts` so both bridges give the hub the same answers.
@@ -347,25 +349,46 @@ pub fn fetch_assignment(server_url: &str) -> Result<Vec<AssignedDevice>, String>
 /// Asked again with presence's backoff (1 s, doubling, 60 s at most) until it answers, a failure
 /// no retry can change ([`assignment_given_up`]), `stop` or [`halt`]. Nothing is open while it
 /// asks, so this can never put a second thread on a serial port.
+///
+/// #767: a wait ends early on a ring of `wake` (**Retry now**, or the window or presence finding the
+/// server), and the answer rings it, so the window and presence do not sit out their own backoff.
+/// The shop lanes had presence 25 to 55 s behind a bridge that had registered.
 pub fn fetch_assignment_until(
     server_url: &str,
     stop: &AtomicBool,
+    wake: &Wake,
     on_retry: impl FnMut(&str, u64),
 ) -> Result<Vec<AssignedDevice>, String> {
-    let stopped = || stop.load(Ordering::SeqCst) || halted();
-    assignment_until(
+    assignment_until_woken(
         || fetch_assignment(server_url),
-        |secs| {
-            for _ in 0..(secs * 10) {
-                if stopped() {
-                    return false;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            !stopped()
-        },
+        wake,
+        || stop.load(Ordering::SeqCst) || halted(),
         on_retry,
     )
+}
+
+/// [`assignment_until`] on the real clock, waiting on `wake` (`wake.rs` says which rings count: one
+/// after the try began), and ringing it once the server answers.
+fn assignment_until_woken(
+    mut fetch: impl FnMut() -> Result<Vec<AssignedDevice>, String>,
+    wake: &Wake,
+    stopped: impl Fn() -> bool,
+    on_retry: impl FnMut(&str, u64),
+) -> Result<Vec<AssignedDevice>, String> {
+    let seen = Cell::new(wake.current());
+    let out = assignment_until(
+        || {
+            seen.set(wake.current());
+            fetch()
+        },
+        |secs| wake.sleep(secs, seen.get(), &stopped) != Woke::Stopped,
+        on_retry,
+    );
+    if out.is_ok() {
+        // The server answered, whatever it assigned: the window and presence try now too.
+        wake.ring();
+    }
+    out
 }
 
 /// [`fetch_assignment_until`] with its network and its clock passed in: pure, and tested as such.
@@ -472,10 +495,14 @@ pub fn is_fatal(code: &str) -> bool {
 }
 
 /// Run one device's bridge until `stop` is set. Intended for a dedicated thread.
+///
+/// #767: its wait ends early on a ring of `wake`, and a registration rings it (presence's
+/// `run` does the same on `desktop:authenticated`).
 pub fn run(
     server_url: String,
     device: AssignedDevice,
     state: Arc<BridgeState>,
+    wake: Arc<Wake>,
     stop: Arc<AtomicBool>,
     mut on_event: impl FnMut(Event),
 ) {
@@ -490,13 +517,23 @@ pub fn run(
 
     let mut attempt = 0u32;
     while !stop.load(Ordering::SeqCst) && !halted() {
+        // A ring must come after this to cut the wait below short (`wake.rs`).
+        let mut seen = wake.current();
         // Whether this session got as far as the hub's `registered`, seen in front of the caller's
         // handler: a link that worked starts the backoff over (`next_attempt`).
         let mut registered = false;
         let outcome = connect_once(&server_url, &device, &port_name, &state, &stop, &mut |event| {
-            registered |= matches!(event, Event::Registered(_));
+            if matches!(event, Event::Registered(_)) {
+                registered = true;
+                // The hub is back: the window's probe and presence try now too.
+                wake.ring();
+            }
             on_event(event)
         });
+        if registered {
+            // ⚠ What rang while this session worked is stale once it ends (`wake.rs`).
+            seen = wake.current();
+        }
         attempt = next_attempt(attempt, &outcome, registered);
         match outcome {
             Outcome::Fatal(code) => {
@@ -511,13 +548,7 @@ pub fn run(
             Outcome::Silent => on_event(Event::Silent(device.id.clone())),
         }
 
-        let wait = presence::backoff_secs(attempt);
-        for _ in 0..(wait * 10) {
-            if stop.load(Ordering::SeqCst) || halted() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
+        wake.sleep(presence::backoff_secs(attempt), seen, || stop.load(Ordering::SeqCst) || halted());
     }
     state.set_link(&device.id, DeviceLink::Offline, None);
 }
@@ -1147,6 +1178,76 @@ mod tests {
         let err = out.expect_err("stopped");
         assert!(err.starts_with("server_unreachable") && err.contains("stopped"), "{err}");
         assert_eq!((waits, fetched), (vec![1], 1));
+    }
+
+    #[test]
+    fn the_assignment_answering_wakes_the_window_and_presence() {
+        // #767. The shop lanes had the bridge registered while presence still waited out a step of
+        // its backoff (32 s, then a minute): presence 25 to 55 s behind it, and the hub not counting
+        // the till as present though it printed. The answer rings the loops that wait.
+        let wake = Arc::new(Wake::default());
+        let waiter = |wake: &Arc<Wake>| {
+            let (wake, seen) = (wake.clone(), wake.current());
+            std::thread::spawn(move || {
+                let started = Instant::now();
+                (wake.sleep(60, seen, || false), started.elapsed())
+            })
+        };
+        let (window, presence) = (waiter(&wake), waiter(&wake));
+        std::thread::sleep(Duration::from_millis(300));
+
+        let out = assignment_until_woken(|| Ok(vec![dev()]), &wake, || false, |_, _| {});
+        assert_eq!(out.expect("answered").len(), 1);
+        for (name, handle) in [("window", window), ("presence", presence)] {
+            let (woke, took) = handle.join().unwrap();
+            assert_eq!(woke, Woke::Rung, "{name}");
+            assert!(took < Duration::from_secs(10), "{name} slept {took:?} of its minute");
+        }
+    }
+
+    #[test]
+    fn a_ring_while_the_assignment_was_failing_asks_again_at_once() {
+        // The window's probe found the server while this fetch was still failing: the ring came after
+        // the fetch began, so the wait after it ends at once instead of a step of the backoff later.
+        let wake = Wake::default();
+        let mut asked: Vec<Instant> = Vec::new();
+        let out = assignment_until_woken(
+            || {
+                asked.push(Instant::now());
+                if asked.len() == 1 {
+                    wake.ring(); // another loop, meanwhile
+                    Err("server_unreachable".into())
+                } else {
+                    Ok(vec![dev()])
+                }
+            },
+            &wake,
+            || false,
+            |_, _| {},
+        );
+        assert!(out.is_ok());
+        assert_eq!(asked.len(), 2);
+        let gap = asked[1].duration_since(asked[0]);
+        assert!(gap < Duration::from_millis(700), "asked again {gap:?} later; its backoff was 1 s");
+    }
+
+    #[test]
+    fn a_ring_from_before_the_assignment_was_asked_is_no_reason_to_ask_again() {
+        let wake = Wake::default();
+        wake.ring();
+        let mut asked: Vec<Instant> = Vec::new();
+        let out = assignment_until_woken(
+            || {
+                asked.push(Instant::now());
+                if asked.len() == 1 { Err("server_unreachable".into()) } else { Ok(vec![dev()]) }
+            },
+            &wake,
+            || false,
+            |_, _| {},
+        );
+        assert!(out.is_ok());
+        let gap = asked[1].duration_since(asked[0]);
+        assert!(gap >= Duration::from_millis(900), "asked again {gap:?} later, before its 1 s backoff");
     }
 
     #[test]

@@ -361,7 +361,11 @@ pub fn open(app: &AppHandle, server_url: &str, start_path: Option<&str>) -> Resu
         crate::presence::Link::Unreachable
     });
 
-    if !reachable {
+    if reachable {
+        // #767: Open LGR found the server. Presence or the bridge, if either is still waiting out
+        // its backoff, tries now.
+        app.state::<crate::AppState>().wake.ring();
+    } else {
         let target = target_url(server_url, start_path).unwrap_or_default();
         log(app, &format!("lgr-web: server-unreachable url={target}"));
         return open_unreachable(app, server_url, start_path);
@@ -483,26 +487,36 @@ fn open_unreachable(app: &AppHandle, server_url: &str, start_path: Option<&str>)
 /// Probe on a 1 s → 60 s backoff and return to `startPath` by itself when the server answers.
 ///
 /// ⚠ One loop at a time. Pressing **Retry now** three times must not start three threads that
-/// each navigate the window; the flag is what makes the button a nudge to the existing loop
-/// (`LinkState::nudge`) rather than a new one.
+/// each navigate the window; the flag is what makes the button a ring of the existing loops
+/// (`AppState::wake`) rather than a new one.
+///
+/// #767: the wait ends on any ring, so **Retry now** reaches this loop even while presence waits
+/// too, and so does presence or the bridge finding the server. A probe that answers rings in turn.
 fn start_retry_loop(app: &AppHandle, server_url: String, start_path: Option<String>) {
     use std::sync::atomic::Ordering;
 
     let state = app.state::<crate::AppState>();
     if state.retrying.swap(true, Ordering::SeqCst) {
-        state.link.nudge();
+        state.wake.ring();
         return;
     }
 
     let app = app.clone();
     std::thread::spawn(move || {
+        let wake = app.state::<crate::AppState>().wake.clone();
         let mut attempt = 0u32;
         loop {
             // The window going away ends the loop — nobody is looking at the page any more.
             if app.get_webview_window(WEB_LABEL).is_none() {
                 break;
             }
+            // A ring must come after this to cut the wait below short: one that came while the
+            // probe was failing still does (`wake.rs`).
+            let seen = wake.current();
             if crate::presence::probe(&server_url) {
+                // The server is back: presence and the bridge try now too, so the till's window,
+                // presence and printer return together.
+                wake.ring();
                 if let (Some(w), Ok((target, _))) = (
                     app.get_webview_window(WEB_LABEL),
                     route(&app, &server_url, start_path.as_deref()),
@@ -518,14 +532,9 @@ fn start_retry_loop(app: &AppHandle, server_url: String, start_path: Option<Stri
 
             app.state::<crate::AppState>().link.set(crate::presence::Link::Unreachable);
             attempt = attempt.saturating_add(1);
-            let wait = crate::presence::backoff_secs(attempt);
-            // Sleep in slices so **Retry now** does not have to wait out a 60 s backoff.
-            for _ in 0..(wait * 10) {
-                if app.state::<crate::AppState>().link.take_nudge_public() {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
+            // In slices, so a ring does not have to wait out a 60 s backoff. Nothing stops this
+            // wait but a ring or its end: the window's going away is looked at above.
+            wake.sleep(crate::presence::backoff_secs(attempt), seen, || false);
         }
         app.state::<crate::AppState>().retrying.store(false, Ordering::SeqCst);
     });
@@ -719,7 +728,9 @@ fn act_on_shell_request(app: &AppHandle, action: ShellAction) {
     match action {
         ShellAction::RetryNow => {
             log(app, "lgr-web: retry-requested");
-            app.state::<crate::AppState>().link.nudge();
+            // #767: every loop that waits for the server, the window's probe, presence and the
+            // bridge, not whichever of them happened to look first.
+            app.state::<crate::AppState>().wake.ring();
         }
         ShellAction::Diagnostics => {
             log(app, "lgr-web: diagnostics-requested");

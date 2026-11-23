@@ -29,6 +29,7 @@ use tungstenite::Message;
 
 use crate::enroll;
 use crate::socket::HubSocket;
+use crate::wake::Wake;
 
 /// What the Overview's connection chip shows (FR-14.17).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,11 +54,13 @@ impl Link {
 }
 
 /// Shared with the rest of the shell. Small enough that a mutex is simpler than channels.
+///
+/// ⚠ What wakes the loops that wait for the server is not here any more. It was one flag
+/// (`nudge`) that whichever loop looked first cleared, so **Retry now** woke one loop of two
+/// (#767). It is `wake::Wake` now, a generation every waiter sees.
 #[derive(Default)]
 pub struct LinkState {
     link: Mutex<LinkInner>,
-    /// Set when something wants the retry loop to stop waiting and probe now.
-    nudge: AtomicBool,
 }
 
 struct LinkInner {
@@ -87,21 +90,6 @@ impl LinkState {
         guard.link = next;
         guard.last_change = Some(Instant::now());
         true
-    }
-
-    /// Ask the retry loop to probe immediately (the unreachable page's **Retry now**).
-    pub fn nudge(&self) {
-        self.nudge.store(true, Ordering::SeqCst);
-    }
-
-    fn take_nudge(&self) -> bool {
-        self.nudge.swap(false, Ordering::SeqCst)
-    }
-
-    /// The retry loop in `web.rs` consumes the same nudge, so **Retry now** works whether the
-    /// socket or the unreachable page is the thing waiting.
-    pub fn take_nudge_public(&self) -> bool {
-        self.take_nudge()
     }
 }
 
@@ -232,22 +220,39 @@ impl DisconnectReason {
 /// Reconnects with the same backoff as the retry loop; a socket that fails to authenticate is
 /// closed by the server, and this treats that as `SignedOut` rather than retrying forever with a
 /// credential the server has already refused.
+///
+/// #767: its wait ends early on a ring of `wake` (**Retry now**, or the window or the bridge finding
+/// the server), and it rings `wake` itself once the server authenticates it, so the other two loops
+/// do not sit out their own backoff with the server back.
 pub fn run(
     server_url: String,
     state: Arc<LinkState>,
+    wake: Arc<Wake>,
     stop: Arc<AtomicBool>,
     mut on_event: impl FnMut(Event),
 ) {
     let mut attempt = 0u32;
 
     while !stop.load(Ordering::SeqCst) {
+        // A ring must come after this to cut the wait below short: one from before this try began
+        // is old news (`wake.rs`).
+        let mut seen = wake.current();
         // Whether this session got as far as the server's `desktop:authenticated`, seen in front of
         // the caller's handler: a link that worked starts the backoff over (`next_attempt`, #741).
         let mut authenticated = false;
         let (outcome, why) = connect_once(&server_url, &state, &stop, &mut |event| {
-            authenticated |= matches!(event, Event::Authenticated);
+            if matches!(event, Event::Authenticated) {
+                authenticated = true;
+                // The server is back: the window's probe and the bridge try now too.
+                wake.ring();
+            }
             on_event(event)
         });
+        if authenticated {
+            // ⚠ A session that worked may have lasted hours, and what rang during it (its own ring
+            // above, a bridge reconnecting) is stale by now: the wait after it is a whole one.
+            seen = wake.current();
+        }
         match outcome {
             Outcome::Closed => on_event(Event::Disconnected(DisconnectReason::Closed, why)),
             Outcome::Unreachable => {
@@ -274,13 +279,9 @@ pub fn run(
         }
         attempt = next_attempt(attempt, outcome, authenticated);
 
-        let wait = backoff_secs(attempt);
-        for _ in 0..(wait * 10) {
-            if stop.load(Ordering::SeqCst) || state.take_nudge() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
+        // ⚠ The stop flag ends this wait within a slice, rung or not: that is how `restart_presence`
+        // takes the old run out of its sleep, without ringing the window's loop for nothing.
+        wake.sleep(backoff_secs(attempt), seen, || stop.load(Ordering::SeqCst));
     }
 }
 
@@ -547,9 +548,14 @@ mod tests {
 
     #[test]
     fn the_stop_flag_ends_the_run() {
-        // ⚠ **The STOP.** `restart_presence` works by setting this run's own flag and nudging
-        // the loop awake. If the loop did not exit promptly on it, a re-pointed desktop would end
-        // up with two presence threads - exactly what the `started` latch exists to prevent.
+        // ⚠ **The STOP.** `restart_presence` works by setting this run's own flag. If the loop did
+        // not exit promptly on it, a re-pointed desktop would end up with two presence threads -
+        // exactly what the `started` latch exists to prevent.
+        //
+        // ⚠ **Nothing rings here** (#767). `restart_presence` used to nudge the shared flag as
+        // well, and the window's loop could take that nudge in presence's place. The stop flag alone
+        // takes the run out of its wait (a minute on a clean runner: `NotConfigured`), and the
+        // generation the other loops wait on does not move.
         //
         // ⚠ It does NOT assert which reason arrives: `run` reads this machine's real keystore
         // (`secure_dir()` is driven by `LOCALAPPDATA`/`HOME`), so an enrolled machine gets as far
@@ -558,16 +564,19 @@ mod tests {
 
         // Port 1 is privileged and nothing listens: the connect fails without a timeout wait.
         let state = Arc::new(LinkState::default());
+        let wake = Arc::new(Wake::default());
         let stop = Arc::new(AtomicBool::new(false));
         let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
 
         let stop_cb = stop.clone();
         let seen_cb = seen.clone();
         let state_cb = state.clone();
+        let wake_cb = wake.clone();
         let handle = std::thread::spawn(move || {
             run(
                 "http://127.0.0.1:1".to_string(),
                 state_cb,
+                wake_cb,
                 stop_cb.clone(),
                 move |event| {
                     if let Event::Disconnected(reason, _) = event {
@@ -590,12 +599,12 @@ mod tests {
                 if std::time::Instant::now() > deadline {
                     break false;
                 }
-                state.nudge();
                 std::thread::sleep(Duration::from_millis(50));
             }
         };
         assert!(joined, "the run did not exit after its stop flag was set");
         handle.join().unwrap();
+        assert_eq!(wake.current(), 0, "a run that never authenticated rings nobody, and a stop is no ring");
 
         let reasons = seen.lock().unwrap().clone();
         assert!(
@@ -777,11 +786,48 @@ mod tests {
     }
 
     #[test]
-    fn a_nudge_is_consumed_once() {
-        let s = LinkState::default();
-        assert!(!s.take_nudge());
-        s.nudge();
-        assert!(s.take_nudge());
-        assert!(!s.take_nudge(), "Retry now must not fire for ever");
+    fn a_ring_takes_the_run_out_of_its_wait() {
+        // #767. Retry now, or the window's probe or the bridge finding the server, ends presence's
+        // wait: it used to take a flag that the window's loop could take first, and nothing at all
+        // woke it when another loop found the server (12 s behind the window in a CI smoke, 25 to
+        // 55 s behind the bridge on the shop lanes). What `a_nudge_is_consumed_once` held, that a
+        // ring wakes each waiter once and not for ever, is `wake::tests` now.
+        //
+        // On a clean runner the first try fails `NotConfigured` and the wait is a minute, so a run
+        // that missed the ring fails the 20 s below. On an enrolled machine it fails `Unreachable`
+        // and waits 2 s, and the test proves less there.
+        use std::sync::atomic::AtomicBool;
+        use std::sync::mpsc;
+
+        let state = Arc::new(LinkState::default());
+        let wake = Arc::new(Wake::default());
+        let stop = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+        let handle = {
+            let (state, wake, stop) = (state.clone(), wake.clone(), stop.clone());
+            std::thread::spawn(move || {
+                run("http://127.0.0.1:1".to_string(), state, wake, stop, move |event| {
+                    if let Event::Disconnected(..) = event {
+                        let _ = tx.send(Instant::now());
+                    }
+                })
+            })
+        };
+
+        rx.recv_timeout(Duration::from_secs(20)).expect("the first try ends");
+        // Now in its wait.
+        std::thread::sleep(Duration::from_millis(300));
+        let rung = Instant::now();
+        wake.ring();
+        let again = rx.recv_timeout(Duration::from_secs(20)).expect("tried again after the ring, not after its minute");
+        assert!(again.duration_since(rung) < Duration::from_secs(10), "tried again {:?} after the ring", again.duration_since(rung));
+
+        stop.store(true, Ordering::SeqCst);
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !handle.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(handle.is_finished(), "the run did not exit after its stop flag was set");
+        handle.join().unwrap();
     }
 }
