@@ -316,15 +316,35 @@ test.describe('the server going away', () => {
     const down = await unreachablePage(browser)
     expect(down.url()).toContain('unreachable.html')
 
+    // #767: the hub stays away 20 s more, so the window's probe and presence are each deep in a
+    // backoff of their own (presence tries at about 2, 6, 14 and 30 s) when it returns. Before #767
+    // the two came back up to a step of that backoff apart: 12 s on run 43732130480, a minute after a
+    // longer outage.
+    await sleep(20_000)
+
     // ⚠ Recovery without anyone pressing anything. The retry loop is what makes a till come back
     // after the shop's internet does, with nobody at the keyboard. The backoff reaches a minute, so
     // the budget here is generous on purpose.
     await hub.online()
-    await waitForLog(/lgr-web: server-returned url=/, 120_000, shell.stderr(), since)
+    const returned = await waitForLog(/lgr-web: server-returned url=/, 120_000, shell.stderr(), since)
     const back = await webPage(browser, hub.origin, 60_000)
     await expect(back.locator('[data-testid="stub-path"]')).toHaveText(LANDS_ON, { timeout: 30_000 })
+
+    // #767: whichever loop finds the server first wakes the others (`wake.rs`), so presence is back
+    // with the window: within 2 s of it, before or after. The hub went away before this shell
+    // started, so every `presence: authenticated` of this shell is from after the outage.
+    const authenticated = await waitForLog(/presence: authenticated/, 60_000, shell.stderr(), since)
+    const apart = Math.abs(logStamp(authenticated) - logStamp(returned))
+    expect(apart, `presence came back ${apart} ms from the window:\n${returned}\n${authenticated}`).toBeLessThanOrEqual(2_000)
   })
 })
+
+/** When the shell wrote a log line: `[2026-11-23 10:00:00.123] INFO  …` (`logs.rs`), in ms. */
+function logStamp(line: string): number {
+  const m = /^\[(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}\.\d{3})\]/.exec(line.trim())
+  if (!m) throw new Error(`no timestamp on the log line: ${line}`)
+  return Date.parse(`${m[1]}T${m[2]}`)
+}
 
 test.describe('revocation', () => {
   test('the hub says so and the shell shows it within one heartbeat', async () => {
@@ -332,16 +352,16 @@ test.describe('revocation', () => {
     // without waiting for the next request.
     //
     // ⚠ **The notice is a push, and a push needs a socket.** The case before this one takes the hub
-    // away and brings it back, and the shell's presence link returns on its OWN backoff (1 s doubling
-    // to 60 s, `presence::backoff_secs`), not when the window does: the window's probe and the
-    // presence socket are two loops. They happen to agree while that outage is a few seconds long.
-    // On 2026-11-15 a runner took 28 s over it instead of 5: the window was back at once, presence
-    // was 12 s short of its next try, the stub pushed to nobody (`pushed: 0`), and this case then
-    // waited a minute for a line that could not come. It read as a broken revocation on a commit
-    // that had changed nothing in the shell.
+    // away and brings it back. Until #767 the shell's presence link returned on its OWN backoff (1 s
+    // doubling to 60 s, `presence::backoff_secs`), not when the window did: the window's probe and
+    // the presence socket were two loops that never told each other. On 2026-11-15 a runner took
+    // 28 s over it instead of 5: the window was back at once, presence was 12 s short of its next
+    // try, the stub pushed to nobody (`pushed: 0`), and this case then waited a minute for a line
+    // that could not come. It read as a broken revocation on a commit that had changed nothing in
+    // the shell. The case before now asserts the two return together (`wake.rs`).
     //
-    // So this case states what it needs. The wait covers the longest step of the backoff, and the
-    // stub's own count says the notice reached a socket before the log is asked for it.
+    // This case still states what it needs. The wait covers the longest step of the backoff, and
+    // the stub's own count says the notice reached a socket before the log is asked for it.
     await expect
       .poll(async () => (await hub.state()).presenceSockets, {
         message: 'the presence socket is back after the outage of the case before',

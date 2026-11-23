@@ -35,6 +35,7 @@ mod trust;
 mod update;
 mod install;
 mod validate;
+mod wake;
 mod web;
 
 use std::io::Write as _;
@@ -65,10 +66,16 @@ pub struct AppState {
     pending_view: Arc<Mutex<Option<&'static str>>>,
     /// A deep link that arrived before the window was listening.
     pending_deep_link: Arc<Mutex<Option<String>>>,
-    /// FR-14.17 / FR-14.21 — whether the server answers, shared by the presence socket and the
-    /// unreachable page's retry loop so **Retry now** nudges whichever one is waiting.
+    /// FR-14.17 / FR-14.21 — whether the server answers, written by the presence socket and the
+    /// unreachable page's retry loop, read by the Overview.
     link: Arc<presence::LinkState>,
-    /// One retry loop at a time: pressing Retry three times must nudge, not spawn.
+    /// #767 — what wakes every loop that waits for the server: the window's probe, presence and the
+    /// fiscal bridge. Rung by **Retry now** and by whichever of the three reaches the server first.
+    ///
+    /// ⚠ A generation every waiter compares with the value it saw, never a flag one of them clears:
+    /// the flag woke one loop of two (`wake.rs`).
+    wake: Arc<wake::Wake>,
+    /// One retry loop at a time: pressing Retry three times must ring `wake`, not spawn.
     retrying: Arc<std::sync::atomic::AtomicBool>,
     /// Set on shutdown so the presence thread stops instead of reconnecting into a closing app.
     stop: Arc<std::sync::atomic::AtomicBool>,
@@ -118,6 +125,7 @@ impl AppState {
             pending_view: Arc::new(Mutex::new(None)),
             pending_deep_link: Arc::new(Mutex::new(None)),
             link: Arc::new(presence::LinkState::default()),
+            wake: Arc::new(wake::Wake::default()),
             retrying: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             stop: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -996,6 +1004,7 @@ fn start_presence(app: &AppHandle) {
     let server_url = settings::load(app).server_url;
     let state = app.state::<AppState>();
     let link = state.link.clone();
+    let wake = state.wake.clone();
     // ⚠ This run's OWN stop flag, published so `restart_presence` can end this run and only this
     // run. `quit` sets it too, which is why the process-wide flag is no longer read here.
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1009,7 +1018,7 @@ fn start_presence(app: &AppHandle) {
         let mut last_reason: Option<&'static str> = None;
         // FR-20.28 — a master that stops answering may only have moved (DHCP).
         let mut unreachable_in_a_row = 0u32;
-        presence::run(server_url, link, stop, move |event| match event {
+        presence::run(server_url, link, wake, stop, move |event| match event {
             presence::Event::Authenticated => {
                 last_reason = None;
                 unreachable_in_a_row = 0;
@@ -1252,6 +1261,7 @@ fn start_bridges(app: &AppHandle) {
     let state = app.state::<AppState>();
     let bridge_state = state.bridge.clone();
     let stop = state.stop.clone();
+    let wake = state.wake.clone();
     let handle = app.clone();
 
     // ⚠ The fetch is on its own thread: it is a network call, and `setup` must not block on the
@@ -1262,7 +1272,7 @@ fn start_bridges(app: &AppHandle) {
         // changes, not every minute of an outage.
         let mut said = String::new();
         let mut failed = 0u32;
-        let devices = match bridge::fetch_assignment_until(&server_url, &stop, |err, secs| {
+        let devices = match bridge::fetch_assignment_until(&server_url, &stop, &wake, |err, secs| {
             failed += 1;
             if err != said {
                 handle.state::<AppState>().logger.warn(&format!(
@@ -1296,6 +1306,7 @@ fn start_bridges(app: &AppHandle) {
             let url = server_url.clone();
             let st = bridge_state.clone();
             let stop = stop.clone();
+            let wake = wake.clone();
             let h = handle.clone();
             let label = format!("{} ({})", device.name, device.device_number);
             // ⚠ The manufacturer is logged, not acted on: the DRIVER lives on the hub, and this
@@ -1309,7 +1320,7 @@ fn start_bridges(app: &AppHandle) {
             ));
 
             std::thread::spawn(move || {
-                bridge::run(url, device, st, stop, move |event| match event {
+                bridge::run(url, device, st, wake, stop, move |event| match event {
                     bridge::Event::Registered(id) => h
                         .state::<AppState>()
                         .logger
@@ -1368,8 +1379,14 @@ fn start_registered_services(app: &AppHandle) {
 /// port is the single thing the fiscal protocol cannot survive. So a re-pointed till keeps its old
 /// bridge until it restarts, and `enroll_desktop` says so out loud rather than pretending.
 ///
-/// ⚠ Presence has no port and no such hazard: the old run is told to stop, nudged awake out of
-/// its backoff sleep so it exits in milliseconds rather than up to a minute, and a new one starts.
+/// ⚠ Presence has no port and no such hazard: the old run is told to stop, and a new one starts.
+/// Its backoff wait looks at its own stop flag every 100 ms (`wake::Wake::sleep`), so it leaves
+/// that sleep in milliseconds rather than up to a minute.
+///
+/// ⚠ **No ring** (#767). This used to nudge the shared flag as well, which the window's retry loop
+/// could take in the old run's place (that run then still left on its flag; the nudge was spent on
+/// a probe nobody asked for). A ring wakes every waiter, so it is kept for Retry now and for a loop
+/// that reached the server, and a stop is the run's own business.
 fn restart_presence(app: &AppHandle) {
     let st = app.state::<AppState>();
     if let Ok(mut slot) = st.presence_stop.lock() {
@@ -1377,8 +1394,6 @@ fn restart_presence(app: &AppHandle) {
             flag.store(true, std::sync::atomic::Ordering::SeqCst);
         }
     }
-    // Wake whichever sleep the old run is in, so it observes the flag now.
-    st.link.nudge();
     st.logger.info("presence: restarting against the current server");
     start_presence(app);
 }
