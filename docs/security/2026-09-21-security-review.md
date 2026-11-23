@@ -46,7 +46,7 @@ day.
 | S-08 | Medium | No rate limiting or lockout on `/auth/login`; account enumeration | **Fixed 2026-10-04** |
 | S-09 | Medium | Password minimum is 6 characters | **Fixed 2026-11-09** |
 | S-10 | Medium | `.dockerignore` does not exclude the secrets `.gitignore` protects | Fixed 2026-10-21 (root user: fixed 2026-10-23) |
-| S-11 | Medium | Swagger served unauthenticated in production | **Fixed 2026-11-23** (#PRNUM) |
+| S-11 | Medium | Swagger served unauthenticated in production | **Fixed 2026-11-23** (#916) |
 | S-12 | Medium | Raw `err.message` returned on 500 | **Fixed 2026-11-09** |
 | S-13 | Low | Live credentials in a OneDrive-synced working copy | Open |
 | S-14 | Low | `User.password` has no `select: false` | **Fixed 2026-11-09** (by a sweep of every route) |
