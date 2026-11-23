@@ -192,36 +192,23 @@
             <v-row v-for="(rate, i) in form.vatRates" :key="i" class="align-center">
               <v-col cols="4"><v-text-field v-model="rate.name" :label="$t('common.name')" density="compact" /></v-col>
               <v-col cols="3"><v-text-field v-model.number="rate.rate" :label="$t('settings.ratePercent')" type="number" suffix="%" density="compact" /></v-col>
-              <v-col cols="3"><v-checkbox v-model="rate.default" :label="$t('settings.default')" density="compact" hide-details /></v-col>
+              <!-- #816: the org's default VAT rate (what a new document line starts from) is the ticked row's; one at most. -->
+              <v-col cols="3">
+                <v-checkbox
+                  :model-value="!!rate.default"
+                  :label="$t('settings.default')"
+                  density="compact"
+                  hide-details
+                  :data-testid="`vat-rate-default-${i}`"
+                  @update:model-value="(v: boolean | null) => tickDefaultRate(form.vatRates, i, !!v)"
+                />
+              </v-col>
               <v-col cols="2"><v-btn :aria-label="$t('common.delete')" :title="$t('common.delete')" icon="mdi-delete" size="small" color="error" variant="text" @click="form.vatRates.splice(i, 1)" /></v-col>
             </v-row>
             <v-btn variant="outlined" prepend-icon="mdi-plus" size="small" @click="form.vatRates.push({ name: '', rate: 0, default: false })">
               {{ $t('settings.addVatRate') }}
             </v-btn>
           </div>
-        </v-card-text>
-      </v-card>
-
-      <!-- Payroll Settings -->
-      <v-card class="mb-4">
-        <v-card-title>{{ $t('settings.payrollSettings') }}</v-card-title>
-        <v-card-text>
-          <v-row>
-            <v-col cols="12" sm="6">
-              <v-select v-model="form.payrollCycle" :label="$t('settings.payrollCycle')" :items="['Monthly', 'Bi-weekly', 'Weekly']" />
-            </v-col>
-            <v-col cols="12" sm="6">
-              <v-text-field v-model.number="form.payDay" :label="$t('settings.payDay')" type="number" min="1" max="31" />
-            </v-col>
-          </v-row>
-          <v-row>
-            <v-col cols="12" sm="6">
-              <v-text-field v-model.number="form.workingHoursPerDay" :label="$t('settings.workingHoursPerDay')" type="number" min="1" max="24" />
-            </v-col>
-            <v-col cols="12" sm="6">
-              <v-text-field v-model.number="form.workingDaysPerWeek" :label="$t('settings.workingDaysPerWeek')" type="number" min="1" max="7" />
-            </v-col>
-          </v-row>
         </v-card-text>
       </v-card>
 
@@ -258,18 +245,6 @@
             persistent-hint
             color="primary"
           />
-        </v-card-text>
-      </v-card>
-
-      <!-- Modules -->
-      <v-card class="mb-4">
-        <v-card-title>{{ $t('settings.modules') }}</v-card-title>
-        <v-card-text>
-          <v-row>
-            <v-col v-for="mod in modulesList" :key="mod.key" cols="12" sm="6" md="4">
-              <v-switch v-model="form.modules[mod.key]" :label="mod.label" color="primary" hide-details density="compact" />
-            </v-col>
-          </v-row>
         </v-card-text>
       </v-card>
 
@@ -416,6 +391,10 @@ import { resizeImage, ImageResizeError } from 'ui-shared/composables/useImageRes
 import {
   isValidActivityCode, MAX_ACTIVITY_CODE_LENGTH, MAX_PLACE_OF_ISSUE_LENGTH, MAX_REPRESENTATIVE_LENGTH,
 } from 'config/party-identity'
+import {
+  orgSavePayload, tickDefaultRate, vatRowsOf,
+  type OrgAddressRow, type OrgBankRow, type VatRateRow,
+} from './org-save-payload'
 
 const { t } = useI18n()
 const store = useSettingsStore()
@@ -512,17 +491,6 @@ const costingMethods = [
   { title: t('warehouse.costingStandard'), value: 'standard' },
 ]
 
-const modulesList = [
-  { key: 'accounting', label: t('nav.accounting') },
-  { key: 'trade', label: t('nav.trade') },
-  { key: 'payroll', label: t('nav.payroll') },
-  { key: 'hr', label: t('nav.hr') },
-  { key: 'crm', label: t('nav.crm') },
-  { key: 'erp', label: t('nav.erp') },
-]
-/** The org's modules as they are stored, which may name ones this page has no switch for. */
-let storedModules: string[] = []
-
 const form = reactive({
   name: '',
   slug: '',
@@ -536,22 +504,17 @@ const form = reactive({
   representative: '',
   placeOfIssue: '',
   activityCode: '',
-  addresses: [] as Array<{ type: string; street: string; city: string; state?: string; postalCode: string; country: string; isDefault?: boolean }>,
-  bankDetails: [] as Array<{ bankName: string; accountNumber?: string; iban?: string; swift?: string; currency?: string; isDefault?: boolean }>,
+  addresses: [] as OrgAddressRow[],
+  bankDetails: [] as OrgBankRow[],
   baseCurrency: 'EUR',
   defaultLocale: 'en',
   vatEnabled: true,
-  vatRates: [] as any[],
-  payrollCycle: 'Monthly',
-  payDay: 25,
-  workingHoursPerDay: 8,
-  workingDaysPerWeek: 5,
+  vatRates: [] as VatRateRow[],
   defaultCostingMethod: 'wac',
   allowNegativeStock: false,
   // The cash register block as loaded, so a save keeps what this page does not edit.
   cashRegister: {} as Record<string, unknown>,
   requireConnectedDevice: true,
-  modules: {} as Record<string, boolean>,
   subscription: null as any,
   // FR-11 (#21) — daily digest.
   digestEnabled: false,
@@ -645,62 +608,9 @@ async function save() {
   if (!valid) return
   saving.value = true
   try {
-    // The list is stored whole, so it goes back with the modules this page has no switch for: in their stored order,
-    // a listed one that was switched off left out, one switched on added at the end.
-    const listed = modulesList.map(m => m.key)
-    const enabledModules = [
-      ...storedModules.filter(k => !listed.includes(k) || form.modules[k]),
-      ...listed.filter(k => form.modules[k] && !storedModules.includes(k)),
-    ]
-
-    const payload = {
-      name: form.name,
-      description: form.description,
-      taxNumber: form.taxNumber || undefined,
-      vatNumber: form.vatNumber || undefined,
-      email: form.email || undefined,
-      phone: form.phone || undefined,
-      website: form.website || undefined,
-      // FR-25a: `''` clears one (the server unsets it); `|| undefined` would keep a cleared value stored.
-      representative: form.representative.trim(),
-      placeOfIssue: form.placeOfIssue.trim(),
-      activityCode: form.activityCode.trim(),
-      addresses: form.addresses.length ? form.addresses : undefined,
-      bankDetails: form.bankDetails.length ? form.bankDetails : undefined,
-      settings: {
-        baseCurrency: form.baseCurrency,
-        locale: form.defaultLocale,
-        modules: enabledModules,
-        taxConfig: {
-          vatEnabled: form.vatEnabled,
-          vatRates: form.vatRates,
-        },
-        inventory: {
-          defaultCostingMethod: form.defaultCostingMethod,
-          allowNegativeStock: form.allowNegativeStock,
-        },
-        cashRegister: {
-          ...form.cashRegister,
-          requireConnectedDevice: form.requireConnectedDevice,
-        },
-        payroll: {
-          payFrequency: form.payrollCycle,
-        },
-        // FR-11.1 (#21). The route writes each value sent to its own path, so the sections this page has no
-        // switch for (Backups, the server's own) stay as they are stored.
-        dailyDigest: {
-          enabled: form.digestEnabled,
-          hour: form.digestHour,
-          // `''` is "the org's language": sent, the route removes the digest's own. Left out, it would keep it.
-          locale: form.digestLocale,
-          recipients: form.digestRecipients.map(id => ({ userId: id })),
-          sections: { ...form.digestSections },
-        },
-      },
-    }
-
-    await store.saveOrganization(payload)
-    storedModules = enabledModules
+    // #816: what the page shows, a change sent as a change (`org-save-payload.ts`). No module list and no payroll
+    // block: the page has no control for either, and the route keeps what a save does not name.
+    await store.saveOrganization(orgSavePayload(form))
     showSuccess(t('common.savedSuccessfully'))
   } catch (e: any) {
     showError(e?.response?.data?.message || t('common.operationFailed'))
@@ -730,23 +640,13 @@ onMounted(async () => {
     form.baseCurrency = org.settings?.baseCurrency || 'EUR'
     form.defaultLocale = org.settings?.locale || 'en'
     form.vatEnabled = org.settings?.taxConfig?.vatEnabled ?? true
-    form.vatRates = org.settings?.taxConfig?.vatRates?.map((r: any) => ({ ...r })) || []
-    form.payrollCycle = org.settings?.payroll?.payFrequency || 'Monthly'
-    form.payDay = org.settings?.payroll?.payDay || 25
-    form.workingHoursPerDay = org.settings?.payroll?.workingHoursPerDay || 8
-    form.workingDaysPerWeek = org.settings?.payroll?.workingDaysPerWeek || 5
+    form.vatRates = vatRowsOf(org.settings?.taxConfig?.vatRates, org.settings?.taxConfig?.defaultVatRate)
     form.defaultCostingMethod = org.settings?.inventory?.defaultCostingMethod || 'wac'
     form.allowNegativeStock = org.settings?.inventory?.allowNegativeStock || false
     form.cashRegister = { ...(org.settings?.cashRegister || {}) }
     // Unset means required (the server's rule).
     form.requireConnectedDevice = org.settings?.cashRegister?.requireConnectedDevice !== false
     form.subscription = org.subscription || null
-
-    // Build modules toggle map
-    storedModules = [...(org.settings?.modules || [])]
-    for (const mod of modulesList) {
-      form.modules[mod.key] = storedModules.includes(mod.key)
-    }
 
     // FR-11 (#21) — daily digest. Sections default ON: a digest nobody tuned should be the
     // full picture, and switching a part off is the deliberate act.

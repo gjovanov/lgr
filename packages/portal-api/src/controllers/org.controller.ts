@@ -19,6 +19,13 @@ const optionalActivityCode = t.Optional(t.Union(
   { error: `Expected an activity code of digits joined by dots, such as 47.52, up to ${MAX_ACTIVITY_CODE_LENGTH} characters (or leave it empty)` },
 ))
 
+/**
+ * The company's fields a save removes when it sends them empty (or only spaces), as it does the FR-25a three
+ * (`orgIdentityUpdate`): the org then reads like one that never set them. The page used to send an emptied one as
+ * "not given" (`|| undefined`), which kept the stored value, so it came back after a reload (#816).
+ */
+const CLEARED_WHEN_EMPTY = ['taxNumber', 'vatNumber', 'email', 'phone', 'website'] as const
+
 export const orgController = new Elysia({ prefix: '/org/:orgId' })
   .use(AuthService)
   .get('/', async ({ params: { orgId }, user, status }) => {
@@ -45,8 +52,12 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
       // FR-25a: the company's three fields are stored trimmed, and one sent empty is cleared, so the company reads
       // exactly like one that never set it (its documents print as before). One not sent keeps what is stored.
       const identity = orgIdentityUpdate(given)
-      const fields = Object.fromEntries(Object.entries(given).filter(([k]) => !(ORG_IDENTITY_FIELDS as readonly string[]).includes(k)))
-      const unset = [...identity.unset, ...written.unset]
+      // #816: the company's other fields are removed the same way when sent empty, so emptying one on the page empties
+      // it. One not sent keeps what is stored; one sent with text is stored as sent.
+      const cleared = CLEARED_WHEN_EMPTY.filter(f => typeof given[f] === 'string' && !given[f].trim())
+      const fields = Object.fromEntries(Object.entries(given).filter(([k]) =>
+        !(ORG_IDENTITY_FIELDS as readonly string[]).includes(k) && !(cleared as readonly string[]).includes(k)))
+      const unset = [...identity.unset, ...cleared, ...written.unset]
       const org = await orgDao.update(orgId, {
         ...fields,
         ...identity.set,

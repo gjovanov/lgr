@@ -9,6 +9,9 @@ import { Org } from 'db/models'
 import { mongoose } from 'db/connection'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
+import {
+  orgSavePayload, tickDefaultRate, vatRowsOf, type OrgSaveForm,
+} from '../../../portal-ui/src/views/settings/org-save-payload'
 
 /**
  * `PUT /org/:orgId`, the save of Settings → Organization: it writes what it is sent, and nothing else.
@@ -59,13 +62,18 @@ async function scene() {
   }
   /** The stored settings themselves: no model default fills in for a key that is gone. */
   const settings = async () => plain(((await Org.findById(org._id).lean().exec()) as any).settings)
+  /** The stored document itself, for the company's fields and lists beside the settings. */
+  const stored = async () => plain((await Org.findById(org._id).lean().exec()) as any)
   const plant = (paths: Record<string, unknown>) => Org.updateOne({ _id: org._id }, { $set: paths })
-  return { org, put, settings, plant }
+  return { org, put, settings, stored, plant }
 }
 
 const PAGE_SECTIONS = ['kpis', 'documents', 'materials', 'stock', 'corrections', 'undocumentedSales', 'duplicates', 'editedAfterIssue', 'ops']
 
-/** What the Organization page sends for a person who changed nothing: part of each block it shows. */
+/**
+ * What the Organization page sends for a person who changed nothing: part of each block it shows. Since #816 no module
+ * list and no payroll block (the page has no control for either), and no default VAT rate unless a row is ticked.
+ */
 const pageSave = (settings: Record<string, unknown> = {}) => ({
   name: 'Test Org',
   description: '',
@@ -75,11 +83,9 @@ const pageSave = (settings: Record<string, unknown> = {}) => ({
   settings: {
     baseCurrency: 'EUR',
     locale: 'en',
-    modules: ['accounting', 'payroll'],
     taxConfig: { vatEnabled: true, vatRates: [{ name: 'Standard', rate: 18 }, { name: 'Zero', rate: 0 }] },
     inventory: { defaultCostingMethod: 'wac', allowNegativeStock: false },
     cashRegister: { requireConnectedDevice: true },
-    payroll: { payFrequency: 'monthly' },
     dailyDigest: {
       enabled: false, hour: 7, locale: '', recipients: [],
       sections: Object.fromEntries(PAGE_SECTIONS.map(s => [s, true])),
@@ -146,7 +152,7 @@ describe('a save of the Organization page keeps what the page does not show', ()
     expect(digest.sections).toMatchObject({ backups: true, server: false, stock: false, kpis: true, ops: true })
   })
 
-  it('what it never sends: the time zone, the access model, the backup switch, the kind of org', async () => {
+  it('what it never sends: the time zone, the access model, the backup switch, the kind of org, the modules, payroll', async () => {
     const { put, settings, plant } = await scene()
     await plant({
       'settings.timezone': 'Europe/Sofia',
@@ -154,6 +160,8 @@ describe('a save of the Organization page keeps what the page does not show', ()
       'settings.backup.enabled': true,
       'settings.environment': 'dev',
       'settings.payroll.engine': 'bg',
+      'settings.payroll.payFrequency': 'weekly',
+      'settings.modules': ['accounting', 'not-a-switch-of-the-page'],
     })
 
     expect((await put(pageSave())).status).toBe(200)
@@ -161,8 +169,9 @@ describe('a save of the Organization page keeps what the page does not show', ()
     const stored = await settings()
     expect(stored).toMatchObject({
       timezone: 'Europe/Sofia', environment: 'dev', access: { model: 'roles' }, backup: { enabled: true },
-      // The page sends how often people are paid; the calculation and its rates are not its to send.
-      payroll: { payFrequency: 'monthly', engine: 'bg', socialSecurityRate: 18, healthInsuranceRate: 7.5, pensionRate: 18 },
+      // #816: the page has no module switches and no payroll controls any more, so it sends neither.
+      modules: ['accounting', 'not-a-switch-of-the-page'],
+      payroll: { payFrequency: 'weekly', engine: 'bg', socialSecurityRate: 18, healthInsuranceRate: 7.5, pensionRate: 18 },
     })
   })
 })
@@ -244,5 +253,91 @@ describe('what a save writes', () => {
 
     const sections = (await settings()).dailyDigest.sections
     expect(sections).toEqual({ ...before, kpis: false })
+  })
+})
+
+/** The page's form as a person leaves it: an org with nothing filled in, changed by `over`. */
+function pageForm(over: Partial<OrgSaveForm> = {}): OrgSaveForm {
+  return {
+    name: 'Test Org', description: '',
+    taxNumber: '', vatNumber: '', email: '', phone: '', website: '',
+    representative: '', placeOfIssue: '', activityCode: '',
+    addresses: [], bankDetails: [],
+    baseCurrency: 'EUR', defaultLocale: 'en',
+    vatEnabled: true, vatRates: vatRowsOf([{ name: 'Standard', rate: 18 }, { name: 'Zero', rate: 0 }], 18),
+    defaultCostingMethod: 'wac', allowNegativeStock: false,
+    cashRegister: {}, requireConnectedDevice: true,
+    digestEnabled: false, digestHour: 7, digestLocale: '', digestRecipients: [],
+    digestSections: Object.fromEntries(PAGE_SECTIONS.map(s => [s, true])),
+    ...over,
+  }
+}
+
+/** Made-up company data. */
+const COMPANY = {
+  taxNumber: '000000000', vatNumber: 'XX000000000', email: 'office@example.test', phone: '+000 0 000 000', website: 'https://example.test',
+}
+
+/**
+ * #816: what the page lets a person change, and answered "Saved" for, without storing it. Each case saves through the
+ * page's own payload (`portal-ui/src/views/settings/org-save-payload.ts`) and reads the stored document.
+ */
+describe('what the page changes is stored (#816)', () => {
+  it('the Default box: the ticked row\'s rate becomes the org\'s default rate; no tick keeps the stored one', async () => {
+    const { put, settings } = await scene()
+    const rows = vatRowsOf([{ name: 'Standard', rate: 18 }, { name: 'Reduced', rate: 9 }, { name: 'Zero', rate: 0 }], 18)
+    expect(rows.map(r => r.default)).toEqual([true, false, false])
+
+    tickDefaultRate(rows, 1, true)
+    const res = await put(orgSavePayload(pageForm({ vatRates: rows })))
+    expect(res.status).toBe(200)
+    // The rows are stored as a name and a rate; the tick is the org's default rate.
+    expect((await settings()).taxConfig).toMatchObject({
+      defaultVatRate: 9,
+      vatRates: [{ name: 'Standard', rate: 18 }, { name: 'Reduced', rate: 9 }, { name: 'Zero', rate: 0 }],
+    })
+    expect(res.json.org.settings.taxConfig.defaultVatRate).toBe(9)
+
+    // Reloaded, the page ticks that row again. Unticked, the save names no default rate, and the stored one stays.
+    const reloaded = vatRowsOf(res.json.org.settings.taxConfig.vatRates, res.json.org.settings.taxConfig.defaultVatRate)
+    expect(reloaded.map(r => r.default)).toEqual([false, true, false])
+    tickDefaultRate(reloaded, 1, false)
+    expect((await put(orgSavePayload(pageForm({ vatRates: reloaded })))).status).toBe(200)
+    expect((await settings()).taxConfig.defaultVatRate).toBe(9)
+  })
+
+  it('a company field emptied is removed; one the save does not name is kept', async () => {
+    const { put, stored } = await scene()
+    expect((await put(COMPANY)).status).toBe(200)
+    expect(await stored()).toMatchObject(COMPANY)
+
+    // Not named: kept.
+    expect((await put({ name: 'Test Org' })).status).toBe(200)
+    expect(await stored()).toMatchObject(COMPANY)
+
+    // Emptied on the page (spaces only is empty too): the org reads like one that never set them.
+    const res = await put(orgSavePayload(pageForm({ vatNumber: '   ' })))
+    expect(res.status).toBe(200)
+    const org = await stored()
+    for (const field of Object.keys(COMPANY)) expect(field in org, field).toBe(false)
+    for (const field of Object.keys(COMPANY)) expect(res.json.org[field] ?? '', field).toBe('')
+  })
+
+  it('the last address and the last bank account removed: the empty lists are stored', async () => {
+    const { put, stored } = await scene()
+    const address = { type: 'billing', street: 'Street 1', city: 'Town', state: '', postalCode: '1000', country: 'XX', isDefault: true }
+    const bank = { bankName: 'A Bank', accountNumber: '', iban: 'XX00TEST00000000000000', swift: 'TESTXXXX', currency: 'EUR', isDefault: true }
+    expect((await put(orgSavePayload(pageForm({ addresses: [address], bankDetails: [bank] })))).status).toBe(200)
+    expect((await stored()).addresses).toHaveLength(1)
+    expect((await stored()).bankDetails).toHaveLength(1)
+
+    // Not named: kept.
+    expect((await put({ name: 'Test Org' })).status).toBe(200)
+    expect((await stored()).addresses).toHaveLength(1)
+
+    expect((await put(orgSavePayload(pageForm({ addresses: [], bankDetails: [] })))).status).toBe(200)
+    const org = await stored()
+    expect(org.addresses).toEqual([])
+    expect(org.bankDetails).toEqual([])
   })
 })
