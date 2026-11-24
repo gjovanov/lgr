@@ -87,6 +87,10 @@ jobs:
       # with ENOSPC in places that look unrelated: a rustup download, a temp file in a test
       # (2026-10-25: 456 of them on one runner, both Linux jobs of four PRs failed). A runner takes
       # one job at a time, so a data dir no live mongod holds belongs to nobody.
+      # Headless Chrome leaves its profile (`puppeteer_dev_chrome_profile-*`, ~2 MB) behind whenever a
+      # PDF test's browser does not close cleanly: 2026-11-24, ~650 of them (1.3 GB) on each mars
+      # runner, and a test died with ENOSPC. At the start of a job they belong to jobs that ended; the
+      # hour is the same margin the `lgr-*` dirs get.
       - name: Clear test databases an interrupted run left in /tmp
         if: runner.environment == 'self-hosted'
         shell: bash
@@ -97,6 +101,7 @@ jobs:
             printf '%s\n' "$inuse" | grep -qx -- "$d" || rm -rf -- "$d"
           done
           find /tmp -mindepth 1 -maxdepth 1 -name 'lgr-*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+          find /tmp -mindepth 1 -maxdepth 1 -name 'puppeteer_dev_chrome_profile-*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
           df -h /tmp | tail -1
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -291,6 +296,10 @@ jobs:
       # with ENOSPC in places that look unrelated: a rustup download, a temp file in a test
       # (2026-10-25: 456 of them on one runner, both Linux jobs of four PRs failed). A runner takes
       # one job at a time, so a data dir no live mongod holds belongs to nobody.
+      # Headless Chrome leaves its profile (`puppeteer_dev_chrome_profile-*`, ~2 MB) behind whenever a
+      # PDF test's browser does not close cleanly: 2026-11-24, ~650 of them (1.3 GB) on each mars
+      # runner, and a test died with ENOSPC. At the start of a job they belong to jobs that ended; the
+      # hour is the same margin the `lgr-*` dirs get.
       - name: Clear test databases an interrupted run left in /tmp
         if: runner.environment == 'self-hosted'
         shell: bash
@@ -301,6 +310,7 @@ jobs:
             printf '%s\n' "$inuse" | grep -qx -- "$d" || rm -rf -- "$d"
           done
           find /tmp -mindepth 1 -maxdepth 1 -name 'lgr-*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+          find /tmp -mindepth 1 -maxdepth 1 -name 'puppeteer_dev_chrome_profile-*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
           df -h /tmp | tail -1
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
