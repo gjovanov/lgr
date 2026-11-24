@@ -3,8 +3,9 @@ import { GroupCostBook, type CostBucket } from 'services/biz/accounting-books/gr
 import { differencesOf, spreadOf, type ComparedLine } from 'services/biz/accounting-books/shadow-compare'
 
 /**
- * FR-25 R3, slice 3: the books' own cost of a goods group as of a sale (`costBasis: 'books'`), and the dry run's
- * self-check of a shadow posting against the accountant's entry. Made-up groups, days and amounts.
+ * FR-25 R3, slice 3: the cost of a goods group as of a sale (`costBasis: 'books'`: its moving average, replayed from the
+ * books), and the dry run's self-check of a shadow posting against the accountant's entry. Made-up groups, days and
+ * amounts.
  */
 
 const G = 'СТОКИ:ТЕСТ ГРУПА 1'
@@ -20,8 +21,8 @@ describe('the books\' cost of a group as of a sale', () => {
     const book = new GroupCostBook([bought('2026-03-02', 10, 5), bought('2026-03-05', 10, 15), sold('2026-03-05', 5, 2.5)])
     expect(book.unitCostAt(G, '2026-03-03')).toBe(0.5)
     expect(book.unitCostAt(G, '2026-03-05')).toBe(0.5)
-    // The next day reads the 5th whole: (5 + 15 − 2.5) / (10 + 10 − 5).
-    expect(book.unitCostAt(G, '2026-03-06')).toBeCloseTo(17.5 / 15, 12)
+    // The next day reads the 5th whole: (5 + 15) / 20, the sale leaving at the average after the purchase.
+    expect(book.unitCostAt(G, '2026-03-06')).toBe(1)
   })
 
   it('starts from an imported opening, which counts on its own day and restates what came before', () => {
@@ -52,6 +53,73 @@ describe('the books\' cost of a group as of a sale', () => {
   it('with a sale and never a purchase, takes the unit cost the books last sold it at', () => {
     const book = new GroupCostBook([sold('2026-03-02', 2, 3)])
     expect(book.unitCostAt(G, '2026-03-03')).toBe(1.5)
+  })
+
+  it('takes a sale out at the average its day starts with, never at the cost the books booked it at', () => {
+    // The books booked the 3rd's sale at twice the average. Read off their balance, what is left would cost 1/3.
+    const book = new GroupCostBook([bought('2026-03-02', 10, 10), sold('2026-03-03', 4, 8)])
+    expect(book.unitCostAt(G, '2026-03-03')).toBe(1)
+    expect(book.unitCostAt(G, '2026-03-04')).toBe(1)
+  })
+
+  it('averages a purchase in with what is left at the average, whatever the books booked the sales at', () => {
+    const book = new GroupCostBook([bought('2026-03-02', 10, 10), sold('2026-03-03', 5, 9.5), bought('2026-03-04', 5, 10)])
+    // (5 × 1 + 10) / 10; the books' balance would say (10 − 9.5 + 10) / 10.
+    expect(book.unitCostAt(G, '2026-03-05')).toBe(1.5)
+  })
+
+  it('leaves what is left of a group bought and sold on the same day at what it cost, not at the price difference', () => {
+    // Bought to order: nearly all the day's purchase leaves the same day.
+    const book = new GroupCostBook([bought('2026-03-02', 10, 1), bought('2026-03-05', 1000, 150), sold('2026-03-05', 1000, 150)])
+    // The day's sale posts at the average the day starts with.
+    expect(book.unitCostAt(G, '2026-03-05')).toBe(0.1)
+    // It leaves at the average after the purchase: (1 + 150) / 1010 stays on the 10 left. At 0.1 a unit, 51 would.
+    expect(book.unitCostAt(G, '2026-03-06')).toBeCloseTo(151 / 1010, 12)
+  })
+
+  it('starts the average again at what came in, after more was sold than was on hand', () => {
+    const book = new GroupCostBook([bought('2026-03-02', 2, 2), sold('2026-03-03', 5, 5), bought('2026-03-05', 10, 20)])
+    expect(book.unitCostAt(G, '2026-03-04')).toBe(1)
+    expect(book.unitCostAt(G, '2026-03-05')).toBe(1)
+    // The 7 left cost what the purchase did. Owing the 3 sold short at 1, they would cost (−3 + 20) / 7.
+    expect(book.unitCostAt(G, '2026-03-06')).toBe(2)
+  })
+
+  it('keeps the last average while a purchase leaves the group short', () => {
+    const book = new GroupCostBook([bought('2026-03-02', 2, 2), sold('2026-03-03', 5, 5), bought('2026-03-04', 1, 3)])
+    // Not the 3 a unit of a purchase that covers part of the shortfall.
+    expect(book.unitCostAt(G, '2026-03-05')).toBe(1)
+  })
+
+  it('sends goods back to the supplier at the average, whatever they were bought at', () => {
+    const book = new GroupCostBook([bought('2026-03-02', 10, 10), bought('2026-03-03', -8, -4)])
+    // At their purchase price, 0.50 a unit, the 2 left would cost 3 each.
+    expect(book.unitCostAt(G, '2026-03-04')).toBe(1)
+  })
+
+  it('brings a sale\'s return back at the average, and a value corrected without goods moves the value on hand', () => {
+    const book = new GroupCostBook([
+      bought('2026-03-02', 10, 10),
+      // A return the books booked at 2 a unit: it comes back at the average, 1.
+      sold('2026-03-03', -2, -4),
+      move('2026-03-04', { credit: 1.2, creditValueOnly: 1.2 }),
+    ])
+    expect(book.unitCostAt(G, '2026-03-04')).toBe(1)
+    expect(book.unitCostAt(G, '2026-03-05')).toBeCloseTo(10.8 / 12, 12)
+  })
+
+  it('moves the average of what is on hand by a discount, and with nothing on hand moves nothing', () => {
+    const book = new GroupCostBook([
+      bought('2026-03-02', 10, 10),
+      move('2026-03-03', { debit: -1, debitValueOnly: -1 }),
+      sold('2026-03-04', 10, 9),
+      // A cost added once nothing is left, then a customer's return of 2.
+      move('2026-03-05', { debit: 5, debitValueOnly: 5 }),
+      sold('2026-03-06', -2, -1.8),
+    ])
+    expect(book.unitCostAt(G, '2026-03-04')).toBeCloseTo(0.9, 12)
+    // The return comes back at the last average, and the cost added has nothing to land on: 5 + 1.8 would be 3.40 a unit.
+    expect(book.unitCostAt(G, '2026-03-07')).toBeCloseTo(0.9, 12)
   })
 })
 

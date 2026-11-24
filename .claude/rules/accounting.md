@@ -171,10 +171,11 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 - ⚠ **A credit notice and a reversal post negative amounts on the same sides** as the invoice, quantities too,
   as the books do. The sign is the document's, never a rule's.
 
-- ⚠ **The shadow cost of sales is the books' own group average at the START of the sale's business day**
-  (`costBasis: 'books'`): the company's 304 lines per group path, summed in Mongo across every org of the split,
-  from the last imported opening. The sale's day never counts; no quantity on hand keeps the last average; a group
-  the books never held is refused (`no_cost`), not guessed.
+- ⚠ **The shadow cost of sales is the group's moving average at the START of the sale's business day**
+  (`costBasis: 'books'`), replayed from the company's 304 lines per group path, summed in Mongo across every org of
+  the split, from the last imported opening. The sale's day never counts; no quantity on hand keeps the last average;
+  a group the books never held is refused (`no_cost`), not guessed. Since 2026-11-24 the average is replayed from
+  what came in, never from the books' own cost of a sale (below).
 
 - ⚠ **The shadow register row goes in the HOME**, which holds the VAT files under R7, with `ledger: 'shadow'` and
   `source: { orgId, kind: 'invoice', id }` naming the store's document. One row per document and ledger
@@ -249,3 +250,15 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
 - ⚠ **A sealed payslip's PDF is a reveal.** It needs `payroll-people.reveal` (the route rule asks only the list's
   `payroll-people.view`, for the generic run's payslip) and a reason, and writes the row `/reveal` writes
   (`action: 'reveal'`, field `sealed.pdf`, the reason, never the value) before the file leaves. No row, no file.
+
+## The shadow's cost no longer takes the books' cost of a sale in (2026-11-24, FR-25 R3, slice 3)
+
+- ⚠ **The books' cost of a sale is what the shadow is checked against, never what it is built from.** A reading of
+  the books that feeds the shadow's cost takes what came in (the opening, purchases, discounts, returns to the supplier)
+  at their value, and the quantities of what went out, never the value the books put on a sale.
+
+- ⚠ **Within a day, goods in come before goods out.** A first cut took a day's sales out at the average the day
+  starts with, the unit they post at. On a group bought to order, nearly all of a day's purchase leaves the same day:
+  what was left then carried the difference between the purchase's price and the old average on a few units, and a
+  later return to the supplier made that average run away. After a shortfall, what is left after a purchase costs what
+  came in, and a group still short keeps its last average; goods sent back to the supplier go back at the average.

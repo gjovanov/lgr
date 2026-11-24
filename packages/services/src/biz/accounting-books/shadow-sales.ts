@@ -22,7 +22,8 @@
  *   - the services' net is the sum of their lines' taxable amounts, rounded once; the goods' net is what remains of the
  *     base. A document of one kind of line gives that kind the whole base;
  *   - a group's cost is rounded once per operation (per group, per document): `Σ quantity × unit cost`, half away from
- *     zero (`roundCents`). The unit cost is the books' own average (`group-cost.ts`), never LGR's.
+ *     zero (`roundCents`). The unit cost is the group's moving average replayed from the books (`group-cost.ts`),
+ *     never LGR's, and never the books' own cost of a sale.
  */
 import { registerDocTypeCode } from 'config/journal-header'
 import { lineAmounts } from 'config/line-amounts'
@@ -97,7 +98,7 @@ export interface PostingInput {
   products: ReadonlyMap<string, ProductFacts>
   /** The document's partner's analytic under a root, in the posting org. */
   partner(root: string): PartnerFacts
-  /** The books' unit cost of a goods group at the start of a business day, or nothing when the books never held it. */
+  /** A goods group's unit cost at the start of a business day (`group-cost.ts`), or nothing when the books never held it. */
   unitCost(groupId: string, day: Date): number | undefined
 }
 

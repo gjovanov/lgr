@@ -14,6 +14,7 @@ import { parseAnalyticsFile } from 'services/biz/accounting-books/plusminus-expo
 import { seedPostingRules } from 'services/biz/accounting-books/posting-rule.service'
 import { postShadowSales } from 'services/biz/accounting-books/shadow-sales.service'
 import { compareBooksShadowOf } from 'services/biz/accounting-books/books-shadow-compare.service'
+import { loadGroupCosts } from 'services/biz/accounting-books/group-cost.service'
 import { analyticTrialBalance, chronology, documentJournal, mainBook, rebuildBalances, trialBalance } from 'services/biz/accounting-books/books-ledger'
 import { getBalanceSheet, getProfitLoss, getTrialBalance } from 'services/biz/accounting.service'
 import { compareSalesRegisterOf } from 'services/biz/vat-files/sales-register.service'
@@ -216,8 +217,8 @@ describe('posting a store\'s sales documents into the shadow ledger', () => {
     // A credit notice: the same operations, negative, on the same sides.
     const cn4 = entries.find(e => String(e.sourceId) === world.docs.cn4)!
     expect(await linesOf(cn4)).toEqual([
-      // At the start of the 5th the average has the books' own cost of the 4th in it: 37.80 for 76.
-      ['debit', '702', null, -0.99, -2], ['credit', '304', G1, -0.99, -2],
+      // The average at the start of the 5th is still 0.50: the books' own cost of the 4th (0.52 a unit) never feeds it.
+      ['debit', '702', null, -1, -2], ['credit', '304', G1, -1, -2],
       ['debit', '411', CUSTOMER, -4, null], ['credit', '702', null, -4, null],
       ['debit', '411', CUSTOMER, -0.8, null], ['credit', '4532', null, -0.8, null],
     ])
@@ -340,6 +341,21 @@ describe('the seed script', () => {
   })
 })
 
+describe('the cost of a group, read from the company\'s books', () => {
+  it('replays the average: a sale leaves at it whatever the books booked, a value corrected without goods leaves as booked', async () => {
+    // A supplier's credit notice on the value of the first group alone, no goods, booked in the home.
+    await importJournalMonth(world.home.id, { eik: EIK, dryRun: false, month: '2026-04', coverage: { from: '2026-01-01', to: '2026-12-31' }, documents: [
+      { date: '2026-04-02', docType: '+ФИ', docNumber: '0000000124', vatKind: '1', total: 3.8, ops: [{ d: '401', k: '304', ak: G1, amount: 3.8 }] },
+    ] }, { id: world.userId })
+    const costs = await loadGroupCosts(world.store.id, new Date('2026-03-01T00:00:00.000Z'), new Date('2026-04-30T00:00:00.000Z'))
+    const g1 = String((await AccountingAnalytic.findOne({ orgId: world.store.id, path: G1 }).lean())!._id)
+    // The books booked the 4th's sale at 0.52 a unit. It leaves at the day's 0.50 all the same: 38.00 for 76.
+    expect(costs.unitCost(g1, new Date('2026-03-05T00:00:00.000Z'))).toBe(0.5)
+    // The credit notice takes 3.80 off the value and no unit: 34.20 for 76.
+    expect(costs.unitCost(g1, new Date('2026-04-03T00:00:00.000Z'))).toBeCloseTo(0.45, 12)
+  })
+})
+
 describe('the comparison, books against shadow (FR-25 R3, slice 5)', () => {
   /** A filed row of the home's sales register, as the VAT import stores one. */
   const filed = (row: any, over: Record<string, unknown> = {}) => VatRegisterEntry.create({
@@ -376,7 +392,7 @@ describe('the comparison, books against shadow (FR-25 R3, slice 5)', () => {
       [G2, { quantity: 2, cost: 4 }, { quantity: 2, cost: 4 }, 'equal'],
     ])
     // The credit notice is the shadow's alone: the books have not booked it.
-    expect(r.costOfSales).toEqual({ books: 16.2, shadow: 16, outcome: 'within5', booksOnly: 0, shadowOnly: -0.99 })
+    expect(r.costOfSales).toEqual({ books: 16.2, shadow: 16, outcome: 'within5', booksOnly: 0, shadowOnly: -1 })
     expect(r.register).toEqual({ shadow: 3, filed: 2, equal: 1, differs: { base: 1 }, filedOnly: 0, shadowOnly: 1, several: 0 })
   })
 
