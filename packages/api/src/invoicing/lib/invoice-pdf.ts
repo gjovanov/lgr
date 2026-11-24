@@ -31,7 +31,7 @@ export interface RenderInvoicePdfOptions {
 }
 
 export type RenderInvoicePdfResult =
-  | { ok: true; buffer: Buffer; filename: string; invoice: any }
+  | { ok: true; buffer: Buffer<ArrayBuffer>; filename: string; invoice: any }
   | { ok: false; status: 404; message: string }
   | { ok: false; status: 503; message: string; detail?: string }
 

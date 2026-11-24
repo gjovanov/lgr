@@ -11,7 +11,7 @@ import { orderSheetI18n, type OrderSheetCtx } from '../order-sheet.i18n.js'
  *    client reservation, with received and free quantities. For warehouse storage
  *    and transport planning.
  */
-export async function generateOrderSheetXLSX(ctx: OrderSheetCtx, variant: 'supplier' | 'internal'): Promise<Buffer> {
+export async function generateOrderSheetXLSX(ctx: OrderSheetCtx, variant: 'supplier' | 'internal'): Promise<Buffer<ArrayBuffer>> {
   const t = orderSheetI18n(ctx.locale)
   const { workbook, tmpFile } = await createWorkbook()
   const ws = workbook.addWorksheet(variant === 'supplier' ? t.titleSupplier : t.titleInternal)

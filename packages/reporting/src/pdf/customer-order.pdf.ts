@@ -132,6 +132,6 @@ export function buildCustomerOrderMarkdown(ctx: CustomerOrderCtx): string {
 /** On top of the plain markdown page: `codeCell`'s one line. */
 const SHEET_CSS = '.one-line { white-space: nowrap; }'
 
-export async function generateCustomerOrderPDF(ctx: CustomerOrderCtx): Promise<Buffer | undefined> {
+export async function generateCustomerOrderPDF(ctx: CustomerOrderCtx): Promise<Buffer<ArrayBuffer> | undefined> {
   return markdownToPdf(buildCustomerOrderMarkdown(ctx), { locale: ctx.locale, css: SHEET_CSS })
 }

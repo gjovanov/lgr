@@ -26,7 +26,7 @@ const SUPPLIER_COL = 4
  * party bands, a ruled line table and the boxed total quantity. The PDF is the document of
  * record; this exists because the Print dialog offers Excel alongside it.
  */
-export async function generateCompanionDocXLSX(data: CompanionDocData): Promise<Buffer> {
+export async function generateCompanionDocXLSX(data: CompanionDocData): Promise<Buffer<ArrayBuffer>> {
   const i18n = companionDocI18n(data.locale)
   const L = i18n.label
   const H = i18n.header

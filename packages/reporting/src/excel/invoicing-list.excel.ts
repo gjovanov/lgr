@@ -281,7 +281,7 @@ function writeSummaryBlock(
   })
 }
 
-export async function generateInvoicingListXLSX(opts: ListOptions): Promise<Buffer> {
+export async function generateInvoicingListXLSX(opts: ListOptions): Promise<Buffer<ArrayBuffer>> {
   const { workbook, tmpFile } = await createWorkbook()
 
   const i18n = exportI18n(opts.locale)

@@ -492,7 +492,7 @@ export async function generateInvoicePDF(
   contact: IContact,
   columns?: string[],
   options?: InvoicePdfOptions,
-): Promise<Buffer | undefined> {
+): Promise<Buffer<ArrayBuffer> | undefined> {
   const { html, css } = buildInvoiceHtml(invoice, org, contact, columns, options)
   return markdownToPdf(html, {
     css,

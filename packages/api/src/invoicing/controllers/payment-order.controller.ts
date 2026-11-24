@@ -99,7 +99,8 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
     if (!item) return status(404, { message: 'Not found' })
     return { paymentOrder: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body, user }) => {
+  .post('/', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const mapped = mapPaymentOrderBody(clientCreate('PaymentOrder', body, { orgId: params.orgId, createdBy: user.id, status: 'draft' }))
     const orderNumber = await getNextOrderNumber(params.orgId)
@@ -110,6 +111,7 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
     return { paymentOrder: item }
   }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.paymentOrders.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
@@ -122,6 +124,7 @@ export const paymentOrderController = new Elysia({ prefix: '/org/:orgId/invoicin
     return { paymentOrder: item }
   }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.paymentOrders.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })

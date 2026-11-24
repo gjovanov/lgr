@@ -41,7 +41,8 @@ export const stockLotController = new Elysia({ prefix: '/org/:orgId/warehouse/lo
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user }) => {
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
       const item = await r.stockLots.create({ ...body, orgId } as any)
 
@@ -54,6 +55,7 @@ export const stockLotController = new Elysia({ prefix: '/org/:orgId/warehouse/lo
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
       const existing = await r.stockLots.findByIdInOrg(id, orgId)
       if (!existing) return status(404, { message: 'Not found' })
@@ -67,6 +69,7 @@ export const stockLotController = new Elysia({ prefix: '/org/:orgId/warehouse/lo
     { isSignIn: true, body: stockLotBody },
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.stockLots.findByIdInOrg(id, orgId)
     if (!existing) return status(404, { message: 'Not found' })

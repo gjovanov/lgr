@@ -54,7 +54,8 @@ export const operationTypeController = new Elysia({ prefix: '/org/:orgId/warehou
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user }) => {
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
       const item = await r.operationTypes.create({ ...body, orgId } as any)
 
@@ -67,6 +68,7 @@ export const operationTypeController = new Elysia({ prefix: '/org/:orgId/warehou
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
       const existing = await r.operationTypes.findByIdInOrg(id, orgId)
       if (!existing) return status(404, { message: 'Not found' })
@@ -80,6 +82,7 @@ export const operationTypeController = new Elysia({ prefix: '/org/:orgId/warehou
     { isSignIn: true, body: operationTypeBody },
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.operationTypes.findByIdInOrg(id, orgId)
     if (!existing) return status(404, { message: 'Not found' })

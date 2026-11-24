@@ -86,7 +86,7 @@ export async function prepareReceipt(orgId: string, user: RegisterUser, doc: any
   // document started since prints nothing: a debit note is what is left to write, and whatever its
   // lines say, its receipt would be a new sale on the device.
   const unlicensed = await licenceRefusal(orgId, 'a fiscal receipt for a new document', doc.createdAt ?? new Date(0))
-  if (unlicensed) throw new RegisterRefusal(402, unlicensed)
+  if (unlicensed) throw new RegisterRefusal(402, { ...unlicensed })
 
   const receipts = await receiptsOf(orgId, String(doc._id ?? doc.id))
   // The money a courier brings for a cash-on-delivery invoice is on its receipt, which took all that

@@ -127,7 +127,7 @@ export function buildCashAggHtml(opts: PdfOptions): { html: string; css: string 
   return { html: flattenHtml(`${topBar}\n${body}`), css: CSS }
 }
 
-export async function generateCashAggPDF(opts: PdfOptions): Promise<Buffer | undefined> {
+export async function generateCashAggPDF(opts: PdfOptions): Promise<Buffer<ArrayBuffer> | undefined> {
   const { html, css } = buildCashAggHtml(opts)
   const footText = opts.footerText || `${opts.orgName} · ${opts.title}`
   return markdownToPdf(html, {

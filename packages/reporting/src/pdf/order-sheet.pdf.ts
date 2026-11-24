@@ -7,7 +7,7 @@ import { orderSheetI18n, type OrderSheetCtx } from '../order-sheet.i18n.js'
  *  - 'supplier': offer sheet with blank price/total/delivery columns; no internal data.
  *  - 'internal': allocation + reservation breakdown for warehouse/transport planning.
  */
-export async function generateOrderSheetPDF(ctx: OrderSheetCtx, variant: 'supplier' | 'internal'): Promise<Buffer | undefined> {
+export async function generateOrderSheetPDF(ctx: OrderSheetCtx, variant: 'supplier' | 'internal'): Promise<Buffer<ArrayBuffer> | undefined> {
   return markdownToPdf(buildOrderSheetMarkdown(ctx, variant), { locale: ctx.locale })
 }
 
