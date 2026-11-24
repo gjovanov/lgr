@@ -119,6 +119,23 @@ describe('the hover wait of a top-bar menu (#923)', () => {
     expect(m.s.open).toBe(true)
   })
 
+  // The walk's exact path: an entry of the menu clicked, the pointer back on the button, the menu clicked open again.
+  it('a menu clicked open right after the pointer left its list is not closed by the list\'s close timer', () => {
+    const { clock, tick } = manualClock()
+    const m = vuetifyMenu(clock)
+    const props = hoverOpenGate(100, clock).wrap(m.activator)
+    m.s.open = true
+    m.content.enter()
+    m.s.open = false // the entry's click closes the menu
+    m.content.leave() // the pointer leaves the list on its way back: Vuetify's close timer, 250 ms
+    tick(20)
+    props.onMouseenter(m.ev())
+    props.onClick(m.ev())
+    expect(m.s.open).toBe(true)
+    tick(1000)
+    expect(m.s.open).toBe(true)
+  })
+
   it('a click within the wait on a menu already open closes it, and nothing reopens it', () => {
     const { clock, tick } = manualClock()
     const m = vuetifyMenu(clock)

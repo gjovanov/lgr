@@ -12,12 +12,13 @@
  * is given no delay of its own. Leaving the button cancels a pending hover, its blur a pending focus.
  *
  * ⚠ A click while the hover waits hands Vuetify that hover AT ONCE (which opens the menu) instead of
- * dropping it. Vuetify must know the pointer is on the button: a menu it believes unhovered is closed
- * by its next close check (the blur that follows the open, a mouseleave elsewhere) after
- * `close-delay`. Dropping the hover did exactly that, and `till-printer-walk.spec` saw every menu
- * opened by a click close 250 ms later under the pointer on its way to an entry. The click itself
- * then reaches Vuetify only when the menu was already open (it closes it); on a closed menu the
- * hover has just opened it, and Vuetify's click would toggle it shut again.
+ * dropping it. Vuetify must know the pointer is on the button: its mouseenter is also what clears a
+ * close timer still running, and a menu it believes unhovered is closed when that timer ends. The
+ * pointer leaving a menu's list (it had just clicked an entry there) starts one for 250 ms; dropping
+ * the hover left it running, and `till-printer-walk.spec` saw the menu clicked open next close under
+ * the pointer on its way to an entry. The click itself then reaches Vuetify only when the menu was
+ * already open (it closes it); on a closed menu the hover has just opened it, and Vuetify's click
+ * would toggle it shut again.
  */
 
 type Handler = (e: Event) => void
