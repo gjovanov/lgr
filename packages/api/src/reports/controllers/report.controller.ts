@@ -277,6 +277,9 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
     const orgName = (org as any)?.name || 'Organization'
     const columns = pickColumns(result, b.columns, b.labels)
     const rows = withValueLabels(result.rows, columns, b.valueLabels)
+    // The renderers have no 'status' type: by now its values are the UI's words, printed as text.
+    // Handed 'status', the sheet wrote them as numbers, which left every status cell empty.
+    const printed = columns.map(c => ({ ...c, type: c.type === 'status' ? 'text' as const : c.type }))
     const title = b.title || id
     // A `period` param, when the report has one, is what the header block prints.
     const period = Object.values(resolved.params).find(
@@ -289,7 +292,7 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
       const buffer = await generateReportExcel({
         title,
         orgName,
-        columns,
+        columns: printed,
         rows,
         totals: result.totals,
         totalsLabel: b.totalsLabel,
@@ -303,7 +306,7 @@ export const reportsController = new Elysia({ prefix: '/org/:orgId/reports' })
     const buffer = await generateReportPdf({
       title,
       orgName,
-      columns,
+      columns: printed,
       rows,
       totals: result.totals,
       totalsLabel: b.totalsLabel,

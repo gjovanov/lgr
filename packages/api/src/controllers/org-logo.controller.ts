@@ -96,7 +96,8 @@ export const orgLogoController = new Elysia({ prefix: '/org/:orgId/logo' })
     set.headers['etag'] = etag
     // Immutable: the URL changes whenever the bytes do (?v=<hash>).
     set.headers['cache-control'] = 'private, max-age=31536000, immutable'
-    return new Response(full.data)
+    // A copy over a plain ArrayBuffer, which is what Response takes (the logo is at most 512 KB).
+    return new Response(new Uint8Array(full.data))
   }, { isSignIn: true })
 
   // ── Remove ──

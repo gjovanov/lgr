@@ -48,14 +48,14 @@ export function styleHeaderRow(worksheet: ExcelJS.Worksheet, columnCount: number
  */
 export type CellType = 'text' | 'money' | 'quantity' | 'percent' | 'int' | 'date'
 
-export const NUM_FMT: Record<CellType, string | undefined> = {
+export const NUM_FMT = {
   text: undefined,
   money: '#,##0.00',
   quantity: '#,##0.###',
   percent: '0.##"%"',
   int: '0',
   date: 'dd.mm.yyyy',
-}
+} satisfies Record<CellType, string | undefined>
 
 /**
  * Excel treats the decimal point in a number format as a literal, so `#,##0.###` prints a
@@ -63,6 +63,8 @@ export const NUM_FMT: Record<CellType, string | undefined> = {
  * how the trailing commas got into the Bulgarian sheets. Whole values therefore get the
  * point-less variant of their format; fractional ones keep the full one.
  */
+export function fmtForValue(type: Exclude<CellType, 'text'>, value: unknown): string
+export function fmtForValue(type: CellType | undefined, value: unknown): string | undefined
 export function fmtForValue(type: CellType | undefined, value: unknown): string | undefined {
   if (type !== 'quantity' && type !== 'percent') return NUM_FMT[type ?? 'text']
   const n = Number(value)

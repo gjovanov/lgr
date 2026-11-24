@@ -1,7 +1,4 @@
 {
-  "packages/config/src/access/levels.ts": {
-    "TS7053": 1
-  },
   "packages/ui-shared/src/components/CurrencyInput.vue": {
     "TS2322": 1
   },

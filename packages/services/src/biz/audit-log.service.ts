@@ -123,7 +123,7 @@ export interface AuditQueryOptions {
 }
 
 /** ObjectId when castable, else the raw string (entityId is Mixed — e.g. sequence prefixes). */
-function idOrString(v: unknown): Types.ObjectId | string | undefined {
+function idOrString(v: unknown): InstanceType<typeof Types.ObjectId> | string | undefined {
   if (v == null) return undefined
   try { return new Types.ObjectId(String(v)) } catch { return String(v) }
 }

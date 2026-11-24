@@ -34,7 +34,8 @@ class UserDaoClass extends BaseDao<IUser> {
     super(User)
   }
 
-  async findByOrgId(orgId: string): Promise<IUser[]> {
+  // Not `findByOrgId`: the base class's is paginated, and an override must answer the same shape.
+  async findPublicByOrgId(orgId: string): Promise<IUser[]> {
     return this.model.find({ orgId }).select(USER_PUBLIC_PROJECTION).exec()
   }
 

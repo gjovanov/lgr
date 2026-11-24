@@ -44,7 +44,8 @@ export const posPaymentMethodController = new Elysia({ prefix: '/org/:orgId/pos/
   }, { isSignIn: true })
   .post(
     '/',
-    async ({ params: { orgId }, body, user }) => {
+    async ({ params: { orgId }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
       const item = await r.posPaymentMethods.create({ ...body, orgId } as any)
 
@@ -57,6 +58,7 @@ export const posPaymentMethodController = new Elysia({ prefix: '/org/:orgId/pos/
   .put(
     '/:id',
     async ({ params: { orgId, id }, body, user, status }) => {
+      if (!user) return status(401, { message: 'Unauthorized' })
       const r = getRepos()
       const existing = await r.posPaymentMethods.findByIdInOrg(id, orgId)
       if (!existing) return status(404, { message: 'Not found' })
@@ -70,6 +72,7 @@ export const posPaymentMethodController = new Elysia({ prefix: '/org/:orgId/pos/
     { isSignIn: true, body: posPaymentMethodBody },
   )
   .delete('/:id', async ({ params: { orgId, id }, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.posPaymentMethods.findByIdInOrg(id, orgId)
     if (!existing) return status(404, { message: 'Not found' })

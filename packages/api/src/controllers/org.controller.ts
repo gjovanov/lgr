@@ -4,7 +4,7 @@ import { AuthService } from '../auth/auth.service.js'
 import { orgDao } from 'services/dao/org.dao'
 import { createAuditEntry } from 'services/biz/audit-log.service'
 import { orgSettingsUpdate } from 'services/biz/org-settings-update'
-import { orgForClient } from 'db/models'
+import { orgForClient, type IOrg } from 'db/models'
 import {
   ACTIVITY_CODE_PATTERN, MAX_ACTIVITY_CODE_LENGTH, MAX_PLACE_OF_ISSUE_LENGTH, MAX_REPRESENTATIVE_LENGTH,
   ORG_IDENTITY_FIELDS, orgIdentityUpdate,
@@ -68,7 +68,7 @@ export const orgController = new Elysia({ prefix: '/org/:orgId' })
 
       createAuditEntry({ orgId, userId: user.id, action: 'update', module: 'admin', entityType: 'organization', entityId: orgId, entityName: org.name })
 
-      return { org: orgForClient(org.toJSON()) }
+      return { org: orgForClient(org.toJSON<IOrg>()) }
     },
     {
       isSignIn: true,

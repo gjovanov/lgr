@@ -1,7 +1,4 @@
 {
-  "packages/config/src/access/levels.ts": {
-    "TS7053": 1
-  },
   "packages/desktop-ui/src/views/SettingsView.vue": {
     "TS18047": 1
   }

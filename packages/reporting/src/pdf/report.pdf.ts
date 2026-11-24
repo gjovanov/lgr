@@ -301,7 +301,7 @@ export function buildReportHtml(opts: ReportPdfOptions): { html: string; css: st
   }
 }
 
-export async function generateReportPdf(opts: ReportPdfOptions): Promise<Buffer | undefined> {
+export async function generateReportPdf(opts: ReportPdfOptions): Promise<Buffer<ArrayBuffer> | undefined> {
   const { html, css, landscape } = buildReportHtml(opts)
   const footText = opts.footerText || `${opts.orgName} · ${opts.title}`
 

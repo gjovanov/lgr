@@ -85,7 +85,7 @@ describe('UserDao', () => {
     await createTestUser(org._id, { username: 'user1', email: 'u1@test.com' })
     await createTestUser(org._id, { username: 'user2', email: 'u2@test.com' })
 
-    const users = await userDao.findByOrgId(String(org._id))
+    const users = await userDao.findPublicByOrgId(String(org._id))
     expect(users).toHaveLength(2)
   })
 
@@ -96,8 +96,8 @@ describe('UserDao', () => {
     await createTestUser(org1._id, { username: 'shared', email: 'org1@test.com' })
     await createTestUser(org2._id, { username: 'shared', email: 'org2@test.com' })
 
-    const org1Users = await userDao.findByOrgId(String(org1._id))
-    const org2Users = await userDao.findByOrgId(String(org2._id))
+    const org1Users = await userDao.findPublicByOrgId(String(org1._id))
+    const org2Users = await userDao.findPublicByOrgId(String(org2._id))
 
     expect(org1Users).toHaveLength(1)
     expect(org2Users).toHaveLength(1)

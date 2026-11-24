@@ -89,7 +89,8 @@ export async function auditSignIn(user: SessionUser, method: SignInMethod): Prom
  * the person lands next time.
  */
 export async function enterOrg(
-  ctx: { jwt: { sign: (payload: Record<string, unknown>) => Promise<string> }; cookie: Record<string, any> },
+  // `sign` in method syntax: the jwt plugin's own `sign` takes its claim map, narrower than this one.
+  ctx: { jwt: { sign(payload: Record<string, unknown>): Promise<string> }; cookie: Record<string, any> },
   member: IUser,
   identity: Pick<IIdentity, '_id' | 'tokenVersion'>,
   exp: number | undefined,
