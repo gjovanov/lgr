@@ -36,7 +36,11 @@ services:
       - "80:4001"
       - "4001:4001"
     working_dir: /app/packages/api
-    command: ["bun", "run", "start:unified"]
+    # The image's own CMD (#935: this said `start:unified`, a script no package.json defines). The
+    # script loads `--env-file=../../.env`; the image has no .env (.dockerignore), and Bun skips a
+    # missing env file silently, so the variables below are the whole environment.
+    # unit/compose-scripts.test.ts fails on a `bun run` here that names no script.
+    command: ["bun", "run", "start"]
     environment:
       HOST: "0.0.0.0"
       # The image runs as production by default (S-24, #920), and production refuses this file's
