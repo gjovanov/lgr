@@ -19,7 +19,7 @@ import { saleProgress } from 'services/biz/cash-register/in-doubt'
 import { asEntity } from 'services/biz/cash-register/pos-union'
 import { RECEIPT_DEVICE_AWAY, auditStoppedSettlement } from 'services/biz/cash-register/settle.service'
 import type { RegisterPrinter } from 'services/biz/cash-register/printer'
-import { takeLease } from 'services/biz/hot-path-key'
+import { clientKeyIs, takeLease } from 'services/biz/hot-path-key'
 import { POD_ID, livePresence } from 'services/biz/fiscal-presence.service'
 import {
   RegisterRefusal, SESSION_CLOSING, claimForStorno, markStornoWritten, finishInterruptedStorno, finishSale, insertRegisterDocument, invoicedRefusal, newDocumentId, originOf, printedAsText, printedFiscally,
@@ -626,7 +626,7 @@ export async function finishDeadSale(orgId: string, user: RegisterUser, doc: any
  * documents are the one place to look since R4 (FR-21.27).
  */
 export async function findKeyedTillDocument(orgId: string, key: string): Promise<any | null> {
-  return Invoice.findOne({ orgId, clientKey: key }).lean().exec()
+  return Invoice.findOne({ orgId, clientKey: clientKeyIs(key) }).lean().exec()
 }
 
 /** What the till answers for a sale: the document as the POS row it stands for. */
@@ -751,7 +751,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
           const reversed = await Invoice.exists({ orgId, type: 'cash_storno', relatedInvoiceId: original._id, status: 'paid' }).exec()
           const ids: unknown[] = (await read())?.register?.stornoedBy ?? []
           const unwritten = ids.length > await Invoice.countDocuments({ _id: { $in: ids }, orgId }).exec()
-          const mine = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
+          const mine = await Invoice.findOne({ orgId, clientKey: clientKeyIs(key) }).lean().exec()
           if (mine) return answer(await settleKeyedDocument(mine, hash!, contextOf(mine), runStornoSteps))
           // An earlier part is "a paid storno" too: this request's own may still be between its claim and its insert.
           if (reversed && !unwritten) break
@@ -875,7 +875,7 @@ export async function stornoDoor(input: StornoDoorInput): Promise<ReturnType<typ
       // A duplicate of the request that won: wait for its storno, then answer as it does.
       if (key) {
         for (let i = 0; i < 40; i++) {
-          const winner = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
+          const winner = await Invoice.findOne({ orgId, clientKey: clientKeyIs(key) }).lean().exec()
           if (winner) return answer(await settleKeyedDocument(winner, hash!, contextOf(winner), runStornoSteps))
           await new Promise(res => setTimeout(res, 100))
         }

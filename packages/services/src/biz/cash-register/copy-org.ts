@@ -25,6 +25,7 @@ import { CashRegisterMappingError, exchangeRateFor, fromPosTransaction, toPosTra
 import { REGISTER_TYPES } from './pos-union.js'
 import { keptByMethod, posRowSign } from './counting.js'
 import { BULGARIAN_TIME_ZONE } from '../local-day.js'
+import { clientKeyIs } from '../hot-path-key.js'
 
 type Db = mongo.Db
 type Log = (message: string, extra?: Record<string, unknown>) => void
@@ -97,7 +98,7 @@ export async function cashRegisterPreflight(db: Db, orgId: string): Promise<Pref
 
   const keyed = rows.filter(r => r.clientKey)
   if (keyed.length) {
-    const sameKey: any[] = await invoices.find({ orgId: org, clientKey: { $in: keyed.map(r => r.clientKey) } }, { projection: { clientKey: 1 } }).toArray()
+    const sameKey: any[] = await invoices.find({ orgId: org, clientKey: clientKeyIs(keyed.map(r => r.clientKey)) }, { projection: { clientKey: 1 } }).toArray()
     const rowByKey = new Map(keyed.map(r => [r.clientKey, String(r._id)]))
     const clash = sameKey.filter(d => rowByKey.get(d.clientKey) !== String(d._id))
     if (clash.length) blockers.push(issue('key_in_both', `${clash.length} Idempotency-Key(s) are on a POS row and on another document`, clash.map(d => d.clientKey)))

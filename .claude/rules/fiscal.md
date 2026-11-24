@@ -193,6 +193,11 @@ Why each one exists, and what was built around it: [`docs/history/fiscal.md`](..
   payment and derives `amountPaid`/`amountDue`/`status`/`paidAt`/history in the database; the key rides
   on `payments[].clientKey`. Read-modify-write lost a payment when two were recorded at once).
 
+- ⚠ **A key is looked up with `clientKeyIs(key)`** (`services/biz/hot-path-key.ts`, #785), never `{ orgId, clientKey: key }`.
+  The `{orgId, clientKey}` indexes are partial on `$type: 'string'`, and on an equality alone the planner cannot use
+  them: every keyed till sale read every invoice of the org (8,600 a sale at the end of the FR-20 soak).
+  `keyed-lookup-bounded.flow.test.ts` fails on a lookup that names the key bare.
+
 - POS totals come from ONE function, `config/pos-totals` → `computePosTotals`. Both the terminal and the
   server's `validateTotals` use it. Gross is rounded once per VAT rate, VAT is taken back out per rate the
   way a fiscal device does it, and the net is what remains, so the printed figures always add up. The
