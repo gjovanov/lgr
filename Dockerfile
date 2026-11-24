@@ -88,6 +88,10 @@ COPY --from=web /app/packages/web/dist /app/packages/web/dist
 # Last, because it changes with every commit: nothing below this line is more than metadata.
 COPY . /app
 
+# Production by default (S-24, #920): every production-only guard reads NODE_ENV (requiredSecret's
+# refusals, CORS's dev origins, `Secure` cookies, the API docs), so a global started without
+# lgr-config's NODE_ENV booted as development. ⚠ This stage only: `deps` and `web` need devDependencies.
+ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 EXPOSE 4001
 

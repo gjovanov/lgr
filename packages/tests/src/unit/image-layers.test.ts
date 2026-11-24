@@ -231,3 +231,22 @@ function leftOut(patterns: string[], path: string): boolean {
   }
   return out
 }
+
+/**
+ * S-24, #920: every production-only guard reads `NODE_ENV` (requiredSecret's refusals, CORS's dev
+ * origins, `Secure` cookies, the API docs). Until #920 the image set none, so a global started from
+ * it without `lgr-config`'s `NODE_ENV` booted as development and accepted the published dev secrets.
+ * A deployment that wants development now has to say so (the root docker-compose.yml does).
+ */
+describe('the image runs as production unless its deployment says otherwise', () => {
+  it('the runtime stage sets NODE_ENV=production, and nothing else sets NODE_ENV there', () => {
+    expect(stage('runtime').lines.filter(l => /\bNODE_ENV\b/.test(l))).toEqual(['ENV NODE_ENV=production'])
+    expect(all.at(-1)?.name).toBe('runtime')
+  })
+
+  it('no build stage sets it: `bun install` would leave out the devDependencies the SPA is built with', () => {
+    for (const name of ['base', 'src', 'deps', 'web']) {
+      expect({ stage: name, nodeEnv: lineage(name).filter(l => /\bNODE_ENV\b/.test(l)) }).toEqual({ stage: name, nodeEnv: [] })
+    }
+  })
+})
