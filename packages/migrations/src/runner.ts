@@ -1,8 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { hostname } from 'node:os'
-import type { Db } from 'mongodb'
+import type { mongo } from 'mongoose'
 import type { Migration, MigrationContext, MigrationRecord } from './types.js'
 import { MIGRATIONS } from './registry.js'
+
+/**
+ * The driver's database, as mongoose re-exports it (the repo's way, e.g. `services/biz/replication`):
+ * this package does not depend on `mongodb` itself, so `from 'mongodb'` resolved to nothing.
+ * ⚠ Only the runner's own code. What a migration sees, `MigrationContext.db` (`types.ts`), stays as it
+ * was: released migrations are never edited, and typing it raises errors inside them.
+ */
+type Db = mongo.Db
 
 /**
  * The versioned migrations runner (FR-20.19, plan step P0b-7).
