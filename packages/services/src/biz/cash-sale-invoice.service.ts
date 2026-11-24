@@ -5,7 +5,7 @@ import { getRepos } from '../context.js'
 import { logger } from '../logger/logger.js'
 import { createAuditEntry } from './audit-log.service.js'
 import { getNextInvoiceNumber, getNextDraftInvoiceNumber, issuableRefusal } from './invoice-numbering.service.js'
-import { LEASE_MS, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion } from './hot-path-key.js'
+import { LEASE_MS, assertSameRequest, clientKeyIs, isDuplicateKey, takeLease, waitForCompletion } from './hot-path-key.js'
 import { CASH_SALE_REF_ID } from './sale-counting.js'
 import { reverseInvoiceStockMovement } from './invoicing.service.js'
 import { retireAutomaticPayments } from './cash-settlement.service.js'
@@ -665,7 +665,7 @@ export async function createInvoiceForCashSale(
   // A retry: replay, wait, or resume what the first request left.
   let resumed: any = null
   if (key) {
-    const existing: any = await Invoice.findOne({ orgId, clientKey: key } as any).lean().exec()
+    const existing: any = await Invoice.findOne({ orgId, clientKey: clientKeyIs(key) } as any).lean().exec()
     if (existing) {
       assertSameRequest(existing.requestHash, hash!)
       if (existing.completedAt) return asRepo(existing._id)

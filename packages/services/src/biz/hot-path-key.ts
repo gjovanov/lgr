@@ -65,6 +65,21 @@ export function assertSameRequest(stored: string | undefined, hash: string): voi
   }
 }
 
+/**
+ * The filter on `clientKey` that finds a key through its index: `{ orgId, clientKey: clientKeyIs(key) }`.
+ *
+ * ⚠ #785: the `{orgId, clientKey}` indexes of `Invoice` and `POSSession` are partial
+ * (`clientKey: { $type: 'string' }`), and on an equality alone the planner cannot prove that filter, so it
+ * walked every document of the org by another `orgId` index. Every keyed till sale did, a new key read
+ * every invoice the org ever had. With the `$type` beside the equality it reads the one index entry.
+ * `clientKeyIs(keys[])` is the `$in` form.
+ */
+export function clientKeyIs(key: string): { $eq: string; $type: 'string' }
+export function clientKeyIs(keys: string[]): { $in: string[]; $type: 'string' }
+export function clientKeyIs(key: string | string[]): Record<string, unknown> {
+  return Array.isArray(key) ? { $in: key, $type: 'string' } : { $eq: key, $type: 'string' }
+}
+
 /** MongoDB's duplicate-key error on the `{orgId, clientKey}` index. */
 export function isDuplicateKey(err: unknown): boolean {
   const e = err as { code?: number; keyPattern?: Record<string, unknown>; message?: string }

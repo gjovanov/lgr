@@ -219,6 +219,11 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   number it; a failure releases it) and `/:id/payments` (ONE aggregation-pipeline update appends the
   payment and derives `amountPaid`/`amountDue`/`status`/`paidAt`/history in the database; the key rides
   on `payments[].clientKey`. Read-modify-write lost a payment when two were recorded at once).
+- **The key's lookup reads the index** (#785, 2026-11-24). The FR-20 soak found a sale's time creeping up with the
+  number of sales. ⚠ **A key is looked up with `clientKeyIs(key)`** (`services/biz/hot-path-key.ts`, #785), never `{ orgId, clientKey: key }`.
+  Every keyed lookup had walked the org's invoices by its `orgId` index: the partial unique index cannot be proved
+  from an equality alone. Measured on 20,000 invoices: a new key's lookup took 27 ms that way and under 2 ms through
+  the index, flat. The FR-20 soak's CPU step itself was not explained by it (#785 keeps that open).
 - POS totals come from ONE function, `config/pos-totals` → `computePosTotals`. Both the terminal and the
   server's `validateTotals` use it. Gross is rounded once per VAT rate, VAT is taken back out per rate the
   way a fiscal device does it, and the net is what remains, so the printed figures always add up. The

@@ -2,7 +2,7 @@ import { Invoice } from 'db/models'
 import { getRepos } from '../../context.js'
 import { createAuditEntry } from '../audit-log.service.js'
 import { documentAmounts } from '../document-amounts.js'
-import { IdempotencyError, LEASE_MS, assertSameRequest, isDuplicateKey, takeLease, waitForCompletion } from '../hot-path-key.js'
+import { IdempotencyError, LEASE_MS, assertSameRequest, clientKeyIs, isDuplicateKey, takeLease, waitForCompletion } from '../hot-path-key.js'
 import { getNextDraftInvoiceNumber, getNextInvoiceNumber } from '../invoice-numbering.service.js'
 import { createInvoiceWithProductUpdates } from '../invoice-with-update.service.js'
 import { licenceGate } from '../licence/master-licence.service.js'
@@ -122,7 +122,7 @@ export async function createDocument(req: CreateRequest, till: CashSaleTill): Pr
     allowNegativeStock: body.allowNegativeStock === true,
   }
   if (key) {
-    const existing = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
+    const existing = await Invoice.findOne({ orgId, clientKey: clientKeyIs(key) }).lean().exec()
     // FR-21.10: a key a till sale holds is found here too. A POS row's key travelled with it
     // into its document (0008/0009), and a different request with it is answered 422.
     if (existing) return settleCreate(existing, hash!, createCtx, till)
@@ -271,7 +271,7 @@ export async function createDocument(req: CreateRequest, till: CashSaleTill): Pr
       // A racing duplicate of this keyed request won the insert: answer as it does.
       // (The DAL's DuplicateError names the index's fields in its message.)
       if (key && (isDuplicateKey(e) || /clientKey/.test(String(e?.message ?? '')))) {
-        const existing = await Invoice.findOne({ orgId, clientKey: key }).lean().exec()
+        const existing = await Invoice.findOne({ orgId, clientKey: clientKeyIs(key) }).lean().exec()
         if (existing) return settleCreate(existing, hash!, createCtx, till)
       }
       if (e?.code !== 'DUPLICATE') throw e

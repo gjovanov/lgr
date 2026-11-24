@@ -31,7 +31,7 @@ import { REPORT_MAX_MS, SERVICE_CASH_MAX_MS } from 'fiscal/eltrade'
 import { licenceGate } from 'services/biz/licence/master-licence.service'
 import { BULGARIAN_TIME_ZONE, localDayWindow } from 'services/biz/local-day'
 import { computePosTotals, roundCents } from 'config/pos-totals'
-import { readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
+import { clientKeyIs, readIdempotencyKey, requestHash, isDuplicateKey, WAIT_MS } from 'services/biz/hot-path-key'
 import { withVisibleTrails } from 'services/biz/access/price-trails'
 import { typedPriceRefusal } from 'services/biz/sales-lines'
 import {
@@ -491,7 +491,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
         return { session: await r.posSessions.findById(String(keyed._id)) }
       }
       if (key) {
-        const keyed = await POSSession.findOne({ orgId, clientKey: key }).lean().exec()
+        const keyed = await POSSession.findOne({ orgId, clientKey: clientKeyIs(key) }).lean().exec()
         if (keyed) return replay(keyed)
       }
 
@@ -541,7 +541,7 @@ export const posController = new Elysia({ prefix: '/org/:orgId/trade/pos' })
       } catch (e: any) {
         // A concurrent duplicate of this open won the insert: answer with its session.
         if (!key || !(isDuplicateKey(e) || e?.code === 'DUPLICATE')) throw e
-        const keyed = await POSSession.findOne({ orgId, clientKey: key }).lean().exec()
+        const keyed = await POSSession.findOne({ orgId, clientKey: clientKeyIs(key) }).lean().exec()
         if (!keyed) throw e
         return replay(keyed)
       }

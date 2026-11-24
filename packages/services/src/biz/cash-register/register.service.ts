@@ -41,7 +41,7 @@ import { createInvoiceStockMovement, returnedUnitCost, reverseInvoiceStockMoveme
 import { createNumberedMovement } from '../movement-number.js'
 import { confirmMovement } from '../warehouse.service.js'
 import { PendingTransferError, confirmTransferMovements, discardPendingTransfers } from '../stock-transfer.service.js'
-import { IdempotencyError, LEASE_MS, assertSameRequest, keepLease, takeLease, waitForCompletion } from '../hot-path-key.js'
+import { IdempotencyError, LEASE_MS, assertSameRequest, clientKeyIs, keepLease, takeLease, waitForCompletion } from '../hot-path-key.js'
 import { exchangeRateFor, fromPosTransaction } from './mapping.js'
 import { unitsOf } from './copy.js'
 import type { RegisterPrinter } from './printer.js'
@@ -891,7 +891,7 @@ export async function insertRegisterDocument(
       if (keyed) {
         // A racing duplicate of this keyed request won the insert. (Its placeholder number is unique
         // per key too, so a duplicate on EITHER index means the same request.)
-        const existing = await Invoice.findOne({ orgId, clientKey: keyed.key }).lean().exec()
+        const existing = await Invoice.findOne({ orgId, clientKey: clientKeyIs(keyed.key) }).lean().exec()
         if (existing) return { existing }
         throw e
       }
