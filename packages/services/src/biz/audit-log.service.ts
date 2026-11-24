@@ -1,9 +1,10 @@
 import { nodeRole } from 'config'
 import {
-  Account, AuditLog, Contact, Desktop, Employee, InternalOrder, Invoice, JournalEntry, Order, POSSession, Product, Reservation, StockMovement,
-  User, Warehouse,
+  Account, AuditLog, Contact, Desktop, Employee, GlobalAuditEntry, InternalOrder, Invoice, JournalEntry, Order, POSSession, Product, Reservation,
+  StockMovement, User, Warehouse,
 } from 'db/models'
 import { mongoose } from 'db/connection'
+import { HomeElsewhereError } from 'db/home/home'
 import { currentRequest } from 'db/home/request-context'
 import { logger } from '../logger/logger.js'
 import { buildSearchFilter } from './search.utils.js'
@@ -75,10 +76,19 @@ export function changesOf(changes: AuditChanges | undefined): AuditChange[] | un
   return Object.entries(changes).map(([field, c]) => ({ field, oldValue: c?.from ?? null, newValue: c?.to ?? null }))
 }
 
-/** FR-29.21: audit writes that failed since this process started, for health. */
+/**
+ * FR-29.21: audit writes that failed since this process started, and the entries global kept for itself about an org
+ * whose home is elsewhere (`GlobalAuditEntry`), for health.
+ */
 const failures = { count: 0, lastAt: undefined as Date | undefined }
-export function auditHealth(): { writeFailures: number; lastFailureAt?: Date } {
-  return { writeFailures: failures.count, ...(failures.lastAt ? { lastFailureAt: failures.lastAt } : {}) }
+const keptHere = { count: 0, lastAt: undefined as Date | undefined }
+export function auditHealth(): { writeFailures: number; lastFailureAt?: Date; keptOnGlobal: number; lastKeptAt?: Date } {
+  return {
+    writeFailures: failures.count,
+    ...(failures.lastAt ? { lastFailureAt: failures.lastAt } : {}),
+    keptOnGlobal: keptHere.count,
+    ...(keptHere.lastAt ? { lastKeptAt: keptHere.lastAt } : {}),
+  }
 }
 
 /**
@@ -122,26 +132,54 @@ function idOrString(v: unknown): Types.ObjectId | string | undefined {
  * Create an audit log entry. Fire-and-forget — errors are logged, never thrown.
  * (Casts must not throw synchronously either: entityIds like "CASH_SALE" — sequence
  * prefixes — are not ObjectIds; they store as strings.)
+ * On global, an entry about an org whose home is elsewhere is kept there (`GlobalAuditEntry`).
  */
 export function createAuditEntry(entry: AuditEntry): void {
-  try {
-    AuditLog.create(auditDoc(entry)).catch((err: unknown) => auditWriteFailed(entry, err))
-  } catch (err) {
-    auditWriteFailed(entry, err)
-  }
+  void writeEntry(entry, true)
 }
 
 /**
  * `createAuditEntry`, awaited: for an entry that must be written before what follows changes the
  * org's home (FR-20.79's freeze), after which this node refuses the org's writes. Never throws either.
+ *
+ * True when the org's trail has the entry. ⚠ An entry global keeps for itself is not in the org's trail, so it is
+ * written only when the caller asks (`keepOnGlobal`, then true too): a caller that refuses to go on without the trail
+ * (a payroll reveal: no entry, no file) stays refused where the org is not home.
  */
-export async function recordAuditEntry(entry: AuditEntry): Promise<boolean> {
+export async function recordAuditEntry(entry: AuditEntry, opts: { keepOnGlobal?: boolean } = {}): Promise<boolean> {
+  return (await writeEntry(entry, opts.keepOnGlobal === true)) !== 'failed'
+}
+
+/** The write guard's refusal of an org whose home is not here, as global meets it. */
+function refusedOnGlobal(err: unknown): err is HomeElsewhereError {
+  if (nodeRole() !== 'global' || typeof err !== 'object' || err === null) return false
+  return err instanceof HomeElsewhereError || ((err as { code?: unknown }).code === 'org_home_elsewhere' && 'info' in err)
+}
+
+/**
+ * The entry into the org's trail, or, on global and only when the write guard refused it there because the org's home
+ * is elsewhere, into global's own (`GlobalAuditEntry`) when `keep` allows. Never throws.
+ */
+async function writeEntry(entry: AuditEntry, keep: boolean): Promise<'trail' | 'kept' | 'failed'> {
+  let doc: ReturnType<typeof auditDoc> | undefined
   try {
-    await AuditLog.create(auditDoc(entry))
-    return true
+    doc = auditDoc(entry)
+    await AuditLog.create(doc)
+    return 'trail'
   } catch (err) {
-    auditWriteFailed(entry, err)
-    return false
+    if (!(doc && keep && refusedOnGlobal(err))) {
+      auditWriteFailed(entry, err)
+      return 'failed'
+    }
+    try {
+      await GlobalAuditEntry.create({ ...doc, home: err.info.home, homeState: err.info.state, homeEpoch: err.info.epoch })
+    } catch (keptErr) {
+      auditWriteFailed(entry, keptErr)
+      return 'failed'
+    }
+    keptHere.count++
+    keptHere.lastAt = new Date()
+    return 'kept'
   }
 }
 
@@ -242,6 +280,35 @@ export function diffChanges(
   return changes
 }
 
+const AUTHOR_FIELDS = 'firstName lastName email username'
+
+/** Newest first, the later id first within one millisecond. */
+const newestFirst = (a: any, b: any) => (new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) || (String(b._id) > String(a._id) ? 1 : -1)
+
+/**
+ * A page of entries, newest first: the org's trail, and on global also the entries global kept for itself while the
+ * org's home was elsewhere (`GlobalAuditEntry`), merged by time. An org without such entries reads its trail alone,
+ * as it always did. With them, each side is read up to the end of the page (`limit(0)` reads all, as `size` 0 does).
+ */
+async function auditPage(filter: Record<string, any>, skip: number, size: number): Promise<{ docs: any[]; total: number }> {
+  const kept = nodeRole() === 'global' ? await GlobalAuditEntry.countDocuments(filter).exec() : 0
+  if (!kept) {
+    const [docs, total] = await Promise.all([
+      AuditLog.find(filter).sort({ timestamp: -1 }).skip(skip).limit(size).populate('userId', AUTHOR_FIELDS).lean().exec(),
+      AuditLog.countDocuments(filter).exec(),
+    ])
+    return { docs, total }
+  }
+  const upTo = size > 0 ? skip + size : 0
+  const [trail, ours, total] = await Promise.all([
+    AuditLog.find(filter).sort({ timestamp: -1 }).limit(upTo).populate('userId', AUTHOR_FIELDS).lean().exec(),
+    GlobalAuditEntry.find(filter).sort({ timestamp: -1 }).limit(upTo).populate('userId', AUTHOR_FIELDS).lean().exec(),
+    AuditLog.countDocuments(filter).exec(),
+  ])
+  const merged = [...trail, ...ours].sort(newestFirst)
+  return { docs: size > 0 ? merged.slice(skip, skip + size) : merged.slice(skip), total: total + kept }
+}
+
 /**
  * Query audit logs with filters and pagination.
  */
@@ -277,16 +344,7 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
   const size = options.size ?? 25
   const skip = page * size
 
-  const [docs, total] = await Promise.all([
-    AuditLog.find(filter)
-      .sort({ timestamp: -1 })
-      .skip(skip)
-      .limit(size)
-      .populate('userId', 'firstName lastName email username')
-      .lean()
-      .exec(),
-    AuditLog.countDocuments(filter).exec(),
-  ])
+  const { docs, total } = await auditPage(filter, skip, size)
   const desktops = await viaDesktops(orgId, docs)
 
   const logs = docs.map((d: any) => ({
@@ -313,15 +371,24 @@ export async function queryAuditLogs(orgId: string, options: AuditQueryOptions =
   return { auditLogs: logs, total, page, size, totalPages: Math.ceil(total / size) }
 }
 
+/** A field's values in the org's trail, and on global in the entries it kept for itself (`GlobalAuditEntry`). */
+async function distinctOfBoth(field: 'module' | 'action' | 'entityType', filter: Record<string, unknown>): Promise<string[]> {
+  const [trail, ours] = await Promise.all([
+    AuditLog.distinct(field, filter).exec(),
+    nodeRole() === 'global' ? GlobalAuditEntry.distinct(field, filter).exec() : Promise.resolve([]),
+  ])
+  return [...new Set([...trail, ...ours].map(String))]
+}
+
 /**
  * Get distinct values for filter dropdowns.
  */
 export async function queryDistinctFilters(orgId: string) {
   const filter = { orgId: new Types.ObjectId(orgId) }
   const [modules, actions, entityTypes] = await Promise.all([
-    AuditLog.distinct('module', filter).exec(),
-    AuditLog.distinct('action', filter).exec(),
-    AuditLog.distinct('entityType', filter).exec(),
+    distinctOfBoth('module', filter),
+    distinctOfBoth('action', filter),
+    distinctOfBoth('entityType', filter),
   ])
   // FR-29.22: the types the entity search can search; the page offers the search for those only.
   return { modules: modules.sort(), actions: actions.sort(), entityTypes: entityTypes.sort(), searchableEntityTypes: [...SEARCHABLE_ENTITY_TYPES] }
@@ -390,14 +457,13 @@ export function generateCorrelationId(): string {
  * Query all audit entries sharing a correlation ID.
  */
 export async function queryByCorrelationId(orgId: string, correlationId: string, viewer?: Grant | null) {
-  const docs = await AuditLog.find({
-    orgId: new Types.ObjectId(orgId),
-    correlationId: new Types.ObjectId(correlationId),
-  })
-    .sort({ timestamp: 1 })
-    .populate('userId', 'firstName lastName email username')
-    .lean()
-    .exec()
+  const filter = { orgId: new Types.ObjectId(orgId), correlationId: new Types.ObjectId(correlationId) }
+  const [trail, ours] = await Promise.all([
+    AuditLog.find(filter).sort({ timestamp: 1 }).populate('userId', AUTHOR_FIELDS).lean().exec(),
+    // On global, with the entries it kept for itself while the org's home was elsewhere.
+    nodeRole() === 'global' ? GlobalAuditEntry.find(filter).sort({ timestamp: 1 }).populate('userId', AUTHOR_FIELDS).lean().exec() : Promise.resolve([]),
+  ])
+  const docs: any[] = [...trail, ...ours].sort((a, b) => newestFirst(b, a))
 
   return docs.map((d: any) => ({
     _id: String(d._id),

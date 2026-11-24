@@ -42,6 +42,9 @@
  * - `OrgAddress`: the org's address on the internet, `<label>.lgrai.app` (FR-20.72, P3-4a), global's
  *   record. Restored from an old bundle it would give back an address that was retired, or take one
  *   away; a label is issued once.
+ * - `GlobalAuditEntry`: an audit entry global wrote about an org whose home is elsewhere (FR-29.21):
+ *   global's own record of what it did. In the org's trail it would break a move back, which compares
+ *   the trail with the server's; in a bundle it would reach the server, which never did it.
  *
  * ⚠ A new FR-20 model that holds node state goes here. `backup-node-state.flow.test.ts` makes every
  * model with an `orgId` be classified as data, operational or node state, so a new one cannot land
@@ -72,4 +75,5 @@ export const NODE_STATE_MODELS: ReadonlySet<string> = new Set([
   'FiscalPresence',
   'FencedExport',
   'FencedImportItem',
+  'GlobalAuditEntry',
 ])

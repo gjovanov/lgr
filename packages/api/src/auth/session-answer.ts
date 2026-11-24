@@ -64,6 +64,9 @@ export type SignInMethod = 'password' | 'switch' | 'oauth' | 'join' | 'new_org' 
  * Written before the answer (`recordAuditEntry`, which never throws): the trail of a sign-in is there by the
  * time the person is. Written in the background, the answer could win the race and a read of the trail straight
  * after it found none (a flake seen on a busy CI runner, #750).
+ *
+ * A sign-in on global into an org whose home is a server is global's own act: global keeps its entry
+ * (`keepOnGlobal`, `GlobalAuditEntry`), as the org's trail there is the server's.
  */
 export async function auditSignIn(user: SessionUser, method: SignInMethod): Promise<void> {
   await recordAuditEntry({
@@ -76,7 +79,7 @@ export async function auditSignIn(user: SessionUser, method: SignInMethod): Prom
     entityId: user.id,
     entityName: `${user.firstName} ${user.lastName}`,
     changes: [{ field: 'method', oldValue: null, newValue: method }],
-  })
+  }, { keepOnGlobal: true })
 }
 
 /**

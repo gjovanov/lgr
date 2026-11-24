@@ -471,6 +471,21 @@ status). If it does not already say numbering is locked, lock it yourself **befo
 Numbering resumes above the highest of three things: what you entered, what this server's mark says
 it issued, and, when linked, lgrai.app's copy. A number you missed is skipped, never given twice.
 
+## After a crash or a power cut
+
+A server that stops cleanly (`lgr-server stop`, an update, a shutdown) hands its background jobs to
+the next start at once. One that does not (a crash, a killed process, a power cut) keeps holding
+them for a while after it is back, and they wait until that hold lapses:
+- sending to lgrai.app, mail and a move's steps: up to a minute;
+- changes to people from lgrai.app: up to a minute and a half;
+- the minute checks (the numbering mark, the copy's reconcile): up to three minutes;
+- the slow jobs: up to three of their intervals (the seal key 30 minutes, retention 18 hours).
+
+If the server's clock was ahead before it stopped, add how far ahead it was. `lgr-server status`
+lists such a job under the API's schedulers, its `skippedLease` count rising. Nothing needs doing:
+each job resumes by itself. The numbering check that matters runs when the server starts, before it
+serves, so the wait never lets a number go out twice.
+
 ## Settings: `config/api.env`
 
 The operator's settings are in `config/api.env` under the data directory

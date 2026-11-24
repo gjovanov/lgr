@@ -116,6 +116,13 @@ export function useLeaseReleaser(releaser: LeaseReleaser): void {
  *
  * Call it once the timers are halted, so no tick starts after it. A tick still running keeps its lease, which lapses
  * as before: another process must not run that job beside it. Never throws.
+ *
+ * ⚠ Accepted, not fixed (2026-11-23): a process that stops without this (a crash, a kill, a power cut) keeps its leases
+ * until they lapse, `leaseMsOf` after its last renewal by the clock that wrote it, so a lease written while the clock
+ * was ahead lapses that much later. The next process skips those jobs until then (`skippedLease` in
+ * `schedulerHealth()`). There is no takeover: a process cannot tell a dead holder from a live one that is slow or whose
+ * clock is wrong, and taking a lease that has not lapsed would run a `one` job twice. Sooner by hand: set the job's
+ * `leaseUntil` in `scheduler_leases` to the past, once no other process of this database runs.
  */
 export async function releaseSchedulerLeases(): Promise<string[]> {
   const names = [...leased].filter(n => !running.has(n))

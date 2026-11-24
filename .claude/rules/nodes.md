@@ -635,6 +635,17 @@ Desktops pin a master's own CA (FR-20.31), so it is never replaced silently.
   start's entry is AWAITED before the freeze (`recordAuditEntry`, so it is in the copy), an abort's
   after the unfreeze, and the master writes the arrival once the org is home there.
 
+- ⚠ **What global itself does about an org whose home is elsewhere never goes into the org's trail**
+  (FR-29.21, 2026-11-23): a sign-in on lgrai.app, a change on the Servers page, a settled hold. On
+  global that trail is the server's, as the mirror holds it, and a move back compares it by count and
+  hash (`homeDigests`): one entry of global's own in it would fail every move back of the org. The
+  write guard refuses it there, and `createAuditEntry` then keeps it in `GlobalAuditEntry`
+  (`global_audit_entries`: node state, class `N`, never in a bundle, never compared), which the audit
+  page on global reads beside the trail, merged by time. ⚠ `recordAuditEntry` keeps one only with
+  `{ keepOnGlobal: true }`: its `true` means the TRAIL has the entry, and a caller that needs that (a
+  payroll reveal) stays refused. A master keeps the old rule (a counted write failure);
+  `auditHealth().keptOnGlobal` counts what global kept.
+
 - ⚠ **Global's own org-scoped records are refused by the write guard during the freeze too**
   (`DesktopEnrollmentCode/Key` carry `tenantPlugin`): those revocations, `homeEpochHighWater` and
   `mirror_state` are raw writes, listed in `home-write-guard.flow`'s `RAW_WRITE_SITES`.
@@ -677,7 +688,9 @@ Desktops pin a master's own CA (FR-20.31), so it is never replaced silently.
   (global's record stands; the high-water mark is made to agree) or **adopt** (the server's claimed
   record becomes global's, only from a server still registered). ⚠ The routes take `:id`, never
   `:orgId`: the tenant guard and the home gate key on that name and would refuse a sys-admin
-  settling an org on hold. Global's audit log cannot take it (the org is on hold): the row keeps
+  settling an org on hold. The settle is audited by its route (`release` / `adopt`, `entityType:
+  'org_home'`, no operator code: a sys-admin's is their own org's), into the trail when the org is
+  home on global after it, otherwise kept on global (`GlobalAuditEntry`, FR-29.21). The row keeps
   `released`, and the log line says who. The Nodes page raises `home_hold` per server.
 
 - **An org's address on the internet (FR-20.72, P3-4a; `services/biz/address/org-address.service.ts`).**
