@@ -479,7 +479,7 @@ pub fn classify(text: &str) -> Option<Incoming> {
 ///
 /// ⚠ `bridge_in_use` IS retried, with backoff: the other holder may be a tab that is about to be
 /// closed, and a till that gave up for good would need a restart to come back. The rest are
-/// states only an admin can change, so hammering them is noise in the hub's audit log.
+/// states only an admin can change, so hammering them only loads the hub (a refusal is not audited).
 pub fn is_fatal(code: &str) -> bool {
     matches!(
         code,

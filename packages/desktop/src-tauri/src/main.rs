@@ -993,8 +993,8 @@ fn build_status(app: &AppHandle) -> status::Status {
 ///
 /// ⚠ A thread, not a task: the shell has no async runtime, and one socket that speaks every 30 s
 /// does not justify adding one. An UNREGISTERED desktop starts nothing — there is no credential
-/// to authenticate with, and a socket that could only ever be refused is noise in the server's
-/// audit log.
+/// to authenticate with, and a socket that could only ever be refused does nothing but load the
+/// server (a refusal is not audited).
 fn start_presence(app: &AppHandle) {
     if !stored_registered() {
         app.state::<AppState>().logger.info("presence: not registered, socket not started");
@@ -1244,7 +1244,7 @@ fn refind_master(app: &AppHandle) -> bool {
 /// moving a printer from COM3 to COM4 reaches a running till on its next reconnect.
 ///
 /// ⚠ An UNREGISTERED desktop starts nothing, for the same reason the presence socket does not:
-/// there is no credential, and a bridge that could only ever be refused is noise in the audit log.
+/// there is no credential, and a bridge that could only ever be refused only loads the server.
 fn start_bridges(app: &AppHandle) {
     let registered = keystore::secure_dir()
         .map(|d| {
