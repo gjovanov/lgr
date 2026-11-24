@@ -238,6 +238,8 @@ your policy wants the sandbox anyway, grant the container its namespace and set 
 2. **Set the variable back**: `PDF_CHROME_NO_SANDBOX=0` in `config/api.env`, or in the compose
    file's `environment:` (a pod's `env:`) beside the profile. Then restart the container.
    - A value in `config/api.env` wins over the container's environment.
+     When the two differ, the start log says the container's value is overruled, and which value
+     applies.
    - Either one wins over the image's default.
    - `0` is a value, not "unset". An empty value counts as unset.
    - Only `1` turns the sandbox off. Any other value keeps it, and the start line names the value
