@@ -587,7 +587,7 @@ async function doExport() {
       { responseType: 'blob' },
     )
 
-    const blob = new Blob([res.data], { type: res.headers['content-type'] })
+    const blob = new Blob([res.data], { type: res.headers['content-type'] as string | undefined })
     const dispo = res.headers['content-disposition'] as string | undefined
     const filename = dispo?.match(/filename="([^"]+)"/)?.[1] || `${props.meta.id}.${exportFormat.value}`
     const link = document.createElement('a')

@@ -70,9 +70,10 @@ function hrefOf(page: PageDef): string {
   return appHref(page.appId, page.path)
 }
 
-function open(e: MouseEvent, page: PageDef) {
-  // Leave a new-tab click (Ctrl, ⌘, Shift, middle button) to the browser and the link.
-  if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return
+function open(e: MouseEvent | KeyboardEvent, page: PageDef) {
+  // Leave a new-tab click (Ctrl, ⌘, Shift, middle button) to the browser and the link. Vuetify turns
+  // Enter on the item into a click, so a key event itself is left to the link too, as it always was.
+  if (!(e instanceof MouseEvent) || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return
   e.preventDefault()
   openPage(page, router)
 }

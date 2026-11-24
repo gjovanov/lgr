@@ -277,8 +277,8 @@
               :key="kind"
               :model-value="!!item.relays?.[kind]"
               :label="$t(kind === 'mail' ? 'servers.relayMail' : 'servers.relayDocuments')"
-              :hint="item.relays?.[kind + 'Chosen'] ? '' : $t('servers.relayDefault')"
-              :persistent-hint="!item.relays?.[kind + 'Chosen']"
+              :hint="relayChosen(item, kind) ? '' : $t('servers.relayDefault')"
+              :persistent-hint="!relayChosen(item, kind)"
               :loading="relayBusy === item.id + ':' + kind"
               :disabled="!manages"
               density="compact"
@@ -568,7 +568,7 @@
 import { formatDate, formatDateTime } from 'ui-shared/format'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useNodeAlarms } from 'ui-shared/composables/useNodeAlarms'
+import { useNodeAlarms, type NodeAlarm } from 'ui-shared/composables/useNodeAlarms'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAccess } from 'ui-shared/access/useAccess'
@@ -604,6 +604,10 @@ interface ServerRow {
   /** FR-20.51 (P3-7): what the server says of this org: its database went back, its numbering is locked. */
   orgState?: { at?: string; wentBack?: { at?: string; reason: string; detail?: string }; numbering?: { since?: string; reason: string; detail?: string } } | null
   connected?: { interactive: boolean; bulk: boolean }
+  /** FR-20.59: what global relays for this org on the server, and whether its admin chose that (else the link level decides). */
+  relays?: { mail: boolean; mailChosen: boolean; documents: boolean; documentsChosen: boolean }
+  /** FR-20.101 (P3-8): what the server's health and its mirror say needs a person (a mirror's lag: this org's only). */
+  alarms?: NodeAlarm[]
   health?: {
     appVersion?: string
     diskFreeBytes?: number
@@ -645,6 +649,9 @@ const headers = computed(() => [
  * server's behalf. The page says what leaves the building before either is turned on (FR-20.90).
  */
 const RELAY_KINDS = ['mail', 'documents'] as const
+/** Whether this org's admin chose the relay; else it follows the link level. */
+const relayChosen = (item: ServerRow, kind: (typeof RELAY_KINDS)[number]) =>
+  !!(kind === 'mail' ? item.relays?.mailChosen : item.relays?.documentsChosen)
 const relayBusy = ref<string | null>(null)
 async function setRelay(item: any, kind: (typeof RELAY_KINDS)[number], on: boolean) {
   relayBusy.value = `${item.id}:${kind}`

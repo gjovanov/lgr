@@ -239,7 +239,9 @@ function canReconcile(item: any) {
   return MOVEMENT_TYPES.has(item.docType) && (item.staleBooking || String(item.outcome || '').startsWith('overwrote'))
 }
 
-const analysisLines = computed(() => {
+/** A line of the analysed document, as the review table shows it. */
+interface AnalysisLine { source: string; matched: boolean; product: string; qty: number }
+const analysisLines = computed((): AnalysisLine[] => {
   const a = current.value?._analysis
   if (!a?.mapped?.lines) return []
   const per = a.lines || []

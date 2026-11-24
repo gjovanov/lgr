@@ -229,7 +229,7 @@ interface CartItem { productId: string; name: string; quantity: number; unitPric
 /** FR-22.54: the sale just completed, as the cart area shows it until the next article goes in. */
 interface LastSale { number: string; total: number; change: number; paidBy: string; receipt: string; warnings: string[]; tone: 'success' | 'warning' }
 interface CatalogProduct { productId: string; productName: string; unitPrice: number; taxRate: number; stockAvailable: number | null; type?: string; category?: string }
-interface Session { _id: string; sessionNumber: string; warehouseId: string; openedAt: string; status: string; totalSales: number }
+interface Session { _id: string; sessionNumber: string; warehouseId: string; openedAt: string; status: string; currency: string; totalSales: number }
 interface Warehouse { id: string; name: string }
 
 const { t, locale } = useI18n()

@@ -189,7 +189,24 @@
   </v-row>
 </template>
 
-<script setup lang="ts">
+<script lang="ts">
+/** A cart line as either door holds it: the till's cart item, or a document line. */
+export interface RegisterLine {
+  productId: string
+  name?: string
+  description?: string
+  quantity: number
+  unitPrice: number
+  taxRate?: number
+  discount?: number
+  priceName?: string
+}
+</script>
+
+<!-- Generic over the door's own line (`L`), so the `line-price` slot hands a door back its line as it
+     holds it: a document line's price trail, the till's cart item. Outside `<script setup>`, so the
+     generic can name it. -->
+<script setup lang="ts" generic="L extends RegisterLine">
 import { rowKey } from '../../composables/row-key'
 import { formatMoney, intlLocale } from '../../format/format'
 import DecimalField from '../DecimalField.vue'
@@ -203,18 +220,6 @@ import PriceSelectButton from '../PriceSelectButton.vue'
 import { tierLabel } from 'config/price-tiers'
 import ProductDetailsButton from '../ProductDetailsButton.vue'
 import ProductPickerDialog from '../ProductPickerDialog.vue'
-
-/** A cart line as either door holds it: the till's cart item, or a document line. */
-export interface RegisterLine {
-  productId: string
-  name?: string
-  description?: string
-  quantity: number
-  unitPrice: number
-  taxRate?: number
-  discount?: number
-  priceName?: string
-}
 
 /** An article as `/trade/pos/catalog` answers it. */
 export interface RegisterCatalogProduct {
@@ -237,7 +242,7 @@ const props = withDefaults(defineProps<{
   currency: string
   /** The warehouse whose stock and prices the catalog shows: the session's, or the document's. */
   warehouseId?: string | null
-  lines: RegisterLine[]
+  lines: L[]
   /** A saved document: the cart only, no catalog, nothing editable. */
   readonly?: boolean
   /** Whether the catalog is live (the till's: only with an open session). */
@@ -253,7 +258,7 @@ const props = withDefaults(defineProps<{
    * door computes them: it holds the lines.
    */
   totals: { subtotal: number; taxTotal: number; total: number }
-  lineGross: (line: RegisterLine) => number
+  lineGross: (line: L) => number
 }>(), { active: true, readonly: false })
 
 const emit = defineEmits<{

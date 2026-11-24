@@ -350,9 +350,9 @@ const ENTITY_URL_MAP: Record<string, { base: string; path: string; hasDetail: bo
   construction_project: { base: '/erp', path: 'construction-projects', hasDetail: false },
 }
 
-function entityUrl(entityType: string, entityId: string): string | null {
+function entityUrl(entityType: string, entityId: string): string | undefined {
   const cfg = ENTITY_URL_MAP[entityType]
-  if (!cfg) return null
+  if (!cfg) return undefined
   return cfg.hasDetail ? `${cfg.base}/${cfg.path}/${entityId}/edit` : `${cfg.base}/${cfg.path}`
 }
 

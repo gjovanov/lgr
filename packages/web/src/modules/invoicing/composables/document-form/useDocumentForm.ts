@@ -408,3 +408,6 @@ export function useDocumentForm(config: DocumentTypeConfig, opts: UseDocumentFor
     orgUrl, appStore,
   }
 }
+
+/** What a form's parts (the line table, the totals) are handed as `doc`. */
+export type DocumentFormApi = ReturnType<typeof useDocumentForm>

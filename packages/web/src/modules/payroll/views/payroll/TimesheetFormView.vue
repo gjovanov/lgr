@@ -76,16 +76,20 @@ const STATUSES = ['submitted', 'approved', 'rejected'] as const
 const typeItems = computed(() => TYPES.map(value => ({ value, title: t(`payroll.timesheetTypes.${value}`) })))
 const statusItems = computed(() => STATUSES.map(value => ({ value, title: t(`payroll.timesheetStatuses.${value}`) })))
 /** A stored value read as the model's: an edit before #675 could store `Approved` or `Sick Leave` as typed. */
-function valueOf(values: readonly string[], stored: unknown, fallback: string): string {
+function valueOf<T extends string>(values: readonly T[], stored: unknown, fallback: T): T {
   const v = String(stored ?? '').toLowerCase().replace(/ leave$/, '')
-  return values.includes(v) ? v : fallback
+  return values.find(x => x === v) ?? fallback
 }
 const loading = ref(false)
 const saving = ref(false)
 const formRef = ref()
 const employees = ref<any[]>([])
 
-const emptyForm = () => ({
+interface TimesheetForm {
+  _id: string; employeeId: string; date: string; hoursWorked: number; overtimeHours: number
+  type: typeof TYPES[number]; status: typeof STATUSES[number]
+}
+const emptyForm = (): TimesheetForm => ({
   _id: '', employeeId: '', date: '', hoursWorked: 8, overtimeHours: 0, type: 'regular', status: 'submitted',
 })
 const form = ref(emptyForm())

@@ -41,6 +41,8 @@ export interface AnalyzedDoc {
   validation?: { status: 'valid' | 'needs_review'; checks: any[] }
   duplicate?: { id: string; number: string; status?: string; reason: string }
   mapped?: any
+  /** A correction books two movements from one document: the second ones (`doc-import/types.ts`). Sent back as read. */
+  extraMovements?: unknown[]
   diagnostics: {
     perLine: LineDiagnostic[]
     contactSuggestion?: { name: string; eik?: string; vat?: string; address?: string; city?: string }

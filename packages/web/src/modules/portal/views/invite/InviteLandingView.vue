@@ -178,7 +178,7 @@ onMounted(async () => {
   try {
     await inviteStore.fetchInviteInfo(code.value)
   } catch {
-    error.value = inviteStore.error || t('invite.notFound')
+    error.value = t('invite.notFound')
   } finally {
     loading.value = false
   }

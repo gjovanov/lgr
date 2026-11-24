@@ -162,7 +162,7 @@
       v-model="showEmailDialog"
       :default-to="contactEmail"
       :default-subject="emailSubject"
-      :document-number="form.invoiceNumber"
+      :document-number="invoiceNumber"
       :loading="emailLoading"
       @confirm="onSendEmail"
     />
@@ -692,7 +692,7 @@ const contactEmail = computed(() => (selectedContact.value as any)?.email || '')
 /** A sensible prefill; leaving it blank lets the server build the localized default. */
 const emailSubject = computed(() => {
   const org = (appStore.currentOrg as any)?.name || ''
-  const number = (form as any).invoiceNumber || ''
+  const number = invoiceNumber.value || ''
   return [number, org].filter(Boolean).join(' — ')
 })
 

@@ -53,7 +53,7 @@ import { useAppStore } from '../../store/app.store'
 export interface SessionReportData {
   sessionNumber: string
   currency: string
-  counts: { sales: number; stornos: number; voided: number; fiscal: number; text: number; unprinted: number; payments?: number }
+  counts: { sales: number; stornos: number; voided: number; fiscal: number; text: number; unprinted: number; payments?: number; refunds?: number }
   vat: Array<{ rate: number; net: number; vat: number; gross: number }>
   total: number
   byMethod: { cash: number; card: number; other: number; cashOnDelivery?: number }
