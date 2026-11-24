@@ -85,7 +85,8 @@ export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/c
     if (!item) return status(404, { message: 'Not found' })
     return { cashOrder: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body, user }) => {
+  .post('/', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const data = clientCreate('CashOrder', body, { orgId: params.orgId, createdBy: user.id })
     const orderNumber = await getNextOrderNumber(params.orgId)
@@ -96,6 +97,7 @@ export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/c
     return { cashOrder: item }
   }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.cashOrders.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
@@ -107,6 +109,7 @@ export const cashOrderController = new Elysia({ prefix: '/org/:orgId/invoicing/c
     return { cashOrder: item }
   }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.cashOrders.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })

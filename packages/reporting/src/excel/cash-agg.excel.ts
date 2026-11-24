@@ -73,7 +73,7 @@ export function sectionTotals(rows: CashAggRow[]): Record<(typeof SUM_KEYS)[numb
   return t
 }
 
-export async function generateCashAggXLSX(opts: CashAggOptions): Promise<Buffer> {
+export async function generateCashAggXLSX(opts: CashAggOptions): Promise<Buffer<ArrayBuffer>> {
   const { workbook, tmpFile } = await createWorkbook()
   const i18n = exportI18n(opts.locale)
   const defs = pickAggColumns(opts.columns)

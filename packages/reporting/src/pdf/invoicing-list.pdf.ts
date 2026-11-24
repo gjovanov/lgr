@@ -329,7 +329,7 @@ export function buildListHtml(opts: ListOptions): { html: string; css: string; l
  * compact  — one table, one row per document, with a totals block underneath.
  * detailed — one block per document (heading band + its line table), then the grand totals.
  */
-export async function generateInvoicingListPDF(opts: ListOptions): Promise<Buffer | undefined> {
+export async function generateInvoicingListPDF(opts: ListOptions): Promise<Buffer<ArrayBuffer> | undefined> {
   const { html, css, landscape } = buildListHtml(opts)
   const footText = opts.footerText || `${opts.orgName} · ${opts.title}`
 

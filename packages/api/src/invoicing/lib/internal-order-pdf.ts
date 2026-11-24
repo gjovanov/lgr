@@ -15,7 +15,7 @@ import { logger } from 'services/logger'
  */
 
 export type RenderInternalOrderPdfResult =
-  | { ok: true; buffer: Buffer | Uint8Array; filename: string; order: any }
+  | { ok: true; buffer: Buffer<ArrayBuffer>; filename: string; order: any }
   | { ok: false; status: 404 | 503; message: string; detail?: string }
 
 /** A well-formed id: anything else would throw a CastError (a 500) instead of a 404. */

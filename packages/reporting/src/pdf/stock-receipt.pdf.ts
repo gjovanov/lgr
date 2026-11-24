@@ -236,7 +236,7 @@ ${data.sections.map(section).join('\n<div class="section-break"></div>\n')}
 export const STOCK_RECEIPT_MARGIN = pageMargin('14mm', '14mm')
 
 /** Render the receipts of `buildStockReceiptHtml` to an A4 PDF, one receipt per page (or more). */
-export async function generateStockReceiptPDF(data: StockReceiptData): Promise<Buffer | undefined> {
+export async function generateStockReceiptPDF(data: StockReceiptData): Promise<Buffer<ArrayBuffer> | undefined> {
   const { html, css } = buildStockReceiptHtml(data)
   return markdownToPdf(html, {
     css,

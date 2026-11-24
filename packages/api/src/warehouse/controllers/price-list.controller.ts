@@ -41,7 +41,8 @@ export const priceListController = new Elysia({ prefix: '/org/:orgId/warehouse/p
     if (!item) return status(404, { message: 'Not found' })
     return { priceList: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body, user }) => {
+  .post('/', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const data = clientCreate('PriceList', body, { orgId: params.orgId })
     const item = await r.priceLists.create({ ...data, ...deactivation(data.isActive, true), orgId: params.orgId } as any)
@@ -51,6 +52,7 @@ export const priceListController = new Elysia({ prefix: '/org/:orgId/warehouse/p
     return { priceList: item }
   }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.priceLists.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })

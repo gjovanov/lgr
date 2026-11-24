@@ -23,27 +23,6 @@
   "packages/api/src/front/control-socket.ts": {
     "TS2345": 1
   },
-  "packages/api/src/invoicing/controllers/cash-order.controller.ts": {
-    "TS18047": 5
-  },
-  "packages/api/src/invoicing/controllers/internal-order.controller.ts": {
-    "TS2345": 1
-  },
-  "packages/api/src/invoicing/controllers/invoice-export.controller.ts": {
-    "TS2345": 11
-  },
-  "packages/api/src/invoicing/controllers/order.controller.ts": {
-    "TS2345": 2
-  },
-  "packages/api/src/invoicing/controllers/payment-order.controller.ts": {
-    "TS18047": 5
-  },
-  "packages/api/src/invoicing/lib/cash-register-till.ts": {
-    "TS2459": 1
-  },
-  "packages/api/src/invoicing/lib/counter-receipt.ts": {
-    "TS2345": 1
-  },
   "packages/api/src/payroll/controllers/payslip.controller.ts": {
     "TS18047": 3
   },
@@ -56,22 +35,6 @@
   },
   "packages/api/src/tunnel/streams.ts": {
     "TS18048": 1
-  },
-  "packages/api/src/warehouse/controllers/inventory-count.controller.ts": {
-    "TS18047": 5,
-    "TS2345": 2
-  },
-  "packages/api/src/warehouse/controllers/operation-type.controller.ts": {
-    "TS18047": 3
-  },
-  "packages/api/src/warehouse/controllers/price-list.controller.ts": {
-    "TS18047": 2
-  },
-  "packages/api/src/warehouse/controllers/stock-location.controller.ts": {
-    "TS18047": 3
-  },
-  "packages/api/src/warehouse/controllers/stock-lot.controller.ts": {
-    "TS18047": 3
   },
   "packages/api/src/websocket/ws.server.ts": {
     "TS2707": 1,

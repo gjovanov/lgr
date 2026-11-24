@@ -319,7 +319,7 @@ export const COMPANION_MARGIN = pageMargin('14mm', '14mm')
  * supplier block, the line table, the legal paragraph, the source-document reference and the
  * signature lines.
  */
-export async function generateCompanionDocPDF(data: CompanionDocData): Promise<Buffer | undefined> {
+export async function generateCompanionDocPDF(data: CompanionDocData): Promise<Buffer<ArrayBuffer> | undefined> {
   const { html, css } = buildCompanionHtml(data)
   return markdownToPdf(html, {
     css,

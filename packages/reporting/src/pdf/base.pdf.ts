@@ -208,7 +208,7 @@ export async function pageHtml(content: string): Promise<string> {
  * port on loopback (`CHROME_OVER_PIPE`). Everything else — stylesheets in the same order, the
  * `screen` media type, `printBackground` — is what md-to-pdf did, so the output is unchanged.
  */
-async function renderInProcess(content: string, options?: MarkdownToPdfOptions): Promise<Buffer> {
+async function renderInProcess(content: string, options?: MarkdownToPdfOptions): Promise<Buffer<ArrayBuffer>> {
   return withRenderedPage(content, options, async (page) => {
     await page.emulateMediaType('screen')
     return Buffer.from(await page.pdf({ printBackground: true, ...pageOptions(options) }))
@@ -449,8 +449,8 @@ async function closeOrKill(browser: any): Promise<void> {
  * export endpoint returning 500 is recoverable, a 9-byte download that silently opens to
  * nothing is not.
  */
-export async function markdownToPdf(content: string, options?: MarkdownToPdfOptions): Promise<Buffer | undefined> {
-  let last: Buffer | undefined
+export async function markdownToPdf(content: string, options?: MarkdownToPdfOptions): Promise<Buffer<ArrayBuffer> | undefined> {
+  let last: Buffer<ArrayBuffer> | undefined
   let lastErr: unknown
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {

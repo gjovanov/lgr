@@ -110,7 +110,8 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
 
     return { inventoryCount: { ...doc, lines: withoutCost(user, lines) } }
   }, { isSignIn: true })
-  .post('/', async ({ params, body, user }) => {
+  .post('/', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const data = clientCreate('InventoryCount', body, { orgId: params.orgId, createdBy: user.id, status: 'in_progress' })
     // FR-27.11.C.4: priced here, from the stock level's average cost; the body's figure is ignored.
@@ -124,6 +125,7 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     return { inventoryCount: item && { ...(item as any), lines: withoutCost(user, (item as any).lines ?? []) } }
   }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.inventoryCounts.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
@@ -143,9 +145,10 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
       // A completion took the count between the read above and this write.
       const now = await r.inventoryCounts.findByIdInOrg(params.id, params.orgId)
       if (!now) return status(404, { message: 'Not found' })
-      return status(409, now.status === 'completed'
-        ? { message: `Inventory count ${(now as any).countNumber} is completed and linked to movement ${(now as any).adjustmentMovementId || '—'}. Create a new count to correct it.` }
-        : countBusy(now))
+      if (now.status === 'completed') {
+        return status(409, { message: `Inventory count ${(now as any).countNumber} is completed and linked to movement ${(now as any).adjustmentMovementId || '—'}. Create a new count to correct it.` })
+      }
+      return status(409, countBusy(now))
     }
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'update', module: 'warehouse', entityType: 'inventory_count', entityId: params.id, entityName: (existing as any)?.countNumber, changes: existing ? diffChanges(existing as any, item as any) : undefined })
@@ -153,6 +156,7 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
     return { inventoryCount: item && { ...(item as any), lines: withoutCost(user, (item as any).lines ?? []) } }
   }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.inventoryCounts.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
@@ -168,9 +172,10 @@ export const inventoryCountController = new Elysia({ prefix: '/org/:orgId/wareho
       // A completion took the count between the read above and this delete.
       const now = await r.inventoryCounts.findByIdInOrg(params.id, params.orgId)
       if (!now) return status(404, { message: 'Not found' })
-      return status(409, now.status === 'completed'
-        ? { message: `Inventory count ${(now as any).countNumber} is completed and linked to movement ${(now as any).adjustmentMovementId || '—'} — it can no longer be deleted.` }
-        : countBusy(now))
+      if (now.status === 'completed') {
+        return status(409, { message: `Inventory count ${(now as any).countNumber} is completed and linked to movement ${(now as any).adjustmentMovementId || '—'} — it can no longer be deleted.` })
+      }
+      return status(409, countBusy(now))
     }
 
     createAuditEntry({ orgId: params.orgId, userId: user.id, action: 'delete', module: 'warehouse', entityType: 'inventory_count', entityId: params.id, entityName: (existing as any)?.countNumber })

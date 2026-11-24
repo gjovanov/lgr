@@ -63,7 +63,7 @@ export async function generateInvoicingSingleXLSX(
   mode: ExportMode = 'detailed',
   columns?: string[],
   locale?: ExportLocale | string,
-): Promise<Buffer> {
+): Promise<Buffer<ArrayBuffer>> {
   const { workbook, tmpFile } = await createWorkbook()
   const i18n = exportI18n(locale)
   const allow = columns?.length ? new Set(columns) : null
