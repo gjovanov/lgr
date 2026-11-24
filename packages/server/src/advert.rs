@@ -283,8 +283,8 @@ mod imp {
     }
 
     #[derive(Default)]
-    struct Browsing {
-        names: Mutex<Vec<String>>,
+    pub(super) struct Browsing {
+        pub(super) names: Mutex<Vec<String>>,
     }
 
     unsafe extern "system" fn browsed(_status: u32, context: *const c_void, record: *const DNS_RECORDW) {
@@ -377,27 +377,35 @@ mod imp {
         guard.take().flatten()
     }
 
+    /// The one context every browse is handed, for the life of the process.
+    ///
+    /// ⚠ After a cancel the OS may still call back once, so a context must outlive its browse. Each
+    /// browse used to leak a context of its own for that (`mem::forget`), every five minutes for as
+    /// long as the clone watch runs (#784). One static context outlives them all, and leaks nothing.
+    pub(super) static BROWSING: std::sync::LazyLock<Browsing> = std::sync::LazyLock::new(Browsing::default);
+
     pub fn browse(window: Duration) -> Vec<Heard> {
-        let ctx = Arc::new(Browsing::default());
+        // One browse at a time, so each reads only what was heard during its own window.
+        static ONE_BROWSE: Mutex<()> = Mutex::new(());
+        let _one = ONE_BROWSE.lock().unwrap_or_else(|p| p.into_inner());
+        BROWSING.names.lock().unwrap_or_else(|p| p.into_inner()).clear();
         let query = wide(&format!("{SERVICE}.local"));
         let request = DNS_SERVICE_BROWSE_REQUEST {
             Version: DNS_QUERY_REQUEST_VERSION1,
             InterfaceIndex: 0,
             QueryName: query.as_ptr(),
             Anonymous: DNS_SERVICE_BROWSE_REQUEST_0 { pBrowseCallback: Some(browsed) },
-            pQueryContext: Arc::as_ptr(&ctx) as *mut c_void,
+            pQueryContext: &*BROWSING as *const Browsing as *mut c_void,
         };
         let mut cancel = DNS_SERVICE_CANCEL { reserved: std::ptr::null_mut() };
-        // SAFETY: the request and its context outlive the browse (the context is leaked below).
+        // SAFETY: the request outlives the browse, and its context is static.
         if unsafe { DnsServiceBrowse(&request, &mut cancel) } != DNS_REQUEST_PENDING {
             return Vec::new();
         }
         std::thread::sleep(window);
         // SAFETY: the handle the browse gave us.
         unsafe { DnsServiceBrowseCancel(&cancel) };
-        // ⚠ After a cancel the OS may still call back once: its context must outlive us.
-        std::mem::forget(ctx.clone());
-        let names = ctx.names.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        let names = std::mem::take(&mut *BROWSING.names.lock().unwrap_or_else(|p| p.into_inner()));
         names.iter().filter_map(|n| resolve(n)).collect()
     }
 }
@@ -483,6 +491,17 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #784: every browse shares one context (a context per browse was leaked), so none keeps what
+    /// it heard there: a name a previous browse heard, or a late callback left, is not the next one's.
+    #[cfg(windows)]
+    #[test]
+    fn a_browse_leaves_nothing_in_the_shared_context() {
+        imp::BROWSING.names.lock().unwrap().push("stale._lgr-server._tcp.local".into());
+        let heard = browse(Duration::from_millis(200));
+        assert!(heard.iter().all(|h| h.instance != "stale"), "{heard:?}");
+        assert!(imp::BROWSING.names.lock().unwrap().is_empty(), "what a browse heard is taken, not kept");
+    }
 
     #[test]
     fn the_txt_record_carries_what_a_desktop_needs() {
