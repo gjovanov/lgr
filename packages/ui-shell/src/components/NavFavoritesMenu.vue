@@ -12,7 +12,7 @@
     :close-delay="closeDelay"
   >
     <template #activator="{ props }">
-      <v-btn v-bind="props" icon variant="text" :title="$t('nav.favorites')" data-testid="favorites-menu">
+      <v-btn v-bind="hoverActivator(props)" icon variant="text" :title="$t('nav.favorites')" data-testid="favorites-menu">
         <v-icon>{{ currentIsFav ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
       </v-btn>
     </template>
@@ -76,7 +76,7 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const { isFavorite, toggleFavorite, groupItems } = usePageFavorites()
-const { hoverEnabled, openDelay, closeDelay } = useHoverMenus()
+const { hoverEnabled, hoverActivator, openDelay, closeDelay } = useHoverMenus()
 const open = ref(false)
 
 // The router path is app-relative; window.location is the full app-prefixed one that the

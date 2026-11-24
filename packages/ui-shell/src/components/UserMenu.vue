@@ -2,7 +2,7 @@
   <!-- FR-05 (#12): hover-opens on true-hover desktops; tap unchanged. -->
   <v-menu :open-on-hover="hoverEnabled" :open-on-click="true" :open-delay="openDelay" :close-delay="closeDelay">
     <template #activator="{ props }">
-      <v-btn v-bind="props" :icon="compact" variant="text" :title="compact ? fullName : undefined">
+      <v-btn v-bind="hoverActivator(props)" :icon="compact" variant="text" :title="compact ? fullName : undefined">
         <v-avatar size="32" color="primary">
           <span class="text-caption text-white">{{ initials }}</span>
         </v-avatar>
@@ -27,7 +27,7 @@ import { computed } from 'vue'
 import { useHoverMenus } from 'ui-shared/composables/useHoverMenus'
 import type { ShellUser } from './types'
 
-const { hoverEnabled, openDelay, closeDelay } = useHoverMenus()
+const { hoverEnabled, hoverActivator, openDelay, closeDelay } = useHoverMenus()
 
 const props = defineProps<{
   user: ShellUser | null

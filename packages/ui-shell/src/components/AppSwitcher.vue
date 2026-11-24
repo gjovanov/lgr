@@ -54,7 +54,7 @@
     :close-delay="closeDelay"
   >
     <template #activator="{ props }">
-      <v-btn v-bind="props" icon variant="text">
+      <v-btn v-bind="hoverActivator(props)" icon variant="text">
         <v-icon>mdi-apps</v-icon>
       </v-btn>
     </template>
@@ -112,7 +112,7 @@ const emit = defineEmits<{
 const sheet = ref(false)
 // FR-26.8.4: no Portal tile for a session without the portal area (a Seller). FR-27.5: the live role's, reactive.
 const showPortal = computed(() => holdsPortal(sessionViewer()))
-const { hoverEnabled, openDelay, closeDelay } = useHoverMenus()
+const { hoverEnabled, hoverActivator, openDelay, closeDelay } = useHoverMenus()
 
 function navigateToPortal() {
   sheet.value = false
