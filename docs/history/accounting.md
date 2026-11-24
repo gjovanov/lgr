@@ -300,3 +300,20 @@ the value of what is on hand, never goods.
   a return, a value corrected, a discount and a cost added with nothing on hand),
   `integration/shadow-sales.flow.test.ts` (the cost read from a split's books, with a value-only credit notice; a
   credit notice's cost no longer takes the books' cost of an earlier sale in).
+
+## A filed month of purchases against LGR's bills (2026-11-24, FR-25 R4, slice 1)
+
+R4's first slice counts before it writes: one filed month's purchase register (`POKUPKI`, R2's `VatRegisterEntry` rows
+with `side: 'purchase'`, in the home) against LGR's bills (incoming invoices, debit and credit notes, in every org of the
+split), and how many rows pair with a bill. `services/biz/accounting-books/purchases/pairing.ts` pairs (import-pure),
+`pairing.service.ts` reads, `scripts/pair-purchases.ts --org <slug> --period YYYYMM [--details]` prints counts only and
+has no `--execute`. Design: FR-25 §9, "R4, slice 1: the pairing count, as built".
+- ⚠ **The supplier's number on a bill is `reference`, never `invoiceNumber`.** The Files pipeline and the bill form
+  keep the supplier's number there; `BILL-…` is LGR's own number, a counter unless the supplier's was all digits.
+- ⚠ **A bill can be in any org of the split.** The books keep every purchase in the home, but each store enters the
+  bills for what it receives. Reading only the home counts a store's bills as missing.
+- ⚠ **`--details` prints real document numbers and VAT numbers.** Its output is for the person running it; only the
+  counts go in a PR, an issue or the spec.
+- **Tests:** `unit/purchase-pairing.test.ts` (the keys, the periods, the amounts and signs, each pass and each outcome),
+  `integration/purchase-pairing.flow.test.ts` (a split's home and store, every outcome, nothing written, the script's
+  output with and without `--details`).

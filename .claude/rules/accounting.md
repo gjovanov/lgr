@@ -18,6 +18,7 @@ paths:
   - "scripts/*product-groups*"
   - "scripts/*posting-rules*"
   - "scripts/*shadow*"
+  - "scripts/*purchases*"
 ---
 
 # Rules and traps: Accounting, payroll and sealed personal data
@@ -262,3 +263,17 @@ LGR holds the filed Bulgarian VAT registers as data, and regenerates the NRA's f
   what was left then carried the difference between the purchase's price and the old average on a few units, and a
   later return to the supplier made that average run away. After a shortfall, what is left after a purchase costs what
   came in, and a group still short keeps its last average; goods sent back to the supplier go back at the average.
+
+## A filed month of purchases against LGR's bills (2026-11-24, FR-25 R4, slice 1)
+
+- ⚠ **The supplier's number on a bill is `reference`, never `invoiceNumber`.** The Files pipeline and the bill form
+  keep the supplier's number there; `BILL-…` is LGR's own number, a counter unless the supplier's was all digits.
+
+- ⚠ **A bill can be in any org of the split.** The books keep every purchase in the home, but each store enters the
+  bills for what it receives. Reading only the home counts a store's bills as missing.
+
+- ⚠ **`--details` prints real document numbers and VAT numbers.** Its output is for the person running it; only the
+  counts go in a PR, an issue or the spec.
+
+- **The command.** `scripts/pair-purchases.ts --org <slug> --period YYYYMM [--details]`: read-only, no `--execute`,
+  counts only.
