@@ -129,7 +129,8 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
       }),
     },
   )
-  .post('/', async ({ params, body, user }) => {
+  .post('/', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const item = await r.payslips.create({ ...clientCreate('Payslip', body, { orgId: params.orgId }), orgId: params.orgId } as any)
 
@@ -138,6 +139,7 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
     return { payslip: payslipView(item) }
   }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.payslips.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
@@ -151,6 +153,7 @@ export const payslipController = new Elysia({ prefix: '/org/:orgId/payroll/paysl
     return { payslip: payslipView(item) }
   }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.payslips.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })

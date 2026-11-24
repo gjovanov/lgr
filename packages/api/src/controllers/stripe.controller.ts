@@ -1,7 +1,10 @@
 import { Elysia, t } from 'elysia'
+import { PLANS, type PlanId } from 'config'
 import { can } from 'services/biz/access/evaluate'
 import { AuthService } from '../auth/auth.service.js'
 import { stripeService } from 'services/biz/stripe.service'
+
+const isPlanId = (id: string): id is PlanId => Object.hasOwn(PLANS, id)
 
 export const stripeController = new Elysia({ prefix: '/stripe' })
   .use(AuthService)
@@ -11,6 +14,7 @@ export const stripeController = new Elysia({ prefix: '/stripe' })
   .post('/checkout', async ({ body, user, status }) => {
     if (!user) return status(401, { message: 'Unauthorized' })
     if (!can(user, 'billing.manage')) return status(403, { message: 'Admin only' })
+    if (!isPlanId(body.planId)) return status(400, { message: 'Invalid plan' })
     const result = await stripeService.createCheckoutSession(user.orgId, body.planId, user.email)
     return result
   }, {

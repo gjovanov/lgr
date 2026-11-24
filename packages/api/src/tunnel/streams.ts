@@ -283,7 +283,7 @@ export function onTunnelControl(ws: any, msg: any): void {
               pull() { grant(s) },
               cancel() { fail(s, 'cancelled', 'The browser went away.') },
             },
-            { highWaterMark: TUN_WINDOW, size: chunk => chunk.byteLength },
+            { highWaterMark: TUN_WINDOW, size: chunk => chunk?.byteLength ?? 0 },
           )
       s.head.resolve(new Response(stream, { status, headers }))
       s.head = null

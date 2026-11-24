@@ -147,7 +147,7 @@ export function handleTasksClose(ws: any): void {
   logger.info({ userId: st.userId }, 'WebSocket disconnected')
 }
 
-export function setupWebSocket(app: Elysia<any, any, any, any, any, any, any, any>) {
+export function setupWebSocket(app: Elysia) {
   // Listen for task updates and broadcast to the task's own user
   taskStore.on('task:update', (event) => {
     const task = taskStore.get(event.taskId)

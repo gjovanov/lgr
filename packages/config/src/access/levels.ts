@@ -79,7 +79,7 @@ export function offersLevel(feature: Feature, level: Level): boolean {
   return l.full.length > l.work.length || (l.full.length > 0 && l.work.length === l.view.length && l.full.length > l.view.length)
 }
 
-const DOWN: readonly Level[] = ['full', 'work', 'view']
+const DOWN: readonly Exclude<Level, 'none'>[] = ['full', 'work', 'view']
 
 /**
  * The largest level the editor offers whose every capability the grant holds (an empty level never counts): the

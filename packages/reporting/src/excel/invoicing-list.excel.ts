@@ -291,8 +291,9 @@ export async function generateInvoicingListXLSX(opts: ListOptions): Promise<Buff
   // Header stays on row 1 (no title banner) so the sheet can be filtered and re-imported.
   const worksheet = workbook.addWorksheet(opts.title.substring(0, 30), {
     views: [{ state: 'frozen', ySplit: 1 }],
-    autoFilter: `A1:${colLetter(defs.length - 1)}1`,
   })
+  // Set here, not in the options: the writer reads it at commit, and ExcelJS's types leave it out of them.
+  worksheet.autoFilter = `A1:${colLetter(defs.length - 1)}1`
 
   worksheet.columns = defs.map(d => ({
     header: i18n.header[d.headerKey],

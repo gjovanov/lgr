@@ -47,7 +47,8 @@ interface Actor extends AccessCaller {
 }
 
 function assertManages(actor: Actor): void {
-  if (!grantOf(actor).all && !grantOf(actor).caps.has('roles.edit')) refuse(403, 'roles_required', 'Managing roles is not part of your role.')
+  const grant = grantOf(actor)
+  if (!grant.all && !grant.caps.has('roles.edit')) refuse(403, 'roles_required', 'Managing roles is not part of your role.')
 }
 
 /** FR-27.8: what this actor may give: nothing beyond their own grant; `*` and the roles capabilities an Administrator's only. */
@@ -61,7 +62,7 @@ function assertWithin(actor: Actor, grant: Grant): void {
   }
 }
 
-const capsOf = (grant: Grant): string[] => (grant.all ? [] : [...grant.caps].sort())
+const capsOf = (grant: Grant): CapabilityId[] => (grant.all ? [] : [...grant.caps].sort())
 
 /** The stored ids a body names: unknown ones are kept out (FR-27.8), and listed back. */
 function cleanCaps(caps: readonly string[] | undefined): { caps: CapabilityId[]; unknown: string[] } {

@@ -44,7 +44,8 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/payroll/tim
     if (!item) return status(404, { message: 'Not found' })
     return { timesheet: item }
   }, { isSignIn: true })
-  .post('/', async ({ params, body, user }) => {
+  .post('/', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const data = clientCreate('Timesheet', body, { orgId: params.orgId })
     const item = await r.timesheets.create({ ...data, ...approval(data.status, 'submitted', user.id), orgId: params.orgId } as any)
@@ -54,6 +55,7 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/payroll/tim
     return { timesheet: item }
   }, { isSignIn: true, body: createBody })
   .put('/:id', async ({ params, body, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     const existing = await r.timesheets.findByIdInOrg(params.id, params.orgId)
     if (!existing) return status(404, { message: 'Not found' })
@@ -66,6 +68,7 @@ export const timesheetController = new Elysia({ prefix: '/org/:orgId/payroll/tim
     return { timesheet: item }
   }, { isSignIn: true, body: updateBody })
   .delete('/:id', async ({ params, user, status }) => {
+    if (!user) return status(401, { message: 'Unauthorized' })
     const r = getRepos()
     if (!(await r.timesheets.deleteInOrg(params.id, params.orgId))) return status(404, { message: 'Not found' })
 
