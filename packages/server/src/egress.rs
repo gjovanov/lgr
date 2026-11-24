@@ -150,7 +150,7 @@ impl Rules {
             }
             let (pac, h) = (self.pac.clone(), key.clone());
             let found = tokio::task::spawn_blocking(move || winhttp::route_for(&h, pac.as_deref())).await.unwrap_or((Route::Direct, Duration::from_secs(60)));
-            self.cache.lock().unwrap().insert(key, (found.0.clone(), Instant::now() + found.1));
+            remember(&mut self.cache.lock().unwrap(), key, found.0.clone(), found.1, Instant::now());
             found.0
         }
         #[cfg(not(windows))]
@@ -158,6 +158,15 @@ impl Rules {
             Route::Direct
         }
     }
+}
+
+/// Keep `route` for `host` until `keep` from `now`, and let go of every answer that has expired:
+/// the cache holds the hosts asked for in the last ten minutes, never every host the API ever
+/// called (#784: a master runs for months).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn remember(cache: &mut HashMap<String, (Route, Instant)>, host: String, route: Route, keep: Duration, now: Instant) {
+    cache.retain(|_, (_, until)| now < *until);
+    cache.insert(host, (route, now + keep));
 }
 
 /// The OS's trusted roots as one PEM file, for `NODE_EXTRA_CA_CERTS`, with the CA `extra` names
@@ -328,6 +337,31 @@ mod winhttp {
         Some(s)
     }
 
+    /// How many WinHTTP sessions this process has opened: one, ever (see [`session`]).
+    pub(super) static OPENED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    /// The one WinHTTP session the WPAD lookups ask through, for the life of the process. WinHTTP's
+    /// handles are thread-safe, so lookups on two blocking threads may share it.
+    ///
+    /// ⚠ Never a session per lookup (#784). Each `WinHttpOpen` + `WinHttpCloseHandle` pair keeps
+    /// about 1.5 KB of private memory inside winhttp.dll: measured on Windows 11, 1,500 pairs grew
+    /// it by 2.2 MB at a steady rate, and 30 s idle gave back a tenth, while the Rust heap stayed
+    /// flat. The same lookups through one kept session stayed flat once warmed up. A master looks
+    /// each host up again every one to ten minutes, for months.
+    fn session() -> Option<*mut std::ffi::c_void> {
+        static SESSION: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+        let mut kept = SESSION.lock().unwrap_or_else(|p| p.into_inner());
+        if *kept == 0 {
+            let agent = wide("lgr-server");
+            // SAFETY: a NUL-terminated agent name; the handle is kept until the process ends.
+            *kept = unsafe { WinHttpOpen(agent.as_ptr(), WINHTTP_ACCESS_TYPE_NO_PROXY, std::ptr::null(), std::ptr::null(), 0) } as usize;
+            if *kept != 0 {
+                OPENED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        (*kept != 0).then_some(*kept as *mut std::ffi::c_void)
+    }
+
     /// The route for `host`, and how long to keep that answer.
     pub fn route_for(host: &str, pac: Option<&str>) -> (Route, Duration) {
         const KEEP: Duration = Duration::from_secs(300);
@@ -347,11 +381,9 @@ mod winhttp {
                 }
             }
             // 2. WPAD, and the PAC it names (or the one setup named).
-            let agent = wide("lgr-server");
-            let session = WinHttpOpen(agent.as_ptr(), WINHTTP_ACCESS_TYPE_NO_PROXY, std::ptr::null(), std::ptr::null(), 0);
-            if session.is_null() {
+            let Some(session) = session() else {
                 return (Route::Direct, Duration::from_secs(60));
-            }
+            };
             let url = wide(&format!("https://{host}/"));
             let pac_w = pac.map(wide);
             let mut options: WINHTTP_AUTOPROXY_OPTIONS = std::mem::zeroed();
@@ -362,7 +394,6 @@ mod winhttp {
             let mut found: WINHTTP_PROXY_INFO = std::mem::zeroed();
             let ok = WinHttpGetProxyForUrl(session, url.as_ptr(), &mut options, &mut found) != 0;
             let error = GetLastError();
-            WinHttpCloseHandle(session);
             if !ok {
                 // No WPAD here: the usual answer on a shop network. Asked again in 10 minutes.
                 let keep = if error == ERROR_WINHTTP_AUTODETECTION_FAILED { Duration::from_secs(600) } else { Duration::from_secs(60) };
@@ -381,6 +412,35 @@ mod winhttp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #784: an API that calls a new host every minute for months leaves the cache holding the last
+    /// ten minutes' hosts, never all of them.
+    #[test]
+    fn the_route_cache_lets_go_of_expired_answers() {
+        let mut cache = HashMap::new();
+        let start = Instant::now();
+        for minute in 0..10_000u64 {
+            let now = start + Duration::from_secs(60 * minute);
+            remember(&mut cache, format!("host-{minute}.example"), Route::Direct, Duration::from_secs(600), now);
+            assert!(cache.len() <= 10, "minute {minute}: {} answers kept", cache.len());
+        }
+        // An answer that has not expired is still there, and asked again it is replaced, not doubled.
+        let now = start + Duration::from_secs(60 * 10_000);
+        remember(&mut cache, "host-9999.example".into(), Route::Direct, Duration::from_secs(600), now);
+        assert!(cache.contains_key("host-9998.example"));
+        assert_eq!(cache.keys().filter(|k| k.as_str() == "host-9999.example").count(), 1);
+    }
+
+    /// #784: every WPAD lookup goes through the one session the process keeps (a session opened and
+    /// closed per lookup leaks inside winhttp.dll).
+    #[cfg(windows)]
+    #[test]
+    fn every_wpad_lookup_shares_one_winhttp_session() {
+        for host in ["lgrai.app", "example.com", "lgrai.app"].iter().cycle().take(30) {
+            let _ = winhttp::route_for(host, None);
+        }
+        assert!(winhttp::OPENED.load(std::sync::atomic::Ordering::Relaxed) <= 1);
+    }
 
     #[test]
     fn winhttp_proxy_lists_are_read_for_https() {
