@@ -19,7 +19,8 @@ import { ref } from 'vue'
  * hide it and render a Vuetify `append-inner-icon`, which is always pinned to the far right.
  * Clicking the icon opens the native picker via `showPicker()`.
  */
-defineProps<{ modelValue?: string }>()
+// `null`: no date, as a filter that was cleared holds it.
+defineProps<{ modelValue?: string | null }>()
 defineEmits<{ 'update:modelValue': [v: string] }>()
 
 const root = ref()

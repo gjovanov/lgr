@@ -277,8 +277,8 @@
               :key="kind"
               :model-value="!!item.relays?.[kind]"
               :label="$t(kind === 'mail' ? 'servers.relayMail' : 'servers.relayDocuments')"
-              :hint="item.relays?.[kind + 'Chosen'] ? '' : $t('servers.relayDefault')"
-              :persistent-hint="!item.relays?.[kind + 'Chosen']"
+              :hint="relayChosen(item, kind) ? '' : $t('servers.relayDefault')"
+              :persistent-hint="!relayChosen(item, kind)"
               :loading="relayBusy === item.id + ':' + kind"
               :disabled="!manages"
               density="compact"
@@ -575,6 +575,7 @@ import { useAccess } from 'ui-shared/access/useAccess'
 import { announceHomeChanged } from 'ui-shared/composables/useHomeChanged'
 import { useAppStore } from '../../store/app.store'
 import LastNumbersCard from './LastNumbersCard.vue'
+import type { ServerRow } from './servers.types'
 
 /**
  * The Servers page (FR-20.2, plan step P2-1): the shop servers (masters) registered for this org,
@@ -590,28 +591,6 @@ import LastNumbersCard from './LastNumbersCard.vue'
  * at once, the people without a local password the admin may let through), starts it, and the
  * banner follows it to the end. The server decides everything; the page only shows it.
  */
-
-interface ServerRow {
-  id: string
-  name: string
-  linkLevel: 'control' | 'full'
-  status: 'active' | 'revoked'
-  ephemeral: boolean
-  os?: { platform?: string; version?: string }
-  versions?: { app?: string }
-  lastSeenAt?: string
-  cloneAlarm?: boolean
-  /** FR-20.51 (P3-7): what the server says of this org: its database went back, its numbering is locked. */
-  orgState?: { at?: string; wentBack?: { at?: string; reason: string; detail?: string }; numbering?: { since?: string; reason: string; detail?: string } } | null
-  connected?: { interactive: boolean; bulk: boolean }
-  health?: {
-    appVersion?: string
-    diskFreeBytes?: number
-    apiOk?: boolean
-    update?: { state?: string; available?: string; reason?: string; blockedWindows?: number; alarm?: boolean }
-    nightRestart?: { since?: string; waiting?: string; blockedNights?: number; alarm?: boolean }
-  } | null
-}
 
 const { t, te } = useI18n()
 // FR-27.7: what changes a server (relays, mirrored files, moves, codes) takes `servers.manage`; `servers.view` reads.
@@ -645,6 +624,9 @@ const headers = computed(() => [
  * server's behalf. The page says what leaves the building before either is turned on (FR-20.90).
  */
 const RELAY_KINDS = ['mail', 'documents'] as const
+/** Whether this org's admin chose the relay; else it follows the link level. */
+const relayChosen = (item: ServerRow, kind: (typeof RELAY_KINDS)[number]) =>
+  !!(kind === 'mail' ? item.relays?.mailChosen : item.relays?.documentsChosen)
 const relayBusy = ref<string | null>(null)
 async function setRelay(item: any, kind: (typeof RELAY_KINDS)[number], on: boolean) {
   relayBusy.value = `${item.id}:${kind}`

@@ -14,6 +14,22 @@ export interface ContactLedgerMovement {
   reference?: string
 }
 
+/**
+ * The ledger's totals, as `contact-ledger.service.ts` sends them. Before the first answer only the first three are
+ * set, and a role without the cost figures gets no profitability (FR-27.11.C.2).
+ */
+export interface ContactLedgerSummary {
+  totalSales: number
+  totalPurchases: number
+  balance: number
+  totalSalesNet?: number
+  totalTax?: number
+  totalSalesGross?: number
+  totalCreditNotes?: number
+  profitabilityNet?: number
+  profitabilityGross?: number
+}
+
 export interface ContactLedgerEntry {
   date: string
   /** Empty on a stock movement's own row: it has no document. */
@@ -62,7 +78,7 @@ export function useContactLedger(contactId: Ref<string>, orgUrl: Ref<string>) {
   // the second.
   const { search: productSearch, debouncedSearch: productQuery } = useSearchDebounce()
   const { search: documentNumber, debouncedSearch: numberQuery } = useSearchDebounce()
-  const summary = ref({ totalSales: 0, totalPurchases: 0, balance: 0 })
+  const summary = ref<ContactLedgerSummary>({ totalSales: 0, totalPurchases: 0, balance: 0 })
 
   // The documents, and the stock movements no document carries (a row each, when asked for or when nothing is).
   // A quote (a proforma, an offer) is listed, and counts in no total (`contact-ledger.service.ts`).

@@ -30,7 +30,7 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   density?: 'default' | 'comfortable' | 'compact'
   variant?: 'filled' | 'outlined' | 'plain' | 'underlined' | 'solo' | 'solo-inverted' | 'solo-filled'
-  hideDetails?: boolean | string
+  hideDetails?: boolean | 'auto'
 }>(), {
   label: '',
   currency: 'EUR',

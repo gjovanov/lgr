@@ -22,11 +22,15 @@
  * close (plan rule 6).
  */
 
+/**
+ * The org a tab is in, as stored: what the sign-in or switch answered, whole. Only what this module
+ * reads is named; the app store reads it back as its `Organization`. No index signature, so an
+ * interface such as `Organization` fits it.
+ */
 export interface SessionOrg {
   id: string
   name: string
   slug: string
-  [key: string]: unknown
 }
 
 /** What a session token says. An identity-only token has `type: 'identity'` and no org. */

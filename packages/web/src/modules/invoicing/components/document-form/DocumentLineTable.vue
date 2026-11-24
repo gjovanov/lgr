@@ -318,12 +318,13 @@ import GRProductUpdateCell from 'ui-shared/components/GRProductUpdateCell.vue'
 import GRColumnPickerDialog from 'ui-shared/components/GRColumnPickerDialog.vue'
 import QuickProductDialog from 'ui-shared/components/QuickProductDialog.vue'
 import { computed, ref, defineAsyncComponent } from 'vue'
+import type { DocumentFormApi } from '../../composables/document-form/useDocumentForm'
 import { useGridNavigation } from 'ui-shared/composables/useGridNavigation'
 import { flushPriceLookups } from 'ui-shared/composables/price-lookups'
 import { useAccess } from 'ui-shared/access/useAccess'
 
 const props = defineProps<{
-  doc: any
+  doc: DocumentFormApi
   /** A bill made from goods receipts: the cost a line's article was received at, when it differs. */
   receiptCostOf?: (line: any) => { cost: number; diff: number } | null
 }>()

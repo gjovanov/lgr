@@ -30,7 +30,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import ViewSwitcher from 'ui-shared/components/ViewSwitcher'
-import PivotTable from 'ui-shared/components/PivotTable'
+import PivotTable, { type PivotMeasure } from 'ui-shared/components/PivotTable'
 import ChartView from 'ui-shared/components/ChartView'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useI18n } from 'vue-i18n'
@@ -45,7 +45,7 @@ const dateTo = ref('')
 const loading = ref(false)
 const data = ref<any[]>([])
 
-const measures = [
+const measures: PivotMeasure[] = [
   { field: 'totalDebit', aggregate: 'sum', label: 'Debit' },
   { field: 'totalCredit', aggregate: 'sum', label: 'Credit' },
   { field: 'balance', aggregate: 'sum', label: 'Balance' },

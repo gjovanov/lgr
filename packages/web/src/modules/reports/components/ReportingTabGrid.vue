@@ -253,7 +253,7 @@ async function onExport(opts: { format: 'xlsx' | 'pdf'; mode: 'compact' | 'detai
       sortOrder: pagination.value.sortOrder,
     }, { responseType: 'blob' })
 
-    const blob = new Blob([res.data], { type: res.headers['content-type'] })
+    const blob = new Blob([res.data], { type: res.headers['content-type'] as string | undefined })
     const dispo = res.headers['content-disposition'] as string | undefined
     const match = dispo?.match(/filename="([^"]+)"/)
     const filename = match?.[1] || `reporting-${props.kind}.${opts.format}`

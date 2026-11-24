@@ -122,7 +122,7 @@ export function reservationRowFrom(r: ServerReservation, ctx: ReservationRowCont
 }
 
 /** A line nobody has filled in: it is a row waiting for its article, not part of the order. */
-export function isBlankLine(line: LineInput): boolean {
+export function isBlankLine(line: Pick<LineInput, 'productId' | 'description'>): boolean {
   return !line.productId && !String(line.description || '').trim()
 }
 

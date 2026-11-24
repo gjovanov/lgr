@@ -115,6 +115,7 @@ withDefaults(defineProps<{
   pendingChangesCount?: number
   layout?: 'sidebar' | 'topmenu'
 }>(), {
+  pendingChangesCount: 0,
   layout: 'sidebar',
 })
 

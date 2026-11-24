@@ -48,8 +48,14 @@ router.beforeEach(async (to, from, next) => {
   next()
 })
 
+/** A key in the app's language. Either i18n mode's `global` has a `t` of this shape; this SPA's is a Composer. */
+function translate(key: string): string {
+  const i18n: { global: { t: (key: string) => string } } = getI18n()
+  return i18n.global.t(key)
+}
+
 /** FR-24.19: the tab's title is the module's, from its manifest. */
 router.afterEach((to) => {
   const module = moduleOf(to)
-  document.title = module ? `LGR ${getI18n().global.t(module.titleKey)}` : 'LGR'
+  document.title = module ? `LGR ${translate(module.titleKey)}` : 'LGR'
 })

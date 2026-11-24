@@ -53,6 +53,16 @@ export interface OrgBankDetail {
   isDefault?: boolean
 }
 
+/**
+ * The org's settings as `orgForClient` sends them (no integration tokens). Only what the screens read
+ * is named here.
+ */
+export interface OrgClientSettings {
+  taxConfig?: { vatEnabled?: boolean; defaultVatRate?: number; vatRates?: { name: string; rate: number }[]; taxIdLabel?: string }
+  cashRegister?: { requireConnectedDevice?: boolean }
+  timezone?: string
+}
+
 export interface Organization {
   id: string
   name: string
@@ -74,6 +84,7 @@ export interface Organization {
   activityCode?: string
   addresses?: OrgAddress[]
   bankDetails?: OrgBankDetail[]
+  settings?: OrgClientSettings
 }
 
 /** Who is signed in, as a person (from `/auth/me` or a sign-in that has not chosen an org). */

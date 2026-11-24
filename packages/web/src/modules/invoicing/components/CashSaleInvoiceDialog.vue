@@ -179,7 +179,7 @@ const { showSuccess, showError } = useSnackbar()
 const { formatCurrency } = useCurrency()
 
 interface StateLine {
-  lineId: string; description: string; unit: string; quantity: number; invoiced: number; remaining: number
+  lineId: string; description: string; unit: string; quantity: number; returned: number; invoiced: number; remaining: number
   unitPrice: number; discount: number; taxRate: number
 }
 interface Row extends StateLine { take: number }
