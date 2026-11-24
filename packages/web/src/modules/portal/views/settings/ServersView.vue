@@ -568,13 +568,14 @@
 import { formatDate, formatDateTime } from 'ui-shared/format'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useNodeAlarms, type NodeAlarm } from 'ui-shared/composables/useNodeAlarms'
+import { useNodeAlarms } from 'ui-shared/composables/useNodeAlarms'
 import { httpClient } from 'ui-shared/composables/useHttpClient'
 import { useSnackbar } from 'ui-shared/composables/useSnackbar'
 import { useAccess } from 'ui-shared/access/useAccess'
 import { announceHomeChanged } from 'ui-shared/composables/useHomeChanged'
 import { useAppStore } from '../../store/app.store'
 import LastNumbersCard from './LastNumbersCard.vue'
+import type { ServerRow } from './servers.types'
 
 /**
  * The Servers page (FR-20.2, plan step P2-1): the shop servers (masters) registered for this org,
@@ -590,32 +591,6 @@ import LastNumbersCard from './LastNumbersCard.vue'
  * at once, the people without a local password the admin may let through), starts it, and the
  * banner follows it to the end. The server decides everything; the page only shows it.
  */
-
-interface ServerRow {
-  id: string
-  name: string
-  linkLevel: 'control' | 'full'
-  status: 'active' | 'revoked'
-  ephemeral: boolean
-  os?: { platform?: string; version?: string }
-  versions?: { app?: string }
-  lastSeenAt?: string
-  cloneAlarm?: boolean
-  /** FR-20.51 (P3-7): what the server says of this org: its database went back, its numbering is locked. */
-  orgState?: { at?: string; wentBack?: { at?: string; reason: string; detail?: string }; numbering?: { since?: string; reason: string; detail?: string } } | null
-  connected?: { interactive: boolean; bulk: boolean }
-  /** FR-20.59: what global relays for this org on the server, and whether its admin chose that (else the link level decides). */
-  relays?: { mail: boolean; mailChosen: boolean; documents: boolean; documentsChosen: boolean }
-  /** FR-20.101 (P3-8): what the server's health and its mirror say needs a person (a mirror's lag: this org's only). */
-  alarms?: NodeAlarm[]
-  health?: {
-    appVersion?: string
-    diskFreeBytes?: number
-    apiOk?: boolean
-    update?: { state?: string; available?: string; reason?: string; blockedWindows?: number; alarm?: boolean }
-    nightRestart?: { since?: string; waiting?: string; blockedNights?: number; alarm?: boolean }
-  } | null
-}
 
 const { t, te } = useI18n()
 // FR-27.7: what changes a server (relays, mirrored files, moves, codes) takes `servers.manage`; `servers.view` reads.
