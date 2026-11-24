@@ -9,7 +9,15 @@
  * next group's list was read while the two overlays traded places.
  *
  * Here the activator's `onMouseenter` and `onFocus` reach Vuetify only after `delay`, and the menu
- * is given no delay of its own. A click, leaving the button and its blur cancel what is pending.
+ * is given no delay of its own. Leaving the button cancels a pending hover, its blur a pending focus.
+ *
+ * ⚠ A click while the hover waits hands Vuetify that hover AT ONCE (which opens the menu) instead of
+ * dropping it. Vuetify must know the pointer is on the button: a menu it believes unhovered is closed
+ * by its next close check (the blur that follows the open, a mouseleave elsewhere) after
+ * `close-delay`. Dropping the hover did exactly that, and `till-printer-walk.spec` saw every menu
+ * opened by a click close 250 ms later under the pointer on its way to an entry. The click itself
+ * then reaches Vuetify only when the menu was already open (it closes it); on a closed menu the
+ * hover has just opened it, and Vuetify's click would toggle it shut again.
  */
 
 type Handler = (e: Event) => void
@@ -26,41 +34,78 @@ const realClock: HoverClock = {
   clear: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
 }
 
+interface Pending { handle: unknown; run: () => void }
+
+/** Whether the menu is open, as its button says it (`aria-expanded`, Vuetify's). */
+function expanded(e: Event, props: ActivatorProps): boolean {
+  const el = e.currentTarget as { getAttribute?: (name: string) => string | null } | null
+  const said = el?.getAttribute?.('aria-expanded') ?? props['aria-expanded']
+  return String(said) === 'true'
+}
+
 export function hoverOpenGate(delay: number, clock: HoverClock = realClock) {
-  // One pending open at a time: the pointer rests on one button only.
-  let pending: { handle: unknown } | undefined
+  // One pending hover and one pending focus at a time: the pointer rests on one button only, and a
+  // click focuses the button it lands on, which must not drop that button's hover.
+  let hover: Pending | undefined
+  let focus: Pending | undefined
 
+  function drop(p: Pending | undefined) {
+    if (p) clock.clear(p.handle)
+  }
   function cancel() {
-    if (!pending) return
-    clock.clear(pending.handle)
-    pending = undefined
+    drop(hover)
+    drop(focus)
+    hover = focus = undefined
   }
 
-  const later = (handler: unknown): Handler => (e) => {
-    cancel()
-    if (typeof handler !== 'function') return
-    const mine = { handle: undefined as unknown }
-    pending = mine
-    mine.handle = clock.set(() => {
-      if (pending === mine) pending = undefined
-      handler(e)
-    }, delay)
-  }
-
-  const now = (handler: unknown): Handler => (e) => {
-    cancel()
-    if (typeof handler === 'function') handler(e)
+  function schedule(run: () => void, done: (p: Pending) => void): Pending {
+    const p: Pending = { handle: undefined, run }
+    p.handle = clock.set(() => { done(p); run() }, delay)
+    return p
   }
 
   /** The activator slot's props, with the opening ones delayed and the rest cancelling them. */
   function wrap(props: ActivatorProps): ActivatorProps {
+    const call = (name: string, e: Event) => {
+      const handler = props[name]
+      if (typeof handler === 'function') (handler as Handler)(e)
+    }
     return {
       ...props,
-      onMouseenter: later(props.onMouseenter),
-      onFocus: later(props.onFocus),
-      onMouseleave: now(props.onMouseleave),
-      onBlur: now(props.onBlur),
-      onClick: now(props.onClick),
+      onMouseenter: (e: Event) => {
+        drop(hover)
+        hover = schedule(() => call('onMouseenter', e), p => { if (hover === p) hover = undefined })
+      },
+      onFocus: (e: Event) => {
+        drop(focus)
+        focus = schedule(() => call('onFocus', e), p => { if (focus === p) focus = undefined })
+      },
+      onMouseleave: (e: Event) => {
+        drop(hover)
+        hover = undefined
+        call('onMouseleave', e)
+      },
+      onBlur: (e: Event) => {
+        drop(focus)
+        focus = undefined
+        call('onBlur', e)
+      },
+      onClick: (e: Event) => {
+        drop(focus)
+        focus = undefined
+        const waiting = hover
+        if (waiting) {
+          drop(waiting)
+          hover = undefined
+          const wasOpen = expanded(e, props)
+          waiting.run()
+          if (!wasOpen) {
+            e.stopPropagation?.() // as Vuetify's own click handler does
+            return
+          }
+        }
+        call('onClick', e)
+      },
     }
   }
 
