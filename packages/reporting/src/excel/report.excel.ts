@@ -68,7 +68,7 @@ function cellValue(raw: any, type: CellType | undefined) {
   return raw ?? ''
 }
 
-export async function generateReportExcel(opts: ReportSheetOptions): Promise<Buffer> {
+export async function generateReportExcel(opts: ReportSheetOptions): Promise<Buffer<ArrayBuffer>> {
   const { workbook, tmpFile } = await createWorkbook()
   const sheet: ExcelJS.Worksheet = workbook.addWorksheet(safeSheetName(opts.sheetName || opts.title))
 
