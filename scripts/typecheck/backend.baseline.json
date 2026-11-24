@@ -27,14 +27,5 @@
     "TS2307": 1,
     "TS2339": 1,
     "TS7006": 6
-  },
-  "packages/migrations/src/runner.ts": {
-    "TS2307": 1,
-    "TS2339": 2,
-    "TS2345": 2,
-    "TS7006": 5
-  },
-  "packages/migrations/src/types.ts": {
-    "TS2307": 1
   }
 }

@@ -1,5 +1,3 @@
-import type { Db } from 'mongodb'
-
 /**
  * A data migration (FR-20.19): a change a release needs in the data, shipped in the codebase and
  * run by every node, instead of a `scripts/migrate-*.ts` someone runs by hand. A master has no
@@ -36,8 +34,16 @@ export interface Migration {
 }
 
 export interface MigrationContext {
-  /** The native driver's database: migrations run before models matter, and bypass their hooks. */
-  db: Db
+  /**
+   * The native driver's database: migrations run before models matter, and bypass their hooks.
+   *
+   * ⚠ Untyped on purpose (#797). It was `Db` from `'mongodb'`, which this package cannot resolve (it
+   * does not depend on the driver), so the type checker read it as `any` all along. The driver's
+   * real type (`mongo.Db` from mongoose, as `runner.ts` uses) raises errors inside RELEASED
+   * migrations (0004 TS2559, 0017 TS2322), which are never edited: their fingerprints are recorded
+   * on every node. So the type migrations see stays what it was. The runner types its own code.
+   */
+  db: any
   log: (message: string, extra?: Record<string, unknown>) => void
   /**
    * Merge into every org-data filter. `{}` today, which is every org. FR-20.5 (plan step P0b-3)
