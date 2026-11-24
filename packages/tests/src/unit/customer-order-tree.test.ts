@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'bun:test'
-// PURE modules: no Vue, no store. `invoicing-ui` is not a workspace package, so they are reached by path.
-import { buildCustomerOrderTree, customerLineNodeId, customerReservationNodeId } from '../../../invoicing-ui/src/composables/order-tree/customer-order-tree'
-import { dayOf, heldQuantity, isLateReservation, reservationRowFrom } from '../../../invoicing-ui/src/composables/order-tree/figures'
-import { internalOrderLineQuery, orderLineQuery } from '../../../invoicing-ui/src/composables/order-tree/links'
-import { isNodeOpen, revealed, toggled, visibleRows } from '../../../invoicing-ui/src/composables/order-tree/tree-rows'
+// PURE modules: no Vue, no store. `web/src/modules/invoicing` is not a workspace package, so they are reached by path.
+import { buildCustomerOrderTree, customerLineNodeId, customerReservationNodeId } from '../../../web/src/modules/invoicing/composables/order-tree/customer-order-tree'
+import { dayOf, heldQuantity, isLateReservation, reservationRowFrom } from '../../../web/src/modules/invoicing/composables/order-tree/figures'
+import { internalOrderLineQuery, orderLineQuery } from '../../../web/src/modules/invoicing/composables/order-tree/links'
+import { isNodeOpen, revealed, toggled, visibleRows } from '../../../web/src/modules/invoicing/composables/order-tree/tree-rows'
 import type {
   CustomerLineInput,
   CustomerLineServerFigures,
   ServerReservation,
   TreeNode,
-} from '../../../invoicing-ui/src/composables/order-tree/types'
+} from '../../../web/src/modules/invoicing/composables/order-tree/types'
 
 /**
  * FR-28.44 — the customer order's lines and their reservations as a tree of two levels.

@@ -1,7 +1,7 @@
 ---
 paths:
-  - "packages/portal-api/src/auth/**"
-  - "packages/portal-api/src/controllers/**"
+  - "packages/api/src/auth/**"
+  - "packages/api/src/controllers/**"
   - "packages/services/src/access/**"
   - "packages/services/src/biz/access/**"
   - "packages/services/src/biz/identity/**"
@@ -10,7 +10,7 @@ paths:
   - "packages/services/src/http/**"
   - "packages/ui-shared/src/session/**"
   - "packages/ui-shell/**"
-  - "packages/portal-ui/**"
+  - "packages/web/src/modules/portal/**"
   - "packages/config/src/**"
   - "scripts/access-model.ts"
   - "packages/db/src/models/user.model.ts"
@@ -166,7 +166,7 @@ Why each one exists, and what was built around it: [`docs/history/access.md`](..
   write, must consult access (`useAccess`, `v-cap`, a `cap`, a page rule), or be on `NOT_YET`, which only shrinks.
   Every capability id a view names must be in the catalogue (an unknown one hides the control).
 
-- **Screens** (`portal-ui` Settings → Roles & access, `RolesView` / `RoleEditorView`; `/settings/roles`, page rule
+- **Screens** (the portal's Settings → Roles & access, `RolesView` / `RoleEditorView`; `/settings/roles`, page rule
   `roles.edit`). The editor is a level per feature, None / View / Work / Full, plus the extras beyond it
   (`config/access/levels.ts`). A level is never stored: Save sends capabilities, and the server adds the helpers their
   forms read (`withImplied`). `summarize(grant)` gives the three lines under a role, in the editor and the Users

@@ -3,8 +3,8 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser, createTestContact } from '../helpers/factories'
-import { createApiApp } from '../../../portal-api/src/api.js'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { createApiApp } from '../../../api/src/api.js'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import type { Types } from 'mongoose'
@@ -462,7 +462,7 @@ describe('by-id routes are scoped by org (FR-20.7)', () => {
     const root = new URL('../../../', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')
     const bare = /\b(?:r|repos|getRepos\(\))\.\w+\.(?:findById|update|delete)\(\s*(?:params\.\w+|id)\s*[,)]/
     const offenders: string[] = []
-    for await (const f of new Glob('*-api/src/controllers/*.ts').scan(root)) {
+    for await (const f of new Glob('api/src/**/controllers/*.ts').scan(root)) {
       const lines = (await Bun.file(root + f).text()).split('\n')
       lines.forEach((l, i) => { if (bare.test(l)) offenders.push(`${f}:${i + 1}: ${l.trim()}`) })
     }

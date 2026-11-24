@@ -3,7 +3,7 @@ import type { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { forgetDevices, tillApp, tillWorld, type TillWorld } from '../helpers/till-world'
 import { draftOf, raw, send } from '../helpers/receipt-world'
-import { printableDocument } from 'invoicing-api/src/lib/invoice-pdf'
+import { printableDocument } from 'api/src/invoicing/lib/invoice-pdf'
 import { buildInvoiceHtml } from 'reporting/pdf/invoice.pdf'
 import { Invoice } from 'db/models'
 

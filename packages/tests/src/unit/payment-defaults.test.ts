@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
-// PURE module — reached by path like document-payload: `invoicing-ui` is a private app package.
-import { defaultPaymentMethod, outstandingAmount } from '../../../invoicing-ui/src/composables/payment-defaults'
+// PURE module — reached by path like document-payload: `web/src/modules/invoicing` is not a workspace package.
+import { defaultPaymentMethod, outstandingAmount } from '../../../web/src/modules/invoicing/composables/payment-defaults'
 
 /**
  * FR-22.7 (B-9): the record-payment dialog suggests what the document still owes, by the method

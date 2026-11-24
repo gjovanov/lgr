@@ -14,7 +14,7 @@ FR-02 (dialog defaults, per-mode mechanism) · Feeds: —
 ## 1. Current state
 
 **Nav:** Cash Sales is the sole child of the "Cash Register" group
-(`packages/invoicing-ui/src/layouts/DefaultLayout.vue:90-96`, child label `invoicing.cashSales`).
+(`packages/web/src/modules/invoicing/layouts/DefaultLayout.vue:90-96`, child label `invoicing.cashSales`).
 
 **Cash-sale document path (must stay intact):**
 - `POST /org/:orgId/invoices` with `type:'cash_sale'` → born `status:'paid'`, `direction`

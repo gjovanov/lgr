@@ -89,7 +89,7 @@ Object.assign(globalEnv, {
   DESKTOP_REAPER_INTERVAL_MS: '0',
   NODE_REAPER_INTERVAL_MS: '0',
 })
-const globalProc = Bun.spawn(['bun', 'src/unified.ts'], { cwd: join(REPO, 'packages', 'portal-api'), env: globalEnv, stdout: 'pipe', stderr: 'pipe' })
+const globalProc = Bun.spawn(['bun', 'src/unified.ts'], { cwd: join(REPO, 'packages', 'api'), env: globalEnv, stdout: 'pipe', stderr: 'pipe' })
 let globalLog = ''
 for (const s of [globalProc.stdout, globalProc.stderr]) void (async () => { for await (const c of s) globalLog = (globalLog + new TextDecoder().decode(c)).slice(-40_000) })()
 

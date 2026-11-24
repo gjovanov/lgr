@@ -103,7 +103,7 @@ Production's sign-in page, anonymous, over HTTP/2 with brotli: 22 requests, 843 
 - **Icons.** 395 KB of it is the icon font (`ui-shared/src/plugins/vuetify.ts` imports the whole webfont). The source names 291 icons; the font carries 7 461.
 - **Languages.** The English catalogue is inside the entry chunk, so a Bulgarian session downloads English and Bulgarian. Key parity between the four catalogues is tested, so nothing needs English as a fallback.
 - **The drag library** of the column picker is a static import of `ListScaffold.vue`, so its 185 KB (65 KB compressed) load with the first list and not when a picker opens.
-- **Caching.** Files whose names carry a content hash are served with `public, max-age=86400`, the static plugin's default (`portal-api/src/spa-fallback.ts`), and not as immutable.
+- **Caching.** Files whose names carry a content hash are served with `public, max-age=86400`, the static plugin's default (`api/src/spa-fallback.ts`), and not as immutable.
 - **The budget** (`scripts/check-web-bundle.ts`) counts JavaScript only. The stylesheet (617 KB, 87 KB compressed) and the font are outside it.
 - **Compression** is the cloud ingress's doing. The app itself does not compress, so an on-prem master serves every file as it is.
 - **404 by design (U12).** `/api/auth/idp/config` answers 404 when nothing is configured, on every visit to the sign-in page, and the organization's logo route does the same on Settings. The browser logs each as an error.

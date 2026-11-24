@@ -11,7 +11,7 @@ import { BackupRun, Desktop, FiscalDevice, OrgHome, Outbox, ReplOrg } from 'db/m
 import { forgetAllHomes } from 'db/home/home'
 import { linkAlarmsTick } from 'services/biz/home/series-lock.service'
 import { serverStatus } from 'services/biz/node/server-status'
-import { serverStatusController } from '../../../portal-api/src/controllers/server-status.controller'
+import { serverStatusController } from '../../../api/src/controllers/server-status.controller'
 import type { Types } from 'mongoose'
 
 /**

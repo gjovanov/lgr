@@ -12,7 +12,7 @@ import { join, relative, resolve } from 'path'
 
 const PACKAGES = resolve(import.meta.dir, '../../..')
 /** FR-27 P3-3 takes these views apart; they are another agent's to touch until then. The exception goes with them. */
-const LEAVING = ['portal-ui/src/views/settings/InvitesView.vue', 'portal-ui/src/views/settings/UsersView.vue', 'portal-ui/src/views/settings/PermissionSetsView.vue']
+const LEAVING = ['web/src/modules/portal/views/settings/InvitesView.vue', 'web/src/modules/portal/views/settings/UsersView.vue', 'web/src/modules/portal/views/settings/PermissionSetsView.vue']
 
 function* sources(dir: string): Generator<string> {
   for (const name of readdirSync(dir)) {
@@ -47,8 +47,9 @@ describe('icon buttons have names (FR-31.21)', () => {
 
   it('no icon-only button in UI source is without a name', () => {
     const offenders: string[] = []
-    for (const pkg of readdirSync(PACKAGES).filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell')) {
-      for (const file of sources(join(PACKAGES, pkg, 'src'))) {
+    const roots = [join(PACKAGES, 'web', 'src', 'modules'), ...readdirSync(PACKAGES).filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell').map(p => join(PACKAGES, p, 'src'))]
+    for (const root of roots) {
+      for (const file of sources(root)) {
         const rel = relative(PACKAGES, file).replace(/\\/g, '/')
         if (LEAVING.includes(rel)) continue
         for (const b of namelessIconButtons(readFileSync(file, 'utf8'))) offenders.push(`${rel}: ${b}`)

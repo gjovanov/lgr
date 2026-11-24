@@ -5,8 +5,8 @@ import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/ti
 import { createTestProduct, createTestStockLevel } from '../helpers/factories'
 import { Invoice } from 'db/models'
 import { tillLineAmounts, tillTotals } from 'config/pos-totals'
-import { buildPayloadLines, computeTotals } from '../../../invoicing-ui/src/composables/document-form/document-payload'
-import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
+import { buildPayloadLines, computeTotals } from '../../../web/src/modules/invoicing/composables/document-form/document-payload'
+import { DOCUMENT_CONFIGS } from '../../../web/src/modules/invoicing/composables/document-form/configs'
 
 /**
  * #573 — a cash sale's line amounts are the server's.

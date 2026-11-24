@@ -199,7 +199,7 @@ describe('which tiers a change of the purchase price moves', () => {
 })
 
 describe('the product form computes with the one rule', () => {
-  const form = readFileSync(join(import.meta.dir, '../../../inventory-ui/src/views/ProductFormView.vue'), 'utf8')
+  const form = readFileSync(join(import.meta.dir, '../../../web/src/modules/inventory/views/ProductFormView.vue'), 'utf8')
 
   it('moves its tiers by the shared cascade, and notes on load which of them follow', () => {
     expect(form).toMatch(/function recomputeTiersFromPurchase\(\) \{\s*cascadeTiers\(priceTiers\.value, form\.purchasePrice\)\s*\}/)

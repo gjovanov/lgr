@@ -63,12 +63,12 @@ finish the issue, so it can be picked up in a fresh session.
 | FR | Status | Where |
 |---|---|---|
 | 13.6 digest Backups section | done, opt-in per org (default off) | `services/src/biz/backup/backup-status.service.ts`, `digest/daily-digest.render.ts:367-429` |
-| 13.10 scheduler, `checkIntervalMs=0` disables, `.env.test`=0 | done | `portal-api/src/unified.ts:391-400`, `.env.test:35-36` |
+| 13.10 scheduler, `checkIntervalMs=0` disables, `.env.test`=0 | done | `api/src/unified.ts:391-400`, `.env.test:35-36` |
 | 13.11 `BackupRun` unique `{orgId,kind,date}` lock | done (`coversFrom` never written) | `db/src/models/backup-run.model.ts:93`, `backup-runner.service.ts:59-79` |
 | 13.12 self-verifying bundle + manifest | done (`schemaVersion` == format constant, so no real version compare) | `backup-bundle.service.ts:140-182, 268-334` |
 | 13.13 zstd 19/3 | done | `backup-bundle.service.ts:77-86` |
 | 13.14 path `<UPLOAD_DIR>/<orgId>/backups/` | done | `backup-bundle.service.ts:97` |
-| 13.15 five routes, explicit 401 | done, **no org-membership check** | `portal-api/src/controllers/backup.controller.ts` |
+| 13.15 five routes, explicit 401 | done, **no org-membership check** | `api/src/controllers/backup.controller.ts` |
 | 13.16–13.19 email manifest/attachment/ceiling | done (ceiling computed as 15 MiB, correct) | `backup-runner.service.ts:34, 230-251` |
 | 13.24 not served statically | done | `unified.ts:289-303` |
 | 13.25 AuditLog | partial: download yes; create only for manual runs; no destinations | `backup-runner.service.ts:181-186` |
@@ -319,7 +319,7 @@ Steps 1 and 2 are complete and verified as described in their own sections below
 
 ### Step 1 — Hardening PR for `lgr` (Phase 2.5, branch `LGR-09`) — DONE
 
-Files: `packages/portal-api/src/controllers/backup.controller.ts`,
+Files: `packages/api/src/controllers/backup.controller.ts`,
 `packages/services/src/biz/backup/backup-runner.service.ts`, `backup-bundle.service.ts`,
 `packages/tests/src/integration/backup-bundle.flow.test.ts`, new
 `packages/tests/src/integration/backup-routes.flow.test.ts`.
@@ -448,7 +448,7 @@ Files: `packages/services/src/biz/cloud-storage.service.ts` (extend interface wi
 `config.backup.encryptionRecipient`), `backup-runner.service.ts` (after verify: encrypt →
 upload → record `destinations[]` on `BackupRun`), `backup-run.model.ts` (`destinations`),
 `backup-status`/digest render (Drive reached / re-consent required), new
-`packages/portal-api/src/controllers/integrations.controller.ts` (
+`packages/api/src/controllers/integrations.controller.ts` (
 `GET /org/:orgId/integration/google-drive/auth-url`, `POST …/callback` — the configmap already
 sets `GOOGLE_REDIRECT_URI` to exactly this path; sys-admin gated once Step 5 lands, admin+org
 gated until then; callback prints the refresh token once for the operator to seal), one-off
@@ -532,7 +532,7 @@ Routes (all: explicit 401, sys-admin allow-list, org match):
 - `POST /org/:orgId/backup/create` → BackgroundTask id (variant `data|full`; `full` adds the
   org's `docs/` tree as a tar section)
 - `POST /org/:orgId/backup/upload` (multipart via `readUploadedFiles` pattern from
-  `files-api/src/controllers/file.controller.ts:40-51`; own size cap, not `config.upload.maxFileSize`)
+  `api/src/files/controllers/file.controller.ts:40-51`; own size cap, not `config.upload.maxFileSize`)
 - `POST /org/:orgId/backup/restore/inspect` `{source: {runId|path|uploadId}}` → per-collection
   diff, writes nothing, stores an `inspectionId`
 - `POST /org/:orgId/backup/restore/apply` `{inspectionId, mode: 'merge'|'replace', remap?,
@@ -550,12 +550,12 @@ max(live, bundle)` with a clamp list → dangling `DocFile` references counted �
 back from the safety bundle and report → AuditLog (`module:'admin'`, actor, mode, window, sha,
 counts) and a `restores` line in the next digest.
 
-Frontend files: `packages/portal-ui/src/router/index.ts` (add `admin/backup` beside
-`admin/audit-log` at `:39`), `packages/portal-ui/src/layouts/DefaultLayout.vue:33` (nav item,
+Frontend files: `packages/web/src/modules/portal/router/index.ts` (add `admin/backup` beside
+`admin/audit-log` at `:39`), `packages/web/src/modules/portal/layouts/DefaultLayout.vue:33` (nav item,
 shown only if `GET /backup/runs` returns 200 — presentation only), new
-`packages/portal-ui/src/views/admin/BackupView.vue` (runs table with download/verify; Create
+`packages/web/src/modules/portal/views/admin/BackupView.vue` (runs table with download/verify; Create
 backup with variant + estimated size; Restore wizard: source → Inspect result → mode → confirm
-slug for Replace), new `packages/portal-ui/src/store/backup.store.ts`, i18n keys in all four
+slug for Replace), new `packages/web/src/modules/portal/store/backup.store.ts`, i18n keys in all four
 `packages/ui-shared/src/locales/{en,bg,de,mk}.json`. Method names mirror `archive.rs`
 (`createArchive`, `restoreArchive`, `listArchives`, `deleteArchive`, `getArchiveStats`).
 

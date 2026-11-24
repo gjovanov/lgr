@@ -85,7 +85,7 @@ describe('the manifests of this repository, as the install is given them', () =>
     const packages = readdirSync(join(ROOT, 'packages')).filter(d => existsSync(join(ROOT, 'packages', d, 'package.json')))
     expect(files[0]).toBe(join(ROOT, 'package.json'))
     expect(files.length).toBe(1 + packages.length)
-    expect(packages.length).toBeGreaterThan(20)
+    expect(packages.length).toBeGreaterThan(15) // 17 since FR-24.31 made the API and the web app one package each
   })
 
   it('each keeps every key but the cut ones, and every key the install reads untouched', () => {

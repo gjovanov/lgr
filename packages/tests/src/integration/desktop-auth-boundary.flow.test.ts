@@ -7,7 +7,7 @@ import { mongoose } from 'db/connection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { makeDesktopStub, enrollBody } from '../helpers/desktop-stub'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import { isPublicRoute, PUBLIC_ROUTE_KEYS } from 'services/biz/public-routes'
 import { resetDesktopReleaseCache } from 'services/biz/desktop/release-download'
 import {

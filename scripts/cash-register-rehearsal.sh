@@ -78,7 +78,7 @@ LOG "restored in ${SECONDS}s"
 export MONGODB_URI="mongodb://127.0.0.1:27299/lgr?replicaSet=rs0&directConnection=true"
 
 LOG "1. field check, deployed code, before"
-(cd ~/lgr/packages/portal-api && bun -e "$(cat "$CHECK")" > "$OUT/before-deployed.json")
+(cd ~/lgr/packages/api && bun -e "$(cat "$CHECK")" > "$OUT/before-deployed.json")
 
 LOG "2. preflight ($BRANCH)"
 (cd "$WT" && bun scripts/cash-register-preflight.ts) > "$OUT/preflight.txt" 2>&1 || LOG "preflight exited $?"
@@ -93,9 +93,9 @@ LOG "second run took ${SECONDS}s"
 (cd "$WT" && bun scripts/cash-register-preflight.ts --parity) > "$OUT/parity.txt" 2>&1 || LOG "parity exited $?"
 
 LOG "3. field check, branch code, after"
-(cd "$WT/packages/portal-api" && bun -e "$(cat "$CHECK")" > "$OUT/after-branch.json")
+(cd "$WT/packages/api" && bun -e "$(cat "$CHECK")" > "$OUT/after-branch.json")
 LOG "   field check, deployed code, after (the rollback reads the migrated data)"
-(cd ~/lgr/packages/portal-api && bun -e "$(cat "$CHECK")" > "$OUT/after-deployed.json")
+(cd ~/lgr/packages/api && bun -e "$(cat "$CHECK")" > "$OUT/after-deployed.json")
 
 LOG "done: $(ls "$OUT") — compare with: diff $OUT/before-deployed.json $OUT/after-branch.json"
 echo "REHEARSAL_DONE"

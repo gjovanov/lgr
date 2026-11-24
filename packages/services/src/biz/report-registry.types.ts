@@ -11,7 +11,7 @@
  *
  * The wire contract: the UI's ONLY source of report metadata is
  * `GET /org/:orgId/reports/catalog`, which returns `ReportMeta[]` — this file's shape,
- * mirrored (deliberately, not imported) in `reports-ui/src/types/report.ts`.
+ * mirrored (deliberately, not imported) in `web/src/modules/reports/types/report.ts`.
  */
 import { NOTHING, can as grantCan, seesCosts, type CapabilityId, type Grant } from 'config/access'
 
@@ -117,7 +117,7 @@ export interface ReportMeta {
    *   registry handlers is P2-optional.)
    */
   view: 'runner' | 'custom'
-  /** App-relative path inside reports-ui, e.g. "/export" or "/inventory-valuation". */
+  /** App-relative path inside the reports module, e.g. "/export" or "/inventory-valuation". */
   route: string
   /**
    * The format the runner's Export dialog starts on, when `outputs` offers it; absent: Excel. A register that is

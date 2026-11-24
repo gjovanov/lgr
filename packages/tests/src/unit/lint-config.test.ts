@@ -21,7 +21,7 @@ describe('the rules (FR-32.5, §2.3)', () => {
   })
 
   it('no new `as any`, in the API packages and `services` only', () => {
-    expect(config.overrides).toEqual([{ files: ['packages/*-api/src/**', 'packages/services/src/**'], rules: { 'lgr/no-as-any': 'error' } }])
+    expect(config.overrides).toEqual([{ files: ['packages/api/src/**', 'packages/services/src/**'], rules: { 'lgr/no-as-any': 'error' } }])
   })
 
   it('the tests, the scripts and the released migrations are not linted (§10, FR-32.28)', () => {

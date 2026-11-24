@@ -11,7 +11,7 @@
  * the simulator's serial, `ED123456`: a УНП naming another device is refused, as a real one refuses it.
  *
  *   bun packages/e2e/scripts/eltrade-tcp-stub.ts &
- *   FISCAL_TCP_ALLOW_LOOPBACK=1 bun packages/portal-api/src/unified.ts
+ *   FISCAL_TCP_ALLOW_LOOPBACK=1 bun packages/api/src/unified.ts
  *
  * HTTP on the next port, for the spec: `GET /state` (receipts with their free text, reports, closures,
  * operators, payment type names), `POST /paper` (`{ "on": false }`: the roll runs out), `POST /fault` (`{ "paperOutAt": 56 }`: the roll runs out as that command arrives; `{}` clears it), `POST /reset` (a fresh device; `{ "rates": [А..З] }` programs its VAT groups, `{ "unfiscalized": true }` makes it the unit in the field).

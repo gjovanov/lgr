@@ -39,7 +39,7 @@ describe('no session token from a query string (FR-24 AC 7)', () => {
       .filter(p => p.endsWith('-ui') || p === 'web' || p === 'ui-shared' || p === 'ui-shell')
       .map(p => join(PACKAGES, p, 'src'))
       .filter(p => existsSync(p)) // a package folder git no longer has can linger on a checkout
-    expect(roots.length).toBeGreaterThanOrEqual(10)
+    expect(roots.length).toBeGreaterThanOrEqual(4) // web (its modules inside it since FR-24.31), desktop-ui, ui-shared, ui-shell
 
     const offenders: string[] = []
     for (const root of roots) {

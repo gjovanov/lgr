@@ -345,7 +345,7 @@ gets a **grant**: everything (`{ all: true }`) or a set of **capabilities** `fea
   - `field-walk-blank-roles`: Seller and Sales Consultant rebuilt from a blank role in the editor equal the built-ins,
     and pass FR-26 §2.1 and #493 items 1 to 5, beside a built-in user as the control.
   - Locally: an in-memory replica set, `bun run seed`, `bun run migrate`, `scripts/access-model.ts --org acme-corp --set
-    roles`, a server from `packages/portal-api` on its own port, `BASE_URL` at it.
+    roles`, a server from `packages/api` on its own port, `BASE_URL` at it.
 
 ## Test copies of real orgs, and the PROD / DEV badge (2026-11-09)
 

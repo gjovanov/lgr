@@ -8,7 +8,7 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
 import { config } from 'config'
 import { BackupRun } from 'db/models'
-import { backupController } from '../../../portal-api/src/controllers/backup.controller'
+import { backupController } from '../../../api/src/controllers/backup.controller'
 import { runBackupForOrg } from 'services/biz/backup/backup-runner.service'
 import type { Types } from 'mongoose'
 

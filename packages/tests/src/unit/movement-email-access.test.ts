@@ -3,14 +3,14 @@ import { setSession } from 'ui-shared/session/session'
 import { setLiveAccess } from 'ui-shared/access/live-grant'
 import { templateGrant, type Grant } from 'config/access'
 import { ROLES, type Role } from 'config/constants'
-import { MOVEMENT_EMAIL_WORK, mayEmailMovements } from 'warehouse-api/src/lib/movement-email-guards'
-import { MOVEMENT_EMAIL_CAPS, mailsMovements } from '../../../inventory-ui/src/composables/movement-email-access'
+import { MOVEMENT_EMAIL_WORK, mayEmailMovements } from 'api/src/warehouse/lib/movement-email-guards'
+import { MOVEMENT_EMAIL_CAPS, mailsMovements } from '../../../web/src/modules/inventory/composables/movement-email-access'
 
 /**
  * The movements list offers „Изпрати по имейл" by the server's own rule (2026-11-16).
  *
  * The list cannot import the warehouse API, so it names the capabilities again
- * (`inventory-ui/composables/movement-email-access`). This file is what holds the two together: the same list, and
+ * (`web/src/modules/inventory/composables/movement-email-access`). This file is what holds the two together: the same list, and
  * the same answer for a session of every role, so the button is never offered to someone the two routes answer 403,
  * nor withheld from someone they serve.
  */

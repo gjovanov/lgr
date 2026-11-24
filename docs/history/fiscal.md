@@ -41,7 +41,7 @@ this area's files. A new trap goes there (or in `CLAUDE.md` if it is not one are
     again; one that finds the device gone: 409 `fiscal_holder_moved`.
   - ⚠ `getFiscalContext` throws `fiscal_held_elsewhere` while another pod holds a warehouse's device:
     "held elsewhere" is never "offline", so nothing completes without its receipt.
-  - ⚠ `unit/fiscal-route-declared.test.ts` walks every `*-api` and `fiscal` function to a fixpoint and
+  - ⚠ `unit/fiscal-route-declared.test.ts` walks every function of `api` and `fiscal` to a fixpoint and
     fails on a route that reaches the driver without `fiscalDevice` (the numbering witness is exempt).
   - `POD_ID` is `<hostname>#<pid>`: two processes on one machine share a hostname.
   - `two-node/two-pods.test.ts` (`LGR_TWO_NODE=1`, `startTwoPods`): one database, two processes, the
@@ -89,7 +89,7 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   - **Cash on delivery** = `FiscalPaymentType` `cash_on_delivery` → reserve slot **`R`**, named „НАЛОЖЕН
     ПЛАТЕЖ" from the device page (55h, admin only). Every other driver refuses it via `paymentCode()` — the
     drivers' old `table[type] || 'P'` printed any unmapped payment as cash.
-- **The till's tender** (`invoicing-api/lib/cash-register-till.ts`, 2026-10-31) is checked BEFORE anything is
+- **The till's tender** (`api/src/invoicing/lib/cash-register-till.ts`, 2026-10-31) is checked BEFORE anything is
   written, so a refused sale draws no number and no УНП, at every door that prints: the till's sale, both storno
   routes, and the back-office sale joined to a session (D-13).
   - ⚠ `toFiscalPaymentType` has **no default** (`FiscalPaymentMethodError`). Everything unknown used to print as
@@ -117,10 +117,10 @@ LGR implements СУПТО (Софтуер за Управление на Про�
   to answer 500 to everything.
 - **`device-command.ts`** — `onDevice` and `printDeviceReport`: one command on a device, and the X, fiscal-memory,
   КЛЕН and operator reports, as an API answers them. In `fiscal` because two controllers print them and
-  `invoicing-api` cannot import `portal-api`. ⚠ It has no Z: on the device page that is its own route, and from
+  `api/src/invoicing` does not import the portal's controllers. ⚠ It has no Z: on the device page that is its own route, and from
   POS Sessions it does not exist (a Z outside the close makes the next close print zeros).
 - **`fiscal-device.service.ts`** — in-memory connection manager (`connect`, `disconnect`, `getPrinter`, `registerPrinter`, `unregisterPrinter`)
-- **`fiscal-bridge.ts`** (portal-api/websocket/) — WebSocket endpoint `/ws/fiscal-bridge`, with **two
+- **`fiscal-bridge.ts`** (api/src/websocket/) — WebSocket endpoint `/ws/fiscal-bridge`, with **two
   kinds of bridge**: a browser tab over Web Serial, and (since FR-14.26) a registered **LGR Desktop**
   relaying its till's own serial port in Rust. ⚠ Elysia wraps each ws event in a NEW `ElysiaWS` —
   per-connection maps are keyed by `ws.raw` (keyed by the wrapper, the close handler never ran).
@@ -373,7 +373,7 @@ in LGR while the device still had it open.
 - `GET /session/:id/close-preview` feeds the dialog: expected per method, the device and its
   connection state, and how many other sessions are open on the warehouse (a Z-report zeroes
   the **device's** day, not one session).
-- UI: `invoicing-ui/src/pos/components/CloseSessionDialog.vue` — per-method expected/counted/difference
+- UI: `web/src/modules/invoicing/pos/components/CloseSessionDialog.vue` — per-method expected/counted/difference
   rows modeled on the legacy screen, three visually distinct outcomes.
 - `erp.service.closePOSSession` was the old duplicate, `@deprecated` with only its own tests as
   callers. It and the other `erp.service` POS functions were deleted in FR-21 R3, once
@@ -384,7 +384,7 @@ in LGR while the device still had it open.
 There is no POS app any more. `pos` left `APP_IDS`, `APP_REGISTRY`, `APP_NAV_META` and the App Hub, and
 `pos.*` opens the Invoicing tile (`alsoOpenedBy`). `pos` stays a module, and `pos.*` stay
 permissions. This overrides FR-24's "URLs and the App Hub do not change" for the till. The sources
-stay in `invoicing-ui/src/pos/`, the routes are in `invoicing-ui/src/manifest.ts`, the moves go through
+stay in `web/src/modules/invoicing/pos/`, the routes are in `web/src/modules/invoicing/manifest.ts`, the moves go through
 `goTo`, and the rules are `pos/till-rules.ts`.
 
 | Menu | Path | Route name |
@@ -397,7 +397,7 @@ stay in `invoicing-ui/src/pos/`, the routes are in `invoicing-ui/src/manifest.ts
 | (outside the shell) | `/invoicing/pin` | `pos.pin` |
 
 - ⚠ **`/pos/*` still answers, and must.** Tills store `Desktop.startPath: /pos/`, and the shell opens
-  it on the server. `portal-api/src/lib/pos-redirect.ts` is the map, called from `spaErrorHandler`'s
+  it on the server. `api/src/lib/pos-redirect.ts` is the map, called from `spaErrorHandler`'s
   NOT_FOUND branch just before the shell is chosen, so `spa-fallback.flow.test.ts` drives it through
   the real plugins in both static modes. An on-prem master runs the same file.
   - **302, never 301**, with `no-store`: a browser keeps a permanent redirect, and a rollback has to
@@ -596,7 +596,7 @@ migrations `0006`/`0007` applied). What remains is in `docs/fr/FR-21-HANDOVER.md
   in `services/biz/cash-register/register.service.ts` (insert → number → УНП → print once →
   session totals → stock → complete → audit), on the `Invoice` row's `register` block. `services`
   must not import `fiscal/*` (which imports it), so the till hands the service a
-  `RegisterPrinter` port built in `invoicing-api/src/lib/cash-register-till.ts`. A new till
+  `RegisterPrinter` port built in `api/src/invoicing/lib/cash-register-till.ts`. A new till
   sale IS the copy of the POS row it would have been (`tillSaleDocument` maps a virtual row
   through `fromPosTransaction`): one mapping, so the R1 readers and an R1 rollback read both alike.
   - ⚠ **One failure rule**: a failure removes the document only until the sale reached the device
@@ -664,7 +664,7 @@ invoice still due until the courier pays).
   `scripts/printer-gate-off.ts` is the one thing no data can say, `regal-pz`, which has a device and whose
   till is still PlusMinus. ⚠ It refuses `regal`.
 - ⚠ **An imported document NEVER prints.** `syncCashSettlement` is called by `/send`, `PUT` and
-  `convertDraftInvoice`, so printing lives in the doors (`invoicing-api/lib/counter-receipt.ts`,
+  `convertDraftInvoice`, so printing lives in the doors (`api/src/invoicing/lib/counter-receipt.ts`,
   `prepareReceipt`), never in that function. The conversion settles as it always did, with the switch
   on too. `printsAtCounter` also refuses a document a person issues or pays by hand that an import
   wrote. ⚠ `isImportedDocument` is `ocr_import` on its FIRST status entry and nothing else, because a
@@ -895,7 +895,7 @@ at issue (`/send`) or later (`/payments`), prints a `payment_storno`: the same d
 `payment_receipt`, through the same steps (`runReceiptSteps`), the other way. The credit note is the
 return: it took the goods back, once, and posted it. The storno is the money going back. It links
 `register.refundOf` (the credit note) and `register.storno.original*` (the receipt it cites: for an
-invoice issued for a till sale, that sale's own). The door is `invoicing-api/src/lib/counter-refund.ts`.
+invoice issued for a till sale, that sale's own). The door is `api/src/invoicing/lib/counter-refund.ts`.
 
 - ⚠ **The budget lives in one place, `cash-register/refund-budget.ts`, on the cited document**
   (`register.refundClaims`: storno, rate, cents), taken in one conditional update with the check that it

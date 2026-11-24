@@ -5,7 +5,7 @@ import { config } from 'config'
 import { tokenize } from 'services/biz/auth.service'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestWarehouse, createTestUser } from '../helpers/factories'
-import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
+import { fiscalDeviceController } from '../../../api/src/controllers/fiscal-device.controller'
 import { disconnectAll } from 'fiscal/fiscal-device.service'
 import { AuditLog, FiscalDevice } from 'db/models'
 

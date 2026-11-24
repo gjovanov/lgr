@@ -137,7 +137,7 @@ interface IContact extends Document {
 
 **Base URL:** `/api/org/:orgId/invoicing/contact`
 
-**Controller:** `packages/invoicing-api/src/controllers/contact.controller.ts`
+**Controller:** `packages/api/src/invoicing/controllers/contact.controller.ts`
 
 | Method | Path | Description | Auth | Query Params |
 |--------|------|-------------|------|-------------|

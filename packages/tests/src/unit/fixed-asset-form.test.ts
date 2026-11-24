@@ -8,7 +8,7 @@ import { FIXED_ASSET_STATUSES, TAX_CATEGORIES, TAX_PROBLEM_CODES } from 'config/
 import {
   analyticLinks, assetCurrency, bookPlan, emptyForm, fixedAssetFilters, formOf, isImportedAsset, payloadOf, rateAfterCategoryChange,
   refusalKey, statusColor, statusLabelKey, taxErrorKey, taxFieldProblems, taxHints, taxValueAfterCategoryChange, type FixedAssetForm,
-} from '../../../accounting-ui/src/views/accounting/fixed-asset-form'
+} from '../../../web/src/modules/accounting/views/accounting/fixed-asset-form'
 
 /** FR-25a §3.4: the fixed-asset screens as data, without a browser. Made-up assets throughout. */
 

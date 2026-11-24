@@ -3,8 +3,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 /**
  * The shell's own pages — and nothing else (FR-14.8).
  *
- * ⚠ This router used to mount ~50 routes importing views straight out of `accounting-ui`,
- * `invoicing-ui`, `inventory-ui`, `payroll-ui`, `pos-ui` and `reports-ui`, so the desktop was a
+ * ⚠ This router used to mount ~50 routes importing views straight out of the web app's module
+ * packages (accounting, invoicing, inventory, payroll, POS and reports), so the desktop was a
  * second, hand-maintained copy of the whole web app. It also carried a login form pre-filled with
  * `my-company` / `admin` for the sidecar's demo org. Local mode is gone (FR-14.34), and with it
  * the reason for any of that: the cloud app opens in the `lgr-web` window (FR-14.13), served by

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 
 /**
  * FR-32.19 (#797): every write route says what it accepts. Over the real route table: a POST, PUT or PATCH that reads

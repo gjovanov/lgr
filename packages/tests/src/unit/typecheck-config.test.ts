@@ -54,7 +54,8 @@ function chainOf(path: string): string[] {
 describe('every package can be type-checked (FR-32.1)', () => {
   it('finds the packages it is about', () => {
     expect(tsPackages).toContain('services')
-    expect(tsPackages).toContain('invoicing-ui')
+    expect(tsPackages).toContain('web')
+    expect(tsPackages).toContain('api')
     // The two Rust packages have no TypeScript.
     expect(tsPackages).not.toContain('server')
   })

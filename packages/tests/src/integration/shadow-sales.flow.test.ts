@@ -17,7 +17,7 @@ import { compareBooksShadowOf } from 'services/biz/accounting-books/books-shadow
 import { analyticTrialBalance, chronology, documentJournal, mainBook, rebuildBalances, trialBalance } from 'services/biz/accounting-books/books-ledger'
 import { getBalanceSheet, getProfitLoss, getTrialBalance } from 'services/biz/accounting.service'
 import { compareSalesRegisterOf } from 'services/biz/vat-files/sales-register.service'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import type { ImportDocument } from 'services/biz/accounting-books/import.types'
 
 /**

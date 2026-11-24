@@ -10,8 +10,8 @@ import type { EmailDocumentsOutcome, EmailableDocument, RenderedDocument } from 
  * What the two routes of every KIND share (2026-11-16): the refusals of a whole request, as the one dialog reads
  * them, and the small readings a kind's own loading needs.
  *
- * A kind brings its documents, its rules and a `render` per document (`invoicing-api/lib/doc-email.ts`: the invoice
- * collection and supplier orders; `warehouse-api/lib/movement-email.ts`: stock movements). The mail itself is
+ * A kind brings its documents, its rules and a `render` per document (`api/src/invoicing/lib/doc-email.ts`: the invoice
+ * collection and supplier orders; `api/src/warehouse/lib/movement-email.ts`: stock movements). The mail itself is
  * `./engine.ts`'s, which knows no kind. What is here is what would otherwise be written once per kind, and then
  * differ: a refusal's code and words, which the dialog reads, and what "the same document to the same address" is.
  */

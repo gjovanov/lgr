@@ -8,11 +8,11 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
 import { tokenize } from 'services/biz/auth.service'
 import { EltradeSimulator } from '../helpers/eltrade-simulator'
-import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
+import { fiscalDeviceController } from '../../../api/src/controllers/fiscal-device.controller'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { setFiscalForwarding } from 'fiscal/fiscal-route'
-import { getFiscalContext } from '../../../invoicing-api/src/lib/cash-register-till'
+import { getFiscalContext } from '../../../api/src/invoicing/lib/cash-register-till'
 
 /**
  * FR-24.50–24.52 through the real device controller: a request for a printer another pod holds is

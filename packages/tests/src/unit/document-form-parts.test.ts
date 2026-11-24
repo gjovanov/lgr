@@ -8,7 +8,7 @@ import { join, resolve } from 'node:path'
  * (`load.ts#mountForm`), so the clean state is taken when the load resolves (FR-31 A1), and the watchers run in the
  * order they were made when the composable was one file.
  */
-const DIR = resolve(import.meta.dir, '..', '..', '..', 'invoicing-ui', 'src', 'composables', 'document-form')
+const DIR = resolve(import.meta.dir, '..', '..', '..', 'web', 'src', 'modules', 'invoicing', 'composables', 'document-form')
 const MAX_LINES = 500
 const read = (rel: string) => readFileSync(join(DIR, rel), 'utf8').replace(/\r\n/g, '\n')
 

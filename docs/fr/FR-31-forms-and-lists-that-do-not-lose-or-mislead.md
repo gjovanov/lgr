@@ -456,7 +456,7 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
   cost-layer refusal of `/send` (FR-29.6) names the article by name only. Each such line says "Not enough stock:
   N available, M needed" under its description, with a red edge. The mark goes with the refusal at the top (closed,
   or the next attempt), and from a line whose article, warehouse or quantity has changed since. Pure parts in
-  `invoicing-ui/composables/document-issue.ts` (`shortagesOfCheck`, `shortagesOfRefusal`, `shortageMatches`), tested in
+  `web/src/modules/invoicing/composables/document-issue.ts` (`shortagesOfCheck`, `shortagesOfRefusal`, `shortageMatches`), tested in
   `unit/failures-said.test.ts`; `e2e/failures-said.spec.ts` issues a two-line draft whose second line nothing can
   cover. *Decision:* only the document form's issue marks lines. The movement form's refusals are about the movement
   (a warehouse, the supplier), not a line, and a save refusal of the document form names no line.
@@ -575,7 +575,7 @@ and, after reading the findings: create the FRs, grouped as much as makes sense.
     KPI row, the top bar's "More"). With no owner answer on #796, the layouts stay as they are, and the slice says so
     rather than ship a look nobody approved. It is a change in the browser alone, buildable once D-6 is answered.
 - **B5** (FR-31.22): jump to a document by its number.
-  - `GET /api/org/:orgId/lookup/documents?number=…` (`portal-api/controllers/document-lookup.controller.ts`, the work in
+  - `GET /api/org/:orgId/lookup/documents?number=…` (`api/src/controllers/document-lookup.controller.ts`, the work in
     `services/biz/document-lookup.service.ts`, the shapes in `config/document-lookup.ts`). It matches the number exactly
     (as typed and in capitals, since every series is written in capitals), then, when nothing matches exactly, as the
     start of a number, at most 20 listed and `more` when there are others. Over invoices of every type, supplier orders,

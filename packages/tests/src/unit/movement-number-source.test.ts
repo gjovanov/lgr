@@ -55,7 +55,7 @@ describe('a number is built in one place', () => {
   const files = roots.flatMap(root => [...sources(root)]).map(file => ({ rel: relative(ROOT, file).replace(/\\/g, '/'), text: readFileSync(file, 'utf8') }))
 
   it('the scan sees the app and its scripts', () => {
-    expect(roots.length).toBeGreaterThanOrEqual(20)
+    expect(roots.length).toBeGreaterThanOrEqual(15) // the API and the web app are one package each since FR-24.31
     expect(files.length).toBeGreaterThan(1000)
   })
 

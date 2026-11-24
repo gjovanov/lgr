@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { LIST_CEILING, LIST_FIELDS, LIST_ROW_EXCLUDES, listProjection, pageUnderCeiling } from 'config/list-rows'
 import { ALL_ROWS, LARGEST_PAGE_SIZE, offersAll, pageSizeFromUrl, pageSizeOptions } from 'ui-shared/composables/page-sizes'
 import { ALLOWED_PAGE_SIZES } from 'ui-shared/composables/useListQueryState'
-import { takeHandedDocument, handOverDocument } from '../../../invoicing-ui/src/composables/document-form/document-preread'
+import { takeHandedDocument, handOverDocument } from '../../../web/src/modules/invoicing/composables/document-form/document-preread'
 
 // FR-30 slice B (#795): rows, a ceiling, "All" in the browser, a document read once.
 

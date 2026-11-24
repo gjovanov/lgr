@@ -34,7 +34,7 @@ Assigning first stops two agents from working the same issue in parallel. It app
 
 **LGR (Ledger)** is a full-stack multi-tenant ERP system built as a Bun monorepo. Stack: Elysia.js + MongoDB/Mongoose + Vue 3/Vuetify 3 + Pinia.
 
-The system follows a **multi-app architecture** (Google Workspace model): a Portal app handles auth, tenant management, and an App Hub that links to 6 domain app UIs. All APIs run as a **single unified process** on one port, while each domain has its own UI package.
+The system follows a **multi-app architecture** (Google Workspace model): a Portal app handles auth, tenant management, and an App Hub that links to 6 domain apps. Since FR-24 it is one app in the tree too: ONE API package (`packages/api`, a single process on one port) and ONE web app (`packages/web`), each domain a folder in both.
 
 ## Commands
 
@@ -82,19 +82,19 @@ packages/
   dal/                 → DAL interface definitions (backend-agnostic)
   dal-mongo/           → MongoDB DAL implementation (cloud)
 
-  # ── Unified Cloud API (single process, port 4001) ──
-  portal-api/          → Elysia: unified.ts mounts ALL controllers (portal + the 6 domain API packages)
-                         Also contains portal-only controllers: auth, oauth, org, user, invite,
-                         stripe, file, notification, app-hub, export, tag,
-                         fiscal-device, workstation, supto-export
-
-  # ── Domain API packages (controllers only, imported by unified.ts) ──
-  accounting-api/      → 14 accounting controllers
-  invoicing-api/       → 16 invoicing controllers (invoices, orders, reservations, POS, document import, …)
-  warehouse-api/       → 15 warehouse controllers (includes pricing, bulk-pricing, ledgers)
-  payroll-api/         → 4 payroll controllers
-  reports-api/         → 1 reports controller (catalog + generic runner + generic export)
-  files-api/           → 1 files controller (document ingest, FR-12)
+  # ── The API: ONE package, one process on port 4001 (FR-24.31) ──
+  api/                 → Elysia. src/ is the portal: unified.ts (the entry point) mounts ALL controllers
+                         (api.ts), and the portal's own: auth, oauth, org, user, invite, stripe, file,
+                         notification, app-hub, export, tag, fiscal-device, workstation, supto-export
+                         (src/controllers/), plus auth/, front/, lib/, tunnel/, websocket/
+    src/accounting/    → 14 accounting controllers
+    src/invoicing/     → 16 invoicing controllers (invoices, orders, reservations, POS, document import, …)
+    src/warehouse/     → 15 warehouse controllers (includes pricing, bulk-pricing, ledgers)
+    src/payroll/       → 4 payroll controllers
+    src/reports/       → 1 reports controller (catalog + generic runner + generic export)
+    src/files/         → 1 files controller (document ingest, FR-12)
+                         Each domain: controllers/, auth/, and lib/ where it has one. Until FR-24.31 these were
+                         the packages portal-api and <domain>-api; the files kept their names.
 
   # ── Other packages ──
   migrations/          → Versioned data migrations, `bun run migrate` (FR-20.19)
@@ -103,15 +103,16 @@ packages/
   # ── The web app: ONE Vue 3 + Vuetify 3 SPA (FR-24.21) ──
   web/                 → index.html, main.ts, the router composing every module (routes.ts, router.ts, modules.ts),
                          the one shell (OneShell.vue → ui-shell ModuleLayout), stale-build handling (stale.ts)
-  # ── UI modules: views, stores and a manifest each (src/manifest.ts); no build of their own ──
-  portal-ui/           → Login, register, oauth-callback, app-hub, settings, admin, billing, audit log (routes.ts)
-  inventory-ui/        → Products, stock, movements, valuations (/inventory/*)
-  invoicing-ui/        → Contacts, invoices, bills, cash sales, payments, and the till (sources in src/pos/):
+  # ── Its modules, in web/src/modules/<id> (FR-24.31; the <id>-ui packages until then, files unchanged):
+  #    views, stores and a manifest each (manifest.ts) ──
+    modules/portal/    → Login, register, oauth-callback, app-hub, settings, admin, billing, audit log (routes.ts)
+    modules/inventory/ → Products, stock, movements, valuations (/inventory/*)
+    modules/invoicing/ → Contacts, invoices, bills, cash sales, payments, and the till (sources in pos/):
                          terminal, sessions, fiscal devices, PIN pad (/invoicing/*)
-  accounting-ui/       → 10 accounting views + store
-  payroll-ui/          → 5 payroll views + store
-  files-ui/            → Document ingest: upload, analyze, commit, reconcile (/files/*)
-  reports-ui/          → Report card hub + generic runner + the two moved invoicing report pages (/reports/*)
+    modules/accounting/ → 10 accounting views + store
+    modules/payroll/   → 5 payroll views + store
+    modules/files/     → Document ingest: upload, analyze, commit, reconcile (/files/*)
+    modules/reports/   → Report card hub + generic runner + the two moved invoicing report pages (/reports/*)
 
   # ── Shared UI library ──
   ui-shell/            → AppShell, AppSwitcher, OrgSwitcher (top-bar org menu), NewOrgDialog, OrgSelector, UserMenu, NotificationBell, sidebar
@@ -129,21 +130,21 @@ packages/
 
 ### Unified API (single process)
 
-All controllers (portal + 7 domains) are mounted in a single Elysia server at `packages/portal-api/src/unified.ts`:
+All controllers (portal + 7 domains) are mounted in a single Elysia server at `packages/api/src/unified.ts`:
 - **Port 4001** — single process, single MongoDB connection
 - All routes under `/api` (e.g., `/api/org/:orgId/accounting/accounts`)
 - Serves the built web app (`packages/web/dist`, or a server package's `ui/web`): its files under `/ui/`
 - SPA fallback answers every non-API, non-asset path with its `index.html`: a module's path gets the
   variant without lgrai.app's analytics tag (FR-24.18), `/pos/*` a 302 to the till's pages in Invoicing
-- Swagger docs at `/swagger` (`portal-api/src/api-docs.ts`, S-11): on global outside production; under
+- Swagger docs at `/swagger` (`api/src/api-docs.ts`, S-11): on global outside production; under
   `NODE_ENV=production` only with `SWAGGER_ENABLED=true`; never on a master (FR-20 AC 66)
 - WebSocket server for real-time updates
 
-Domain API packages (`accounting-api/`, `invoicing-api/`, etc.) export controllers that `unified.ts` imports directly. They can also run standalone on separate ports (legacy mode) but this is deprecated.
+Each domain's folder (`api/src/accounting/`, `api/src/invoicing/`, …) exports controllers that `api.ts` imports by relative path.
 
 ### Package dependency flow
-`config` ← `db` ← `services` ← `fiscal` ← `portal-api` (imports domain API controllers)
-Each `*-ui` module imports `ui-shell` + `ui-shared`; `web` imports the modules' manifests and routes and
+`config` ← `db` ← `services` ← `fiscal` ← `api` (its domains' controllers are folders of it)
+Each module in `web/src/modules/` imports `ui-shell` + `ui-shared`; `web` composes the modules' manifests and routes and
 talks HTTP/WS to the unified API on its own origin
 
 ## Areas: rules and history
@@ -169,11 +170,11 @@ Before changing an area, read its rule file: it loads only once a file it names 
 
 Every data model uses `tenantPlugin`, which adds an indexed, required `orgId` field — **and nothing else**. It does **not** filter queries (`packages/db/src/plugins/tenant.plugin.ts`). A `Model.find({})` returns every org's rows; passing `{ orgId }` is on the caller.
 
-All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is where tenancy is enforced**. `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) is registered as a `beforeHandle` hook by `AuthService` and by `AppAuthService` (`services/http/app-auth.service.ts`, one copy since FR-24.30, re-exported by each `*-api`), so every authenticated route whose path carries `:orgId` rejects a caller whose JWT names a different org with **403**. It is applied by default — there is nothing for a new controller to opt into, and no exception list (gjovanov/lgr#41). The property is asserted over the real route table by `packages/tests/src/integration/tenant-isolation.flow.test.ts`.
+All API routes are scoped: `/api/org/:orgId/[module]/[resource]`, and **that is where tenancy is enforced**. `isForeignOrg` (`packages/services/src/biz/tenant-guard.ts`) is registered as a `beforeHandle` hook by `AuthService` and by `AppAuthService` (`services/http/app-auth.service.ts`, one copy since FR-24.30, re-exported by each domain's `api/src/<domain>/auth/`), so every authenticated route whose path carries `:orgId` rejects a caller whose JWT names a different org with **403**. It is applied by default — there is nothing for a new controller to opt into, and no exception list (gjovanov/lgr#41). The property is asserted over the real route table by `packages/tests/src/integration/tenant-isolation.flow.test.ts`.
 
 **A write needs the capability its route names** (S-28, FR-27.2). Every non-GET route under `/api/org/:orgId` resolves to a rule in `packages/config/src/access/routes.ts`: the capabilities it needs (`anyOf`: `sales-docs.create`, `journal.post`, …), `self` (the controller guards itself, e.g. `canAccessReport`; its `floor` is refused first) or `member` (any member, e.g. a note). The two auth plugins (`AuthService`, `AppAuthService`) enforce it in a **transform** hook (`access/evaluate.ts#decideAccess`, on the person's role), so a caller without it gets 403 before the body is validated; the Administrator (`grant.all`) always passes. (FR-27 P3-6: the legacy permission rules of `route-permission.ts` and `permissionRefusal` are gone.) ⚠ A new write route fails `route-permission.flow.test.ts` until it has a rule, and is refused at runtime meanwhile. ⚠ The refusal is THROWN (a transform hook cannot return one), and `spaErrorHandler` passes a thrown status through; anything else it is handed becomes a 500.
 
-**A 500 says only what `portal-api/src/lib/server-error.ts` lets through** (S-12). The server's own words pass (`throw new Error('Insufficient stock for …')`, and every class of ours), and the UI shows them. The machinery's never do: the runtime's (`TypeError`…), Mongoose's and the driver's, the OS's (`ENOENT`…), and any message quoting a server path become `Internal server error (ref <10 hex>)`. A schema rejection and a duplicate key are said as field names. Every 500 carries `ref`, and the log line has the same `ref` with the method, path and whole error: find a user's report by it. ⚠ To tell a person something, throw an `Error` written for them; a driver's or Mongoose's text never reaches them. ⚠ A controller that catches and answers `status(500, { message: e.message })` itself bypasses all of this: rethrow instead.
+**A 500 says only what `api/src/lib/server-error.ts` lets through** (S-12). The server's own words pass (`throw new Error('Insufficient stock for …')`, and every class of ours), and the UI shows them. The machinery's never do: the runtime's (`TypeError`…), Mongoose's and the driver's, the OS's (`ENOENT`…), and any message quoting a server path become `Internal server error (ref <10 hex>)`. A schema rejection and a duplicate key are said as field names. Every 500 carries `ref`, and the log line has the same `ref` with the method, path and whole error: find a user's report by it. ⚠ To tell a person something, throw an `Error` written for them; a driver's or Mongoose's text never reaches them. ⚠ A controller that catches and answers `status(500, { message: e.message })` itself bypasses all of this: rethrow instead.
 
 **No answer carries a secret** (S-14). `no-secrets-in-responses.flow.test.ts` puts a marker in every secret-looking field of every model (a password, a verifier, a token or its hash, an OAuth link's provider tokens) and calls every route as an admin: a route that answers with one fails it. A user leaves the server through `USER_PUBLIC_PROJECTION` / `publicUser` (`services/dao/user.dao.ts`). ⚠ `User.password` is deliberately NOT `select: false`: backups, org moves and FR-20's replication read `User` through Mongoose and must carry the hash. **An anonymous caller gets 401 before validation** (S-15): all four auth plugins refuse in their transform hook, so a route's schema is never described to someone without a credential; a new auth plugin needs the same. **A password a person sets has at least 12 characters** (S-09): a body field named like a password either sets one with `minLength: 12` or is listed in `password-minimum.flow.test.ts` as only proving one.
 
@@ -297,12 +298,12 @@ scans server code and fails on any `fetch(` call without one.
 
 ## Auth Pattern
 
-`AuthService` is an Elysia plugin (`packages/portal-api/src/auth/auth.service.ts`) that:
+`AuthService` is an Elysia plugin (`packages/api/src/auth/auth.service.ts`) that:
 - Derives `user` from the `Authorization: Bearer` header, or from the session cookie only when no
   header is sent (S-22: a non-empty Bearer is used exclusively, and an invalid one is never rescued
   by the cookie). Rules in `services/biz/session-token.ts`, shared by both auth plugins.
 - ⚠ **The session cookie is `__Host-auth`** (FR-20.72, P0a-8), and so are the OAuth flow cookies
-  (`__Host-oauth_state` / `_handoff` / `_pending`, `portal-api/src/auth/oauth-cookies.ts`): an
+  (`__Host-oauth_state` / `_handoff` / `_pending`, `api/src/auth/oauth-cookies.ts`): an
   org's address `<slug>.lgrai.app` is a sibling subdomain, and the prefix is what stops it planting
   them. Always `Secure` + `Path=/`, and cleared with explicit attributes, **never `remove()`**
   (it sends no Path/Secure, so the browser ignores it). **A same-site request never authenticates
@@ -311,7 +312,7 @@ scans server code and fails on any `fetch(` call without one.
   exempt (the callback is same-site against a localhost fake provider). ⚠ **The plain names
   (`auth`, `oauth_*`) are neither written nor read** since release N+1 (2026-10-24): a subdomain
   CAN plant a plain cookie for lgrai.app, so never add a fallback to them.
-- `portal-api/src/isolation-headers.ts` puts `Cross-Origin-Resource-Policy: same-origin` and
+- `api/src/isolation-headers.ts` puts `Cross-Origin-Resource-Policy: same-origin` and
   `Origin-Agent-Cluster: ?1` on every response. ⚠ Elysia's `onRequest` takes a handler ONLY: an
   options object passed first (`{ as: 'global' }`) is registered AS the hook and every request
   throws. Request hooks are always global.
@@ -372,10 +373,10 @@ Models export both the interface (`IFoo`) and the model (`Foo`) from `db/models`
 - **Vuetify i18n**: `$vuetify.*` keys merged into i18n messages from `vuetify/lib/locale/`
 - **Views** make direct `httpClient` calls or use Pinia store actions — URLs must match controller prefixes exactly
 - **Organization interface** uses `id` (not `_id`): `appStore.currentOrg?.id`
-- Each domain UI imports `ui-shell` for the shared app shell (top bar, app switcher, org selector, user menu)
-- Each domain UI imports `ui-shared` for composables, Vuetify/i18n plugins
-- Each domain UI has its own router with only its module's routes
-- Each domain UI has its own Pinia store
+- Each module (`web/src/modules/<id>`) imports `ui-shell` for the shared app shell (top bar, app switcher, org selector, user menu)
+- Each module imports `ui-shared` for composables, Vuetify/i18n plugins
+- Each module declares its routes in its manifest; `web` composes them into the one router
+- Each module has its own Pinia stores
 
 ### App Hub (Portal UI)
 
@@ -428,7 +429,7 @@ The Portal's main authenticated view is the **App Hub** — a grid of available 
   the runtime nobody ran locally.
 - `.env` — development (MongoDB at `localhost:27018/lgr`, no auth)
 - `.env.test` — testing (overridden by mongodb-memory-server)
-- API `packages/portal-api/package.json` scripts use `--env-file=../../.env` to load root env
+- API `packages/api/package.json` scripts use `--env-file=../../.env` to load root env
 - Docker: `docker-compose.yml` runs MongoDB 7 as a **single-node replica set `rs0`** without auth. The healthcheck idempotently runs `rs.initiate()` on first startup. App connects via `mongodb://mongo:27017/lgr?replicaSet=rs0&directConnection=true`. The replica set is required for **multi-document transactions** (used by the goods-receipt-with-product-update flow).
 - For local dev (outside Docker), either run the Docker mongo or add `?replicaSet=rs0` to your local URI if your local server is configured accordingly. `mongodb-memory-server` in tests supports replica-set mode — see `setupTestDB()` for the flag.
 - `SUPTO_MODE` — `production` (enforces fiscal receipts, immutability) or `development` (default)

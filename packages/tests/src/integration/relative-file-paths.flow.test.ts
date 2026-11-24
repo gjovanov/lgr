@@ -16,7 +16,7 @@ import { deleteDocFiles } from 'services/biz/files/doc-delete.service'
 import { remapDoc } from 'services/biz/backup/backup-restore.service'
 import { runMigrations } from 'migrations/runner'
 import { relativeFilePaths } from 'migrations/migrations/0003-relative-file-paths'
-import { fileController } from '../../../portal-api/src/controllers/file.controller'
+import { fileController } from '../../../api/src/controllers/file.controller'
 
 const { Types } = mongoose
 

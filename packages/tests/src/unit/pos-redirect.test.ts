@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { posRedirect } from '../../../portal-api/src/lib/pos-redirect'
+import { posRedirect } from '../../../api/src/lib/pos-redirect'
 
 /**
  * The POS app's old addresses keep working. The tills in the field store `/pos/` as their start

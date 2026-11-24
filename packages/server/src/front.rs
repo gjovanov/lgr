@@ -2,7 +2,7 @@
 //!
 //! - **The front secret**: made at every boot, kept in memory, handed to the API in its
 //!   environment. Every request an ingress forwards carries it, and the API answers nothing that
-//!   does not (`portal-api/src/front/front-guard.ts`). Any other process on the machine can reach
+//!   does not (`api/src/front/front-guard.ts`). Any other process on the machine can reach
 //!   the API's loopback port; none of them knows this.
 //! - **The front port**: the API's one listener, on 127.0.0.1, picked free at boot. Nothing outside
 //!   the supervisor needs to know it.

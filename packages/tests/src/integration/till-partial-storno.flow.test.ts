@@ -6,7 +6,7 @@ import { tillApp, tillWorld, forgetDevices, type TillWorld } from '../helpers/ti
 import { createTestContact, createTestProduct, createTestStockLevel, createTestWarehouse } from '../helpers/factories'
 import { draftOf, line, pay, raw, send, sessionOf } from '../helpers/receipt-world'
 import { Invoice, POSSession, StockLevel, StockMovement } from 'db/models'
-import { contactController } from 'invoicing-api/src/controllers/contact.controller'
+import { contactController } from 'api/src/invoicing/controllers/contact.controller'
 import { loadPosRows } from 'services/biz/cash-register/pos-union'
 import { leftByRate, takeBudget } from 'services/biz/cash-register/refund-budget'
 import { releaseOrphanClaims } from 'services/biz/cash-register/register.service'

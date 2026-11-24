@@ -21,7 +21,7 @@ describe('safeFileName', () => {
 
   it('strips every directory component', () => {
     // The actual payload: a multipart filename a browser would never send, but curl will.
-    expect(safeFileName('../../../../app/packages/portal-api/src/unified.ts')).toBe('unified.ts')
+    expect(safeFileName('../../../../app/packages/api/src/unified.ts')).toBe('unified.ts')
     expect(safeFileName('..\\..\\..\\lgr-seal.key')).toBe('lgr-seal.key')
     expect(safeFileName('/etc/passwd')).toBe('passwd')
     expect(safeFileName('C:\\Windows\\System32\\drivers\\etc\\hosts')).toBe('hosts')
@@ -133,7 +133,7 @@ describe('stampedUploadPath', () => {
   it('keeps only the last component of a path, on either platform', () => {
     for (const [raw, last] of [
       ['x/../../../../escaped.txt', 'escaped.txt'],
-      ['../../../../app/packages/portal-api/src/unified.ts', 'unified.ts'],
+      ['../../../../app/packages/api/src/unified.ts', 'unified.ts'],
       ['..\\..\\..\\lgr-seal.key', 'lgr-seal.key'],
       ['/etc/passwd', 'passwd'],
       ['C:\\Windows\\win.ini', 'win.ini'],

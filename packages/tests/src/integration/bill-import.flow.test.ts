@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestWarehouse, createTestProduct, createTestStockLevel } from '../helpers/factories'
-import { createDraftInvoice, convertDraftInvoice, type DraftResult } from 'invoicing-api/src/lib/bill-import'
+import { createDraftInvoice, convertDraftInvoice, type DraftResult } from 'api/src/invoicing/lib/bill-import'
 import { getCurrentNumber } from 'services/biz/sequence.service'
 import { Invoice, StockLevel, Contact } from 'db/models'
 

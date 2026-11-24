@@ -124,7 +124,7 @@
  * „Доставчик". Creating needs `contacts.create`: without it the entry at the foot of the list is
  * hidden (`v-cap`), and the picker only picks.
  *
- * Promoted from invoicing-ui (FR-22.6) so the receipt form in inventory-ui could use it. It only
+ * Promoted from the invoicing module (FR-22.6) so the receipt form in inventory could use it. It only
  * SHOWS `contacts`: the caller owns the list and answers `update:search` with a server query —
  * `useContactSearch` does that for a form that has no list of its own, `useDocumentForm` does it
  * for the invoice forms.

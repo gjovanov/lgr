@@ -3,9 +3,9 @@ import { Elysia } from 'elysia'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { isModulePath, oneSpaShell, spaErrorHandler, uiStaticPlugin, webBuildId } from '../../../portal-api/src/spa-fallback.js'
-import { corsPlugin } from '../../../portal-api/src/cors.js'
-import { isolationHeaders } from '../../../portal-api/src/isolation-headers.js'
+import { isModulePath, oneSpaShell, spaErrorHandler, uiStaticPlugin, webBuildId } from '../../../api/src/spa-fallback.js'
+import { corsPlugin } from '../../../api/src/cors.js'
+import { isolationHeaders } from '../../../api/src/isolation-headers.js'
 
 /**
  * The unified server answers every browser route with the SPA's shell, status 200 (FR-24.21: one\n * SPA, in two variants: a module's page never carries the analytics tag, FR-24.18).

@@ -7,7 +7,7 @@ import { fileURLToPath, URL } from 'node:url'
  * The shell's own pages. It imports no domain UI (FR-14.8), so there are no cross-package
  * aliases left to maintain.
  *
- * ⚠ What was here: an alias table redirecting every `*-ui/src/store/app.store.ts` import to
+ * ⚠ What was here: an alias table redirecting every UI module's `store/app.store.ts` import to
  * this package's own store, so that `logout()` went to the local login form instead of the
  * Portal. It listed `hr`, `crm` and `erp` — modules that no longer exist — which is the shape
  * dead configuration takes when nothing builds the package. It is gone with local mode

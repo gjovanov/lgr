@@ -1,6 +1,6 @@
 /**
  * FR-30.26: write a Brotli (`.br`) and a gzip (`.gz`) copy beside each built text asset of the web app, for a server
- * with no compressing ingress in front of it (an on-prem master). `portal-api/src/spa-fallback.ts#uiStaticPlugin`
+ * with no compressing ingress in front of it (an on-prem master). `api/src/spa-fallback.ts#uiStaticPlugin`
  * serves the copy the browser accepts, for a file whose name carries its content hash.
  *
  * Fonts and images are compressed already and get no copy. Run by `packages/web`'s build after Vite.

@@ -3,7 +3,7 @@
  * the reporting generators. Keep `key` values in lockstep with:
  *  - packages/reporting/src/excel/invoicing-list.excel.ts (COLUMN_DEFS)
  *  - packages/reporting/src/pdf/invoicing-list.pdf.ts     (COLUMN_DEFS)
- *  - packages/invoicing-api/src/controllers/invoice-export.controller.ts (ALLOWED_COLUMN_KEYS)
+ *  - packages/api/src/invoicing/controllers/invoice-export.controller.ts (ALLOWED_COLUMN_KEYS)
  */
 
 export type ExportMode = 'compact' | 'detailed'

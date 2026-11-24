@@ -758,7 +758,7 @@ After each release, on prod:
   - `invoiceId` is declared but never written
   - #155 fields at `:57-87` and `:167-182`
   - indexes at `:190-198`; `unpNumber` is sparse, not unique (`:197`)
-- **Controller.** `invoicing-api/src/controllers/pos.controller.ts`, prefix `/org/:orgId/trade/pos` (`:749`):
+- **Controller.** `api/src/invoicing/controllers/pos.controller.ts`, prefix `/org/:orgId/trade/pos` (`:749`):
   - sale `:1141-1235`, run as the steps in `runSaleSteps` (`:507-526`)
   - print once `:329-363`
   - session totals `:440-474`
@@ -779,7 +779,7 @@ After each release, on prod:
   - `payments[].method` is one of `cash|bank_transfer|card|cash_on_delivery|other` (`:285`)
   - idempotency keys `:294-303`
   - indexes `:362-376`: unique `{orgId, invoiceNumber}` and unique-partial `{orgId, clientKey}`; there is no `type` index
-- **Controller.** `invoicing-api/src/controllers/invoice.controller.ts`:
+- **Controller.** `api/src/invoicing/controllers/invoice.controller.ts`:
   - A cash sale is born `paid` (`:568-569`), with `amountPaid = total` and no `payments[]` row (`:615-617`).
   - Stock moves on create, and a failure rolls the document back (`:664-686`).
   - A keyed create is inserted under `~pending:` (`:33`, `:47-65`).
@@ -790,7 +790,7 @@ After each release, on prod:
   - `doc-import/map-cash-sale.ts`: one document per business day, no contact, `reference = salesAnalysis:<date>`, and `lineTotal` is net (`:77`).
   - `persist.ts` → `persistCashSale`.
   - `till-overlap.ts` only warns.
-- **List and detail views.** `invoicing-ui/src/views/CashSalesView.vue`: columns `:242-249`, status options `:204-208`, Void shown on `paid` rows `:57`. The detail page is `components/document-form/CashSaleTerminal.vue`, with `readonly = isEdit`.
+- **List and detail views.** `web/src/modules/invoicing/views/CashSalesView.vue`: columns `:242-249`, status options `:204-208`, Void shown on `paid` rows `:57`. The detail page is `components/document-form/CashSaleTerminal.vue`, with `readonly = isEdit`.
 
 ### Readers
 
@@ -804,7 +804,7 @@ After each release, on prod:
 - **Product ledger.** `services/src/biz/product-ledger.service.ts:385-434`: `totalCashRegisterSales` comes from cash sales only.
 - **Documents report.** `services/src/biz/reports/documents.report.ts:57`: `cash_register = {type: 'cash_sale'}`.
 - **Last price.** `services/src/biz/last-price.service.ts:27`: reads `invoice` and `cash_sale`.
-- **Export.** `invoicing-api/src/controllers/invoice-export.controller.ts:235-293`: the aggregate assumes `lineTotal` is gross (`:256-257`).
+- **Export.** `api/src/invoicing/controllers/invoice-export.controller.ts:235-293`: the aggregate assumes `lineTotal` is gross (`:256-257`).
 - **Session JE.** `services/src/biz/auto-journal.service.ts:327-500` aggregates per session; `POS-OUT` is at `:388-418`. The handler is in `services/src/events/handlers.ts:175-242`.
 
 ### Migrations framework

@@ -6,7 +6,7 @@ import {
   createTestProduct,
   createTestInvoice,
 } from '../helpers/factories'
-import { aggregateCashSales } from 'invoicing-api/src/controllers/invoice-export.controller'
+import { aggregateCashSales } from 'api/src/invoicing/controllers/invoice-export.controller'
 import { generateCashAggXLSX, sectionTotals } from 'reporting/excel/cash-agg.excel'
 import { buildCashAggHtml } from 'reporting/pdf/cash-agg.pdf'
 

@@ -27,9 +27,13 @@ function* sources(dir: string): Generator<string> {
 
 describe('session storage keys', () => {
   it('appear only in the session module', () => {
-    const roots = readdirSync(PACKAGES)
-      .filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell')
-      .map(p => join(PACKAGES, p, 'src'))
+    const modules = join(PACKAGES, 'web', 'src', 'modules')
+    const roots = [
+      ...readdirSync(modules).map(id => join(modules, id)),
+      ...readdirSync(PACKAGES)
+        .filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell')
+        .map(p => join(PACKAGES, p, 'src')),
+    ]
     expect(roots.length).toBeGreaterThanOrEqual(10)
 
     const offenders: string[] = []

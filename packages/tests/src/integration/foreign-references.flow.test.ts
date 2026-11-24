@@ -7,8 +7,8 @@ import {
   createTestAccount, createTestBankAccount, createTestInvoice,
 } from '../helpers/factories'
 import { captureRejection } from '../helpers/capture-rejection'
-import { createApiApp } from '../../../portal-api/src/api'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { createApiApp } from '../../../api/src/api'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 import { mongoose } from 'db/connection'
@@ -260,7 +260,7 @@ describe('no controller resolves stored ids across orgs', () => {
     const { Glob } = await import('bun')
     const root = new URL('../../../', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')
     const offenders: string[] = []
-    for await (const f of new Glob('*-api/src/controllers/*.ts').scan(root)) {
+    for await (const f of new Glob('api/src/**/controllers/*.ts').scan(root)) {
       const lines = (await Bun.file(root + f).text()).split('\n')
       lines.forEach((l, i) => { if (/\.findMany\(\{\s*id:\s*\{\s*\$in/.test(l) && !/orgId/.test(l)) offenders.push(`${f}:${i + 1}: ${l.trim()}`) })
     }

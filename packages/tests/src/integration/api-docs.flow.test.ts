@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import { Elysia } from 'elysia'
-import { apiDocs, apiDocsServed, type ApiDocsEnv } from '../../../portal-api/src/api-docs.js'
-import { oneSpaShell, spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { apiDocs, apiDocsServed, type ApiDocsEnv } from '../../../api/src/api-docs.js'
+import { oneSpaShell, spaErrorHandler } from '../../../api/src/spa-fallback.js'
 
 /**
  * S-11: the API docs (`/swagger`, and the OpenAPI document at `/swagger/json`) are the whole route

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { asDraftOrder, defaultDraftFor, pickDraftsFor } from '../../../invoicing-ui/src/composables/order-generate'
+import { asDraftOrder, defaultDraftFor, pickDraftsFor } from '../../../web/src/modules/invoicing/composables/order-generate'
 
 /**
  * FR-22.42 — where „Създай изходяща поръчка" puts a client order's short lines: a draft supplier

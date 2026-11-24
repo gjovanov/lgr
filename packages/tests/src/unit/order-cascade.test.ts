@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { cascadeSummary } from '../../../invoicing-ui/src/composables/order-cascade'
+import { cascadeSummary } from '../../../web/src/modules/invoicing/composables/order-cascade'
 
 /**
  * FR-22.41 — what cancelling or completing an order releases, said before it happens. The count

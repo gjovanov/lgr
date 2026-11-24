@@ -5,7 +5,7 @@ import {
   emailRequestBlock,
   isValidRecipient,
   RESEND_WINDOW_MS,
-} from 'invoicing-api/src/lib/email-guards'
+} from 'api/src/invoicing/lib/email-guards'
 import { templateGrant } from 'config/access'
 
 /**

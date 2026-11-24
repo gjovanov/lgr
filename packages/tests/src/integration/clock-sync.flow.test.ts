@@ -14,7 +14,7 @@ import { tokenize } from 'services/biz/auth.service'
 /** A session of a real person with the built-in role of that key, as sign-in issues it (FR-27 P3-2: the role decides). */
 const realSession = async (orgId: string, role: string) =>
   (new Elysia().use(jwt({ name: 'jwt', secret: config.jwt.secret })) as any).decorator.jwt.sign(await tokenize(await createTestUser(orgId as any, { role } as any)))
-import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
+import { fiscalDeviceController } from '../../../api/src/controllers/fiscal-device.controller'
 import { registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
 import { forgetClockVerification, TIME_SOURCES, verifyClock } from 'fiscal/clock'
 import { syncAllFiscalDevices } from 'fiscal/time-sync.service'

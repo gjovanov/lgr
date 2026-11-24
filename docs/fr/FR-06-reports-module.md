@@ -48,12 +48,12 @@ the merged document model, and `useListQueryState` already exists in `ui-shared`
 
 - `POST /org/:orgId/invoicing/export` (list) · `POST …/export/kind/:kind` (outgoing / incoming /
   cash_register, `aggregated` pivot) · `GET …/export/:id` (single doc + `?doc=` companion) —
-  `packages/invoicing-api/src/controllers/invoice-export.controller.ts`
+  `packages/api/src/invoicing/controllers/invoice-export.controller.ts`
 - `GET /org/:orgId/invoicing/order/:id/export` — order sheet XLSX/PDF (`order.controller.ts:594`)
 - `GET /org/:orgId/supto/export/tables` and `GET …/export/:tableId` — tables 18.1–18.9,
-  `admin` + `nra_auditor` only (`portal-api/src/controllers/supto-export.controller.ts`)
+  `admin` + `nra_auditor` only (`api/src/controllers/supto-export.controller.ts`)
 - `GET /org/:orgId/export/:module/{excel,pdf}` — generic per-module stub
-  (`portal-api/src/controllers/export.controller.ts`) — **currently returns a descriptor, not a file**
+  (`api/src/controllers/export.controller.ts`) — **currently returns a descriptor, not a file**
 - `GET /org/:orgId/dashboard/summary`, `GET …/invoices/summary`, `GET …/contacts/:id/summary` — KPI reads
 
 ### 1.3 Generation layer (already shared, already good)
@@ -205,7 +205,7 @@ excluding them now costs nothing architecturally.
   `useGridColumns` key off route names — see README global constraint 3).
 - **FR-6.20 (MUST)** All endpoints listed in §1.2 stay mounted and byte-compatible; the module
   calls them or shares their services. Migration CLI skills must not break.
-- **FR-6.21 (SHOULD)** The now-unused `portal-api/src/controllers/export.controller.ts` stub is
+- **FR-6.21 (SHOULD)** The now-unused `api/src/controllers/export.controller.ts` stub is
   either deleted or reimplemented as the generic runner of FR-6.8. **[CONFIRM]**
 
 ---

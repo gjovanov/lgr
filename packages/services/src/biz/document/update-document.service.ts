@@ -35,7 +35,7 @@ export interface UpdateRequest {
   body: any
   /**
    * FR-23: what a request that died left on this document (a receipt whose request died), finished before an edit
-   * that moves printed money is refused for it. The till's (`invoicing-api` `finishInterruptedDocuments`): it reaches
+   * that moves printed money is refused for it. The till's (`api/src/invoicing` `finishInterruptedDocuments`): it reaches
    * the device, which `services` does not.
    */
   finishInterrupted: () => Promise<unknown>

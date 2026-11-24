@@ -7,10 +7,10 @@ import { Org, OrgAddress, OrgHome } from 'db/models'
 import { forgetAllHomes } from 'db/home/home'
 import { enrollNode, issueNodeToken, mintNodeEnrollmentCode } from 'services/biz/node/node.service'
 import { TUN_KIND, TUN_WINDOW, decodeTunFrame, encodeTunFrame, stripCookieDomain } from 'services/biz/tunnel/tunnel-frame'
-import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../portal-api/src/websocket/uplink'
-import { addressLabel, forgetAddressRoutes, tunnelRouter } from '../../../portal-api/src/tunnel/router'
-import { ANON_PER_CLIENT, resetEdgeLimits } from '../../../portal-api/src/tunnel/edge'
-import { openStreams, setTunnelIdleMs } from '../../../portal-api/src/tunnel/streams'
+import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../api/src/websocket/uplink'
+import { addressLabel, forgetAddressRoutes, tunnelRouter } from '../../../api/src/tunnel/router'
+import { ANON_PER_CLIENT, resetEdgeLimits } from '../../../api/src/tunnel/edge'
+import { openStreams, setTunnelIdleMs } from '../../../api/src/tunnel/streams'
 
 /**
  * The tunnel on lgrai.app (FR-20.72–20.74, FR-20.78, plan step P3-4b): a request to an org's address,

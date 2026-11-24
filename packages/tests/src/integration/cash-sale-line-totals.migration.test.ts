@@ -6,7 +6,7 @@ import { Invoice } from 'db/models'
 import { runMigrations } from 'migrations/runner'
 import { cashSaleLineTotalsGross } from 'migrations/migrations/0007-cash-sale-line-totals-gross'
 import { mapCashSaleExport } from 'services/biz/doc-import/map-cash-sale'
-import { aggregateCashSales } from 'invoicing-api/src/controllers/invoice-export.controller'
+import { aggregateCashSales } from 'api/src/invoicing/controllers/invoice-export.controller'
 import type { Types } from 'mongoose'
 
 /**

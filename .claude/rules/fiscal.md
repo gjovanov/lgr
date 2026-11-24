@@ -2,21 +2,21 @@
 paths:
   - "packages/fiscal/**"
   - "packages/desktop/**"
-  - "packages/invoicing-api/src/controllers/pos*"
-  - "packages/invoicing-api/src/controllers/cash-*"
-  - "packages/invoicing-api/src/controllers/invoice.controller.ts"
+  - "packages/api/src/invoicing/controllers/pos*"
+  - "packages/api/src/invoicing/controllers/cash-*"
+  - "packages/api/src/invoicing/controllers/invoice.controller.ts"
   - "packages/services/src/biz/document/**"
-  - "packages/invoicing-api/src/lib/cash-register-*"
-  - "packages/invoicing-api/src/lib/counter-*"
-  - "packages/invoicing-ui/src/pos/**"
-  - "packages/invoicing-ui/src/views/CashSale*"
+  - "packages/api/src/invoicing/lib/cash-register-*"
+  - "packages/api/src/invoicing/lib/counter-*"
+  - "packages/web/src/modules/invoicing/pos/**"
+  - "packages/web/src/modules/invoicing/views/CashSale*"
   - "packages/services/src/biz/cash-register/**"
   - "packages/services/src/biz/*fiscal*"
   - "packages/services/src/biz/*cash*"
   - "packages/services/src/biz/sequence.service.ts"
-  - "packages/portal-api/src/websocket/**"
-  - "packages/portal-api/src/controllers/fiscal*"
-  - "packages/portal-api/src/controllers/workstation*"
+  - "packages/api/src/websocket/**"
+  - "packages/api/src/controllers/fiscal*"
+  - "packages/api/src/controllers/workstation*"
   - "packages/config/src/pos-*"
   - "packages/config/src/line-amounts*"
   - "packages/tests/src/helpers/*simulator*"
@@ -43,7 +43,7 @@ Why each one exists, and what was built around it: [`docs/history/fiscal.md`](..
 - ⚠ `getFiscalContext` throws `fiscal_held_elsewhere` while another pod holds a warehouse's device:
   "held elsewhere" is never "offline", so nothing completes without its receipt.
 
-- ⚠ `unit/fiscal-route-declared.test.ts` walks every `*-api` and `fiscal` function to a fixpoint and
+- ⚠ `unit/fiscal-route-declared.test.ts` walks every function of `api` and `fiscal` to a fixpoint and
   fails on a route that reaches the driver without `fiscalDevice` (the numbering witness is exempt).
 
 - ⚠ `replicas: 2` is lgr-deploy's, merged only after this image is live.
@@ -106,10 +106,10 @@ Why each one exists, and what was built around it: [`docs/history/fiscal.md`](..
 
 - **`device-command.ts`** — `onDevice` and `printDeviceReport`: one command on a device, and the X, fiscal-memory,
   КЛЕН and operator reports, as an API answers them. In `fiscal` because two controllers print them and
-  `invoicing-api` cannot import `portal-api`. ⚠ It has no Z: on the device page that is its own route, and from
+  `api/src/invoicing` does not import the portal's controllers. ⚠ It has no Z: on the device page that is its own route, and from
   POS Sessions it does not exist (a Z outside the close makes the next close print zeros).
 
-- **`fiscal-bridge.ts`** (portal-api/websocket/) — WebSocket endpoint `/ws/fiscal-bridge`, with **two
+- **`fiscal-bridge.ts`** (api/src/websocket/) — WebSocket endpoint `/ws/fiscal-bridge`, with **two
   kinds of bridge**: a browser tab over Web Serial, and (since FR-14.26) a registered **LGR Desktop**
   relaying its till's own serial port in Rust. ⚠ Elysia wraps each ws event in a NEW `ElysiaWS` —
   per-connection maps are keyed by `ws.raw` (keyed by the wrapper, the close handler never ran).
@@ -313,7 +313,7 @@ Why each one exists, and what was built around it: [`docs/history/fiscal.md`](..
 ## The till lives in Invoicing (2026-10-31)
 
 - ⚠ **`/pos/*` still answers, and must.** Tills store `Desktop.startPath: /pos/`, and the shell opens
-  it on the server. `portal-api/src/lib/pos-redirect.ts` is the map, called from `spaErrorHandler`'s
+  it on the server. `api/src/lib/pos-redirect.ts` is the map, called from `spaErrorHandler`'s
   NOT_FOUND branch just before the shell is chosen, so `spa-fallback.flow.test.ts` drives it through
   the real plugins in both static modes. An on-prem master runs the same file.
 
@@ -489,7 +489,7 @@ it, whoever runs it.** That deploy needs four more steps (handover §5):
   in `services/biz/cash-register/register.service.ts` (insert → number → УНП → print once →
   session totals → stock → complete → audit), on the `Invoice` row's `register` block. `services`
   must not import `fiscal/*` (which imports it), so the till hands the service a
-  `RegisterPrinter` port built in `invoicing-api/src/lib/cash-register-till.ts`. A new till
+  `RegisterPrinter` port built in `api/src/invoicing/lib/cash-register-till.ts`. A new till
   sale IS the copy of the POS row it would have been (`tillSaleDocument` maps a virtual row
   through `fromPosTransaction`): one mapping, so the R1 readers and an R1 rollback read both alike.
 
@@ -557,7 +557,7 @@ invoice still due until the courier pays).
   till is still PlusMinus. ⚠ It refuses `regal`.
 
 - ⚠ **An imported document NEVER prints.** `syncCashSettlement` is called by `/send`, `PUT` and
-  `convertDraftInvoice`, so printing lives in the doors (`invoicing-api/lib/counter-receipt.ts`,
+  `convertDraftInvoice`, so printing lives in the doors (`api/src/invoicing/lib/counter-receipt.ts`,
   `prepareReceipt`), never in that function. The conversion settles as it always did, with the switch
   on too. `printsAtCounter` also refuses a document a person issues or pays by hand that an import
   wrote. ⚠ `isImportedDocument` is `ocr_import` on its FIRST status entry and nothing else, because a

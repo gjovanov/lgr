@@ -10,11 +10,11 @@ import {
   createTestWarehouse,
   createTestStockLevel,
 } from '../helpers/factories'
-import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
-import { internalOrderController } from 'invoicing-api/src/controllers/internal-order.controller'
-import { orderController } from 'invoicing-api/src/controllers/order.controller'
-import { reservationController } from 'invoicing-api/src/controllers/reservation.controller'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { invoiceController } from 'api/src/invoicing/controllers/invoice.controller'
+import { internalOrderController } from 'api/src/invoicing/controllers/internal-order.controller'
+import { orderController } from 'api/src/invoicing/controllers/order.controller'
+import { reservationController } from 'api/src/invoicing/controllers/reservation.controller'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { InternalOrder, Invoice, StockLevel } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'

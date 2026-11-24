@@ -10,7 +10,7 @@ import {
   ADDRESS_NOTICE_MS, activeLabelsOf, addressView, decideAddress, labelProblem, listAddresses, ownDnsRecord,
   requestAddress, retireAddress, type DnsLookup,
 } from 'services/biz/address/org-address.service'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import type { Types } from 'mongoose'
 
 /**

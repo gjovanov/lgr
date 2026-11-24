@@ -13,7 +13,7 @@ import { invoiceNumberClash } from 'migrations/migrations/0010-invoice-number-cl
 import { laterOf, listNumberClashes, prepareClashCorrection } from 'services/biz/number-clash.service'
 import { createInvoiceStockMovement } from 'services/biz/invoicing.service'
 import { getRepos } from 'services/context'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 
 /**
  * A legal number issued twice (FR-20.51, AC 51): both documents in the books under the one number,

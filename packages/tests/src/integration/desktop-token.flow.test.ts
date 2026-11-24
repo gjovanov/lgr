@@ -17,7 +17,7 @@ import {
   verifyDesktopToken,
 } from 'services/biz/desktop/desktop.service'
 import { ASSERTION_CLOCK_SKEW_SEC } from 'services/biz/desktop/desktop-crypto'
-import { acceptableTokenAudiences } from '../../../portal-api/src/controllers/desktop-v1.controller.js'
+import { acceptableTokenAudiences } from '../../../api/src/controllers/desktop-v1.controller.js'
 
 /**
  * Desktop access tokens (FR-14.20).

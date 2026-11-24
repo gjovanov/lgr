@@ -11,15 +11,15 @@ import { acceptedRepointKeys, verifyRepoint } from 'services/biz/desktop/repoint
 import { keysFromSpki } from 'services/biz/crypto/ed-jws'
 import { sanitizeHealth } from 'services/biz/node/node.service'
 import { Elysia } from 'elysia'
-import { createApiApp } from '../../../portal-api/src/api.js'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { createApiApp } from '../../../api/src/api.js'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import {
   handleDesktopClose,
   handleDesktopMessage,
   handleDesktopOpen,
   isDesktopOnline,
   repointOrgDesktops,
-} from '../../../portal-api/src/websocket/desktop'
+} from '../../../api/src/websocket/desktop'
 
 /**
  * Desktops follow their org's home (FR-20.82, plan step P3-6b): global's side. A desktop of an org

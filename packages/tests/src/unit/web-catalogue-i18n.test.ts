@@ -57,11 +57,14 @@ function* sources(dir: string, ext: RegExp): Generator<string> {
   }
 }
 
-/** The web apps' sources: every `*-ui` but the desktop shell, plus ui-shared and ui-shell. */
+/** The web app's modules (`web/src/modules`), plus ui-shared and ui-shell; the desktop shell is not here. */
 function webSourceRoots(): string[] {
-  return readdirSync(PACKAGES)
-    .filter(p => (p.endsWith('-ui') && p !== 'desktop-ui') || p === 'ui-shared' || p === 'ui-shell')
-    .map(p => join(PACKAGES, p, 'src'))
+  return [
+    join(PACKAGES, 'web', 'src', 'modules'),
+    ...readdirSync(PACKAGES)
+      .filter(p => (p.endsWith('-ui') && p !== 'desktop-ui') || p === 'ui-shared' || p === 'ui-shell')
+      .map(p => join(PACKAGES, p, 'src')),
+  ]
 }
 
 const catalogues = Object.fromEntries(LOCALES.map(l => [l, load(l)])) as Record<Locale, Json>
@@ -153,7 +156,7 @@ describe('the web catalogue (FR-22.11)', () => {
         expect({ locale, type, has: keys[locale].has(`warehouse.countType.${type}`) }).toEqual({ locale, type, has: true })
       }
     }
-    const form = readFileSync(join(PACKAGES, 'inventory-ui', 'src', 'views', 'InventoryCountFormView.vue'), 'utf8')
+    const form = readFileSync(join(PACKAGES, 'web', 'src', 'modules', 'inventory', 'views', 'InventoryCountFormView.vue'), 'utf8')
     // What it used to hand the shell and the select, and the names on its pending-changes preview.
     expect(/:status="[^"]*'in_progress'/.test(form)).toBe(false)
     expect(/:items="\[\s*'full'/.test(form)).toBe(false)
@@ -165,10 +168,10 @@ describe('the web catalogue (FR-22.11)', () => {
 
   it('no app closes its message bar with a hard-coded English „Close"', () => {
     // Every SPA's App.vue had `<v-btn …>Close</v-btn>` under every snackbar (B-14).
-    const roots = readdirSync(PACKAGES).filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell')
+    const roots = [join(PACKAGES, 'web', 'src', 'modules'), ...readdirSync(PACKAGES).filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell').map(p => join(PACKAGES, p, 'src'))]
     const offenders: string[] = []
-    for (const p of roots) {
-      for (const file of sources(join(PACKAGES, p, 'src'), /\.vue$/)) {
+    for (const root of roots) {
+      for (const file of sources(root, /\.vue$/)) {
         readFileSync(file, 'utf8').split(/\r?\n/).forEach((line, i) => {
           if (/>\s*Close\s*</.test(line)) offenders.push(`${relative(PACKAGES, file).replace(/\\/g, '/')}:${i + 1}`)
         })

@@ -6,7 +6,7 @@ import { captureRejection } from '../helpers/capture-rejection'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, roleKeyOf } from '../helpers/factories'
 import { withFakeGoogle, googleCallbackRequest } from '../helpers/fake-oauth-provider'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import {
   createPendingRegistration,
   readPendingRegistration,

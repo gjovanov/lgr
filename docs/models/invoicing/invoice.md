@@ -184,7 +184,7 @@ interface IInvoice extends Document {
 
 **Base URL:** `/api/org/:orgId/invoices`
 
-**Controller:** `packages/invoicing-api/src/controllers/invoice.controller.ts`
+**Controller:** `packages/api/src/invoicing/controllers/invoice.controller.ts`
 
 | Method | Path | Description | Auth | Query Params |
 |--------|------|-------------|------|-------------|

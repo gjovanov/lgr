@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { preselectedReceipts } from '../../../invoicing-ui/src/composables/receipt-overlap'
+import { preselectedReceipts } from '../../../web/src/modules/invoicing/composables/receipt-overlap'
 import { deliveryNote, deliveryNotePartner, isRemovalReversalNote, movementMarker, noteSaysNoDelivery, reconcileNote, removalReversalNote } from 'config/movement-notes'
 
 /** #168: what the two dialogs tick for the person, and what a receipt's notes say about it. */

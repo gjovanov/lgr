@@ -5,9 +5,9 @@ import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import {
   createTestOrg, createTestUser, createTestContact, createTestWarehouse, createTestProduct, createTestStockLevel,
 } from '../helpers/factories'
-import { stockLevelController } from 'warehouse-api/src/controllers/stock-level.controller'
-import { productController } from 'warehouse-api/src/controllers/product.controller'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { stockLevelController } from 'api/src/warehouse/controllers/stock-level.controller'
+import { productController } from 'api/src/warehouse/controllers/product.controller'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { Invoice, Order, Product, StockLevel } from 'db/models'
 import { mongoose } from 'db/connection'
 import { getProductSupply, getProductsSupplyTotals, type ProductSupply, type SupplyTotals } from 'services/biz/product-supply.service'

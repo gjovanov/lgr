@@ -14,10 +14,10 @@ const read = (rel: string) => readFileSync(join(PACKAGES, rel), 'utf8')
 
 describe('payroll says what it computes (FR-32.12)', () => {
   it('the run form and the payslip show the note on a run of the generic engine', () => {
-    const form = read('payroll-ui/src/views/payroll/PayrollRunFormView.vue')
+    const form = read('web/src/modules/payroll/views/payroll/PayrollRunFormView.vue')
     expect(form).toMatch(/v-if="isEdit && runEngine !== 'bg'"[^>]*data-testid="legacy-not-computed"/)
     expect(form).toContain("runEngine.value = item.engine || ''")
-    const slips = read('payroll-ui/src/views/payroll/PayslipsView.vue')
+    const slips = read('web/src/modules/payroll/views/payroll/PayslipsView.vue')
     expect(slips).toMatch(/v-if="selectedPayslip\.engine !== 'bg'"[^>]*data-testid="legacy-not-computed"/)
   })
 
@@ -38,13 +38,13 @@ describe('payroll says what it computes (FR-32.12)', () => {
   // #830 put the controls back, working: each list's Export goes to its export route, the payslip's PDF to its own.
   it('no payroll list offers an Export that does nothing, and no payslip a PDF that does nothing', () => {
     for (const v of ['EmployeesView', 'PayrollRunsView', 'PayslipsView', 'TimesheetsView']) {
-      const src = read(`payroll-ui/src/views/payroll/${v}.vue`)
+      const src = read(`web/src/modules/payroll/views/payroll/${v}.vue`)
       expect(src).toContain('@export="exportList"')
       expect(src).toMatch(/const \{ exporting, exportList \} = usePayrollExport\(/)
       expect(src).not.toContain('handleExport')
       expect(src).not.toContain('downloadPdf(')
     }
-    expect(read('payroll-ui/src/views/payroll/PayslipsView.vue')).toContain('<PayslipPdfButton')
+    expect(read('web/src/modules/payroll/views/payroll/PayslipsView.vue')).toContain('<PayslipPdfButton')
   })
 })
 

@@ -16,7 +16,7 @@ import { WebSocketFiscalPrinter } from 'fiscal/ws-fiscal-printer'
 import { WsTremolFiscalPrinter } from 'fiscal/ws-tremol-printer'
 import { FiscalUnsupportedError } from 'fiscal/types'
 import { createPrinter, getPrinter } from 'fiscal/fiscal-device.service'
-import { createBridgePrinter } from '../../../portal-api/src/websocket/fiscal-bridge'
+import { createBridgePrinter } from '../../../api/src/websocket/fiscal-bridge'
 
 /**
  * The capability table (`fiscal/capabilities.ts`) is what the device page believes before it

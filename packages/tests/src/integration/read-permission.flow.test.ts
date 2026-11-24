@@ -3,8 +3,8 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
-import { createApiApp } from '../../../portal-api/src/api.js'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { createApiApp } from '../../../api/src/api.js'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { config } from 'config'
 import { ROLES as ALL_ROLES, type Role } from 'config/constants'
 import { EXACT_READS, READ_PREFIXES, accessRuleFor, appsOpenedBy, can, templateGrant } from 'config/access'
@@ -161,7 +161,7 @@ describe('a GET answers 403 to a member whose role holds none of its capabilitie
 })
 
 /**
- * What each app reads, found by scanning every `*-ui` package for the routes it calls. A role
+ * What each app reads, found by scanning every UI module (`web/src/modules/*`) for the routes it calls. A role
  * opens an app when it opens a page of it (`appsOpenedBy`); the shell is everyone's. `pos` is the
  * till's pages inside the invoicing app, which `till.view` opens.
  */

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestWarehouse, createTestProduct, createTestStockLevel } from '../helpers/factories'
 import ExcelJS from 'exceljs'
-import { applyOpeningStock, parseOpeningStock } from 'warehouse-api/src/lib/opening-stock'
+import { applyOpeningStock, parseOpeningStock } from 'api/src/warehouse/lib/opening-stock'
 import { StockLevel, StockMovement } from 'db/models'
 
 beforeAll(async () => { await setupTestDB() }, 60_000)

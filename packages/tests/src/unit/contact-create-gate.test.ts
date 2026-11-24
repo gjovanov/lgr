@@ -25,7 +25,7 @@ describe('a new contact from a document form needs contacts.create', () => {
   })
 
   it("the banner's button carries the same gate", () => {
-    const src = read('packages/invoicing-ui/src/components/document-form/DocumentForm.vue')
+    const src = read('packages/web/src/modules/invoicing/components/document-form/DocumentForm.vue')
     const button = src.match(/<v-btn\b(?:(?!<v-btn\b|\/>)[\s\S])*data-testid="create-contact-btn"(?:(?!\/>)[\s\S])*\/>/)?.[0] ?? ''
     expect(button).toContain('openCreateDialog')
     expect(button).toContain(GATE)

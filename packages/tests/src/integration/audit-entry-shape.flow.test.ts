@@ -3,11 +3,11 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestAccount, createTestContact, createTestOrg, createTestProduct, createTestStockLevel, createTestUser, createTestWarehouse } from '../helpers/factories'
-import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
-import { orderController } from 'invoicing-api/src/controllers/order.controller'
-import { internalOrderController } from 'invoicing-api/src/controllers/internal-order.controller'
-import { auditLogController } from '../../../portal-api/src/controllers/audit-log.controller.js'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { invoiceController } from 'api/src/invoicing/controllers/invoice.controller'
+import { orderController } from 'api/src/invoicing/controllers/order.controller'
+import { internalOrderController } from 'api/src/invoicing/controllers/internal-order.controller'
+import { auditLogController } from '../../../api/src/controllers/audit-log.controller.js'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import {
   SEARCHABLE_ENTITY_TYPES, auditHealth, changesOf, createAuditEntry, queryAuditLogs, recordAuditEntry, searchEntitiesByType, systemActor,
   type AuditChanges,

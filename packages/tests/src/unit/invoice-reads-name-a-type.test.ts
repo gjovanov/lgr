@@ -17,8 +17,8 @@ const PACKAGES = resolve(import.meta.dir, '../../..')
 
 /** `file method first-argument`, as this test prints it, and why it is safe. */
 const SAYS_SO: Record<string, string> = {
-  'invoicing-api/src/controllers/invoice-export.controller.ts find filter': 'its callers set `type`, or a kind',
-  'invoicing-api/src/controllers/invoice.controller.ts findAll filter': 'the list route: NOT_PAYMENT_RECEIPT unless a type is asked for',
+  'api/src/invoicing/controllers/invoice-export.controller.ts find filter': 'its callers set `type`, or a kind',
+  'api/src/invoicing/controllers/invoice.controller.ts findAll filter': 'the list route: NOT_PAYMENT_RECEIPT unless a type is asked for',
   'services/src/biz/cash-register/copy-org.ts find { orgId: org, invoiceNumber: { $in: numbers.slice(i, i + BATCH) } }': 'a number taken is taken, whoever took it',
   'services/src/biz/cash-register/journal.service.ts find docMatch': 'TILL_DOCUMENT_TYPES: the journal lists receipts',
   'services/src/biz/cash-register/journal.service.ts countDocuments docMatch': 'the same',

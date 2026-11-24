@@ -1,63 +1,6 @@
 {
-  "packages/accounting-ui/src/views/accounting/JournalAnalysisView.vue": {
-    "TS2322": 1
-  },
   "packages/config/src/access/levels.ts": {
     "TS7053": 1
-  },
-  "packages/files-ui/src/views/FileUploadView.vue": {
-    "TS2365": 1
-  },
-  "packages/invoicing-ui/src/components/CashSaleInvoiceDialog.vue": {
-    "TS2339": 2
-  },
-  "packages/invoicing-ui/src/components/document-form/CashSaleTerminal.vue": {
-    "TS2339": 6
-  },
-  "packages/invoicing-ui/src/components/document-form/DocumentForm.vue": {
-    "TS2339": 1
-  },
-  "packages/invoicing-ui/src/components/document-form/DocumentLineTable.vue": {
-    "TS18046": 1,
-    "TS2345": 1,
-    "TS2365": 1
-  },
-  "packages/invoicing-ui/src/composables/document-form/parts/state.ts": {
-    "TS2339": 2
-  },
-  "packages/invoicing-ui/src/composables/order-tree/customer-order-tree.ts": {
-    "TS2345": 1
-  },
-  "packages/invoicing-ui/src/pos/components/SessionReportCard.vue": {
-    "TS2339": 2
-  },
-  "packages/invoicing-ui/src/pos/views/PosTerminalView.vue": {
-    "TS2339": 1
-  },
-  "packages/invoicing-ui/src/views/ContactLedgerView.vue": {
-    "TS2339": 7,
-    "TS2551": 2
-  },
-  "packages/payroll-ui/src/views/payroll/TimesheetFormView.vue": {
-    "TS2345": 2
-  },
-  "packages/portal-ui/src/views/admin/AuditLogView.vue": {
-    "TS2322": 2
-  },
-  "packages/portal-ui/src/views/invite/InviteLandingView.vue": {
-    "TS2339": 1
-  },
-  "packages/portal-ui/src/views/settings/ServersView.vue": {
-    "TS2339": 4
-  },
-  "packages/reports-ui/src/components/ReportRunner.vue": {
-    "TS2322": 1
-  },
-  "packages/reports-ui/src/components/ReportingTabGrid.vue": {
-    "TS2322": 1
-  },
-  "packages/reports-ui/src/views/SuptoTableView.vue": {
-    "TS2322": 3
   },
   "packages/ui-shared/src/components/CurrencyInput.vue": {
     "TS2322": 1
@@ -77,6 +20,63 @@
   },
   "packages/ui-shell/src/components/NewDocumentMenu.vue": {
     "TS2345": 1
+  },
+  "packages/web/src/modules/accounting/views/accounting/JournalAnalysisView.vue": {
+    "TS2322": 1
+  },
+  "packages/web/src/modules/files/views/FileUploadView.vue": {
+    "TS2365": 1
+  },
+  "packages/web/src/modules/invoicing/components/CashSaleInvoiceDialog.vue": {
+    "TS2339": 2
+  },
+  "packages/web/src/modules/invoicing/components/document-form/CashSaleTerminal.vue": {
+    "TS2339": 6
+  },
+  "packages/web/src/modules/invoicing/components/document-form/DocumentForm.vue": {
+    "TS2339": 1
+  },
+  "packages/web/src/modules/invoicing/components/document-form/DocumentLineTable.vue": {
+    "TS18046": 1,
+    "TS2345": 1,
+    "TS2365": 1
+  },
+  "packages/web/src/modules/invoicing/composables/document-form/parts/state.ts": {
+    "TS2339": 2
+  },
+  "packages/web/src/modules/invoicing/composables/order-tree/customer-order-tree.ts": {
+    "TS2345": 1
+  },
+  "packages/web/src/modules/invoicing/pos/components/SessionReportCard.vue": {
+    "TS2339": 2
+  },
+  "packages/web/src/modules/invoicing/pos/views/PosTerminalView.vue": {
+    "TS2339": 1
+  },
+  "packages/web/src/modules/invoicing/views/ContactLedgerView.vue": {
+    "TS2339": 7,
+    "TS2551": 2
+  },
+  "packages/web/src/modules/payroll/views/payroll/TimesheetFormView.vue": {
+    "TS2345": 2
+  },
+  "packages/web/src/modules/portal/views/admin/AuditLogView.vue": {
+    "TS2322": 2
+  },
+  "packages/web/src/modules/portal/views/invite/InviteLandingView.vue": {
+    "TS2339": 1
+  },
+  "packages/web/src/modules/portal/views/settings/ServersView.vue": {
+    "TS2339": 4
+  },
+  "packages/web/src/modules/reports/components/ReportRunner.vue": {
+    "TS2322": 1
+  },
+  "packages/web/src/modules/reports/components/ReportingTabGrid.vue": {
+    "TS2322": 1
+  },
+  "packages/web/src/modules/reports/views/SuptoTableView.vue": {
+    "TS2322": 3
   },
   "packages/web/src/router.ts": {
     "TS2349": 1

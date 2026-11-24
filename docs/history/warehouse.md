@@ -125,7 +125,7 @@ An ORDI had no printed form: nothing to hand a client, nothing an e-mail could a
 - ⚠ **Stored text is printed as text**: every name, description and note goes through the renderer's
   `mdText` (see „A printed page runs nothing and fetches nothing"). A new field goes through it.
 - **One function**: `renderInternalOrderPdf(orgId, orderId, { locale })` in
-  `invoicing-api/src/lib/internal-order-pdf.ts`, with `renderInvoicePdf`'s result shape
+  `api/src/invoicing/lib/internal-order-pdf.ts`, with `renderInvoicePdf`'s result shape
   (`{ok, buffer, filename, order}` or `{ok: false, status: 404 | 503, message, detail?}`). The route calls
   it, and so does the mail of the list's ticked orders (kind `internal-order`, „A list's ticked
   documents by e-mail"). Every read names the org (the contact and the
@@ -375,7 +375,7 @@ org; booking the other org's side waits until the two catalogues agree on names.
   reference, note, the lines (№, name, unit, quantity) and two signature lines. ⚠ No price and no
   total: a line's `unitCost` is a cost not every role sees (on a sale's dispatch, the sale price),
   and the sheet leaves the org. UI: Print on the movement form and on each row of the list
-  (`inventory-ui/composables/useMovementPrint.ts`), downloaded as the tab's session.
+  (`web/src/modules/inventory/composables/useMovementPrint.ts`), downloaded as the tab's session.
 - **By e-mail**: the movements list mails its ticked movements, each as this sheet (kind `movement`
   in „A list's ticked documents by e-mail"). Transfers open the dialog on „До един адрес": the
   colleagues of the other site. A draft and a cancelled movement are not mailed.
@@ -558,8 +558,8 @@ Global reference collection **`din_catalog`** (model `DinCatalog`, no tenantPlug
 
 ## Orders as a tree (FR-28, #622, slices 5 and 6)
 
-- **One component, two orders**: `invoicing-ui/components/order-tree/OrderTree.vue` draws the node models of
-  `invoicing-ui/composables/order-tree/` (plain code, no Vue, unit-tested): `supplier-order-tree.ts` (a line, under it
+- **One component, two orders**: `web/src/modules/invoicing/components/order-tree/OrderTree.vue` draws the node models of
+  `web/src/modules/invoicing/composables/order-tree/` (plain code, no Vue, unit-tested): `supplier-order-tree.ts` (a line, under it
   its warehouses, under those the clients reserved there), `customer-order-tree.ts` (a line, under it the reservations
   that cover it) and `supply-tree.ts` (the reservation page's), with ONE set of figures (`figures.ts`) and `tree-rows.ts`,
   `columns.ts`, `links.ts`. A parent carries what its children add up to, in the same columns. The save payload did not

@@ -61,7 +61,7 @@ import { tierPriceOf, type GRTier } from '../composables/gr-product-update'
 import { useProductTypes } from '../composables/useProductTypes'
 
 // Presentational cell for one goods-receipt product-update column.
-// Markup mirrors the inline cells in inventory-ui MovementFormView.
+// Markup mirrors the inline cells in the inventory module's MovementFormView.
 
 const { productTypeItems } = useProductTypes()
 

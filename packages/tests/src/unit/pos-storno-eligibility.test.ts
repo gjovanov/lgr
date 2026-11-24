@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { canPickPart, canStornoTransaction, canStornoJournalRow } from '../../../invoicing-ui/src/pos/composables/storno'
+import { canPickPart, canStornoTransaction, canStornoJournalRow } from '../../../web/src/modules/invoicing/pos/composables/storno'
 import { templateGrant, type Grant } from 'config/access'
 
 /** A built-in role's grant (FR-27 P3-6: a role key is no actor any more). */

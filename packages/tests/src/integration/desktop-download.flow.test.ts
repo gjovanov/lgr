@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { Elysia } from 'elysia'
 import { config } from 'config'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import { classifyDesktopAsset, resetDesktopReleaseCache, updaterManifest } from 'services/biz/desktop/release-download'
 
 /**

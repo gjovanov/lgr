@@ -58,7 +58,7 @@ export function serverBuildOptions(entry: string, outdir: string, name: string):
 
 /** The package's entry points, under `app/`. */
 export const ENTRIES = [
-  { name: 'server', source: 'packages/portal-api/src/unified.ts' },
+  { name: 'server', source: 'packages/api/src/unified.ts' },
   { name: 'migrate', source: 'packages/migrations/src/cli.ts' },
 ] as const
 

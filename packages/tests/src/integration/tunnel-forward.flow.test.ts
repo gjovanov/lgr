@@ -9,12 +9,12 @@ import { NodePresence, Org, OrgAddress, OrgHome } from 'db/models'
 import { forgetAllHomes } from 'db/home/home'
 import { enrollNode, issueNodeToken, mintNodeEnrollmentCode } from 'services/biz/node/node.service'
 import { decodeTunFrame } from 'services/biz/tunnel/tunnel-frame'
-import { handleUplinkMessage, handleUplinkOpen } from '../../../portal-api/src/websocket/uplink'
-import { forgetAddressRoutes, tunnelRouter } from '../../../portal-api/src/tunnel/router'
-import { resetEdgeLimits } from '../../../portal-api/src/tunnel/edge'
-import { hopHeaders, verifyHop } from '../../../portal-api/src/tunnel/hop'
-import { holderOf } from '../../../portal-api/src/tunnel/forward'
-import { podAddr } from '../../../portal-api/src/tunnel/pod'
+import { handleUplinkMessage, handleUplinkOpen } from '../../../api/src/websocket/uplink'
+import { forgetAddressRoutes, tunnelRouter } from '../../../api/src/tunnel/router'
+import { resetEdgeLimits } from '../../../api/src/tunnel/edge'
+import { hopHeaders, verifyHop } from '../../../api/src/tunnel/hop'
+import { holderOf } from '../../../api/src/tunnel/forward'
+import { podAddr } from '../../../api/src/tunnel/pod'
 
 /**
  * The tunnel across lgrai.app's pods (FR-20.73, plan step P3-4d): a request to an org's address that

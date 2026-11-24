@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'bun:test'
-// PURE modules: no Vue, no store. `invoicing-ui` is not a workspace package, so they are reached by path.
-import { buildSupplyTree, supplyAllocationNodeId, supplyLineNodeId, supplyReservationNodeId, supplyStockNodeId } from '../../../invoicing-ui/src/composables/order-tree/supply-tree'
-import { isNodeOpen, visibleRows } from '../../../invoicing-ui/src/composables/order-tree/tree-rows'
-import type { ServerReservation, SupplyInput } from '../../../invoicing-ui/src/composables/order-tree/types'
+// PURE modules: no Vue, no store. `web/src/modules/invoicing` is not a workspace package, so they are reached by path.
+import { buildSupplyTree, supplyAllocationNodeId, supplyLineNodeId, supplyReservationNodeId, supplyStockNodeId } from '../../../web/src/modules/invoicing/composables/order-tree/supply-tree'
+import { isNodeOpen, visibleRows } from '../../../web/src/modules/invoicing/composables/order-tree/tree-rows'
+import type { ServerReservation, SupplyInput } from '../../../web/src/modules/invoicing/composables/order-tree/types'
 
 /**
  * FR-28.45 — where a reservation sits: the supply it hangs on, with every reservation on it.

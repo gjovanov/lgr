@@ -17,7 +17,7 @@ import { recordLastNumbers, legalSeriesOf } from 'services/biz/move/promote.serv
 import { generateUNP, getNextNumber, legalCounterKey } from 'services/biz/sequence.service'
 import { localDisk } from 'services/biz/backup/backup-destinations.service'
 import { captureOn } from 'services/biz/replication/engine'
-import { numberingController } from '../../../portal-api/src/controllers/numbering.controller'
+import { numberingController } from '../../../api/src/controllers/numbering.controller'
 
 /**
  * A mark of the legal counters kept OUTSIDE the database (#549, FR-20.51, plan A.7.5): beside the

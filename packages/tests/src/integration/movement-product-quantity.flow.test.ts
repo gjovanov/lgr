@@ -4,7 +4,7 @@ import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB } from '../setup'
 import { createTestOrg, createTestUser, createTestProduct, createTestWarehouse } from '../helpers/factories'
 import { StockMovement } from 'db/models'
-import { movementController } from 'warehouse-api/src/controllers/movement.controller'
+import { movementController } from 'api/src/warehouse/controllers/movement.controller'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
 

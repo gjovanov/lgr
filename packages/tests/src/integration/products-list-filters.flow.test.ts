@@ -6,9 +6,9 @@ import {
   createTestOrg, createTestUser, createTestContact, createTestInvoice, createTestProduct, createTestStockLevel,
   createTestStockMovement, createTestWarehouse,
 } from '../helpers/factories'
-import { productController } from 'warehouse-api/src/controllers/product.controller'
-import { stockLevelController } from 'warehouse-api/src/controllers/stock-level.controller'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { productController } from 'api/src/warehouse/controllers/product.controller'
+import { stockLevelController } from 'api/src/warehouse/controllers/stock-level.controller'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { Order } from 'db/models'
 import { mongoose } from 'db/connection'
 import { config } from 'config'

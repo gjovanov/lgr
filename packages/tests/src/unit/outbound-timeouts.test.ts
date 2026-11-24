@@ -134,8 +134,7 @@ describe('no outbound call in server code goes without a deadline', () => {
 
   it('every fetch( in server packages carries a signal or goes through fetchWithTimeout', async () => {
     const root = join(import.meta.dir, '..', '..', '..')
-    const dirs = ['services/src', 'portal-api/src', 'fiscal/src', 'reporting/src', 'migrations/src', 'config/src']
-    for await (const p of new Glob('*-api/src').scan({ cwd: root, onlyFiles: false })) dirs.push(p)
+    const dirs = ['services/src', 'api/src', 'fiscal/src', 'reporting/src', 'migrations/src', 'config/src']
     const offenders: string[] = []
     for (const dir of new Set(dirs)) {
       if (!existsSync(join(root, dir))) continue

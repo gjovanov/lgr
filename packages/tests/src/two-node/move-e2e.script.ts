@@ -138,7 +138,7 @@ Object.assign(globalEnv, {
   // FR-20.73 (P3-4d): where lgrai.app's other pods reach this one.
   LGR_POD_ADDR: `http://127.0.0.1:${globalPort}`,
 })
-const globalProc = Bun.spawn(['bun', 'src/unified.ts'], { cwd: join(REPO, 'packages', 'portal-api'), env: globalEnv, stdout: 'pipe', stderr: 'pipe' })
+const globalProc = Bun.spawn(['bun', 'src/unified.ts'], { cwd: join(REPO, 'packages', 'api'), env: globalEnv, stdout: 'pipe', stderr: 'pipe' })
 let globalLog = ''
 for (const s of [globalProc.stdout, globalProc.stderr]) void (async () => { for await (const c of s) globalLog = (globalLog + new TextDecoder().decode(c)).slice(-60_000) })()
 
@@ -331,10 +331,10 @@ try {
   check('…while a stamp the client writes is dropped: org creation stays the console\'s', stamped.status === 404, `${stamped.status}`)
   // The app itself, anonymously: its largest bundle, well past one stream's 256 KB window, byte for byte.
   const page = await viaAddress('/', { headers: { accept: 'text/html' } })
-  const pageOk = page.status === 200 && (page.headers.get('content-type') ?? '').includes('text/html') && (await page.text()).includes('/assets/')
-  const assets = join(REPO, 'packages', 'portal-ui', 'dist', 'assets')
+  const pageOk = page.status === 200 && (page.headers.get('content-type') ?? '').includes('text/html') && (await page.text()).includes('/ui/')
+  const assets = join(REPO, 'packages', 'web', 'dist', 'ui')
   const bundle = readdirSync(assets).filter(f => f.endsWith('.js')).map(f => ({ f, size: statSync(join(assets, f)).size })).sort((a, b) => b.size - a.size)[0]
-  const tunnelled = Buffer.from(await (await viaAddress(`/assets/${bundle.f}`)).arrayBuffer())
+  const tunnelled = Buffer.from(await (await viaAddress(`/ui/${bundle.f}`)).arrayBuffer())
   check('the app\'s own pages come through the address, its largest bundle whole', pageOk && bundle.size > 256 * 1024 && tunnelled.equals(readFileSync(join(assets, bundle.f))), `${page.status} ${bundle.f}: ${tunnelled.length} of ${bundle.size} B`)
   // A WebSocket: it signs in with its first message, and the master's socket answers.
   const said = await new Promise<string[]>(res => {
@@ -357,7 +357,7 @@ try {
   // socket of the master: it forwards to the pod that does. Started for this alone, on the same database.
   const podBPort = freePort()
   const podB = Bun.spawn(['bun', 'src/unified.ts'], {
-    cwd: join(REPO, 'packages', 'portal-api'),
+    cwd: join(REPO, 'packages', 'api'),
     env: { ...globalEnv, PORT: String(podBPort), LGR_POD_ADDR: `http://127.0.0.1:${podBPort}`, MIGRATIONS_AUTO: 'false' },
     stdout: 'ignore',
     stderr: 'ignore',

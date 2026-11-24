@@ -3,12 +3,12 @@ import { Elysia } from 'elysia'
 import { config } from 'config'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser } from '../helpers/factories'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import { makeNodeStub, nodeEnrollBody, type NodeStub } from '../helpers/node-stub'
 import { NodeTraffic, ServerNode } from 'db/models'
 import { enrollNode, issueNodeToken, mintNodeEnrollmentCode } from 'services/biz/node/node.service'
 import { flushTraffic, nodeRouteName, pendingTraffic, trafficKind } from 'services/biz/node/node-traffic'
-import { CLOSE, handleUplinkClose, handleUplinkMessage, handleUplinkOpen, tickConn } from '../../../portal-api/src/websocket/uplink'
+import { CLOSE, handleUplinkClose, handleUplinkMessage, handleUplinkOpen, tickConn } from '../../../api/src/websocket/uplink'
 
 /**
  * What a master sent lgrai.app (FR-20.54, AC 26): global's record of each master's traffic, per day,

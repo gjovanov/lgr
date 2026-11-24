@@ -18,7 +18,7 @@ import {
 } from 'services/biz/invoice-numbering.service'
 import { createInvoiceStockMovement, reverseInvoiceStockMovement } from 'services/biz/invoicing.service'
 import { getContactLedger } from 'services/biz/contact-ledger.service'
-import { validateRelatedInvoiceRef } from 'invoicing-api/src/controllers/invoice.controller'
+import { validateRelatedInvoiceRef } from 'api/src/invoicing/controllers/invoice.controller'
 
 beforeAll(async () => { await setupTestDB() }, 60_000)
 afterAll(async () => { await teardownTestDB() }, 60_000)

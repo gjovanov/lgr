@@ -4,7 +4,7 @@
  * documents in (`Org.placeOfIssue`), and the company's economic activity code (`Org.activityCode`, which no document
  * prints: statistics and the annual filings read it).
  *
- * Import-pure: the API's body schemas, the settings page, the contact form, the in-app forms (`invoicing-ui`) and the
+ * Import-pure: the API's body schemas, the settings page, the contact form, the in-app forms (`web/src/modules/invoicing`) and the
  * server's printed forms (`reporting/pdf/*`) read the same rules, so the two renderers of a document cannot disagree.
  */
 

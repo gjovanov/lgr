@@ -25,9 +25,9 @@ import { preflightReseed, startReseed } from 'services/biz/move/reseed.service'
 import { moveWorkerTick } from 'services/biz/move/move-worker.service'
 import { blobDir, blobPath } from 'services/biz/replication/mirror-blobs'
 import { HOME_CACHE_MS } from 'db/home/home'
-import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../portal-api/src/websocket/uplink'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
-import { moveController } from '../../../portal-api/src/controllers/move.controller.js'
+import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../api/src/websocket/uplink'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
+import { moveController } from '../../../api/src/controllers/move.controller.js'
 
 /**
  * Re-seeding a master from lgrai.app's mirror (FR-20.71, plan step P3-7, AC 36).

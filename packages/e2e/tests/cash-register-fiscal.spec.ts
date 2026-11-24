@@ -15,7 +15,7 @@ import { openSelect } from './helpers/vuetify'
  * and the server with loopback allowed for fiscal devices (refused otherwise, ignored in production):
  *
  *   bun packages/e2e/scripts/eltrade-tcp-stub.ts &
- *   cd packages/portal-api && FISCAL_TCP_ALLOW_LOOPBACK=1 bun src/unified.ts
+ *   cd packages/api && FISCAL_TCP_ALLOW_LOOPBACK=1 bun src/unified.ts
  *   cd packages/e2e && bunx playwright test --project=cash-register-fiscal
  *
  * The device is registered on the store (ST-01) for this spec and deactivated after it, so no other

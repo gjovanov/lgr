@@ -19,29 +19,29 @@ const read = (rel: string) => readFileSync(join(PACKAGES, rel), 'utf8')
 
 /** §1.9's seventeen lists. */
 const SEVENTEEN = [
-  'inventory-ui/src/views/CategoriesView.vue',
-  'inventory-ui/src/views/WarehousesView.vue',
-  'inventory-ui/src/views/PriceListsView.vue',
-  'accounting-ui/src/views/accounting/AccountsView.vue',
-  'accounting-ui/src/views/accounting/BankAccountsView.vue',
-  'accounting-ui/src/views/accounting/ExchangeRatesView.vue',
-  'accounting-ui/src/views/accounting/FixedAssetsView.vue',
-  'accounting-ui/src/views/accounting/VatReturnsView.vue',
-  'payroll-ui/src/views/payroll/EmployeesView.vue',
-  'payroll-ui/src/views/payroll/PayrollRunsView.vue',
-  'payroll-ui/src/views/payroll/PayslipsView.vue',
-  'payroll-ui/src/views/payroll/TimesheetsView.vue',
-  'invoicing-ui/src/pos/views/PosDevicesView.vue',
-  'invoicing-ui/src/pos/views/PosSessionsView.vue',
-  'portal-ui/src/views/settings/UsersView.vue',
-  'portal-ui/src/views/settings/InvitesView.vue',
-  'portal-ui/src/views/settings/DesktopsView.vue',
+  'web/src/modules/inventory/views/CategoriesView.vue',
+  'web/src/modules/inventory/views/WarehousesView.vue',
+  'web/src/modules/inventory/views/PriceListsView.vue',
+  'web/src/modules/accounting/views/accounting/AccountsView.vue',
+  'web/src/modules/accounting/views/accounting/BankAccountsView.vue',
+  'web/src/modules/accounting/views/accounting/ExchangeRatesView.vue',
+  'web/src/modules/accounting/views/accounting/FixedAssetsView.vue',
+  'web/src/modules/accounting/views/accounting/VatReturnsView.vue',
+  'web/src/modules/payroll/views/payroll/EmployeesView.vue',
+  'web/src/modules/payroll/views/payroll/PayrollRunsView.vue',
+  'web/src/modules/payroll/views/payroll/PayslipsView.vue',
+  'web/src/modules/payroll/views/payroll/TimesheetsView.vue',
+  'web/src/modules/invoicing/pos/views/PosDevicesView.vue',
+  'web/src/modules/invoicing/pos/views/PosSessionsView.vue',
+  'web/src/modules/portal/views/settings/UsersView.vue',
+  'web/src/modules/portal/views/settings/InvitesView.vue',
+  'web/src/modules/portal/views/settings/DesktopsView.vue',
 ]
 
 /** Tables on `usePaginatedTable` that are not a page's list, so they keep nothing in the address. */
 const NOT_A_LIST: Record<string, string> = {
   'ui-shared/src/components/ContactPickerDialog.vue': 'a picker dialog: it must never touch the address of the page under it',
-  'accounting-ui/src/views/accounting/VatReturnView.vue': "one month's rows inside the return's own page, whose address is the month",
+  'web/src/modules/accounting/views/accounting/VatReturnView.vue': "one month's rows inside the return's own page, whose address is the month",
 }
 
 /** The text of the call `name(` … `)` starting at `from`, its parentheses balanced; null when there is none. */
@@ -70,7 +70,7 @@ function* vueSources(dir: string): Generator<string> {
 
 describe('FR-31.18: a list keeps its place in the address', () => {
   it('every list on usePaginatedTable syncs its page, size and sort (`urlSync: true`)', () => {
-    const roots = readdirSync(PACKAGES).filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell').map(p => join(PACKAGES, p, 'src')).filter(existsSync)
+    const roots = [join(PACKAGES, 'web', 'src', 'modules'), ...readdirSync(PACKAGES).filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell').map(p => join(PACKAGES, p, 'src'))].filter(existsSync)
     const unsynced: string[] = []
     let tables = 0
     for (const root of roots) {
@@ -117,22 +117,22 @@ describe('FR-31.18: a list keeps its place in the address', () => {
 describe('FR-31.19: Movements, Stock levels and Inventory counts on the shared list shell', () => {
   const MOVED: Array<{ rel: string; route: string; keys: string[] }> = [
     {
-      rel: 'inventory-ui/src/views/MovementsView.vue',
+      rel: 'web/src/modules/inventory/views/MovementsView.vue',
       route: "{ path: 'movements', name: 'inventory.movements', component: () => import('./views/MovementsView.vue') }",
       keys: ['q', 'type', 'status', 'warehouse', 'from', 'to', 'view', 'pq', 'pcategory', 'ptype', 'ptags', 'pstatus'],
     },
     {
-      rel: 'inventory-ui/src/views/StockLevelsView.vue',
+      rel: 'web/src/modules/inventory/views/StockLevelsView.vue',
       route: "{ path: 'stock-levels', name: 'inventory.stock-levels', component: () => import('./views/StockLevelsView.vue') }",
       keys: ['q', 'warehouse', 'category', 'tags', 'low'],
     },
     {
-      rel: 'inventory-ui/src/views/InventoryCountView.vue',
+      rel: 'web/src/modules/inventory/views/InventoryCountView.vue',
       route: "{ path: 'inventory-counts', name: 'inventory.inventory-counts', component: () => import('./views/InventoryCountView.vue') }",
       keys: ['q'],
     },
   ]
-  const manifest = read('inventory-ui/src/manifest.ts')
+  const manifest = read('web/src/modules/inventory/manifest.ts')
 
   for (const { rel, route, keys } of MOVED) {
     it(`${rel}: on ListScaffold, under the same route name, with the same address`, () => {
@@ -150,7 +150,7 @@ describe('FR-31.19: Movements, Stock levels and Inventory counts on the shared l
   }
 
   it('Movements fetches no contact list, shows no raw dates and keeps its tick column and the e-mail bar', () => {
-    const sfc = read('inventory-ui/src/views/MovementsView.vue')
+    const sfc = read('web/src/modules/inventory/views/MovementsView.vue')
     expect(sfc).not.toContain('/invoicing/contact`')
     expect(sfc).not.toMatch(/\bfetchContacts\b|\bcontacts\.value\b/)
     expect(sfc).not.toMatch(/split\('T'\)/)

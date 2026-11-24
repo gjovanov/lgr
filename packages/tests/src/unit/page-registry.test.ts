@@ -67,7 +67,7 @@ describe('what the portal\'s menu offers: what `canOpenPage` lets them open (D10
   })
 
   it('every page it answers for is a route of the portal', async () => {
-    const { portalRoutes } = await import('../../../portal-ui/src/routes')
+    const { portalRoutes } = await import('../../../web/src/modules/portal/routes')
     const paths = (portalRoutes as any[]).flatMap(r => (r.children ?? []).map((c: any) => `/${c.path}`))
     for (const path of EVERY) expect(paths).toContain(path)
   })

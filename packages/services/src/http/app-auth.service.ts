@@ -4,7 +4,7 @@ import { sessionAuth } from './session-auth'
  * Verification-only auth service for domain apps.
  * Validates JWT issued by Portal but does NOT issue tokens.
  *
- * FR-24.30: ONE copy, here. It used to exist byte-identical in all seven `*-api` packages, deduped
+ * FR-24.30: ONE copy, here. It used to exist byte-identical in all seven API packages (one package, `api`, since FR-24.31), deduped
  * by Elysia's `name` so that whichever was registered first ran, and a fix to the tenant guard
  * had to land seven times. Each package's `auth/app-auth.service.ts` now re-exports this one.
  *

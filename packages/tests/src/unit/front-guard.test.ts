@@ -14,8 +14,8 @@ import {
   normalizedPath,
   refusedOnHttp,
   secretMatches,
-} from '../../../portal-api/src/front/front-guard'
-import { clientIp } from '../../../portal-api/src/auth/client-ip'
+} from '../../../api/src/front/front-guard'
+import { clientIp } from '../../../api/src/auth/client-ip'
 
 const SECRET = 'a'.repeat(43)
 const saved = { role: config.node.role, front: { ...config.front } }

@@ -313,7 +313,7 @@ if [[ $DRY == 0 ]]; then
   kubectl -n "$NS" get pods -o wide
   NODE_IP="$(kubectl -n "$NS" get pod -l app=lgr -o jsonpath='{.items[0].status.hostIP}')"
   # `/` alone is not enough. From 2026-10-04 every SPA route answered its HTML with status 404
-  # (NODE_ENV=production flipped @elysiajs/static's mode; portal-api/src/spa-fallback.ts). A deep
+  # (NODE_ENV=production flipped @elysiajs/static's mode; api/src/spa-fallback.ts). A deep
   # link must be the shell with 200, and an unknown API route a 404, never the shell, so a
   # catch-all that swallows /api fails here too.
   smoke() { # <path> <expected HTTP status>

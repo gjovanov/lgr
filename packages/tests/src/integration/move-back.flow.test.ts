@@ -20,7 +20,7 @@ import { DRAIN_AFTER_MS, moveWorkerTick } from 'services/biz/move/move-worker.se
 import { blobPath, filesMirrored } from 'services/biz/replication/mirror-blobs'
 import { movedFor } from 'services/biz/desktop/repoint.service'
 import { acceptedRepointKeys, verifyRepoint } from 'services/biz/desktop/repoint-token'
-import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../portal-api/src/websocket/uplink'
+import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../api/src/websocket/uplink'
 
 /**
  * Moving an org from its master back to lgrai.app (FR-20.80, plan step P3-6c).

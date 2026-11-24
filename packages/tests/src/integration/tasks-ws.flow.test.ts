@@ -10,7 +10,7 @@ import {
   handleTasksMessage,
   handleTasksClose,
   AUTH_DEADLINE_MS,
-} from '../../../portal-api/src/websocket/ws.server'
+} from '../../../api/src/websocket/ws.server'
 import { signDesktopToken } from 'services/biz/desktop/desktop.service'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'

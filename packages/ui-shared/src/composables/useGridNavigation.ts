@@ -3,7 +3,7 @@ import { productSearchMenuOpen } from './useProductSearchMenu'
 
 /**
  * Spreadsheet-like keyboard navigation for a document's line grid — the invoicing forms' and the
- * goods receipt's (FR-22.28; moved here from invoicing-ui for that, unchanged).
+ * goods receipt's (FR-22.28; moved here from the invoicing module for that, unchanged).
  *
  * One capture-phase `keydown` handler on the table wrapper does a DOM-walk (resilient to the
  * dynamically rendered columns), so no per-cell wiring is needed:

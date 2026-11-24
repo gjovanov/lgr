@@ -29,13 +29,13 @@ export interface SessionAuthOptions {
 }
 
 /**
- * FR-32.25 (#797): the session auth chain, written once. `AuthService` (portal-api, `Service.Auth`) and
- * `AppAuthService` (`services/http/app-auth.service.ts`, `Service.AppAuth`, re-exported by every `*-api`) are both
+ * FR-32.25 (#797): the session auth chain, written once. `AuthService` (the portal's, `Service.Auth`) and
+ * `AppAuthService` (`services/http/app-auth.service.ts`, `Service.AppAuth`, re-exported by every domain of `api`) are both
  * this chain; the portal's adds the identity routes. They used to be two copies of about 120 lines each, and a fix
  * to the tenant guard or the 401 had to land in both. The session rules stay where they were:
  * `services/biz/session-token.ts`, `identity/session.service.ts`, `tenant-guard.ts`, `access/*`, `home-gate.ts`.
  *
- * The desktop's and the node's plugins (`portal-api/src/auth/desktop-auth.service.ts`, `node-auth.service.ts`) take
+ * The desktop's and the node's plugins (`api/src/auth/desktop-auth.service.ts`, `node-auth.service.ts`) take
  * other credentials and are not this chain.
  */
 export function sessionAuth({ name, identityRoutes }: SessionAuthOptions) {

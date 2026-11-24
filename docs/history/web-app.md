@@ -27,10 +27,10 @@ part of that module ("The till lives in Invoicing" below); Phase 1 made every mo
   fails on any `window.location` assignment outside its list of deliberate page loads.
 - `openPage` to the same view is a push plus a remount (`viewKey`), never a page load.
 - **The one SPA, `packages/web`** (Phase 2; since Phase 3 the ONLY web build, FR-24.21). Its router is
-  `portal-ui/src/routes.ts` (the portal's routes and `portalGuard`) plus every manifest (`web/src/modules.ts`)
+  `web/src/modules/portal/routes.ts` (the portal's routes and `portalGuard`) plus every manifest (`web/src/modules.ts`)
   under ONE shell record (`OneShell` → `ModuleLayout`), so a move between modules never remounts the layout.
   One guard: portal rules for portal routes, an org session for a module's, after the till's rules
-  (`invoicing-ui/src/pos/till-rules.ts#tillRedirect`).
+  (`web/src/modules/invoicing/pos/till-rules.ts#tillRedirect`).
   - Its files are under `/ui/`. Every page gets its `index.html` (`spa-fallback.ts`). `/__ui/one` and
     `/__ui/split`, the Phase 2 switch, now only redirect home and clear the old `lgr_ui` cookie.
   - **Phase 3 deleted the seven split builds** (2026-11-01): each module's `index.html`, `vite.config.ts`,
@@ -187,7 +187,7 @@ Debit Notes moved from Vendors group (outgoing-direction) to Outgoing Documents.
 ## Document lists: one row menu, fit 1366 px, a Create that says what (2026-10-26, FR-22 slice 2b: FR-22.23–.27, .50)
 
 - **One menu per row** (FR-22.23/.24): `ui-shared/RowActionsMenu` (⋮, `row-action-<key>`). The
-  rules are `invoicing-ui/composables/document-row-actions.ts` — pure, and
+  rules are `web/src/modules/invoicing/composables/document-row-actions.ts` — pure, and
   `integration/document-row-actions.flow` holds each one against the real routes. ⚠ Void is offered
   on an ISSUED document (`sent`/`received`; an invoice for a cash sale when `paid`) and asks first;
   Delete on a DRAFT only. The lists had it the other way round („Анулирай" on drafts only, Delete on

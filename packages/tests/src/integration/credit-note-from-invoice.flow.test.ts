@@ -3,15 +3,15 @@ import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestContact } from '../helpers/factories'
-import { invoiceController } from 'invoicing-api/src/controllers/invoice.controller'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { invoiceController } from 'api/src/invoicing/controllers/invoice.controller'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { Invoice } from 'db/models'
 import { config } from 'config'
 import { DEFAULT_ROLE_PERMISSIONS } from 'config/constants'
-// The form's own code, reached by path (`invoicing-ui` is a private app package): the note is
+// The form's own code, reached by path (`web/src/modules/invoicing` is not a workspace package): the note is
 // built exactly as the credit-note form builds it once the user picks the invoice.
-import { buildPayload, linesFromRelatedInvoice } from '../../../invoicing-ui/src/composables/document-form/document-payload'
-import { DOCUMENT_CONFIGS } from '../../../invoicing-ui/src/composables/document-form/configs'
+import { buildPayload, linesFromRelatedInvoice } from '../../../web/src/modules/invoicing/composables/document-form/document-payload'
+import { DOCUMENT_CONFIGS } from '../../../web/src/modules/invoicing/composables/document-form/configs'
 
 /**
  * FR-22.4 (B-6): a credit note made from a discounted invoice credited the undiscounted price

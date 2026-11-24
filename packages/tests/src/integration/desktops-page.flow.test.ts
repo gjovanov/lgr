@@ -5,7 +5,7 @@ import { config } from 'config'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestOrg, createTestUser, createTestWarehouse, createTestFiscalDevice } from '../helpers/factories'
 import { makeDesktopStub, enrollBody } from '../helpers/desktop-stub'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import { AuditLog, Desktop, DesktopEnrollmentCode } from 'db/models'
 
 /**

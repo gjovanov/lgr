@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { orderInvoiceRows } from '../../../invoicing-ui/src/composables/order-invoices'
+import { orderInvoiceRows } from '../../../web/src/modules/invoicing/composables/order-invoices'
 
 /**
  * FR-22.36 — the order forms list their invoices, from the `lookup.invoices` the order's GET

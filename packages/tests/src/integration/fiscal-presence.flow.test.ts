@@ -12,7 +12,7 @@ import {
   releasePresence,
   requestEviction,
 } from 'services/biz/fiscal-presence.service'
-import { handleMessage, handleClose, presenceTick, closeAllBridges } from '../../../portal-api/src/websocket/fiscal-bridge'
+import { handleMessage, handleClose, presenceTick, closeAllBridges } from '../../../api/src/websocket/fiscal-bridge'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { config } from 'config'

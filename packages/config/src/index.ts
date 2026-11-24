@@ -380,7 +380,7 @@ export const config = {
   port: Number(process.env.PORT) || 4001,
   /**
    * FR-20.16 (plan step P1-3) — on a master the supervisor owns every way in, and this API answers
-   * it alone (`portal-api/src/front/`). It sets all three; none is set anywhere else.
+   * it alone (`api/src/front/`). It sets all three; none is set anywhere else.
    */
   front: {
     secret: readFrontSecret(process.env.LGR_FRONT_SECRET),

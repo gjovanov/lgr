@@ -80,7 +80,7 @@ try {
 
   start(['bun', 'packages/e2e/scripts/ocr-stub.ts'])
   start(['bun', 'packages/e2e/scripts/eltrade-tcp-stub.ts'])
-  const server = start(['bun', '--env-file=../../.env.test', 'src/unified.ts'], join(ROOT, 'packages', 'portal-api'))
+  const server = start(['bun', '--env-file=../../.env.test', 'src/unified.ts'], join(ROOT, 'packages', 'api'))
   await waitForServer(server)
   await assertShell()
 

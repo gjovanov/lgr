@@ -62,7 +62,7 @@ The importers call production's API, so the importers that run are the ones prod
 3. Read what changed on the server since the previous run's commit (its report names it):
 
    ```bash
-   git diff --stat <previous sha> <deployed sha> -- 'packages/*-api/src' packages/services/src packages/db packages/config packages/migrations
+   git diff --stat <previous sha> <deployed sha> -- packages/api/src packages/services/src packages/db packages/config packages/migrations
    ```
 
    Read every change that touches a route the importers call: `/invoices`, `/doc-import/*`, `/warehouse/movement`,

@@ -82,9 +82,9 @@ describe('decimal fields (FR-31.16)', () => {
 
   it('the four daily grids type quantities, prices and discounts into DecimalFields', () => {
     const grids: [string, string[]][] = [
-      ['invoicing-ui/src/components/document-form/DocumentLineTable.vue', ['v-model="line.quantity"', 'v-model="line.unitPrice"', 'v-model="line.discount"']],
-      ['inventory-ui/src/views/MovementFormView.vue', ['v-model="line.quantity"', 'v-model="line.unitCost"']],
-      ['inventory-ui/src/views/InventoryCountFormView.vue', ['v-model="line.countedQuantity"']],
+      ['web/src/modules/invoicing/components/document-form/DocumentLineTable.vue', ['v-model="line.quantity"', 'v-model="line.unitPrice"', 'v-model="line.discount"']],
+      ['web/src/modules/inventory/views/MovementFormView.vue', ['v-model="line.quantity"', 'v-model="line.unitCost"']],
+      ['web/src/modules/inventory/views/InventoryCountFormView.vue', ['v-model="line.countedQuantity"']],
       ['ui-shared/src/components/cash-register/RegisterTerminal.vue', ['data-testid="cart-qty"']],
     ]
     for (const [file, fields] of grids) {

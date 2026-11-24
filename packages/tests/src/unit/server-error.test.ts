@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import { mongoose } from 'db/connection'
 const { Schema } = mongoose
-import { errorRef, INTERNAL_MESSAGE, isInternalError, serverErrorMessage } from '../../../portal-api/src/lib/server-error.js'
+import { errorRef, INTERNAL_MESSAGE, isInternalError, serverErrorMessage } from '../../../api/src/lib/server-error.js'
 
 /**
  * S-12: what a 500 may say. The server's own words pass; the machinery's (the database, the

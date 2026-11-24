@@ -8,7 +8,7 @@ import {
   auditHealth, createAuditEntry, generateCorrelationId, queryAuditLogs, queryByCorrelationId, queryDistinctFilters, recordAuditEntry,
 } from 'services/biz/audit-log.service'
 import { homeDigests } from 'services/biz/move/home-digest'
-import { auditSignIn } from '../../../portal-api/src/auth/session-answer'
+import { auditSignIn } from '../../../api/src/auth/session-answer'
 import { config } from 'config'
 
 /**

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { join, relative, resolve } from 'path'
 import { collapseRanks, collapsedAt } from '../../../ui-shared/src/components/form-action-collapse'
-import { COLLAPSE, IMPORT_KEY, withOutputActions } from '../../../invoicing-ui/src/composables/document-form/form-actions'
+import { COLLAPSE, IMPORT_KEY, withOutputActions } from '../../../web/src/modules/invoicing/composables/document-form/form-actions'
 import en from '../../../ui-shared/src/locales/en.json'
 import bg from '../../../ui-shared/src/locales/bg.json'
 import de from '../../../ui-shared/src/locales/de.json'
@@ -101,8 +101,8 @@ describe('whose label a narrow bar gives up first', () => {
 
 describe('one list feeds both bars', () => {
   const shell = read('ui-shared/src/components/EntityFormShell.vue')
-  const form = read('invoicing-ui/src/components/document-form/DocumentForm.vue')
-  const composable = read('invoicing-ui/src/composables/document-form/useDocumentForm.ts')
+  const form = read('web/src/modules/invoicing/components/document-form/DocumentForm.vue')
+  const composable = read('web/src/modules/invoicing/composables/document-form/useDocumentForm.ts')
 
   it('the shell draws the bar under the title and the one at the foot from the same list', () => {
     const template = templateOf(shell)
@@ -151,7 +151,7 @@ describe('one list feeds both bars', () => {
 })
 
 describe('„Издай и печатай" asks how to print before it issues', () => {
-  const composable = read('invoicing-ui/src/composables/document-form/useDocumentForm.ts')
+  const composable = read('web/src/modules/invoicing/composables/document-form/useDocumentForm.ts')
   const between = (from: string, to: string) => {
     const a = composable.indexOf(from)
     const b = composable.indexOf(to, a)
@@ -188,9 +188,9 @@ describe('„Издай и печатай" asks how to print before it issues', 
 })
 
 describe('„Складова разписка" asks which price to print before it prints', () => {
-  const composable = read('invoicing-ui/src/composables/document-form/useDocumentForm.ts')
-  const form = read('invoicing-ui/src/components/document-form/DocumentForm.vue')
-  const dialog = read('invoicing-ui/src/components/StockReceiptPrintDialog.vue')
+  const composable = read('web/src/modules/invoicing/composables/document-form/useDocumentForm.ts')
+  const form = read('web/src/modules/invoicing/components/document-form/DocumentForm.vue')
+  const dialog = read('web/src/modules/invoicing/components/StockReceiptPrintDialog.vue')
   const between = (source: string, from: string, to: string) => {
     const a = source.indexOf(from)
     const b = source.indexOf(to, a)
@@ -243,7 +243,7 @@ describe('„Складова разписка" asks which price to print before
     expect(opened).toContain('accessGrant()')
     expect(opened).toContain('priceLevelItems(grant,')
     expect(opened).toContain('level.value = startingPriceLevel(grant)')
-    const levels = read('invoicing-ui/src/composables/stock-receipt-price.ts')
+    const levels = read('web/src/modules/invoicing/composables/stock-receipt-price.ts')
     expect(levels).toContain("from 'config/stock-receipt-price'")
     // Per user and org, through the session: never a key of its own.
     expect(levels).toContain("rememberedSetting<string>('stock-receipt-price')")
@@ -261,8 +261,9 @@ describe('the Print dialog of a document keeps its columns folded', () => {
     }
   }
   const dialogs: { file: string; tag: string }[] = []
-  for (const pkg of readdirSync(PACKAGES).filter((p) => p.endsWith('-ui'))) {
-    for (const file of vueFiles(join(PACKAGES, pkg, 'src'))) {
+  const roots = [join(PACKAGES, 'web', 'src', 'modules'), ...readdirSync(PACKAGES).filter((p) => p.endsWith('-ui')).map((p) => join(PACKAGES, p, 'src'))]
+  for (const root of roots) {
+    for (const file of vueFiles(root)) {
       const source = readFileSync(file, 'utf8').replace(/\r\n/g, '\n')
       for (const tag of source.match(/<ExportDialog\b[\s\S]*?\/>/g) ?? []) dialogs.push({ file: relative(PACKAGES, file).replace(/\\/g, '/'), tag })
     }
@@ -272,8 +273,8 @@ describe('the Print dialog of a document keeps its columns folded', () => {
   it('every dialog that prints one document asks for it', () => {
     const prints = dialogs.filter((d) => isPrint(d.tag))
     expect(prints.map((d) => d.file).sort()).toEqual([
-      'invoicing-ui/src/components/document-form/CashSaleTerminal.vue',
-      'invoicing-ui/src/components/document-form/DocumentForm.vue',
+      'web/src/modules/invoicing/components/document-form/CashSaleTerminal.vue',
+      'web/src/modules/invoicing/components/document-form/DocumentForm.vue',
     ])
     for (const d of prints) expect({ file: d.file, folded: /\n\s+collapsible-columns\n/.test(d.tag) }).toEqual({ file: d.file, folded: true })
   })

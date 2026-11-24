@@ -182,7 +182,7 @@ Revisit any of these you disagree with. None is hard to change.
 
 11. **The service takes the fiscal device as a port.** `fiscal` imports `services`, so `services`
     cannot import `fiscal`. `register.service.ts` holds the steps and the print-once state machine;
-    the till builds a `RegisterPrinter` from `fiscal/*` (`invoicing-api/src/lib/cash-register-till.ts`).
+    the till builds a `RegisterPrinter` from `fiscal/*` (`api/src/invoicing/lib/cash-register-till.ts`).
 12. **A new till sale is the copy of the POS row it would have been** (`tillSaleDocument` maps a
     virtual row through `fromPosTransaction`). One mapping for new sales and copies, so R1's readers
     and an R1 rollback read both alike.
@@ -491,14 +491,14 @@ Split in two.
 | The two-store reader | `services/src/biz/cash-register/pos-union.ts`: `loadPosRows`, `findPosRow` |
 | POS row ⇄ document | `services/src/biz/cash-register/mapping.ts` |
 | The D-8 guard | `services/src/biz/cash-register/immutability.ts` |
-| The journal API | `services/src/biz/cash-register/journal.service.ts`, `invoicing-api/src/controllers/cash-register.controller.ts` |
+| The journal API | `services/src/biz/cash-register/journal.service.ts`, `api/src/invoicing/controllers/cash-register.controller.ts` |
 | The journal UI | `ui-shared/src/components/cash-register/` (`CashRegisterJournal`, `CashRegisterDocument`, `StornoDialog`), `ui-shared/src/cash-register/storno.ts` |
-| Its mounts | `invoicing-ui/src/views/CashSalesView.vue`, `CashSaleJournalDocumentView.vue` (POS moved into Invoicing, 2026-10-31) |
+| Its mounts | `web/src/modules/invoicing/views/CashSalesView.vue`, `CashSaleJournalDocumentView.vue` (POS moved into Invoicing, 2026-10-31) |
 | Integration tests | `tests/src/integration/cash-register-{readers,immutability,journal}.flow.test.ts`, plus R1a's `pos-session-journal`, `pos-out-record-only`, `cash-sale-line-totals.migration`, `supto-period` |
 | Unit tests | `tests/src/unit/cash-register-{counting,mapping}.test.ts`, `local-day.test.ts`, `grid-columns-default-hidden.test.ts` |
 | E2E | `e2e/tests/cash-register.spec.ts`, `pos-transactions.spec.ts`, `cash-sales.spec.ts`, `helpers/cash-register.ts` |
 | The write path (R2) | `services/src/biz/cash-register/register.service.ts` (the steps, the storno), `printer.ts` (the device port), `copy.ts` (one row on the spot) |
-| The till's side (R2) | `invoicing-api/src/lib/cash-register-till.ts` (the device, the till's answers, the storno door) |
+| The till's side (R2) | `api/src/invoicing/lib/cash-register-till.ts` (the device, the till's answers, the storno door) |
 | The copy (R2) | `services/src/biz/cash-register/copy-org.ts`, `migrations/src/migrations/0008-cash-register-copy.ts`, `scripts/cash-register-preflight.ts` |
 | The field check and the rehearsal | `scripts/cash-register-field-check.ts` (R2d), `scripts/cash-register-rehearsal.sh` (#275) |
 | R2's tests | `tests/src/integration/cash-register-{sale,storno,idempotency,migration}.flow.test.ts`, `helpers/till-world.ts`, `helpers/till-row.ts` |
@@ -519,7 +519,7 @@ docker exec lgr-e2e-mongo mongosh --quiet --eval "rs.initiate({_id:'rs0',members
 #   MONGODB_URI=mongodb://localhost:27121/lgr?replicaSet=rs0&directConnection=true
 bun --env-file=e2e.env run packages/tests/src/helpers/seed.ts
 bun run build
-(cd packages/portal-api && bun --env-file=../../e2e.env src/unified.ts) &
+(cd packages/api && bun --env-file=../../e2e.env src/unified.ts) &
 cd packages/e2e && BASE_URL=http://127.0.0.1:4987 bunx playwright test \
   tests/cash-register.spec.ts tests/pos-transactions.spec.ts tests/cash-sales.spec.ts \
   tests/cash-sale-invoice.spec.ts tests/pos-terminal.spec.ts --project=invoicing-inventory --workers=1
@@ -532,7 +532,7 @@ server allowed to reach it on loopback:
 
 ```bash
 bun packages/e2e/scripts/eltrade-tcp-stub.ts &          # TCP 8299, its state on http://127.0.0.1:8300
-(cd packages/portal-api && FISCAL_TCP_ALLOW_LOOPBACK=1 bun --env-file=../../e2e.env src/unified.ts) &
+(cd packages/api && FISCAL_TCP_ALLOW_LOOPBACK=1 bun --env-file=../../e2e.env src/unified.ts) &
 cd packages/e2e && BASE_URL=http://127.0.0.1:4987 bunx playwright test --project=cash-register-fiscal
 ```
 

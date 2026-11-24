@@ -50,9 +50,10 @@ RUN echo "OS packages as of ${OS_REFRESH}" \
 #               made the 1.15 GB `deps` layer again, 15 times in the 24 merges that changed a
 #               manifest between 2026-10-28 and 2026-11-11. The image's own package.json files
 #               are the repository's, whole: `COPY . /app` in the last stage puts them back.
-#   /ui         what the SPA is built from. The module graph of `packages/web` is `web`, `config`,
-#               `ui-shared`, `ui-shell` and the `*-ui` packages (measured 2026-11-10: 665 modules,
-#               none anywhere else), and unit/image-layers.test.ts fails when a UI file starts
+#   /ui         what the SPA is built from. The module graph of `packages/web` (its modules are in
+#               `packages/web/src/modules` since FR-24.31) is `web`, `config`, `ui-shared` and
+#               `ui-shell` (measured 2026-11-10: 665 modules, none anywhere else), and
+#               unit/image-layers.test.ts fails when a UI file starts
 #               importing from outside them. Such a build would fail here, loudly, never go stale:
 #               the other packages exist in the `web` stage as a package.json and nothing else.
 #               With them go the root tsconfig files their tsconfig.json extend (FR-32.1): Vite
@@ -63,7 +64,7 @@ RUN cd /src \
   && mkdir -p /manifests /ui/scripts \
   && cp --parents package.json bun.lock packages/*/package.json /manifests/ \
   && bun scripts/install-manifests.ts /manifests \
-  && cp -a --parents packages/web packages/config packages/ui-* packages/*-ui /ui/ \
+  && cp -a --parents packages/web packages/config packages/ui-* /ui/ \
   && cp -a tsconfig.base.json tsconfig.server.json tsconfig.dom.json /ui/ \
   && cp -a scripts/check-web-bundle.ts /ui/scripts/
 
@@ -90,7 +91,7 @@ COPY . /app
 ENV HOST=0.0.0.0
 EXPOSE 4001
 
-WORKDIR /app/packages/portal-api
+WORKDIR /app/packages/api
 # Not root (S-10). The app runs as the base image's own `bun` user (uid 1000), which owns nothing
 # under /app, so the code cannot be rewritten by the process that serves it (what made S-27 a
 # write into the whole container). It writes to /app/uploads (the volume, owned by uid 1000), /tmp

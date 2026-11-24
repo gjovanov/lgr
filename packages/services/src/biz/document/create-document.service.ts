@@ -20,7 +20,7 @@ import { refuse } from './refused.js'
  *
  * ⚠ A cash sale is a cash-register document (FR-21 D-4): it joins its author's drawer and prints on its device, and
  * `services` does not reach a device. Its part is the API's, handed in as a `CashSaleTill`
- * (`invoicing-api/src/lib/cash-register-sale.ts`); everything before it, and every other type, is here.
+ * (`api/src/invoicing/lib/cash-register-sale.ts`); everything before it, and every other type, is here.
  */
 
 // ── Idempotent create (FR-20.37, #155) ──────────────────────────────────────────────────────

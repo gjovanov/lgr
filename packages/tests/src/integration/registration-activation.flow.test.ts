@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
 import { Elysia } from 'elysia'
 import { setupTestDB, teardownTestDB } from '../setup'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 import * as authService from 'services/biz/auth.service'
 import { Code, User } from 'db/models'
 
@@ -14,7 +14,7 @@ import { Code, User } from 'db/models'
  * that was the first step of an anonymous cross-tenant takeover.
  *
  * Removing the token is only half of it, which is why the two halves ship together: the email's
- * link pointed at `/auth/activate`, a route portal-ui did not have, so the email was never a
+ * link pointed at `/auth/activate`, a route the portal did not have, so the email was never a
  * working path either. Without the token in the response and without that page, nobody could
  * finish signing up. This file holds the whole contract:
  *

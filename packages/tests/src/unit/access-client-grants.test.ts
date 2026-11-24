@@ -45,10 +45,14 @@ describe('ratchet: the client offers by the grant, never by a role name or the t
     }
     return out
   }
-  const files = readdirSync(join(ROOT, 'packages'))
-    .filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell')
-    .flatMap(p => {
-      try { return walk(join(ROOT, 'packages', p, 'src')) } catch { return [] }
+  const files = [
+    ...readdirSync(join(ROOT, 'packages'))
+      .filter(p => p.endsWith('-ui') || p === 'ui-shared' || p === 'ui-shell')
+      .map(p => join(ROOT, 'packages', p, 'src')),
+    join(ROOT, 'packages', 'web', 'src', 'modules'),
+  ]
+    .flatMap(dir => {
+      try { return walk(dir) } catch { return [] }
     })
     .map(p => ({ file: relative(join(ROOT, 'packages'), p).split('\\').join('/'), text: readFileSync(p, 'utf8') }))
 

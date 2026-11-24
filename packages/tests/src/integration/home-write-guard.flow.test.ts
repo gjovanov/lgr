@@ -151,7 +151,7 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
     count: 1,
     why: 'a payment\'s receipt recording its payment (FR-23): the same atomic pipeline update as the route\'s; calls assertHomeIsHere first',
   },
-  'invoicing-api/src/controllers/invoice.controller.ts': {
+  'api/src/invoicing/controllers/invoice.controller.ts': {
     count: 1,
     why: 'the payment record (P0a-4): one atomic pipeline update; calls assertHomeIsHere(orgId) first',
   },
@@ -216,8 +216,7 @@ const RAW_WRITE_SITES: Record<string, { count: number; why: string }> = {
 describe('raw write sites are listed', () => {
   it('every raw driver write in server code is on the list, and the list is current', async () => {
     const root = join(import.meta.dir, '..', '..', '..')
-    const dirs = ['services/src', 'fiscal/src', 'reporting/src']
-    for await (const p of new Glob('*-api/src').scan({ cwd: root, onlyFiles: false })) dirs.push(p)
+    const dirs = ['services/src', 'fiscal/src', 'reporting/src', 'api/src']
     // A type argument (`.collection<any>(…)`) must not hide one.
     const raw = /\.collection(?:<[^>()]*>)?(?:\([^)]*\))?\.(?:insert\w*|update\w*|delete\w*|replace\w*|findOneAnd\w*|bulkWrite)\(/g
     const found: Record<string, number> = {}

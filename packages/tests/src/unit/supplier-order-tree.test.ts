@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'bun:test'
-// PURE modules: no Vue, no store. `invoicing-ui` is not a workspace package, so they are reached by path.
-import { buildSupplierOrderTree, createOrderFigures, lineNodeId, allocationNodeId } from '../../../invoicing-ui/src/composables/order-tree/supplier-order-tree'
-import { countedQuantity } from '../../../invoicing-ui/src/composables/order-tree/figures'
-import { columnsWidth, fitColumns, ITEM_MIN_WIDTH } from '../../../invoicing-ui/src/composables/order-tree/columns'
-import { orderLineQuery } from '../../../invoicing-ui/src/composables/order-tree/links'
+// PURE modules: no Vue, no store. `web/src/modules/invoicing` is not a workspace package, so they are reached by path.
+import { buildSupplierOrderTree, createOrderFigures, lineNodeId, allocationNodeId } from '../../../web/src/modules/invoicing/composables/order-tree/supplier-order-tree'
+import { countedQuantity } from '../../../web/src/modules/invoicing/composables/order-tree/figures'
+import { columnsWidth, fitColumns, ITEM_MIN_WIDTH } from '../../../web/src/modules/invoicing/composables/order-tree/columns'
+import { orderLineQuery } from '../../../web/src/modules/invoicing/composables/order-tree/links'
 import {
   ancestorIds,
   collapseAll,
@@ -15,7 +15,7 @@ import {
   revealed,
   toggled,
   visibleRows,
-} from '../../../invoicing-ui/src/composables/order-tree/tree-rows'
+} from '../../../web/src/modules/invoicing/composables/order-tree/tree-rows'
 import type {
   AddingRow,
   GroupInput,
@@ -24,7 +24,7 @@ import type {
   StagedChanges,
   TreeColumn,
   TreeNode,
-} from '../../../invoicing-ui/src/composables/order-tree/types'
+} from '../../../web/src/modules/invoicing/composables/order-tree/types'
 
 /**
  * FR-28.37 — the node model and its one set of figures.

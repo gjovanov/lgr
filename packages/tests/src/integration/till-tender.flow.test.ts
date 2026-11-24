@@ -7,7 +7,7 @@ import { captureRejection, expectRejection } from '../helpers/capture-rejection'
 import { Invoice, POSSession, Sequence } from 'db/models'
 import { getPrinter } from 'fiscal/fiscal-device.service'
 import { FiscalPaymentMethodError } from 'fiscal/types'
-import { tillPrinter } from 'invoicing-api/src/lib/cash-register-till'
+import { tillPrinter } from 'api/src/invoicing/lib/cash-register-till'
 
 /**
  * A payment no fiscal receipt can carry used to print as cash: `toFiscalPaymentType` answered 'cash'

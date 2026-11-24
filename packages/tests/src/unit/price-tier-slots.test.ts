@@ -65,7 +65,7 @@ describe('tierSlotsToAdd: by name, into the free places only', () => {
 })
 
 describe('the product form pads its slots through tierSlotsToAdd', () => {
-  const form = readFileSync(join(import.meta.dir, '../../../inventory-ui/src/views/ProductFormView.vue'), 'utf8')
+  const form = readFileSync(join(import.meta.dir, '../../../web/src/modules/inventory/views/ProductFormView.vue'), 'utf8')
   const body = form.slice(form.indexOf('function ensureTierSlots()'), form.indexOf('function recomputeTiersFromPurchase()'))
 
   it('ensureTierSlots asks the helper, and trims nothing', () => {

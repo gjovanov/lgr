@@ -31,7 +31,7 @@ handlers touch Mongo; a UI import would bundle mongoose) holds the entries + han
 `report-registry.types.ts` is import-pure and holds the types **plus** the gate
 (`canAccessReport`), the validator (`validateParams`) and the wire projection
 (`toReportMeta`) — that split is why the registry unit test boots nothing.
-`reports-ui/src/types/report.ts` **mirrors** the wire types deliberately rather than importing
+`web/src/modules/reports/types/report.ts` **mirrors** the wire types deliberately rather than importing
 them (no other `*-ui` depends on `services`). **Adding a report = one entry + one handler.**
 
 - **Endpoints** `/org/:orgId/reports/`: `GET /catalog` · `POST /:id/run` · `POST /:id/export`
@@ -64,7 +64,7 @@ them (no other `*-ui` depends on `services`). **Adding a report = one entry + on
 - **Only ONE `ReportingTabGrid` is mounted at a time** (keyed on the active tab, no `v-window`):
   three live grids would fight over the same FR-05 querystring keys. The tab itself is in the URL.
 - **NOT done in P1** (recorded, deliberate): `desktop-ui` parity deferred; the dead
-  `portal-api/src/controllers/export.controller.ts` stub (FR-6.21, zero consumers, returns a
+  `api/src/controllers/export.controller.ts` stub (FR-6.21, zero consumers, returns a
   "not yet implemented" descriptor) left mounted; `/invoicing/reports/aging` still answers
   **anonymously** (pre-existing, and byte-compat per FR-6.20 — worth its own fix).
 - Touch points for the next app: see "Adding a module" under FR-24 (a manifest and its registry rows;
@@ -195,7 +195,7 @@ no view and no endpoint.
   carries the permission list it was issued with; admins are exempt because `tokenize()`
   expands an `isAdmin` set to every PERMISSION. Symptom of skipping it: the Reports tile
   silently disappears from the App Hub.
-- **FR-6.21 resolved**: the dead `portal-api/src/controllers/export.controller.ts` stub is
+- **FR-6.21 resolved**: the dead `api/src/controllers/export.controller.ts` stub is
   deleted and unmounted — the generic runner is what it was a placeholder for.
 - **FR-6.5**: `PAGE_REGISTRY` has a row per report (all 22), so each is ★-favouritable.
 - **Desktop parity done** (migration note 3): `desktop-ui` mounts the same reports-ui views at

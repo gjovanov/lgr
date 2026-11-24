@@ -1,5 +1,5 @@
 /**
- * A document line's money as the document forms compute it (`invoicing-ui … document-payload.ts`), and, since #573,
+ * A document line's money as the document forms compute it (`web/src/modules/invoicing/… document-payload.ts`), and, since #573,
  * as the server stores a cash sale entered in the back office. A cash sale's line amounts are the proportions its
  * total is shared out by per VAT rate (`grossByRate`), on its receipt and in the VAT it books, so they are the
  * server's to compute: they used to be whatever the request carried.

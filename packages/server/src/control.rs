@@ -1,7 +1,7 @@
 //! The supervisor's side of the API's control socket (FR-20.16, FR-20.23, plan step P1-3b).
 //!
 //! HTTP/1.1 over AF_UNIX, one request per connection, each carrying the per-boot front secret. The
-//! API serves it with `Bun.serve({ unix })` (`portal-api/src/front/control-socket.ts`): `GET
+//! API serves it with `Bun.serve({ unix })` (`api/src/front/control-socket.ts`): `GET
 //! /status`, `POST /stop`, `POST /backup` (P1-8d), and the mirror's pages (P3-2b). It is not a TCP
 //! port, so no ingress can reach it.
 //!

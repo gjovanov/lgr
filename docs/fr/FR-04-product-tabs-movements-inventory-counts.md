@@ -15,7 +15,7 @@ Status: draft for implementation · Date: 2026-08-21 · Depends on: nothing · F
 ## 1. Current state
 
 **Product tabs.** Routes `products/:id/:tab` with `tab ∈ stock|ledger|movements|levels` →
-`ProductStockView.vue` (`inventory-ui/src/router/index.ts:16`). Labels from
+`ProductStockView.vue` (`web/src/modules/inventory/router/index.ts:16`). Labels from
 `ProductTabBar.vue:37-45` (`warehouse.tabLedger` / `tabMovements` / `tabLevels`). What each
 tab actually renders (`ProductStockView.vue:230-234` URL→internal remap):
 
@@ -48,7 +48,7 @@ tab actually renders (`ProductStockView.vue:230-234` URL→internal remap):
   `inventory-count.controller.ts:8-19`) — leave as-is (out of scope), do not "fix" in passing.
 
 **"Stock Movements" strings.** One key everywhere: `nav.stockMovements` — nav entry
-(`inventory-ui/src/layouts/DefaultLayout.vue:78`), page `<h1>` (`MovementsView.vue:4`), form
+(`web/src/modules/inventory/layouts/DefaultLayout.vue:78`), page `<h1>` (`MovementsView.vue:4`), form
 title concat `common.create + ' ' + nav.stockMovements` (`MovementFormView.vue:3`),
 `PAGE_REGISTRY` row (`ui-shared/src/nav/page-registry.ts:54`).
 

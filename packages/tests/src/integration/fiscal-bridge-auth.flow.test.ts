@@ -12,7 +12,7 @@ import {
   handleOpen,
   handleClose,
   AUTH_DEADLINE_MS,
-} from '../../../portal-api/src/websocket/fiscal-bridge'
+} from '../../../api/src/websocket/fiscal-bridge'
 import { Elysia } from 'elysia'
 import jwt from '@elysiajs/jwt'
 import { config } from 'config'

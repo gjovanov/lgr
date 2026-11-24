@@ -13,7 +13,7 @@ import { AuditLog, FencedImportItem, Invoice, Journal, JournalEntry, NodeState, 
 import { forgetAllHomes } from 'db/home/home'
 import { writeMoveBundle } from 'services/biz/move/move-bundle'
 import { _keptFile, keptImportTick, keptOf, requestKeptImport } from 'services/biz/move/kept-import.service'
-import { serverStatusController } from '../../../portal-api/src/controllers/server-status.controller'
+import { serverStatusController } from '../../../api/src/controllers/server-status.controller'
 
 /**
  * What a re-seed kept, brought into the books on the server (FR-20.71, FR-20.51; plan step P3-7g):

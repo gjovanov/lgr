@@ -29,7 +29,7 @@ import {
 } from 'services/biz/accounting-books/compare'
 import { parseAnalyticsFile, type AnalyticItem } from 'services/biz/accounting-books/plusminus-exports'
 import type { ImportDocument, JournalBody, OpeningBody } from 'services/biz/accounting-books/import.types'
-import { createApiApp } from '../../../portal-api/src/api.js'
+import { createApiApp } from '../../../api/src/api.js'
 
 /**
  * FR-25 R7: one legal entity's books split over its two store orgs. The home keeps everything no

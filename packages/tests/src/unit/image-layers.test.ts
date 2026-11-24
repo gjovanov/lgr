@@ -121,9 +121,9 @@ describe('the SPA is built from the packages the `web` stage is given', () => {
   const matches = (dir: string) => patterns.some(p => new RegExp(`^${p.replace(/^packages\//, '').replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')}$`).test(dir))
   const given = dirs.filter(matches)
 
-  it('the list names the SPA, the shared UI packages, every module UI and `config`', () => {
-    expect(patterns).toEqual(['packages/web', 'packages/config', 'packages/ui-*', 'packages/*-ui'])
-    for (const must of ['web', 'config', 'ui-shared', 'ui-shell', 'portal-ui', 'invoicing-ui']) expect(given).toContain(must)
+  it('the list names the SPA (its modules inside it, FR-24.31), the shared UI packages and `config`', () => {
+    expect(patterns).toEqual(['packages/web', 'packages/config', 'packages/ui-*'])
+    expect(given.sort()).toEqual(['config', 'ui-shared', 'ui-shell', 'web'])
     expect(cut).toContain('cp -a scripts/check-web-bundle.ts /ui/scripts/')
   })
 
@@ -205,9 +205,9 @@ describe('the build context', () => {
     // The reading of the patterns itself, on paths whose answer is known.
     expect(leftOut(patterns, 'backup-diag.ts')).toBe(true)
     expect(leftOut(patterns, 'packages/web/dist/index.html')).toBe(true)
-    expect(leftOut(patterns, 'packages/portal-api/.env')).toBe(true)
+    expect(leftOut(patterns, 'packages/api/.env')).toBe(true)
     expect(leftOut(patterns, '.env.example')).toBe(false)
-    expect(leftOut(patterns, 'packages/portal-api/src/unified.ts')).toBe(false)
+    expect(leftOut(patterns, 'packages/api/src/unified.ts')).toBe(false)
   })
 })
 

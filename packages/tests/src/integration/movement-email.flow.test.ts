@@ -13,9 +13,9 @@ import { MAX_DOCS_PER_MAIL, MAX_SELECTION, chunkDocuments, groupByPartner, planF
 import { sessionFor } from 'services/biz/auth.service'
 import { drainOne } from 'services/biz/relay/outbox-worker'
 import { renderStockMovementPdf } from 'services/biz/stock-movement-document.service'
-import { MOVEMENT_ENTITY, emailMovements, movementEmailRenderers, previewMovementEmail } from 'warehouse-api/src/lib/movement-email'
-import { createApiApp } from '../../../portal-api/src/api.js'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
+import { MOVEMENT_ENTITY, emailMovements, movementEmailRenderers, previewMovementEmail } from 'api/src/warehouse/lib/movement-email'
+import { createApiApp } from '../../../api/src/api.js'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
 import { setupTestDB, teardownTestDB, clearCollections } from '../setup'
 import { createTestContact, createTestOrg, createTestProduct, createTestUser, createTestWarehouse } from '../helpers/factories'
 

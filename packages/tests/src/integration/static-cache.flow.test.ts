@@ -3,7 +3,7 @@ import { Elysia } from 'elysia'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { IMMUTABLE, isHashedAsset, uiStaticPlugin } from '../../../portal-api/src/spa-fallback.js'
+import { IMMUTABLE, isHashedAsset, uiStaticPlugin } from '../../../api/src/spa-fallback.js'
 import { compressDir } from '../../../web/scripts/compress-assets.ts'
 
 /**

@@ -3,13 +3,13 @@ import { setSession } from 'ui-shared/session/session'
 import { setLiveAccess } from 'ui-shared/access/live-grant'
 import { templateGrant, type CapabilityId, type Grant } from 'config/access'
 import { ROLES, type Role } from 'config/constants'
-import { internalOrderEmailAccess, mayEmailInternalOrders, mayEmailOrders, orderEmailAccess } from 'invoicing-api/src/lib/email-guards'
-import { useDocEmailAccess } from '../../../invoicing-ui/src/composables/doc-email-access'
+import { internalOrderEmailAccess, mayEmailInternalOrders, mayEmailOrders, orderEmailAccess } from 'api/src/invoicing/lib/email-guards'
+import { useDocEmailAccess } from '../../../web/src/modules/invoicing/composables/doc-email-access'
 
 /**
  * The two order lists offer „Изпрати по имейл" by the server's own rule (2026-11-16).
  *
- * A list cannot import the invoicing API, so `invoicing-ui/composables/doc-email-access` names the capabilities
+ * A list cannot import the invoicing API, so `web/src/modules/invoicing/composables/doc-email-access` names the capabilities
  * again. This file is what holds the two together: the same answer for a session of every role, and for a role's
  * grant in an org on roles, so the button is never offered to someone the two routes answer 403, nor withheld from
  * someone they serve.

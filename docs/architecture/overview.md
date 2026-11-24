@@ -11,7 +11,7 @@ There is no offline-first desktop and no local database on a workstation.
 
 ### The API: one process
 
-`packages/portal-api/src/unified.ts` starts one Elysia server (`config.port`, 4001 by default)
+`packages/api/src/unified.ts` starts one Elysia server (`config.port`, 4001 by default)
 with one MongoDB connection. MongoDB runs as a replica set (`rs0`), which multi-document
 transactions need.
 
@@ -19,8 +19,8 @@ transactions need.
 browser / LGR Desktop
         │ HTTPS
         ▼
-unified API (portal-api, :4001) ─────── MongoDB (replica set rs0)
-  /api/*      portal + every domain package's controllers
+unified API (packages/api, :4001) ───── MongoDB (replica set rs0)
+  /api/*      portal + every domain's controllers
   /ws/*       tasks · fiscal-bridge · desktop
   /swagger    API docs (global, outside production or with SWAGGER_ENABLED=true: S-11)
   /ui/*       the web app's files (packages/web)
@@ -28,7 +28,7 @@ unified API (portal-api, :4001) ─────── MongoDB (replica set rs0)
                      (accounting · inventory · invoicing · payroll · reports · files)
 ```
 
-- **The route table** is `createApiApp()` in `portal-api/src/api.ts`. The integration tests mount
+- **The route table** is `createApiApp()` in `api/src/api.ts`. The integration tests mount
   that same table.
 - **Every route lives under `/api`**, and org-scoped routes under `/api/org/:orgId/…`.
 - **Before serving:**
@@ -43,21 +43,24 @@ unified API (portal-api, :4001) ─────── MongoDB (replica set rs0)
 
   Each authenticates in its first message.
 - **The built web app** is served by the same process: its files under `/ui/`, and its
-  `index.html` for every page (`portal-api/src/spa-fallback.ts`). `/pos/*` answers 302 to the
+  `index.html` for every page (`api/src/spa-fallback.ts`). `/pos/*` answers 302 to the
   till's pages under `/invoicing/` (`lib/pos-redirect.ts`), because desktops hold `startPath: /pos/`.
 
-The domain API packages export controllers and nothing else. None of them starts a server of its
-own.
+The API is one package, `packages/api` (FR-24.31). Its `src/` is the portal (the entry point
+`unified.ts`, the route table `api.ts`, the portal's own controllers), and each domain is a folder of
+it, `src/<domain>/` (accounting, invoicing, warehouse, payroll, reports, files), holding controllers
+and nothing that starts a server.
 
 ### The UIs
 
 One Vue 3 + Vuetify SPA, `packages/web`, holds the portal and every module, with one router and one
 Pinia (FR-24). Moving between modules is a router push, never a page load, so a browser till keeps
-its printer. Each module is a package of views and stores with a manifest (`src/manifest.ts`):
-- portal-ui: sign-in, the app hub, settings;
-- accounting-ui, inventory-ui, invoicing-ui (the till lives there), payroll-ui, reports-ui and files-ui.
+its printer. Each module is a folder of views and stores with a manifest (`manifest.ts`), in
+`packages/web/src/modules/<id>` (FR-24.31):
+- `portal`: sign-in, the app hub, settings;
+- `accounting`, `inventory`, `invoicing` (the till lives there), `payroll`, `reports` and `files`.
 
-Adding a module is its package, one line in `web/src/modules.ts` and its registry rows.
+Adding a module is its folder, one line in `web/src/modules.ts` and its registry rows.
 
 `ui-shell` holds the shared top bar, app switcher and org menu, and `ui-shared` the shared
 composables and components.
@@ -119,10 +122,8 @@ See [dal.md](dal.md) for details.
 | `services` | `config`, `dal`, `db` |
 | `reporting` | `config`, `db` |
 | `fiscal`, `migrations` | `config`, `db`, `services` |
-| `accounting-api`, `warehouse-api`, `payroll-api`, `reports-api` | `config`, `db`, `dal-mongo`, `services`, `reporting` |
-| `invoicing-api` | the same, plus `fiscal` |
-| `files-api` | `config`, `db`, `dal-mongo`, `services` |
-| `portal-api` (the unified server) | all of the above |
+| `api` (the unified server, every domain's controllers) | `config`, `db`, `dal-mongo`, `services`, `reporting`, `fiscal`, `migrations` |
+| `web` (the SPA and its modules) | `config`, `ui-shared`, `ui-shell` |
 
 ## Monorepo structure
 
@@ -137,22 +138,22 @@ packages/
   reporting/       Excel and PDF export
   fiscal/          Fiscal device drivers (Datecs, Tremol, Eltrade)
 
-  portal-api/      The unified server, auth, orgs, people, desktops, the app hub
-  accounting-api/  Accounting controllers
-  invoicing-api/   Invoicing, orders, reservations, POS
-  warehouse-api/   Products, stock, movements, pricing
-  payroll-api/     Payroll controllers
-  reports-api/     The report catalog and runner
-  files-api/       Document ingest
+  api/             The unified server: src/ is the portal (auth, orgs, people, desktops, the app hub)
+    src/accounting/  Accounting controllers
+    src/invoicing/   Invoicing, orders, reservations, POS
+    src/warehouse/   Products, stock, movements, pricing
+    src/payroll/     Payroll controllers
+    src/reports/     The report catalog and runner
+    src/files/       Document ingest
 
   web/             The web app: the one SPA that composes every module below
-  portal-ui/       Portal module (sign-in, app hub, settings)
-  accounting-ui/   Accounting module
-  inventory-ui/    Inventory module
-  invoicing-ui/    Invoicing module, the till included (src/pos)
-  payroll-ui/      Payroll module
-  reports-ui/      Reports module
-  files-ui/        Files module
+    src/modules/portal/      Portal module (sign-in, app hub, settings)
+    src/modules/accounting/  Accounting module
+    src/modules/inventory/   Inventory module
+    src/modules/invoicing/   Invoicing module, the till included (pos/)
+    src/modules/payroll/     Payroll module
+    src/modules/reports/     Reports module
+    src/modules/files/       Files module
   ui-shell/        Shared app shell components
   ui-shared/       Shared composables, components, the tab session
 
@@ -185,7 +186,7 @@ org has one today. See [nodes.md](nodes.md).
   membership there.
 - **A session belongs to one org.** It is a JWT the portal issues, and `POST /api/auth/switch`
   moves a tab to another of the person's orgs.
-- **One rule for reading the session.** `AuthService` (`portal-api/src/auth/auth.service.ts`) and
+- **One rule for reading the session.** `AuthService` (`api/src/auth/auth.service.ts`) and
   the verify-only `AppAuthService` copy in each domain package share
   `services/biz/session-token.ts`:
   - a non-empty `Authorization: Bearer` header is used exclusively;

@@ -5,7 +5,7 @@ import {
 } from 'services/biz/cash-register/receipt-lines'
 import { receiptRefusalKey, receiptRefusalMessage, receiptRefusalParams, isFailedPrint } from 'ui-shared/cash-register/receipt-refusal'
 import { kindColor } from 'ui-shared/cash-register/journal-kind'
-import { issuedReceiptNotice, joinedSaleReceipt } from '../../../invoicing-ui/src/composables/document-issue'
+import { issuedReceiptNotice, joinedSaleReceipt } from '../../../web/src/modules/invoicing/composables/document-issue'
 import { isImportedDocument, printsAtCounter } from 'services/biz/cash-register/payment-receipt.service'
 import { isImmutableRegisterDocument } from 'services/biz/cash-register/immutability'
 import { sequenceGroupFor } from 'services/biz/sequence-registry'

@@ -1,9 +1,9 @@
 /**
  * One command on a fiscal device, as an API answers it, and the reports a person prints on a device.
  *
- * Two pages print them: the device page (`portal-api/fiscal-device.controller.ts`) and POS Sessions
- * (`invoicing-api/pos.controller.ts`, the device a session printed on). They live here because
- * `portal-api` imports `invoicing-api`, never the other way round, and a report asked for on either
+ * Two pages print them: the device page (`api/src/controllers/fiscal-device.controller.ts`) and POS Sessions
+ * (`api/src/invoicing/controllers/pos.controller.ts`, the device a session printed on). They live here because
+ * the portal's controllers import invoicing's (`api/src/invoicing`), never the other way round, and a report asked for on either
  * page must reach the driver, and be refused, in the same way.
  *
  * ⚠ There is no Z-report here on purpose. On the device page it is its own route, for an admin or a

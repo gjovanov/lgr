@@ -1,7 +1,7 @@
 ---
 paths:
-  - "packages/invoicing-api/**"
-  - "packages/invoicing-ui/**"
+  - "packages/api/src/invoicing/**"
+  - "packages/web/src/modules/invoicing/**"
   - "packages/services/src/biz/*invoice*"
   - "packages/services/src/biz/issue-document*"
   - "packages/services/src/biz/receipt-bill*"
@@ -130,7 +130,7 @@ Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales 
   does: its sheet's title says it is cancelled, and telling the client so is a use. The
   `cancelled` reason stays a stock movement's.
 
-- UI: `invoicing-ui/views/InternalOrdersView.vue` is a `fit`, `selectable` `ListScaffold` with
+- UI: `web/src/modules/invoicing/views/InternalOrdersView.vue` is a `fit`, `selectable` `ListScaffold` with
   `<DocEmailBar kind="internal-order">`; the button shows to
   `useDocEmailAccess().internalOrders()`, which `unit/doc-email-access` holds to the server's
   rule. ⚠ The list has nine columns beside its tick: the client's name is clipped at 9em (whole
@@ -150,7 +150,7 @@ Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales 
   outbox worker needed NO branch: a master's queued mail settles its `EmailLog` rows by
   `outboxId` like any other.
 
-- UI: `inventory-ui/views/MovementsView.vue` places its own table, so it carries the tick
+- UI: `web/src/modules/inventory/views/MovementsView.vue` places its own table, so it carries the tick
   column (`show-select`, the ids) and `<BatchEmailBar kind="movement" …>` itself.
   `composables/movement-email-access.ts` names the server's capabilities again (the UI cannot
   import the warehouse API) and `unit/movement-email-access` holds the two together. ⚠ With the
@@ -213,7 +213,7 @@ Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales 
   an issued sales invoice written before the day's till export arrived — the till sold the goods,
   the invoice dispatched them again. `GET /invoices/:id/cash-sale-candidates` (the cash sales of
   its day it fits), `POST /invoices/:id/attach-to-cash-sale {cashSaleId}`, the dialog
-  `invoicing-ui/src/components/AttachToCashSaleDialog.vue`. Attached, it becomes what R0 issues:
+  `web/src/modules/invoicing/components/AttachToCashSaleDialog.vue`. Attached, it becomes what R0 issues:
   its dispatch comes back ONCE (a reversal at cost, noted „Attached to cash sale …"), then it
   carries `cashSaleRef` and the `stockSource` marker, is paid by the till (`cash_register`
   payments replace `cash_on_issue`/`card_on_issue`, whose entries are retired), and its
@@ -430,7 +430,7 @@ Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales 
   `pagination.loadError`, and `ListScaffold` (or `ListLoadError` in a table of its own) says it with Retry, never "no
   data". An error on the message line (`useSnackbar`) stays until closed, and messages queue.
 
-- **One issue path** (FR-22.17): `invoicing-ui/composables/document-issue.ts` holds the requests (the
+- **One issue path** (FR-22.17): `web/src/modules/invoicing/composables/document-issue.ts` holds the requests (the
   document, `/stock-availability/check`, `create-transfers`, `/send`) with no Vue in it — the
   integration test drives the same functions — and `useDocumentIssue` adds the transfer dialog, the
   idempotent `/send` and the messages. The sales list's „Изпрати", the form's „Издай" / „Запази и
@@ -493,7 +493,7 @@ Drafts use per-type DRAFT_* counters (DRAFT_INV/PRF/OFR/CN/DN/BILL); cash sales 
 
 ## An article starts its documents: „Заприходи", „Продай", „Резервирай" (2026-10-26, FR-22.47)
 
-- **Rules**: `inventory-ui/composables/product-doc-actions.ts` (pure, `unit/product-doc-actions.test`).
+- **Rules**: `web/src/modules/inventory/composables/product-doc-actions.ts` (pure, `unit/product-doc-actions.test`).
   Each action IS the „+ Нов" form's PAGE_REGISTRY row, so it is offered exactly to whom that form's
   Save is (§5.8: Заприходи `inventory.write`; Продай and Резервирай `invoicing.write`). A service
   (`trackInventory: false`) is never received or reserved; a deactivated article's Продай and
@@ -578,7 +578,7 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
 - **UI**: `ui-shared` `useContactLedger` (headers, `typeLabel` / `typeColor`, `isMovementRow`),
   `LedgerMovementLinks.vue` (the numbers, links for a role that opens Stock Movement Documents; a
   movement's own row prints its `reference` under the number), `ContactLedgerDialog.vue` (every
-  document form, the cash-sale terminal, the contact form) and `invoicing-ui` `ContactLedgerView.vue`.
+  document form, the cash-sale terminal, the contact form) and the invoicing module's `ContactLedgerView.vue`.
 - ⚠ **In the dialog a movement's row has no checkbox.** A document made from its lines would move its
   goods a second time: nothing links a hand-made invoice to the stock note it is for (only the
   import's `findStockNoteConversion` does), and a bill has „Свържи с доставка" for exactly this.
@@ -606,7 +606,7 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
   `refuse(code, body)` (`services/biz/document/refused`), never by calling the route's `status`: returned as it is, a
   `Refused` is a 200 whose body is `{ statusCode, body }`. A helper that takes a `Status` (`whoHolds`, `draftTaken`,
   `receiptPrinting`) takes `refuse` inside a service and `status` inside a route.
-- ⚠ **What reaches a device stays in `invoicing-api`, and the route hands it in.** `services` does not depend on
+- ⚠ **What reaches a device stays in `api/src/invoicing`, and the route hands it in.** `services` does not depend on
   `fiscal`: a cash sale's drawer and receipt (`lib/cash-register-sale#cashSaleTill`), the receipt or refund at issue
   (`lib/counter-issue#counterAtIssue`) and finishing a dead receipt before an edit (`finishInterruptedDocuments`) are
   passed to the service by the route, which calls them by name. That call is how `unit/fiscal-route-declared` sees the
@@ -630,7 +630,7 @@ A movement is in the ledger one of two ways, never both (`services/biz/contact-l
 
 ## Typed API modules (2026-11-18, FR-32.24, #797)
 
-- **Every request of `invoicing-ui` is a function of `src/api/`** (the rule is `web-app.md`'s). The order forms' base
+- **Every request of the invoicing module is a function of its `api/`** (the rule is `web-app.md`'s). The order forms' base
   is handed its order's routes by its form (`OrderFormSpec#routes`: `api/orders#supplierOrderRoutes` or
   `api/internal-orders#customerOrderRoutes`), not a path to build.
 - ⚠ **A document's one read (`GET /invoices/:id`) names its contact, or gives its id.** `contactId` is `{ _id,

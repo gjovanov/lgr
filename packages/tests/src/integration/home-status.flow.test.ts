@@ -11,9 +11,9 @@ import { OrgHome, OrgMove, ServerNode } from 'db/models'
 import { forgetAllHomes } from 'db/home/home'
 import { enrollNode, issueNodeToken, mintNodeEnrollmentCode } from 'services/biz/node/node.service'
 import { homeStatus } from 'services/biz/home/home-status.service'
-import { createApiApp } from '../../../portal-api/src/api.js'
-import { spaErrorHandler } from '../../../portal-api/src/spa-fallback.js'
-import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../portal-api/src/websocket/uplink'
+import { createApiApp } from '../../../api/src/api.js'
+import { spaErrorHandler } from '../../../api/src/spa-fallback.js'
+import { handleUplinkClose, handleUplinkMessage, handleUplinkOpen } from '../../../api/src/websocket/uplink'
 
 /**
  * Where an org lives, as every member reads it for the read-only banner (FR-20.75, plan step P3-5).

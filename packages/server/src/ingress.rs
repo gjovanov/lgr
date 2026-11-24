@@ -1,7 +1,7 @@
 //! The supervisor's ingresses (FR-20.16, plan step P1-3b): every way into a master is here.
 //!
 //! The API listens on 127.0.0.1 only and answers nothing that did not come through one of these
-//! (`portal-api/src/front/front-guard.ts`). Each is an HTTP/1.1 reverse proxy that, on every
+//! (`api/src/front/front-guard.ts`). Each is an HTTP/1.1 reverse proxy that, on every
 //! request:
 //! 1. strips whatever `X-LGR-*` the client sent, the hop-by-hop headers, and the forwarding headers
 //!    a client can write to pass for a proxy (`X-Real-IP`, `X-Forwarded-*`, `Forwarded`);

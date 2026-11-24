@@ -12,7 +12,7 @@ import { deviceFromJournalDocument, deviceFromSettledDocument, setFiscalForwardi
 import { deviceTurn } from 'fiscal/device-turn'
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { getPrinter, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-device.service'
-import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
+import { fiscalDeviceController } from '../../../api/src/controllers/fiscal-device.controller'
 
 /**
  * FR-23, the third read's finding 1: a person's word is taken only for what only a person can know. What

@@ -1,10 +1,10 @@
 // FR-21 §8.4 — the field check around a cash-register release. READ-ONLY.
 //
-// Run it from packages/portal-api on the build host: its bare imports resolve from there, and
+// Run it from packages/api on the build host: its bare imports resolve from there, and
 // `bun -e` swallows CLI flags, so the window comes from the environment.
 //
 //   git -C ~/lgr show origin/master:scripts/cash-register-field-check.ts > /tmp/field-check.ts
-//   cd ~/lgr/packages/portal-api
+//   cd ~/lgr/packages/api
 //   export MONGODB_URI=…            # through a port-forward (the deploy-prod skill has the recipe)
 //   export FIELD_FROM=2026-09-26 FIELD_TO=2026-10-25 FIELD_DIGEST_DAY=2026-10-23
 //   bun -e "$(cat /tmp/field-check.ts)" > /tmp/field-before.json   # with the code before the release

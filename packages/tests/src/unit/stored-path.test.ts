@@ -121,7 +121,7 @@ describe('every reader goes through resolveStored', () => {
   it('no file operation takes a stored path directly', () => {
     const pkgs = join(import.meta.dir, '..', '..', '..')
     const hits: string[] = []
-    for (const pkg of ['services', 'invoicing-api', 'portal-api', 'reports-api', 'migrations']) {
+    for (const pkg of ['services', 'api', 'migrations']) {
       for (const f of serverSources(join(pkgs, pkg, 'src'))) {
         readFileSync(f, 'utf8').split('\n').forEach((line, i) => { if (RAW_READ.test(line)) hits.push(`${f}:${i + 1}`) })
       }

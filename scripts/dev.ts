@@ -23,7 +23,7 @@ type Service = {
 }
 
 const SERVICES: Service[] = [
-  { name: 'api', cwd: 'packages/portal-api', port: 4001, color: '\x1b[36m' },
+  { name: 'api', cwd: 'packages/api', port: 4001, color: '\x1b[36m' },
   // FR-24: the one SPA, the portal and every module in one app.
   { name: 'web', cwd: 'packages/web', port: 4200, color: '\x1b[97m' },
 ]

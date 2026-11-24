@@ -9,11 +9,11 @@ import { captureRejection } from '../helpers/capture-rejection'
 import { AuditLog, FiscalDevice, FiscalPresence, Invoice, Journal, JournalEntry, Org, OrgHome, POSSession, Product, Sequence, StockLevel, StockMovement } from 'db/models'
 import { deviceFromCounter, deviceFromDeadReceipt, setFiscalForwarding } from 'fiscal/fiscal-route'
 import { deviceTurn } from 'fiscal/device-turn'
-import { statsController } from 'invoicing-api/src/controllers/stats.controller'
-import { fiscalDeviceController } from '../../../portal-api/src/controllers/fiscal-device.controller'
-import { contactController } from 'invoicing-api/src/controllers/contact.controller'
-import { invoiceExportController } from 'invoicing-api/src/controllers/invoice-export.controller'
-import { agingReportController } from 'invoicing-api/src/controllers/aging-report.controller'
+import { statsController } from 'api/src/invoicing/controllers/stats.controller'
+import { fiscalDeviceController } from '../../../api/src/controllers/fiscal-device.controller'
+import { contactController } from 'api/src/invoicing/controllers/contact.controller'
+import { invoiceExportController } from 'api/src/invoicing/controllers/invoice-export.controller'
+import { agingReportController } from 'api/src/invoicing/controllers/aging-report.controller'
 import { convertDraftInvoice, persistInvoiceDraft } from 'services/biz/doc-import/persist'
 import { orgsToSettle, unsettledInvoices } from 'services/biz/settlement-backlog'
 import { eventBus } from 'services/events/event-bus'
@@ -37,7 +37,7 @@ import { getPrinter, registerPrinter, unregisterPrinter } from 'fiscal/fiscal-de
 import { EltradeFiscalPrinter } from 'fiscal/eltrade'
 import { buildSessionReport, formatSessionReport } from 'services/biz/cash-register/session-report'
 import { buildInvoiceHtml } from 'reporting/pdf/invoice.pdf'
-import { printableDocument } from 'invoicing-api/src/lib/invoice-pdf'
+import { printableDocument } from 'api/src/invoicing/lib/invoice-pdf'
 import { bookingOf } from 'services/biz/move/fenced-import.service'
 import { fitsDue } from 'services/biz/invoice-payment'
 import { prepareClashCorrection } from 'services/biz/number-clash.service'
@@ -1717,7 +1717,7 @@ describe('a payment recorded later (§2.2)', () => {
   })
 
   it('a keyed lookup reaches its partial index', async () => {
-    const { keyedReceipt } = await import('invoicing-api/src/lib/counter-receipt')
+    const { keyedReceipt } = await import('api/src/invoicing/lib/counter-receipt')
     const w = await tillWorld(app)
     const d = await draftOf(w, { method: 'bank_transfer' })
     await send(w, d.id)

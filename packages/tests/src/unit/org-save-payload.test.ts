@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import {
   orgSavePayload, taxConfigPayload, tickDefaultRate, vatRowsOf, type OrgSaveForm,
-} from '../../../portal-ui/src/views/settings/org-save-payload'
+} from '../../../web/src/modules/portal/views/settings/org-save-payload'
 
 /**
  * #816: what a save of Settings → Organization sends. The page showed controls that a person could change and that
