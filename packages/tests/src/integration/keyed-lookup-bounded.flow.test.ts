@@ -27,6 +27,7 @@ afterAll(async () => { await teardownTestDB() })
 afterEach(async () => {
   forgetDevices()
   await mongoose.connection.db!.command({ profile: 0 })
+  await mongoose.connection.db!.collection('system.profile').drop().catch(() => {})
   await clearCollections()
 })
 
@@ -56,7 +57,11 @@ async function profiled(run: () => Promise<unknown>): Promise<any[]> {
   } finally {
     await db.command({ profile: 0 })
   }
-  return db.collection('system.profile').find({}).toArray()
+  const ops = await db.collection('system.profile').find({}).toArray()
+  // ⚠ Gone again before the next file: CI shares one database per process from file to file, and a script that
+  // walks every collection (seed-fieldtest's --replace) cannot write to `system.profile`.
+  await db.collection('system.profile').drop().catch(() => {})
+  return ops
 }
 
 /** The filter an operation ran with, whatever the command. */
