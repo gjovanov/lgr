@@ -15,7 +15,7 @@
       >
         <template #activator="{ props }">
           <v-btn
-            v-bind="props"
+            v-bind="hoverActivator(props)"
             variant="text"
             size="small"
             :class="{ 'menu-active': isGroupActive(item) }"
@@ -122,7 +122,7 @@ const props = defineProps<{
 const { mobile } = useDisplay()
 const route = useRoute()
 const mobileOpen = ref(false)
-const { hoverEnabled, openDelay, closeDelay } = useHoverMenus()
+const { hoverEnabled, hoverActivator, openDelay, closeDelay } = useHoverMenus()
 
 const activeLabel = computed(() => {
   for (const item of props.menuItems) {

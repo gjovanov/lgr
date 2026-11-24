@@ -12,7 +12,7 @@
   >
     <template #activator="{ props: menuProps }">
       <v-btn
-        v-bind="menuProps"
+        v-bind="hoverActivator(menuProps)"
         :icon="mobile"
         color="primary"
         :variant="mobile ? 'text' : 'tonal'"
@@ -59,7 +59,7 @@ import { openPage } from 'ui-shared/nav/open-page'
 defineProps<{ mobile?: boolean }>()
 
 const router = useRouter()
-const { hoverEnabled, openDelay, closeDelay } = useHoverMenus()
+const { hoverEnabled, hoverActivator, openDelay, closeDelay } = useHoverMenus()
 
 // The session cannot change under a mounted page (a switch or a sign-in reloads it), so the
 // entries are worked out once. Nothing to offer, no button: a read-only role sees none.

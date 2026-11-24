@@ -2,7 +2,7 @@
   <!-- FR-05 (#12): hover-opens on true-hover desktops; tap unchanged. -->
   <v-menu :open-on-hover="hoverEnabled" :open-on-click="true" :open-delay="openDelay" :close-delay="closeDelay">
     <template #activator="{ props }">
-      <v-btn v-bind="props" variant="text" size="small">
+      <v-btn v-bind="hoverActivator(props)" variant="text" size="small">
         <v-icon start>mdi-translate</v-icon>
         {{ currentLocale.toUpperCase() }}
         <v-icon end size="small">mdi-menu-down</v-icon>
@@ -28,7 +28,7 @@ defineProps<{
   currentLocale: string
 }>()
 
-const { hoverEnabled, openDelay, closeDelay } = useHoverMenus()
+const { hoverEnabled, hoverActivator, openDelay, closeDelay } = useHoverMenus()
 
 defineEmits<{
   change: [locale: string]
