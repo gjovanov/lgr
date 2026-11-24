@@ -312,6 +312,12 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
         for w in log_wrong {
             tracing::warn!("{w}");
         }
+        // #905: in the image the container's own PDF_CHROME_NO_SANDBOX is a second place to set it, under
+        // config/api.env. When what it said does not take effect, the start log says so, and why.
+        let sandbox = config::PdfSandbox::here(&operator);
+        if let Some(line) = sandbox.overruled() {
+            tracing::warn!("{line}");
+        }
         // FR-20.25: loud, never fatal. Without its browser a master still sells and books; it
         // prints no invoice or report as a PDF.
         match config::pdf_browser(&paths, &operator) {
@@ -319,7 +325,6 @@ fn run_round(runtime: &tokio::runtime::Runtime, shutdown: std::pin::Pin<&mut imp
             // printed with the sandbox the API's own renders get (#901: `--version` said yes where none printed).
             // The line says which, and why: in the image it is off by default (#905).
             Some(b) if b.exists() => {
-                let sandbox = config::PdfSandbox::here(&operator);
                 let no_sandbox = sandbox.off();
                 let scratch = paths.data.join("run").join("pdf-check");
                 let image = config::in_image();

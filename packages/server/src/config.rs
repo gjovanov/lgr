@@ -112,6 +112,9 @@ pub struct PdfSandbox {
     pub set_by: SandboxSetBy,
     /// The API runs as root.
     pub root: bool,
+    /// What the container's own environment said, when it said something (in the image only), whether
+    /// or not it took effect: `overruled` names it when it did not.
+    pub container: Option<String>,
 }
 
 impl PdfSandbox {
@@ -119,16 +122,17 @@ impl PdfSandbox {
     /// supervisor's own `PDF_CHROME_NO_SANDBOX`; `root`: it runs as root.
     pub fn resolve(operator: &BTreeMap<String, String>, image: bool, container: Option<&str>, root: bool) -> Self {
         let given = |v: Option<&str>| v.map(str::trim).filter(|v| !v.is_empty()).map(str::to_string);
+        let container = if image { given(container) } else { None };
         let (value, set_by) = if let Some(v) = given(operator.get(PDF_NO_SANDBOX).map(String::as_str)) {
             (Some(v), SandboxSetBy::ApiEnv)
         } else if !image {
             (None, SandboxSetBy::Nobody)
-        } else if let Some(v) = given(container) {
+        } else if let Some(v) = container.clone() {
             (Some(v), SandboxSetBy::Container)
         } else {
             (Some("1".to_string()), SandboxSetBy::ImageDefault)
         };
-        Self { value, set_by, root }
+        Self { value, set_by, root, container }
     }
 
     /// This process's: the image, its environment and its user, read here.
@@ -163,6 +167,26 @@ impl PdfSandbox {
             (false, _) if self.value.as_deref() == Some("0") => format!("with its sandbox: {}", setting()),
             (false, _) => format!("with its sandbox: {} (only 1 turns it off)", setting()),
         }
+    }
+
+    /// The start log's line when the container's environment set a value that does not take effect
+    /// (#905 follow-up): which setting, what the container said, what applies and why. `None` when the
+    /// container said nothing, or what it said applies. It describes; it decides nothing.
+    pub fn overruled(&self) -> Option<String> {
+        let said = self.container.as_deref()?;
+        let mode = if self.off() { "without its sandbox" } else { "with its sandbox" };
+        if self.set_by == SandboxSetBy::ApiEnv && self.value.as_deref() != Some(said) {
+            let applies = self.value.as_deref().unwrap_or("");
+            return Some(format!(
+                "{PDF_NO_SANDBOX}={said} in the container's environment is overruled: {PDF_NO_SANDBOX}={applies} in config/api.env applies, because config/api.env comes first (gjovanov/lgr#905), so the PDF browser runs {mode}"
+            ));
+        }
+        if self.root && said != "1" {
+            return Some(format!(
+                "{PDF_NO_SANDBOX}={said} in the container's environment does not apply: the server runs as root, where Chrome makes no sandbox whatever the setting, so the PDF browser runs {mode}"
+            ));
+        }
+        None
     }
 }
 
@@ -610,7 +634,8 @@ mod tests {
         // The .deb, Windows, a dev machine: as before #905. Nothing set, the sandbox; the container's
         // environment is not read (the API never sees the supervisor's).
         let none = PdfSandbox::resolve(&BTreeMap::new(), false, Some("1"), false);
-        assert_eq!(none, PdfSandbox { value: None, set_by: SandboxSetBy::Nobody, root: false });
+        assert_eq!(none, PdfSandbox { value: None, set_by: SandboxSetBy::Nobody, root: false, container: None });
+        assert_eq!(none.overruled(), None, "outside the image the supervisor's environment is no container's");
         assert!(!none.off());
         assert_eq!(none.says(), "with its sandbox");
 
@@ -635,7 +660,8 @@ mod tests {
     fn in_the_image_the_browser_runs_without_its_sandbox_unless_told_to_keep_it() {
         // #905: nothing set, the image's default.
         let default = PdfSandbox::resolve(&BTreeMap::new(), true, None, false);
-        assert_eq!(default, PdfSandbox { value: Some("1".into()), set_by: SandboxSetBy::ImageDefault, root: false });
+        assert_eq!(default, PdfSandbox { value: Some("1".into()), set_by: SandboxSetBy::ImageDefault, root: false, container: None });
+        assert_eq!(default.overruled(), None);
         assert!(default.off());
         assert!(default.says().starts_with("without its sandbox: the server image's default"), "{}", default.says());
         assert!(default.says().contains("PDF_CHROME_NO_SANDBOX=0 keeps the sandbox"), "{}", default.says());
@@ -653,11 +679,42 @@ mod tests {
         assert_eq!((from_container.value.as_deref(), from_container.set_by), (Some("0"), SandboxSetBy::Container));
         assert!(!from_container.off());
         assert_eq!(from_container.says(), "with its sandbox: PDF_CHROME_NO_SANDBOX=0 in the container's environment");
+        assert_eq!(from_container.overruled(), None, "the container's value applies");
         // ...under api.env, which always wins.
         let both = PdfSandbox::resolve(&api_env("1"), true, Some("0"), false);
         assert_eq!(both.set_by, SandboxSetBy::ApiEnv);
         assert!(both.off());
         assert_eq!(both.says(), "without its sandbox: PDF_CHROME_NO_SANDBOX=1 in config/api.env");
+    }
+
+    #[test]
+    fn the_start_log_says_when_the_containers_value_is_overruled() {
+        // api.env's value differs from the container's: the container's is overruled, and the line says so.
+        let both = PdfSandbox::resolve(&api_env("1"), true, Some("0"), false);
+        assert_eq!(
+            both.overruled().as_deref(),
+            Some("PDF_CHROME_NO_SANDBOX=0 in the container's environment is overruled: PDF_CHROME_NO_SANDBOX=1 in config/api.env applies, because config/api.env comes first (gjovanov/lgr#905), so the PDF browser runs without its sandbox")
+        );
+        let kept = PdfSandbox::resolve(&api_env("0"), true, Some(" 1 "), false);
+        assert_eq!(kept.container.as_deref(), Some("1"));
+        assert!(kept.overruled().is_some_and(|l| l.starts_with("PDF_CHROME_NO_SANDBOX=1 in the container's environment is overruled: PDF_CHROME_NO_SANDBOX=0 in config/api.env") && l.ends_with("runs with its sandbox")));
+
+        // The same value in both places: nothing is overruled.
+        assert_eq!(PdfSandbox::resolve(&api_env("0"), true, Some("0"), false).overruled(), None);
+        // The container said nothing (or only an empty value): nothing to say.
+        assert_eq!(PdfSandbox::resolve(&api_env("1"), true, None, false).overruled(), None);
+        assert_eq!(PdfSandbox::resolve(&api_env("1"), true, Some(" "), false).overruled(), None);
+
+        // As root the container's 0 reaches the API, and Chrome makes no sandbox anyway.
+        let root = PdfSandbox::resolve(&BTreeMap::new(), true, Some("0"), true);
+        assert_eq!(
+            root.overruled().as_deref(),
+            Some("PDF_CHROME_NO_SANDBOX=0 in the container's environment does not apply: the server runs as root, where Chrome makes no sandbox whatever the setting, so the PDF browser runs without its sandbox")
+        );
+        assert_eq!(PdfSandbox::resolve(&BTreeMap::new(), true, Some("1"), true).overruled(), None);
+
+        // The line describes; what applies is unchanged by it.
+        assert_eq!((both.value.as_deref(), both.set_by, both.off()), (Some("1"), SandboxSetBy::ApiEnv, true));
     }
 
     #[test]
