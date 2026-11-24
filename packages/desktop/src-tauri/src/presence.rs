@@ -266,7 +266,11 @@ pub fn run(
             }
             Outcome::Refused => {
                 // ⚠ Do NOT retry in a tight loop with a credential the server refused. The row
-                // is the revocation list; hammering it is noise in the audit log and nothing else.
+                // is the revocation list, and only re-enrolment (or an admin) changes its answer,
+                // so a quick retry gains nothing: hence the slow retry. A refused try is not
+                // audited (the hub answers `desktop:error` and writes no entry), so the extra try
+                // a ring of `wake` brings (another loop found the server, #767) costs one refused
+                // handshake and has no special case.
                 state.set(Link::SignedOut);
                 on_event(Event::Disconnected(DisconnectReason::Refused, why));
             }
