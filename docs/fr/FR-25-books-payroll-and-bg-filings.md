@@ -1111,6 +1111,45 @@ read the same comparison and show the amounts.
 - Until `post-shadow-sales.ts --execute` writes a month, its shadow side is empty: every books document is the books'
   alone, and the dry run's self-check is the comparison.
 
+### R4, slice 1: the pairing count, as built
+
+R4 starts by counting, before it writes anything: one filed month's purchase register, and how many of its rows pair
+with an LGR bill. Built: `services/biz/accounting-books/purchases/` `pairing.ts` (the pairing, import-pure) and
+`pairing.service.ts` (the month, read-only), and `scripts/pair-purchases.ts --org <slug> --period YYYYMM [--details]`.
+It has no `--execute`: it writes nothing, and prints counts only. `--details` names the rows and bills that do not pair
+exactly, for the person running it, and its help says that output stays out of the repo and the issues.
+
+- **Where it reads (R7).** The filed purchase register (`VatRegisterEntry`, `ledger: 'books'`, `side: 'purchase'`) in
+  the home, which holds the VAT files. LGR's bills (`Invoice`, `direction: 'incoming'`, an invoice, a debit or a credit
+  note) in every org of the split: the home and each store of `branches`. The books keep every purchase in the home,
+  but a store receives its goods and enters its bills itself, so a bill can be in either. Each is counted under its org.
+  `--org` can name any org of the split.
+- **A bill's period** is its `vatPeriod` where set (§3.9; nothing sets it yet), else the Sofia month of its tax event
+  (`taxEventDate`, else `issueDate`). A row can take a bill of any of the 12 periods before its own (§7.1), or of the
+  one after.
+- **The supplier's number is `reference`.** The Files pipeline and the bill form both keep it there; the issued
+  `BILL-…` number is LGR's own. A bill with no `reference` has no number to pair on.
+- **The passes,** each over what the one before left: partner and number (the partner by VAT number or ЕИК, `BG`
+  dropped, a branch's thirteen-digit БУЛСТАТ read as its company; the number by its digits, leading zeros dropped);
+  then partner, day and amounts, when the numbers differ; then number and amounts, when the partners differ or the bill
+  names none. The last two pair only one row with one bill, both ways. What does not pair is counted, never guessed.
+- **What a pair can differ in:** the amounts, past a cent, or only their sign; a currency neither the register's nor
+  leva against euro (not compared); the day; the type (`01`, `02`, `03`); the number as written (same digits); the
+  bill's own period (declared late); and the number or the partner the later passes name. A row's amounts are its credit
+  base (`03-31` + `03-32`) and VAT (`03-41` + `03-42`); a row without a credit right (`03-30`, `03-44`) carries base and
+  VAT in one cell and is compared with the bill's gross. A credit note is negative in the register and positive in LGR,
+  whose type is the sign.
+- **The output, counts only:** the register's rows by type; the bills of the period by org and type, how many the OCR
+  pipeline drafted, how many lack a number or a partner, and the drafts and voided bills left out; the rows paired
+  exactly (a blank row with a voided bill among them), and with differences by kind; the rows no bill takes, by type,
+  and whether LGR holds only a draft or a voided bill; the bills of the period no row takes, and whether a register of
+  the 12 periods before or after holds them. The verdict is `equal` only when every row pairs exactly and every bill is
+  taken.
+- **What it says before R4 builds anything:** protocols (`09`) and customs declarations (`07`) have no bill to pair
+  with. They are counted by type among the rows no bill takes: R4 creates them.
+
+Not yet run on production. It runs on the build host, read-only, by a person, and only its counts leave it.
+
 ## 10. Tests
 
 - **Integration**, fictional data only: every row of §1.4 as a fixture, posted and checked per account and analytic; the moving-average table (purchase, sale, negative on-hand, backdated); a month re-imported with changed values; the branch link refused across different `taxNumber`; `isForeignOrg` still refuses a branch user on the books org; idempotent worker; void and edit after filing.
