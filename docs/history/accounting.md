@@ -173,10 +173,11 @@ only. Plan, decisions and the dry run's counters: FR-25 §9, "R3, slice 3, as bu
   it on the void's business day.
 - ⚠ **A credit notice and a reversal post negative amounts on the same sides** as the invoice, quantities too,
   as the books do. The sign is the document's, never a rule's.
-- ⚠ **The shadow cost of sales is the books' own group average at the START of the sale's business day**
-  (`costBasis: 'books'`): the company's 304 lines per group path, summed in Mongo across every org of the split,
-  from the last imported opening. The sale's day never counts; no quantity on hand keeps the last average; a group
-  the books never held is refused (`no_cost`), not guessed.
+- ⚠ **The shadow cost of sales is the group's moving average at the START of the sale's business day**
+  (`costBasis: 'books'`), replayed from the company's 304 lines per group path, summed in Mongo across every org of
+  the split, from the last imported opening. The sale's day never counts; no quantity on hand keeps the last average;
+  a group the books never held is refused (`no_cost`), not guessed. Since 2026-11-24 the average is replayed from
+  what came in, never from the books' own cost of a sale (below).
 - ⚠ **The shadow register row goes in the HOME**, which holds the VAT files under R7, with `ledger: 'shadow'` and
   `source: { orgId, kind: 'invoice', id }` naming the store's document. One row per document and ledger
   (`vat_row_source_unique`); a frozen row is never touched.
@@ -268,3 +269,34 @@ answers `x-truncated`. A payslip's PDF is `POST payroll/payslip/:id/pdf` (`repor
   `employeeName` and `notes`, which neither model has), and the timesheets' employee and days filter the list.
 - **Tests:** `integration/payroll-list-export.flow.test.ts`, `unit/payroll-list-export.test.ts`, and the Employees
   export in `e2e/tests/payroll.spec.ts`.
+
+## The shadow's cost no longer takes the books' cost of a sale in (2026-11-24, FR-25 R3, slice 3)
+
+Slice 3 read a group's average off the books' balance: value over quantity on hand on 304, every line summed. That
+keeps every cost the books booked for a sale in the value left on hand, so one cost booked wrong lowers the average
+of what is left, for every later sale of the group. From March 2026 the books cost most groups higher than the
+average they used in January and February (FR-25 §9, "Read from the books themselves"), and the balance carried that
+into the shadow's cost. `group-cost.ts` now replays the average instead, §3.5's own rule, each day's goods in before
+its goods out: what comes in on 304 comes in at the books' value, and what goes out with a quantity leaves at the
+average after the day's goods in. The day's sales still post at the average the day starts with.
+`group-cost.service.ts` sums a day's lines without a quantity apart (`debitValueOnly`, `creditValueOnly`): they move
+the value of what is on hand, never goods.
+- ⚠ **The books' cost of a sale is what the shadow is checked against, never what it is built from.** A reading of
+  the books that feeds the shadow's cost takes what came in (the opening, purchases, discounts, returns to the supplier)
+  at their value, and the quantities of what went out, never the value the books put on a sale.
+- ⚠ **Within a day, goods in come before goods out.** A first cut took a day's sales out at the average the day
+  starts with, the unit they post at. On a group bought to order, nearly all of a day's purchase leaves the same day:
+  what was left then carried the difference between the purchase's price and the old average on a few units, and a
+  later return to the supplier made that average run away. Two more rules came from the same check against the books:
+  - after a shortfall (sold before the purchase was booked), what is left after the purchase costs what came in, as
+    in the books' own euro average; a group still short after a purchase keeps its last average, which measured
+    closer than taking that purchase's unit;
+  - goods sent back to the supplier go back at the average, not at their purchase price.
+- **Checked against the books' 2026 journal** (outside the repo): the replay meets the books' own cost to 0.5% on
+  more than nine sales in ten entered before 8 March, and every month's cost of sales comes within 3% of the books'
+  euro moving average.
+- **Tests:** `unit/shadow-cost-compare.test.ts` (a sale booked at a wrong cost, a purchase after it, a day with both,
+  a group bought to order, a shortfall and a purchase after it, a group still short, goods sent back to the supplier,
+  a return, a value corrected, a discount and a cost added with nothing on hand),
+  `integration/shadow-sales.flow.test.ts` (the cost read from a split's books, with a value-only credit notice; a
+  credit notice's cost no longer takes the books' cost of an earlier sale in).

@@ -5,10 +5,11 @@ import { GOODS_ROOT } from './posting-rule-seed.js'
 import { GOODS_ACCOUNT, ledgerCurrencyOn } from './registry.js'
 
 /**
- * FR-25 R3, slice 3: the books' cost of every goods group, for the sales of one org up to a day (`group-cost.ts` holds
- * the rules). Read from the COMPANY's books: in a split (R7) the home holds the purchases and the opening and each store
- * its own sales, so the group's average is the sum over every org of the split, matched by the group's path. Only the
- * books' lines: the shadow ledger never feeds the cost it is compared by (`POSTED_BOOKS`).
+ * FR-25 R3, slice 3: the cost of every goods group, its moving average replayed from the books, for the sales of one
+ * org up to a day (`group-cost.ts` holds the rules). Read from the COMPANY's books: in a split (R7) the home holds the
+ * purchases and the opening and each store its own sales, so the group's average is the sum over every org of the
+ * split, matched by the group's path. Only the books' lines: the shadow ledger never feeds the cost it is compared by
+ * (`POSTED_BOOKS`).
  *
  * Aggregated in Mongo, one pipeline an org: what comes back is one sum per group and business day, never the entries.
  * The window starts at the company's last imported opening on or before the first sale day, as every reading of the
@@ -71,6 +72,10 @@ export async function loadGroupCosts(orgId: string, from: Date, to: Date): Promi
     if (!account || !groups.length) continue
     const onLine = { 'lines.accountId': account._id, 'lines.analyticId': { $in: groups.map(g => g._id) } }
     const quantityOn = (side: 'debit' | 'credit') => ({ $sum: { $cond: [{ $eq: ['$lines.side', side] }, { $ifNull: ['$lines.quantity', 0] }, 0] } })
+    // A line without a quantity moves value, not goods: `group-cost.ts` applies it to what is on hand, as booked.
+    const valueOnlyOn = (side: 'debit' | 'credit') => ({
+      $sum: { $cond: [{ $and: [{ $eq: ['$lines.side', side] }, { $eq: [{ $ifNull: ['$lines.quantity', 0] }, 0] }] }, `$lines.${asBooked ? side : side === 'debit' ? 'baseDebit' : 'baseCredit'}`, 0] },
+    })
     const rows = await JournalEntry.aggregate([
       // Only the opening org's openings restate the year; no other org of a split holds one.
       { $match: { orgId: org, ...POSTED_BOOKS, date: dates, ...(ledgerOrg === openingOrg ? {} : { $nor: [IMPORTED_OPENING] }), 'lines.accountId': account._id } },
@@ -88,6 +93,8 @@ export async function loadGroupCosts(orgId: string, from: Date, to: Date): Promi
           credit: { $sum: asBooked ? '$lines.credit' : '$lines.baseCredit' },
           quantityDebit: quantityOn('debit'),
           quantityCredit: quantityOn('credit'),
+          debitValueOnly: valueOnlyOn('debit'),
+          creditValueOnly: valueOnlyOn('credit'),
         },
       },
     ]).allowDiskUse(true).exec()
@@ -95,11 +102,13 @@ export async function loadGroupCosts(orgId: string, from: Date, to: Date): Promi
       const path = pathOf.get(String(r._id.analyticId))
       if (!path) continue
       const key = `${path}\u0000${r._id.day}\u0000${r._id.opening ? 1 : 0}`
-      const b = merged.get(key) ?? { path, day: r._id.day, opening: !!r._id.opening, debit: 0, credit: 0, quantityDebit: 0, quantityCredit: 0 }
+      const b = merged.get(key) ?? { path, day: r._id.day, opening: !!r._id.opening, debit: 0, credit: 0, quantityDebit: 0, quantityCredit: 0, debitValueOnly: 0, creditValueOnly: 0 }
       b.debit += Number(r.debit) || 0
       b.credit += Number(r.credit) || 0
       b.quantityDebit += Number(r.quantityDebit) || 0
       b.quantityCredit += Number(r.quantityCredit) || 0
+      b.debitValueOnly = (b.debitValueOnly ?? 0) + (Number(r.debitValueOnly) || 0)
+      b.creditValueOnly = (b.creditValueOnly ?? 0) + (Number(r.creditValueOnly) || 0)
       merged.set(key, b)
     }
   }
